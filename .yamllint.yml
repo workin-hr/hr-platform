@@ -1,0 +1,17 @@
+extends: default
+
+rules:
+  # GitHub Actions workflows, issue forms, and dependabot config are
+  # conventionally written without a leading `---` document marker and
+  # commonly exceed 80 characters in label/description strings. Neither is
+  # a real correctness or safety issue, so both are relaxed here rather than
+  # forcing cosmetic rewrites of otherwise-valid, standard GitHub YAML.
+  document-start: disable
+  line-length:
+    max: 160
+  # GitHub Actions' `on:` key is a standard mapping key, not a boolean value;
+  # yamllint's default truthy check flags it as a YAML 1.1 boolean alias.
+  # Only check truthy *values*, not keys, which is the standard config for
+  # repos containing GitHub Actions workflows.
+  truthy:
+    check-keys: false

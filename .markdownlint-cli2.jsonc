@@ -1,0 +1,22 @@
+{
+  // Vendor-provided Spec Kit skill files (installed by `specify init` /
+  // `specify integration install`) are not authored by this repository and
+  // use upstream GitHub Spec Kit's own Markdown conventions. Linting and
+  // "fixing" them would just drift from upstream on every reinstall/upgrade.
+  "ignores": [
+    ".agents/skills/speckit-*/SKILL.md",
+    ".claude/skills/speckit-*/SKILL.md"
+  ],
+  // MD013 (line-length) and MD060 (table-column-style) are pure formatting
+  // preferences, not correctness issues. This repository's prose is written
+  // one-sentence/paragraph-per-line without hard-wrapping, and its tables
+  // are not hand-aligned to the pipe character — reformatting every existing
+  // file to satisfy either rule would be repo-wide churn with no
+  // correctness benefit, so both are disabled here rather than fixed file
+  // by file.
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD060": false
+  }
+}

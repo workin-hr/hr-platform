@@ -15,7 +15,76 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Verify bootstrap repository
+      - name: Run Phase 0 structural validator
+        run: python3 scripts/validate_phase0.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Install and run markdownlint-cli2
+        run: |
+          set -eu
+          npm install --global markdownlint-cli2@0.23.2
+          markdownlint-cli2 "**/*.md"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install and run yamllint
+        run: |
+          set -eu
+          pip install --no-cache-dir yamllint==1.38.0
+          yamllint -s .
+
+      - name: Install and run ShellCheck (pinned, checksum-verified)
+        run: |
+          set -eu
+          curl -sSL -o shellcheck.tar.xz \
+            https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+          echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf shellcheck.tar.xz shellcheck-v0.11.0/shellcheck
+          mv shellcheck-v0.11.0/shellcheck ./shellcheck-bin
+          chmod +x ./shellcheck-bin
+          # Scoped to scripts this repository authors and owns. Vendor-provided
+          # Spec Kit scripts under .specify/scripts/bash/ are intentionally
+          # excluded — they are not ours to fix, and "fixing" them would drift
+          # from upstream on the next `specify` upgrade.
+          ./shellcheck-bin scripts/*.sh .agents/skills/*/scripts/*.sh
+
+      - name: Install and run actionlint (pinned, checksum-verified)
+        run: |
+          set -eu
+          curl -sSL -o actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+          ./actionlint -color
+
+      - name: Install and run gitleaks (pinned, checksum-verified)
+        run: |
+          set -eu
+          curl -sSL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks detect --no-git --source . --redact --exit-code 1
+
+      - name: Install and run lychee (pinned, checksum-verified)
+        run: |
+          set -eu
+          curl -sSL -o lychee.tar.gz \
+            https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz
+          echo "1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a  lychee.tar.gz" | sha256sum -c -
+          tar -xzf lychee.tar.gz lychee-x86_64-unknown-linux-gnu/lychee
+          mv lychee-x86_64-unknown-linux-gnu/lychee ./lychee-bin
+          chmod +x ./lychee-bin
+          ./lychee-bin "**/*.md"
+
+      - name: Verify bootstrap script matches CI (developer convenience check)
         run: ./scripts/verify-bootstrap.sh

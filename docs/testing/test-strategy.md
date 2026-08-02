@@ -8,9 +8,17 @@
 
 ## Every Commit
 
-- repository validation
-- markdown and link checks when tools are available
-- secret detection
+Enforced by `.github/workflows/phase0-validate.yml`, which installs a
+pinned, checksum-verified copy of every tool below — nothing here is
+conditional on a tool happening to be present:
+
+- repository validation (`scripts/validate_phase0.py`)
+- markdown lint (markdownlint-cli2) and link checks (lychee)
+- YAML lint (yamllint), shell lint (ShellCheck, scoped to this repository's
+  own scripts), and GitHub Actions lint (actionlint)
+- secret detection (Gitleaks, authoritative; the validator's five regex
+  patterns are an additional fast check — see
+  `docs/security/security-boundaries.md`)
 - agent and skill structure validation
 
 ## Every Pull Request
