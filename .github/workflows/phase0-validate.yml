@@ -1,5 +1,23 @@
 name: Phase 0 Bootstrap Validate
 
+# Reproducibility notes (see docs/testing/test-strategy.md and
+# docs/bootstrap/audit-remediation.md, P2-01, for the full explanation —
+# do not describe this workflow as more reproducible than it actually is):
+#   - `runs-on: ubuntu-24.04` pins a fixed runner *generation*, not an
+#     exact, byte-identical OS image. GitHub updates the ubuntu-24.04
+#     image's installed packages over time.
+#   - actions/checkout, actions/setup-node, actions/setup-python are
+#     pinned to immutable commit SHAs (comments show the human-readable
+#     tag each SHA resolves to).
+#   - Node and Python versions are exact, not floating ranges.
+#   - ShellCheck, actionlint, Gitleaks, and Lychee are pinned to an exact
+#     release version AND checksum-verified against a SHA-256 recorded in
+#     this file before use.
+#   - markdownlint-cli2 and yamllint are pinned to an exact version only
+#     (installed from the npm/PyPI registries); they are NOT
+#     checksum-verified. This is a real, disclosed difference in
+#     guarantee strength, not an oversight.
+
 on:
   pull_request:
   push:
@@ -10,81 +28,119 @@ on:
 permissions:
   contents: read
 
+env:
+  BOOTSTRAP_STRICT: "true"
+
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Check out repository
+      - name: Check out repository (immutable action reference)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Run Phase 0 structural validator
-        run: python3 scripts/validate_phase0.py
-
-      - name: Set up Node.js
+      - name: Set up Node.js (immutable action reference; exact Node version, not checksum-verified)
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
-          node-version: "22"
+          node-version: "22.23.2"
 
-      - name: Install and run markdownlint-cli2
-        run: |
-          set -eu
-          npm install --global markdownlint-cli2@0.23.2
-          markdownlint-cli2 "**/*.md"
-
-      - name: Set up Python
+      - name: Set up Python (immutable action reference; exact Python version, not checksum-verified)
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.12.13"
 
-      - name: Install and run yamllint
+      - name: Create job-local tools directory and add it to PATH
         run: |
           set -eu
-          pip install --no-cache-dir yamllint==1.38.0
-          yamllint -s .
+          mkdir -p "$GITHUB_WORKSPACE/.ci-tools"
+          echo "$GITHUB_WORKSPACE/.ci-tools" >> "$GITHUB_PATH"
 
-      - name: Install and run ShellCheck (pinned, checksum-verified)
+      - name: Install ShellCheck (exact version, checksum-verified)
         run: |
           set -eu
           curl -sSL -o shellcheck.tar.xz \
             https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
           echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  shellcheck.tar.xz" | sha256sum -c -
           tar -xJf shellcheck.tar.xz shellcheck-v0.11.0/shellcheck
-          mv shellcheck-v0.11.0/shellcheck ./shellcheck-bin
-          chmod +x ./shellcheck-bin
-          # Scoped to scripts this repository authors and owns. Vendor-provided
-          # Spec Kit scripts under .specify/scripts/bash/ are intentionally
-          # excluded — they are not ours to fix, and "fixing" them would drift
-          # from upstream on the next `specify` upgrade.
-          ./shellcheck-bin scripts/*.sh .agents/skills/*/scripts/*.sh
+          mv shellcheck-v0.11.0/shellcheck "$GITHUB_WORKSPACE/.ci-tools/shellcheck"
+          chmod +x "$GITHUB_WORKSPACE/.ci-tools/shellcheck"
 
-      - name: Install and run actionlint (pinned, checksum-verified)
+      - name: Install actionlint (exact version, checksum-verified)
         run: |
           set -eu
           curl -sSL -o actionlint.tar.gz \
             https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz" | sha256sum -c -
           tar -xzf actionlint.tar.gz actionlint
-          ./actionlint -color
+          mv actionlint "$GITHUB_WORKSPACE/.ci-tools/actionlint"
+          chmod +x "$GITHUB_WORKSPACE/.ci-tools/actionlint"
 
-      - name: Install and run gitleaks (pinned, checksum-verified)
+      - name: Install Gitleaks (exact version, checksum-verified)
         run: |
           set -eu
           curl -sSL -o gitleaks.tar.gz \
             https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
           echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
           tar -xzf gitleaks.tar.gz gitleaks
-          ./gitleaks detect --no-git --source . --redact --exit-code 1
+          mv gitleaks "$GITHUB_WORKSPACE/.ci-tools/gitleaks"
+          chmod +x "$GITHUB_WORKSPACE/.ci-tools/gitleaks"
 
-      - name: Install and run lychee (pinned, checksum-verified)
+      - name: Install Lychee (exact version, checksum-verified)
         run: |
           set -eu
           curl -sSL -o lychee.tar.gz \
             https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz
           echo "1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a  lychee.tar.gz" | sha256sum -c -
           tar -xzf lychee.tar.gz lychee-x86_64-unknown-linux-gnu/lychee
-          mv lychee-x86_64-unknown-linux-gnu/lychee ./lychee-bin
-          chmod +x ./lychee-bin
-          ./lychee-bin "**/*.md"
+          mv lychee-x86_64-unknown-linux-gnu/lychee "$GITHUB_WORKSPACE/.ci-tools/lychee"
+          chmod +x "$GITHUB_WORKSPACE/.ci-tools/lychee"
 
-      - name: Verify bootstrap script matches CI (developer convenience check)
+      - name: Install markdownlint-cli2 (exact version, NOT checksum-verified — npm registry install)
+        run: npm install --global markdownlint-cli2@0.23.2
+
+      - name: Install yamllint (exact version, NOT checksum-verified — PyPI install)
+        run: pip install --no-cache-dir yamllint==1.38.0
+
+      - name: Run Phase 0 structural validator
+        run: python3 scripts/validate_phase0.py
+
+      - name: Run Claude git-guard regression tests
+        run: python3 scripts/test_git_guard.py
+
+      - name: Run dynamic ADR validation regression tests
+        run: python3 scripts/test_adr_validation.py
+
+      - name: Run dedicated ADR validator against every real ADR
+        run: |
+          set -eu
+          exit_status=0
+          for adr in docs/adr/ADR-[0-9][0-9][0-9][0-9]-*.md; do
+            case "$(basename "$adr")" in
+              ADR-0000-template.md) continue ;;
+            esac
+            .agents/skills/create-adr/scripts/validate-adr.sh "$adr" || exit_status=1
+          done
+          exit "$exit_status"
+
+      - name: Run Spec Kit / bootstrap prerequisite check (informational; never fails CI on operator-dependent tools)
+        run: ./scripts/check-bootstrap-prerequisites.sh
+
+      - name: Run markdownlint-cli2
+        run: markdownlint-cli2 "**/*.md"
+
+      - name: Run yamllint
+        run: yamllint -s .
+
+      - name: Run ShellCheck
+        run: shellcheck scripts/*.sh .agents/skills/*/scripts/*.sh
+
+      - name: Run actionlint
+        run: actionlint -color
+
+      - name: Run Gitleaks
+        run: gitleaks detect --no-git --source . --redact --exit-code 1
+
+      - name: Run Lychee (checks repository-local links only — see lychee.toml; does not prove external URL reachability)
+        run: lychee "**/*.md"
+
+      - name: Run verify-bootstrap.sh in CI strict mode (proves the wrapper consumes the same PATH-resolved binaries as the steps above)
         run: ./scripts/verify-bootstrap.sh
