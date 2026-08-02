@@ -29,10 +29,24 @@ strength. Do not read any of them as stronger than they are — see
    technically restricts to when the agent is invoked via the Task/Agent
    tool — confirmed against the installed Claude Code CLI. All six Claude
    agents are scoped to `Read, Grep, Glob, Bash` only; none can call Edit or
-   Write. `.claude/settings.json` additionally denies destructive Git
-   commands (force push, merge, hard reset, branch -D) and reads of known
-   secret file patterns for every Claude Code session in this repository,
-   regardless of which agent issues the command.
+   Write. `.claude/settings.json` additionally wires a `PreToolUse` hook on
+   every Bash call to `scripts/git_guard.py`, a parser-based guard (not a
+   single regex) that tokenizes the command with a real shell-aware
+   splitter, normalizes `env`/absolute-path/global-option forms of Git
+   invocation, and blocks push, merge, rebase, clean, history-rewriting
+   commands, and conditionally-destructive forms of reset/checkout/switch/
+   restore/branch/tag/commit — see `scripts/git_guard.py`'s module
+   docstring for the full design and its documented residual limitations
+   (command substitution can hide a command from the tokenizer; a
+   secondary regex-based heuristic is a safety net for that case, not a
+   guarantee). Regression-tested by `scripts/test_git_guard.py` (63 cases:
+   every form named in the audit finding, plus compound commands,
+   malformed input, and unrelated safe commands that must not be broken),
+   run in CI and required by `scripts/verify-bootstrap.sh`. The static
+   `permissions.deny` literal patterns remain as a coarse, secondary
+   backstop, not the primary mechanism. `.claude/settings.json` also denies
+   reads of known secret file patterns for every Claude Code session in
+   this repository, regardless of which agent issues the command.
 2. **Runtime-enforced (Codex), operator-applied.** Codex has no equivalent
    of Claude's per-agent tool scoping, and does not read a project-local
    `.codex/config.toml` — confirmed against the installed Codex CLI.

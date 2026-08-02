@@ -89,12 +89,19 @@ restriction matches the documented policy exactly.
 What this does **not** technically prevent: Bash is a general-purpose
 shell, and nothing at the subagent-tool-scope level stops a Bash command
 from writing a file or attempting `git push`/`git merge`. The
-repository-level `.claude/settings.json` `permissions.deny` and
-`PreToolUse` hooks block the specific destructive Git operations (force
-push, merge, hard reset, branch -D) and reads of known secret file
-patterns for every Claude Code session in this repository, regardless of
-which subagent issues the command — this is real, tested enforcement (see
-`docs/bootstrap/audit-remediation.md`), not documentation. This subagent's
+repository-level `.claude/settings.json` `PreToolUse` hook runs
+`scripts/git_guard.py` — a parser-based guard, not a single regex — on
+every Bash call in every Claude Code session in this repository,
+regardless of which subagent issues the command. It tokenizes the command,
+normalizes `env`/absolute-path/global-option forms of Git invocation, and
+blocks push, merge, rebase, clean, history-rewriting commands, and
+conditionally-destructive forms of reset/checkout/switch/restore/branch/
+tag/commit; `permissions.deny`'s literal patterns remain only as a coarse
+secondary backstop. This is real, tested enforcement (63 regression cases
+in `scripts/test_git_guard.py`; see `docs/bootstrap/audit-remediation.md`),
+not documentation — though see that script's module docstring for
+documented residual limitations (command substitution can hide a command
+from the tokenizer). This subagent's
 inability to approve or merge its own work is enforced procedurally, by
 GitHub branch protection requiring human review (see
 `docs/bootstrap/manual-setup-checklist.md`) — Claude Code itself has no

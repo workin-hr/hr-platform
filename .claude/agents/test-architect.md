@@ -91,7 +91,11 @@ into a documentation edit, a human must make that edit, or it must be made
 through the main Claude session (which has full tool access) rather than
 through this subagent gaining write access for the occasion.
 
-The repository-level `.claude/settings.json` `permissions.deny` and
-`PreToolUse` hooks additionally block destructive Git operations and reads
-of known secret file patterns for every Claude Code session in this
-repository, regardless of which subagent issues the command.
+The repository-level `.claude/settings.json` `PreToolUse` hook additionally
+runs `scripts/git_guard.py` — a parser-based guard, not a single regex —
+on every Bash call for every Claude Code session in this repository,
+regardless of which subagent issues the command, blocking push, merge,
+rebase, clean, history-rewriting commands, and conditionally-destructive
+reset/checkout/switch/restore/branch/tag/commit forms; `permissions.deny`'s
+literal patterns and known-secret-file-read denials remain as a coarse
+secondary backstop.

@@ -86,11 +86,14 @@ restriction matches the documented policy exactly.
 
 What this does **not** technically prevent: Bash is a general-purpose
 shell, and nothing at the subagent-tool-scope level stops a Bash command
-from writing a file. The repository-level `.claude/settings.json`
-`permissions.deny` and `PreToolUse` hooks block destructive Git operations
-and reads of known secret file patterns for every Claude Code session in
-this repository, regardless of which subagent issues the command — see
-`docs/bootstrap/audit-remediation.md`. "Production database access" is a
+from writing a file. The repository-level `.claude/settings.json` `PreToolUse` hook runs
+`scripts/git_guard.py` — a parser-based guard, not a single regex — on
+every Bash call for every Claude Code session in this repository,
+regardless of which subagent issues the command, blocking push, merge,
+rebase, clean, history-rewriting commands, and conditionally-destructive
+reset/checkout/switch/restore/branch/tag/commit forms; `permissions.deny`'s
+literal patterns and known-secret-file-read denials remain as a coarse
+secondary backstop — see `docs/bootstrap/audit-remediation.md`. "Production database access" is a
 **procedural control — not technically enforceable by the current
 runtime**: this repository contains no production database credentials or
 connection to inspect, so there is nothing for a tool-level restriction to
