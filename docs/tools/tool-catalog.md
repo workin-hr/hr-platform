@@ -1,9 +1,14 @@
 # Tool Catalog
 
+Git worktrees are a built-in Git capability, not a separate tool — they
+require no installation beyond Git itself, and are approved for use now
+(e.g. for parallel bootstrap or implementation branches). See
+`docs/tools/tool-decision-matrix.md` for the authoritative classification;
+do not list it separately as something to "install."
+
 ## Install During Phase 0
 
-- Git
-- Git worktrees
+- Git (worktrees included — no separate install)
 - GitHub Projects
 - GitHub Issues
 - GitHub Actions

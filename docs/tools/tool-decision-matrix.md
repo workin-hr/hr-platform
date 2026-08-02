@@ -7,7 +7,7 @@
 | GitHub Projects | Planning | Install during Phase 0 | Needed for cross-repository tracking |
 | GitHub Issues | Planning | Install during Phase 0 | Needed for backlog and evidence |
 | GitHub Actions | Validation | Install during Phase 0 | Needed for bootstrap CI |
-| Git worktrees | Workflow | Approve now, install later | Useful once parallel implementation starts |
+| Git worktrees | Workflow | Approved — no install needed (built into Git) | Built into Git; use freely now for parallel bootstrap or implementation branches |
 | Claude Code | Planning and review | Install during Phase 0 | Core planning and review agent runtime |
 | Codex CLI | Controlled implementation | Install during Phase 0 | Core implementation and verification runtime |
 | Spec Kit | Specification workflow | Install during Phase 0 | Needed for structured planning flow |
