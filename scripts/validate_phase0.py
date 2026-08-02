@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -251,6 +252,28 @@ def validate_claude_settings(failures: list[str]) -> None:
     pretooluse = data.get("hooks", {}).get("PreToolUse", [])
     if not pretooluse:
         fail(".claude/settings.json has no hooks.PreToolUse entries", failures)
+        return
+
+    # Regression guard: the PreToolUse Bash hook must invoke the real
+    # parser-based guard (scripts/git_guard.py), not a hand-rolled regex
+    # string again — see docs/bootstrap/audit-remediation.md (P1-01).
+    found_guard_wiring = False
+    for entry in pretooluse:
+        if entry.get("matcher") != "Bash":
+            continue
+        for hook in entry.get("hooks", []):
+            if "scripts/git_guard.py" in hook.get("command", ""):
+                found_guard_wiring = True
+    if not found_guard_wiring:
+        fail(
+            ".claude/settings.json PreToolUse Bash hook does not invoke scripts/git_guard.py "
+            "(the parser-based guard) — a hand-rolled regex hook is not sufficient",
+            failures,
+        )
+
+    guard_script = ROOT / "scripts/git_guard.py"
+    if not guard_script.is_file():
+        fail("Missing scripts/git_guard.py, required by the Claude PreToolUse hook", failures)
 
 
 def validate_skill_files(failures: list[str]) -> None:
@@ -326,35 +349,87 @@ ADR_REQUIRED_FIELDS = [
 ADR_VALID_STATUSES = {"Proposed", "Accepted", "Rejected", "Superseded", "Deferred"}
 
 ADR_NAME_RE = re.compile(r"^ADR-\d{4}-[a-z0-9-]+\.md$")
+ADR_LOOSE_NAME_RE = re.compile(r"^ADR-.*\.md$")
+ADR_TEMPLATE_NAME = "ADR-0000-template.md"
 
 ADR_METADATA_FIELD_RE = re.compile(r"^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$", re.MULTILINE)
 
+ADR_INDEX_REFERENCE_RE = re.compile(r"`(ADR-[0-9]{4}-[a-z0-9-]+\.md)`")
 
-def validate_adrs(failures: list[str]) -> None:
-    expected = [
-        "ADR-0001-repository-strategy.md",
-        "ADR-0002-modular-monolith-baseline.md",
-        "ADR-0003-api-versioning-and-flutter-compatibility.md",
-        "ADR-0004-mysql-to-postgresql-migration-approach.md",
-        "ADR-0005-authentication-and-authorization-direction.md",
-        "ADR-0006-attendance-edge-gateway-direction.md",
-        "ADR-0007-testing-and-quality-gate-strategy.md",
-        "ADR-0008-observability-baseline.md",
-    ]
-    template = ROOT / "docs/adr/ADR-0000-template.md"
-    if not template.is_file():
-        fail("Missing ADR template: docs/adr/ADR-0000-template.md", failures)
 
-    for name in expected:
-        path = ROOT / "docs/adr" / name
-        if not path.is_file():
-            fail(f"Missing ADR placeholder: docs/adr/{name}", failures)
+def _display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def discover_adrs(adr_dir: Path, failures: list[str]) -> list[Path]:
+    """Dynamically discover real ADR files by naming convention, so a newly
+    added ADR is validated automatically without editing this file. Any
+    ADR-*.md file that is not the template and does not match the strict
+    ADR-NNNN-slug.md pattern is reported as an invalid name rather than
+    silently skipped."""
+    discovered: list[Path] = []
+    if not adr_dir.is_dir():
+        return discovered
+    for path in sorted(adr_dir.glob("ADR-*.md")):
+        if path.name == ADR_TEMPLATE_NAME:
             continue
+        if not ADR_NAME_RE.match(path.name):
+            fail(f"Invalid ADR file name (expected ADR-NNNN-slug.md): {_display_path(path)}", failures)
+            continue
+        discovered.append(path)
+    return discovered
+
+
+def check_duplicate_adr_numbers(adrs: list[Path], failures: list[str]) -> None:
+    seen: dict[str, Path] = {}
+    for path in adrs:
+        number = path.name.split("-")[1]
+        if number in seen:
+            fail(
+                f"Duplicate ADR identifier {number}: {_display_path(seen[number])} and {_display_path(path)}",
+                failures,
+            )
+        else:
+            seen[number] = path
+
+
+def check_adr_index(adr_dir: Path, adrs: list[Path], failures: list[str]) -> None:
+    index_path = adr_dir / "README.md"
+    if not index_path.is_file():
+        fail(f"Missing ADR index: {_display_path(index_path)}", failures)
+        return
+    index_text = index_path.read_text(encoding="utf-8")
+    referenced = set(ADR_INDEX_REFERENCE_RE.findall(index_text))
+    discovered_names = {p.name for p in adrs}
+    for name in sorted(discovered_names - referenced):
+        fail(f"ADR {name} is discovered on disk but not referenced in the ADR index ({_display_path(index_path)})", failures)
+    for name in sorted(referenced - discovered_names):
+        if not (adr_dir / name).is_file():
+            fail(f"ADR index references a file that does not exist: {name}", failures)
+
+
+def validate_adrs(failures: list[str], adr_dir: Path | None = None) -> None:
+    """Discovers and validates every real ADR dynamically — there is no
+    hardcoded list of expected ADR file names. A newly added, correctly
+    named and structured ADR is picked up automatically; an invalid one
+    fails without this file being edited."""
+    adr_dir = adr_dir if adr_dir is not None else (ROOT / "docs/adr")
+    template = adr_dir / ADR_TEMPLATE_NAME
+    if not template.is_file():
+        fail(f"Missing ADR template: {_display_path(template)}", failures)
+
+    adrs = discover_adrs(adr_dir, failures)
+    check_duplicate_adr_numbers(adrs, failures)
+    check_adr_index(adr_dir, adrs, failures)
+    for path in adrs:
         _validate_one_adr(path, failures)
 
 
 def _validate_one_adr(path: Path, failures: list[str]) -> None:
-    rel = path.relative_to(ROOT)
+    rel = _display_path(path)
     if not ADR_NAME_RE.match(path.name):
         fail(f"ADR file name does not match ADR-NNNN-slug.md: {rel}", failures)
 
@@ -436,7 +511,14 @@ def validate_issue_forms(failures: list[str]) -> None:
 
 
 def validate_scripts_exist(failures: list[str]) -> None:
-    for rel in ("scripts/verify-bootstrap.sh", "scripts/validate_phase0.py"):
+    for rel in (
+        "scripts/verify-bootstrap.sh",
+        "scripts/validate_phase0.py",
+        "scripts/git_guard.py",
+        "scripts/test_git_guard.py",
+        "scripts/test_adr_validation.py",
+        "scripts/check-bootstrap-prerequisites.sh",
+    ):
         path = ROOT / rel
         if not path.is_file():
             fail(f"Missing script: {rel}", failures)
@@ -520,7 +602,60 @@ def validate_tool_catalog_consistency(failures: list[str]) -> None:
         )
 
 
+def _run_regression_script(rel_path: str, label: str, failures: list[str]) -> None:
+    script = ROOT / rel_path
+    if not script.is_file():
+        fail(f"Missing regression test script: {rel_path}", failures)
+        return
+    proc = subprocess.run(
+        [sys.executable, str(script)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if proc.returncode != 0:
+        tail = "\n".join(proc.stdout.strip().splitlines()[-15:])
+        fail(f"{label} failed (exit {proc.returncode}); last output:\n{tail}", failures)
+
+
+def validate_git_guard_tests(failures: list[str]) -> None:
+    _run_regression_script("scripts/test_git_guard.py", "Git command guard regression tests", failures)
+
+
+def validate_adr_dynamic_tests(failures: list[str]) -> None:
+    _run_regression_script("scripts/test_adr_validation.py", "Dynamic ADR validation regression tests", failures)
+
+
+def _validate_single_adr_cli(target_arg: str) -> int:
+    """Single-ADR CLI mode: `validate_phase0.py --validate-adr <file>`.
+
+    This is the one authoritative ADR-structure implementation. The shell
+    wrapper at .agents/skills/create-adr/scripts/validate-adr.sh delegates
+    to this instead of maintaining a second, divergent implementation —
+    see docs/bootstrap/audit-remediation.md (P2-02)."""
+    target = Path(target_arg).resolve()
+    failures: list[str] = []
+    if not target.is_file():
+        print(f"ADR file not found: {target}")
+        return 1
+    if target.name != ADR_TEMPLATE_NAME and not ADR_NAME_RE.match(target.name):
+        print(f"Invalid ADR file name (expected ADR-NNNN-slug.md): {target.name}")
+        return 1
+    _validate_one_adr(target, failures)
+    if failures:
+        print(f"ADR structure invalid: {_display_path(target)}")
+        for item in failures:
+            print(f"- {item}")
+        return 1
+    print(f"ADR structure looks valid: {_display_path(target)}")
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) >= 3 and sys.argv[1] == "--validate-adr":
+        return _validate_single_adr_cli(sys.argv[2])
+
     failures: list[str] = []
     validate_required_paths(failures)
     validate_forbidden_files(failures)
@@ -534,6 +669,8 @@ def main() -> int:
     validate_links(failures)
     validate_workflow_safety(failures)
     validate_tool_catalog_consistency(failures)
+    validate_git_guard_tests(failures)
+    validate_adr_dynamic_tests(failures)
     if failures:
         print("Phase 0 validation failed:")
         for item in failures:

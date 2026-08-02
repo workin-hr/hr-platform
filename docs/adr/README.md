@@ -9,8 +9,17 @@ followed by `## Context`, `## Decision`, `## Alternatives Considered`,
 See `ADR-0000-template.md`. Valid `Status` values are `Proposed`, `Accepted`,
 `Rejected`, `Superseded`, `Deferred`. Every ADR below is currently `Proposed`
 — the `## Decision` section states a candidate direction, not an approved one.
-`scripts/validate_phase0.py` and `.agents/skills/create-adr/scripts/validate-adr.sh`
-both enforce this structure; see `docs/bootstrap/audit-remediation.md` (P1-1).
+
+`scripts/validate_phase0.py::validate_adrs()` discovers real ADR files
+dynamically (`docs/adr/ADR-[0-9][0-9][0-9][0-9]-*.md`, excluding the
+template) — a new ADR added to this directory is picked up and validated
+automatically, with no change needed to the validator itself. It also
+detects duplicate ADR numbers, invalid file names, ADRs missing from this
+index, and index entries pointing at files that don't exist.
+`.agents/skills/create-adr/scripts/validate-adr.sh` delegates to the same
+implementation (`validate_phase0.py --validate-adr <file>`) rather than
+maintaining a second, divergent copy of these rules — see
+`docs/bootstrap/audit-remediation.md` (P1-1, P2-02).
 
 ## Template
 

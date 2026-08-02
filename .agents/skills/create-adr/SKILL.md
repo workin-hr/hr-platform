@@ -34,17 +34,20 @@ Use when a decision materially affects architecture, governance, migration, test
 5. Fill in `## Alternatives Considered`, `## Consequences`, `## Risks`,
    `## Validation Evidence` (state "None yet — pending Discovery" if no
    evidence exists), and `## Open Questions`.
-6. Run `scripts/validate-adr.sh <path-to-adr>` on the draft and fix any
-   failures before treating the ADR as ready for review.
-7. Run `python3 scripts/validate_phase0.py` to confirm the master validator
-   also passes — it independently re-checks ADR structure, so both must
-   agree.
+6. Run `.agents/skills/create-adr/scripts/validate-adr.sh <path-to-adr>` on
+   the draft and fix any failures before treating the ADR as ready for
+   review. This delegates to `scripts/validate_phase0.py --validate-adr`
+   — there is one authoritative ADR-structure implementation, not two.
+7. Run `python3 scripts/validate_phase0.py` to confirm the full Phase 0
+   validation (which also dynamically discovers and validates every ADR,
+   including this new one, with no hardcoded list to update) passes.
 
 ## Required Outputs
 
 - ADR draft or update, in the format `docs/adr/ADR-NNNN-slug.md`
-- ADR validation result (both `scripts/validate-adr.sh` and
-  `scripts/validate_phase0.py`)
+- ADR validation result (`validate-adr.sh` and the full
+  `scripts/validate_phase0.py` run — both exercise the same underlying
+  validation logic)
 
 ## Evidence
 
