@@ -21,26 +21,48 @@ Use when a decision materially affects architecture, governance, migration, test
 
 ## Ordered Workflow
 
-1. Start from `assets/adr-template.md`.
-2. Record context and evidence.
-3. Describe the proposed direction, consequences, alternatives, and open questions.
-4. Run `scripts/validate-adr.sh` on the draft.
+1. Start from `docs/adr/ADR-0000-template.md` (the single authoritative
+   template; do not copy the old `assets/adr-template.md`, which now only
+   redirects here).
+2. Fill in the `## Metadata` table completely (ADR ID, Title, Status, Date,
+   Owners, Deciders, Related Issues, Supersedes, Superseded By). New ADRs
+   start `Status: Proposed`.
+3. Record context and evidence in `## Context`.
+4. Write `## Decision` as a candidate direction. If `Status` is `Proposed`,
+   the section must include the literal marker text `Approval status:
+   Proposed` making clear it is not yet approved.
+5. Fill in `## Alternatives Considered`, `## Consequences`, `## Risks`,
+   `## Validation Evidence` (state "None yet — pending Discovery" if no
+   evidence exists), and `## Open Questions`.
+6. Run `scripts/validate-adr.sh <path-to-adr>` on the draft and fix any
+   failures before treating the ADR as ready for review.
+7. Run `python3 scripts/validate_phase0.py` to confirm the master validator
+   also passes — it independently re-checks ADR structure, so both must
+   agree.
 
 ## Required Outputs
 
-- ADR draft or update
-- ADR validation result
+- ADR draft or update, in the format `docs/adr/ADR-NNNN-slug.md`
+- ADR validation result (both `scripts/validate-adr.sh` and
+  `scripts/validate_phase0.py`)
 
 ## Evidence
 
 - links to source documents
 - explicit alternatives considered
+- for `Proposed` ADRs, an explicit statement of what evidence is still
+  missing before the decision could become `Accepted`
 
 ## Validation Checklist
 
-- status is present
+- file name matches `ADR-NNNN-slug.md`
+- `## Metadata` table is complete and `Status` is one of `Proposed`,
+  `Accepted`, `Rejected`, `Superseded`, `Deferred`
+- all required sections are present and non-empty
 - context and decision are separate
 - consequences are concrete
+- if `Status` is `Proposed`, `## Decision` visibly says so and is not written
+  as if it were already approved
 
 ## Failure Conditions
 
