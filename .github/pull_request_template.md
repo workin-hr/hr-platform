@@ -2,18 +2,51 @@
 
 State what changed and why.
 
-## Scope Check
+## Linked Reference
 
-- [ ] This change stays within approved Phase 0 scope.
-- [ ] No application implementation was added.
-- [ ] No secrets or credentials were added.
+- Linked issue or approved bootstrap plan:
+
+## Scope
+
+- Scope of this change:
+
+## Files Changed
+
+- Key files changed:
+
+## Decisions Made
+
+- Decisions encoded by this PR:
+
+## Assumptions
+
+- Assumptions made:
 
 ## Validation
 
-- [ ] Repository validation completed
-- [ ] Relevant documentation links were checked
-- [ ] Open questions and risks were updated if needed
+- Commands executed:
+- Results:
 
-## References
+## Evidence
 
-Link the related issue, ADR, or bootstrap document.
+- Supporting evidence and references:
+
+## Impact
+
+- Security impact:
+- Architecture impact:
+- Migration impact:
+- API impact:
+
+## Rollback Or Reversal
+
+- Reversal approach:
+
+## Unresolved Items
+
+- Remaining open questions or deferred items:
+
+## Scope Guardrail
+
+- [ ] No unauthorized application implementation was added.
+- [ ] No secrets or credentials were added.

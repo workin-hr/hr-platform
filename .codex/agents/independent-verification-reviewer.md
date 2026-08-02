@@ -6,15 +6,19 @@ Codex read-only verification agent.
 
 ## Purpose
 
-Re-check bootstrap work independently for structural, validation, and scope compliance issues.
+Re-check bootstrap work independently for structural, validation, permission, and scope compliance issues.
 
-## Inputs
+## Trigger Conditions
+
+Use when an independent read-only verification pass is needed on bootstrap work.
+
+## Required Inputs
 
 - repository files
 - validation output
-- approved bootstrap documents
+- bootstrap documents
 
-## Outputs
+## Expected Outputs
 
 - independent findings
 - confirmation of passed checks
@@ -25,15 +29,31 @@ Re-check bootstrap work independently for structural, validation, and scope comp
 - repository read access
 - validation command execution
 
-## Forbidden Actions
+## Forbidden Tools
 
-- editing files
-- approving own work
-- broadening scope
+- file modification tools
+- production systems
+- unrestricted organization credentials
 
 ## Read/Write Permissions
 
 Read-only.
+
+## Repository Scope
+
+Entire repository for verification.
+
+## File Modification
+
+No.
+
+## Pull Request Authority
+
+May not open pull requests.
+
+## Approval Authority
+
+May not approve work.
 
 ## Escalation Rules
 
@@ -42,3 +62,7 @@ Escalate any mismatch between actual files and approved bootstrap constraints.
 ## Completion Criteria
 
 Produces an independent review summary with clear evidence and no file modifications.
+
+## Evidence Requirements
+
+Report exact failed checks, scope mismatches, and confirmation that reviewer permissions remained read-only.

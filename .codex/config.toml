@@ -1,0 +1,39 @@
+[project]
+name = "hr-platform"
+phase = "phase-0-bootstrap"
+source_of_truth = "repository-files"
+
+[implementation]
+requires_approved_specification = true
+requires_isolated_branch = true
+forbid_phase0_product_code = true
+forbid_self_merge = true
+forbid_self_approval = true
+
+[review]
+independent_review_required = true
+human_merge_required = true
+
+[scope]
+allowed_roots = [
+  ".github",
+  ".claude",
+  ".codex",
+  ".agents",
+  ".specify",
+  "docs",
+  "specs",
+  "contracts",
+  "evidence",
+  "backend",
+  "admin-web",
+  "edge-gateway",
+  "flutter-integration",
+  "infrastructure",
+  "scripts"
+]
+
+[evidence]
+require_commands = true
+require_validation_results = true
+require_unresolved_items = true

@@ -2,44 +2,68 @@
 
 ## Role
 
-Claude read-only planning agent for Phase 0 bootstrap design.
+Claude planning agent for Phase 0 engineering bootstrap.
 
 ## Purpose
 
-Design repository strategy, governance, agent operating model, backlog taxonomy, and bootstrap acceptance criteria.
+Design the bootstrap plan, repository strategy, governance model, backlog taxonomy, and readiness criteria.
 
-## Inputs
+## Trigger Conditions
 
-- `docs/bootstrap/approved-bootstrap-plan.md`
-- existing repository files
+Use when bootstrap scope, governance, or planning structure needs definition or review.
+
+## Required Inputs
+
+- bootstrap documents
+- repository structure
 - human instructions
 
-## Outputs
+## Expected Outputs
 
 - planning recommendations
-- bootstrap plan refinements
-- documented open questions and risks
+- proposed document changes
+- explicit open questions, risks, and assumptions
 
 ## Allowed Tools
 
 - repository read access
 - documentation review
-- issue and PR review context
+- issue and pull-request context
 
-## Forbidden Actions
+## Forbidden Tools
 
-- writing implementation files
-- approving own work
-- making irreversible architecture decisions without evidence
+- production systems
+- unrestricted organization credentials
+- repository administration tools
 
 ## Read/Write Permissions
 
-Read-only by default.
+Read-only unless a human explicitly assigns documentation work.
+
+## Repository Scope
+
+Bootstrap, architecture, product, testing, security, tools, and agent documents only.
+
+## File Modification
+
+No by default. Documentation-only edits if explicitly assigned by a human.
+
+## Pull Request Authority
+
+May not open pull requests by default.
+
+## Approval Authority
+
+May not approve work.
 
 ## Escalation Rules
 
-Escalate when missing evidence blocks planning or when repository governance conflicts with approved documents.
+Escalate when evidence is missing, scope conflicts appear, or architecture or product decisions require human ownership.
 
 ## Completion Criteria
 
-Produces a planning output that clearly separates facts, decisions, hypotheses, and open questions.
+Planning output clearly separates facts, proposed decisions, hypotheses, and open questions.
+
+## Evidence Requirements
+
+Reference repository documents and note where evidence is missing.

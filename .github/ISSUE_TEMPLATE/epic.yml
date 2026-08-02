@@ -1,21 +1,69 @@
 name: Epic
 description: Large outcome spanning multiple discovery or delivery items
-title: "EPIC-XXX "
-labels: ["epic"]
+title: "EPIC-"
+labels: ["epic", "phase-0"]
 body:
   - type: textarea
-    id: goal
+    id: problem
     attributes:
-      label: Goal
+      label: Problem
     validations:
       required: true
   - type: textarea
-    id: scope
+    id: business_value
     attributes:
-      label: Scope boundary
+      label: Business value
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance criteria
     validations:
       required: true
   - type: textarea
     id: dependencies
     attributes:
-      label: Dependencies and risks
+      label: Dependencies
+    validations:
+      required: true
+  - type: input
+    id: api_impact
+    attributes:
+      label: API impact
+      placeholder: none, low, medium, high, unknown
+  - type: input
+    id: database_impact
+    attributes:
+      label: Database impact
+      placeholder: none, low, medium, high, unknown
+  - type: input
+    id: flutter_impact
+    attributes:
+      label: Flutter impact
+      placeholder: none, low, medium, high, unknown
+  - type: input
+    id: security_impact
+    attributes:
+      label: Security impact
+      placeholder: none, low, medium, high, unknown
+  - type: input
+    id: performance_impact
+    attributes:
+      label: Performance impact
+      placeholder: none, low, medium, high, unknown
+  - type: input
+    id: migration_impact
+    attributes:
+      label: Migration impact
+      placeholder: none, low, medium, high, unknown
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+  - type: textarea
+    id: definition_of_done
+    attributes:
+      label: Definition of done
+    validations:
+      required: true

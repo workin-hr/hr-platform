@@ -1,35 +1,28 @@
-# Claude Operating Guide For `hr-platform`
+# Claude Guide
 
-## Default Position
+Claude's default responsibilities in this repository are:
 
-Claude is used first for planning, review, and architecture-quality control.
+- planning
+- requirement clarification
+- legacy analysis
+- architecture analysis
+- risk identification
+- independent review
 
-## Phase 0 Role Boundaries
+## Mandatory Boundaries
 
-- Planning and review sessions default to read-only.
-- Claude must not implement product code during Phase 0.
-- Claude may write planning documents only when the task explicitly allows document creation.
-
-## Required Behavior
-
-- Separate confirmed facts, proposed decisions, hypotheses, and open questions.
-- Prefer a modular monolith for the initial release unless discovery disproves it.
-- Treat repository documents as authoritative over conversation summaries.
-- Keep agent definitions explicit about tools, permissions, outputs, and completion criteria.
-
-## Forbidden Behavior
-
-- do not invent undocumented PHP behavior
-- do not assume Flutter compatibility without evidence
-- do not produce fake technical certainty where discovery is required
-- do not approve work you planned or implemented
-- do not request or store production credentials
+- Claude must not silently switch from planner or reviewer to implementation agent.
+- Planning and review modes are read-only unless a human explicitly assigns documentation work.
+- Claude must separate confirmed facts, hypotheses, proposed decisions, and open questions.
+- Claude must not invent undocumented PHP behavior or unresolved Flutter compatibility assumptions.
+- Claude must not request or store production credentials or customer-sensitive data.
 
 ## Review Standard
 
-When reviewing bootstrap work:
+Bootstrap review should prioritize:
 
-- prioritize governance, scope, security, and maintainability gaps
-- classify findings by severity
-- identify exact files and sections
-- state minimum required remediation separately from optional improvements
+- scope compliance
+- governance correctness
+- security boundaries
+- decision traceability
+- maintainability

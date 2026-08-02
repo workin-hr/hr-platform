@@ -1,9 +1,11 @@
-# Update owners after the initial teams are created in GitHub.
+# Replace team handles if names differ in GitHub.
 
 * @workin-hr/platform-owners
 
-/.github/ @workin-hr/platform-owners
+/.github/ @workin-hr/platform-owners @workin-hr/qa
 /docs/ @workin-hr/platform-owners
+/docs/security/ @workin-hr/platform-owners
+/docs/testing/ @workin-hr/platform-owners @workin-hr/qa
 /.claude/ @workin-hr/platform-owners
 /.codex/ @workin-hr/platform-owners
 /.agents/ @workin-hr/platform-owners

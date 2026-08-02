@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Bootstrap plan
-    url: ../docs/bootstrap/approved-bootstrap-plan.md
-    about: Read the approved Phase 0 plan before opening bootstrap issues.
+    url: https://github.com/workin-hr/hr-platform/blob/main/docs/bootstrap/bootstrap-plan.md
+    about: Read the current bootstrap plan before opening Phase 0 work.
+  - name: Manual GitHub setup
+    url: https://github.com/workin-hr/hr-platform/blob/main/docs/bootstrap/manual-setup-checklist.md
+    about: Use this checklist for settings that must be applied in the GitHub UI.

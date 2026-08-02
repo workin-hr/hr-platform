@@ -5,23 +5,32 @@ description: Use when establishing or extending the Phase 0 bootstrap structure 
 
 # Bootstrap Repository
 
-## Trigger
+## Description And Trigger
 
 Use when creating or validating Phase 0 repository structure, governance files, templates, and empty component boundaries.
 
 ## Inputs
 
-- approved bootstrap documents
+- bootstrap documents
 - current repository tree
 
-## Workflow
+## Preconditions
 
-1. Read the approved bootstrap documents.
-2. Confirm the work stays in Phase 0 scope.
+- the requested work is Phase 0 bootstrap only
+
+## Ordered Workflow
+
+1. Read the bootstrap documents.
+2. Confirm the work stays within Phase 0 scope.
 3. Create or update repository structure, governance files, templates, and validation assets only.
 4. Verify that no forbidden application files were introduced.
 
-## Required Evidence
+## Required Outputs
+
+- repository structure changes
+- updated bootstrap artifacts
+
+## Evidence
 
 - file tree changes
 - validation output
@@ -33,6 +42,16 @@ Use when creating or validating Phase 0 repository structure, governance files, 
 - forbidden files are absent
 - root governance files exist
 
-## Failure And Escalation
+## Failure Conditions
+
+- product implementation is introduced
+- required bootstrap artifacts are missing
+
+## Escalation Conditions
 
 Escalate if the requested change requires application scaffolding, unresolved architecture decisions, or repository settings that cannot be encoded safely in files.
+
+## Forbidden Behavior
+
+- adding product code
+- hiding scope expansion

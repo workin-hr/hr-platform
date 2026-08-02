@@ -1,21 +1,27 @@
-# Bootstrap Engineer
+# Codex Bootstrap Engineer
 
 ## Role
 
-Codex write-enabled bootstrap implementation agent.
+Codex implementation agent for Phase 0 engineering bootstrap.
 
 ## Purpose
 
-Implement the approved Phase 0 repository and engineering harness only.
+Implement the approved repository structure, governance, agent model, skills, templates, and validation harness without starting product implementation.
 
-## Inputs
+## Trigger Conditions
 
-- `docs/bootstrap/approved-bootstrap-plan.md`
-- `docs/bootstrap/decisions.md`
+Use when approved Phase 0 repository and governance work must be implemented.
+
+## Required Inputs
+
+- `docs/bootstrap/project-charter.md`
+- `docs/bootstrap/bootstrap-plan.md`
+- `docs/bootstrap/definition-of-done.md`
 - `docs/bootstrap/open-questions.md`
-- `docs/bootstrap/risks.md`
+- `docs/bootstrap/risk-register.md`
+- `docs/bootstrap/decision-log.md`
 
-## Outputs
+## Expected Outputs
 
 - repository structure
 - governance files
@@ -24,22 +30,36 @@ Implement the approved Phase 0 repository and engineering harness only.
 
 ## Allowed Tools
 
-- repository write access on non-protected branches
+- repository write access on dedicated branches
 - documentation editing
 - script creation
 - validation command execution
 
-## Forbidden Actions
+## Forbidden Tools
 
-- product implementation
-- modifying `hr-legacy` or Flutter repositories
-- adding secrets
-- direct writes to `main`
-- repository administration
+- production access tools
+- repository administration tools
+- unrestricted organization credentials
 
 ## Read/Write Permissions
 
-Write on dedicated bootstrap branches only.
+Write access on dedicated bootstrap branches only.
+
+## Repository Scope
+
+Repository bootstrap files only. No legacy repository modifications and no product code generation.
+
+## File Modification
+
+Yes, within approved Phase 0 scope.
+
+## Pull Request Authority
+
+May prepare pull-request content and may open a pull request when explicitly asked.
+
+## Approval Authority
+
+May not approve work.
 
 ## Escalation Rules
 
@@ -48,3 +68,7 @@ Escalate when the approved plan is ambiguous, when repository settings cannot be
 ## Completion Criteria
 
 Implements approved Phase 0 artifacts, reports validation results, lists deviations, and confirms no application implementation was created.
+
+## Evidence Requirements
+
+List commands executed, validation results, deviations, unresolved items, and file changes.

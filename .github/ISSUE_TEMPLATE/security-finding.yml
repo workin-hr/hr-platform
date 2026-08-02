@@ -1,0 +1,63 @@
+name: Security finding
+description: Security weakness, exposure, or control gap
+title: "SEC-"
+labels: ["security-finding"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+    validations:
+      required: true
+  - type: textarea
+    id: business_value
+    attributes:
+      label: Business value
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance criteria
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+    validations:
+      required: true
+  - type: input
+    id: api_impact
+    attributes:
+      label: API impact
+  - type: input
+    id: database_impact
+    attributes:
+      label: Database impact
+  - type: input
+    id: flutter_impact
+    attributes:
+      label: Flutter impact
+  - type: input
+    id: security_impact
+    attributes:
+      label: Security impact
+  - type: input
+    id: performance_impact
+    attributes:
+      label: Performance impact
+  - type: input
+    id: migration_impact
+    attributes:
+      label: Migration impact
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+  - type: textarea
+    id: definition_of_done
+    attributes:
+      label: Definition of done
+    validations:
+      required: true

@@ -12,3 +12,9 @@ Planned bootstrap commands:
 - `specify integration status`
 
 During Phase 0, use specification and planning commands only. Do not use implementation commands for product code.
+
+Related files:
+
+- `constitution.md`
+- `workflow.md`
+- `install-plan.md`

@@ -20,3 +20,7 @@ Describe expected benefits, costs, and follow-up obligations.
 
 - Option A
 - Option B
+
+## Open Questions
+
+- Question 1
