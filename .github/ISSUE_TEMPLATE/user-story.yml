@@ -1,0 +1,17 @@
+name: User Story
+description: User-centered behavior scoped from validated discovery
+title: "STORY "
+labels: ["user-story"]
+body:
+  - type: textarea
+    id: actor
+    attributes:
+      label: Actor and need
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+    validations:
+      required: true

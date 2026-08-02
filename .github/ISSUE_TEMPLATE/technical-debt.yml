@@ -1,0 +1,17 @@
+name: Technical Debt
+description: Deferred technical improvement with known cost
+title: "DEBT "
+labels: ["technical-debt"]
+body:
+  - type: textarea
+    id: debt
+    attributes:
+      label: Debt description
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Current impact
+    validations:
+      required: true

@@ -1,0 +1,17 @@
+name: ADR
+description: Proposed architecture or governance decision
+title: "ADR "
+labels: ["adr"]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: Proposed decision
+    validations:
+      required: true

@@ -1,0 +1,17 @@
+name: Risk
+description: Risk requiring tracking and mitigation
+title: "RISK "
+labels: ["risk"]
+body:
+  - type: textarea
+    id: statement
+    attributes:
+      label: Risk statement
+    validations:
+      required: true
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Mitigation and trigger
+    validations:
+      required: true

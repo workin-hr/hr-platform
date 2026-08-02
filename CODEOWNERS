@@ -1,0 +1,10 @@
+# Update owners after the initial teams are created in GitHub.
+
+* @workin-hr/platform-owners
+
+/.github/ @workin-hr/platform-owners
+/docs/ @workin-hr/platform-owners
+/.claude/ @workin-hr/platform-owners
+/.codex/ @workin-hr/platform-owners
+/.agents/ @workin-hr/platform-owners
+/.specify/ @workin-hr/platform-owners

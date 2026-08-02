@@ -1,0 +1,17 @@
+name: Spike
+description: Time-boxed discovery or uncertainty reduction
+title: "SPIKE "
+labels: ["spike"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Discovery question
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Required evidence
+    validations:
+      required: true
