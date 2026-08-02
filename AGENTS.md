@@ -33,3 +33,8 @@
 - Implementers cannot approve or merge their own work.
 - No agent may access production databases, biometric data, private keys, or unrestricted organization tokens.
 - No agent may silently resolve unclear requirements or make irreversible architecture decisions.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->
