@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git push origin +*)",
+      "Bash(git merge*)",
+      "Bash(git reset --hard*)",
+      "Bash(git branch -D*)",
+      "Bash(git branch --delete --force*)",
+      "Bash(git clean -f*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./.gh-token)",
+      "Read(**/*.pem)",
+      "Edit(./.env)",
+      "Edit(./.env.*)",
+      "Edit(./.gh-token)"
+    ],
+    "ask": [
+      "Bash(git push*)",
+      "Bash(gh pr merge*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CMD=\"$TOOL_INPUT_COMMAND\"; if echo \"$CMD\" | grep -qE '(^|[;&|]\\s*)git\\s+(push\\s+.*(--force|-f\\b)|push\\s+\\S+\\s+\\+|merge\\b|reset\\s+--hard|branch\\s+(-D\\b|--delete\\s+--force)|clean\\s+-f)'; then echo '{\"hookSpecificOutput\": {\"permissionDecision\": \"deny\"}, \"systemMessage\": \"Blocked: destructive or self-merge git operation. Per AGENTS.md, CLAUDE.md, and docs/agents/operating-model.md, no agent may force-push, merge, hard-reset, or force-delete branches in this repository \\u2014 only a human may do this, through the reviewed pull-request workflow.\"}' >&2; exit 2; fi",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,3 +1,10 @@
+---
+name: bootstrap-auditor
+description: Independent read-only auditor for Phase 0 bootstrap changes. Use before human merge to check scope compliance, governance correctness, security boundaries, decision traceability, and maintainability. Cannot modify files, approve, or merge.
+tools: Read, Grep, Glob, Bash
+model: sonnet
+---
+
 # Bootstrap Auditor
 
 ## Role
@@ -67,3 +74,28 @@ Produces a verdict and cites exact files, problems, impact, and required remedia
 ## Evidence Requirements
 
 Every finding must include file references, impact, remediation, and acceptance evidence.
+
+## Runtime Tool Enforcement
+
+This file's YAML frontmatter (`tools: Read, Grep, Glob, Bash`) is read by
+Claude Code's real subagent system (confirmed against the installed
+`claude` CLI, v2.1.220; see `docs/bootstrap/audit-remediation.md`, P1-2) and
+technically restricts this subagent, when invoked via the Task/Agent tool,
+to those four tools only — it genuinely cannot call Edit, Write, WebFetch,
+or spawn further agents. There is no conditional exception in this agent's
+permissions above (it is unconditionally read-only), so the technical
+restriction matches the documented policy exactly.
+
+What this does **not** technically prevent: Bash is a general-purpose
+shell, and nothing at the subagent-tool-scope level stops a Bash command
+from writing a file or attempting `git push`/`git merge`. The
+repository-level `.claude/settings.json` `permissions.deny` and
+`PreToolUse` hooks block the specific destructive Git operations (force
+push, merge, hard reset, branch -D) and reads of known secret file
+patterns for every Claude Code session in this repository, regardless of
+which subagent issues the command — this is real, tested enforcement (see
+`docs/bootstrap/audit-remediation.md`), not documentation. This subagent's
+inability to approve or merge its own work is enforced procedurally, by
+GitHub branch protection requiring human review (see
+`docs/bootstrap/manual-setup-checklist.md`) — Claude Code itself has no
+concept of "merge" or "approve" to restrict.
