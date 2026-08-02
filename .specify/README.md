@@ -1,8 +1,47 @@
 # Spec Kit Integration
 
-Status: **Operational.** The official `specify-cli` was installed and run
-against this repository during Phase 0 remediation. This is a real Spec Kit
-project, not a placeholder.
+This distinguishes three separate, easily-conflated things. Do not collapse
+them into a single "operational" or "not operational" claim — a Codex
+re-audit could not run `specify --version` in its own environment while
+this repository's real templates and scripts were, and remain, present the
+whole time. Neither environment was wrong; CLI availability genuinely
+varies by environment, and only the first line below is a repository fact.
+
+```text
+Repository integration:      Installed
+CLI availability:            Operator-environment dependent
+Last verified CLI version:   0.8.15 (verified in the environment that ran
+                              this remediation on 2026-08-02; not
+                              guaranteed present in every environment —
+                              see below)
+Constitution status:         Proposed and unratified
+```
+
+- **Repository integration: Installed.** `.specify/templates/`,
+  `.specify/scripts/bash/`, `.specify/workflows/`, `.specify/memory/constitution.md`,
+  and the `speckit-*` skills under `.claude/skills/` and `.agents/skills/`
+  are real, committed files. This is true regardless of whether `specify`
+  is installed in whatever environment is reading this — verify with
+  `ls .specify/templates/` or `scripts/check-bootstrap-prerequisites.sh`,
+  which checks repository artifacts and CLI availability separately.
+- **CLI availability: Operator-environment dependent.** Whether the
+  `specify` command itself is on `PATH` depends entirely on the machine or
+  container running it, not on this repository. Run
+  `scripts/check-bootstrap-prerequisites.sh` to check the current
+  environment; it reports `specify` as present-with-version or
+  absent-with-install-guidance, and never fails Phase 0 CI over it (Phase
+  0 CI does not install or depend on `specify` itself — see
+  `docs/bootstrap/audit-remediation.md`, P2-03).
+- **Last verified CLI version: 0.8.15**, confirmed by directly running
+  `specify --version` and `specify check` (a non-destructive command that
+  only inspects installed coding-agent tools) in the environment that
+  performed this remediation — see "What was executed" below for the exact
+  output. This is a point-in-time fact about one environment, not a claim
+  that every environment has this CLI.
+- **Constitution status: Proposed and unratified** — see
+  `.specify/memory/constitution.md`'s Governance section; this has not
+  changed and is restated here so this file doesn't imply more certainty
+  than that one does.
 
 ## What was executed
 
@@ -11,6 +50,26 @@ specify --version                                   # 0.8.15 (Python 3.12.3)
 specify init --here --integration claude --no-git --force
 specify integration install codex --force
 ```
+
+### Evidence from this remediation (2026-08-02)
+
+Re-ran `specify --version` and one additional non-destructive verification
+command supported by 0.8.15, `specify check` (inspects which coding-agent
+CLIs are on `PATH`; writes nothing), in the environment performing this
+remediation:
+
+```text
+$ specify --version
+specify 0.8.15
+
+$ specify check
+...
+Specify CLI is ready to use!
+Tip: Run 'specify self check' to verify you have the latest CLI version
+```
+
+Full output is recorded in `docs/bootstrap/audit-remediation.md` (Codex
+re-audit remediation, P2-03).
 
 `--no-git` was used because this repository already has its own Git history;
 Spec Kit was not asked to reinitialize it. `--force` skipped the
@@ -71,3 +130,7 @@ explicit rule and `workflow.md` for the phase sequence.
 - `.specify/memory/constitution.md` — the constitution (canonical Spec Kit
   location).
 - `workflow.md` — the phase sequence and Phase 0 rule.
+- `scripts/check-bootstrap-prerequisites.sh` — run this to check whether
+  `specify` (and every other Phase 0 tool) is available in the current
+  environment; it reports status without failing Phase 0 CI over CLI
+  tools this repository's validation doesn't itself require.
