@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -19,9 +20,18 @@ REQUIRED_FILES = [
     ".github/dependabot.yml",
     ".github/labels.yml",
     ".github/workflows/phase0-validate.yml",
+    ".yamllint.yml",
+    ".markdownlint-cli2.jsonc",
+    "lychee.toml",
     ".codex/config.toml",
-    ".specify/constitution.md",
+    ".claude/settings.json",
+    ".specify/memory/constitution.md",
     ".specify/workflow.md",
+    ".specify/README.md",
+    ".specify/templates/constitution-template.md",
+    ".specify/templates/spec-template.md",
+    ".specify/templates/plan-template.md",
+    ".specify/templates/tasks-template.md",
     "scripts/verify-bootstrap.sh",
     "docs/bootstrap/project-charter.md",
     "docs/bootstrap/bootstrap-plan.md",
@@ -47,6 +57,12 @@ REQUIRED_FILES = [
     "docs/tools/tool-catalog.md",
     "docs/tools/tool-decision-matrix.md",
     "docs/tools/local-bootstrap-tools.md",
+    "docs/product/README.md",
+    "docs/product/discovery-templates.md",
+    "docs/product/existing-user-journey-inventory.md",
+    "docs/product/non-functional-requirements.md",
+    "docs/product/mvp-scope-prioritization.md",
+    "docs/product/customer-impact-analysis.md",
 ]
 
 REQUIRED_DIRS = [
@@ -54,6 +70,9 @@ REQUIRED_DIRS = [
     ".codex/agents",
     ".agents/skills",
     ".specify",
+    ".specify/memory",
+    ".specify/templates",
+    ".specify/scripts/bash",
     "docs/bootstrap",
     "docs/product",
     "docs/architecture",
@@ -141,6 +160,10 @@ FORBIDDEN_SUFFIXES = {
 
 FORBIDDEN_DIRS = {"src", "node_modules"}
 
+# This is a fast, narrow, five-pattern check, not comprehensive secret
+# scanning. Gitleaks (run in .github/workflows/phase0-validate.yml with its
+# default ruleset) is the authoritative scanner — see
+# docs/security/security-boundaries.md "Secret Scanning".
 SECRET_PATTERNS = [
     re.compile(r"github_pat_[A-Za-z0-9_]+"),
     re.compile(r"ghp_[A-Za-z0-9]+"),
@@ -191,6 +214,43 @@ def validate_agent_files(failures: list[str]) -> None:
                 fail(f"Agent approval boundary not explicit: {path.relative_to(ROOT)}", failures)
             if "Read-only" in text and "## File Modification\n\nNo." not in text and "## File Modification\n\nNo by default." not in text:
                 fail(f"Read-only agent file modification boundary unclear: {path.relative_to(ROOT)}", failures)
+            if base.name == "agents" and base.parent.name == ".claude":
+                # Claude Code only treats a file under .claude/agents/ as a
+                # real, technically tool-scoped subagent if it starts with
+                # YAML frontmatter declaring name/description/tools. Without
+                # this, the file is inert prose, not an enforced boundary.
+                if not text.startswith("---\n"):
+                    fail(f"Claude agent file missing YAML frontmatter (not a real subagent): {path.relative_to(ROOT)}", failures)
+                else:
+                    frontmatter_end = text.find("\n---", 4)
+                    frontmatter = text[:frontmatter_end] if frontmatter_end != -1 else text
+                    for key in ("name:", "description:", "tools:"):
+                        if key not in frontmatter:
+                            fail(f"Claude agent frontmatter missing '{key}': {path.relative_to(ROOT)}", failures)
+
+
+def validate_claude_settings(failures: list[str]) -> None:
+    path = ROOT / ".claude/settings.json"
+    if not path.is_file():
+        return  # already reported by validate_required_paths
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f".claude/settings.json is not valid JSON: {exc}", failures)
+        return
+
+    deny = data.get("permissions", {}).get("deny", [])
+    required_deny_substrings = ["--force", "merge", "reset --hard"]
+    for needle in required_deny_substrings:
+        if not any(needle in rule for rule in deny):
+            fail(
+                f".claude/settings.json permissions.deny is missing a rule covering '{needle}'",
+                failures,
+            )
+
+    pretooluse = data.get("hooks", {}).get("PreToolUse", [])
+    if not pretooluse:
+        fail(".claude/settings.json has no hooks.PreToolUse entries", failures)
 
 
 def validate_skill_files(failures: list[str]) -> None:
@@ -210,20 +270,64 @@ def validate_skill_files(failures: list[str]) -> None:
         "validate-bootstrap",
         "prepare-pr-evidence",
     }
+    # Vendor-provided Spec Kit skills (installed by `specify init` /
+    # `specify integration install`) use their own upstream schema
+    # (name/description/argument-hint/metadata frontmatter, freeform `##`
+    # sections) and are not authored by this repository. They are validated
+    # only for basic frontmatter presence, never against SKILL_SECTIONS,
+    # which is this repository's own procedure schema for its 14 authored
+    # governance skills.
     found_skills = set()
-    for path in sorted((ROOT / ".agents/skills").glob("*/SKILL.md")):
-        text = path.read_text(encoding="utf-8")
-        found_skills.add(path.parent.name)
-        if not text.startswith("---\n"):
-            fail(f"Skill missing YAML frontmatter: {path.relative_to(ROOT)}", failures)
-        if "name:" not in text or "description:" not in text:
-            fail(f"Skill frontmatter missing name/description: {path.relative_to(ROOT)}", failures)
-        for section in SKILL_SECTIONS:
-            if section not in text:
-                fail(f"Skill missing section {section}: {path.relative_to(ROOT)}", failures)
+    for base in (ROOT / ".agents/skills", ROOT / ".claude/skills"):
+        if not base.is_dir():
+            continue
+        for path in sorted(base.glob("*/SKILL.md")):
+            name = path.parent.name
+            text = path.read_text(encoding="utf-8")
+            if not text.startswith("---\n"):
+                fail(f"Skill missing YAML frontmatter: {path.relative_to(ROOT)}", failures)
+            if "name:" not in text or "description:" not in text:
+                fail(f"Skill frontmatter missing name/description: {path.relative_to(ROOT)}", failures)
+            if name.startswith("speckit-"):
+                continue
+            if base == ROOT / ".agents/skills":
+                found_skills.add(name)
+            for section in SKILL_SECTIONS:
+                if section not in text:
+                    fail(f"Skill missing section {section}: {path.relative_to(ROOT)}", failures)
     missing = sorted(required_skills - found_skills)
     for name in missing:
         fail(f"Missing required skill: .agents/skills/{name}/SKILL.md", failures)
+
+
+ADR_REQUIRED_SECTIONS = [
+    "## Metadata",
+    "## Context",
+    "## Decision",
+    "## Alternatives Considered",
+    "## Consequences",
+    "## Risks",
+    "## Validation Evidence",
+    "## Open Questions",
+]
+
+ADR_REQUIRED_FIELDS = [
+    "ADR ID",
+    "Title",
+    "Status",
+    "Date",
+    "Owners",
+    "Deciders",
+    "Related Issues",
+    "Supersedes",
+    "Superseded By",
+]
+
+ADR_VALID_STATUSES = {"Proposed", "Accepted", "Rejected", "Superseded", "Deferred"}
+
+ADR_NAME_RE = re.compile(r"^ADR-\d{4}-[a-z0-9-]+\.md$")
+
+ADR_METADATA_FIELD_RE = re.compile(r"^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$", re.MULTILINE)
 
 
 def validate_adrs(failures: list[str]) -> None:
@@ -237,14 +341,59 @@ def validate_adrs(failures: list[str]) -> None:
         "ADR-0007-testing-and-quality-gate-strategy.md",
         "ADR-0008-observability-baseline.md",
     ]
+    template = ROOT / "docs/adr/ADR-0000-template.md"
+    if not template.is_file():
+        fail("Missing ADR template: docs/adr/ADR-0000-template.md", failures)
+
     for name in expected:
         path = ROOT / "docs/adr" / name
         if not path.is_file():
             fail(f"Missing ADR placeholder: docs/adr/{name}", failures)
             continue
-        text = path.read_text(encoding="utf-8")
-        if "\n## Status\n\nProposed" not in text:
-            fail(f"ADR not in Proposed status: {path.relative_to(ROOT)}", failures)
+        _validate_one_adr(path, failures)
+
+
+def _validate_one_adr(path: Path, failures: list[str]) -> None:
+    rel = path.relative_to(ROOT)
+    if not ADR_NAME_RE.match(path.name):
+        fail(f"ADR file name does not match ADR-NNNN-slug.md: {rel}", failures)
+
+    text = path.read_text(encoding="utf-8")
+
+    for section in ADR_REQUIRED_SECTIONS:
+        if section not in text:
+            fail(f"ADR missing section {section}: {rel}", failures)
+
+    fields = {m.group(1): m.group(2) for m in ADR_METADATA_FIELD_RE.finditer(text)}
+    for field in ADR_REQUIRED_FIELDS:
+        if field not in fields:
+            fail(f"ADR missing metadata field '{field}': {rel}", failures)
+
+    status = fields.get("Status")
+    if status not in ADR_VALID_STATUSES:
+        fail(f"ADR has invalid or missing Status value ({status!r}): {rel}", failures)
+    elif status == "Proposed" and "Approval status: Proposed" not in text:
+        fail(
+            f"Proposed ADR does not visibly state its Decision is unapproved: {rel}",
+            failures,
+        )
+
+    # Non-empty content: every '## ' section must contain at least one
+    # non-blank line before the next '## ' heading.
+    lines = text.splitlines()
+    current_section = None
+    has_content = False
+    for line in lines:
+        if line.startswith("## "):
+            if current_section is not None and not has_content:
+                fail(f"ADR section '{current_section}' is empty: {rel}", failures)
+            current_section = line.strip()
+            has_content = False
+            continue
+        if current_section is not None and line.strip():
+            has_content = True
+    if current_section is not None and not has_content:
+        fail(f"ADR section '{current_section}' is empty: {rel}", failures)
 
 
 def validate_issue_forms(failures: list[str]) -> None:
@@ -322,17 +471,69 @@ def validate_links(failures: list[str]) -> None:
                 fail(f"Broken relative link in {path.relative_to(ROOT)}: {target}", failures)
 
 
+def validate_workflow_safety(failures: list[str]) -> None:
+    workflows_dir = ROOT / ".github/workflows"
+    if not workflows_dir.is_dir():
+        return
+    for path in sorted(workflows_dir.glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        if "pull_request_target" in text:
+            fail(
+                f"{path.relative_to(ROOT)} uses pull_request_target, which runs with "
+                "privileged credentials against untrusted PR code and is forbidden here",
+                failures,
+            )
+        if not re.search(r"^permissions:\s*$", text, re.MULTILINE):
+            fail(
+                f"{path.relative_to(ROOT)} does not declare an explicit top-level "
+                "'permissions:' block (least-privilege requirement)",
+                failures,
+            )
+
+
+def validate_tool_catalog_consistency(failures: list[str]) -> None:
+    catalog = ROOT / "docs/tools/tool-catalog.md"
+    matrix = ROOT / "docs/tools/tool-decision-matrix.md"
+    if not catalog.is_file() or not matrix.is_file():
+        return  # already reported by validate_required_paths
+
+    catalog_text = catalog.read_text(encoding="utf-8")
+    matrix_text = matrix.read_text(encoding="utf-8")
+
+    # Regression guard for a real drift found during audit remediation:
+    # Git worktrees is a built-in Git capability, not a separately
+    # installed tool. It must not appear as its own bullet in the catalog,
+    # and the matrix must classify it as needing no install.
+    if re.search(r"^- Git worktrees\s*$", catalog_text, re.MULTILINE):
+        fail(
+            "docs/tools/tool-catalog.md lists 'Git worktrees' as a separate "
+            "install item; it is part of Git (see docs/tools/tool-decision-matrix.md)",
+            failures,
+        )
+    matrix_row = re.search(r"^\|\s*Git worktrees\s*\|.*\|\s*$", matrix_text, re.MULTILINE)
+    if not matrix_row:
+        fail("docs/tools/tool-decision-matrix.md is missing a 'Git worktrees' row", failures)
+    elif "no install" not in matrix_row.group(0).lower():
+        fail(
+            "docs/tools/tool-decision-matrix.md 'Git worktrees' row must state no install is needed",
+            failures,
+        )
+
+
 def main() -> int:
     failures: list[str] = []
     validate_required_paths(failures)
     validate_forbidden_files(failures)
     validate_agent_files(failures)
+    validate_claude_settings(failures)
     validate_skill_files(failures)
     validate_adrs(failures)
     validate_issue_forms(failures)
     validate_scripts_exist(failures)
     validate_secrets(failures)
     validate_links(failures)
+    validate_workflow_safety(failures)
+    validate_tool_catalog_consistency(failures)
     if failures:
         print("Phase 0 validation failed:")
         for item in failures:
