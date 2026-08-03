@@ -1,0 +1,35 @@
+# NOTE: this file is NOT read by the Codex CLI.
+#
+# Confirmed against the installed Codex CLI (codex-cli 0.114.0): every
+# `-c`/`-p` reference in `codex --help` states configuration is "loaded from
+# `~/.codex/config.toml`" (the operator's global, per-machine config) plus
+# CLI flags at invocation time. Codex has no discovery mechanism for a
+# project-local `.codex/config.toml`. The previous version of this file used
+# invented keys ([implementation], [review], [scope].allowed_roots,
+# [evidence]) that were never valid Codex settings and were never enforced by
+# anything — see docs/bootstrap/audit-remediation.md (P1-2) for the
+# investigation that found this.
+#
+# This file now exists purely as a human-readable reference: the exact,
+# real, confirmed-valid Codex CLI settings a human operator should apply
+# when running Codex for each agent role in this repository. Copy the
+# relevant [profiles.*] block below into your own ~/.codex/config.toml, then
+# invoke with `codex --profile <name>` (or pass the two flags directly).
+#
+# Policy intent that Codex itself cannot enforce (no self-merge, no
+# self-approval, independent review required, human merge required, repo
+# scope limited to bootstrap files) is documented once, in
+# docs/agents/operating-model.md and docs/agents/responsibility-matrix.md —
+# not duplicated here as fake configuration.
+
+[profiles.hr-platform-bootstrap-engineer]
+# For .codex/agents/bootstrap-engineer.md. Confirmed valid values via
+# `codex --help`.
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+
+[profiles.hr-platform-independent-verification-reviewer]
+# For .codex/agents/independent-verification-reviewer.md. Confirmed valid
+# values via `codex --help`.
+sandbox_mode = "read-only"
+approval_policy = "untrusted"

@@ -1,0 +1,40 @@
+labels:
+  - name: epic
+    color: "5319e7"
+    description: Large initiative spanning multiple deliverables
+  - name: user-story
+    color: "1d76db"
+    description: Validated user-facing behavior ready for specification or implementation
+  - name: technical-task
+    color: "0e8a16"
+    description: Concrete engineering task
+  - name: discovery-spike
+    color: "fbca04"
+    description: Time-boxed discovery work
+  - name: bug
+    color: "d73a4a"
+    description: Confirmed defect
+  - name: architecture-decision
+    color: "0052cc"
+    description: Architecture decision work
+  - name: risk
+    color: "b60205"
+    description: Risk requiring mitigation or monitoring
+  - name: security-finding
+    color: "d93f0b"
+    description: Security issue or weakness
+  - name: performance-finding
+    color: "c2e0c6"
+    description: Performance issue or constraint
+  - name: device-compatibility
+    color: "bfdadc"
+    description: Attendance device compatibility finding
+  - name: phase-0
+    color: "ededed"
+    description: Engineering bootstrap scope
+  - name: blocked
+    color: "000000"
+    description: Work blocked by an external dependency or missing decision
+  - name: adr
+    color: "0366d6"
+    description: Architecture decision record tracking

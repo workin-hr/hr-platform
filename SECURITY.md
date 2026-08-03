@@ -1,23 +1,22 @@
 # Security Policy
 
-## Phase 0 Boundaries
+## Phase 0 Security Boundaries
 
 This repository must not contain:
 
 - production credentials
+- production data
 - database dumps
-- customer biometric data
+- biometric records
 - private keys
 - unrestricted organization tokens
 
+## Agent Credential Rules
+
+- Agents use least-privilege credentials only.
+- Read-only agents must remain read-only.
+- Agents must not access production systems, databases, or customer biometric data.
+
 ## Reporting
 
-Do not report vulnerabilities through public issues if they expose sensitive details.
-
-Use a private maintainer channel or GitHub private vulnerability reporting once enabled.
-
-## Agent Limits
-
-- Agents must use least-privilege tokens.
-- Read-only agents must not be upgraded silently to write access.
-- No agent may access production systems during Phase 0.
+Report sensitive findings through a private maintainer-controlled channel, not a public issue, when exposure would create additional risk.

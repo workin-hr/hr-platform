@@ -1,0 +1,69 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git push origin +*)",
+      "Bash(git merge*)",
+      "Bash(git reset --hard*)",
+      "Bash(git branch -D*)",
+      "Bash(git branch --delete --force*)",
+      "Bash(git clean -f*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./.gh-token)",
+      "Read(**/*.pem)",
+      "Read(**/*credentials*)",
+      "Read(**/*secret*)",
+      "Read(**/*.key)",
+      "Read(**/id_rsa*)",
+      "Read(**/id_ed25519*)",
+      "Read(**/*.p12)",
+      "Read(**/*.pfx)",
+      "Read(**/*.keystore)",
+      "Read(**/*.jks)",
+      "Edit(./.env)",
+      "Edit(./.env.*)",
+      "Edit(./.gh-token)",
+      "Edit(**/*credentials*)",
+      "Edit(**/*secret*)",
+      "Edit(**/*.key)",
+      "Edit(**/id_rsa*)",
+      "Edit(**/id_ed25519*)",
+      "Edit(**/*.p12)",
+      "Edit(**/*.pfx)",
+      "Edit(**/*.keystore)",
+      "Edit(**/*.jks)"
+    ],
+    "ask": [
+      "Bash(git push*)",
+      "Bash(gh pr merge*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/git_guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/edit_audit_log.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

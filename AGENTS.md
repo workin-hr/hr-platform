@@ -1,61 +1,40 @@
-# Agent Rules For `hr-platform`
+# AGENTS Navigation
 
-## Repository Mode
+## Read First
 
-This repository is in Phase 0 bootstrap mode.
+- Bootstrap plan: [docs/bootstrap/bootstrap-plan.md](docs/bootstrap/bootstrap-plan.md)
+- Project charter: [docs/bootstrap/project-charter.md](docs/bootstrap/project-charter.md)
+- Open questions: [docs/bootstrap/open-questions.md](docs/bootstrap/open-questions.md)
+- Risk register: [docs/bootstrap/risk-register.md](docs/bootstrap/risk-register.md)
 
-- Bootstrap documentation, governance, and validation work is allowed.
-- Application implementation is forbidden.
-- Empty component boundaries with `README.md` files are allowed.
+## Domain Maps
 
-## Sources Of Truth
+- Product specifications: [specs](specs)
+- Architecture documentation: [docs/architecture](docs/architecture)
+- ADRs: [docs/adr](docs/adr)
+- Security rules: [docs/security](docs/security)
+- Testing strategy: [docs/testing](docs/testing)
+- Legacy evidence: [docs/legacy](docs/legacy)
+- API contracts and compatibility: [contracts](contracts), [docs/api](docs/api)
+- Migration documents: [docs/migration](docs/migration)
+- Device compatibility: [docs/devices](docs/devices)
+- Operational runbooks: [docs/operations](docs/operations)
 
-- Repository files are authoritative.
-- Approved bootstrap documents under `docs/bootstrap/` are authoritative for Phase 0 execution.
-- Chat history is not a source of truth once information is written into repository files.
+## Mandatory Workflow
 
-## Global Agent Boundaries
+`Issue -> Specification -> Clarification -> Architecture and test impact -> Human approval -> Isolated implementation branch -> Automated verification -> Independent review -> Human merge`
 
-- No agent may write directly to `main`.
-- No agent may approve its own work.
-- Reviewing agents must remain read-only.
-- Planning agents must not silently become implementation agents.
-- No agent may access production systems or production data.
-- No agent may add secrets, credentials, or unrestricted organization tokens to the repository.
+## Global Rules
 
-## Allowed Bootstrap Work
+- Repository files are sources of truth. Chat history is not.
+- No direct writes to `main`.
+- Planning agents are read-only unless explicitly assigned a documentation task.
+- Review agents are always read-only.
+- Implementers cannot approve or merge their own work.
+- No agent may access production databases, biometric data, private keys, or unrestricted organization tokens.
+- No agent may silently resolve unclear requirements or make irreversible architecture decisions.
 
-- repository structure and documentation
-- agent and skill definitions
-- GitHub issue and pull request templates
-- validation scripts and lightweight CI
-- ADR, architecture, testing, and discovery templates
-- GitHub setup instructions for settings that cannot be stored as files
-
-## Forbidden Work
-
-- Spring Boot, Java, Maven, or Gradle application scaffolding
-- Next.js, Node, or TypeScript application scaffolding
-- Flutter application scaffolding
-- .NET gateway scaffolding
-- SQL migrations or schema definitions
-- Dockerized application stacks
-- Kubernetes manifests
-- placeholder business logic or fake production architecture
-
-## Required Read Order For Implementation Agents
-
-1. `docs/bootstrap/approved-bootstrap-plan.md`
-2. `docs/bootstrap/decisions.md`
-3. `docs/bootstrap/open-questions.md`
-4. `docs/bootstrap/risks.md`
-
-## Escalation
-
-Escalate when:
-
-- a task requires changing approved Phase 0 scope
-- a new tool needs installation
-- a repository or organization setting cannot be represented safely in files
-- legacy behavior is assumed without evidence
-- an agent needs broader permissions than currently documented
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->

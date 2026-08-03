@@ -1,0 +1,8 @@
+# Vendor-provided Spec Kit skill files are not authored by this repository;
+# exclude them from link checking the same way markdownlint-cli2 does (see
+# .markdownlint-cli2.jsonc).
+exclude_path = [
+  "\\.(agents|claude)/skills/speckit-.*/SKILL\\.md$",
+]
+offline = true
+no_progress = true

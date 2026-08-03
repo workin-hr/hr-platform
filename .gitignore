@@ -2,6 +2,10 @@
 .idea/
 .vscode/
 .specify-cache/
+.gh-token
 .env
 .env.*
 *.log
+*.pem
+__pycache__/
+*.pyc

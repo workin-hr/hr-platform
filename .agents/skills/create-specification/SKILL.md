@@ -1,27 +1,36 @@
 ---
 name: create-specification
-description: Use when creating a structured specification under specs using confirmed facts, open questions, acceptance criteria, and linked evidence.
+description: Use when creating or refining a repository-backed specification with acceptance criteria, evidence, and unresolved questions.
 ---
 
 # Create Specification
 
-## Trigger
+## Description And Trigger
 
-Use when a repository-backed specification needs to be created or refined.
+Use when a specification under `specs/` or related planning documents needs to be created or updated.
 
 ## Inputs
 
 - discovery evidence
-- relevant ADRs
+- related ADRs
 - approved scope
 
-## Workflow
+## Preconditions
+
+- enough discovery exists to describe the problem and acceptance criteria honestly
+
+## Ordered Workflow
 
 1. Define problem, actors, constraints, and acceptance criteria.
 2. Separate facts, assumptions, and open questions.
 3. Link the specification to evidence and related ADRs.
 
-## Required Evidence
+## Required Outputs
+
+- specification draft or update
+- linked evidence and dependencies
+
+## Evidence
 
 - supporting documents
 - linked risks and dependencies
@@ -32,6 +41,15 @@ Use when a repository-backed specification needs to be created or refined.
 - assumptions are isolated
 - dependencies are visible
 
-## Failure And Escalation
+## Failure Conditions
 
-Escalate if the requested specification depends on unresolved product or architecture decisions.
+- the specification hides unresolved questions
+
+## Escalation Conditions
+
+Escalate if the specification depends on unresolved product or architecture decisions.
+
+## Forbidden Behavior
+
+- writing fake certainty
+- bypassing human approval gates

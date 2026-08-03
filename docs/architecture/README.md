@@ -1,11 +1,14 @@
 # Architecture Documentation
 
-Use this area for:
+Architecture guidance starts from evidence, constraints, and approved ADRs.
 
-- system context and boundaries
-- C4 diagrams
-- quality attributes
-- architecture constraints
-- target-state and transition-state models
+Key documents in this directory:
 
-Prefer evidence-backed decisions and link every accepted decision to an ADR.
+- `architecture-principles.md`
+- `quality-attributes.md`
+- `system-context.md`
+- `container-view.md`
+- `module-boundaries.md`
+- `integration-principles.md`
+- `data-principles.md`
+- `architecture-review-checklist.md`

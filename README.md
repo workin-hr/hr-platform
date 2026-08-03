@@ -1,37 +1,43 @@
 # HR Platform
 
-This repository is the Phase 0 engineering bootstrap for the new `workin-hr/hr-platform` system.
+`hr-platform` is the Phase 0 engineering bootstrap repository for a production-grade HR platform modernization effort.
 
-## Phase 0 Scope
+## Current Purpose
 
-This repository currently contains:
+This repository is the source of truth for:
 
-- governance and contribution standards
-- bootstrap planning documents
-- architecture, testing, security, and discovery templates
-- agent definitions and reusable skills
-- empty future component boundaries only
-- lightweight validation for repository structure and Phase 0 guardrails
+- bootstrap governance
+- planning and architecture documentation
+- agent operating rules
+- reusable procedural skills
+- specification workflow
+- backlog and GitHub governance guidance
+- validation and quality controls
 
-This repository does not currently contain:
+## Phase 0 Boundaries
+
+Phase 0 allows:
+
+- repository structure
+- documentation
+- specifications
+- ADR placeholders
+- issue and pull-request templates
+- validation scripts and CI
+- empty future component boundaries with `README.md`
+
+Phase 0 forbids:
 
 - Spring Boot code
 - Next.js code
-- Flutter code
-- .NET code
-- database schemas or migrations
-- infrastructure application stacks
-- business implementation
+- Flutter application code
+- .NET gateway code
+- SQL migrations
+- production configuration
+- business-domain implementation
 
-## Planned Component Boundaries
+## Working Model
 
-- `backend/`
-- `admin-web/`
-- `edge-gateway/`
-- `contracts/`
-- `infrastructure/`
-- `specs/`
-- `docs/`
-- `evidence/`
+Use the repository workflow defined in [AGENTS.md](AGENTS.md) and the bootstrap instructions under [docs/bootstrap](docs/bootstrap).
 
-Each component boundary is intentionally empty except for documentation until discovery and architecture decisions are approved.
+Human approval is required before work moves from planning into implementation.

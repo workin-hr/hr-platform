@@ -1,27 +1,36 @@
 ---
 name: create-project-charter
-description: Use when drafting or updating product and bootstrap charter documents for hr-platform using evidence-backed scope and constraints.
+description: Use when drafting or updating the project charter using repository-backed scope, constraints, and evidence.
 ---
 
 # Create Project Charter
 
-## Trigger
+## Description And Trigger
 
-Use when creating or refining project charter material under `docs/product/` or `docs/bootstrap/`.
+Use when creating or refining project charter material under `docs/bootstrap/` or `docs/product/`.
 
 ## Inputs
 
 - human objectives
-- approved bootstrap plan
+- bootstrap documents
 - discovery evidence
 
-## Workflow
+## Preconditions
+
+- repository-backed source material exists for the charter
+
+## Ordered Workflow
 
 1. Separate confirmed facts from assumptions.
 2. Capture mission, scope, constraints, stakeholders, and success criteria.
 3. Link unresolved items to open questions or backlog entries.
 
-## Required Evidence
+## Required Outputs
+
+- charter document or update
+- explicit assumption list
+
+## Evidence
 
 - cited source documents
 - explicit assumption list
@@ -32,6 +41,15 @@ Use when creating or refining project charter material under `docs/product/` or 
 - success criteria are visible
 - open questions are listed separately
 
-## Failure And Escalation
+## Failure Conditions
+
+- the charter asserts unsupported facts
+
+## Escalation Conditions
 
 Escalate if the charter requires business decisions not present in repository evidence.
+
+## Forbidden Behavior
+
+- inventing stakeholder decisions
+- hiding scope exclusions

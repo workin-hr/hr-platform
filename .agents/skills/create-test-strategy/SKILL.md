@@ -5,7 +5,7 @@ description: Use when producing or updating a layered test strategy covering cor
 
 # Create Test Strategy
 
-## Trigger
+## Description And Trigger
 
 Use when defining or refining repository-level testing strategy documents.
 
@@ -15,13 +15,22 @@ Use when defining or refining repository-level testing strategy documents.
 - architecture assumptions
 - known system risks
 
-## Workflow
+## Preconditions
+
+- relevant system risks or quality attributes are known
+
+## Ordered Workflow
 
 1. Map test layers to system risks.
 2. Distinguish what is required now from what is deferred.
 3. Define evidence expected for each layer.
 
-## Required Evidence
+## Required Outputs
+
+- strategy document or update
+- test-layer-to-risk mapping
+
+## Evidence
 
 - risk mapping
 - layer definitions
@@ -32,6 +41,15 @@ Use when defining or refining repository-level testing strategy documents.
 - unit, integration, contract, migration, E2E, security, performance, and resilience layers are addressed
 - assumptions are explicit
 
-## Failure And Escalation
+## Failure Conditions
+
+- the strategy ignores a major risk class
+
+## Escalation Conditions
 
 Escalate when strategy depends on unresolved architecture or delivery decisions.
+
+## Forbidden Behavior
+
+- claiming every expensive test runs on every commit
+- hiding deferred quality decisions

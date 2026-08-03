@@ -1,22 +1,23 @@
 # Open Questions
 
-## Organization And GitHub
+## GitHub Governance
 
-- Should `hr-flutter` be created as a new repository under `workin-hr`, or should an existing repository be renamed or transferred?
-- Which GitHub plan features are available for organization-level issue types, custom fields, and rulesets?
-- Who will be the initial human maintainers for `platform-owners`, `agents-readonly`, and `agents-write` teams?
-
-## Tooling
-
-- Will `specify-cli` be installed during bootstrap, or should the repository carry only integration instructions until the tool is available?
-- Will GitHub MCP be configured through human-managed credentials during Phase 0, or deferred to discovery?
+- Which organization-level GitHub Project, issue type, and ruleset features are available on the current plan?
+- Which human maintainers will own `platform-owners`, `backend`, `frontend`, `mobile`, `gateway`, `qa`, `agents-readonly`, and `agents-write`?
+- Should `hr-flutter` be created as a new organization repository or should an existing repository be renamed or transferred?
 
 ## Legacy Discovery
 
-- What repositories, branches, and deployment artifacts represent the actual legacy production behavior?
-- Is the current PHP admin frontend and API backend split across one repository or multiple repositories?
+- Which repositories and branches accurately represent current production behavior?
+- Are there deployment-specific PHP behaviors not represented clearly in version control?
+- Which stored procedures, triggers, or cron-driven jobs are business-critical?
 
 ## Flutter Compatibility
 
-- What contract-generation approach currently exists, if any?
-- Are mobile and desktop released from the same Flutter repository and branch strategy?
+- What request and response contracts are relied on by current mobile and desktop releases?
+- Is there any existing client generation process, or are contracts hand-maintained?
+
+## Tooling
+
+- Will `specify-cli` be installed during Phase 0 or deferred until human review approves it?
+- Will GitHub MCP be enabled read-only during discovery or deferred entirely?
