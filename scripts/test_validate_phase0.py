@@ -24,6 +24,7 @@ scripts/validate_phase0.py (invoked as a subprocess check), and
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -46,6 +47,111 @@ def check(condition: bool, description: str) -> None:
 
 def make_root() -> Path:
     return Path(tempfile.mkdtemp(prefix="validate-phase0-test-"))
+
+
+# ---------------------------------------------------------------------------
+# validate_claude_settings secret-pattern coverage (HK-3)
+# ---------------------------------------------------------------------------
+
+VALID_DENY_RULES = [
+    "Bash(git push --force*)",
+    "Bash(git merge*)",
+    "Bash(git reset --hard*)",
+    "Read(**/*credentials*)",
+    "Read(**/*secret*)",
+    "Read(**/*.key)",
+    "Read(**/id_rsa*)",
+    "Read(**/id_ed25519*)",
+    "Read(**/*.p12)",
+    "Read(**/*.pfx)",
+    "Read(**/*.keystore)",
+    "Read(**/*.jks)",
+    "Edit(**/*credentials*)",
+    "Edit(**/*secret*)",
+    "Edit(**/*.key)",
+    "Edit(**/id_rsa*)",
+    "Edit(**/id_ed25519*)",
+    "Edit(**/*.p12)",
+    "Edit(**/*.pfx)",
+    "Edit(**/*.keystore)",
+    "Edit(**/*.jks)",
+]
+
+
+def write_valid_settings(root: Path, deny_rules: list[str]) -> None:
+    (root / ".claude").mkdir(parents=True, exist_ok=True)
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    (root / "scripts/git_guard.py").write_text("# fixture\n", encoding="utf-8")
+    (root / "scripts/edit_audit_log.py").write_text("# fixture\n", encoding="utf-8")
+
+    settings = {
+        "permissions": {"deny": deny_rules},
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [{"type": "command", "command": "python3 scripts/git_guard.py"}],
+                }
+            ],
+            "PostToolUse": [
+                {
+                    "matcher": "Edit|Write|NotebookEdit",
+                    "hooks": [{"type": "command", "command": "python3 scripts/edit_audit_log.py"}],
+                }
+            ],
+        },
+    }
+    (root / ".claude/settings.json").write_text(json.dumps(settings), encoding="utf-8")
+
+
+def test_settings_with_all_secret_patterns_passes() -> None:
+    root = make_root()
+    try:
+        write_valid_settings(root, list(VALID_DENY_RULES))
+        failures: list[str] = []
+        v.validate_claude_settings(failures, root=root)
+        check(failures == [], f"settings.json with every required secret-deny pattern passes (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_settings_missing_a_secret_pattern_fails() -> None:
+    root = make_root()
+    try:
+        incomplete = [rule for rule in VALID_DENY_RULES if "id_rsa" not in rule]
+        write_valid_settings(root, incomplete)
+        failures: list[str] = []
+        v.validate_claude_settings(failures, root=root)
+        check(
+            any("id_rsa" in f for f in failures),
+            f"settings.json missing the id_rsa* deny pattern fails, naming it (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_settings_missing_edit_side_of_a_pattern_fails() -> None:
+    """Read-only coverage of a secret pattern is not enough — Edit must be
+    covered too, or the file can still be overwritten."""
+    root = make_root()
+    try:
+        incomplete = [rule for rule in VALID_DENY_RULES if rule != "Edit(**/*.keystore)"]
+        write_valid_settings(root, incomplete)
+        failures: list[str] = []
+        v.validate_claude_settings(failures, root=root)
+        check(
+            any("Edit(...) rule" in f and "*.keystore" in f for f in failures),
+            f"settings.json with Read but not Edit coverage for a pattern fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_real_repository_settings_still_pass() -> None:
+    """Sanity check against the real repository's .claude/settings.json."""
+    failures: list[str] = []
+    v.validate_claude_settings(failures)  # default root = real repo
+    check(failures == [], f"the real repository's .claude/settings.json still passes (failures={failures})")
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +620,10 @@ def test_real_repository_skill_catalog_still_passes() -> None:
 
 
 def main() -> int:
+    test_settings_with_all_secret_patterns_passes()
+    test_settings_missing_a_secret_pattern_fails()
+    test_settings_missing_edit_side_of_a_pattern_fails()
+    test_real_repository_settings_still_pass()
     test_codex_preflight_no_args_fails_with_usage()
     test_codex_preflight_bootstrap_engineer_flags()
     test_codex_preflight_independent_verification_reviewer_flags()

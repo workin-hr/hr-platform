@@ -50,8 +50,16 @@ strength. Do not read any of them as stronger than they are — see
    `scripts/verify-bootstrap.sh`. The static
    `permissions.deny` literal patterns remain as a coarse, secondary
    backstop, not the primary mechanism. `.claude/settings.json` also denies
-   reads of known secret file patterns for every Claude Code session in
-   this repository, regardless of which agent issues the command.
+   Read and Edit of known secret file patterns for every Claude Code
+   session in this repository, regardless of which agent issues the
+   command — `.env*`, `.gh-token`, `*.pem`, plus generic (not
+   product-specific) credential/key patterns (`*credentials*`, `*secret*`,
+   `*.key`, `id_rsa*`, `id_ed25519*`, `*.p12`, `*.pfx`, `*.keystore`,
+   `*.jks`) added ahead of discovery evidence landing under `evidence/`,
+   per CLAUDE.md's boundary against storing production credentials or
+   customer-sensitive data. Each pattern must cover both Read and Edit —
+   Read-only coverage would still leave the file overwritable —
+   regression-tested in `scripts/test_validate_phase0.py`.
 2. **Runtime-enforced (Codex), operator-applied.** Codex has no equivalent
    of Claude's per-agent tool scoping, and does not read a project-local
    `.codex/config.toml` — confirmed against the installed Codex CLI.

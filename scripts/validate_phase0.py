@@ -230,8 +230,9 @@ def validate_agent_files(failures: list[str]) -> None:
                             fail(f"Claude agent frontmatter missing '{key}': {path.relative_to(ROOT)}", failures)
 
 
-def validate_claude_settings(failures: list[str]) -> None:
-    path = ROOT / ".claude/settings.json"
+def validate_claude_settings(failures: list[str], root: Path | None = None) -> None:
+    root = root if root is not None else ROOT
+    path = root / ".claude/settings.json"
     if not path.is_file():
         return  # already reported by validate_required_paths
     try:
@@ -248,6 +249,31 @@ def validate_claude_settings(failures: list[str]) -> None:
                 f".claude/settings.json permissions.deny is missing a rule covering '{needle}'",
                 failures,
             )
+
+    # HK-3: generic (not product-specific) credential/secret filename
+    # patterns, ahead of discovery evidence landing under evidence/ — see
+    # docs/agents/operating-model.md's Read/Write permissions section.
+    # Read and Edit must each be covered; a pattern present only for one
+    # tool would leave the other free to touch a matching file.
+    required_secret_pattern_fragments = [
+        "*credentials*",
+        "*secret*",
+        "*.key)",
+        "id_rsa*",
+        "id_ed25519*",
+        "*.p12",
+        "*.pfx",
+        "*.keystore",
+        "*.jks",
+    ]
+    for fragment in required_secret_pattern_fragments:
+        for tool in ("Read", "Edit"):
+            if not any(rule.startswith(f"{tool}(") and fragment in rule for rule in deny):
+                fail(
+                    f".claude/settings.json permissions.deny is missing a {tool}(...) rule "
+                    f"covering '{fragment}'",
+                    failures,
+                )
 
     pretooluse = data.get("hooks", {}).get("PreToolUse", [])
     if not pretooluse:
@@ -271,7 +297,7 @@ def validate_claude_settings(failures: list[str]) -> None:
             failures,
         )
 
-    guard_script = ROOT / "scripts/git_guard.py"
+    guard_script = root / "scripts/git_guard.py"
     if not guard_script.is_file():
         fail("Missing scripts/git_guard.py, required by the Claude PreToolUse hook", failures)
 
@@ -293,7 +319,7 @@ def validate_claude_settings(failures: list[str]) -> None:
             failures,
         )
 
-    audit_script = ROOT / "scripts/edit_audit_log.py"
+    audit_script = root / "scripts/edit_audit_log.py"
     if not audit_script.is_file():
         fail("Missing scripts/edit_audit_log.py, required by the Claude PostToolUse hook", failures)
 
