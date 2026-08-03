@@ -462,6 +462,44 @@ def validate_dependabot_ecosystem_coverage(failures: list[str], root: Path | Non
                 )
 
 
+# Matches a backtick-quoted path that climbs at least one directory above
+# where it's written (`../foo`, `../../foo`, ...). Deliberately narrow: it
+# targets exactly the bug class found once already
+# (docs/bootstrap/execution-checklist.md referencing paths that escaped the
+# repository root via ../../../), not general link validity — that overlap
+# is validate_links()'s job for real [text](path) markdown links.
+BACKTICK_DOTDOT_PATH_RE = re.compile(r"`((?:\.\./)+[^`\s]*)`")
+
+
+def validate_no_repo_root_escaping_paths(failures: list[str], root: Path | None = None) -> None:
+    """A backtick-quoted relative path under docs/ that climbs above the
+    repository root resolves outside this Git repository for anyone who
+    clones it on its own — even when the target happens to exist on one
+    particular machine's local multi-repo layout. Found once in
+    docs/bootstrap/execution-checklist.md; this generalizes the fix into a
+    standing check instead of a one-off patch."""
+    root = root if root is not None else ROOT
+    docs_dir = root / "docs"
+    if not docs_dir.is_dir():
+        return
+    resolved_root = root.resolve()
+    for path in sorted(docs_dir.rglob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        for match in BACKTICK_DOTDOT_PATH_RE.finditer(text):
+            candidate = match.group(1)
+            resolved = (path.parent / candidate).resolve()
+            try:
+                resolved.relative_to(resolved_root)
+            except ValueError:
+                line_no = text.count("\n", 0, match.start()) + 1
+                fail(
+                    f"{path.relative_to(root)}:{line_no} references `{candidate}`, which resolves "
+                    f"outside the repository root ({resolved}) — anyone cloning this repository "
+                    "on its own will not have that path",
+                    failures,
+                )
+
+
 def validate_skill_catalog_consistency(failures: list[str], root: Path | None = None) -> None:
     """docs/agents/skill-catalog.md hand-maintains a list of skill names —
     exactly the kind of filesystem mirror that drifts silently unless
@@ -870,6 +908,7 @@ def main() -> int:
     validate_skill_catalog_consistency(failures)
     validate_codeowners_component_coverage(failures)
     validate_dependabot_ecosystem_coverage(failures)
+    validate_no_repo_root_escaping_paths(failures)
     validate_adrs(failures)
     validate_issue_forms(failures)
     validate_scripts_exist(failures)

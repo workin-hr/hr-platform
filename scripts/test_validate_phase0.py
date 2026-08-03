@@ -45,6 +45,72 @@ def make_root() -> Path:
 
 
 # ---------------------------------------------------------------------------
+# validate_no_repo_root_escaping_paths (DC-2)
+# ---------------------------------------------------------------------------
+
+
+def test_in_repo_relative_path_passes() -> None:
+    root = make_root()
+    try:
+        (root / "docs/bootstrap").mkdir(parents=True)
+        (root / "docs/tools").mkdir(parents=True)
+        (root / "docs/tools/local-bootstrap-tools.md").write_text("# Tools\n", encoding="utf-8")
+        (root / "docs/bootstrap/checklist.md").write_text(
+            "Primary reference:\n\n- `../tools/local-bootstrap-tools.md`\n", encoding="utf-8"
+        )
+
+        failures: list[str] = []
+        v.validate_no_repo_root_escaping_paths(failures, root=root)
+        check(failures == [], f"a relative path that resolves inside the repo passes (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_root_escaping_path_fails() -> None:
+    root = make_root()
+    try:
+        (root / "docs/bootstrap").mkdir(parents=True)
+        (root / "docs/bootstrap/checklist.md").write_text(
+            "Primary references:\n\n- `../../../.github/IMPLEMENTATION_CHECKLIST.md`\n",
+            encoding="utf-8",
+        )
+
+        failures: list[str] = []
+        v.validate_no_repo_root_escaping_paths(failures, root=root)
+        check(
+            any("resolves outside the repository root" in f for f in failures),
+            f"a path escaping the repo root via ../../../ fails, naming the file and line (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_external_url_is_not_flagged() -> None:
+    root = make_root()
+    try:
+        (root / "docs/bootstrap").mkdir(parents=True)
+        (root / "docs/bootstrap/checklist.md").write_text(
+            "See `https://github.com/workin-hr/hr-platform` for the repository.\n",
+            encoding="utf-8",
+        )
+
+        failures: list[str] = []
+        v.validate_no_repo_root_escaping_paths(failures, root=root)
+        check(failures == [], f"a genuine external URL in backticks is never flagged (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_real_repository_has_no_root_escaping_paths() -> None:
+    """Sanity check against the real repository: the one instance of this
+    bug (docs/bootstrap/execution-checklist.md) has since been corrected in
+    the working tree, so this must currently pass."""
+    failures: list[str] = []
+    v.validate_no_repo_root_escaping_paths(failures)  # default root = real repo
+    check(failures == [], f"the real repository has no root-escaping backtick paths under docs/ (failures={failures})")
+
+
+# ---------------------------------------------------------------------------
 # validate_dependabot_ecosystem_coverage (GH-3)
 # ---------------------------------------------------------------------------
 
@@ -334,6 +400,10 @@ def test_real_repository_skill_catalog_still_passes() -> None:
 
 
 def main() -> int:
+    test_in_repo_relative_path_passes()
+    test_root_escaping_path_fails()
+    test_external_url_is_not_flagged()
+    test_real_repository_has_no_root_escaping_paths()
     test_no_manifest_is_inert()
     test_manifest_without_matching_ecosystem_entry_fails()
     test_manifest_with_matching_ecosystem_entry_passes()
