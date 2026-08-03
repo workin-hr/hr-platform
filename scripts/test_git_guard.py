@@ -101,6 +101,18 @@ MALFORMED_CASES = [
     "git push 'unterminated",
 ]
 
+# (command, current_branch_value_or_None_for_lookup_failure, expected_verdict)
+# Exercises the branch-aware `git commit` rule via an injected branch_getter
+# so these cases never depend on which branch this test happens to run on
+# (see git_guard.py, "Repository-state-dependent rule").
+BRANCH_CASES: list[tuple[str, str | None, str]] = [
+    ("git commit -m 'add feature'", "main", "block"),
+    ("git commit -m 'add feature'", "bootstrap/engineering-foundation", "allow"),
+    ("git commit -m 'add feature'", "", "block"),  # detached HEAD
+    ("git commit -m 'add feature'", None, "block"),  # branch lookup failed: fail closed
+    ("git commit --amend -m fix", "main", "block"),  # already blocked by the amend rule
+]
+
 
 def run_case(command: str, expected: str) -> tuple[bool, str]:
     verdict, reason = git_guard.evaluate_command(command)
@@ -116,6 +128,43 @@ def run_malformed(command: str) -> tuple[bool, str]:
     if verdict not in ("allow", "block"):
         return False, f"FAIL malformed input produced an unrecognized verdict: {command!r} -> {verdict!r}"
     return True, f"OK  malformed input handled safely and predictably: {command!r} -> {verdict} ({reason})"
+
+
+def run_branch_case(command: str, branch_value: str | None, expected: str) -> tuple[bool, str]:
+    verdict, reason = git_guard.evaluate_command(command, branch_getter=lambda: branch_value)
+    ok = verdict == expected
+    return ok, (
+        f"{'OK ' if ok else 'FAIL'} {command!r} (current_branch={branch_value!r}) -> "
+        f"{verdict} (expected {expected}): {reason}"
+    )
+
+
+def run_lazy_branch_getter_case() -> tuple[bool, str]:
+    """branch_getter must only be invoked for a non-amend `git commit`
+    segment — never for unrelated commands — since it shells out to Git."""
+
+    def explode() -> str | None:
+        raise AssertionError("branch_getter must not be called for a non-commit command")
+
+    try:
+        verdict, _ = git_guard.evaluate_command("git status", branch_getter=explode)
+    except AssertionError as exc:
+        return False, f"FAIL branch_getter laziness: {exc}"
+    ok = verdict == "allow"
+    return ok, (
+        f"{'OK ' if ok else 'FAIL'} branch_getter laziness: 'git status' -> {verdict} "
+        "(expected allow, getter never called)"
+    )
+
+
+def run_get_current_branch_type_case() -> tuple[bool, str]:
+    """Sanity check against this actual repository (a real Git working
+    tree): must return a str without raising. Does not assert the specific
+    branch name, so the suite never depends on which branch happens to be
+    checked out when tests run."""
+    branch = git_guard.get_current_branch()
+    ok = isinstance(branch, str)
+    return ok, f"{'OK ' if ok else 'FAIL'} get_current_branch() in real repo -> {branch!r} (expected a str)"
 
 
 def run_hook_subprocess_case(payload: dict, expect_exit: int) -> tuple[bool, str]:
@@ -150,6 +199,25 @@ def main() -> int:
         print(message)
         if not ok:
             failures += 1
+
+    for command, branch_value, expected in BRANCH_CASES:
+        total += 1
+        ok, message = run_branch_case(command, branch_value, expected)
+        print(message)
+        if not ok:
+            failures += 1
+
+    total += 1
+    ok, message = run_lazy_branch_getter_case()
+    print(message)
+    if not ok:
+        failures += 1
+
+    total += 1
+    ok, message = run_get_current_branch_type_case()
+    print(message)
+    if not ok:
+        failures += 1
 
     # End-to-end proof that the actual hook entry point (stdin JSON in,
     # exit code + stderr JSON out) behaves correctly, not just the library

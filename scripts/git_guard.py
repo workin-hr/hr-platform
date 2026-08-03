@@ -30,10 +30,13 @@ Design, in order:
    operations (push, merge, rebase, clean, history-rewriting commands), a
    handful of conditional rules for operations that are destructive only
    with certain flags/arguments (reset, branch/tag deletion,
-   checkout/switch/restore, commit --amend), and default-allow for
-   anything else — including ordinary commands like `add`, `fetch`,
-   `remote`, `stash`, `cherry-pick` that are not in scope for this guard
-   and must not be broken by it.
+   checkout/switch/restore, commit --amend), one rule that depends on live
+   repository state rather than only the command line (`git commit`
+   without `--amend`, blocked when the current branch is `main` or a
+   detached HEAD — see "Repository-state-dependent rule" below), and
+   default-allow for anything else — including ordinary commands like
+   `add`, `fetch`, `remote`, `stash`, `cherry-pick` that are not in scope
+   for this guard and must not be broken by it.
 7. As defense in depth against command substitution / backticks hiding a
    dangerous invocation inside what looks like a single argument (which
    step 3's tokenizer cannot see into — a real limitation, documented
@@ -55,6 +58,26 @@ reading stdin) and an importable library for the regression tests in
 scripts/test_git_guard.py — no test imports Claude Code or spawns a real
 hook process.
 
+## Repository-state-dependent rule
+
+`git commit` (without `--amend`, which is already always blocked) is the one
+rule in this guard that is not decided from the command line alone: it also
+looks at the current branch, fetched lazily via `git branch --show-current`
+only when a segment actually parses as a non-amend commit — not on every
+Bash call — through an injectable `branch_getter` callable so the
+regression tests never need a real Git repository or real subprocess call.
+Branch protection on `main` is otherwise only GitHub-enforced, pending
+manual setup (see docs/agents/operating-model.md, enforcement layer 4); this
+is local, tool-enforced defense in depth ahead of that, not a replacement
+for it. `main` and a detached HEAD (`git branch --show-current` returns an
+empty string) are blocked; a failure to determine the branch at all (not a
+Git repository, `git` not on `PATH`, timeout) is also blocked, fail-closed,
+rather than treated as a green light. Callers that do not pass a
+`branch_getter` at all (every pre-existing test case in
+scripts/test_git_guard.py, and any other importer of this module) keep the
+prior, branch-agnostic behavior unchanged — this is an opt-in addition, not
+a change to `evaluate_command`'s existing default behavior.
+
 ## Residual limitations (cannot be technically enforced by this guard)
 
 - Command substitution and backticks (`$(...)`, `` `...` ``) are not
@@ -72,6 +95,12 @@ hook process.
   place as an additional, independent layer — this guard does not replace
   them, it is the primary, more precise mechanism the documentation now
   describes as authoritative.
+- The `git commit` branch check runs `git branch --show-current` in this
+  hook process's own working directory. If the command under evaluation
+  changes directory first (e.g. `cd ../other-repo && git commit ...`), the
+  branch actually checked is not necessarily the branch the commit will
+  land on — the same class of blind spot already documented above for
+  command substitution, not a new one.
 """
 
 from __future__ import annotations
@@ -80,7 +109,9 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
+from typing import Callable
 
 # ---------------------------------------------------------------------------
 # Git invocation normalization
@@ -187,9 +218,17 @@ def find_git_subcommand(args: list[str]) -> tuple[str | None, list[str], bool]:
     return (None, [], False)  # bare `git` with nothing else: not mutating
 
 
-def classify_git_invocation(args: list[str]) -> tuple[str, str]:
+def classify_git_invocation(
+    args: list[str],
+    branch_getter: Callable[[], str | None] | None = None,
+) -> tuple[str, str]:
     """`args` are the tokens after the `git` executable. Returns
-    (verdict, reason) where verdict is "allow" or "block"."""
+    (verdict, reason) where verdict is "allow" or "block".
+
+    `branch_getter`, if given, is only called for a `git commit` segment
+    without `--amend` (see module docstring, "Repository-state-dependent
+    rule"). Omitting it (the default) preserves this function's prior,
+    branch-agnostic behavior for `commit` exactly as before."""
     subcommand, rest, ambiguous = find_git_subcommand(args)
     if ambiguous:
         return ("block", "ambiguous git invocation: could not confidently determine the effective subcommand")
@@ -236,7 +275,32 @@ def classify_git_invocation(args: list[str]) -> tuple[str, str]:
     if subcommand == "commit":
         if "--amend" in rest_set:
             return ("block", "git commit --amend rewrites the previous commit")
-        return ("allow", "git commit without --amend does not rewrite existing history")
+        if branch_getter is None:
+            return ("allow", "git commit without --amend does not rewrite existing history")
+        current_branch = branch_getter()
+        if current_branch is None:
+            return (
+                "block",
+                "git commit could not determine the current branch; failing closed so a "
+                "commit cannot silently land on main or an untracked detached HEAD",
+            )
+        if current_branch == "main":
+            return (
+                "block",
+                "git commit while on `main` is blocked; commit on a feature branch and "
+                "open a reviewed pull request instead",
+            )
+        if current_branch == "":
+            return (
+                "block",
+                "git commit while in a detached HEAD is blocked; the commit would not be "
+                "reachable from any branch and is easy to lose",
+            )
+        return (
+            "allow",
+            f"git commit without --amend, on branch `{current_branch}` (not main), does "
+            "not rewrite existing history",
+        )
 
     if subcommand == "reflog":
         if rest_set & {"expire", "delete"}:
@@ -328,7 +392,10 @@ class UnparsableCommand(Exception):
     pass
 
 
-def analyze_segment(segment: str) -> tuple[str, str] | None:
+def analyze_segment(
+    segment: str,
+    branch_getter: Callable[[], str | None] | None = None,
+) -> tuple[str, str] | None:
     """Returns (verdict, reason) if this segment invokes Git, else None."""
     try:
         tokens = shlex.split(segment, posix=True)
@@ -341,7 +408,7 @@ def analyze_segment(segment: str) -> tuple[str, str] | None:
         return None
     if basename_of(cmd_tokens[0]) != "git":
         return None
-    return classify_git_invocation(cmd_tokens[1:])
+    return classify_git_invocation(cmd_tokens[1:], branch_getter)
 
 
 # A heuristic, non-authoritative safety net for dangerous git subcommands
@@ -354,9 +421,16 @@ _OBFUSCATION_RE = re.compile(
 )
 
 
-def evaluate_command(raw_command: str) -> tuple[str, str]:
+def evaluate_command(
+    raw_command: str,
+    branch_getter: Callable[[], str | None] | None = None,
+) -> tuple[str, str]:
     """Top-level entry point used by both the hook and the tests. Returns
-    (verdict, reason)."""
+    (verdict, reason).
+
+    `branch_getter` is forwarded to the `git commit` branch-protection rule
+    (see module docstring). Omitting it — every pre-existing call site in
+    this module's tests — leaves that rule's prior behavior unchanged."""
     if not raw_command or not raw_command.strip():
         return ("allow", "empty command")
 
@@ -364,7 +438,7 @@ def evaluate_command(raw_command: str) -> tuple[str, str]:
         segments = split_top_level(raw_command)
         blocked_reasons = []
         for segment in segments:
-            result = analyze_segment(segment)
+            result = analyze_segment(segment, branch_getter)
             if result is not None and result[0] == "block":
                 blocked_reasons.append(result[1])
         if blocked_reasons:
@@ -415,6 +489,26 @@ def extract_command_from_hook_payload(raw_stdin: str) -> str | None:
     return None
 
 
+def get_current_branch() -> str | None:
+    """Best-effort current branch for the `git commit` branch-protection
+    rule. Returns "" for a detached HEAD, or None if it could not be
+    determined at all (not a Git repository, `git` not on `PATH`, timeout,
+    or any other failure) — the caller treats None as "unknown", not as
+    permission to proceed."""
+    try:
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
 def main() -> int:
     try:
         raw_stdin = sys.stdin.read()
@@ -427,7 +521,7 @@ def main() -> int:
         # never able to inspect — see module docstring.
         return 0
 
-    verdict, reason = evaluate_command(command)
+    verdict, reason = evaluate_command(command, branch_getter=get_current_branch)
     if verdict == "block":
         message = (
             "Blocked by scripts/git_guard.py: "
