@@ -413,6 +413,55 @@ def validate_codeowners_component_coverage(failures: list[str], root: Path | Non
             )
 
 
+# Manifest filename -> a plausible ecosystem label used only in the
+# failure message (dependabot.yml's actual required value is checked by
+# directory match, not by this label).
+MANIFEST_ECOSYSTEMS = {
+    "package.json": "npm",
+    "composer.json": "composer",
+    "pubspec.yaml": "pub",
+}
+
+DEPENDABOT_DIRECTORY_RE = re.compile(r"directory:\s*[\"']?([^\"'\n]+)[\"']?")
+
+
+def _normalize_dependabot_dir(raw: str) -> str:
+    raw = raw.strip()
+    if raw in ("", "/"):
+        return "/"
+    return "/" + raw.strip("/")
+
+
+def validate_dependabot_ecosystem_coverage(failures: list[str], root: Path | None = None) -> None:
+    """.github/dependabot.yml configures only the github-actions ecosystem
+    today — correct, since no package manifest exists anywhere in this
+    repository yet (package.json is even in FORBIDDEN_FILE_NAMES above).
+    Dormant check: once a manifest lands, dependabot.yml must have a
+    package-ecosystem entry for its directory, or that dependency surface
+    silently goes unscanned. Inert today; verified below."""
+    root = root if root is not None else ROOT
+    dependabot_path = root / ".github/dependabot.yml"
+    if not dependabot_path.is_file():
+        return  # already reported by validate_required_paths
+    dependabot_text = dependabot_path.read_text(encoding="utf-8")
+    configured_dirs = {
+        _normalize_dependabot_dir(m.group(1)) for m in DEPENDABOT_DIRECTORY_RE.finditer(dependabot_text)
+    }
+    for manifest_name, ecosystem in MANIFEST_ECOSYSTEMS.items():
+        for manifest_path in sorted(root.rglob(manifest_name)):
+            if ".git" in manifest_path.parts or "node_modules" in manifest_path.parts:
+                continue
+            rel_dir = manifest_path.parent.relative_to(root)
+            manifest_dir = _normalize_dependabot_dir("" if str(rel_dir) == "." else str(rel_dir).replace("\\", "/"))
+            if manifest_dir not in configured_dirs:
+                fail(
+                    f"{manifest_path.relative_to(root)} exists but .github/dependabot.yml has no "
+                    f"package-ecosystem entry for directory '{manifest_dir}' (expected an ecosystem "
+                    f"like '{ecosystem}')",
+                    failures,
+                )
+
+
 def validate_skill_catalog_consistency(failures: list[str], root: Path | None = None) -> None:
     """docs/agents/skill-catalog.md hand-maintains a list of skill names —
     exactly the kind of filesystem mirror that drifts silently unless
@@ -820,6 +869,7 @@ def main() -> int:
     validate_skill_files(failures)
     validate_skill_catalog_consistency(failures)
     validate_codeowners_component_coverage(failures)
+    validate_dependabot_ecosystem_coverage(failures)
     validate_adrs(failures)
     validate_issue_forms(failures)
     validate_scripts_exist(failures)

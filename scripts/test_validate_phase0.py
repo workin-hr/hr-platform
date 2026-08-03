@@ -45,6 +45,77 @@ def make_root() -> Path:
 
 
 # ---------------------------------------------------------------------------
+# validate_dependabot_ecosystem_coverage (GH-3)
+# ---------------------------------------------------------------------------
+
+
+def write_dependabot(root: Path, text: str) -> None:
+    (root / ".github").mkdir(parents=True, exist_ok=True)
+    (root / ".github/dependabot.yml").write_text(text, encoding="utf-8")
+
+
+DEPENDABOT_GITHUB_ACTIONS_ONLY = (
+    'version: 2\nupdates:\n  - package-ecosystem: "github-actions"\n    directory: "/"\n'
+    "    schedule:\n      interval: weekly\n"
+)
+
+
+def test_no_manifest_is_inert() -> None:
+    root = make_root()
+    try:
+        write_dependabot(root, DEPENDABOT_GITHUB_ACTIONS_ONLY)
+
+        failures: list[str] = []
+        v.validate_dependabot_ecosystem_coverage(failures, root=root)
+        check(failures == [], f"no manifest anywhere means no failure (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_manifest_without_matching_ecosystem_entry_fails() -> None:
+    root = make_root()
+    try:
+        write_dependabot(root, DEPENDABOT_GITHUB_ACTIONS_ONLY)
+        (root / "backend").mkdir(parents=True)
+        (root / "backend/composer.json").write_text("{}", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_dependabot_ecosystem_coverage(failures, root=root)
+        check(
+            any("composer.json" in f and "/backend" in f for f in failures),
+            f"a manifest with no matching package-ecosystem directory entry fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_manifest_with_matching_ecosystem_entry_passes() -> None:
+    root = make_root()
+    try:
+        write_dependabot(
+            root,
+            DEPENDABOT_GITHUB_ACTIONS_ONLY
+            + '  - package-ecosystem: "composer"\n    directory: "/backend"\n    schedule:\n      interval: weekly\n',
+        )
+        (root / "backend").mkdir(parents=True)
+        (root / "backend/composer.json").write_text("{}", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_dependabot_ecosystem_coverage(failures, root=root)
+        check(failures == [], f"a manifest with a matching package-ecosystem directory entry passes (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_real_repository_dependabot_coverage_still_passes() -> None:
+    """Sanity check against the real repository: no package manifest exists
+    anywhere yet, so this must be a no-op."""
+    failures: list[str] = []
+    v.validate_dependabot_ecosystem_coverage(failures)  # default root = real repo
+    check(failures == [], f"the real repository has no manifest yet, so this stays inert (failures={failures})")
+
+
+# ---------------------------------------------------------------------------
 # validate_codeowners_component_coverage (GH-2)
 # ---------------------------------------------------------------------------
 
@@ -263,6 +334,10 @@ def test_real_repository_skill_catalog_still_passes() -> None:
 
 
 def main() -> int:
+    test_no_manifest_is_inert()
+    test_manifest_without_matching_ecosystem_entry_fails()
+    test_manifest_with_matching_ecosystem_entry_passes()
+    test_real_repository_dependabot_coverage_still_passes()
     test_component_with_only_readme_is_inert()
     test_component_with_real_content_and_no_codeowners_entry_fails()
     test_component_with_real_content_and_codeowners_entry_passes()
