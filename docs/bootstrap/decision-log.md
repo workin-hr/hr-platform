@@ -123,3 +123,16 @@ certainty than the ADR it depends on.
 | Impact | `.claude/agents/solution-architect.md` and `.claude/agents/test-architect.md` Purpose sections now explicitly name observability baseline design and CI/CD pipeline/quality-gate design, respectively, as in scope. `docs/agents/responsibility-matrix.md` is unchanged — no new row, no change to either agent's tool scope or approval authority. |
 | Follow-up | None open |
 | Evidence | `.claude/agents/solution-architect.md`, `.claude/agents/test-architect.md`, this entry |
+
+## D-010: Do Not Duplicate Repository-Authored Skills Under `.claude/skills/`
+
+| Field | Value |
+|---|---|
+| Decision | The 14 repository-authored skills under `.agents/skills/` are not also copied into `.claude/skills/` for direct `/name` invocation, unlike the 9 vendor `speckit-*` skills (which `specify-cli` already installs as near-duplicate copies in both locations). |
+| Status | Accepted |
+| Owner | Repository owner (human requester), via direct instruction during this engineering-enablement session |
+| Related ADR | None — this is bootstrap tooling, not target-system architecture |
+| Reason | SK-2 in the Engineering Enablement Plan raised this as an open option. Building it would mean maintaining two copies of every skill body with no automated content-parity check — a real drift risk, and `validate_skill_files` would need a new carve-out before a thinner, non-duplicating pointer file could pass structural validation. Phase 0 has no day-to-day skill-invocation workload yet to justify that cost. |
+| Impact | `docs/agents/skill-catalog.md` records the reasoning explicitly so this reads as a considered decision, not a gap; `.claude/skills/` continues to hold only the 9 `speckit-*` skills. |
+| Follow-up | Revisit if direct `/name` invocation of these skills inside Claude Code sessions becomes valuable enough to justify building and validating a non-duplicating pointer mechanism. |
+| Evidence | `docs/agents/skill-catalog.md` ("Why The 14 Repository-Authored Skills Are Not Also Under `.claude/skills/`"), this entry |
