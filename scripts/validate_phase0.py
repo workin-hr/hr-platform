@@ -500,6 +500,43 @@ def validate_no_repo_root_escaping_paths(failures: list[str], root: Path | None 
                 )
 
 
+# scripts/*.py files intentionally exempt from the "every validator ships
+# a test sibling" rule below, with the reason recorded here rather than
+# silently allowed. Empty today — every current scripts/*.py source file
+# has a real test_*.py sibling; see TS-2 /
+# docs/bootstrap/execution-checklist.md.
+SCRIPT_TEST_SIBLING_EXEMPTIONS: dict[str, str] = {}
+
+
+def validate_script_test_siblings(failures: list[str], root: Path | None = None) -> None:
+    """This repository's strongest existing pattern is a validator/guard
+    script paired with its own fixture-based regression test
+    (git_guard.py <-> test_git_guard.py; validate_phase0.py <->
+    test_validate_phase0.py and test_adr_validation.py). Make that a rule
+    instead of a habit: every non-test scripts/*.py file must have a
+    sibling scripts/test_<name>.py, or an explicit, reasoned exemption in
+    SCRIPT_TEST_SIBLING_EXEMPTIONS above — so a new script can never
+    quietly ship with zero coverage."""
+    root = root if root is not None else ROOT
+    scripts_dir = root / "scripts"
+    if not scripts_dir.is_dir():
+        return
+    for path in sorted(scripts_dir.glob("*.py")):
+        name = path.name
+        if name.startswith("test_"):
+            continue
+        if name in SCRIPT_TEST_SIBLING_EXEMPTIONS:
+            continue
+        sibling = scripts_dir / f"test_{name}"
+        if not sibling.is_file():
+            fail(
+                f"scripts/{name} has no sibling scripts/test_{name} and is not in "
+                "SCRIPT_TEST_SIBLING_EXEMPTIONS (validate_phase0.py) — every validator/guard "
+                "script must ship with fixture-based regression tests or a recorded reason why not",
+                failures,
+            )
+
+
 def validate_skill_catalog_consistency(failures: list[str], root: Path | None = None) -> None:
     """docs/agents/skill-catalog.md hand-maintains a list of skill names —
     exactly the kind of filesystem mirror that drifts silently unless
@@ -909,6 +946,7 @@ def main() -> int:
     validate_codeowners_component_coverage(failures)
     validate_dependabot_ecosystem_coverage(failures)
     validate_no_repo_root_escaping_paths(failures)
+    validate_script_test_siblings(failures)
     validate_adrs(failures)
     validate_issue_forms(failures)
     validate_scripts_exist(failures)

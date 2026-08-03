@@ -45,6 +45,66 @@ def make_root() -> Path:
 
 
 # ---------------------------------------------------------------------------
+# validate_script_test_siblings (TS-2)
+# ---------------------------------------------------------------------------
+
+
+def test_untested_script_fails() -> None:
+    root = make_root()
+    try:
+        (root / "scripts").mkdir(parents=True)
+        (root / "scripts/some_validator.py").write_text("# does something\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_script_test_siblings(failures, root=root)
+        check(
+            any("some_validator.py" in f for f in failures),
+            f"a scripts/*.py file with no test_*.py sibling and no exemption fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_script_with_sibling_test_passes() -> None:
+    root = make_root()
+    try:
+        (root / "scripts").mkdir(parents=True)
+        (root / "scripts/some_validator.py").write_text("# does something\n", encoding="utf-8")
+        (root / "scripts/test_some_validator.py").write_text("# tests it\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_script_test_siblings(failures, root=root)
+        check(failures == [], f"a scripts/*.py file with a real test_*.py sibling passes (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_exempted_script_without_sibling_passes() -> None:
+    root = make_root()
+    try:
+        (root / "scripts").mkdir(parents=True)
+        (root / "scripts/orchestration_only.py").write_text("# no logic of its own\n", encoding="utf-8")
+
+        v.SCRIPT_TEST_SIBLING_EXEMPTIONS["orchestration_only.py"] = "test fixture exemption"
+        try:
+            failures: list[str] = []
+            v.validate_script_test_siblings(failures, root=root)
+            check(failures == [], f"an explicitly exempted script without a sibling passes (failures={failures})")
+        finally:
+            del v.SCRIPT_TEST_SIBLING_EXEMPTIONS["orchestration_only.py"]
+    finally:
+        shutil.rmtree(root)
+
+
+def test_real_repository_scripts_all_have_test_siblings() -> None:
+    """Sanity check against the real repository: git_guard.py and
+    validate_phase0.py both have test_*.py siblings today."""
+    failures: list[str] = []
+    v.validate_script_test_siblings(failures)  # default root = real repo
+    check(failures == [], f"every real scripts/*.py source file has a test sibling or exemption (failures={failures})")
+
+
+# ---------------------------------------------------------------------------
 # validate_no_repo_root_escaping_paths (DC-2)
 # ---------------------------------------------------------------------------
 
@@ -400,6 +460,10 @@ def test_real_repository_skill_catalog_still_passes() -> None:
 
 
 def main() -> int:
+    test_untested_script_fails()
+    test_script_with_sibling_test_passes()
+    test_exempted_script_without_sibling_passes()
+    test_real_repository_scripts_all_have_test_siblings()
     test_in_repo_relative_path_passes()
     test_root_escaping_path_fails()
     test_external_url_is_not_flagged()
