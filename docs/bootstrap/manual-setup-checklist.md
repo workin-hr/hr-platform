@@ -105,6 +105,15 @@ Apply the label set defined in `.github/labels.yml`.
 
 ## Branch Protection And Rulesets
 
+**Status: Deferred, not merely pending — see `docs/bootstrap/decision-log.md`
+D-013.** `workin-hr` is a GitHub Free organization and `hr-platform` is
+private; both the classic branch-protection API and the Rulesets API
+return `403: Upgrade to GitHub Pro or make this repository public` on this
+repo. The repository owner has explicitly decided neither an organization
+plan upgrade nor making the repository public is in scope. The rules below
+remain the target configuration if this is ever revisited; none of them
+are currently applied or applicable.
+
 Protect `main` with rules that:
 
 - require pull requests
@@ -126,15 +135,18 @@ Required status checks should include the bootstrap validation workflow once mer
 ## Human Approval And Merge Sequence
 
 **Status: Pending human acceptance gate.** This is a human-controlled
-GitHub process. As of this remediation, `git branch -a` and the fetched
-`origin` refs show no `main` branch exists yet, and every commit on
-`bootstrap/engineering-foundation` was authored by an automated identity —
-none of the steps below have happened yet. No step in this section may be
+GitHub process. `main` now exists and `bootstrap/engineering-foundation`
+has been pushed with an open pull request into it, but no step below has
+been evidenced as complete by a human — no step in this section may be
 marked complete by an agent; only a human owner can attest to it, with the
 evidence listed in step 9.
 
-1. A human establishes and protects `main` (see "Branch Protection And
-   Rulesets" above) — `main` does not exist in this repository yet.
+1. Branch protection on `main` is Deferred, not applied — see "Branch
+   Protection And Rulesets" above and D-013 in
+   `docs/bootstrap/decision-log.md`. This step cannot be completed as
+   originally written under the accepted GitHub Free plan limitation; the
+   temporary mitigation in R-008 (`docs/bootstrap/risk-register.md`)
+   substitutes for it.
 2. A human (or an agent, on the existing `bootstrap/engineering-foundation`
    branch, with no force push) pushes the branch to `origin`.
 3. A human opens a real GitHub pull request from

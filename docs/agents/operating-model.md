@@ -80,19 +80,26 @@ strength. Do not read any of them as stronger than they are — see
    patterns, and the presence and shape of `.claude/settings.json` on every
    push and pull request. This catches drift and missing declarations; it
    cannot observe what an agent actually did during a session.
-4. **GitHub-enforced, pending manual setup.** Branch protection on `main`
-   (required PR review, blocked direct/force pushes, required status
-   checks) is configured in GitHub itself, not in this repository's files —
-   see `docs/bootstrap/manual-setup-checklist.md`. This is what actually
-   prevents self-merge; nothing above does. Once it is applied, run
-   `scripts/check-branch-protection.sh` (requires `gh` authenticated
-   against the live organization/repository, plus `jq`) to mechanically
-   confirm it — required review count, `enforce_admins`, no force pushes,
-   and that the required status check matches the actual job id in
-   `.github/workflows/phase0-validate.yml` — rather than trusting a visual
-   read of the GitHub UI. This script cannot run without that access and
-   has not been run against the real organization; it is regression-tested
-   with fixture JSON in `scripts/test_validate_phase0.py`.
+4. **GitHub-enforced — Deferred, not merely pending.** Branch protection on
+   `main` (required PR review, blocked direct/force pushes, required status
+   checks) would be configured in GitHub itself, not in this repository's
+   files — see `docs/bootstrap/manual-setup-checklist.md`. As of
+   `docs/bootstrap/decision-log.md` D-013, this is an explicitly accepted
+   plan limitation, not a "not yet configured" gap: `workin-hr` is a GitHub
+   Free organization and `hr-platform` is private, so both the classic
+   branch-protection API and the Rulesets API return `403` on this repo,
+   and the repository owner has decided neither an organization plan
+   upgrade nor making the repository public is in scope. Nothing in this
+   layer currently prevents self-merge, force push, or a direct push to
+   `main` at the platform level — see R-008 in
+   `docs/bootstrap/risk-register.md` for the resulting risk and its
+   temporary, non-platform-enforced mitigation. `scripts/check-branch-protection.sh`
+   (GH-1) remains built and regression-tested but pending indefinitely
+   under this constraint — requires `gh` authenticated against the live
+   organization/repository, plus `jq`, and would mechanically confirm
+   required review count, `enforce_admins`, no force pushes, and that the
+   required status check matches the actual job id in
+   `.github/workflows/phase0-validate.yml`, if this is ever revisited.
 5. **Human procedural controls.** "Read-only unless a human explicitly
    assigns documentation work," "no agent may approve or merge its own
    work," and "escalate when evidence is missing" depend on a human

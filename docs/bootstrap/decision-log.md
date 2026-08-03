@@ -162,3 +162,16 @@ certainty than the ADR it depends on.
 | Impact | New document only; no code or CI behavior changed. |
 | Follow-up | Decide, per trigger, whether it should become a real dormant `scripts/validate_phase0.py` check (mirroring GH-2/GH-3) or stay a human review-checklist item — left as this document's own Open Question rather than decided unilaterally here. Also revisit the "differential PHP-versus-Java" row specifically once a backend-language ADR exists (Accepted or newly Proposed) that can be cited in place of "None." |
 | Evidence | `docs/testing/test-layer-activation.md`, this entry |
+
+## D-013: Defer H1 Branch-Protection Enforcement (GitHub Free Plan Limitation)
+
+| Field | Value |
+|---|---|
+| Decision | H1 branch-protection enforcement on `main` is explicitly Deferred, not Completed. The `workin-hr` organization will not be upgraded from GitHub Free, and `hr-platform` will not be made public, in order to unblock it. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | None — this is bootstrap/GitHub-governance tooling, not target-system architecture |
+| Reason | `workin-hr` is a GitHub Free organization and `hr-platform` is private. Checked directly against the live GitHub API during the pre-merge integrity review, not assumed: both the classic branch-protection endpoint (`GET /repos/workin-hr/hr-platform/branches/main/protection`) and the modern Rulesets endpoint (`GET /repos/workin-hr/hr-platform/rulesets`) return `403 Upgrade to GitHub Pro or make this repository public`. The repository owner has explicitly decided neither an organization plan upgrade nor making the repository public is in scope. |
+| Impact | `scripts/check-branch-protection.sh` (GH-1) remains built and regression-tested but pending — it cannot be run against the real organization under this constraint, and there is no target date. `docs/agents/operating-model.md`'s enforcement-layer 4 is downgraded from "GitHub-enforced, pending manual setup" to explicitly Deferred. `docs/bootstrap/risk-register.md` R-008 is updated: it remains partially open specifically because review and merge governance cannot be mechanically enforced — no platform-level required-reviewer count, no required status check, no protection against force-push or direct push to `main`. Temporary mitigation until this is revisited: manual PR review before every merge, a green required CI run before every merge, restricted `main` write access limited to trusted human owners, and no direct pushes to `main` by team convention (not platform-enforced). |
+| Follow-up | Revisit only if the organization's plan changes for reasons unrelated to this decision, or if GitHub changes free-plan branch-protection availability. Until then, treat this as closed, not merely postponed. |
+| Evidence | Live `gh api repos/workin-hr/hr-platform/branches/main/protection` and `gh api repos/workin-hr/hr-platform/rulesets` responses (both `403`, checked during the pre-merge integrity review); this entry. |

@@ -143,10 +143,10 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Impact | High |
 | Severity | High |
 | Owner | Human repository owner |
-| Mitigation | Follow the Human Approval And Merge Sequence in `docs/bootstrap/manual-setup-checklist.md` for the first real pull request into `main` |
+| Mitigation | Follow the Human Approval And Merge Sequence in `docs/bootstrap/manual-setup-checklist.md` for the first real pull request into `main`. Branch-protection enforcement (required reviewers, required status checks, no force-push/direct-push) is explicitly Deferred, not merely pending — see D-013 in `docs/bootstrap/decision-log.md` — so until revisited, rely on temporary, non-platform-enforced mitigation instead: manual PR review before every merge, a green required CI run before every merge, restricted `main` write access limited to trusted human owners, and no direct pushes to `main` by team convention. |
 | Trigger | Phase 0 is declared complete without a real, evidenced human-approved merge |
 | Contingency | Do not declare Phase 0 complete; keep `docs/bootstrap/definition-of-done.md` unmet until the sequence is followed once and evidenced |
-| Status | Open — classified "Pending human acceptance gate" in `docs/bootstrap/manual-setup-checklist.md`; must not be marked complete by any agent |
+| Status | Open — classified "Pending human acceptance gate" in `docs/bootstrap/manual-setup-checklist.md`; must not be marked complete by any agent. Partially open for a second, distinct reason as of D-013: review and merge governance cannot be mechanically enforced at the platform level (branch protection is Deferred, an accepted plan limitation, not a configuration gap), so this risk depends entirely on the temporary mitigation above actually being followed rather than on any GitHub-enforced control. |
 | Target Date | Before Phase 0 is declared complete |
-| Evidence | `git log --all --merges` (2026-08-02): no merge commits exist; `git log --all --format="%an %ae"`: single author `Codex <codex@local>` |
-| Last Reviewed | 2026-08-02 |
+| Evidence | `git log --all --merges` (2026-08-02): no merge commits exist; `git log --all --format="%an %ae"`: single author `Codex <codex@local>`; D-013 (`docs/bootstrap/decision-log.md`) for the branch-protection deferral |
+| Last Reviewed | 2026-08-03 |
