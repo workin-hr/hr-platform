@@ -45,6 +45,76 @@ def make_root() -> Path:
 
 
 # ---------------------------------------------------------------------------
+# validate_codeowners_component_coverage (GH-2)
+# ---------------------------------------------------------------------------
+
+
+def write_codeowners(root: Path, text: str) -> None:
+    (root / "CODEOWNERS").write_text(text, encoding="utf-8")
+
+
+def test_component_with_only_readme_is_inert() -> None:
+    root = make_root()
+    try:
+        write_codeowners(root, "* @workin-hr/platform-owners\n")
+        (root / "backend").mkdir(parents=True)
+        (root / "backend/README.md").write_text("# Backend Boundary\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_codeowners_component_coverage(failures, root=root)
+        check(
+            failures == [],
+            f"a component directory holding only its boundary README.md does not trigger the check (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_component_with_real_content_and_no_codeowners_entry_fails() -> None:
+    root = make_root()
+    try:
+        write_codeowners(root, "* @workin-hr/platform-owners\n")
+        (root / "backend").mkdir(parents=True)
+        (root / "backend/README.md").write_text("# Backend Boundary\n", encoding="utf-8")
+        (root / "backend/Application.java").write_text("// placeholder\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_codeowners_component_coverage(failures, root=root)
+        check(
+            any("backend/" in f for f in failures),
+            f"a component directory with real content and no CODEOWNERS entry fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_component_with_real_content_and_codeowners_entry_passes() -> None:
+    root = make_root()
+    try:
+        write_codeowners(root, "* @workin-hr/platform-owners\n/backend/ @workin-hr/backend\n")
+        (root / "backend").mkdir(parents=True)
+        (root / "backend/README.md").write_text("# Backend Boundary\n", encoding="utf-8")
+        (root / "backend/Application.java").write_text("// placeholder\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_codeowners_component_coverage(failures, root=root)
+        check(
+            failures == [],
+            f"a component directory with real content and a matching CODEOWNERS entry passes (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_real_repository_codeowners_coverage_still_passes() -> None:
+    """Sanity check against the real repository: every component directory
+    holds only its boundary README.md today, so this must be a no-op."""
+    failures: list[str] = []
+    v.validate_codeowners_component_coverage(failures)  # default root = real repo
+    check(failures == [], f"the real repository's component directories are still inert (failures={failures})")
+
+
+# ---------------------------------------------------------------------------
 # validate_agent_matrix_consistency (AG-1)
 # ---------------------------------------------------------------------------
 
@@ -193,6 +263,10 @@ def test_real_repository_skill_catalog_still_passes() -> None:
 
 
 def main() -> int:
+    test_component_with_only_readme_is_inert()
+    test_component_with_real_content_and_no_codeowners_entry_fails()
+    test_component_with_real_content_and_codeowners_entry_passes()
+    test_real_repository_codeowners_coverage_still_passes()
     test_matrix_says_no_but_agent_can_modify_fails()
     test_matrix_says_yes_but_agent_cannot_modify_fails()
     test_matrix_consistent_with_frontmatter_passes()

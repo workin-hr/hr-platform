@@ -375,6 +375,44 @@ def validate_agent_matrix_consistency(failures: list[str], root: Path | None = N
             )
 
 
+# Top-level component boundaries that docs/bootstrap/execution-checklist.md
+# documents as intentionally empty in Phase 0 (each holds only a boundary
+# README.md placeholder today). See docs/bootstrap/open-questions.md's
+# "GitHub Governance" section for the team-ownership decision this check is
+# waiting on.
+COMPONENT_DIRS = ["backend", "admin-web", "edge-gateway", "infrastructure", "contracts", "specs"]
+
+
+def validate_codeowners_component_coverage(failures: list[str], root: Path | None = None) -> None:
+    """CODEOWNERS today routes everything to @workin-hr/platform-owners (plus
+    qa on two paths) — correct while every component directory holds only
+    its boundary README.md. Dormant check: once a component directory
+    contains any other tracked file, CODEOWNERS must have a path entry for
+    it, or PRs touching that component get no team-specific review
+    routing. Inert today; verified against the real repository below."""
+    root = root if root is not None else ROOT
+    codeowners_path = root / "CODEOWNERS"
+    if not codeowners_path.is_file():
+        return  # already reported by validate_required_paths
+    codeowners_text = codeowners_path.read_text(encoding="utf-8")
+    for component in COMPONENT_DIRS:
+        component_dir = root / component
+        if not component_dir.is_dir():
+            continue
+        has_real_content = any(
+            path.is_file() and path.name != "README.md" for path in component_dir.rglob("*")
+        )
+        if not has_real_content:
+            continue
+        pattern = re.compile(rf"^/{re.escape(component)}/", re.MULTILINE)
+        if not pattern.search(codeowners_text):
+            fail(
+                f"{component}/ now contains files beyond its boundary README.md, but "
+                f"CODEOWNERS has no /{component}/ entry routing it to an owning team",
+                failures,
+            )
+
+
 def validate_skill_catalog_consistency(failures: list[str], root: Path | None = None) -> None:
     """docs/agents/skill-catalog.md hand-maintains a list of skill names —
     exactly the kind of filesystem mirror that drifts silently unless
@@ -781,6 +819,7 @@ def main() -> int:
     validate_claude_settings(failures)
     validate_skill_files(failures)
     validate_skill_catalog_consistency(failures)
+    validate_codeowners_component_coverage(failures)
     validate_adrs(failures)
     validate_issue_forms(failures)
     validate_scripts_exist(failures)
