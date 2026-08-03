@@ -25,6 +25,7 @@ scripts/validate_phase0.py (invoked as a subprocess check), and
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -47,6 +48,84 @@ def check(condition: bool, description: str) -> None:
 
 def make_root() -> Path:
     return Path(tempfile.mkdtemp(prefix="validate-phase0-test-"))
+
+
+# ---------------------------------------------------------------------------
+# scripts/verify-bootstrap.sh skipped-tool summary (CI-2)
+# ---------------------------------------------------------------------------
+
+VERIFY_BOOTSTRAP_SCRIPT = REPO_ROOT / "scripts/verify-bootstrap.sh"
+ALL_SIX_TOOLS = ("markdownlint-cli2", "yamllint", "shellcheck", "actionlint", "gitleaks", "lychee")
+
+
+def run_verify_bootstrap_with_shims(present_tools: tuple[str, ...]) -> subprocess.CompletedProcess:
+    """Runs the real verify-bootstrap.sh (real validate_phase0.py +
+    regression suites included) with a synthetic PATH entry containing a
+    trivial `exit 0` shim for each tool in `present_tools`, so exactly
+    those tools are seen as "installed" regardless of what is actually on
+    this machine. BOOTSTRAP_STRICT is left unset (default/local mode) —
+    only local mode can skip at all."""
+    with tempfile.TemporaryDirectory(prefix="verify-bootstrap-shim-") as shim_dir:
+        for tool in present_tools:
+            shim_path = Path(shim_dir) / tool
+            shim_path.write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
+            shim_path.chmod(0o755)
+        env = dict(os.environ)
+        env.pop("BOOTSTRAP_STRICT", None)
+        env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
+        # verify-bootstrap.sh's own [1/3] step runs validate_phase0.py,
+        # which runs *this* file as a regression check
+        # (validate_governance_check_tests) — without this guard, that
+        # nested invocation would re-run these same two tests, which would
+        # spawn verify-bootstrap.sh again, unbounded. Propagates down
+        # through every subprocess in the chain since none of them
+        # override env.
+        env["TEST_VALIDATE_PHASE0_NESTED"] = "1"
+        return subprocess.run(
+            ["bash", str(VERIFY_BOOTSTRAP_SCRIPT)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            env=env,
+        )
+
+
+def run_verify_bootstrap_test_unless_nested(label: str, runner) -> None:
+    """See the TEST_VALIDATE_PHASE0_NESTED guard in
+    run_verify_bootstrap_with_shims(): these two tests spawn
+    verify-bootstrap.sh, which (via validate_phase0.py) runs this same
+    file again as a subprocess. Skip them in that nested invocation
+    instead of recursing without bound."""
+    if os.environ.get("TEST_VALIDATE_PHASE0_NESTED") == "1":
+        check(True, f"{label} skipped: this is a nested test_validate_phase0.py invocation")
+        return
+    runner()
+
+
+def test_verify_bootstrap_summary_reports_partial_skip() -> None:
+    def run() -> None:
+        proc = run_verify_bootstrap_with_shims(("markdownlint-cli2", "yamllint", "shellcheck"))
+        check(
+            "SUMMARY: 3 of 6 external tool(s) skipped locally" in proc.stdout
+            and "actionlint gitleaks lychee" in proc.stdout,
+            f"a partial-skip local run reports exactly the 3 missing tools by name (found in stdout: "
+            f"{'SUMMARY: 3 of 6' in proc.stdout})",
+        )
+
+    run_verify_bootstrap_test_unless_nested("test_verify_bootstrap_summary_reports_partial_skip", run)
+
+
+def test_verify_bootstrap_summary_reports_zero_skips() -> None:
+    def run() -> None:
+        proc = run_verify_bootstrap_with_shims(ALL_SIX_TOOLS)
+        check(
+            "SUMMARY: all 6 external tool checks ran (none skipped)." in proc.stdout,
+            f"a local run with every tool present reports a positive all-ran confirmation, not a warning "
+            f"(found: {'SUMMARY: all 6' in proc.stdout})",
+        )
+
+    run_verify_bootstrap_test_unless_nested("test_verify_bootstrap_summary_reports_zero_skips", run)
 
 
 # ---------------------------------------------------------------------------
@@ -620,6 +699,8 @@ def test_real_repository_skill_catalog_still_passes() -> None:
 
 
 def main() -> int:
+    test_verify_bootstrap_summary_reports_partial_skip()
+    test_verify_bootstrap_summary_reports_zero_skips()
     test_settings_with_all_secret_patterns_passes()
     test_settings_missing_a_secret_pattern_fails()
     test_settings_missing_edit_side_of_a_pattern_fails()

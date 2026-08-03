@@ -17,8 +17,10 @@ themselves carry different, precisely-stated guarantees — see
 described the same way:
 
 - repository validation (`scripts/validate_phase0.py`), which also runs
-  the Git command-guard and dynamic-ADR-discovery regression test suites
-  (`scripts/test_git_guard.py`, `scripts/test_adr_validation.py`)
+  the Git command-guard, dynamic-ADR-discovery, governance-check, and
+  audit-hook regression test suites (`scripts/test_git_guard.py`,
+  `scripts/test_adr_validation.py`, `scripts/test_validate_phase0.py`,
+  `scripts/test_edit_audit_log.py`)
 - ShellCheck, actionlint, Gitleaks, and Lychee: exact version **pinned and
   checksum-verified** before use (SHA-256, checked in CI before the binary
   ever runs)

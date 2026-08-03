@@ -33,8 +33,21 @@ python3 scripts/validate_phase0.py
 echo "[2/3] Running deterministic regression test suites (always required)"
 python3 scripts/test_git_guard.py
 python3 scripts/test_adr_validation.py
+python3 scripts/test_validate_phase0.py
+python3 scripts/test_edit_audit_log.py
 
 echo "[3/3] Running external tool checks (BOOTSTRAP_STRICT=$STRICT)"
+
+# CI-2: BOOTSTRAP_STRICT=true (every CI run) hard-fails on a missing tool —
+# it can never reach the "skip" branch below, so a skip can only happen in
+# a local, non-strict run. A skip there is easy to miss buried in the
+# middle of otherwise-normal output, and a clean local run is not proof CI
+# will pass. Track skips and print an unmissable summary at the end
+# instead — a warning naming what was skipped locally, or a positive
+# confirmation that all 6 tools actually ran.
+skipped=""
+skipped_count=0
+total_tools=6
 
 run_tool() {
   tool="$1"
@@ -51,6 +64,8 @@ run_tool() {
     return 1
   fi
   echo "Skipping $tool: not installed locally. Run scripts/check-bootstrap-prerequisites.sh for install guidance, or rely on CI (which never skips)."
+  skipped="$skipped $tool"
+  skipped_count=$((skipped_count + 1))
   return 0
 }
 
@@ -61,5 +76,17 @@ run_tool shellcheck scripts/*.sh .agents/skills/*/scripts/*.sh || status=1
 run_tool actionlint || status=1
 run_tool gitleaks detect --no-git --source . --redact --exit-code 1 || status=1
 run_tool lychee "**/*.md" || status=1
+
+echo
+echo "=================================================================="
+if [ "$skipped_count" -gt 0 ]; then
+  echo "SUMMARY: $skipped_count of $total_tools external tool(s) skipped locally (not on PATH):$skipped"
+  echo "Every one of these runs in CI (BOOTSTRAP_STRICT=true) regardless — a"
+  echo "clean local run with skips is NOT equivalent to CI passing."
+  echo "Run scripts/check-bootstrap-prerequisites.sh for install guidance."
+else
+  echo "SUMMARY: all $total_tools external tool checks ran (none skipped)."
+fi
+echo "=================================================================="
 
 exit "$status"
