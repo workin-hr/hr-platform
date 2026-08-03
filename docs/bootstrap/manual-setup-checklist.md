@@ -134,12 +134,24 @@ Required status checks should include the bootstrap validation workflow once mer
 
 ## Human Approval And Merge Sequence
 
-**Status: Pending human acceptance gate.** This is a human-controlled
-GitHub process. `main` now exists and `bootstrap/engineering-foundation`
-has been pushed with an open pull request into it, but no step below has
-been evidenced as complete by a human — no step in this section may be
-marked complete by an agent; only a human owner can attest to it, with the
-evidence listed in step 9.
+**Status: two independent scopes — do not read as a single Pending or
+Completed status.**
+
+- **Manual review-and-merge sequence (steps 2–10): Completed and
+  evidenced.** See D-014 in `docs/bootstrap/decision-log.md` for the
+  pull-request URL, the merging human's identity, the merge commit SHA,
+  and the validation evidence used. Steps 5 and 6 (independent audit,
+  formal reviewer approval) were satisfied through the repository owner's
+  direct review-and-merge authority under D-013's accepted mitigation, not
+  through a dedicated audit-agent run or a recorded GitHub `Approve`
+  review — see D-014's Reason field for that distinction.
+- **Mechanical branch-protection enforcement (step 1): Deferred**, not
+  completed and not attempted — an accepted plan limitation, not an
+  outstanding gap. See D-013 in `docs/bootstrap/decision-log.md`.
+
+No step in this section may be marked complete by an agent based on its
+own statement that the work is "ready"; the evidence above was recorded
+only after a human completed the underlying action first.
 
 1. Branch protection on `main` is Deferred, not applied — see "Branch
    Protection And Rulesets" above and D-013 in
@@ -169,6 +181,7 @@ evidence listed in step 9.
     `bash scripts/verify-bootstrap.sh` against `main` post-merge to confirm
     Phase 0 validation still passes after merge.
 
-Until all ten steps are complete, this section must remain classified as
-**Pending human acceptance gate** — never rewritten to imply completion
-based on an agent's own statement that the work is "ready."
+This section must not be described as simply **Pending** (steps 2–10 are
+done and evidenced by D-014) or as fully **Completed** (step 1 is
+permanently Deferred by design under D-013, not merely outstanding) — the
+two-scope status above is the accurate description going forward.
