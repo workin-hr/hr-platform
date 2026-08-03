@@ -379,6 +379,35 @@ ADR_METADATA_FIELD_RE = re.compile(r"^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$", r
 
 ADR_INDEX_REFERENCE_RE = re.compile(r"`(ADR-[0-9]{4}-[a-z0-9-]+\.md)`")
 
+# Phrases this repository actually uses, verbatim, for an ADR whose
+# Validation Evidence is still an open placeholder rather than real
+# evidence (see e.g. ADR-0007, ADR-0008 while Status is Proposed). An
+# Accepted ADR must not still read this way — see OB-1 /
+# docs/bootstrap/execution-checklist.md.
+ADR_EVIDENCE_PLACEHOLDER_PATTERNS = [
+    re.compile(r"\bnone yet\b", re.IGNORECASE),
+    re.compile(r"\bnot yet discovered\b", re.IGNORECASE),
+    re.compile(r"\bpending discovery\b", re.IGNORECASE),
+    re.compile(r"\bno evidence exists\b", re.IGNORECASE),
+]
+
+
+def _section_text(text: str, heading: str) -> str:
+    """Returns the body text of a single '## Heading' section, up to the
+    next '## ' heading or end of file."""
+    lines = text.splitlines()
+    collected: list[str] = []
+    in_section = False
+    for line in lines:
+        if line.startswith("## "):
+            if in_section:
+                break
+            in_section = line.strip() == heading
+            continue
+        if in_section:
+            collected.append(line)
+    return "\n".join(collected)
+
 
 def _display_path(path: Path) -> str:
     try:
@@ -475,6 +504,14 @@ def _validate_one_adr(path: Path, failures: list[str]) -> None:
             f"Proposed ADR does not visibly state its Decision is unapproved: {rel}",
             failures,
         )
+    elif status == "Accepted":
+        evidence_text = _section_text(text, "## Validation Evidence")
+        if any(pattern.search(evidence_text) for pattern in ADR_EVIDENCE_PLACEHOLDER_PATTERNS):
+            fail(
+                "ADR Status is Accepted but its Validation Evidence section still reads as "
+                f"an unresolved placeholder — replace it with real evidence before accepting: {rel}",
+                failures,
+            )
 
     # Non-empty content: every '## ' section must contain at least one
     # non-blank line before the next '## ' heading.

@@ -70,6 +70,51 @@ None yet — pending Discovery.
 
 TEMPLATE_BODY = VALID_ADR_BODY.format(num="0000", title="Title")
 
+ACCEPTED_ADR_BODY = """# ADR-{num}: {title}
+
+## Metadata
+
+| Field | Value |
+|---|---|
+| ADR ID | ADR-{num} |
+| Title | {title} |
+| Status | Accepted |
+| Date | 2026-01-01 |
+| Owners | Test Owner |
+| Deciders | Test Decider |
+| Related Issues | None yet |
+| Supersedes | None |
+| Superseded By | None |
+
+## Context
+
+Test context.
+
+## Decision
+
+Test decision, actually approved.
+
+## Alternatives Considered
+
+- Option A
+
+## Consequences
+
+Test consequence.
+
+## Risks
+
+Test risk.
+
+## Validation Evidence
+
+{evidence}
+
+## Open Questions
+
+- Test question
+"""
+
 
 def make_fixture_dir() -> Path:
     tmp = Path(tempfile.mkdtemp(prefix="adr-validation-test-"))
@@ -219,6 +264,53 @@ def test_template_is_excluded_from_discovery() -> None:
         shutil.rmtree(adr_dir)
 
 
+def test_accepted_adr_with_placeholder_evidence_fails() -> None:
+    adr_dir = make_fixture_dir()
+    try:
+        name = "ADR-0050-accepted-with-placeholder.md"
+        body = ACCEPTED_ADR_BODY.format(
+            num="0050",
+            title="Accepted With Placeholder",
+            evidence="None yet — pending Discovery.",
+        )
+        (adr_dir / name).write_text(body, encoding="utf-8")
+        write_index(adr_dir, [name])
+
+        failures: list[str] = []
+        v.validate_adrs(failures, adr_dir=adr_dir)
+        check(
+            any("still reads as an unresolved placeholder" in f for f in failures),
+            f"an Accepted ADR with placeholder Validation Evidence is rejected (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(adr_dir)
+
+
+def test_accepted_adr_with_real_evidence_passes() -> None:
+    adr_dir = make_fixture_dir()
+    try:
+        name = "ADR-0051-accepted-with-evidence.md"
+        body = ACCEPTED_ADR_BODY.format(
+            num="0051",
+            title="Accepted With Evidence",
+            evidence=(
+                "See PR #42: load-test results attached and signed off by the "
+                "release owner on 2026-02-01."
+            ),
+        )
+        (adr_dir / name).write_text(body, encoding="utf-8")
+        write_index(adr_dir, [name])
+
+        failures: list[str] = []
+        v.validate_adrs(failures, adr_dir=adr_dir)
+        check(
+            failures == [],
+            f"an Accepted ADR with real, non-placeholder Validation Evidence passes (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(adr_dir)
+
+
 def test_real_repository_adrs_still_pass() -> None:
     """Sanity check against the real repository ADRs, proving this refactor
     didn't break the actual dedicated validator."""
@@ -235,6 +327,8 @@ def main() -> int:
     test_adr_missing_from_index_fails()
     test_index_entry_referencing_missing_file_fails()
     test_invalid_file_name_is_rejected()
+    test_accepted_adr_with_placeholder_evidence_fails()
+    test_accepted_adr_with_real_evidence_passes()
     test_real_repository_adrs_still_pass()
 
     passed = sum(1 for ok, _ in CASES_RUN if ok)
