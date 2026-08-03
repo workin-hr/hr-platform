@@ -585,6 +585,30 @@ def validate_script_test_siblings(failures: list[str], root: Path | None = None)
             )
 
 
+def validate_nightly_workflow_exists_if_promised(failures: list[str], root: Path | None = None) -> None:
+    """docs/testing/test-strategy.md names a 'Nightly' quality-gate tier.
+    Once a doc promises that tier, a real scheduled workflow must exist —
+    prose intent alone is not evidence a tier actually runs. See CI-1 /
+    .github/workflows/nightly.yml."""
+    root = root if root is not None else ROOT
+    test_strategy = root / "docs/testing/test-strategy.md"
+    workflows_dir = root / ".github/workflows"
+    if not test_strategy.is_file():
+        return  # already reported by validate_required_paths
+    text = test_strategy.read_text(encoding="utf-8")
+    if not re.search(r"^## Nightly\s*$", text, re.MULTILINE):
+        return
+    if workflows_dir.is_dir():
+        for path in sorted(workflows_dir.glob("*.yml")):
+            if re.search(r"^\s*schedule:\s*$", path.read_text(encoding="utf-8"), re.MULTILINE):
+                return
+    fail(
+        "docs/testing/test-strategy.md names a 'Nightly' tier but no .github/workflows/*.yml "
+        "file has an 'on.schedule' trigger",
+        failures,
+    )
+
+
 def validate_skill_catalog_consistency(failures: list[str], root: Path | None = None) -> None:
     """docs/agents/skill-catalog.md hand-maintains a list of skill names —
     exactly the kind of filesystem mirror that drifts silently unless
@@ -998,6 +1022,7 @@ def main() -> int:
     validate_agent_matrix_consistency(failures)
     validate_claude_settings(failures)
     validate_skill_files(failures)
+    validate_nightly_workflow_exists_if_promised(failures)
     validate_skill_catalog_consistency(failures)
     validate_codeowners_component_coverage(failures)
     validate_dependabot_ecosystem_coverage(failures)

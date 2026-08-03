@@ -1,0 +1,47 @@
+name: Nightly Bootstrap Revalidation
+
+# Scaffold, not a duplicate of phase0-validate.yml's pinned external
+# linter toolchain (ShellCheck, actionlint, Gitleaks, Lychee,
+# markdownlint-cli2, yamllint). Deliberately not duplicated here — that
+# would create a second toolchain-pin surface that could silently drift
+# from phase0-validate.yml's; phase0-validate.yml remains authoritative
+# for those checks and already runs them on every push and pull request.
+# See docs/testing/test-strategy.md's "Nightly" tier and CI-1 in the
+# Engineering Enablement Plan for why this file exists at all.
+#
+# What this *does* run for real, on a schedule instead of only on
+# push/pull request: the full validate_phase0.py structural validator,
+# which itself runs the git-guard, dynamic-ADR, governance-check, and
+# audit-hook regression suites (scripts/test_git_guard.py,
+# test_adr_validation.py, test_validate_phase0.py, test_edit_audit_log.py)
+# — pure Python stdlib, no external tool installation required. This
+# catches drift a push/PR trigger alone would miss (e.g. the real
+# repository state changing outside the normal PR flow).
+#
+# Placeholder, explicitly not yet built: compatibility and performance
+# smoke checks (docs/testing/test-strategy.md's "Nightly" section also
+# names these) — they require real implementation to exist first, and
+# ADR-0007 (Testing And Quality-Gate Strategy) is still Proposed.
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # 03:17 UTC daily; an arbitrary off-peak minute, not load-bearing
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  revalidate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository (immutable action reference)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python (immutable action reference; exact Python version, not checksum-verified)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.13"
+
+      - name: Run Phase 0 structural validator (includes all regression suites)
+        run: python3 scripts/validate_phase0.py

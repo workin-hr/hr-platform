@@ -714,6 +714,70 @@ def test_real_repository_agent_matrix_still_passes() -> None:
 
 
 # ---------------------------------------------------------------------------
+# validate_nightly_workflow_exists_if_promised (CI-1)
+# ---------------------------------------------------------------------------
+
+
+def write_test_strategy(root: Path, names_nightly: bool) -> None:
+    (root / "docs/testing").mkdir(parents=True, exist_ok=True)
+    body = "# Test Strategy\n\n## Every Commit\n\n- stuff\n"
+    if names_nightly:
+        body += "\n## Nightly\n\n- deeper checks\n"
+    (root / "docs/testing/test-strategy.md").write_text(body, encoding="utf-8")
+
+
+def test_no_nightly_tier_named_is_inert() -> None:
+    root = make_root()
+    try:
+        write_test_strategy(root, names_nightly=False)
+        failures: list[str] = []
+        v.validate_nightly_workflow_exists_if_promised(failures, root=root)
+        check(failures == [], f"no 'Nightly' heading means no requirement at all (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_nightly_tier_named_without_schedule_workflow_fails() -> None:
+    root = make_root()
+    try:
+        write_test_strategy(root, names_nightly=True)
+        (root / ".github/workflows").mkdir(parents=True, exist_ok=True)
+        (root / ".github/workflows/other.yml").write_text("on:\n  push:\njobs: {}\n", encoding="utf-8")
+        failures: list[str] = []
+        v.validate_nightly_workflow_exists_if_promised(failures, root=root)
+        check(
+            any("no .github/workflows/*.yml file has an 'on.schedule' trigger" in f for f in failures),
+            f"a promised Nightly tier with no scheduled workflow fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_nightly_tier_named_with_schedule_workflow_passes() -> None:
+    root = make_root()
+    try:
+        write_test_strategy(root, names_nightly=True)
+        (root / ".github/workflows").mkdir(parents=True, exist_ok=True)
+        (root / ".github/workflows/nightly.yml").write_text(
+            "on:\n  schedule:\n    - cron: '0 0 * * *'\njobs: {}\n", encoding="utf-8"
+        )
+        failures: list[str] = []
+        v.validate_nightly_workflow_exists_if_promised(failures, root=root)
+        check(failures == [], f"a promised Nightly tier with a real scheduled workflow passes (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_real_repository_has_nightly_workflow() -> None:
+    """Sanity check against the real repository: test-strategy.md names a
+    Nightly tier, so .github/workflows/nightly.yml must exist and be
+    scheduled."""
+    failures: list[str] = []
+    v.validate_nightly_workflow_exists_if_promised(failures)  # default root = real repo
+    check(failures == [], f"the real repository has a scheduled nightly workflow (failures={failures})")
+
+
+# ---------------------------------------------------------------------------
 # validate_skill_catalog_consistency (SK-1)
 # ---------------------------------------------------------------------------
 
@@ -771,6 +835,10 @@ def test_real_repository_skill_catalog_still_passes() -> None:
 
 
 def main() -> int:
+    test_no_nightly_tier_named_is_inert()
+    test_nightly_tier_named_without_schedule_workflow_fails()
+    test_nightly_tier_named_with_schedule_workflow_passes()
+    test_real_repository_has_nightly_workflow()
     test_branch_protection_all_requirements_met_passes()
     test_branch_protection_reports_every_failing_field()
     test_branch_protection_job_id_is_read_from_workflow_file()
