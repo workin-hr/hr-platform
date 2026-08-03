@@ -19,6 +19,12 @@ Proposed. Ownership of formal approval belongs to whoever ADR-0008
 evidence — see `docs/bootstrap/decision-log.md` D-009 for who currently
 owns that domain.
 
+A Proposed status does not authorize implementation code to treat this
+contract as binding. Any PR that adopts these fields should cite this
+document's status explicitly rather than treating silence as approval,
+so a working draft does not calcify into a de-facto standard before
+ADR-0008 is actually Accepted.
+
 ## Required Fields
 
 Every structured log line emitted by this system, once implementation
@@ -73,8 +79,12 @@ requiring log-scraping regexes to reconstruct it later.
 
 ## Ownership
 
-Record the human role accountable for this contract once ADR-0008 moves
-toward Accepted. Until then, treat it as `Not yet discovered`.
+Publication ownership (the decision to draft and publish this document)
+belongs to the repository owner — see `docs/bootstrap/decision-log.md`
+D-011. Content/operational ownership (who is accountable for the field
+contract's correctness once implementation begins) is a separate
+question and remains `Not yet discovered` until ADR-0008 moves toward
+Accepted and assigns a Decider.
 
 ## Evidence
 

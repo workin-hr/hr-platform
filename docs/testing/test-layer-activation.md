@@ -20,7 +20,7 @@ stops at specifying the trigger, not automating detection of it.
 | Test Layer | Where |
 |---|---|
 | secrets scanning | Gitleaks, every push and pull request — `.github/workflows/phase0-validate.yml` |
-| static analysis (of this repository's own governance scripts) | ShellCheck (`scripts/*.sh`), every push and pull request |
+| static analysis (of this repository's own governance scripts) | ShellCheck (`scripts/*.sh`, `.agents/skills/*/scripts/*.sh`), every push and pull request |
 | dependency scanning | inert until a package manifest exists, then enforced by `validate_dependabot_ecosystem_coverage` (GH-3) — see `scripts/validate_phase0.py` |
 
 ## Code-Boundary Triggered
@@ -49,7 +49,7 @@ starts holding real, cited content.
 | consumer compatibility tests | `docs/api/flutter-request-response-compatibility.md` holds real cited evidence (A1) | — |
 | Flutter compatibility tests | `flutter-integration/` holds real content, or `hr-flutter` repository question (H2) is resolved | ADR-0001 |
 | migration tests | `docs/migration/database-schema-inventory.md` and `docs/migration/migration-validation-queries.md` hold real cited evidence (A1) | ADR-0004 |
-| differential PHP-versus-Java tests | `docs/legacy/production-behavior-evidence.md` holds real evidence **and** `backend/` has real Java code | ADR-0002 |
+| differential PHP-versus-Java tests | `docs/legacy/production-behavior-evidence.md` holds real evidence **and** `backend/` has real Java code | None — no ADR currently designates Java as the backend implementation language; `backend/README.md`'s "Java and Spring Boot" framing is boundary placeholder text only, not ADR-backed (ADR-0002 sets modular-monolith architecture style, not language) |
 | golden-master tests | `docs/legacy/production-behavior-evidence.md` holds real captured legacy behavior to serve as the baseline | — |
 | backup and restore tests | `docs/operations/backup-and-restore.md`'s Backup Method section is no longer `Not yet discovered` **and** a real data store exists | — |
 | recovery tests | `docs/operations/recovery-objectives.md` has real (non-placeholder) RTO/RPO values **and** a target environment exists | — |

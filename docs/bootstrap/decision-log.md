@@ -121,7 +121,7 @@ certainty than the ADR it depends on.
 | Related ADR | ADR-0007, ADR-0008 |
 | Reason | The Engineering Enablement Plan's AG-3 item found that no agent's stated remit named CI/CD pipeline design or observability baseline ownership explicitly, even though ADR-0007's Owner (Test Architect) and ADR-0008's Owners (Solution Architect, Test Architect) already implied it. The repository owner confirmed direct accountability for this domain rather than delegating it to a new agent; adding a dedicated agent before any real CI/CD pipeline exists beyond `phase0-validate.yml` would be scope ahead of need. |
 | Impact | `.claude/agents/solution-architect.md` and `.claude/agents/test-architect.md` Purpose sections now explicitly name observability baseline design and CI/CD pipeline/quality-gate design, respectively, as in scope. `docs/agents/responsibility-matrix.md` is unchanged — no new row, no change to either agent's tool scope or approval authority. |
-| Follow-up | None open |
+| Follow-up | Revisit if CI/CD or observability tooling grows beyond `phase0-validate.yml` and `nightly.yml` (e.g. a third workflow or a dedicated pipeline-as-code component) to the point read-only analysis is no longer sufficient, or once ADR-0007/ADR-0008 move to Accepted and assign a formal Decider for this domain. |
 | Evidence | `.claude/agents/solution-architect.md`, `.claude/agents/test-architect.md`, this entry |
 
 ## D-010: Do Not Duplicate Repository-Authored Skills Under `.claude/skills/`
@@ -160,5 +160,5 @@ certainty than the ADR it depends on.
 | Related ADR | ADR-0007 |
 | Reason | TS-3 in the Engineering Enablement Plan called for this. Triggers are phrased structurally (file/directory existence, document evidence state) rather than naming specific tools or frameworks not yet chosen by an Accepted ADR, to avoid encoding product-domain assumptions ahead of Discovery. |
 | Impact | New document only; no code or CI behavior changed. |
-| Follow-up | Decide, per trigger, whether it should become a real dormant `scripts/validate_phase0.py` check (mirroring GH-2/GH-3) or stay a human review-checklist item — left as this document's own Open Question rather than decided unilaterally here. |
+| Follow-up | Decide, per trigger, whether it should become a real dormant `scripts/validate_phase0.py` check (mirroring GH-2/GH-3) or stay a human review-checklist item — left as this document's own Open Question rather than decided unilaterally here. Also revisit the "differential PHP-versus-Java" row specifically once a backend-language ADR exists (Accepted or newly Proposed) that can be cited in place of "None." |
 | Evidence | `docs/testing/test-layer-activation.md`, this entry |
