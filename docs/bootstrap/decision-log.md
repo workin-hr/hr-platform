@@ -149,3 +149,16 @@ certainty than the ADR it depends on.
 | Impact | `docs/operations/logging-conventions.md` is a new document; `docs/operations/README.md`'s template list now references it. No code, CI check, or ADR content was changed. |
 | Follow-up | Move to Accepted only once ADR-0008 itself has real Discovery evidence and a Decider reviews the field list; a CI check enforcing "uses the shared logging wrapper" should only be added once a backend language/framework direction is itself Accepted, not guessed at now. |
 | Evidence | `docs/operations/logging-conventions.md`, this entry |
+
+## D-012: Publish Test-Layer Activation Triggers
+
+| Field | Value |
+|---|---|
+| Decision | Publish `docs/testing/test-layer-activation.md`, mapping all 28 entries in `docs/testing/test-strategy.md`'s Planned Test Layers list to a concrete, structural activation trigger, so each has a defined path from "planned" to "running" instead of staying aspirational indefinitely. |
+| Status | Proposed — a planning document, not an enforcement mechanism; no trigger is wired into `scripts/validate_phase0.py` unless already noted as active (secrets scanning, static analysis of this repository's own scripts, and the GH-3 dependency-scanning gate) |
+| Owner | Repository owner, per D-009's CI/CD & observability ownership decision |
+| Related ADR | ADR-0007 |
+| Reason | TS-3 in the Engineering Enablement Plan called for this. Triggers are phrased structurally (file/directory existence, document evidence state) rather than naming specific tools or frameworks not yet chosen by an Accepted ADR, to avoid encoding product-domain assumptions ahead of Discovery. |
+| Impact | New document only; no code or CI behavior changed. |
+| Follow-up | Decide, per trigger, whether it should become a real dormant `scripts/validate_phase0.py` check (mirroring GH-2/GH-3) or stay a human review-checklist item — left as this document's own Open Question rather than decided unilaterally here. |
+| Evidence | `docs/testing/test-layer-activation.md`, this entry |
