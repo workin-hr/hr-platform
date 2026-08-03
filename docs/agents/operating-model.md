@@ -60,7 +60,12 @@ strength. Do not read any of them as stronger than they are — see
    be applied by the human operator at invocation time (see the profile
    reference in `.codex/config.toml` and each Codex agent file's "Runtime
    Tool Enforcement" section). This layer only holds if a human actually
-   applies it.
+   applies it. Run `scripts/codex-preflight.sh <agent-name>` (e.g.
+   `bootstrap-engineer` or `independent-verification-reviewer`) before
+   invoking Codex to print the exact flags for that role, extracted
+   directly from the agent file's own "Recommended invocation" block —
+   this does not make the layer tool-enforced, it just removes reliance on
+   remembering the right flags.
 3. **CI-enforced.** `scripts/validate_phase0.py`, run in
    `.github/workflows/phase0-validate.yml`, mechanically checks agent file
    structure, skill structure, ADR structure, forbidden file types, secret

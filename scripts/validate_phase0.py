@@ -793,6 +793,7 @@ def validate_scripts_exist(failures: list[str]) -> None:
         "scripts/test_adr_validation.py",
         "scripts/test_validate_phase0.py",
         "scripts/check-bootstrap-prerequisites.sh",
+        "scripts/codex-preflight.sh",
     ):
         path = ROOT / rel
         if not path.is_file():

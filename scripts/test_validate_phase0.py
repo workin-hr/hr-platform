@@ -25,12 +25,16 @@ scripts/validate_phase0.py (invoked as a subprocess check), and
 from __future__ import annotations
 
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import validate_phase0 as v  # noqa: E402
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CODEX_PREFLIGHT_SCRIPT = REPO_ROOT / "scripts/codex-preflight.sh"
 
 CASES_RUN: list[tuple[bool, str]] = []
 
@@ -42,6 +46,56 @@ def check(condition: bool, description: str) -> None:
 
 def make_root() -> Path:
     return Path(tempfile.mkdtemp(prefix="validate-phase0-test-"))
+
+
+# ---------------------------------------------------------------------------
+# scripts/codex-preflight.sh (AG-2)
+# ---------------------------------------------------------------------------
+
+
+def run_codex_preflight(args: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [str(CODEX_PREFLIGHT_SCRIPT), *args],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+def test_codex_preflight_no_args_fails_with_usage() -> None:
+    proc = run_codex_preflight([])
+    check(
+        proc.returncode != 0 and "Usage:" in proc.stderr,
+        f"codex-preflight.sh with no agent name exits non-zero with usage on stderr (exit={proc.returncode})",
+    )
+
+
+def test_codex_preflight_bootstrap_engineer_flags() -> None:
+    proc = run_codex_preflight(["bootstrap-engineer"])
+    check(
+        proc.returncode == 0
+        and "--sandbox workspace-write" in proc.stdout
+        and "--ask-for-approval on-request" in proc.stdout,
+        f"codex-preflight.sh bootstrap-engineer prints the workspace-write/on-request flags (stdout={proc.stdout!r})",
+    )
+
+
+def test_codex_preflight_independent_verification_reviewer_flags() -> None:
+    proc = run_codex_preflight(["independent-verification-reviewer"])
+    check(
+        proc.returncode == 0
+        and "--sandbox read-only" in proc.stdout
+        and "--ask-for-approval untrusted" in proc.stdout,
+        f"codex-preflight.sh independent-verification-reviewer prints the read-only/untrusted flags (stdout={proc.stdout!r})",
+    )
+
+
+def test_codex_preflight_unknown_agent_fails() -> None:
+    proc = run_codex_preflight(["not-a-real-agent"])
+    check(
+        proc.returncode != 0 and "no agent definition" in proc.stderr,
+        f"codex-preflight.sh with an unknown agent name exits non-zero naming the missing file (stderr={proc.stderr!r})",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +514,10 @@ def test_real_repository_skill_catalog_still_passes() -> None:
 
 
 def main() -> int:
+    test_codex_preflight_no_args_fails_with_usage()
+    test_codex_preflight_bootstrap_engineer_flags()
+    test_codex_preflight_independent_verification_reviewer_flags()
+    test_codex_preflight_unknown_agent_fails()
     test_untested_script_fails()
     test_script_with_sibling_test_passes()
     test_exempted_script_without_sibling_passes()
