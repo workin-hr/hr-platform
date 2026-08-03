@@ -84,7 +84,15 @@ strength. Do not read any of them as stronger than they are — see
    (required PR review, blocked direct/force pushes, required status
    checks) is configured in GitHub itself, not in this repository's files —
    see `docs/bootstrap/manual-setup-checklist.md`. This is what actually
-   prevents self-merge; nothing above does.
+   prevents self-merge; nothing above does. Once it is applied, run
+   `scripts/check-branch-protection.sh` (requires `gh` authenticated
+   against the live organization/repository, plus `jq`) to mechanically
+   confirm it — required review count, `enforce_admins`, no force pushes,
+   and that the required status check matches the actual job id in
+   `.github/workflows/phase0-validate.yml` — rather than trusting a visual
+   read of the GitHub UI. This script cannot run without that access and
+   has not been run against the real organization; it is regression-tested
+   with fixture JSON in `scripts/test_validate_phase0.py`.
 5. **Human procedural controls.** "Read-only unless a human explicitly
    assigns documentation work," "no agent may approve or merge its own
    work," and "escalate when evidence is missing" depend on a human

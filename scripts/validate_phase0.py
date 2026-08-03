@@ -844,6 +844,7 @@ def validate_scripts_exist(failures: list[str]) -> None:
         "scripts/test_edit_audit_log.py",
         "scripts/check-bootstrap-prerequisites.sh",
         "scripts/codex-preflight.sh",
+        "scripts/check-branch-protection.sh",
     ):
         path = ROOT / rel
         if not path.is_file():

@@ -234,6 +234,78 @@ def test_real_repository_settings_still_pass() -> None:
 
 
 # ---------------------------------------------------------------------------
+# scripts/check-branch-protection.sh (GH-1)
+# ---------------------------------------------------------------------------
+
+CHECK_BRANCH_PROTECTION_SCRIPT = REPO_ROOT / "scripts/check-branch-protection.sh"
+
+GOOD_PROTECTION_JSON = {
+    "required_pull_request_reviews": {"required_approving_review_count": 1},
+    "enforce_admins": {"enabled": True},
+    "allow_force_pushes": {"enabled": False},
+    "required_status_checks": {"contexts": ["validate"]},
+}
+
+
+def run_check_branch_protection(protection: dict, workflow_text: str | None = None) -> subprocess.CompletedProcess:
+    with tempfile.TemporaryDirectory(prefix="branch-protection-test-") as tmp:
+        json_file = Path(tmp) / "protection.json"
+        json_file.write_text(json.dumps(protection), encoding="utf-8")
+        env = dict(os.environ)
+        env["BRANCH_PROTECTION_JSON_FILE"] = str(json_file)
+        if workflow_text is not None:
+            workflow_file = Path(tmp) / "workflow.yml"
+            workflow_file.write_text(workflow_text, encoding="utf-8")
+            env["PHASE0_WORKFLOW_FILE"] = str(workflow_file)
+        return subprocess.run(
+            ["bash", str(CHECK_BRANCH_PROTECTION_SCRIPT)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=env,
+        )
+
+
+def test_branch_protection_all_requirements_met_passes() -> None:
+    proc = run_check_branch_protection(GOOD_PROTECTION_JSON)
+    check(
+        proc.returncode == 0 and "meets all requirements" in proc.stdout,
+        f"branch protection meeting every requirement passes (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_reports_every_failing_field() -> None:
+    bad = {
+        "required_pull_request_reviews": {"required_approving_review_count": 0},
+        "enforce_admins": {"enabled": False},
+        "allow_force_pushes": {"enabled": True},
+        "required_status_checks": {"contexts": ["something-else"]},
+    }
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0
+        and "required_approving_review_count is 0" in proc.stdout
+        and "enforce_admins.enabled is false" in proc.stdout
+        and "allow_force_pushes.enabled is true" in proc.stdout
+        and "does not include 'validate'" in proc.stdout,
+        f"branch protection missing every requirement fails, naming all 4 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_job_id_is_read_from_workflow_file() -> None:
+    """The required check name is not hardcoded — it's parsed from the
+    workflow file, so the two cannot silently diverge."""
+    fake_workflow = "name: Fake\non:\n  push:\njobs:\n  totally-different-job-name:\n    runs-on: ubuntu-latest\n"
+    protection = dict(GOOD_PROTECTION_JSON)
+    protection["required_status_checks"] = {"contexts": ["totally-different-job-name"]}
+    proc = run_check_branch_protection(protection, workflow_text=fake_workflow)
+    check(
+        proc.returncode == 0 and "totally-different-job-name" in proc.stdout,
+        f"the required job id is parsed live from the workflow file, not hardcoded (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+# ---------------------------------------------------------------------------
 # scripts/codex-preflight.sh (AG-2)
 # ---------------------------------------------------------------------------
 
@@ -699,6 +771,9 @@ def test_real_repository_skill_catalog_still_passes() -> None:
 
 
 def main() -> int:
+    test_branch_protection_all_requirements_met_passes()
+    test_branch_protection_reports_every_failing_field()
+    test_branch_protection_job_id_is_read_from_workflow_file()
     test_verify_bootstrap_summary_reports_partial_skip()
     test_verify_bootstrap_summary_reports_zero_skips()
     test_settings_with_all_secret_patterns_passes()
