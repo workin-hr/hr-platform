@@ -136,3 +136,16 @@ certainty than the ADR it depends on.
 | Impact | `docs/agents/skill-catalog.md` records the reasoning explicitly so this reads as a considered decision, not a gap; `.claude/skills/` continues to hold only the 9 `speckit-*` skills. |
 | Follow-up | Revisit if direct `/name` invocation of these skills inside Claude Code sessions becomes valuable enough to justify building and validating a non-duplicating pointer mechanism. |
 | Evidence | `docs/agents/skill-catalog.md` ("Why The 14 Repository-Authored Skills Are Not Also Under `.claude/skills/`"), this entry |
+
+## D-011: Draft Structured-Logging Field Contract Ahead Of Implementation
+
+| Field | Value |
+|---|---|
+| Decision | Publish `docs/operations/logging-conventions.md` as a Proposed structured-logging field contract (required fields, explicit exclusions, format) now, ahead of any backend/gateway implementation, so the first real code has a spec to conform to. |
+| Status | Proposed — this document is not Accepted; formal approval routes through ADR-0008 (Observability Baseline), which is itself still Proposed |
+| Owner | Repository owner, per D-009's CI/CD & observability ownership decision |
+| Related ADR | ADR-0008 |
+| Reason | OB-2 in the Engineering Enablement Plan called for this; explicitly did not invent a specific logging library, framework, or CI enforcement mechanism, since backend/edge-gateway have no real source files yet and doing so would encode a product-domain assumption ahead of Discovery evidence (see the document's own Open Questions). |
+| Impact | `docs/operations/logging-conventions.md` is a new document; `docs/operations/README.md`'s template list now references it. No code, CI check, or ADR content was changed. |
+| Follow-up | Move to Accepted only once ADR-0008 itself has real Discovery evidence and a Decider reviews the field list; a CI check enforcing "uses the shared logging wrapper" should only be added once a backend language/framework direction is itself Accepted, not guessed at now. |
+| Evidence | `docs/operations/logging-conventions.md`, this entry |

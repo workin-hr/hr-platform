@@ -19,6 +19,7 @@ approved ADR establish them; where a number is genuinely unknown, write
 - `backup-and-restore.md`
 - `incident-response.md`
 - `monitoring-and-alerting.md`
+- `logging-conventions.md` — structured-logging field contract, proposed ahead of implementation
 - `runbook-standards.md`
 - `production-smoke-and-post-deployment-validation.md`
 - `gateway-operational-support.md`
