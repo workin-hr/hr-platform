@@ -58,13 +58,25 @@ VERIFY_BOOTSTRAP_SCRIPT = REPO_ROOT / "scripts/verify-bootstrap.sh"
 ALL_SIX_TOOLS = ("markdownlint-cli2", "yamllint", "shellcheck", "actionlint", "gitleaks", "lychee")
 
 
+SYSTEM_PATH_DIRS = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+
 def run_verify_bootstrap_with_shims(present_tools: tuple[str, ...]) -> subprocess.CompletedProcess:
     """Runs the real verify-bootstrap.sh (real validate_phase0.py +
-    regression suites included) with a synthetic PATH entry containing a
-    trivial `exit 0` shim for each tool in `present_tools`, so exactly
-    those tools are seen as "installed" regardless of what is actually on
-    this machine. BOOTSTRAP_STRICT is left unset (default/local mode) —
-    only local mode can skip at all."""
+    regression suites included) with a synthetic, *replaced* PATH
+    containing a trivial `exit 0` shim for each tool in `present_tools`
+    plus only the standard base system directories (for python3, bash,
+    git, etc.) — not the inherited PATH. Merely prepending the shim
+    directory to the inherited PATH is not enough: in CI,
+    phase0-validate.yml's own earlier steps have already installed the
+    real markdownlint-cli2/yamllint/shellcheck/actionlint/gitleaks/lychee
+    onto PATH (job-local .ci-tools, npm global, pip user) by the time this
+    runs, so any tool not in `present_tools` would still resolve to the
+    real binary further down an inherited PATH and never actually skip —
+    confirmed by a real CI failure before this fix. Locally, none of the 6
+    are on PATH at all, so this had been passing for the wrong reason.
+    BOOTSTRAP_STRICT is left unset (default/local mode) — only local mode
+    can skip at all."""
     with tempfile.TemporaryDirectory(prefix="verify-bootstrap-shim-") as shim_dir:
         for tool in present_tools:
             shim_path = Path(shim_dir) / tool
@@ -72,7 +84,7 @@ def run_verify_bootstrap_with_shims(present_tools: tuple[str, ...]) -> subproces
             shim_path.chmod(0o755)
         env = dict(os.environ)
         env.pop("BOOTSTRAP_STRICT", None)
-        env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
+        env["PATH"] = f"{shim_dir}:{SYSTEM_PATH_DIRS}"
         # verify-bootstrap.sh's own [1/3] step runs validate_phase0.py,
         # which runs *this* file as a regression check
         # (validate_governance_check_tests) — without this guard, that
