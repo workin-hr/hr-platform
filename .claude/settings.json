@@ -34,6 +34,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/edit_audit_log.py\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

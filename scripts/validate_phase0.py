@@ -275,6 +275,28 @@ def validate_claude_settings(failures: list[str]) -> None:
     if not guard_script.is_file():
         fail("Missing scripts/git_guard.py, required by the Claude PreToolUse hook", failures)
 
+    # HK-2: the Edit/Write/NotebookEdit audit-trail hook (an observability
+    # aid, not a permission boundary — see edit_audit_log.py's docstring).
+    posttooluse = data.get("hooks", {}).get("PostToolUse", [])
+    found_audit_wiring = False
+    for entry in posttooluse:
+        matcher = entry.get("matcher", "")
+        if not {"Edit", "Write", "NotebookEdit"} & set(matcher.split("|")):
+            continue
+        for hook in entry.get("hooks", []):
+            if "scripts/edit_audit_log.py" in hook.get("command", ""):
+                found_audit_wiring = True
+    if not found_audit_wiring:
+        fail(
+            ".claude/settings.json has no hooks.PostToolUse entry matching "
+            "Edit/Write/NotebookEdit that invokes scripts/edit_audit_log.py",
+            failures,
+        )
+
+    audit_script = ROOT / "scripts/edit_audit_log.py"
+    if not audit_script.is_file():
+        fail("Missing scripts/edit_audit_log.py, required by the Claude PostToolUse hook", failures)
+
 
 def validate_skill_files(failures: list[str]) -> None:
     required_skills = {
@@ -792,6 +814,8 @@ def validate_scripts_exist(failures: list[str]) -> None:
         "scripts/test_git_guard.py",
         "scripts/test_adr_validation.py",
         "scripts/test_validate_phase0.py",
+        "scripts/edit_audit_log.py",
+        "scripts/test_edit_audit_log.py",
         "scripts/check-bootstrap-prerequisites.sh",
         "scripts/codex-preflight.sh",
     ):
@@ -907,6 +931,10 @@ def validate_governance_check_tests(failures: list[str]) -> None:
     _run_regression_script("scripts/test_validate_phase0.py", "Governance-check regression tests", failures)
 
 
+def validate_edit_audit_log_tests(failures: list[str]) -> None:
+    _run_regression_script("scripts/test_edit_audit_log.py", "Edit/Write audit-log hook regression tests", failures)
+
+
 def _validate_single_adr_cli(target_arg: str) -> int:
     """Single-ADR CLI mode: `validate_phase0.py --validate-adr <file>`.
 
@@ -958,6 +986,7 @@ def main() -> int:
     validate_git_guard_tests(failures)
     validate_adr_dynamic_tests(failures)
     validate_governance_check_tests(failures)
+    validate_edit_audit_log_tests(failures)
     if failures:
         print("Phase 0 validation failed:")
         for item in failures:
