@@ -323,6 +323,58 @@ def validate_skill_files(failures: list[str]) -> None:
         fail(f"Missing required skill: .agents/skills/{name}/SKILL.md", failures)
 
 
+MATRIX_ROW_RE = re.compile(
+    r"^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$",
+    re.MULTILINE,
+)
+
+
+def _agent_slug(display_name: str) -> str:
+    return display_name.strip().lower().replace(" ", "-")
+
+
+def validate_agent_matrix_consistency(failures: list[str], root: Path | None = None) -> None:
+    """docs/agents/responsibility-matrix.md hand-declares whether each
+    agent may modify files. Only Claude agents are technically tool-scoped
+    (docs/agents/operating-model.md, enforcement layer 1 — Codex has no
+    equivalent mechanism, per layer 2), so this binds the matrix's claim to
+    the real `tools:` frontmatter for Claude agents only; Codex rows have
+    nothing to check against and are silently skipped, not asserted about."""
+    root = root if root is not None else ROOT
+    matrix_path = root / "docs/agents/responsibility-matrix.md"
+    claude_agents_dir = root / ".claude/agents"
+    if not matrix_path.is_file() or not claude_agents_dir.is_dir():
+        return  # already reported by validate_required_paths
+    matrix_text = matrix_path.read_text(encoding="utf-8")
+    for agent_name, _primary_mode, may_modify, _may_pr, _may_approve in MATRIX_ROW_RE.findall(matrix_text):
+        agent_name = agent_name.strip()
+        may_modify = may_modify.strip()
+        if may_modify not in ("Yes", "No"):
+            continue  # header row ("Agent") or separator row ("---")
+        agent_file = claude_agents_dir / f"{_agent_slug(agent_name)}.md"
+        if not agent_file.is_file():
+            continue  # not a Claude agent (e.g. a Codex row) — nothing to bind
+        agent_text = agent_file.read_text(encoding="utf-8")
+        frontmatter_end = agent_text.find("\n---", 4)
+        frontmatter = agent_text[:frontmatter_end] if frontmatter_end != -1 else agent_text
+        tools_match = re.search(r"^tools:\s*(.+)$", frontmatter, re.MULTILINE)
+        tools = tools_match.group(1).strip() if tools_match else ""
+        can_modify = any(tool in tools for tool in ("Edit", "Write", "NotebookEdit"))
+        if may_modify == "No" and can_modify:
+            fail(
+                f"responsibility-matrix.md says '{agent_name}' May Modify Files = No, but "
+                f".claude/agents/{agent_file.name} tools frontmatter grants {tools!r}",
+                failures,
+            )
+        elif may_modify == "Yes" and not can_modify:
+            fail(
+                f"responsibility-matrix.md says '{agent_name}' May Modify Files = Yes, but "
+                f".claude/agents/{agent_file.name} tools frontmatter ({tools!r}) grants no "
+                "file-modifying tool",
+                failures,
+            )
+
+
 def validate_skill_catalog_consistency(failures: list[str], root: Path | None = None) -> None:
     """docs/agents/skill-catalog.md hand-maintains a list of skill names —
     exactly the kind of filesystem mirror that drifts silently unless
@@ -725,6 +777,7 @@ def main() -> int:
     validate_required_paths(failures)
     validate_forbidden_files(failures)
     validate_agent_files(failures)
+    validate_agent_matrix_consistency(failures)
     validate_claude_settings(failures)
     validate_skill_files(failures)
     validate_skill_catalog_consistency(failures)

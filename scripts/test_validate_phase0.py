@@ -45,6 +45,97 @@ def make_root() -> Path:
 
 
 # ---------------------------------------------------------------------------
+# validate_agent_matrix_consistency (AG-1)
+# ---------------------------------------------------------------------------
+
+MATRIX_HEADER = "| Agent | Primary Mode | May Modify Files | May Open PR | May Approve Work |\n"
+MATRIX_SEPARATOR = "| --- | --- | --- | --- | --- |\n"
+
+
+def write_matrix(root: Path, rows: list[str]) -> None:
+    (root / "docs/agents").mkdir(parents=True, exist_ok=True)
+    text = "# Agent Responsibility Matrix\n\n" + MATRIX_HEADER + MATRIX_SEPARATOR + "".join(rows)
+    (root / "docs/agents/responsibility-matrix.md").write_text(text, encoding="utf-8")
+
+
+def write_claude_agent(root: Path, slug: str, tools: str) -> None:
+    agents_dir = root / ".claude/agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    (agents_dir / f"{slug}.md").write_text(
+        f"---\nname: {slug}\ndescription: test agent\ntools: {tools}\n---\n\n# Test Agent\n",
+        encoding="utf-8",
+    )
+
+
+def test_matrix_says_no_but_agent_can_modify_fails() -> None:
+    root = make_root()
+    try:
+        write_matrix(root, ["| Test Agent | Read-only analysis | No | No | No |\n"])
+        write_claude_agent(root, "test-agent", "Read, Grep, Glob, Bash, Edit, Write")
+
+        failures: list[str] = []
+        v.validate_agent_matrix_consistency(failures, root=root)
+        check(
+            any("May Modify Files = No" in f for f in failures),
+            f"a matrix row claiming read-only, contradicted by Edit/Write in frontmatter, fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_matrix_says_yes_but_agent_cannot_modify_fails() -> None:
+    root = make_root()
+    try:
+        write_matrix(root, ["| Test Agent | Controlled implementation | Yes | Yes | No |\n"])
+        write_claude_agent(root, "test-agent", "Read, Grep, Glob, Bash")
+
+        failures: list[str] = []
+        v.validate_agent_matrix_consistency(failures, root=root)
+        check(
+            any("May Modify Files = Yes" in f for f in failures),
+            f"a matrix row claiming modify access, contradicted by no Edit/Write/NotebookEdit in frontmatter, fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_matrix_consistent_with_frontmatter_passes() -> None:
+    root = make_root()
+    try:
+        write_matrix(root, ["| Test Agent | Read-only analysis | No | No | No |\n"])
+        write_claude_agent(root, "test-agent", "Read, Grep, Glob, Bash")
+
+        failures: list[str] = []
+        v.validate_agent_matrix_consistency(failures, root=root)
+        check(failures == [], f"a matrix row matching real frontmatter passes (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_matrix_codex_row_without_frontmatter_is_skipped() -> None:
+    """A Codex row ('Yes' with no .claude/agents file at all) must not be
+    asserted about — Codex has no equivalent tool-scoping mechanism to
+    check against (docs/agents/operating-model.md, enforcement layer 2)."""
+    root = make_root()
+    try:
+        write_matrix(root, ["| Codex Bootstrap Engineer | Controlled implementation | Yes | Yes | No |\n"])
+        # No .claude/agents/codex-bootstrap-engineer.md is created at all.
+
+        failures: list[str] = []
+        v.validate_agent_matrix_consistency(failures, root=root)
+        check(failures == [], f"a Codex row with no matching Claude agent file is silently skipped (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_real_repository_agent_matrix_still_passes() -> None:
+    """Sanity check against the real repository's 6 Claude agent rows."""
+    failures: list[str] = []
+    v.validate_agent_matrix_consistency(failures)  # default root = real repo
+    check(failures == [], f"the real repository's responsibility-matrix.md still passes (failures={failures})")
+
+
+# ---------------------------------------------------------------------------
 # validate_skill_catalog_consistency (SK-1)
 # ---------------------------------------------------------------------------
 
@@ -102,6 +193,11 @@ def test_real_repository_skill_catalog_still_passes() -> None:
 
 
 def main() -> int:
+    test_matrix_says_no_but_agent_can_modify_fails()
+    test_matrix_says_yes_but_agent_cannot_modify_fails()
+    test_matrix_consistent_with_frontmatter_passes()
+    test_matrix_codex_row_without_frontmatter_is_skipped()
+    test_real_repository_agent_matrix_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()
     test_real_repository_skill_catalog_still_passes()
