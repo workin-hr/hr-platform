@@ -40,4 +40,6 @@ Phase 0 forbids:
 
 Use the repository workflow defined in [AGENTS.md](AGENTS.md) and the bootstrap instructions under [docs/bootstrap](docs/bootstrap).
 
+For the current owner-by-owner follow-through order, use [docs/bootstrap/execution-checklist.md](docs/bootstrap/execution-checklist.md).
+
 Human approval is required before work moves from planning into implementation.

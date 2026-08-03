@@ -3,6 +3,7 @@
 ## Read First
 
 - Bootstrap plan: [docs/bootstrap/bootstrap-plan.md](docs/bootstrap/bootstrap-plan.md)
+- Execution checklist: [docs/bootstrap/execution-checklist.md](docs/bootstrap/execution-checklist.md)
 - Project charter: [docs/bootstrap/project-charter.md](docs/bootstrap/project-charter.md)
 - Open questions: [docs/bootstrap/open-questions.md](docs/bootstrap/open-questions.md)
 - Risk register: [docs/bootstrap/risk-register.md](docs/bootstrap/risk-register.md)
