@@ -323,6 +323,29 @@ def validate_skill_files(failures: list[str]) -> None:
         fail(f"Missing required skill: .agents/skills/{name}/SKILL.md", failures)
 
 
+def validate_skill_catalog_consistency(failures: list[str], root: Path | None = None) -> None:
+    """docs/agents/skill-catalog.md hand-maintains a list of skill names —
+    exactly the kind of filesystem mirror that drifts silently unless
+    checked (it had drifted: the 9 vendor speckit-* skills were missing
+    from the catalog before this check was added). Every skill directory
+    under .agents/skills/, including vendor-provided ones, must be named
+    somewhere in the catalog text."""
+    root = root if root is not None else ROOT
+    catalog = root / "docs/agents/skill-catalog.md"
+    skills_dir = root / ".agents/skills"
+    if not catalog.is_file() or not skills_dir.is_dir():
+        return  # already reported by validate_required_paths
+    catalog_text = catalog.read_text(encoding="utf-8")
+    for path in sorted(skills_dir.glob("*/SKILL.md")):
+        name = path.parent.name
+        if name not in catalog_text:
+            fail(
+                f"Skill '{name}' (.agents/skills/{name}/SKILL.md) is not listed in "
+                "docs/agents/skill-catalog.md",
+                failures,
+            )
+
+
 ADR_REQUIRED_SECTIONS = [
     "## Metadata",
     "## Context",
@@ -517,6 +540,7 @@ def validate_scripts_exist(failures: list[str]) -> None:
         "scripts/git_guard.py",
         "scripts/test_git_guard.py",
         "scripts/test_adr_validation.py",
+        "scripts/test_validate_phase0.py",
         "scripts/check-bootstrap-prerequisites.sh",
     ):
         path = ROOT / rel
@@ -627,6 +651,10 @@ def validate_adr_dynamic_tests(failures: list[str]) -> None:
     _run_regression_script("scripts/test_adr_validation.py", "Dynamic ADR validation regression tests", failures)
 
 
+def validate_governance_check_tests(failures: list[str]) -> None:
+    _run_regression_script("scripts/test_validate_phase0.py", "Governance-check regression tests", failures)
+
+
 def _validate_single_adr_cli(target_arg: str) -> int:
     """Single-ADR CLI mode: `validate_phase0.py --validate-adr <file>`.
 
@@ -662,6 +690,7 @@ def main() -> int:
     validate_agent_files(failures)
     validate_claude_settings(failures)
     validate_skill_files(failures)
+    validate_skill_catalog_consistency(failures)
     validate_adrs(failures)
     validate_issue_forms(failures)
     validate_scripts_exist(failures)
@@ -671,6 +700,7 @@ def main() -> int:
     validate_tool_catalog_consistency(failures)
     validate_git_guard_tests(failures)
     validate_adr_dynamic_tests(failures)
+    validate_governance_check_tests(failures)
     if failures:
         print("Phase 0 validation failed:")
         for item in failures:
