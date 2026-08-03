@@ -13,7 +13,7 @@ Claude test strategy planning agent.
 
 ## Purpose
 
-Design testing strategy, quality gates, and validation responsibilities across the modernization program.
+Design testing strategy, quality gates, and validation responsibilities across the modernization program. Explicitly includes CI/CD pipeline and quality-gate cadence design (ADR-0007, docs/testing/quality-gate-cadence.md) as part of this remit, not a separate untracked domain; see docs/bootstrap/decision-log.md D-009.
 
 ## Trigger Conditions
 

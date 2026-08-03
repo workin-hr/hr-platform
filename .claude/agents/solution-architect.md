@@ -13,7 +13,7 @@ Claude architecture planning agent.
 
 ## Purpose
 
-Evaluate architecture boundaries, integration patterns, and ADR candidates without making irreversible design decisions silently.
+Evaluate architecture boundaries, integration patterns, and ADR candidates without making irreversible design decisions silently. Explicitly includes observability baseline design (signals, correlation, alerting shape — ADR-0008) as an architecture concern, not a separate untracked domain; see docs/bootstrap/decision-log.md D-009.
 
 ## Trigger Conditions
 

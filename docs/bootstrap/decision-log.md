@@ -110,3 +110,16 @@ certainty than the ADR it depends on.
 | Impact | All 6 Claude agents are now genuinely tool-scoped when invoked via the Task/Agent tool; `.claude/settings.json` is validated by `scripts/validate_phase0.py::validate_claude_settings()`; `.codex/config.toml` is now honest reference documentation, not fake enforcement |
 | Follow-up | Codex-side enforcement remains dependent on the human operator applying the documented `--sandbox`/`--ask-for-approval` flags — this cannot be closed from repository files alone (see R-006 in `docs/bootstrap/risk-register.md`) |
 | Evidence | `docs/bootstrap/audit-remediation.md` (P1-2) |
+
+## D-009: CI/CD & Observability Domain Ownership
+
+| Field | Value |
+|---|---|
+| Decision | The repository owner is the accountable human for CI/CD pipeline design and observability baseline decisions (ADR-0007, ADR-0008, and any future CI/CD-domain ADRs). No new Claude agent is added for this domain in Phase 0; Solution Architect's and Test Architect's existing documented remits already cover the read-only analysis work (architecture/ADR analysis and testing-strategy/quality-gate analysis respectively) and now say so explicitly. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0007, ADR-0008 |
+| Reason | The Engineering Enablement Plan's AG-3 item found that no agent's stated remit named CI/CD pipeline design or observability baseline ownership explicitly, even though ADR-0007's Owner (Test Architect) and ADR-0008's Owners (Solution Architect, Test Architect) already implied it. The repository owner confirmed direct accountability for this domain rather than delegating it to a new agent; adding a dedicated agent before any real CI/CD pipeline exists beyond `phase0-validate.yml` would be scope ahead of need. |
+| Impact | `.claude/agents/solution-architect.md` and `.claude/agents/test-architect.md` Purpose sections now explicitly name observability baseline design and CI/CD pipeline/quality-gate design, respectively, as in scope. `docs/agents/responsibility-matrix.md` is unchanged — no new row, no change to either agent's tool scope or approval authority. |
+| Follow-up | None open |
+| Evidence | `.claude/agents/solution-architect.md`, `.claude/agents/test-architect.md`, this entry |
