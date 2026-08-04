@@ -253,8 +253,12 @@ def validate_claude_settings(failures: list[str], root: Path | None = None) -> N
     # HK-3: generic (not product-specific) credential/secret filename
     # patterns, ahead of discovery evidence landing under evidence/ — see
     # docs/agents/operating-model.md's Read/Write permissions section.
-    # Read and Edit must each be covered; a pattern present only for one
-    # tool would leave the other free to touch a matching file.
+    # Read, Edit, Write, and NotebookEdit must each be covered; a pattern
+    # present only for some tools would leave the others free to read,
+    # create, or overwrite a matching file (confirmed as a real gap —
+    # see docs/bootstrap/audit-remediation.md, HK-3 follow-up: Write and
+    # NotebookEdit had no matching deny rules despite being distinct tool
+    # types elsewhere in this same file).
     required_secret_pattern_fragments = [
         "*credentials*",
         "*secret*",
@@ -267,7 +271,7 @@ def validate_claude_settings(failures: list[str], root: Path | None = None) -> N
         "*.jks",
     ]
     for fragment in required_secret_pattern_fragments:
-        for tool in ("Read", "Edit"):
+        for tool in ("Read", "Edit", "Write", "NotebookEdit"):
             if not any(rule.startswith(f"{tool}(") and fragment in rule for rule in deny):
                 fail(
                     f".claude/settings.json permissions.deny is missing a {tool}(...) rule "
@@ -431,26 +435,64 @@ def validate_agent_matrix_consistency(failures: list[str], root: Path | None = N
 COMPONENT_DIRS = ["backend", "admin-web", "edge-gateway", "infrastructure", "contracts", "specs"]
 
 
+def _git_tracked_files(root: Path) -> set[Path] | None:
+    """The set of git-tracked file paths under root, as absolute Path
+    objects, or None if root is not inside a working git repository (or
+    git is unavailable) — callers must treat None as "no filtering
+    possible" and fall back to their prior raw-filesystem behavior rather
+    than silently skipping validation. Used so "tracked file" checks (see
+    docs below) don't fire on local scratch/untracked files that were
+    never part of the repository content actually under review — see
+    docs/bootstrap/audit-remediation.md for the finding this fixes."""
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=root,
+            capture_output=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return {
+        root / entry
+        for entry in result.stdout.decode("utf-8", errors="replace").split("\0")
+        if entry
+    }
+
+
 def validate_codeowners_component_coverage(failures: list[str], root: Path | None = None) -> None:
     """CODEOWNERS today routes everything to @workin-hr/platform-owners (plus
     qa on two paths) — correct while every component directory holds only
     its boundary README.md. Dormant check: once a component directory
     contains any other tracked file, CODEOWNERS must have a path entry for
     it, or PRs touching that component get no team-specific review
-    routing. Inert today; verified against the real repository below."""
+    routing. Inert today; verified against the real repository below.
+
+    Only git-tracked files count (via `_git_tracked_files`) — an untracked
+    local scratch file dropped into a component directory must not trip
+    this check, since it was never part of the repository content under
+    review. When root is not a real git repository (e.g. a synthetic test
+    fixture), tracking cannot be determined, so every file on disk is
+    treated as in-scope — the same behavior this check had before the fix,
+    preserved specifically so fixture-based tests keep working unchanged."""
     root = root if root is not None else ROOT
     codeowners_path = root / "CODEOWNERS"
     if not codeowners_path.is_file():
         return  # already reported by validate_required_paths
     codeowners_text = codeowners_path.read_text(encoding="utf-8")
+    tracked = _git_tracked_files(root)
     for component in COMPONENT_DIRS:
         component_dir = root / component
         if not component_dir.is_dir():
             continue
-        has_real_content = any(
-            path.is_file() and path.name != "README.md" for path in component_dir.rglob("*")
-        )
-        if not has_real_content:
+        candidate_files = [
+            path for path in component_dir.rglob("*") if path.is_file() and path.name != "README.md"
+        ]
+        if tracked is not None:
+            candidate_files = [path for path in candidate_files if path in tracked]
+        if not candidate_files:
             continue
         pattern = re.compile(rf"^/{re.escape(component)}/", re.MULTILINE)
         if not pattern.search(codeowners_text):
@@ -486,7 +528,12 @@ def validate_dependabot_ecosystem_coverage(failures: list[str], root: Path | Non
     repository yet (package.json is even in FORBIDDEN_FILE_NAMES above).
     Dormant check: once a manifest lands, dependabot.yml must have a
     package-ecosystem entry for its directory, or that dependency surface
-    silently goes unscanned. Inert today; verified below."""
+    silently goes unscanned. Inert today; verified below.
+
+    Only git-tracked manifests count (see `_git_tracked_files`) — an
+    untracked local scratch `package.json` must not trip this check. Falls
+    back to raw-filesystem behavior when root is not a real git repository
+    (synthetic test fixtures), same as `validate_codeowners_component_coverage`."""
     root = root if root is not None else ROOT
     dependabot_path = root / ".github/dependabot.yml"
     if not dependabot_path.is_file():
@@ -495,9 +542,12 @@ def validate_dependabot_ecosystem_coverage(failures: list[str], root: Path | Non
     configured_dirs = {
         _normalize_dependabot_dir(m.group(1)) for m in DEPENDABOT_DIRECTORY_RE.finditer(dependabot_text)
     }
+    tracked = _git_tracked_files(root)
     for manifest_name, ecosystem in MANIFEST_ECOSYSTEMS.items():
         for manifest_path in sorted(root.rglob(manifest_name)):
             if ".git" in manifest_path.parts or "node_modules" in manifest_path.parts:
+                continue
+            if tracked is not None and manifest_path not in tracked:
                 continue
             rel_dir = manifest_path.parent.relative_to(root)
             manifest_dir = _normalize_dependabot_dir("" if str(rel_dir) == "." else str(rel_dir).replace("\\", "/"))
