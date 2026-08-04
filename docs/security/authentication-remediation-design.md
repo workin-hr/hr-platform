@@ -314,5 +314,5 @@ would log out the entire active user base on first deploy.
 `hr-platform#21`; `docs/api/flutter-request-response-compatibility.md`
 ("Session/Token Lifecycle" section, full evidence citations therein);
 `docs/security/threat-model.md`; ADR-0005
-(`docs/adr/ADR-0005-authentication-and-authorization-direction.md`, the
+(`docs/adr/ADR-0005-authentication-direction.md`, the
 architecture ADR this design document is intended to feed).

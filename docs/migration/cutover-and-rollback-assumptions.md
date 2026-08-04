@@ -9,7 +9,7 @@ actually known, and mark everything else as an open question.
 
 - **Category**: Cutover window, data-freeze scope, communication.
 - **Confidence**: Evidenced — this is a confirmed product decision, not
-  a hypothesis. See `docs/adr/ADR-0005-authentication-and-authorization-direction.md`
+  a hypothesis. See `docs/adr/ADR-0005-authentication-direction.md`
   and `docs/security/authentication-remediation-design.md` for the full
   design.
 - **Statement**: On auth-system cutover, existing `hr-legacy` JWTs

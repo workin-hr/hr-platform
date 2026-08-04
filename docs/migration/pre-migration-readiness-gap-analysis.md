@@ -362,55 +362,72 @@ table: `docs/migration/technical-spike-plan.md`'s "Revision Summary."
 - **Related**: `docs/migration/technical-spike-plan.md`; ADR-0002
   (the one ADR this spike still feeds); `workin-hr/hr-platform#13`.
 
-### PMR-08: All 9 Architecture ADRs Remain Proposed
+### PMR-08: All 10 Architecture ADRs Remain Proposed
 
 **Update 2026-08-04 — per-ADR classification now exists, not a single
-monolithic blocker.** Every ADR (including the new ADR-0009) was
-individually reviewed for whether it needs an actual decision now,
-depends on the (now-narrowed) spike, can be accepted immediately from
-existing evidence, or is genuinely premature. See each ADR file's new
-"Classification (2026-08-04 revision)" section for the full reasoning.
-Summary:
+monolithic blocker.** Every ADR was individually reviewed for whether
+it needs an actual decision now, depends on the (now-narrowed) spike,
+can be accepted immediately from existing evidence, or is genuinely
+premature. **Later update, same day**: ADR-0005 was corrected (its
+Decision section had only ever held Discovery-stage placeholder text,
+not the real approved direction — now fixed) and renamed to
+"Authentication Direction"; its former authorization-model scope split
+out into a new **ADR-0010**, genuinely open on all six of its
+dimensions (see that ADR directly — nothing there is decided). See each
+ADR file's own "Classification (2026-08-04 revision)" section for the
+full reasoning. Summary:
 
 | Classification | ADRs |
 |---|---|
-| **Recommended: accept now**, no dependency | ADR-0001 (repository strategy), ADR-0005 (auth direction) |
+| **Recommended: accept now**, no dependency | ADR-0001 (repository strategy), ADR-0005 (authentication direction — corrected Decision section, 2026-08-04) |
 | **Recommended: decide now**, informed by existing evidence gathered this session | ADR-0003 (API versioning — real Flutter contract evidence now exists), ADR-0004 (MySQL→Postgres approach — real DB analysis now exists), ADR-0009 (dashboard vs. desktop — decision recorded, 2 items left for sign-off) |
 | **Accept now for the MVP baseline**, heavier stack deliberately deferred | ADR-0007 (testing strategy), ADR-0008 (observability baseline) |
 | **Split — strategic direction acceptable now, one detail still spike/access-dependent** | ADR-0002 (modular monolith — strategy now, tenant-isolation pattern detail after the 3-day spike), ADR-0006 (attendance edge-gateway — adapter/SPI pattern now, vendor-specific direction after PMR-04) |
+| **Genuinely premature — fully open, no recommendation** | ADR-0010 (authorization model — all 6 dimensions undecided; depends in part on ADR-0002 Part B's spike result) |
 
 **None of these are self-approving** — this document recommends, a
 human `Status`-change is still required per each ADR's own governance
 rule, consistent with this repository's practice throughout.
 
-- **Description**: None of `ADR-0001` through `ADR-0009` have moved to
+- **Description**: None of `ADR-0001` through `ADR-0010` have moved to
   `Accepted` yet, though 4 are recommended for immediate acceptance and
-  3 more for a decision now.
+  3 more for a decision now. ADR-0010 is new and not expected to be
+  ready soon — it is a genuinely open design space, not a pending
+  sign-off.
 - **Why It Matters**: Implementing against a `Proposed` ADR as if it
   were `Accepted` risks rework if a later formal review revises the
   direction.
-- **Risk Level / Migration Impact**: Reduced to Low-Medium — mostly a
-  process step (human sign-off) now, not missing evidence.
+- **Risk Level / Migration Impact**: Reduced to Low-Medium for the 7
+  ADRs recommended for sign-off; unchanged (genuinely unresolved) for
+  ADR-0010.
 - **Blocks**: Full-scale implementation start for the 2 ADRs still
   genuinely spike/access-dependent (the tenant-isolation detail,
-  final device-vendor direction); the other 7 are ready for sign-off.
+  final device-vendor direction); the other 7 (excluding ADR-0010) are
+  ready for sign-off. **ADR-0010 blocks nothing for backend
+  implementation start or scaffolding** — only modules that need
+  fine-grained permission enforcement need it resolved first (see the
+  Migration-Readiness Gate).
 - **Required Evidence To Close**: Human engineering leadership (each
   ADR's own Deciders field) reviews the Validation Evidence/Classification
   sections and records Accept/Reject/Revise in
-  `docs/bootstrap/decision-log.md`.
+  `docs/bootstrap/decision-log.md`. For ADR-0010 specifically: a human
+  decider actually choosing an answer for each of its 6 dimensions —
+  not yet attempted by this document.
 - **Owner**: TBD — human engineering leadership, per each ADR's Deciders
   field.
 - **Dependencies**: The narrowed PMR-07 spike still feeds ADR-0002's
-  tenant-isolation-pattern detail. PMR-04 still feeds ADR-0006's final
-  vendor-specific direction. Nothing else remains blocked.
-- **Target / Duration**: The 7 non-spike-dependent ADRs: as soon as a
-  human reviews. The 2 spike/access-dependent details: per PMR-07/PMR-04.
+  tenant-isolation-pattern detail, which in turn feeds ADR-0010's
+  tenant-membership-validation dimension. PMR-04 still feeds ADR-0006's
+  final vendor-specific direction. Nothing else remains blocked.
+- **Target / Duration**: The 7 non-spike-dependent, non-ADR-0010 ADRs:
+  as soon as a human reviews. The 2 spike/access-dependent details: per
+  PMR-07/PMR-04. ADR-0010: TBD, genuinely open, no target set.
 - **Exit / Acceptance Criteria**: Every ADR's Status is updated to
   `Accepted`, `Rejected`, or `Superseded`, with a decision-log citation.
-- **Status**: Ready for 7 of 9 ADRs (human sign-off only); Blocked for
+- **Status**: Ready for 7 of 10 ADRs (human sign-off only); Blocked for
   ADR-0002's tenant-isolation detail (PMR-07) and ADR-0006's final
-  vendor direction (PMR-04).
-- **Related**: All 9 ADRs; `docs/bootstrap/decision-log.md`;
+  vendor direction (PMR-04); Open/undecided for ADR-0010.
+- **Related**: All 10 ADRs; `docs/bootstrap/decision-log.md`;
   `workin-hr/hr-platform#14`.
 
 ### PMR-09: No Detailed Per-Module Migration Execution Plan
@@ -437,7 +454,7 @@ rule, consistent with this repository's practice throughout.
   plus one module).
 - **Status**: Blocked — on PMR-07 and PMR-08, both now substantially
   smaller dependencies than originally scoped (2026-08-04: PMR-07
-  narrowed to a 3-day spike, PMR-08 has 7 of 9 ADRs ready for immediate
+  narrowed to a 3-day spike, PMR-08 has 7 of 10 ADRs ready for immediate (ADR-0010 is new and separately open)
   sign-off) — this gap should close faster than its original framing
   implied, not faster than its actual dependency chain.
 - **Related**: `docs/migration/migration-strategy-and-sequencing.md`;
@@ -494,7 +511,7 @@ PMR-07 (narrowed), and PMR-08 (per-ADR classification).
 | PMR-01 | Dashboard Discovery incomplete | Medium-High | Dashboard modules | Ready | None | `hr-platform#9` |
 | PMR-02 | Flutter client contract — depth remaining | Medium (was Critical/High) | Full per-endpoint contract confirmation, not the whole migration | Ready | None | `hr-platform#10` |
 | PMR-03 | Production data — fresh-snapshot re-verification | Medium (was High) | Data-migration/cutover phase only — schema/data-quality analysis substantially complete | Ready | Fresh snapshot (cutover-phase timing, not now) | `hr-platform#11` |
-| PMR-08 | ADRs still Proposed | Low-Medium (was Medium) | 2 of 9 ADRs' remaining details; 7 of 9 ready for sign-off | Ready for 7 ADRs; Blocked for 2 details | PMR-07 (1 ADR), PMR-04 (1 ADR) | `hr-platform#14` |
+| PMR-08 | ADRs still Proposed | Low-Medium (was Medium) | 2 of 10 ADRs' remaining details; 7 of 10 ready for sign-off; 1 (ADR-0010) fully open | Ready for 7 ADRs; Blocked for 2 details | PMR-07 (1 ADR), PMR-04 (1 ADR) | `hr-platform#14` |
 | PMR-06 | Open product/business decisions | Medium | Specific modules | Blocked — 4 of 5 remain (1 resolved 2026-08-04) | Human decisions | `hr-legacy#11,14,15,18` |
 | PMR-09 | No per-module execution plan | Medium | Implementation start per module | Blocked, but dependency chain now much shorter | PMR-07 (3 days), PMR-08 (7/9 ready) | `hr-platform#15` |
 
@@ -505,7 +522,7 @@ migration-readiness gaps. See
 `docs/migration/consolidated-task-matrix.md` Section A.
 
 Read this table as: **PMR-01, PMR-02, PMR-03 (fresh-snapshot timing
-aside), PMR-04 (architecture), PMR-07, and 7-of-9 ADRs under PMR-08 are
+aside), PMR-04 (architecture), PMR-07, and 7-of-10 ADRs under PMR-08 are
 all `Ready` today** — the only genuine external-access blockers left are
 PMR-05 (live production value) and PMR-04/PMR-08's 2 remaining
 device-vendor-specific items.
@@ -523,10 +540,17 @@ this document. Substantially smaller than the original gate — see
    days) is Closed, with a recorded Accept/Revise/Reject recommendation
    feeding ADR-0002.
 2. **ADR-0002's strategic direction** (modular monolith) and
-   **ADR-0005** (authentication and authorization direction) are
-   `Accepted` — the two most foundational decisions. Both are
-   recommended for acceptance now (ADR-0005 fully; ADR-0002's strategic
-   half — the tenant-isolation *pattern* detail waits on item 1 above).
+   **ADR-0005** (authentication direction — renamed 2026-08-04, its
+   Decision section now states the actual approved direction rather
+   than a Discovery-stage placeholder) are `Accepted` — the two most
+   foundational decisions. Both are recommended for acceptance now
+   (ADR-0005 fully; ADR-0002's strategic half — the tenant-isolation
+   *pattern* detail waits on item 1 above). **ADR-0010 (authorization
+   model, split out of ADR-0005 on 2026-08-04) is a separate, still
+   fully open decision — not part of this gate**, since no backend
+   implementation strictly requires the authorization model finalized
+   before scaffolding/auth-module work begins, only before modules that
+   enforce fine-grained permissions are built out.
 3. PMR-05 (production `DEBUG` value) is Closed, regardless of migration
    timing — unchanged from the original gate, this should not remain
    open while any other planning proceeds.
@@ -599,7 +623,7 @@ change and why:
   per-module acceptance criteria. Legacy bugs get fixed once, correctly,
   in the new module that replaces the buggy legacy one — not before
   that module's work starts. (`docs/migration/consolidated-task-matrix.md`)
-- **7 of 9 ADRs recommended for immediate decision/acceptance**, using
+- **7 of 10 ADRs recommended for immediate decision/acceptance**, using
   evidence gathered this session (real Flutter contracts, real DB
   analysis, the recorded dashboard/desktop and auth decisions) instead
   of waiting on the spike. Only ADR-0002's tenant-isolation detail and
@@ -624,7 +648,7 @@ project's sessions: `docs/api/existing-endpoint-inventory.md`,
 `docs/legacy/business-rule-extraction.md`,
 `docs/legacy/existing-php-module-inventory.md`, `docs/security/threat-model.md`,
 `docs/migration/database-schema-inventory.md`,
-`docs/migration/migration-strategy-and-sequencing.md`, all 9 ADRs in
+`docs/migration/migration-strategy-and-sequencing.md`, all 10 ADRs in
 `docs/adr/`, `docs/devices/` (including the new
 `device-integration-architecture.md`), `docs/tools/tool-catalog.md`,
 `docs/tools/tool-decision-matrix.md`. This 2026-08-04 revision

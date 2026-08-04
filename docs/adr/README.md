@@ -31,8 +31,9 @@ maintaining a second, divergent copy of these rules — see
 - `ADR-0002-modular-monolith-baseline.md`
 - `ADR-0003-api-versioning-and-flutter-compatibility.md`
 - `ADR-0004-mysql-to-postgresql-migration-approach.md`
-- `ADR-0005-authentication-and-authorization-direction.md`
+- `ADR-0005-authentication-direction.md`
 - `ADR-0006-attendance-edge-gateway-direction.md`
 - `ADR-0007-testing-and-quality-gate-strategy.md`
 - `ADR-0008-observability-baseline.md`
 - `ADR-0009-dashboard-vs-desktop-admin-client.md`
+- `ADR-0010-authorization-model.md`

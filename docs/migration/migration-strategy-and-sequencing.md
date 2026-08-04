@@ -13,15 +13,18 @@ adopted by virtue of appearing in this document.
 
 ## What This Unblocks
 
-ADR-0005 (Authentication And Authorization Direction) explicitly states it
-requires `docs/legacy/business-rule-extraction.md` and
-`docs/legacy/production-behavior-evidence.md` to cover current identity
-flows before it can move toward `Accepted`. That evidence now exists: the
-full login/OTP/session lifecycle for both `employee` and `company` auth
-types, the `hr_permissions` model, and the desktop/HR login path are all
-documented, along with the concrete failure modes found in each (see the
-"Findings Carried Into The Rewrite" table below). This does not decide
-ADR-0005 — it removes the stated evidence blocker.
+ADR-0005 (renamed "Authentication Direction" 2026-08-04 — its former
+authorization scope now lives in `docs/adr/ADR-0010-authorization-model.md`)
+explicitly states it requires `docs/legacy/business-rule-extraction.md`
+and `docs/legacy/production-behavior-evidence.md` to cover current
+identity flows before it can move toward `Accepted`. That evidence now
+exists: the full login/OTP/session lifecycle for both `employee` and
+`company` auth types, the `hr_permissions` model, and the desktop/HR
+login path are all documented, along with the concrete failure modes
+found in each (see the "Findings Carried Into The Rewrite" table
+below). This does not decide ADR-0005 — it removes the stated evidence
+blocker. The `hr_permissions` model specifically now feeds
+ADR-0010's authorization-model dimensions instead.
 
 Similarly, ADR-0004's "Validation Evidence" section lists the full
 `docs/migration/` template set as a prerequisite. Status per template:
