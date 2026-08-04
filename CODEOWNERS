@@ -10,3 +10,4 @@
 /.codex/ @workin-hr/platform-owners
 /.agents/ @workin-hr/platform-owners
 /.specify/ @workin-hr/platform-owners
+/backend/ @workin-hr/platform-owners

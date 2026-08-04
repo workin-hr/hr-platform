@@ -171,6 +171,20 @@ FORBIDDEN_DIRS = {"src", "node_modules"}
 # is still scanned exactly as before.
 SPIKE_DIR_NAME = "spike"
 
+# Deliberate, narrow, per-component exclusion — not a blanket "Phase 0 is
+# over" switch. Each entry here is a top-level component directory whose
+# own explicit Phase 0 -> Phase 1 transition decision has been recorded in
+# docs/bootstrap/decision-log.md; only that directory's forbidden-file
+# check is lifted. Every other COMPONENT_DIRS entry not listed here
+# remains fully Phase-0-locked and scanned exactly as before.
+#
+# - "backend": docs/bootstrap/decision-log.md D-028 (2026-08-05) lifts the
+#   lock for real Spring Boot/Java 25 backend implementation, following
+#   every architecture ADR this depends on reaching Accepted (D-016
+#   through D-026) and the Migration-Readiness Gate's minimum conditions
+#   being satisfied.
+PHASE1_UNLOCKED_DIRS = {"backend"}
+
 # This is a fast, narrow, five-pattern check, not comprehensive secret
 # scanning. Gitleaks (run in .github/workflows/phase0-validate.yml with its
 # default ruleset) is the authoritative scanner — see
@@ -204,6 +218,8 @@ def validate_forbidden_files(failures: list[str], root: Path | None = None) -> N
     for path in root.rglob("*"):
         rel_path = path.relative_to(root)
         if rel_path.parts and rel_path.parts[0] == SPIKE_DIR_NAME:
+            continue
+        if rel_path.parts and rel_path.parts[0] in PHASE1_UNLOCKED_DIRS:
             continue
         rel = rel_path.as_posix()
         if path.is_dir() and path.name in FORBIDDEN_DIRS:
@@ -524,6 +540,7 @@ MANIFEST_ECOSYSTEMS = {
     "package.json": "npm",
     "composer.json": "composer",
     "pubspec.yaml": "pub",
+    "build.gradle": "gradle",
 }
 
 DEPENDABOT_DIRECTORY_RE = re.compile(r"directory:\s*[\"']?([^\"'\n]+)[\"']?")
