@@ -5,11 +5,13 @@
 `workin-hr/hr-legacy` has 199 API endpoint files (see
 `docs/legacy/existing-php-module-inventory.md` for the full module
 breakdown). This pass documents the three core auth/attendance endpoints
-below plus all 16 `payroll_batches`/`payslips` endpoints — the highest-risk
-business logic found so far (see business rule extraction). The remaining
-180 endpoints are inventoried structurally (module, file count, purpose)
-in the module inventory, not individually here yet. Do not read this
-document as complete endpoint coverage.
+below, all 16 `payroll_batches`/`payslips` endpoints, and all 20
+`advances`/`penalties`/`salary_contracts` endpoints — the modules that
+feed payroll's inputs, read specifically to check whether the tenant-
+isolation and calculation patterns already found in payroll hold
+elsewhere. The remaining 160 endpoints are inventoried structurally
+(module, file count, purpose) in the module inventory, not individually
+here yet. Do not read this document as complete endpoint coverage.
 
 Consumer note: no mobile/desktop client source was available in this
 pass — every "Consumer" field below is inferred from the API's own
@@ -217,6 +219,102 @@ misclassify this value.
 | `list.php` | GET | Paginated; filters on batch/employee/month/year/branch/department/search, plus a `new_employees_this_month` flag that joins on `employees.hire_date` falling inside the batch's period. Employee-role callers are silently scoped to self. |
 | `one.php` | GET | Explicit 403 (not silent scoping) when an employee requests a payslip that isn't theirs. |
 | `export.php` | GET | CSV export via `data_export_payslips_csv()`; same filter set as `list.php`, SQL-level employee scoping for the employee role. |
+
+## Advances (`apis/api/advances/`, 8 endpoints)
+
+**Consumer:** Mixed. `create.php`, `update.php`, `delete.php` allow
+`EMPLOYEE` (self-service request/edit/cancel of their own advance while
+`pending`) in addition to `COMPANY_ADMIN`/`HR`. `approve.php`,
+`reject.php`, `pay.php` are `COMPANY_ADMIN`/`HR` only.
+
+**Finding — tenant-isolation is inconsistent within this module; see
+`docs/security/threat-model.md` for the full write-up.** In short: `one.php`,
+`list.php`, and `update.php` all correctly scope by `company_id` (via a
+join on `employees.company_id`); `approve.php`, `reject.php`, and
+`pay.php` do not scope by `company_id` at all; `delete.php` only checks
+ownership for the `EMPLOYEE` role, not `COMPANY_ADMIN`/`HR`; `create.php`
+never verifies a company/HR-supplied `employee_id` belongs to the
+caller's own company. This is a real, open, unmitigated cross-tenant
+authorization gap in the live system — not a migration-only concern.
+
+**Finding — Company/HR can create an advance already marked non-pending,
+bypassing the approve workflow:** `create.php` lets `COMPANY_ADMIN`/`HR`
+optionally set `status` directly in the create body (defaults to
+`pending` only if omitted), with no validation that the supplied value is
+a real `AdvanceStatusEnum` member — contrast with `list.php`'s status
+filter, which does validate against `AdvanceStatusEnum::values()`.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `create.php` | POST | Employee-initiated requests always start `pending`; Company/HR-initiated can set any status directly and must supply `employee_id` (no cross-tenant check — see finding above). Supports two deduction modes (`single_payroll_month`/`installments`) and an installment schedule stored as raw JSON text, matching the schema inventory's `deduction_installments_json` finding. |
+| `approve.php` | PUT | Sets status to `approved`. No `company_id` check (see finding above). |
+| `reject.php` | PUT | Sets status to `rejected`, requires a `rejection_reason`. No `company_id` check (see finding above). |
+| `pay.php` | PUT | Reduces `remaining` by a supplied amount; rejects overpayment (`new_remaining < 0`). No `company_id` check (see finding above). |
+| `delete.php` | DELETE | `pending`-only. Employee ownership is checked; company ownership for Admin/HR is not (see finding above). |
+| `update.php` | PUT | Correctly `company_id`-scoped. Employees may edit only `amount`/`reason` on their own `pending` advance; Admin/HR may edit any field including `status` (with the same unvalidated-status gap as `create.php`). |
+| `one.php` | GET | Correctly `company_id`-scoped, with an additional ownership check for the `EMPLOYEE` role. |
+| `list.php` | GET | Correctly `company_id`-scoped; status filter is validated against the enum (contrast with `create.php`/`update.php`). |
+
+## Penalties (`apis/api/penalties/`, 7 endpoints)
+
+**Consumer:** Mixed, and the most granular role model found so far.
+`create.php`/`update.php`/`delete.php` are `COMPANY_ADMIN`/`HR` only.
+`one.php`/`list.php` use bare `requireAuth()` (any authenticated role)
+with inline scoping: `EMPLOYEE` sees only their own, `MANAGER` is
+restricted to their own branch via a shared `sql_manager_same_branch_scope()`/
+`manager_can_access_employee_branch()` helper (a role tier not seen
+anywhere in payroll or advances), and `COMPANY_ADMIN`/`HR` see the whole
+company. `report.php`/`stats.php` allow `COMPANY_ADMIN`/`HR`/`MANAGER`.
+
+**Finding — this module's tenant/ownership scoping is consistently
+correct**, in direct contrast to `advances`: every one of the 7 endpoints
+verifies `employees.company_id` (and, for managers, branch scope) before
+reading or mutating a penalty. Read as confirmation that the omissions in
+`advances` are a module-specific defect, not a systemic gap.
+
+**Finding — `report.php`'s CSV format option actually returns XLSX:** the
+endpoint's own doc-comment says "Supports JSON and CSV formats" and is
+triggered by `?format=csv`, but the internal `streamCSV()` function
+(despite its name) builds and streams a real `.xlsx` binary via
+`xlsx_writer.php`, forcing a `.xlsx` extension and the OOXML
+spreadsheet content-type regardless of what the caller asked for. A
+naming/content-type trap for any client or migration tooling that takes
+the endpoint's name or doc-comment at face value.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `create.php` | POST | Verifies `employee_id` belongs to caller's `company_id` before insert; fires an in-app notification to the employee. |
+| `update.php` | PUT | Company-scoped; blocked once `applied_to_payroll=1` (matches the payroll finalize side-effect documented in business rules). |
+| `delete.php` | DELETE | Same scoping and `applied_to_payroll` lock as `update.php`. |
+| `one.php` | GET | Role-tiered scoping (self / branch / company) as described above. |
+| `list.php` | GET | Same role-tiered scoping, plus employee/date-range/search filters. |
+| `report.php` | GET | JSON or (mislabeled) XLSX export — see finding above. Branch-scoped for managers. |
+| `stats.php` | GET | Aggregate counts (total, applied, not-applied) plus a total monetary amount via `penalties_total_amount()`; role-tiered scoping. |
+
+## Salary Contracts (`apis/api/salary_contracts/`, 5 endpoints)
+
+**Consumer:** `COMPANY_ADMIN`/`HR` for all mutations; `list.php`/`one.php`
+additionally allow `MANAGER` (read-only). No `EMPLOYEE` self-service
+surface at all — employees cannot view their own contract through this
+module.
+
+**Finding — tenant scoping is correct on all 5 endpoints** (every query
+joins to `employees.company_id`), consistent with `penalties`, not
+`advances`.
+
+**Finding — the `daily`-wage salary mode and the always-zero
+`housing_allowance` column are both rooted here** — see the two new
+entries in `docs/legacy/business-rule-extraction.md` for the full
+write-up; `create.php` and `update.php` are where the mode-based
+zeroing and the hardcoded `housing_allowance=0` literal actually live.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `create.php` | POST | `monthly` (default) or `daily` mode; daily mode zeroes `basic_salary` and all four contract allowances in favor of `daily_wage`. `housing_allowance` is a hardcoded `0` literal, not read from the request body at all. |
+| `update.php` | PUT | Same mode-zeroing and hardcoded-zero `housing_allowance` as `create.php`. |
+| `delete.php` | DELETE | Company-scoped via join; no additional guard (no "applied to payroll" style lock — a contract can be deleted even if payslips already reference the employee). |
+| `list.php` | GET | Per-employee contract history (versioned by `effective_from`), not a company-wide list — requires `employee_id`. |
+| `one.php` | GET | Single contract fetch, company-scoped. |
 
 ## Evidence
 

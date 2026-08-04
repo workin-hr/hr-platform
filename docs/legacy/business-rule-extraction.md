@@ -291,6 +291,87 @@ pay as generic allowances or cause a naive "sum all allowance-like
 columns" migration script to double-count housing under two different
 names.
 
+---
+
+## Rule: Salary contracts have a `daily`-wage mode that one payslip endpoint ignores entirely
+
+**Current Behavior:** `salary_contracts` supports two modes,
+`monthly` (default) and `daily`. In `daily` mode, `basic_salary` and all
+four contract allowances (transport/food/risk/incentives) are forced to
+`0` on write, and `daily_wage` is used instead; the batch payroll engine
+(`payroll_compute_employee_payslip()`) correctly converts this to a
+synthetic monthly-equivalent (`daily_wage × 30`, using the same
+30-day-divisor constant) before computing gross salary, and that
+converted value is what gets stored as the payslip's `basic_salary`.
+`payslips/update.php` inherits that already-correct stored value when no
+override is supplied. **`payslips/create.php` (manually adding a payslip
+to a batch, bypassing `calculate.php` entirely) does not** — it reads
+`$contract[Column::BASIC_SALARY]` directly, which is `0` for any
+daily-wage employee, and has no `daily_wage`/`salary_mode` handling and
+no request-body override for `basic_salary` at all. For a daily-wage
+employee, a payslip added through this specific endpoint silently omits
+their entire base pay from `net_salary`, using only whatever
+`overtime_pay` was typed into the request.
+
+**Where Observed:** `apis/api/salary_contracts/create.php` (mode-zeroing
+on write) and `apis/helpers/payroll_calculation.php`,
+`payroll_compute_employee_payslip()` lines ~934–961 (correct daily→monthly
+conversion, confirmed stored into `payslips.basic_salary` at the
+`INSERT ... ON DUPLICATE KEY UPDATE` around line 1123) versus
+`apis/api/payslips/create.php` line 95 (no such conversion, no override
+path).
+
+**Risk If Misinterpreted:** This is not a drift risk like the three-formula
+finding above — it is a confirmed, reproducible calculation defect for one
+specific, real compensation mode on one specific, real endpoint. Any
+migration that ports `payslips/create.php`'s logic as-is would carry the
+same defect forward; any migration that "fixes" it silently would change
+the guarantees whoever currently relies on the batch-only flow already
+depends on. Needs a human decision (avoid using this endpoint for
+daily-wage employees today; and/or fix it deliberately during migration
+with the fix communicated as a bug fix, not a silent behavior change).
+
+---
+
+## Rule: `salary_contracts.housing_allowance` cannot be set to a nonzero value anywhere in the API
+
+**Current Behavior:** Refines the `payslips.allowances`-is-housing entry
+above. `housing_allowance` is a real column, wired into the payroll gross
+calculation (`payroll_compute_employee_payslip()` reads
+`$contract[Column::HOUSING_ALLOWANCE]`), but **every** write path in the
+codebase hardcodes it to the literal `0`: `salary_contracts/create.php`
+and `salary_contracts/update.php` both write a literal `0` for this
+column rather than reading it from the request body at all (not even
+defaulted-then-overridable — the field is not read from `$body` in
+either endpoint), and the alternate employee-creation path
+(`apis/helpers/employee_create_helper.php`, used by
+`employees/create.php`) does the same. Consequently every
+batch-calculated payslip's housing component is always `0` at
+calculate-time. The **only** place a nonzero housing value can ever enter
+the system is a human manually typing one into `payslips/update.php`'s
+per-payslip `allowances` override, after the batch has already run — and
+because that value lives on the payslip row, not the contract, it is not
+remembered for the next payroll cycle; HR would need to re-enter it every
+single month for every employee who receives housing.
+
+**Where Observed:** `apis/api/salary_contracts/create.php` line 47/58
+(literal `0` in the `INSERT`), `apis/api/salary_contracts/update.php`
+line 55 (literal `0` in the `UPDATE`), `apis/helpers/employee_create_helper.php`
+lines ~170–197 (literal `0` in the `INSERT`), contrasted with
+`apis/helpers/payroll_calculation.php` line 942 (the column is read and
+used) and `apis/api/payslips/update.php` lines 55–61 (the only functioning
+write path, scoped to a single payslip).
+
+**Risk If Misinterpreted:** A migration that assumes `housing_allowance`
+is a normal, settable contract field (because it exists in the schema and
+the payroll formula) would be wrong — as of this commit it is
+functionally a dead field at the contract level. Whether this is an
+intentional design (housing is meant to be a manual monthly exception,
+not a standing benefit) or an incomplete feature (a UI to set it on the
+contract was planned but never wired to the API) is not determinable from
+the code alone — worth a direct question to whoever owns the product
+before deciding how to migrate this field.
+
 ## Evidence
 
 All entries: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`,
