@@ -509,6 +509,44 @@ change remains valid until it naturally expires (up to 10 years) or the
 legitimate user happens to log in again. Worth a direct product decision
 on whether this is acceptable to carry into a migrated system as-is.
 
+---
+
+## Rule: Two parallel, non-identical employee self-registration endpoints exist
+
+**Current Behavior:** `auth/register_employee.php` and `auth/join_company.php`
+both let a new employee self-register against a company, but they are
+not the same flow reproduced twice — they use **different identifiers for
+"which company"** despite both binding it to a request field named
+`company_code`: `register_employee.php` looks up the company by matching
+`company_code` directly against `companies.phone` (the company's own
+login phone number); `join_company.php` matches it against
+`companies.company_code` (a distinct alphanumeric column, via
+`company_find_by_public_code()`). They also differ materially beyond
+that: `join_company.php` checks phone uniqueness **globally across all
+companies** (`employee_phone_exists_globally()`,
+`company_phone_exists_globally()`, with an explicit carve-out for the
+company-owner's own phone) and resolves a default branch before
+inserting; `register_employee.php` checks uniqueness only **within the
+target company** and does not touch branches at all. `join_company.php`
+also immediately issues a session JWT (auto-login while
+`join_request_status='pending'`); `register_employee.php` does not issue
+a token at all.
+
+**Where Observed:** `apis/api/auth/register_employee.php`, full file,
+versus `apis/api/auth/join_company.php`, full file, and
+`apis/helpers/company_code_helper.php` (`company_find_by_public_code()`).
+
+**Risk If Misinterpreted:** A migration that treats "employee
+self-registration" as one business rule to port would produce a system
+with either weaker (per-company only) or stronger (global) phone-
+uniqueness than whichever of these two endpoints the real mobile client
+doesn't actually use — and if the client uses both (e.g. one per app
+version, or one deprecated but still reachable), the current system
+already has inconsistent duplicate-phone enforcement depending on which
+endpoint a given registration went through. Needs confirmation from
+whoever owns the mobile client about which of these two is actually live
+before assuming either is the "real" one to migrate.
+
 ## Evidence
 
 All entries: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`,

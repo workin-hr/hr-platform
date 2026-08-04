@@ -4,10 +4,10 @@
 
 `workin-hr/hr-legacy` has 199 API endpoint files (see
 `docs/legacy/existing-php-module-inventory.md` for the full module
-breakdown). This pass documents: `auth/login_employee` (1 of 14), all 15
+breakdown). This pass documents: all 14 `auth` endpoints, all 15
 `attendance` endpoints, all 16 `payroll_batches`/`payslips` endpoints, and
-all 20 `advances`/`penalties`/`salary_contracts` endpoints — 52 endpoints
-total. The remaining ~147 endpoints are inventoried structurally (module,
+all 20 `advances`/`penalties`/`salary_contracts` endpoints — 65 endpoints
+total. The remaining ~134 endpoints are inventoried structurally (module,
 file count, purpose) in the module inventory, not individually here yet.
 Do not read this document as complete endpoint coverage.
 
@@ -355,6 +355,42 @@ in `create.php` and `update.php`.
 | `analyze_excel.php` | POST | Dry-run/preview counterpart to `import_excel.php` (`attendance_excel_analyze()`), same helper file. |
 | `overall_report.php` | GET | Company/branch/department report via `overall_attendance_report_build()`; explicitly allows `MANAGER` but no manager-specific scoping was found in that helper either (see finding). |
 | `employee_monthly_attendance.php` | GET | Single-employee monthly view; company-scoped, `EMPLOYEE` self-service allowed. |
+
+## Auth (`apis/api/auth/`, remaining 13 of 14 endpoints)
+
+Extends the `login_employee` documentation above with the rest of the
+module. All 14 endpoints are `Access: Public` (pre-authentication by
+definition) except `login_desktop.php`, which is also public but issues
+tokens for two different post-auth identities depending on `login_as`.
+
+**Finding — three critical/high security findings live in this module —
+see `docs/security/threat-model.md` for full detail:** the DEBUG-gated
+OTP disclosure (`forgot_password.php`, `resend_otp.php`,
+`register_company.php`), the unauthenticated/guessable-ID
+`complete_company_registration.php`, and the 10-year JWT expiry with
+no company-admin token revocation.
+
+**Finding — two parallel, non-identical employee self-registration
+endpoints** (`register_employee.php` vs. `join_company.php`) — see
+`docs/legacy/business-rule-extraction.md` for the full write-up
+(different company-lookup keys despite an identical request-field name,
+different phone-uniqueness scope, different auto-login behavior).
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `login_company.php` | POST | Company-admin login by phone; gates on `otp_verified`, `profile_completed`, and `status` in sequence; issues a plain JWT with no `token_version` claim (no server-side revocation — see threat model). |
+| `login_desktop.php` | POST | Single endpoint, two identities via `login_as`: HR-employee login (role must be exactly `hr`, no `join_request_status` check, unlike mobile employee login) or company-admin login (same gating as `login_company.php`). Only the HR-employee branch issues a version-tracked token via `employee_issue_session_token()`. |
+| `register_company.php` | POST | Step 1 of company onboarding; hashes password, issues and sends an OTP; subject to the DEBUG-disclosure finding. |
+| `complete_company_registration.php` | POST | Step 2 (multipart: profile fields, logo, commercial-registration upload); **no auth/token check at all**, only a caller-supplied `company_id` — see threat model finding. |
+| `get_company_registration_options.php` | GET | Reference data (titles/activities/sizes) for the registration form; not traced past the call site in this pass. |
+| `join_company.php` | POST | Second employee self-registration path, keyed on `companies.company_code`; see duplication finding above. Auto-issues a session token even while `join_request_status='pending'`. |
+| `register_employee.php` | POST | First employee self-registration path, keyed on `companies.phone`; see duplication finding above. No token issued; caller must separately log in once accepted. |
+| `lookup_company.php` | POST | Public, unauthenticated company directory lookup by `company_code` or raw `company_id` ("legacy_id" fallback) — discloses company name/logo/status to any caller who supplies either identifier. |
+| `check_status.php` | POST | Public, unauthenticated pre-login status check by `phone`+`company_id` — discloses an employee's role and active/company status (not password-gated) to help the client choose which screen to show next. |
+| `forgot_password.php` | POST | Initiates password reset OTP; subject to the DEBUG-disclosure finding. |
+| `resend_otp.php` | POST | Resends the last-issued OTP after a 60-second cooldown; subject to the DEBUG-disclosure finding. |
+| `verify_otp.php` | POST | Verifies OTP for either registration completion or password-reset continuation (`purpose=password_reset` keeps the OTP alive for the follow-up call instead of clearing it). No attempt/rate limiting — see business-rule finding. |
+| `reset_password.php` | POST | Consumes the still-active OTP from `verify_otp.php`; updates `password_hash` only — never bumps `token_version`, so existing sessions survive a password reset (see business-rule finding). |
 
 ## Evidence
 

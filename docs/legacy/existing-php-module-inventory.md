@@ -28,7 +28,7 @@ actual `apis/api/` directory structure.
 
 | Module | Entry points | Business domain |
 |---|---|---|
-| `auth` | 14 | Registration, login (company + employee + desktop), OTP issue/verify/resend, forgot/reset password, company lookup, join requests |
+| `auth` | 14 | Registration, login (company + employee + desktop), OTP issue/verify/resend, forgot/reset password, company lookup, join requests. All 14 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`. **3 critical/high security findings — see `docs/security/threat-model.md`** (DEBUG-gated OTP disclosure, unauthenticated company-registration completion, 10-year JWT expiry with no admin-token revocation) |
 | `attendance` | 15 | Check-in/out (app + QR), Excel import/export/analyze, monthly summaries, stats, exception handling — the single largest module by entry-point count. All 15 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; see `docs/legacy/business-rule-extraction.md` for 3 findings (QR check-in skips the 2-hour gap rule, Manager role is unscoped despite doc-comments, bulk date-range delete has no dry-run) |
 | `employees` | 14 | CRUD, bulk import (Excel), photo upload, deactivate/reactivate, delete preview (impact analysis before a destructive action), stats |
 | `profile` | 9 | Self-service: change password, delete account (with a preview endpoint first), phone-change confirmation flow, push-token registration |
