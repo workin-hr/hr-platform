@@ -58,6 +58,17 @@ information-disclosure exposure if triggered in front of an
 unauthenticated user. Worth a direct question to whoever manages the live
 deployment rather than assuming either way.
 
+**Severity update:** a later Discovery pass found that `AppConfig::DEBUG`
+being `true` is far more consequential than the error-page exposure noted
+above — `apis/api/auth/forgot_password.php` and
+`apis/api/auth/resend_otp.php` both return the real OTP code in their API
+response whenever `DEBUG` is truthy, which (if live) is a complete,
+unauthenticated account-takeover path for any phone number on the
+platform. See `docs/security/threat-model.md` for the full write-up. This
+makes direct confirmation of the live `DEBUG` value the single
+highest-priority open question from this entire Discovery pass, not just
+a nice-to-have.
+
 ---
 
 ## Behavior: The dashboard and the API are two independent codebases, not a shared application

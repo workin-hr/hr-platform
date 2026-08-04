@@ -453,6 +453,62 @@ silently erase a month of payroll-relevant history company-wide in one
 call — worth flagging as a candidate for a deliberate safety
 improvement during migration, not just a like-for-like port.
 
+---
+
+## Rule: OTP verification has no attempt/rate limiting; only the resend has a cooldown
+
+**Current Behavior:** `otp_verify_latest_for_phone()` — the function
+behind `verify_otp.php`, `reset_password.php`, and the OTP-gated login
+branches in `login_company.php`/`login_desktop.php` — is a plain
+`SELECT ... WHERE phone=? AND code=? AND expires_at > NOW()` with no
+attempt counter, no lockout, and no delay between attempts. The only
+throttle anywhere in the OTP system is on *issuing* a new code
+(`otp_has_recent_for_phone()`, 60-second cooldown on resend). A 4-digit
+code (10,000 possibilities) valid for 10 minutes, combined with an
+unthrottled verification endpoint, is brute-forceable within its validity
+window by an attacker who can send a few thousand requests — no special
+access required beyond knowing (or guessing) a target phone number.
+
+**Where Observed:** `apis/helpers/otp_helper.php`,
+`otp_verify_latest_for_phone()` (no rate limiting) and
+`otp_has_recent_for_phone()` (the only throttle, and it only gates
+issuance); consumed by `apis/api/auth/verify_otp.php` and
+`apis/api/auth/reset_password.php` directly.
+
+**Risk If Misinterpreted:** Independent of the `DEBUG`-gated OTP
+disclosure in `docs/security/threat-model.md`, this is a second, standing
+path to the same outcome (account takeover via OTP) that does not depend
+on `DEBUG` being true at all — it works against the system exactly as
+designed today, just more slowly. Whether an infrastructure-level
+WAF/rate-limiter sits in front of the live API was not confirmed in this
+pass; this finding assumes only what the application code itself
+enforces.
+
+---
+
+## Rule: Changing or resetting a password never invalidates already-issued session tokens
+
+**Current Behavior:** Only a fresh login
+(`employee_issue_session_token()`, which bumps `employees.token_version`)
+invalidates a previously-issued employee JWT. `reset_password.php` updates
+`password_hash` and clears the OTP but never touches `token_version`.
+No `profile/*` endpoint (self-service change-password) touches it either.
+Company-admin tokens have no equivalent revocation mechanism at all — see
+`docs/security/threat-model.md` for the full severity write-up, which
+also covers the 10-year JWT expiry this compounds.
+
+**Where Observed:** `apis/api/auth/reset_password.php`, full file (no
+`token_version` write); `apis/helpers/functions.php`,
+`employee_issue_session_token()` (the only place `token_version` is
+incremented).
+
+**Risk If Misinterpreted:** The product-facing assumption "I changed my
+password because I think someone else has access, so I'm safe now" does
+not hold in the current system — a session token issued before the
+change remains valid until it naturally expires (up to 10 years) or the
+legitimate user happens to log in again. Worth a direct product decision
+on whether this is acceptable to carry into a migrated system as-is.
+
 ## Evidence
 
 All entries: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`,
