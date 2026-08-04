@@ -2,14 +2,21 @@
 
 ## Scope Of This Pass
 
-`workin-hr/hr-legacy` has 199 API endpoint files (see
-`docs/legacy/existing-php-module-inventory.md` for the full module
-breakdown). This pass documents the three core auth/attendance endpoints
-below plus all 16 `payroll_batches`/`payslips` endpoints — the highest-risk
-business logic found so far (see business rule extraction). The remaining
-180 endpoints are inventoried structurally (module, file count, purpose)
-in the module inventory, not individually here yet. Do not read this
-document as complete endpoint coverage.
+**All 199 `workin-hr/hr-legacy` API endpoint files (`apis/api/`, 38
+module directories) have now been read and are documented below**, in
+varying depth: the highest-risk modules (`auth`, `attendance`,
+`employees`, `profile`, `payroll_batches`/`payslips`,
+`advances`/`penalties`/`salary_contracts`, `requests`) got full
+per-endpoint documentation and line-level scrutiny; the remaining modules
+got a full read plus a scoping/permission-pattern check (company_id
+isolation, Manager branch-scoping, `hr_permissions` enforcement), which
+is where most of the findings below came from. See
+`docs/legacy/existing-php-module-inventory.md` for the module breakdown
+and `docs/legacy/business-rule-extraction.md` /
+`docs/security/threat-model.md` for every finding this pass produced.
+This is API-layer coverage only — the separate `dashboard/` codebase (92
+files, session-based admin panel) has not been read in this pass; see
+its own section in the module inventory for what remains open there.
 
 Consumer note: no mobile/desktop client source was available in this
 pass — every "Consumer" field below is inferred from the API's own
@@ -217,6 +224,327 @@ misclassify this value.
 | `list.php` | GET | Paginated; filters on batch/employee/month/year/branch/department/search, plus a `new_employees_this_month` flag that joins on `employees.hire_date` falling inside the batch's period. Employee-role callers are silently scoped to self. |
 | `one.php` | GET | Explicit 403 (not silent scoping) when an employee requests a payslip that isn't theirs. |
 | `export.php` | GET | CSV export via `data_export_payslips_csv()`; same filter set as `list.php`, SQL-level employee scoping for the employee role. |
+
+## Advances (`apis/api/advances/`, 8 endpoints)
+
+**Consumer:** Mixed. `create.php`, `update.php`, `delete.php` allow
+`EMPLOYEE` (self-service request/edit/cancel of their own advance while
+`pending`) in addition to `COMPANY_ADMIN`/`HR`. `approve.php`,
+`reject.php`, `pay.php` are `COMPANY_ADMIN`/`HR` only.
+
+**Finding — tenant-isolation is inconsistent within this module; see
+`docs/security/threat-model.md` for the full write-up.** In short: `one.php`,
+`list.php`, and `update.php` all correctly scope by `company_id` (via a
+join on `employees.company_id`); `approve.php`, `reject.php`, and
+`pay.php` do not scope by `company_id` at all; `delete.php` only checks
+ownership for the `EMPLOYEE` role, not `COMPANY_ADMIN`/`HR`; `create.php`
+never verifies a company/HR-supplied `employee_id` belongs to the
+caller's own company. This is a real, open, unmitigated cross-tenant
+authorization gap in the live system — not a migration-only concern.
+
+**Finding — Company/HR can create an advance already marked non-pending,
+bypassing the approve workflow:** `create.php` lets `COMPANY_ADMIN`/`HR`
+optionally set `status` directly in the create body (defaults to
+`pending` only if omitted), with no validation that the supplied value is
+a real `AdvanceStatusEnum` member — contrast with `list.php`'s status
+filter, which does validate against `AdvanceStatusEnum::values()`.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `create.php` | POST | Employee-initiated requests always start `pending`; Company/HR-initiated can set any status directly and must supply `employee_id` (no cross-tenant check — see finding above). Supports two deduction modes (`single_payroll_month`/`installments`) and an installment schedule stored as raw JSON text, matching the schema inventory's `deduction_installments_json` finding. |
+| `approve.php` | PUT | Sets status to `approved`. No `company_id` check (see finding above). |
+| `reject.php` | PUT | Sets status to `rejected`, requires a `rejection_reason`. No `company_id` check (see finding above). |
+| `pay.php` | PUT | Reduces `remaining` by a supplied amount; rejects overpayment (`new_remaining < 0`). No `company_id` check (see finding above). |
+| `delete.php` | DELETE | `pending`-only. Employee ownership is checked; company ownership for Admin/HR is not (see finding above). |
+| `update.php` | PUT | Correctly `company_id`-scoped. Employees may edit only `amount`/`reason` on their own `pending` advance; Admin/HR may edit any field including `status` (with the same unvalidated-status gap as `create.php`). |
+| `one.php` | GET | Correctly `company_id`-scoped, with an additional ownership check for the `EMPLOYEE` role. |
+| `list.php` | GET | Correctly `company_id`-scoped; status filter is validated against the enum (contrast with `create.php`/`update.php`). |
+
+## Penalties (`apis/api/penalties/`, 7 endpoints)
+
+**Consumer:** Mixed, and the most granular role model found so far.
+`create.php`/`update.php`/`delete.php` are `COMPANY_ADMIN`/`HR` only.
+`one.php`/`list.php` use bare `requireAuth()` (any authenticated role)
+with inline scoping: `EMPLOYEE` sees only their own, `MANAGER` is
+restricted to their own branch via a shared `sql_manager_same_branch_scope()`/
+`manager_can_access_employee_branch()` helper (a role tier not seen
+anywhere in payroll or advances), and `COMPANY_ADMIN`/`HR` see the whole
+company. `report.php`/`stats.php` allow `COMPANY_ADMIN`/`HR`/`MANAGER`.
+
+**Finding — this module's tenant/ownership scoping is consistently
+correct**, in direct contrast to `advances`: every one of the 7 endpoints
+verifies `employees.company_id` (and, for managers, branch scope) before
+reading or mutating a penalty. Read as confirmation that the omissions in
+`advances` are a module-specific defect, not a systemic gap.
+
+**Finding — `report.php`'s CSV format option actually returns XLSX:** the
+endpoint's own doc-comment says "Supports JSON and CSV formats" and is
+triggered by `?format=csv`, but the internal `streamCSV()` function
+(despite its name) builds and streams a real `.xlsx` binary via
+`xlsx_writer.php`, forcing a `.xlsx` extension and the OOXML
+spreadsheet content-type regardless of what the caller asked for. A
+naming/content-type trap for any client or migration tooling that takes
+the endpoint's name or doc-comment at face value.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `create.php` | POST | Verifies `employee_id` belongs to caller's `company_id` before insert; fires an in-app notification to the employee. |
+| `update.php` | PUT | Company-scoped; blocked once `applied_to_payroll=1` (matches the payroll finalize side-effect documented in business rules). |
+| `delete.php` | DELETE | Same scoping and `applied_to_payroll` lock as `update.php`. |
+| `one.php` | GET | Role-tiered scoping (self / branch / company) as described above. |
+| `list.php` | GET | Same role-tiered scoping, plus employee/date-range/search filters. |
+| `report.php` | GET | JSON or (mislabeled) XLSX export — see finding above. Branch-scoped for managers. |
+| `stats.php` | GET | Aggregate counts (total, applied, not-applied) plus a total monetary amount via `penalties_total_amount()`; role-tiered scoping. |
+
+## Salary Contracts (`apis/api/salary_contracts/`, 5 endpoints)
+
+**Consumer:** `COMPANY_ADMIN`/`HR` for all mutations; `list.php`/`one.php`
+additionally allow `MANAGER` (read-only). No `EMPLOYEE` self-service
+surface at all — employees cannot view their own contract through this
+module.
+
+**Finding — tenant scoping is correct on all 5 endpoints** (every query
+joins to `employees.company_id`), consistent with `penalties`, not
+`advances`.
+
+**Finding — the `daily`-wage salary mode and the always-zero
+`housing_allowance` column are both rooted here** — see the two new
+entries in `docs/legacy/business-rule-extraction.md` for the full
+write-up; `create.php` and `update.php` are where the mode-based
+zeroing and the hardcoded `housing_allowance=0` literal actually live.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `create.php` | POST | `monthly` (default) or `daily` mode; daily mode zeroes `basic_salary` and all four contract allowances in favor of `daily_wage`. `housing_allowance` is a hardcoded `0` literal, not read from the request body at all. |
+| `update.php` | PUT | Same mode-zeroing and hardcoded-zero `housing_allowance` as `create.php`. |
+| `delete.php` | DELETE | Company-scoped via join; no additional guard (no "applied to payroll" style lock — a contract can be deleted even if payslips already reference the employee). |
+| `list.php` | GET | Per-employee contract history (versioned by `effective_from`), not a company-wide list — requires `employee_id`. |
+| `one.php` | GET | Single contract fetch, company-scoped. |
+
+## Attendance (`apis/api/attendance/`, remaining 13 of 15 endpoints)
+
+Extends the `check_in`/`check_out` documentation above with the rest of
+the module.
+
+**Consumer:** Mixed. `check_in_qr.php` allows `EMPLOYEE` and
+`COMPANY_ADMIN`/`HR` (an admin can QR-check-in on an employee's behalf).
+`create.php`/`update.php`/`delete.php`/`delete_range.php` are
+`COMPANY_ADMIN`/`HR` only. `one.php`/`list.php`/`stats.php` use bare
+`requireAuth()` — see the Manager-scoping finding below for why that
+matters. `overall_report.php`/`employee_monthly_attendance.php`
+explicitly include `MANAGER`.
+
+**Finding — QR check-in skips the 2-hour minimum-gap rule; Manager role
+gets unscoped company-wide visibility despite doc-comments claiming
+otherwise; bulk date-range delete has no dry-run/audit trail** — see the
+three new entries in `docs/legacy/business-rule-extraction.md` for the
+full write-up and evidence.
+
+**Finding — the exception-day convention is a real, reused pattern, not
+a one-off:** an attendance row can represent either real punches
+(`check_in`/`check_out` timestamps) or a category-only "exception" day
+(`exception_type_id` set, `check_in` forced to that day's midnight,
+`check_out` always `null`) — never both. This XOR is enforced identically
+in `create.php` and `update.php`.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `check_in_qr.php` | POST | Branch identified by scanning a QR code (`branches.qr_code`, with an `expires_at` check); no GPS/distance check at all (location is proven by physical QR presence instead); no 2-hour-gap check (see finding above). |
+| `create.php` | POST | HR-entered manual attendance; punches XOR exception; enforces the same 2-hour gap as `check_in.php`. |
+| `update.php` | PUT | Supports explicit `clear_*` flags; clearing both punches with no exception deletes the row (documented convention, see business rules). |
+| `delete.php` | DELETE | Single-row, company-scoped via join. |
+| `delete_range.php` | DELETE | Whole-company, date-range bulk delete — see business-rule finding (high blast radius, no dry-run). |
+| `one.php` | GET | Company-scoped; employee-role ownership check. |
+| `list.php` | GET | Supports a `fill_days=1` mode that expands each employee into one row per calendar day (including rest/holiday/missing days) via `attendance_build_employee_range_calendar()` — a materially different response shape from the default mode. Manager role unscoped (see finding). |
+| `stats.php` | GET | Per-employee or company/branch/department aggregate depending on whether `employee_id` is supplied. Response includes a `leave_days` field that is actually populated from official-holiday count, not real approved-leave data, and a hardcoded `overtime_minutes: 0` — both worth treating as unreliable/placeholder fields, not naming issues alone. |
+| `export.php` | GET | Thin wrapper over `data_export_attendance_csv()`; not traced past the company-scoped call site in this pass. |
+| `import_excel.php` | POST | Thin wrapper over `attendance_excel_import_punch_log()` in `apis/helpers/attendance_excel_analyzer.php` — a large (~1000+ line) bilingual (Arabic/English) column-detection helper supporting two input formats ("punch log" and "template"). Not traced line-by-line in this pass; flagged as a candidate for a dedicated read-through given its size and role in bulk-loading payroll-relevant data. |
+| `analyze_excel.php` | POST | Dry-run/preview counterpart to `import_excel.php` (`attendance_excel_analyze()`), same helper file. |
+| `overall_report.php` | GET | Company/branch/department report via `overall_attendance_report_build()`; explicitly allows `MANAGER` but no manager-specific scoping was found in that helper either (see finding). |
+| `employee_monthly_attendance.php` | GET | Single-employee monthly view; company-scoped, `EMPLOYEE` self-service allowed. |
+
+## Auth (`apis/api/auth/`, remaining 13 of 14 endpoints)
+
+Extends the `login_employee` documentation above with the rest of the
+module. All 14 endpoints are `Access: Public` (pre-authentication by
+definition) except `login_desktop.php`, which is also public but issues
+tokens for two different post-auth identities depending on `login_as`.
+
+**Finding — three critical/high security findings live in this module —
+see `docs/security/threat-model.md` for full detail:** the DEBUG-gated
+OTP disclosure (`forgot_password.php`, `resend_otp.php`,
+`register_company.php`), the unauthenticated/guessable-ID
+`complete_company_registration.php`, and the 10-year JWT expiry with
+no company-admin token revocation.
+
+**Finding — two parallel, non-identical employee self-registration
+endpoints** (`register_employee.php` vs. `join_company.php`) — see
+`docs/legacy/business-rule-extraction.md` for the full write-up
+(different company-lookup keys despite an identical request-field name,
+different phone-uniqueness scope, different auto-login behavior).
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `login_company.php` | POST | Company-admin login by phone; gates on `otp_verified`, `profile_completed`, and `status` in sequence; issues a plain JWT with no `token_version` claim (no server-side revocation — see threat model). |
+| `login_desktop.php` | POST | Single endpoint, two identities via `login_as`: HR-employee login (role must be exactly `hr`, no `join_request_status` check, unlike mobile employee login) or company-admin login (same gating as `login_company.php`). Only the HR-employee branch issues a version-tracked token via `employee_issue_session_token()`. |
+| `register_company.php` | POST | Step 1 of company onboarding; hashes password, issues and sends an OTP; subject to the DEBUG-disclosure finding. |
+| `complete_company_registration.php` | POST | Step 2 (multipart: profile fields, logo, commercial-registration upload); **no auth/token check at all**, only a caller-supplied `company_id` — see threat model finding. |
+| `get_company_registration_options.php` | GET | Reference data (titles/activities/sizes) for the registration form; not traced past the call site in this pass. |
+| `join_company.php` | POST | Second employee self-registration path, keyed on `companies.company_code`; see duplication finding above. Auto-issues a session token even while `join_request_status='pending'`. |
+| `register_employee.php` | POST | First employee self-registration path, keyed on `companies.phone`; see duplication finding above. No token issued; caller must separately log in once accepted. |
+| `lookup_company.php` | POST | Public, unauthenticated company directory lookup by `company_code` or raw `company_id` ("legacy_id" fallback) — discloses company name/logo/status to any caller who supplies either identifier. |
+| `check_status.php` | POST | Public, unauthenticated pre-login status check by `phone`+`company_id` — discloses an employee's role and active/company status (not password-gated) to help the client choose which screen to show next. |
+| `forgot_password.php` | POST | Initiates password reset OTP; subject to the DEBUG-disclosure finding. |
+| `resend_otp.php` | POST | Resends the last-issued OTP after a 60-second cooldown; subject to the DEBUG-disclosure finding. |
+| `verify_otp.php` | POST | Verifies OTP for either registration completion or password-reset continuation (`purpose=password_reset` keeps the OTP alive for the follow-up call instead of clearing it). No attempt/rate limiting — see business-rule finding. |
+| `reset_password.php` | POST | Consumes the still-active OTP from `verify_otp.php`; updates `password_hash` only — never bumps `token_version`, so existing sessions survive a password reset (see business-rule finding). |
+
+## Employees (`apis/api/employees/`, 14 endpoints)
+
+**Consumer:** Mostly `COMPANY_ADMIN`/`HR`. `list.php`/`one.php`/`stats.php`
+additionally allow `MANAGER`, correctly branch-scoped via
+`sql_manager_same_branch_scope()`/`manager_can_access_employee_branch()`
+— **contrast with the `attendance` module's unscoped Manager finding
+above: this module gets the pattern right, reinforcing that the
+attendance gap is module-specific, not systemic.** `my_team.php` is
+`MANAGER`-only. `upload_photo.php` additionally allows `EMPLOYEE`
+(presumably self-service photo upload).
+
+**Finding — employee deletion can cascade-erase payroll/financial
+history, working around the schema's own RESTRICT constraint** — see the
+new entry in `docs/legacy/business-rule-extraction.md`, which resolves an
+open question from the schema inventory.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `create.php` | POST | Transactional; also creates the initial `salary_contracts` row (if `salary` supplied, with `housing_allowance` hardcoded to `0` — see contract findings), a `leave_balance` row (defaults: 21 days/year, Jan–Dec period), and a shift assignment. Checks phone uniqueness globally (`employee_phone_exists_globally()`), not just within the company. |
+| `update.php` | PUT | Company-scoped. |
+| `deactivate.php` / `reactivate.php` | PUT | Company-scoped; toggles `is_active` rather than deleting. |
+| `delete.php` | DELETE | Preview-then-cascade-delete pattern — see business-rule finding. |
+| `delete_preview.php` | GET | Standalone version of the same preview `delete.php` returns inline on a blocked (non-cascade) delete attempt. |
+| `one.php` | GET | Company-scoped; Manager branch-scoped. |
+| `list.php` | GET | Company-scoped; Manager branch-scoped. |
+| `my_team.php` | GET | Manager-only: the manager's own direct reports/branch team. |
+| `stats.php` | GET | Company-scoped; Manager branch-scoped. |
+| `upload_photo.php` | POST | Company-scoped; allows self-service (`EMPLOYEE` role) in addition to Admin/HR/Manager. |
+| `import_bulk.php` / `analyze_excel.php` / `template_excel.php` | POST/POST/GET | Bulk Excel import, dry-run analysis, and template download; not traced past the company-scoped call site in this pass (same "large helper, not fully read" caveat as the attendance Excel tooling). |
+
+## Profile (`apis/api/profile/`, 9 endpoints)
+
+**Consumer:** Self-service for the authenticated caller (company admin or
+employee) — no cross-account access in this module by design.
+
+**Finding — mobile logout silently deactivates the employee's account,
+with no password confirmation, and can't be undone by the employee
+themselves** — see the dedicated entry in
+`docs/legacy/business-rule-extraction.md`. This is one of the most
+consequential findings of this Discovery pass precisely because it looks
+like a routine, low-risk action.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `change_password.php` | POST | Requires old password; 6-character minimum on the new one, no complexity rule. Does not bump `token_version` — same session-survives-password-change gap as `reset_password.php` (see threat model). |
+| `logout.php` | POST | Push-token cleanup for both auth types; additionally deactivates the account for `EMPLOYEE`-type sessions — see business-rule finding. |
+| `delete_account.php` | DELETE | Password-confirmed. Company-admin path is a full transactional cascade hard-delete of the tenant (`company_cascade_delete()` — all employees, attendance, payroll, everything). Employee path deactivates only (same state as `logout.php`, but password-gated). |
+| `delete_account_preview.php` | GET | Dry-run counterpart to `delete_account.php`. |
+| `request_phone_change.php` / `confirm_phone_change.php` | POST | Company-admin only; OTP-gated phone change with global uniqueness check. Not subject to the DEBUG-disclosure finding (this pair doesn't return the OTP in the response). Uses the same unthrottled `otp_verify_latest_for_phone()` as the rest of the system. |
+| `register_push_token.php` | POST | Registers an FCM-style device token; not traced past the call site. |
+| `company.php` / `employee.php` | GET/GET+PUT | Self-profile fetch (and edit, for `employee.php`) for the authenticated caller. |
+
+## Requests (`apis/api/requests/`, 7 endpoints)
+
+Leave/permission request workflow. `create.php`/`update.php`/`delete.php`
+are `EMPLOYEE`-only (self-service on own, pending-only requests).
+`approve.php`/`reject.php`/`list.php`/`one.php` allow
+`COMPANY_ADMIN`/`HR`/`MANAGER`. Approval triggers an insufficient-leave-
+balance check (`request_insufficient_leave_balance()`) when the request
+type's `deduct_balance` flag is set.
+
+**Finding — Manager approve/reject is not branch-scoped, unlike
+Manager list/read access in this same module** — see
+`docs/legacy/business-rule-extraction.md` for the full write-up.
+
+All 7 endpoints are otherwise consistently company-scoped (via a join to
+`employees.company_id`), matching the `penalties`/`employees`/`salary_contracts`
+pattern rather than the `advances` gap.
+
+## Leave Balances (`apis/api/leave_balances/`, 10 endpoints)
+
+Per-employee, per-year leave allotment CRUD plus company-wide
+`generate.php` (bulk-creates missing balance rows for a year, defaulting
+to 21 days or the company's configured
+`CompanySettingEnum::MONTHLY_LEAVE_ACCRUAL` value) and the same
+Excel import/analyze/template trio pattern seen in `attendance` and
+`employees`. All 10 endpoints are consistently company-scoped;
+`COMPANY_ADMIN`/`HR` for mutations, broader read access
+(`list.php`/`one.php`/`stats.php` use bare `requireAuth()`) not traced
+for row-level self-scoping in this pass.
+
+## Workforce Planning (`apis/api/workforce_planning/`, 7 endpoints)
+
+Headcount-target CRUD per (company, branch, department, job_title), plus
+`save_target.php` (upsert) and `summary.php` (a backward-compatible alias
+that simply `require`s `list.php`). All 7 endpoints consistently
+company-scoped; `COMPANY_ADMIN`/`HR` for mutations,
+`list.php`/`one.php` additionally allow `MANAGER` (scoping depth not
+traced further in this pass).
+
+## Branches, Company Settings, Notifications (`apis/api/{branches,company_settings,notifications}/`, 18 endpoints)
+
+All 18 endpoints read; no scoping gaps found — consistently company-scoped
+throughout, and (for `notifications`) ownership-checked per-recipient via
+a shared `notification_inbox_filter()` helper. `branches` and
+`notifications/send.php` allow `MANAGER` with no branch restriction
+(same shape as the lower-severity findings already documented for
+`requests` approve/reject, not repeated here as a separate entry given
+the lower severity of misdirected branch-management/messaging actions
+versus financial or attendance data). `branches/generate_qr.php` issues
+the `qr_code`/`expires_at` pair consumed by
+`attendance/check_in_qr.php` (already documented). `company_settings` is
+the CRUD layer over the generic EAV settings system described in the
+schema inventory (`month_start_day`/`month_end_day`/`weekly_off_days`/
+`overtime_rate` and others, including `MONTHLY_LEAVE_ACCRUAL`, consumed
+by `leave_balances/generate.php`).
+
+## Employee Docs, Company Join Requests, HR Employees, Complaints, Schedules, Company (16 endpoints)
+
+All 16 endpoints across these 6 small modules read; no scoping gaps
+found. Notably, `company_join_requests/accept.php` and `reject.php`
+match the exact approve/reject shape that was broken in `advances` —
+both are correctly company-scoped here, confirming the `advances` gap is
+isolated to that module. `hr_employees/update_permissions.php` writes the
+18-boolean `hr_permissions` matrix described in the schema inventory.
+`schedules/generate_employee_schedule.php` and
+`assign_employee_schedule.php` back the `employee_shift_assignments`
+date-effective model already documented. `company/update.php` and the
+two upload endpoints are the company-admin-only counterparts to the
+employee-facing `profile/company.php`.
+
+## Reference/Lookup Modules (40 endpoints: `job_titles`, `departments`, `shifts`, `request_types`, `attendance_exception_types`, `company_official_holidays`, `assets`, `administrative_decisions` — 5 each)
+
+All 40 endpoints read (full reads for `administrative_decisions`,
+`attendance_exception_types`, `company_official_holidays`; scoping-pattern
+verification via targeted reads for the rest). All consistently
+company-scoped. **Finding — the `hr_permissions` granular authorization
+matrix is enforced on some of these modules
+(`administrative_decisions` all 5, `attendance_exception_types`
+create/delete/update, `company_official_holidays` all 5) but not others
+(`job_titles`, `departments`, `shifts`, `request_types`, `assets`)** —
+see the new threat-model entry for the full write-up; this inconsistency
+extends well beyond this module group to most of the API.
+
+## Reference/Content Modules (9 endpoints: `app_content`, `banners`, `faqs`, `configs`, `phone_countries`, `setting_allowed_values`, `setting_definitions`, `time`, `dashboard` — 1 each)
+
+Read-mostly, mostly public/unauthenticated GET endpoints as the module
+inventory already noted: `app_content`, `configs`, `phone_countries`,
+`setting_allowed_values` require no auth at all (static/marketing/CMS
+content and reference lookups). `banners`, `faqs`, `time` require any
+authenticated session but no specific role. `setting_definitions` is
+`COMPANY_ADMIN`/`HR` only (the definitions side of the EAV settings
+system, as opposed to `company_settings`, which is the per-company
+selected-values side). `dashboard/stats.php` is the single dashboard
+summary-widget endpoint, `COMPANY_ADMIN`/`HR` only, not traced past its
+company-scoped call site in this pass.
 
 ## Evidence
 

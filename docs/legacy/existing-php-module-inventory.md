@@ -15,6 +15,10 @@ actual `apis/api/` directory structure.
 - **`apis/`** — REST JSON API, JWT bearer auth (`apis/config/auth.php`,
   `apis/helpers/otp_helper.php`), consumed by the (not-yet-in-scope-here)
   mobile/desktop client. 199 endpoint files across 38 module directories.
+  **All 199 have now been read** (see `docs/api/existing-endpoint-inventory.md`,
+  `docs/legacy/business-rule-extraction.md`, `docs/security/threat-model.md`
+  for the resulting documentation and findings) — this side of the system
+  is Discovery-complete at the API layer.
 - **`dashboard/`** — Session-based server-rendered admin panel
   (`dashboard/includes/auth.php`), 92 page files across 34 page
   directories, used directly by browsers. Shares the same MySQL database
@@ -28,25 +32,26 @@ actual `apis/api/` directory structure.
 
 | Module | Entry points | Business domain |
 |---|---|---|
-| `auth` | 14 | Registration, login (company + employee + desktop), OTP issue/verify/resend, forgot/reset password, company lookup, join requests |
-| `attendance` | 15 | Check-in/out (app + QR), Excel import/export/analyze, monthly summaries, stats, exception handling — the single largest module by entry-point count |
-| `employees` | 14 | CRUD, bulk import (Excel), photo upload, deactivate/reactivate, delete preview (impact analysis before a destructive action), stats |
-| `profile` | 9 | Self-service: change password, delete account (with a preview endpoint first), phone-change confirmation flow, push-token registration |
+| `auth` | 14 | Registration, login (company + employee + desktop), OTP issue/verify/resend, forgot/reset password, company lookup, join requests. All 14 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`. **3 critical/high security findings — see `docs/security/threat-model.md`** (DEBUG-gated OTP disclosure, unauthenticated company-registration completion, 10-year JWT expiry with no admin-token revocation) |
+| `attendance` | 15 | Check-in/out (app + QR), Excel import/export/analyze, monthly summaries, stats, exception handling — the single largest module by entry-point count. All 15 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; see `docs/legacy/business-rule-extraction.md` for 3 findings (QR check-in skips the 2-hour gap rule, Manager role is unscoped despite doc-comments, bulk date-range delete has no dry-run) |
+| `employees` | 14 | CRUD, bulk import (Excel), photo upload, deactivate/reactivate, delete preview (impact analysis before a destructive action), stats. All 14 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; correct Manager branch-scoping throughout (contrast with `attendance`); see `docs/legacy/business-rule-extraction.md` for the cascade-delete-of-payroll-history finding |
+| `profile` | 9 | Self-service: change password, delete account (with a preview endpoint first), phone-change confirmation flow, push-token registration. All 9 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`. **High-impact finding — mobile logout silently deactivates the employee's account, no password required — see `docs/legacy/business-rule-extraction.md`** |
 | `payroll_batches` | 10 | Batch lifecycle: create, calculate, finalize, reopen, fiscal-period resolution, stats — all 10 endpoints individually documented in `docs/api/existing-endpoint-inventory.md` |
-| `leave_balances` | 10 | Balance CRUD, generation, bulk import, Excel template/analyze, stats |
-| `advances` | 8 | Create/approve/reject/pay/update/delete — full advance lifecycle |
-| `penalties` | 7 | CRUD, reporting, stats |
-| `requests` | 7 | Leave/permission request workflow: create/approve/reject/update |
-| `workforce_planning` | 7 | Headcount targets: create/update/save_target/summary |
+| `leave_balances` | 10 | Balance CRUD, generation, bulk import, Excel template/analyze, stats. All 10 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; consistently company-scoped |
+| `advances` | 8 | Create/approve/reject/pay/update/delete — full advance lifecycle. All 8 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`. **5 of 8 have a confirmed cross-tenant authorization gap — see `docs/security/threat-model.md`.** |
+| `penalties` | 7 | CRUD, reporting, stats — all 7 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`, consistently correct tenant scoping |
+| `requests` | 7 | Leave/permission request workflow: create/approve/reject/update. All 7 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`. **Finding — Manager approve/reject is not branch-scoped, unlike Manager read access in the same module — see `docs/legacy/business-rule-extraction.md`** |
+| `workforce_planning` | 7 | Headcount targets: create/update/save_target/summary. All 7 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; consistently company-scoped |
 | `payslips` | 6 | CRUD, export — all 6 endpoints individually documented in `docs/api/existing-endpoint-inventory.md` |
-| `branches` | 6 | CRUD, QR-code generation |
-| `company_settings` | 6 | CRUD, options (available settings for a company to choose from) |
-| `notifications` | 6 | List, send, mark read, unread count |
-| `job_titles`, `departments`, `shifts`, `request_types`, `attendance_exception_types`, `company_official_holidays`, `salary_contracts`, `assets`, `administrative_decisions` | 5 each | Standard per-company CRUD lookup/config modules |
-| `employee_docs` | 4 | Upload, list, update, delete |
-| `company_join_requests`, `hr_employees`, `complaints`, `schedules` | 3 each | Company-scoped workflows (accept/reject join requests, HR permission updates, complaint handling, schedule assignment/generation) |
-| `company` | 3 | Company profile update, logo upload, commercial-registration-doc upload |
-| `app_content`, `banners`, `faqs`, `configs`, `phone_countries`, `setting_allowed_values`, `setting_definitions`, `time`, `dashboard` | 1 each | Read-mostly reference/content endpoints; `time` is a single server-time endpoint (`apis/api/time/now.php`) — likely a client clock-sync utility |
+| `branches` | 6 | CRUD, QR-code generation. All 6 documented in `docs/api/existing-endpoint-inventory.md`; company-scoped throughout |
+| `company_settings` | 6 | CRUD, options (available settings for a company to choose from). All 6 documented; company-scoped throughout |
+| `notifications` | 6 | List, send, mark read, unread count. All 6 documented; ownership-checked per-recipient |
+| `job_titles`, `departments`, `shifts`, `request_types`, `attendance_exception_types`, `company_official_holidays`, `assets`, `administrative_decisions` | 5 each | Standard per-company CRUD lookup/config modules. All 40 documented in `docs/api/existing-endpoint-inventory.md`, company-scoped throughout. **`hr_permissions` granular-permission enforcement present on `administrative_decisions`/`attendance_exception_types`/`company_official_holidays` but absent on `job_titles`/`departments`/`shifts`/`request_types`/`assets` — see `docs/security/threat-model.md`** |
+| `salary_contracts` | 5 | Versioned per-employee compensation. All 5 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; correct tenant scoping throughout, but see the `daily`-wage-mode and always-zero-`housing_allowance` findings in `docs/legacy/business-rule-extraction.md` |
+| `employee_docs` | 4 | Upload, list, update, delete. All documented in `docs/api/existing-endpoint-inventory.md`; company-scoped |
+| `company_join_requests`, `hr_employees`, `complaints`, `schedules` | 3 each | Company-scoped workflows (accept/reject join requests, HR permission updates, complaint handling, schedule assignment/generation). All documented; `company_join_requests` accept/reject correctly scoped (contrast with `advances`) |
+| `company` | 3 | Company profile update, logo upload, commercial-registration-doc upload. All documented; company-scoped |
+| `app_content`, `banners`, `faqs`, `configs`, `phone_countries`, `setting_allowed_values`, `setting_definitions`, `time`, `dashboard` | 1 each | Read-mostly reference/content endpoints; `time` is a single server-time endpoint (`apis/api/time/now.php`) — likely a client clock-sync utility. All 9 documented in `docs/api/existing-endpoint-inventory.md` |
 
 **Two directories exist on disk but are empty and are *not* in
 `ApiModule::allowedList()`:** `apis/api/employee_custody/` and

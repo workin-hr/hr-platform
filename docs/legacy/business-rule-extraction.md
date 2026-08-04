@@ -291,6 +291,368 @@ pay as generic allowances or cause a naive "sum all allowance-like
 columns" migration script to double-count housing under two different
 names.
 
+---
+
+## Rule: Salary contracts have a `daily`-wage mode that one payslip endpoint ignores entirely
+
+**Current Behavior:** `salary_contracts` supports two modes,
+`monthly` (default) and `daily`. In `daily` mode, `basic_salary` and all
+four contract allowances (transport/food/risk/incentives) are forced to
+`0` on write, and `daily_wage` is used instead; the batch payroll engine
+(`payroll_compute_employee_payslip()`) correctly converts this to a
+synthetic monthly-equivalent (`daily_wage × 30`, using the same
+30-day-divisor constant) before computing gross salary, and that
+converted value is what gets stored as the payslip's `basic_salary`.
+`payslips/update.php` inherits that already-correct stored value when no
+override is supplied. **`payslips/create.php` (manually adding a payslip
+to a batch, bypassing `calculate.php` entirely) does not** — it reads
+`$contract[Column::BASIC_SALARY]` directly, which is `0` for any
+daily-wage employee, and has no `daily_wage`/`salary_mode` handling and
+no request-body override for `basic_salary` at all. For a daily-wage
+employee, a payslip added through this specific endpoint silently omits
+their entire base pay from `net_salary`, using only whatever
+`overtime_pay` was typed into the request.
+
+**Where Observed:** `apis/api/salary_contracts/create.php` (mode-zeroing
+on write) and `apis/helpers/payroll_calculation.php`,
+`payroll_compute_employee_payslip()` lines ~934–961 (correct daily→monthly
+conversion, confirmed stored into `payslips.basic_salary` at the
+`INSERT ... ON DUPLICATE KEY UPDATE` around line 1123) versus
+`apis/api/payslips/create.php` line 95 (no such conversion, no override
+path).
+
+**Risk If Misinterpreted:** This is not a drift risk like the three-formula
+finding above — it is a confirmed, reproducible calculation defect for one
+specific, real compensation mode on one specific, real endpoint. Any
+migration that ports `payslips/create.php`'s logic as-is would carry the
+same defect forward; any migration that "fixes" it silently would change
+the guarantees whoever currently relies on the batch-only flow already
+depends on. Needs a human decision (avoid using this endpoint for
+daily-wage employees today; and/or fix it deliberately during migration
+with the fix communicated as a bug fix, not a silent behavior change).
+
+---
+
+## Rule: `salary_contracts.housing_allowance` cannot be set to a nonzero value anywhere in the API
+
+**Current Behavior:** Refines the `payslips.allowances`-is-housing entry
+above. `housing_allowance` is a real column, wired into the payroll gross
+calculation (`payroll_compute_employee_payslip()` reads
+`$contract[Column::HOUSING_ALLOWANCE]`), but **every** write path in the
+codebase hardcodes it to the literal `0`: `salary_contracts/create.php`
+and `salary_contracts/update.php` both write a literal `0` for this
+column rather than reading it from the request body at all (not even
+defaulted-then-overridable — the field is not read from `$body` in
+either endpoint), and the alternate employee-creation path
+(`apis/helpers/employee_create_helper.php`, used by
+`employees/create.php`) does the same. Consequently every
+batch-calculated payslip's housing component is always `0` at
+calculate-time. The **only** place a nonzero housing value can ever enter
+the system is a human manually typing one into `payslips/update.php`'s
+per-payslip `allowances` override, after the batch has already run — and
+because that value lives on the payslip row, not the contract, it is not
+remembered for the next payroll cycle; HR would need to re-enter it every
+single month for every employee who receives housing.
+
+**Where Observed:** `apis/api/salary_contracts/create.php` line 47/58
+(literal `0` in the `INSERT`), `apis/api/salary_contracts/update.php`
+line 55 (literal `0` in the `UPDATE`), `apis/helpers/employee_create_helper.php`
+lines ~170–197 (literal `0` in the `INSERT`), contrasted with
+`apis/helpers/payroll_calculation.php` line 942 (the column is read and
+used) and `apis/api/payslips/update.php` lines 55–61 (the only functioning
+write path, scoped to a single payslip).
+
+**Risk If Misinterpreted:** A migration that assumes `housing_allowance`
+is a normal, settable contract field (because it exists in the schema and
+the payroll formula) would be wrong — as of this commit it is
+functionally a dead field at the contract level. Whether this is an
+intentional design (housing is meant to be a manual monthly exception,
+not a standing benefit) or an incomplete feature (a UI to set it on the
+contract was planned but never wired to the API) is not determinable from
+the code alone — worth a direct question to whoever owns the product
+before deciding how to migrate this field.
+
+---
+
+## Rule: QR check-in does not enforce the 2-hour minimum-gap rule that GPS check-in does
+
+**Current Behavior:** `attendance/check_in.php` (self, GPS-based) and the
+manual `attendance/create.php`/`update.php` (HR-entered) all run the same
+`TIMESTAMPDIFF(MINUTE, last_check_in, new_check_in) < 120` guard before
+allowing a new check-in. `attendance/check_in_qr.php` does not — it only
+checks that there is no currently-open (un-checked-out) session; an
+employee can check out and immediately check back in via QR scan with no
+minimum gap enforced at all.
+
+**Where Observed:** `apis/api/attendance/check_in_qr.php` (no
+`TIMESTAMPDIFF` guard present) versus `apis/api/attendance/check_in.php`
+lines 33–42 (guard present) and `apis/api/attendance/create.php` lines
+67–73 (same guard, reused for manual entry).
+
+**Risk If Misinterpreted:** The 2-hour rule is documented above as the
+system's actual anti-double-check-in control. Assuming it applies
+uniformly "to check-in" as a concept, rather than to specific check-in
+*methods*, would be wrong — QR-based check-in is a real, live bypass of
+that control today. Worth confirming with whoever owns the QR feature
+whether this is intentional (QR itself is treated as sufficient proof,
+unlike GPS) or an oversight.
+
+---
+
+## Rule: The Manager role gets full company-wide attendance visibility, not branch/department-scoped, despite doc-comments implying otherwise
+
+**Current Behavior:** `attendance/list.php`'s own doc-comment says
+"Manager (for their company/department)", and `overall_report.php`
+explicitly authorizes the `MANAGER` role — but neither endpoint (nor
+`stats.php`) actually restricts a manager's query to their own
+branch/department. Both `list.php` and `stats.php` branch only on
+`EMPLOYEE` vs. "everyone else" (Admin/HR/Manager all get the same
+unrestricted company-wide `WHERE e.company_id=?` query); `Manager` never
+reaches a scoping branch. Contrast directly with the `penalties` module
+(`docs/api/existing-endpoint-inventory.md`), which implements real
+manager branch-scoping via `sql_manager_same_branch_scope()` in
+`list.php`, `one.php`, `report.php`, and `stats.php` — proving the
+pattern is known elsewhere in the codebase and simply not applied here.
+
+**Where Observed:** `apis/api/attendance/list.php`,
+`apis/api/attendance/stats.php`, `apis/api/attendance/overall_report.php`
+— all read in full for role-branching logic; `apis/api/penalties/*.php`
+as the contrasting correct pattern.
+
+**Risk If Misinterpreted:** A migration that reads the doc-comment
+("for their company/department") as the actual specification would
+under-scope managers relative to what they currently see (a
+functionality regression); a migration that reproduces the code exactly
+preserves managers seeing every employee's attendance company-wide,
+which may or may not be the intended access model — needs a product
+decision, not an assumption either way.
+
+---
+
+## Rule: Bulk attendance deletion is a single irreversible, whole-company, date-range operation
+
+**Current Behavior:** `attendance/delete_range.php` deletes every
+attendance row for the entire company within an admin-supplied
+`from`/`to` date range in one `DELETE ... JOIN` statement — no per-row
+confirmation, no soft-delete, no dry-run requirement (the count is
+returned only after deletion, not before), no audit-log entry visible in
+this codebase. Separately, `attendance/update.php` also performs a
+"soft" version of this at the single-row level: clearing both punches
+without setting an exception type deletes the row entirely (a deliberate
+convention — "so the day shows as missing/deducted" per the endpoint's
+own comment — not a bug), rather than leaving an empty row.
+
+**Where Observed:** `apis/api/attendance/delete_range.php`, full file;
+`apis/api/attendance/update.php` lines 64–74.
+
+**Risk If Misinterpreted:** Attendance directly drives payroll absence
+calculations (see the day-rate/absence-cost rule above). A migration
+that preserves `delete_range.php`'s blast radius without adding a
+confirmation/dry-run/audit step would carry forward a tool that can
+silently erase a month of payroll-relevant history company-wide in one
+call — worth flagging as a candidate for a deliberate safety
+improvement during migration, not just a like-for-like port.
+
+---
+
+## Rule: OTP verification has no attempt/rate limiting; only the resend has a cooldown
+
+**Current Behavior:** `otp_verify_latest_for_phone()` — the function
+behind `verify_otp.php`, `reset_password.php`, and the OTP-gated login
+branches in `login_company.php`/`login_desktop.php` — is a plain
+`SELECT ... WHERE phone=? AND code=? AND expires_at > NOW()` with no
+attempt counter, no lockout, and no delay between attempts. The only
+throttle anywhere in the OTP system is on *issuing* a new code
+(`otp_has_recent_for_phone()`, 60-second cooldown on resend). A 4-digit
+code (10,000 possibilities) valid for 10 minutes, combined with an
+unthrottled verification endpoint, is brute-forceable within its validity
+window by an attacker who can send a few thousand requests — no special
+access required beyond knowing (or guessing) a target phone number.
+
+**Where Observed:** `apis/helpers/otp_helper.php`,
+`otp_verify_latest_for_phone()` (no rate limiting) and
+`otp_has_recent_for_phone()` (the only throttle, and it only gates
+issuance); consumed by `apis/api/auth/verify_otp.php` and
+`apis/api/auth/reset_password.php` directly.
+
+**Risk If Misinterpreted:** Independent of the `DEBUG`-gated OTP
+disclosure in `docs/security/threat-model.md`, this is a second, standing
+path to the same outcome (account takeover via OTP) that does not depend
+on `DEBUG` being true at all — it works against the system exactly as
+designed today, just more slowly. Whether an infrastructure-level
+WAF/rate-limiter sits in front of the live API was not confirmed in this
+pass; this finding assumes only what the application code itself
+enforces.
+
+---
+
+## Rule: Changing or resetting a password never invalidates already-issued session tokens
+
+**Current Behavior:** Only a fresh login
+(`employee_issue_session_token()`, which bumps `employees.token_version`)
+invalidates a previously-issued employee JWT. `reset_password.php` updates
+`password_hash` and clears the OTP but never touches `token_version`.
+No `profile/*` endpoint (self-service change-password) touches it either.
+Company-admin tokens have no equivalent revocation mechanism at all — see
+`docs/security/threat-model.md` for the full severity write-up, which
+also covers the 10-year JWT expiry this compounds.
+
+**Where Observed:** `apis/api/auth/reset_password.php`, full file (no
+`token_version` write); `apis/helpers/functions.php`,
+`employee_issue_session_token()` (the only place `token_version` is
+incremented).
+
+**Risk If Misinterpreted:** The product-facing assumption "I changed my
+password because I think someone else has access, so I'm safe now" does
+not hold in the current system — a session token issued before the
+change remains valid until it naturally expires (up to 10 years) or the
+legitimate user happens to log in again. Worth a direct product decision
+on whether this is acceptable to carry into a migrated system as-is.
+
+---
+
+## Rule: Two parallel, non-identical employee self-registration endpoints exist
+
+**Current Behavior:** `auth/register_employee.php` and `auth/join_company.php`
+both let a new employee self-register against a company, but they are
+not the same flow reproduced twice — they use **different identifiers for
+"which company"** despite both binding it to a request field named
+`company_code`: `register_employee.php` looks up the company by matching
+`company_code` directly against `companies.phone` (the company's own
+login phone number); `join_company.php` matches it against
+`companies.company_code` (a distinct alphanumeric column, via
+`company_find_by_public_code()`). They also differ materially beyond
+that: `join_company.php` checks phone uniqueness **globally across all
+companies** (`employee_phone_exists_globally()`,
+`company_phone_exists_globally()`, with an explicit carve-out for the
+company-owner's own phone) and resolves a default branch before
+inserting; `register_employee.php` checks uniqueness only **within the
+target company** and does not touch branches at all. `join_company.php`
+also immediately issues a session JWT (auto-login while
+`join_request_status='pending'`); `register_employee.php` does not issue
+a token at all.
+
+**Where Observed:** `apis/api/auth/register_employee.php`, full file,
+versus `apis/api/auth/join_company.php`, full file, and
+`apis/helpers/company_code_helper.php` (`company_find_by_public_code()`).
+
+**Risk If Misinterpreted:** A migration that treats "employee
+self-registration" as one business rule to port would produce a system
+with either weaker (per-company only) or stronger (global) phone-
+uniqueness than whichever of these two endpoints the real mobile client
+doesn't actually use — and if the client uses both (e.g. one per app
+version, or one deprecated but still reachable), the current system
+already has inconsistent duplicate-phone enforcement depending on which
+endpoint a given registration went through. Needs confirmation from
+whoever owns the mobile client about which of these two is actually live
+before assuming either is the "real" one to migrate.
+
+---
+
+## Rule: Employee deletion can cascade-delete payroll/financial history, despite the schema's own RESTRICT constraint
+
+**Current Behavior:** `docs/migration/database-schema-inventory.md`
+flagged `payslips.employee_id → employees.id` as one of three FKs with no
+explicit `ON DELETE` clause (MySQL default `RESTRICT`), and asked whether
+that was intentional protection for payroll history. It is not: the
+application layer explicitly works around it.
+`employees/delete.php?cascade=1` calls `employee_cascade_delete_related()`,
+which — inside a single transaction, before the `employees` row itself is
+deleted — explicitly deletes that employee's rows from `payslips`,
+`penalties`, `advances`, `salary_contracts`, `attendance`, `leave_balance`,
+`requests`, `employee_docs`, `complaints`, `notifications`, `push_tokens`,
+`employee_schedules`, `employee_shift_assignments`, and `hr_permissions`,
+specifically so the subsequent `DELETE FROM employees` doesn't hit the
+FK constraint. A caller only sees a dry-run preview (record counts) first
+if they omit `cascade=1`; the actual delete itself is a single API call
+with no additional confirmation step beyond that.
+
+**Where Observed:** `apis/api/employees/delete.php`, full file;
+`apis/helpers/employee_delete_helper.php`,
+`employee_related_records_summary()` and
+`employee_cascade_delete_related()`.
+
+**Risk If Misinterpreted:** The schema-level RESTRICT constraint reads
+like a deliberate safeguard protecting financial/payroll history from
+accidental loss. It is not one in practice — this endpoint is a real,
+reachable way to permanently erase an employee's entire payroll and
+attendance history in one call. A migration that preserves the DB-level
+RESTRICT but drops this cascade-delete helper would be a real behavior
+change (deletion would start failing where it previously succeeded);
+preserving both means payroll history remains only as safe as whoever
+holds Admin/HR credentials choosing not to pass `cascade=1`. Worth a
+product decision on whether this should become soft-delete/archival
+during migration rather than a like-for-like port.
+
+---
+
+## Rule: Mobile "logout" deactivates the employee's account at that company, no password required
+
+**Current Behavior:** `profile/logout.php`, when called by an
+`EMPLOYEE`-type session, does more than end the session: it sets
+`employees.is_active = 0` for that employee at that company, deletes all
+their push tokens, and — if they were previously active — sends the
+company a "employee left" notification
+(`notification_employee_left_company_to_company()`). This happens on
+**every** employee logout, unconditionally, with no password
+confirmation and no explicit "are you sure" step. The employee cannot
+simply log back in afterward: `login_employee.php` explicitly rejects an
+`accepted`-but-`is_active=0` match with `403 EMPLOYEE_ACCOUNT_NOT_ACTIVE`
+— they need an Admin/HR to reactivate them via `employees/reactivate.php`.
+The endpoint's own comment acknowledges the severity: "re-join via
+company code." Contrast directly with `profile/delete_account.php`'s
+employee path, which produces the **exact same** `is_active=0` outcome
+but requires re-entering the account password first — logout and
+"delete my account" currently have identical system effects, but only
+one of them is password-gated. Company-admin logout has no such side
+effect at all (push-token cleanup only) — this is employee-specific.
+
+**Where Observed:** `apis/api/profile/logout.php`, full file, lines
+31–68; contrasted with `apis/api/profile/delete_account.php` lines
+50–91 (the password-gated version of the same state change), and
+`apis/api/auth/login_employee.php` lines 98–101 (the resulting login
+rejection).
+
+**Risk If Misinterpreted:** This is a strong candidate for a real,
+already-happening support/product problem, not just a migration risk:
+an employee tapping an ordinary "log out" button loses access to their
+account and requires HR intervention to restore it, with the company
+side additionally seeing a "this employee left" notification that isn't
+actually true. Worth a direct question to whoever owns the mobile client
+and support inbox about whether this is a known, intentional design
+(e.g. deliberately treating logout as "leaving the company" for a
+specific product reason) or a bug that's been silently generating
+support burden. Do **not** port this behavior into a migrated system
+without an explicit decision either way — it is exactly the kind of
+subtle, high-impact rule this Discovery process exists to surface before
+it gets carried forward by assumption.
+
+---
+
+## Rule: Managers can approve/reject any employee's request company-wide, despite being branch-scoped for reading the same data
+
+**Current Behavior:** `requests/list.php` correctly restricts a
+`MANAGER` caller to their own branch via `sql_manager_same_branch_scope()`
+— consistent with the pattern already confirmed in `penalties` and
+`employees`. `requests/approve.php` and `requests/reject.php`, which
+allow the same `MANAGER` role, do not apply any branch restriction at
+all: `request_fetch_for_approval()` scopes only by `company_id`. A
+manager can therefore decide (approve or reject) a leave/permission
+request for an employee outside their own branch/team, even though they
+cannot see that employee in their own request list.
+
+**Where Observed:** `apis/api/requests/list.php` (manager branch scope
+present) versus `apis/api/requests/approve.php`/`reject.php` and
+`apis/helpers/request_actions_helper.php`,
+`request_fetch_for_approval()` (no manager scope).
+
+**Risk If Misinterpreted:** Smaller in blast radius than the `advances`
+cross-tenant gap (this is within-company, not cross-tenant), but the
+same category of read/write scoping mismatch. Worth a product decision
+on whether manager approval authority should genuinely be company-wide
+(a real permission model) or is meant to mirror their branch-scoped
+visibility and this is a gap.
+
 ## Evidence
 
 All entries: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`,
