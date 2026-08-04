@@ -1,28 +1,32 @@
 # Stored Procedure And Function Inventory
 
-## Procedure Or Function Name
+## Result: Confirmed — Zero Stored Procedures Or Functions Exist
 
-Record the exact routine name.
+`workin-hr/hr-legacy`'s `mysql_workin.schema.sql` (structure-only export,
+commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`) was grepped in full for
+`CREATE (PROCEDURE|FUNCTION)` (case-insensitive). Zero matches. All
+business logic — including the payroll calculation engine, attendance
+geofencing, and every other rule documented in
+`docs/legacy/business-rule-extraction.md` — lives in PHP
+(`apis/helpers/*.php`), not in MySQL stored routines.
 
-## Purpose
+The schema does use MySQL `GENERATED ALWAYS AS (...) STORED` computed
+columns (`leave_balance.remaining_days`, `salary_contracts.total`) — these
+are column-level generated expressions, not stored procedures/functions,
+and are already tracked separately in
+`docs/migration/database-schema-inventory.md`'s "MySQL/MariaDB-Specific
+Features" table.
 
-Describe what the routine does in business or technical terms.
+## PostgreSQL Migration Implication
 
-## Business Criticality
-
-Classify whether the routine is:
-
-- essential to a customer or payroll workflow
-- important but replaceable
-- uncertain / needs more evidence
-- likely obsolete
-
-## Replacement Notes (application layer vs PostgreSQL equivalent)
-
-Capture the current best migration hypothesis, such as application-layer
-replacement, PostgreSQL function, scheduled job, or unresolved approach.
+Nothing to port at the stored-routine level. This is a significant
+simplifying fact for the migration: **all business logic is already in
+application code**, meaning the Java rewrite's job is porting PHP business
+rules (already extensively documented in
+`docs/legacy/business-rule-extraction.md`) into Java, not reverse-engineering
+opaque SQL routines.
 
 ## Evidence
 
-Link the routine definition, call sites, operator notes, or runtime evidence
-showing that the routine is still in use.
+`grep -niE "CREATE (PROCEDURE|FUNCTION)" mysql_workin.schema.sql` run
+against the full 1,718-line structure export — zero matches.
