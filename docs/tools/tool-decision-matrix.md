@@ -1,5 +1,14 @@
 # Tool Decision Matrix
 
+**Discovery-informed update (2026-08-04):** the rows below marked
+"Discovery note" were updated after the `hr-legacy` API/dashboard
+Discovery pass (`docs/api/existing-endpoint-inventory.md`,
+`docs/legacy/business-rule-extraction.md`,
+`docs/security/threat-model.md`) resolved or newly informed the stated
+blocker for that tool. These are recommendations for human confirmation,
+not decisions made by this document alone — the same standard every ADR
+in this repository already holds itself to.
+
 | Tool | Category | Current Position | Reason |
 | --- | --- | --- | --- |
 | Git | Core SCM | Install during Phase 0 | Mandatory repository baseline |
@@ -29,15 +38,15 @@
 | Node LTS | Frontend runtime | Approve now, install later | Needed only once web implementation begins |
 | pnpm | Frontend package manager | Approve now, install later | Useful for Next.js work, not bootstrap |
 | Next.js 16 | Frontend | Approve now, install later | Target admin app, not bootstrap |
-| Flutter | Client | Evaluate during discovery | Compatibility and release details first |
-| .NET | Gateway | Evaluate during discovery | Depends on device discovery |
+| Flutter | Client | Evaluate during discovery | Compatibility and release details first. Discovery note: `hr-legacy` API-side Discovery is done, but every "Consumer" field in `docs/api/existing-endpoint-inventory.md` is explicitly marked inferred — no Flutter client source was available in that pass. This blocker is only partially resolved; the actual Flutter app still needs its own read-through before this can move to "Approve now." |
+| .NET | Gateway | Evaluate during discovery | Depends on device discovery. Discovery note: `docs/devices/*.md` (vendor capability matrix, device/firmware inventory) remain empty templates — device discovery has not happened yet. This blocker is fully unresolved, not something the `hr-legacy` software Discovery pass could address. |
 | Docker | Local infra | Approve now, install later | Not needed for Phase 0 |
 | Docker Compose | Local infra | Approve now, install later | Not needed for Phase 0 |
 | Testcontainers | Test infra | Evaluate during discovery | Depends on implementation-phase test design |
-| JUnit | Backend testing | Evaluate during discovery | Depends on Java implementation choices |
-| ArchUnit | Architecture testing | Evaluate during discovery | Valuable once backend module design exists |
-| Spring Modulith | Architecture support | Evaluate during discovery | Depends on chosen modular monolith structure |
-| REST Assured | API testing | Evaluate during discovery | Depends on Java API implementation approach |
+| JUnit | Backend testing | Evaluate during discovery | Depends on Java implementation choices. Discovery note: Java + Spring Boot is the recorded target stack above (`Java 25`, `Spring Boot 4.x`) — recommend advancing to "Approve now, install later." |
+| ArchUnit | Architecture testing | Evaluate during discovery | Valuable once backend module design exists. Discovery note: ADR-0002 (Modular Monolith Baseline)'s own stated risk is "module boundaries drift into a tangled monolith without enforced internal contracts" — ArchUnit is a direct, low-cost mitigation for exactly that risk and doesn't need to wait for module design to exist first (it can enforce boundary rules as they're decided, incrementally). Recommend advancing to "Approve now, install later." |
+| Spring Modulith | Architecture support | Evaluate during discovery | Depends on chosen modular monolith structure. Discovery note: same reasoning as ArchUnit above — this is the Spring-native tool built specifically to enforce and verify module boundaries in a Spring Boot modular monolith, directly addressing ADR-0002's stated risk. Recommend advancing to "Approve now, install later," ahead of rather than after module design, since it can shape that design. |
+| REST Assured | API testing | Evaluate during discovery | Depends on Java API implementation approach. Discovery note: the legacy system is a REST JSON API throughout (`docs/legacy/existing-php-module-inventory.md`) and ADR-0003 assumes REST-shaped Flutter compatibility work — no evidence found this session suggesting a non-REST approach is under consideration. Recommend advancing to "Approve now, install later" unless ADR-0003 resolves toward something else. |
 | WireMock | Integration testing | Evaluate during discovery | Depends on external integration patterns |
 | Schemathesis | Contract testing | Evaluate during discovery | Depends on OpenAPI maturity |
 | Vitest | Web unit testing | Evaluate during discovery | Depends on Next.js implementation |
@@ -61,6 +70,9 @@
 | Service mesh | Platform | Explicitly rejected or deferred | Adds complexity without current need |
 | Elasticsearch | Search platform | Explicitly rejected or deferred | Not justified for initial MVP |
 | Debezium | CDC | Explicitly rejected or deferred | Not justified before migration strategy matures |
-| Redis without a demonstrated use case | Caching | Explicitly rejected or deferred | Avoid speculative infrastructure |
+| Redis without a demonstrated use case | Caching | Explicitly rejected or deferred | Avoid speculative infrastructure. Discovery note: `hr-legacy` Discovery found a concrete, named use case that didn't exist when this was rejected — OTP verification has no rate limiting at all (GitHub issue #10 in `workin-hr/hr-legacy`), and a Redis-backed per-phone attempt counter with TTL is the standard tool for exactly that gap. This is flagged for the row's original owner to revisit as a discrete decision — not treated as reversed by this note, since "no demonstrated use case" was the entire stated reason and that specific premise no longer holds. |
 | Paid test-management platforms | Governance | Explicitly rejected or deferred | Unnecessary for current phase |
 | Uncontrolled autonomous agent orchestration | AI runtime | Explicitly rejected or deferred | Unsafe governance boundary |
+| Keycloak (or an equivalent self-hosted IAM) | Identity & Access Management | New — recommend: Evaluate during discovery | Not previously in this matrix. `hr-legacy` Discovery found that the majority of its highest-severity findings are fundamentally authentication/authorization design gaps, not isolated bugs: no per-admin identity or MFA (issue #11), no server-side token revocation for admin sessions and a 10-year JWT lifetime (issue #7), no OTP rate limiting (issue #10), an unauthenticated registration-completion step (issue #9), and inconsistent tenant-scoping enforcement across dozens of endpoints (issues #2, #3, #5, #6). A dedicated IAM platform with native multi-tenant realm support, token revocation, brute-force detection, and admin audit logging turns each of these into a configuration decision instead of code that has to be gotten right independently in every module — directly informs ADR-0005 (Authentication And Authorization Direction, currently Proposed). |
+| springdoc-openapi (or equivalent OpenAPI generation) | API documentation & contract tooling | New — recommend: Approve now, install later | Not previously in this matrix. `Schemathesis` is already listed as "Evaluate during discovery... depends on OpenAPI maturity" — that dependency can't be resolved without something actually generating an OpenAPI spec from the Java API. Given ADR-0003 (API Versioning And Flutter Compatibility) needs an evidence-backed compatibility contract, spec-first/generated OpenAPI is a near-prerequisite for that ADR's own stated goal, not an optional add-on. |
+| S3-compatible object storage (e.g. self-hosted MinIO, or a cloud provider's object storage) | File storage | New — recommend: Evaluate during discovery | Not previously in this matrix. `docs/legacy/existing-php-module-inventory.md` confirms `hr-legacy` stores all uploads (employee photos, company logos, commercial-registration documents, employee documents) on local disk (`uploads/`, `AppConfig::UPLOAD_PATH`) — kept local-only in the sanitized import specifically because it doesn't belong in git. Local disk storage doesn't survive a multi-instance or containerized deployment (implied by `Docker`/`Docker Compose` already being in this matrix); needs an explicit decision before the file-upload endpoints are rebuilt, not discovered as a gap after deployment. |
