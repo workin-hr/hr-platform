@@ -547,6 +547,43 @@ endpoint a given registration went through. Needs confirmation from
 whoever owns the mobile client about which of these two is actually live
 before assuming either is the "real" one to migrate.
 
+---
+
+## Rule: Employee deletion can cascade-delete payroll/financial history, despite the schema's own RESTRICT constraint
+
+**Current Behavior:** `docs/migration/database-schema-inventory.md`
+flagged `payslips.employee_id → employees.id` as one of three FKs with no
+explicit `ON DELETE` clause (MySQL default `RESTRICT`), and asked whether
+that was intentional protection for payroll history. It is not: the
+application layer explicitly works around it.
+`employees/delete.php?cascade=1` calls `employee_cascade_delete_related()`,
+which — inside a single transaction, before the `employees` row itself is
+deleted — explicitly deletes that employee's rows from `payslips`,
+`penalties`, `advances`, `salary_contracts`, `attendance`, `leave_balance`,
+`requests`, `employee_docs`, `complaints`, `notifications`, `push_tokens`,
+`employee_schedules`, `employee_shift_assignments`, and `hr_permissions`,
+specifically so the subsequent `DELETE FROM employees` doesn't hit the
+FK constraint. A caller only sees a dry-run preview (record counts) first
+if they omit `cascade=1`; the actual delete itself is a single API call
+with no additional confirmation step beyond that.
+
+**Where Observed:** `apis/api/employees/delete.php`, full file;
+`apis/helpers/employee_delete_helper.php`,
+`employee_related_records_summary()` and
+`employee_cascade_delete_related()`.
+
+**Risk If Misinterpreted:** The schema-level RESTRICT constraint reads
+like a deliberate safeguard protecting financial/payroll history from
+accidental loss. It is not one in practice — this endpoint is a real,
+reachable way to permanently erase an employee's entire payroll and
+attendance history in one call. A migration that preserves the DB-level
+RESTRICT but drops this cascade-delete helper would be a real behavior
+change (deletion would start failing where it previously succeeded);
+preserving both means payroll history remains only as safe as whoever
+holds Admin/HR credentials choosing not to pass `cascade=1`. Worth a
+product decision on whether this should become soft-delete/archival
+during migration rather than a like-for-like port.
+
 ## Evidence
 
 All entries: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`,

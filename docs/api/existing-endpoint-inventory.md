@@ -5,11 +5,12 @@
 `workin-hr/hr-legacy` has 199 API endpoint files (see
 `docs/legacy/existing-php-module-inventory.md` for the full module
 breakdown). This pass documents: all 14 `auth` endpoints, all 15
-`attendance` endpoints, all 16 `payroll_batches`/`payslips` endpoints, and
-all 20 `advances`/`penalties`/`salary_contracts` endpoints — 65 endpoints
-total. The remaining ~134 endpoints are inventoried structurally (module,
-file count, purpose) in the module inventory, not individually here yet.
-Do not read this document as complete endpoint coverage.
+`attendance` endpoints, all 14 `employees` endpoints, all 16
+`payroll_batches`/`payslips` endpoints, and all 20
+`advances`/`penalties`/`salary_contracts` endpoints — 79 endpoints total.
+The remaining ~120 endpoints are inventoried structurally (module, file
+count, purpose) in the module inventory, not individually here yet. Do
+not read this document as complete endpoint coverage.
 
 Consumer note: no mobile/desktop client source was available in this
 pass — every "Consumer" field below is inferred from the API's own
@@ -391,6 +392,36 @@ different phone-uniqueness scope, different auto-login behavior).
 | `resend_otp.php` | POST | Resends the last-issued OTP after a 60-second cooldown; subject to the DEBUG-disclosure finding. |
 | `verify_otp.php` | POST | Verifies OTP for either registration completion or password-reset continuation (`purpose=password_reset` keeps the OTP alive for the follow-up call instead of clearing it). No attempt/rate limiting — see business-rule finding. |
 | `reset_password.php` | POST | Consumes the still-active OTP from `verify_otp.php`; updates `password_hash` only — never bumps `token_version`, so existing sessions survive a password reset (see business-rule finding). |
+
+## Employees (`apis/api/employees/`, 14 endpoints)
+
+**Consumer:** Mostly `COMPANY_ADMIN`/`HR`. `list.php`/`one.php`/`stats.php`
+additionally allow `MANAGER`, correctly branch-scoped via
+`sql_manager_same_branch_scope()`/`manager_can_access_employee_branch()`
+— **contrast with the `attendance` module's unscoped Manager finding
+above: this module gets the pattern right, reinforcing that the
+attendance gap is module-specific, not systemic.** `my_team.php` is
+`MANAGER`-only. `upload_photo.php` additionally allows `EMPLOYEE`
+(presumably self-service photo upload).
+
+**Finding — employee deletion can cascade-erase payroll/financial
+history, working around the schema's own RESTRICT constraint** — see the
+new entry in `docs/legacy/business-rule-extraction.md`, which resolves an
+open question from the schema inventory.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `create.php` | POST | Transactional; also creates the initial `salary_contracts` row (if `salary` supplied, with `housing_allowance` hardcoded to `0` — see contract findings), a `leave_balance` row (defaults: 21 days/year, Jan–Dec period), and a shift assignment. Checks phone uniqueness globally (`employee_phone_exists_globally()`), not just within the company. |
+| `update.php` | PUT | Company-scoped. |
+| `deactivate.php` / `reactivate.php` | PUT | Company-scoped; toggles `is_active` rather than deleting. |
+| `delete.php` | DELETE | Preview-then-cascade-delete pattern — see business-rule finding. |
+| `delete_preview.php` | GET | Standalone version of the same preview `delete.php` returns inline on a blocked (non-cascade) delete attempt. |
+| `one.php` | GET | Company-scoped; Manager branch-scoped. |
+| `list.php` | GET | Company-scoped; Manager branch-scoped. |
+| `my_team.php` | GET | Manager-only: the manager's own direct reports/branch team. |
+| `stats.php` | GET | Company-scoped; Manager branch-scoped. |
+| `upload_photo.php` | POST | Company-scoped; allows self-service (`EMPLOYEE` role) in addition to Admin/HR/Manager. |
+| `import_bulk.php` / `analyze_excel.php` / `template_excel.php` | POST/POST/GET | Bulk Excel import, dry-run analysis, and template download; not traced past the company-scoped call site in this pass (same "large helper, not fully read" caveat as the attendance Excel tooling). |
 
 ## Evidence
 
