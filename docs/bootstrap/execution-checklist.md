@@ -3,6 +3,16 @@
 This checklist turns the current Phase 0 gap summary into an execution order
 with explicit owners.
 
+**Where this checklist conflicts with a later, Accepted decision-log entry,
+the decision-log entry wins.** This document was written before D-013
+(branch-protection deferral), D-014 (first human-approved merge), and D-015
+(Phase 0 complete, Discovery authorized) were recorded, and has not been
+kept in lockstep with them line-by-line — see `docs/bootstrap/decision-log.md`
+for the canonical, current record. The specific corrections below (H1's
+completion criterion, the H2/Discovery sequencing, and A2's stub claim) were
+found to actively contradict those decisions and are fixed here; treat any
+other apparent staleness the same way — check the decision log first.
+
 ## Current Checkpoint
 
 As of August 3, 2026:
@@ -33,7 +43,14 @@ Do:
 - Create and publish the organization `.github` repository.
 - Apply the organization profile, verified domain, contact email, and website.
 - Create the required teams and assign real human owners.
-- Apply branch protection, rulesets, and repository security defaults.
+- Apply branch protection, rulesets, and repository security defaults —
+  **except on `hr-platform` itself, where this is explicitly Deferred, not
+  achievable, under D-013 (`docs/bootstrap/decision-log.md`): the
+  organization is on GitHub Free and the repository is private, and the
+  repository owner has decided neither an org-plan upgrade nor making the
+  repository public is in scope.** Do not spend time attempting this on
+  `hr-platform` until D-013 is revisited; other repositories in the
+  organization are not necessarily under the same constraint.
 - Create the GitHub Project, milestones, and label set.
 
 Primary references:
@@ -49,8 +66,9 @@ multi-repository `workin-hr-workspace` bootstrap workspace:
 Done when:
 
 - The GitHub settings described in both checklists exist in the live
-  organization.
-- `main` is protected.
+  organization, other than `hr-platform` branch protection/rulesets, which
+  are Deferred under D-013 and are not a completion requirement for this
+  item.
 - Required teams, labels, milestones, and project fields exist.
 
 ### H2. Resolve Open Bootstrap Decisions
@@ -126,10 +144,15 @@ Done when:
 
 ### A2. Complete Operations Release Criteria
 
+**Status: Done.** `../operations/release-readiness.md` is no longer a stub
+— it already defines the release gate, minimum gate expectations, and
+cross-references the rest of the operations document set. This entry is
+kept for historical traceability of what A2 required, not as an open task.
+
 Owner: Operations planner, test architect, or documentation agent under human
 review
 
-Do:
+Do (completed):
 
 - Replace the stub structure in `../operations/release-readiness.md` with real
   release gates, required evidence, sign-off owners, go/no-go criteria, and
@@ -138,7 +161,8 @@ Do:
 
 Done when:
 
-- `../operations/release-readiness.md` can be used as a real review artifact.
+- `../operations/release-readiness.md` can be used as a real review artifact
+  — confirmed true as of this correction.
 
 ### A3. Install Optional Local Bootstrap Tools After Approval
 
@@ -165,13 +189,29 @@ Done when:
 
 ## Suggested Execution Sequence
 
-1. Complete H1 because it is the external governance blocker.
-2. Resolve H2 before opening substantial discovery work, so ownership and
-   repository boundaries are not ambiguous.
+**Superseded for A1 by D-015 (`docs/bootstrap/decision-log.md`):** D-015
+explicitly declared Phase 0 complete and authorized Discovery (A1) to begin
+*while H2 remains unresolved* — H2's open questions and Discovery evidence
+are both listed there as "explicitly outside the Phase 0 completion gate,"
+not sequential blockers on each other. Step 2 below (H2 before Discovery)
+reflected this checklist's original, no-longer-current assumption; A1 does
+not wait on H2 and has in fact already substantially proceeded (see
+`docs/api/existing-endpoint-inventory.md`, `docs/legacy/business-rule-extraction.md`,
+`docs/security/threat-model.md`, and the rest of `docs/migration/`) without
+H2 being resolved first. H2 still needs a human answer — it just isn't a
+gate on A1.
+
+1. Complete H1's non-deferred items (teams, labels, project, org profile) —
+   it is still the external governance blocker for those, though branch
+   protection specifically is Deferred per D-013 (see H1 above) and does
+   not block anything.
+2. Resolve H2 in parallel with Discovery, not before it — ownership and
+   repository-boundary ambiguity should still be closed out, but per D-015
+   it is not a precondition for A1 to continue.
 3. Complete H3 before publishing or reusing the template outside the local
    workspace.
-4. Run A1 and A2 in parallel once humans have defined the decision owners and
-   approved the discovery direction.
+4. Continue A1 and A2 as ongoing work; A1 is already in progress and
+   should keep incorporating new evidence as it's found.
 5. Run A3 only after explicit human approval for network-installed tools.
 
 ## Notes

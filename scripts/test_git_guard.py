@@ -84,6 +84,21 @@ CASES: list[tuple[str, str]] = [
     ("python3 scripts/validate_phase0.py", "allow"),
     ("echo 'no git here'", "allow"),
     ("cat README.md | wc -l", "allow"),
+    # Regression cases for a real false-positive bug found by independent
+    # review: the obfuscation-heuristic regex used to scan the *entire* raw
+    # command text, so any command merely printing or mentioning
+    # git-looking text was denied even though none of these actually
+    # invoke git. Fixed by scoping the heuristic to genuine $(...)/backtick
+    # regions only (see git_guard.py's _extract_command_substitutions).
+    ('echo "git push"', "allow"),
+    ("printf 'git push\\n'", "allow"),
+    ("python3 -c \"print('git push')\"", "allow"),
+    ("echo 'reverts the git merge behavior from last week'", "allow"),
+    # The command-substitution case the heuristic exists for must still be
+    # caught — this is the true positive the narrower scoping must not lose.
+    ('some_wrapper "$(git push origin main)"', "block"),
+    ("some_wrapper \"`git push origin main`\"", "block"),
+    ("some_wrapper \"$(git log $(date))\"", "allow"),  # nested $(...), no dangerous subcommand inside — must not false-positive on nesting itself
     # Compound / multiple-command forms.
     ("git status && git push", "block"),
     ("git push ; git status", "block"),
@@ -131,7 +146,7 @@ def run_malformed(command: str) -> tuple[bool, str]:
 
 
 def run_branch_case(command: str, branch_value: str | None, expected: str) -> tuple[bool, str]:
-    verdict, reason = git_guard.evaluate_command(command, branch_getter=lambda: branch_value)
+    verdict, reason = git_guard.evaluate_command(command, branch_getter=lambda _target_dir: branch_value)
     ok = verdict == expected
     return ok, (
         f"{'OK ' if ok else 'FAIL'} {command!r} (current_branch={branch_value!r}) -> "
@@ -139,11 +154,70 @@ def run_branch_case(command: str, branch_value: str | None, expected: str) -> tu
     )
 
 
+def run_c_flag_forwards_target_dir_case() -> tuple[bool, str]:
+    """Regression test for a real finding from independent review:
+    `git -C <repo> commit ...` must check the branch of <repo>, not the
+    hook process's own cwd. Verifies both that the resolved -C directory
+    is what gets passed to branch_getter, and that per-directory branch
+    values actually drive the verdict (not just that some argument is
+    passed)."""
+    received: list[str | None] = []
+
+    def recording_getter(target_dir: str | None) -> str | None:
+        received.append(target_dir)
+        # /tmp/on-main is deliberately "on main" (blocked); the hook's own
+        # cwd is irrelevant here — this getter never checks it.
+        return "main" if target_dir == "/tmp/on-main" else "feature-x"
+
+    verdict, _ = git_guard.evaluate_command(
+        "git -C /tmp/on-main commit -m test", branch_getter=recording_getter
+    )
+    ok = received == ["/tmp/on-main"] and verdict == "block"
+    return ok, (
+        f"{'OK ' if ok else 'FAIL'} 'git -C /tmp/on-main commit' forwards the -C target dir to "
+        f"branch_getter and blocks based on *that* repo's branch (received={received!r}, verdict={verdict!r})"
+    )
+
+
+def run_c_flag_allows_non_main_target_case() -> tuple[bool, str]:
+    """Same mechanism as above, confirming a -C target repo that is not on
+    main is allowed even if it were on main were true for some other repo
+    — proves the check is genuinely per-directory, not a fixed answer."""
+    verdict, _ = git_guard.evaluate_command(
+        "git -C /tmp/on-main commit -m test",
+        branch_getter=lambda target_dir: "feature-x" if target_dir == "/tmp/elsewhere" else "main",
+    )
+    # /tmp/on-main was not the queried "/tmp/elsewhere" branch, so this
+    # getter returns "main" for it -> still correctly blocked.
+    ok = verdict == "block"
+    return ok, (
+        f"{'OK ' if ok else 'FAIL'} per-directory branch_getter genuinely drives the verdict "
+        f"per target directory, not a fixed value (verdict={verdict!r})"
+    )
+
+
+def run_no_c_flag_passes_none_case() -> tuple[bool, str]:
+    """A commit with no -C must pass None (meaning "hook's own cwd"),
+    preserving prior behavior exactly for the common case."""
+    received: list[str | None] = []
+
+    def recording_getter(target_dir: str | None) -> str | None:
+        received.append(target_dir)
+        return "feature-x"
+
+    git_guard.evaluate_command("git commit -m test", branch_getter=recording_getter)
+    ok = received == [None]
+    return ok, (
+        f"{'OK ' if ok else 'FAIL'} 'git commit' with no -C passes None to branch_getter "
+        f"(received={received!r})"
+    )
+
+
 def run_lazy_branch_getter_case() -> tuple[bool, str]:
     """branch_getter must only be invoked for a non-amend `git commit`
     segment — never for unrelated commands — since it shells out to Git."""
 
-    def explode() -> str | None:
+    def explode(_target_dir: str | None) -> str | None:
         raise AssertionError("branch_getter must not be called for a non-commit command")
 
     try:
@@ -206,6 +280,24 @@ def main() -> int:
         print(message)
         if not ok:
             failures += 1
+
+    total += 1
+    ok, message = run_c_flag_forwards_target_dir_case()
+    print(message)
+    if not ok:
+        failures += 1
+
+    total += 1
+    ok, message = run_c_flag_allows_non_main_target_case()
+    print(message)
+    if not ok:
+        failures += 1
+
+    total += 1
+    ok, message = run_no_c_flag_passes_none_case()
+    print(message)
+    if not ok:
+        failures += 1
 
     total += 1
     ok, message = run_lazy_branch_getter_case()

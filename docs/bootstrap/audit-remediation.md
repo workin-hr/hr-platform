@@ -778,3 +778,321 @@ forbidden product-implementation file scan   -> clean, no matches
   section above — unchanged, still `Pending human GitHub approval and
   merge`.
 - No new human actions were introduced by this remediation beyond that.
+
+## Codex Change-Review Remediation (Third Audit)
+
+This section responds to two Codex change reviews on 2026-08-04 —
+`evidence/change-review-2026-08-04.md` (working-tree scope) and
+`evidence/change-review-main-2026-08-04.md` (`main`-branch scope,
+`26b1ffa..main`) — both independent of, and later than, the two audits
+above. All 10 findings were independently re-verified against the actual
+code/docs before any fix, not applied on the review's word alone; every
+fix below has a regression test proving it, not just a manual check.
+
+### P1-101: Secret-pattern deny rules covered Read/Edit but not Write/NotebookEdit
+
+- **Severity**: P1
+- **Confirmed issue**: `.claude/settings.json`'s `permissions.deny` had
+  `Read(...)`/`Edit(...)` rules for every secret-shaped filename pattern
+  (`*.key`, `id_rsa*`, `*secret*`, `*.p12`, `*.pfx`, `*.keystore`, `*.jks`,
+  `*credentials*`) but no `Write(...)`/`NotebookEdit(...)` rules at all,
+  even though the same file treats `Edit|Write|NotebookEdit` as distinct
+  tool types elsewhere (`hooks.PostToolUse`'s matcher). `validate_claude_settings()`
+  in `scripts/validate_phase0.py` only checked `Read`/`Edit` coverage, so
+  CI reported the incomplete policy as valid. An agent could still create
+  or overwrite a matching file via `Write` or `NotebookEdit`.
+- **Remediation**: Added a `Write(...)`/`NotebookEdit(...)` deny rule
+  mirroring every existing `Edit(...)` rule (generic patterns plus
+  `.env`/`.gh-token`). Extended `validate_claude_settings()`'s coverage
+  loop from `("Read", "Edit")` to `("Read", "Edit", "Write", "NotebookEdit")`
+  for every generic secret-pattern fragment.
+- **Files changed**: `.claude/settings.json`, `scripts/validate_phase0.py`,
+  `scripts/test_validate_phase0.py`.
+- **Tests added**: `test_settings_missing_write_side_of_a_pattern_fails`,
+  `test_settings_missing_notebookedit_side_of_a_pattern_fails` — both
+  construct a settings fixture missing exactly one tool's coverage for one
+  pattern and confirm the validator names it.
+- **Commands executed**: `python3 scripts/test_validate_phase0.py`.
+- **Results**: 47/47 (was 41/41 before this remediation pass; +2 for this
+  finding, +4 more for P2-102 below).
+- **Residual limitation**: None identified for this finding.
+- **Closure status**: Fixed.
+
+### P1-102: `git_guard.py`'s obfuscation heuristic blocked unrelated commands
+
+- **Severity**: P1
+- **Confirmed issue**: The defense-in-depth regex for command-substitution-hidden
+  git invocations ran across the *entire* raw command string, not just
+  substitution regions. Reproduced exactly as the review described:
+  `echo "git push"`, `printf 'git push\n'`, and
+  `python3 -c "print('git push')"` were all denied even though none of
+  them invoke git. This contradicted the guard's own stated goal that
+  unrelated commands "must not be broken by it."
+- **Remediation**: Added `_extract_command_substitutions()`, which
+  extracts the inner text of every `$(...)` (depth-tracked, so nested
+  substitutions don't truncate early) and backtick region in the raw
+  command. The obfuscation regex now runs only against those extracted
+  regions, not the full raw string. Updated the module docstring (step 7
+  and "Residual limitations") to describe the corrected, scoped behavior
+  and explicitly note the false-positive bug this fixes, so a future
+  reader doesn't reintroduce it believing the broad scan was intentional.
+- **Files changed**: `scripts/git_guard.py`, `scripts/test_git_guard.py`.
+- **Tests added**: 4 false-positive regression cases (`echo "git push"`,
+  `printf 'git push\n'`, `python3 -c "print('git push')"`, a sentence
+  mentioning "git merge" in prose) plus 3 true-positive/edge cases
+  proving the fix doesn't lose the protection it exists for:
+  `$(git push origin main)` and a backtick equivalent still block, and
+  nested `$(git log $(date))` with no dangerous subcommand inside still
+  allows (proving depth-tracking works, not just single-level matching).
+- **Commands executed**: `python3 scripts/test_git_guard.py`.
+- **Results**: 80/80 (was 77/77 before this finding; +7 including P2-101's
+  3 cases below, tracked together since they're the same test run).
+- **Residual limitation**: Invoking git indirectly through another
+  language runtime's subprocess call with no `$(...)`/backtick anywhere
+  in the Bash command string (e.g. a Python `subprocess.run(['git',
+  'push'])` with no shell substitution) is no longer caught by this
+  heuristic. This is a deliberate, documented trade-off: that class of
+  obfuscation was never reliably catchable by a Bash-string regex anyway
+  (trivially defeated by base64/string-building, already documented as a
+  residual limitation before this fix), while the false-positive class
+  this fix removes was a real, everyday problem for ordinary commands.
+- **Closure status**: Fixed.
+
+### P1-103: Execution checklist's H1 completion criterion required something D-013 says is Deferred
+
+- **Severity**: P1
+- **Confirmed issue**: `docs/bootstrap/execution-checklist.md`'s H1 "Done
+  when" list included "`main` is protected" as a completion requirement.
+  D-013 (`docs/bootstrap/decision-log.md`, Accepted) explicitly records
+  branch-protection enforcement on `hr-platform` as Deferred — not
+  achievable under the current GitHub Free/private-repo plan, and the
+  repository owner has decided not to change the plan or repo visibility
+  to unblock it. The checklist's top-priority item required a condition
+  the same repository's canonical decision record says is intentionally
+  unavailable.
+- **Remediation**: Rewrote H1's "Do" and "Done when" sections to carve out
+  branch protection/rulesets on `hr-platform` specifically as Deferred per
+  D-013, with a direct citation, rather than an unqualified completion
+  requirement. Added a top-of-document note establishing that later,
+  Accepted decision-log entries take precedence over this checklist where
+  they conflict, so the same class of staleness is easier to recognize and
+  correct next time instead of silently accumulating.
+- **Files changed**: `docs/bootstrap/execution-checklist.md`.
+- **Tests added**: None — documentation-only fix; verified by direct
+  comparison against D-013's exact language in `decision-log.md` and by
+  `markdownlint-cli2`.
+- **Commands executed**: `markdownlint-cli2 docs/bootstrap/execution-checklist.md`.
+- **Results**: 0 issues.
+- **Residual limitation**: None identified for this finding.
+- **Closure status**: Fixed.
+
+### P2-101: `git -C <repo> commit` branch-protection check inspected the wrong repository
+
+- **Severity**: P2
+- **Confirmed issue**: `find_git_subcommand()` correctly walked past
+  `-C <repo>` as a recognized global option, but discarded the actual
+  path value. The `git commit` branch-protection rule called
+  `branch_getter()` with no arguments, which (via `get_current_branch()`)
+  always ran `git branch --show-current` in the hook process's own `cwd`
+  — never the `-C`-targeted repository. Reproduced exactly as described:
+  `git -C /tmp/repo commit -m test` with a `branch_getter` faking the
+  hook's own branch as non-`main` was allowed, regardless of what branch
+  `/tmp/repo` was actually on.
+- **Remediation**: `find_git_subcommand()` now also resolves and returns
+  the effective `-C`-chained target directory (`os.path.join`-accumulated
+  across repeated `-C` flags, matching git's own `cd`-chaining semantics
+  for free). `classify_git_invocation()` passes that directory to
+  `branch_getter` as its one required argument (`None` when no `-C` was
+  present, preserving prior default behavior exactly).
+  `get_current_branch()` gained an optional `cwd` parameter forwarded to
+  `subprocess.run`. Every existing test call site's zero-argument
+  `branch_getter` lambdas were updated to accept the new argument.
+- **Files changed**: `scripts/git_guard.py`, `scripts/test_git_guard.py`.
+- **Tests added**: `run_c_flag_forwards_target_dir_case` (proves the
+  resolved `-C` directory is what's actually passed to `branch_getter`),
+  `run_c_flag_allows_non_main_target_case` (proves the check is genuinely
+  per-directory, not a fixed answer), `run_no_c_flag_passes_none_case`
+  (proves the no-`-C` case still passes `None`, preserving prior default
+  behavior for the common case).
+- **Commands executed**: `python3 scripts/test_git_guard.py`.
+- **Results**: Included in P1-102's 80/80 total above (same test run).
+- **Residual limitation**: None identified for this finding — the fix
+  covers the exact reproduction case from the review plus the
+  no-`-C` regression case.
+- **Closure status**: Fixed.
+
+### P2-102: Two "tracked-file" validators scanned the raw filesystem instead
+
+- **Severity**: P2
+- **Confirmed issue**: `validate_codeowners_component_coverage()`'s
+  docstring says it activates "once a component directory contains any
+  other **tracked** file," but the implementation used
+  `component_dir.rglob("*")` — the raw filesystem, including untracked
+  scratch files. `validate_dependabot_ecosystem_coverage()` had the same
+  gap via `root.rglob(manifest_name)`. Both could fail locally on content
+  that was never part of the actual repository under review.
+- **Remediation**: Added `_git_tracked_files(root)`, a shared helper that
+  runs `git ls-files -z` once and returns the tracked-file set as absolute
+  paths, or `None` if `root` isn't a real git repository (git unavailable,
+  or a synthetic test fixture) — callers treat `None` as "no filtering
+  possible" and fall back to the prior raw-filesystem behavior, which is
+  what keeps every existing plain-tempdir test fixture passing unchanged.
+  Both validators now filter their candidate file lists through this
+  helper when it returns a real set.
+- **Files changed**: `scripts/validate_phase0.py`, `scripts/test_validate_phase0.py`.
+- **Tests added**: `test_untracked_file_in_component_dir_does_not_trigger_check`
+  / `test_tracked_file_in_component_dir_still_triggers_check` and the
+  dependabot-side equivalents `test_untracked_manifest_does_not_trigger_check`
+  / `test_tracked_manifest_still_triggers_check` — each pair uses a real
+  `git init`-ed fixture (not a plain tempdir) with one file `git add`-ed
+  and one left untracked, proving the filter is genuine (both an
+  untracked-passes and a tracked-still-fails case), not an accidental
+  full disable.
+- **Commands executed**: `python3 scripts/test_validate_phase0.py`.
+- **Results**: Included in P1-101's 47/47 total above (same test run; +4
+  for this finding specifically).
+- **Residual limitation**: None identified for this finding.
+- **Closure status**: Fixed.
+
+### P2-103: `verify-bootstrap.sh` summary tests hard-reset `PATH` to a fixed directory list
+
+- **Severity**: P2
+- **Confirmed issue**: `run_verify_bootstrap_with_shims()` built an
+  isolated `PATH` as `{shim_dir}:{SYSTEM_PATH_DIRS}`, where
+  `SYSTEM_PATH_DIRS` was a hardcoded standard-location list
+  (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`). In the
+  Codex review environment, `git` resolves to
+  `/snap/codex/34/usr/bin/git`, outside that list — so the nested
+  `test_git_guard.py` regression suite (which this same test-running chain
+  invokes) called a `git` that didn't exist on the constrained `PATH`,
+  `get_current_branch()` returned `None`, and the subprocess exited before
+  ever reaching the `SUMMARY:` line this test exists to check.
+- **Remediation**: Replaced the fixed list with
+  `_essential_runtime_path_dirs()`, which resolves the actual directories
+  containing `git`/`bash`/`sh`/`python3` via `shutil.which()` against the
+  real inherited `PATH` (with `SYSTEM_PATH_DIRS` appended as a fallback
+  safety net, not removed). This targets only the specific directories
+  essential runtimes are actually in — it does not reintroduce the
+  original leaked-real-lint-tool bug this test's own docstring describes,
+  since `PATH` resolution is per exact command name: adding `git`'s
+  resolved directory only risks a collision if a binary in that same
+  directory happens to be named e.g. `shellcheck`, a much narrower
+  coincidence than "somewhere on the whole inherited PATH."
+- **Files changed**: `scripts/test_validate_phase0.py`.
+- **Tests added**: `test_essential_runtime_path_dirs_finds_real_git`
+  (confirms git's real resolved directory is actually included, proving
+  genuine dynamic resolution rather than reliance on the fallback list)
+  and `test_essential_runtime_path_dirs_finds_git_in_nonstandard_location`
+  (directly simulates the Codex scenario: a fake `git` shim as the *only*
+  `PATH` entry, confirming it's still found).
+- **Commands executed**: `python3 scripts/test_validate_phase0.py`;
+  `python3 scripts/validate_phase0.py`; `bash scripts/verify-bootstrap.sh`.
+- **Results**: Included in P1-101's 47/47 total above (same test run; +2
+  for this finding). Full `validate_phase0.py` and `verify-bootstrap.sh`
+  runs both still pass end-to-end.
+- **Residual limitation**: This environment's `git` already resolves to a
+  standard location (`/usr/bin/git`), so the exact Codex failure mode
+  (`/snap/codex/34/usr/bin/git`) could not be reproduced verbatim here —
+  the nonstandard-location regression test simulates the same class of
+  failure (git resolvable only outside `SYSTEM_PATH_DIRS`) rather than
+  that literal path. A human or agent with access to the original Codex
+  environment should re-run `python3 scripts/test_validate_phase0.py`
+  there to confirm the literal reported failure is gone.
+- **Closure status**: Fixed, pending confirmation in the original
+  environment per the residual limitation above.
+
+### P2-104: Execution checklist sequenced Discovery behind H2, contradicting D-015
+
+- **Severity**: P2
+- **Confirmed issue**: `docs/bootstrap/execution-checklist.md`'s
+  "Suggested Execution Sequence" step 2 said to "resolve H2 before opening
+  substantial discovery work." D-015 (`docs/bootstrap/decision-log.md`,
+  Accepted) explicitly authorized Discovery (A1) to begin while H2 remains
+  unresolved, listing H2 as "explicitly outside the Phase 0 completion
+  gate" — a Discovery input, not a Discovery blocker. `main` contained two
+  directly conflicting instructions about the same question.
+- **Remediation**: Rewrote the sequence section to state D-015's actual
+  authorization directly, cite it, and note that A1 Discovery work has in
+  fact already substantially proceeded without H2 being resolved first
+  (linking the real evidence documents this produced). Reordered H2 to
+  run in parallel with Discovery rather than before it.
+- **Files changed**: `docs/bootstrap/execution-checklist.md`.
+- **Tests added**: None — documentation-only fix; verified against D-015's
+  exact language and by `markdownlint-cli2`.
+- **Commands executed**: `markdownlint-cli2 docs/bootstrap/execution-checklist.md`.
+- **Results**: 0 issues (same run as P1-103, one file).
+- **Residual limitation**: None identified for this finding.
+- **Closure status**: Fixed.
+
+### P2-105: R-008 still asserted the human-merge workflow had never run, contradicting D-014
+
+- **Severity**: P2
+- **Confirmed issue**: `docs/bootstrap/risk-register.md` R-008's
+  `Description` and `Evidence` fields still said the human-approval
+  workflow "has never actually run" with "zero merges" and "no merge
+  commits exist." D-014 (`docs/bootstrap/decision-log.md`, Accepted)
+  records pull request #1, merge commit `cf997818fbabb6f02f9b15c845da06757713a97a`,
+  merged by the repository owner on 2026-08-03. R-008's own `Status`
+  field had already been correctly updated to reflect this — only
+  `Description` and `Evidence` still asserted the pre-D-014 state,
+  contradicting the same row's own `Status` field.
+- **Remediation**: Rewrote `Description` to state the workflow has run
+  once (citing D-014 and the PR), while preserving the legitimate residual
+  risk this row tracks (a single evidenced run doesn't mechanically
+  guarantee every future merge follows the same process, since
+  branch-protection enforcement remains Deferred under D-013). Rewrote
+  `Evidence` to include the PR/merge-commit/merger record alongside the
+  original pre-PR-#1 observation, explicitly labeled as a historical
+  baseline rather than the current state.
+- **Files changed**: `docs/bootstrap/risk-register.md`.
+- **Tests added**: None — documentation-only fix; verified against D-014's
+  exact language and by `markdownlint-cli2`.
+- **Commands executed**: `markdownlint-cli2 docs/bootstrap/risk-register.md`.
+- **Results**: 0 issues.
+- **Residual limitation**: None identified for this finding.
+- **Closure status**: Fixed.
+
+### P3 items implemented (third audit)
+
+- **A2 stale stub claim**: `docs/bootstrap/execution-checklist.md`'s A2
+  said to "replace the stub structure in `release-readiness.md`," but that
+  file (138 lines: release gate, minimum gate expectations, cross-references
+  to the rest of the operations document set) is no longer a stub. Marked
+  A2 "Status: Done" with the original requirements preserved for
+  historical traceability, rather than describing completed work as
+  pending.
+- **`test-layer-activation.md` inconsistent dependency reference**: the
+  DAST row's "Depends On" column used a bare filename
+  (`environment-and-deployment-strategy.md`) where every adjacent
+  reference in the same document uses either an ADR number or a full
+  repository path. Changed to the full path
+  (`docs/operations/environment-and-deployment-strategy.md`) for
+  consistency with the rest of the table.
+
+No other P3 work, additional agents, application dependencies, or broader
+architecture changes were introduced.
+
+### Third-audit validation summary
+
+```text
+python3 scripts/validate_phase0.py           -> Phase 0 validation passed.
+python3 scripts/test_git_guard.py            -> 80/80 passed (was 77/77)
+python3 scripts/test_validate_phase0.py      -> 47/47 passed (was 41/41)
+bash scripts/verify-bootstrap.sh             -> exit 0 (default mode; all 6
+                                                 external tools correctly
+                                                 skipped with guidance, none
+                                                 installed in this environment)
+markdownlint-cli2 (all files changed in this
+  remediation pass)                          -> 0 issues
+```
+
+### Remaining human actions after this third remediation
+
+- Everything under `P1-4: Human approval and merge` in the first audit's
+  section — unchanged, still `Pending human GitHub approval and merge`
+  for whatever branch carries this remediation.
+- Re-run `python3 scripts/test_validate_phase0.py` in the original Codex
+  environment (where `git` is at `/snap/codex/34/usr/bin/git`) to confirm
+  P2-103's fix resolves the literal reported failure, per that finding's
+  residual limitation.
+- No other new human actions were introduced by this remediation.

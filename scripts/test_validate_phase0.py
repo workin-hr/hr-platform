@@ -60,6 +60,51 @@ ALL_SIX_TOOLS = ("markdownlint-cli2", "yamllint", "shellcheck", "actionlint", "g
 
 SYSTEM_PATH_DIRS = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
+# Tools the test-running chain itself needs to work at all: verify-bootstrap.sh
+# is a bash script, it shells out to python3, and validate_phase0.py's own
+# nested regression suite (scripts/test_git_guard.py) calls
+# `git branch --show-current` for real (get_current_branch()) against this
+# actual repository.
+ESSENTIAL_RUNTIME_TOOLS = ("git", "bash", "sh", "python3")
+
+
+def _essential_runtime_path_dirs() -> str:
+    """Directories, resolved from the real inherited PATH via shutil.which,
+    that contain the essential runtimes above — deduplicated and joined
+    with ':', with SYSTEM_PATH_DIRS appended as a fallback safety net.
+
+    A fixed, hardcoded directory list (the prior approach — just
+    SYSTEM_PATH_DIRS on its own) breaks on any environment where these
+    tools live somewhere nonstandard, e.g. a snap-confined git at
+    /snap/codex/34/usr/bin/git: verify-bootstrap.sh's nested
+    test_git_guard.py regression suite calls the real `git`, gets
+    `FileNotFoundError`/a nonzero exit, `get_current_branch()` returns
+    None, and the whole subprocess exits before ever reaching the SUMMARY
+    line this test is actually trying to check — a real, demonstrated
+    failure found by independent review, not a hypothetical one.
+
+    This resolves only the specific directories essential runtimes are
+    actually in, not the whole inherited PATH — it does not reintroduce
+    the leaked-real-lint-tool bug run_verify_bootstrap_with_shims's own
+    docstring describes, because PATH resolution is per exact command
+    name: adding git's resolved directory only risks leaking in a binary
+    that happens to be named e.g. "shellcheck" in that same directory,
+    which is a much narrower coincidence than "somewhere on the entire
+    inherited PATH", and not the failure mode that was previously
+    confirmed in CI."""
+    dirs: list[str] = []
+    for tool in ESSENTIAL_RUNTIME_TOOLS:
+        found = shutil.which(tool)
+        if not found:
+            continue
+        tool_dir = str(Path(found).resolve().parent)
+        if tool_dir not in dirs:
+            dirs.append(tool_dir)
+    for fallback_dir in SYSTEM_PATH_DIRS.split(":"):
+        if fallback_dir not in dirs:
+            dirs.append(fallback_dir)
+    return ":".join(dirs)
+
 
 def run_verify_bootstrap_with_shims(present_tools: tuple[str, ...]) -> subprocess.CompletedProcess:
     """Runs the real verify-bootstrap.sh (real validate_phase0.py +
@@ -84,7 +129,7 @@ def run_verify_bootstrap_with_shims(present_tools: tuple[str, ...]) -> subproces
             shim_path.chmod(0o755)
         env = dict(os.environ)
         env.pop("BOOTSTRAP_STRICT", None)
-        env["PATH"] = f"{shim_dir}:{SYSTEM_PATH_DIRS}"
+        env["PATH"] = f"{shim_dir}:{_essential_runtime_path_dirs()}"
         # verify-bootstrap.sh's own [1/3] step runs validate_phase0.py,
         # which runs *this* file as a regression check
         # (validate_governance_check_tests) — without this guard, that
@@ -113,6 +158,49 @@ def run_verify_bootstrap_test_unless_nested(label: str, runner) -> None:
         check(True, f"{label} skipped: this is a nested test_validate_phase0.py invocation")
         return
     runner()
+
+
+def test_essential_runtime_path_dirs_finds_real_git() -> None:
+    """_essential_runtime_path_dirs() must actually resolve git dynamically
+    (via shutil.which against the real environment), not just return the
+    hardcoded SYSTEM_PATH_DIRS fallback list — otherwise it doesn't fix
+    anything on an environment where git isn't in one of those standard
+    directories."""
+    real_git = shutil.which("git")
+    if real_git is None:
+        check(True, "test_essential_runtime_path_dirs_finds_real_git skipped: no git on PATH in this environment")
+        return
+    real_git_dir = str(Path(real_git).resolve().parent)
+    resolved = _essential_runtime_path_dirs().split(":")
+    check(
+        real_git_dir in resolved,
+        f"_essential_runtime_path_dirs() includes git's real resolved directory {real_git_dir!r} (resolved={resolved})",
+    )
+
+
+def test_essential_runtime_path_dirs_finds_git_in_nonstandard_location() -> None:
+    """Regression test for the actual Codex-environment finding: simulates
+    git living somewhere outside SYSTEM_PATH_DIRS (like the real
+    /snap/codex/34/usr/bin/git case) by putting a fake `git` shim in a
+    throwaway directory and making it the *only* PATH entry, then
+    confirming _essential_runtime_path_dirs() still finds it — proving
+    this is genuine dynamic resolution, not reliance on the hardcoded
+    fallback list that was the actual bug."""
+    with tempfile.TemporaryDirectory(prefix="fake-git-location-") as fake_dir:
+        fake_git = Path(fake_dir) / "git"
+        fake_git.write_text("#!/usr/bin/env sh\necho fake\n", encoding="utf-8")
+        fake_git.chmod(0o755)
+
+        original_path = os.environ.get("PATH", "")
+        try:
+            os.environ["PATH"] = fake_dir
+            resolved = _essential_runtime_path_dirs().split(":")
+            check(
+                fake_dir in resolved,
+                f"a git shim in a nonstandard-only PATH is still found by _essential_runtime_path_dirs() (resolved={resolved})",
+            )
+        finally:
+            os.environ["PATH"] = original_path
 
 
 def test_verify_bootstrap_summary_reports_partial_skip() -> None:
@@ -166,6 +254,24 @@ VALID_DENY_RULES = [
     "Edit(**/*.pfx)",
     "Edit(**/*.keystore)",
     "Edit(**/*.jks)",
+    "Write(**/*credentials*)",
+    "Write(**/*secret*)",
+    "Write(**/*.key)",
+    "Write(**/id_rsa*)",
+    "Write(**/id_ed25519*)",
+    "Write(**/*.p12)",
+    "Write(**/*.pfx)",
+    "Write(**/*.keystore)",
+    "Write(**/*.jks)",
+    "NotebookEdit(**/*credentials*)",
+    "NotebookEdit(**/*secret*)",
+    "NotebookEdit(**/*.key)",
+    "NotebookEdit(**/id_rsa*)",
+    "NotebookEdit(**/id_ed25519*)",
+    "NotebookEdit(**/*.p12)",
+    "NotebookEdit(**/*.pfx)",
+    "NotebookEdit(**/*.keystore)",
+    "NotebookEdit(**/*.jks)",
 ]
 
 
@@ -233,6 +339,42 @@ def test_settings_missing_edit_side_of_a_pattern_fails() -> None:
         check(
             any("Edit(...) rule" in f and "*.keystore" in f for f in failures),
             f"settings.json with Read but not Edit coverage for a pattern fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_settings_missing_write_side_of_a_pattern_fails() -> None:
+    """Read+Edit coverage of a secret pattern is not enough — Write must be
+    covered too, or the file can still be created/overwritten via Write.
+    Regression test for a real gap found by independent review: the deny
+    list had Read/Edit rules but no Write/NotebookEdit rules, and the
+    validator did not check for them either, so CI passed anyway."""
+    root = make_root()
+    try:
+        incomplete = [rule for rule in VALID_DENY_RULES if rule != "Write(**/*.keystore)"]
+        write_valid_settings(root, incomplete)
+        failures: list[str] = []
+        v.validate_claude_settings(failures, root=root)
+        check(
+            any("Write(...) rule" in f and "*.keystore" in f for f in failures),
+            f"settings.json with Read/Edit but not Write coverage for a pattern fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_settings_missing_notebookedit_side_of_a_pattern_fails() -> None:
+    """Same regression coverage as the Write test above, for NotebookEdit."""
+    root = make_root()
+    try:
+        incomplete = [rule for rule in VALID_DENY_RULES if rule != "NotebookEdit(**/*.keystore)"]
+        write_valid_settings(root, incomplete)
+        failures: list[str] = []
+        v.validate_claude_settings(failures, root=root)
+        check(
+            any("NotebookEdit(...) rule" in f and "*.keystore" in f for f in failures),
+            f"settings.json with Read/Edit but not NotebookEdit coverage for a pattern fails (failures={failures})",
         )
     finally:
         shutil.rmtree(root)
@@ -564,6 +706,50 @@ def test_real_repository_dependabot_coverage_still_passes() -> None:
     check(failures == [], f"the real repository has no manifest yet, so this stays inert (failures={failures})")
 
 
+def test_untracked_manifest_does_not_trigger_check() -> None:
+    """Regression test for the same tracked-file finding as
+    test_untracked_file_in_component_dir_does_not_trigger_check, applied to
+    the manifest-scanning side. An untracked local scratch composer.json
+    must not trip this check."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        write_dependabot(root, DEPENDABOT_GITHUB_ACTIONS_ONLY)
+        (root / "backend").mkdir(parents=True)
+        # Deliberately NOT `git add`-ed: an untracked scratch file.
+        (root / "backend/composer.json").write_text("{}", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_dependabot_ecosystem_coverage(failures, root=root)
+        check(
+            failures == [],
+            f"an untracked scratch manifest does not trigger the check (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_tracked_manifest_still_triggers_check() -> None:
+    """Companion to the untracked-manifest test above: a genuinely tracked
+    manifest must still trigger the check."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        write_dependabot(root, DEPENDABOT_GITHUB_ACTIONS_ONLY)
+        (root / "backend").mkdir(parents=True)
+        (root / "backend/composer.json").write_text("{}", encoding="utf-8")
+        subprocess.run(["git", "add", "backend/composer.json"], cwd=root, check=True)
+
+        failures: list[str] = []
+        v.validate_dependabot_ecosystem_coverage(failures, root=root)
+        check(
+            any("composer.json" in f and "/backend" in f for f in failures),
+            f"a genuinely tracked manifest still triggers the check (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 # ---------------------------------------------------------------------------
 # validate_codeowners_component_coverage (GH-2)
 # ---------------------------------------------------------------------------
@@ -632,6 +818,57 @@ def test_real_repository_codeowners_coverage_still_passes() -> None:
     failures: list[str] = []
     v.validate_codeowners_component_coverage(failures)  # default root = real repo
     check(failures == [], f"the real repository's component directories are still inert (failures={failures})")
+
+
+def test_untracked_file_in_component_dir_does_not_trigger_check() -> None:
+    """Regression test for a real finding from independent review: this
+    check's docstring describes tracked-file semantics, but the
+    implementation scanned the raw filesystem, so an untracked local
+    scratch file could trip a failure that doesn't reflect real repository
+    content. Uses a real git repo (git init + no `git add`) so
+    `_git_tracked_files` actually has something to filter against, unlike
+    the plain-tempdir fixtures used elsewhere in this file."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        write_codeowners(root, "* @workin-hr/platform-owners\n")
+        (root / "backend").mkdir(parents=True)
+        (root / "backend/README.md").write_text("# Backend Boundary\n", encoding="utf-8")
+        # Deliberately NOT `git add`-ed: an untracked scratch file.
+        (root / "backend/scratch.tmp").write_text("not part of the repo\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_codeowners_component_coverage(failures, root=root)
+        check(
+            failures == [],
+            f"an untracked scratch file in a component directory does not trigger the check (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_tracked_file_in_component_dir_still_triggers_check() -> None:
+    """Companion to the untracked-file test above: a genuinely tracked
+    (git-added) file in the same setup must still trigger the check —
+    proving the fix filters by tracked status rather than accidentally
+    disabling the check altogether."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        write_codeowners(root, "* @workin-hr/platform-owners\n")
+        (root / "backend").mkdir(parents=True)
+        (root / "backend/README.md").write_text("# Backend Boundary\n", encoding="utf-8")
+        (root / "backend/Application.java").write_text("// placeholder\n", encoding="utf-8")
+        subprocess.run(["git", "add", "backend/Application.java"], cwd=root, check=True)
+
+        failures: list[str] = []
+        v.validate_codeowners_component_coverage(failures, root=root)
+        check(
+            any("backend/" in f for f in failures),
+            f"a genuinely tracked file in a component directory still triggers the check (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
 
 
 # ---------------------------------------------------------------------------
@@ -854,6 +1091,8 @@ def main() -> int:
     test_branch_protection_all_requirements_met_passes()
     test_branch_protection_reports_every_failing_field()
     test_branch_protection_job_id_is_read_from_workflow_file()
+    test_essential_runtime_path_dirs_finds_real_git()
+    test_essential_runtime_path_dirs_finds_git_in_nonstandard_location()
     test_verify_bootstrap_summary_reports_partial_skip()
     test_verify_bootstrap_summary_reports_zero_skips()
     test_settings_with_all_secret_patterns_passes()
@@ -876,10 +1115,14 @@ def main() -> int:
     test_manifest_without_matching_ecosystem_entry_fails()
     test_manifest_with_matching_ecosystem_entry_passes()
     test_real_repository_dependabot_coverage_still_passes()
+    test_untracked_manifest_does_not_trigger_check()
+    test_tracked_manifest_still_triggers_check()
     test_component_with_only_readme_is_inert()
     test_component_with_real_content_and_no_codeowners_entry_fails()
     test_component_with_real_content_and_codeowners_entry_passes()
     test_real_repository_codeowners_coverage_still_passes()
+    test_untracked_file_in_component_dir_does_not_trigger_check()
+    test_tracked_file_in_component_dir_still_triggers_check()
     test_matrix_says_no_but_agent_can_modify_fails()
     test_matrix_says_yes_but_agent_cannot_modify_fails()
     test_matrix_consistent_with_frontmatter_passes()
