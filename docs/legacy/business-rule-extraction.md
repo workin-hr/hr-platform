@@ -372,6 +372,87 @@ contract was planned but never wired to the API) is not determinable from
 the code alone — worth a direct question to whoever owns the product
 before deciding how to migrate this field.
 
+---
+
+## Rule: QR check-in does not enforce the 2-hour minimum-gap rule that GPS check-in does
+
+**Current Behavior:** `attendance/check_in.php` (self, GPS-based) and the
+manual `attendance/create.php`/`update.php` (HR-entered) all run the same
+`TIMESTAMPDIFF(MINUTE, last_check_in, new_check_in) < 120` guard before
+allowing a new check-in. `attendance/check_in_qr.php` does not — it only
+checks that there is no currently-open (un-checked-out) session; an
+employee can check out and immediately check back in via QR scan with no
+minimum gap enforced at all.
+
+**Where Observed:** `apis/api/attendance/check_in_qr.php` (no
+`TIMESTAMPDIFF` guard present) versus `apis/api/attendance/check_in.php`
+lines 33–42 (guard present) and `apis/api/attendance/create.php` lines
+67–73 (same guard, reused for manual entry).
+
+**Risk If Misinterpreted:** The 2-hour rule is documented above as the
+system's actual anti-double-check-in control. Assuming it applies
+uniformly "to check-in" as a concept, rather than to specific check-in
+*methods*, would be wrong — QR-based check-in is a real, live bypass of
+that control today. Worth confirming with whoever owns the QR feature
+whether this is intentional (QR itself is treated as sufficient proof,
+unlike GPS) or an oversight.
+
+---
+
+## Rule: The Manager role gets full company-wide attendance visibility, not branch/department-scoped, despite doc-comments implying otherwise
+
+**Current Behavior:** `attendance/list.php`'s own doc-comment says
+"Manager (for their company/department)", and `overall_report.php`
+explicitly authorizes the `MANAGER` role — but neither endpoint (nor
+`stats.php`) actually restricts a manager's query to their own
+branch/department. Both `list.php` and `stats.php` branch only on
+`EMPLOYEE` vs. "everyone else" (Admin/HR/Manager all get the same
+unrestricted company-wide `WHERE e.company_id=?` query); `Manager` never
+reaches a scoping branch. Contrast directly with the `penalties` module
+(`docs/api/existing-endpoint-inventory.md`), which implements real
+manager branch-scoping via `sql_manager_same_branch_scope()` in
+`list.php`, `one.php`, `report.php`, and `stats.php` — proving the
+pattern is known elsewhere in the codebase and simply not applied here.
+
+**Where Observed:** `apis/api/attendance/list.php`,
+`apis/api/attendance/stats.php`, `apis/api/attendance/overall_report.php`
+— all read in full for role-branching logic; `apis/api/penalties/*.php`
+as the contrasting correct pattern.
+
+**Risk If Misinterpreted:** A migration that reads the doc-comment
+("for their company/department") as the actual specification would
+under-scope managers relative to what they currently see (a
+functionality regression); a migration that reproduces the code exactly
+preserves managers seeing every employee's attendance company-wide,
+which may or may not be the intended access model — needs a product
+decision, not an assumption either way.
+
+---
+
+## Rule: Bulk attendance deletion is a single irreversible, whole-company, date-range operation
+
+**Current Behavior:** `attendance/delete_range.php` deletes every
+attendance row for the entire company within an admin-supplied
+`from`/`to` date range in one `DELETE ... JOIN` statement — no per-row
+confirmation, no soft-delete, no dry-run requirement (the count is
+returned only after deletion, not before), no audit-log entry visible in
+this codebase. Separately, `attendance/update.php` also performs a
+"soft" version of this at the single-row level: clearing both punches
+without setting an exception type deletes the row entirely (a deliberate
+convention — "so the day shows as missing/deducted" per the endpoint's
+own comment — not a bug), rather than leaving an empty row.
+
+**Where Observed:** `apis/api/attendance/delete_range.php`, full file;
+`apis/api/attendance/update.php` lines 64–74.
+
+**Risk If Misinterpreted:** Attendance directly drives payroll absence
+calculations (see the day-rate/absence-cost rule above). A migration
+that preserves `delete_range.php`'s blast radius without adding a
+confirmation/dry-run/audit step would carry forward a tool that can
+silently erase a month of payroll-relevant history company-wide in one
+call — worth flagging as a candidate for a deliberate safety
+improvement during migration, not just a like-for-like port.
+
 ## Evidence
 
 All entries: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`,

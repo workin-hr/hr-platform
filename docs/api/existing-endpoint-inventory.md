@@ -4,14 +4,12 @@
 
 `workin-hr/hr-legacy` has 199 API endpoint files (see
 `docs/legacy/existing-php-module-inventory.md` for the full module
-breakdown). This pass documents the three core auth/attendance endpoints
-below, all 16 `payroll_batches`/`payslips` endpoints, and all 20
-`advances`/`penalties`/`salary_contracts` endpoints — the modules that
-feed payroll's inputs, read specifically to check whether the tenant-
-isolation and calculation patterns already found in payroll hold
-elsewhere. The remaining 160 endpoints are inventoried structurally
-(module, file count, purpose) in the module inventory, not individually
-here yet. Do not read this document as complete endpoint coverage.
+breakdown). This pass documents: `auth/login_employee` (1 of 14), all 15
+`attendance` endpoints, all 16 `payroll_batches`/`payslips` endpoints, and
+all 20 `advances`/`penalties`/`salary_contracts` endpoints — 52 endpoints
+total. The remaining ~147 endpoints are inventoried structurally (module,
+file count, purpose) in the module inventory, not individually here yet.
+Do not read this document as complete endpoint coverage.
 
 Consumer note: no mobile/desktop client source was available in this
 pass — every "Consumer" field below is inferred from the API's own
@@ -315,6 +313,48 @@ zeroing and the hardcoded `housing_allowance=0` literal actually live.
 | `delete.php` | DELETE | Company-scoped via join; no additional guard (no "applied to payroll" style lock — a contract can be deleted even if payslips already reference the employee). |
 | `list.php` | GET | Per-employee contract history (versioned by `effective_from`), not a company-wide list — requires `employee_id`. |
 | `one.php` | GET | Single contract fetch, company-scoped. |
+
+## Attendance (`apis/api/attendance/`, remaining 13 of 15 endpoints)
+
+Extends the `check_in`/`check_out` documentation above with the rest of
+the module.
+
+**Consumer:** Mixed. `check_in_qr.php` allows `EMPLOYEE` and
+`COMPANY_ADMIN`/`HR` (an admin can QR-check-in on an employee's behalf).
+`create.php`/`update.php`/`delete.php`/`delete_range.php` are
+`COMPANY_ADMIN`/`HR` only. `one.php`/`list.php`/`stats.php` use bare
+`requireAuth()` — see the Manager-scoping finding below for why that
+matters. `overall_report.php`/`employee_monthly_attendance.php`
+explicitly include `MANAGER`.
+
+**Finding — QR check-in skips the 2-hour minimum-gap rule; Manager role
+gets unscoped company-wide visibility despite doc-comments claiming
+otherwise; bulk date-range delete has no dry-run/audit trail** — see the
+three new entries in `docs/legacy/business-rule-extraction.md` for the
+full write-up and evidence.
+
+**Finding — the exception-day convention is a real, reused pattern, not
+a one-off:** an attendance row can represent either real punches
+(`check_in`/`check_out` timestamps) or a category-only "exception" day
+(`exception_type_id` set, `check_in` forced to that day's midnight,
+`check_out` always `null`) — never both. This XOR is enforced identically
+in `create.php` and `update.php`.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `check_in_qr.php` | POST | Branch identified by scanning a QR code (`branches.qr_code`, with an `expires_at` check); no GPS/distance check at all (location is proven by physical QR presence instead); no 2-hour-gap check (see finding above). |
+| `create.php` | POST | HR-entered manual attendance; punches XOR exception; enforces the same 2-hour gap as `check_in.php`. |
+| `update.php` | PUT | Supports explicit `clear_*` flags; clearing both punches with no exception deletes the row (documented convention, see business rules). |
+| `delete.php` | DELETE | Single-row, company-scoped via join. |
+| `delete_range.php` | DELETE | Whole-company, date-range bulk delete — see business-rule finding (high blast radius, no dry-run). |
+| `one.php` | GET | Company-scoped; employee-role ownership check. |
+| `list.php` | GET | Supports a `fill_days=1` mode that expands each employee into one row per calendar day (including rest/holiday/missing days) via `attendance_build_employee_range_calendar()` — a materially different response shape from the default mode. Manager role unscoped (see finding). |
+| `stats.php` | GET | Per-employee or company/branch/department aggregate depending on whether `employee_id` is supplied. Response includes a `leave_days` field that is actually populated from official-holiday count, not real approved-leave data, and a hardcoded `overtime_minutes: 0` — both worth treating as unreliable/placeholder fields, not naming issues alone. |
+| `export.php` | GET | Thin wrapper over `data_export_attendance_csv()`; not traced past the company-scoped call site in this pass. |
+| `import_excel.php` | POST | Thin wrapper over `attendance_excel_import_punch_log()` in `apis/helpers/attendance_excel_analyzer.php` — a large (~1000+ line) bilingual (Arabic/English) column-detection helper supporting two input formats ("punch log" and "template"). Not traced line-by-line in this pass; flagged as a candidate for a dedicated read-through given its size and role in bulk-loading payroll-relevant data. |
+| `analyze_excel.php` | POST | Dry-run/preview counterpart to `import_excel.php` (`attendance_excel_analyze()`), same helper file. |
+| `overall_report.php` | GET | Company/branch/department report via `overall_attendance_report_build()`; explicitly allows `MANAGER` but no manager-specific scoping was found in that helper either (see finding). |
+| `employee_monthly_attendance.php` | GET | Single-employee monthly view; company-scoped, `EMPLOYEE` self-service allowed. |
 
 ## Evidence
 

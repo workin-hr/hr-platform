@@ -29,7 +29,7 @@ actual `apis/api/` directory structure.
 | Module | Entry points | Business domain |
 |---|---|---|
 | `auth` | 14 | Registration, login (company + employee + desktop), OTP issue/verify/resend, forgot/reset password, company lookup, join requests |
-| `attendance` | 15 | Check-in/out (app + QR), Excel import/export/analyze, monthly summaries, stats, exception handling — the single largest module by entry-point count |
+| `attendance` | 15 | Check-in/out (app + QR), Excel import/export/analyze, monthly summaries, stats, exception handling — the single largest module by entry-point count. All 15 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; see `docs/legacy/business-rule-extraction.md` for 3 findings (QR check-in skips the 2-hour gap rule, Manager role is unscoped despite doc-comments, bulk date-range delete has no dry-run) |
 | `employees` | 14 | CRUD, bulk import (Excel), photo upload, deactivate/reactivate, delete preview (impact analysis before a destructive action), stats |
 | `profile` | 9 | Self-service: change password, delete account (with a preview endpoint first), phone-change confirmation flow, push-token registration |
 | `payroll_batches` | 10 | Batch lifecycle: create, calculate, finalize, reopen, fiscal-period resolution, stats — all 10 endpoints individually documented in `docs/api/existing-endpoint-inventory.md` |
