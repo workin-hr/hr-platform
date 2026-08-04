@@ -334,25 +334,30 @@ flag's real call sites.
 | 10 | `can_workforce_planning` | `pages/workforce_planning/` | `workforce_planning.read`, `workforce_planning.manage` |
 | 11 | `can_salary_calculator` | `pages/salary_calculator/` — confirmed standalone, read-only, no database writes (see `docs/adr/ADR-0009-dashboard-vs-desktop-admin-client.md`'s Validation Evidence) | `salary_calculator.read` (no `.manage` — nothing to manage) |
 | 12 | `can_company_settings` | `pages/company_settings/` | `company.settings.read`, `company.settings.manage` |
-| 13 | `can_employees` | `pages/employees/`, **and reused for** `pages/administrative_decisions/`, `pages/notifications/`, `pages/complaints/` — four capabilities gated by one flag historically | `employees.read`, `employees.manage` — **kept as one bundle, by direct product decision (2026-08-05), not split into independently assignable keys.** `employees.manage` covers employee records, administrative decisions, notifications, and complaints together, exactly matching legacy's own grouping — no artificial granularity introduced beyond what `hr-legacy` actually distinguished |
+| 13 | `can_employees` | `pages/employees/`, **and reused for** `pages/administrative_decisions/`, `pages/notifications/`, `pages/complaints/` — four capabilities gated by one flag historically | `employees.read`, `employees.manage`, `employees.decisions.manage`, `notifications.manage`, `complaints.manage` — **kept as four separate canonical permissions (corrected 2026-08-05, superseding an earlier same-day decision to bundle them into one).** Legacy's `can_employees=1` maps to granting all four **as a migration-compatibility rule only** — the legacy bundle governs the migration mapping, not the new schema's permission model, so least privilege is preserved for new assignments and no future redesign is needed to separate them |
 | 14 | `can_attendance` | `pages/attendance/` (payroll section) | `attendance.read`, `attendance.correct` |
 | 15 | `can_requests` | `pages/requests/` | `requests.read`, `requests.approve` |
 | 16 | `can_payroll` | `pages/payroll/` | `payroll.read`, `payroll.run` |
 | 17 | `can_penalties` | `pages/penalties/` | `penalties.read`, `penalties.manage` |
 
 **Migration rule**: legacy never distinguished read from manage within
-a section — one flag granted both. The migration therefore maps
-`can_X = 1` to granting **both** the `.read` and `.manage` (or
-equivalent named) keys for that row, as `membership_permission_overrides`
-`ALLOW` rows (Required Implementation Task 2). For rows 1–12 and 14–17,
-the finer-grained `.read`/`.manage` split this catalog defines is
-available for **new** assignments going forward; migration does not
-retroactively narrow anyone's access without a separate, deliberate
-product decision. **Row 13 (`can_employees`) is the one deliberate
-exception**: by direct product decision, its four legacy-bundled
-capabilities stay bundled under `employees.manage` going forward too,
-not just at migration time — no independent `notifications.manage`/
-`complaints.manage`/decisions-only key is introduced for this MVP.
+a section (rows 1–12, 14–17), and row 13 (`can_employees`) further
+conflated four distinct capabilities behind one flag. **This bundling is
+a fact about the legacy migration source data, not a design choice for
+the new schema.** The migration therefore maps `can_X = 1` to granting
+**all** of that row's canonical keys (both `.read`/`.manage` for rows
+1–12/14–17; all four of `employees.read`, `employees.manage`,
+`employees.decisions.manage`, `notifications.manage`,
+`complaints.manage` for row 13) as `membership_permission_overrides`
+`ALLOW` rows (Required Implementation Task 2) — this preserves current
+behavior exactly at cutover. **Every canonical permission remains
+independently assignable in the new schema**, including the four
+`can_employees`-sourced keys: nothing about the migration default
+collapses them into a single permanent permission, and no future schema
+redesign is needed to separate them — they were never merged at the
+schema level, only granted together by the migration rule for existing
+legacy employees. New assignments going forward may grant any subset
+independently.
 
 **Platform-domain starter catalog** (legacy has no granular platform
 permissions — `dashboard/includes/auth.php`'s `doAdminLogin()` is a
@@ -362,24 +367,28 @@ single shared password with unconditional full access,
 directly from `dashboard/pages/companies/page.php`'s real action
 handlers.
 
-**Platform-admin identity model — decided 2026-08-05, by direct product
-decision**: the new platform **keeps the single shared platform-admin
-password model for the MVP**, unchanged from `hr-legacy`'s current
-behavior (`hr-legacy#11`) — no per-platform-admin individual account,
-no MFA, no distinguishable per-admin audit trail is built now.
-**Independent per-admin accounts (individual identity, MFA, distinct
-audit trail per admin) is an explicit backlog enhancement**, not
-in-scope for MVP — tracked as
-`docs/migration/consolidated-task-matrix.md` F-26. This is a deliberate
-scope-narrowing decision, not an oversight: the platform-admin surface
-is small, low-traffic (Workin's own staff, not customer-facing), and
-the real, confirmed risk this session found (`hr-legacy#11`) is
-explicitly accepted as a known, deferred trade-off rather than gated on
-before MVP delivery. The privilege-escalation and auditing requirements
-in §8/§9 still apply to whatever platform-admin actions occur under the
-shared credential — audit records identify the *action*, even though
-they cannot yet distinguish *which individual* performed it while the
-shared-password model remains in place.
+**Platform-admin identity model — decided 2026-08-05 (corrected same
+day, superseding an earlier decision to retain the shared password for
+MVP)**: `hr-legacy`'s shared platform-admin password (`hr-legacy#11`)
+is **not accepted as the new platform's architecture, not even for
+MVP**. Platform administrators must have **individual identities,
+individual credentials, individually attributable sessions, individual
+revocation, and individually attributable audit records** — the same
+identity/session machinery ADR-0005 already builds for tenant users,
+applied to the platform domain too, not a separate, weaker model.
+
+This is a **P0 security requirement, tracked as
+`docs/migration/consolidated-task-matrix.md` F-26**: it does not block
+development of unrelated tenant modules, but it **does block production
+readiness and the implementation or release of any privileged
+platform-admin operation**. No platform-admin functionality — approving,
+suspending, or deleting a company; any other action gated by
+`platform.*` permissions — may reach production while a shared
+credential is still the only platform-admin identity mechanism. The
+privilege-escalation and auditing requirements in §8/§9 depend on this:
+an audit record's `actor` field must identify a specific platform
+administrator, not a generic shared principal, for §9's audit trail to
+mean anything at the platform-admin tier.
 
 ## 8. Privilege-Escalation Protections
 
@@ -407,12 +416,13 @@ access another tenant's resources.
 
 Each audit record includes: actor, target identity or membership,
 tenant, action, timestamp, correlation ID, and before/after
-authorization state where applicable. **Known MVP limitation**: while
-the platform-admin identity model remains the shared-password design
-(§7), `actor` for platform-admin actions identifies the generic
-platform-admin principal, not a distinguishable individual — this is
-the direct, accepted consequence of deferring per-admin identity to the
-backlog (F-26), not a gap in the auditing design itself.
+authorization state where applicable. **`actor` must identify a
+specific individual for every domain, including platform-admin
+actions** — this is exactly why individual platform-admin identity
+(§7, F-26) is a P0 production-readiness requirement rather than a
+deferred enhancement: a shared credential would make this field
+meaningless at the platform-admin tier, undermining the audit trail
+this section exists to guarantee.
 
 ## 10. Failure And Revocation Behavior Summary
 

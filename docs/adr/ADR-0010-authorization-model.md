@@ -85,13 +85,16 @@ not a separate domain — it is the `EMPLOYEE` role's default resource
 scope (own-data-only), using the same machinery as every other role.
 Full detail: `docs/architecture/authorization-model.md` §1.
 
-**Update 2026-08-05 (later same day)**: platform-admin identity model
-decided — the MVP keeps `hr-legacy`'s existing shared platform-admin
-password (`hr-legacy#11`), not individual per-admin accounts.
-Independent per-admin identity (individual login, MFA, distinguishable
-audit trail) is an explicit backlog enhancement, not MVP scope —
-`docs/migration/consolidated-task-matrix.md` F-26. Full detail:
-`docs/architecture/authorization-model.md` §7.
+**Update 2026-08-05 (later same day, corrected same day)**:
+platform-admin identity model decided — `hr-legacy`'s shared
+platform-admin password (`hr-legacy#11`) is **not accepted** as the new
+platform's architecture, not even for MVP. Platform administrators must
+have individual identities, credentials, sessions, revocation, and
+audit attribution. This is a **P0 production-readiness requirement**
+(`docs/migration/consolidated-task-matrix.md` F-26) — it does not block
+unrelated tenant-module development, but it blocks production readiness
+and the release of any privileged platform-admin operation. Full
+detail: `docs/architecture/authorization-model.md` §7.
 
 ### Dimension 2 — Tenant-membership validation
 
@@ -135,12 +138,15 @@ Authorization Services) for this MVP — see Alternatives Considered. Full
 catalog and legacy mapping: `docs/architecture/authorization-model.md`
 §3, §7.
 
-**Update 2026-08-05 (later same day)**: `can_employees`'s four
-legacy-bundled capabilities (`employees`, `administrative_decisions`,
-`notifications`, `complaints`) are kept as **one bundle**
-(`employees.manage`) by direct product decision — not split into
-independent keys, matching what `hr-legacy` itself actually
-distinguished rather than introducing new granularity nobody asked for.
+**Update 2026-08-05 (later same day, corrected same day)**:
+`can_employees`'s four legacy-bundled capabilities (`employees`,
+`administrative_decisions`, `notifications`, `complaints`) **remain
+four separate canonical permissions** in the new schema — an earlier
+same-day decision to collapse them into one `employees.manage`
+permission was corrected before merge. Legacy's `can_employees=1` maps
+to granting all four **only as a migration-compatibility rule**,
+preserving current behavior at cutover without permanently coupling the
+four capabilities or forcing a future schema redesign to separate them.
 Full detail: `docs/architecture/authorization-model.md` §7.
 
 ### Dimension 4 — Authorization enforcement boundaries
@@ -335,6 +341,14 @@ Tracked individually in `docs/migration/consolidated-task-matrix.md`
 None of these 12 tasks are implemented by this ADR's acceptance —
 acceptance approves the architecture and constraints they must satisfy,
 not their completion.
+
+**A 13th requirement, added 2026-08-05, tracked as F-26**: individual
+platform-admin identity (credentials, sessions, revocation, audit
+attribution), replacing `hr-legacy`'s shared password. Unlike the 12
+tasks above, this one is a **P0 production-readiness gate**, not a
+per-module blocker — it does not block unrelated tenant-module
+development, but no privileged platform-admin operation may reach
+production before it is complete.
 
 ## Evidence
 
