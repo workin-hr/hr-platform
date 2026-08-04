@@ -161,6 +161,16 @@ FORBIDDEN_SUFFIXES = {
 
 FORBIDDEN_DIRS = {"src", "node_modules"}
 
+# Deliberate, narrow exclusion — not a general loophole. spike/ is where
+# docs/migration/technical-spike-plan.md's H2 experiment (a real Spring
+# Boot/Java vertical slice, per that plan's Rollback/Discard Strategy
+# fallback) lives while it runs, explicitly outside the governed
+# COMPONENT_DIRS boundaries and torn down (not merged as "done") once the
+# spike report is written. Only this one top-level directory is excluded
+# from the product-code scanner below; every other path in the repository
+# is still scanned exactly as before.
+SPIKE_DIR_NAME = "spike"
+
 # This is a fast, narrow, five-pattern check, not comprehensive secret
 # scanning. Gitleaks (run in .github/workflows/phase0-validate.yml with its
 # default ruleset) is the authoritative scanner — see
@@ -189,9 +199,13 @@ def validate_required_paths(failures: list[str]) -> None:
             fail(f"Missing required directory: {rel}", failures)
 
 
-def validate_forbidden_files(failures: list[str]) -> None:
-    for path in ROOT.rglob("*"):
-        rel = path.relative_to(ROOT).as_posix()
+def validate_forbidden_files(failures: list[str], root: Path | None = None) -> None:
+    root = root if root is not None else ROOT
+    for path in root.rglob("*"):
+        rel_path = path.relative_to(root)
+        if rel_path.parts and rel_path.parts[0] == SPIKE_DIR_NAME:
+            continue
+        rel = rel_path.as_posix()
         if path.is_dir() and path.name in FORBIDDEN_DIRS:
             fail(f"Forbidden directory present: {rel}", failures)
         if not path.is_file():

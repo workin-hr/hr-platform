@@ -90,12 +90,24 @@ How does the system verify that an authenticated caller's claimed
 current on every request — the exact mechanism this ADR needs to define
 is the authorization-layer half of the same problem
 `docs/adr/ADR-0002-modular-monolith-baseline.md`'s Part B (H2 spike:
-RLS vs. repository-guard) addresses at the data layer. **This ADR
-depends on that spike's result** — the chosen tenant-isolation
-mechanism constrains which tenant-membership-validation approaches are
-natural to build on top of it (e.g. RLS makes membership validation a
-session-variable concern; a repository guard makes it an
-explicit-check-per-query concern).
+RLS vs. repository-guard) addresses at the data layer.
+
+**Update 2026-08-05**: the H2 spike this dimension depended on has now
+been executed for real, with a recorded recommendation — RLS as the
+primary mechanism, on the explicit condition of a dedicated
+non-superuser application database role (a real bug was found and
+fixed during the spike: RLS silently provides zero protection when the
+connecting role is a Postgres superuser). Full findings:
+`spike/tenant-isolation-spike/SPIKE-NOTES.md`. **This dimension is now
+informed, not resolved** — ADR-0002 Part B itself still requires human
+acceptance before this dimension can be considered decided, and even
+once accepted, this dimension still needs its own answer for
+*tenant-membership validation specifically* (not just data-row
+filtering): if RLS is accepted, the natural approach is that the same
+per-transaction session-variable mechanism the spike proved
+(`SET LOCAL app.current_company_id`, set once per request from the
+validated JWT claim) becomes the tenant-membership-validation
+mechanism too — this is a reasonable direction, not yet a decision.
 
 ### Dimension 3 — Roles and permissions
 
@@ -166,10 +178,11 @@ Not yet assessable — depends on which model is chosen.
 
 ## Risks
 
-- **Risk of choosing the model before Dimension 2's spike dependency
-  resolves**: designing the authorization layer independently of the
-  tenant-isolation mechanism (ADR-0002 Part B) risks a mismatch that
-  has to be reworked once that spike reports.
+- **Risk of choosing the model before ADR-0002 Part B is actually
+  accepted**: the H2 spike now has a real recommendation (2026-08-05),
+  but Part B remains formally `Proposed` until a human decider accepts
+  it. Designing Dimension 2 as if RLS were already the accepted
+  mechanism risks a mismatch if Part B is instead revised or rejected.
 - **Risk of repeating `hr-legacy#8`'s failure mode**: choosing a model
   in the abstract without a structural-enforcement mechanism (Dimension
   4) would reproduce the exact "checked on some endpoints, forgotten on
@@ -190,9 +203,11 @@ because none has been chosen. This ADR cannot move to `Accepted` until:
 
 1. A model is actually chosen for each of the 6 dimensions above, by a
    human decider.
-2. Dimension 2's dependency on `docs/adr/ADR-0002-modular-monolith-baseline.md`
-   Part B (the H2 tenant-isolation spike) is resolved, since it
-   materially constrains Dimension 2's answer.
+2. `docs/adr/ADR-0002-modular-monolith-baseline.md` Part B is formally
+   `Accepted` (a real recommendation now exists from the executed H2
+   spike, 2026-08-05 — see `spike/tenant-isolation-spike/SPIKE-NOTES.md`
+   — but acceptance itself is still pending), since it materially
+   constrains Dimension 2's answer.
 
 ## Open Questions
 

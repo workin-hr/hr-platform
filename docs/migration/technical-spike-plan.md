@@ -2,13 +2,21 @@
 
 ## Status
 
-**Revised 2026-08-04 — scope cut from a 10-day, 6-hypothesis plan down
-to a single required 3-day spike, per explicit direction not to treat
-the full plan as a blanket blocker.** Still Proposed/not started. No
-spike work begins until this revised plan itself is approved (see
-`docs/migration/pre-migration-readiness-gap-analysis.md`, PMR-07, and
-the Migration-Readiness Gate). This spike does not authorize or
-constitute the start of migration implementation.
+**Executed 2026-08-05 — H2 complete, real result obtained.** Scope was
+cut 2026-08-04 from a 10-day, 6-hypothesis plan to a single required
+3-day spike (H2 only). Per direct instruction, the spike was then
+actually built and run, not left as a plan: a real Spring Boot 4.1/Java
+25 project (`spike/tenant-isolation-spike/`, excluded from
+`validate_phase0.py`'s product-code scanner via the deliberate
+`SPIKE_DIR_NAME` exclusion), real Postgres via Testcontainers, real
+cross-tenant tests. **Result: `./gradlew clean test` — 6/6 tests
+passing, reproduced on a clean rebuild.** Full findings, including a
+real bug found and fixed mid-spike (Postgres RLS silently does nothing
+against a superuser connection, which Testcontainers' default Postgres
+user is): `spike/tenant-isolation-spike/SPIKE-NOTES.md`. This spike's
+execution does not itself authorize or constitute the start of
+migration implementation — its recommendation still requires human
+acceptance via `docs/adr/ADR-0002-modular-monolith-baseline.md` Part B.
 
 ## Revision Summary — What's Required Vs. What's Not
 
@@ -246,18 +254,36 @@ Exit Criteria), not a reason to silently extend without flagging it.
 
 The spike is complete when all of the following are true:
 
-- [ ] The vertical slice runs end-to-end: register a company, log in,
-      obtain a JWT, perform tenant-scoped CRUD on `branches`.
-- [ ] The cross-tenant isolation test demonstrates both the RLS and
+- [x] The vertical slice runs end-to-end: register a company, log in,
+      obtain a JWT, perform tenant-scoped CRUD on `branches`. Confirmed
+      via the real HTTP flow both cross-tenant test classes exercise
+      (`register` → JWT → authenticated `POST`/`GET /api/branches`).
+- [x] The cross-tenant isolation test demonstrates both the RLS and
       repository-guard approaches correctly block a cross-tenant
-      access attempt, with a recorded trade-off comparison.
-- [ ] A written recommendation (Accept/Revise/Reject) exists for the
+      access attempt, with a recorded trade-off comparison. 6/6 tests
+      passing; full comparison in
+      `spike/tenant-isolation-spike/SPIKE-NOTES.md`.
+- [x] A written recommendation (Accept/Revise/Reject) exists for the
       tenant-isolation pattern, feeding `docs/adr/ADR-0002-modular-monolith-baseline.md`.
-- [ ] The time-box was respected, or its overrun is explicitly reported
-      with a reason.
-- [ ] The spike codebase is fully torn down per the Rollback Strategy,
-      with only the report (and any explicitly graduated outputs)
-      retained.
+      **Recommendation: Accept RLS as the primary mechanism**, on the
+      explicit condition of a non-superuser application DB role
+      (a real bug found and fixed mid-spike — see SPIKE-NOTES.md),
+      retaining repository-layer scoping as a secondary defense-in-depth
+      layer. Not yet reflected in ADR-0002's Status — that requires
+      separate human acceptance.
+- [x] The time-box was respected, or its overrun is explicitly reported
+      with a reason. **Overrun**: ~33 minutes of the ~3-day time-box was
+      consumed by this sandbox's slow one-time Gradle distribution
+      download; actual engineering time (writing the slice, debugging
+      three real environment-specific issues, and fixing the RLS/superuser
+      bug) fit comfortably within the 3-day allocation. Reported
+      honestly per this document's own instruction, not absorbed
+      silently.
+- [ ] **Not yet done**: the spike codebase is fully torn down per the
+      Rollback Strategy. Deliberately left in place pending human
+      review of the actual code and findings before deletion — see
+      `spike/tenant-isolation-spike/SPIKE-NOTES.md`'s recommendation
+      section and this PR's description for the explicit ask.
 
 ## Evidence
 
@@ -270,4 +296,11 @@ itself is clean — this spike addresses the authorization-layer gap, not
 data corruption), and ADR-0002. Revision rationale (2026-08-04, cutting
 H1/H3/H4/H5/H6 from spike scope): see "Revision Summary" at the top of
 this document and the ADR classification in
-`docs/migration/pre-migration-readiness-gap-analysis.md`.
+`docs/migration/pre-migration-readiness-gap-analysis.md`. **Execution
+evidence (2026-08-05)**: `spike/tenant-isolation-spike/` (real Spring
+Boot 4.1/Java 25 project, `spike/README.md` records its disposable
+status per the Rollback Strategy above), `spike/tenant-isolation-spike/SPIKE-NOTES.md`
+(full findings, trade-off comparison, and recommendation),
+`scripts/validate_phase0.py`'s `SPIKE_DIR_NAME` exclusion (added
+deliberately for this execution, with regression test coverage in
+`scripts/test_validate_phase0.py`).

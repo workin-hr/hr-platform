@@ -350,6 +350,19 @@ this confirmation, however urgently, is not the same as remediating it.
 
 ### PMR-07: Target Technology Stack Unvalidated Hands-On
 
+**Update 2026-08-05 — executed, not just planned. Real result
+obtained.** The narrowed H2 spike was actually built and run:
+`spike/tenant-isolation-spike/` (real Spring Boot 4.1/Java 25, real
+Postgres via Testcontainers), 6/6 cross-tenant isolation tests passing,
+reproduced on a clean rebuild. A real bug was found and fixed mid-spike
+(Postgres RLS silently provides zero protection against a superuser
+connection — Testcontainers' default Postgres user is one). Recorded
+recommendation: RLS as the primary mechanism, condition attached
+(non-superuser application role). Full findings:
+`spike/tenant-isolation-spike/SPIKE-NOTES.md`. **This gap is now
+closed for evidence purposes** — what remains is ADR-0002 Part B's
+formal human acceptance, not further Discovery or spike work.
+
 **Update 2026-08-04 — scope narrowed, per explicit direction not to
 treat the full original plan as a blanket blocker.** Reviewed all 6
 original hypotheses against whether each genuinely needs isolated
@@ -377,20 +390,23 @@ table: `docs/migration/technical-spike-plan.md`'s "Revision Summary."
   remaining spike is small (3 days, not 10) and narrowly scoped.
 - **Blocks**: The tenant-isolation *pattern* detail specifically —
   no longer "full-scale implementation start" broadly.
-- **Required Evidence To Close**: Execution of the revised, 3-day, H2-only
-  spike in `docs/migration/technical-spike-plan.md`, with a recorded
-  Accept/Revise/Reject recommendation for the tenant-isolation pattern.
-- **Owner**: TBD — requires human assignment (Solution Architect plus
-  implementation agent under supervision).
-- **Dependencies**: None blocking — ready to execute once approved.
-- **Target / Duration**: 3 working days (revised down from 10), proposed
-  for human confirmation.
-- **Exit / Acceptance Criteria**: Defined in the spike plan's revised
-  exit-criteria section.
-- **Status**: Ready — plan exists and is narrowed, awaiting human
-  approval to execute.
-- **Related**: `docs/migration/technical-spike-plan.md`; ADR-0002
-  (the one ADR this spike still feeds); `workin-hr/hr-platform#13`.
+- **Required Evidence To Close**: ~~Execution of the revised, 3-day,
+  H2-only spike~~ — **Done 2026-08-05**. Remaining: ADR-0002 Part B
+  formally `Accepted` by a human decider.
+- **Owner**: Executed this session; formal acceptance owner TBD — human
+  engineering leadership per ADR-0002's Deciders field.
+- **Dependencies**: None remaining for this gap specifically.
+- **Target / Duration**: Executed in well under the 3-day allocation
+  (real engineering time; most elapsed time was a one-time slow Gradle
+  download in this sandbox, reported honestly in the spike plan).
+- **Exit / Acceptance Criteria**: Met — see
+  `docs/migration/technical-spike-plan.md`'s Exit Criteria checklist.
+- **Status**: Closed for evidence purposes. ADR-0002 Part B's
+  acceptance is a separate, remaining action, tracked there and in
+  PMR-08, not as an open item of this gap.
+- **Related**: `docs/migration/technical-spike-plan.md`;
+  `spike/tenant-isolation-spike/SPIKE-NOTES.md`; ADR-0002;
+  `workin-hr/hr-platform#13`.
 
 ### PMR-08: All 10 Architecture ADRs Remain Proposed
 
@@ -567,9 +583,13 @@ this document. Substantially smaller than the original gate — see
 ### Must be true before *any* backend implementation begins
 
 1. ~~PMR-07's narrowed spike (tenant-isolation mechanism only, 3 days)
-   is Closed~~ — **In progress 2026-08-04**: execution started, see
-   `docs/migration/technical-spike-plan.md` and the `spike/` directory
-   for live status.
+   is Closed~~ — **Done 2026-08-05**: executed for real, 6/6 tests
+   passing on a clean rebuild, recommendation recorded (RLS, with a
+   non-superuser-role condition). See
+   `docs/migration/technical-spike-plan.md` and
+   `spike/tenant-isolation-spike/SPIKE-NOTES.md`. **Remaining**: a
+   human decider formally accepting ADR-0002 Part B — the recommendation
+   exists, the acceptance does not yet.
 2. ~~ADR-0002's strategic direction and ADR-0005 are `Accepted`~~ —
    **Done 2026-08-04**: both accepted by the repository owner
    (`docs/bootstrap/decision-log.md` D-016, D-017). ADR-0002's
