@@ -10,7 +10,7 @@
 | Date | 2026-08-04 |
 | Owners | Product (primary), Engineering (feasibility input) |
 | Deciders | Product/business owner(s) with authority over admin-surface scope; Engineering lead for feasibility sign-off |
-| Related Issues | `hr-platform#9` (PMR-01), `hr-platform#14` (PMR-08, ADR acceptance), `hr-legacy#2`/`#3`/`#6` (dashboard-side security findings that this decision affects the fix location of) |
+| Related Issues | `hr-platform#9` (PMR-01), `hr-platform#14` (PMR-08, ADR acceptance), `hr-platform#25` (retirement follow-up), `hr-legacy#2`/`#3`/`#6` (dashboard-side security findings that this decision affects the fix location of), `hr-legacy#26` (Manager-role desktop-login parity gap, blocks retirement) |
 | Supersedes | None |
 | Superseded By | None |
 
@@ -65,10 +65,22 @@ second question specifically, not an inference from the first.
 
 ## Decision
 
-**Approval status: Proposed — this decision has not been approved.** No
-option below is selected. This ADR exists to make the decision
-trackable and to specify exactly what's needed to close it — not to
-close it.
+**Approval status: Proposed — recorded, pending final review of this
+written text.** The product/business owner made this decision directly
+in conversation on 2026-08-04 (see the direct quotes in Context above and
+in Option E below); it is captured here as **Option E — Role-based
+split**, described in full under Alternatives Considered. `Status` moves
+to `Accepted` on explicit confirmation that this written ADR accurately
+reflects that decision — not automatically from the conversation alone.
+
+**Recorded decision, in one sentence**: platform-level administration of
+Workin itself stays web (the existing dashboard's `admin`-role surface,
+or a narrower purpose-built replacement — see Consequences); every
+subscribed/joined company's own administration — company-owner and
+HR/Manager staff alike — consolidates onto the native desktop app,
+retiring the dashboard's `company_logged_in`/`hr_logged_in` session paths;
+individual employees remain mobile-only. This directly resolves the
+"Desktop/Mobile Divergence" open question this ADR was created to track.
 
 ## Alternatives Considered
 
@@ -130,116 +142,158 @@ web app), rather than an immediate cutover.
   specifically needs that exit condition documented to be distinct from
   Option A in practice.
 
-## If A New Web Admin App Is Built (Any Option That Isn't Pure B)
+### Option E — Role-based split (Recorded decision, 2026-08-04)
 
-The product-owner signal above names two candidate technologies for a
-new admin web application: **Next.js** and **JTE** (Java Template Engine,
-a compiled, type-checked server-side templating library commonly paired
-with Spring Boot). Recording an engineering recommendation here, since
-"choose the best of thing in 2026 and in future" was a direct request for
-a technical call — this recommendation is independent of, and does not
-resolve, the Option A–D decision above:
+Not a choice between dashboard and desktop as competing wholesale
+replacements for the same population (as Options A–D frame it) — instead,
+the three real frontends split cleanly by **who** is being administered,
+not by client capability:
+
+- **Workin's own platform-level administration stays web.** This is
+  already the *only* path that has ever existed for it: direct code
+  reads of `dashboard/includes/auth.php` confirm `doAdminLogin()` (a
+  single shared password, `hr-legacy#11`) has no JWT, desktop, or mobile
+  equivalent anywhere in `apis/api/auth/` — there is no `login_admin.php`
+  or similar. Platform-admin capability (e.g. `pages/companies/` —
+  approve/reject/suspend any company platform-wide) is web-only today and
+  stays that way under this decision.
+- **Every subscribed/joined company's own administration — company-owner
+  and HR/Manager staff alike — consolidates onto desktop.** Today this is
+  *not yet* the case: the same dashboard also has live `doCompanyLogin()`
+  (queries `companies.password_hash` directly) and `doHrLogin()` (queries
+  `employees` for `role IN ('hr','manager')`) functions, meaning a
+  company owner or HR/Manager employee can currently log into the web
+  dashboard directly, in addition to desktop. Under this decision, those
+  two dashboard session paths are **retirement targets**, not permanent
+  parallel infrastructure — see Consequences for what has to be true
+  first.
+- **Individual employees stay mobile-only** — unchanged, already the
+  case today (`login_employee`, no employee-role dashboard or desktop
+  path exists).
+
+**Direct product-owner statement this decision is based on** (2026-08-04,
+this conversation, verbatim): *"admin page for workin company is made
+web, but for compan[ies] subscri[bed] or joined have desktop, but for
+normal employees is mobile."* Confirmed by the same person named as
+`Deciders` in this ADR's Metadata, in response to a direct question
+distinguishing "record this as the decision" from "just checking my
+understanding of current behavior" — they chose the former.
+
+## Technology For The Platform-Admin Web Surface
+
+Option E keeps a web surface, but scoped much narrower than "the entire
+admin experience" — only Workin's own platform-level administration
+(`pages/companies/` and equivalents: approve/reject/suspend companies,
+platform-wide oversight), not the company/HR-facing capability that is
+consolidating onto desktop. Whether that web surface stays the existing
+PHP dashboard (scoped down) or becomes a new purpose-built application is
+a separate, smaller decision than originally framed, and the
+Next.js-vs-JTE question applies to it at this narrower scope:
 
 **Recommendation: Next.js**, as already recorded in
 `docs/tools/tool-catalog.md` prior to this ADR, for these reasons:
 
-- **UI complexity match**: the admin surface (per
-  `docs/api/three-frontend-api-usage-matrix.md`) covers batch payroll
-  review, Excel import/export flows, complex filtering/pagination,
-  file uploads, and multi-tab settings management — the kind of
-  richly interactive, stateful UI a modern SPA framework handles more
-  naturally than server-rendered templates, even template engines with
-  partial-interactivity patterns.
-- **Independent deployability**: Next.js runs as its own Node.js
-  deployment, decoupled from the Java backend's release cadence — useful
-  if frontend and backend end up on different teams or ship schedules.
 - **2026 ecosystem/hiring**: React/Next.js has a materially larger talent
-  pool, component-library ecosystem (e.g. shadcn/ui-class libraries), and
-  long-term maintenance outlook than JTE, which is a small, relatively
-  new, Java-ecosystem-specific project.
+  pool, component-library ecosystem, and long-term maintenance outlook
+  than JTE, which is a small, relatively new, Java-ecosystem-specific
+  project — this outweighs JTE's operational-simplicity advantage now
+  that the surface being built is a small, focused platform-admin tool
+  rather than the full richly-interactive admin experience originally
+  envisioned (that full experience is now desktop's job under Option E).
+- **Independent deployability**: decoupled from the Java backend's
+  release cadence.
 
-**JTE is a legitimate alternative worth recording, not dismissing**: if
-ADR-0002's modular-monolith, minimal-operational-surface philosophy is
-prioritized over UI richness for the MVP window, JTE (or a similar
-server-rendered approach) removes an entire runtime/language/deployment
-pipeline from the system — "one fewer independently-auth'd frontend
-codebase" directly addresses the root complexity this ADR is about
-(three non-code-sharing frontends today). A JTE-based admin UI could
-also be revisited and replaced by a Next.js app later if/when its
-interactivity needs outgrow server-rendered templates, without that
-later migration being wasted work (the backend API contract would be
-the same either way, since JTE here would still consume the same REST
-API a Next.js app would, not embed business logic in the view layer).
+**JTE remains a legitimate alternative**, arguably a stronger one at this
+narrower scope than it was for a full admin app: a small platform-admin
+tool (a handful of pages: company approval/suspension, oversight lists)
+is a much better match for JTE's minimal-operational-surface strength
+than the richly interactive company/HR admin surface this ADR is now
+routing to desktop instead.
 
-**This recommendation is not self-approving.** It requires the same
-Engineering-lead + Product sign-off as the rest of this ADR before being
-treated as decided, and only becomes relevant once Options A, B, or D
-(anything requiring a *new* web admin surface) is selected over Option B
-alone.
+**This recommendation is not self-approving.** It requires Engineering
+sign-off before being treated as decided (see Validation Evidence).
 
 ## Consequences
 
-- Every dashboard-side security/correctness finding currently filed
-  against `hr-legacy` (`#2`, `#3`, `#6`, and others touching `dashboard/`
-  pages) has its "where does the fix land" answer determined by this
-  decision: a genuinely new implementation (if dashboard is retired) vs.
-  a direct port-and-fix (if dashboard/its replacement remains primary).
-- `docs/api/three-frontend-api-usage-matrix.md`'s contract-testing
-  scope changes materially by option: Option B needs contract tests only
-  against desktop's existing contract; any option requiring a new web
-  admin app needs a **new** contract designed and tested, since (per that
-  matrix) the current dashboard has no REST contract to preserve.
-- Delaying this decision has a real cost: `docs/migration/technical-spike-plan.md`
-  and `docs/migration/pre-migration-readiness-gap-analysis.md`'s
-  Migration-Readiness Gate both list ADR acceptance as a precondition for
-  starting backend implementation (`hr-platform#14`) — this ADR remaining
-  open blocks that gate for any module touching the admin surface.
+- **Dashboard's company/HR-facing pages become retirement targets, not
+  permanent infrastructure.** Of the 34 `dashboard/pages/` directories
+  (`docs/legacy/existing-php-module-inventory.md`), the platform-admin
+  subset (`pages/companies/`, the `admin` branch of `pages/login/`, and
+  any purely platform-authored content pages) is kept or rebuilt; the
+  rest (`pages/employees/`, `pages/attendance/`, `pages/payroll/`,
+  `pages/advances/`, `pages/company_settings/`, etc. — everything reached
+  via `doCompanyLogin()`/`doHrLogin()`) is retired once desktop reaches
+  parity. This directly changes the "where does the fix land" answer for
+  every dashboard-side security finding currently filed against
+  `hr-legacy` (`#2`, `#3`, `#6`, and others touching those pages): the fix
+  now belongs in desktop's already-existing equivalent capability (per
+  `docs/api/three-frontend-api-usage-matrix.md`), not a dashboard patch.
+- **A real parity gap blocks that retirement today**: this same
+  verification pass found that `login_desktop.php`'s HR-employee branch
+  only accepts `role = 'hr'` — Manager-role employees, who *can* log into
+  the dashboard (`doHrLogin()` accepts `role IN ('hr','manager')`),
+  **cannot** currently log into desktop at all. Retiring dashboard's HR
+  session path before closing this gap would lock Manager-role users out
+  of company administration entirely. Tracked as
+  `docs/migration/consolidated-task-matrix.md` row F-12,
+  `hr-legacy#26`.
+- `docs/api/three-frontend-api-usage-matrix.md`'s "PHP Dashboard" column
+  needs a follow-up pass to mark which of its `Yes` entries are
+  retirement targets under this decision versus platform-admin capability
+  that stays.
+- Delaying full closure (Engineering sign-off, parity-gap fix, feature
+  disposition below) still has a real cost:
+  `docs/migration/technical-spike-plan.md` and the Migration-Readiness
+  Gate (`hr-platform#14`) both list ADR acceptance as a precondition for
+  admin-surface backend implementation.
 
 ## Risks
 
-- **Risk of assuming Option B from the informal statement alone**: if
-  "flutter mobile & desktop don't change anything" is read too broadly as
-  "desktop is the definitive future admin client," and that turns out
-  wrong (e.g. some admin users genuinely need browser-only access), the
-  team could build a backend contract exclusively shaped around desktop's
-  existing calls and then need a second, late redesign for a web app.
-  Mitigated by explicitly not selecting an option in this ADR yet.
-- **Risk of decision paralysis**: this is now the second explicit
-  reminder (after `docs/legacy/existing-php-module-inventory.md`'s
-  original "Two Frontends" correction) that this question is unresolved.
-  Leaving it open indefinitely blocks the any-implementation gate
-  (`hr-platform#14`) for admin-surface modules specifically — flagged as
-  a blocker requiring human input in this round's report, not something
-  to keep re-deferring silently.
+- **Risk of retiring dashboard access before desktop has full parity**:
+  the Manager-role gap above is the concrete, confirmed instance of this
+  risk today — there may be others not yet found (this pass checked
+  login role parity specifically, not full capability parity across
+  every module). Mitigation: treat "desktop capability audit vs.
+  dashboard, role by role" as a required gate before any dashboard
+  company/HR page is actually removed, not just before this ADR is
+  accepted.
+- **Risk of assuming desktop-app access is universal**: not yet confirmed
+  whether every current dashboard company/HR user can realistically run a
+  native Windows/Mac desktop app (device, OS, install permissions) — see
+  Validation Evidence.
 
 ## Validation Evidence
 
-None yet — pending explicit product/business confirmation of:
+**Core decision confirmed** (2026-08-04, this conversation, by the named
+Decider) — Option E, role-based split, as recorded in the Decision
+section above, backed by direct code evidence
+(`dashboard/includes/auth.php`'s `doAdminLogin()`/`doCompanyLogin()`/
+`doHrLogin()`, `apis/api/auth/login_desktop.php`) gathered in this same
+verification pass. What remains before `Status` moves to `Accepted`:
 
-1. Which of Options A/B/C/D reflects actual intended product direction,
-   given the "Flutter desktop doesn't change" statement's precise
-   meaning for the *dashboard's* fate specifically (not just the
-   Flutter apps' own change scope).
-2. Whether every current PHP-dashboard user has desktop-app access
-   (device, OS, install permissions) — required to evaluate Option B.
-3. Sign-off from an engineering owner on the Next.js-vs-JTE
-   recommendation above, if any option requiring a new web admin app is
-   chosen.
-4. Disposition of dashboard-only capability with no desktop equivalent
+1. Engineering-lead sign-off on the narrowed Next.js-vs-JTE
+   recommendation above.
+2. The Manager-role desktop-login parity gap
+   (`docs/migration/consolidated-task-matrix.md` row F-12) closed, or an
+   explicit, accepted plan to close it before any dashboard retirement.
+3. Disposition of dashboard-only capability with no desktop equivalent
    (`salary_calculator`, `setting_templates`, `activities`, the 5-tab
-   `company_settings` split) under whichever option is chosen.
+   `company_settings` split) — does each get built into desktop, or
+   deliberately dropped with product sign-off.
+4. Confirmation that every current dashboard company/HR user has a
+   realistic path to desktop-app access (device/OS/install permissions).
 
 ## Open Questions
 
-- Does "flutter mobile & desktop don't change anything" mean the
-  dashboard is being replaced (Option B or D-toward-B), or does it mean
-  only that the *Flutter apps themselves* are out of scope for this
-  phase, leaving the dashboard's fate independently undecided?
-- If a new web admin app is built, does it need full feature parity with
-  the PHP dashboard on day one, or can dashboard-only capability be
-  deferred/dropped with product sign-off?
-- Is there a target sunset date or trigger condition in mind for
-  whichever surface is not chosen as primary (relevant to Option D)?
+- Does the platform-admin web surface stay the existing PHP dashboard
+  (scoped down to just its `admin`-role pages) or get rebuilt as a new,
+  smaller Next.js app from scratch?
+- What is the cutover sequence: fix the Manager-role parity gap first,
+  then retire dashboard pages module-by-module, or an all-at-once
+  cutover once full parity is confirmed?
+- Is there a target date for retiring dashboard's `company_logged_in`/
+  `hr_logged_in` session paths, or is this open-ended pending desktop
+  parity confirmation?
 
 ## Evidence
 
@@ -248,4 +302,11 @@ Divergence" finding); `docs/legacy/existing-php-module-inventory.md`
 ("Three Frontends, One Backend Data Model" section);
 `docs/api/three-frontend-api-usage-matrix.md`; `docs/tools/tool-catalog.md`
 (existing Next.js recommendation, predating this ADR); direct user
-statement, this conversation, 2026-08-04 (quoted verbatim above).
+statement, this conversation, 2026-08-04 (quoted verbatim above);
+`workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`:
+`dashboard/includes/auth.php` (`doAdminLogin()` lines 126–135,
+`doCompanyLogin()` lines 138–163, `doHrLogin()` lines 165–200),
+`apis/api/auth/login_desktop.php` (HR-employee branch, `role = 'hr'`
+only), `apis/config/enums.php` (`UserRoleEnum`, confirming `HR` and
+`MANAGER` are distinct role values) — all read directly in this
+verification pass, 2026-08-04.

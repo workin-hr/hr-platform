@@ -97,7 +97,7 @@ Description/Why-It-Matters prose already there.
 | [#15](https://github.com/workin-hr/hr-platform/issues/15) | PMR-09: No detailed per-module migration execution plan | Medium | P1 | Engineering | Blocking: first module cutover | Per-module execution plan doc exists, covering sequencing, rollback, and acceptance criteria per module | Before any module's cutover |
 | [#16](https://github.com/workin-hr/hr-platform/issues/16) | PMR-10: No migration-correctness test plan or differential-testing harness | High | P0 | Engineering | Blocking: data-migration phase | Differential-testing harness exists and has run at least once against a non-trivial data sample | Before data-migration phase |
 
-## Section C — New Flutter Discovery Findings (F-01–F-11)
+## Section C — New Flutter Discovery Findings (F-01–F-12)
 
 Findings identified during the 2026-08-04 read-only Flutter client
 Discovery pass. Full text in
@@ -116,21 +116,22 @@ except where a GitHub issue was filed to track the action item.
 | F-07 | Desktop forced-update/maintenance-mode remote-config mechanism must be preserved | Medium | P1 | Engineering | Blocking: desktop-facing module cutover | GitHub issue [`hr-platform#21`](https://github.com/workin-hr/hr-platform/issues/21); closes when the new backend's `configs`-equivalent surface serves the same version-gate fields, verified against a real desktop build | Before any module cutover that desktop clients use |
 | F-08 | FCM push notification delivery must be preserved as a backend integration requirement | Medium | P1 | Engineering | Blocking: notifications module cutover | GitHub issue [`hr-platform#22`](https://github.com/workin-hr/hr-platform/issues/22); closes when new backend registers/sends via FCM and mobile push-token registration gap is separately confirmed | Before notifications module cutover |
 | F-09 | No offline persistence in either client — confirmed absent | Low | P3 | Product | Non-blocking | GitHub issue [`hr-platform#23`](https://github.com/workin-hr/hr-platform/issues/23); closes when product records an explicit decision (in scope for a future release, or not) | Backlog |
-| F-10 | Three real frontends exist (PHP dashboard, Flutter desktop, Flutter mobile), not two — dashboard-vs-desktop fate undecided | High (architecture-level) | P0 | Product | Blocking: ADR-0002/ADR-0009 acceptance | Tracked via `docs/adr/ADR-0009-dashboard-vs-desktop-admin-client.md`; closes when a human product/business decision is recorded there | Before ADR-0002/ADR-0009 acceptance, before any-implementation gate |
+| F-10 | Three real frontends exist (PHP dashboard, Flutter desktop, Flutter mobile), not two — dashboard-vs-desktop fate | High (architecture-level) | P0 | Product | **Decision recorded** 2026-08-04 (Option E, role-based split); remaining work is closing `hr-legacy#26` and the parity/feature-disposition items below, not the decision itself | Tracked via `docs/adr/ADR-0009-dashboard-vs-desktop-admin-client.md`; closes when `Status` moves to `Accepted` (pending Engineering sign-off + `hr-legacy#26` + feature-disposition confirmation, per that ADR's Validation Evidence) | Before ADR-0009 `Accepted`, before any-implementation gate for admin-surface modules |
 | F-11 | `dsa_priv.pem` (desktop auto-update signing private key) custody unverified from source | Low | P3 | Manual Operator | Non-blocking | Tracked via [`hr-platform#24`](https://github.com/workin-hr/hr-platform/issues/24) (`docs/security/gcp-firebase-credential-verification-checklist.md`, item 8); closes when whoever performs desktop releases confirms secure storage (password manager / CI secret, not a plain file) | Non-blocking, verify opportunistically |
+| F-12 | Manager-role employees can log into the PHP dashboard (`doHrLogin()`, `role IN ('hr','manager')`) but cannot log into the desktop app (`login_desktop.php`'s HR branch only accepts `role = 'hr'`) | Medium | P0 (for the ADR-0009 retirement path specifically) | Engineering | Blocking: any retirement of dashboard's company/HR session paths under ADR-0009 | [`hr-legacy#26`](https://github.com/workin-hr/hr-legacy/issues/26); closes when `login_desktop.php` accepts Manager-role employees with authorization parity confirmed across the rest of the desktop-consumed API surface | Before dashboard company/HR page retirement (`hr-platform#25`) |
 
 ## Summary Counts
 
 | Priority | Count |
 |---|---|
-| P0 (blocks spike/any-implementation) | 9 |
+| P0 (blocks spike/any-implementation) | 10 |
 | P1 (blocks specific module cutover) | 12 |
 | P2 (fix correctly during rewrite, non-gating) | 11 |
 | P3 (backlog) | 4 |
 
 | Owner Type | Count (rows where this owner type appears) |
 |---|---|
-| Engineering | 30 |
+| Engineering | 31 |
 | Product | 14 |
 | Security | 6 |
 | Manual Operator | 3 |
@@ -146,5 +147,6 @@ Section A: `hr-legacy` issues #2–#25, `docs/security/threat-model.md`,
 issues #9–#16. Section C:
 `docs/api/flutter-request-response-compatibility.md`,
 `docs/security/pre-migration-flutter-credential-inventory.md`,
-`hr-platform` issues #18–#23, `hr-legacy` issue comments on #16 and #19
+`docs/adr/ADR-0009-dashboard-vs-desktop-admin-client.md`, `hr-platform`
+issues #18–#25, `hr-legacy` issue #26 and issue comments on #16 and #19
 (2026-08-04).

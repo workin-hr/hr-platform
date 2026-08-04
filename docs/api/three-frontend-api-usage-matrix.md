@@ -99,6 +99,19 @@ These apply across every row above, not just one module:
    meaningfully lowers the migration-compatibility risk for
    dashboard-equivalent capability compared to Flutter-consumed capability
    — it's a design decision, not a compatibility constraint.
+
+   **Update 2026-08-04**: ADR-0009 now records a decision (Option E,
+   pending final `Accepted` sign-off) on exactly what "whatever replaces
+   dashboard functionality" means: company/HR-facing modules in the
+   "PHP Dashboard" column above (every row backed by `doCompanyLogin()`/
+   `doHrLogin()` — i.e. everything except `pages/companies/` and the
+   `admin` branch of `pages/login/`) are retirement targets, consolidating
+   onto the Desktop column's existing contract instead of getting a new
+   one — **conditional on `hr-legacy#26` being closed first** (Manager-role
+   employees can log into the dashboard today but not desktop at all;
+   retiring dashboard's HR session path before fixing this would lock
+   Manager-role users out entirely). See `hr-platform#25` for the
+   retirement tracking issue.
 3. Several rows above are marked "likely" or "not individually
    re-verified" rather than "confirmed" — this matrix was built by
    cross-referencing existing Discovery documents (which read the full
