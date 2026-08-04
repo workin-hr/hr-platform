@@ -627,6 +627,32 @@ without an explicit decision either way — it is exactly the kind of
 subtle, high-impact rule this Discovery process exists to surface before
 it gets carried forward by assumption.
 
+---
+
+## Rule: Managers can approve/reject any employee's request company-wide, despite being branch-scoped for reading the same data
+
+**Current Behavior:** `requests/list.php` correctly restricts a
+`MANAGER` caller to their own branch via `sql_manager_same_branch_scope()`
+— consistent with the pattern already confirmed in `penalties` and
+`employees`. `requests/approve.php` and `requests/reject.php`, which
+allow the same `MANAGER` role, do not apply any branch restriction at
+all: `request_fetch_for_approval()` scopes only by `company_id`. A
+manager can therefore decide (approve or reject) a leave/permission
+request for an employee outside their own branch/team, even though they
+cannot see that employee in their own request list.
+
+**Where Observed:** `apis/api/requests/list.php` (manager branch scope
+present) versus `apis/api/requests/approve.php`/`reject.php` and
+`apis/helpers/request_actions_helper.php`,
+`request_fetch_for_approval()` (no manager scope).
+
+**Risk If Misinterpreted:** Smaller in blast radius than the `advances`
+cross-tenant gap (this is within-company, not cross-tenant), but the
+same category of read/write scoping mismatch. Worth a product decision
+on whether manager approval authority should genuinely be company-wide
+(a real permission model) or is meant to mirror their branch-scoped
+visibility and this is a gap.
+
 ## Evidence
 
 All entries: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`,

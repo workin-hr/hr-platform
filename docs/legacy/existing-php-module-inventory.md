@@ -33,11 +33,11 @@ actual `apis/api/` directory structure.
 | `employees` | 14 | CRUD, bulk import (Excel), photo upload, deactivate/reactivate, delete preview (impact analysis before a destructive action), stats. All 14 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; correct Manager branch-scoping throughout (contrast with `attendance`); see `docs/legacy/business-rule-extraction.md` for the cascade-delete-of-payroll-history finding |
 | `profile` | 9 | Self-service: change password, delete account (with a preview endpoint first), phone-change confirmation flow, push-token registration. All 9 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`. **High-impact finding — mobile logout silently deactivates the employee's account, no password required — see `docs/legacy/business-rule-extraction.md`** |
 | `payroll_batches` | 10 | Batch lifecycle: create, calculate, finalize, reopen, fiscal-period resolution, stats — all 10 endpoints individually documented in `docs/api/existing-endpoint-inventory.md` |
-| `leave_balances` | 10 | Balance CRUD, generation, bulk import, Excel template/analyze, stats |
+| `leave_balances` | 10 | Balance CRUD, generation, bulk import, Excel template/analyze, stats. All 10 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; consistently company-scoped |
 | `advances` | 8 | Create/approve/reject/pay/update/delete — full advance lifecycle. All 8 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`. **5 of 8 have a confirmed cross-tenant authorization gap — see `docs/security/threat-model.md`.** |
 | `penalties` | 7 | CRUD, reporting, stats — all 7 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`, consistently correct tenant scoping |
-| `requests` | 7 | Leave/permission request workflow: create/approve/reject/update |
-| `workforce_planning` | 7 | Headcount targets: create/update/save_target/summary |
+| `requests` | 7 | Leave/permission request workflow: create/approve/reject/update. All 7 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`. **Finding — Manager approve/reject is not branch-scoped, unlike Manager read access in the same module — see `docs/legacy/business-rule-extraction.md`** |
+| `workforce_planning` | 7 | Headcount targets: create/update/save_target/summary. All 7 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; consistently company-scoped |
 | `payslips` | 6 | CRUD, export — all 6 endpoints individually documented in `docs/api/existing-endpoint-inventory.md` |
 | `branches` | 6 | CRUD, QR-code generation |
 | `company_settings` | 6 | CRUD, options (available settings for a company to choose from) |

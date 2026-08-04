@@ -6,11 +6,13 @@
 `docs/legacy/existing-php-module-inventory.md` for the full module
 breakdown). This pass documents: all 14 `auth` endpoints, all 15
 `attendance` endpoints, all 14 `employees` endpoints, all 9 `profile`
-endpoints, all 16 `payroll_batches`/`payslips` endpoints, and all 20
-`advances`/`penalties`/`salary_contracts` endpoints — 88 endpoints total.
-The remaining ~111 endpoints are inventoried structurally (module, file
-count, purpose) in the module inventory, not individually here yet. Do
-not read this document as complete endpoint coverage.
+endpoints, all 16 `payroll_batches`/`payslips` endpoints, all 20
+`advances`/`penalties`/`salary_contracts` endpoints, and all 24
+`requests`/`leave_balances`/`workforce_planning` endpoints — 112
+endpoints total. The remaining ~87 endpoints are inventoried
+structurally (module, file count, purpose) in the module inventory, not
+individually here yet. Do not read this document as complete endpoint
+coverage.
 
 Consumer note: no mobile/desktop client source was available in this
 pass — every "Consumer" field below is inferred from the API's own
@@ -444,6 +446,44 @@ like a routine, low-risk action.
 | `request_phone_change.php` / `confirm_phone_change.php` | POST | Company-admin only; OTP-gated phone change with global uniqueness check. Not subject to the DEBUG-disclosure finding (this pair doesn't return the OTP in the response). Uses the same unthrottled `otp_verify_latest_for_phone()` as the rest of the system. |
 | `register_push_token.php` | POST | Registers an FCM-style device token; not traced past the call site. |
 | `company.php` / `employee.php` | GET/GET+PUT | Self-profile fetch (and edit, for `employee.php`) for the authenticated caller. |
+
+## Requests (`apis/api/requests/`, 7 endpoints)
+
+Leave/permission request workflow. `create.php`/`update.php`/`delete.php`
+are `EMPLOYEE`-only (self-service on own, pending-only requests).
+`approve.php`/`reject.php`/`list.php`/`one.php` allow
+`COMPANY_ADMIN`/`HR`/`MANAGER`. Approval triggers an insufficient-leave-
+balance check (`request_insufficient_leave_balance()`) when the request
+type's `deduct_balance` flag is set.
+
+**Finding — Manager approve/reject is not branch-scoped, unlike
+Manager list/read access in this same module** — see
+`docs/legacy/business-rule-extraction.md` for the full write-up.
+
+All 7 endpoints are otherwise consistently company-scoped (via a join to
+`employees.company_id`), matching the `penalties`/`employees`/`salary_contracts`
+pattern rather than the `advances` gap.
+
+## Leave Balances (`apis/api/leave_balances/`, 10 endpoints)
+
+Per-employee, per-year leave allotment CRUD plus company-wide
+`generate.php` (bulk-creates missing balance rows for a year, defaulting
+to 21 days or the company's configured
+`CompanySettingEnum::MONTHLY_LEAVE_ACCRUAL` value) and the same
+Excel import/analyze/template trio pattern seen in `attendance` and
+`employees`. All 10 endpoints are consistently company-scoped;
+`COMPANY_ADMIN`/`HR` for mutations, broader read access
+(`list.php`/`one.php`/`stats.php` use bare `requireAuth()`) not traced
+for row-level self-scoping in this pass.
+
+## Workforce Planning (`apis/api/workforce_planning/`, 7 endpoints)
+
+Headcount-target CRUD per (company, branch, department, job_title), plus
+`save_target.php` (upsert) and `summary.php` (a backward-compatible alias
+that simply `require`s `list.php`). All 7 endpoints consistently
+company-scoped; `COMPANY_ADMIN`/`HR` for mutations,
+`list.php`/`one.php` additionally allow `MANAGER` (scoping depth not
+traced further in this pass).
 
 ## Evidence
 
