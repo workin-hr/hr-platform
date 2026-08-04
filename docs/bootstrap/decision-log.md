@@ -201,3 +201,29 @@ certainty than the ADR it depends on.
 | Impact | Discovery (A1 in `docs/bootstrap/execution-checklist.md` and equivalent work) may now begin. `docs/bootstrap/risk-register.md` R-008's Status is updated to "Open — Accepted Residual Risk / Non-blocking," and its stale reference to a "Pending human acceptance gate" phrase no longer present in `docs/bootstrap/manual-setup-checklist.md` is corrected. No ADR status changed. No H2 open question resolved. No product code or Discovery evidence added by this entry. |
 | Follow-up | Before any individual Discovery entry (e.g. a specific legacy-behavior or schema finding) is treated as authoritative, it still needs its own citation to source evidence per the existing per-document conventions (e.g. `docs/legacy/production-behavior-evidence.md`'s Confidence field, `docs/migration/database-schema-inventory.md`'s Source Of Evidence fields). This decision authorizes Discovery to begin; it does not pre-approve any specific Discovery finding. |
 | Evidence | `docs/bootstrap/definition-of-done.md`; CI run `https://github.com/workin-hr/hr-platform/actions/runs/30814048525`; pull request `https://github.com/workin-hr/hr-platform/pull/1` and D-014; D-013; R-008 (`docs/bootstrap/risk-register.md`); this entry. |
+
+## D-016: Accept ADR-0002 Part A (Modular Monolith Strategic Direction)
+
+| Field | Value |
+|---|---|
+| Decision | The system's baseline backend architecture is a modular monolith — a single deployable unit with explicit internal module boundaries, not microservices from day one and not an undifferentiated layered monolith. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0002 (Modular Monolith Baseline) — **Part A only**. Part B (the tenant-isolation implementation detail — PostgreSQL Row-Level Security vs. a repository-guard pattern) is explicitly **not** decided by this entry; it remains open pending the H2 spike (`docs/migration/technical-spike-plan.md`). |
+| Reason | ADR-0002's strategic direction was recommended for immediate acceptance in this session's 2026-08-04 classification pass — it does not depend on the technical spike, and a first-pass module boundary diagram already exists (`docs/architecture/module-boundaries.md`), informed by real Discovery (the legacy module inventory and the capability/ownership matrix). The repository owner accepted directly. |
+| Impact | `docs/adr/ADR-0002-modular-monolith-baseline.md`'s `Status` field moves to `Accepted`, with the Decision section's Part A marked accepted and Part B explicitly still `Proposed`/pending. Module implementation work may proceed against the 9-module candidate boundary diagram; nothing in Part B (which pattern enforces tenant isolation) is authorized to be assumed yet. |
+| Follow-up | Part B moves to its own acceptance once the H2 spike (`docs/migration/technical-spike-plan.md`) reports a recommendation. |
+| Evidence | `docs/adr/ADR-0002-modular-monolith-baseline.md`; `docs/architecture/module-boundaries.md`; direct repository-owner acceptance, this conversation, 2026-08-04. |
+
+## D-017: Accept ADR-0005 (Authentication Direction)
+
+| Field | Value |
+|---|---|
+| Decision | The new system's authentication direction is: self-managed JWT authentication for the MVP (no external identity provider); short-lived access tokens; rotating, server-side-tracked refresh tokens with revocation; secure client storage via `flutter_secure_storage`; forced re-authentication for all existing users at cutover (no dual-validation); no Keycloak or other external IdP for the MVP. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0005 (Authentication Direction — renamed from "Authentication And Authorization Direction" on 2026-08-04; the authorization half of the original scope is tracked separately and remains open in `docs/adr/ADR-0010-authorization-model.md`, not covered by this acceptance) |
+| Reason | ADR-0005's Decision section was corrected on 2026-08-04 to state the real approved direction (previously it held only a Discovery-stage placeholder). With the real direction stated and evidenced (`docs/security/authentication-remediation-design.md`), and exact token lifetimes/multi-session policy explicitly carved out as non-blocking open refinements, the repository owner accepted directly. |
+| Impact | `docs/adr/ADR-0005-authentication-direction.md`'s `Status` field moves to `Accepted`. The auth module may be implemented against this direction. Exact access/refresh-token lifetimes and multi-session policy remain open — implementation should use reasonable placeholder values pending that refinement, not block on it. |
+| Follow-up | Resolve exact token lifetimes and multi-session policy (both explicitly non-blocking open refinements per the ADR's Decision section) before or during auth-module implementation. |
+| Evidence | `docs/adr/ADR-0005-authentication-direction.md`; `docs/security/authentication-remediation-design.md`; direct repository-owner acceptance, this conversation, 2026-08-04. |

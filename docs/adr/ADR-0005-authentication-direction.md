@@ -6,8 +6,8 @@
 |---|---|
 | ADR ID | ADR-0005 |
 | Title | Authentication Direction |
-| Status | Proposed |
-| Date | 2026-08-02 (renamed and rewritten 2026-08-04 — see Decision) |
+| Status | Accepted |
+| Date | 2026-08-02 (renamed and rewritten 2026-08-04, accepted 2026-08-04 — see `docs/bootstrap/decision-log.md` D-017) |
 | Owners | Solution Architect |
 | Deciders | Human engineering leadership — recorded at approval time in `docs/bootstrap/decision-log.md` |
 | Related Issues | `hr-legacy#7`, `hr-legacy#15`, `hr-platform#18` |
@@ -42,16 +42,14 @@ token-refresh code path at all (`hr-platform#18`,
 
 ## Decision
 
-**Approval status: Proposed — this decision has not been approved.
-Only a human decider can move `Status` to `Accepted`, recorded in
-`docs/bootstrap/decision-log.md`.**
+**Accepted 2026-08-04** (`docs/bootstrap/decision-log.md` D-017).
 
 **This section previously read "Document candidate authentication and
 authorization directions only after legacy, tenant, and integration
 constraints are understood" — a Discovery-stage placeholder, not an
 actual decision. That Discovery is now complete (see Validation
 Evidence); the placeholder is replaced below with the real, confirmed
-direction.**
+direction, which the repository owner has accepted.**
 
 The new system's authentication direction is:
 
@@ -141,21 +139,17 @@ token storage and no refresh capability in either Flutter client
 (`hr-platform#18`). The confirmed direction is recorded in full in
 `docs/security/authentication-remediation-design.md`.
 
-### Classification (2026-08-04 revision)
+### Classification (2026-08-04 revision) — Accepted
 
-**Ready for acceptance now that the Decision section states the real
-direction**, not before. The previous revision of this document
+**Accepted 2026-08-04**, once the Decision section stated the real
+direction, not before. The previous revision of this document
 recommended immediate acceptance while the Decision section still held
-Discovery-stage placeholder text — that was premature, corrected here.
-With the Decision section now stating the actual approved direction
-(self-managed JWT, short-lived access tokens, rotating refresh tokens,
-server-side revocation, `flutter_secure_storage`, forced
-re-authentication, no external IdP), and the three explicitly-scoped
-open refinements (exact lifetimes, multi-session policy) not gating
-acceptance, this ADR does not depend on the technical spike (H3's
-Keycloak-comparison arm was dropped, not deferred) or on
-production/device access. Recommend a human decider move `Status` to
-`Accepted` now.
+Discovery-stage placeholder text — that was premature, corrected first,
+then accepted by the repository owner
+(`docs/bootstrap/decision-log.md` D-017). The three explicitly-scoped
+open refinements (exact lifetimes, multi-session policy) remain open
+but do not un-do this acceptance — they are refinements within the
+accepted direction, not conditions on it.
 
 ## Open Questions
 

@@ -6,8 +6,8 @@
 |---|---|
 | ADR ID | ADR-0002 |
 | Title | Modular Monolith Baseline |
-| Status | Proposed |
-| Date | 2026-08-02 |
+| Status | Accepted |
+| Date | 2026-08-02 (Part A accepted 2026-08-04 — see `docs/bootstrap/decision-log.md` D-016). **Note: this `Status` field reflects Part A only — see Decision below; the ADR format has no field for a per-part status, so this is the closest honest representation.** Part B (tenant-isolation pattern) remains genuinely `Proposed`/undecided despite this field saying `Accepted`. |
 | Owners | Solution Architect (see `docs/agents/responsibility-matrix.md`) |
 | Deciders | Human engineering leadership — recorded at approval time in `docs/bootstrap/decision-log.md` |
 | Related Issues | None yet |
@@ -20,23 +20,22 @@ The target system needs a credible delivery path for an MVP in roughly two month
 
 ## Decision
 
-**Approval status: Proposed — this decision has not been approved. Only
-a human decider can move `Status` to `Accepted`, recorded in
-`docs/bootstrap/decision-log.md`; nothing in this document performs that
-change.**
+**Part A is Accepted (2026-08-04, recorded in `docs/bootstrap/decision-log.md`
+D-016). Part B remains Proposed and unapproved — it is not decided by
+Part A's acceptance and must not be implemented against until it
+separately reaches `Accepted`.**
 
 This decision has two parts, deliberately split so that the strategic
-choice is not held hostage to a narrow technical detail still pending
+choice was not held hostage to a narrow technical detail still pending
 evidence:
 
-**Part A — Strategic architecture decision: recommended for acceptance
-now.** Use a modular monolith as the system's baseline architecture —
-a single deployable unit with explicit internal module boundaries
-(Spring Modulith or equivalent package-boundary discipline), not
-microservices from day one and not an undifferentiated layered monolith.
-This part does not depend on the technical spike and is recommended for
-immediate human sign-off. See Validation Evidence below for why this is
-ready now.
+**Part A — Strategic architecture decision: Accepted.** Use a modular
+monolith as the system's baseline architecture — a single deployable
+unit with explicit internal module boundaries (Spring Modulith or
+equivalent package-boundary discipline), not microservices from day one
+and not an undifferentiated layered monolith. Module implementation may
+proceed against this direction and the candidate boundary diagram in
+`docs/architecture/module-boundaries.md`.
 
 **Part B — Tenant-isolation implementation detail: pending the H2 spike
 result.** *How* tenant isolation is structurally enforced across every
