@@ -22,3 +22,8 @@ production facts, row counts, or dates without a cited source.
 - `sequence-and-identity-mapping.md`
 - `migration-validation-queries.md`
 - `cutover-and-rollback-assumptions.md`
+- `tenant-boundary-verification.md` — added 2026-08-04; whether the data
+  itself is internally tenant-consistent, distinct from the
+  authorization-gap findings in `docs/security/threat-model.md`
+- `consolidated-task-matrix.md` — added 2026-08-04; converts every
+  Discovery finding across this repository into one tracked-task format

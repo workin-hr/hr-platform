@@ -1,5 +1,17 @@
 # GCP / Firebase Console Manual Credential Verification Checklist
 
+## Status (2026-08-04)
+
+**Explicitly non-blocking for backend implementation.** Per direct
+product decision: this checklist is a later infrastructure/mobile
+integration task, not a precondition for starting backend work — none
+of the 8 items below gate any architectural decision currently in
+scope. Revisit only if a specific future architectural decision
+strictly depends on one of these items (e.g. a Maps-integration feature
+that needs the key-restriction status confirmed first) — otherwise work
+through it opportunistically, at any point convenient for whoever holds
+GCP/Firebase Console access.
+
 ## Purpose And Boundary
 
 Source-only Discovery of the Flutter clients

@@ -42,9 +42,37 @@ Define an evidence-backed compatibility and versioning strategy before target AP
 
 ## Validation Evidence
 
-None yet — pending Discovery. Requires the existing endpoint inventory (`docs/api/existing-endpoint-inventory.md`) and Flutter request/response compatibility analysis (`docs/api/flutter-request-response-compatibility.md`) to be populated before this decision can move to Accepted.
+**Update 2026-08-04**: both prerequisite documents now exist and are
+populated with real evidence — `docs/api/existing-endpoint-inventory.md`
+(all 199 endpoints) and `docs/api/flutter-request-response-compatibility.md`
+(direct reads of both real Flutter clients, not inference). This ADR's
+own stated precondition for moving toward `Accepted` is satisfied.
+
+### Classification (2026-08-04 revision)
+
+**Needs an actual decision now, informed by existing evidence — not
+blocked on the spike.** The spike's original H4 hypothesis only tested
+whether springdoc-openapi could generate a usable spec *mechanically* —
+it never could have validated real Flutter compatibility (that was
+explicitly out of reach until PMR-02 resolved). PMR-02 is now resolved
+with direct evidence: `docs/api/flutter-request-response-compatibility.md`
+confirms both Flutter clients are fixed (no client-side changes planned)
+and enumerates every contract dependency, including exact request/response
+shapes for the endpoints checked. That is precisely the evidence this
+ADR needs to decide a versioning strategy (e.g. URL-path versioning vs.
+header-based, and how strictly to preserve exact field names/types for
+the `Yes`-marked rows in `docs/api/three-frontend-api-usage-matrix.md`).
+Recommend: a human decider can accept a versioning strategy now using
+this evidence; springdoc-openapi's spec-generation *mechanism* can be
+validated organically while implementing the first real endpoint,
+per the spike plan's revision.
 
 ## Open Questions
 
-- whether existing clients use strict or tolerant parsing
-- what versioning strategy best fits the current client landscape
+- whether existing clients use strict or tolerant parsing — not yet
+  directly tested; `docs/api/flutter-request-response-compatibility.md`
+  documents expected shapes but did not specifically probe
+  strict-vs-tolerant parsing behavior
+- what versioning strategy best fits the current client landscape — a
+  decision now answerable from existing evidence (see above), not
+  invented here

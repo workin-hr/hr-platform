@@ -92,6 +92,17 @@ source itself committed in this repository. This recommendation does not
 by itself move this ADR to `Accepted` — that still requires human
 review — but it directly answers this ADR's first Open Question below.
 
+### Classification (2026-08-04 revision)
+
+**Can be accepted immediately based on existing evidence.** Nothing
+about this decision depends on the technical spike (`docs/migration/technical-spike-plan.md`,
+now scoped to tenant-isolation only) or on production/device access —
+the repository-boundary question is answered by the Discovery already
+done (Flutter Discovery, submodule conversion) and by this repository's
+own `CLAUDE.md` scope, not by anything still pending. Recommend a human
+decider move `Status` to `Accepted` now if they agree with the
+recommendation above; this document does not make that change itself.
+
 ## Open Questions
 
 - ~~whether Flutter should remain permanently separate~~ — **Answered

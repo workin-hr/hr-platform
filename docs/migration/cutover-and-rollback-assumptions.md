@@ -5,6 +5,47 @@ rollback path. Do not fill in real RTO/RPO figures, dates, or production
 topology here until Discovery produces that evidence — record only what is
 actually known, and mark everything else as an open question.
 
+## Assumption: Forced Re-Authentication On Auth Cutover (Confirmed Decision, 2026-08-04)
+
+- **Category**: Cutover window, data-freeze scope, communication.
+- **Confidence**: Evidenced — this is a confirmed product decision, not
+  a hypothesis. See `docs/adr/ADR-0005-authentication-and-authorization-direction.md`
+  and `docs/security/authentication-remediation-design.md` for the full
+  design.
+- **Statement**: On auth-system cutover, existing `hr-legacy` JWTs
+  (mobile and desktop) are **not** migrated or dual-validated against
+  the new backend. Every existing session is treated as invalid the
+  moment the new backend takes over authentication; users must log in
+  again with their existing phone+password credentials (credentials
+  themselves migrate — only the *session tokens* do not).
+- **Risk If Wrong** (i.e. if this assumption turns out operationally
+  unacceptable): a simultaneous forced logout of the entire active user
+  base creates a real support-load spike, timed with a specific cutover
+  moment — mitigated by coordinating with the existing desktop
+  forced-update/maintenance-mode mechanism (`hr-platform#21`) so users
+  see a clear "please log in again" state rather than a confusing
+  silent failure, and by scheduling cutover communication in advance
+  (see `docs/security/authentication-remediation-design.md` for the
+  full remediation design this assumption feeds).
+- **Rollback Implication**: if the new auth backend needs to be rolled
+  back after cutover, users who already re-authenticated against it
+  hold **new-system credentials/tokens the old `hr-legacy` system does
+  not recognize** — rollback is not silently transparent to users who
+  already migrated. This needs an explicit rollback communication plan
+  (not designed here) if rollback is a real possibility for the
+  cutover window chosen, not assumed to be a clean no-op.
+- **Evidence**: Direct product-owner decision, this repository, this
+  conversation, 2026-08-04.
+
+## Open Questions (This Assumption Specifically)
+
+- Exact cutover timing/communication lead time for the forced
+  re-authentication event — not yet scheduled, depends on overall
+  migration sequencing (`hr-platform#15`, PMR-09).
+- Whether a rollback scenario is realistically in scope for the auth
+  cutover specifically, and if so, what the user-facing rollback
+  communication looks like.
+
 ## Assumption
 
 Record the assumption in testable language. If it cannot be challenged or

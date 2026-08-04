@@ -42,9 +42,38 @@ Use a modular monolith as the initial architecture assumption until evidence pro
 
 ## Validation Evidence
 
-None yet — pending Discovery. Module boundary candidates should be informed by legacy PHP module inventory (`docs/legacy/existing-php-module-inventory.md`) before this decision can move to Accepted.
+**Update 2026-08-04**: module boundary candidates are now informed —
+`docs/legacy/existing-php-module-inventory.md` documents the full
+38-module API surface and 34-page dashboard structure Discovery found,
+and `docs/api/three-frontend-api-usage-matrix.md`'s capability/ownership
+matrix (added 2026-08-04) gives a first real cut at module groupings by
+who owns each capability (platform-admin / tenant-admin / employee
+self-service / shared).
+
+### Classification (2026-08-04 revision)
+
+**Split decision.** The core strategic choice — modular monolith over
+microservices-from-day-1 or an unstructured layered monolith — **can be
+accepted now**: nothing about the two-month MVP timeline, small team
+size, or Discovery findings changes this reasoning, and none of it
+depends on the spike. What genuinely **depends on the spike** is the
+narrower, tooling-specific question of *how* module boundaries and
+(critically) tenant isolation are structurally enforced — this is what
+`docs/migration/technical-spike-plan.md`'s H2 experiment (revised
+2026-08-04, now the spike's sole required hypothesis) validates: RLS vs.
+repository-guard tenant isolation, the single most consequential,
+hardest-to-retrofit pattern decision for this architecture. Recommend: a
+human decider can accept the **strategic** direction (modular monolith)
+now, while treating the tenant-isolation-pattern detail as pending the
+H2 spike result specifically — not the whole ADR blocked on the whole
+original 10-day plan.
 
 ## Open Questions
 
-- which domains become modules first
+- which domains become modules first — a first-pass answer now exists
+  in `docs/api/three-frontend-api-usage-matrix.md`'s ownership matrix,
+  not yet formalized into a module boundary diagram
 - what measurable threshold would justify decomposition
+- ~~tenant-isolation enforcement mechanism~~ — moved to
+  `docs/migration/technical-spike-plan.md` H2, the spike's sole
+  remaining required hypothesis

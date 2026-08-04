@@ -228,15 +228,25 @@ sign-off before being treated as decided (see Validation Evidence).
   `hr-legacy` (`#2`, `#3`, `#6`, and others touching those pages): the fix
   now belongs in desktop's already-existing equivalent capability (per
   `docs/api/three-frontend-api-usage-matrix.md`), not a dashboard patch.
-- **A real parity gap blocks that retirement today**: this same
-  verification pass found that `login_desktop.php`'s HR-employee branch
-  only accepts `role = 'hr'` — Manager-role employees, who *can* log into
-  the dashboard (`doHrLogin()` accepts `role IN ('hr','manager')`),
-  **cannot** currently log into desktop at all. Retiring dashboard's HR
-  session path before closing this gap would lock Manager-role users out
-  of company administration entirely. Tracked as
-  `docs/migration/consolidated-task-matrix.md` row F-12,
-  `hr-legacy#26`.
+- **The Manager-role desktop-login asymmetry is not a retirement
+  blocker** (revised 2026-08-04, superseding the initial framing below):
+  `login_desktop.php`'s HR-employee branch only accepts `role = 'hr'`,
+  while the dashboard's `doHrLogin()` accepts `role IN ('hr','manager')`
+  — but investigating *intent*, not just parity, found direct evidence
+  in `workin_mobile`'s real source
+  (`profile_manager_mode_button.dart`) of a named "Manager Mode" mobile
+  feature — currently an unimplemented "coming soon" stub — indicating
+  Manager-role capability was designed for a **mobile** channel, not
+  desktop. Cross-referenced against the real data:
+  **zero employees currently have `role='manager'`** in the entire
+  dataset (`docs/migration/data-quality-analysis.md`). `login_desktop.php`
+  excluding Manager looks like intentional design, not an oversight;
+  dashboard's broader acceptance is more likely a legacy default than an
+  intended parallel access path. Full investigation:
+  `hr-legacy#26`. **The real, separate backlog item is that mobile's
+  "Manager Mode" is unimplemented** — a product feature gap, not a
+  migration-parity blocker. Tracked as
+  `docs/migration/consolidated-task-matrix.md` row F-12 (reclassified).
 - `docs/api/three-frontend-api-usage-matrix.md`'s "PHP Dashboard" column
   needs a follow-up pass to mark which of its `Yes` entries are
   retirement targets under this decision versus platform-admin capability
@@ -249,20 +259,34 @@ sign-off before being treated as decided (see Validation Evidence).
 
 ## Risks
 
-- **Risk of retiring dashboard access before desktop has full parity**:
-  the Manager-role gap above is the concrete, confirmed instance of this
-  risk today — there may be others not yet found (this pass checked
-  login role parity specifically, not full capability parity across
-  every module). Mitigation: treat "desktop capability audit vs.
-  dashboard, role by role" as a required gate before any dashboard
-  company/HR page is actually removed, not just before this ADR is
-  accepted.
+- **Risk of retiring dashboard access before desktop has full parity for
+  capabilities companies actually rely on**: the Manager-role login gap
+  turned out not to be a real instance of this risk (see Consequences),
+  but the underlying risk pattern is real — this pass checked one
+  specific login-role asymmetry, not full capability parity across every
+  module. Mitigation: the capability/ownership matrix in
+  `docs/api/three-frontend-api-usage-matrix.md` (added 2026-08-04)
+  classifies every feature as platform-admin / tenant-admin / employee /
+  shared / legacy-only, so retirement only targets genuine tenant-admin
+  capability, not platform-only functionality that was never supposed to
+  move to desktop in the first place.
 - **Risk of assuming desktop-app access is universal**: not yet confirmed
   whether every current dashboard company/HR user can realistically run a
   native Windows/Mac desktop app (device, OS, install permissions) — see
   Validation Evidence.
 
 ## Validation Evidence
+
+### Classification (2026-08-04 revision)
+
+**Needs an actual decision now for final sign-off — not blocked on the
+spike, mostly resolved.** The core question (which option) is decided;
+of the four remaining Validation Evidence items, two are now resolved
+(Manager-role gap, most of the feature-disposition question), leaving
+only Engineering sign-off on the narrowed Next.js-vs-JTE call and
+desktop-access-universality confirmation as real open items — both
+answerable now without further Discovery, by a human decider reading
+this document. Recommend: close these two remaining items and accept.
 
 **Core decision confirmed** (2026-08-04, this conversation, by the named
 Decider) — Option E, role-based split, as recorded in the Decision
@@ -273,13 +297,21 @@ verification pass. What remains before `Status` moves to `Accepted`:
 
 1. Engineering-lead sign-off on the narrowed Next.js-vs-JTE
    recommendation above.
-2. The Manager-role desktop-login parity gap
-   (`docs/migration/consolidated-task-matrix.md` row F-12) closed, or an
-   explicit, accepted plan to close it before any dashboard retirement.
-3. Disposition of dashboard-only capability with no desktop equivalent
-   (`salary_calculator`, `setting_templates`, `activities`, the 5-tab
-   `company_settings` split) — does each get built into desktop, or
-   deliberately dropped with product sign-off.
+2. ~~The Manager-role desktop-login parity gap closed before any
+   dashboard retirement~~ — **Resolved 2026-08-04**: investigated and
+   found not to be a retirement blocker (see Consequences); Manager-role
+   capability is a mobile-app "Manager Mode" feature gap instead,
+   tracked separately, non-blocking for this ADR.
+3. ~~Disposition of dashboard-only capability with no desktop
+   equivalent (`salary_calculator`, `setting_templates`, `activities`,
+   the 5-tab `company_settings` split)~~ — **Mostly resolved
+   2026-08-04**: `docs/api/three-frontend-api-usage-matrix.md`'s
+   capability/ownership matrix found `setting_templates` is not a
+   distinct capability (a tab within `company_settings`, already
+   tenant-admin) and `activities` is shared/company-scoped (tenant-admin
+   for its company-scoped view). Only `pages/salary_calculator/` remains
+   genuinely open — needs its own read-through to resolve the
+   independent-payroll-logic-duplication question before disposition.
 4. Confirmation that every current dashboard company/HR user has a
    realistic path to desktop-app access (device/OS/install permissions).
 

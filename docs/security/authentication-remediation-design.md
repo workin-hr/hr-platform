@@ -144,44 +144,105 @@ by product, not decided here):
   accidentally, by `token_version` bumping) is itself an open product
   question — see Open Questions.
 
-## Backward-Compatible Migration Of Existing Users
+## Backward-Compatible Migration Of Existing Users — Decided: Forced Re-Authentication
 
-This is the part of the design most specific to *migration* rather than
-greenfield auth design, and the part most likely to be skipped if not
-planned explicitly.
+**Confirmed product decision, 2026-08-04**: existing `hr-legacy` JWTs
+(mobile and desktop) are **not** migrated or dual-validated against the
+new backend. This section previously compared three candidate
+approaches (dual-validation, forced re-authentication, staggered
+rollout) without choosing; that comparison is preserved below for
+context, followed by the decided approach's full design.
 
-**The constraint**: existing users hold valid 10-year JWTs today, issued
-by the legacy system, that the new backend will not recognize (different
-signing key, different claim shape, different validation logic) unless
-explicitly designed to.
+### Why This Option
 
-**Candidate approaches** (comparison, not a decision):
+Dual-validation was the highest-implementation-complexity option (two
+auth code paths coexisting, a real source of subtle bugs in exactly the
+subsystem this whole remediation effort exists to make safer). Staggered
+rollout was blocked on `hr-platform#20` (no environment-switch mechanism
+in either Flutter client) — building that first would delay the whole
+auth remediation for a lower-priority capability. Forced
+re-authentication is the simplest to implement correctly and was chosen
+directly by the product owner with that trade-off explicit: a one-time
+support-load spike in exchange for a materially simpler, lower-risk
+migration of the most security-sensitive subsystem in the codebase.
 
-1. **Dual-validation window**: the new backend accepts both legacy-shaped
-   JWTs (validated against the legacy signing key/logic) and new-shaped
-   tokens, for a bounded transition period, silently upgrading a legacy
-   token to a new access/refresh pair on the user's next successful
-   request. Lowest user-visible friction; highest implementation
-   complexity (two validation code paths must coexist correctly and be
-   torn down cleanly afterward).
-2. **Forced re-authentication on cutover**: legacy tokens are not
-   honored post-cutover; every user is logged out and must log in again
-   once. Simplest to implement; guaranteed to generate a support-load
-   spike and requires coordinated communication (in-app messaging,
-   customer notification) timed with the desktop app's existing
-   forced-update mechanism (`hr-platform#21`) so users aren't confused by
-   an unexplained logout.
-3. **Staggered rollout by identity cohort**: migrate authentication for a
-   subset of companies/users first (feasible only if a staging/cutover
-   testing mechanism exists — currently it does not, per `hr-platform#20`,
-   since neither client has an environment switch), observe, then
-   proceed. Lowest risk if it can be built; currently blocked on solving
-   `hr-platform#20` first.
+### Token Revocation / Cutover Behavior
 
-**This document does not select one of these three.** The choice depends
-on acceptable support load, whether a staging mechanism gets built
-(`hr-platform#20`), and the cutover timeline — all product/operational
-decisions outside this document's scope.
+- At the moment the new backend takes over authentication, **every
+  existing `hr-legacy`-issued JWT is treated as invalid** — not
+  individually revoked one-by-one (there is no mechanism to revoke
+  10-year legacy tokens server-side today, `hr-legacy#7`), but
+  categorically: the new backend simply never recognizes the legacy
+  signing key/claim shape, so no legacy token can pass validation
+  against it.
+- User **credentials** (phone + password hash) migrate normally as part
+  of the data migration — only session **tokens** do not. No user needs
+  to reset their password; they only need to log in again.
+- The legacy backend, if kept running in parallel during any transition
+  window, continues to honor its own tokens until it is fully
+  decommissioned — this design does not require synchronized revocation
+  across both systems, since they simply stop being the same
+  authentication authority at cutover.
+
+### User Communication Requirements
+
+- **Advance notice before cutover**: users should be told, in advance,
+  that they will need to log in again after a specific date/deployment —
+  this is a coordination requirement for whoever owns the cutover
+  communication plan, not something this design document can schedule.
+- **In-the-moment messaging**: when a client's next request fails
+  because the legacy token is no longer recognized, the client must show
+  a clear "please log in again" state (see Client Handling below), not a
+  generic error — this is a client-code requirement, not just a backend
+  one.
+- **Coordinate with the existing desktop forced-update/maintenance-mode
+  mechanism** (`hr-platform#21`, `configs`-served version-gate fields) —
+  desktop already has a working mechanism for telling users "something
+  changed, take action," which the cutover communication should reuse
+  rather than inventing a second, parallel mechanism.
+
+### Client Handling Of Expired/Invalid Legacy Tokens
+
+- Both clients' existing `_forceLogoutOnReplacedSession()`-style handling
+  (per `docs/api/flutter-request-response-compatibility.md`, "Session/Token
+  Lifecycle") already reacts to an outright `401` with a graceful,
+  user-visible "please log in again" flow — the new backend rejecting a
+  legacy token on cutover produces exactly this same `401` shape, so
+  **no new client-side error-handling code path is required** for the
+  cutover event itself, only for the *new* refresh-token flow (item 5 in
+  Target Design above), which is a separate, already-scoped client
+  change.
+- This is a real point in favor of forced re-authentication specifically:
+  it degrades through an error path both clients already handle
+  correctly, rather than requiring new client logic to be shipped and
+  adopted before cutover can safely happen.
+
+### Secure Access/Refresh-Token Lifecycle (Post-Cutover)
+
+Once a user re-authenticates against the new backend, the full target
+design applies from Target Design above: short-lived access token,
+rotating opaque refresh token, `flutter_secure_storage`-backed storage
+on both clients (item 4), server-side revocation on logout/password
+change (item 3). Forced re-authentication is specifically the
+**migration mechanism** for existing users reaching this target state —
+it is not a permanent ongoing behavior; once past cutover, normal
+refresh-token rotation governs session lifetime, not repeated forced
+logins.
+
+### Rollback Implications
+
+If the new auth backend needs to be rolled back after cutover, users who
+already re-authenticated against it hold **new-system credentials/tokens
+the old `hr-legacy` system does not recognize** — rollback is **not**
+silently transparent to users who already migrated. Concretely: a user
+who logged into the new backend, then experiences a rollback to
+`hr-legacy`, will need to log in again a *second* time against the old
+system (their password still works there, since credentials were
+migrated, not replaced — only where their session token is valid
+differs). This needs an explicit rollback communication plan if rollback
+is a realistic possibility for the cutover window chosen — not designed
+here, but named as a required follow-up, not an implicit non-issue.
+Recorded also in `docs/migration/cutover-and-rollback-assumptions.md`.
 
 ## Sequencing (Server Changes vs. Client Releases)
 
@@ -198,12 +259,14 @@ running the existing forced-update check), the recommended order is:
    token-lifetime change, so that by the time the backend actually
    shortens token lifetime, most active users already have refresh-aware
    clients.
-2. **Backend implements refresh/rotation/revocation** (items 1–3, 6),
-   initially still honoring existing long-lived legacy tokens per
-   whichever backward-compatibility approach is chosen above.
-3. **Backend begins issuing short-lived tokens** to newly-authenticating
-   users/sessions, with existing long-lived tokens phased out per the
-   chosen backward-compatibility timeline.
+2. **Backend implements refresh/rotation/revocation** (items 1–3, 6).
+   Because forced re-authentication is the decided approach, there is no
+   dual-validation window to build — the backend simply never needs to
+   understand the legacy token shape at all.
+3. **Backend cuts over**: at go-live, the new backend begins issuing and
+   requiring its own short-lived tokens for all authentication; every
+   existing legacy session ends at that moment (see the decided-approach
+   section above for the full cutover/communication/rollback design).
 
 This sequencing exists specifically to avoid the failure mode named in
 `hr-platform#18`: shortening token lifetime before clients can refresh
@@ -222,10 +285,10 @@ would log out the entire active user base on first deploy.
   (sessions/refresh-token table) as in-scope now (it's needed for
   revocation regardless) but the user-facing "manage my sessions" UI as a
   separately-scoped future feature.
-- Dual-validation (backward-compatibility option 1) is the riskiest
-  component to implement correctly — recommend a technical-spike-style
-  proof of concept before committing to it over the simpler forced
-  re-authentication option, if it's the direction chosen.
+- ~~Dual-validation risk~~ — moot: forced re-authentication was chosen
+  specifically because it avoids dual-validation's implementation risk
+  (see "Why This Option" above). No spike needed for the
+  backward-compatibility mechanism itself.
 
 ## Open Questions
 
@@ -235,9 +298,13 @@ would log out the entire active user base on first deploy.
   forward, or whether the current single-active-session behavior should
   be preserved intentionally (as a product decision) rather than as an
   accidental side effect of `token_version` bumping.
-- Which backward-compatibility approach (dual-validation, forced
-  re-auth, staggered rollout) is acceptable given real support-load and
-  timeline constraints — requires product/operations input.
+- ~~Which backward-compatibility approach is acceptable~~ — **Resolved
+  2026-08-04**: forced re-authentication, confirmed by the product
+  owner. See "Backward-Compatible Migration Of Existing Users" above for
+  the full design.
+- Exact cutover date/communication lead time for the forced
+  re-authentication event — not yet scheduled, depends on overall
+  migration sequencing (`hr-platform#15`, PMR-09).
 - Whether a user-facing "active sessions" management UI is in scope for
   this migration or a later release.
 

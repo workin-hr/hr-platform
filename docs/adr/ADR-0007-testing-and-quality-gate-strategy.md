@@ -44,7 +44,26 @@ Adopt layered quality gates that escalate in cost from every commit to pre-relea
 
 Partial evidence exists: the taxonomy and cadence are documented in `docs/testing/`. Still pending before Accepted: real CI implementation of each tier and confirmation that the required tools (see P2-8 CI remediation) are actually wired into GitHub Actions rather than only described in strategy documents.
 
+### Classification (2026-08-04 revision)
+
+**Can be accepted now, with real CI wiring tracked as implementation
+work, not a pre-acceptance blocker.** The technical-spike plan's H5
+hypothesis (JUnit 5 + Testcontainers + ArchUnit + REST Assured) was
+downgraded from "required spike" to "adopt directly" — this is mature,
+standard 2026 Spring Boot testing stack, not something needing isolated
+experimental validation (see `docs/migration/technical-spike-plan.md`'s
+Revision Summary). The taxonomy/cadence documented in `docs/testing/`
+gives the strategic direction; wiring the actual tiers into GitHub
+Actions is real implementation work that naturally happens alongside
+first-milestone backend work, not a separate validation gate. Recommend:
+accept the strategy now; track "real CI implementation of each tier" as
+an implementation task (P2-8), not an ADR-acceptance blocker.
+
 ## Open Questions
 
-- which tests become mandatory by phase
-- what tooling is practical within the MVP timeline
+- which tests become mandatory by phase — a sequencing detail, not a
+  strategic blocker; can be refined during implementation
+- what tooling is practical within the MVP timeline — resolved in
+  practice by the spike-plan revision: the full stack (JUnit 5,
+  Testcontainers, ArchUnit, REST Assured) is judged practical enough to
+  adopt directly, not deferred

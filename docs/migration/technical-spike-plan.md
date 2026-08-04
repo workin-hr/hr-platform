@@ -2,21 +2,46 @@
 
 ## Status
 
-**Proposed — not yet approved or started.** This document is a plan for
-human review. No spike work begins until the plan itself is approved (see
-`docs/migration/pre-migration-readiness-gap-analysis.md`, PMR-07, and the
-Migration-Readiness Gate at the end of that document). This spike does
-not authorize or constitute the start of migration implementation.
+**Revised 2026-08-04 — scope cut from a 10-day, 6-hypothesis plan down
+to a single required 3-day spike, per explicit direction not to treat
+the full plan as a blanket blocker.** Still Proposed/not started. No
+spike work begins until this revised plan itself is approved (see
+`docs/migration/pre-migration-readiness-gap-analysis.md`, PMR-07, and
+the Migration-Readiness Gate). This spike does not authorize or
+constitute the start of migration implementation.
+
+## Revision Summary — What's Required Vs. What's Not
+
+Reviewed all 6 original hypotheses against one question: **does this
+need dedicated, isolated experimental validation before real
+implementation starts, or is it mature/low-risk enough to adopt
+directly and validate organically while building the first real
+module?**
+
+| Hypothesis | Original framing | Revised classification | Why |
+|---|---|---|---|
+| **H2 — tenant isolation (RLS vs. repository-guard)** | Required | **Required — the only genuinely blocking spike** | This is the structural fix for the single most-repeated, highest-severity bug class found in `hr-legacy` Discovery (15 files, `hr-legacy#2/#3/#5/#6`). The choice shapes every module written afterward — expensive to retrofit if wrong. RLS's session-variable-per-request interaction with connection pooling is genuinely non-obvious and worth verifying hands-on before committing every module to it. |
+| H1 — Spring Modulith boundaries | Required | **Not a blocker — validate organically** | Even if Spring Modulith's tooling turns out clunky, the fallback (manual package boundaries + ArchUnit rules) is still a perfectly good modular monolith. Nothing here is expensive to change mid-course. Confirm boundary discipline while building the first real module instead of a separate isolated exercise. |
+| H3 — auth approach + Keycloak comparison | Required (1 day time-boxed for Keycloak) | **Not a blocker — implement directly; Keycloak comparison dropped** | The auth direction is now a confirmed decision (`docs/adr/ADR-0005-authentication-and-authorization-direction.md`, `docs/security/authentication-remediation-design.md`: short-lived JWT + refresh + revocation, forced re-authentication for existing users, no dual-validation). Spring Security JWT+refresh is mature, well-documented technology — implement it as the real auth module directly. The Keycloak comparison arm is superseded by this decision and dropped from scope entirely, not deferred. |
+| H4 — springdoc-openapi mechanism | Required | **Not a blocker — adopt directly** | Mature, standard Spring Boot tooling. Additionally, the original rationale for even a mechanism-only test ("cannot validate real Flutter compatibility, blocked on PMR-02") no longer applies — PMR-02 is resolved with real evidence (`docs/api/flutter-request-response-compatibility.md`, `docs/api/three-frontend-api-usage-matrix.md`). Generate and review the real spec against real contract evidence as part of implementing the first real endpoint, not a synthetic slice. |
+| H5 — testing stack (JUnit5/Testcontainers/ArchUnit/REST Assured) | Required | **Not a blocker — adopt directly** | Mature, standard 2026 Spring Boot testing stack; `docs/testing/test-strategy.md`/`quality-gate-cadence.md` already document the taxonomy. Set it up as part of the first real module's scaffolding. |
+| H6 — observability baseline | Required | **Not a blocker — adopt directly** | Mature, standard practice (structured logging + correlation ID + OpenTelemetry auto-instrumentation). Adopt as part of initial project scaffolding, not a separate validation exercise. |
+
+**Net effect**: the spike shrinks from 10 days / 6 hypotheses to
+**3 days / 1 hypothesis**. Everything else becomes first-milestone
+implementation work instead of pre-implementation validation.
 
 ## Purpose
 
-Validate the technology choices already recorded in
-`docs/tools/tool-catalog.md`/`tool-decision-matrix.md` against this
-project's real characteristics — before committing to them at
-full-implementation scale — using one small, low-risk, representative
-vertical slice. This closes PMR-07 and feeds evidence directly into
-whether ADR-0002, ADR-0003, ADR-0004, ADR-0005, ADR-0007, and ADR-0008
-move toward Accepted, Revised, or Rejected.
+Validate the **one** technology choice genuinely uncertain enough to
+need hands-on proof before committing every module to it: the tenant-isolation
+mechanism (H2). This closes the blocking portion of PMR-07 and feeds
+evidence directly into `docs/adr/ADR-0002-modular-monolith-baseline.md`'s
+tenant-isolation-pattern detail. The other ADRs this spike originally
+targeted (ADR-0003, ADR-0004, ADR-0005, ADR-0007, ADR-0008) are addressed
+directly in `docs/migration/pre-migration-readiness-gap-analysis.md`'s
+revised ADR classification (2026-08-04) — most move toward acceptance now
+using existing evidence, without needing this spike.
 
 ## Vertical Slice Scope
 
@@ -37,111 +62,108 @@ integration, or any other high-risk domain, per direct instruction. If
 during execution any experiment starts to require touching one of these
 domains to proceed, stop and flag it rather than expanding scope.
 
-## Hypotheses And Experiments
+## The Required Spike: H2 — Tenant Isolation Mechanism
 
-Each hypothesis is falsifiable — the spike is expected to produce a real
-Accept/Revise/Reject answer, not a foregone conclusion.
-
-### H1 — Java 25 / Spring Boot 4.x can express ADR-0002's modular-monolith boundaries without excessive ceremony
-
-- **Experiment**: Scaffold the slice as two Spring Modulith modules
-  (`identity`, `reference-data`) with explicit module boundaries.
-  Attempt a deliberately incorrect cross-module internal-package
-  reference and confirm Spring Modulith's verification catches it
-  (`ApplicationModules.verify()`). Measure setup time and boilerplate.
-- **Falsifies if**: boundary enforcement requires disproportionate
-  ceremony for a project this size, or Spring Modulith's assumptions
-  don't fit this domain.
+The spike is now scoped to this one hypothesis. Fully falsifiable — the
+spike is expected to produce a real Accept/Revise/Reject answer, not a
+foregone conclusion.
 
 ### H2 — PostgreSQL + Flyway can represent the multi-tenant model, and Row-Level Security is a viable structural fix for the tenant-isolation bug class found in `hr-legacy`
 
-- **Experiment**: Version the schema for `companies` and `branches` via
-  Flyway migrations. Implement tenant isolation two ways for direct
-  comparison: (a) Postgres RLS keyed on a session variable set per
-  request, and (b) a repository-layer guard (the `org_verify_post_row()`
-  pattern already proven correct in 4 `hr-legacy` dashboard modules).
-  Write an automated test that attempts a cross-tenant read/write — the
-  exact shape of the bug found in 15 `hr-legacy` files across the API
-  and dashboard — and confirm both approaches block it. Record the
-  operational trade-offs of each (ORM/connection-pooling interaction for
-  RLS, discipline-dependence for the repository guard).
+- **Decision it validates**: how the new backend structurally prevents
+  the cross-tenant access class confirmed in `hr-legacy#2/#3/#5/#6` (and
+  data-level-clean per `docs/migration/tenant-boundary-verification.md`
+  — the data itself is consistent, only the authorization layer is
+  missing) — Postgres Row-Level Security vs. a repository-layer guard
+  pattern.
+- **Minimal implementation scope**: version the schema for `companies`
+  and `branches` via Flyway migrations (the same minimal vertical slice
+  as originally scoped — tenant identity + one reference-data entity, no
+  payroll/attendance/device domains). Implement tenant isolation two
+  ways for direct comparison: (a) Postgres RLS keyed on a session
+  variable set per request, and (b) a repository-layer guard (the
+  `org_verify_post_row()` pattern already proven correct in 4
+  `hr-legacy` dashboard modules).
+- **Acceptance criteria**: an automated test that attempts a
+  cross-tenant read/write — the exact shape of the bug found in 15
+  `hr-legacy` files — is written and confirmed to correctly **block**
+  the attempt under both approaches, with a recorded trade-off
+  comparison (ORM/connection-pooling interaction for RLS,
+  discipline-dependence for the repository guard).
+- **Required environment/access**: local Postgres (Docker), Java
+  25/Spring Boot 4.x scaffold, Flyway — no production data, no Flutter
+  client, no device access needed (same as the original plan's "What
+  Can Be Tested Without..." analysis, still accurate for this narrowed
+  scope).
+- **Expected output/evidence**: a working (disposable) two-table slice
+  with both isolation approaches implemented, the cross-tenant test
+  passing against both, and a short written recommendation for which
+  pattern (or which pattern per data-sensitivity tier) the real backend
+  adopts.
+- **Blocking or parallel-safe?**: **Real implementation blocker.** This
+  is the one decision expensive to retrofit once dozens of modules are
+  built against it — every module's data-access layer depends on
+  whichever pattern is chosen here.
 - **Falsifies if**: RLS introduces enough operational complexity
   (connection pooling, session-variable propagation through the ORM) to
   outweigh its structural-safety benefit for this project's scale.
 
-### H3 — A chosen authentication approach addresses the specific failure classes found in `hr-legacy` without disproportionate complexity
+## Moved To First-Milestone Implementation (Not Spiked)
 
-- **Experiment (primary)**: Implement Spring Security with short-lived
-  JWTs (minutes-to-hours, not `hr-legacy`'s 10-year tokens) plus refresh
-  tokens and explicit server-side revocation on logout/password-change —
-  directly answering `hr-legacy` issue #7's findings.
-- **Experiment (comparison, time-boxed)**: Stand up a local Keycloak
-  instance and evaluate it for the same slice — per-tenant realm support,
-  built-in brute-force protection, admin audit logging (directly
-  answering issues #10 and #11). Cap this at one day; if Keycloak's own
-  setup complexity consumes the full day without a working comparison,
-  record that as a real finding (Keycloak may be too heavy for this
-  MVP), not a reason to extend the time-box.
-- **Falsifies if**: neither approach can be wired into the slice within
-  its time allocation without unresolved security gaps.
+The remaining five original hypotheses are no longer separate
+pre-implementation experiments — they're mature/low-risk enough to
+adopt directly as part of building the first real module, per the
+Revision Summary table above. Recorded here for traceability, not as
+spike work:
 
-### H4 — springdoc-openapi can produce a usable API-compatibility baseline without Flutter access
-
-- **Experiment**: Generate an OpenAPI spec from the two slice endpoints.
-  Review it for completeness (does it capture error responses, auth
-  requirements, field types accurately). This cannot validate real
-  Flutter compatibility (blocked on PMR-02) — it can only prove the
-  *mechanism* for producing and versioning a contract is viable so that
-  when real client evidence arrives, there's a working spec-generation
-  pipeline to compare it against.
-- **Falsifies if**: the generated spec is not accurate/complete enough
-  to be a meaningful comparison baseline once Flutter evidence exists.
-
-### H5 — JUnit 5 + Testcontainers + ArchUnit + REST Assured provide adequate confidence at proportionate setup cost
-
-- **Experiment**: Write tests at three levels for the slice: unit
-  (JUnit 5), integration against a real Postgres via Testcontainers (not
-  H2/mocks — directly avoiding a "tests pass against a fake DB, fails
-  against real Postgres" gap), architecture-boundary (ArchUnit, tied to
-  H1), and API-level (REST Assured, tied to H2's cross-tenant test).
-  Measure total setup time and whether the suite runs fast enough for a
-  tight feedback loop.
-- **Falsifies if**: setup cost or run time is disproportionate for a
-  slice this small, suggesting friction that would compound at full
-  scale.
-
-### H6 — A minimal observability baseline is cheap enough to adopt from day one
-
-- **Experiment**: Add structured JSON logging with a per-request
-  correlation ID, plus OpenTelemetry auto-instrumentation emitting
-  traces to a local/throwaway collector (not the full
-  Prometheus/Grafana/Loki/Tempo stack — that's a separate, larger
-  decision deferred by design). Confirm a single request can be traced
-  end-to-end through both slice endpoints.
-- **Falsifies if**: baseline instrumentation meaningfully slows
-  development or requires infrastructure disproportionate to "day one."
+- **H1 (Modulith boundaries)**: adopt Spring Modulith (or plain package
+  boundaries + ArchUnit if it proves clunky) while building the first
+  real module; not isolated pre-validation.
+- **H3 (Auth approach)**: implement Spring Security with short-lived
+  JWT + refresh + revocation directly, per the confirmed decision in
+  `docs/security/authentication-remediation-design.md`. The Keycloak
+  comparison arm is dropped, not deferred — the direction is decided.
+- **H4 (springdoc-openapi)**: generate and review the real OpenAPI spec
+  against the real Flutter contract evidence (now available,
+  `docs/api/flutter-request-response-compatibility.md`) as part of
+  implementing the first real endpoint.
+- **H5 (testing stack)**: set up JUnit 5 + Testcontainers + ArchUnit +
+  REST Assured as part of first-module scaffolding — this stack is also
+  what H2's own acceptance criteria above needs, so it gets exercised
+  regardless.
+- **H6 (observability baseline)**: structured logging + correlation ID +
+  OpenTelemetry auto-instrumentation, adopted as part of initial project
+  scaffolding.
 
 ## What Can Be Tested Without Flutter, Production Data, Or Devices
 
-**Everything in this spike.** The vertical slice was deliberately chosen
-because it needs none of the three biggest external unknowns:
+**Everything in this narrowed spike.** The vertical slice needs none of
+the three biggest external unknowns:
 
 - Tenant identity and reference-data CRUD do not require the real
-  Flutter client (H4 tests the spec-generation *mechanism*, not
-  real-client compatibility).
+  Flutter client. (Real Flutter contract evidence is now available
+  anyway — `docs/api/flutter-request-response-compatibility.md`,
+  PMR-02 resolved 2026-08-04 — but this spike's H2 scope doesn't touch
+  API-contract validation either way.)
 - A fresh Flyway-versioned schema for two new tables does not require
-  production data.
+  production data (real schema/data analysis is now separately
+  available too — `docs/migration/data-quality-analysis.md` and
+  siblings, filled in 2026-08-04 — again, orthogonal to H2).
 - Neither endpoint touches attendance hardware.
 
 ## What Must Remain Blocked
 
-- **Full API-compatibility validation** against real Flutter behavior —
-  blocked on PMR-02.
 - **Payroll/attendance business-logic migration** — blocked on the
   product decisions in PMR-06 and requires its own, later, higher-risk
   spike or direct planning once this one's findings are in.
-- **Data-migration cutover mechanics** — blocked on PMR-03.
-- **Device/gateway integration** — blocked on PMR-04.
+- **Data-migration cutover mechanics requiring a fresh production
+  snapshot** — the 2026-08-04 analysis pass covers what the available
+  dump can prove; live cutover timing/downtime estimation still needs a
+  snapshot closer to actual migration.
+- **Final device/gateway validation** — blocked on hardware/vendor
+  access (PMR-04); the vendor-neutral architecture itself is now
+  designed ahead of that access, see
+  `docs/devices/device-integration-architecture.md`.
 
 Do not let spike momentum pull any of these into scope. If an experiment
 seems to require one of them, that is a signal to stop and note it, not
@@ -149,20 +171,15 @@ to expand the slice.
 
 ## Proposed Time-Box
 
-**10 working days (2 weeks), proposed for human confirmation or
-adjustment — not a committed deadline.** Suggested allocation:
+**3 working days, proposed for human confirmation or adjustment — not a
+committed deadline. Revised down from the original 10.** Suggested
+allocation:
 
 | Day | Focus |
 |---|---|
-| 1 | Environment setup: Java 25, Spring Boot 4.x scaffold, Postgres via Docker, Flyway baseline |
-| 2–3 | Company identity: registration, login, JWT issuance (H1, H3 groundwork) |
-| 3–4 | `branches` CRUD, tenant-scoped; implement and test RLS vs. repository-guard (H2) |
-| 5 | OpenAPI generation and review (H4) |
-| 6 | Testing stack across the slice (H5) |
-| 7 | Observability baseline (H6) |
-| 8 | Keycloak comparison arm (H3, time-boxed to this one day) |
-| 9 | Write findings, per-ADR recommendations, spike report |
-| 10 | Review checkpoint with human stakeholder; teardown per rollback strategy |
+| 1 | Environment setup: Java 25, Spring Boot 4.x scaffold, Postgres via Docker, Flyway baseline; company identity (register, login, JWT issuance) |
+| 2 | `branches` CRUD, tenant-scoped; implement and test both RLS and repository-guard tenant isolation (H2) |
+| 3 | Write the cross-tenant test, confirm both approaches block it, record trade-offs, write findings/recommendation, review checkpoint, teardown per rollback strategy |
 
 If the time-box is exceeded, that is itself a reportable finding (see
 Exit Criteria), not a reason to silently extend without flagging it.
@@ -171,38 +188,34 @@ Exit Criteria), not a reason to silently extend without flagging it.
 
 1. A working (but disposable — see Rollback Strategy) vertical-slice
    codebase satisfying the exit criteria below.
-2. A written spike report covering, per hypothesis: what was tried, what
-   was found, and whether it confirms or falsifies the hypothesis.
+2. A written spike report: what was tried, what was found, and whether
+   H2 confirms or falsifies.
 3. An explicit recommendation — **Accept**, **Revise**, or **Reject** —
-   for each of: ADR-0002, ADR-0003 (scoped to the spec-generation
-   mechanism, not full Flutter compatibility), ADR-0004 (scoped to
-   schema/migration mechanics, not full data-migration approach),
-   ADR-0005, ADR-0007, ADR-0008. **ADR-0001 (repository strategy) and
-   ADR-0006 (attendance edge-gateway) are out of scope for this spike**
-   — nothing in the vertical slice exercises either.
-4. A recorded comparison of RLS vs. repository-layer tenant-isolation
-   (H2), since this directly informs how the migration addresses the
-   most repeated bug class found in `hr-legacy` Discovery.
+   for the tenant-isolation pattern, feeding directly into
+   `docs/adr/ADR-0002-modular-monolith-baseline.md`'s tenant-isolation
+   detail. This spike no longer produces recommendations for
+   ADR-0003/0004/0005/0007/0008 — those are addressed directly via
+   existing evidence in the revised gap-analysis ADR classification
+   (2026-08-04), not gated on this spike.
+4. A recorded comparison of RLS vs. repository-layer tenant-isolation,
+   since this directly informs how the migration addresses the most
+   repeated bug class found in `hr-legacy` Discovery.
 
 ## Risks Of The Spike Itself
 
 - **Scope creep into real implementation.** Mitigation: the vertical
   slice boundary is explicit and enforced by the rollback strategy below
-  (spike code cannot become production code by default); a review
-  checkpoint on day 10 catches drift before it compounds.
-- **Environment/tooling setup consuming the whole time-box.** Mitigation:
-  day 1 is reserved specifically for this; if setup isn't done by end of
-  day 1, that itself is a finding about tooling friction, reported
-  honestly rather than absorbed silently into later days.
+  (spike code cannot become production code by default); the day-3
+  review checkpoint catches drift before it compounds.
+- **Environment/tooling setup consuming a disproportionate share of the
+  now-3-day time-box.** Mitigation: if setup isn't done within the first
+  half of day 1, that itself is a finding about tooling friction,
+  reported honestly rather than absorbed silently into later days.
 - **A vertical slice this simple produces false confidence** by never
-  encountering `hr-legacy`'s real complexity. Mitigation: H2's
+  encountering `hr-legacy`'s real complexity. Mitigation: the
   cross-tenant test is deliberately modeled directly on the actual bug
   class found in 15 `hr-legacy` files — the one place this spike
   intentionally reaches for real complexity rather than staying trivial.
-- **The Keycloak comparison (H3) could balloon given its own setup
-  complexity.** Mitigation: hard-capped at one day; "ran out of time to
-  fully evaluate it" is an acceptable, honestly-reported outcome, not a
-  spike failure.
 
 ## Rollback / Discard Strategy
 
@@ -234,16 +247,12 @@ Exit Criteria), not a reason to silently extend without flagging it.
 The spike is complete when all of the following are true:
 
 - [ ] The vertical slice runs end-to-end: register a company, log in,
-      obtain a JWT, perform tenant-scoped CRUD on `branches`, with
-      automated tests passing at every level (H5).
-- [ ] The cross-tenant isolation test (H2) demonstrates both the RLS and
+      obtain a JWT, perform tenant-scoped CRUD on `branches`.
+- [ ] The cross-tenant isolation test demonstrates both the RLS and
       repository-guard approaches correctly block a cross-tenant
       access attempt, with a recorded trade-off comparison.
-- [ ] An OpenAPI spec is generated and reviewed for completeness (H4).
-- [ ] Structured logs and at least one end-to-end OpenTelemetry trace
-      are observed for a single request (H6).
-- [ ] A written recommendation (Accept/Revise/Reject) exists for each
-      in-scope ADR listed under Deliverables.
+- [ ] A written recommendation (Accept/Revise/Reject) exists for the
+      tenant-isolation pattern, feeding `docs/adr/ADR-0002-modular-monolith-baseline.md`.
 - [ ] The time-box was respected, or its overrun is explicitly reported
       with a reason.
 - [ ] The spike codebase is fully torn down per the Rollback Strategy,
@@ -254,5 +263,11 @@ The spike is complete when all of the following are true:
 
 Builds on `docs/migration/pre-migration-readiness-gap-analysis.md`
 (PMR-07), `docs/tools/tool-catalog.md`, `docs/tools/tool-decision-matrix.md`,
-`docs/security/threat-model.md` (the tenant-isolation and auth findings
-this spike directly tests against), and ADR-0002/0003/0004/0005/0007/0008.
+`docs/security/threat-model.md` (the tenant-isolation findings this
+spike directly tests against),
+`docs/migration/tenant-boundary-verification.md` (confirms the data
+itself is clean — this spike addresses the authorization-layer gap, not
+data corruption), and ADR-0002. Revision rationale (2026-08-04, cutting
+H1/H3/H4/H5/H6 from spike scope): see "Revision Summary" at the top of
+this document and the ADR classification in
+`docs/migration/pre-migration-readiness-gap-analysis.md`.

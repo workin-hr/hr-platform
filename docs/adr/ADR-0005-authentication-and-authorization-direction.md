@@ -57,13 +57,33 @@ toward `Accepted` once a human reviews that design and the decisions it
 leaves open (token lifetimes, backward-compatibility approach for
 existing users, whether multi-session support is wanted) are resolved.
 
+### Classification (2026-08-04 revision)
+
+**Can be accepted now.** Both halves of this ADR's original open
+questions are resolved with real evidence and an explicit product
+decision: the *problem* (10-year JWT, no revocation, plaintext client
+storage, no refresh capability) is fully documented with direct code
+evidence; the *direction* (short-lived access token + rotating refresh
+token, server-side revocation, `flutter_secure_storage` client storage,
+forced re-authentication for existing users, no Keycloak/external IdP)
+is a confirmed decision, not a hypothesis — see
+`docs/security/authentication-remediation-design.md` for the full
+design. This does not depend on the technical spike (H3's Keycloak
+comparison arm was dropped specifically because this direction is
+already decided) or on production/device access. Recommend a human
+decider move `Status` to `Accepted` now if they agree with the recorded
+direction; remaining open items below are refinements, not blockers to
+acceptance.
+
 ## Open Questions
 
-- Which backward-compatible migration approach for existing long-lived
-  tokens (dual-validation, forced re-authentication, or staggered
-  rollout — see `docs/security/authentication-remediation-design.md`)
-  is acceptable given real support-load constraints.
-- External identity provider constraints (unchanged from original
-  framing — not yet investigated).
+- ~~Which backward-compatible migration approach... is acceptable~~ —
+  **Resolved 2026-08-04**: forced re-authentication, confirmed by
+  product owner. See `docs/security/authentication-remediation-design.md`.
+- External identity provider constraints — resolved by direction, not
+  by investigation: the decision is to **not** use an external IdP
+  (Keycloak or otherwise) for this MVP; self-managed JWT + refresh is
+  the chosen approach.
 - Access/refresh token lifetime values and whether multiple simultaneous
-  sessions per identity are desired going forward.
+  sessions per identity are desired going forward — still genuinely
+  open, a product/security trade-off not yet decided.
