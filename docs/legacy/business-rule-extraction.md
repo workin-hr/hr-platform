@@ -584,6 +584,49 @@ holds Admin/HR credentials choosing not to pass `cascade=1`. Worth a
 product decision on whether this should become soft-delete/archival
 during migration rather than a like-for-like port.
 
+---
+
+## Rule: Mobile "logout" deactivates the employee's account at that company, no password required
+
+**Current Behavior:** `profile/logout.php`, when called by an
+`EMPLOYEE`-type session, does more than end the session: it sets
+`employees.is_active = 0` for that employee at that company, deletes all
+their push tokens, and — if they were previously active — sends the
+company a "employee left" notification
+(`notification_employee_left_company_to_company()`). This happens on
+**every** employee logout, unconditionally, with no password
+confirmation and no explicit "are you sure" step. The employee cannot
+simply log back in afterward: `login_employee.php` explicitly rejects an
+`accepted`-but-`is_active=0` match with `403 EMPLOYEE_ACCOUNT_NOT_ACTIVE`
+— they need an Admin/HR to reactivate them via `employees/reactivate.php`.
+The endpoint's own comment acknowledges the severity: "re-join via
+company code." Contrast directly with `profile/delete_account.php`'s
+employee path, which produces the **exact same** `is_active=0` outcome
+but requires re-entering the account password first — logout and
+"delete my account" currently have identical system effects, but only
+one of them is password-gated. Company-admin logout has no such side
+effect at all (push-token cleanup only) — this is employee-specific.
+
+**Where Observed:** `apis/api/profile/logout.php`, full file, lines
+31–68; contrasted with `apis/api/profile/delete_account.php` lines
+50–91 (the password-gated version of the same state change), and
+`apis/api/auth/login_employee.php` lines 98–101 (the resulting login
+rejection).
+
+**Risk If Misinterpreted:** This is a strong candidate for a real,
+already-happening support/product problem, not just a migration risk:
+an employee tapping an ordinary "log out" button loses access to their
+account and requires HR intervention to restore it, with the company
+side additionally seeing a "this employee left" notification that isn't
+actually true. Worth a direct question to whoever owns the mobile client
+and support inbox about whether this is a known, intentional design
+(e.g. deliberately treating logout as "leaving the company" for a
+specific product reason) or a bug that's been silently generating
+support burden. Do **not** port this behavior into a migrated system
+without an explicit decision either way — it is exactly the kind of
+subtle, high-impact rule this Discovery process exists to surface before
+it gets carried forward by assumption.
+
 ## Evidence
 
 All entries: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`,

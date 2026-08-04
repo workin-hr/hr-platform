@@ -5,10 +5,10 @@
 `workin-hr/hr-legacy` has 199 API endpoint files (see
 `docs/legacy/existing-php-module-inventory.md` for the full module
 breakdown). This pass documents: all 14 `auth` endpoints, all 15
-`attendance` endpoints, all 14 `employees` endpoints, all 16
-`payroll_batches`/`payslips` endpoints, and all 20
-`advances`/`penalties`/`salary_contracts` endpoints — 79 endpoints total.
-The remaining ~120 endpoints are inventoried structurally (module, file
+`attendance` endpoints, all 14 `employees` endpoints, all 9 `profile`
+endpoints, all 16 `payroll_batches`/`payslips` endpoints, and all 20
+`advances`/`penalties`/`salary_contracts` endpoints — 88 endpoints total.
+The remaining ~111 endpoints are inventoried structurally (module, file
 count, purpose) in the module inventory, not individually here yet. Do
 not read this document as complete endpoint coverage.
 
@@ -422,6 +422,28 @@ open question from the schema inventory.
 | `stats.php` | GET | Company-scoped; Manager branch-scoped. |
 | `upload_photo.php` | POST | Company-scoped; allows self-service (`EMPLOYEE` role) in addition to Admin/HR/Manager. |
 | `import_bulk.php` / `analyze_excel.php` / `template_excel.php` | POST/POST/GET | Bulk Excel import, dry-run analysis, and template download; not traced past the company-scoped call site in this pass (same "large helper, not fully read" caveat as the attendance Excel tooling). |
+
+## Profile (`apis/api/profile/`, 9 endpoints)
+
+**Consumer:** Self-service for the authenticated caller (company admin or
+employee) — no cross-account access in this module by design.
+
+**Finding — mobile logout silently deactivates the employee's account,
+with no password confirmation, and can't be undone by the employee
+themselves** — see the dedicated entry in
+`docs/legacy/business-rule-extraction.md`. This is one of the most
+consequential findings of this Discovery pass precisely because it looks
+like a routine, low-risk action.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `change_password.php` | POST | Requires old password; 6-character minimum on the new one, no complexity rule. Does not bump `token_version` — same session-survives-password-change gap as `reset_password.php` (see threat model). |
+| `logout.php` | POST | Push-token cleanup for both auth types; additionally deactivates the account for `EMPLOYEE`-type sessions — see business-rule finding. |
+| `delete_account.php` | DELETE | Password-confirmed. Company-admin path is a full transactional cascade hard-delete of the tenant (`company_cascade_delete()` — all employees, attendance, payroll, everything). Employee path deactivates only (same state as `logout.php`, but password-gated). |
+| `delete_account_preview.php` | GET | Dry-run counterpart to `delete_account.php`. |
+| `request_phone_change.php` / `confirm_phone_change.php` | POST | Company-admin only; OTP-gated phone change with global uniqueness check. Not subject to the DEBUG-disclosure finding (this pair doesn't return the OTP in the response). Uses the same unthrottled `otp_verify_latest_for_phone()` as the rest of the system. |
+| `register_push_token.php` | POST | Registers an FCM-style device token; not traced past the call site. |
+| `company.php` / `employee.php` | GET/GET+PUT | Self-profile fetch (and edit, for `employee.php`) for the authenticated caller. |
 
 ## Evidence
 
