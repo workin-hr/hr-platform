@@ -1,49 +1,224 @@
 # Existing Endpoint Inventory
 
-## Endpoint
+## Scope Of This Pass
 
-Record the exact endpoint, route, or RPC-style action being observed. If the
-surface is not yet fully known, capture the best current identifier and mark
-uncertainty explicitly.
+`workin-hr/hr-legacy` has 199 API endpoint files (see
+`docs/legacy/existing-php-module-inventory.md` for the full module
+breakdown). This pass documents the three core auth/attendance endpoints
+below plus all 16 `payroll_batches`/`payslips` endpoints — the highest-risk
+business logic found so far (see business rule extraction). The remaining
+180 endpoints are inventoried structurally (module, file count, purpose)
+in the module inventory, not individually here yet. Do not read this
+document as complete endpoint coverage.
 
-## Consumer
+Consumer note: no mobile/desktop client source was available in this
+pass — every "Consumer" field below is inferred from the API's own
+`AuthTypeEnum` roles (`employee`, `company`, `desktop` per
+`apis/api/auth/login_desktop.php`'s existence) and the API's request/
+response shape, not confirmed against real client code. Marked
+accordingly per entry.
 
-Identify who depends on the endpoint, such as:
+Source: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`.
 
-- Flutter mobile app
-- Flutter desktop app
-- PHP admin flow
-- internal scheduled process
-- third-party integration
+---
 
-If more than one consumer exists, list each separately so compatibility risk
-is visible.
+## Endpoint: `POST /api/auth/login_employee`
 
-## Request Shape
+**Consumer:** Inferred — mobile/desktop employee client (not confirmed
+against client source; inferred from `AuthKey::TYPE` and `AuthTypeEnum::EMPLOYEE`
+appearing in the response/session logic).
 
-Capture the request fields, headers, auth assumptions, and notable encoding or
-validation expectations. If the request shape is inferred rather than observed,
-mark it as such.
+**Request Shape:** JSON body, required fields `phone` (string) and
+`password` (string). No headers required beyond standard content-type —
+this is the unauthenticated entry point.
 
-## Response Shape
+**Response Shape:** On success: `{ token: <JWT>, employee: <public_row> }`.
+`public_row()` is a shared redaction helper (`apis/helpers/public_row.php`,
+not read in this pass) — the exact field list returned is not yet
+confirmed, only that a redaction step exists rather than returning the
+raw `employees` row (which would include `password_hash`).
 
-Capture the success payload, empty-state behavior, pagination or envelope
-rules, and any format quirks that clients rely on.
+**Error Behavior:** All failures are 401/403/404/409, never a generic 500
+for expected cases:
 
-## Error Behavior
+- `401 USER_NOT_FOUND` — no employee row for that phone at all
+- `401 INCORRECT_PASSWORD` — row(s) found, none password-match
+- `409 MULTIPLE_ACCOUNTS_SAME_PHONE` — more than one login-ready or
+  more than one pending account matches (see
+  `docs/legacy/business-rule-extraction.md`)
+- `403 COMPANY_ACCOUNT_NOT_ACTIVE` / `403 EMPLOYEE_ACCOUNT_NOT_ACTIVE` /
+  `403 ACCOUNT_DEACTIVATED_ENTER_CODE` — matched but not eligible to log
+  in, for different specific reasons
+- A single `pending`-status match is treated as a *success* (not an
+  error) with a token issued — this is a real, easy-to-miss branch, not
+  an oversight to "fix" during migration without checking with someone
+  who understands why pending accounts get a token.
 
-Record observable failure modes, including status codes, error payload shape,
-retry behavior, and any known client-side tolerance for inconsistent results.
+**Evidence:** `apis/api/auth/login_employee.php`, full file, read directly.
+
+---
+
+## Endpoint: `POST /api/attendance/check_in`
+
+**Consumer:** Inferred — mobile client (self check-in) and dashboard/HR
+client (checking in on behalf of another employee) — the endpoint
+explicitly branches on `is_self_attendance` (see Request Shape), which
+only makes sense if both consumer types are real.
+
+**Request Shape:** JWT bearer auth required. JSON body, required:
+`latitude`, `longitude`, `method` (free-form in validation, but
+`AttendanceMethodEnum` constrains it to `app`/`excel`/`qr` elsewhere in
+the schema). Optional `employee_id` — if omitted, defaults to the
+authenticated employee (self check-in); if provided and different from
+the authenticated employee, this is an HR/admin-initiated check-in for
+someone else, which changes several downstream rules (mobile-attendance
+opt-out check is skipped, geofencing requirement is relaxed — see
+business rules).
+
+**Response Shape:** `{ attendance_id: <int>, time: <Y-m-d H:i:s string> }`.
+
+**Error Behavior:**
+
+- `405` wrong HTTP method
+- `403 MOBILE_ATTENDANCE_DISABLED` — self check-in attempted by an
+  employee with that feature turned off
+- plain failure (no specific code path documented in this pass) —
+  `ALREADY_CHECKED_IN` if an open session already exists
+- `422 INVALID_INPUT` with `field`/`reason` payload — the 2-hour
+  minimum-gap rule (see business rules), with a fixed Arabic reason
+  string, not a translation key
+- geofencing failures bubble up from
+  `validate_employee_attendance_location()` — `BRANCH_LOCATION_NOT_CONFIGURED`
+  (403), `EMPLOYEE_BRANCH_REQUIRED` (403), `BRANCH_NOT_FOUND` (404), or
+  `OUT_OF_RANGE` (400) with `{ dist, radius }` in the payload (both in
+  meters, `dist` rounded to the nearest integer)
+
+**Evidence:** `apis/api/attendance/check_in.php` and
+`apis/helpers/attendance_location_helper.php`, both read in full.
+
+---
+
+## Endpoint: `POST /api/attendance/check_out`
+
+**Consumer:** Same as check-in — self and HR/admin-on-behalf-of.
+
+**Request Shape:** JWT bearer auth required. JSON body, `employee_id`
+optional (same default-to-self behavior as check-in). GPS
+(`latitude`/`longitude`) is only required for self-checkout — an
+HR-initiated checkout does not re-validate location at all
+(`if ($is_self_attendance) { ...validate location... }`, no `else`
+branch). If GPS is omitted on a self-checkout, the code falls back to the
+*check-in* coordinates rather than failing
+(`parse_request_gps_coordinates($body, $open_attendance_row)`).
+
+**Response Shape:** `{ duration_minutes: <int>, time: <Y-m-d H:i:s string> }`.
+Duration is computed in PHP (`time() - strtotime(check_in)`), not by a
+SQL `TIMESTAMPDIFF` — worth noting only because check-in's own
+too-soon-again check *does* use `TIMESTAMPDIFF` in SQL; the two related
+endpoints compute elapsed time two different ways.
+
+**Error Behavior:** `NO_OPEN_CHECK_IN` if there is no open session to
+close (i.e. `check_out IS NULL` row) for that employee. Same
+geofencing failure codes as check-in when GPS validation runs.
+
+**Evidence:** `apis/api/attendance/check_out.php`, full file, read
+directly.
+
+---
+
+## Payroll Batches (`apis/api/payroll_batches/`, 10 endpoints)
+
+**Consumer (all 10):** Dashboard/HR client only — every endpoint in this
+module requires `COMPANY_ADMIN` or `HR` role (`requireAuth([UserRoleEnum::COMPANY_ADMIN, UserRoleEnum::HR])`),
+never `MANAGER` or `EMPLOYEE`. No self-service surface exists for batches.
+
+**ID convention:** `id` is read from `$_GET[Request::ID]` on every
+mutating endpoint, including the `PUT`/`POST` ones (`calculate.php`,
+`finalize.php`, `reopen.php`, `update.php`) — the resource id travels in
+the query string even when the HTTP verb implies a body-based request.
+Consistent across the module, so treat it as a real convention, not a bug
+in one file.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `create.php` | POST | Creates a `draft` batch for `(company_id, month, year)`. Uniqueness is enforced only by an app-level `SELECT COUNT(*)` check before the `INSERT` — **no database unique constraint backs it** (confirmed against the schema inventory: `payroll_batches` has no unique key on that triple). Two concurrent create requests for the same company/month/year can both pass the check and both insert, producing duplicate batches. |
+| `calculate.php` | POST | Runs `payroll_calculate_batch()` — the full destructive delete-and-reinsert described in the business-rule extraction. **Not wrapped in a DB transaction** at the endpoint level, unlike `finalize.php`/`reopen.php` below. A failure partway through leaves the batch with a partial payslip set. |
+| `finalize.php` | PUT | Wrapped in `beginTransaction`/`commit`/`rollBack`. Side effects: marks matching penalties `applied_to_payroll=1`, applies advance deductions to `advances.remaining`. Blocked for already-finalized batches. |
+| `reopen.php` | PUT | Wrapped in `beginTransaction`/`commit`/`rollBack`. Reverses both finalize side effects and sets status back to `draft`. |
+| `delete.php` | DELETE | Draft-only. Manually runs `DELETE FROM payslips WHERE batch_id=?` before deleting the batch row, despite `payslips.batch_id` already being `ON DELETE CASCADE` in the schema — redundant but harmless given both statements run before any commit boundary. |
+| `update.php` | PUT | Draft-only mutation lock — same pattern as `delete.php`/`calculate.php` (any endpoint that mutates a batch checks `status !== 'finalized'` first). |
+| `list.php` | GET | Paginated; filters on status/year/search. |
+| `one.php` | GET | Fetches via `get_payroll_batch_with_stats()` — a shared helper, not an inline query (contrast with `payslips/one.php`, `payslips/list.php` below, which build their SELECT inline but do call the shared computed-totals SQL fragment). |
+| `stats.php` | GET | Aggregate SQL built from the same shared computed-total column expressions used elsewhere (see below), not a separate reimplementation. |
+| `fiscal_period.php` | GET | Thin preview wrapper around `payroll_fiscal_period_bounds()` (see business rules) — lets the dashboard show a batch's date range before creating it. |
+
+## Payslips (`apis/api/payslips/`, 6 endpoints)
+
+**Consumer:** Mixed, unlike payroll batches. `create.php`, `update.php`,
+`delete.php` are `COMPANY_ADMIN`/`HR` only (management/write). `list.php`,
+`one.php`, `export.php` additionally allow `MANAGER` and `EMPLOYEE` —
+employees can read their own payslips (never write them). Three different
+techniques enforce the "own payslips only" restriction for employees, all
+read directly rather than assumed identical:
+
+- `list.php` — silently *overwrites* the `employee_id` filter with the
+  caller's own id when `role === EMPLOYEE`, ignoring whatever was
+  requested (no error, just scope narrowing).
+- `one.php` — fetches the payslip first (scoped only to `company_id`),
+  then explicitly checks `payslip.employee_id === auth.employee_id` and
+  returns `403 FORBIDDEN` if not — the one endpoint here that can
+  distinguish "not yours" from "doesn't exist."
+- `export.php` — delegates to `data_export_payslips_csv()`
+  (`apis/helpers/data_export_helper.php`), which adds `p.employee_id = ?`
+  to the SQL `WHERE` clause itself when `role === EMPLOYEE`, before any
+  rows are fetched.
+
+**Finding — three independent implementations of the same payroll math
+exist across this module, not one shared calculation reused everywhere:**
+
+1. **`apis/helpers/payroll_calculation.php`**'s shared SQL fragment
+   (`sql_payslip_select_with_computed_totals()`,
+   `sql_payslip_total_entitlements()`, `sql_payslip_total_deductions()`)
+   plus `payroll_enrich_payslip_row()` for attendance display — used by
+   `list.php`, `one.php`, `stats.php`, and `payroll_batches/one.php`. This
+   is the canonical, single-source path.
+2. **`payslips/update.php`** (manual HR override of a single payslip)
+   independently re-derives gross/day-rate/absence-cost/overtime/net in
+   inline PHP using the same `PENALTY_CALENDAR_DAYS_PER_MONTH`-based
+   formula as the batch engine, rather than calling a shared compute
+   function. A change to the batch-engine formula would not automatically
+   apply here.
+3. **`payslips/create.php`** (manually adding one payslip to an existing
+   batch) uses a **materially simpler, different formula**:
+   `net_salary = (basic_salary + allowances + overtime_pay) - (penalties_total + advance_deduction + other_deductions)`,
+   where `allowances` is the sum of transport/food/risk/incentives from
+   the salary contract. It does **not** compute a day-rate or an
+   absence-cost from `days_absent` at all — `penalties_total` is taken
+   directly from the request body rather than derived from `days_absent ×
+   day_rate` the way the batch engine and `update.php` both do it. A
+   payslip created through this endpoint and one produced by
+   `calculate.php` for an otherwise-identical employee can diverge simply
+   because one path skips the absence-cost step entirely.
+
+**Finding — `payslips.allowances` (schema column) actually holds only the
+housing allowance, not a general allowances bucket:** confirmed directly
+from a comment in `payslips/update.php`'s override logic reconciling the
+column against the salary contract's separate `housing_allowance` field.
+The column name is a legacy artifact — the schema inventory's inferred
+"purpose" column for `payslips` should be read with this correction in
+mind; a migration that takes the column name at face value would
+misclassify this value.
+
+| Endpoint | Method | Notes |
+|---|---|---|
+| `create.php` | POST | Blocked for finalized batches and for a `(batch_id, employee_id)` pair that already has a payslip (`COUNT(*)` check — same app-level-only uniqueness pattern as `payroll_batches/create.php`, and the schema does carry a real unique constraint here per the schema inventory, so this one is actually DB-backed unlike the batch-level check). Uses the simplified net-salary formula described above. |
+| `update.php` | PUT | Draft-batch-only manual override; full recomputation using the shared day-rate/absence-cost formula, independently reimplemented (see finding above). |
+| `delete.php` | DELETE | Draft-batch-only (checked via a join to the parent batch's status, not a stored flag on the payslip itself). |
+| `list.php` | GET | Paginated; filters on batch/employee/month/year/branch/department/search, plus a `new_employees_this_month` flag that joins on `employees.hire_date` falling inside the batch's period. Employee-role callers are silently scoped to self. |
+| `one.php` | GET | Explicit 403 (not silent scoping) when an employee requests a payslip that isn't theirs. |
+| `export.php` | GET | CSV export via `data_export_payslips_csv()`; same filter set as `list.php`, SQL-level employee scoping for the employee role. |
 
 ## Evidence
 
-Link the source of truth for the entry, such as:
-
-- source code reference
-- captured request/response pair
-- mobile or desktop client code
-- production behavior note
-- support or incident evidence
-
-Do not mark an endpoint as understood without evidence from at least one
-consumer or behavior source.
+Files cited individually per endpoint above, all from `workin-hr/hr-legacy`
+commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`.
