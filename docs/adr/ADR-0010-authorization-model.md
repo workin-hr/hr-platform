@@ -85,6 +85,14 @@ not a separate domain — it is the `EMPLOYEE` role's default resource
 scope (own-data-only), using the same machinery as every other role.
 Full detail: `docs/architecture/authorization-model.md` §1.
 
+**Update 2026-08-05 (later same day)**: platform-admin identity model
+decided — the MVP keeps `hr-legacy`'s existing shared platform-admin
+password (`hr-legacy#11`), not individual per-admin accounts.
+Independent per-admin identity (individual login, MFA, distinguishable
+audit trail) is an explicit backlog enhancement, not MVP scope —
+`docs/migration/consolidated-task-matrix.md` F-26. Full detail:
+`docs/architecture/authorization-model.md` §7.
+
 ### Dimension 2 — Tenant-membership validation
 
 **Decided**: RLS (`docs/adr/ADR-0002-modular-monolith-baseline.md` Part
@@ -126,6 +134,14 @@ checks. **No external policy engine** (OPA, Cedar, OpenFGA, Keycloak
 Authorization Services) for this MVP — see Alternatives Considered. Full
 catalog and legacy mapping: `docs/architecture/authorization-model.md`
 §3, §7.
+
+**Update 2026-08-05 (later same day)**: `can_employees`'s four
+legacy-bundled capabilities (`employees`, `administrative_decisions`,
+`notifications`, `complaints`) are kept as **one bundle**
+(`employees.manage`) by direct product decision — not split into
+independent keys, matching what `hr-legacy` itself actually
+distinguished rather than introducing new granularity nobody asked for.
+Full detail: `docs/architecture/authorization-model.md` §7.
 
 ### Dimension 4 — Authorization enforcement boundaries
 

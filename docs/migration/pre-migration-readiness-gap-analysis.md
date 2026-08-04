@@ -436,7 +436,7 @@ while still reading as an unresolved Discovery-stage placeholder.
 | **Accepted 2026-08-05**, no dependency | ADR-0001 (repository strategy), ADR-0003 (API versioning — contract preserved at the existing unversioned URL surface), ADR-0004 (MySQL→Postgres — single-cutover bulk copy), ADR-0007 (testing strategy), ADR-0008 (observability baseline — MVP minimum, heavier stack deliberately deferred) |
 | **Accepted 2026-08-04**, no dependency | ADR-0005 (authentication direction) |
 | **Split — Accepted in full 2026-08-05** | ADR-0002 (modular monolith — Part A strategy + Part B tenant-isolation pattern, RLS, both accepted) |
-| **Split — Part A accepted 2026-08-05, Part B still blocked** | ADR-0006 (attendance edge-gateway — adapter/SPI pattern accepted; vendor now named (FK fingerprint devices, all versions), connectivity/protocol specifics still blocked on PMR-04) |
+| **Split — Part A accepted 2026-08-05, Part B still blocked** | ADR-0006 (attendance edge-gateway — adapter/SPI pattern accepted; vendor now named (ZKTeco devices, all versions), connectivity/protocol specifics still blocked on PMR-04) |
 | **Accepted in full 2026-08-05** | ADR-0009 (dashboard vs. desktop — Option E; all four Validation Evidence items resolved, including desktop-access-universality, confirmed directly by the product owner) |
 | **Accepted in full 2026-08-05** | ADR-0010 (authorization model — all 6 dimensions decided by direct human architecture decision; architecture and constraints only — implementation is separate, tracked work, `docs/migration/consolidated-task-matrix.md` F-14–F-25) |
 
@@ -450,17 +450,18 @@ while still reading as an unresolved Discovery-stage placeholder.
 - **Risk Level / Migration Impact**: Low across the board.
 - **Blocks**: Nothing remains blocked on ADR-0001 through ADR-0005,
   ADR-0007 through ADR-0010. ADR-0006 Part B still blocks final
-  protocol/connectivity-pattern selection for FK fingerprint devices
+  protocol/connectivity-pattern selection for ZKTeco devices
   (PMR-04).
 - **Required Evidence To Close**: ADR-0006 Part B: PMR-04 —
-  specifically, FK's own SDK/integration documentation to determine
+  specifically, ZKTeco's own SDK/integration documentation (not just
+  the public documents landing page already fetched) to determine
   connectivity pattern (local gateway vs. direct cloud API vs. push
   webhook) and protocol details; the vendor identity itself is no
   longer open.
 - **Owner**: Repository owner, for the one remaining item above.
 - **Dependencies**: PMR-04 still feeds ADR-0006 Part B's final
   protocol/connectivity direction. Nothing else remains blocked.
-- **Target / Duration**: ADR-0006 Part B: per PMR-04 / FK vendor
+- **Target / Duration**: ADR-0006 Part B: per PMR-04 / ZKTeco vendor
   documentation.
 - **Exit / Acceptance Criteria**: Every ADR's Status is updated to
   `Accepted`, `Rejected`, or `Superseded`, with a decision-log citation.
@@ -547,7 +548,7 @@ ADR-0006 with vendor named but protocol/connectivity still open).
 |---|---|---|---|---|---|---|
 | PMR-05 | **Confirmed live 2026-08-04, remediated 2026-08-05**: `DEBUG=true` was in production, live value now changed | Critical → Closed on production | Was a live security incident; code-level defect in `hr-legacy` remains tracked separately | Closed on production | None remaining | `hr-legacy#4` |
 | PMR-07 | Tenant-isolation mechanism unvalidated hands-on | Done | N/A — H2 spike executed, RLS accepted (ADR-0002 Part B) | Done | None | `hr-platform#13` |
-| PMR-04 | Device/hardware Discovery not started | Medium (architecture + vendor now done) / High (final protocol validation) | ADR-0006's final protocol/connectivity direction, final device validation only | Ready for architecture; vendor named (FK fingerprint, all versions); Blocked for protocol-specific validation | FK SDK/integration docs or device access (validation only) | `hr-platform#12` |
+| PMR-04 | Device/hardware Discovery not started | Medium (architecture + vendor now done) / High (final protocol validation) | ADR-0006's final protocol/connectivity direction, final device validation only | Ready for architecture; vendor named (ZKTeco, all versions); Blocked for protocol-specific validation | ZKTeco SDK/integration docs or device access (validation only) | `hr-platform#12` |
 | PMR-10 | No correctness test plan/harness | High | Production cutover | Blocked | Target schema, authorization catalog (ADR-0010) | `hr-platform#16` |
 | PMR-01 | Dashboard Discovery incomplete | Medium-High | Dashboard modules | Ready | None | `hr-platform#9` |
 | PMR-02 | Flutter client contract — depth remaining | Medium (was Critical/High) | Full per-endpoint contract confirmation, not the whole migration | Ready | None | `hr-platform#10` |

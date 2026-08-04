@@ -334,7 +334,7 @@ flag's real call sites.
 | 10 | `can_workforce_planning` | `pages/workforce_planning/` | `workforce_planning.read`, `workforce_planning.manage` |
 | 11 | `can_salary_calculator` | `pages/salary_calculator/` — confirmed standalone, read-only, no database writes (see `docs/adr/ADR-0009-dashboard-vs-desktop-admin-client.md`'s Validation Evidence) | `salary_calculator.read` (no `.manage` — nothing to manage) |
 | 12 | `can_company_settings` | `pages/company_settings/` | `company.settings.read`, `company.settings.manage` |
-| 13 | `can_employees` | `pages/employees/`, **and reused (legacy conflation, not semantic overlap) for** `pages/administrative_decisions/`, `pages/notifications/`, `pages/complaints/` — four distinct capabilities gated by one flag historically | `employees.read`, `employees.manage`, `employees.decisions.manage`, `notifications.manage`, `complaints.manage` — **migration default: a legacy employee with `can_employees=1` receives all five**; the new catalog allows splitting them apart per-membership going forward via overrides |
+| 13 | `can_employees` | `pages/employees/`, **and reused for** `pages/administrative_decisions/`, `pages/notifications/`, `pages/complaints/` — four capabilities gated by one flag historically | `employees.read`, `employees.manage` — **kept as one bundle, by direct product decision (2026-08-05), not split into independently assignable keys.** `employees.manage` covers employee records, administrative decisions, notifications, and complaints together, exactly matching legacy's own grouping — no artificial granularity introduced beyond what `hr-legacy` actually distinguished |
 | 14 | `can_attendance` | `pages/attendance/` (payroll section) | `attendance.read`, `attendance.correct` |
 | 15 | `can_requests` | `pages/requests/` | `requests.read`, `requests.approve` |
 | 16 | `can_payroll` | `pages/payroll/` | `payroll.read`, `payroll.run` |
@@ -344,10 +344,15 @@ flag's real call sites.
 a section — one flag granted both. The migration therefore maps
 `can_X = 1` to granting **both** the `.read` and `.manage` (or
 equivalent named) keys for that row, as `membership_permission_overrides`
-`ALLOW` rows (Required Implementation Task 2). The finer-grained split
-this catalog now defines is available for **new** assignments going
-forward; migration does not retroactively narrow anyone's access
-without a separate, deliberate product decision.
+`ALLOW` rows (Required Implementation Task 2). For rows 1–12 and 14–17,
+the finer-grained `.read`/`.manage` split this catalog defines is
+available for **new** assignments going forward; migration does not
+retroactively narrow anyone's access without a separate, deliberate
+product decision. **Row 13 (`can_employees`) is the one deliberate
+exception**: by direct product decision, its four legacy-bundled
+capabilities stay bundled under `employees.manage` going forward too,
+not just at migration time — no independent `notifications.manage`/
+`complaints.manage`/decisions-only key is introduced for this MVP.
 
 **Platform-domain starter catalog** (legacy has no granular platform
 permissions — `dashboard/includes/auth.php`'s `doAdminLogin()` is a
@@ -355,9 +360,26 @@ single shared password with unconditional full access,
 `hr-legacy#11`): `platform.companies.read`, `platform.companies.approve`,
 `platform.companies.suspend`, `platform.companies.delete`, confirmed
 directly from `dashboard/pages/companies/page.php`'s real action
-handlers. Per-platform-admin identity (replacing the shared password) is
-a `docs/adr/ADR-0005-authentication-direction.md`-adjacent concern, not
-decided by this document.
+handlers.
+
+**Platform-admin identity model — decided 2026-08-05, by direct product
+decision**: the new platform **keeps the single shared platform-admin
+password model for the MVP**, unchanged from `hr-legacy`'s current
+behavior (`hr-legacy#11`) — no per-platform-admin individual account,
+no MFA, no distinguishable per-admin audit trail is built now.
+**Independent per-admin accounts (individual identity, MFA, distinct
+audit trail per admin) is an explicit backlog enhancement**, not
+in-scope for MVP — tracked as
+`docs/migration/consolidated-task-matrix.md` F-26. This is a deliberate
+scope-narrowing decision, not an oversight: the platform-admin surface
+is small, low-traffic (Workin's own staff, not customer-facing), and
+the real, confirmed risk this session found (`hr-legacy#11`) is
+explicitly accepted as a known, deferred trade-off rather than gated on
+before MVP delivery. The privilege-escalation and auditing requirements
+in §8/§9 still apply to whatever platform-admin actions occur under the
+shared credential — audit records identify the *action*, even though
+they cannot yet distinguish *which individual* performed it while the
+shared-password model remains in place.
 
 ## 8. Privilege-Escalation Protections
 
@@ -385,7 +407,12 @@ access another tenant's resources.
 
 Each audit record includes: actor, target identity or membership,
 tenant, action, timestamp, correlation ID, and before/after
-authorization state where applicable.
+authorization state where applicable. **Known MVP limitation**: while
+the platform-admin identity model remains the shared-password design
+(§7), `actor` for platform-admin actions identifies the generic
+platform-admin principal, not a distinguishable individual — this is
+the direct, accepted consequence of deferring per-admin identity to the
+backlog (F-26), not a gap in the auditing design itself.
 
 ## 10. Failure And Revocation Behavior Summary
 

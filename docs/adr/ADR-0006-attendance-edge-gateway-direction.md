@@ -54,29 +54,50 @@ behind an adapter boundary rather than baked into core business logic,
 which is a design judgment, not a fact PMR-04 discovery would change.
 
 **Part B — Vendor-specific gateway-or-not decisions: partially resolved
-2026-08-05, still not `Accepted`.** **Vendor identity is now decided**,
-directly by the product/business owner (this conversation, verbatim):
-*"use fk fingerprint with all versions"* — attendance devices are FK
-fingerprint hardware, and the adapter built for them must support every
-model/firmware version in that product line, not one specific model.
-This resolves the "which vendor" question that PMR-04's hardware access
-gap had otherwise left fully open.
+2026-08-05 (corrected same day), still not `Accepted`.** **Vendor
+identity is decided**, directly by the product/business owner: attendance
+devices are **ZKTeco** hardware
+(`https://www.zkteco.com/en/documents`), and the adapter built for them
+must support every model/firmware version in that product line, not one
+specific model. (An earlier same-day note in this ADR recorded the
+vendor as "FK fingerprint" — the product/business owner corrected this
+to ZKTeco specifically; "FK" is not a real, retained vendor name. The
+correction is recorded here rather than silently overwritten, since the
+earlier text was already committed.) This resolves the "which vendor"
+question that PMR-04's hardware access gap had otherwise left fully
+open.
 
-**What remains genuinely open, not resolvable from this statement
-alone**: whether FK devices connect via a local `.NET` edge gateway,
-direct cloud API, or push webhook, and the exact wire protocol, both
-require FK's own SDK/integration documentation or physical device
-access — neither exists in this environment (PMR-04's underlying
-constraint is unchanged; only the vendor name is no longer unknown).
-The test-scenario checklist in
-`docs/devices/device-integration-architecture.md`'s final section
-likewise still needs real FK protocol details to execute. **Do not
-treat this vendor decision as resolving connectivity pattern or
-protocol** — those remain live and undecided until FK-specific
+**What remains genuinely open, not resolvable from the vendor name
+alone**: whether ZKTeco devices connect via a local `.NET` edge gateway,
+direct cloud API, or push webhook, and the exact wire protocol. A real
+attempt was made to resolve this from ZKTeco's own public documentation
+page (the URL the product/business owner gave, fetched directly
+2026-08-05): the page lists whitepaper-style titles on biometric
+recognition technology (3D structured-light facial recognition, palm
+recognition, face-anti-spoofing, etc.) with no visible SDK name,
+protocol specification, or connectivity-architecture detail — actual
+integration/SDK documents were not retrievable from that page (likely
+gated behind a download center or support contact, per the page's own
+structure). **The product/business owner also stated directly not
+knowing the protocol/connectivity detail either** ("for fk device i
+don't know" — said before the ZKTeco correction, understood to apply to
+protocol/connectivity generally, not just to the corrected vendor name).
+This ADR does **not** invent a connectivity pattern from general
+industry familiarity with biometric-device vendors — only what was
+directly fetched and read this session is treated as evidence. Real
+resolution requires either downloading ZKTeco's actual SDK/protocol
+documents (not just this landing page), contacting ZKTeco's technical
+support (`service@zkteco.com`, listed on the page), or physical device
+access — the same PMR-04 constraint as before, now narrowed to one
+named, real vendor instead of an unknown one. The test-scenario
+checklist in `docs/devices/device-integration-architecture.md`'s final
+section likewise still needs real ZKTeco protocol details to execute.
+**Do not treat the vendor decision as resolving connectivity pattern or
+protocol** — those remain live and undecided until real ZKTeco
 technical documentation or hardware access is available. Part A's
 adapter/SPI pattern (already accepted) is exactly what absorbs this
-remaining uncertainty without blocking other modules: the FK adapter
-gets built and wired to whichever connectivity pattern its real
+remaining uncertainty without blocking other modules: the ZKTeco
+adapter gets built and wired to whichever connectivity pattern its real
 protocol turns out to need, once known.
 
 ## Alternatives Considered
@@ -107,13 +128,18 @@ becomes a per-adapter implementation choice rather than a single
 architecture-wide commitment blocked entirely on vendor evidence.
 
 **Update 2026-08-05**: the vendor is now named directly by the
-product/business owner — FK fingerprint devices, all versions (see
-Decision, Part B). `docs/devices/attendance-device-model-and-firmware-inventory.md`
+product/business owner — ZKTeco devices, all versions (see Decision,
+Part B; corrected same day from an initial "FK fingerprint" note).
+`https://www.zkteco.com/en/documents` was fetched directly this
+session — it is a real, public vendor documents page, but contains
+whitepaper-style technology introductions, not integration/SDK protocol
+documentation. `docs/devices/attendance-device-model-and-firmware-inventory.md`
 and `docs/devices/vendor-capability-matrix.md` still remain correctly
-empty — a vendor name is not the same evidence as real device
-model/firmware/protocol detail, which still requires FK's own technical
-documentation or physical hardware access, neither of which exists in
-this environment.
+empty — a vendor name (and a landing page that doesn't contain protocol
+detail) is not the same evidence as real device model/firmware/protocol
+detail, which still requires ZKTeco's actual SDK/integration
+documentation (not yet retrieved) or physical hardware access, neither
+of which exists in this environment yet.
 
 ### Classification (2026-08-04 revision, Part A accepted 2026-08-05)
 
@@ -126,13 +152,17 @@ PMR-04 (hardware/vendor access) for the reasons in Decision above.
 ## Open Questions
 
 - ~~which vendors this system integrates with~~ — **Resolved
-  2026-08-05**: FK fingerprint devices, all versions, per direct
+  2026-08-05**: ZKTeco devices, all versions, per direct
   product/business-owner statement (see Decision, Part B).
-- whether FK devices need a local network gateway or connect via direct
-  cloud API/push webhook — still open, requires FK's own SDK/integration
-  documentation, not resolvable from the vendor name alone
-- which protocol(s) FK devices actually speak, and whether persistent
-  local services are required — still open, same dependency as above
+- whether ZKTeco devices need a local network gateway or connect via
+  direct cloud API/push webhook — still open; ZKTeco's public documents
+  landing page was fetched 2026-08-05 and did not contain this detail,
+  requires ZKTeco's actual SDK/integration documentation or vendor
+  support contact, not resolvable from the vendor name or that page
+  alone
+- which protocol(s) ZKTeco devices actually speak, and whether
+  persistent local services are required — still open, same dependency
+  as above
 - ~~whether the architecture can be vendor-agnostic ahead of vendor
   evidence~~ — **Resolved 2026-08-04, accepted as Part A 2026-08-05**:
   yes, see `docs/devices/device-integration-architecture.md` and
