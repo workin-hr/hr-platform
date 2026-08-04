@@ -350,18 +350,19 @@ this confirmation, however urgently, is not the same as remediating it.
 
 ### PMR-07: Target Technology Stack Unvalidated Hands-On
 
-**Update 2026-08-05 — executed, not just planned. Real result
-obtained.** The narrowed H2 spike was actually built and run:
-`spike/tenant-isolation-spike/` (real Spring Boot 4.1/Java 25, real
-Postgres via Testcontainers), 6/6 cross-tenant isolation tests passing,
-reproduced on a clean rebuild. A real bug was found and fixed mid-spike
-(Postgres RLS silently provides zero protection against a superuser
-connection — Testcontainers' default Postgres user is one). Recorded
-recommendation: RLS as the primary mechanism, condition attached
-(non-superuser application role). Full findings:
-`spike/tenant-isolation-spike/SPIKE-NOTES.md`. **This gap is now
-closed for evidence purposes** — what remains is ADR-0002 Part B's
-formal human acceptance, not further Discovery or spike work.
+**Update 2026-08-05 — executed, not just planned, and accepted.** The
+narrowed H2 spike was actually built and run (real Spring Boot 4.1/Java
+25, real Postgres via Testcontainers), 6/6 cross-tenant isolation tests
+passing, reproduced on a clean rebuild. A real bug was found and fixed
+mid-spike (Postgres RLS silently provides zero protection against a
+superuser connection — Testcontainers' default Postgres user is one).
+Recorded recommendation: RLS as the primary mechanism, condition
+attached (non-superuser application role). Full findings:
+`docs/migration/technical-spike-plan.md`'s "Full Spike Findings"
+section (the spike codebase itself was deleted per the Rollback
+Strategy once findings were promoted). **This gap is fully closed** —
+ADR-0002 Part B was formally accepted by a human decider on 2026-08-05
+(`docs/bootstrap/decision-log.md` D-018).
 
 **Update 2026-08-04 — scope narrowed, per explicit direction not to
 treat the full original plan as a blanket blocker.** Reviewed all 6
@@ -391,88 +392,82 @@ table: `docs/migration/technical-spike-plan.md`'s "Revision Summary."
 - **Blocks**: The tenant-isolation *pattern* detail specifically —
   no longer "full-scale implementation start" broadly.
 - **Required Evidence To Close**: ~~Execution of the revised, 3-day,
-  H2-only spike~~ — **Done 2026-08-05**. Remaining: ADR-0002 Part B
-  formally `Accepted` by a human decider.
-- **Owner**: Executed this session; formal acceptance owner TBD — human
-  engineering leadership per ADR-0002's Deciders field.
-- **Dependencies**: None remaining for this gap specifically.
+  H2-only spike~~ — **Done 2026-08-05**. ~~ADR-0002 Part B formally
+  `Accepted` by a human decider~~ — **Done 2026-08-05**.
+- **Owner**: Executed this session; accepted by the repository owner,
+  2026-08-05.
+- **Dependencies**: None.
 - **Target / Duration**: Executed in well under the 3-day allocation
   (real engineering time; most elapsed time was a one-time slow Gradle
   download in this sandbox, reported honestly in the spike plan).
 - **Exit / Acceptance Criteria**: Met — see
   `docs/migration/technical-spike-plan.md`'s Exit Criteria checklist.
-- **Status**: Closed for evidence purposes. ADR-0002 Part B's
-  acceptance is a separate, remaining action, tracked there and in
-  PMR-08, not as an open item of this gap.
-- **Related**: `docs/migration/technical-spike-plan.md`;
-  `spike/tenant-isolation-spike/SPIKE-NOTES.md`; ADR-0002;
-  `workin-hr/hr-platform#13`.
+- **Status**: Fully closed — evidence gathered and ADR-0002 Part B
+  accepted.
+- **Related**: `docs/migration/technical-spike-plan.md` (including its
+  "Full Spike Findings" section); ADR-0002; `docs/bootstrap/decision-log.md`
+  D-018; `workin-hr/hr-platform#13`.
 
 ### PMR-08: All 10 Architecture ADRs Remain Proposed
 
-**Update 2026-08-04 — per-ADR classification now exists, not a single
-monolithic blocker.** Every ADR was individually reviewed for whether
-it needs an actual decision now, depends on the (now-narrowed) spike,
-can be accepted immediately from existing evidence, or is genuinely
-premature. **Later update, same day**: ADR-0005 was corrected (its
-Decision section had only ever held Discovery-stage placeholder text,
-not the real approved direction — now fixed) and renamed to
-"Authentication Direction"; its former authorization-model scope split
-out into a new **ADR-0010**, genuinely open on all six of its
-dimensions (see that ADR directly — nothing there is decided). See each
-ADR file's own "Classification (2026-08-04 revision)" section for the
-full reasoning. Summary:
+**Update 2026-08-05 — 8 of 10 ADRs now Accepted.** Following the
+2026-08-04 per-ADR classification pass, the repository owner reviewed
+and accepted ADR-0001, ADR-0002 (both Part A and Part B — the H2 spike's
+RLS recommendation), ADR-0003, ADR-0004, ADR-0005 (already accepted
+2026-08-04), ADR-0006 (Part A only), ADR-0007, and ADR-0008 —
+`docs/bootstrap/decision-log.md` D-016 through D-024. Two ADRs
+placeholder-text Decision sections were rewritten with real,
+evidence-backed content before acceptance (ADR-0003, ADR-0004, ADR-0008)
+or restructured into an explicit Part A/Part B split before acceptance
+(ADR-0006), following the same discipline ADR-0005 required earlier —
+none were accepted while still reading as an unresolved Discovery-stage
+placeholder.
 
 | Classification | ADRs |
 |---|---|
-| **Recommended: accept now**, no dependency | ADR-0001 (repository strategy), ADR-0005 (authentication direction — corrected Decision section, 2026-08-04) |
-| **Recommended: decide now**, informed by existing evidence gathered this session | ADR-0003 (API versioning — real Flutter contract evidence now exists), ADR-0004 (MySQL→Postgres approach — real DB analysis now exists), ADR-0009 (dashboard vs. desktop — decision recorded, 2 items left for sign-off) |
-| **Accept now for the MVP baseline**, heavier stack deliberately deferred | ADR-0007 (testing strategy), ADR-0008 (observability baseline) |
-| **Split — strategic direction acceptable now, one detail still spike/access-dependent** | ADR-0002 (modular monolith — strategy now, tenant-isolation pattern detail after the 3-day spike), ADR-0006 (attendance edge-gateway — adapter/SPI pattern now, vendor-specific direction after PMR-04) |
-| **Genuinely premature — fully open, no recommendation** | ADR-0010 (authorization model — all 6 dimensions undecided; depends in part on ADR-0002 Part B's spike result) |
+| **Accepted 2026-08-05**, no dependency | ADR-0001 (repository strategy), ADR-0003 (API versioning — contract preserved at the existing unversioned URL surface), ADR-0004 (MySQL→Postgres — single-cutover bulk copy), ADR-0007 (testing strategy), ADR-0008 (observability baseline — MVP minimum, heavier stack deliberately deferred) |
+| **Accepted 2026-08-04**, no dependency | ADR-0005 (authentication direction) |
+| **Split — Accepted in full 2026-08-05** | ADR-0002 (modular monolith — Part A strategy + Part B tenant-isolation pattern, RLS, both accepted) |
+| **Split — Part A accepted 2026-08-05, Part B still blocked** | ADR-0006 (attendance edge-gateway — adapter/SPI pattern accepted; vendor-specific direction still blocked on PMR-04) |
+| **Recorded decision, one genuine open item remains** | ADR-0009 (dashboard vs. desktop — Option E recorded, Engineering sign-off and feature-disposition now resolved; desktop-access-universality confirmation is the one remaining blocker, not resolvable from this repository) |
+| **Genuinely premature — fully open, no recommendation** | ADR-0010 (authorization model — all 6 dimensions undecided; Dimension 2 is now informed, not resolved, by ADR-0002 Part B's acceptance) |
 
-**None of these are self-approving** — this document recommends, a
-human `Status`-change is still required per each ADR's own governance
-rule, consistent with this repository's practice throughout.
-
-- **Description**: None of `ADR-0001` through `ADR-0010` have moved to
-  `Accepted` yet, though 4 are recommended for immediate acceptance and
-  3 more for a decision now. ADR-0010 is new and not expected to be
-  ready soon — it is a genuinely open design space, not a pending
-  sign-off.
+- **Description**: 8 of 10 ADRs (`ADR-0001` through `ADR-0008`) are now
+  `Accepted` (ADR-0002 and ADR-0006 each with an explicit per-part
+  caveat where one part remains open). `ADR-0009` has one real,
+  unresolved factual item. `ADR-0010` remains fully open by design.
 - **Why It Matters**: Implementing against a `Proposed` ADR as if it
   were `Accepted` risks rework if a later formal review revises the
-  direction.
-- **Risk Level / Migration Impact**: Reduced to Low-Medium for the 7
-  ADRs recommended for sign-off; unchanged (genuinely unresolved) for
-  ADR-0010.
-- **Blocks**: Full-scale implementation start for the 2 ADRs still
-  genuinely spike/access-dependent (the tenant-isolation detail,
-  final device-vendor direction); the other 7 (excluding ADR-0010) are
-  ready for sign-off. **ADR-0010 blocks nothing for backend
-  implementation start or scaffolding** — only modules that need
-  fine-grained permission enforcement need it resolved first (see the
+  direction. That risk is now closed for 8 of 10 ADRs.
+- **Risk Level / Migration Impact**: Low for the 8 accepted ADRs;
+  Low-Medium for ADR-0009 (one factual confirmation away from
+  acceptance); unchanged (genuinely unresolved) for ADR-0010.
+- **Blocks**: Nothing remains blocked on ADR-0001, 0003, 0004, 0005,
+  0007, 0008, or ADR-0002 (fully accepted). ADR-0006 Part B still blocks
+  final vendor-specific device-integration decisions (PMR-04). ADR-0009
+  blocks admin-surface module cutover specifically, not general backend
+  implementation. **ADR-0010 blocks nothing for backend implementation
+  start or scaffolding** — only modules that need fine-grained
+  permission enforcement need it resolved first (see the
   Migration-Readiness Gate).
-- **Required Evidence To Close**: Human engineering leadership (each
-  ADR's own Deciders field) reviews the Validation Evidence/Classification
-  sections and records Accept/Reject/Revise in
-  `docs/bootstrap/decision-log.md`. For ADR-0010 specifically: a human
-  decider actually choosing an answer for each of its 6 dimensions —
-  not yet attempted by this document.
-- **Owner**: TBD — human engineering leadership, per each ADR's Deciders
-  field.
-- **Dependencies**: The narrowed PMR-07 spike still feeds ADR-0002's
-  tenant-isolation-pattern detail, which in turn feeds ADR-0010's
-  tenant-membership-validation dimension. PMR-04 still feeds ADR-0006's
-  final vendor-specific direction. Nothing else remains blocked.
-- **Target / Duration**: The 7 non-spike-dependent, non-ADR-0010 ADRs:
-  as soon as a human reviews. The 2 spike/access-dependent details: per
-  PMR-07/PMR-04. ADR-0010: TBD, genuinely open, no target set.
+- **Required Evidence To Close**: ADR-0009: product/business-owner
+  confirmation of desktop-access-universality for current dashboard
+  users. ADR-0006 Part B: PMR-04 (real vendor/hardware access).
+  ADR-0010: a human decider actually choosing an answer for each of its
+  6 dimensions — not yet attempted by this document, deliberately.
+- **Owner**: Repository owner, for the two remaining items above.
+- **Dependencies**: PMR-04 still feeds ADR-0006 Part B's final
+  vendor-specific direction and, in turn, ADR-0010's remaining open
+  dimensions where relevant. Nothing else remains blocked.
+- **Target / Duration**: ADR-0009: as soon as the desktop-access
+  question is answered. ADR-0006 Part B: per PMR-04. ADR-0010: TBD,
+  genuinely open, no target set.
 - **Exit / Acceptance Criteria**: Every ADR's Status is updated to
   `Accepted`, `Rejected`, or `Superseded`, with a decision-log citation.
-- **Status**: Ready for 7 of 10 ADRs (human sign-off only); Blocked for
-  ADR-0002's tenant-isolation detail (PMR-07) and ADR-0006's final
-  vendor direction (PMR-04); Open/undecided for ADR-0010.
+- **Status**: Done for 8 of 10 ADRs (`docs/bootstrap/decision-log.md`
+  D-016 through D-024). Blocked for ADR-0006 Part B (PMR-04) and
+  ADR-0009 (desktop-access confirmation). Open/undecided by design for
+  ADR-0010.
 - **Related**: All 10 ADRs; `docs/bootstrap/decision-log.md`;
   `workin-hr/hr-platform#14`.
 
@@ -585,16 +580,16 @@ this document. Substantially smaller than the original gate — see
 1. ~~PMR-07's narrowed spike (tenant-isolation mechanism only, 3 days)
    is Closed~~ — **Done 2026-08-05**: executed for real, 6/6 tests
    passing on a clean rebuild, recommendation recorded (RLS, with a
-   non-superuser-role condition). See
-   `docs/migration/technical-spike-plan.md` and
-   `spike/tenant-isolation-spike/SPIKE-NOTES.md`. **Remaining**: a
-   human decider formally accepting ADR-0002 Part B — the recommendation
-   exists, the acceptance does not yet.
+   non-superuser-role condition) and **accepted in full by a human
+   decider the same day**. See `docs/migration/technical-spike-plan.md`
+   ("Full Spike Findings" section) and `docs/bootstrap/decision-log.md`
+   D-018. Nothing remains open on this item.
 2. ~~ADR-0002's strategic direction and ADR-0005 are `Accepted`~~ —
    **Done 2026-08-04**: both accepted by the repository owner
    (`docs/bootstrap/decision-log.md` D-016, D-017). ADR-0002's
-   tenant-isolation *pattern* detail (Part B) remains open, tracked
-   under item 1 above, not this item. **ADR-0010 (authorization model,
+   tenant-isolation *pattern* detail (Part B) is now also `Accepted`
+   (D-018, tracked under item 1 above) — ADR-0002 is fully accepted,
+   both parts. **ADR-0010 (authorization model,
    split out of ADR-0005 on 2026-08-04) is a separate, still fully open
    decision — not part of this gate**, since no backend implementation
    strictly requires the authorization model finalized before

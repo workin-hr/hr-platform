@@ -210,8 +210,9 @@ is a much better match for JTE's minimal-operational-surface strength
 than the richly interactive company/HR admin surface this ADR is now
 routing to desktop instead.
 
-**This recommendation is not self-approving.** It requires Engineering
-sign-off before being treated as decided (see Validation Evidence).
+**Engineering sign-off received 2026-08-05** (see Validation Evidence)
+— Next.js is confirmed as the direction for this narrowed
+platform-admin web surface.
 
 ## Consequences
 
@@ -273,30 +274,38 @@ sign-off before being treated as decided (see Validation Evidence).
 - **Risk of assuming desktop-app access is universal**: not yet confirmed
   whether every current dashboard company/HR user can realistically run a
   native Windows/Mac desktop app (device, OS, install permissions) — see
-  Validation Evidence.
+  Validation Evidence. **This is the one remaining open item blocking
+  this ADR's acceptance as of 2026-08-05.**
 
 ## Validation Evidence
 
 ### Classification (2026-08-04 revision)
 
-**Needs an actual decision now for final sign-off — not blocked on the
-spike, mostly resolved.** The core question (which option) is decided;
-of the four remaining Validation Evidence items, two are now resolved
-(Manager-role gap, most of the feature-disposition question), leaving
-only Engineering sign-off on the narrowed Next.js-vs-JTE call and
-desktop-access-universality confirmation as real open items — both
-answerable now without further Discovery, by a human decider reading
-this document. Recommend: close these two remaining items and accept.
+**Not yet ready to accept — one genuine, unresolved factual item
+remains.** The core question (which option) is decided, and as of
+2026-08-05 three of the four Validation Evidence items are resolved
+(Engineering sign-off, Manager-role gap, feature-disposition question in
+full). **The fourth — whether every current dashboard company/HR user
+has a realistic path to desktop-app access — is not something this
+repository's Discovery can answer**; it needs a real answer from
+whoever has visibility into actual customer device/OS/install
+constraints. `Status` stays `Proposed` until that confirmation exists,
+not because the decision itself is in doubt, but because retiring the
+dashboard's `company_logged_in`/`hr_logged_in` paths before confirming
+this could genuinely strand real users.
 
 **Core decision confirmed** (2026-08-04, this conversation, by the named
 Decider) — Option E, role-based split, as recorded in the Decision
 section above, backed by direct code evidence
 (`dashboard/includes/auth.php`'s `doAdminLogin()`/`doCompanyLogin()`/
 `doHrLogin()`, `apis/api/auth/login_desktop.php`) gathered in this same
-verification pass. What remains before `Status` moves to `Accepted`:
+verification pass. Status as of 2026-08-05:
 
-1. Engineering-lead sign-off on the narrowed Next.js-vs-JTE
-   recommendation above.
+1. ~~Engineering-lead sign-off on the narrowed Next.js-vs-JTE
+   recommendation above~~ — **Resolved 2026-08-05**: the repository
+   owner, who is also the named `Deciders` for this ADR, gave blanket
+   approval covering this recommendation. Next.js is confirmed as the
+   direction for the narrowed platform-admin web surface.
 2. ~~The Manager-role desktop-login parity gap closed before any
    dashboard retirement~~ — **Resolved 2026-08-04**: investigated and
    found not to be a retirement blocker (see Consequences); Manager-role
@@ -304,16 +313,36 @@ verification pass. What remains before `Status` moves to `Accepted`:
    tracked separately, non-blocking for this ADR.
 3. ~~Disposition of dashboard-only capability with no desktop
    equivalent (`salary_calculator`, `setting_templates`, `activities`,
-   the 5-tab `company_settings` split)~~ — **Mostly resolved
-   2026-08-04**: `docs/api/three-frontend-api-usage-matrix.md`'s
-   capability/ownership matrix found `setting_templates` is not a
-   distinct capability (a tab within `company_settings`, already
-   tenant-admin) and `activities` is shared/company-scoped (tenant-admin
-   for its company-scoped view). Only `pages/salary_calculator/` remains
-   genuinely open — needs its own read-through to resolve the
-   independent-payroll-logic-duplication question before disposition.
-4. Confirmation that every current dashboard company/HR user has a
-   realistic path to desktop-app access (device/OS/install permissions).
+   the 5-tab `company_settings` split)~~ — **Fully resolved 2026-08-05**:
+   `docs/api/three-frontend-api-usage-matrix.md`'s capability/ownership
+   matrix already found `setting_templates` is not a distinct capability
+   (a tab within `company_settings`, already tenant-admin) and
+   `activities` is shared/company-scoped (tenant-admin for its
+   company-scoped view). `pages/salary_calculator/` (2 files, 94 lines
+   of actual calculation logic in `egypt_salary_calculator.php`) is now
+   also read directly: it is a **standalone, read-only, gross-to-net
+   estimator utility** — it never writes to the database (no
+   `payslips`/`salary_contracts` mutation anywhere in the file), and
+   `EgyptMonthlySalaryCalculator` is not referenced from any other file
+   in `hr-legacy` (confirmed via a repository-wide grep) — it does not
+   feed real payslip generation and is not itself one of the "three
+   divergent implementations of payslip-total math" that actually
+   produce stored payroll data (`hr-legacy` finding on payslip-math
+   divergence), just a UI convenience calculator alongside them.
+   **Disposition: low-risk, tenant-admin capability, portable to
+   desktop with no server-side dependency** — it can be added to
+   desktop as a small, self-contained feature (or reimplemented purely
+   client-side, since it has no state beyond the calculation itself)
+   whenever desktop parity work reaches it; nothing about its
+   implementation blocks this ADR's acceptance.
+4. **Still open, not resolvable by this pass**: confirmation that every
+   current dashboard company/HR user has a realistic path to desktop-app
+   access (device/OS/install permissions). This is a real-world,
+   operational/customer-facing fact — not something derivable from
+   reading code — and requires the product/business owner (or whoever
+   has visibility into actual customer device fleets) to confirm
+   directly. **This item is explicitly not closed and is the one
+   remaining blocker to this ADR's acceptance.**
 
 ## Open Questions
 

@@ -7,7 +7,7 @@
 | ADR ID | ADR-0002 |
 | Title | Modular Monolith Baseline |
 | Status | Accepted |
-| Date | 2026-08-02 (Part A accepted 2026-08-04 — see `docs/bootstrap/decision-log.md` D-016). **Note: this `Status` field reflects Part A only — see Decision below; the ADR format has no field for a per-part status, so this is the closest honest representation.** Part B (tenant-isolation pattern) remains genuinely `Proposed`/undecided despite this field saying `Accepted`. |
+| Date | 2026-08-02 (Part A accepted 2026-08-04 — see `docs/bootstrap/decision-log.md` D-016; Part B accepted 2026-08-05 — see D-018). Both parts are now Accepted; the `Status` field applies to the ADR as a whole. |
 | Owners | Solution Architect (see `docs/agents/responsibility-matrix.md`) |
 | Deciders | Human engineering leadership — recorded at approval time in `docs/bootstrap/decision-log.md` |
 | Related Issues | None yet |
@@ -20,10 +20,9 @@ The target system needs a credible delivery path for an MVP in roughly two month
 
 ## Decision
 
-**Part A is Accepted (2026-08-04, recorded in `docs/bootstrap/decision-log.md`
-D-016). Part B remains Proposed and unapproved — it is not decided by
-Part A's acceptance and must not be implemented against until it
-separately reaches `Accepted`.**
+**Both parts are Accepted.** Part A: 2026-08-04, recorded in
+`docs/bootstrap/decision-log.md` D-016. Part B: 2026-08-05, recorded in
+D-018, following the H2 spike's real, executed recommendation below.
 
 This decision has two parts, deliberately split so that the strategic
 choice was not held hostage to a narrow technical detail still pending
@@ -37,13 +36,14 @@ and not an undifferentiated layered monolith. Module implementation may
 proceed against this direction and the candidate boundary diagram in
 `docs/architecture/module-boundaries.md`.
 
-**Part B — Tenant-isolation implementation detail: H2 spike executed
-2026-08-05, real recommendation now recorded, still pending human
-acceptance.** *How* tenant isolation is structurally enforced across
+**Part B — Tenant-isolation implementation detail: Accepted 2026-08-05.**
+*How* tenant isolation is structurally enforced across
 every module — PostgreSQL Row-Level Security vs. a repository-layer
 guard pattern — was tested hands-on, not just planned:
 `docs/migration/technical-spike-plan.md`'s H2 experiment ran a real
-Spring Boot 4.1/Java 25 vertical slice (`spike/tenant-isolation-spike/`)
+Spring Boot 4.1/Java 25 vertical slice (built and run at
+`spike/tenant-isolation-spike/`, deleted 2026-08-05 after its findings
+were promoted — see below)
 against real Postgres via Testcontainers, with both mechanisms
 implemented and a deliberate cross-tenant attack test for each,
 modeled directly on `hr-legacy#2/#3/#5/#6`.
@@ -58,19 +58,29 @@ providing **zero** actual isolation, until a dedicated non-superuser
 application role was introduced. Full findings, the operational
 trade-off comparison, and the deliberate "forgot to scope" demonstration
 (which the repository-guard arm failed exactly as hr-legacy's real bugs
-did): `spike/tenant-isolation-spike/SPIKE-NOTES.md`.
+did): `docs/migration/technical-spike-plan.md`'s "Full Spike Findings" section.
 
-**Recommendation (not yet accepted — requires a human decider)**:
-adopt **RLS as the primary tenant-isolation mechanism**, on the
-explicit, non-optional condition that the non-superuser application
-role requirement is treated as a hard architectural constraint (ideally
-enforced by a startup-time check), with repository-layer scoping
-retained as a secondary defense-in-depth layer, not a replacement.
+**Decided**: adopt **RLS as the primary tenant-isolation mechanism**,
+accepted in full by a human decider on 2026-08-05, on the explicit,
+non-optional condition that:
 
-**Do not treat Part A's acceptance as implicitly deciding Part B.** A
-human accepting the modular-monolith strategy now does not pre-empt or
-shortcut the H2 spike's comparison — both RLS and the repository-guard
-pattern remain live options until that spike reports.
+1. The non-superuser application role requirement is treated as a hard
+   architectural constraint, not a footnote — ideally enforced by a
+   startup-time check that fails loudly if the application's runtime
+   DataSource ever connects as a superuser.
+2. Repository-layer scoping is still applied where practical as a
+   second, defense-in-depth layer — not relied upon alone, but not
+   discarded either.
+3. The RLS-arm test-coverage gap found during the spike (no test yet
+   proves RLS's fail-closed behavior when the session-variable-setting
+   call itself is omitted) is closed before this pattern is trusted in
+   real implementation — a condition on implementation, not on this
+   ADR's acceptance.
+
+All three conditions are implementation requirements for whoever builds
+the first module using RLS, not optional follow-ups — they carry
+forward into `docs/migration/consolidated-task-matrix.md` as acceptance
+criteria, not just this ADR's text.
 
 ## Alternatives Considered
 
@@ -119,9 +129,9 @@ satisfied — `docs/migration/technical-spike-plan.md`'s H2 experiment
 was executed for real (not just planned), producing a recorded
 recommendation (RLS, with the non-superuser-role condition) backed by a
 working, reproducible test suite. See
-`spike/tenant-isolation-spike/SPIKE-NOTES.md`. Part B is now ready for
-a human decider to accept, reject, or revise — it is no longer blocked
-on missing evidence, only on the acceptance decision itself.
+`docs/migration/technical-spike-plan.md`'s "Full Spike Findings"
+section. **Part B was accepted by a human decider on 2026-08-05** — see
+`docs/bootstrap/decision-log.md` D-018.
 
 ## Open Questions
 
@@ -136,16 +146,14 @@ on missing evidence, only on the acceptance decision itself.
   coupling-based gating factor, none currently met by any module (this
   is a forward-looking framework, not a current extraction
   recommendation).
-- ~~Part B: RLS vs. repository-guard tenant isolation~~ — **Spike
-  executed 2026-08-05**: `docs/migration/technical-spike-plan.md` H2
-  produced a recorded recommendation (RLS, primary mechanism, with the
-  non-superuser-role condition — see `spike/tenant-isolation-spike/SPIKE-NOTES.md`).
-  Not resolved as an Open Question until a human decider formally
-  accepts it — recorded here as "evidence exists, decision pending,"
-  not "closed."
-- **New 2026-08-05**: the RLS-arm test-coverage gap noted in
-  `SPIKE-NOTES.md` (no test yet proves RLS's fail-closed behavior when
-  the session-variable-setting call itself is omitted, unlike the
-  Guard arm's deliberate "forgot to scope" test) — should be closed
-  before RLS is trusted in real implementation, not before this ADR is
-  accepted.
+- ~~Part B: RLS vs. repository-guard tenant isolation~~ — **Resolved
+  2026-08-05**: `docs/migration/technical-spike-plan.md` H2 produced a
+  recorded recommendation (RLS, primary mechanism, with the
+  non-superuser-role condition), accepted in full by a human decider —
+  see `docs/bootstrap/decision-log.md` D-018.
+- The RLS-arm test-coverage gap found during the spike (no test yet
+  proves RLS's fail-closed behavior when the session-variable-setting
+  call itself is omitted, unlike the Guard arm's deliberate "forgot to
+  scope" test) remains open **as an implementation acceptance
+  criterion**, not as a blocker on this ADR's acceptance — see Decision,
+  condition 3.

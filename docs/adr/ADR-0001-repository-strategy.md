@@ -6,8 +6,8 @@
 |---|---|
 | ADR ID | ADR-0001 |
 | Title | Repository Strategy |
-| Status | Proposed |
-| Date | 2026-08-02 |
+| Status | Accepted |
+| Date | 2026-08-02 (accepted 2026-08-05 — see `docs/bootstrap/decision-log.md` D-019) |
 | Owners | Platform engineering leadership (see CODEOWNERS `@workin-hr/platform-owners`) |
 | Deciders | Human engineering leadership — recorded at approval time in `docs/bootstrap/decision-log.md` |
 | Related Issues | None yet |
@@ -20,9 +20,9 @@ The project needs a repository structure that supports planning, discovery, docu
 
 ## Decision
 
-**Approval status: Proposed — this decision has not been approved.**
+**Accepted 2026-08-05** (`docs/bootstrap/decision-log.md` D-019).
 
-Keep `hr-platform` as the new repository for bootstrap and future implementation, while `hr-legacy` and Flutter remain separate until discovery justifies any change.
+Keep `hr-platform` as the new repository for bootstrap and future implementation, while `hr-legacy` and Flutter remain separate until discovery justifies any change. Flutter source remains **permanently** separate (not just for the duration of Discovery), enforced via pinned git submodule references (`.gitmodules`), per the Validation Evidence below.
 
 ## Alternatives Considered
 
@@ -94,21 +94,18 @@ review — but it directly answers this ADR's first Open Question below.
 
 ### Classification (2026-08-04 revision)
 
-**Can be accepted immediately based on existing evidence.** Nothing
-about this decision depends on the technical spike (`docs/migration/technical-spike-plan.md`,
-now scoped to tenant-isolation only) or on production/device access —
-the repository-boundary question is answered by the Discovery already
-done (Flutter Discovery, submodule conversion) and by this repository's
-own `CLAUDE.md` scope, not by anything still pending. Recommend a human
-decider move `Status` to `Accepted` now if they agree with the
-recommendation above; this document does not make that change itself.
+Nothing about this decision depended on the technical spike
+(`docs/migration/technical-spike-plan.md`, now scoped to tenant-isolation
+only) or on production/device access — the repository-boundary question
+is answered by the Discovery already done (Flutter Discovery, submodule
+conversion) and by this repository's own `CLAUDE.md` scope. Accepted by
+the repository owner on 2026-08-05.
 
 ## Open Questions
 
-- ~~whether Flutter should remain permanently separate~~ — **Answered
-  2026-08-04, pending human sign-off**: yes, recommended permanent
-  (see Validation Evidence update above). Human review is still required
-  before this ADR's `Status` can move to `Accepted`.
+- ~~whether Flutter should remain permanently separate~~ — **Resolved
+  2026-08-05**: yes, permanent (see Validation Evidence update above and
+  D-019).
 - whether future repository boundaries should change after discovery —
   still open for the eventual Java backend implementation repository
   (not yet created; out of scope for this Discovery pass).

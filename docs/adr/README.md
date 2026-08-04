@@ -7,13 +7,15 @@ Status, Date, Owners, Deciders, Related Issues, Supersedes, Superseded By),
 followed by `## Context`, `## Decision`, `## Alternatives Considered`,
 `## Consequences`, `## Risks`, `## Validation Evidence`, `## Open Questions`.
 See `ADR-0000-template.md`. Valid `Status` values are `Proposed`, `Accepted`,
-`Rejected`, `Superseded`, `Deferred`. **Update 2026-08-04**: ADR-0002
-(Part A only — see that ADR's Metadata Date field for the
-per-part-status caveat; Part B remains genuinely `Proposed`) and
-ADR-0005 are now `Accepted`, per `docs/bootstrap/decision-log.md`
-D-016/D-017. Every other ADR below remains `Proposed` — the
-`## Decision` section states a candidate direction, not an approved
-one.
+`Rejected`, `Superseded`, `Deferred`. **Update 2026-08-05**: 8 of 10 ADRs
+are now `Accepted` — ADR-0001, ADR-0002 (both Part A and Part B),
+ADR-0003, ADR-0004, ADR-0005, ADR-0006 (Part A only; Part B remains
+`Proposed`, blocked on PMR-04), ADR-0007, and ADR-0008 — per
+`docs/bootstrap/decision-log.md` D-016 through D-024. ADR-0009 and
+ADR-0010 remain `Proposed`: ADR-0009 has one genuine unresolved
+factual item (desktop-access-universality confirmation) blocking
+acceptance; ADR-0010 is deliberately, fully open on all six of its
+dimensions, per its own Decision section.
 
 `scripts/validate_phase0.py::validate_adrs()` discovers real ADR files
 dynamically (`docs/adr/ADR-[0-9][0-9][0-9][0-9]-*.md`, excluding the
@@ -32,17 +34,22 @@ maintaining a second, divergent copy of these rules — see
 
 ## Accepted ADRs
 
-- `ADR-0002-modular-monolith-baseline.md` — **Part A only** (strategic
-  direction); Part B (tenant-isolation pattern) remains `Proposed`
+- `ADR-0001-repository-strategy.md`
+- `ADR-0002-modular-monolith-baseline.md` — **Both Part A and Part B**
+  (tenant-isolation pattern: RLS, accepted 2026-08-05)
+- `ADR-0003-api-versioning-and-flutter-compatibility.md`
+- `ADR-0004-mysql-to-postgresql-migration-approach.md`
 - `ADR-0005-authentication-direction.md`
+- `ADR-0006-attendance-edge-gateway-direction.md` — **Part A only**
+  (adapter/SPI architectural pattern); Part B (vendor-specific
+  gateway-or-not decisions) remains `Proposed`, blocked on PMR-04
+- `ADR-0007-testing-and-quality-gate-strategy.md`
+- `ADR-0008-observability-baseline.md`
 
 ## Proposed ADRs
 
-- `ADR-0001-repository-strategy.md`
-- `ADR-0003-api-versioning-and-flutter-compatibility.md`
-- `ADR-0004-mysql-to-postgresql-migration-approach.md`
-- `ADR-0006-attendance-edge-gateway-direction.md`
-- `ADR-0007-testing-and-quality-gate-strategy.md`
-- `ADR-0008-observability-baseline.md`
-- `ADR-0009-dashboard-vs-desktop-admin-client.md`
-- `ADR-0010-authorization-model.md`
+- `ADR-0009-dashboard-vs-desktop-admin-client.md` — decision recorded
+  (Option E), one genuine open item remains: confirmation that every
+  current dashboard company/HR user has realistic desktop-app access
+- `ADR-0010-authorization-model.md` — deliberately, fully open on all
+  six dimensions; not a candidate direction awaiting sign-off
