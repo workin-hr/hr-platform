@@ -137,7 +137,7 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 
 | Field | Value |
 |---|---|
-| Description | The documented Issue -> Specification -> ... -> Human merge workflow has never actually run in this repository; both commits on this branch were authored by the same automated identity with zero merges. |
+| Description | The documented Issue -> Specification -> ... -> Human merge workflow has run once (pull request #1, merged 2026-08-03 by the repository owner — see D-014), but review and merge governance is not mechanically enforced at the platform level (branch-protection is Deferred under D-013). A single evidenced run does not guarantee every future merge follows the same process without a human continuing to follow it deliberately. |
 | Category | Governance / Process |
 | Probability | High (currently true, not speculative) |
 | Impact | High |
@@ -148,5 +148,5 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Contingency | Do not declare Phase 0 complete; keep `docs/bootstrap/definition-of-done.md` unmet until the sequence is followed once and evidenced |
 | Status | Open — Accepted Residual Risk / Non-blocking. The manual review-and-merge sequence (steps 2–10 of the Human Approval And Merge Sequence in `docs/bootstrap/manual-setup-checklist.md`) has run and is evidenced by D-014; mechanical branch-protection enforcement (step 1) remains Deferred under D-013, an accepted plan limitation, not a configuration gap. This risk stays Open because review and merge governance still cannot be mechanically enforced at the platform level and depends on the temporary mitigation above actually being followed — but per D-015 it no longer blocks Phase 0 completion; it is tracked here as an accepted, non-blocking residual risk, not an open blocker. |
 | Target Date | Before Phase 0 is declared complete |
-| Evidence | `git log --all --merges` (2026-08-02): no merge commits exist; `git log --all --format="%an %ae"`: single author `Codex <codex@local>`; D-013 (`docs/bootstrap/decision-log.md`) for the branch-protection deferral |
-| Last Reviewed | 2026-08-03 |
+| Evidence | Historical baseline: `git log --all --merges` (2026-08-02) found no merge commits and `git log --all --format="%an %ae"` found a single author (`Codex <codex@local>`), before pull request #1 existed. Current: pull request #1 (`https://github.com/workin-hr/hr-platform/pull/1`), merge commit `cf997818fbabb6f02f9b15c845da06757713a97a`, merged by Karim Taha (`karimtismail`) on 2026-08-03 — see D-014 (`docs/bootstrap/decision-log.md`) for the full record. D-013 (`docs/bootstrap/decision-log.md`) for the branch-protection deferral. |
+| Last Reviewed | 2026-08-04 |

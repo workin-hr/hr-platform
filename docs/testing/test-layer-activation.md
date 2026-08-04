@@ -65,7 +65,7 @@ Activates once a real (not "candidate") environment exists per
 |---|---|---|
 | end-to-end tests | at least two component boundaries have real implementation | ADR-0002 |
 | security tests | `backend/` or `edge-gateway/` has real endpoint/auth code | ADR-0005 |
-| dynamic application security testing | a real deployed/running environment exists | environment-and-deployment-strategy.md |
+| dynamic application security testing | a real deployed/running environment exists | `docs/operations/environment-and-deployment-strategy.md` |
 | performance smoke tests | `backend/` or `edge-gateway/` has a real running service endpoint | — |
 | load tests | a real environment exists and performance smoke tests already pass | — |
 | stress tests | same as load tests, run after load tests are stable | — |
