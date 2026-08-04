@@ -9,7 +9,8 @@ breakdown). This pass documents: all 14 `auth` endpoints, all 15
 endpoints, all 16 `payroll_batches`/`payslips` endpoints, all 20
 `advances`/`penalties`/`salary_contracts` endpoints, and all 24
 `requests`/`leave_balances`/`workforce_planning` endpoints — 112
-endpoints total. The remaining ~87 endpoints are inventoried
+endpoints total, plus 18 more from `branches`/`company_settings`/
+`notifications` (130 total). The remaining ~69 endpoints are inventoried
 structurally (module, file count, purpose) in the module inventory, not
 individually here yet. Do not read this document as complete endpoint
 coverage.
@@ -484,6 +485,23 @@ that simply `require`s `list.php`). All 7 endpoints consistently
 company-scoped; `COMPANY_ADMIN`/`HR` for mutations,
 `list.php`/`one.php` additionally allow `MANAGER` (scoping depth not
 traced further in this pass).
+
+## Branches, Company Settings, Notifications (`apis/api/{branches,company_settings,notifications}/`, 18 endpoints)
+
+All 18 endpoints read; no scoping gaps found — consistently company-scoped
+throughout, and (for `notifications`) ownership-checked per-recipient via
+a shared `notification_inbox_filter()` helper. `branches` and
+`notifications/send.php` allow `MANAGER` with no branch restriction
+(same shape as the lower-severity findings already documented for
+`requests` approve/reject, not repeated here as a separate entry given
+the lower severity of misdirected branch-management/messaging actions
+versus financial or attendance data). `branches/generate_qr.php` issues
+the `qr_code`/`expires_at` pair consumed by
+`attendance/check_in_qr.php` (already documented). `company_settings` is
+the CRUD layer over the generic EAV settings system described in the
+schema inventory (`month_start_day`/`month_end_day`/`weekly_off_days`/
+`overtime_rate` and others, including `MONTHLY_LEAVE_ACCRUAL`, consumed
+by `leave_balances/generate.php`).
 
 ## Evidence
 

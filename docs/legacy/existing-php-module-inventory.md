@@ -39,9 +39,9 @@ actual `apis/api/` directory structure.
 | `requests` | 7 | Leave/permission request workflow: create/approve/reject/update. All 7 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`. **Finding — Manager approve/reject is not branch-scoped, unlike Manager read access in the same module — see `docs/legacy/business-rule-extraction.md`** |
 | `workforce_planning` | 7 | Headcount targets: create/update/save_target/summary. All 7 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; consistently company-scoped |
 | `payslips` | 6 | CRUD, export — all 6 endpoints individually documented in `docs/api/existing-endpoint-inventory.md` |
-| `branches` | 6 | CRUD, QR-code generation |
-| `company_settings` | 6 | CRUD, options (available settings for a company to choose from) |
-| `notifications` | 6 | List, send, mark read, unread count |
+| `branches` | 6 | CRUD, QR-code generation. All 6 documented in `docs/api/existing-endpoint-inventory.md`; company-scoped throughout |
+| `company_settings` | 6 | CRUD, options (available settings for a company to choose from). All 6 documented; company-scoped throughout |
+| `notifications` | 6 | List, send, mark read, unread count. All 6 documented; ownership-checked per-recipient |
 | `job_titles`, `departments`, `shifts`, `request_types`, `attendance_exception_types`, `company_official_holidays`, `assets`, `administrative_decisions` | 5 each | Standard per-company CRUD lookup/config modules |
 | `salary_contracts` | 5 | Versioned per-employee compensation. All 5 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; correct tenant scoping throughout, but see the `daily`-wage-mode and always-zero-`housing_allowance` findings in `docs/legacy/business-rule-extraction.md` |
 | `employee_docs` | 4 | Upload, list, update, delete |
