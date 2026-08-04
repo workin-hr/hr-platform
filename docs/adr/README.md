@@ -7,14 +7,12 @@ Status, Date, Owners, Deciders, Related Issues, Supersedes, Superseded By),
 followed by `## Context`, `## Decision`, `## Alternatives Considered`,
 `## Consequences`, `## Risks`, `## Validation Evidence`, `## Open Questions`.
 See `ADR-0000-template.md`. Valid `Status` values are `Proposed`, `Accepted`,
-`Rejected`, `Superseded`, `Deferred`. **Update 2026-08-05**: 8 of 10 ADRs
+`Rejected`, `Superseded`, `Deferred`. **Update 2026-08-05**: 9 of 10 ADRs
 are now `Accepted` — ADR-0001, ADR-0002 (both Part A and Part B),
 ADR-0003, ADR-0004, ADR-0005, ADR-0006 (Part A only; Part B remains
-`Proposed`, blocked on PMR-04), ADR-0007, and ADR-0008 — per
-`docs/bootstrap/decision-log.md` D-016 through D-024. ADR-0009 and
-ADR-0010 remain `Proposed`: ADR-0009 has one genuine unresolved
-factual item (desktop-access-universality confirmation) blocking
-acceptance; ADR-0010 is deliberately, fully open on all six of its
+`Proposed`, blocked on PMR-04), ADR-0007, ADR-0008, and ADR-0009 — per
+`docs/bootstrap/decision-log.md` D-016 through D-025. Only ADR-0010
+remains `Proposed`, deliberately, fully open on all six of its
 dimensions, per its own Decision section.
 
 `scripts/validate_phase0.py::validate_adrs()` discovers real ADR files
@@ -45,11 +43,10 @@ maintaining a second, divergent copy of these rules — see
   gateway-or-not decisions) remains `Proposed`, blocked on PMR-04
 - `ADR-0007-testing-and-quality-gate-strategy.md`
 - `ADR-0008-observability-baseline.md`
+- `ADR-0009-dashboard-vs-desktop-admin-client.md` — Option E, role-based
+  split; all Validation Evidence items resolved 2026-08-05
 
 ## Proposed ADRs
 
-- `ADR-0009-dashboard-vs-desktop-admin-client.md` — decision recorded
-  (Option E), one genuine open item remains: confirmation that every
-  current dashboard company/HR user has realistic desktop-app access
 - `ADR-0010-authorization-model.md` — deliberately, fully open on all
   six dimensions; not a candidate direction awaiting sign-off

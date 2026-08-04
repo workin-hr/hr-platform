@@ -318,3 +318,16 @@ certainty than the ADR it depends on.
 | Impact | `docs/adr/ADR-0008-observability-baseline.md`'s `Status` field moves to `Accepted`. First-milestone implementation must include structured logging, correlation ID propagation, and OpenTelemetry tracing from the start. The heavier stack question remains open and deliberately undecided. |
 | Follow-up | Revisit the heavier observability stack (Prometheus/Grafana/Loki/Tempo or equivalent) once real production load and cost data exist — no specific trigger threshold set yet. |
 | Evidence | `docs/adr/ADR-0008-observability-baseline.md`; `docs/operations/monitoring-and-alerting.md`; `docs/tools/tool-catalog.md`; `docs/migration/technical-spike-plan.md`'s Revision Summary (H6 downgrade rationale); direct repository-owner acceptance, this conversation, 2026-08-05. |
+
+## D-025: Accept ADR-0009 (Fate Of The PHP Dashboard — Option E, Role-Based Split)
+
+| Field | Value |
+|---|---|
+| Decision | Platform-level administration of Workin itself stays web (existing dashboard `admin`-role surface, or a narrower Next.js replacement). Every subscribed/joined company's own administration (company-owner and HR/Manager staff) consolidates onto the native desktop app, retiring the dashboard's `company_logged_in`/`hr_logged_in` session paths. Individual employees remain mobile-only. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0009 (Fate Of The PHP Dashboard Relative To The Flutter Desktop Admin Client) |
+| Reason | The core decision (Option E) was made directly by the product/business owner on 2026-08-04. Of the four Validation Evidence items, Engineering sign-off (Next.js), the Manager-role login-parity gap, and the feature-disposition question (`salary_calculator`, `setting_templates`, `activities`) were resolved by 2026-08-05. The last genuine open item — whether every current dashboard company/HR user has realistic desktop-app access — was confirmed directly by the product/business owner on 2026-08-05: the desktop app is distributed as a built `.exe`/`.dmg` installer and opens like any normal desktop application, no special hardware/OS requirement. |
+| Impact | `docs/adr/ADR-0009-dashboard-vs-desktop-admin-client.md`'s `Status` field moves to `Accepted`. Admin-surface module cutover work may proceed against Option E. Dashboard's company/HR-facing pages (everything reached via `doCompanyLogin()`/`doHrLogin()`) become retirement targets once desktop reaches parity; the platform-admin subset (`pages/companies/`, the `admin` branch of `pages/login/`) is kept or rebuilt as a narrower Next.js app. |
+| Follow-up | Define the cutover sequence (fix-then-retire-module-by-module vs. all-at-once) and whether a target retirement date exists — both remain open per this ADR's Open Questions, non-blocking for acceptance. |
+| Evidence | `docs/adr/ADR-0009-dashboard-vs-desktop-admin-client.md`; `docs/api/flutter-request-response-compatibility.md`; `docs/api/three-frontend-api-usage-matrix.md`; direct repository-owner statements, this conversation, 2026-08-04 and 2026-08-05. |

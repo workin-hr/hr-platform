@@ -247,64 +247,68 @@ designed without needing real hardware.
 - **Related**: ADR-0006; `docs/devices/device-integration-architecture.md`;
   `workin-hr/hr-platform#12`.
 
-### PMR-05: Production `DEBUG` Config Value — CONFIRMED LIVE (2026-08-04)
+### PMR-05: Production `DEBUG` Config Value — REMEDIATED ON PRODUCTION (2026-08-05)
 
-**⚠ Confirmed by the repository owner directly, 2026-08-04:
-`AppConfig::DEBUG=true` is live in production.** This is no longer an
-open question — it means `hr-legacy#4`'s account-takeover path
+**Confirmed by the repository owner directly, 2026-08-04: `AppConfig::DEBUG=true`
+was live in production**, meaning `hr-legacy#4`'s account-takeover path
 (`forgot_password.php`, `resend_otp.php`, `register_company.php`
-returning the real OTP code in the API response) is an **active,
-currently-exploitable vulnerability against real customers right now**,
-independent of anything else in this document.
+returning the real OTP code in the API response) was an active,
+currently-exploitable vulnerability against real customers. **Update
+2026-08-05, confirmed by the repository owner directly: the live
+`AppConfig::DEBUG` value has been changed on the production server —
+this incident is now closed on the production side.** This was done
+directly by the repository owner/ops team with real production access,
+outside anything this repository or session could touch — consistent
+with the boundary already documented below, which remains accurate for
+how this confirmation happened (a human acted; this planning
+environment never had or used production access).
 
-**What this planning environment can and cannot do about it**: this
-repository (and this session) has no production access — no ability to
-reach the live server, no deployment credentials, no way to flip the
-live config value directly. **The only real fix — changing the live
-`AppConfig::DEBUG` value to `false` on the actual production
-server — requires the repository owner or their operations team to act
-directly, outside any repository this session can touch.** Documenting
-this confirmation, however urgently, is not the same as remediating it.
-
-- **Description**: `AppConfig::DEBUG` is confirmed `true` in the live
-  production deployment. Three endpoints (`forgot_password.php`,
-  `resend_otp.php`, `register_company.php`) return the real OTP code in
-  the API response under this condition — a complete, unauthenticated
-  account-takeover path for any phone number, exploitable today.
-- **Why It Matters**: No longer a hypothetical — this is a live,
-  currently-exploitable Critical vulnerability against production
-  customer accounts.
-- **Risk Level / Migration Impact**: **Critical, confirmed live.** Not
-  an architecture or migration-timing question — an active incident.
-- **Blocks**: Nothing about migration planning directly; this is an
-  operational-security incident to remediate on its own, immediate
-  timeline, not gated on or by migration work.
-- **Required Evidence To Close**: The live `AppConfig::DEBUG` value
-  actually changed to `false` on the production server, confirmed by
-  whoever has that access (out of scope for this repository to verify
-  further).
-- **Owner**: The repository owner directly, or whoever they designate
-  with production deployment/config access — not an agent, per
-  `CLAUDE.md`'s credential-handling boundary, and not achievable from
-  this environment regardless.
-- **Dependencies**: None besides production access, which this
-  environment does not have.
-- **Target / Duration**: Immediate — already overdue relative to when
-  this was confirmed.
+- **Description**: `AppConfig::DEBUG` was confirmed `true` in the live
+  production deployment on 2026-08-04, creating a complete,
+  unauthenticated account-takeover path for any phone number via three
+  endpoints (`forgot_password.php`, `resend_otp.php`,
+  `register_company.php`). **The live value has since been changed**,
+  closing the exploitable path in production.
+- **Why It Matters**: Was a live, currently-exploitable Critical
+  vulnerability against production customer accounts; now remediated at
+  the config level. This does not retroactively undo any exploitation
+  that may have occurred while the flag was live — that is a separate
+  incident-response question (has access-log review for OTP-disclosure
+  abuse happened?), not addressed by this entry and not something this
+  environment can investigate without production log access.
+- **Risk Level / Migration Impact**: Downgraded from Critical/live to
+  **closed on production**; the underlying code-level defect
+  (`hr-legacy#4`) still exists in the legacy PHP source and remains
+  exploitable again if `DEBUG` is ever re-enabled, until the code itself
+  is fixed or retired via migration.
+- **Blocks**: Nothing about migration planning; was never gated on
+  migration work.
+- **Required Evidence To Close (production side)**: ~~The live
+  `AppConfig::DEBUG` value actually changed to `false` on the production
+  server~~ — **Done 2026-08-05**, confirmed directly by the repository
+  owner.
+- **Owner**: The repository owner / ops team acted directly on
+  production, outside this repository's reach — consistent with
+  `CLAUDE.md`'s credential-handling boundary throughout.
+- **Dependencies**: None remaining.
+- **Target / Duration**: Met — remediated 2026-08-05.
 - **Exit / Acceptance Criteria**: The live value is changed to `false`
-  and that change is confirmed (not just planned).
-- **Status**: **Confirmed live — Critical, unremediated.** Not
-  "Blocked on access" any longer (the *confirmation* is done); now
-  blocked specifically on the repository owner/ops team taking the
-  actual remediation action.
-- **Best-practice requirement for the new platform** (already captured
-  as a mandatory acceptance criterion, unaffected by this update): the
-  Java rewrite must never echo OTP codes, or any other secret value, in
-  an API response under any configuration flag or environment — no
-  debug-mode exception of any kind for secret-bearing responses. See
-  `docs/migration/consolidated-task-matrix.md` (`hr-legacy#4` row).
-- **Related**: `workin-hr/hr-legacy#4` (existing issue, updated with
-  this confirmation).
+  and that change is confirmed. **Met.**
+- **Status**: **Closed on production.** The code-level defect in
+  `hr-legacy` (three endpoints that would leak the OTP again if `DEBUG`
+  were ever re-enabled) is a separate, still-open item — see
+  `hr-legacy#4` and the best-practice requirement below, which remains
+  a mandatory carry-forward requirement for the Java rewrite regardless
+  of this production fix.
+- **Best-practice requirement for the new platform** (unaffected by this
+  update, still mandatory): the Java rewrite must never echo OTP codes,
+  or any other secret value, in an API response under any configuration
+  flag or environment — no debug-mode exception of any kind for
+  secret-bearing responses. See `docs/migration/consolidated-task-matrix.md`
+  (`hr-legacy#4` row).
+- **Related**: `workin-hr/hr-legacy#4` (still open — tracks the
+  code-level defect and the new-platform best-practice requirement, not
+  the now-closed production-config incident).
 
 ### PMR-06: Open Product/Business Decisions
 
@@ -410,64 +414,60 @@ table: `docs/migration/technical-spike-plan.md`'s "Revision Summary."
 
 ### PMR-08: All 10 Architecture ADRs Remain Proposed
 
-**Update 2026-08-05 — 8 of 10 ADRs now Accepted.** Following the
+**Update 2026-08-05 — 9 of 10 ADRs now Accepted.** Following the
 2026-08-04 per-ADR classification pass, the repository owner reviewed
 and accepted ADR-0001, ADR-0002 (both Part A and Part B — the H2 spike's
 RLS recommendation), ADR-0003, ADR-0004, ADR-0005 (already accepted
-2026-08-04), ADR-0006 (Part A only), ADR-0007, and ADR-0008 —
-`docs/bootstrap/decision-log.md` D-016 through D-024. Two ADRs
+2026-08-04), ADR-0006 (Part A only), ADR-0007, ADR-0008, and ADR-0009 —
+`docs/bootstrap/decision-log.md` D-016 through D-025. Several ADRs'
 placeholder-text Decision sections were rewritten with real,
 evidence-backed content before acceptance (ADR-0003, ADR-0004, ADR-0008)
 or restructured into an explicit Part A/Part B split before acceptance
 (ADR-0006), following the same discipline ADR-0005 required earlier —
 none were accepted while still reading as an unresolved Discovery-stage
-placeholder.
+placeholder. ADR-0009's last open item (desktop-access-universality)
+was confirmed directly by the product/business owner.
 
 | Classification | ADRs |
 |---|---|
 | **Accepted 2026-08-05**, no dependency | ADR-0001 (repository strategy), ADR-0003 (API versioning — contract preserved at the existing unversioned URL surface), ADR-0004 (MySQL→Postgres — single-cutover bulk copy), ADR-0007 (testing strategy), ADR-0008 (observability baseline — MVP minimum, heavier stack deliberately deferred) |
 | **Accepted 2026-08-04**, no dependency | ADR-0005 (authentication direction) |
 | **Split — Accepted in full 2026-08-05** | ADR-0002 (modular monolith — Part A strategy + Part B tenant-isolation pattern, RLS, both accepted) |
-| **Split — Part A accepted 2026-08-05, Part B still blocked** | ADR-0006 (attendance edge-gateway — adapter/SPI pattern accepted; vendor-specific direction still blocked on PMR-04) |
-| **Recorded decision, one genuine open item remains** | ADR-0009 (dashboard vs. desktop — Option E recorded, Engineering sign-off and feature-disposition now resolved; desktop-access-universality confirmation is the one remaining blocker, not resolvable from this repository) |
+| **Split — Part A accepted 2026-08-05, Part B still blocked** | ADR-0006 (attendance edge-gateway — adapter/SPI pattern accepted; vendor now named (FK fingerprint devices, all versions), connectivity/protocol specifics still blocked on PMR-04) |
+| **Accepted in full 2026-08-05** | ADR-0009 (dashboard vs. desktop — Option E; all four Validation Evidence items resolved, including desktop-access-universality, confirmed directly by the product owner) |
 | **Genuinely premature — fully open, no recommendation** | ADR-0010 (authorization model — all 6 dimensions undecided; Dimension 2 is now informed, not resolved, by ADR-0002 Part B's acceptance) |
 
-- **Description**: 8 of 10 ADRs (`ADR-0001` through `ADR-0008`) are now
-  `Accepted` (ADR-0002 and ADR-0006 each with an explicit per-part
-  caveat where one part remains open). `ADR-0009` has one real,
-  unresolved factual item. `ADR-0010` remains fully open by design.
+- **Description**: 9 of 10 ADRs (`ADR-0001` through `ADR-0009`) are now
+  `Accepted` (ADR-0002 fully; ADR-0006 with an explicit per-part caveat
+  where Part B remains open). `ADR-0010` remains fully open by design.
 - **Why It Matters**: Implementing against a `Proposed` ADR as if it
   were `Accepted` risks rework if a later formal review revises the
-  direction. That risk is now closed for 8 of 10 ADRs.
-- **Risk Level / Migration Impact**: Low for the 8 accepted ADRs;
-  Low-Medium for ADR-0009 (one factual confirmation away from
-  acceptance); unchanged (genuinely unresolved) for ADR-0010.
-- **Blocks**: Nothing remains blocked on ADR-0001, 0003, 0004, 0005,
-  0007, 0008, or ADR-0002 (fully accepted). ADR-0006 Part B still blocks
-  final vendor-specific device-integration decisions (PMR-04). ADR-0009
-  blocks admin-surface module cutover specifically, not general backend
-  implementation. **ADR-0010 blocks nothing for backend implementation
-  start or scaffolding** — only modules that need fine-grained
-  permission enforcement need it resolved first (see the
-  Migration-Readiness Gate).
-- **Required Evidence To Close**: ADR-0009: product/business-owner
-  confirmation of desktop-access-universality for current dashboard
-  users. ADR-0006 Part B: PMR-04 (real vendor/hardware access).
+  direction. That risk is now closed for 9 of 10 ADRs.
+- **Risk Level / Migration Impact**: Low for the 9 accepted ADRs;
+  unchanged (genuinely unresolved) for ADR-0010.
+- **Blocks**: Nothing remains blocked on ADR-0001 through ADR-0005,
+  ADR-0007 through ADR-0009. ADR-0006 Part B still blocks final
+  protocol/connectivity-pattern selection for FK fingerprint devices
+  (PMR-04). **ADR-0010 blocks nothing for backend implementation start
+  or scaffolding** — only modules that need fine-grained permission
+  enforcement need it resolved first (see the Migration-Readiness Gate).
+- **Required Evidence To Close**: ADR-0006 Part B: PMR-04 — specifically,
+  FK's own SDK/integration documentation to determine connectivity
+  pattern (local gateway vs. direct cloud API vs. push webhook) and
+  protocol details; the vendor identity itself is no longer open.
   ADR-0010: a human decider actually choosing an answer for each of its
   6 dimensions — not yet attempted by this document, deliberately.
 - **Owner**: Repository owner, for the two remaining items above.
 - **Dependencies**: PMR-04 still feeds ADR-0006 Part B's final
-  vendor-specific direction and, in turn, ADR-0010's remaining open
-  dimensions where relevant. Nothing else remains blocked.
-- **Target / Duration**: ADR-0009: as soon as the desktop-access
-  question is answered. ADR-0006 Part B: per PMR-04. ADR-0010: TBD,
-  genuinely open, no target set.
+  protocol/connectivity direction and, in turn, ADR-0010's remaining
+  open dimensions where relevant. Nothing else remains blocked.
+- **Target / Duration**: ADR-0006 Part B: per PMR-04 / FK vendor
+  documentation. ADR-0010: TBD, genuinely open, no target set.
 - **Exit / Acceptance Criteria**: Every ADR's Status is updated to
   `Accepted`, `Rejected`, or `Superseded`, with a decision-log citation.
-- **Status**: Done for 8 of 10 ADRs (`docs/bootstrap/decision-log.md`
-  D-016 through D-024). Blocked for ADR-0006 Part B (PMR-04) and
-  ADR-0009 (desktop-access confirmation). Open/undecided by design for
-  ADR-0010.
+- **Status**: Done for 9 of 10 ADRs (`docs/bootstrap/decision-log.md`
+  D-016 through D-025). Blocked for ADR-0006 Part B (PMR-04). Open/undecided
+  by design for ADR-0010.
 - **Related**: All 10 ADRs; `docs/bootstrap/decision-log.md`;
   `workin-hr/hr-platform#14`.
 
@@ -595,15 +595,12 @@ this document. Substantially smaller than the original gate — see
    strictly requires the authorization model finalized before
    scaffolding/auth-module work begins, only before modules that
    enforce fine-grained permissions are built out.
-3. **PMR-05 (production `DEBUG` value) — confirmed live 2026-08-04,
-   directly by the repository owner.** This is now a **confirmed
-   active, currently-exploitable production vulnerability**
-   (`hr-legacy#4`), not an open question. See PMR-05's updated entry
-   above for the urgent action this requires — outside the scope of
-   anything this repository or its planning agent can directly fix
-   (no production access exists in this environment). This item is
-   **not closed** by confirmation alone; it closes only once the live
-   config value is actually changed in production.
+3. ~~PMR-05 (production `DEBUG` value) — confirmed live 2026-08-04~~ —
+   **Done 2026-08-05**: the repository owner confirmed the live config
+   value has been changed on production. The account-takeover path is
+   closed on production; the underlying code-level defect (`hr-legacy#4`)
+   and the new-platform best-practice requirement remain separately
+   tracked, non-blocking for this gate.
 
 **Explicitly removed from this gate** (see "What Changed" below):
 PMR-09 (per-module execution plan) is no longer a precondition for

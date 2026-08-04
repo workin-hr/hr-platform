@@ -392,7 +392,7 @@ one) and is not a spike-only workaround — it is the correct shape for
 real implementation too, and is now a **required setup element** for
 choosing RLS, not an optional hardening step.
 
-#### Test Coverage Gap, Noted Honestly
+#### Test Coverage Gap, Noted Honestly — Now Fully Specified As A Required Test
 
 The Guard arm has a deliberate test proving what happens when application
 code "forgets" to scope (`forgettingToScopeLeaksCrossTenantData`). The
@@ -402,9 +402,32 @@ method in this spike always sets it first, so RLS's fail-closed design
 (`NULLIF(current_setting(...), '')::BIGINT` — an unset session variable
 resolves to `NULL`, which never matches any `company_id`, so zero rows
 are visible) was never exercised by a test that actually omits the call.
-Real implementation should add this test explicitly before relying on
-RLS's fail-closed behavior as a proven property rather than a design
-intent.
+
+**Required test, fully specified 2026-08-05 (`docs/adr/ADR-0002-modular-monolith-baseline.md`
+Decision, condition 3), so real implementation cannot silently forget or
+reinterpret it:**
+
+- **Given**: two tenants exist (company A, company B); company B has
+  created at least one row in an RLS-protected table; the querying code
+  path executes **without** first calling the session-variable setter —
+  simulating a developer who forgot to wire tenant context before this
+  query.
+- **When**: that unscoped-context query attempts to read company B's
+  row (by ID, and via a list/`findAll`-style query).
+- **Then**: zero rows are returned (empty/404, not company B's data,
+  not an error) — proving the fail-closed design holds when the setter
+  is skipped, not merely assumed to hold because every existing test
+  happens to call the setter first.
+- **Not satisfied by**: a test that still calls the setter before
+  querying (every existing RLS-arm test here does this), or by the
+  Guard arm's `forgettingToScopeLeaksCrossTenantData` test (that
+  exercises the guard pattern, not RLS).
+- **Where**: a real, automated test in the first backend module that
+  adopts RLS, run in CI — not a manual check, not deferred.
+
+This specification exists to make the gap unambiguous to close, not to
+close it itself — actual test execution happens during real backend
+implementation, out of `hr-platform`'s planning-only scope.
 
 #### Operational Trade-Off Comparison
 

@@ -53,16 +53,31 @@ accept — it requires only that vendor diversity should be isolated
 behind an adapter boundary rather than baked into core business logic,
 which is a design judgment, not a fact PMR-04 discovery would change.
 
-**Part B — Vendor-specific gateway-or-not decisions: remains Proposed,
-blocked on PMR-04.** Which specific vendors actually need a local
-`.NET` edge gateway vs. direct cloud API integration, final protocol
-selection per vendor, and the test-scenario checklist in
-`docs/devices/device-integration-architecture.md`'s final section all
-require real vendor/hardware access that does not exist in this
-environment. **Do not treat Part A's acceptance as implicitly deciding
-Part B** — accepting the adapter/SPI pattern now does not pre-empt or
-shortcut which vendors get which adapter implementation; that remains
-live and undecided until PMR-04 access exists.
+**Part B — Vendor-specific gateway-or-not decisions: partially resolved
+2026-08-05, still not `Accepted`.** **Vendor identity is now decided**,
+directly by the product/business owner (this conversation, verbatim):
+*"use fk fingerprint with all versions"* — attendance devices are FK
+fingerprint hardware, and the adapter built for them must support every
+model/firmware version in that product line, not one specific model.
+This resolves the "which vendor" question that PMR-04's hardware access
+gap had otherwise left fully open.
+
+**What remains genuinely open, not resolvable from this statement
+alone**: whether FK devices connect via a local `.NET` edge gateway,
+direct cloud API, or push webhook, and the exact wire protocol, both
+require FK's own SDK/integration documentation or physical device
+access — neither exists in this environment (PMR-04's underlying
+constraint is unchanged; only the vendor name is no longer unknown).
+The test-scenario checklist in
+`docs/devices/device-integration-architecture.md`'s final section
+likewise still needs real FK protocol details to execute. **Do not
+treat this vendor decision as resolving connectivity pattern or
+protocol** — those remain live and undecided until FK-specific
+technical documentation or hardware access is available. Part A's
+adapter/SPI pattern (already accepted) is exactly what absorbs this
+remaining uncertainty without blocking other modules: the FK adapter
+gets built and wired to whichever connectivity pattern its real
+protocol turns out to need, once known.
 
 ## Alternatives Considered
 
@@ -91,6 +106,15 @@ specifically so this ADR's "gateway vs. no gateway, per vendor" question
 becomes a per-adapter implementation choice rather than a single
 architecture-wide commitment blocked entirely on vendor evidence.
 
+**Update 2026-08-05**: the vendor is now named directly by the
+product/business owner — FK fingerprint devices, all versions (see
+Decision, Part B). `docs/devices/attendance-device-model-and-firmware-inventory.md`
+and `docs/devices/vendor-capability-matrix.md` still remain correctly
+empty — a vendor name is not the same evidence as real device
+model/firmware/protocol detail, which still requires FK's own technical
+documentation or physical hardware access, neither of which exists in
+this environment.
+
 ### Classification (2026-08-04 revision, Part A accepted 2026-08-05)
 
 Split decision, matching the pattern used for ADR-0002. Part A doesn't
@@ -101,10 +125,14 @@ PMR-04 (hardware/vendor access) for the reasons in Decision above.
 
 ## Open Questions
 
-- which vendors require local network access — still blocked on PMR-04;
-  this is Part B, not resolved by Part A's acceptance
-- which protocols require persistent local services — still blocked on
-  PMR-04; also Part B
+- ~~which vendors this system integrates with~~ — **Resolved
+  2026-08-05**: FK fingerprint devices, all versions, per direct
+  product/business-owner statement (see Decision, Part B).
+- whether FK devices need a local network gateway or connect via direct
+  cloud API/push webhook — still open, requires FK's own SDK/integration
+  documentation, not resolvable from the vendor name alone
+- which protocol(s) FK devices actually speak, and whether persistent
+  local services are required — still open, same dependency as above
 - ~~whether the architecture can be vendor-agnostic ahead of vendor
   evidence~~ — **Resolved 2026-08-04, accepted as Part A 2026-08-05**:
   yes, see `docs/devices/device-integration-architecture.md` and

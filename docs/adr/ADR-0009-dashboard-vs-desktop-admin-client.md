@@ -6,8 +6,8 @@
 |---|---|
 | ADR ID | ADR-0009 |
 | Title | Fate of the PHP dashboard relative to the Flutter desktop admin client |
-| Status | Proposed |
-| Date | 2026-08-04 |
+| Status | Accepted |
+| Date | 2026-08-04 (accepted 2026-08-05 — see `docs/bootstrap/decision-log.md` D-025) |
 | Owners | Product (primary), Engineering (feasibility input) |
 | Deciders | Product/business owner(s) with authority over admin-surface scope; Engineering lead for feasibility sign-off |
 | Related Issues | `hr-platform#9` (PMR-01), `hr-platform#14` (PMR-08, ADR acceptance), `hr-platform#25` (retirement follow-up), `hr-legacy#2`/`#3`/`#6` (dashboard-side security findings that this decision affects the fix location of), `hr-legacy#26` (Manager-role desktop-login parity gap, blocks retirement) |
@@ -65,13 +65,13 @@ second question specifically, not an inference from the first.
 
 ## Decision
 
-**Approval status: Proposed — recorded, pending final review of this
-written text.** The product/business owner made this decision directly
-in conversation on 2026-08-04 (see the direct quotes in Context above and
-in Option E below); it is captured here as **Option E — Role-based
-split**, described in full under Alternatives Considered. `Status` moves
-to `Accepted` on explicit confirmation that this written ADR accurately
-reflects that decision — not automatically from the conversation alone.
+**Accepted 2026-08-05** (`docs/bootstrap/decision-log.md` D-025). The
+product/business owner made the core decision directly in conversation
+on 2026-08-04 (see the direct quotes in Context above and in Option E
+below); it is captured here as **Option E — Role-based split**,
+described in full under Alternatives Considered. The one remaining
+factual item (desktop-access-universality) was confirmed directly on
+2026-08-05 — see Validation Evidence.
 
 **Recorded decision, in one sentence**: platform-level administration of
 Workin itself stays web (the existing dashboard's `admin`-role surface,
@@ -252,11 +252,9 @@ platform-admin web surface.
   needs a follow-up pass to mark which of its `Yes` entries are
   retirement targets under this decision versus platform-admin capability
   that stays.
-- Delaying full closure (Engineering sign-off, parity-gap fix, feature
-  disposition below) still has a real cost:
-  `docs/migration/technical-spike-plan.md` and the Migration-Readiness
-  Gate (`hr-platform#14`) both list ADR acceptance as a precondition for
-  admin-surface backend implementation.
+- All Validation Evidence items are resolved as of 2026-08-05 (see
+  below), unblocking admin-surface backend implementation per the
+  Migration-Readiness Gate (`hr-platform#14`).
 
 ## Risks
 
@@ -271,28 +269,23 @@ platform-admin web surface.
   shared / legacy-only, so retirement only targets genuine tenant-admin
   capability, not platform-only functionality that was never supposed to
   move to desktop in the first place.
-- **Risk of assuming desktop-app access is universal**: not yet confirmed
-  whether every current dashboard company/HR user can realistically run a
-  native Windows/Mac desktop app (device, OS, install permissions) — see
-  Validation Evidence. **This is the one remaining open item blocking
-  this ADR's acceptance as of 2026-08-05.**
+- **Risk of assuming desktop-app access is universal**: **resolved
+  2026-08-05** — the product/business owner confirmed the desktop app
+  is distributed as a standard installable `.exe`/`.dmg`, opening
+  normally like any desktop application (see Validation Evidence). No
+  special hardware/OS/install-permission constraint was identified.
 
 ## Validation Evidence
 
 ### Classification (2026-08-04 revision)
 
-**Not yet ready to accept — one genuine, unresolved factual item
-remains.** The core question (which option) is decided, and as of
-2026-08-05 three of the four Validation Evidence items are resolved
-(Engineering sign-off, Manager-role gap, feature-disposition question in
-full). **The fourth — whether every current dashboard company/HR user
-has a realistic path to desktop-app access — is not something this
-repository's Discovery can answer**; it needs a real answer from
-whoever has visibility into actual customer device/OS/install
-constraints. `Status` stays `Proposed` until that confirmation exists,
-not because the decision itself is in doubt, but because retiring the
-dashboard's `company_logged_in`/`hr_logged_in` paths before confirming
-this could genuinely strand real users.
+**Accepted 2026-08-05 — all four Validation Evidence items resolved.**
+The core question (which option) was decided 2026-08-04; Engineering
+sign-off, the Manager-role gap, and the feature-disposition question
+were resolved by 2026-08-05, and the desktop-access-universality
+question — the one item this repository's own Discovery could not
+answer on its own — was confirmed directly by the product/business
+owner the same day. Nothing about this ADR remains open.
 
 **Core decision confirmed** (2026-08-04, this conversation, by the named
 Decider) — Option E, role-based split, as recorded in the Decision
@@ -335,14 +328,18 @@ verification pass. Status as of 2026-08-05:
    client-side, since it has no state beyond the calculation itself)
    whenever desktop parity work reaches it; nothing about its
    implementation blocks this ADR's acceptance.
-4. **Still open, not resolvable by this pass**: confirmation that every
-   current dashboard company/HR user has a realistic path to desktop-app
-   access (device/OS/install permissions). This is a real-world,
-   operational/customer-facing fact — not something derivable from
-   reading code — and requires the product/business owner (or whoever
-   has visibility into actual customer device fleets) to confirm
-   directly. **This item is explicitly not closed and is the one
-   remaining blocker to this ADR's acceptance.**
+4. ~~Confirmation that every current dashboard company/HR user has a
+   realistic path to desktop-app access~~ — **Resolved 2026-08-05,
+   directly by the product/business owner** (this conversation,
+   verbatim): *"we send application after build it as .exe so can open
+   dektop application normally."* The desktop app is distributed as a
+   built installer (`.exe`/Windows, `.dmg`/Mac — the direct download
+   links already confirmed in
+   `docs/api/flutter-request-response-compatibility.md`'s "Hardcoded
+   URLs And Forced-Update Assumptions" finding), installs and opens like
+   any ordinary desktop application, with no special hardware or access
+   requirement beyond a normal Windows/Mac machine. This closes the
+   last open item — **no further confirmation is pending.**
 
 ## Open Questions
 

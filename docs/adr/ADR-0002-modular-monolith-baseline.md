@@ -71,11 +71,45 @@ non-optional condition that:
 2. Repository-layer scoping is still applied where practical as a
    second, defense-in-depth layer — not relied upon alone, but not
    discarded either.
-3. The RLS-arm test-coverage gap found during the spike (no test yet
-   proves RLS's fail-closed behavior when the session-variable-setting
-   call itself is omitted) is closed before this pattern is trusted in
-   real implementation — a condition on implementation, not on this
-   ADR's acceptance.
+3. **The RLS-arm test-coverage gap found during the spike is closed
+   before this pattern is trusted in real implementation** — fully
+   specified below so it cannot be silently forgotten or reinterpreted
+   during implementation:
+
+   **Required test — "forgot to set the tenant session variable proves
+   fail-closed, not fail-open":**
+   - **Given**: two tenants exist (company A, company B); company B has
+     created at least one row in an RLS-protected table; the querying
+     code path executes **without** first calling the session-variable
+     setter (`SET LOCAL app.current_company_id`/`setTenantSessionVariable()`
+     or equivalent) — simulating a developer who forgot to wire tenant
+     context before this query, the exact human-error mode this
+     ADR's Part B decision is meant to close structurally.
+   - **When**: that unscoped-context query attempts to read company B's
+     row (by ID, and via a list/`findAll`-style query).
+   - **Then**: zero rows are returned (a 404/empty result, not an error,
+     not company B's data) — proving the RLS policy's
+     `NULLIF(current_setting('app.current_company_id', true), '')::BIGINT`
+     fail-closed design actually holds when the setter is skipped, not
+     merely assumed to hold because every other test happens to call the
+     setter first.
+   - **Explicitly not satisfied by**: any test that still calls the
+     session-variable setter before querying (that is what every
+     existing RLS-arm test in the spike already did) or that only tests
+     the *guard* pattern's forgot-to-scope case (`GuardCrossTenantIsolationTest.forgettingToScopeLeaksCrossTenantData`
+     in the spike, which tests the guard arm, not RLS).
+   - **Where this must live**: as a real, automated test in the first
+     backend module that adopts RLS, run in CI like every other test in
+     `docs/testing/test-strategy.md`'s taxonomy — not a manual check, not
+     a one-time verification, not deferred to a later module "once
+     things are stable."
+
+   This condition is a documentation-level specification, written so the
+   test is unambiguous to implement — it is not itself the test's
+   execution. Execution happens during real backend implementation
+   (`backend/`), which is out of `hr-platform`'s planning-only scope per
+   `CLAUDE.md` absent explicit, scoped authorization (as was given for
+   the H2 spike itself).
 
 All three conditions are implementation requirements for whoever builds
 the first module using RLS, not optional follow-ups — they carry
