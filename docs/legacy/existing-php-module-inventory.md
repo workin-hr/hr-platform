@@ -15,6 +15,10 @@ actual `apis/api/` directory structure.
 - **`apis/`** — REST JSON API, JWT bearer auth (`apis/config/auth.php`,
   `apis/helpers/otp_helper.php`), consumed by the (not-yet-in-scope-here)
   mobile/desktop client. 199 endpoint files across 38 module directories.
+  **All 199 have now been read** (see `docs/api/existing-endpoint-inventory.md`,
+  `docs/legacy/business-rule-extraction.md`, `docs/security/threat-model.md`
+  for the resulting documentation and findings) — this side of the system
+  is Discovery-complete at the API layer.
 - **`dashboard/`** — Session-based server-rendered admin panel
   (`dashboard/includes/auth.php`), 92 page files across 34 page
   directories, used directly by browsers. Shares the same MySQL database
@@ -42,12 +46,12 @@ actual `apis/api/` directory structure.
 | `branches` | 6 | CRUD, QR-code generation. All 6 documented in `docs/api/existing-endpoint-inventory.md`; company-scoped throughout |
 | `company_settings` | 6 | CRUD, options (available settings for a company to choose from). All 6 documented; company-scoped throughout |
 | `notifications` | 6 | List, send, mark read, unread count. All 6 documented; ownership-checked per-recipient |
-| `job_titles`, `departments`, `shifts`, `request_types`, `attendance_exception_types`, `company_official_holidays`, `assets`, `administrative_decisions` | 5 each | Standard per-company CRUD lookup/config modules |
+| `job_titles`, `departments`, `shifts`, `request_types`, `attendance_exception_types`, `company_official_holidays`, `assets`, `administrative_decisions` | 5 each | Standard per-company CRUD lookup/config modules. All 40 documented in `docs/api/existing-endpoint-inventory.md`, company-scoped throughout. **`hr_permissions` granular-permission enforcement present on `administrative_decisions`/`attendance_exception_types`/`company_official_holidays` but absent on `job_titles`/`departments`/`shifts`/`request_types`/`assets` — see `docs/security/threat-model.md`** |
 | `salary_contracts` | 5 | Versioned per-employee compensation. All 5 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; correct tenant scoping throughout, but see the `daily`-wage-mode and always-zero-`housing_allowance` findings in `docs/legacy/business-rule-extraction.md` |
 | `employee_docs` | 4 | Upload, list, update, delete. All documented in `docs/api/existing-endpoint-inventory.md`; company-scoped |
 | `company_join_requests`, `hr_employees`, `complaints`, `schedules` | 3 each | Company-scoped workflows (accept/reject join requests, HR permission updates, complaint handling, schedule assignment/generation). All documented; `company_join_requests` accept/reject correctly scoped (contrast with `advances`) |
 | `company` | 3 | Company profile update, logo upload, commercial-registration-doc upload. All documented; company-scoped |
-| `app_content`, `banners`, `faqs`, `configs`, `phone_countries`, `setting_allowed_values`, `setting_definitions`, `time`, `dashboard` | 1 each | Read-mostly reference/content endpoints; `time` is a single server-time endpoint (`apis/api/time/now.php`) — likely a client clock-sync utility |
+| `app_content`, `banners`, `faqs`, `configs`, `phone_countries`, `setting_allowed_values`, `setting_definitions`, `time`, `dashboard` | 1 each | Read-mostly reference/content endpoints; `time` is a single server-time endpoint (`apis/api/time/now.php`) — likely a client clock-sync utility. All 9 documented in `docs/api/existing-endpoint-inventory.md` |
 
 **Two directories exist on disk but are empty and are *not* in
 `ApiModule::allowedList()`:** `apis/api/employee_custody/` and

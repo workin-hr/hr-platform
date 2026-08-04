@@ -2,20 +2,21 @@
 
 ## Scope Of This Pass
 
-`workin-hr/hr-legacy` has 199 API endpoint files (see
-`docs/legacy/existing-php-module-inventory.md` for the full module
-breakdown). This pass documents: all 14 `auth` endpoints, all 15
-`attendance` endpoints, all 14 `employees` endpoints, all 9 `profile`
-endpoints, all 16 `payroll_batches`/`payslips` endpoints, all 20
-`advances`/`penalties`/`salary_contracts` endpoints, and all 24
-`requests`/`leave_balances`/`workforce_planning` endpoints — 112
-endpoints total, plus 18 more from `branches`/`company_settings`/
-`notifications` and 16 more from `employee_docs`/`company_join_requests`/
-`hr_employees`/`complaints`/`schedules`/`company` (146 total). The
-remaining ~53 endpoints (mostly small reference/lookup modules) are
-inventoried structurally (module, file count, purpose) in the module
-inventory, not individually here yet. Do not read this document as
-complete endpoint coverage.
+**All 199 `workin-hr/hr-legacy` API endpoint files (`apis/api/`, 38
+module directories) have now been read and are documented below**, in
+varying depth: the highest-risk modules (`auth`, `attendance`,
+`employees`, `profile`, `payroll_batches`/`payslips`,
+`advances`/`penalties`/`salary_contracts`, `requests`) got full
+per-endpoint documentation and line-level scrutiny; the remaining modules
+got a full read plus a scoping/permission-pattern check (company_id
+isolation, Manager branch-scoping, `hr_permissions` enforcement), which
+is where most of the findings below came from. See
+`docs/legacy/existing-php-module-inventory.md` for the module breakdown
+and `docs/legacy/business-rule-extraction.md` /
+`docs/security/threat-model.md` for every finding this pass produced.
+This is API-layer coverage only — the separate `dashboard/` codebase (92
+files, session-based admin panel) has not been read in this pass; see
+its own section in the module inventory for what remains open there.
 
 Consumer note: no mobile/desktop client source was available in this
 pass — every "Consumer" field below is inferred from the API's own
@@ -518,6 +519,32 @@ isolated to that module. `hr_employees/update_permissions.php` writes the
 date-effective model already documented. `company/update.php` and the
 two upload endpoints are the company-admin-only counterparts to the
 employee-facing `profile/company.php`.
+
+## Reference/Lookup Modules (40 endpoints: `job_titles`, `departments`, `shifts`, `request_types`, `attendance_exception_types`, `company_official_holidays`, `assets`, `administrative_decisions` — 5 each)
+
+All 40 endpoints read (full reads for `administrative_decisions`,
+`attendance_exception_types`, `company_official_holidays`; scoping-pattern
+verification via targeted reads for the rest). All consistently
+company-scoped. **Finding — the `hr_permissions` granular authorization
+matrix is enforced on some of these modules
+(`administrative_decisions` all 5, `attendance_exception_types`
+create/delete/update, `company_official_holidays` all 5) but not others
+(`job_titles`, `departments`, `shifts`, `request_types`, `assets`)** —
+see the new threat-model entry for the full write-up; this inconsistency
+extends well beyond this module group to most of the API.
+
+## Reference/Content Modules (9 endpoints: `app_content`, `banners`, `faqs`, `configs`, `phone_countries`, `setting_allowed_values`, `setting_definitions`, `time`, `dashboard` — 1 each)
+
+Read-mostly, mostly public/unauthenticated GET endpoints as the module
+inventory already noted: `app_content`, `configs`, `phone_countries`,
+`setting_allowed_values` require no auth at all (static/marketing/CMS
+content and reference lookups). `banners`, `faqs`, `time` require any
+authenticated session but no specific role. `setting_definitions` is
+`COMPANY_ADMIN`/`HR` only (the definitions side of the EAV settings
+system, as opposed to `company_settings`, which is the per-company
+selected-values side). `dashboard/stats.php` is the single dashboard
+summary-widget endpoint, `COMPANY_ADMIN`/`HR` only, not traced past its
+company-scoped call site in this pass.
 
 ## Evidence
 
