@@ -10,7 +10,7 @@
 | Date | 2026-08-02 |
 | Owners | Solution Architect |
 | Deciders | Human engineering leadership — recorded at approval time in `docs/bootstrap/decision-log.md` |
-| Related Issues | None yet |
+| Related Issues | `hr-legacy#7`, `hr-legacy#15`, `hr-platform#18` |
 | Supersedes | None |
 | Superseded By | None |
 
@@ -42,9 +42,28 @@ Document candidate authentication and authorization directions only after legacy
 
 ## Validation Evidence
 
-None yet — pending Discovery. Requires legacy business-rule extraction (`docs/legacy/business-rule-extraction.md`) and production-behavior evidence (`docs/legacy/production-behavior-evidence.md`) covering current identity flows before this decision can move to Accepted.
+**Update 2026-08-04**: the Discovery this ADR was waiting on now exists.
+`docs/legacy/business-rule-extraction.md` and
+`docs/security/threat-model.md` cover current server-side identity flows
+(10-year JWT, no company-admin revocation — `hr-legacy#7`; mobile logout
+silently deactivating the account — `hr-legacy#15`).
+`docs/api/flutter-request-response-compatibility.md` (Session/Token
+Lifecycle section) adds the client-side half: plain `SharedPreferences`
+token storage and no refresh capability in either Flutter client
+(`hr-platform#18`). A candidate remediation direction — not yet
+approved — is recorded in
+`docs/security/authentication-remediation-design.md`. This ADR can move
+toward `Accepted` once a human reviews that design and the decisions it
+leaves open (token lifetimes, backward-compatibility approach for
+existing users, whether multi-session support is wanted) are resolved.
 
 ## Open Questions
 
-- current identity flows and token handling
-- external identity provider constraints
+- Which backward-compatible migration approach for existing long-lived
+  tokens (dual-validation, forced re-authentication, or staggered
+  rollout — see `docs/security/authentication-remediation-design.md`)
+  is acceptable given real support-load constraints.
+- External identity provider constraints (unchanged from original
+  framing — not yet investigated).
+- Access/refresh token lifetime values and whether multiple simultaneous
+  sessions per identity are desired going forward.

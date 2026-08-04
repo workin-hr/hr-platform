@@ -35,3 +35,4 @@ maintaining a second, divergent copy of these rules — see
 - `ADR-0006-attendance-edge-gateway-direction.md`
 - `ADR-0007-testing-and-quality-gate-strategy.md`
 - `ADR-0008-observability-baseline.md`
+- `ADR-0009-dashboard-vs-desktop-admin-client.md`

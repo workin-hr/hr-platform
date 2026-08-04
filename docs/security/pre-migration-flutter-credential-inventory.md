@@ -36,7 +36,7 @@ shows neither as untracked content requiring attention.
 | `workin_desktop/macos/Runner/GoogleService-Info.plist` | Firebase client API key (`API_KEY` field) | Public client configuration |
 | `workin_desktop/lib/core/resources/constants_manager.dart` (line 10) | Google Maps Platform API key (`googleMapsApiKey`) | Public client configuration **by Google's documented pattern, but see note below** |
 | `workin_desktop/lib/core/resources/constants_manager.dart` (line 8) | Google OAuth server client ID (`googleServerClientId`, `*.apps.googleusercontent.com` format) | Public OAuth client identifier, not a secret |
-| `workin_desktop/dsa_pub.pem` | Single base64 value, not PEM/ASN.1-structured; filename indicates "public" | Very likely a standard, non-project-specific Flutter/Dart SDK tooling artifact — not app business data. Flagged at medium confidence (could not verify against an external reference from this environment); recommend a quick confirmation if this needs to be relied upon later. |
+| `workin_desktop/dsa_pub.pem` | WinSparkle DSA public-key resource (32-byte value, base64-encoded, no PEM/ASN.1 armor) | Public key material — confirmed safe by design. See "dsa_pub.pem Provenance" below for full evidence chain (Update 2026-08-04, supersedes the earlier medium-confidence entry). |
 
 ## Classification Reasoning
 
@@ -64,6 +64,75 @@ code** — this is the one item from this inventory worth a direct,
 explicit check against the live GCP Console, separate from and lower
 urgency than the account-takeover-class findings already on record in
 `workin-hr/hr-legacy`.
+
+## dsa_pub.pem Provenance (Update 2026-08-04)
+
+The earlier entry above classified `dsa_pub.pem` as "very likely safe" on
+filename inference alone, which was an insufficiently rigorous basis for a
+credential-adjacent file. This section replaces that inference with direct
+evidence.
+
+**What it actually is**: the file is not a standard PEM-armored key at all
+— it has no `-----BEGIN-----`/`-----END-----` header (which is why
+`openssl pkey -pubin` fails to parse it), and is a single 44-character
+base64 line that decodes to exactly 32 raw bytes. It is referenced and
+consumed as a compiled Windows resource:
+
+```text
+workin_desktop/windows/runner/Runner.rc:128:
+DSAPub      DSAPEM      "../../dsa_pub.pem"
+```
+
+This is the public-key resource for **WinSparkle**, the Windows component
+of the `auto_updater` Flutter package (Sparkle-family auto-update, used to
+verify the digital signature of downloaded update packages before
+installing them). `workin_desktop/installer/AUTO_UPDATE.md` (written by
+the same developer who first committed `dsa_pub.pem`, same commit day —
+`c55907a`/`fb09278`, 2026-06-03, author Mohamed Ahmed) documents the exact
+generation step: `dart run auto_updater:generate_keys` produces a
+`dsa_priv.pem` ("سري — احتفظ بيه" — "secret, keep it") and this
+`dsa_pub.pem`, and states the public key "لازم يكون في جذر المشروع (مرتبط
+في `windows/runner/Runner.rc`)" — "must be at the project root (linked in
+`windows/runner/Runner.rc`)". The macOS equivalent (`SUPublicEDKey`, an
+EdDSA public key for Sparkle) is present in
+`workin_desktop/macos/Runner/Info.plist` for the same auto-update purpose,
+corroborating this is a real, intentional, cross-platform update-signing
+setup, not a stray artifact.
+
+**Answering each required question directly**:
+
+- **Referenced?** Yes — compiled into the Windows binary via
+  `Runner.rc`'s `DSAPub DSAPEM` resource declaration.
+- **Project-owned?** Yes — first committed by a named project developer
+  alongside documentation the same developer wrote explaining its purpose;
+  not a copy-pasted template artifact.
+- **Paired with a private key?** Yes, by design (`dsa_priv.pem` per
+  `AUTO_UPDATE.md`) — but that private key is **not present anywhere in
+  the repository**: a targeted search for `dsa_priv*`, any
+  `BEGIN...PRIVATE KEY` PEM header, and common signing-key file extensions
+  (`.p12`/`.jks`/`.keystore`) across both Flutter client trees returned
+  zero matches. Only the public half was ever added to this client
+  checkout, which is the correct and expected state.
+- **Removable?** No — it is a live build dependency of the Windows
+  target (`Runner.rc` resource compilation would fail without it), not
+  dead weight.
+- **Tooling artifact?** Yes, specifically an `auto_updater`/WinSparkle
+  key-generation output, not a hand-authored or copied one.
+
+**Classification**: public key material for a software-update signature
+scheme is *supposed* to ship inside the distributed application — that is
+how the verification model works (the app must hold the public key to
+verify a signature made with the private key). This is analogous to the
+already-documented Firebase/Maps client key pattern: safe to embed,
+because the security property depends on the *private* counterpart staying
+secret, not on the public value being hidden. No further action is
+required for `dsa_pub.pem` itself. The one adjacent item worth carrying
+into the migration/task backlog is operational, not a credential leak:
+confirming `dsa_priv.pem` is held securely (e.g. a password manager or
+signing CI secret) by whoever performs desktop releases, since this
+inventory cannot see or verify that from source — tracked in the
+consolidated task matrix (`docs/migration/consolidated-task-matrix.md`,
+row F-11).
 
 ## Explicitly Checked And Confirmed Absent
 

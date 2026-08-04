@@ -42,9 +42,44 @@ Keep `hr-platform` as the new repository for bootstrap and future implementation
 
 ## Validation Evidence
 
-None yet — pending Discovery. This decision should be revisited with evidence from legacy PHP discovery (`docs/legacy/`) and Flutter compatibility discovery (`docs/api/`) before it can move to Accepted.
+**Update 2026-08-04**: legacy PHP discovery (`docs/legacy/`,
+`docs/api/existing-endpoint-inventory.md`) is complete at the API layer,
+and Flutter compatibility discovery now exists
+(`docs/api/flutter-request-response-compatibility.md`,
+`docs/security/pre-migration-flutter-credential-inventory.md`), performed
+against real local, read-only, never-committed checkouts of
+`workin_mobile`/`workin_desktop`. This is the evidence this ADR's
+Validation Evidence section was waiting on.
+
+**Repository-boundary reassessment (informed by that evidence)**: both
+Flutter client repositories carry their own independent git history
+(confirmed via `git log` against the local checkouts — real commits by
+named project developers, unrelated to `hr-platform`'s own history) and
+their own build/release tooling (e.g. `workin_desktop`'s WinSparkle
+auto-update signing setup, `installer/AUTO_UPDATE.md`). Nothing found
+during Discovery suggests collapsing them into `hr-platform` would
+simplify anything — the opposite: `hr-platform`'s own `CLAUDE.md`
+scopes this repository to planning/documentation/governance, not hosting
+product source or its release tooling. **Recommendation: Flutter source
+should remain permanently separate from `hr-platform`**, not just
+excluded for the duration of this Discovery pass. The local
+`.gitignore` entries added for this Discovery pass
+(`flutter-integration/workin_desktop/`, `flutter-integration/workin_mobile/`)
+should be read as a **permanent policy enforcing this ADR's boundary**,
+not a temporary safeguard to be removed once Discovery concludes — see
+`docs/legacy/existing-php-module-inventory.md` and
+`docs/api/three-frontend-api-usage-matrix.md` for how documentation
+continues to reference Flutter client behavior without needing the
+source itself tracked in this repository. This recommendation does not
+by itself move this ADR to `Accepted` — that still requires human
+review — but it directly answers this ADR's first Open Question below.
 
 ## Open Questions
 
-- whether Flutter should remain permanently separate
-- whether future repository boundaries should change after discovery
+- ~~whether Flutter should remain permanently separate~~ — **Answered
+  2026-08-04, pending human sign-off**: yes, recommended permanent
+  (see Validation Evidence update above). Human review is still required
+  before this ADR's `Status` can move to `Accepted`.
+- whether future repository boundaries should change after discovery —
+  still open for the eventual Java backend implementation repository
+  (not yet created; out of scope for this Discovery pass).
