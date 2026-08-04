@@ -6,10 +6,13 @@ Two real Flutter client repositories were made available locally for
 read-only Discovery on 2026-08-04: `workin_mobile` (employee-facing
 mobile app) and `workin_desktop` (company-admin/HR-facing desktop app —
 see the "Desktop/Mobile Divergence" finding below, this is not a mirror
-of the mobile app). Both are excluded from git via `.gitignore` and were
-never committed to this repository — see
+of the mobile app). Both are tracked as pinned git submodules (see
+`.gitmodules`) — this repository's git history holds only a commit-SHA
+pointer to each, never their file content, and neither is initialized by
+a plain `git clone` or by CI. See
 `docs/security/pre-migration-flutter-credential-inventory.md` for the
-credential-handling record. All entries below are labeled by confidence:
+full credential-handling and repository-boundary record. All entries
+below are labeled by confidence:
 **Confirmed** (read directly in client source) is now possible for the
 first time in this Discovery effort, superseding the "Inferred" labels
 throughout `docs/api/existing-endpoint-inventory.md`.
@@ -304,9 +307,11 @@ file, 674 lines) versus `workin_mobile/lib/core/network/api_constants.dart`
 
 ## Evidence
 
-All entries above are drawn from direct reads of `workin_mobile` and
-`workin_desktop` (local-only, git-ignored, never committed — see
-`docs/security/pre-migration-flutter-credential-inventory.md`), commit
-state as checked out locally on 2026-08-04, cross-referenced against
+All entries above are drawn from direct reads of `workin_mobile`
+(submodule pinned at `3d20855c2797a30ebbbeb8efabfdb139ee6088c2`) and
+`workin_desktop` (submodule pinned at
+`ecf3f4cfe413ad4a377013d930e266021a731690`) — see
+`docs/security/pre-migration-flutter-credential-inventory.md` for the
+full repository-boundary record — cross-referenced against
 `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`
 and the existing Discovery documents in this repository.

@@ -10,16 +10,13 @@
 __pycache__/
 *.pyc
 
-# Flutter client source (workin_mobile, workin_desktop), imported locally
-# for read-only Discovery (A1/PMR-02). This is a PERMANENT policy, not a
-# temporary safeguard for this Discovery pass — both clients are
-# independent product repositories with their own history and release
-# tooling, and hr-platform's CLAUDE.md scopes this repo to
-# planning/documentation/governance, not hosting product source. See
-# ADR-0001 (docs/adr/ADR-0001-repository-strategy.md) for the full
-# reassessment. Never commit this product source or its embedded
-# configuration/credentials into hr-platform. This rule does not block
-# documentation, ADRs, or contract specs that reference or are derived
-# from Flutter source — those live under docs/ and are unaffected.
-flutter-integration/workin_desktop/
-flutter-integration/workin_mobile/
+# flutter-integration/workin_desktop/ and flutter-integration/workin_mobile/
+# are git submodules (see .gitmodules), not gitignored — this repository
+# only carries a pinned commit *reference* to each, not their file
+# content. Neither is initialized by a plain `git clone` or by CI (no
+# `--recurse-submodules`, no `git submodule update` in any workflow) —
+# populating them locally is an explicit opt-in
+# (`git submodule update --init`) requiring SSH access to those repos.
+# Never run git commands *inside* either submodule directory that would
+# push, commit, or otherwise modify them — reference only. See ADR-0001
+# (docs/adr/ADR-0001-repository-strategy.md) for the full policy.

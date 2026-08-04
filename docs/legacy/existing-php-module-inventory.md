@@ -36,9 +36,9 @@ app.
   via `auth/login_employee`/`auth/join_company`. Its entire API surface
   is employee self-service: own attendance, own payslips, own leave
   balances, own requests, own documents — no administrative capability at
-  all. Confirmed via direct read of the real client source (local-only,
-  never committed to this repository — see
-  `docs/security/pre-migration-flutter-credential-inventory.md`).
+  all. Confirmed via direct read of the real client source (tracked here
+  only as a pinned git submodule reference, not committed file content —
+  see `docs/security/pre-migration-flutter-credential-inventory.md`).
 - **`workin_desktop` (Flutter)** — a full native company-admin/HR
   management client, **not** a platform variant of the mobile app.
   Authenticates via `auth/login_company`/`auth/login_desktop`. Its API

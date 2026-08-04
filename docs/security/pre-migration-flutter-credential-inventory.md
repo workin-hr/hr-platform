@@ -7,23 +7,58 @@ Flutter-client Discovery reading began, per explicit instruction. This
 document contains **no secret values** — only file locations, key types,
 and classifications. The two Flutter client repositories
 (`flutter-integration/workin_desktop/`, `flutter-integration/workin_mobile/`)
-were added locally for read-only Discovery only; they are excluded from
-git via `.gitignore` and were never staged, committed, or pushed to this
-repository.
+were added locally for read-only Discovery; their file *content* has
+never been staged, committed, or pushed to this repository at any point.
 
 ## Safeguard Applied
 
-`.gitignore` was updated (before any further analysis) to explicitly
-exclude both client directories:
+**Original safeguard (2026-08-04)**: `.gitignore` was updated before any
+further analysis to explicitly exclude both client directories,
+verified via `git check-ignore -v` before proceeding.
+
+**Updated safeguard (2026-08-04, later same day)**: at explicit user
+request, both directories were converted from gitignored local checkouts
+into **pinned git submodules** referencing their real upstream
+repositories:
 
 ```text
-flutter-integration/workin_desktop/
-flutter-integration/workin_mobile/
+[submodule "flutter-integration/workin_desktop"]
+    path = flutter-integration/workin_desktop
+    url = git@github.com:m0hamed-ahmed/workin_desktop.git
+[submodule "flutter-integration/workin_mobile"]
+    path = flutter-integration/workin_mobile
+    url = git@github.com:m0hamed-ahmed/workin_mobile.git
 ```
 
-Verified via `git check-ignore -v` against files in both directories
-before proceeding — confirmed both are fully ignored, and `git status`
-shows neither as untracked content requiring attention.
+This is a stronger, more precisely-scoped safeguard than the original
+gitignore exclusion, not a weaker one: a git submodule reference is a
+`160000`-mode gitlink entry — a commit SHA pointer only. No file content
+from either client repository is stored as a git object (blob) in
+`hr-platform`'s history, exactly as before, but the reference is now
+reproducible (anyone with appropriate SSH access can check out the exact
+same commit via `git submodule update --init`) instead of depending on an
+undocumented local-only checkout. Both submodules are pinned to a fixed
+commit — `workin_desktop` at `ecf3f4cfe413ad4a377013d930e266021a731690`,
+`workin_mobile` at `3d20855c2797a30ebbbeb8efabfdb139ee6088c2` — and do not
+move unless a human deliberately runs `git submodule update --remote`
+followed by a new commit; there is no automatic tracking of either
+upstream's `main` branch.
+
+**Read-only guarantee, explicitly verified**:
+
+- Neither a plain `git clone` of `hr-platform` nor either CI workflow
+  (`.github/workflows/phase0-validate.yml`, `nightly.yml`) initializes
+  submodule content — both use `actions/checkout` without
+  `submodules: true`/`recursive`, confirmed by direct inspection of both
+  workflow files. CI and any fresh clone see only empty placeholder
+  directories at these paths, never file content, unless a human
+  explicitly opts in locally.
+- Nothing in this repository's git history, any commit, or any tooling
+  runs write operations (`add`/`commit`/`push`) *inside* either submodule
+  directory — the parent repository only ever records which upstream
+  commit to point at, never modifies the upstream repositories themselves.
+  This inventory's own Discovery work only ever read files inside both
+  checkouts.
 
 ## Inventory
 

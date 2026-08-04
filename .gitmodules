@@ -1,0 +1,6 @@
+[submodule "flutter-integration/workin_desktop"]
+	path = flutter-integration/workin_desktop
+	url = git@github.com:m0hamed-ahmed/workin_desktop.git
+[submodule "flutter-integration/workin_mobile"]
+	path = flutter-integration/workin_mobile
+	url = git@github.com:m0hamed-ahmed/workin_mobile.git

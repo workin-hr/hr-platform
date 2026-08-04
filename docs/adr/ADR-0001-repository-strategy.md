@@ -62,15 +62,33 @@ simplify anything — the opposite: `hr-platform`'s own `CLAUDE.md`
 scopes this repository to planning/documentation/governance, not hosting
 product source or its release tooling. **Recommendation: Flutter source
 should remain permanently separate from `hr-platform`**, not just
-excluded for the duration of this Discovery pass. The local
-`.gitignore` entries added for this Discovery pass
-(`flutter-integration/workin_desktop/`, `flutter-integration/workin_mobile/`)
-should be read as a **permanent policy enforcing this ADR's boundary**,
-not a temporary safeguard to be removed once Discovery concludes — see
-`docs/legacy/existing-php-module-inventory.md` and
+excluded for the duration of this Discovery pass.
+
+**Update 2026-08-04 (later same day)**: at explicit user request, the
+mechanism enforcing this boundary changed from a blanket `.gitignore`
+exclusion to pinned **git submodule** references
+(`.gitmodules` → `flutter-integration/workin_desktop`,
+`flutter-integration/workin_mobile`, pointing at
+`git@github.com:m0hamed-ahmed/workin_desktop.git` and
+`.../workin_mobile.git`). This is a refinement of the same boundary, not
+a reversal of it: a submodule's gitlink is a commit-SHA pointer, not file
+content — no Flutter source is stored as a git object in `hr-platform`'s
+history either way. What changes is reproducibility (anyone with SSH
+access can now check out the exact referenced commit via
+`git submodule update --init`, rather than relying on an undocumented
+local-only checkout) and explicitness (the pinned commit and upstream URL
+are now visible in version control, not just asserted in prose). Neither
+CI workflow initializes submodule content (confirmed: no
+`submodules: true`/`recursive` on either `actions/checkout` step), so a
+plain clone or CI run behaves exactly as it did under the `.gitignore`
+approach — empty placeholder directories, no product source ever present
+without an explicit, human-initiated opt-in. See
+`docs/security/pre-migration-flutter-credential-inventory.md`
+("Safeguard Applied") for the full mechanism record, and
+`docs/legacy/existing-php-module-inventory.md` /
 `docs/api/three-frontend-api-usage-matrix.md` for how documentation
 continues to reference Flutter client behavior without needing the
-source itself tracked in this repository. This recommendation does not
+source itself committed in this repository. This recommendation does not
 by itself move this ADR to `Accepted` — that still requires human
 review — but it directly answers this ADR's first Open Question below.
 
