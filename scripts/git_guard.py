@@ -40,9 +40,15 @@ Design, in order:
 7. As defense in depth against command substitution / backticks hiding a
    dangerous invocation inside what looks like a single argument (which
    step 3's tokenizer cannot see into — a real limitation, documented
-   below and in docs/bootstrap/audit-remediation.md), a secondary raw
-   regex scan runs across the *entire* original command string looking for
-   `git ... <dangerous-subcommand>` patterns. If it fires where the
+   below and in docs/bootstrap/audit-remediation.md), a secondary regex
+   scan runs specifically over the extracted contents of every `$(...)`
+   and backtick region in the command, looking for `git ...
+   <dangerous-subcommand>` patterns. This is intentionally scoped to those
+   regions rather than the entire raw command string — an earlier version
+   scanned the whole string and blocked any command merely printing or
+   mentioning git-looking text (e.g. `echo "git push"`), which is not
+   this guard's purpose and was a real false-positive bug, not a
+   deliberate broader safety margin. If the scoped scan fires where the
    structural analysis did not already block, the command is blocked as
    "possibly obfuscated" rather than allowed — this is the "fail closed
    when ambiguous" behavior applied to what the parser cannot fully see.
@@ -66,6 +72,12 @@ looks at the current branch, fetched lazily via `git branch --show-current`
 only when a segment actually parses as a non-amend commit — not on every
 Bash call — through an injectable `branch_getter` callable so the
 regression tests never need a real Git repository or real subprocess call.
+`branch_getter` is called with the `-C`-resolved target directory (`None`
+if the command had no `-C`), so `git -C <other-repo> commit ...` checks
+the *target* repo's branch, not whatever repo the hook process's own cwd
+happens to be — see `find_git_subcommand`'s docstring for how that
+directory is resolved (fixing a real finding from independent review:
+this previously always checked the hook's own cwd regardless of `-C`).
 Branch protection on `main` is otherwise only GitHub-enforced, pending
 manual setup (see docs/agents/operating-model.md, enforcement layer 4); this
 is local, tool-enforced defense in depth ahead of that, not a replacement
@@ -81,10 +93,14 @@ a change to `evaluate_command`'s existing default behavior.
 ## Residual limitations (cannot be technically enforced by this guard)
 
 - Command substitution and backticks (`$(...)`, `` `...` ``) are not
-  recursively parsed; the secondary regex scan is a heuristic safety net
-  for this case, not a guarantee. Deeply obfuscated forms (base64 + eval,
-  building the string via variable concatenation, calling through a
-  wrapper script this guard has never seen) can defeat both layers.
+  recursively parsed; the secondary regex scan (scoped to the extracted
+  contents of those regions specifically — see `_extract_command_substitutions`)
+  is a heuristic safety net for this case, not a guarantee. Deeply
+  obfuscated forms (base64 + eval, building the string via variable
+  concatenation, calling through a wrapper script this guard has never
+  seen, or invoking git indirectly through another language runtime's
+  subprocess call with no `$(...)`/backtick in the Bash string at all)
+  can defeat both layers.
 - Git global-option recognition is a practical subset of real Git's
   option grammar, not a full reimplementation of Git's argument parser.
 - This guard only inspects the Bash tool's `command` string before
@@ -184,25 +200,41 @@ def strip_env_wrapper(tokens: list[str]) -> list[str]:
     return tokens[i:]
 
 
-def find_git_subcommand(args: list[str]) -> tuple[str | None, list[str], bool]:
+def find_git_subcommand(args: list[str]) -> tuple[str | None, list[str], bool, str | None]:
     """`args` are the tokens after the `git` executable itself.
 
-    Returns (subcommand_or_None, remaining_args, ambiguous).
+    Returns (subcommand_or_None, remaining_args, ambiguous, target_dir).
     `ambiguous=True` means the guard could not confidently determine the
-    effective subcommand and must fail closed.
+    effective subcommand and must fail closed. `target_dir` is the
+    directory `-C`/`--chdir`-equivalent effective directory once every
+    `-C <path>` option before the subcommand has been applied in order
+    (git chains repeated `-C` the same way repeated `cd` would — each one
+    is resolved relative to the previous, and an absolute path resets it;
+    `os.path.join` already has that exact behavior for POSIX paths), or
+    `None` if no `-C` was present. This exists so the branch-protection
+    rule for `git commit` (see "Repository-state-dependent rule" below)
+    can check the branch of the repo the command actually targets instead
+    of always checking the hook process's own cwd — see
+    docs/bootstrap/audit-remediation.md for the finding this fixes:
+    `git -C <other-repo> commit ...` was previously classified using
+    whatever branch the hook happened to be running in, not the target
+    repo's branch.
     """
     i = 0
     n = len(args)
+    target_dir: str | None = None
     while i < n:
         t = args[i]
         if t in ("--version", "-h", "--help"):
-            return (None, args[i + 1 :], False)  # informational, not mutating
+            return (None, args[i + 1 :], False, target_dir)  # informational, not mutating
         if t.startswith("--") and "=" in t:
             i += 1
             continue
         if t in GIT_GLOBAL_VALUE_OPTS:
             if i + 1 >= n:
-                return (None, [], True)  # option expects a value that is missing
+                return (None, [], True, target_dir)  # option expects a value that is missing
+            if t == "-C":
+                target_dir = args[i + 1] if target_dir is None else os.path.join(target_dir, args[i + 1])
             i += 2
             continue
         if t in GIT_GLOBAL_FLAG_OPTS:
@@ -213,23 +245,27 @@ def find_git_subcommand(args: list[str]) -> tuple[str | None, list[str], bool]:
             # found. Could be a global option this guard doesn't know
             # about, or a malformed invocation. Fail closed rather than
             # guess.
-            return (None, args[i:], True)
-        return (t, args[i + 1 :], False)
-    return (None, [], False)  # bare `git` with nothing else: not mutating
+            return (None, args[i:], True, target_dir)
+        return (t, args[i + 1 :], False, target_dir)
+    return (None, [], False, target_dir)  # bare `git` with nothing else: not mutating
 
 
 def classify_git_invocation(
     args: list[str],
-    branch_getter: Callable[[], str | None] | None = None,
+    branch_getter: Callable[[str | None], str | None] | None = None,
 ) -> tuple[str, str]:
     """`args` are the tokens after the `git` executable. Returns
     (verdict, reason) where verdict is "allow" or "block".
 
     `branch_getter`, if given, is only called for a `git commit` segment
     without `--amend` (see module docstring, "Repository-state-dependent
-    rule"). Omitting it (the default) preserves this function's prior,
-    branch-agnostic behavior for `commit` exactly as before."""
-    subcommand, rest, ambiguous = find_git_subcommand(args)
+    rule"), and is called with one argument: the `-C`-resolved target
+    directory (see `find_git_subcommand`'s docstring), or `None` if the
+    command had no `-C`, meaning "check the hook process's own cwd" as
+    before. Omitting `branch_getter` entirely (the default) preserves this
+    function's prior, branch-agnostic behavior for `commit` exactly as
+    before."""
+    subcommand, rest, ambiguous, target_dir = find_git_subcommand(args)
     if ambiguous:
         return ("block", "ambiguous git invocation: could not confidently determine the effective subcommand")
     if subcommand is None:
@@ -277,7 +313,7 @@ def classify_git_invocation(
             return ("block", "git commit --amend rewrites the previous commit")
         if branch_getter is None:
             return ("allow", "git commit without --amend does not rewrite existing history")
-        current_branch = branch_getter()
+        current_branch = branch_getter(target_dir)
         if current_branch is None:
             return (
                 "block",
@@ -394,7 +430,7 @@ class UnparsableCommand(Exception):
 
 def analyze_segment(
     segment: str,
-    branch_getter: Callable[[], str | None] | None = None,
+    branch_getter: Callable[[str | None], str | None] | None = None,
 ) -> tuple[str, str] | None:
     """Returns (verdict, reason) if this segment invokes Git, else None."""
     try:
@@ -421,9 +457,51 @@ _OBFUSCATION_RE = re.compile(
 )
 
 
+def _extract_command_substitutions(raw_command: str) -> list[str]:
+    """Extract the inner text of every `$(...)` and `` `...` `` region in
+    raw_command, with simple depth-tracking so nested parentheses inside
+    `$(...)` (e.g. `$(git log $(date))`) don't truncate the match early.
+
+    This exists to scope the obfuscation heuristic below to only the parts
+    of a command the structural tokenizer genuinely cannot see into.
+    Scanning the *entire* raw command text (the prior behavior) flagged
+    any command that merely printed or mentioned git-looking text — e.g.
+    `echo "git push"`, `printf 'git push\\n'`, or
+    `python3 -c "print('git push')"` were all denied even though none of
+    them invoke git — which is a real, demonstrated false-positive class,
+    not the command-substitution case this heuristic exists for. See the
+    regression tests in scripts/test_git_guard.py for both the
+    false-positive fix and continued detection of the real case."""
+    regions: list[str] = []
+    i = 0
+    n = len(raw_command)
+    while i < n:
+        if raw_command[i : i + 2] == "$(":
+            depth = 1
+            j = i + 2
+            while j < n and depth > 0:
+                if raw_command[j] == "(":
+                    depth += 1
+                elif raw_command[j] == ")":
+                    depth -= 1
+                j += 1
+            regions.append(raw_command[i + 2 : max(j - 1, i + 2)])
+            i = j
+            continue
+        if raw_command[i] == "`":
+            end = raw_command.find("`", i + 1)
+            if end == -1:
+                break
+            regions.append(raw_command[i + 1 : end])
+            i = end + 1
+            continue
+        i += 1
+    return regions
+
+
 def evaluate_command(
     raw_command: str,
-    branch_getter: Callable[[], str | None] | None = None,
+    branch_getter: Callable[[str | None], str | None] | None = None,
 ) -> tuple[str, str]:
     """Top-level entry point used by both the hook and the tests. Returns
     (verdict, reason).
@@ -453,13 +531,17 @@ def evaluate_command(
             return ("block", f"unparsable command mentions git; failing closed ({exc})")
         return ("allow", f"unparsable command does not appear to involve git ({exc})")
 
-    # Defense-in-depth heuristic for substitution-hidden invocations.
-    if _OBFUSCATION_RE.search(raw_command):
-        return (
-            "block",
-            "raw command text matches a dangerous git pattern that may be hidden inside "
-            "command substitution or a nested construct; failing closed on this ambiguity",
-        )
+    # Defense-in-depth heuristic for substitution-hidden invocations. Scoped
+    # to actual $(...)/backtick regions only (see
+    # _extract_command_substitutions's docstring for why scanning the whole
+    # raw command was a real false-positive bug, not intended behavior).
+    for region in _extract_command_substitutions(raw_command):
+        if _OBFUSCATION_RE.search(region):
+            return (
+                "block",
+                "a command-substitution region contains a dangerous git pattern "
+                "this guard cannot structurally verify; failing closed on this ambiguity",
+            )
 
     return ("allow", "no blocked git operation detected")
 
@@ -489,18 +571,26 @@ def extract_command_from_hook_payload(raw_stdin: str) -> str | None:
     return None
 
 
-def get_current_branch() -> str | None:
+def get_current_branch(cwd: str | None = None) -> str | None:
     """Best-effort current branch for the `git commit` branch-protection
     rule. Returns "" for a detached HEAD, or None if it could not be
     determined at all (not a Git repository, `git` not on `PATH`, timeout,
     or any other failure) — the caller treats None as "unknown", not as
-    permission to proceed."""
+    permission to proceed.
+
+    `cwd`, when given, is the `-C`-resolved directory the actual `git`
+    invocation under evaluation targets (see `find_git_subcommand`'s
+    docstring) — checking that directory instead of always the hook
+    process's own working directory is what makes `git -C <other-repo>
+    commit ...` get classified against the *target* repo's branch rather
+    than whatever repo the hook happens to be running in."""
     try:
         result = subprocess.run(
             ["git", "branch", "--show-current"],
             capture_output=True,
             text=True,
             timeout=5,
+            cwd=cwd,
         )
     except (OSError, subprocess.SubprocessError):
         return None
