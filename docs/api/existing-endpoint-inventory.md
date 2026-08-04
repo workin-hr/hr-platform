@@ -10,10 +10,12 @@ endpoints, all 16 `payroll_batches`/`payslips` endpoints, all 20
 `advances`/`penalties`/`salary_contracts` endpoints, and all 24
 `requests`/`leave_balances`/`workforce_planning` endpoints — 112
 endpoints total, plus 18 more from `branches`/`company_settings`/
-`notifications` (130 total). The remaining ~69 endpoints are inventoried
-structurally (module, file count, purpose) in the module inventory, not
-individually here yet. Do not read this document as complete endpoint
-coverage.
+`notifications` and 16 more from `employee_docs`/`company_join_requests`/
+`hr_employees`/`complaints`/`schedules`/`company` (146 total). The
+remaining ~53 endpoints (mostly small reference/lookup modules) are
+inventoried structurally (module, file count, purpose) in the module
+inventory, not individually here yet. Do not read this document as
+complete endpoint coverage.
 
 Consumer note: no mobile/desktop client source was available in this
 pass — every "Consumer" field below is inferred from the API's own
@@ -502,6 +504,20 @@ the CRUD layer over the generic EAV settings system described in the
 schema inventory (`month_start_day`/`month_end_day`/`weekly_off_days`/
 `overtime_rate` and others, including `MONTHLY_LEAVE_ACCRUAL`, consumed
 by `leave_balances/generate.php`).
+
+## Employee Docs, Company Join Requests, HR Employees, Complaints, Schedules, Company (16 endpoints)
+
+All 16 endpoints across these 6 small modules read; no scoping gaps
+found. Notably, `company_join_requests/accept.php` and `reject.php`
+match the exact approve/reject shape that was broken in `advances` —
+both are correctly company-scoped here, confirming the `advances` gap is
+isolated to that module. `hr_employees/update_permissions.php` writes the
+18-boolean `hr_permissions` matrix described in the schema inventory.
+`schedules/generate_employee_schedule.php` and
+`assign_employee_schedule.php` back the `employee_shift_assignments`
+date-effective model already documented. `company/update.php` and the
+two upload endpoints are the company-admin-only counterparts to the
+employee-facing `profile/company.php`.
 
 ## Evidence
 

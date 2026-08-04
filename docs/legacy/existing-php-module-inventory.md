@@ -44,9 +44,9 @@ actual `apis/api/` directory structure.
 | `notifications` | 6 | List, send, mark read, unread count. All 6 documented; ownership-checked per-recipient |
 | `job_titles`, `departments`, `shifts`, `request_types`, `attendance_exception_types`, `company_official_holidays`, `assets`, `administrative_decisions` | 5 each | Standard per-company CRUD lookup/config modules |
 | `salary_contracts` | 5 | Versioned per-employee compensation. All 5 endpoints individually documented in `docs/api/existing-endpoint-inventory.md`; correct tenant scoping throughout, but see the `daily`-wage-mode and always-zero-`housing_allowance` findings in `docs/legacy/business-rule-extraction.md` |
-| `employee_docs` | 4 | Upload, list, update, delete |
-| `company_join_requests`, `hr_employees`, `complaints`, `schedules` | 3 each | Company-scoped workflows (accept/reject join requests, HR permission updates, complaint handling, schedule assignment/generation) |
-| `company` | 3 | Company profile update, logo upload, commercial-registration-doc upload |
+| `employee_docs` | 4 | Upload, list, update, delete. All documented in `docs/api/existing-endpoint-inventory.md`; company-scoped |
+| `company_join_requests`, `hr_employees`, `complaints`, `schedules` | 3 each | Company-scoped workflows (accept/reject join requests, HR permission updates, complaint handling, schedule assignment/generation). All documented; `company_join_requests` accept/reject correctly scoped (contrast with `advances`) |
+| `company` | 3 | Company profile update, logo upload, commercial-registration-doc upload. All documented; company-scoped |
 | `app_content`, `banners`, `faqs`, `configs`, `phone_countries`, `setting_allowed_values`, `setting_definitions`, `time`, `dashboard` | 1 each | Read-mostly reference/content endpoints; `time` is a single server-time endpoint (`apis/api/time/now.php`) — likely a client clock-sync utility |
 
 **Two directories exist on disk but are empty and are *not* in
