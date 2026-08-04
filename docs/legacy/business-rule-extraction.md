@@ -186,6 +186,111 @@ derives DST automatically from a real timezone rule instead of this
 manual flag, will shift every timestamp by an hour whenever the two
 disagree about whether DST is currently "on."
 
+---
+
+## Rule: Payroll batch creation has no database-level uniqueness — only an app-level check
+
+**Current Behavior:** `apis/api/payroll_batches/create.php` prevents a
+duplicate `(company_id, month, year)` batch with a `SELECT COUNT(*)`
+check immediately before the `INSERT`. The `payroll_batches` table itself
+has no unique constraint on that triple (confirmed against
+`mysql_workin.schema.sql`). Two concurrent create requests for the same
+company/month/year can both pass the check before either commits,
+producing two `draft` batches for the same period.
+
+**Where Observed:** `apis/api/payroll_batches/create.php`, the
+existence-check block immediately before the `INSERT`; absence of a
+matching unique key confirmed in
+`docs/migration/database-schema-inventory.md`.
+
+**Risk If Misinterpreted:** A migration that reproduces this endpoint's
+logic exactly (app-check-then-insert, no DB constraint) preserves an
+existing race condition rather than fixing it silently — worth an
+explicit decision (add the constraint, or accept the risk as-is and
+document why) rather than assuming the current behavior is intentional
+design.
+
+---
+
+## Rule: Batch recalculation is not transactional; finalize and reopen are
+
+**Current Behavior:** `payroll_batches/calculate.php` runs
+`payroll_calculate_batch()` — the delete-all-payslips-then-reinsert
+operation described above — without wrapping it in a database
+transaction. `finalize.php` and `reopen.php`, which each have real
+cross-table side effects (penalties, `advances.remaining`), both wrap
+their work in `beginTransaction()`/`commit()`/`rollBack()`. Calculation,
+which is destructive to the same `payslips` rows, has no equivalent
+safety net: a failure partway through a recalculation leaves the batch
+with a partial payslip set and no automatic rollback.
+
+**Where Observed:** `apis/api/payroll_batches/calculate.php` (no
+transaction calls) versus `apis/api/payroll_batches/finalize.php` and
+`reopen.php` (both transactional) and
+`apis/helpers/payroll_calculation.php`'s `payroll_calculate_batch()`.
+
+**Risk If Misinterpreted:** Assuming all three batch-mutating operations
+share the same failure-safety guarantees (because they read as
+"equivalent lifecycle steps") would be wrong — only two of the three
+actually roll back cleanly on partial failure.
+
+---
+
+## Rule: Payslip totals are computed by three independent implementations, not one shared function
+
+**Current Behavior:** The canonical payroll math (day-rate, absence
+cost, overtime pay, entitlements/deductions totals) lives once, as a
+shared SQL fragment in `apis/helpers/payroll_calculation.php`
+(`sql_payslip_select_with_computed_totals()` and related functions), used
+by `payslips/list.php`, `payslips/one.php`, `payroll_batches/stats.php`,
+and `payroll_batches/one.php`. Two other endpoints reimplement the same
+domain of calculation independently in PHP rather than calling that
+shared logic:
+
+- `payslips/update.php` re-derives the full formula (day-rate,
+  absence-cost, overtime, net) inline, matching the shared formula's
+  intent but maintained as a separate copy.
+- `payslips/create.php` uses a **materially simpler and different**
+  formula — `net_salary = (basic_salary + allowances + overtime_pay) -
+  (penalties_total + advance_deduction + other_deductions)` — with no
+  day-rate or absence-cost derivation at all; `penalties_total` is taken
+  directly from the request body instead of being computed from
+  `days_absent`.
+
+**Where Observed:** `apis/helpers/payroll_calculation.php` (shared
+version); `apis/api/payslips/update.php` and `apis/api/payslips/create.php`
+(the two independent reimplementations).
+
+**Risk If Misinterpreted:** A migration that assumes "payroll calculation"
+is a single business rule to port once would miss that this legacy system
+already has three different code paths that can produce different totals
+for what looks like the same operation (adding a payslip to a batch vs.
+letting the batch calculate it vs. editing it after the fact). Each path
+needs to be ported and tested individually, or the discrepancy needs to
+be resolved as a deliberate product decision before migration, not
+discovered afterward as a bug.
+
+---
+
+## Rule: The `payslips.allowances` column holds only the housing allowance, despite its generic name
+
+**Current Behavior:** Although `allowances` reads as a general bucket,
+the actual value stored there is the employee's housing allowance
+specifically — confirmed by `payslips/update.php`'s override logic, which
+reconciles this column directly against the salary contract's
+`housing_allowance` field (a different, separately-named source column).
+Transport, food, risk, and incentive allowances are tracked in their own
+separate `payslips` columns.
+
+**Where Observed:** `apis/api/payslips/update.php`, the
+housing/allowances reconciliation block.
+
+**Risk If Misinterpreted:** Naming the migrated column `allowances`
+without checking what it actually stores would either mislabel housing
+pay as generic allowances or cause a naive "sum all allowance-like
+columns" migration script to double-count housing under two different
+names.
+
 ## Evidence
 
 All entries: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`,
