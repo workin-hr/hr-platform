@@ -7,8 +7,13 @@ Status, Date, Owners, Deciders, Related Issues, Supersedes, Superseded By),
 followed by `## Context`, `## Decision`, `## Alternatives Considered`,
 `## Consequences`, `## Risks`, `## Validation Evidence`, `## Open Questions`.
 See `ADR-0000-template.md`. Valid `Status` values are `Proposed`, `Accepted`,
-`Rejected`, `Superseded`, `Deferred`. Every ADR below is currently `Proposed`
-— the `## Decision` section states a candidate direction, not an approved one.
+`Rejected`, `Superseded`, `Deferred`. **Update 2026-08-05**: all 10 ADRs
+now have a recorded decision — 9 are fully `Accepted` (ADR-0001, ADR-0002
+both parts, ADR-0003, ADR-0004, ADR-0005, ADR-0006 Part A, ADR-0007,
+ADR-0008, ADR-0009) per `docs/bootstrap/decision-log.md` D-016 through
+D-025, and ADR-0010 (authorization model, all six dimensions) is
+Accepted per D-026. Only ADR-0006's Part B (final vendor
+protocol/connectivity detail) remains open, blocked on PMR-04.
 
 `scripts/validate_phase0.py::validate_adrs()` discovers real ADR files
 dynamically (`docs/adr/ADR-[0-9][0-9][0-9][0-9]-*.md`, excluding the
@@ -25,13 +30,27 @@ maintaining a second, divergent copy of these rules — see
 
 - `ADR-0000-template.md`
 
-## Proposed ADRs
+## Accepted ADRs
 
 - `ADR-0001-repository-strategy.md`
-- `ADR-0002-modular-monolith-baseline.md`
+- `ADR-0002-modular-monolith-baseline.md` — **Both Part A and Part B**
+  (tenant-isolation pattern: RLS, accepted 2026-08-05)
 - `ADR-0003-api-versioning-and-flutter-compatibility.md`
 - `ADR-0004-mysql-to-postgresql-migration-approach.md`
-- `ADR-0005-authentication-and-authorization-direction.md`
-- `ADR-0006-attendance-edge-gateway-direction.md`
+- `ADR-0005-authentication-direction.md`
+- `ADR-0006-attendance-edge-gateway-direction.md` — **Part A only**
+  (adapter/SPI architectural pattern); Part B (vendor-specific
+  gateway-or-not decisions) remains `Proposed`, blocked on PMR-04
 - `ADR-0007-testing-and-quality-gate-strategy.md`
 - `ADR-0008-observability-baseline.md`
+- `ADR-0009-dashboard-vs-desktop-admin-client.md` — Option E, role-based
+  split; all Validation Evidence items resolved 2026-08-05
+- `ADR-0010-authorization-model.md` — all six dimensions decided
+  2026-08-05; detailed reference: `docs/architecture/authorization-model.md`
+
+## Proposed ADRs
+
+None — all 10 ADRs have a recorded decision as of 2026-08-05. ADR-0006's
+Part B (final vendor protocol/connectivity detail) is the only remaining
+open ADR sub-item, tracked within `ADR-0006-attendance-edge-gateway-direction.md`
+itself, not as a separately `Proposed` ADR.

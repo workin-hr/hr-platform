@@ -19,7 +19,19 @@ files, session-based admin panel) has not been read in this pass; see
 its own section in the module inventory for what remains open there.
 
 Consumer note: no mobile/desktop client source was available in this
-pass — every "Consumer" field below is inferred from the API's own
+original pass — every "Consumer" field below is inferred from the API's
+own request/response shape, not confirmed against real client code,
+**except where superseded by direct client-source evidence gathered
+2026-08-04 — see `docs/api/flutter-request-response-compatibility.md`
+for the endpoints now confirmed directly** (auth/registration,
+check-in, session/token handling, and the full per-client endpoint
+inventory for both `workin_mobile` and `workin_desktop`). The
+"Inferred" labels below have not yet been mechanically updated
+per-endpoint to reflect that newer evidence; treat the compatibility
+doc as authoritative where the two disagree.
+
+Consumer note (original, still applies to unconfirmed endpoints): every
+"Consumer" field below is inferred from the API's own
 `AuthTypeEnum` roles (`employee`, `company`, `desktop` per
 `apis/api/auth/login_desktop.php`'s existence) and the API's request/
 response shape, not confirmed against real client code. Marked

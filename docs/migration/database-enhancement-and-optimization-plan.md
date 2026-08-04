@@ -79,13 +79,20 @@ EAV-is-hard-to-query concern:
   rate — a real naming/semantics trap living inside the EAV value, not
   something a schema-level fix alone would catch.
 - The same codebase already contains a **non-EAV alternative** for a
-  conceptually similar problem: `hr_permissions`'s 18 hardcoded boolean
-  columns. That table is easy to query, easy to enforce against (when it
-  *is* enforced — see GitHub issue #8), and easy to reason about, at the
-  cost of a migration every time a new permission is added. The EAV
-  settings system is the opposite trade-off: no migration needed to add a
-  setting, but every read requires joining across 4 tables and every
-  value needs runtime interpretation.
+  conceptually similar problem: `hr_permissions`'s 17 hardcoded boolean
+  columns (recount confirmed directly 2026-08-05 — see
+  `docs/architecture/authorization-model.md` §7). That table is easy to
+  query, easy to enforce against (when it *is* enforced — see GitHub
+  issue #8), and easy to reason about, at the cost of a migration every
+  time a new permission is added. The new platform does not reproduce
+  this design either (`docs/adr/ADR-0010-authorization-model.md`,
+  Accepted — a normalized `permissions`/`role_permissions` catalog
+  instead), but the trade-off comparison here remains a useful
+  illustration of the EAV-vs-fixed-columns spectrum this table's own
+  settings system sits on. The EAV settings system is the opposite
+  trade-off: no migration needed to add a setting, but every read
+  requires joining across 4 tables and every value needs runtime
+  interpretation.
 
 **Recommendation:** for the Postgres target, prefer a `jsonb` column
 (`companies.settings jsonb`) over replicating the 4-table EAV shape for

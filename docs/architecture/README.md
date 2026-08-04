@@ -12,3 +12,4 @@ Key documents in this directory:
 - `integration-principles.md`
 - `data-principles.md`
 - `architecture-review-checklist.md`
+- `authorization-model.md` — detailed reference for `docs/adr/ADR-0010-authorization-model.md` (Accepted 2026-08-05)

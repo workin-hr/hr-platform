@@ -201,3 +201,167 @@ certainty than the ADR it depends on.
 | Impact | Discovery (A1 in `docs/bootstrap/execution-checklist.md` and equivalent work) may now begin. `docs/bootstrap/risk-register.md` R-008's Status is updated to "Open — Accepted Residual Risk / Non-blocking," and its stale reference to a "Pending human acceptance gate" phrase no longer present in `docs/bootstrap/manual-setup-checklist.md` is corrected. No ADR status changed. No H2 open question resolved. No product code or Discovery evidence added by this entry. |
 | Follow-up | Before any individual Discovery entry (e.g. a specific legacy-behavior or schema finding) is treated as authoritative, it still needs its own citation to source evidence per the existing per-document conventions (e.g. `docs/legacy/production-behavior-evidence.md`'s Confidence field, `docs/migration/database-schema-inventory.md`'s Source Of Evidence fields). This decision authorizes Discovery to begin; it does not pre-approve any specific Discovery finding. |
 | Evidence | `docs/bootstrap/definition-of-done.md`; CI run `https://github.com/workin-hr/hr-platform/actions/runs/30814048525`; pull request `https://github.com/workin-hr/hr-platform/pull/1` and D-014; D-013; R-008 (`docs/bootstrap/risk-register.md`); this entry. |
+
+## D-016: Accept ADR-0002 Part A (Modular Monolith Strategic Direction)
+
+| Field | Value |
+|---|---|
+| Decision | The system's baseline backend architecture is a modular monolith — a single deployable unit with explicit internal module boundaries, not microservices from day one and not an undifferentiated layered monolith. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0002 (Modular Monolith Baseline) — **Part A only**. Part B (the tenant-isolation implementation detail — PostgreSQL Row-Level Security vs. a repository-guard pattern) is explicitly **not** decided by this entry; it remains open pending the H2 spike (`docs/migration/technical-spike-plan.md`). |
+| Reason | ADR-0002's strategic direction was recommended for immediate acceptance in this session's 2026-08-04 classification pass — it does not depend on the technical spike, and a first-pass module boundary diagram already exists (`docs/architecture/module-boundaries.md`), informed by real Discovery (the legacy module inventory and the capability/ownership matrix). The repository owner accepted directly. |
+| Impact | `docs/adr/ADR-0002-modular-monolith-baseline.md`'s `Status` field moves to `Accepted`, with the Decision section's Part A marked accepted and Part B explicitly still `Proposed`/pending. Module implementation work may proceed against the 9-module candidate boundary diagram; nothing in Part B (which pattern enforces tenant isolation) is authorized to be assumed yet. |
+| Follow-up | Part B moves to its own acceptance once the H2 spike (`docs/migration/technical-spike-plan.md`) reports a recommendation. |
+| Evidence | `docs/adr/ADR-0002-modular-monolith-baseline.md`; `docs/architecture/module-boundaries.md`; direct repository-owner acceptance, this conversation, 2026-08-04. |
+
+## D-017: Accept ADR-0005 (Authentication Direction)
+
+| Field | Value |
+|---|---|
+| Decision | The new system's authentication direction is: self-managed JWT authentication for the MVP (no external identity provider); short-lived access tokens; rotating, server-side-tracked refresh tokens with revocation; secure client storage via `flutter_secure_storage`; forced re-authentication for all existing users at cutover (no dual-validation); no Keycloak or other external IdP for the MVP. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0005 (Authentication Direction — renamed from "Authentication And Authorization Direction" on 2026-08-04; the authorization half of the original scope is tracked separately and remains open in `docs/adr/ADR-0010-authorization-model.md`, not covered by this acceptance) |
+| Reason | ADR-0005's Decision section was corrected on 2026-08-04 to state the real approved direction (previously it held only a Discovery-stage placeholder). With the real direction stated and evidenced (`docs/security/authentication-remediation-design.md`), and exact token lifetimes/multi-session policy explicitly carved out as non-blocking open refinements, the repository owner accepted directly. |
+| Impact | `docs/adr/ADR-0005-authentication-direction.md`'s `Status` field moves to `Accepted`. The auth module may be implemented against this direction. Exact access/refresh-token lifetimes and multi-session policy remain open — implementation should use reasonable placeholder values pending that refinement, not block on it. |
+| Follow-up | Resolve exact token lifetimes and multi-session policy (both explicitly non-blocking open refinements per the ADR's Decision section) before or during auth-module implementation. |
+| Evidence | `docs/adr/ADR-0005-authentication-direction.md`; `docs/security/authentication-remediation-design.md`; direct repository-owner acceptance, this conversation, 2026-08-04. |
+
+## D-018: Accept ADR-0002 Part B (RLS As The Tenant-Isolation Mechanism)
+
+| Field | Value |
+|---|---|
+| Decision | The new system uses PostgreSQL Row-Level Security (RLS) as the primary structural mechanism for tenant isolation, on the explicit, non-optional condition that (1) the application's runtime database role is never a superuser — ideally enforced by a startup-time check, (2) repository-layer scoping is still applied where practical as a secondary defense-in-depth layer, and (3) a test proving RLS's fail-closed behavior when the session-variable-setting call is omitted is added before the pattern is trusted in real implementation. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0002 (Modular Monolith Baseline) — **Part B**. Completes the ADR's acceptance; Part A was already accepted under D-016. |
+| Reason | The H2 spike (`docs/migration/technical-spike-plan.md`) was executed for real, not just planned, per direct instruction on 2026-08-05: a working Spring Boot 4.1/Java 25 vertical slice against real Postgres (Testcontainers), with both RLS and a repository-guard pattern implemented and a deliberate cross-tenant attack test for each. Result: 6/6 tests passing, reproduced on a clean rebuild. The spike also surfaced and fixed a real, dangerous misconfiguration along the way — Postgres RLS is always bypassed for a superuser connection, which Testcontainers' default Postgres user is by default — directly informing condition (1) above. Full findings are recorded permanently in `docs/migration/technical-spike-plan.md`'s "Full Spike Findings" section (promoted from the now-deleted `spike/tenant-isolation-spike/`). The repository owner accepted the recommendation in full. |
+| Impact | `docs/adr/ADR-0002-modular-monolith-baseline.md`'s `Status` field now reflects full acceptance (both Part A and Part B); the ADR's Decision, Validation Evidence, and Open Questions sections were updated accordingly. `docs/adr/ADR-0010-authorization-model.md` Dimension 2 (tenant-membership validation) is now informed by an accepted data-layer mechanism, though Dimension 2 itself remains open pending its own decision. The `spike/` directory has been deleted per the spike plan's Rollback Strategy, now that its findings are permanently promoted. |
+| Follow-up | The three conditions in Decision above are implementation acceptance criteria, not optional follow-ups — they must be satisfied by whoever builds the first module using RLS. Track via `docs/migration/consolidated-task-matrix.md`. |
+| Evidence | `docs/adr/ADR-0002-modular-monolith-baseline.md`; `docs/migration/technical-spike-plan.md` ("Full Spike Findings" section); real `./gradlew clean test` output, 2026-08-05, 6/6 tests passing; direct repository-owner acceptance, this conversation, 2026-08-05. |
+
+## D-019: Accept ADR-0001 (Repository Strategy)
+
+| Field | Value |
+|---|---|
+| Decision | `hr-platform` remains the repository for bootstrap, planning, and future implementation, while `hr-legacy` and the Flutter clients (`workin_desktop`, `workin_mobile`) remain permanently separate repositories, not collapsed into a monorepo. Flutter separation is enforced via pinned git submodule references (`.gitmodules`), not just a `.gitignore` convention. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0001 (Repository Strategy) |
+| Reason | This decision did not depend on the technical spike or on production/device access. Flutter Discovery (2026-08-04) confirmed both Flutter repositories carry independent git history and their own build/release tooling, and this repository's own `CLAUDE.md` already scopes it to planning/documentation/governance, not product source hosting — nothing found during Discovery suggested collapsing the repositories would simplify anything. The repository owner accepted directly. |
+| Impact | `docs/adr/ADR-0001-repository-strategy.md`'s `Status` field moves to `Accepted`. The repository-boundary question is closed as "permanently separate" for Flutter; the only remaining open question is whether a *new* repository boundary is needed once a Java backend implementation repository is created, which is unrelated to this decision. |
+| Follow-up | None blocking. Revisit repository boundaries again only if/when a dedicated backend implementation repository is created. |
+| Evidence | `docs/adr/ADR-0001-repository-strategy.md`; `docs/security/pre-migration-flutter-credential-inventory.md` ("Safeguard Applied"); `.gitmodules`; direct repository-owner acceptance, this conversation, 2026-08-05. |
+
+## D-020: Accept ADR-0007 (Testing And Quality-Gate Strategy)
+
+| Field | Value |
+|---|---|
+| Decision | Adopt layered quality gates that escalate in cost from every commit to pre-release, with independent review and evidence capture, per the taxonomy and cadence already documented in `docs/testing/test-strategy.md` and `docs/testing/quality-gate-cadence.md`. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0007 (Testing And Quality-Gate Strategy) |
+| Reason | The strategic taxonomy/cadence decision does not depend on the technical spike — H5 (JUnit 5 + Testcontainers + ArchUnit + REST Assured) was already downgraded from "required spike" to "adopt directly" as mature, standard 2026 Spring Boot tooling. Real CI wiring of each tier is separable implementation work, not a precondition of the strategic decision. The repository owner accepted directly. |
+| Impact | `docs/adr/ADR-0007-testing-and-quality-gate-strategy.md`'s `Status` field moves to `Accepted`. "Real CI implementation of each tier" is tracked as implementation task P2-8, not an ADR-acceptance blocker. |
+| Follow-up | Wire each quality-gate tier into real GitHub Actions CI as part of first-milestone backend implementation (P2-8). |
+| Evidence | `docs/adr/ADR-0007-testing-and-quality-gate-strategy.md`; `docs/testing/test-strategy.md`; `docs/testing/quality-gate-cadence.md`; `docs/migration/technical-spike-plan.md`'s Revision Summary (H5 downgrade rationale); direct repository-owner acceptance, this conversation, 2026-08-05. |
+
+## D-021: Accept ADR-0003 (API Versioning And Flutter Compatibility)
+
+| Field | Value |
+|---|---|
+| Decision | The new backend preserves the exact current API contract (field names, types, response shapes) at the exact current, unversioned URL surface (`https://workin.company/apis/api/`) for MVP — no new client-selectable API-versioning scheme (URL-path segment, header, media-type negotiation) is introduced, since neither Flutter client has any mechanism to select or send one. The existing remote-config-driven forced-update/maintenance-mode capability (`min*BuildNumberKey`/`*UnderMaintenanceKey` fields, served via whatever replaces `configs/get`) is the migration's mechanism for any future breaking client change, not a new versioning scheme. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0003 (API Versioning And Flutter Compatibility) |
+| Reason | Direct evidence in `docs/api/flutter-request-response-compatibility.md` confirms both Flutter clients are fixed (no client-side changes planned), call a single hardcoded unversioned `baseUrl` with no environment-switching mechanism, and already have a working forced-update/maintenance-mode gate. A version-selection scheme the fixed clients cannot use would not be usable in practice; exact contract preservation is the only strategy consistent with the real client constraints found. The repository owner accepted directly. |
+| Impact | `docs/adr/ADR-0003-api-versioning-and-flutter-compatibility.md`'s `Status` field moves to `Accepted`. First-milestone API implementation must match exact current field names/types for every `Yes`-marked row in `docs/api/three-frontend-api-usage-matrix.md`. The min-build-number/maintenance-mode fields must be preserved in the new backend. A real API-versioning scheme remains a normal future decision once new client builds exist that could use one — not foreclosed, just not needed for MVP. |
+| Follow-up | Directly test strict-vs-tolerant JSON parsing behavior in both Flutter clients before the first real cutover (remains an open question, not resolved by this acceptance). Confirm how the mobile client registers its FCM push token, per the noted follow-up in `docs/api/flutter-request-response-compatibility.md`. |
+| Evidence | `docs/adr/ADR-0003-api-versioning-and-flutter-compatibility.md`; `docs/api/flutter-request-response-compatibility.md`; `docs/api/three-frontend-api-usage-matrix.md`; direct repository-owner acceptance, this conversation, 2026-08-05. |
+
+## D-022: Accept ADR-0004 (MySQL-To-PostgreSQL Migration Approach)
+
+| Field | Value |
+|---|---|
+| Decision | The database migration approach is a single-cutover bulk copy, not chunked/online replication or a long-term dual-database strategy, with a known pre-migration data-cleanup checklist (stray `configs` collation, 45 invalid zero-dates, duplicate-name groups in 4 tables). |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0004 (MySQL-To-PostgreSQL Migration Approach) |
+| Reason | Real, measured evidence from the actual schema and a real (throwaway, isolated) data dump supports this directly: zero server-side MySQL logic exists to port (views/events/procedures/triggers all confirmed empty), ~62K total rows is small enough for straightforward bulk copy, and zero orphan references / zero cross-tenant inconsistencies mean there is no broken-reference reconciliation to design around. The repository owner accepted directly, with an explicit non-optional condition. |
+| Impact | `docs/adr/ADR-0004-mysql-to-postgresql-migration-approach.md`'s `Status` field moves to `Accepted`. Migration implementation may proceed against the single-cutover bulk-copy approach and the named pre-migration cleanup checklist. |
+| Follow-up | **Non-optional**: re-verify volume and data-quality findings against a fresh data snapshot immediately before actual cutover — the accepted evidence is a single point-in-time snapshot (dated 2026-08-03) and production may have grown or changed since. Rollback/reconciliation model (`docs/migration/cutover-and-rollback-assumptions.md`) remains a separate open item. |
+| Evidence | `docs/adr/ADR-0004-mysql-to-postgresql-migration-approach.md`; `docs/migration/table-volume-analysis.md`; `docs/migration/orphan-reference-analysis.md`; `docs/migration/tenant-boundary-verification.md`; the four confirmed-empty MySQL-logic inventories; direct repository-owner acceptance, this conversation, 2026-08-05. |
+
+## D-023: Accept ADR-0006 Part A (Vendor-Neutral Adapter/SPI Architectural Pattern)
+
+| Field | Value |
+|---|---|
+| Decision | Attendance device ingestion uses a vendor-neutral core with per-vendor adapters (`DeviceEventAdapter` SPI) translating vendor-native events into one canonical event shape before a single, vendor-agnostic ingestion pipeline handles all business logic. Whether a given vendor uses a local `.NET` edge gateway, direct cloud API, or push webhooks becomes a per-adapter implementation choice, not an architecture-wide commitment. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0006 (Attendance Edge-Gateway Direction) — **Part A only**. Part B (which specific vendors need a local gateway vs. direct API, final protocol selection) remains explicitly `Proposed`, blocked on PMR-04 (real vendor/hardware access). |
+| Reason | The architectural pattern does not require knowing which real vendors this system integrates with — only that vendor diversity should be isolated behind an adapter boundary rather than baked into core business logic, a design judgment already worked out in `docs/devices/device-integration-architecture.md`. This did not depend on PMR-04 or the technical spike. The repository owner accepted directly. |
+| Impact | `docs/adr/ADR-0006-attendance-edge-gateway-direction.md`'s `Status` field moves to `Accepted`, with Part A marked accepted and Part B explicitly still `Proposed`/blocked. Attendance-module implementation may proceed against the adapter/SPI pattern; no specific vendor/protocol decision is authorized yet. |
+| Follow-up | Part B moves to its own acceptance once PMR-04 (real vendor/hardware access) is resolved. |
+| Evidence | `docs/adr/ADR-0006-attendance-edge-gateway-direction.md`; `docs/devices/device-integration-architecture.md`; direct repository-owner acceptance, this conversation, 2026-08-05. |
+
+## D-024: Accept ADR-0008 (Observability Baseline — MVP Minimum)
+
+| Field | Value |
+|---|---|
+| Decision | Minimum MVP observability baseline: structured logging, a correlation/request ID propagated across every request, and OpenTelemetry auto-instrumented traces sent to a lightweight/throwaway collector. A full Prometheus/Grafana/Loki/Tempo deployment is explicitly not adopted now and is deliberately deferred to a separate, later, evidence-informed decision once real production load and cost data exist. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0008 (Observability Baseline) |
+| Reason | This ADR's own Risks section already identified the two competing failure modes (a too-heavy stack before real load/cost data exists, vs. no observability at all risking undetected migration/attendance issues) — the minimal baseline is the option that avoids both. The technical-spike plan's H6 hypothesis was already downgraded from "required spike" to "adopt directly" as mature, standard 2026 practice. The repository owner accepted directly. |
+| Impact | `docs/adr/ADR-0008-observability-baseline.md`'s `Status` field moves to `Accepted`. First-milestone implementation must include structured logging, correlation ID propagation, and OpenTelemetry tracing from the start. The heavier stack question remains open and deliberately undecided. |
+| Follow-up | Revisit the heavier observability stack (Prometheus/Grafana/Loki/Tempo or equivalent) once real production load and cost data exist — no specific trigger threshold set yet. |
+| Evidence | `docs/adr/ADR-0008-observability-baseline.md`; `docs/operations/monitoring-and-alerting.md`; `docs/tools/tool-catalog.md`; `docs/migration/technical-spike-plan.md`'s Revision Summary (H6 downgrade rationale); direct repository-owner acceptance, this conversation, 2026-08-05. |
+
+## D-025: Accept ADR-0009 (Fate Of The PHP Dashboard — Option E, Role-Based Split)
+
+| Field | Value |
+|---|---|
+| Decision | Platform-level administration of Workin itself stays web (existing dashboard `admin`-role surface, or a narrower Next.js replacement). Every subscribed/joined company's own administration (company-owner and HR/Manager staff) consolidates onto the native desktop app, retiring the dashboard's `company_logged_in`/`hr_logged_in` session paths. Individual employees remain mobile-only. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0009 (Fate Of The PHP Dashboard Relative To The Flutter Desktop Admin Client) |
+| Reason | The core decision (Option E) was made directly by the product/business owner on 2026-08-04. Of the four Validation Evidence items, Engineering sign-off (Next.js), the Manager-role login-parity gap, and the feature-disposition question (`salary_calculator`, `setting_templates`, `activities`) were resolved by 2026-08-05. The last genuine open item — whether every current dashboard company/HR user has realistic desktop-app access — was confirmed directly by the product/business owner on 2026-08-05: the desktop app is distributed as a built `.exe`/`.dmg` installer and opens like any normal desktop application, no special hardware/OS requirement. |
+| Impact | `docs/adr/ADR-0009-dashboard-vs-desktop-admin-client.md`'s `Status` field moves to `Accepted`. Admin-surface module cutover work may proceed against Option E. Dashboard's company/HR-facing pages (everything reached via `doCompanyLogin()`/`doHrLogin()`) become retirement targets once desktop reaches parity; the platform-admin subset (`pages/companies/`, the `admin` branch of `pages/login/`) is kept or rebuilt as a narrower Next.js app. |
+| Follow-up | Define the cutover sequence (fix-then-retire-module-by-module vs. all-at-once) and whether a target retirement date exists — both remain open per this ADR's Open Questions, non-blocking for acceptance. |
+| Evidence | `docs/adr/ADR-0009-dashboard-vs-desktop-admin-client.md`; `docs/api/flutter-request-response-compatibility.md`; `docs/api/three-frontend-api-usage-matrix.md`; direct repository-owner statements, this conversation, 2026-08-04 and 2026-08-05. |
+
+## D-026: Accept ADR-0010 (Authorization Model — All Six Dimensions)
+
+| Field | Value |
+|---|---|
+| Decision | Separate platform and tenant authorization domains; four fixed tenant roles (`COMPANY_ADMIN`/`HR`/`MANAGER`/`EMPLOYEE`) with membership-scoped roles/permissions/resource-scopes (not identity-global); mandatory server-side tenant-membership validation on every request (RLS is data-layer-only, not a substitute); a hybrid RBAC + normalized capability-permission model (no external policy engine for MVP); layered enforcement with application-service method authorization as the single authoritative boundary; authorization changes (membership/role/permission/scope) take effect on the very next request, no token-expiry dependency, no cross-request cache for MVP; access tokens carry only minimal identity/context selectors, never embedded role/permission/scope data — all authorization data is loaded and validated server-side on every request. Full text: `docs/adr/ADR-0010-authorization-model.md`; full mechanical detail: `docs/architecture/authorization-model.md`. |
+| Status | Accepted |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0010 (Authorization Model) — all six dimensions, in full. |
+| Reason | The repository owner gave a complete, detailed architecture decision directly in this conversation, explicitly stating "Treat the following as my human architecture decision for ADR-0010," covering every one of the six dimensions this ADR had left genuinely open since 2026-08-04. This is a real architecture decision with concrete schemas, precedence rules, enforcement layering, and token-claim policy — not a restatement of the open-question framing. |
+| Impact | `docs/adr/ADR-0010-authorization-model.md`'s `Status` field moves to `Accepted`. A new detailed reference document, `docs/architecture/authorization-model.md`, is created. The legacy `hr_permissions` column count is corrected from an earlier "18... and one more" placeholder to the confirmed real count of 17, with a full column-by-column mapping to the new canonical permission catalog. 12 required implementation/validation tasks are defined and tracked (`docs/migration/consolidated-task-matrix.md` rows F-14–F-25). **This acceptance approves architecture and constraints only — no production backend code, database schema, migration, or authorization catalog exists as a result of this decision.** |
+| Follow-up | All 12 required implementation/validation tasks remain to be done during real backend implementation, out of `hr-platform`'s planning-only scope absent separate, explicit authorization. |
+| Evidence | `docs/adr/ADR-0010-authorization-model.md`; `docs/architecture/authorization-model.md`; `mysql_workin.schema.sql` (`hr_permissions`, 17 columns, recounted 2026-08-05); `dashboard/includes/hr_access.php`, `org_helper.php`, `company_hr_helper.php`, `payroll_helper.php`; direct repository-owner architecture decision, this conversation, 2026-08-05 (verbatim, in full). |
+
+## D-027: Three Follow-On Decisions — ZKTeco Vendor Correction, `can_employees` Split Preserved (Migration-Only Bundling), Platform-Admin Identity Made A P0 Requirement (Revised 2026-08-05)
+
+**Revised same day, before merge**: this entry's items 2 and 3 were
+corrected in place after further direct instruction — the original
+text (which collapsed `can_employees` into one permanent permission and
+accepted a shared platform-admin password for MVP) is superseded by the
+corrected text below, not left standing alongside it. Nothing referencing
+the original wording had propagated beyond this repository's own
+unmerged PR.
+
+| Field | Value |
+|---|---|
+| Decision | (1) ADR-0006 Part B's attendance-device vendor is corrected from an earlier same-day "FK fingerprint" note to **ZKTeco** (`https://www.zkteco.com/en/documents`) — Part B still not `Accepted`, since ZKTeco's public documents page (fetched directly) did not contain integration-protocol/connectivity detail, and the repository owner also stated not knowing the protocol/connectivity answer. **The accepted Part A adapter/SPI boundary is sufficient for the rest of the backend to proceed independently of this remaining gap.** (2) **Corrected**: the canonical authorization model keeps **four separate permissions** — `employees.manage`, `employees.decisions.manage`, `notifications.manage`, `complaints.manage` — not one bundle. Legacy's `can_employees=1` maps to granting all four **as a migration-compatibility rule only**, preserving current behavior at cutover without permanently coupling the four capabilities in the new schema or forcing a future redesign to separate them. (3) **Corrected**: the shared platform-admin password is **not accepted as MVP architecture**. Platform administrators must have individual identities, credentials, sessions, revocation, and audit attribution. `docs/migration/consolidated-task-matrix.md` F-26 is elevated from a non-blocking backlog item to a **P0 security requirement**: it does not block development of unrelated tenant modules, but it does block production readiness and the implementation or release of any privileged platform-admin operation. |
+| Status | Accepted (2 and 3 are corrections within the already-`Accepted` ADR-0010, replacing this entry's original text; 1 is a correction to ADR-0006's still-`Proposed` Part B, not itself a Part B acceptance) |
+| Owner | Repository owner (human requester) |
+| Related ADR | ADR-0006 (Part B, still not `Accepted`); ADR-0010 (Dimension 1 and Dimension 3 corrected, ADR remains `Accepted` from D-026) |
+| Reason | Direct repository-owner statements, this conversation, 2026-08-05: vendor correction to ZKTeco (`https://www.zkteco.com/en/documents`); "Do not collapse the canonical authorization model into a single `employees.manage` permission... For legacy migration compatibility, map `can_employees = 1` to grant all of those permissions initially. The legacy bundle is a migration rule, not the new authorization model" (permission-splitting correction — least-privilege and future-schema-redesign risk of permanent bundling); "Do not approve the shared platform-admin password as an acceptable MVP architecture... Convert F-26 into a P0 security requirement" (platform-admin identity correction). |
+| Impact | `docs/adr/ADR-0006-attendance-edge-gateway-direction.md`'s Decision, Validation Evidence, and Open Questions sections corrected to name ZKTeco, with the real (inconclusive) documentation-page research recorded as evidence — Part B remains open pending real SDK/protocol documentation or vendor support contact. `docs/adr/ADR-0010-authorization-model.md` and `docs/architecture/authorization-model.md` corrected: the permission-mapping table's row 13 restored to four separate canonical keys with an explicit migration-only bundling rule; the "Platform-admin identity model" paragraph rewritten to require individual identity/credentials/sessions/revocation/audit attribution, with no MVP exception. `docs/migration/consolidated-task-matrix.md` F-26 reclassified from Low/P3/backlog/non-blocking to **P0**, blocking production readiness and any privileged platform-admin operation, not blocking unrelated tenant-module development. |
+| Follow-up | ADR-0006 Part B remains open — needs ZKTeco's actual SDK/integration documentation (not just the public landing page) or vendor support contact, or physical device access; does not block core backend development. F-26 (independent platform-admin identity) must be complete before any platform-admin functionality reaches production — tracked as a release gate, not backlog. |
+| Evidence | `https://www.zkteco.com/en/documents` (fetched directly, 2026-08-05 — whitepaper titles only, no protocol detail); `docs/adr/ADR-0006-attendance-edge-gateway-direction.md`; `docs/adr/ADR-0010-authorization-model.md`; `docs/architecture/authorization-model.md` §7, §9; `docs/migration/consolidated-task-matrix.md` F-26; direct repository-owner statements, this conversation, 2026-08-05 (both the original and the same-day correction). |

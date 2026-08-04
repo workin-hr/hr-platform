@@ -1083,6 +1083,47 @@ def test_real_repository_skill_catalog_still_passes() -> None:
     check(failures == [], f"the real repository's skill-catalog.md still passes (failures={failures})")
 
 
+def test_product_code_outside_spike_still_fails() -> None:
+    """Regression baseline: the spike/ exclusion must not weaken the
+    scanner for everywhere else in the repository."""
+    root = make_root()
+    try:
+        (root / "backend").mkdir(parents=True)
+        (root / "backend/Application.java").write_text("// placeholder\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(
+            any("backend/Application.java" in f for f in failures),
+            f"product code outside spike/ still fails the forbidden-file scanner (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_product_code_inside_spike_is_excluded() -> None:
+    """docs/migration/technical-spike-plan.md's H2 experiment lives in a
+    real Spring Boot/Java project under spike/ while it runs -- this one
+    top-level directory is deliberately excluded from the product-code
+    scanner (see SPIKE_DIR_NAME in validate_phase0.py), not silently."""
+    root = make_root()
+    try:
+        (root / "spike/tenant-isolation-spike/src/main/java/com/workin/spike").mkdir(parents=True)
+        (root / "spike/tenant-isolation-spike/build.gradle").write_text("// placeholder\n", encoding="utf-8")
+        (root / "spike/tenant-isolation-spike/src/main/java/com/workin/spike/App.java").write_text(
+            "// placeholder\n", encoding="utf-8"
+        )
+
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(
+            failures == [],
+            f"real Spring Boot/Java files under spike/ do not trigger the forbidden-file scanner (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def main() -> int:
     test_no_nightly_tier_named_is_inert()
     test_nightly_tier_named_without_schedule_workflow_fails()
@@ -1131,6 +1172,8 @@ def main() -> int:
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()
     test_real_repository_skill_catalog_still_passes()
+    test_product_code_outside_spike_still_fails()
+    test_product_code_inside_spike_is_excluded()
 
     passed = sum(1 for ok, _ in CASES_RUN if ok)
     total = len(CASES_RUN)
