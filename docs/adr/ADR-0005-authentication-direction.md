@@ -24,8 +24,9 @@ of platform-admin/tenant-admin/employee scopes, tenant-membership
 validation, roles/permissions, and enforcement boundaries). Renamed from
 "Authentication And Authorization Direction" to **"Authentication
 Direction"**; the authorization model is now its own document,
-`docs/adr/ADR-0010-authorization-model.md`, genuinely undecided and not
-resolved by this ADR.
+`docs/adr/ADR-0010-authorization-model.md` (Accepted 2026-08-05),
+resolved separately from this ADR — this ADR's own scope remains
+authentication only.
 
 ## Context
 

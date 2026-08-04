@@ -7,13 +7,13 @@ Status, Date, Owners, Deciders, Related Issues, Supersedes, Superseded By),
 followed by `## Context`, `## Decision`, `## Alternatives Considered`,
 `## Consequences`, `## Risks`, `## Validation Evidence`, `## Open Questions`.
 See `ADR-0000-template.md`. Valid `Status` values are `Proposed`, `Accepted`,
-`Rejected`, `Superseded`, `Deferred`. **Update 2026-08-05**: 9 of 10 ADRs
-are now `Accepted` — ADR-0001, ADR-0002 (both Part A and Part B),
-ADR-0003, ADR-0004, ADR-0005, ADR-0006 (Part A only; Part B remains
-`Proposed`, blocked on PMR-04), ADR-0007, ADR-0008, and ADR-0009 — per
-`docs/bootstrap/decision-log.md` D-016 through D-025. Only ADR-0010
-remains `Proposed`, deliberately, fully open on all six of its
-dimensions, per its own Decision section.
+`Rejected`, `Superseded`, `Deferred`. **Update 2026-08-05**: all 10 ADRs
+now have a recorded decision — 9 are fully `Accepted` (ADR-0001, ADR-0002
+both parts, ADR-0003, ADR-0004, ADR-0005, ADR-0006 Part A, ADR-0007,
+ADR-0008, ADR-0009) per `docs/bootstrap/decision-log.md` D-016 through
+D-025, and ADR-0010 (authorization model, all six dimensions) is
+Accepted per D-026. Only ADR-0006's Part B (final vendor
+protocol/connectivity detail) remains open, blocked on PMR-04.
 
 `scripts/validate_phase0.py::validate_adrs()` discovers real ADR files
 dynamically (`docs/adr/ADR-[0-9][0-9][0-9][0-9]-*.md`, excluding the
@@ -45,8 +45,12 @@ maintaining a second, divergent copy of these rules — see
 - `ADR-0008-observability-baseline.md`
 - `ADR-0009-dashboard-vs-desktop-admin-client.md` — Option E, role-based
   split; all Validation Evidence items resolved 2026-08-05
+- `ADR-0010-authorization-model.md` — all six dimensions decided
+  2026-08-05; detailed reference: `docs/architecture/authorization-model.md`
 
 ## Proposed ADRs
 
-- `ADR-0010-authorization-model.md` — deliberately, fully open on all
-  six dimensions; not a candidate direction awaiting sign-off
+None — all 10 ADRs have a recorded decision as of 2026-08-05. ADR-0006's
+Part B (final vendor protocol/connectivity detail) is the only remaining
+open ADR sub-item, tracked within `ADR-0006-attendance-edge-gateway-direction.md`
+itself, not as a separately `Proposed` ADR.

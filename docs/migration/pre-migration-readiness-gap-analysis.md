@@ -414,19 +414,22 @@ table: `docs/migration/technical-spike-plan.md`'s "Revision Summary."
 
 ### PMR-08: All 10 Architecture ADRs Remain Proposed
 
-**Update 2026-08-05 — 9 of 10 ADRs now Accepted.** Following the
-2026-08-04 per-ADR classification pass, the repository owner reviewed
-and accepted ADR-0001, ADR-0002 (both Part A and Part B — the H2 spike's
-RLS recommendation), ADR-0003, ADR-0004, ADR-0005 (already accepted
-2026-08-04), ADR-0006 (Part A only), ADR-0007, ADR-0008, and ADR-0009 —
-`docs/bootstrap/decision-log.md` D-016 through D-025. Several ADRs'
-placeholder-text Decision sections were rewritten with real,
-evidence-backed content before acceptance (ADR-0003, ADR-0004, ADR-0008)
-or restructured into an explicit Part A/Part B split before acceptance
-(ADR-0006), following the same discipline ADR-0005 required earlier —
-none were accepted while still reading as an unresolved Discovery-stage
-placeholder. ADR-0009's last open item (desktop-access-universality)
-was confirmed directly by the product/business owner.
+**Update 2026-08-05 — all 10 ADRs now have a recorded decision.**
+Following the 2026-08-04 per-ADR classification pass, the repository
+owner reviewed and accepted ADR-0001, ADR-0002 (both Part A and Part B
+— the H2 spike's RLS recommendation), ADR-0003, ADR-0004, ADR-0005
+(already accepted 2026-08-04), ADR-0006 (Part A only), ADR-0007,
+ADR-0008, and ADR-0009 — `docs/bootstrap/decision-log.md` D-016 through
+D-025. **ADR-0010 (authorization model) was then accepted in full,
+covering all six of its dimensions, by direct human architecture
+decision** (`docs/bootstrap/decision-log.md` D-026) — see
+`docs/adr/ADR-0010-authorization-model.md` and its detailed reference,
+`docs/architecture/authorization-model.md`. Several ADRs' placeholder-text
+Decision sections were rewritten with real, evidence-backed content
+before acceptance (ADR-0003, ADR-0004, ADR-0008) or restructured into
+an explicit Part A/Part B split before acceptance (ADR-0006), following
+the same discipline ADR-0005 required earlier — none were accepted
+while still reading as an unresolved Discovery-stage placeholder.
 
 | Classification | ADRs |
 |---|---|
@@ -435,39 +438,35 @@ was confirmed directly by the product/business owner.
 | **Split — Accepted in full 2026-08-05** | ADR-0002 (modular monolith — Part A strategy + Part B tenant-isolation pattern, RLS, both accepted) |
 | **Split — Part A accepted 2026-08-05, Part B still blocked** | ADR-0006 (attendance edge-gateway — adapter/SPI pattern accepted; vendor now named (FK fingerprint devices, all versions), connectivity/protocol specifics still blocked on PMR-04) |
 | **Accepted in full 2026-08-05** | ADR-0009 (dashboard vs. desktop — Option E; all four Validation Evidence items resolved, including desktop-access-universality, confirmed directly by the product owner) |
-| **Genuinely premature — fully open, no recommendation** | ADR-0010 (authorization model — all 6 dimensions undecided; Dimension 2 is now informed, not resolved, by ADR-0002 Part B's acceptance) |
+| **Accepted in full 2026-08-05** | ADR-0010 (authorization model — all 6 dimensions decided by direct human architecture decision; architecture and constraints only — implementation is separate, tracked work, `docs/migration/consolidated-task-matrix.md` F-14–F-25) |
 
-- **Description**: 9 of 10 ADRs (`ADR-0001` through `ADR-0009`) are now
-  `Accepted` (ADR-0002 fully; ADR-0006 with an explicit per-part caveat
-  where Part B remains open). `ADR-0010` remains fully open by design.
+- **Description**: 9 of 10 ADRs (`ADR-0001` through `ADR-0010`,
+  excluding ADR-0006) are fully `Accepted`. `ADR-0006` has an explicit
+  per-part caveat — Part A accepted, Part B's protocol/connectivity
+  detail still open.
 - **Why It Matters**: Implementing against a `Proposed` ADR as if it
   were `Accepted` risks rework if a later formal review revises the
-  direction. That risk is now closed for 9 of 10 ADRs.
-- **Risk Level / Migration Impact**: Low for the 9 accepted ADRs;
-  unchanged (genuinely unresolved) for ADR-0010.
+  direction. That risk is now closed for every ADR in this repository.
+- **Risk Level / Migration Impact**: Low across the board.
 - **Blocks**: Nothing remains blocked on ADR-0001 through ADR-0005,
-  ADR-0007 through ADR-0009. ADR-0006 Part B still blocks final
+  ADR-0007 through ADR-0010. ADR-0006 Part B still blocks final
   protocol/connectivity-pattern selection for FK fingerprint devices
-  (PMR-04). **ADR-0010 blocks nothing for backend implementation start
-  or scaffolding** — only modules that need fine-grained permission
-  enforcement need it resolved first (see the Migration-Readiness Gate).
-- **Required Evidence To Close**: ADR-0006 Part B: PMR-04 — specifically,
-  FK's own SDK/integration documentation to determine connectivity
-  pattern (local gateway vs. direct cloud API vs. push webhook) and
-  protocol details; the vendor identity itself is no longer open.
-  ADR-0010: a human decider actually choosing an answer for each of its
-  6 dimensions — not yet attempted by this document, deliberately.
-- **Owner**: Repository owner, for the two remaining items above.
+  (PMR-04).
+- **Required Evidence To Close**: ADR-0006 Part B: PMR-04 —
+  specifically, FK's own SDK/integration documentation to determine
+  connectivity pattern (local gateway vs. direct cloud API vs. push
+  webhook) and protocol details; the vendor identity itself is no
+  longer open.
+- **Owner**: Repository owner, for the one remaining item above.
 - **Dependencies**: PMR-04 still feeds ADR-0006 Part B's final
-  protocol/connectivity direction and, in turn, ADR-0010's remaining
-  open dimensions where relevant. Nothing else remains blocked.
+  protocol/connectivity direction. Nothing else remains blocked.
 - **Target / Duration**: ADR-0006 Part B: per PMR-04 / FK vendor
-  documentation. ADR-0010: TBD, genuinely open, no target set.
+  documentation.
 - **Exit / Acceptance Criteria**: Every ADR's Status is updated to
   `Accepted`, `Rejected`, or `Superseded`, with a decision-log citation.
-- **Status**: Done for 9 of 10 ADRs (`docs/bootstrap/decision-log.md`
-  D-016 through D-025). Blocked for ADR-0006 Part B (PMR-04). Open/undecided
-  by design for ADR-0010.
+- **Status**: Done for 9 of 10 ADRs in full
+  (`docs/bootstrap/decision-log.md` D-016 through D-026). Blocked for
+  ADR-0006 Part B only (PMR-04).
 - **Related**: All 10 ADRs; `docs/bootstrap/decision-log.md`;
   `workin-hr/hr-platform#14`.
 
@@ -493,11 +492,11 @@ was confirmed directly by the product/business owner.
 - **Exit / Acceptance Criteria**: A reviewed, approved detailed execution
   plan exists for at least the first migration wave (tenant/identity
   plus one module).
-- **Status**: Blocked — on PMR-07 and PMR-08, both now substantially
-  smaller dependencies than originally scoped (2026-08-04: PMR-07
-  narrowed to a 3-day spike, PMR-08 has 7 of 10 ADRs ready for immediate (ADR-0010 is new and separately open)
-  sign-off) — this gap should close faster than its original framing
-  implied, not faster than its actual dependency chain.
+- **Status**: Blocked — on PMR-07 and PMR-08, both now essentially done
+  (2026-08-05: PMR-07 executed and accepted; PMR-08 has 9 of 10 ADRs
+  fully `Accepted` and ADR-0010 decided, with only ADR-0006 Part B's
+  protocol detail still open) — this gap should close faster than its
+  original framing implied, not faster than its actual dependency chain.
 - **Related**: `docs/migration/migration-strategy-and-sequencing.md`;
   `workin-hr/hr-platform#15`.
 
@@ -539,22 +538,23 @@ was confirmed directly by the product/business owner.
 
 ## Prioritized Gap/Task Matrix
 
-**Revised 2026-08-04.** Status column reflects this round's substantial
-progress on PMR-02, PMR-03, PMR-04 (architecture), PMR-06 (partial),
-PMR-07 (narrowed), and PMR-08 (per-ADR classification).
+**Revised 2026-08-05.** Status column reflects this session's cumulative
+progress: PMR-05 remediated on production, PMR-07 executed and its ADR
+accepted, PMR-08 now has 10 of 10 ADRs decided (9 fully `Accepted`,
+ADR-0006 with vendor named but protocol/connectivity still open).
 
 | ID | Gap | Risk | Blocks | Status | Depends On | GitHub Issue |
 |---|---|---|---|---|---|---|
-| PMR-05 | **Confirmed live 2026-08-04**: `DEBUG=true` in production — active exploit | Critical | Live security incident, not migration — requires immediate ops action | Confirmed live, unremediated | Repository owner/ops action (out of this environment's reach) | `hr-legacy#4` |
-| PMR-07 | Tenant-isolation mechanism unvalidated hands-on | High (narrowed from "tech stack" broadly) | ADR-0002's tenant-isolation-pattern detail only — no longer full-scale implementation start | Ready | None | `hr-platform#13` |
-| PMR-04 | Device/hardware Discovery not started | Medium (architecture done) / High (final vendor validation) | ADR-0006's final vendor direction, final device validation only | Ready for architecture; Blocked for vendor-specific validation | Vendor/device access (validation only) | `hr-platform#12` |
-| PMR-10 | No correctness test plan/harness | High | Production cutover | Blocked | PMR-07 (now 3 days), target schema | `hr-platform#16` |
+| PMR-05 | **Confirmed live 2026-08-04, remediated 2026-08-05**: `DEBUG=true` was in production, live value now changed | Critical → Closed on production | Was a live security incident; code-level defect in `hr-legacy` remains tracked separately | Closed on production | None remaining | `hr-legacy#4` |
+| PMR-07 | Tenant-isolation mechanism unvalidated hands-on | Done | N/A — H2 spike executed, RLS accepted (ADR-0002 Part B) | Done | None | `hr-platform#13` |
+| PMR-04 | Device/hardware Discovery not started | Medium (architecture + vendor now done) / High (final protocol validation) | ADR-0006's final protocol/connectivity direction, final device validation only | Ready for architecture; vendor named (FK fingerprint, all versions); Blocked for protocol-specific validation | FK SDK/integration docs or device access (validation only) | `hr-platform#12` |
+| PMR-10 | No correctness test plan/harness | High | Production cutover | Blocked | Target schema, authorization catalog (ADR-0010) | `hr-platform#16` |
 | PMR-01 | Dashboard Discovery incomplete | Medium-High | Dashboard modules | Ready | None | `hr-platform#9` |
 | PMR-02 | Flutter client contract — depth remaining | Medium (was Critical/High) | Full per-endpoint contract confirmation, not the whole migration | Ready | None | `hr-platform#10` |
 | PMR-03 | Production data — fresh-snapshot re-verification | Medium (was High) | Data-migration/cutover phase only — schema/data-quality analysis substantially complete | Ready | Fresh snapshot (cutover-phase timing, not now) | `hr-platform#11` |
-| PMR-08 | ADRs still Proposed | Low-Medium (was Medium) | 2 of 10 ADRs' remaining details; 7 of 10 ready for sign-off; 1 (ADR-0010) fully open | Ready for 7 ADRs; Blocked for 2 details | PMR-07 (1 ADR), PMR-04 (1 ADR) | `hr-platform#14` |
+| PMR-08 | ADRs still Proposed | Low (was Medium) | ADR-0006 Part B's protocol detail only | Done for 9 of 10 ADRs; Blocked for ADR-0006 Part B protocol detail | PMR-04 (1 ADR sub-item) | `hr-platform#14` |
 | PMR-06 | Open product/business decisions | Medium | Specific modules | Blocked — 4 of 5 remain (1 resolved 2026-08-04) | Human decisions | `hr-legacy#11,14,15,18` |
-| PMR-09 | No per-module execution plan | Medium | Implementation start per module | Blocked, but dependency chain now much shorter | PMR-07 (3 days), PMR-08 (7/9 ready) | `hr-platform#15` |
+| PMR-09 | No per-module execution plan | Medium | Implementation start per module | Blocked, but dependency chain now much shorter | PMR-08 (essentially done) | `hr-platform#15` |
 
 **Security findings** (`hr-legacy#2/#3/#5/#6/#7/#8/#9/#10`) are
 deliberately **not** in this table — reframed 2026-08-04 as mandatory
@@ -589,12 +589,16 @@ this document. Substantially smaller than the original gate — see
    (`docs/bootstrap/decision-log.md` D-016, D-017). ADR-0002's
    tenant-isolation *pattern* detail (Part B) is now also `Accepted`
    (D-018, tracked under item 1 above) — ADR-0002 is fully accepted,
-   both parts. **ADR-0010 (authorization model,
-   split out of ADR-0005 on 2026-08-04) is a separate, still fully open
-   decision — not part of this gate**, since no backend implementation
-   strictly requires the authorization model finalized before
-   scaffolding/auth-module work begins, only before modules that
-   enforce fine-grained permissions are built out.
+   both parts. **ADR-0010 (authorization model, split out of ADR-0005 on
+   2026-08-04) is now also `Accepted` in full** (D-026, 2026-08-05,
+   covering all six dimensions) — see
+   `docs/adr/ADR-0010-authorization-model.md` and
+   `docs/architecture/authorization-model.md`. Architecture-decision
+   acceptance does not itself mean the authorization catalog/schema/
+   enforcement code exists — that remains real, tracked implementation
+   work (`docs/migration/consolidated-task-matrix.md` F-14–F-25),
+   required before modules that enforce fine-grained permissions go
+   live, not before scaffolding/auth-module work begins.
 3. ~~PMR-05 (production `DEBUG` value) — confirmed live 2026-08-04~~ —
    **Done 2026-08-05**: the repository owner confirmed the live config
    value has been changed on production. The account-takeover path is

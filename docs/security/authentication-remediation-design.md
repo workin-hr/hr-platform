@@ -63,6 +63,18 @@ refresh token** pair — the standard OAuth2-adjacent pattern:
   second JWT), so it can be looked up, listed, and revoked individually —
   a self-contained JWT refresh token cannot be revoked without a
   separate blocklist, which reintroduces problem #2 in a new form.
+- **Access-token claim content is governed by
+  `docs/adr/ADR-0010-authorization-model.md` Dimension 6 (Accepted):**
+  minimal identity/session context only (`sub`, `sid`, `jti`,
+  `membership_id`, `tenant_id`, `iss`, `aud`, `iat`, `exp`) — no
+  role/permission/resource-scope data is ever embedded. `membership_id`/
+  `tenant_id` are context selectors, not proof of active membership;
+  every request re-validates membership server-side per
+  `docs/architecture/authorization-model.md` §2. This authentication
+  design and the authorization model's server-side-loaded approach are
+  a deliberate pair, not independent choices — a token-embedded
+  authorization design would be incompatible with ADR-0010 Dimension
+  5's immediate-revocation requirement.
 
 ### 2. Refresh-token rotation
 

@@ -45,7 +45,7 @@ never delete rows — treat as approximate, not exact).
 | `shifts` / `employee_shift_assignments` | Named shift templates with `days_off` (free-text, e.g. "Fri,Sat"); assignment is date-effective (`effective_from`), not a single current value | 307 / 3,993 |
 | `exception_types` | Company-defined attendance exception categories (e.g. excused absence) | ~119 |
 | `attendance` | Check-in/out events; `method` enum (`app`/`excel`/`qr`), optional `exception_type_id`, optional GPS pair | ~38,960 |
-| `hr_permissions` | One row per HR-role employee: 18 boolean `can_*` flags (dashboard sections) — a hand-rolled permission matrix, one column per feature | ~48 |
+| `hr_permissions` | One row per HR-role employee: 17 boolean `can_*` flags (dashboard sections) — a hand-rolled permission matrix, one column per feature. Recount confirmed directly 2026-08-05; full mapping to the new canonical permission catalog: `docs/architecture/authorization-model.md` §7 | ~48 |
 | `requests` / `request_types` | Leave/permission request workflow; `request_types.deduct_balance` / `counts_as_paid_leave` / `add_attendance_exception` are per-type behavior toggles that drive payroll and leave-balance side effects | 233 / 193 |
 | `leave_balance` | Per-employee, per-year leave allotment; `remaining_days` is a MySQL `GENERATED ALWAYS AS (total_days - used_days) STORED` column | ~3,572 |
 | `advances` | Salary advances with two deduction modes (`single_payroll_month` / `installments`); installment schedule stored as a JSON text column (`deduction_installments_json`), not normalized rows | ~33 |
