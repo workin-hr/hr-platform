@@ -238,11 +238,12 @@ Every gap uses the same fixed field set:
 ### PMR-07: Target Technology Stack Unvalidated Hands-On
 
 - **Description**: Java 25, Spring Boot 4.x, PostgreSQL, Flyway, and
-  Next.js are chosen in `docs/tools/tool-catalog.md`/`tool-decision-matrix.md`,
-  and candidate additions (Keycloak, springdoc-openapi, S3-compatible
-  storage) were recommended after this Discovery pass — but none of it
-  has been installed or prototyped against this project's real shape
-  (the EAV settings system, the polymorphic `notifications` reference,
+  Next.js are chosen in `docs/tools/tool-catalog.md`/`tool-decision-matrix.md`.
+  Three candidate additions were recommended after this Discovery pass —
+  Keycloak, springdoc-openapi, and object storage compatible with the S3
+  API — but none of it has been installed or prototyped against this
+  project's real shape (the EAV settings system, the polymorphic
+  `notifications` reference,
   the multi-tenant model, the repeated tenant-isolation bug class).
 - **Why It Matters**: There is currently zero hands-on evidence any of
   these choices survive contact with this codebase's real complexity.
