@@ -9,3 +9,9 @@
 *.pem
 __pycache__/
 *.pyc
+
+# Flutter client source, imported locally for read-only A1/PMR-02
+# Discovery only. Never commit this product source or its embedded
+# configuration/credentials into hr-platform.
+flutter-integration/workin_desktop/
+flutter-integration/workin_mobile/

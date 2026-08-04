@@ -77,37 +77,63 @@ Every gap uses the same fixed field set:
 
 ### PMR-02: Flutter Mobile Client Contract Unknown
 
-- **Description**: No Flutter mobile/desktop client source was available
-  during Discovery. Every "Consumer" field in
-  `docs/api/existing-endpoint-inventory.md` is explicitly labeled
-  *inferred*, not confirmed. Real client-side error handling,
-  retry/offline behavior, and field-level parsing assumptions are
-  unknown.
+**Update 2026-08-04: substantially progressed, not fully closed.** Both
+Flutter client repositories (`workin_mobile`, `workin_desktop`) were made
+available locally for read-only Discovery and read directly — see
+`docs/api/flutter-request-response-compatibility.md` and
+`docs/security/pre-migration-flutter-credential-inventory.md`. This
+resolved several concrete open questions (confirmed `join_company` over
+`register_employee`; confirmed no token-refresh mechanism and insecure
+client-side token storage; confirmed the desktop app is a third,
+full-admin frontend, not a mobile-app variant; confirmed several
+endpoints — QR check-in, `set_employee_attendance_method` — are unused or
+reference nonexistent server code) and produced 8 new compatibility
+entries. **Not yet closed**: only a sample of endpoints/flows were traced
+to a fully confirmed request/response contract (auth, check-in); the
+remaining ~190 endpoints' client-side usage was inventoried at the
+`api_constants.dart` level (confirmed *that* they're called) but not all
+traced to full contract detail. Remains open as a gap for that remaining
+depth, at substantially reduced severity.
+
+- **Description**: Real Flutter mobile/desktop client source is now
+  available and was read for the core flows and full endpoint inventory
+  (see update above). Every "Consumer" field in
+  `docs/api/existing-endpoint-inventory.md` is still labeled *inferred*
+  and has not yet been mechanically updated to reflect the new evidence.
+  Full field-level request/response contract detail beyond the
+  already-documented flows remains unconfirmed for most endpoints.
 - **Why It Matters**: Rebuilding the API without knowing the real
   client's expectations risks silently breaking the mobile app on
   cutover. `ADR-0003` explicitly needs this evidence.
-- **Risk Level / Migration Impact**: Critical/High. This is the single
-  largest unverified assumption in the entire Discovery effort.
-- **Blocks**: The API-compatibility guarantee for the whole migration —
-  not early backend scaffolding, which never has to prove client
-  compatibility.
-- **Required Evidence To Close**: Access to the real Flutter client
-  source (or equivalent: recorded real device/API traffic, or a
-  documented contract from whoever built the app). A read-through
-  producing *confirmed* request/response/error documentation for at
-  least the core flows (auth, attendance, payroll self-service).
-- **Owner**: TBD — requires human assignment with access to the Flutter
-  repository.
-- **Dependencies**: The Flutter repository (or equivalent contract
-  evidence) being made available — a human/access-provisioning
-  dependency, not a technical one.
-- **Target / Duration**: TBD — requires human assignment.
+- **Risk Level / Migration Impact**: Reduced to Medium from Critical/High
+  now that real client source has been read — the largest unverified
+  assumption in the Discovery effort is resolved; remaining risk is
+  depth/completeness, not a total unknown.
+- **Blocks**: Full field-level contract confirmation for the ~190
+  endpoints not yet traced in detail — not early backend scaffolding,
+  and no longer the whole migration's compatibility guarantee.
+- **Required Evidence To Close**: Continue the read-through started in
+  `docs/api/flutter-request-response-compatibility.md` to full
+  request/response/error detail for the remaining endpoints, and
+  mechanically update `docs/api/existing-endpoint-inventory.md`'s
+  "Consumer: Inferred" labels to "Consumer: Confirmed" where resolved.
+- **Owner**: TBD — requires human assignment (continuation of already-started
+  work, not a fresh access problem).
+- **Dependencies**: None remaining — the access dependency that
+  previously blocked this gap is resolved.
+- **Target / Duration**: TBD — requires human assignment. Comparable
+  effort to the `hr-legacy` API Discovery pass, applied to two client
+  codebases instead of one backend.
 - **Exit / Acceptance Criteria**: `ADR-0003`'s Validation Evidence
-  requirement is satisfied for at least the core flows; the "Consumer:
-  Inferred" caveats in `docs/api/existing-endpoint-inventory.md` are
-  resolved to "Consumer: Confirmed" for those flows.
-- **Status**: Blocked — on Flutter repository/contract access.
-- **Related**: ADR-0003; `workin-hr/hr-platform#10`.
+  requirement is satisfied for every endpoint with real client-facing
+  surface; every "Consumer: Inferred" caveat in
+  `docs/api/existing-endpoint-inventory.md` is resolved to "Consumer:
+  Confirmed" or explicitly noted as still unconfirmed with a reason.
+- **Status**: Ready — no longer Blocked; access resolved, remaining work
+  is continuation depth.
+- **Related**: ADR-0003; `workin-hr/hr-platform#10`;
+  `docs/api/flutter-request-response-compatibility.md`;
+  `docs/security/pre-migration-flutter-credential-inventory.md`.
 
 ### PMR-03: Production Data Inaccessible
 
@@ -361,21 +387,22 @@ Every gap uses the same fixed field set:
 | ID | Gap | Risk | Blocks | Status | Depends On | GitHub Issue |
 |---|---|---|---|---|---|---|
 | PMR-05 | Production `DEBUG` value unconfirmed | Critical | Live security, not migration | Blocked | Production access | `hr-legacy#4` |
-| PMR-02 | Flutter client contract unknown | Critical/High | API-compatibility guarantee (whole migration) | Blocked | Client repo access | `hr-platform#10` |
 | PMR-07 | Tech stack unvalidated hands-on | High | Full-scale implementation start | Ready | None | `hr-platform#13` |
 | PMR-03 | Production data inaccessible | High | Data-migration/cutover planning | Blocked | DB access | `hr-platform#11` |
 | PMR-04 | Device/hardware Discovery not started | High | ADR-0006, device modules | Blocked | Vendor/device access | `hr-platform#12` |
 | PMR-10 | No correctness test plan/harness | High | Production cutover | Blocked | PMR-07, target schema | `hr-platform#16` |
 | PMR-01 | Dashboard Discovery incomplete | Medium-High | Dashboard modules | Ready | None | `hr-platform#9` |
+| PMR-02 | Flutter client contract — depth remaining | Medium (was Critical/High) | Full per-endpoint contract confirmation, not the whole migration | Ready | None (access resolved 2026-08-04) | `hr-platform#10` |
 | PMR-08 | ADRs still Proposed | Medium | Full-scale implementation start | Blocked | PMR-07, human review | `hr-platform#14` |
 | PMR-06 | Open product/business decisions | Medium | Specific modules | Blocked | Human decisions | `hr-legacy#11,14,15,18,19` |
 | PMR-09 | No per-module execution plan | Medium | Implementation start per module | Blocked | PMR-07, PMR-08 | `hr-platform#15` |
 
-Read this table as: **PMR-07 (the technical spike) is the only gap that
-is `Ready` today with no external dependency** — everything else either
+Read this table as: **PMR-07 (the technical spike), PMR-01 (dashboard
+Discovery), and PMR-02 (Flutter contract depth, as of 2026-08-04) are
+`Ready` today with no external dependency** — everything else either
 needs a human decision/access grant, or is intentionally sequenced after
-the spike's results exist. PMR-01 is also `Ready` and can proceed in
-parallel, independently.
+the spike's results exist. All three `Ready` gaps can proceed in
+parallel, independently of each other.
 
 ## Migration-Readiness Gate
 

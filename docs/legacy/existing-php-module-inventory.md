@@ -10,12 +10,20 @@ auth, separate from the API's JWT auth). The module list below matches
 enumeration of what counts as a real module — cross-checked against the
 actual `apis/api/` directory structure.
 
-## Two Frontends, One Backend Data Model
+## Three Frontends, One Backend Data Model
+
+**Corrected 2026-08-04**: a real, local, read-only Discovery pass into
+the actual Flutter client source (see
+`docs/api/flutter-request-response-compatibility.md`) found that the
+system has **three** real frontends against this one `apis/` backend, not
+two as previously documented here — a native desktop app is a full
+company-admin/HR management client, not a variant of the employee mobile
+app.
 
 - **`apis/`** — REST JSON API, JWT bearer auth (`apis/config/auth.php`,
-  `apis/helpers/otp_helper.php`), consumed by the (not-yet-in-scope-here)
-  mobile/desktop client. 199 endpoint files across 38 module directories.
-  **All 199 have now been read** (see `docs/api/existing-endpoint-inventory.md`,
+  `apis/helpers/otp_helper.php`). 199 endpoint files across 38 module
+  directories. **All 199 have now been read** (see
+  `docs/api/existing-endpoint-inventory.md`,
   `docs/legacy/business-rule-extraction.md`, `docs/security/threat-model.md`
   for the resulting documentation and findings) — this side of the system
   is Discovery-complete at the API layer.
@@ -23,10 +31,35 @@ actual `apis/api/` directory structure.
   (`dashboard/includes/auth.php`), 92 page files across 34 page
   directories, used directly by browsers. Shares the same MySQL database
   and largely the same business-logic helpers conceptually, but has its
-  own separate `constants.php`/`db.php`/`auth.php` — **the two frontends
-  are not one shared PHP application**, they are two codebases against one
-  schema. A migration needs to decide whether the target system keeps
-  that split or unifies it.
+  own separate `constants.php`/`db.php`/`auth.php`.
+- **`workin_mobile` (Flutter)** — employee-facing mobile app. Authenticates
+  via `auth/login_employee`/`auth/join_company`. Its entire API surface
+  is employee self-service: own attendance, own payslips, own leave
+  balances, own requests, own documents — no administrative capability at
+  all. Confirmed via direct read of the real client source (local-only,
+  never committed to this repository — see
+  `docs/security/pre-migration-flutter-credential-inventory.md`).
+- **`workin_desktop` (Flutter)** — a full native company-admin/HR
+  management client, **not** a platform variant of the mobile app.
+  Authenticates via `auth/login_company`/`auth/login_desktop`. Its API
+  surface covers nearly the entire `hr-legacy` admin capability set:
+  employees, branches, departments, shifts, job titles, attendance
+  administration, payroll batch lifecycle, payslips, penalties, advances,
+  workforce planning, company settings, HR permission management, and
+  company account management/deletion — largely overlapping the PHP
+  dashboard's own scope.
+
+**None of these four codebases share authentication or query-layer code
+with each other** — confirmed by direct comparison of each one's own
+constants/auth/HTTP-client files. A migration needs to decide, as one of
+its most consequential early architecture questions, whether the target
+system keeps all of this split (dashboard, desktop app, mobile app, each
+independently maintained against the same backend) or unifies any of it
+— particularly whether the native desktop app is intended to replace the
+PHP dashboard, coexist with it permanently, or something else. This
+question was not resolved by this Discovery pass and is a new, explicit
+open item — see `docs/api/flutter-request-response-compatibility.md`'s
+"Desktop/Mobile Divergence" finding.
 
 ## API Modules (`apis/api/`)
 
