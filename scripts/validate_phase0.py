@@ -171,6 +171,20 @@ FORBIDDEN_DIRS = {"src", "node_modules"}
 # is still scanned exactly as before.
 SPIKE_DIR_NAME = "spike"
 
+# Deliberate, narrow, per-component exclusion — not a blanket "Phase 0 is
+# over" switch. Each entry here is a top-level component directory whose
+# own explicit Phase 0 -> Phase 1 transition decision has been recorded in
+# docs/bootstrap/decision-log.md; only that directory's forbidden-file
+# check is lifted. Every other COMPONENT_DIRS entry not listed here
+# remains fully Phase-0-locked and scanned exactly as before.
+#
+# - "backend": docs/bootstrap/decision-log.md D-028 (2026-08-05) lifts the
+#   lock for real Spring Boot/Java 25 backend implementation, following
+#   every architecture ADR this depends on reaching Accepted (D-016
+#   through D-026) and the Migration-Readiness Gate's minimum conditions
+#   being satisfied.
+PHASE1_UNLOCKED_DIRS = {"backend"}
+
 # This is a fast, narrow, five-pattern check, not comprehensive secret
 # scanning. Gitleaks (run in .github/workflows/phase0-validate.yml with its
 # default ruleset) is the authoritative scanner — see
@@ -199,11 +213,39 @@ def validate_required_paths(failures: list[str]) -> None:
             fail(f"Missing required directory: {rel}", failures)
 
 
+def load_submodule_paths(root: Path) -> list[tuple[str, ...]]:
+    gitmodules = root / ".gitmodules"
+    if not gitmodules.is_file():
+        return []
+
+    submodule_paths: list[tuple[str, ...]] = []
+    for raw_line in gitmodules.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line.startswith("path ="):
+            continue
+        path_text = line.split("=", 1)[1].strip()
+        if not path_text:
+            continue
+        submodule_paths.append(Path(path_text).parts)
+    return submodule_paths
+
+
+def rel_path_is_under(rel_parts: tuple[str, ...], parent_parts: tuple[str, ...]) -> bool:
+    if len(rel_parts) < len(parent_parts):
+        return False
+    return rel_parts[: len(parent_parts)] == parent_parts
+
+
 def validate_forbidden_files(failures: list[str], root: Path | None = None) -> None:
     root = root if root is not None else ROOT
+    submodule_paths = load_submodule_paths(root)
     for path in root.rglob("*"):
         rel_path = path.relative_to(root)
         if rel_path.parts and rel_path.parts[0] == SPIKE_DIR_NAME:
+            continue
+        if rel_path.parts and rel_path.parts[0] in PHASE1_UNLOCKED_DIRS:
+            continue
+        if any(rel_path_is_under(rel_path.parts, submodule_path) for submodule_path in submodule_paths):
             continue
         rel = rel_path.as_posix()
         if path.is_dir() and path.name in FORBIDDEN_DIRS:
@@ -524,6 +566,7 @@ MANIFEST_ECOSYSTEMS = {
     "package.json": "npm",
     "composer.json": "composer",
     "pubspec.yaml": "pub",
+    "build.gradle": "gradle",
 }
 
 DEPENDABOT_DIRECTORY_RE = re.compile(r"directory:\s*[\"']?([^\"'\n]+)[\"']?")

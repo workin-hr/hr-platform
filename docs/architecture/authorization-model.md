@@ -7,11 +7,15 @@ carry ADR status; if the two ever appear to disagree, ADR-0010 is
 authoritative and this document should be corrected to match it, not
 the other way round.
 
-**This document describes an accepted architecture, not an existing
-implementation.** No production backend code, database schema,
-migration, or authorization catalog exists yet as a result of this
-document. It defines what must be built and how, so that implementation
-can proceed without re-deriving these decisions.
+**This document describes the accepted target architecture and the shape
+of the in-progress implementation.** As of Wednesday, August 5, 2026,
+the repository already contains the first real backend slice under
+`backend/`: initial auth endpoints, JWT issuance/validation,
+tenant-membership context validation, RLS wiring, schema migrations, and
+supporting tests. The full authorization catalog, migration of legacy
+permission state, complete module coverage, and the broader
+authorization-enforcement test suite do **not** exist yet. This
+document remains the target reference for that remaining work.
 
 ## 1. Principal And Membership Model
 

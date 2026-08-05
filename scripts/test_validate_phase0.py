@@ -1085,17 +1085,97 @@ def test_real_repository_skill_catalog_still_passes() -> None:
 
 def test_product_code_outside_spike_still_fails() -> None:
     """Regression baseline: the spike/ exclusion must not weaken the
-    scanner for everywhere else in the repository."""
+    scanner for everywhere else in the repository. Uses admin-web/, not
+    backend/ -- backend/ is unlocked by PHASE1_UNLOCKED_DIRS (D-028) and
+    is covered by its own dedicated tests below."""
     root = make_root()
     try:
-        (root / "backend").mkdir(parents=True)
-        (root / "backend/Application.java").write_text("// placeholder\n", encoding="utf-8")
+        (root / "admin-web").mkdir(parents=True)
+        (root / "admin-web/App.tsx").write_text("// placeholder\n", encoding="utf-8")
 
         failures: list[str] = []
         v.validate_forbidden_files(failures, root=root)
         check(
-            any("backend/Application.java" in f for f in failures),
+            any("admin-web/App.tsx" in f for f in failures),
             f"product code outside spike/ still fails the forbidden-file scanner (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_product_code_inside_backend_is_excluded() -> None:
+    """D-028 (docs/bootstrap/decision-log.md) lifts the Phase 0
+    implementation lock for backend/ specifically -- real Spring
+    Boot/Java 25 source under backend/ must not trigger the product-code
+    scanner (see PHASE1_UNLOCKED_DIRS in validate_phase0.py)."""
+    root = make_root()
+    try:
+        (root / "backend/src/main/java/com/workin/backend").mkdir(parents=True)
+        (root / "backend/build.gradle").write_text("// placeholder\n", encoding="utf-8")
+        (root / "backend/src/main/java/com/workin/backend/Application.java").write_text(
+            "// placeholder\n", encoding="utf-8"
+        )
+
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(
+            failures == [],
+            f"real Spring Boot/Java files under backend/ do not trigger the forbidden-file scanner (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_initialized_submodule_content_is_excluded() -> None:
+    """Pinned git submodules are repository-boundary pointers, not
+    product code owned by this repository. If a human explicitly
+    initializes one locally, the parent repository's forbidden-file
+    scanner must not recurse into its Android/Gradle/Kotlin content and
+    treat that external checkout as hr-platform code."""
+    root = make_root()
+    try:
+        (root / "flutter-integration/workin_mobile/android/app/src/main/kotlin/com/app/workin").mkdir(parents=True)
+        (root / ".gitmodules").write_text(
+            '[submodule "flutter-integration/workin_mobile"]\n'
+            "    path = flutter-integration/workin_mobile\n"
+            "    url = git@github.com:example/workin_mobile.git\n",
+            encoding="utf-8",
+        )
+        (root / "flutter-integration/workin_mobile/android/build.gradle.kts").write_text(
+            "// placeholder\n", encoding="utf-8"
+        )
+        (root / "flutter-integration/workin_mobile/android/app/src/main/kotlin/com/app/workin/MainActivity.kt").write_text(
+            "// placeholder\n", encoding="utf-8"
+        )
+
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(
+            failures == [],
+            f"initialized content inside a declared git submodule is excluded from the forbidden-file scanner (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_product_code_in_other_component_dirs_still_fails() -> None:
+    """Regression baseline: backend/'s Phase 1 unlock (D-028) must not
+    leak to any other component directory -- each remaining component
+    (admin-web/, edge-gateway/, infrastructure/) needs its own separate,
+    explicit transition decision before real files are allowed there."""
+    root = make_root()
+    try:
+        (root / "edge-gateway").mkdir(parents=True)
+        (root / "edge-gateway/Program.cs").write_text("// placeholder\n", encoding="utf-8")
+        (root / "infrastructure").mkdir(parents=True)
+        (root / "infrastructure/Setup.java").write_text("// placeholder\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(
+            any("edge-gateway/Program.cs" in f for f in failures)
+            and any("infrastructure/Setup.java" in f for f in failures),
+            f"product code in edge-gateway/ and infrastructure/ still fails the forbidden-file scanner, unaffected by backend/'s unlock (failures={failures})",
         )
     finally:
         shutil.rmtree(root)
@@ -1174,6 +1254,8 @@ def main() -> int:
     test_real_repository_skill_catalog_still_passes()
     test_product_code_outside_spike_still_fails()
     test_product_code_inside_spike_is_excluded()
+    test_product_code_inside_backend_is_excluded()
+    test_product_code_in_other_component_dirs_still_fails()
 
     passed = sum(1 for ok, _ in CASES_RUN if ok)
     total = len(CASES_RUN)

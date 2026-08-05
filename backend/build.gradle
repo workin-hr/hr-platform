@@ -1,0 +1,86 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.0'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.workin'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+}
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+ext {
+	testcontainersVersion = "2.0.5"
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-flyway'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.flywaydb:flyway-database-postgresql'
+	implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+	implementation 'io.opentelemetry:opentelemetry-exporter-logging'
+	runtimeOnly 'org.postgresql:postgresql'
+
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+	// Boot 4 moved TestRestTemplate out of spring-boot-test into its own
+	// module -- not pulled in transitively by the starters above.
+	// spring-boot-restclient (RestTemplateBuilder) is resttestclient's
+	// own dependency but isn't pulled in transitively either -- both are
+	// needed explicitly.
+	testImplementation 'org.springframework.boot:spring-boot-resttestclient'
+	testImplementation 'org.springframework.boot:spring-boot-restclient'
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation 'org.springframework.security:spring-security-test'
+	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+	testImplementation 'org.testcontainers:testcontainers-postgresql'
+	// ADR-0007's adopted testing stack (JUnit 5 + Testcontainers +
+	// ArchUnit + REST Assured) -- ArchUnit is scaffolded here per that
+	// ADR's "adopt as part of first-module scaffolding" instruction,
+	// ahead of F-23 (the architecture test it will enforce), which needs
+	// more of the authorization framework built out first. Not yet
+	// exercised by a test in this slice -- tracked, not silently dropped.
+	testImplementation 'com.tngtech.archunit:archunit-junit5:1.3.0'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+dependencyManagement {
+	imports {
+		mavenBom "org.testcontainers:testcontainers-bom:${testcontainersVersion}"
+	}
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+	// This sandbox's Docker daemon (29.7.1, API 1.55) rejects the old,
+	// hardcoded low API-version ping some Testcontainers releases use by
+	// default -- proven root cause during the H2 spike (see
+	// docs/migration/technical-spike-plan.md's "Full Spike Findings").
+	// Testcontainers 2.x's ping mechanism is fixed; these env vars are
+	// kept as a documented, harmless belt-and-braces match to the spike's
+	// proven-working configuration for this specific environment.
+	environment 'DOCKER_HOST', 'unix:///var/run/docker.sock'
+	environment 'DOCKER_API_VERSION', '1.55'
+}

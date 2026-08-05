@@ -493,11 +493,11 @@ while still reading as an unresolved Discovery-stage placeholder.
 - **Exit / Acceptance Criteria**: A reviewed, approved detailed execution
   plan exists for at least the first migration wave (tenant/identity
   plus one module).
-- **Status**: Blocked — on PMR-07 and PMR-08, both now essentially done
-  (2026-08-05: PMR-07 executed and accepted; PMR-08 has 9 of 10 ADRs
-  fully `Accepted` and ADR-0010 decided, with only ADR-0006 Part B's
-  protocol detail still open) — this gap should close faster than its
-  original framing implied, not faster than its actual dependency chain.
+- **Status**: Open, but no longer a blocker for the already-authorized
+  `backend/` auth/tenant-identity slice under D-028. It remains
+  required before a broader first migration wave (tenant/identity plus
+  another business module) is treated as fully planned for cutover and
+  rollback purposes.
 - **Related**: `docs/migration/migration-strategy-and-sequencing.md`;
   `workin-hr/hr-platform#15`.
 
@@ -609,15 +609,18 @@ this document. Substantially smaller than the original gate — see
 
 **Explicitly removed from this gate** (see "What Changed" below):
 PMR-09 (per-module execution plan) is no longer a precondition for
-*starting* implementation — it gates the *first module's* work
-specifically, tracked below instead.
+*starting* implementation. D-028 already authorized the initial
+`backend/` auth/tenant-identity slice once PMR-05/07/08 were satisfied.
+PMR-09 remains a planning requirement for the first broader migration
+wave beyond that authorized slice.
 
-### Must be true before the first module's implementation work begins
+### Must be true before the first broader migration wave is treated as fully planned for implementation/cutover
 
 1. PMR-09 (per-module execution plan) exists and is approved for at
-   least the first migration wave — this is genuinely sequenced after
-   the spike/ADR-0002, but does not block earlier scaffolding/setup work
-   (environment, CI, project structure) from starting in parallel.
+   least the first migration wave beyond the already-authorized
+   `backend/` auth/tenant-identity slice — this is genuinely sequenced
+   after the spike/ADR-0002, but does not block earlier scaffolding or
+   the D-028-authorized backend start from proceeding in parallel.
 
 ### Must be true before any module's API surface is cut over to production traffic
 
