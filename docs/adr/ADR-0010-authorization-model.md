@@ -325,12 +325,17 @@ Tracked individually in `docs/migration/consolidated-task-matrix.md`
 6. Add tests proving revoked permissions stop working on the very next
    request (Dimension 5's core guarantee).
 7. Add tests for inactive memberships and mismatched identity/membership
-   combinations (Dimension 2's fail-closed matrix).
-8. Implement F-13 (already specified,
-   `docs/adr/ADR-0002-modular-monolith-baseline.md` Decision condition
-   3): prove an unset RLS tenant session variable returns no rows.
-9. Add a startup check that fails when the runtime PostgreSQL
-   connection is a superuser or otherwise bypasses RLS.
+   combinations (Dimension 2's fail-closed matrix). **Partially done
+   2026-08-05**: the identity/membership-mismatch case is real and
+   passing (`backend/src/test/java/com/workin/backend/tenancy/TenantContextIsolationTest.java`,
+   `aTokenClaimingAnotherIdentitysMembershipIsRejected`); the
+   disabled-membership case is not yet covered by a test.
+8. ~~Implement F-13~~ — **Done 2026-08-05**: real, passing test —
+   `backend/src/test/java/com/workin/backend/tenancy/RlsFailClosedTest.java`.
+9. ~~Add a startup check that fails when the runtime PostgreSQL
+   connection is a superuser or otherwise bypasses RLS~~ — **Done
+   2026-08-05**: `backend/src/main/java/com/workin/backend/config/SuperuserStartupCheck.java`,
+   tested by `SuperuserStartupCheckTest`.
 10. Add an architecture test that detects application use cases without
     explicit authorization-policy declarations.
 11. Add privilege-escalation tests for role and permission

@@ -67,14 +67,19 @@ non-optional condition that:
 1. The non-superuser application role requirement is treated as a hard
    architectural constraint, not a footnote — ideally enforced by a
    startup-time check that fails loudly if the application's runtime
-   DataSource ever connects as a superuser.
+   DataSource ever connects as a superuser. **Done 2026-08-05**: real,
+   implemented, tested — `backend/src/main/java/com/workin/backend/config/SuperuserStartupCheck.java`
+   (F-22), part of the first real backend implementation
+   (`docs/bootstrap/decision-log.md` D-028).
 2. Repository-layer scoping is still applied where practical as a
    second, defense-in-depth layer — not relied upon alone, but not
    discarded either.
 3. **The RLS-arm test-coverage gap found during the spike is closed
    before this pattern is trusted in real implementation** — fully
    specified below so it cannot be silently forgotten or reinterpreted
-   during implementation:
+   during implementation. **Done 2026-08-05**: real, implemented,
+   passing test — `backend/src/test/java/com/workin/backend/tenancy/RlsFailClosedTest.java`
+   (F-13/F-21).
 
    **Required test — "forgot to set the tenant session variable proves
    fail-closed, not fail-open":**
@@ -185,9 +190,6 @@ section. **Part B was accepted by a human decider on 2026-08-05** — see
   recorded recommendation (RLS, primary mechanism, with the
   non-superuser-role condition), accepted in full by a human decider —
   see `docs/bootstrap/decision-log.md` D-018.
-- The RLS-arm test-coverage gap found during the spike (no test yet
-  proves RLS's fail-closed behavior when the session-variable-setting
-  call itself is omitted, unlike the Guard arm's deliberate "forgot to
-  scope" test) remains open **as an implementation acceptance
-  criterion**, not as a blocker on this ADR's acceptance — see Decision,
-  condition 3.
+- ~~The RLS-arm test-coverage gap found during the spike~~ — **Resolved
+  2026-08-05**: real, passing test in the first backend implementation —
+  see Decision, condition 3.

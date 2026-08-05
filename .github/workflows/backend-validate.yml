@@ -1,0 +1,41 @@
+name: Backend Validate
+
+# backend/ was unlocked for real implementation on 2026-08-05
+# (docs/bootstrap/decision-log.md D-028). This workflow is separate from
+# Phase 0 Bootstrap Validate (phase0-validate.yml), which continues to
+# gate every other component directory.
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-validate.yml"
+  push:
+    branches:
+      - main
+      - "bootstrap/**"
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-validate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Check out repository (immutable action reference)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Java 25 (immutable action reference; exact version, not checksum-verified)
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165  # v5.0.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Run backend test suite (real Postgres via Testcontainers)
+        run: ./gradlew clean test --console=plain
