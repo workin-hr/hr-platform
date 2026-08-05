@@ -1126,6 +1126,38 @@ def test_product_code_inside_backend_is_excluded() -> None:
         shutil.rmtree(root)
 
 
+def test_initialized_submodule_content_is_excluded() -> None:
+    """Pinned git submodules are repository-boundary pointers, not
+    product code owned by this repository. If a human explicitly
+    initializes one locally, the parent repository's forbidden-file
+    scanner must not recurse into its Android/Gradle/Kotlin content and
+    treat that external checkout as hr-platform code."""
+    root = make_root()
+    try:
+        (root / "flutter-integration/workin_mobile/android/app/src/main/kotlin/com/app/workin").mkdir(parents=True)
+        (root / ".gitmodules").write_text(
+            '[submodule "flutter-integration/workin_mobile"]\n'
+            "    path = flutter-integration/workin_mobile\n"
+            "    url = git@github.com:example/workin_mobile.git\n",
+            encoding="utf-8",
+        )
+        (root / "flutter-integration/workin_mobile/android/build.gradle.kts").write_text(
+            "// placeholder\n", encoding="utf-8"
+        )
+        (root / "flutter-integration/workin_mobile/android/app/src/main/kotlin/com/app/workin/MainActivity.kt").write_text(
+            "// placeholder\n", encoding="utf-8"
+        )
+
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(
+            failures == [],
+            f"initialized content inside a declared git submodule is excluded from the forbidden-file scanner (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_product_code_in_other_component_dirs_still_fails() -> None:
     """Regression baseline: backend/'s Phase 1 unlock (D-028) must not
     leak to any other component directory -- each remaining component

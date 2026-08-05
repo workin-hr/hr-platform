@@ -104,12 +104,12 @@ Description/Why-It-Matters prose already there.
 | # | Title | Severity | Priority | Owner Type | Blocking? | Evidence For Closure | Dependency / Target Milestone |
 |---|---|---|---|---|---|---|---|
 | [#9](https://github.com/workin-hr/hr-platform/issues/9) | PMR-01: Dashboard Discovery coverage incomplete (~75 of 92 files unread) | Medium | P1 | Engineering | Blocking: full-confidence ADR-0002/ADR-0003 acceptance | Remaining ~75 dashboard files read and cross-referenced against `existing-endpoint-inventory.md` | Before ADR-0002/0003 acceptance |
-| [#10](https://github.com/workin-hr/hr-platform/issues/10) | PMR-02: Flutter mobile client contract unknown | — | — | — | **Closed by this Discovery pass** | Superseded — see `docs/api/flutter-request-response-compatibility.md`, status updated to `Ready` in the gap-analysis doc (Update 2026-08-04) | Complete |
-| [#11](https://github.com/workin-hr/hr-platform/issues/11) | PMR-03: Production data inaccessible | Critical-High | P0 | Manual Operator + Engineering | Blocking: data-migration phase | Someone with production DB access runs the query set already documented in the empty migration-template docs (`data-quality-analysis.md` etc.) and results are recorded | Before data-migration phase |
+| [#10](https://github.com/workin-hr/hr-platform/issues/10) | PMR-02: Flutter client contract still needs module-by-module closure | Medium (was Critical/High) | P1 | Engineering | Ready — not a whole-program blocker, but still gates each affected module's cutover | `docs/api/flutter-request-response-compatibility.md` plus module-specific closure for whichever API surface is being cut over | Before each client-facing module's cutover |
+| [#11](https://github.com/workin-hr/hr-platform/issues/11) | PMR-03: Production data needs fresh-snapshot re-verification | Medium (was High) | P1 | Manual Operator + Engineering | Ready — substantial analysis exists; fresh evidence is still required near cutover time | Someone with production DB access reruns the documented query set against a fresh snapshot and records the updated evidence | Before data-migration/cutover phase |
 | [#12](https://github.com/workin-hr/hr-platform/issues/12) | PMR-04: Attendance device/hardware Discovery not started | High | P1 | Manual Operator + Engineering | Blocking: device-integration phase | Device Discovery doc filled in with real hardware/protocol evidence | Before device integration |
 | [#13](https://github.com/workin-hr/hr-platform/issues/13) | PMR-07: Technical spike — **executed and accepted 2026-08-05** | High → Done | P0 → done (narrowed 2026-08-04, executed and accepted 2026-08-05) | Engineering | **Closed** — 6/6 tests passing on a clean rebuild, recommendation recorded (RLS, non-superuser-role condition) and accepted in full by the repository owner (D-018). Three conditions from the ADR now carry forward as implementation acceptance criteria for the first module using RLS | `docs/migration/technical-spike-plan.md` "Full Spike Findings" section; `docs/bootstrap/decision-log.md` D-018 | None remaining — closed |
 | [#14](https://github.com/workin-hr/hr-platform/issues/14) | PMR-08: All 10 architecture ADRs remain Proposed | High → Low | **Done 2026-08-05** — 10 of 10 ADRs have a recorded decision | Product + Engineering | **Done 2026-08-05** for all 10 ADRs (`docs/bootstrap/decision-log.md` D-016 through D-026; ADR-0002 fully accepted, ADR-0010 accepted in full, ADR-0006 Part A only — Part B's protocol detail remains its own tracked sub-item, not a separate ADR) | Each ADR's `Status` moved to `Accepted` (or a considered `Rejected`/`Deferred`) by an explicit human decision, recorded in the ADR file itself | None remaining at the ADR level — closed |
-| [#15](https://github.com/workin-hr/hr-platform/issues/15) | PMR-09: No detailed per-module migration execution plan | Medium | P1 | Engineering | Blocking: first module cutover | Per-module execution plan doc exists, covering sequencing, rollback, and acceptance criteria per module | Before any module's cutover |
+| [#15](https://github.com/workin-hr/hr-platform/issues/15) | PMR-09: No detailed per-module migration execution plan beyond the already-authorized backend auth/tenant-identity slice | Medium | P1 | Engineering | Blocking: first broader migration wave/cutover planning, not the D-028-authorized backend start itself | Per-module execution plan doc exists, covering sequencing, rollback, and acceptance criteria per module | Before the first broader migration wave or any module cutover |
 | [#16](https://github.com/workin-hr/hr-platform/issues/16) | PMR-10: No migration-correctness test plan or differential-testing harness | High | P0 | Engineering | Blocking: data-migration phase | Differential-testing harness exists and has run at least once against a non-trivial data sample | Before data-migration phase |
 
 ## Section C — New Flutter Discovery Findings (F-01–F-12)
@@ -151,22 +151,11 @@ except where a GitHub issue was filed to track the action item.
 
 ## Summary Counts
 
-| Priority | Count |
-|---|---|
-| P0 (blocks spike/any-implementation) | 10 |
-| P1 (blocks specific module cutover) | 12 |
-| P2 (fix correctly during rewrite, non-gating) | 11 |
-| P3 (backlog) | 4 |
-
-| Owner Type | Count (rows where this owner type appears) |
-|---|---|
-| Engineering | 31 |
-| Product | 14 |
-| Security | 6 |
-| Manual Operator | 3 |
-
-Counts are informational (rows can have more than one owner type) — use
-the per-row table as the source of truth, not this summary.
+Manual aggregate counts were removed on Wednesday, August 5, 2026
+because they had drifted away from the table above and were misleading.
+Use the per-row table as the source of truth; if aggregate counts are
+needed later, they should be regenerated from the current table rather
+than maintained by hand.
 
 ## Evidence
 

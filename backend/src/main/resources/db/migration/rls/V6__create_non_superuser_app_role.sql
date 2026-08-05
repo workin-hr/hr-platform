@@ -4,9 +4,9 @@
 -- (condition 1) attaches to accepting RLS -- the application's runtime
 -- DataSource must never connect as a superuser. Enforced in code too:
 -- see RlsDataSourceConfig and SuperuserStartupCheck.
-CREATE ROLE app_runtime LOGIN PASSWORD 'app_runtime_password';
-GRANT USAGE ON SCHEMA public TO app_runtime;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_runtime;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_runtime;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_runtime;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO app_runtime;
+CREATE ROLE "${app_runtime_db_username}" LOGIN PASSWORD '${app_runtime_db_password}';
+GRANT USAGE ON SCHEMA public TO "${app_runtime_db_username}";
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${app_runtime_db_username}";
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${app_runtime_db_username}";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "${app_runtime_db_username}";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO "${app_runtime_db_username}";

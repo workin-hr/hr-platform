@@ -44,6 +44,11 @@ public class LoginService {
 		if (memberships.isEmpty()) {
 			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No active tenant membership");
 		}
+		if (memberships.size() > 1) {
+			throw new ResponseStatusException(
+					HttpStatus.CONFLICT,
+					"Multiple active tenant memberships require explicit tenant selection");
+		}
 		MembershipSummary membership = memberships.get(0);
 
 		return new Authenticated(identity.getId(), membership.membershipId(), membership.companyId());

@@ -41,7 +41,9 @@ public class IdentityMembershipIndexService {
 
 	public List<MembershipSummary> findMembershipsForIdentity(Long identityId) {
 		return jdbcTemplate.query(
-				"SELECT id, company_id FROM tenant_memberships WHERE identity_id = ? AND status = 'ACTIVE'",
+				"SELECT id, company_id FROM tenant_memberships "
+						+ "WHERE identity_id = ? AND status = 'ACTIVE' "
+						+ "ORDER BY company_id, id",
 				(rs, rowNum) -> new MembershipSummary(rs.getLong("id"), rs.getLong("company_id")),
 				identityId);
 	}

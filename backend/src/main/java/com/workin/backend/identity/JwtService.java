@@ -2,6 +2,7 @@ package com.workin.backend.identity;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
 import java.util.Date;
 import java.util.UUID;
 
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.Keys;
 
 /**
@@ -62,12 +64,36 @@ public class JwtService {
 	}
 
 	public Claims parseAndValidate(String token) {
-		return Jwts.parser()
+		Claims claims = Jwts.parser()
 				.verifyWith(signingKey)
 				.requireIssuer(ISSUER)
 				.build()
 				.parseSignedClaims(token)
 				.getPayload();
+		validateAudienceClaim(claims.get("aud"));
+		validateRequiredNumberClaim(claims, "membership_id");
+		validateRequiredNumberClaim(claims, "tenant_id");
+		return claims;
+	}
+
+	private static void validateAudienceClaim(Object audienceClaim) {
+		if (audienceClaim instanceof String audience && AUDIENCE.equals(audience)) {
+			return;
+		}
+		if (audienceClaim instanceof Collection<?> audienceValues) {
+			for (Object audienceValue : audienceValues) {
+				if (AUDIENCE.equals(audienceValue)) {
+					return;
+				}
+			}
+		}
+		throw new MalformedJwtException("Token audience is missing or invalid");
+	}
+
+	private static void validateRequiredNumberClaim(Claims claims, String claimName) {
+		if (claims.get(claimName, Number.class) == null) {
+			throw new MalformedJwtException("Token is missing required claim `" + claimName + "`");
+		}
 	}
 
 }

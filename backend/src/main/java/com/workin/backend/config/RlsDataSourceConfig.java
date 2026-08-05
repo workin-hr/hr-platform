@@ -2,6 +2,7 @@ package com.workin.backend.config;
 
 import javax.sql.DataSource;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.flyway.autoconfigure.FlywayDataSource;
 import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.boot.jdbc.autoconfigure.JdbcConnectionDetails;
@@ -42,12 +43,15 @@ public class RlsDataSourceConfig {
 
 	@Bean
 	@Primary
-	public DataSource applicationDataSource(JdbcConnectionDetails connectionDetails) {
+	public DataSource applicationDataSource(
+			JdbcConnectionDetails connectionDetails,
+			@Value("${app.runtime-db.username}") String runtimeDbUsername,
+			@Value("${app.runtime-db.password}") String runtimeDbPassword) {
 		HikariDataSource dataSource = DataSourceBuilder.create()
 			.type(HikariDataSource.class)
 			.url(connectionDetails.getJdbcUrl())
-			.username("app_runtime")
-			.password("app_runtime_password")
+			.username(runtimeDbUsername)
+			.password(runtimeDbPassword)
 			.build();
 		dataSource.setConnectionTimeout(5000);
 		dataSource.setInitializationFailTimeout(5000);

@@ -2,11 +2,15 @@ package com.workin.backend.identity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import javax.sql.DataSource;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.workin.backend.AbstractIntegrationTest;
 
@@ -14,6 +18,13 @@ class AuthFlowTest extends AbstractIntegrationTest {
 
 	@Autowired
 	private TestRestTemplate restTemplate;
+
+	@Autowired
+	@Qualifier("flywayDataSource")
+	private DataSource flywayDataSource;
+
+	@Autowired
+	private JwtService jwtService;
 
 	@Test
 	void registerIssuesTokenAndTenantContext() {
@@ -76,6 +87,33 @@ class AuthFlowTest extends AbstractIntegrationTest {
 				String.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+	}
+
+	@Test
+	void loginWithMultipleActiveMembershipsRequiresExplicitTenantSelection() {
+		String primaryPhone = uniquePhone();
+		ResponseEntity<AuthResponse> primaryRegistration = restTemplate.postForEntity(
+				"/api/auth/register",
+				new RegisterCompanyRequest("Primary Company", primaryPhone, "correct horse battery staple"),
+				AuthResponse.class);
+		ResponseEntity<AuthResponse> secondaryRegistration = restTemplate.postForEntity(
+				"/api/auth/register",
+				new RegisterCompanyRequest("Secondary Company", uniquePhone(), "correct horse battery staple"),
+				AuthResponse.class);
+
+		Long primaryIdentityId = Long.valueOf(
+				jwtService.parseAndValidate(primaryRegistration.getBody().accessToken()).getSubject());
+		new JdbcTemplate(flywayDataSource).update(
+				"INSERT INTO tenant_memberships (identity_id, company_id, status) VALUES (?, ?, 'ACTIVE')",
+				primaryIdentityId,
+				secondaryRegistration.getBody().companyId());
+
+		ResponseEntity<String> loginResponse = restTemplate.postForEntity(
+				"/api/auth/login",
+				new LoginRequest(primaryPhone, "correct horse battery staple"),
+				String.class);
+
+		assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
 	}
 
 	private static String uniquePhone() {

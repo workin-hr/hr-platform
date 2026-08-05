@@ -2,6 +2,8 @@ package com.workin.backend.tenancy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import javax.crypto.SecretKey;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
@@ -15,6 +17,9 @@ import com.workin.backend.AbstractIntegrationTest;
 import com.workin.backend.identity.AuthResponse;
 import com.workin.backend.identity.JwtService;
 import com.workin.backend.identity.RegisterCompanyRequest;
+
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 
 /**
  * Proves docs/adr/ADR-0010-authorization-model.md Dimension 2's core
@@ -31,6 +36,8 @@ class TenantContextIsolationTest extends AbstractIntegrationTest {
 
 	@Autowired
 	private JwtService jwtService;
+
+	private final SecretKey testSigningKey = Keys.hmacShaKeyFor(TEST_JWT_SECRET.getBytes());
 
 	@Test
 	void aTokenClaimingAnotherIdentitysMembershipIsRejected() {
@@ -53,6 +60,47 @@ class TenantContextIsolationTest extends AbstractIntegrationTest {
 				"/api/tenant/me", HttpMethod.GET, new HttpEntity<>(headers), String.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void aSignedTokenMissingMembershipClaimFailsClosedInsteadOfCrashing() {
+		AuthResponse companyA = register("Company A");
+
+		String malformedToken = Jwts.builder()
+				.subject(String.valueOf(extractIdentityIdFrom(companyA)))
+				.claim("tenant_id", companyA.companyId())
+				.issuer("workin-backend")
+				.audience().add("workin-clients").and()
+				.signWith(testSigningKey)
+				.compact();
+
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(malformedToken);
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/tenant/me", HttpMethod.GET, new HttpEntity<>(headers), String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+	}
+
+	@Test
+	void aSignedTokenWithTheWrongAudienceIsRejected() {
+		AuthResponse companyA = register("Company A");
+
+		String wrongAudienceToken = Jwts.builder()
+				.subject(String.valueOf(extractIdentityIdFrom(companyA)))
+				.claim("membership_id", companyA.membershipId())
+				.claim("tenant_id", companyA.companyId())
+				.issuer("workin-backend")
+				.audience().add("unexpected-audience").and()
+				.signWith(testSigningKey)
+				.compact();
+
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(wrongAudienceToken);
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/tenant/me", HttpMethod.GET, new HttpEntity<>(headers), String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 	}
 
 	@Test

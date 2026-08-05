@@ -213,13 +213,39 @@ def validate_required_paths(failures: list[str]) -> None:
             fail(f"Missing required directory: {rel}", failures)
 
 
+def load_submodule_paths(root: Path) -> list[tuple[str, ...]]:
+    gitmodules = root / ".gitmodules"
+    if not gitmodules.is_file():
+        return []
+
+    submodule_paths: list[tuple[str, ...]] = []
+    for raw_line in gitmodules.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line.startswith("path ="):
+            continue
+        path_text = line.split("=", 1)[1].strip()
+        if not path_text:
+            continue
+        submodule_paths.append(Path(path_text).parts)
+    return submodule_paths
+
+
+def rel_path_is_under(rel_parts: tuple[str, ...], parent_parts: tuple[str, ...]) -> bool:
+    if len(rel_parts) < len(parent_parts):
+        return False
+    return rel_parts[: len(parent_parts)] == parent_parts
+
+
 def validate_forbidden_files(failures: list[str], root: Path | None = None) -> None:
     root = root if root is not None else ROOT
+    submodule_paths = load_submodule_paths(root)
     for path in root.rglob("*"):
         rel_path = path.relative_to(root)
         if rel_path.parts and rel_path.parts[0] == SPIKE_DIR_NAME:
             continue
         if rel_path.parts and rel_path.parts[0] in PHASE1_UNLOCKED_DIRS:
+            continue
+        if any(rel_path_is_under(rel_path.parts, submodule_path) for submodule_path in submodule_paths):
             continue
         rel = rel_path.as_posix()
         if path.is_dir() and path.name in FORBIDDEN_DIRS:

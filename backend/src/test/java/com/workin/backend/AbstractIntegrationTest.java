@@ -30,6 +30,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 @AutoConfigureTestRestTemplate
 public abstract class AbstractIntegrationTest {
 
+	protected static final String TEST_JWT_SECRET = "test-only-secret-not-used-in-production-000000000000";
+	protected static final String TEST_RUNTIME_DB_USERNAME = "app_runtime_test";
+	protected static final String TEST_RUNTIME_DB_PASSWORD = "app_runtime_test_password";
+
 	@ServiceConnection
 	protected static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
 
@@ -39,7 +43,9 @@ public abstract class AbstractIntegrationTest {
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {
-		registry.add("app.jwt.secret", () -> "test-only-secret-not-used-in-production-000000000000");
+		registry.add("app.jwt.secret", () -> TEST_JWT_SECRET);
+		registry.add("app.runtime-db.username", () -> TEST_RUNTIME_DB_USERNAME);
+		registry.add("app.runtime-db.password", () -> TEST_RUNTIME_DB_PASSWORD);
 	}
 
 }

@@ -37,8 +37,8 @@ class SuperuserStartupCheckTest extends AbstractIntegrationTest {
 	void passesWhenConnectedAsTheNonSuperuserAppRuntimeRole() {
 		var appRuntimeDataSource = DataSourceBuilder.create()
 				.url(POSTGRES.getJdbcUrl())
-				.username("app_runtime")
-				.password("app_runtime_password")
+				.username(TEST_RUNTIME_DB_USERNAME)
+				.password(TEST_RUNTIME_DB_PASSWORD)
 				.build();
 
 		var check = new SuperuserStartupCheck(appRuntimeDataSource);
