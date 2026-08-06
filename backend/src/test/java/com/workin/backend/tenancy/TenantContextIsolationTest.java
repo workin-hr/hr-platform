@@ -52,7 +52,8 @@ class TenantContextIsolationTest extends AbstractIntegrationTest {
 		// membership -- TenantContextService re-derives and cross-checks
 		// against the database on every request.
 		String forgedToken = jwtService.issueAccessToken(
-				extractIdentityIdFrom(companyA), companyB.membershipId(), companyB.companyId());
+				extractIdentityIdFrom(companyA), companyB.membershipId(), companyB.companyId(),
+				java.util.UUID.randomUUID().toString());
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.setBearerAuth(forgedToken);

@@ -44,6 +44,7 @@ class AuthFlowTest extends AbstractIntegrationTest {
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(response.getBody()).isNotNull();
 		assertThat(response.getBody().accessToken()).isNotBlank();
+		assertThat(response.getBody().refreshToken()).isNotBlank();
 		assertThat(response.getBody().membershipId()).isNotNull();
 		assertThat(response.getBody().companyId()).isNotNull();
 	}
