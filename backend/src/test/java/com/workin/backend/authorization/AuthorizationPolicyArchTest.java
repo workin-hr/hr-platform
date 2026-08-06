@@ -19,7 +19,6 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 
 import com.workin.backend.authorization.archfixtures.DoublyDeclaredHandlerFixture;
 import com.workin.backend.authorization.archfixtures.PolicyOnNonHandlerFixture;
-import com.workin.backend.authorization.archfixtures.RequiresPermissionUsageFixture;
 import com.workin.backend.authorization.archfixtures.UndeclaredHandlerFixture;
 
 /**
@@ -92,11 +91,14 @@ class AuthorizationPolicyArchTest {
 			// rule (it only constrains placement, not existence).
 			.allowEmptyShould(true);
 
-	static final ArchRule REQUIRES_PERMISSION_IS_FROZEN = noMethods()
+	static final ArchRule REQUIRES_PERMISSION_STAYS_OUT_OF_THE_PLATFORM_DOMAIN = noMethods()
+			.that().areDeclaredInClassesThat().resideInAPackage("com.workin.backend.platformadmin..")
 			.should().beAnnotatedWith(RequiresPermission.class)
-			.because("@RequiresPermission has no runtime enforcement yet -- a permission-gated endpoint "
-					+ "would be decorative security. Delete this rule in the same PR that lands the "
-					+ "runtime permission-evaluation component (F-15/F-17) and wires the annotation to it");
+			.because("permission evaluation exists only for the tenant domain "
+					+ "(AuthorizationPolicyInterceptor + PermissionEvaluationService over membership "
+					+ "roles/overrides) -- a platform-domain usage would be a decorative gate. Extend "
+					+ "evaluation to the platform domain before removing this rule, alongside the first "
+					+ "real platform.* business endpoint (F-26's standing audit criterion applies there too)");
 
 	@Test
 	void everyExternallyReachableHandlerDeclaresExactlyOnePolicy() {
@@ -109,8 +111,8 @@ class AuthorizationPolicyArchTest {
 	}
 
 	@Test
-	void requiresPermissionIsFrozenUntilRuntimeEnforcementExists() {
-		REQUIRES_PERMISSION_IS_FROZEN.check(PRODUCTION_CLASSES);
+	void requiresPermissionStaysOutOfThePlatformDomain() {
+		REQUIRES_PERMISSION_STAYS_OUT_OF_THE_PLATFORM_DOMAIN.check(PRODUCTION_CLASSES);
 	}
 
 	// ---- proven-to-fail evidence (fixtures imported explicitly) ----
@@ -132,8 +134,9 @@ class AuthorizationPolicyArchTest {
 	}
 
 	@Test
-	void aRequiresPermissionUsageIsAViolationWhileFrozen() {
-		assertThat(hasViolations(REQUIRES_PERMISSION_IS_FROZEN, RequiresPermissionUsageFixture.class)).isTrue();
+	void aPlatformDomainRequiresPermissionUsageIsAViolation() {
+		assertThat(hasViolations(REQUIRES_PERMISSION_STAYS_OUT_OF_THE_PLATFORM_DOMAIN,
+				com.workin.backend.platformadmin.archfixtures.PlatformRequiresPermissionFixture.class)).isTrue();
 	}
 
 	@Test
