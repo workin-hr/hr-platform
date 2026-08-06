@@ -80,8 +80,11 @@ computation via the shared `EntityManager`/JPA repositories:
 
 - role-granted keys: `role_permissions ⋈ permissions` for the
   membership's roles (global tables, no RLS);
-- override rows for the membership (RLS-scoped JPA entity
-  `MembershipPermissionOverride` + repository);
+- override rows for the membership (RLS-scoped native query on the
+  shared `EntityManager`; no JPA entity — nothing else reads or writes
+  the table from Java yet, and an unused entity would be dead code.
+  The entity arrives with the first admin surface that manages
+  overrides);
 - effective = (roleGranted ∪ explicitAllows) − explicitDenies —
   precisely Dimension 3's precedence, since a DENY subtracts last and
   absence of any rule yields nothing (deny by default).
