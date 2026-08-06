@@ -43,7 +43,11 @@ public class SecurityConfig {
 			.csrf(csrf -> csrf.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests(authorize -> authorize
-				.requestMatchers("/api/platform-admin/login").permitAll()
+				// Refresh and logout authenticate by refresh-token
+				// possession -- the access token may already be expired
+				// when they are called.
+				.requestMatchers("/api/platform-admin/login", "/api/platform-admin/refresh",
+						"/api/platform-admin/logout").permitAll()
 				.anyRequest().authenticated())
 			.addFilterBefore(
 				new PlatformAdminAuthenticationFilter(platformAdminJwtService), UsernamePasswordAuthenticationFilter.class);

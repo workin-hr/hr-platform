@@ -48,6 +48,7 @@ class PlatformAdminAuthFlowTest extends AbstractIntegrationTest {
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody().accessToken()).isNotBlank();
+		assertThat(response.getBody().refreshToken()).isNotBlank();
 		assertThat(response.getBody().platformAdminId()).isNotNull();
 	}
 
