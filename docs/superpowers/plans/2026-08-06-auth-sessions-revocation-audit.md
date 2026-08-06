@@ -180,7 +180,7 @@ class RefreshTokenServiceTest extends AbstractIntegrationTest {
         IssuedRefreshToken issued = refreshTokenService.issue(
                 fixture.identityId(), fixture.membershipId(), fixture.companyId());
         new JdbcTemplate(flywayDataSource).update(
-                "UPDATE tenant_memberships SET status = 'INACTIVE' WHERE id = ?", fixture.membershipId());
+                "UPDATE tenant_memberships SET status = 'DISABLED' WHERE id = ?", fixture.membershipId());
 
         assertThat(refreshTokenService.rotate(issued.rawToken())).isEmpty();
     }
