@@ -26,14 +26,17 @@ public class PlatformAdminSessionService {
 
 	private final PlatformAdminRefreshTokenRepository refreshTokenRepository;
 	private final PlatformAdminRepository platformAdminRepository;
+	private final PlatformAdminAuditService auditService;
 	private final long refreshTokenTtlSeconds;
 
 	public PlatformAdminSessionService(
 			PlatformAdminRefreshTokenRepository refreshTokenRepository,
 			PlatformAdminRepository platformAdminRepository,
+			PlatformAdminAuditService auditService,
 			@Value("${app.platform-admin.jwt.refresh-token-ttl-seconds:604800}") long refreshTokenTtlSeconds) {
 		this.refreshTokenRepository = refreshTokenRepository;
 		this.platformAdminRepository = platformAdminRepository;
+		this.auditService = auditService;
 		this.refreshTokenTtlSeconds = refreshTokenTtlSeconds;
 	}
 
@@ -89,19 +92,26 @@ public class PlatformAdminSessionService {
 	@Transactional
 	public void logout(String presentedToken) {
 		refreshTokenRepository.findByTokenHash(OpaqueTokens.sha256Hex(presentedToken))
-				.ifPresent(token -> refreshTokenRepository
-						.setStatusForFamily(token.getFamilyId(), PlatformAdminSessionStatus.REVOKED));
+				.ifPresent(token -> {
+					refreshTokenRepository
+							.setStatusForFamily(token.getFamilyId(), PlatformAdminSessionStatus.REVOKED);
+					auditService.record(token.getPlatformAdminId(), PlatformAdminAuditEventType.LOGOUT,
+							"family " + token.getFamilyId());
+				});
 	}
 
 	@Transactional
 	public void revokeAllForPlatformAdmin(Long platformAdminId) {
 		refreshTokenRepository.setStatusForPlatformAdmin(platformAdminId, PlatformAdminSessionStatus.REVOKED);
+		auditService.record(platformAdminId, PlatformAdminAuditEventType.ALL_SESSIONS_REVOKED, null);
 	}
 
 	private void revokeFamilyForReuse(PlatformAdminRefreshToken presented) {
 		log.warn("Platform-admin refresh-token reuse detected for admin {} family {} -- revoking the whole family",
 				presented.getPlatformAdminId(), presented.getFamilyId());
 		refreshTokenRepository.setStatusForFamily(presented.getFamilyId(), PlatformAdminSessionStatus.REVOKED);
+		auditService.record(presented.getPlatformAdminId(), PlatformAdminAuditEventType.SESSION_REUSE_REVOKED,
+				"family " + presented.getFamilyId());
 	}
 
 	public record IssuedRefreshToken(String rawToken, UUID familyId) {

@@ -45,6 +45,7 @@ class PlatformAdminBootstrapTest extends AbstractIntegrationTest {
 		// children go first when this test resets shared state.
 		JdbcTemplate jdbc = new JdbcTemplate(flywayDataSource);
 		jdbc.update("DELETE FROM platform_admin_refresh_tokens");
+		jdbc.update("DELETE FROM platform_admin_audit_events");
 		jdbc.update("DELETE FROM platform_admins");
 		String phone = "+2099" + System.nanoTime() % 100_000_000L;
 		PlatformAdminBootstrap bootstrap = new PlatformAdminBootstrap(
