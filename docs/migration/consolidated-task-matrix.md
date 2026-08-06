@@ -148,6 +148,7 @@ except where a GitHub issue was filed to track the action item.
 | F-24 | ADR-0010 Task 11: privilege-escalation tests for role and permission administration | Medium | P1 | Engineering | Blocking for authorization-module completion | Real automated tests covering §8's rules (self-role-change, last-admin removal, platform/tenant namespace crossing); closes when they exist and pass in CI | Before authorization module is considered implementation-complete |
 | F-25 | ADR-0010 Task 12: manager-scope tests for branch, department, direct-report, and specifically-assigned-employee scope assignments | Medium | P1 | Engineering | Blocking for `MANAGER`-role module completion | Real automated tests covering every `membership_resource_scopes` type; closes when they exist and pass in CI | Before `MANAGER`-role modules are considered implementation-complete |
 | F-26 | Independent per-platform-admin account identity (individual credentials, sessions, revocation, audit attribution) — replacing the shared platform-admin password (`hr-legacy#11`) | High (real, confirmed security/audit gap; not accepted as MVP architecture) | **P0** | Product + Engineering | **Blocking production readiness and any privileged platform-admin operation — does not block development of unrelated tenant modules.** Corrected 2026-08-05: an earlier same-day decision to defer this to backlog was reversed by direct instruction (`docs/architecture/authorization-model.md` §7, `docs/bootstrap/decision-log.md` D-027) | `hr-legacy#11`; closes when individual platform-admin identity (credentials, sessions, revocation, audit attribution) is implemented and no platform-admin path still authenticates via the shared password | Before any platform-admin functionality reaches production |
+| F-27 | No minimum password length/complexity on `register_company.php`/`reset_password.php` (zero check beyond non-empty); `change_password.php` only enforces 6 characters, no complexity rule (`hr-legacy#27`) | Medium | P2 | Engineering | **Non-blocking today** — the new backend's company self-registration already carries the fix (`backend/src/main/java/com/workin/backend/identity/RegisterCompanyRequest.java`, `@Size(min=8, max=128)`, 2026-08-06). Blocks only the reset-password/change-password endpoints specifically, which don't exist in the rewrite yet | GitHub issue [`hr-legacy#27`](https://github.com/workin-hr/hr-legacy/issues/27); closes when the new backend's reset-password and change-password endpoints enforce the same minimum-length rule already applied to registration, rather than repeating the legacy inconsistency | Before reset-password/change-password endpoints are implemented in the new backend |
 
 ## Summary Counts
 
@@ -166,5 +167,5 @@ issues #9–#16. Section C:
 `docs/api/flutter-request-response-compatibility.md`,
 `docs/security/pre-migration-flutter-credential-inventory.md`,
 `docs/adr/ADR-0009-dashboard-vs-desktop-admin-client.md`, `hr-platform`
-issues #18–#25, `hr-legacy` issue #26 and issue comments on #16 and #19
-(2026-08-04).
+issues #18–#25, `hr-legacy` issues #26–#27 and issue comments on #16
+and #19 (2026-08-04).
