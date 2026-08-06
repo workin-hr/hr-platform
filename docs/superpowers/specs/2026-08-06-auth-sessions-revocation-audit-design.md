@@ -241,9 +241,14 @@ Validation failures on request bodies follow the existing
 
 ## Migrations
 
-- `V8__create_refresh_tokens.sql`
-- `V9__create_platform_admin_refresh_tokens.sql`
-- `V10__create_platform_admin_audit_events.sql`
+- `V15__create_refresh_tokens.sql`
+- `V16__create_platform_admin_refresh_tokens.sql`
+- `V17__create_platform_admin_audit_events.sql`
+
+(Originally authored as V8–V10; renumbered after merge because the
+payroll-group-schema PR, merged first, occupied V8–V13 — two branches
+cut from the same base each claimed the next free Flyway numbers, and
+Flyway rejects duplicate versions.)
 
 All in `db/migration/common` (none of these tables is tenant-owned; RLS
 does not apply, same precedent as `identities` and `platform_admins`).
