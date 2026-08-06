@@ -2,6 +2,7 @@ package com.workin.backend.identity;
 
 import jakarta.persistence.EntityManager;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,9 +55,23 @@ public class RegistrationService {
 			throw new ResponseStatusException(HttpStatus.CONFLICT, "Phone number already registered");
 		}
 
-		Company company = companyRepository.save(new Company(request.name(), request.phone()));
-		Identity identity = identityRepository.save(
-				new Identity(request.phone(), passwordEncoder.encode(request.password())));
+		// The precheck above is only a fast path -- it does not close the
+		// race window between two concurrent registrations for the same
+		// phone. companies.phone/identities.phone are UNIQUE (V1/V2), and
+		// GenerationType.IDENTITY forces an immediate INSERT on save() (the
+		// generated id must come back), so a losing concurrent request
+		// throws here, inside this try block, rather than later at
+		// transaction commit. Translate that into the same clean 409 the
+		// precheck already returns, instead of an uncaught 500.
+		Company company;
+		Identity identity;
+		try {
+			company = companyRepository.save(new Company(request.name(), request.phone()));
+			identity = identityRepository.save(
+					new Identity(request.phone(), passwordEncoder.encode(request.password())));
+		} catch (DataIntegrityViolationException ex) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT, "Phone number already registered", ex);
+		}
 
 		setTenantSessionVariable(company.getId());
 
