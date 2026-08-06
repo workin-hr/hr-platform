@@ -48,11 +48,11 @@ public class PlatformAdminJwtService {
 		this.accessTokenTtlSeconds = accessTokenTtlSeconds;
 	}
 
-	public String issueAccessToken(Long platformAdminId) {
+	public String issueAccessToken(Long platformAdminId, String sessionId) {
 		Instant now = Instant.now();
 		return Jwts.builder()
 				.subject(String.valueOf(platformAdminId))
-				.claim("sid", UUID.randomUUID().toString())
+				.claim("sid", sessionId)
 				.id(UUID.randomUUID().toString())
 				.issuer(ISSUER)
 				.audience().add(AUDIENCE).and()

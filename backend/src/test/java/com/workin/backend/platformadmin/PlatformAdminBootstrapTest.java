@@ -39,7 +39,14 @@ class PlatformAdminBootstrapTest extends AbstractIntegrationTest {
 
 	@Test
 	void firstRunCreatesTheAdminAndASecondRunDoesNotDuplicateOrResetIt() {
-		new JdbcTemplate(flywayDataSource).update("DELETE FROM platform_admins");
+		// Session rows reference platform_admins with a deliberately
+		// non-cascading FK (deleting a principal must never silently
+		// destroy dependent records -- the hr-legacy#20 lesson), so the
+		// children go first when this test resets shared state.
+		JdbcTemplate jdbc = new JdbcTemplate(flywayDataSource);
+		jdbc.update("DELETE FROM platform_admin_refresh_tokens");
+		jdbc.update("DELETE FROM platform_admin_audit_events");
+		jdbc.update("DELETE FROM platform_admins");
 		String phone = "+2099" + System.nanoTime() % 100_000_000L;
 		PlatformAdminBootstrap bootstrap = new PlatformAdminBootstrap(
 				platformAdminRepository, passwordEncoder, phone, "correct horse battery staple");
