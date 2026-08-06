@@ -5,11 +5,13 @@
 This document synthesizes the Discovery evidence gathered across
 `workin-hr/hr-legacy` (all 199 API endpoints, the highest-risk dashboard
 modules, and the full database schema) into a proposed migration approach.
-It does not itself constitute an approved architecture decision — ADR-0002
-(Modular Monolith Baseline) and ADR-0004 (MySQL-To-PostgreSQL Migration
-Approach) remain `Proposed`, and any sequencing or strategy choice below
-needs to be ratified through the normal decision-log/ADR process, not
-adopted by virtue of appearing in this document.
+**Update 2026-08-06**: ADR-0002 (Modular Monolith Baseline) and ADR-0004
+(MySQL-To-PostgreSQL Migration Approach) have since moved to `Accepted`
+(`docs/bootstrap/decision-log.md` D-022 and related entries) — the
+`Proposed` status originally noted here is stale. This document itself
+still does not carry ADR status and remains a synthesis/sequencing
+reference, not the authoritative decision record; where the two disagree,
+the ADRs govern.
 
 ## What This Unblocks
 
@@ -117,7 +119,17 @@ guessing would just relocate the ambiguity into the new system.
 ## Sequencing Proposal
 
 Not a final decision — a starting point for discussion, grounded in what
-Discovery actually found rather than assumed module priority:
+Discovery actually found rather than assumed module priority.
+
+**Progress against this proposal, 2026-08-06**: step 1 (tenant/identity)
+is built — `backend/`'s `companies`/`identities`/`tenant_memberships`/RLS
+slice, plus platform-admin identity (F-26, partial — see
+`docs/migration/consolidated-task-matrix.md`). The target Postgres
+*schema* for the first module in step 2 (payroll group) now also exists
+(`employees`/`salary_contracts`/`payroll_batches`/`payslips`/`advances`/
+`penalties`, `backend/src/main/resources/db/migration/common/V8-V13.sql`
+and `rls/V14`) — schema only, no business logic/endpoints yet. Steps 3-5
+(attendance, mid-priority group, everything else) not started.
 
 1. **Tenant/identity model first.** Nearly every High/Critical finding
    traces back to missing or inconsistent tenant scoping (#2, #3, #5, #6)
