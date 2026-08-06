@@ -3,8 +3,6 @@ package com.workin.backend.tenancy;
 import java.util.List;
 import java.util.Set;
 
-import jakarta.persistence.EntityManager;
-
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,17 +28,17 @@ public class TenantContextService {
 	private final TenantMembershipRepository tenantMembershipRepository;
 	private final MembershipRoleRepository membershipRoleRepository;
 	private final PermissionEvaluationService permissionEvaluationService;
-	private final EntityManager entityManager;
+	private final TenantSessionVariable tenantSessionVariable;
 
 	public TenantContextService(
 			TenantMembershipRepository tenantMembershipRepository,
 			MembershipRoleRepository membershipRoleRepository,
 			PermissionEvaluationService permissionEvaluationService,
-			EntityManager entityManager) {
+			TenantSessionVariable tenantSessionVariable) {
 		this.tenantMembershipRepository = tenantMembershipRepository;
 		this.membershipRoleRepository = membershipRoleRepository;
 		this.permissionEvaluationService = permissionEvaluationService;
-		this.entityManager = entityManager;
+		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	/**
@@ -67,7 +65,7 @@ public class TenantContextService {
 		// If the claim was tampered with, either RLS returns zero rows
 		// (the real membership belongs to a different company) or the
 		// identity-match check below fails -- fail-closed either way.
-		setTenantSessionVariable(claimedCompanyId);
+		tenantSessionVariable.apply(claimedCompanyId);
 
 		TenantMembership membership = tenantMembershipRepository
 				.findByIdAndCompanyId(claimedMembershipId, claimedCompanyId)
@@ -97,13 +95,6 @@ public class TenantContextService {
 
 		return new AuthorizationContext(
 				authenticatedIdentityId, membership.getId(), membership.getCompanyId(), roles, permissions);
-	}
-
-	private void setTenantSessionVariable(Long companyId) {
-		entityManager
-				.createNativeQuery("SELECT set_config('app.current_company_id', :companyId, true)")
-				.setParameter("companyId", String.valueOf(companyId))
-				.getSingleResult();
 	}
 
 }

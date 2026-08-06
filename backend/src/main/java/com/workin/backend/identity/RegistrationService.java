@@ -1,7 +1,5 @@
 package com.workin.backend.identity;
 
-import jakarta.persistence.EntityManager;
-
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -14,6 +12,7 @@ import com.workin.backend.tenancy.MembershipRoleRepository;
 import com.workin.backend.tenancy.TenantMembership;
 import com.workin.backend.tenancy.TenantMembershipRepository;
 import com.workin.backend.tenancy.TenantRole;
+import com.workin.backend.tenancy.TenantSessionVariable;
 
 /**
  * Company self-registration: creates the company, the registering
@@ -32,7 +31,7 @@ public class RegistrationService {
 	private final TenantMembershipRepository tenantMembershipRepository;
 	private final MembershipRoleRepository membershipRoleRepository;
 	private final PasswordEncoder passwordEncoder;
-	private final EntityManager entityManager;
+	private final TenantSessionVariable tenantSessionVariable;
 
 	public RegistrationService(
 			CompanyRepository companyRepository,
@@ -40,13 +39,13 @@ public class RegistrationService {
 			TenantMembershipRepository tenantMembershipRepository,
 			MembershipRoleRepository membershipRoleRepository,
 			PasswordEncoder passwordEncoder,
-			EntityManager entityManager) {
+			TenantSessionVariable tenantSessionVariable) {
 		this.companyRepository = companyRepository;
 		this.identityRepository = identityRepository;
 		this.tenantMembershipRepository = tenantMembershipRepository;
 		this.membershipRoleRepository = membershipRoleRepository;
 		this.passwordEncoder = passwordEncoder;
-		this.entityManager = entityManager;
+		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	@Transactional
@@ -73,7 +72,7 @@ public class RegistrationService {
 			throw new ResponseStatusException(HttpStatus.CONFLICT, "Phone number already registered", ex);
 		}
 
-		setTenantSessionVariable(company.getId());
+		tenantSessionVariable.apply(company.getId());
 
 		TenantMembership membership = tenantMembershipRepository.save(
 				new TenantMembership(identity.getId(), company.getId()));
@@ -81,13 +80,6 @@ public class RegistrationService {
 				new MembershipRoleAssignment(membership.getId(), company.getId(), TenantRole.COMPANY_ADMIN));
 
 		return new Registered(identity.getId(), membership.getId(), company.getId());
-	}
-
-	private void setTenantSessionVariable(Long companyId) {
-		entityManager
-				.createNativeQuery("SELECT set_config('app.current_company_id', :companyId, true)")
-				.setParameter("companyId", String.valueOf(companyId))
-				.getSingleResult();
 	}
 
 	public record Registered(Long identityId, Long membershipId, Long companyId) {
