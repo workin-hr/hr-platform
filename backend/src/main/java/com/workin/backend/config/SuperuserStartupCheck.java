@@ -23,6 +23,18 @@ import org.springframework.stereotype.Component;
  * (because a developer's own session is very likely a superuser too).
  * Failing startup here converts a silent, dangerous misconfiguration
  * into an immediate, loud one.
+ *
+ * <p>This check only covers {@code applicationDataSource} (the
+ * {@code @Primary} bean). It intentionally does not, and cannot, cover
+ * {@code flywayDataSource}: that DataSource is superuser by design (it
+ * runs migrations/DDL), and
+ * {@link com.workin.backend.tenancy.IdentityMembershipIndexService} also
+ * deliberately queries through it at runtime for the one lookup RLS
+ * cannot serve. That is a documented, narrow exception to "the runtime
+ * never touches a superuser connection" -- see that class's Javadoc and
+ * its regression test,
+ * {@code IdentityMembershipIndexServiceTest}, for the safety invariant
+ * this check cannot enforce for it.
  */
 @Component
 public class SuperuserStartupCheck implements ApplicationRunner {

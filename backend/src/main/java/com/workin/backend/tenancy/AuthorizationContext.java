@@ -9,6 +9,13 @@ import java.util.List;
  * belongs to the authenticated identity, belongs to the requested
  * tenant, and is active. Nothing downstream re-trusts client-supplied
  * claims once this exists.
+ *
+ * <p>{@code roles} carries this membership's assigned {@link TenantRole}s
+ * only. Role-to-permission enforcement (V4's {@code role_permissions}
+ * catalog, Dimension 3) is not wired to any endpoint yet -- this slice
+ * validates authentication and tenant membership, not permissions. Do
+ * not treat a non-empty {@code roles} list as proof that a caller has
+ * been checked against any specific permission.
  */
 public record AuthorizationContext(
 		Long identityId,

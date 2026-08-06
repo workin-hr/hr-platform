@@ -2,6 +2,13 @@ package com.workin.backend.identity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
 import javax.sql.DataSource;
 
 import org.junit.jupiter.api.Test;
@@ -9,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -38,6 +46,60 @@ class AuthFlowTest extends AbstractIntegrationTest {
 		assertThat(response.getBody().accessToken()).isNotBlank();
 		assertThat(response.getBody().membershipId()).isNotNull();
 		assertThat(response.getBody().companyId()).isNotNull();
+	}
+
+	@Test
+	void registeringWithAPasswordShorterThanTheMinimumIsRejected() {
+		ResponseEntity<String> response = restTemplate.postForEntity(
+				"/api/auth/register",
+				new RegisterCompanyRequest("Acme Co", uniquePhone(), "short1"),
+				String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+	}
+
+	@Test
+	void concurrentRegistrationsForTheSamePhoneNeverProduceAServerError() throws InterruptedException {
+		// The existsByPhone() precheck in RegistrationService only closes
+		// the common case -- it cannot close the race window between two
+		// concurrent requests for the same phone. This fires several
+		// registrations at the same phone number at once so at least one
+		// is expected to lose that race and hit the companies.phone/
+		// identities.phone UNIQUE constraint directly. That must still
+		// surface as a clean 409, never an uncaught 500.
+		String phone = uniquePhone();
+		int attempts = 6;
+		CountDownLatch startGate = new CountDownLatch(1);
+		CountDownLatch doneLatch = new CountDownLatch(attempts);
+		List<HttpStatusCode> statuses = new CopyOnWriteArrayList<>();
+		ExecutorService pool = Executors.newFixedThreadPool(attempts);
+		try {
+			for (int i = 0; i < attempts; i++) {
+				pool.submit(() -> {
+					try {
+						startGate.await();
+						ResponseEntity<String> response = restTemplate.postForEntity(
+								"/api/auth/register",
+								new RegisterCompanyRequest("Acme Co", phone, "correct horse battery staple"),
+								String.class);
+						statuses.add(response.getStatusCode());
+					} catch (InterruptedException ex) {
+						Thread.currentThread().interrupt();
+					} finally {
+						doneLatch.countDown();
+					}
+				});
+			}
+			startGate.countDown();
+			assertThat(doneLatch.await(30, TimeUnit.SECONDS)).isTrue();
+		} finally {
+			pool.shutdown();
+		}
+
+		assertThat(statuses).hasSize(attempts);
+		assertThat(statuses).doesNotContain(HttpStatus.INTERNAL_SERVER_ERROR);
+		assertThat(statuses).containsOnly(HttpStatus.CREATED, HttpStatus.CONFLICT);
+		assertThat(statuses).contains(HttpStatus.CREATED);
 	}
 
 	@Test
