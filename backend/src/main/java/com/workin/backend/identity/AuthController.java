@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.workin.backend.authorization.PublicUseCase;
+
 @RestController
 public class AuthController {
 
@@ -29,6 +31,7 @@ public class AuthController {
 		this.refreshTokenService = refreshTokenService;
 	}
 
+	@PublicUseCase(reason = "company self-registration is the entry point that creates the first credential")
 	@PostMapping("/api/auth/register")
 	public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterCompanyRequest request) {
 		RegistrationService.Registered registered = registrationService.register(request);
@@ -36,12 +39,14 @@ public class AuthController {
 				.body(openSession(registered.identityId(), registered.membershipId(), registered.companyId()));
 	}
 
+	@PublicUseCase(reason = "credential presentation -- authentication happens inside, not before")
 	@PostMapping("/api/auth/login")
 	public AuthResponse login(@Valid @RequestBody LoginRequest request) {
 		LoginService.Authenticated authenticated = loginService.login(request);
 		return openSession(authenticated.identityId(), authenticated.membershipId(), authenticated.companyId());
 	}
 
+	@PublicUseCase(reason = "refresh-token possession is the credential; the access token may already be expired")
 	@PostMapping("/api/auth/refresh")
 	public AuthResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
 		RefreshTokenService.RotatedSession session = refreshTokenService.rotate(request.refreshToken())
@@ -51,6 +56,7 @@ public class AuthController {
 		return new AuthResponse(accessToken, session.rawToken(), session.membershipId(), session.companyId());
 	}
 
+	@PublicUseCase(reason = "idempotent revocation by refresh-token possession; never a validity oracle")
 	@PostMapping("/api/auth/logout")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void logout(@Valid @RequestBody RefreshTokenRequest request) {

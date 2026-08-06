@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 
+import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.security.AuthenticatedPlatformAdminPrincipal;
 
 /**
@@ -26,6 +27,7 @@ public class PlatformAdminController {
 		this.platformAdminRepository = platformAdminRepository;
 	}
 
+	@AuthenticatedUseCase(reason = "returns the authenticated admin's own record; no platform.* capability involved")
 	@GetMapping("/me")
 	public PlatformAdminView me() {
 		AuthenticatedPlatformAdminPrincipal principal = (AuthenticatedPlatformAdminPrincipal) SecurityContextHolder

@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.workin.backend.authorization.PublicUseCase;
+
 /**
  * No register endpoint here, deliberately -- see
  * {@link PlatformAdminBootstrap}.
@@ -31,6 +33,7 @@ public class PlatformAdminAuthController {
 		this.platformAdminSessionService = platformAdminSessionService;
 	}
 
+	@PublicUseCase(reason = "credential presentation for the platform domain -- authentication happens inside")
 	@PostMapping("/login")
 	public PlatformAdminAuthResponse login(@Valid @RequestBody PlatformAdminLoginRequest request) {
 		PlatformAdmin platformAdmin = platformAdminLoginService.login(request);
@@ -41,6 +44,7 @@ public class PlatformAdminAuthController {
 		return new PlatformAdminAuthResponse(accessToken, session.rawToken(), platformAdmin.getId());
 	}
 
+	@PublicUseCase(reason = "refresh-token possession is the credential; the access token may already be expired")
 	@PostMapping("/refresh")
 	public PlatformAdminAuthResponse refresh(@Valid @RequestBody PlatformAdminRefreshTokenRequest request) {
 		PlatformAdminSessionService.RotatedSession session = platformAdminSessionService.rotate(request.refreshToken())
@@ -50,6 +54,7 @@ public class PlatformAdminAuthController {
 		return new PlatformAdminAuthResponse(accessToken, session.rawToken(), session.platformAdminId());
 	}
 
+	@PublicUseCase(reason = "idempotent revocation by refresh-token possession; never a validity oracle")
 	@PostMapping("/logout")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void logout(@Valid @RequestBody PlatformAdminRefreshTokenRequest request) {
