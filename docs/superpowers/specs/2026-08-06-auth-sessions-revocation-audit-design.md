@@ -110,11 +110,12 @@ On `POST` to a refresh endpoint with a presented token:
    the concurrency loser falls into rule 3), insert a new `ACTIVE` row
    in the same family with a fresh expiry, and issue a new access token
    carrying `sid = family_id`.
-5. Tenant domain only: before issuing, re-resolve the identity's active
-   memberships and require the stored `membership_id` to still be among
-   them (fail-closed, per ADR-0010 Dimension 2 — the token row is a
-   context selector, not proof of membership). A vanished/inactive
-   membership revokes the family and returns `401`.
+5. Fail-closed principal re-checks before issuing (ADR-0010 Dimension 2
+   — the token row is a context selector, not proof of anything): the
+   tenant domain requires the identity to still be active and the
+   stored `membership_id` to still be among the identity's active
+   memberships; the platform domain requires the admin to still be
+   active. A failed check revokes the family and returns `401`.
 
 Refresh-token TTLs are configurable, decided-by-default (the accepted
 design leaves exact lifetimes as an open product trade-off; these are
