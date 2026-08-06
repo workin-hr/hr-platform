@@ -1,11 +1,14 @@
 package com.workin.backend.tenancy;
 
 import java.util.List;
+import java.util.Set;
 
 import jakarta.persistence.EntityManager;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.workin.backend.authorization.PermissionEvaluationService;
 
 /**
  * Implements docs/adr/ADR-0010-authorization-model.md Dimension 2's
@@ -26,14 +29,17 @@ public class TenantContextService {
 
 	private final TenantMembershipRepository tenantMembershipRepository;
 	private final MembershipRoleRepository membershipRoleRepository;
+	private final PermissionEvaluationService permissionEvaluationService;
 	private final EntityManager entityManager;
 
 	public TenantContextService(
 			TenantMembershipRepository tenantMembershipRepository,
 			MembershipRoleRepository membershipRoleRepository,
+			PermissionEvaluationService permissionEvaluationService,
 			EntityManager entityManager) {
 		this.tenantMembershipRepository = tenantMembershipRepository;
 		this.membershipRoleRepository = membershipRoleRepository;
+		this.permissionEvaluationService = permissionEvaluationService;
 		this.entityManager = entityManager;
 	}
 
@@ -82,7 +88,15 @@ public class TenantContextService {
 				.map(MembershipRoleAssignment::getRole)
 				.toList();
 
-		return new AuthorizationContext(authenticatedIdentityId, membership.getId(), membership.getCompanyId(), roles);
+		// Still inside this method's transaction, deliberately: the RLS
+		// session variable above is SET LOCAL, and the overrides read in
+		// the evaluation is RLS-scoped -- moving this outside the
+		// transaction would make overrides invisible (ADR-0010
+		// Dimensions 3/5; docs/superpowers/specs/2026-08-06-authorization-runtime-design.md).
+		Set<String> permissions = permissionEvaluationService.effectivePermissionsFor(membership.getId(), roles);
+
+		return new AuthorizationContext(
+				authenticatedIdentityId, membership.getId(), membership.getCompanyId(), roles, permissions);
 	}
 
 	private void setTenantSessionVariable(Long companyId) {

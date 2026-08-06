@@ -1,6 +1,7 @@
 package com.workin.backend.tenancy;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Immutable, server-side-validated authorization context --
@@ -10,16 +11,25 @@ import java.util.List;
  * tenant, and is active. Nothing downstream re-trusts client-supplied
  * claims once this exists.
  *
- * <p>{@code roles} carries this membership's assigned {@link TenantRole}s
- * only. Role-to-permission enforcement (V4's {@code role_permissions}
- * catalog, Dimension 3) is not wired to any endpoint yet -- this slice
- * validates authentication and tenant membership, not permissions. Do
- * not treat a non-empty {@code roles} list as proof that a caller has
- * been checked against any specific permission.
+ * <p>{@code permissions} is the membership's <em>effective</em>
+ * permission set, computed per ADR-0010 Dimension 3's precedence chain
+ * inside the same transaction that validated the membership (see
+ * {@code PermissionEvaluationService}) -- loaded fresh on every
+ * request, never cached across requests (Dimension 5). Permission
+ * possession is still not resource scope: holding a permission says
+ * nothing about <em>which</em> rows it reaches
+ * (docs/architecture/authorization-model.md §3) -- resource-scope
+ * evaluation is separate, future work (F-16/F-25).
  */
 public record AuthorizationContext(
 		Long identityId,
 		Long membershipId,
 		Long companyId,
-		List<TenantRole> roles) {
+		List<TenantRole> roles,
+		Set<String> permissions) {
+
+	public boolean hasPermission(String permissionKey) {
+		return permissions.contains(permissionKey);
+	}
+
 }
