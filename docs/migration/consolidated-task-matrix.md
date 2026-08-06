@@ -167,5 +167,5 @@ issues #9–#16. Section C:
 `docs/api/flutter-request-response-compatibility.md`,
 `docs/security/pre-migration-flutter-credential-inventory.md`,
 `docs/adr/ADR-0009-dashboard-vs-desktop-admin-client.md`, `hr-platform`
-issues #18–#25, `hr-legacy` issues #26–#27 and issue comments on #16 and
-#19 (2026-08-04).
+issues #18–#25, `hr-legacy` issues #26–#27 and issue comments on #16
+and #19 (2026-08-04).
