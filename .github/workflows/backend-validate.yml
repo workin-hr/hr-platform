@@ -42,6 +42,12 @@ jobs:
           python3 scripts/check_flyway_versions.py --self-test
           python3 scripts/check_flyway_versions.py
 
+      # PMR-10's reconciliation harness must stay proven-working: its
+      # self-tests exercise every detection class on synthetic samples.
+      - name: Migration-diff harness self-test
+        working-directory: .
+        run: python3 scripts/migration_diff.py --self-test
+
       - name: Set up Java 25 (immutable action reference; exact version, not checksum-verified)
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
         with:
