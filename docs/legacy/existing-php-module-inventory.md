@@ -141,6 +141,17 @@ dashboard-only concerns not exposed via the API at all:
   (`YOUR_SMS_API_KEY_HERE`, `YOUR_FCM_SERVER_KEY_HERE`) — SMS and push
   notification delivery are **not currently live**, only scaffolded.
 
+## Dashboard Discovery Coverage
+
+**Complete as of 2026-08-07.** Every `dashboard/` file has now been
+read in full — the ~75 previously-unread files (all of `includes/`,
+`sidebar/`, and the remaining page controllers/partials) were covered
+in a dedicated pass. Findings, architecture confirmation, and
+per-area citations:
+[`dashboard-discovery-completion.md`](./dashboard-discovery-completion.md).
+This closes PMR-01
+(`docs/migration/pre-migration-readiness-gap-analysis.md`).
+
 ## Open Questions
 
 - Whether `pages/salary_calculator/egypt_salary_calculator.php` is a

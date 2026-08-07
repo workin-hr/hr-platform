@@ -65,6 +65,38 @@ record that as an ADR and update this line.
 
 | Client-side, both `workin_mobile` and `workin_desktop` Flutter apps | Information Disclosure | The JWT issued by `hr-legacy` (10-year lifetime, no server-side revocation for company-admin sessions — see the JWT_EXPIRE_HOURS row above) is cached client-side in plain `SharedPreferences` (`CacheHelper`), not an encrypted store — no `flutter_secure_storage` or platform Keychain/Keystore usage found in either client. Confirmed via direct read of both clients' source, tracked in this repository as pinned git submodule references (see `docs/security/pre-migration-flutter-credential-inventory.md`) — this is new client-side evidence compounding an existing finding, not a new independent bug. | Requires device-level compromise (rooted/jailbroken device, backup extraction, or another app with storage access on older Android versions) — a materially different, higher-effort attack surface than the server-side findings above, but one made much worse by the 10-year token lifetime: a single successful extraction is valid for years, not the minutes-to-hours a well-designed token would allow. | High in combination with the existing JWT-lifetime finding — low in isolation (device compromise is already a serious situation on its own). | None found in either client. | **Open — compounds an existing finding rather than standing alone.** | Unassigned. | `flutter-integration/workin_mobile/lib/core/helper/cache_helper.dart` (full file) and `workin_desktop`'s equivalent, both tracked here only as pinned git submodule references, not as committed file content. |
 
+## Dashboard Cross-Tenant IDOR — Confirmed Instances (PMR-01, 2026-08-07)
+
+Completing dashboard Discovery (PMR-01,
+[`docs/legacy/dashboard-discovery-completion.md`](../legacy/dashboard-discovery-completion.md))
+confirmed three concrete instances of the `hr-legacy#6` blanket
+"cross-tenant IDOR across 10 dashboard modules" finding, each a
+POST/GET mutation on a raw `$id` with no owning-company check, in code
+whose sibling pages *do* call the repo's ownership primitive
+`org_verify_post_row()` (`dashboard/includes/org_helper.php` L74-135 —
+which grep confirms is **never called anywhere**):
+
+| Page | Elevation | Where | Notes |
+|---|---|---|---|
+| `attendance/page.php` | HR/company w/ `can_attendance` edits/deletes/injects any tenant's attendance | L31-40, 78-92 | `delete_range` (L41-77) *is* scoped — single-row actions are the gap |
+| `workforce_planning/page.php` | edit hijacks a victim row (payload forces caller's `company_id`); delete is bare `dbDelete(..., $id)` | L73-86 | sole org page missing `org_verify_post_row` |
+| `payroll/page.php` | **finalize/reopen/delete/recalculate/read/rewrite any tenant's payroll batch & payslip figures** | L94-107, 115-116 | batch-detail *list* (L127-144) is guarded; the POST actions + `edit_detail` GET are not — **financial data, highest severity** |
+
+**New-platform status**: structurally closed. RLS
+(`fail-closed`, F-13) plus the per-request application-service
+permission gate (`@RequiresPermission`, ADR-0010 §4) mean an omitted
+app-level check fails closed, not open; each equivalent module's F-18
+negative suite (notably `PayrollModuleFlowTest`) already proves
+cross-tenant reads/mutations return an indistinguishable 404. These
+instances are recorded as sharpened acceptance criteria for
+`hr-legacy#6`, not new open risks in the rewrite.
+
+Two further findings from the same pass (detail in the completion doc):
+the admin `change_password` flow stores plaintext credentials by
+rewriting `constants.php` source (Finding 2 — do not port); the branch
+attendance-QR secret is leaked to the third-party `api.qrserver.com`
+render URL (Finding 3).
+
 ## Specific Areas Requiring Coverage Once Discovery Exists
 
 - Authentication and authorization (see ADR-0005, currently Proposed)
