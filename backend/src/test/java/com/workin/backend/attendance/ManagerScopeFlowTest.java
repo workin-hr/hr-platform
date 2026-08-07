@@ -420,6 +420,43 @@ class ManagerScopeFlowTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void employeesRespectManagerScopeExceptCreate() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long branchA = createBranch(admin.companyId(), "A");
+		Long branchB = createBranch(admin.companyId(), "B");
+		Long empA = createEmployee(admin.companyId(), branchA, null);
+		Long empB = createEmployee(admin.companyId(), branchB, null);
+
+		ManagerFixture manager = loginScopedManager(admin.companyId(), false);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.EMPLOYEES_READ);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.EMPLOYEES_MANAGE);
+		assignScope(admin, manager.membershipId(), "BRANCH", branchA);
+
+		ResponseEntity<List<Map<String, Object>>> list = restTemplate.exchange(
+				"/api/tenant/employees", HttpMethod.GET, new HttpEntity<>(bearer(manager.accessToken())),
+				new ParameterizedTypeReference<>() {
+				});
+		assertThat(list.getBody()).extracting(r -> ((Number) r.get("id")).longValue()).containsExactly(empA);
+		// Out-of-branch employee: get / update / status all 404.
+		assertThat(restTemplate.exchange("/api/tenant/employees/" + empB, HttpMethod.GET,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(restTemplate.exchange("/api/tenant/employees/" + empB, HttpMethod.PUT,
+				new HttpEntity<>(Map.of("firstName", "X"), bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(restTemplate.exchange("/api/tenant/employees/" + empB + "/status", HttpMethod.PUT,
+				new HttpEntity<>(Map.of("active", false), bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		// create is deliberately NOT scope-gated (a new employee has no
+		// branch/dept yet): a scoped manager with employees.manage can
+		// create; the new employee simply won't appear in their scoped
+		// list until placed in an in-scope branch.
+		assertThat(restTemplate.exchange("/api/tenant/employees", HttpMethod.POST,
+				new HttpEntity<>(Map.of("firstName", "New"), bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.CREATED);
+	}
+
+	@Test
 	void revokingAScopeHidesTheEmployeeAgainOnTheNextRequest() {
 		AuthResponse admin = registerCompanyAdmin();
 		Long branchA = createBranch(admin.companyId(), "A");

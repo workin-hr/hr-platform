@@ -2,6 +2,7 @@ package com.workin.backend.employees;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.organization.BranchRepository;
 import com.workin.backend.organization.DepartmentRepository;
 import com.workin.backend.organization.JobTitleRepository;
@@ -34,6 +36,7 @@ public class EmployeeService {
 	private final BranchRepository branchRepository;
 	private final DepartmentRepository departmentRepository;
 	private final JobTitleRepository jobTitleRepository;
+	private final ResourceScopeService resourceScopeService;
 	private final TenantSessionVariable tenantSessionVariable;
 
 	public EmployeeService(
@@ -41,19 +44,23 @@ public class EmployeeService {
 			BranchRepository branchRepository,
 			DepartmentRepository departmentRepository,
 			JobTitleRepository jobTitleRepository,
+			ResourceScopeService resourceScopeService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.employeeRepository = employeeRepository;
 		this.branchRepository = branchRepository;
 		this.departmentRepository = departmentRepository;
 		this.jobTitleRepository = jobTitleRepository;
+		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	@Transactional
 	public List<EmployeeView> list(AuthorizationContext context) {
 		tenantSessionVariable.apply(context.companyId());
+		Set<Long> reach = resourceScopeService.scopedEmployeeIdsOrNull(context);
 		return employeeRepository.findByCompanyIdOrderById(context.companyId())
 				.stream()
+				.filter(e -> reach == null || reach.contains(e.getId()))
 				.map(EmployeeView::of)
 				.toList();
 	}
@@ -62,6 +69,7 @@ public class EmployeeService {
 	public Optional<EmployeeView> get(AuthorizationContext context, Long employeeId) {
 		tenantSessionVariable.apply(context.companyId());
 		return employeeRepository.findByIdAndCompanyId(employeeId, context.companyId())
+				.filter(e -> resourceScopeService.isEmployeeInScope(context, e.getId()))
 				.map(EmployeeView::of);
 	}
 
@@ -87,6 +95,7 @@ public class EmployeeService {
 		tenantSessionVariable.apply(context.companyId());
 		requireOrgReferences(context, request.branchId(), request.departmentId(), request.jobTitleId());
 		return employeeRepository.findByIdAndCompanyId(employeeId, context.companyId())
+				.filter(employee -> resourceScopeService.isEmployeeInScope(context, employee.getId()))
 				.map(employee -> {
 					employee.rename(request.firstName(), request.lastName());
 					employee.place(request.branchId(), request.departmentId(), request.jobTitleId());
@@ -98,6 +107,7 @@ public class EmployeeService {
 	public Optional<EmployeeView> updateStatus(AuthorizationContext context, Long employeeId, boolean active) {
 		tenantSessionVariable.apply(context.companyId());
 		return employeeRepository.findByIdAndCompanyId(employeeId, context.companyId())
+				.filter(employee -> resourceScopeService.isEmployeeInScope(context, employee.getId()))
 				.map(employee -> {
 					if (active) {
 						employee.activate();
