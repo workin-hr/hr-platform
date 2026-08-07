@@ -473,6 +473,22 @@ while still reading as an unresolved Discovery-stage placeholder.
 
 ### PMR-09: No Detailed Per-Module Migration Execution Plan
 
+**Update 2026-08-07: payroll group closed, other waves still open.**
+`docs/migration/payroll-module-execution-plan.md` now provides real
+implementation-level detail (Java package/class structure, per-endpoint
+role mapping, which legacy defects are fixed-by-construction vs. need
+an explicit human decision, per-module test requirements) for the
+second migration wave — `salary_contracts`, `payroll_batches`,
+`payslips`, `advances`, `penalties` — grounded directly in
+`docs/legacy/business-rule-extraction.md`, `docs/api/existing-endpoint-inventory.md`,
+`docs/security/threat-model.md`, and the already-built schema
+(`backend/src/main/resources/db/migration/common/V8`–`V13`,
+`rls/V14`). This satisfies this gap's exit criteria for that wave
+specifically. Attendance, the employees/requests/leave mid-priority
+group, and the remaining low-priority modules (waves 3–5 in
+`docs/migration/migration-strategy-and-sequencing.md`) still need
+their own equivalent plan before PMR-09 is closed overall.
+
 - **Description**: `docs/migration/migration-strategy-and-sequencing.md`
   gives sequencing and rationale, not implementation-level detail (Java
   class/package structure, sprint breakdown, cutover runbook).
@@ -487,18 +503,19 @@ while still reading as an unresolved Discovery-stage placeholder.
   produced after the spike and ADR acceptance, directly informed by
   their outputs.
 - **Owner**: TBD — Solution Architect.
-- **Dependencies**: PMR-07, PMR-08.
-- **Target / Duration**: TBD — requires human assignment; naturally
-  sequenced after PMR-07/08 complete.
+- **Dependencies**: PMR-07, PMR-08 — both closed (see above; `hr-platform#13`, `#14`).
+- **Target / Duration**: TBD — requires human assignment for the
+  remaining waves.
 - **Exit / Acceptance Criteria**: A reviewed, approved detailed execution
   plan exists for at least the first migration wave (tenant/identity
-  plus one module).
-- **Status**: Open, but no longer a blocker for the already-authorized
-  `backend/` auth/tenant-identity slice under D-028. It remains
-  required before a broader first migration wave (tenant/identity plus
-  another business module) is treated as fully planned for cutover and
-  rollback purposes.
+  plus one module). **Met for tenant/identity + payroll** — tenant/identity
+  shipped directly under D-028 without a standalone document, and
+  payroll's is `docs/migration/payroll-module-execution-plan.md`.
+- **Status**: **Closed for the payroll wave.** Open for attendance and
+  the remaining waves — no longer blocked on PMR-07/PMR-08 (both
+  closed), just not yet produced.
 - **Related**: `docs/migration/migration-strategy-and-sequencing.md`;
+  `docs/migration/payroll-module-execution-plan.md`;
   `workin-hr/hr-platform#15`.
 
 ### PMR-10: No Migration-Correctness Test Plan Or Differential-Testing Harness

@@ -35,6 +35,8 @@ python3 scripts/test_git_guard.py
 python3 scripts/test_adr_validation.py
 python3 scripts/test_validate_phase0.py
 python3 scripts/test_edit_audit_log.py
+python3 scripts/test_check_flyway_versions.py
+python3 scripts/test_migration_diff.py
 
 echo "[3/3] Running external tool checks (BOOTSTRAP_STRICT=$STRICT)"
 
