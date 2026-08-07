@@ -20,8 +20,9 @@
 ## Payroll Migration
 
 Surfaced by `docs/migration/payroll-module-execution-plan.md`
-(2026-08-07) — none of these are decided by that document, and none
-should be guessed at implementation time:
+(2026-08-07, updated after reconciliation against `main`) — none of
+these are decided by that document, and none should be guessed at
+implementation time:
 
 - Is `salary_contracts.housing_allowance` a normal settable contract
   field going forward, or intentionally payslip-only (`hr-legacy#14`)?
@@ -30,9 +31,14 @@ should be guessed at implementation time:
 - Where does per-company fiscal-period configuration
   (`month_start_day`/`month_end_day`) live until the `company_settings`
   module is built?
-- What should `MANAGER`-role access to `penalties` be before
-  `branches` exists — a documented company-wide widening, or excluded
-  until branch-scoping is real?
+- What should the real advance-deduction scheduling mechanism be at
+  payroll finalize? The current implementation uses an explicit,
+  documented v1 heuristic (oldest APPROVED advance first, FIFO) because
+  `advances`' `deduction_mode`/`deduction_amount_per_month`/
+  `deduction_payroll_year`/`deduction_payroll_month` columns (V12)
+  remain unmapped and unused, per that module's own Javadoc parking the
+  legacy `deduction_type` redundancy as a product decision. Revisit
+  once that decision is made.
 
 ## Tooling
 

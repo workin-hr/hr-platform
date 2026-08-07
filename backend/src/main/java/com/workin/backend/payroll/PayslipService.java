@@ -2,27 +2,32 @@ package com.workin.backend.payroll;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.workin.backend.employees.EmployeeRepository;
+import com.workin.backend.penalties.Penalty;
+import com.workin.backend.penalties.PenaltyRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
-import com.workin.backend.tenancy.TenantRole;
+import com.workin.backend.tenancy.TenantSessionVariable;
 
 /**
  * Manual "add/edit one payslip in a draft batch" -- the exact
  * hr-legacy#12 defect site (legacy's payslips/create.php bypassed all
  * shared payroll math and silently dropped base pay for daily-wage
- * employees). Both {@link #create} and {@link #update} here call
+ * employees). Both {@link #create} and {@link #update} call
  * {@link PayrollCalculationService} exactly like
- * {@link PayrollBatchService#calculate} does -- there is no separate
- * formula in this class, closing that defect by construction.
+ * {@link PayrollBatchService#calculate} does -- no separate formula
+ * exists in this class, closing that defect by construction.
  *
- * <p>Unlike advances/penalties, MANAGER gets the same company-wide
- * scope as COMPANY_ADMIN/HR here (not branch-limited) --
- * docs/api/existing-endpoint-inventory.md's Payslips section documents
- * no manager branch-scoping for this specific module, unlike
- * penalties.
+ * <p>Admin/HR-only for this slice, matching the employees/advances/
+ * penalties modules' own established pattern of deferring
+ * EMPLOYEE-role self-service (e.g. "view my own payslips") to a later
+ * slice -- consistent with the fact that {@code employees} carries no
+ * identity link yet anywhere in this codebase.
  */
 @Service
 public class PayslipService {
@@ -35,8 +40,8 @@ public class PayslipService {
 	private final EmployeeRepository employeeRepository;
 	private final SalaryContractService salaryContractService;
 	private final PenaltyRepository penaltyRepository;
-	private final AdvanceRepository advanceRepository;
 	private final PayrollCalculationService payrollCalculationService;
+	private final TenantSessionVariable tenantSessionVariable;
 
 	public PayslipService(
 			PayslipRepository payslipRepository,
@@ -44,81 +49,92 @@ public class PayslipService {
 			EmployeeRepository employeeRepository,
 			SalaryContractService salaryContractService,
 			PenaltyRepository penaltyRepository,
-			AdvanceRepository advanceRepository,
-			PayrollCalculationService payrollCalculationService) {
+			PayrollCalculationService payrollCalculationService,
+			TenantSessionVariable tenantSessionVariable) {
 		this.payslipRepository = payslipRepository;
 		this.payrollBatchRepository = payrollBatchRepository;
 		this.employeeRepository = employeeRepository;
 		this.salaryContractService = salaryContractService;
 		this.penaltyRepository = penaltyRepository;
-		this.advanceRepository = advanceRepository;
 		this.payrollCalculationService = payrollCalculationService;
+		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	@Transactional
-	public Payslip create(AuthorizationContext context, Long batchId, Long employeeId, AttendanceInput attendanceInput) {
-		RoleGuard.requireAnyRole(context, TenantRole.COMPANY_ADMIN, TenantRole.HR);
-		PayrollBatch batch = payrollBatchRepository.findByIdAndCompanyId(batchId, context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("Payroll batch " + batchId + " not found"));
-		requireDraft(batch);
-		Employee employee = employeeRepository.findByIdAndCompanyId(employeeId, context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("Employee " + employeeId + " not found"));
+	public MutationResult create(AuthorizationContext context, Long batchId, Long employeeId, AttendanceInput attendanceInput) {
+		tenantSessionVariable.apply(context.companyId());
+		Optional<PayrollBatch> batch = payrollBatchRepository.findByIdAndCompanyId(batchId, context.companyId());
+		if (batch.isEmpty()) {
+			return new MutationResult.NotFound();
+		}
+		if (batch.get().getStatus() != BatchStatus.DRAFT) {
+			return new MutationResult.WrongState();
+		}
+		var employee = employeeRepository.findByIdAndCompanyId(employeeId, context.companyId());
+		if (employee.isEmpty()) {
+			return new MutationResult.NotFound();
+		}
+		Optional<SalaryContract> contract = salaryContractService.findEffectiveContract(employee.get().getId(), batch.get().getPeriodTo());
+		if (contract.isEmpty()) {
+			return new MutationResult.NotFound();
+		}
 
-		SalaryContract contract = salaryContractService.findEffectiveContract(employee.getId(), batch.getPeriodTo());
-		Payslip payslip = new Payslip(batchId, employee.getId(), context.companyId());
-		recompute(payslip, batch, contract, attendanceInput);
-		// (batch_id, employee_id) uniqueness is real (V11) -- a
-		// duplicate becomes a clean 409 via PayrollExceptionHandler, no
-		// app-level pre-check needed.
-		return payslipRepository.save(payslip);
+		Payslip payslip = new Payslip(batchId, employee.get().getId(), context.companyId());
+		recompute(payslip, batch.get(), contract.get(), attendanceInput);
+		try {
+			// (batch_id, employee_id) uniqueness is real (V11) -- a
+			// duplicate becomes a clean 409, no app-level pre-check.
+			return new MutationResult.Done(PayslipView.of(payslipRepository.save(payslip)));
+		} catch (DataIntegrityViolationException ex) {
+			return new MutationResult.WrongState();
+		}
 	}
 
 	@Transactional
-	public Payslip update(AuthorizationContext context, Long payslipId, AttendanceInput attendanceInput) {
-		RoleGuard.requireAnyRole(context, TenantRole.COMPANY_ADMIN, TenantRole.HR);
-		Payslip payslip = payslipRepository.findByIdAndCompanyId(payslipId, context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("Payslip " + payslipId + " not found"));
-		PayrollBatch batch = payrollBatchRepository.findByIdAndCompanyId(payslip.getBatchId(), context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("Payroll batch " + payslip.getBatchId() + " not found"));
-		requireDraft(batch);
-		SalaryContract contract = salaryContractService.findEffectiveContract(payslip.getEmployeeId(), batch.getPeriodTo());
-		recompute(payslip, batch, contract, attendanceInput);
-		return payslipRepository.save(payslip);
+	public MutationResult update(AuthorizationContext context, Long payslipId, AttendanceInput attendanceInput) {
+		tenantSessionVariable.apply(context.companyId());
+		Optional<Payslip> payslip = payslipRepository.findByIdAndCompanyId(payslipId, context.companyId());
+		if (payslip.isEmpty()) {
+			return new MutationResult.NotFound();
+		}
+		Optional<PayrollBatch> batch = payrollBatchRepository.findByIdAndCompanyId(payslip.get().getBatchId(), context.companyId());
+		if (batch.isEmpty() || batch.get().getStatus() != BatchStatus.DRAFT) {
+			return new MutationResult.WrongState();
+		}
+		Optional<SalaryContract> contract =
+				salaryContractService.findEffectiveContract(payslip.get().getEmployeeId(), batch.get().getPeriodTo());
+		if (contract.isEmpty()) {
+			return new MutationResult.NotFound();
+		}
+		recompute(payslip.get(), batch.get(), contract.get(), attendanceInput);
+		return new MutationResult.Done(PayslipView.of(payslip.get()));
 	}
 
 	@Transactional
-	public void delete(AuthorizationContext context, Long payslipId) {
-		RoleGuard.requireAnyRole(context, TenantRole.COMPANY_ADMIN, TenantRole.HR);
-		Payslip payslip = payslipRepository.findByIdAndCompanyId(payslipId, context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("Payslip " + payslipId + " not found"));
-		PayrollBatch batch = payrollBatchRepository.findByIdAndCompanyId(payslip.getBatchId(), context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("Payroll batch " + payslip.getBatchId() + " not found"));
-		requireDraft(batch);
-		payslipRepository.delete(payslip);
+	public MutationResult delete(AuthorizationContext context, Long payslipId) {
+		tenantSessionVariable.apply(context.companyId());
+		Optional<Payslip> payslip = payslipRepository.findByIdAndCompanyId(payslipId, context.companyId());
+		if (payslip.isEmpty()) {
+			return new MutationResult.NotFound();
+		}
+		Optional<PayrollBatch> batch = payrollBatchRepository.findByIdAndCompanyId(payslip.get().getBatchId(), context.companyId());
+		if (batch.isEmpty() || batch.get().getStatus() != BatchStatus.DRAFT) {
+			return new MutationResult.WrongState();
+		}
+		payslipRepository.delete(payslip.get());
+		return new MutationResult.Done(null);
 	}
 
 	@Transactional(readOnly = true)
-	public Payslip findOne(AuthorizationContext context, Long payslipId) {
-		RoleGuard.requireAnyRole(context, TenantRole.EMPLOYEE, TenantRole.COMPANY_ADMIN, TenantRole.HR, TenantRole.MANAGER);
-		Payslip payslip = payslipRepository.findByIdAndCompanyId(payslipId, context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("Payslip " + payslipId + " not found"));
-		if (isEmployeeOnly(context)) {
-			Employee self = resolveOwnEmployee(context);
-			if (!payslip.getEmployeeId().equals(self.getId())) {
-				throw new PayrollNotFoundException("Payslip " + payslipId + " not found");
-			}
-		}
-		return payslip;
+	public Optional<PayslipView> get(AuthorizationContext context, Long payslipId) {
+		tenantSessionVariable.apply(context.companyId());
+		return payslipRepository.findByIdAndCompanyId(payslipId, context.companyId()).map(PayslipView::of);
 	}
 
 	@Transactional(readOnly = true)
-	public List<Payslip> list(AuthorizationContext context) {
-		RoleGuard.requireAnyRole(context, TenantRole.EMPLOYEE, TenantRole.COMPANY_ADMIN, TenantRole.HR, TenantRole.MANAGER);
-		if (isEmployeeOnly(context)) {
-			Employee self = resolveOwnEmployee(context);
-			return payslipRepository.findByCompanyIdAndEmployeeId(context.companyId(), self.getId());
-		}
-		return payslipRepository.findByCompanyId(context.companyId());
+	public List<PayslipView> list(AuthorizationContext context) {
+		tenantSessionVariable.apply(context.companyId());
+		return payslipRepository.findByCompanyId(context.companyId()).stream().map(PayslipView::of).toList();
 	}
 
 	private void recompute(Payslip payslip, PayrollBatch batch, SalaryContract contract, AttendanceInput attendanceInput) {
@@ -129,55 +145,24 @@ public class PayslipService {
 		List<Penalty> unappliedPenalties = penaltyRepository.findByEmployeeIdAndPenaltyDateBetweenAndAppliedToPayroll(
 				payslip.getEmployeeId(), batch.getPeriodFrom(), batch.getPeriodTo(), false);
 
-		BigDecimal advanceDeduction = advanceRepository
-				.findByEmployeeIdAndStatusAndDeductionPayrollYearAndDeductionPayrollMonth(
-						payslip.getEmployeeId(), AdvanceStatus.APPROVED, batch.getYear(), batch.getMonth())
-				.stream()
-				.map(a -> {
-					BigDecimal deduction = a.getDeductionAmountPerMonth() != null ? a.getDeductionAmountPerMonth() : BigDecimal.ZERO;
-					return deduction.min(a.getRemaining());
-				})
-				.reduce(BigDecimal.ZERO, BigDecimal::add);
-
 		PayrollCalculationService.PayslipComputation computation =
-				payrollCalculationService.compute(contract, attendance, unappliedPenalties, advanceDeduction);
+				payrollCalculationService.compute(contract, attendance, unappliedPenalties, BigDecimal.ZERO);
 
-		payslip.setDaysPresent((short) attendance.daysPresent());
-		payslip.setDaysAbsent((short) attendance.daysAbsent());
-		payslip.setDaysLeave((short) attendance.daysLeave());
-		payslip.setOvertimeHours(attendance.overtimeHours());
-		payslip.setBasicSalary(computation.basicSalary());
-		payslip.setHousingAllowance(computation.allowances());
-		payslip.setOvertimePay(computation.overtimePay());
-		payslip.setFoodAllowance(computation.foodAllowance());
-		payslip.setRiskAllowance(computation.riskAllowance());
-		payslip.setTransportAllowance(computation.transportAllowance());
-		payslip.setIncentives(computation.incentives());
-		payslip.setPenaltiesTotal(computation.penaltiesTotal());
-		payslip.setAdvanceDeduction(computation.advanceDeduction());
-		payslip.setOtherDeductions(computation.otherDeductions());
-		payslip.setGrossSalary(computation.grossSalary());
-		payslip.setTotalEntitlements(computation.totalEntitlements());
-		payslip.setTotalDeductions(computation.totalDeductions());
-		payslip.setNetSalary(computation.netSalary());
+		PayrollBatchService.applyComputation(payslip, attendance, computation);
 	}
 
-	private void requireDraft(PayrollBatch batch) {
-		if (batch.getStatus() != BatchStatus.DRAFT) {
-			throw new IllegalArgumentException("Payroll batch " + batch.getId() + " is not a draft");
+	public sealed interface MutationResult {
+
+		record NotFound() implements MutationResult {
 		}
-	}
 
-	private Employee resolveOwnEmployee(AuthorizationContext context) {
-		return employeeRepository.findByIdentityIdAndCompanyId(context.identityId(), context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("No employee record linked to this identity in this company"));
-	}
+		/** Batch is not a draft, or a duplicate (batch_id, employee_id) payslip already exists. */
+		record WrongState() implements MutationResult {
+		}
 
-	private boolean isEmployeeOnly(AuthorizationContext context) {
-		return context.roles().contains(TenantRole.EMPLOYEE)
-				&& !context.roles().contains(TenantRole.COMPANY_ADMIN)
-				&& !context.roles().contains(TenantRole.HR)
-				&& !context.roles().contains(TenantRole.MANAGER);
+		record Done(PayslipView view) implements MutationResult {
+		}
+
 	}
 
 }

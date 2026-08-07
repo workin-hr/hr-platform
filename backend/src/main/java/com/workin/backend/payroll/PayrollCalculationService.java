@@ -6,6 +6,8 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
+import com.workin.backend.penalties.Penalty;
+
 /**
  * The single source of payroll math for this backend -- the direct
  * structural fix for hr-legacy#12/#13 (three independent, divergent

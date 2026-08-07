@@ -1,12 +1,9 @@
 package com.workin.backend.payroll;
 
-import java.time.LocalDate;
 import java.util.List;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotNull;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,92 +13,95 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
+import com.workin.backend.authorization.PermissionKeys;
+import com.workin.backend.authorization.RequiresPermission;
+import com.workin.backend.payroll.PayrollBatchService.MutationResult;
 import com.workin.backend.tenancy.AuthorizationContext;
-import com.workin.backend.tenancy.AuthorizationContextResolver;
 
-/**
- * Class-level {@code @Transactional} -- see {@code AdvanceController}'s
- * Javadoc for why resolving the tenant context and the subsequent
- * service call must share one transaction.
- */
+/** Thin delegation, module template. */
 @RestController
-@Transactional
+@RequestMapping("/api/tenant/payroll-batches")
 public class PayrollBatchController {
 
-	public record CreateBatchRequest(@NotNull @Min(1) @Max(12) Short month, @NotNull Short year) {
-	}
-
-	public record UpdateBatchPeriodRequest(@NotNull LocalDate periodFrom, @NotNull LocalDate periodTo) {
-	}
-
-	public record PayrollBatchResponse(
-			Long id, Short month, Short year, LocalDate periodFrom, LocalDate periodTo, BatchStatus status) {
-
-		static PayrollBatchResponse from(PayrollBatch b) {
-			return new PayrollBatchResponse(b.getId(), b.getMonth(), b.getYear(), b.getPeriodFrom(), b.getPeriodTo(), b.getStatus());
-		}
-	}
-
 	private final PayrollBatchService payrollBatchService;
-	private final AuthorizationContextResolver authorizationContextResolver;
 
-	public PayrollBatchController(
-			PayrollBatchService payrollBatchService, AuthorizationContextResolver authorizationContextResolver) {
+	public PayrollBatchController(PayrollBatchService payrollBatchService) {
 		this.payrollBatchService = payrollBatchService;
-		this.authorizationContextResolver = authorizationContextResolver;
 	}
 
-	@PostMapping("/api/payroll/batches")
-	public ResponseEntity<PayrollBatchResponse> create(@Valid @RequestBody CreateBatchRequest request) {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		PayrollBatch created = payrollBatchService.create(context, request.month(), request.year());
-		return ResponseEntity.status(HttpStatus.CREATED).body(PayrollBatchResponse.from(created));
+	@RequiresPermission(PermissionKeys.PAYROLL_RUN)
+	@PostMapping
+	public ResponseEntity<PayrollBatchView> create(HttpServletRequest request, @Valid @RequestBody CreateBatchRequest body) {
+		return ResponseEntity.status(HttpStatus.CREATED)
+				.body(payrollBatchService.create(contextFrom(request), body.month(), body.year()));
 	}
 
-	@PostMapping("/api/payroll/batches/{id}/calculate")
-	public PayrollBatchResponse calculate(@PathVariable Long id) {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		return PayrollBatchResponse.from(payrollBatchService.calculate(context, id));
+	@RequiresPermission(PermissionKeys.PAYROLL_RUN)
+	@PostMapping("/{batchId}/calculate")
+	public PayrollBatchView calculate(HttpServletRequest request, @PathVariable Long batchId) {
+		return toResponse(payrollBatchService.calculate(contextFrom(request), batchId));
 	}
 
-	@PutMapping("/api/payroll/batches/{id}/finalize")
-	public PayrollBatchResponse finalizeBatch(@PathVariable Long id) {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		return PayrollBatchResponse.from(payrollBatchService.finalizeBatch(context, id));
+	@RequiresPermission(PermissionKeys.PAYROLL_RUN)
+	@PutMapping("/{batchId}/finalize")
+	public PayrollBatchView finalizeBatch(HttpServletRequest request, @PathVariable Long batchId) {
+		return toResponse(payrollBatchService.finalizeBatch(contextFrom(request), batchId));
 	}
 
-	@PutMapping("/api/payroll/batches/{id}/reopen")
-	public PayrollBatchResponse reopen(@PathVariable Long id) {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		return PayrollBatchResponse.from(payrollBatchService.reopen(context, id));
+	@RequiresPermission(PermissionKeys.PAYROLL_RUN)
+	@PutMapping("/{batchId}/reopen")
+	public PayrollBatchView reopen(HttpServletRequest request, @PathVariable Long batchId) {
+		return toResponse(payrollBatchService.reopen(contextFrom(request), batchId));
 	}
 
-	@DeleteMapping("/api/payroll/batches/{id}")
-	public ResponseEntity<Void> delete(@PathVariable Long id) {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		payrollBatchService.delete(context, id);
-		return ResponseEntity.noContent().build();
+	@RequiresPermission(PermissionKeys.PAYROLL_RUN)
+	@DeleteMapping("/{batchId}")
+	public ResponseEntity<Void> delete(HttpServletRequest request, @PathVariable Long batchId) {
+		return switch (payrollBatchService.delete(contextFrom(request), batchId)) {
+			case MutationResult.Done done -> ResponseEntity.noContent().build();
+			case MutationResult.NotFound notFound -> throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+			case MutationResult.WrongState wrongState -> throw new ResponseStatusException(HttpStatus.CONFLICT);
+		};
 	}
 
-	@PutMapping("/api/payroll/batches/{id}")
-	public PayrollBatchResponse update(@PathVariable Long id, @Valid @RequestBody UpdateBatchPeriodRequest request) {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		return PayrollBatchResponse.from(payrollBatchService.updatePeriod(context, id, request.periodFrom(), request.periodTo()));
+	@RequiresPermission(PermissionKeys.PAYROLL_RUN)
+	@PutMapping("/{batchId}")
+	public PayrollBatchView update(
+			HttpServletRequest request, @PathVariable Long batchId, @Valid @RequestBody UpdateBatchPeriodRequest body) {
+		return toResponse(payrollBatchService.updatePeriod(contextFrom(request), batchId, body.periodFrom(), body.periodTo()));
 	}
 
-	@GetMapping("/api/payroll/batches/{id}")
-	public PayrollBatchResponse one(@PathVariable Long id) {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		return PayrollBatchResponse.from(payrollBatchService.findOne(context, id));
+	@RequiresPermission(PermissionKeys.PAYROLL_READ)
+	@GetMapping("/{batchId}")
+	public PayrollBatchView get(HttpServletRequest request, @PathVariable Long batchId) {
+		return payrollBatchService.get(contextFrom(request), batchId)
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
 	}
 
-	@GetMapping("/api/payroll/batches")
-	public List<PayrollBatchResponse> list() {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		return payrollBatchService.list(context).stream().map(PayrollBatchResponse::from).toList();
+	@RequiresPermission(PermissionKeys.PAYROLL_READ)
+	@GetMapping
+	public List<PayrollBatchView> list(HttpServletRequest request) {
+		return payrollBatchService.list(contextFrom(request));
+	}
+
+	private static PayrollBatchView toResponse(MutationResult result) {
+		return switch (result) {
+			case MutationResult.Done done -> done.view();
+			case MutationResult.NotFound notFound -> throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+			case MutationResult.WrongState wrongState -> throw new ResponseStatusException(HttpStatus.CONFLICT);
+		};
+	}
+
+	private static AuthorizationContext contextFrom(HttpServletRequest request) {
+		Object context = request.getAttribute(AuthorizationContext.class.getName());
+		if (context == null) {
+			throw new IllegalStateException("AuthorizationContext missing -- authorization interceptor not applied");
+		}
+		return (AuthorizationContext) context;
 	}
 
 }

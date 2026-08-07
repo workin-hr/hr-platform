@@ -1,5 +1,55 @@
 # Payroll Group — Module-Level Migration Execution Plan
 
+## Update 2026-08-07: Reconciled Against `main`
+
+This plan was originally written and implemented against a stale branch
+base (`feat/payroll-group-schema` had forked from `main` on 2026-08-06
+and was never updated). By the time of implementation, `main` had
+independently shipped complete `employees`, `advances`, and `penalties`
+modules plus a full authorization runtime
+(`com.workin.backend.authorization`, `@RequiresPermission` +
+`AuthorizationPolicyInterceptor` + `PermissionEvaluationService`) that
+this plan's original text did not know about and described as still
+open. The implementation was rebased and reconciled against `main`
+after the fact — several design points below are now stale relative to
+what was actually built. Corrections:
+
+- **`employees`, `advances`, `penalties` are not part of this module.**
+  They already exist in their own packages
+  (`com.workin.backend.employees`/`advances`/`penalties`) with their
+  own already-shipped CRUD and F-18 negative-test coverage. This
+  payroll group extends `Advance` (with `deduct`/`restore` mutators)
+  and `Penalty` (with `markAppliedToPayroll`/`revertPayrollApplication`
+  mutators) minimally rather than re-implementing them — see those
+  classes' own Javadoc, which explicitly anticipated this extension
+  point ("applying deductions is the payroll module's finalize side
+  effect").
+- **Authorization is `@RequiresPermission`, not a bespoke `RoleGuard`.**
+  Every endpoint is gated by `PermissionKeys.PAYROLL_READ` or
+  `PAYROLL_RUN` (V4's existing catalog entries, mapped from legacy's
+  `can_payroll`) via the same interceptor-based mechanism every other
+  module uses — not the ad-hoc role-list check this plan originally
+  specified.
+- **EMPLOYEE self-service is out of scope for this slice, matching the
+  established convention.** `employees` carries no identity link
+  anywhere in the codebase yet (not even in the already-shipped
+  `employees` module) — self-service payslip/advance viewing is
+  deferred consistently across every module, not just this one, rather
+  than this module inventing its own identity-linking migration.
+- **Endpoints live at `/api/tenant/salary-contracts`,
+  `/api/tenant/payroll-batches`, `/api/tenant/payslips`** (the
+  established `/api/tenant/...` convention), not `/api/payroll/...`.
+- **Advance deduction at payroll finalize is a documented v1 heuristic**
+  (oldest APPROVED advance first, FIFO) rather than the
+  deduction-schedule-field matching this plan originally proposed —
+  V12's `deduction_*` columns remain unmapped/unused pending the
+  product decision `advances`' own entity Javadoc already parks.
+
+The module-level detail below (business rules, legacy-defect
+fix-by-construction analysis, per-endpoint behavior) remains accurate
+for `salary_contracts`/`payroll_batches`/`payslips` specifically — only
+the cross-cutting architecture points above changed.
+
 ## Purpose And Scope
 
 This is the PMR-09 (`docs/migration/pre-migration-readiness-gap-analysis.md`,

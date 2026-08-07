@@ -1,11 +1,9 @@
 package com.workin.backend.payroll;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.List;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotNull;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,130 +13,79 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
+import com.workin.backend.authorization.PermissionKeys;
+import com.workin.backend.authorization.RequiresPermission;
 import com.workin.backend.tenancy.AuthorizationContext;
-import com.workin.backend.tenancy.AuthorizationContextResolver;
 
 /**
- * Class-level {@code @Transactional} -- see {@code AdvanceController}'s
- * Javadoc for why resolving the tenant context and the subsequent
- * service call must share one transaction.
+ * Thin delegation, module template. No dedicated permission key exists
+ * for salary contracts specifically in V4's catalog (legacy has no
+ * separate can_salary_contracts flag) -- gated by payroll.read/
+ * payroll.run, the same as payroll_batches/payslips, consistent with
+ * this module group's tight coupling.
  */
 @RestController
-@Transactional
+@RequestMapping("/api/tenant/salary-contracts")
 public class SalaryContractController {
 
-	public record UpsertSalaryContractRequest(
-			@NotNull SalaryMode salaryMode,
-			BigDecimal basicSalary,
-			BigDecimal dailyWage,
-			BigDecimal housingAllowance,
-			BigDecimal transportAllowance,
-			BigDecimal foodAllowance,
-			BigDecimal riskAllowance,
-			BigDecimal incentives,
-			BigDecimal insuranceDeduction,
-			BigDecimal taxDeduction,
-			BigDecimal advancesDeduction,
-			BigDecimal fundDeduction,
-			BigDecimal penaltyDeduction,
-			@NotNull LocalDate effectiveFrom) {
-
-		SalaryContractService.ContractFields toFields() {
-			return new SalaryContractService.ContractFields(
-					salaryMode,
-					zeroIfNull(basicSalary),
-					dailyWage,
-					zeroIfNull(housingAllowance),
-					zeroIfNull(transportAllowance),
-					zeroIfNull(foodAllowance),
-					zeroIfNull(riskAllowance),
-					zeroIfNull(incentives),
-					zeroIfNull(insuranceDeduction),
-					zeroIfNull(taxDeduction),
-					zeroIfNull(advancesDeduction),
-					zeroIfNull(fundDeduction),
-					zeroIfNull(penaltyDeduction),
-					effectiveFrom);
-		}
-
-		private static BigDecimal zeroIfNull(BigDecimal value) {
-			return value == null ? BigDecimal.ZERO : value;
-		}
-	}
-
-	public record SalaryContractResponse(
-			Long id,
-			Long employeeId,
-			SalaryMode salaryMode,
-			BigDecimal basicSalary,
-			BigDecimal dailyWage,
-			BigDecimal housingAllowance,
-			BigDecimal transportAllowance,
-			BigDecimal foodAllowance,
-			BigDecimal riskAllowance,
-			BigDecimal incentives,
-			BigDecimal insuranceDeduction,
-			BigDecimal taxDeduction,
-			BigDecimal advancesDeduction,
-			BigDecimal fundDeduction,
-			BigDecimal penaltyDeduction,
-			LocalDate effectiveFrom) {
-
-		static SalaryContractResponse from(SalaryContract c) {
-			return new SalaryContractResponse(
-					c.getId(), c.getEmployeeId(), c.getSalaryMode(), c.getBasicSalary(), c.getDailyWage(),
-					c.getHousingAllowance(), c.getTransportAllowance(), c.getFoodAllowance(), c.getRiskAllowance(),
-					c.getIncentives(), c.getInsuranceDeduction(), c.getTaxDeduction(), c.getAdvancesDeduction(),
-					c.getFundDeduction(), c.getPenaltyDeduction(), c.getEffectiveFrom());
-		}
-	}
-
 	private final SalaryContractService salaryContractService;
-	private final AuthorizationContextResolver authorizationContextResolver;
 
-	public SalaryContractController(
-			SalaryContractService salaryContractService, AuthorizationContextResolver authorizationContextResolver) {
+	public SalaryContractController(SalaryContractService salaryContractService) {
 		this.salaryContractService = salaryContractService;
-		this.authorizationContextResolver = authorizationContextResolver;
 	}
 
-	@PostMapping("/api/payroll/salary-contracts")
-	public ResponseEntity<SalaryContractResponse> create(
-			@RequestParam Long employeeId, @Valid @RequestBody UpsertSalaryContractRequest request) {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		SalaryContract created = salaryContractService.create(context, employeeId, request.toFields());
-		return ResponseEntity.status(HttpStatus.CREATED).body(SalaryContractResponse.from(created));
+	@RequiresPermission(PermissionKeys.PAYROLL_READ)
+	@GetMapping
+	public List<SalaryContractView> list(HttpServletRequest request, @RequestParam Long employeeId) {
+		return salaryContractService.listForEmployee(contextFrom(request), employeeId);
 	}
 
-	@PutMapping("/api/payroll/salary-contracts/{id}")
-	public SalaryContractResponse update(@PathVariable Long id, @Valid @RequestBody UpsertSalaryContractRequest request) {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		return SalaryContractResponse.from(salaryContractService.update(context, id, request.toFields()));
+	@RequiresPermission(PermissionKeys.PAYROLL_READ)
+	@GetMapping("/{contractId}")
+	public SalaryContractView get(HttpServletRequest request, @PathVariable Long contractId) {
+		return salaryContractService.get(contextFrom(request), contractId)
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
 	}
 
-	@DeleteMapping("/api/payroll/salary-contracts/{id}")
-	public ResponseEntity<Void> delete(@PathVariable Long id) {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		salaryContractService.delete(context, id);
+	@RequiresPermission(PermissionKeys.PAYROLL_RUN)
+	@PostMapping
+	public ResponseEntity<SalaryContractView> create(
+			HttpServletRequest request, @RequestParam Long employeeId,
+			@Valid @RequestBody UpsertSalaryContractRequest body) {
+		return salaryContractService.create(contextFrom(request), employeeId, body)
+				.map(view -> ResponseEntity.status(HttpStatus.CREATED).body(view))
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+	}
+
+	@RequiresPermission(PermissionKeys.PAYROLL_RUN)
+	@PutMapping("/{contractId}")
+	public SalaryContractView update(
+			HttpServletRequest request, @PathVariable Long contractId,
+			@Valid @RequestBody UpsertSalaryContractRequest body) {
+		return salaryContractService.update(contextFrom(request), contractId, body)
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+	}
+
+	@RequiresPermission(PermissionKeys.PAYROLL_RUN)
+	@DeleteMapping("/{contractId}")
+	public ResponseEntity<Void> delete(HttpServletRequest request, @PathVariable Long contractId) {
+		if (!salaryContractService.delete(contextFrom(request), contractId)) {
+			throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+		}
 		return ResponseEntity.noContent().build();
 	}
 
-	@GetMapping("/api/payroll/salary-contracts/{id}")
-	public SalaryContractResponse one(@PathVariable Long id) {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		return SalaryContractResponse.from(salaryContractService.findOne(context, id));
-	}
-
-	@GetMapping("/api/payroll/salary-contracts")
-	public List<SalaryContractResponse> list(@RequestParam Long employeeId) {
-		AuthorizationContext context = authorizationContextResolver.resolve();
-		return salaryContractService.listForEmployee(context, employeeId).stream()
-				.map(SalaryContractResponse::from)
-				.toList();
+	private static AuthorizationContext contextFrom(HttpServletRequest request) {
+		Object context = request.getAttribute(AuthorizationContext.class.getName());
+		if (context == null) {
+			throw new IllegalStateException("AuthorizationContext missing -- authorization interceptor not applied");
+		}
+		return (AuthorizationContext) context;
 	}
 
 }

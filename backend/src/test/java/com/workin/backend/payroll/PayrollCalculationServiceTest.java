@@ -8,6 +8,8 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import com.workin.backend.penalties.Penalty;
+
 /**
  * Pure unit test, no Spring context needed -- exercises the exact
  * defect hr-legacy#12 describes (payslips/create.php silently dropping
@@ -83,7 +85,7 @@ class PayrollCalculationServiceTest {
 		contract.setSalaryMode(SalaryMode.MONTHLY);
 		contract.setBasicSalary(BigDecimal.valueOf(3000));
 
-		Penalty penalty = new Penalty(1L, 1L, "late", BigDecimal.valueOf(1), LocalDate.of(2026, 1, 5));
+		Penalty penalty = new Penalty(1L, 1L, "late", BigDecimal.valueOf(1), "late arrival", LocalDate.of(2026, 1, 5));
 		PayrollCalculationService.AttendanceFigures fullAttendance =
 				new PayrollCalculationService.AttendanceFigures(30, 0, 0, BigDecimal.ZERO);
 

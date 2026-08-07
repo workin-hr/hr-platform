@@ -3,6 +3,7 @@ package com.workin.backend.payroll;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 import javax.sql.DataSource;
 
@@ -20,12 +21,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import com.workin.backend.AbstractIntegrationTest;
 import com.workin.backend.identity.AuthResponse;
 import com.workin.backend.identity.RegisterCompanyRequest;
-import com.workin.backend.payroll.PayrollBatchController.CreateBatchRequest;
-import com.workin.backend.payroll.PayrollBatchController.PayrollBatchResponse;
-import com.workin.backend.payroll.PayslipController.CreatePayslipRequest;
-import com.workin.backend.payroll.PayslipController.PayslipResponse;
-import com.workin.backend.payroll.SalaryContractController.SalaryContractResponse;
-import com.workin.backend.payroll.SalaryContractController.UpsertSalaryContractRequest;
 
 /**
  * End-to-end regression coverage for the payroll batch defects
@@ -50,13 +45,13 @@ class PayrollBatchLifecycleTest extends AbstractIntegrationTest {
 		AuthResponse companyA = register("Company A");
 		HttpHeaders headers = bearer(companyA.accessToken());
 
-		ResponseEntity<PayrollBatchResponse> first = restTemplate.exchange(
-				"/api/payroll/batches", HttpMethod.POST,
-				new HttpEntity<>(new CreateBatchRequest((short) 3, (short) 2026), headers), PayrollBatchResponse.class);
+		ResponseEntity<PayrollBatchView> first = restTemplate.exchange(
+				"/api/tenant/payroll-batches", HttpMethod.POST,
+				new HttpEntity<>(new CreateBatchRequest((short) 3, (short) 2026), headers), PayrollBatchView.class);
 		assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
 		ResponseEntity<String> second = restTemplate.exchange(
-				"/api/payroll/batches", HttpMethod.POST,
+				"/api/tenant/payroll-batches", HttpMethod.POST,
 				new HttpEntity<>(new CreateBatchRequest((short) 3, (short) 2026), headers), String.class);
 		// hr-legacy#21: legacy's app-level pre-check left a race window
 		// that could produce two draft batches for the same period. The
@@ -73,24 +68,24 @@ class PayrollBatchLifecycleTest extends AbstractIntegrationTest {
 
 		UpsertSalaryContractRequest contractRequest = new UpsertSalaryContractRequest(
 				SalaryMode.DAILY, null, BigDecimal.valueOf(100), null, null, null, null, null,
-				null, null, null, null, null, java.time.LocalDate.of(2026, 1, 1));
-		ResponseEntity<SalaryContractResponse> contractResponse = restTemplate.exchange(
-				"/api/payroll/salary-contracts?employeeId=" + employeeId, HttpMethod.POST,
-				new HttpEntity<>(contractRequest, headers), SalaryContractResponse.class);
+				null, null, null, null, null, LocalDate.of(2026, 1, 1));
+		ResponseEntity<SalaryContractView> contractResponse = restTemplate.exchange(
+				"/api/tenant/salary-contracts?employeeId=" + employeeId, HttpMethod.POST,
+				new HttpEntity<>(contractRequest, headers), SalaryContractView.class);
 		assertThat(contractResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
-		ResponseEntity<PayrollBatchResponse> batch = restTemplate.exchange(
-				"/api/payroll/batches", HttpMethod.POST,
-				new HttpEntity<>(new CreateBatchRequest((short) 1, (short) 2026), headers), PayrollBatchResponse.class);
+		ResponseEntity<PayrollBatchView> batch = restTemplate.exchange(
+				"/api/tenant/payroll-batches", HttpMethod.POST,
+				new HttpEntity<>(new CreateBatchRequest((short) 1, (short) 2026), headers), PayrollBatchView.class);
 		assertThat(batch.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		Long batchId = batch.getBody().id();
 
 		// This is the exact hr-legacy#12 bug site: manually adding one
 		// payslip to a draft batch, bypassing batch-wide calculate.
 		CreatePayslipRequest payslipRequest = new CreatePayslipRequest(batchId, employeeId, 30, 0, 0, BigDecimal.ZERO);
-		ResponseEntity<PayslipResponse> payslipResponse = restTemplate.exchange(
-				"/api/payroll/payslips", HttpMethod.POST,
-				new HttpEntity<>(payslipRequest, headers), PayslipResponse.class);
+		ResponseEntity<PayslipView> payslipResponse = restTemplate.exchange(
+				"/api/tenant/payslips", HttpMethod.POST,
+				new HttpEntity<>(payslipRequest, headers), PayslipView.class);
 
 		assertThat(payslipResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		// dailyWage(100) * 30 = 3000. hr-legacy#12 would have produced 0.
@@ -103,28 +98,32 @@ class PayrollBatchLifecycleTest extends AbstractIntegrationTest {
 		AuthResponse companyA = register("Company A");
 		HttpHeaders headers = bearer(companyA.accessToken());
 
-		ResponseEntity<PayrollBatchResponse> batch = restTemplate.exchange(
-				"/api/payroll/batches", HttpMethod.POST,
-				new HttpEntity<>(new CreateBatchRequest((short) 2, (short) 2026), headers), PayrollBatchResponse.class);
+		ResponseEntity<PayrollBatchView> batch = restTemplate.exchange(
+				"/api/tenant/payroll-batches", HttpMethod.POST,
+				new HttpEntity<>(new CreateBatchRequest((short) 2, (short) 2026), headers), PayrollBatchView.class);
 		Long batchId = batch.getBody().id();
 
-		ResponseEntity<PayrollBatchResponse> calculated = restTemplate.exchange(
-				"/api/payroll/batches/" + batchId + "/calculate", HttpMethod.POST, new HttpEntity<>(headers), PayrollBatchResponse.class);
+		ResponseEntity<PayrollBatchView> calculated = restTemplate.exchange(
+				"/api/tenant/payroll-batches/" + batchId + "/calculate", HttpMethod.POST,
+				new HttpEntity<>(headers), PayrollBatchView.class);
 		assertThat(calculated.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(calculated.getBody().status()).isEqualTo(BatchStatus.DRAFT);
 
-		ResponseEntity<PayrollBatchResponse> finalized = restTemplate.exchange(
-				"/api/payroll/batches/" + batchId + "/finalize", HttpMethod.PUT, new HttpEntity<>(headers), PayrollBatchResponse.class);
+		ResponseEntity<PayrollBatchView> finalized = restTemplate.exchange(
+				"/api/tenant/payroll-batches/" + batchId + "/finalize", HttpMethod.PUT,
+				new HttpEntity<>(headers), PayrollBatchView.class);
 		assertThat(finalized.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(finalized.getBody().status()).isEqualTo(BatchStatus.FINALIZED);
 
-		// Finalized batches reject calculate/update/delete.
+		// Finalized batches reject recalculation.
 		ResponseEntity<String> recalcAttempt = restTemplate.exchange(
-				"/api/payroll/batches/" + batchId + "/calculate", HttpMethod.POST, new HttpEntity<>(headers), String.class);
-		assertThat(recalcAttempt.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+				"/api/tenant/payroll-batches/" + batchId + "/calculate", HttpMethod.POST,
+				new HttpEntity<>(headers), String.class);
+		assertThat(recalcAttempt.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
 
-		ResponseEntity<PayrollBatchResponse> reopened = restTemplate.exchange(
-				"/api/payroll/batches/" + batchId + "/reopen", HttpMethod.PUT, new HttpEntity<>(headers), PayrollBatchResponse.class);
+		ResponseEntity<PayrollBatchView> reopened = restTemplate.exchange(
+				"/api/tenant/payroll-batches/" + batchId + "/reopen", HttpMethod.PUT,
+				new HttpEntity<>(headers), PayrollBatchView.class);
 		assertThat(reopened.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(reopened.getBody().status()).isEqualTo(BatchStatus.DRAFT);
 	}

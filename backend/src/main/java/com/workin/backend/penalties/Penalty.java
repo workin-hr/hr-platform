@@ -91,6 +91,16 @@ public class Penalty {
 		return appliedToPayroll;
 	}
 
+	/** The payroll module's finalize side effect -- see this class's own Javadoc. */
+	public void markAppliedToPayroll() {
+		this.appliedToPayroll = true;
+	}
+
+	/** The payroll module's reopen side effect, reversing {@link #markAppliedToPayroll}. */
+	public void revertPayrollApplication() {
+		this.appliedToPayroll = false;
+	}
+
 	public void update(String penaltyType, BigDecimal penaltyDays, String reason, LocalDate penaltyDate) {
 		this.penaltyType = penaltyType;
 		this.penaltyDays = penaltyDays;

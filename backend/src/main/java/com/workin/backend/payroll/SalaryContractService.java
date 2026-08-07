@@ -3,137 +3,128 @@ package com.workin.backend.payroll;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.workin.backend.employees.EmployeeRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
-import com.workin.backend.tenancy.TenantRole;
+import com.workin.backend.tenancy.TenantSessionVariable;
 
+/**
+ * Salary contracts application service, module template (see
+ * PenaltyService). Permission gating lives on the controller's
+ * {@code @RequiresPermission} annotations, not here -- this service
+ * only applies tenant scope and the DAILY-mode zeroing invariant
+ * (V9's migration comment; business-rule-extraction.md, "Salary
+ * contracts have a daily-wage mode").
+ */
 @Service
 public class SalaryContractService {
 
-	/**
-	 * Every settable field on a contract, independent of HTTP shape --
-	 * see docs/migration/payroll-module-execution-plan.md's
-	 * SalaryContract section for the DAILY-mode zeroing rule this
-	 * record's fields feed into.
-	 */
-	public record ContractFields(
-			SalaryMode salaryMode,
-			BigDecimal basicSalary,
-			BigDecimal dailyWage,
-			BigDecimal housingAllowance,
-			BigDecimal transportAllowance,
-			BigDecimal foodAllowance,
-			BigDecimal riskAllowance,
-			BigDecimal incentives,
-			BigDecimal insuranceDeduction,
-			BigDecimal taxDeduction,
-			BigDecimal advancesDeduction,
-			BigDecimal fundDeduction,
-			BigDecimal penaltyDeduction,
-			LocalDate effectiveFrom) {
-	}
-
 	private final SalaryContractRepository salaryContractRepository;
 	private final EmployeeRepository employeeRepository;
+	private final TenantSessionVariable tenantSessionVariable;
 
-	public SalaryContractService(SalaryContractRepository salaryContractRepository, EmployeeRepository employeeRepository) {
+	public SalaryContractService(
+			SalaryContractRepository salaryContractRepository,
+			EmployeeRepository employeeRepository,
+			TenantSessionVariable tenantSessionVariable) {
 		this.salaryContractRepository = salaryContractRepository;
 		this.employeeRepository = employeeRepository;
+		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	@Transactional
-	public SalaryContract create(AuthorizationContext context, Long employeeId, ContractFields fields) {
-		RoleGuard.requireAnyRole(context, TenantRole.COMPANY_ADMIN, TenantRole.HR);
-		employeeRepository.findByIdAndCompanyId(employeeId, context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("Employee " + employeeId + " not found"));
-
-		SalaryContract contract = new SalaryContract(employeeId, context.companyId(), fields.effectiveFrom());
-		applyFields(contract, fields);
-		return salaryContractRepository.save(contract);
+	public List<SalaryContractView> listForEmployee(AuthorizationContext context, Long employeeId) {
+		tenantSessionVariable.apply(context.companyId());
+		return salaryContractRepository.findByEmployeeIdAndCompanyIdOrderByEffectiveFromDesc(employeeId, context.companyId())
+				.stream()
+				.map(SalaryContractView::of)
+				.toList();
 	}
 
 	@Transactional
-	public SalaryContract update(AuthorizationContext context, Long contractId, ContractFields fields) {
-		RoleGuard.requireAnyRole(context, TenantRole.COMPANY_ADMIN, TenantRole.HR);
-		SalaryContract contract = salaryContractRepository.findByIdAndCompanyId(contractId, context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("Salary contract " + contractId + " not found"));
-		applyFields(contract, fields);
-		return salaryContractRepository.save(contract);
-	}
-
-	@Transactional
-	public void delete(AuthorizationContext context, Long contractId) {
-		RoleGuard.requireAnyRole(context, TenantRole.COMPANY_ADMIN, TenantRole.HR);
-		SalaryContract contract = salaryContractRepository.findByIdAndCompanyId(contractId, context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("Salary contract " + contractId + " not found"));
-		salaryContractRepository.delete(contract);
-	}
-
-	@Transactional(readOnly = true)
-	public SalaryContract findOne(AuthorizationContext context, Long contractId) {
-		RoleGuard.requireAnyRole(context, TenantRole.COMPANY_ADMIN, TenantRole.HR, TenantRole.MANAGER);
+	public Optional<SalaryContractView> get(AuthorizationContext context, Long contractId) {
+		tenantSessionVariable.apply(context.companyId());
 		return salaryContractRepository.findByIdAndCompanyId(contractId, context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("Salary contract " + contractId + " not found"));
+				.map(SalaryContractView::of);
 	}
 
-	@Transactional(readOnly = true)
-	public List<SalaryContract> listForEmployee(AuthorizationContext context, Long employeeId) {
-		RoleGuard.requireAnyRole(context, TenantRole.COMPANY_ADMIN, TenantRole.HR, TenantRole.MANAGER);
-		employeeRepository.findByIdAndCompanyId(employeeId, context.companyId())
-				.orElseThrow(() -> new PayrollNotFoundException("Employee " + employeeId + " not found"));
-		return salaryContractRepository.findByEmployeeIdAndCompanyIdOrderByEffectiveFromDesc(employeeId, context.companyId());
+	@Transactional
+	public Optional<SalaryContractView> create(AuthorizationContext context, Long employeeId, UpsertSalaryContractRequest request) {
+		tenantSessionVariable.apply(context.companyId());
+		return employeeRepository.findByIdAndCompanyId(employeeId, context.companyId())
+				.map(employee -> {
+					SalaryContract contract = new SalaryContract(employee.getId(), context.companyId(), request.effectiveFrom());
+					applyFields(contract, request);
+					return SalaryContractView.of(salaryContractRepository.save(contract));
+				});
+	}
+
+	@Transactional
+	public Optional<SalaryContractView> update(AuthorizationContext context, Long contractId, UpsertSalaryContractRequest request) {
+		tenantSessionVariable.apply(context.companyId());
+		return salaryContractRepository.findByIdAndCompanyId(contractId, context.companyId())
+				.map(contract -> {
+					applyFields(contract, request);
+					return SalaryContractView.of(contract);
+				});
+	}
+
+	@Transactional
+	public boolean delete(AuthorizationContext context, Long contractId) {
+		tenantSessionVariable.apply(context.companyId());
+		return salaryContractRepository.findByIdAndCompanyId(contractId, context.companyId())
+				.map(contract -> {
+					salaryContractRepository.delete(contract);
+					return true;
+				})
+				.orElse(false);
 	}
 
 	/**
-	 * Used by {@link PayrollCalculationService} -- the effective contract
-	 * for a given period end date, per business-rule extraction. RLS
-	 * already scopes this to the caller's company via the active
-	 * transaction's session variable, so no explicit companyId filter is
-	 * needed here.
+	 * Used by {@link PayrollCalculationService} callers -- the effective
+	 * contract for a given period end date (business-rule extraction).
+	 * Callers must have already applied tenant scope in the same
+	 * transaction (RLS then confines this lookup to that company).
 	 */
 	@Transactional(readOnly = true)
-	public SalaryContract findEffectiveContract(Long employeeId, LocalDate periodEnd) {
+	public Optional<SalaryContract> findEffectiveContract(Long employeeId, LocalDate periodEnd) {
 		return salaryContractRepository
-				.findFirstByEmployeeIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(employeeId, periodEnd)
-				.orElseThrow(() -> new PayrollNotFoundException(
-						"No salary contract effective on or before " + periodEnd + " for employee " + employeeId));
+				.findFirstByEmployeeIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(employeeId, periodEnd);
 	}
 
-	/**
-	 * DAILY mode always zeroes basicSalary and the 4 contract allowances
-	 * in favor of dailyWage -- V9's own migration comment and
-	 * business-rule extraction, "Salary contracts have a daily-wage mode."
-	 * Applied on both create and update so the invariant can never drift
-	 * between the two entry points.
-	 */
-	private void applyFields(SalaryContract contract, ContractFields fields) {
-		contract.setSalaryMode(fields.salaryMode());
-		contract.setEffectiveFrom(fields.effectiveFrom());
-		contract.setHousingAllowance(fields.housingAllowance());
-		contract.setInsuranceDeduction(fields.insuranceDeduction());
-		contract.setTaxDeduction(fields.taxDeduction());
-		contract.setAdvancesDeduction(fields.advancesDeduction());
-		contract.setFundDeduction(fields.fundDeduction());
-		contract.setPenaltyDeduction(fields.penaltyDeduction());
+	private void applyFields(SalaryContract contract, UpsertSalaryContractRequest request) {
+		contract.setSalaryMode(request.salaryMode());
+		contract.setEffectiveFrom(request.effectiveFrom());
+		contract.setHousingAllowance(zeroIfNull(request.housingAllowance()));
+		contract.setInsuranceDeduction(zeroIfNull(request.insuranceDeduction()));
+		contract.setTaxDeduction(zeroIfNull(request.taxDeduction()));
+		contract.setAdvancesDeduction(zeroIfNull(request.advancesDeduction()));
+		contract.setFundDeduction(zeroIfNull(request.fundDeduction()));
+		contract.setPenaltyDeduction(zeroIfNull(request.penaltyDeduction()));
 
-		if (fields.salaryMode() == SalaryMode.DAILY) {
+		if (request.salaryMode() == SalaryMode.DAILY) {
 			contract.setBasicSalary(BigDecimal.ZERO);
 			contract.setTransportAllowance(BigDecimal.ZERO);
 			contract.setFoodAllowance(BigDecimal.ZERO);
 			contract.setRiskAllowance(BigDecimal.ZERO);
 			contract.setIncentives(BigDecimal.ZERO);
-			contract.setDailyWage(fields.dailyWage());
+			contract.setDailyWage(request.dailyWage());
 		} else {
-			contract.setBasicSalary(fields.basicSalary());
-			contract.setTransportAllowance(fields.transportAllowance());
-			contract.setFoodAllowance(fields.foodAllowance());
-			contract.setRiskAllowance(fields.riskAllowance());
-			contract.setIncentives(fields.incentives());
+			contract.setBasicSalary(zeroIfNull(request.basicSalary()));
+			contract.setTransportAllowance(zeroIfNull(request.transportAllowance()));
+			contract.setFoodAllowance(zeroIfNull(request.foodAllowance()));
+			contract.setRiskAllowance(zeroIfNull(request.riskAllowance()));
+			contract.setIncentives(zeroIfNull(request.incentives()));
 			contract.setDailyWage(null);
 		}
+	}
+
+	private static BigDecimal zeroIfNull(BigDecimal value) {
+		return value == null ? BigDecimal.ZERO : value;
 	}
 
 }
