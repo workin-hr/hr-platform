@@ -30,6 +30,7 @@ import com.workin.backend.attendance.CreateAttendanceRequest;
 import com.workin.backend.attendance.CreateExceptionTypeRequest;
 import com.workin.backend.attendance.ExceptionTypeView;
 import com.workin.backend.authorization.PermissionKeys;
+import com.workin.backend.companysettings.UpdateCompanySettingsRequest;
 import com.workin.backend.identity.AuthResponse;
 import com.workin.backend.identity.LoginRequest;
 import com.workin.backend.identity.RegisterCompanyRequest;
@@ -303,6 +304,26 @@ class RequestModuleFlowTest extends AbstractIntegrationTest {
 		BigDecimal used = jdbc().queryForObject(
 				"SELECT used_days FROM leave_balances WHERE employee_id = ?", BigDecimal.class, employeeId);
 		assertThat(used).isEqualByComparingTo("0.0");
+	}
+
+	@Test
+	void configuredAccrualDrivesAutoCreatedBalances() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = createEmployee(admin.companyId());
+		restTemplate.exchange(
+				"/api/tenant/company-settings", HttpMethod.PUT,
+				new HttpEntity<>(new UpdateCompanySettingsRequest(null, null, null, null, new BigDecimal("15.5")),
+						bearer(admin.accessToken())),
+				String.class);
+		RequestTypeView type = createRequestType(admin.accessToken(), "Annual leave", true, false, null);
+		Long id = createRequest(admin.accessToken(), employeeId, type.id(), FROM, TO).getBody().id();
+
+		assertThat(approve(admin.accessToken(), id, null).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+		Map<String, Object> row = jdbc().queryForMap(
+				"SELECT total_days, used_days FROM leave_balances WHERE employee_id = ?", employeeId);
+		assertThat((BigDecimal) row.get("total_days")).isEqualByComparingTo("15.5");
+		assertThat((BigDecimal) row.get("used_days")).isEqualByComparingTo("3.0");
 	}
 
 	@Test

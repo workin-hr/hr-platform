@@ -20,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.workin.backend.AbstractIntegrationTest;
+import com.workin.backend.companysettings.UpdateCompanySettingsRequest;
 import com.workin.backend.identity.AuthResponse;
 import com.workin.backend.identity.RegisterCompanyRequest;
 
@@ -127,6 +128,49 @@ class PayrollBatchLifecycleTest extends AbstractIntegrationTest {
 				new HttpEntity<>(headers), PayrollBatchView.class);
 		assertThat(reopened.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(reopened.getBody().status()).isEqualTo(BatchStatus.DRAFT);
+	}
+
+	@Test
+	void fiscalPeriodSettingsShiftTheBatchWindow() {
+		AuthResponse companyA = register("Company A");
+		HttpHeaders headers = bearer(companyA.accessToken());
+		// Fiscal month 26th -> 25th (legacy payroll_fiscal_period_bounds'
+		// start > end case: the period spans from the previous month).
+		restTemplate.exchange(
+				"/api/tenant/company-settings", HttpMethod.PUT,
+				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 26, (short) 25, null, null, null), headers),
+				String.class);
+
+		ResponseEntity<PayrollBatchView> batch = restTemplate.exchange(
+				"/api/tenant/payroll-batches", HttpMethod.POST,
+				new HttpEntity<>(new CreateBatchRequest((short) 3, (short) 2026), headers), PayrollBatchView.class);
+
+		assertThat(batch.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(batch.getBody().periodFrom()).isEqualTo(LocalDate.of(2026, 2, 26));
+		assertThat(batch.getBody().periodTo()).isEqualTo(LocalDate.of(2026, 3, 25));
+	}
+
+	@Test
+	void fiscalDayBoundsCapToEachMonthsRealLastDay() {
+		AuthResponse companyA = register("Company A");
+		HttpHeaders headers = bearer(companyA.accessToken());
+		// start 30 <= end 31 keeps legacy in the same-month branch, where
+		// each bound caps to the month's real last day: Feb 2026 has 28
+		// days, so both become the 28th. (start 31 with end unset would
+		// instead take the start > end previous-month branch -- covered
+		// by the shifted-window test above.)
+		restTemplate.exchange(
+				"/api/tenant/company-settings", HttpMethod.PUT,
+				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 30, (short) 31, null, null, null), headers),
+				String.class);
+
+		ResponseEntity<PayrollBatchView> batch = restTemplate.exchange(
+				"/api/tenant/payroll-batches", HttpMethod.POST,
+				new HttpEntity<>(new CreateBatchRequest((short) 2, (short) 2026), headers), PayrollBatchView.class);
+
+		assertThat(batch.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(batch.getBody().periodFrom()).isEqualTo(LocalDate.of(2026, 2, 28));
+		assertThat(batch.getBody().periodTo()).isEqualTo(LocalDate.of(2026, 2, 28));
 	}
 
 	@Test
