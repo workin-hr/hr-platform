@@ -196,6 +196,33 @@ tenant — the caller's `membership_resource_scopes` rows determine
 `COMPANY_ADMIN`'s default scope is typically `COMPANY`-wide; a
 `MANAGER`'s scope is whatever was explicitly assigned per §1.
 
+**Implementation status (2026-08-08 — F-16/F-25 shipped).** This is
+now built, not future work. `membership_resource_scopes` (schema V31,
+RLS V32) plus `ResourceScopeService`
+(`com.workin.backend.authorization`, enforcement boundary 3 below)
+realize it with a **role-based fallback** model chosen by the
+repository owner (D-029/D-030): a membership is *scope-limited* iff it
+holds `MANAGER` and neither `COMPANY_ADMIN` nor `HR` (a company-wide
+role always trumps), so `COMPANY_ADMIN`/`HR` keep company-wide reach
+with **no** scope rows — the "COMPANY-wide default" above is expressed
+as this role fallback, not as stored `COMPANY`-type rows. A
+scope-limited membership with no scope rows reaches **zero** employees
+(deny-by-default). Enforcement is live across every caller-facing
+employee-data surface (attendance, requests, penalties, advances,
+salary-contracts, leave-balances, payslips, employees), each applying
+the same `isEmployeeInScope`/`scopedEmployeeIdsOrNull` guard;
+`ManagerScopeFlowTest` proves it per module. **Scope types
+implemented:** `BRANCH`, `DEPARTMENT`. **Deferred (F-25):**
+`DIRECT_REPORT`, `EMPLOYEE` — no consumer yet. **Recorded
+simplification:** scope rows are permission-agnostic in this
+iteration (they gate all scoped operations, not one permission — the
+`optionally scopes` edge in §1's diagram is not yet used).
+`employees.create` is deliberately not scope-gated (a new employee has
+no branch/department at creation). Batch-level payroll operations are
+company-wide by nature and gated by `payroll.run`, not by resource
+scope (see the 2026-08-08 coverage note in
+`docs/superpowers/specs/2026-08-07-manager-scope-remaining-modules-design.md`).
+
 ### No external policy engine for this MVP
 
 OPA, Cedar, OpenFGA, Keycloak Authorization Services, or an equivalent
@@ -240,7 +267,9 @@ flowchart TD
 3. **Resource-scope and ownership policy**: resource ownership and
    manager scope checked through centralized policy services using the
    already-validated `AuthorizationContext` — never re-derived ad hoc
-   per controller/service.
+   per controller/service. **Implemented** by `ResourceScopeService`
+   (2026-08-08, F-16/F-25) — the single reusable guard every
+   employee-data service calls (see §3's implementation-status note).
 4. **Repository-layer tenant scoping**: retained where practical, as
    defense in depth — consistent with the H2 spike's recommendation
    (`docs/adr/ADR-0002-modular-monolith-baseline.md` Decision, condition
