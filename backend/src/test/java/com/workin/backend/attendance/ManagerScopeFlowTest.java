@@ -292,6 +292,171 @@ class ManagerScopeFlowTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void advancesRespectManagerScope() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long branchA = createBranch(admin.companyId(), "A");
+		Long branchB = createBranch(admin.companyId(), "B");
+		Long empA = createEmployee(admin.companyId(), branchA, null);
+		Long empB = createEmployee(admin.companyId(), branchB, null);
+		Long advA = jdbc().queryForObject(
+				"INSERT INTO advances (employee_id, company_id, amount, remaining, status, request_date) "
+						+ "VALUES (?, ?, 100.0, 100.0, 'PENDING', '2026-03-01') RETURNING id",
+				Long.class, empA, admin.companyId());
+		Long advB = jdbc().queryForObject(
+				"INSERT INTO advances (employee_id, company_id, amount, remaining, status, request_date) "
+						+ "VALUES (?, ?, 100.0, 100.0, 'PENDING', '2026-03-01') RETURNING id",
+				Long.class, empB, admin.companyId());
+
+		ManagerFixture manager = loginScopedManager(admin.companyId(), false);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.ADVANCES_READ);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.ADVANCES_APPROVE);
+		assignScope(admin, manager.membershipId(), "BRANCH", branchA);
+
+		ResponseEntity<List<Map<String, Object>>> list = restTemplate.exchange(
+				"/api/tenant/advances", HttpMethod.GET, new HttpEntity<>(bearer(manager.accessToken())),
+				new ParameterizedTypeReference<>() {
+				});
+		assertThat(list.getBody()).extracting(r -> ((Number) r.get("id")).longValue()).containsExactly(advA);
+		assertThat(restTemplate.exchange("/api/tenant/advances/" + advB + "/approve", HttpMethod.POST,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void salaryContractsRespectManagerScope() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long branchA = createBranch(admin.companyId(), "A");
+		Long branchB = createBranch(admin.companyId(), "B");
+		Long empA = createEmployee(admin.companyId(), branchA, null);
+		Long empB = createEmployee(admin.companyId(), branchB, null);
+		Long contractB = jdbc().queryForObject(
+				"INSERT INTO salary_contracts (employee_id, company_id, salary_mode, effective_from) "
+						+ "VALUES (?, ?, 'MONTHLY', '2026-01-01') RETURNING id",
+				Long.class, empB, admin.companyId());
+
+		ManagerFixture manager = loginScopedManager(admin.companyId(), false);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.PAYROLL_READ);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.PAYROLL_RUN);
+		assignScope(admin, manager.membershipId(), "BRANCH", branchA);
+
+		// Listing a foreign (out-of-scope) employee's contracts -> empty.
+		ResponseEntity<List<Map<String, Object>>> listB = restTemplate.exchange(
+				"/api/tenant/salary-contracts?employeeId=" + empB, HttpMethod.GET,
+				new HttpEntity<>(bearer(manager.accessToken())),
+				new ParameterizedTypeReference<>() {
+				});
+		assertThat(listB.getBody()).isEmpty();
+		// The out-of-scope contract's get -> 404.
+		assertThat(restTemplate.exchange("/api/tenant/salary-contracts/" + contractB, HttpMethod.GET,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		// Creating a contract for an out-of-scope employee -> 404.
+		assertThat(restTemplate.exchange("/api/tenant/salary-contracts?employeeId=" + empB, HttpMethod.POST,
+				new HttpEntity<>(Map.of("salaryMode", "MONTHLY", "effectiveFrom", "2026-02-01"),
+						bearer(manager.accessToken())),
+				String.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(empA).isNotNull();
+	}
+
+	@Test
+	void leaveBalancesRespectManagerScope() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long branchA = createBranch(admin.companyId(), "A");
+		Long branchB = createBranch(admin.companyId(), "B");
+		Long empA = createEmployee(admin.companyId(), branchA, null);
+		Long empB = createEmployee(admin.companyId(), branchB, null);
+		jdbc().update(
+				"INSERT INTO leave_balances (employee_id, company_id, year, total_days) VALUES (?, ?, 2026, 21.0)",
+				empA, admin.companyId());
+		Long balanceB = jdbc().queryForObject(
+				"INSERT INTO leave_balances (employee_id, company_id, year, total_days) "
+						+ "VALUES (?, ?, 2026, 21.0) RETURNING id",
+				Long.class, empB, admin.companyId());
+
+		ManagerFixture manager = loginScopedManager(admin.companyId(), false);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.LEAVE_BALANCES_READ);
+		assignScope(admin, manager.membershipId(), "BRANCH", branchA);
+
+		ResponseEntity<List<Map<String, Object>>> list = restTemplate.exchange(
+				"/api/tenant/leave-balances", HttpMethod.GET, new HttpEntity<>(bearer(manager.accessToken())),
+				new ParameterizedTypeReference<>() {
+				});
+		assertThat(list.getBody()).extracting(r -> ((Number) r.get("employeeId")).longValue()).containsExactly(empA);
+		assertThat(restTemplate.exchange("/api/tenant/leave-balances/" + balanceB, HttpMethod.GET,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void payslipsRespectManagerScope() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long branchA = createBranch(admin.companyId(), "A");
+		Long branchB = createBranch(admin.companyId(), "B");
+		Long empA = createEmployee(admin.companyId(), branchA, null);
+		Long empB = createEmployee(admin.companyId(), branchB, null);
+		Long batchId = jdbc().queryForObject(
+				"INSERT INTO payroll_batches (company_id, month, year, period_from, period_to, status) "
+						+ "VALUES (?, 1, 2026, '2026-01-01', '2026-01-31', 'DRAFT') RETURNING id",
+				Long.class, admin.companyId());
+		jdbc().update(
+				"INSERT INTO payslips (batch_id, employee_id, company_id) VALUES (?, ?, ?)",
+				batchId, empA, admin.companyId());
+		Long payslipB = jdbc().queryForObject(
+				"INSERT INTO payslips (batch_id, employee_id, company_id) VALUES (?, ?, ?) RETURNING id",
+				Long.class, batchId, empB, admin.companyId());
+
+		ManagerFixture manager = loginScopedManager(admin.companyId(), false);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.PAYROLL_READ);
+		assignScope(admin, manager.membershipId(), "BRANCH", branchA);
+
+		ResponseEntity<List<Map<String, Object>>> list = restTemplate.exchange(
+				"/api/tenant/payslips", HttpMethod.GET, new HttpEntity<>(bearer(manager.accessToken())),
+				new ParameterizedTypeReference<>() {
+				});
+		assertThat(list.getBody()).extracting(r -> ((Number) r.get("employeeId")).longValue()).containsExactly(empA);
+		assertThat(restTemplate.exchange("/api/tenant/payslips/" + payslipB, HttpMethod.GET,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void employeesRespectManagerScopeExceptCreate() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long branchA = createBranch(admin.companyId(), "A");
+		Long branchB = createBranch(admin.companyId(), "B");
+		Long empA = createEmployee(admin.companyId(), branchA, null);
+		Long empB = createEmployee(admin.companyId(), branchB, null);
+
+		ManagerFixture manager = loginScopedManager(admin.companyId(), false);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.EMPLOYEES_READ);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.EMPLOYEES_MANAGE);
+		assignScope(admin, manager.membershipId(), "BRANCH", branchA);
+
+		ResponseEntity<List<Map<String, Object>>> list = restTemplate.exchange(
+				"/api/tenant/employees", HttpMethod.GET, new HttpEntity<>(bearer(manager.accessToken())),
+				new ParameterizedTypeReference<>() {
+				});
+		assertThat(list.getBody()).extracting(r -> ((Number) r.get("id")).longValue()).containsExactly(empA);
+		// Out-of-branch employee: get / update / status all 404.
+		assertThat(restTemplate.exchange("/api/tenant/employees/" + empB, HttpMethod.GET,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(restTemplate.exchange("/api/tenant/employees/" + empB, HttpMethod.PUT,
+				new HttpEntity<>(Map.of("firstName", "X"), bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(restTemplate.exchange("/api/tenant/employees/" + empB + "/status", HttpMethod.PUT,
+				new HttpEntity<>(Map.of("active", false), bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		// create is deliberately NOT scope-gated (a new employee has no
+		// branch/dept yet): a scoped manager with employees.manage can
+		// create; the new employee simply won't appear in their scoped
+		// list until placed in an in-scope branch.
+		assertThat(restTemplate.exchange("/api/tenant/employees", HttpMethod.POST,
+				new HttpEntity<>(Map.of("firstName", "New"), bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.CREATED);
+	}
+
+	@Test
 	void revokingAScopeHidesTheEmployeeAgainOnTheNextRequest() {
 		AuthResponse admin = registerCompanyAdmin();
 		Long branchA = createBranch(admin.companyId(), "A");

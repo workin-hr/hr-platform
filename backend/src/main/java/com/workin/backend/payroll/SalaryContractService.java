@@ -8,6 +8,7 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.employees.EmployeeRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantSessionVariable;
@@ -25,20 +26,26 @@ public class SalaryContractService {
 
 	private final SalaryContractRepository salaryContractRepository;
 	private final EmployeeRepository employeeRepository;
+	private final ResourceScopeService resourceScopeService;
 	private final TenantSessionVariable tenantSessionVariable;
 
 	public SalaryContractService(
 			SalaryContractRepository salaryContractRepository,
 			EmployeeRepository employeeRepository,
+			ResourceScopeService resourceScopeService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.salaryContractRepository = salaryContractRepository;
 		this.employeeRepository = employeeRepository;
+		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	@Transactional
 	public List<SalaryContractView> listForEmployee(AuthorizationContext context, Long employeeId) {
 		tenantSessionVariable.apply(context.companyId());
+		if (!resourceScopeService.isEmployeeInScope(context, employeeId)) {
+			return List.of();
+		}
 		return salaryContractRepository.findByEmployeeIdAndCompanyIdOrderByEffectiveFromDesc(employeeId, context.companyId())
 				.stream()
 				.map(SalaryContractView::of)
@@ -49,6 +56,7 @@ public class SalaryContractService {
 	public Optional<SalaryContractView> get(AuthorizationContext context, Long contractId) {
 		tenantSessionVariable.apply(context.companyId());
 		return salaryContractRepository.findByIdAndCompanyId(contractId, context.companyId())
+				.filter(c -> resourceScopeService.isEmployeeInScope(context, c.getEmployeeId()))
 				.map(SalaryContractView::of);
 	}
 
@@ -56,6 +64,7 @@ public class SalaryContractService {
 	public Optional<SalaryContractView> create(AuthorizationContext context, Long employeeId, UpsertSalaryContractRequest request) {
 		tenantSessionVariable.apply(context.companyId());
 		return employeeRepository.findByIdAndCompanyId(employeeId, context.companyId())
+				.filter(employee -> resourceScopeService.isEmployeeInScope(context, employee.getId()))
 				.map(employee -> {
 					SalaryContract contract = new SalaryContract(employee.getId(), context.companyId(), request.effectiveFrom());
 					applyFields(contract, request);
@@ -67,6 +76,7 @@ public class SalaryContractService {
 	public Optional<SalaryContractView> update(AuthorizationContext context, Long contractId, UpsertSalaryContractRequest request) {
 		tenantSessionVariable.apply(context.companyId());
 		return salaryContractRepository.findByIdAndCompanyId(contractId, context.companyId())
+				.filter(contract -> resourceScopeService.isEmployeeInScope(context, contract.getEmployeeId()))
 				.map(contract -> {
 					applyFields(contract, request);
 					return SalaryContractView.of(contract);
@@ -77,6 +87,7 @@ public class SalaryContractService {
 	public boolean delete(AuthorizationContext context, Long contractId) {
 		tenantSessionVariable.apply(context.companyId());
 		return salaryContractRepository.findByIdAndCompanyId(contractId, context.companyId())
+				.filter(contract -> resourceScopeService.isEmployeeInScope(context, contract.getEmployeeId()))
 				.map(contract -> {
 					salaryContractRepository.delete(contract);
 					return true;
