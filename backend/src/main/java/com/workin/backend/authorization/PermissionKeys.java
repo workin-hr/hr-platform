@@ -42,6 +42,7 @@ public final class PermissionKeys {
 	public static final String ATTENDANCE_CORRECT = "attendance.correct";
 	public static final String REQUESTS_READ = "requests.read";
 	public static final String REQUESTS_APPROVE = "requests.approve";
+	public static final String REQUESTS_MANAGE = "requests.manage";
 	public static final String PAYROLL_READ = "payroll.read";
 	public static final String PAYROLL_RUN = "payroll.run";
 	public static final String PENALTIES_READ = "penalties.read";
