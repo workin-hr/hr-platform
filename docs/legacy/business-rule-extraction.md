@@ -653,8 +653,82 @@ on whether manager approval authority should genuinely be company-wide
 (a real permission model) or is meant to mirror their branch-scoped
 visibility and this is a gap.
 
+## Rule: Dashboard join-request rejection hard-deletes the employee record
+
+**Current Behavior:** Accepting a company join request sets
+`join_request_status='accepted', is_active=1` (granting app access);
+**rejecting** it instead permanently deletes the employee row
+(`dbDelete('employees', $id)`), destroying the applicant record and
+any audit trail rather than soft-deleting or marking rejected. The
+soft-delete helper (`query.php` `dbSoftDelete`) exists and is used
+elsewhere but not here.
+
+**Where Observed:** `dashboard/pages/home/home_service.php`,
+`home_reject_join_request()` (L643) vs `home_accept_join_request()`.
+
+**Risk If Misinterpreted:** A rewrite that preserves this loses all
+record of rejected applicants; whether that is intentional (erasure)
+or an oversight is a product decision, not an assumption.
+
+## Rule: Dashboard password change always terminates the session; admin path rewrites source
+
+**Current Behavior:** A successful password change for any principal
+type returns `logout=true`, and the page then calls `session_destroy()`
+and redirects to login — password change always force-logs-out. The
+**admin** path additionally verifies the old password with a plain
+`!==` against the `ADMIN_PASSWORD` constant (not the hash path login
+uses) and rewrites the live `constants.php` source file to store the
+new admin password in plaintext, never touching `ADMIN_PASSWORD_HASH`.
+
+**Where Observed:** `dashboard/includes/account_helper.php` L19-71;
+`dashboard/pages/change_password/page.php` L21-24. Also a security
+finding — see `docs/security/threat-model.md` and
+`dashboard-discovery-completion.md` Finding 2.
+
+**Risk If Misinterpreted:** The force-logout is a real rule to
+preserve. The admin source-rewrite pattern must NOT be ported —
+credentials belong in the database, hashed.
+
+## Rule: Setting-template options are locked while any company references them
+
+**Current Behavior:** A `setting_allowed_values` option's `value`
+becomes immutable and its deletion is blocked once
+`companies_using > 0` (computed from `company_setting_values`) — the
+dashboard both hides the edit control and rejects the mutation
+server-side.
+
+**Where Observed:** `dashboard/includes/setting_templates_helper.php`
+L54-67, 208-248.
+
+**Risk If Misinterpreted:** Dropping this lets an admin rename/delete
+an option value that existing companies already store, orphaning their
+selections.
+
+## Rule: A department must have at least one branch; shifts.days_off has no dashboard UI
+
+**Current Behavior:** The dashboard rejects saving a department with
+zero branches (`select_at_least_one_branch`), and validates every
+submitted branch id belongs to the company. Separately, `shifts` rows
+carry a `days_off` column (weekly rest days, e.g. "Fri,Sat") that
+`apis/helpers/schedule_helper.php` folds into payroll's working-day
+and rest-day math — but **no dashboard form exposes `days_off`**;
+`shifts/page.php` and `_shift_form.php` only handle name/start/end/
+active.
+
+**Where Observed:** `dashboard/pages/departments/page.php` L33-36;
+`dashboard/pages/shifts/page.php` and `_shift_form.php` (full files);
+`apis/helpers/schedule_helper.php` `schedule_parse_days_off_to_dows()`.
+
+**Risk If Misinterpreted:** The department rule is a real constraint
+to preserve. The `days_off` gap is an open question — where the
+payroll-relevant field is actually maintained today is unconfirmed
+(see `dashboard-discovery-completion.md` Open Questions); a rewrite
+must not assume the dashboard is its source.
+
 ## Evidence
 
 All entries: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`,
 files cited individually per rule above, read in full rather than
-sampled.
+sampled. Dashboard-shared-infrastructure and remaining page findings:
+[`dashboard-discovery-completion.md`](./dashboard-discovery-completion.md)
+(PMR-01 completion, 2026-08-07).
