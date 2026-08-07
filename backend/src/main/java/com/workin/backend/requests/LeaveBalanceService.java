@@ -2,6 +2,7 @@ package com.workin.backend.requests;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.employees.EmployeeRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantSessionVariable;
@@ -25,24 +27,29 @@ public class LeaveBalanceService {
 
 	private final LeaveBalanceRepository leaveBalanceRepository;
 	private final EmployeeRepository employeeRepository;
+	private final ResourceScopeService resourceScopeService;
 	private final TenantSessionVariable tenantSessionVariable;
 
 	public LeaveBalanceService(
 			LeaveBalanceRepository leaveBalanceRepository,
 			EmployeeRepository employeeRepository,
+			ResourceScopeService resourceScopeService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.leaveBalanceRepository = leaveBalanceRepository;
 		this.employeeRepository = employeeRepository;
+		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	@Transactional(readOnly = true)
 	public List<LeaveBalanceView> list(AuthorizationContext context, Long employeeId, Short year) {
 		tenantSessionVariable.apply(context.companyId());
+		Set<Long> reach = resourceScopeService.scopedEmployeeIdsOrNull(context);
 		List<LeaveBalance> rows = employeeId != null
 				? leaveBalanceRepository.findByEmployeeIdAndCompanyIdOrderById(employeeId, context.companyId())
 				: leaveBalanceRepository.findByCompanyIdOrderById(context.companyId());
 		return rows.stream()
+				.filter(row -> reach == null || reach.contains(row.getEmployeeId()))
 				.filter(row -> year == null || row.getYear().equals(year))
 				.map(LeaveBalanceView::of)
 				.toList();
@@ -51,13 +58,16 @@ public class LeaveBalanceService {
 	@Transactional(readOnly = true)
 	public Optional<LeaveBalanceView> get(AuthorizationContext context, Long balanceId) {
 		tenantSessionVariable.apply(context.companyId());
-		return leaveBalanceRepository.findByIdAndCompanyId(balanceId, context.companyId()).map(LeaveBalanceView::of);
+		return leaveBalanceRepository.findByIdAndCompanyId(balanceId, context.companyId())
+				.filter(b -> resourceScopeService.isEmployeeInScope(context, b.getEmployeeId()))
+				.map(LeaveBalanceView::of);
 	}
 
 	@Transactional
 	public MutationResult create(AuthorizationContext context, CreateLeaveBalanceRequest request) {
 		tenantSessionVariable.apply(context.companyId());
-		if (employeeRepository.findByIdAndCompanyId(request.employeeId(), context.companyId()).isEmpty()) {
+		if (employeeRepository.findByIdAndCompanyId(request.employeeId(), context.companyId()).isEmpty()
+				|| !resourceScopeService.isEmployeeInScope(context, request.employeeId())) {
 			return new MutationResult.NotFound();
 		}
 		LeaveBalance balance = new LeaveBalance(request.employeeId(), context.companyId(), request.year());
@@ -79,7 +89,7 @@ public class LeaveBalanceService {
 	public MutationResult update(AuthorizationContext context, Long balanceId, UpdateLeaveBalanceRequest request) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<LeaveBalance> found = leaveBalanceRepository.findByIdAndCompanyId(balanceId, context.companyId());
-		if (found.isEmpty()) {
+		if (found.isEmpty() || !resourceScopeService.isEmployeeInScope(context, found.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		LeaveBalance balance = found.get();

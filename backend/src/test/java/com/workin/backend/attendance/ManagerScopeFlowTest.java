@@ -359,6 +359,67 @@ class ManagerScopeFlowTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void leaveBalancesRespectManagerScope() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long branchA = createBranch(admin.companyId(), "A");
+		Long branchB = createBranch(admin.companyId(), "B");
+		Long empA = createEmployee(admin.companyId(), branchA, null);
+		Long empB = createEmployee(admin.companyId(), branchB, null);
+		jdbc().update(
+				"INSERT INTO leave_balances (employee_id, company_id, year, total_days) VALUES (?, ?, 2026, 21.0)",
+				empA, admin.companyId());
+		Long balanceB = jdbc().queryForObject(
+				"INSERT INTO leave_balances (employee_id, company_id, year, total_days) "
+						+ "VALUES (?, ?, 2026, 21.0) RETURNING id",
+				Long.class, empB, admin.companyId());
+
+		ManagerFixture manager = loginScopedManager(admin.companyId(), false);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.LEAVE_BALANCES_READ);
+		assignScope(admin, manager.membershipId(), "BRANCH", branchA);
+
+		ResponseEntity<List<Map<String, Object>>> list = restTemplate.exchange(
+				"/api/tenant/leave-balances", HttpMethod.GET, new HttpEntity<>(bearer(manager.accessToken())),
+				new ParameterizedTypeReference<>() {
+				});
+		assertThat(list.getBody()).extracting(r -> ((Number) r.get("employeeId")).longValue()).containsExactly(empA);
+		assertThat(restTemplate.exchange("/api/tenant/leave-balances/" + balanceB, HttpMethod.GET,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void payslipsRespectManagerScope() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long branchA = createBranch(admin.companyId(), "A");
+		Long branchB = createBranch(admin.companyId(), "B");
+		Long empA = createEmployee(admin.companyId(), branchA, null);
+		Long empB = createEmployee(admin.companyId(), branchB, null);
+		Long batchId = jdbc().queryForObject(
+				"INSERT INTO payroll_batches (company_id, month, year, period_from, period_to, status) "
+						+ "VALUES (?, 1, 2026, '2026-01-01', '2026-01-31', 'DRAFT') RETURNING id",
+				Long.class, admin.companyId());
+		jdbc().update(
+				"INSERT INTO payslips (batch_id, employee_id, company_id) VALUES (?, ?, ?)",
+				batchId, empA, admin.companyId());
+		Long payslipB = jdbc().queryForObject(
+				"INSERT INTO payslips (batch_id, employee_id, company_id) VALUES (?, ?, ?) RETURNING id",
+				Long.class, batchId, empB, admin.companyId());
+
+		ManagerFixture manager = loginScopedManager(admin.companyId(), false);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.PAYROLL_READ);
+		assignScope(admin, manager.membershipId(), "BRANCH", branchA);
+
+		ResponseEntity<List<Map<String, Object>>> list = restTemplate.exchange(
+				"/api/tenant/payslips", HttpMethod.GET, new HttpEntity<>(bearer(manager.accessToken())),
+				new ParameterizedTypeReference<>() {
+				});
+		assertThat(list.getBody()).extracting(r -> ((Number) r.get("employeeId")).longValue()).containsExactly(empA);
+		assertThat(restTemplate.exchange("/api/tenant/payslips/" + payslipB, HttpMethod.GET,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
 	void revokingAScopeHidesTheEmployeeAgainOnTheNextRequest() {
 		AuthResponse admin = registerCompanyAdmin();
 		Long branchA = createBranch(admin.companyId(), "A");

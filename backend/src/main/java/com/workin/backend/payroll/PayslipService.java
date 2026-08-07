@@ -3,11 +3,13 @@ package com.workin.backend.payroll;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.employees.EmployeeRepository;
 import com.workin.backend.penalties.Penalty;
 import com.workin.backend.penalties.PenaltyRepository;
@@ -43,6 +45,8 @@ public class PayslipService {
 	private final PayrollCalculationService payrollCalculationService;
 	private final TenantSessionVariable tenantSessionVariable;
 
+	private final ResourceScopeService resourceScopeService;
+
 	public PayslipService(
 			PayslipRepository payslipRepository,
 			PayrollBatchRepository payrollBatchRepository,
@@ -50,6 +54,7 @@ public class PayslipService {
 			SalaryContractService salaryContractService,
 			PenaltyRepository penaltyRepository,
 			PayrollCalculationService payrollCalculationService,
+			ResourceScopeService resourceScopeService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.payslipRepository = payslipRepository;
 		this.payrollBatchRepository = payrollBatchRepository;
@@ -57,6 +62,7 @@ public class PayslipService {
 		this.salaryContractService = salaryContractService;
 		this.penaltyRepository = penaltyRepository;
 		this.payrollCalculationService = payrollCalculationService;
+		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
@@ -71,7 +77,7 @@ public class PayslipService {
 			return new MutationResult.WrongState();
 		}
 		var employee = employeeRepository.findByIdAndCompanyId(employeeId, context.companyId());
-		if (employee.isEmpty()) {
+		if (employee.isEmpty() || !resourceScopeService.isEmployeeInScope(context, employeeId)) {
 			return new MutationResult.NotFound();
 		}
 		Optional<SalaryContract> contract = salaryContractService.findEffectiveContract(employee.get().getId(), batch.get().getPeriodTo());
@@ -94,7 +100,7 @@ public class PayslipService {
 	public MutationResult update(AuthorizationContext context, Long payslipId, AttendanceInput attendanceInput) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<Payslip> payslip = payslipRepository.findByIdAndCompanyId(payslipId, context.companyId());
-		if (payslip.isEmpty()) {
+		if (payslip.isEmpty() || !resourceScopeService.isEmployeeInScope(context, payslip.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		Optional<PayrollBatch> batch = payrollBatchRepository.findByIdAndCompanyId(payslip.get().getBatchId(), context.companyId());
@@ -114,7 +120,7 @@ public class PayslipService {
 	public MutationResult delete(AuthorizationContext context, Long payslipId) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<Payslip> payslip = payslipRepository.findByIdAndCompanyId(payslipId, context.companyId());
-		if (payslip.isEmpty()) {
+		if (payslip.isEmpty() || !resourceScopeService.isEmployeeInScope(context, payslip.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		Optional<PayrollBatch> batch = payrollBatchRepository.findByIdAndCompanyId(payslip.get().getBatchId(), context.companyId());
@@ -128,13 +134,18 @@ public class PayslipService {
 	@Transactional(readOnly = true)
 	public Optional<PayslipView> get(AuthorizationContext context, Long payslipId) {
 		tenantSessionVariable.apply(context.companyId());
-		return payslipRepository.findByIdAndCompanyId(payslipId, context.companyId()).map(PayslipView::of);
+		return payslipRepository.findByIdAndCompanyId(payslipId, context.companyId())
+				.filter(p -> resourceScopeService.isEmployeeInScope(context, p.getEmployeeId()))
+				.map(PayslipView::of);
 	}
 
 	@Transactional(readOnly = true)
 	public List<PayslipView> list(AuthorizationContext context) {
 		tenantSessionVariable.apply(context.companyId());
-		return payslipRepository.findByCompanyId(context.companyId()).stream().map(PayslipView::of).toList();
+		Set<Long> reach = resourceScopeService.scopedEmployeeIdsOrNull(context);
+		return payslipRepository.findByCompanyId(context.companyId()).stream()
+				.filter(p -> reach == null || reach.contains(p.getEmployeeId()))
+				.map(PayslipView::of).toList();
 	}
 
 	private void recompute(Payslip payslip, PayrollBatch batch, SalaryContract contract, AttendanceInput attendanceInput) {
