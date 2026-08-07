@@ -21,6 +21,7 @@
 ### Task 1: Schema (V21 + V22)
 
 **Files:**
+
 - Create: `backend/src/main/resources/db/migration/common/V21__create_attendance.sql`
 - Create: `backend/src/main/resources/db/migration/rls/V22__enable_attendance_row_level_security.sql`
 
@@ -65,10 +66,12 @@ CREATE INDEX attendance_employee_check_in_idx ON attendance (employee_id, check_
 ### Task 2: Exception-types module (TDD)
 
 **Files:**
+
 - Test: `backend/src/test/java/com/workin/backend/attendance/ExceptionTypeFlowTest.java`
 - Create: `attendance/ExceptionType.java`, `attendance/ExceptionTypeRepository.java`, `attendance/ExceptionTypeService.java`, `attendance/ExceptionTypeController.java`, `attendance/CreateExceptionTypeRequest.java` (`@NotBlank String name`), `attendance/ExceptionTypeView.java` (`Long id, String name`)
 
 **Interfaces:**
+
 - Produces: `ExceptionTypeRepository.findByIdAndCompanyId(Long, Long)` and `findByCompanyIdOrderById(Long)` — Task 3's service uses the former to validate `exceptionTypeId` references.
 - `ExceptionTypeController` (`/api/tenant/exception-types`): GET list `@RequiresPermission(ATTENDANCE_READ)` → 200; POST `@RequiresPermission(ATTENDANCE_CORRECT)` → 201. No update/delete (spec defers them).
 
@@ -80,6 +83,7 @@ CREATE INDEX attendance_employee_check_in_idx ON attendance (employee_id, check_
 ### Task 3: Attendance module (TDD)
 
 **Files:**
+
 - Test: `backend/src/test/java/com/workin/backend/attendance/AttendanceModuleFlowTest.java`
 - Create: `attendance/Attendance.java`, `attendance/AttendanceRepository.java`, `attendance/AttendanceService.java`, `attendance/AttendanceController.java`, `attendance/CreateAttendanceRequest.java`, `attendance/UpdateAttendanceRequest.java`, `attendance/AttendanceView.java`
 
