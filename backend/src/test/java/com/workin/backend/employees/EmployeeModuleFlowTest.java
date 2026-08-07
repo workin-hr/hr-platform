@@ -104,6 +104,99 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 				EmployeeView.class);
 	}
 
+	private ResponseEntity<EmployeeView> setStatus(String accessToken, Long employeeId, boolean active) {
+		return restTemplate.exchange(
+				"/api/tenant/employees/" + employeeId + "/status", HttpMethod.PUT,
+				new HttpEntity<>(new UpdateEmployeeStatusRequest(active), bearer(accessToken)),
+				EmployeeView.class);
+	}
+
+	@Test
+	void lifecycleToggleRoundTripsAndIsIdempotent() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = create(admin.accessToken(),
+				new CreateEmployeeRequest("Life", "Cycle", uniquePhone(), null, null, null)).getBody().id();
+
+		ResponseEntity<EmployeeView> deactivated = setStatus(admin.accessToken(), employeeId, false);
+		assertThat(deactivated.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(deactivated.getBody().active()).isFalse();
+
+		// Idempotent re-set: 200, state unchanged.
+		assertThat(setStatus(admin.accessToken(), employeeId, false).getBody().active()).isFalse();
+
+		assertThat(setStatus(admin.accessToken(), employeeId, true).getBody().active()).isTrue();
+
+		// Cross-tenant and read-only-permission negatives.
+		AuthResponse companyB = registerCompanyAdmin();
+		ResponseEntity<String> crossTenant = restTemplate.exchange(
+				"/api/tenant/employees/" + employeeId + "/status", HttpMethod.PUT,
+				new HttpEntity<>(new UpdateEmployeeStatusRequest(false), bearer(companyB.accessToken())),
+				String.class);
+		assertThat(crossTenant.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+		HrFixture reader = loginHrMember(admin.companyId());
+		allowPermission(reader, PermissionKeys.EMPLOYEES_READ);
+		ResponseEntity<String> readOnly = restTemplate.exchange(
+				"/api/tenant/employees/" + employeeId + "/status", HttpMethod.PUT,
+				new HttpEntity<>(new UpdateEmployeeStatusRequest(false), bearer(reader.accessToken())),
+				String.class);
+		assertThat(readOnly.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+	}
+
+	@Test
+	void aDeactivatedEmployeeIsSkippedByPayrollCalculateUntilReactivated() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = create(admin.accessToken(),
+				new CreateEmployeeRequest("Pay", "Roll", uniquePhone(), null, null, null)).getBody().id();
+		HttpHeaders headers = bearer(admin.accessToken());
+		ResponseEntity<String> contract = restTemplate.exchange(
+				"/api/tenant/salary-contracts?employeeId=" + employeeId, HttpMethod.POST,
+				new HttpEntity<>(new com.workin.backend.payroll.UpsertSalaryContractRequest(
+						com.workin.backend.payroll.SalaryMode.MONTHLY, java.math.BigDecimal.valueOf(3000),
+						null, null, null, null, null, null, null, null, null, null, null,
+						java.time.LocalDate.of(2026, 1, 1)), headers),
+				String.class);
+		assertThat(contract.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		Long batchId = restTemplate.exchange(
+				"/api/tenant/payroll-batches", HttpMethod.POST,
+				new HttpEntity<>(new com.workin.backend.payroll.CreateBatchRequest((short) 9, (short) 2026), headers),
+				com.workin.backend.payroll.PayrollBatchView.class).getBody().id();
+
+		setStatus(admin.accessToken(), employeeId, false);
+		restTemplate.exchange("/api/tenant/payroll-batches/" + batchId + "/calculate", HttpMethod.POST,
+				new HttpEntity<>(headers), String.class);
+		Long payslipsWhileInactive = jdbc().queryForObject(
+				"SELECT COUNT(*) FROM payslips WHERE batch_id = ?", Long.class, batchId);
+		assertThat(payslipsWhileInactive).isZero();
+
+		setStatus(admin.accessToken(), employeeId, true);
+		restTemplate.exchange("/api/tenant/payroll-batches/" + batchId + "/calculate", HttpMethod.POST,
+				new HttpEntity<>(headers), String.class);
+		Long payslipsAfterReactivation = jdbc().queryForObject(
+				"SELECT COUNT(*) FROM payslips WHERE batch_id = ?", Long.class, batchId);
+		assertThat(payslipsAfterReactivation).isEqualTo(1L);
+	}
+
+	@Test
+	void logoutNeverTouchesEmployeeLifecycle() {
+		// hr-legacy#15's employee-row half: AuthSessionFlowTest already
+		// proves the identity stays loginable after logout; this proves
+		// the employee record's active flag is untouched too (the legacy
+		// bug deactivated the employee row specifically).
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = create(admin.accessToken(),
+				new CreateEmployeeRequest("Log", "Out", uniquePhone(), null, null, null)).getBody().id();
+
+		ResponseEntity<Void> logout = restTemplate.postForEntity(
+				"/api/auth/logout", new com.workin.backend.identity.RefreshTokenRequest(admin.refreshToken()),
+				Void.class);
+		assertThat(logout.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+		Boolean stillActive = jdbc().queryForObject(
+				"SELECT active FROM employees WHERE id = ?", Boolean.class, employeeId);
+		assertThat(stillActive).isTrue();
+	}
+
 	private record OrgFixture(Long branchId, Long departmentId, Long jobTitleId) {
 	}
 
