@@ -67,6 +67,7 @@ public record CompanySettingsView(
 ```
 
   Cases: GET with no row → 200, all fields null; PUT (start 26, end 25, accrual 15.5) → 200, GET round-trips; second PUT (start null) → 200 and SQL-assert exactly one row for the company with `month_start_day` now NULL; `monthStartDay` 0 and 32 → 400; negative `monthlyLeaveAccrual` → 400; company B's PUT then A's GET shows A's values only (isolation both directions); `company.settings.read` alone → 403 on PUT; unauthenticated → non-2xx. (All jakarta annotations are null-tolerant, so nulls pass validation by design.)
+
 - [ ] **Step 4: Red** — `./gradlew compileTestJava` via WSL fails on missing symbols.
 - [ ] **Step 5: Implement**:
   - Entity: the 7 mapped columns, `protected` no-arg + `CompanySettings(Long companyId)` constructor, one `apply(UpdateCompanySettingsRequest r)` mutator setting all five fields verbatim (nulls included — null is a real value).
