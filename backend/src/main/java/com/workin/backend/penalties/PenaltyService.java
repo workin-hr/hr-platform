@@ -3,10 +3,12 @@ package com.workin.backend.penalties;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.employees.EmployeeRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantSessionVariable;
@@ -22,22 +24,27 @@ public class PenaltyService {
 
 	private final PenaltyRepository penaltyRepository;
 	private final EmployeeRepository employeeRepository;
+	private final ResourceScopeService resourceScopeService;
 	private final TenantSessionVariable tenantSessionVariable;
 
 	public PenaltyService(
 			PenaltyRepository penaltyRepository,
 			EmployeeRepository employeeRepository,
+			ResourceScopeService resourceScopeService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.penaltyRepository = penaltyRepository;
 		this.employeeRepository = employeeRepository;
+		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	@Transactional
 	public List<PenaltyView> list(AuthorizationContext context) {
 		tenantSessionVariable.apply(context.companyId());
+		Set<Long> reach = resourceScopeService.scopedEmployeeIdsOrNull(context);
 		return penaltyRepository.findByCompanyIdOrderById(context.companyId())
 				.stream()
+				.filter(p -> reach == null || reach.contains(p.getEmployeeId()))
 				.map(PenaltyView::of)
 				.toList();
 	}
@@ -46,6 +53,7 @@ public class PenaltyService {
 	public Optional<PenaltyView> get(AuthorizationContext context, Long penaltyId) {
 		tenantSessionVariable.apply(context.companyId());
 		return penaltyRepository.findByIdAndCompanyId(penaltyId, context.companyId())
+				.filter(p -> resourceScopeService.isEmployeeInScope(context, p.getEmployeeId()))
 				.map(PenaltyView::of);
 	}
 
@@ -53,6 +61,7 @@ public class PenaltyService {
 	public Optional<PenaltyView> create(AuthorizationContext context, CreatePenaltyRequest request) {
 		tenantSessionVariable.apply(context.companyId());
 		return employeeRepository.findByIdAndCompanyId(request.employeeId(), context.companyId())
+				.filter(employee -> resourceScopeService.isEmployeeInScope(context, employee.getId()))
 				.map(employee -> PenaltyView.of(penaltyRepository.save(new Penalty(
 						employee.getId(), context.companyId(), request.penaltyType(), request.penaltyDays(),
 						request.reason(),
@@ -63,7 +72,7 @@ public class PenaltyService {
 	public MutationResult update(AuthorizationContext context, Long penaltyId, UpdatePenaltyRequest request) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<Penalty> found = penaltyRepository.findByIdAndCompanyId(penaltyId, context.companyId());
-		if (found.isEmpty()) {
+		if (found.isEmpty() || !resourceScopeService.isEmployeeInScope(context, found.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		Penalty penalty = found.get();
@@ -78,7 +87,7 @@ public class PenaltyService {
 	public MutationResult delete(AuthorizationContext context, Long penaltyId) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<Penalty> found = penaltyRepository.findByIdAndCompanyId(penaltyId, context.companyId());
-		if (found.isEmpty()) {
+		if (found.isEmpty() || !resourceScopeService.isEmployeeInScope(context, found.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		Penalty penalty = found.get();

@@ -194,6 +194,103 @@ class ManagerScopeFlowTest extends AbstractIntegrationTest {
 		assertThat(attendanceEmployeeIds(managerHr.accessToken())).containsExactlyInAnyOrder(empA, empB);
 	}
 
+	private void allowManager(Long companyId, Long membershipId, String permissionKey) {
+		jdbc().update(
+				"INSERT INTO membership_permission_overrides (membership_id, company_id, permission_id, effect) "
+						+ "SELECT ?, ?, p.id, 'ALLOW' FROM permissions p WHERE p.permission_key = ?",
+				membershipId, companyId, permissionKey);
+	}
+
+	@Test
+	void penaltiesRespectManagerScope() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long branchA = createBranch(admin.companyId(), "A");
+		Long branchB = createBranch(admin.companyId(), "B");
+		Long empA = createEmployee(admin.companyId(), branchA, null);
+		Long empB = createEmployee(admin.companyId(), branchB, null);
+		Long penaltyA = jdbc().queryForObject(
+				"INSERT INTO penalties (employee_id, company_id, penalty_type, penalty_days, penalty_date) "
+						+ "VALUES (?, ?, 'late', 1.0, '2026-03-01') RETURNING id",
+				Long.class, empA, admin.companyId());
+		Long penaltyB = jdbc().queryForObject(
+				"INSERT INTO penalties (employee_id, company_id, penalty_type, penalty_days, penalty_date) "
+						+ "VALUES (?, ?, 'late', 1.0, '2026-03-01') RETURNING id",
+				Long.class, empB, admin.companyId());
+
+		ManagerFixture manager = loginScopedManager(admin.companyId(), false);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.PENALTIES_READ);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.PENALTIES_MANAGE);
+		assignScope(admin, manager.membershipId(), "BRANCH", branchA);
+
+		ResponseEntity<List<Map<String, Object>>> list = restTemplate.exchange(
+				"/api/tenant/penalties", HttpMethod.GET, new HttpEntity<>(bearer(manager.accessToken())),
+				new ParameterizedTypeReference<>() {
+				});
+		assertThat(list.getBody()).extracting(row -> ((Number) row.get("id")).longValue())
+				.containsExactly(penaltyA);
+
+		assertThat(restTemplate.exchange("/api/tenant/penalties/" + penaltyB, HttpMethod.GET,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(restTemplate.exchange("/api/tenant/penalties/" + penaltyB, HttpMethod.DELETE,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		// Create for an out-of-scope employee -> 404.
+		assertThat(restTemplate.exchange("/api/tenant/penalties", HttpMethod.POST,
+				new HttpEntity<>(Map.of("employeeId", empB, "penaltyType", "late", "penaltyDays", 1.0),
+						bearer(manager.accessToken())),
+				String.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void requestsRespectManagerScopeIncludingApproval() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long branchA = createBranch(admin.companyId(), "A");
+		Long branchB = createBranch(admin.companyId(), "B");
+		Long empA = createEmployee(admin.companyId(), branchA, null);
+		Long empB = createEmployee(admin.companyId(), branchB, null);
+		Long requestTypeId = jdbc().queryForObject(
+				"INSERT INTO request_types (company_id, name) VALUES (?, 'Leave') RETURNING id",
+				Long.class, admin.companyId());
+		Long reqA = jdbc().queryForObject(
+				"INSERT INTO requests (employee_id, company_id, request_type_id, from_date, to_date, status) "
+						+ "VALUES (?, ?, ?, '2026-03-02', '2026-03-03', 'PENDING') RETURNING id",
+				Long.class, empA, admin.companyId(), requestTypeId);
+		Long reqB = jdbc().queryForObject(
+				"INSERT INTO requests (employee_id, company_id, request_type_id, from_date, to_date, status) "
+						+ "VALUES (?, ?, ?, '2026-03-02', '2026-03-03', 'PENDING') RETURNING id",
+				Long.class, empB, admin.companyId(), requestTypeId);
+
+		ManagerFixture manager = loginScopedManager(admin.companyId(), false);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.REQUESTS_READ);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.REQUESTS_APPROVE);
+		assignScope(admin, manager.membershipId(), "BRANCH", branchA);
+
+		ResponseEntity<List<Map<String, Object>>> list = restTemplate.exchange(
+				"/api/tenant/requests", HttpMethod.GET, new HttpEntity<>(bearer(manager.accessToken())),
+				new ParameterizedTypeReference<>() {
+				});
+		assertThat(list.getBody()).extracting(row -> ((Number) row.get("id")).longValue())
+				.containsExactly(reqA);
+
+		// hr-legacy#18: the scoped manager cannot approve or reject an
+		// out-of-branch employee's request -- it does not exist for them.
+		assertThat(restTemplate.exchange("/api/tenant/requests/" + reqB + "/approve", HttpMethod.PUT,
+				new HttpEntity<>(Map.of(), bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(restTemplate.exchange("/api/tenant/requests/" + reqB + "/reject", HttpMethod.PUT,
+				new HttpEntity<>(Map.of("reply", "no"), bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(restTemplate.exchange("/api/tenant/requests/" + reqB, HttpMethod.GET,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+
+		// The in-branch request can be approved.
+		assertThat(restTemplate.exchange("/api/tenant/requests/" + reqA + "/approve", HttpMethod.PUT,
+				new HttpEntity<>(Map.of(), bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.OK);
+	}
+
 	@Test
 	void revokingAScopeHidesTheEmployeeAgainOnTheNextRequest() {
 		AuthResponse admin = registerCompanyAdmin();
