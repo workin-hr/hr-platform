@@ -17,6 +17,23 @@
 - What request and response contracts are relied on by current mobile and desktop releases?
 - Is there any existing client generation process, or are contracts hand-maintained?
 
+## Payroll Migration
+
+Surfaced by `docs/migration/payroll-module-execution-plan.md`
+(2026-08-07) — none of these are decided by that document, and none
+should be guessed at implementation time:
+
+- Is `salary_contracts.housing_allowance` a normal settable contract
+  field going forward, or intentionally payslip-only (`hr-legacy#14`)?
+- Preserve the legacy fixed-30-day payroll divisor, or move to real
+  calendar days for day-rate/absence calculations?
+- Where does per-company fiscal-period configuration
+  (`month_start_day`/`month_end_day`) live until the `company_settings`
+  module is built?
+- What should `MANAGER`-role access to `penalties` be before
+  `branches` exists — a documented company-wide widening, or excluded
+  until branch-scoping is real?
+
 ## Tooling
 
 - Will `specify-cli` be installed during Phase 0 or deferred until human review approves it?
