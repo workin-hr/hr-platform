@@ -108,10 +108,25 @@ dashboard-only concerns not exposed via the API at all:
 - `pages/salary_calculator/` — includes
   `egypt_salary_calculator.php`, a standalone calculator page distinct
   from the real payroll-batch calculation engine in
-  `apis/helpers/payroll_calculation.php`. **Open question:** whether
-  this implements the same rules independently (a duplication/drift risk)
-  or is a simpler illustrative tool — needs its own read-through before
-  migration, not assumed identical to the real payroll engine.
+  `apis/helpers/payroll_calculation.php`. **Resolved 2026-08-07 (read
+  in full):** it is **not** a second implementation of the payroll
+  rules — there is zero computational overlap. `EgyptMonthlySalaryCalculator::compute()`
+  is a stateless Egyptian statutory gross-to-net **estimator**
+  (docblock: "for display only, not tax advice"): it takes a
+  hypothetical monthly gross and returns employee social insurance
+  (11% on a base clamped to 2,700–16,700), employer SI (18.75%), a
+  martyrs-fund levy (0.05%), and progressive annual income tax
+  (bracket table with a 20,000 personal exemption). None of those
+  concepts — income tax, social insurance, martyrs fund — exist
+  anywhere in the real payroll engine, which instead computes a
+  payslip from a `salary_contracts` row plus attendance figures
+  (basic/allowances/overtime minus penalties/advances). The
+  calculator reads no company data and writes nothing; it is gated by
+  `salary_calculator.read` (`payroll_require_section('salary_calculator')`).
+  **Migration implication:** a self-contained utility portable (or
+  droppable) independently of the payroll module; its only rules are
+  jurisdiction-specific statutory constants a rewrite would keep
+  current. No drift risk with the payroll engine.
 - `pages/setting_templates/` — no matching API module; dashboard-only
   settings-template management
 - `pages/activities/` — recent-activity feed, no matching API module
@@ -154,9 +169,13 @@ This closes PMR-01
 
 ## Open Questions
 
-- Whether `pages/salary_calculator/egypt_salary_calculator.php` is a
+- ~~Whether `pages/salary_calculator/egypt_salary_calculator.php` is a
   second, independent implementation of payroll rules or a simplified
-  illustrative tool — unresolved, needs a dedicated read-through.
+  illustrative tool~~ — **Resolved 2026-08-07**: a standalone
+  Egyptian statutory gross-to-net estimator with zero overlap with the
+  payroll engine (no shared computation, reads/writes no company data).
+  See the `pages/salary_calculator/` entry above for the full
+  read-through.
 - Whether `employee_custody/` and `sections/` (empty, unreferenced
   directories) can be deleted outright or represent a feature that was
   intentionally paused.
