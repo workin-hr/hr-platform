@@ -45,9 +45,9 @@ behavior, not inference.
     `year(4)` mapping), `period_from_month`/`period_to_month`
     (defaults 1/12), `monthly_cap_days` NUMERIC(5,2) NULL,
     `total_days`/`used_days` NUMERIC(5,1) default 0,
-    `remaining_days` NUMERIC(5,1) `GENERATED ALWAYS AS (total_days
-    - used_days) STORED` (transcribed, as the schema inventory
-    directs), `created_at`, and a real
+    `remaining_days` NUMERIC(5,1) generated always as
+    `total_days - used_days`, stored (transcribed, as the schema
+    inventory directs), `created_at`, and a real
     `UNIQUE (employee_id, year)` — legacy assumes one row per
     (employee, year) app-level only (`get_one`); same
     fix-by-construction move as hr-legacy#21.
