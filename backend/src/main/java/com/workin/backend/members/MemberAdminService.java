@@ -10,6 +10,11 @@ import jakarta.persistence.EntityManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.workin.backend.authorization.ResourceScope;
+import com.workin.backend.authorization.ResourceScopeRepository;
+import com.workin.backend.authorization.ResourceScopeType;
+import com.workin.backend.organization.BranchRepository;
+import com.workin.backend.organization.DepartmentRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.MembershipRoleAssignment;
 import com.workin.backend.tenancy.MembershipRoleRepository;
@@ -52,6 +57,9 @@ public class MemberAdminService {
 	private final TenantMembershipRepository tenantMembershipRepository;
 	private final MembershipRoleRepository membershipRoleRepository;
 	private final MembershipPermissionOverrideRepository overrideRepository;
+	private final ResourceScopeRepository resourceScopeRepository;
+	private final BranchRepository branchRepository;
+	private final DepartmentRepository departmentRepository;
 	private final TenantAuditService tenantAuditService;
 	private final TenantSessionVariable tenantSessionVariable;
 	private final EntityManager entityManager;
@@ -60,15 +68,80 @@ public class MemberAdminService {
 			TenantMembershipRepository tenantMembershipRepository,
 			MembershipRoleRepository membershipRoleRepository,
 			MembershipPermissionOverrideRepository overrideRepository,
+			ResourceScopeRepository resourceScopeRepository,
+			BranchRepository branchRepository,
+			DepartmentRepository departmentRepository,
 			TenantAuditService tenantAuditService,
 			TenantSessionVariable tenantSessionVariable,
 			EntityManager entityManager) {
 		this.tenantMembershipRepository = tenantMembershipRepository;
 		this.membershipRoleRepository = membershipRoleRepository;
 		this.overrideRepository = overrideRepository;
+		this.resourceScopeRepository = resourceScopeRepository;
+		this.branchRepository = branchRepository;
+		this.departmentRepository = departmentRepository;
 		this.tenantAuditService = tenantAuditService;
 		this.tenantSessionVariable = tenantSessionVariable;
 		this.entityManager = entityManager;
+	}
+
+	@Transactional(readOnly = true)
+	public Optional<List<ResourceScopeView>> listScopes(AuthorizationContext context, Long membershipId) {
+		tenantSessionVariable.apply(context.companyId());
+		return tenantMembershipRepository.findByIdAndCompanyId(membershipId, context.companyId())
+				.map(membership -> resourceScopeRepository.findByMembershipId(membershipId).stream()
+						.map(scope -> new ResourceScopeView(scope.getScopeType(), scope.getScopeId()))
+						.toList());
+	}
+
+	@Transactional
+	public MutationResult assignScope(AuthorizationContext context, Long membershipId, AssignScopeRequest request) {
+		tenantSessionVariable.apply(context.companyId());
+		if (tenantMembershipRepository.findByIdAndCompanyId(membershipId, context.companyId()).isEmpty()) {
+			return new MutationResult.NotFound();
+		}
+		if (membershipId.equals(context.membershipId())) {
+			return new MutationResult.SelfMutation();
+		}
+		if (!scopeTargetResolves(context, request.scopeType(), request.scopeId())) {
+			return new MutationResult.NotFound();
+		}
+		if (resourceScopeRepository.findByMembershipIdAndScopeTypeAndScopeId(
+				membershipId, request.scopeType(), request.scopeId()).isPresent()) {
+			return new MutationResult.Duplicate();
+		}
+		resourceScopeRepository.save(
+				new ResourceScope(membershipId, context.companyId(), request.scopeType(), request.scopeId()));
+		tenantAuditService.record(context, membershipId, "SCOPE_ASSIGNED", null,
+				request.scopeType() + ":" + request.scopeId());
+		return new MutationResult.Done();
+	}
+
+	@Transactional
+	public MutationResult revokeScope(
+			AuthorizationContext context, Long membershipId, ResourceScopeType scopeType, Long scopeId) {
+		tenantSessionVariable.apply(context.companyId());
+		if (tenantMembershipRepository.findByIdAndCompanyId(membershipId, context.companyId()).isEmpty()) {
+			return new MutationResult.NotFound();
+		}
+		if (membershipId.equals(context.membershipId())) {
+			return new MutationResult.SelfMutation();
+		}
+		Optional<ResourceScope> scope =
+				resourceScopeRepository.findByMembershipIdAndScopeTypeAndScopeId(membershipId, scopeType, scopeId);
+		if (scope.isEmpty()) {
+			return new MutationResult.NotFound();
+		}
+		resourceScopeRepository.delete(scope.get());
+		tenantAuditService.record(context, membershipId, "SCOPE_REVOKED", null, scopeType + ":" + scopeId);
+		return new MutationResult.Done();
+	}
+
+	private boolean scopeTargetResolves(AuthorizationContext context, ResourceScopeType scopeType, Long scopeId) {
+		return switch (scopeType) {
+			case BRANCH -> branchRepository.findByIdAndCompanyId(scopeId, context.companyId()).isPresent();
+			case DEPARTMENT -> departmentRepository.findByIdAndCompanyId(scopeId, context.companyId()).isPresent();
+		};
 	}
 
 	@Transactional(readOnly = true)
