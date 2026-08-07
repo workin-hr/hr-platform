@@ -60,4 +60,13 @@ public class TenantMembership {
 		return status == MembershipStatus.ACTIVE;
 	}
 
+	/** Fails this membership closed on its very next request (Dimension 5, F-20). */
+	public void disable() {
+		this.status = MembershipStatus.DISABLED;
+	}
+
+	public void activate() {
+		this.status = MembershipStatus.ACTIVE;
+	}
+
 }
