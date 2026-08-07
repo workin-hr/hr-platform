@@ -94,6 +94,20 @@ public class EmployeeService {
 				});
 	}
 
+	@Transactional
+	public Optional<EmployeeView> updateStatus(AuthorizationContext context, Long employeeId, boolean active) {
+		tenantSessionVariable.apply(context.companyId());
+		return employeeRepository.findByIdAndCompanyId(employeeId, context.companyId())
+				.map(employee -> {
+					if (active) {
+						employee.activate();
+					} else {
+						employee.deactivate();
+					}
+					return EmployeeView.of(employee);
+				});
+	}
+
 	/**
 	 * Each non-null org reference must resolve in-tenant; a miss is the
 	 * same 404 as a nonexistent id (F-18's uniform-404 rule, section 8).

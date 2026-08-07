@@ -108,6 +108,15 @@ public class Employee {
 		return jobTitleId;
 	}
 
+	/** Lifecycle toggle -- deactivated employees are skipped by payroll calculate. */
+	public void deactivate() {
+		this.active = false;
+	}
+
+	public void activate() {
+		this.active = true;
+	}
+
 	/** Org attribution (V29); nulls clear. Reference validation lives in EmployeeService. */
 	public void place(Long branchId, Long departmentId, Long jobTitleId) {
 		this.branchId = branchId;

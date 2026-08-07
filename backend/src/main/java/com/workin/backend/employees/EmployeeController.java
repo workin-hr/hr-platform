@@ -67,6 +67,15 @@ public class EmployeeController {
 				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
 	}
 
+	@RequiresPermission(PermissionKeys.EMPLOYEES_MANAGE)
+	@PutMapping("/{employeeId}/status")
+	public EmployeeView updateStatus(
+			HttpServletRequest request, @PathVariable Long employeeId,
+			@Valid @RequestBody UpdateEmployeeStatusRequest body) {
+		return employeeService.updateStatus(contextFrom(request), employeeId, body.active())
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+	}
+
 	private static AuthorizationContext contextFrom(HttpServletRequest request) {
 		Object context = request.getAttribute(AuthorizationContext.class.getName());
 		if (context == null) {
