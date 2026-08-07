@@ -24,4 +24,12 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
 	Optional<Attendance> findFirstByEmployeeIdAndCompanyIdAndExceptionTypeIdIsNullAndIdNotAndCheckInLessThanEqualOrderByCheckInDesc(
 			Long employeeId, Long companyId, Long excludedId, Instant checkIn);
 
+	/**
+	 * The request-approval side effect's skip rule (legacy
+	 * request_apply_attendance_exceptions): a day already holding any
+	 * attendance row for the employee gets no exception row.
+	 */
+	boolean existsByEmployeeIdAndCheckInGreaterThanEqualAndCheckInLessThan(
+			Long employeeId, Instant dayStart, Instant nextDayStart);
+
 }
