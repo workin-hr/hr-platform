@@ -30,7 +30,12 @@ implementation time:
   calendar days for day-rate/absence calculations?
 - Where does per-company fiscal-period configuration
   (`month_start_day`/`month_end_day`) live until the `company_settings`
-  module is built?
+  module is built? **Resolved 2026-08-07**: the typed
+  `company_settings` module exists (V27,
+  `docs/superpowers/specs/2026-08-07-company-settings-first-slice-design.md`)
+  and `PayrollBatchService.create` computes batch periods with the
+  ported `payroll_fiscal_period_bounds` algorithm; unset settings
+  reproduce calendar months exactly.
 - What should the real advance-deduction scheduling mechanism be at
   payroll finalize? The current implementation uses an explicit,
   documented v1 heuristic (oldest APPROVED advance first, FIFO) because
@@ -53,7 +58,9 @@ neither is decided by that document:
 - The auto-created leave balance uses the constant 21.0-day fallback;
   legacy consults the `MONTHLY_LEAVE_ACCRUAL` company setting first.
   Revisit when the `company_settings` module exists (same family as
-  the payroll fiscal-period question above).
+  the payroll fiscal-period question above). **Resolved 2026-08-07**:
+  `RequestService` now reads `monthly_leave_accrual` via
+  `CompanySettingsService.effective` with 21.0 as the unset fallback.
 
 ## Tooling
 

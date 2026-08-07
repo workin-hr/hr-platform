@@ -15,6 +15,8 @@ import org.springframework.web.server.ResponseStatusException;
 import com.workin.backend.advances.Advance;
 import com.workin.backend.advances.AdvanceRepository;
 import com.workin.backend.advances.AdvanceStatus;
+import com.workin.backend.companysettings.CompanySettingsService;
+import com.workin.backend.companysettings.EffectiveCompanySettings;
 import com.workin.backend.employees.Employee;
 import com.workin.backend.employees.EmployeeRepository;
 import com.workin.backend.penalties.Penalty;
@@ -58,6 +60,7 @@ public class PayrollBatchService {
 	private final PenaltyRepository penaltyRepository;
 	private final AdvanceRepository advanceRepository;
 	private final PayrollCalculationService payrollCalculationService;
+	private final CompanySettingsService companySettingsService;
 	private final TenantSessionVariable tenantSessionVariable;
 
 	public PayrollBatchService(
@@ -68,6 +71,7 @@ public class PayrollBatchService {
 			PenaltyRepository penaltyRepository,
 			AdvanceRepository advanceRepository,
 			PayrollCalculationService payrollCalculationService,
+			CompanySettingsService companySettingsService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.payrollBatchRepository = payrollBatchRepository;
 		this.payslipRepository = payslipRepository;
@@ -76,14 +80,33 @@ public class PayrollBatchService {
 		this.penaltyRepository = penaltyRepository;
 		this.advanceRepository = advanceRepository;
 		this.payrollCalculationService = payrollCalculationService;
+		this.companySettingsService = companySettingsService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	@Transactional
 	public PayrollBatchView create(AuthorizationContext context, short month, short year) {
 		tenantSessionVariable.apply(context.companyId());
+		// Legacy payroll_fiscal_period_bounds, ported exactly: start day
+		// = setting or 1; end day = setting or the month's last day; each
+		// bound capped to its own month's real last day; when start > end
+		// the period spans from the previous month's start day (e.g. a
+		// 26th -> 25th fiscal month). Unset settings reproduce the
+		// calendar month exactly.
+		EffectiveCompanySettings settings = companySettingsService.effective(context.companyId());
 		YearMonth ym = YearMonth.of(year, month);
-		PayrollBatch batch = new PayrollBatch(context.companyId(), month, year, ym.atDay(1), ym.atEndOfMonth());
+		int lastDom = ym.lengthOfMonth();
+		int startDay = settings.monthStartDay();
+		int endDay = settings.monthEndDay() != null ? settings.monthEndDay() : lastDom;
+		LocalDate periodTo = ym.atDay(Math.min(endDay, lastDom));
+		LocalDate periodFrom;
+		if (startDay <= endDay) {
+			periodFrom = ym.atDay(Math.min(startDay, lastDom));
+		} else {
+			YearMonth previous = ym.minusMonths(1);
+			periodFrom = previous.atDay(Math.min(startDay, previous.lengthOfMonth()));
+		}
+		PayrollBatch batch = new PayrollBatch(context.companyId(), month, year, periodFrom, periodTo);
 		try {
 			return PayrollBatchView.of(payrollBatchRepository.save(batch));
 		} catch (DataIntegrityViolationException ex) {
