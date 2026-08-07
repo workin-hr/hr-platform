@@ -71,9 +71,11 @@ ESSENTIAL_RUNTIME_TOOLS = ("git", "bash", "sh", "python3")
 def _essential_runtime_path_dirs() -> str:
     """Directories, resolved from the real inherited PATH via shutil.which,
     that contain the essential runtimes above — deduplicated and joined
-    with ':', with SYSTEM_PATH_DIRS appended as a fallback safety net.
+    with ':'. SYSTEM_PATH_DIRS is used only as a last-resort fallback when
+    *none* of the essential runtimes resolve at all (a maximally broken
+    PATH) — never appended unconditionally.
 
-    A fixed, hardcoded directory list (the prior approach — just
+    A fixed, hardcoded directory list (the original approach — just
     SYSTEM_PATH_DIRS on its own) breaks on any environment where these
     tools live somewhere nonstandard, e.g. a snap-confined git at
     /snap/codex/34/usr/bin/git: verify-bootstrap.sh's nested
@@ -81,17 +83,24 @@ def _essential_runtime_path_dirs() -> str:
     `FileNotFoundError`/a nonzero exit, `get_current_branch()` returns
     None, and the whole subprocess exits before ever reaching the SUMMARY
     line this test is actually trying to check — a real, demonstrated
-    failure found by independent review, not a hypothetical one.
+    failure found by independent review, not a hypothetical one. That's
+    why dynamic shutil.which() resolution exists at all.
 
-    This resolves only the specific directories essential runtimes are
-    actually in, not the whole inherited PATH — it does not reintroduce
-    the leaked-real-lint-tool bug run_verify_bootstrap_with_shims's own
-    docstring describes, because PATH resolution is per exact command
-    name: adding git's resolved directory only risks leaking in a binary
-    that happens to be named e.g. "shellcheck" in that same directory,
-    which is a much narrower coincidence than "somewhere on the entire
-    inherited PATH", and not the failure mode that was previously
-    confirmed in CI."""
+    An *unconditional* SYSTEM_PATH_DIRS append (the first fix attempt)
+    reintroduced a narrower version of the same leaked-real-tool bug
+    run_verify_bootstrap_with_shims's own docstring describes: on
+    GitHub Actions' ubuntu-latest runners, git/python3/bash/sh all
+    resolve to /usr/bin or /bin, which are also exactly the directories
+    SYSTEM_PATH_DIRS names — so appending the *entire* fallback list
+    regardless of whether it was needed put every other binary living in
+    those directories back on PATH, including (confirmed by a real CI
+    failure investigating hr-platform#26) at least one of the six
+    tracked external tools, breaking the exact-N-tools-skipped
+    assertions this function exists to make possible. Falling back to
+    SYSTEM_PATH_DIRS only when zero essential runtimes resolved at all
+    keeps the genuine safety net (a completely empty/broken PATH still
+    gets *something* to work with) without ever reintroducing extra
+    directories in the common case where resolution already succeeded."""
     dirs: list[str] = []
     for tool in ESSENTIAL_RUNTIME_TOOLS:
         found = shutil.which(tool)
@@ -100,9 +109,8 @@ def _essential_runtime_path_dirs() -> str:
         tool_dir = str(Path(found).resolve().parent)
         if tool_dir not in dirs:
             dirs.append(tool_dir)
-    for fallback_dir in SYSTEM_PATH_DIRS.split(":"):
-        if fallback_dir not in dirs:
-            dirs.append(fallback_dir)
+    if not dirs:
+        dirs.extend(SYSTEM_PATH_DIRS.split(":"))
     return ":".join(dirs)
 
 
