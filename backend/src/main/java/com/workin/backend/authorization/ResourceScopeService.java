@@ -86,6 +86,24 @@ public class ResourceScopeService {
 		return reachableEmployeeIds(context).contains(employeeId);
 	}
 
+	/**
+	 * The reusable list-filter primitive: {@code null} means not
+	 * scope-limited (company-wide, no filtering), otherwise the reachable
+	 * employee set. Callers filter their employee-bound rows by
+	 * membership in this set when it is non-null.
+	 */
+	public Set<Long> scopedEmployeeIdsOrNull(AuthorizationContext context) {
+		return isScopeLimited(context) ? reachableEmployeeIds(context) : null;
+	}
+
+	/**
+	 * The reusable single-row guard: a non-scope-limited caller reaches
+	 * every employee; a scope-limited one only those in its scoped set.
+	 */
+	public boolean isEmployeeInScope(AuthorizationContext context, Long employeeId) {
+		return !isScopeLimited(context) || canReachEmployee(context, employeeId);
+	}
+
 	@SuppressWarnings("unchecked")
 	private List<Long> scopeIdsOf(Long membershipId, ResourceScopeType scopeType) {
 		return entityManager.createNativeQuery(

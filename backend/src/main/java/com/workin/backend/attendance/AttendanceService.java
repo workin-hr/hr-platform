@@ -68,7 +68,7 @@ public class AttendanceService {
 	@Transactional(readOnly = true)
 	public List<AttendanceView> list(AuthorizationContext context, Long employeeId, LocalDate from, LocalDate to) {
 		tenantSessionVariable.apply(context.companyId());
-		Set<Long> reach = scopedReachOrNull(context);
+		Set<Long> reach = resourceScopeService.scopedEmployeeIdsOrNull(context);
 		List<Attendance> rows = employeeId != null
 				? attendanceRepository.findByEmployeeIdAndCompanyIdOrderById(employeeId, context.companyId())
 				: attendanceRepository.findByCompanyIdOrderById(context.companyId());
@@ -86,7 +86,7 @@ public class AttendanceService {
 	public Optional<AttendanceView> get(AuthorizationContext context, Long attendanceId) {
 		tenantSessionVariable.apply(context.companyId());
 		return attendanceRepository.findByIdAndCompanyId(attendanceId, context.companyId())
-				.filter(row -> canReach(context, row.getEmployeeId()))
+				.filter(row -> resourceScopeService.isEmployeeInScope(context,row.getEmployeeId()))
 				.map(AttendanceView::of);
 	}
 
@@ -94,7 +94,7 @@ public class AttendanceService {
 	public MutationResult create(AuthorizationContext context, CreateAttendanceRequest request) {
 		tenantSessionVariable.apply(context.companyId());
 		if (employeeRepository.findByIdAndCompanyId(request.employeeId(), context.companyId()).isEmpty()
-				|| !canReach(context, request.employeeId())) {
+				|| !resourceScopeService.isEmployeeInScope(context,request.employeeId())) {
 			return new MutationResult.NotFound();
 		}
 		Attendance attendance = new Attendance(request.employeeId(), context.companyId());
@@ -111,7 +111,7 @@ public class AttendanceService {
 	public MutationResult update(AuthorizationContext context, Long attendanceId, UpdateAttendanceRequest request) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<Attendance> existing = attendanceRepository.findByIdAndCompanyId(attendanceId, context.companyId());
-		if (existing.isEmpty() || !canReach(context, existing.get().getEmployeeId())) {
+		if (existing.isEmpty() || !resourceScopeService.isEmployeeInScope(context,existing.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		Attendance attendance = existing.get();
@@ -128,29 +128,11 @@ public class AttendanceService {
 	public MutationResult delete(AuthorizationContext context, Long attendanceId) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<Attendance> existing = attendanceRepository.findByIdAndCompanyId(attendanceId, context.companyId());
-		if (existing.isEmpty() || !canReach(context, existing.get().getEmployeeId())) {
+		if (existing.isEmpty() || !resourceScopeService.isEmployeeInScope(context,existing.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		attendanceRepository.delete(existing.get());
 		return new MutationResult.Done(null);
-	}
-
-	/**
-	 * Enforcement boundary 3: {@code null} reach = not scope-limited
-	 * (company-wide, everyone reachable). Otherwise the row's employee
-	 * must be in the scoped set. Computed once per call.
-	 */
-	private Set<Long> scopedReachOrNull(AuthorizationContext context) {
-		return resourceScopeService.isScopeLimited(context)
-				? resourceScopeService.reachableEmployeeIds(context)
-				: null;
-	}
-
-	private boolean canReach(AuthorizationContext context, Long employeeId) {
-		if (!resourceScopeService.isScopeLimited(context)) {
-			return true;
-		}
-		return resourceScopeService.canReachEmployee(context, employeeId);
 	}
 
 	/**
