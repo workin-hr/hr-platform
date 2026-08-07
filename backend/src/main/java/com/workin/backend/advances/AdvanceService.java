@@ -3,10 +3,12 @@ package com.workin.backend.advances;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.employees.EmployeeRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantSessionVariable;
@@ -25,22 +27,27 @@ public class AdvanceService {
 
 	private final AdvanceRepository advanceRepository;
 	private final EmployeeRepository employeeRepository;
+	private final ResourceScopeService resourceScopeService;
 	private final TenantSessionVariable tenantSessionVariable;
 
 	public AdvanceService(
 			AdvanceRepository advanceRepository,
 			EmployeeRepository employeeRepository,
+			ResourceScopeService resourceScopeService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.advanceRepository = advanceRepository;
 		this.employeeRepository = employeeRepository;
+		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	@Transactional
 	public List<AdvanceView> list(AuthorizationContext context) {
 		tenantSessionVariable.apply(context.companyId());
+		Set<Long> reach = resourceScopeService.scopedEmployeeIdsOrNull(context);
 		return advanceRepository.findByCompanyIdOrderById(context.companyId())
 				.stream()
+				.filter(a -> reach == null || reach.contains(a.getEmployeeId()))
 				.map(AdvanceView::of)
 				.toList();
 	}
@@ -49,6 +56,7 @@ public class AdvanceService {
 	public Optional<AdvanceView> get(AuthorizationContext context, Long advanceId) {
 		tenantSessionVariable.apply(context.companyId());
 		return advanceRepository.findByIdAndCompanyId(advanceId, context.companyId())
+				.filter(a -> resourceScopeService.isEmployeeInScope(context, a.getEmployeeId()))
 				.map(AdvanceView::of);
 	}
 
@@ -56,6 +64,7 @@ public class AdvanceService {
 	public Optional<AdvanceView> create(AuthorizationContext context, CreateAdvanceRequest request) {
 		tenantSessionVariable.apply(context.companyId());
 		return employeeRepository.findByIdAndCompanyId(request.employeeId(), context.companyId())
+				.filter(employee -> resourceScopeService.isEmployeeInScope(context, employee.getId()))
 				.map(employee -> AdvanceView.of(advanceRepository.save(new Advance(
 						employee.getId(), context.companyId(), request.amount(), request.reason(),
 						LocalDate.now()))));
@@ -75,7 +84,7 @@ public class AdvanceService {
 			AuthorizationContext context, Long advanceId, java.util.function.Consumer<Advance> change) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<Advance> found = advanceRepository.findByIdAndCompanyId(advanceId, context.companyId());
-		if (found.isEmpty()) {
+		if (found.isEmpty() || !resourceScopeService.isEmployeeInScope(context, found.get().getEmployeeId())) {
 			return new TransitionResult.NotFound();
 		}
 		Advance advance = found.get();
