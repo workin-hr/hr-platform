@@ -194,6 +194,54 @@ class ManagerScopeFlowTest extends AbstractIntegrationTest {
 		assertThat(attendanceEmployeeIds(managerHr.accessToken())).containsExactlyInAnyOrder(empA, empB);
 	}
 
+	private void allowManager(Long companyId, Long membershipId, String permissionKey) {
+		jdbc().update(
+				"INSERT INTO membership_permission_overrides (membership_id, company_id, permission_id, effect) "
+						+ "SELECT ?, ?, p.id, 'ALLOW' FROM permissions p WHERE p.permission_key = ?",
+				membershipId, companyId, permissionKey);
+	}
+
+	@Test
+	void penaltiesRespectManagerScope() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long branchA = createBranch(admin.companyId(), "A");
+		Long branchB = createBranch(admin.companyId(), "B");
+		Long empA = createEmployee(admin.companyId(), branchA, null);
+		Long empB = createEmployee(admin.companyId(), branchB, null);
+		Long penaltyA = jdbc().queryForObject(
+				"INSERT INTO penalties (employee_id, company_id, penalty_type, penalty_days, penalty_date) "
+						+ "VALUES (?, ?, 'late', 1.0, '2026-03-01') RETURNING id",
+				Long.class, empA, admin.companyId());
+		Long penaltyB = jdbc().queryForObject(
+				"INSERT INTO penalties (employee_id, company_id, penalty_type, penalty_days, penalty_date) "
+						+ "VALUES (?, ?, 'late', 1.0, '2026-03-01') RETURNING id",
+				Long.class, empB, admin.companyId());
+
+		ManagerFixture manager = loginScopedManager(admin.companyId(), false);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.PENALTIES_READ);
+		allowManager(admin.companyId(), manager.membershipId(), PermissionKeys.PENALTIES_MANAGE);
+		assignScope(admin, manager.membershipId(), "BRANCH", branchA);
+
+		ResponseEntity<List<Map<String, Object>>> list = restTemplate.exchange(
+				"/api/tenant/penalties", HttpMethod.GET, new HttpEntity<>(bearer(manager.accessToken())),
+				new ParameterizedTypeReference<>() {
+				});
+		assertThat(list.getBody()).extracting(row -> ((Number) row.get("id")).longValue())
+				.containsExactly(penaltyA);
+
+		assertThat(restTemplate.exchange("/api/tenant/penalties/" + penaltyB, HttpMethod.GET,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(restTemplate.exchange("/api/tenant/penalties/" + penaltyB, HttpMethod.DELETE,
+				new HttpEntity<>(bearer(manager.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		// Create for an out-of-scope employee -> 404.
+		assertThat(restTemplate.exchange("/api/tenant/penalties", HttpMethod.POST,
+				new HttpEntity<>(Map.of("employeeId", empB, "penaltyType", "late", "penaltyDays", 1.0),
+						bearer(manager.accessToken())),
+				String.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
 	@Test
 	void revokingAScopeHidesTheEmployeeAgainOnTheNextRequest() {
 		AuthResponse admin = registerCompanyAdmin();
