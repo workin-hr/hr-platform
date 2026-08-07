@@ -40,6 +40,21 @@ implementation time:
   legacy `deduction_type` redundancy as a product decision. Revisit
   once that decision is made.
 
+## Requests/Leave Migration
+
+Surfaced by `docs/superpowers/specs/2026-08-07-requests-leave-balances-first-slice-design.md` —
+neither is decided by that document:
+
+- Legacy's `exception_type_resolve_for_company()` (a company-default
+  fallback when a request type has `add_attendance_exception` but no
+  `exception_type_id`) was not read this pass — the new approve
+  conservatively skips the side effect in that case. Read the resolver
+  and decide whether to port its fallback.
+- The auto-created leave balance uses the constant 21.0-day fallback;
+  legacy consults the `MONTHLY_LEAVE_ACCRUAL` company setting first.
+  Revisit when the `company_settings` module exists (same family as
+  the payroll fiscal-period question above).
+
 ## Tooling
 
 - Will `specify-cli` be installed during Phase 0 or deferred until human review approves it?
