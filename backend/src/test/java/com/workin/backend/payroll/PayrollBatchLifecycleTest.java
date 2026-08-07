@@ -96,6 +96,25 @@ class PayrollBatchLifecycleTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void dailyContractWithoutADailyWageIsRejectedAtWriteNotAtCalculate() {
+		AuthResponse companyA = register("Company A");
+		HttpHeaders headers = bearer(companyA.accessToken());
+		Long employeeId = createEmployeeRecord(companyA.companyId());
+
+		// DAILY mode with a null dailyWage: PayrollCalculationService
+		// dereferences dailyWage for DAILY, so this would otherwise save
+		// cleanly and then NPE the whole batch at calculate time.
+		UpsertSalaryContractRequest missingDailyWage = new UpsertSalaryContractRequest(
+				SalaryMode.DAILY, null, null, null, null, null, null, null,
+				null, null, null, null, null, LocalDate.of(2026, 1, 1));
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/tenant/salary-contracts?employeeId=" + employeeId, HttpMethod.POST,
+				new HttpEntity<>(missingDailyWage, headers), String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+	}
+
+	@Test
 	void calculateFinalizeAndReopenTransitionStatusCorrectly() {
 		AuthResponse companyA = register("Company A");
 		HttpHeaders headers = bearer(companyA.accessToken());
@@ -171,6 +190,42 @@ class PayrollBatchLifecycleTest extends AbstractIntegrationTest {
 		assertThat(batch.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(batch.getBody().periodFrom()).isEqualTo(LocalDate.of(2026, 2, 28));
 		assertThat(batch.getBody().periodTo()).isEqualTo(LocalDate.of(2026, 2, 28));
+	}
+
+	@Test
+	void payslipDaysPresentReflectsTheRealFiscalPeriodLengthNotTheEndDayOfMonth() {
+		AuthResponse companyA = register("Company A");
+		HttpHeaders headers = bearer(companyA.accessToken());
+		JdbcTemplate jdbc = new JdbcTemplate(flywayDataSource);
+
+		Long employeeId = createEmployeeRecord(companyA.companyId());
+		UpsertSalaryContractRequest contract = new UpsertSalaryContractRequest(
+				SalaryMode.MONTHLY, BigDecimal.valueOf(3000), null, null, null, null, null, null,
+				null, null, null, null, null, LocalDate.of(2026, 1, 1));
+		restTemplate.exchange(
+				"/api/tenant/salary-contracts?employeeId=" + employeeId, HttpMethod.POST,
+				new HttpEntity<>(contract, headers), SalaryContractView.class);
+
+		// Fiscal month 26th -> 25th: the period is 2026-02-26..2026-03-25,
+		// whose real inclusive length is 28 days. The old
+		// getPeriodTo().getDayOfMonth() would have stored 25.
+		restTemplate.exchange(
+				"/api/tenant/company-settings", HttpMethod.PUT,
+				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 26, (short) 25, null, null, null), headers),
+				String.class);
+
+		Long batchId = restTemplate.exchange(
+				"/api/tenant/payroll-batches", HttpMethod.POST,
+				new HttpEntity<>(new CreateBatchRequest((short) 3, (short) 2026), headers), PayrollBatchView.class)
+				.getBody().id();
+		restTemplate.exchange(
+				"/api/tenant/payroll-batches/" + batchId + "/calculate", HttpMethod.POST,
+				new HttpEntity<>(headers), PayrollBatchView.class);
+
+		Integer daysPresent = jdbc.queryForObject(
+				"SELECT days_present FROM payslips WHERE batch_id = ? AND employee_id = ?",
+				Integer.class, batchId, employeeId);
+		assertThat(daysPresent).isEqualTo(28);
 	}
 
 	@Test

@@ -4,6 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import javax.sql.DataSource;
 
@@ -16,6 +21,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -230,6 +236,92 @@ class MemberAdminFlowTest extends AbstractIntegrationTest {
 				.isEqualTo(HttpStatus.CREATED);
 		assertThat(removeRole(actor.accessToken(), adminMembership, TenantRole.COMPANY_ADMIN).getStatusCode())
 				.isEqualTo(HttpStatus.NO_CONTENT);
+	}
+
+	@Test
+	void concurrentIdenticalRoleAssignmentsNeverProduceAServerError() throws InterruptedException {
+		// The findByMembershipIdAndRole() pre-check only closes the common
+		// case; it cannot close the window between two concurrent assigns
+		// of the same role. Firing several at once forces at least one to
+		// lose that race and hit membership_roles_membership_role_unique
+		// directly -- that must be a clean 409, never an uncaught 500.
+		AuthResponse admin = registerCompanyAdmin();
+		MemberFixture member = loginMember(admin.companyId(), TenantRole.EMPLOYEE);
+
+		int attempts = 6;
+		CountDownLatch startGate = new CountDownLatch(1);
+		CountDownLatch doneLatch = new CountDownLatch(attempts);
+		List<HttpStatusCode> statuses = new CopyOnWriteArrayList<>();
+		ExecutorService pool = Executors.newFixedThreadPool(attempts);
+		try {
+			for (int i = 0; i < attempts; i++) {
+				pool.submit(() -> {
+					try {
+						startGate.await();
+						statuses.add(assignRole(admin.accessToken(), member.membershipId(), TenantRole.HR).getStatusCode());
+					} catch (InterruptedException ex) {
+						Thread.currentThread().interrupt();
+					} finally {
+						doneLatch.countDown();
+					}
+				});
+			}
+			startGate.countDown();
+			assertThat(doneLatch.await(30, TimeUnit.SECONDS)).isTrue();
+		} finally {
+			pool.shutdown();
+		}
+
+		assertThat(statuses).hasSize(attempts);
+		assertThat(statuses).doesNotContain(HttpStatus.INTERNAL_SERVER_ERROR);
+		assertThat(statuses).containsOnly(HttpStatus.CREATED, HttpStatus.CONFLICT);
+		assertThat(statuses).contains(HttpStatus.CREATED);
+	}
+
+	@Test
+	void concurrentRemovalOfTwoCompanyAdminsCannotDropTheCompanyToZero() throws InterruptedException {
+		// Two active COMPANY_ADMINs, each removed by a concurrent request.
+		// A plain COUNT last-admin guard under READ COMMITTED lets both
+		// see one-other-admin and both proceed to zero. The FOR UPDATE
+		// row lock serializes them: exactly one removal wins, the other is
+		// refused, and one admin always survives.
+		AuthResponse admin = registerCompanyAdmin();
+		Long firstAdmin = adminMembershipId(admin.companyId());
+		MemberFixture secondAdmin = loginMember(admin.companyId(), TenantRole.COMPANY_ADMIN);
+		// A separate actor performs both removals -- an admin cannot remove
+		// its own role (SelfMutation would mask the race under test).
+		MemberFixture actor = loginMember(admin.companyId(), TenantRole.HR);
+		allowPermission(actor.membershipId(), admin.companyId(), PermissionKeys.MEMBERS_MANAGE);
+
+		CountDownLatch startGate = new CountDownLatch(1);
+		CountDownLatch doneLatch = new CountDownLatch(2);
+		List<HttpStatusCode> statuses = new CopyOnWriteArrayList<>();
+		ExecutorService pool = Executors.newFixedThreadPool(2);
+		try {
+			for (Long target : List.of(firstAdmin, secondAdmin.membershipId())) {
+				pool.submit(() -> {
+					try {
+						startGate.await();
+						statuses.add(removeRole(actor.accessToken(), target, TenantRole.COMPANY_ADMIN).getStatusCode());
+					} catch (InterruptedException ex) {
+						Thread.currentThread().interrupt();
+					} finally {
+						doneLatch.countDown();
+					}
+				});
+			}
+			startGate.countDown();
+			assertThat(doneLatch.await(30, TimeUnit.SECONDS)).isTrue();
+		} finally {
+			pool.shutdown();
+		}
+
+		assertThat(statuses).containsExactlyInAnyOrder(HttpStatus.NO_CONTENT, HttpStatus.CONFLICT);
+		Long remainingAdmins = jdbc().queryForObject(
+				"SELECT COUNT(*) FROM membership_roles mr JOIN tenant_memberships tm ON tm.id = mr.membership_id "
+						+ "WHERE mr.company_id = ? AND mr.role = 'COMPANY_ADMIN' AND tm.status = 'ACTIVE'",
+				Long.class, admin.companyId());
+		assertThat(remainingAdmins).isEqualTo(1L);
 	}
 
 	@Test

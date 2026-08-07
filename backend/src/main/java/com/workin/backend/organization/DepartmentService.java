@@ -1,6 +1,9 @@
 package com.workin.backend.organization;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.dao.DataIntegrityViolationException;
@@ -45,8 +48,13 @@ public class DepartmentService {
 	@Transactional(readOnly = true)
 	public List<DepartmentView> list(AuthorizationContext context) {
 		tenantSessionVariable.apply(context.companyId());
+		// Fetch the junction rows for the whole company once and group in
+		// memory rather than issuing branchIdsOf() per department (a 1+N
+		// query), mirroring MemberAdminService.list's bulk role fetch.
+		Map<Long, List<Long>> branchIdsByDepartment = branchIdsByDepartment(context.companyId());
 		return departmentRepository.findByCompanyIdOrderById(context.companyId()).stream()
-				.map(department -> DepartmentView.of(department, branchIdsOf(department.getId())))
+				.map(department -> DepartmentView.of(
+						department, branchIdsByDepartment.getOrDefault(department.getId(), List.of())))
 				.toList();
 	}
 
@@ -132,6 +140,14 @@ public class DepartmentService {
 		return departmentBranchRepository.findByDepartmentId(departmentId).stream()
 				.map(DepartmentBranch::getBranchId)
 				.toList();
+	}
+
+	private Map<Long, List<Long>> branchIdsByDepartment(Long companyId) {
+		Map<Long, List<Long>> result = new HashMap<>();
+		for (DepartmentBranch link : departmentBranchRepository.findByCompanyIdOrderById(companyId)) {
+			result.computeIfAbsent(link.getDepartmentId(), id -> new ArrayList<>()).add(link.getBranchId());
+		}
+		return result;
 	}
 
 }
