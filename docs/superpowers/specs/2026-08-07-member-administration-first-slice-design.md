@@ -99,8 +99,10 @@ it).
 Package `com.workin.backend.members`: `MemberController`,
 `MemberAdminService` (result objects `NotFound` | `SelfMutation` |
 `LastAdmin` | `Duplicate` | `Done`, mapped to 404/409/409/409/2xx —
-the three 409 variants exist so tests can assert the right rule fired
-via the response body reason), `TenantAuditService` +
+the 409 variants carry distinct reason strings for server-side
+clarity, but response bodies stay message-free (Spring's
+include-message default is deliberately kept), so tests pin which
+rule fired by scenario construction), `TenantAuditService` +
 `TenantAuditEvent` entity/repository, JPA entities/repositories for
 `membership_roles` and `membership_permission_overrides` if none
 exist yet (they are currently reached only via SQL and
