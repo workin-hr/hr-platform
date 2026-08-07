@@ -44,6 +44,15 @@ public class Employee {
 	@Column(nullable = false)
 	private boolean active = true;
 
+	@Column(name = "branch_id")
+	private Long branchId;
+
+	@Column(name = "department_id")
+	private Long departmentId;
+
+	@Column(name = "job_title_id")
+	private Long jobTitleId;
+
 	protected Employee() {
 	}
 
@@ -85,6 +94,25 @@ public class Employee {
 	public void rename(String firstName, String lastName) {
 		this.firstName = firstName;
 		this.lastName = lastName == null ? "" : lastName;
+	}
+
+	public Long getBranchId() {
+		return branchId;
+	}
+
+	public Long getDepartmentId() {
+		return departmentId;
+	}
+
+	public Long getJobTitleId() {
+		return jobTitleId;
+	}
+
+	/** Org attribution (V29); nulls clear. Reference validation lives in EmployeeService. */
+	public void place(Long branchId, Long departmentId, Long jobTitleId) {
+		this.branchId = branchId;
+		this.departmentId = departmentId;
+		this.jobTitleId = jobTitleId;
 	}
 
 }

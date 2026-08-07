@@ -9,6 +9,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.workin.backend.organization.BranchRepository;
+import com.workin.backend.organization.DepartmentRepository;
+import com.workin.backend.organization.JobTitleRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantSessionVariable;
 
@@ -28,10 +31,21 @@ import com.workin.backend.tenancy.TenantSessionVariable;
 public class EmployeeService {
 
 	private final EmployeeRepository employeeRepository;
+	private final BranchRepository branchRepository;
+	private final DepartmentRepository departmentRepository;
+	private final JobTitleRepository jobTitleRepository;
 	private final TenantSessionVariable tenantSessionVariable;
 
-	public EmployeeService(EmployeeRepository employeeRepository, TenantSessionVariable tenantSessionVariable) {
+	public EmployeeService(
+			EmployeeRepository employeeRepository,
+			BranchRepository branchRepository,
+			DepartmentRepository departmentRepository,
+			JobTitleRepository jobTitleRepository,
+			TenantSessionVariable tenantSessionVariable) {
 		this.employeeRepository = employeeRepository;
+		this.branchRepository = branchRepository;
+		this.departmentRepository = departmentRepository;
+		this.jobTitleRepository = jobTitleRepository;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
@@ -54,10 +68,12 @@ public class EmployeeService {
 	@Transactional
 	public EmployeeView create(AuthorizationContext context, CreateEmployeeRequest request) {
 		tenantSessionVariable.apply(context.companyId());
+		requireOrgReferences(context, request.branchId(), request.departmentId(), request.jobTitleId());
 		try {
-			Employee employee = employeeRepository.save(new Employee(
-					context.companyId(), request.firstName(), request.lastName(), request.phone()));
-			return EmployeeView.of(employee);
+			Employee employee = new Employee(
+					context.companyId(), request.firstName(), request.lastName(), request.phone());
+			employee.place(request.branchId(), request.departmentId(), request.jobTitleId());
+			return EmployeeView.of(employeeRepository.save(employee));
 		} catch (DataIntegrityViolationException ex) {
 			// employees.phone is globally UNIQUE (V8); same clean-409
 			// pattern as RegistrationService's registration race.
@@ -69,11 +85,29 @@ public class EmployeeService {
 	public Optional<EmployeeView> updateNames(
 			AuthorizationContext context, Long employeeId, UpdateEmployeeRequest request) {
 		tenantSessionVariable.apply(context.companyId());
+		requireOrgReferences(context, request.branchId(), request.departmentId(), request.jobTitleId());
 		return employeeRepository.findByIdAndCompanyId(employeeId, context.companyId())
 				.map(employee -> {
 					employee.rename(request.firstName(), request.lastName());
+					employee.place(request.branchId(), request.departmentId(), request.jobTitleId());
 					return EmployeeView.of(employee);
 				});
+	}
+
+	/**
+	 * Each non-null org reference must resolve in-tenant; a miss is the
+	 * same 404 as a nonexistent id (F-18's uniform-404 rule, section 8).
+	 */
+	private void requireOrgReferences(AuthorizationContext context, Long branchId, Long departmentId, Long jobTitleId) {
+		boolean resolves = (branchId == null
+				|| branchRepository.findByIdAndCompanyId(branchId, context.companyId()).isPresent())
+				&& (departmentId == null
+						|| departmentRepository.findByIdAndCompanyId(departmentId, context.companyId()).isPresent())
+				&& (jobTitleId == null
+						|| jobTitleRepository.findByIdAndCompanyId(jobTitleId, context.companyId()).isPresent());
+		if (!resolves) {
+			throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+		}
 	}
 
 }
