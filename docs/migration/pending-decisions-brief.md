@@ -19,12 +19,18 @@ evidence is missing). This separation is deliberate.
 
 Grouped by what supplies the answer.
 
-> **Update 2026-08-07 (D-029)**: A1, A3, and A4 are now **answered** by
-> the repository owner — see `docs/bootstrap/decision-log.md` D-029.
-> A1 = branch/department-scoped (manager-scoping slice underway);
+> **Update 2026-08-07 (D-029)**: A1, A3, and A4 answered — A1 =
+> branch/department-scoped (manager scoping shipped, PRs #60–#62);
 > A3 = add dry-run/confirm/audit to the future bulk-delete endpoint;
 > A4 = `housing_allowance` is a real settable field (row closed).
-> A2, A5, and groups B–E remain open per the notes below.
+>
+> **Update 2026-08-08 (D-030)**: A2 and A5 answered — A2 = employee
+> removal is **deactivation-only** (no hard-delete; `hr-legacy#20`
+> closed by construction); A5 = **no live QR caller known**
+> (`hr-legacy#16` not currently exploitable, parked). **All Group-A
+> product decisions are now resolved.** Only Groups B–E (client
+> source, device hardware, cutover window, parked factual unknowns)
+> remain — none actionable in this environment.
 
 ## A. Product / Business Decisions (owner call)
 
