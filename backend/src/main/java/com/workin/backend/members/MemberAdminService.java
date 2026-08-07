@@ -7,8 +7,11 @@ import java.util.Optional;
 
 import jakarta.persistence.EntityManager;
 
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.authorization.ResourceScope;
 import com.workin.backend.authorization.ResourceScopeRepository;
@@ -110,8 +113,12 @@ public class MemberAdminService {
 				membershipId, request.scopeType(), request.scopeId()).isPresent()) {
 			return new MutationResult.Duplicate();
 		}
-		resourceScopeRepository.save(
-				new ResourceScope(membershipId, context.companyId(), request.scopeType(), request.scopeId()));
+		try {
+			resourceScopeRepository.save(
+					new ResourceScope(membershipId, context.companyId(), request.scopeType(), request.scopeId()));
+		} catch (DataIntegrityViolationException ex) {
+			throw duplicateConflict(ex);
+		}
 		tenantAuditService.record(context, membershipId, "SCOPE_ASSIGNED", null,
 				request.scopeType() + ":" + request.scopeId());
 		return new MutationResult.Done();
@@ -194,7 +201,11 @@ public class MemberAdminService {
 		if (membershipRoleRepository.findByMembershipIdAndRole(membershipId, role).isPresent()) {
 			return new MutationResult.Duplicate();
 		}
-		membershipRoleRepository.save(new MembershipRoleAssignment(membershipId, context.companyId(), role));
+		try {
+			membershipRoleRepository.save(new MembershipRoleAssignment(membershipId, context.companyId(), role));
+		} catch (DataIntegrityViolationException ex) {
+			throw duplicateConflict(ex);
+		}
 		tenantAuditService.record(context, membershipId, "ROLE_ASSIGNED", null, role.name());
 		return new MutationResult.Done();
 	}
@@ -213,8 +224,11 @@ public class MemberAdminService {
 		if (assignment.isEmpty()) {
 			return new MutationResult.NotFound();
 		}
-		if (role == TenantRole.COMPANY_ADMIN && countOtherActiveCompanyAdmins(context.companyId(), membershipId) == 0) {
-			return new MutationResult.LastAdmin();
+		if (role == TenantRole.COMPANY_ADMIN) {
+			lockActiveCompanyAdmins(context.companyId());
+			if (countOtherActiveCompanyAdmins(context.companyId(), membershipId) == 0) {
+				return new MutationResult.LastAdmin();
+			}
 		}
 		membershipRoleRepository.delete(assignment.get());
 		tenantAuditService.record(context, membershipId, "ROLE_REMOVED", null, role.name());
@@ -238,8 +252,12 @@ public class MemberAdminService {
 		if (overrideRepository.findByMembershipIdAndPermissionId(membershipId, permissionId.get()).isPresent()) {
 			return new MutationResult.Duplicate();
 		}
-		overrideRepository.save(new MembershipPermissionOverride(
-				membershipId, context.companyId(), permissionId.get(), request.effect()));
+		try {
+			overrideRepository.save(new MembershipPermissionOverride(
+					membershipId, context.companyId(), permissionId.get(), request.effect()));
+		} catch (DataIntegrityViolationException ex) {
+			throw duplicateConflict(ex);
+		}
 		tenantAuditService.record(context, membershipId, "OVERRIDE_GRANTED", request.permissionKey(),
 				request.effect().name());
 		return new MutationResult.Done();
@@ -285,9 +303,11 @@ public class MemberAdminService {
 			return new MutationResult.Done();
 		}
 		if (newStatus == MembershipStatus.DISABLED
-				&& membershipRoleRepository.findByMembershipIdAndRole(membershipId, TenantRole.COMPANY_ADMIN).isPresent()
-				&& countOtherActiveCompanyAdmins(context.companyId(), membershipId) == 0) {
-			return new MutationResult.LastAdmin();
+				&& membershipRoleRepository.findByMembershipIdAndRole(membershipId, TenantRole.COMPANY_ADMIN).isPresent()) {
+			lockActiveCompanyAdmins(context.companyId());
+			if (countOtherActiveCompanyAdmins(context.companyId(), membershipId) == 0) {
+				return new MutationResult.LastAdmin();
+			}
 		}
 		MembershipStatus before = target.getStatus();
 		if (newStatus == MembershipStatus.DISABLED) {
@@ -337,6 +357,39 @@ public class MemberAdminService {
 				.setParameter("key", permissionKey)
 				.getResultList();
 		return ids.stream().findFirst().map(Number::longValue);
+	}
+
+	/**
+	 * A concurrent duplicate raced past the {@code isPresent()} pre-check
+	 * and tripped the row's UNIQUE constraint. Thrown (not returned as
+	 * {@link MutationResult.Duplicate}) because the failed INSERT has
+	 * already marked the transaction rollback-only -- returning normally
+	 * would make Spring attempt a commit and surface
+	 * {@code UnexpectedRollbackException} as a 500. Same 409 the
+	 * pre-check answers; mirrors {@code PayrollBatchService.create}.
+	 */
+	private static ResponseStatusException duplicateConflict(DataIntegrityViolationException ex) {
+		return new ResponseStatusException(HttpStatus.CONFLICT, "already present", ex);
+	}
+
+	/**
+	 * Serializes the last-admin guard against concurrent role-removals
+	 * and disables. Under READ COMMITTED a plain COUNT lets two
+	 * transactions each see the other as the remaining admin and both
+	 * proceed, dropping the company to zero COMPANY_ADMINs. Both guarded
+	 * paths first take a row lock over the full active-COMPANY_ADMIN set
+	 * (ordered by membership id so concurrent callers acquire it in the
+	 * same order and cannot deadlock), so the second call blocks until
+	 * the first commits and then counts the committed state.
+	 */
+	private void lockActiveCompanyAdmins(Long companyId) {
+		entityManager.createNativeQuery(
+				"SELECT mr.id FROM membership_roles mr "
+						+ "JOIN tenant_memberships tm ON tm.id = mr.membership_id "
+						+ "WHERE mr.company_id = :companyId AND mr.role = 'COMPANY_ADMIN' "
+						+ "AND tm.status = 'ACTIVE' ORDER BY mr.membership_id FOR UPDATE")
+				.setParameter("companyId", companyId)
+				.getResultList();
 	}
 
 	private long countOtherActiveCompanyAdmins(Long companyId, Long excludedMembershipId) {

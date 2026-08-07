@@ -8,6 +8,8 @@ public interface DepartmentBranchRepository extends JpaRepository<DepartmentBran
 
 	List<DepartmentBranch> findByDepartmentId(Long departmentId);
 
+	List<DepartmentBranch> findByCompanyIdOrderById(Long companyId);
+
 	void deleteByDepartmentId(Long departmentId);
 
 }

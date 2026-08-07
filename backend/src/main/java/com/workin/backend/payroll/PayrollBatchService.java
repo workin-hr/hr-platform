@@ -3,6 +3,7 @@ package com.workin.backend.payroll;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 
@@ -130,7 +131,10 @@ public class PayrollBatchService {
 
 		payslipRepository.deleteByBatchId(batchId);
 
-		int totalDaysInPeriod = batch.getPeriodTo().getDayOfMonth();
+		// The period's real inclusive length. getPeriodTo().getDayOfMonth()
+		// would only equal this for a calendar month starting on the 1st;
+		// for a configured fiscal window (e.g. 26th -> 25th) it is wrong.
+		int totalDaysInPeriod = (int) (ChronoUnit.DAYS.between(batch.getPeriodFrom(), batch.getPeriodTo()) + 1);
 		List<Employee> activeEmployees = employeeRepository.findByCompanyIdOrderById(context.companyId())
 				.stream().filter(Employee::isActive).toList();
 

@@ -5,8 +5,10 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.employees.EmployeeRepository;
@@ -108,6 +110,13 @@ public class SalaryContractService {
 	}
 
 	private void applyFields(SalaryContract contract, UpsertSalaryContractRequest request) {
+		// A DAILY contract with no daily wage is not payable: Payroll
+		// CalculationService dereferences dailyWage for DAILY mode, so
+		// letting a null through would NPE (and roll back the whole batch)
+		// only later, at calculate time. Reject it at the write instead.
+		if (request.salaryMode() == SalaryMode.DAILY && request.dailyWage() == null) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "dailyWage is required for DAILY salary mode");
+		}
 		contract.setSalaryMode(request.salaryMode());
 		contract.setEffectiveFrom(request.effectiveFrom());
 		contract.setHousingAllowance(zeroIfNull(request.housingAllowance()));
