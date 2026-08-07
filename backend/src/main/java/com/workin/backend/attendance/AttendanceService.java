@@ -7,10 +7,12 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.employees.EmployeeRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantSessionVariable;
@@ -47,28 +49,33 @@ public class AttendanceService {
 	private final AttendanceRepository attendanceRepository;
 	private final ExceptionTypeRepository exceptionTypeRepository;
 	private final EmployeeRepository employeeRepository;
+	private final ResourceScopeService resourceScopeService;
 	private final TenantSessionVariable tenantSessionVariable;
 
 	public AttendanceService(
 			AttendanceRepository attendanceRepository,
 			ExceptionTypeRepository exceptionTypeRepository,
 			EmployeeRepository employeeRepository,
+			ResourceScopeService resourceScopeService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.attendanceRepository = attendanceRepository;
 		this.exceptionTypeRepository = exceptionTypeRepository;
 		this.employeeRepository = employeeRepository;
+		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	@Transactional(readOnly = true)
 	public List<AttendanceView> list(AuthorizationContext context, Long employeeId, LocalDate from, LocalDate to) {
 		tenantSessionVariable.apply(context.companyId());
+		Set<Long> reach = scopedReachOrNull(context);
 		List<Attendance> rows = employeeId != null
 				? attendanceRepository.findByEmployeeIdAndCompanyIdOrderById(employeeId, context.companyId())
 				: attendanceRepository.findByCompanyIdOrderById(context.companyId());
 		Instant lowerBound = from != null ? from.atStartOfDay(ZoneOffset.UTC).toInstant() : null;
 		Instant upperBound = to != null ? to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant() : null;
 		return rows.stream()
+				.filter(row -> reach == null || reach.contains(row.getEmployeeId()))
 				.filter(row -> lowerBound == null || !row.getCheckIn().isBefore(lowerBound))
 				.filter(row -> upperBound == null || row.getCheckIn().isBefore(upperBound))
 				.map(AttendanceView::of)
@@ -78,13 +85,16 @@ public class AttendanceService {
 	@Transactional(readOnly = true)
 	public Optional<AttendanceView> get(AuthorizationContext context, Long attendanceId) {
 		tenantSessionVariable.apply(context.companyId());
-		return attendanceRepository.findByIdAndCompanyId(attendanceId, context.companyId()).map(AttendanceView::of);
+		return attendanceRepository.findByIdAndCompanyId(attendanceId, context.companyId())
+				.filter(row -> canReach(context, row.getEmployeeId()))
+				.map(AttendanceView::of);
 	}
 
 	@Transactional
 	public MutationResult create(AuthorizationContext context, CreateAttendanceRequest request) {
 		tenantSessionVariable.apply(context.companyId());
-		if (employeeRepository.findByIdAndCompanyId(request.employeeId(), context.companyId()).isEmpty()) {
+		if (employeeRepository.findByIdAndCompanyId(request.employeeId(), context.companyId()).isEmpty()
+				|| !canReach(context, request.employeeId())) {
 			return new MutationResult.NotFound();
 		}
 		Attendance attendance = new Attendance(request.employeeId(), context.companyId());
@@ -101,7 +111,7 @@ public class AttendanceService {
 	public MutationResult update(AuthorizationContext context, Long attendanceId, UpdateAttendanceRequest request) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<Attendance> existing = attendanceRepository.findByIdAndCompanyId(attendanceId, context.companyId());
-		if (existing.isEmpty()) {
+		if (existing.isEmpty() || !canReach(context, existing.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		Attendance attendance = existing.get();
@@ -118,11 +128,29 @@ public class AttendanceService {
 	public MutationResult delete(AuthorizationContext context, Long attendanceId) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<Attendance> existing = attendanceRepository.findByIdAndCompanyId(attendanceId, context.companyId());
-		if (existing.isEmpty()) {
+		if (existing.isEmpty() || !canReach(context, existing.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		attendanceRepository.delete(existing.get());
 		return new MutationResult.Done(null);
+	}
+
+	/**
+	 * Enforcement boundary 3: {@code null} reach = not scope-limited
+	 * (company-wide, everyone reachable). Otherwise the row's employee
+	 * must be in the scoped set. Computed once per call.
+	 */
+	private Set<Long> scopedReachOrNull(AuthorizationContext context) {
+		return resourceScopeService.isScopeLimited(context)
+				? resourceScopeService.reachableEmployeeIds(context)
+				: null;
+	}
+
+	private boolean canReach(AuthorizationContext context, Long employeeId) {
+		if (!resourceScopeService.isScopeLimited(context)) {
+			return true;
+		}
+		return resourceScopeService.canReachEmployee(context, employeeId);
 	}
 
 	/**
