@@ -7,12 +7,14 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.backend.attendance.Attendance;
 import com.workin.backend.attendance.AttendanceRepository;
+import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.companysettings.CompanySettingsService;
 import com.workin.backend.employees.EmployeeRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
@@ -51,6 +53,7 @@ public class RequestService {
 	private final AttendanceRepository attendanceRepository;
 	private final EmployeeRepository employeeRepository;
 	private final CompanySettingsService companySettingsService;
+	private final ResourceScopeService resourceScopeService;
 	private final TenantSessionVariable tenantSessionVariable;
 
 	public RequestService(
@@ -60,6 +63,7 @@ public class RequestService {
 			AttendanceRepository attendanceRepository,
 			EmployeeRepository employeeRepository,
 			CompanySettingsService companySettingsService,
+			ResourceScopeService resourceScopeService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.leaveRequestRepository = leaveRequestRepository;
 		this.requestTypeRepository = requestTypeRepository;
@@ -67,16 +71,19 @@ public class RequestService {
 		this.attendanceRepository = attendanceRepository;
 		this.employeeRepository = employeeRepository;
 		this.companySettingsService = companySettingsService;
+		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	@Transactional(readOnly = true)
 	public List<RequestView> list(AuthorizationContext context, Long employeeId, RequestStatus status) {
 		tenantSessionVariable.apply(context.companyId());
+		Set<Long> reach = resourceScopeService.scopedEmployeeIdsOrNull(context);
 		List<LeaveRequest> rows = employeeId != null
 				? leaveRequestRepository.findByEmployeeIdAndCompanyIdOrderById(employeeId, context.companyId())
 				: leaveRequestRepository.findByCompanyIdOrderById(context.companyId());
 		return rows.stream()
+				.filter(row -> reach == null || reach.contains(row.getEmployeeId()))
 				.filter(row -> status == null || row.getStatus() == status)
 				.map(RequestView::of)
 				.toList();
@@ -85,13 +92,16 @@ public class RequestService {
 	@Transactional(readOnly = true)
 	public Optional<RequestView> get(AuthorizationContext context, Long requestId) {
 		tenantSessionVariable.apply(context.companyId());
-		return leaveRequestRepository.findByIdAndCompanyId(requestId, context.companyId()).map(RequestView::of);
+		return leaveRequestRepository.findByIdAndCompanyId(requestId, context.companyId())
+				.filter(r -> resourceScopeService.isEmployeeInScope(context, r.getEmployeeId()))
+				.map(RequestView::of);
 	}
 
 	@Transactional
 	public MutationResult create(AuthorizationContext context, CreateRequestRequest request) {
 		tenantSessionVariable.apply(context.companyId());
 		if (employeeRepository.findByIdAndCompanyId(request.employeeId(), context.companyId()).isEmpty()
+				|| !resourceScopeService.isEmployeeInScope(context, request.employeeId())
 				|| requestTypeRepository.findByIdAndCompanyId(request.requestTypeId(), context.companyId()).isEmpty()) {
 			return new MutationResult.NotFound();
 		}
@@ -105,7 +115,7 @@ public class RequestService {
 	public MutationResult update(AuthorizationContext context, Long requestId, UpdateRequestRequest request) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<LeaveRequest> found = leaveRequestRepository.findByIdAndCompanyId(requestId, context.companyId());
-		if (found.isEmpty()) {
+		if (found.isEmpty() || !resourceScopeService.isEmployeeInScope(context, found.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		if (found.get().getStatus() != RequestStatus.PENDING) {
@@ -123,7 +133,7 @@ public class RequestService {
 	public MutationResult delete(AuthorizationContext context, Long requestId) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<LeaveRequest> found = leaveRequestRepository.findByIdAndCompanyId(requestId, context.companyId());
-		if (found.isEmpty()) {
+		if (found.isEmpty() || !resourceScopeService.isEmployeeInScope(context, found.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		if (found.get().getStatus() != RequestStatus.PENDING) {
@@ -137,7 +147,7 @@ public class RequestService {
 	public MutationResult approve(AuthorizationContext context, Long requestId, String reply) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<LeaveRequest> found = leaveRequestRepository.findByIdAndCompanyId(requestId, context.companyId());
-		if (found.isEmpty()) {
+		if (found.isEmpty() || !resourceScopeService.isEmployeeInScope(context, found.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		LeaveRequest request = found.get();
@@ -176,7 +186,7 @@ public class RequestService {
 	public MutationResult reject(AuthorizationContext context, Long requestId, String reply) {
 		tenantSessionVariable.apply(context.companyId());
 		Optional<LeaveRequest> found = leaveRequestRepository.findByIdAndCompanyId(requestId, context.companyId());
-		if (found.isEmpty()) {
+		if (found.isEmpty() || !resourceScopeService.isEmployeeInScope(context, found.get().getEmployeeId())) {
 			return new MutationResult.NotFound();
 		}
 		if (found.get().getStatus() != RequestStatus.PENDING) {
