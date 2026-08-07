@@ -66,3 +66,41 @@ manager resource scope by the same reusable guard. `hr-legacy#6`'s
 dashboard-IDOR class is structurally closed across the whole rewrite
 surface for the manager-scope dimension; F-25's enforcement is
 complete except its two deferred scope types.
+
+## Coverage Verification (2026-08-08)
+
+A completeness audit of the shipped enforcement (a security control,
+so verified rather than assumed): every backend file that reads an
+employee-linked row or holds an `employeeRepository` was checked for
+whether a scope-limited caller could reach out-of-scope employee data.
+
+- **Guarded (8, all caller-facing employee-data surfaces):**
+  `AttendanceService`, `RequestService`, `PenaltyService`,
+  `AdvanceService`, `SalaryContractService`, `LeaveBalanceService`,
+  `PayslipService`, `EmployeeService` — each injects
+  `ResourceScopeService` and applies the guard on every employee-bound
+  list/get/create/mutate path. No other caller-facing surface returns
+  employee-linked rows.
+- **Company-level, non-leaking (2):** `DepartmentService` uses
+  `employeeRepository` only for a boolean existence check on a
+  department's `manager_id` (returns no employee data;
+  `departments.manage` admin surface). `PayrollBatchService.calculate`
+  iterates active employees to (re)generate payslips — a **company-wide
+  batch operation, not a per-employee read/return surface**; its
+  payslip output is itself scope-guarded on read via `PayslipService`.
+
+**Accepted boundary (documented, not a gap):** batch-level payroll
+operations (`create`/`calculate`/`finalize`/`reopen`/`delete` on
+`payroll_batches`) are company-wide by nature — a batch is not an
+employee-scoped entity, so the resource-scope model (which gates
+*which employees* a permission reaches) does not apply to them. The
+correct control for "a manager must not run company-wide payroll" is
+the **permission** (`payroll.run`, which a scope-limited MANAGER holds
+only by an explicit admin grant), not a resource scope. Adding a
+scope guard to batch operations would be a category error. Should a
+future requirement demand denying batch operations to scope-limited
+callers, that is a permission/role decision, tracked separately — not
+a resource-scope gap.
+
+Result: **no unguarded employee-data surface found; coverage is
+complete** for the manager-scope dimension across the rewrite.
