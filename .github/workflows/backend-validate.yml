@@ -31,6 +31,23 @@ jobs:
       - name: Check out repository (immutable action reference)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
+      # Fast fail before any Java setup: two schema branches cut from the
+      # same base can each claim the same Flyway versions and merge
+      # without textual conflict (PR #37 + #38 -> broken main, fixed in
+      # PR #40). Flyway rejects duplicates at every context boot; this
+      # surfaces that in seconds with the exact colliding files.
+      - name: Fail on duplicate Flyway migration versions
+        working-directory: .
+        run: |
+          python3 scripts/check_flyway_versions.py --self-test
+          python3 scripts/check_flyway_versions.py
+
+      # PMR-10's reconciliation harness must stay proven-working: its
+      # self-tests exercise every detection class on synthetic samples.
+      - name: Migration-diff harness self-test
+        working-directory: .
+        run: python3 scripts/migration_diff.py --self-test
+
       - name: Set up Java 25 (immutable action reference; exact version, not checksum-verified)
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
         with:

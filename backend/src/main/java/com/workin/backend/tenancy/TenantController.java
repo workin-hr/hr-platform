@@ -4,6 +4,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.security.AuthenticatedPrincipal;
 
 /**
@@ -23,6 +24,8 @@ public class TenantController {
 		this.tenantContextService = tenantContextService;
 	}
 
+	@AuthenticatedUseCase(reason = "builds and returns the caller's own validated membership context; "
+			+ "no catalog permission of its own")
 	@GetMapping("/api/tenant/me")
 	public MembershipView me() {
 		AuthenticatedPrincipal principal = (AuthenticatedPrincipal) SecurityContextHolder.getContext()

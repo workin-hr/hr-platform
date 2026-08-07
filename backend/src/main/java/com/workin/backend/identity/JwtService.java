@@ -27,9 +27,10 @@ import io.jsonwebtoken.security.Keys;
  * membership; every request re-validates via
  * {@link com.workin.backend.tenancy.TenantContextService}.
  *
- * <p>Refresh-token issuance/rotation (ADR-0005's target design, item 2)
- * is not implemented in this first slice -- tracked as follow-up, not
- * silently dropped.
+ * <p>Refresh-token issuance/rotation/revocation (ADR-0005's target
+ * design, items 2-3) lives in {@link RefreshTokenService}; the
+ * {@code sid} claim carries that service's session (family) id, so
+ * every access token is correlated to the session that issued it.
  */
 @Service
 public class JwtService {
@@ -47,11 +48,11 @@ public class JwtService {
 		this.accessTokenTtlSeconds = accessTokenTtlSeconds;
 	}
 
-	public String issueAccessToken(Long identityId, Long membershipId, Long companyId) {
+	public String issueAccessToken(Long identityId, Long membershipId, Long companyId, String sessionId) {
 		Instant now = Instant.now();
 		return Jwts.builder()
 				.subject(String.valueOf(identityId))
-				.claim("sid", UUID.randomUUID().toString())
+				.claim("sid", sessionId)
 				.id(UUID.randomUUID().toString())
 				.claim("membership_id", membershipId)
 				.claim("tenant_id", companyId)

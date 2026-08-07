@@ -1,11 +1,12 @@
 package com.workin.backend.tenancy;
 
 import java.util.List;
-
-import jakarta.persistence.EntityManager;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.workin.backend.authorization.PermissionEvaluationService;
 
 /**
  * Implements docs/adr/ADR-0010-authorization-model.md Dimension 2's
@@ -26,15 +27,18 @@ public class TenantContextService {
 
 	private final TenantMembershipRepository tenantMembershipRepository;
 	private final MembershipRoleRepository membershipRoleRepository;
-	private final EntityManager entityManager;
+	private final PermissionEvaluationService permissionEvaluationService;
+	private final TenantSessionVariable tenantSessionVariable;
 
 	public TenantContextService(
 			TenantMembershipRepository tenantMembershipRepository,
 			MembershipRoleRepository membershipRoleRepository,
-			EntityManager entityManager) {
+			PermissionEvaluationService permissionEvaluationService,
+			TenantSessionVariable tenantSessionVariable) {
 		this.tenantMembershipRepository = tenantMembershipRepository;
 		this.membershipRoleRepository = membershipRoleRepository;
-		this.entityManager = entityManager;
+		this.permissionEvaluationService = permissionEvaluationService;
+		this.tenantSessionVariable = tenantSessionVariable;
 	}
 
 	/**
@@ -61,7 +65,7 @@ public class TenantContextService {
 		// If the claim was tampered with, either RLS returns zero rows
 		// (the real membership belongs to a different company) or the
 		// identity-match check below fails -- fail-closed either way.
-		setTenantSessionVariable(claimedCompanyId);
+		tenantSessionVariable.apply(claimedCompanyId);
 
 		TenantMembership membership = tenantMembershipRepository
 				.findByIdAndCompanyId(claimedMembershipId, claimedCompanyId)
@@ -82,14 +86,15 @@ public class TenantContextService {
 				.map(MembershipRoleAssignment::getRole)
 				.toList();
 
-		return new AuthorizationContext(authenticatedIdentityId, membership.getId(), membership.getCompanyId(), roles);
-	}
+		// Still inside this method's transaction, deliberately: the RLS
+		// session variable above is SET LOCAL, and the overrides read in
+		// the evaluation is RLS-scoped -- moving this outside the
+		// transaction would make overrides invisible (ADR-0010
+		// Dimensions 3/5; docs/superpowers/specs/2026-08-06-authorization-runtime-design.md).
+		Set<String> permissions = permissionEvaluationService.effectivePermissionsFor(membership.getId(), roles);
 
-	private void setTenantSessionVariable(Long companyId) {
-		entityManager
-				.createNativeQuery("SELECT set_config('app.current_company_id', :companyId, true)")
-				.setParameter("companyId", String.valueOf(companyId))
-				.getSingleResult();
+		return new AuthorizationContext(
+				authenticatedIdentityId, membership.getId(), membership.getCompanyId(), roles, permissions);
 	}
 
 }

@@ -2,6 +2,7 @@ package com.workin.backend.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -11,6 +12,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import com.workin.backend.identity.JwtService;
+import com.workin.backend.platformadmin.PlatformAdminJwtService;
 
 @Configuration
 @EnableWebSecurity
@@ -21,8 +23,40 @@ public class SecurityConfig {
 		return new BCryptPasswordEncoder();
 	}
 
+	/**
+	 * Evaluated before {@link #tenantSecurityFilterChain} (lower
+	 * {@code @Order} wins) and matched only to
+	 * {@code /api/platform-admin/**} -- a request under that path is
+	 * fully handled here and never reaches the tenant chain's
+	 * {@link JwtAuthenticationFilter} at all, and a tenant-identity
+	 * token is never even parsed against it. This is what makes the
+	 * platform/tenant domain separation
+	 * (docs/architecture/authorization-model.md §8) structural rather
+	 * than a runtime check.
+	 */
 	@Bean
-	public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService) throws Exception {
+	@Order(1)
+	public SecurityFilterChain platformAdminSecurityFilterChain(
+			HttpSecurity http, PlatformAdminJwtService platformAdminJwtService) throws Exception {
+		http
+			.securityMatcher("/api/platform-admin/**")
+			.csrf(csrf -> csrf.disable())
+			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+			.authorizeHttpRequests(authorize -> authorize
+				// Refresh and logout authenticate by refresh-token
+				// possession -- the access token may already be expired
+				// when they are called.
+				.requestMatchers("/api/platform-admin/login", "/api/platform-admin/refresh",
+						"/api/platform-admin/logout").permitAll()
+				.anyRequest().authenticated())
+			.addFilterBefore(
+				new PlatformAdminAuthenticationFilter(platformAdminJwtService), UsernamePasswordAuthenticationFilter.class);
+		return http.build();
+	}
+
+	@Bean
+	@Order(2)
+	public SecurityFilterChain tenantSecurityFilterChain(HttpSecurity http, JwtService jwtService) throws Exception {
 		http
 			.csrf(csrf -> csrf.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
