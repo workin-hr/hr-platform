@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 import javax.sql.DataSource;
 
@@ -126,6 +127,61 @@ class PayrollBatchLifecycleTest extends AbstractIntegrationTest {
 				new HttpEntity<>(headers), PayrollBatchView.class);
 		assertThat(reopened.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(reopened.getBody().status()).isEqualTo(BatchStatus.DRAFT);
+	}
+
+	@Test
+	void aMidCalculationFailureLeavesThePriorPayslipsExactlyAsTheyWere() {
+		AuthResponse companyA = register("Company A");
+		HttpHeaders headers = bearer(companyA.accessToken());
+		JdbcTemplate jdbc = new JdbcTemplate(flywayDataSource);
+
+		Long healthyEmployee = createEmployeeRecord(companyA.companyId());
+		UpsertSalaryContractRequest healthyContract = new UpsertSalaryContractRequest(
+				SalaryMode.MONTHLY, BigDecimal.valueOf(3000), null, null, null, null, null, null,
+				null, null, null, null, null, LocalDate.of(2026, 1, 1));
+		restTemplate.exchange(
+				"/api/tenant/salary-contracts?employeeId=" + healthyEmployee, HttpMethod.POST,
+				new HttpEntity<>(healthyContract, headers), SalaryContractView.class);
+
+		Long batchId = restTemplate.exchange(
+				"/api/tenant/payroll-batches", HttpMethod.POST,
+				new HttpEntity<>(new CreateBatchRequest((short) 7, (short) 2026), headers), PayrollBatchView.class)
+				.getBody().id();
+		restTemplate.exchange(
+				"/api/tenant/payroll-batches/" + batchId + "/calculate", HttpMethod.POST,
+				new HttpEntity<>(headers), PayrollBatchView.class);
+		Long originalPayslipId = jdbc.queryForObject(
+				"SELECT id FROM payslips WHERE batch_id = ?", Long.class, batchId);
+
+		// A second, later-processed employee whose contract's six money
+		// components are all at NUMERIC(10, 2)'s maximum: the computed
+		// gross (~600M, 9 integer digits) cannot be stored, so this
+		// employee's payslip save fails after the healthy employee's
+		// payslip was already written -- a genuine mid-calculation
+		// failure, no mocks. Inserted via SQL because the API's own
+		// surface has no reason to allow building this on purpose.
+		Long poisonedEmployee = createEmployeeRecord(companyA.companyId());
+		jdbc.update(
+				"INSERT INTO salary_contracts (employee_id, company_id, salary_mode, basic_salary, "
+						+ "housing_allowance, transport_allowance, food_allowance, risk_allowance, incentives, "
+						+ "effective_from) VALUES (?, ?, 'MONTHLY', 99999999.99, 99999999.99, 99999999.99, "
+						+ "99999999.99, 99999999.99, 99999999.99, '2026-01-01')",
+				poisonedEmployee, companyA.companyId());
+
+		ResponseEntity<String> failedCalculate = restTemplate.exchange(
+				"/api/tenant/payroll-batches/" + batchId + "/calculate", HttpMethod.POST,
+				new HttpEntity<>(headers), String.class);
+		assertThat(failedCalculate.getStatusCode().is5xxServerError()).isTrue();
+
+		// hr-legacy#22: legacy's calculate.php was not transactional --
+		// this crash would have left the batch half-calculated (old
+		// payslips already deleted, only some new ones written). The new
+		// calculate is one transaction: the pre-existing payslip row
+		// survives untouched (same id -- the delete rolled back), and
+		// nothing from the aborted run persists.
+		List<Long> survivingIds = jdbc.queryForList(
+				"SELECT id FROM payslips WHERE batch_id = ? ORDER BY id", Long.class, batchId);
+		assertThat(survivingIds).containsExactly(originalPayslipId);
 	}
 
 	private Long createEmployeeRecord(Long companyId) {
