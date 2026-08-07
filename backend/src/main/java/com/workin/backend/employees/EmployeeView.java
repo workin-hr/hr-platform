@@ -7,7 +7,10 @@ public record EmployeeView(
 		String lastName,
 		String phone,
 		String role,
-		boolean active) {
+		boolean active,
+		Long branchId,
+		Long departmentId,
+		Long jobTitleId) {
 
 	static EmployeeView of(Employee employee) {
 		return new EmployeeView(
@@ -16,7 +19,10 @@ public record EmployeeView(
 				employee.getLastName(),
 				employee.getPhone(),
 				employee.getRole(),
-				employee.isActive());
+				employee.isActive(),
+				employee.getBranchId(),
+				employee.getDepartmentId(),
+				employee.getJobTitleId());
 	}
 
 }
