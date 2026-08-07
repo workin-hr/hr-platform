@@ -330,6 +330,87 @@ class MemberAdminFlowTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void resourceScopeAdministrationRoundTripAndReferenceValidation() {
+		AuthResponse admin = registerCompanyAdmin();
+		MemberFixture member = loginMember(admin.companyId(), TenantRole.MANAGER);
+		Long branchId = jdbc().queryForObject(
+				"INSERT INTO branches (company_id, name) VALUES (?, 'B') RETURNING id", Long.class, admin.companyId());
+		Long deptId = jdbc().queryForObject(
+				"INSERT INTO departments (company_id, name) VALUES (?, 'D') RETURNING id", Long.class, admin.companyId());
+
+		String scopesPath = "/api/tenant/members/" + member.membershipId() + "/resource-scopes";
+		assertThat(restTemplate.exchange(scopesPath, HttpMethod.POST,
+				new HttpEntity<>(Map.of("scopeType", "BRANCH", "scopeId", branchId), bearer(admin.accessToken())),
+				String.class).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		// Duplicate -> 409.
+		assertThat(restTemplate.exchange(scopesPath, HttpMethod.POST,
+				new HttpEntity<>(Map.of("scopeType", "BRANCH", "scopeId", branchId), bearer(admin.accessToken())),
+				String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+		assertThat(restTemplate.exchange(scopesPath, HttpMethod.POST,
+				new HttpEntity<>(Map.of("scopeType", "DEPARTMENT", "scopeId", deptId), bearer(admin.accessToken())),
+				String.class).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+		ResponseEntity<List<Map<String, Object>>> list = restTemplate.exchange(
+				scopesPath, HttpMethod.GET, new HttpEntity<>(bearer(admin.accessToken())),
+				new ParameterizedTypeReference<>() {
+				});
+		assertThat(list.getBody()).extracting(row -> row.get("scopeType"))
+				.containsExactlyInAnyOrder("BRANCH", "DEPARTMENT");
+
+		// Foreign branch (company B's) as a scope target -> 404.
+		AuthResponse companyB = registerCompanyAdmin();
+		Long foreignBranch = jdbc().queryForObject(
+				"INSERT INTO branches (company_id, name) VALUES (?, 'X') RETURNING id", Long.class, companyB.companyId());
+		assertThat(restTemplate.exchange(scopesPath, HttpMethod.POST,
+				new HttpEntity<>(Map.of("scopeType", "BRANCH", "scopeId", foreignBranch), bearer(admin.accessToken())),
+				String.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+		// A nonexistent scopeId -> 404 (scope_id is a bare integer with no
+		// type tag, so the reference is validated against the branches or
+		// departments table per scopeType).
+		assertThat(restTemplate.exchange(scopesPath, HttpMethod.POST,
+				new HttpEntity<>(Map.of("scopeType", "BRANCH", "scopeId", 999_999_999L), bearer(admin.accessToken())),
+				String.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+		// Revoke round trip.
+		String branchScopePath = scopesPath + "/BRANCH/" + branchId;
+		assertThat(restTemplate.exchange(branchScopePath, HttpMethod.DELETE,
+				new HttpEntity<>(bearer(admin.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(restTemplate.exchange(branchScopePath, HttpMethod.DELETE,
+				new HttpEntity<>(bearer(admin.accessToken())), String.class).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+
+		List<Map<String, Object>> events = jdbc().queryForList(
+				"SELECT action FROM tenant_audit_events WHERE company_id = ? AND action LIKE 'SCOPE_%' ORDER BY id",
+				admin.companyId());
+		assertThat(events).extracting(e -> e.get("action"))
+				.containsExactly("SCOPE_ASSIGNED", "SCOPE_ASSIGNED", "SCOPE_REVOKED");
+	}
+
+	@Test
+	void scopeAdministrationRejectsSelfTargetAndReadOnlyCallers() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long adminMembership = adminMembershipId(admin.companyId());
+		Long branchId = jdbc().queryForObject(
+				"INSERT INTO branches (company_id, name) VALUES (?, 'B') RETURNING id", Long.class, admin.companyId());
+
+		ResponseEntity<String> selfScope = restTemplate.exchange(
+				"/api/tenant/members/" + adminMembership + "/resource-scopes", HttpMethod.POST,
+				new HttpEntity<>(Map.of("scopeType", "BRANCH", "scopeId", branchId), bearer(admin.accessToken())),
+				String.class);
+		assertThat(selfScope.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+
+		MemberFixture target = loginMember(admin.companyId(), TenantRole.MANAGER);
+		MemberFixture reader = loginMember(admin.companyId(), TenantRole.HR);
+		allowPermission(reader.membershipId(), admin.companyId(), PermissionKeys.MEMBERS_READ);
+		ResponseEntity<String> readerAssign = restTemplate.exchange(
+				"/api/tenant/members/" + target.membershipId() + "/resource-scopes", HttpMethod.POST,
+				new HttpEntity<>(Map.of("scopeType", "BRANCH", "scopeId", branchId), bearer(reader.accessToken())),
+				String.class);
+		assertThat(readerAssign.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+	}
+
+	@Test
 	void unauthenticatedAccessNeverSucceeds() {
 		ResponseEntity<String> response = restTemplate.exchange(
 				"/api/tenant/members", HttpMethod.GET, new HttpEntity<>(bearer(null)), String.class);

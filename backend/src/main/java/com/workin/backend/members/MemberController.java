@@ -19,6 +19,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.authorization.PermissionKeys;
 import com.workin.backend.authorization.RequiresPermission;
+import com.workin.backend.authorization.ResourceScopeType;
 import com.workin.backend.members.MemberAdminService.MutationResult;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantRole;
@@ -85,6 +86,30 @@ public class MemberController {
 			HttpServletRequest request, @PathVariable Long membershipId, @Valid @RequestBody UpdateStatusRequest body) {
 		toResponse(memberAdminService.updateStatus(contextFrom(request), membershipId, body.status()));
 		return ResponseEntity.ok().build();
+	}
+
+	@RequiresPermission(PermissionKeys.MEMBERS_READ)
+	@GetMapping("/{membershipId}/resource-scopes")
+	public List<ResourceScopeView> listScopes(HttpServletRequest request, @PathVariable Long membershipId) {
+		return memberAdminService.listScopes(contextFrom(request), membershipId)
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+	}
+
+	@RequiresPermission(PermissionKeys.MEMBERS_MANAGE)
+	@PostMapping("/{membershipId}/resource-scopes")
+	public ResponseEntity<Void> assignScope(
+			HttpServletRequest request, @PathVariable Long membershipId, @Valid @RequestBody AssignScopeRequest body) {
+		toResponse(memberAdminService.assignScope(contextFrom(request), membershipId, body));
+		return ResponseEntity.status(HttpStatus.CREATED).build();
+	}
+
+	@RequiresPermission(PermissionKeys.MEMBERS_MANAGE)
+	@DeleteMapping("/{membershipId}/resource-scopes/{scopeType}/{scopeId}")
+	public ResponseEntity<Void> revokeScope(
+			HttpServletRequest request, @PathVariable Long membershipId,
+			@PathVariable ResourceScopeType scopeType, @PathVariable Long scopeId) {
+		toResponse(memberAdminService.revokeScope(contextFrom(request), membershipId, scopeType, scopeId));
+		return ResponseEntity.noContent().build();
 	}
 
 	private static void toResponse(MutationResult result) {

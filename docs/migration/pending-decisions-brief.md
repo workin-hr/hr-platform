@@ -19,6 +19,13 @@ evidence is missing). This separation is deliberate.
 
 Grouped by what supplies the answer.
 
+> **Update 2026-08-07 (D-029)**: A1, A3, and A4 are now **answered** by
+> the repository owner — see `docs/bootstrap/decision-log.md` D-029.
+> A1 = branch/department-scoped (manager-scoping slice underway);
+> A3 = add dry-run/confirm/audit to the future bulk-delete endpoint;
+> A4 = `housing_allowance` is a real settable field (row closed).
+> A2, A5, and groups B–E remain open per the notes below.
+
 ## A. Product / Business Decisions (owner call)
 
 ### A1 — `MANAGER` role scope (blocks the most)

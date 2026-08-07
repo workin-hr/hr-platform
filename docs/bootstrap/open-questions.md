@@ -24,8 +24,10 @@ Surfaced by `docs/migration/payroll-module-execution-plan.md`
 these are decided by that document, and none should be guessed at
 implementation time:
 
-- Is `salary_contracts.housing_allowance` a normal settable contract
-  field going forward, or intentionally payslip-only (`hr-legacy#14`)?
+- ~~Is `salary_contracts.housing_allowance` a normal settable contract
+  field going forward, or intentionally payslip-only (`hr-legacy#14`)?~~
+  **Resolved 2026-08-07 (D-029)**: a real, settable contract field —
+  the already-shipped payroll-group behavior is confirmed correct.
 - Preserve the legacy fixed-30-day payroll divisor, or move to real
   calendar days for day-rate/absence calculations?
 - Where does per-company fiscal-period configuration
