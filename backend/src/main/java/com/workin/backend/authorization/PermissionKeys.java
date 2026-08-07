@@ -46,6 +46,8 @@ public final class PermissionKeys {
 	public static final String PAYROLL_RUN = "payroll.run";
 	public static final String PENALTIES_READ = "penalties.read";
 	public static final String PENALTIES_MANAGE = "penalties.manage";
+	public static final String MEMBERS_READ = "members.read";
+	public static final String MEMBERS_MANAGE = "members.manage";
 	public static final String PLATFORM_COMPANIES_READ = "platform.companies.read";
 	public static final String PLATFORM_COMPANIES_APPROVE = "platform.companies.approve";
 	public static final String PLATFORM_COMPANIES_SUSPEND = "platform.companies.suspend";
