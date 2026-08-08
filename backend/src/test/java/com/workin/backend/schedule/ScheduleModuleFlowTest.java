@@ -263,6 +263,20 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void assignRejectsNullDateInList() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = createEmployee(admin.companyId());
+		Long shiftId = createShift(admin.companyId(), "Day", "09:00", "17:00", null);
+
+		String body = "{\"shiftId\": " + shiftId + ", \"dates\": [null]}";
+		ResponseEntity<Void> response = restTemplate.exchange(
+				"/api/tenant/schedules/" + employeeId + "/assign",
+				HttpMethod.POST, new HttpEntity<>(body, bearer(admin.accessToken())), Void.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+	}
+
+	@Test
 	void assignRejectsUnknownEmployeeOrShift() {
 		AuthResponse admin = registerCompanyAdmin();
 		Long employeeId = createEmployee(admin.companyId());
@@ -332,6 +346,20 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void generateRejectsRangeExceedingCap() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = createEmployee(admin.companyId());
+		Long shiftId = createShift(admin.companyId(), "Day", "09:00", "17:00", null);
+		// A valid, in-range assignment so the cap -- not the
+		// no-assignment 400 -- is what triggers.
+		insertAssignment(admin.companyId(), employeeId, shiftId, "2026-01-01");
+
+		// 2026-01-01..2027-06-30 is well over the 370-day cap.
+		assertThat(generate(admin.accessToken(), employeeId, "2026-01-01", "2027-06-30").getStatusCode())
+				.isEqualTo(HttpStatus.BAD_REQUEST);
+	}
+
+	@Test
 	void employeeCreateAndUpdateAppendAssignmentHistory() {
 		AuthResponse admin = registerCompanyAdmin();
 		Long shiftA = createShift(admin.companyId(), "Shift A", "09:00", "17:00", null);
@@ -352,23 +380,67 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 
 		// Update to a different shift appends a second row (history, never in-place).
 		String updateToB = "{\"firstName\": \"Shifted\", \"lastName\": \"Emp\", \"shiftId\": " + shiftB + "}";
-		restTemplate.exchange("/api/tenant/employees/" + employeeId, HttpMethod.PUT,
+		ResponseEntity<String> updateToBResponse = restTemplate.exchange(
+				"/api/tenant/employees/" + employeeId, HttpMethod.PUT,
 				new HttpEntity<>(updateToB, bearer(admin.accessToken())), String.class);
+		assertThat(updateToBResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(assignmentRows(employeeId)).isEqualTo(2);
 
 		// Re-sending the same shift on a full-replace PUT is a no-op --
 		// deviation from legacy's unconditional append, recorded in
 		// EmployeeService (legacy's PHP update is patch-shaped; a PUT
 		// client echoing shiftId would otherwise grow history per save).
-		restTemplate.exchange("/api/tenant/employees/" + employeeId, HttpMethod.PUT,
+		ResponseEntity<String> noopResponse = restTemplate.exchange(
+				"/api/tenant/employees/" + employeeId, HttpMethod.PUT,
 				new HttpEntity<>(updateToB, bearer(admin.accessToken())), String.class);
+		assertThat(noopResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(assignmentRows(employeeId)).isEqualTo(2);
 
 		// Null shiftId means "no schedule statement", not "unassign".
 		String updateNoShift = "{\"firstName\": \"Shifted\", \"lastName\": \"Emp\"}";
-		restTemplate.exchange("/api/tenant/employees/" + employeeId, HttpMethod.PUT,
+		ResponseEntity<String> noShiftResponse = restTemplate.exchange(
+				"/api/tenant/employees/" + employeeId, HttpMethod.PUT,
 				new HttpEntity<>(updateNoShift, bearer(admin.accessToken())), String.class);
+		assertThat(noShiftResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(assignmentRows(employeeId)).isEqualTo(2);
+	}
+
+	@Test
+	void appendShiftIfChangedComparesAgainstNewestRowNotTodaysAsOf() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long shiftA = createShift(admin.companyId(), "Shift A", "09:00", "17:00", null);
+
+		// Create with a future-dated effective_from -- the newest (and
+		// only) history row is not yet "current" as-of today.
+		String createBody = "{\"firstName\": \"Future\", \"lastName\": \"Emp\", \"phone\": \""
+				+ uniquePhone() + "\", \"shiftId\": " + shiftA
+				+ ", \"shiftEffectiveFrom\": \"2027-01-01\"}";
+		ResponseEntity<String> created = restTemplate.exchange(
+				"/api/tenant/employees", HttpMethod.POST,
+				new HttpEntity<>(createBody, bearer(admin.accessToken())), String.class);
+		assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		Long employeeId = jdbc().queryForObject(
+				"SELECT id FROM employees WHERE first_name = 'Future' AND company_id = ?",
+				Long.class, admin.companyId());
+		assertThat(assignmentRows(employeeId)).isEqualTo(1);
+
+		// PUT echoing the same shiftId must stay a no-op even though the
+		// newest row's effective_from is in the future: the append gate
+		// compares against the newest row unconditionally, not "as of
+		// today". Before the fix, resolving "current" as-of today found
+		// nothing (the row is future-dated), treated this as a change,
+		// and appended a second row dated today -- dragging the planned
+		// effective date back from 2027-01-01 to today.
+		String echoUpdate = "{\"firstName\": \"Future\", \"lastName\": \"Emp\", \"shiftId\": " + shiftA + "}";
+		ResponseEntity<String> echoResponse = restTemplate.exchange(
+				"/api/tenant/employees/" + employeeId, HttpMethod.PUT,
+				new HttpEntity<>(echoUpdate, bearer(admin.accessToken())), String.class);
+		assertThat(echoResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(assignmentRows(employeeId)).isEqualTo(1);
+		LocalDate effectiveFrom = jdbc().queryForObject(
+				"SELECT effective_from FROM employee_shift_assignments WHERE employee_id = ?",
+				LocalDate.class, employeeId);
+		assertThat(effectiveFrom).isEqualTo(LocalDate.of(2027, 1, 1));
 	}
 
 	@Test

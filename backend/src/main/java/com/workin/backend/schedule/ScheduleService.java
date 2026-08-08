@@ -3,6 +3,7 @@ package com.workin.backend.schedule;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -39,6 +40,15 @@ import com.workin.backend.tenancy.TenantSessionVariable;
 public class ScheduleService {
 
 	static final String WEEKLY_REST_LABEL = "Weekly rest";
+
+	/**
+	 * Hardening addition, not a ported legacy behavior: legacy's
+	 * schedule_generate_for_employee has no range cap, but its UI only
+	 * ever calls it one month at a time. Left unbounded, a request like
+	 * from=0001-01-01,to=9999-12-31 would loop ~3.65M days -- each with
+	 * multiple SQL round-trips -- inside a single transaction.
+	 */
+	private static final long GENERATE_MAX_DAYS = 370;
 
 	private final EmployeeShiftAssignmentRepository assignmentRepository;
 	private final EmployeeScheduleRepository scheduleRepository;
@@ -131,6 +141,9 @@ public class ScheduleService {
 		}
 		if (request.to().isBefore(request.from())) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "to precedes from");
+		}
+		if (ChronoUnit.DAYS.between(request.from(), request.to()) >= GENERATE_MAX_DAYS) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "range exceeds " + GENERATE_MAX_DAYS + " days");
 		}
 		EmployeeShiftAssignment assignment = assignmentOnDate(context.companyId(), employeeId, request.to())
 				.orElseThrow(() -> new ResponseStatusException(

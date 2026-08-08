@@ -16,4 +16,8 @@ public interface EmployeeShiftAssignmentRepository extends JpaRepository<Employe
 	Optional<EmployeeShiftAssignment> findFirstByEmployeeIdAndCompanyIdAndEffectiveFromGreaterThanOrderByEffectiveFromAscIdAsc(
 			Long employeeId, Long companyId, LocalDate afterDate);
 
+	/** Newest history row regardless of effective date -- the append-gate's comparison basis. */
+	Optional<EmployeeShiftAssignment> findFirstByEmployeeIdAndCompanyIdOrderByEffectiveFromDescIdDesc(
+			Long employeeId, Long companyId);
+
 }

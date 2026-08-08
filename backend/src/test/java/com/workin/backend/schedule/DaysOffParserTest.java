@@ -63,6 +63,14 @@ class DaysOffParserTest {
 	}
 
 	@Test
+	void companyValuesWithOversizedDigitTokensAreDroppedNotThrown() {
+		// An all-digit token longer than Integer can hold (weekly_off_days
+		// is VARCHAR(60), so storable) must not throw
+		// NumberFormatException -- legacy PHP's (int) cast never throws.
+		assertThat(DaysOffParser.parseCompanyRestDays(List.of("99999999999"))).isEmpty();
+	}
+
+	@Test
 	void legacyIndexAndLabelConversions() {
 		assertThat(DaysOffParser.toLegacyIndex(DayOfWeek.SUNDAY)).isZero();
 		assertThat(DaysOffParser.toLegacyIndex(DayOfWeek.SATURDAY)).isEqualTo(6);

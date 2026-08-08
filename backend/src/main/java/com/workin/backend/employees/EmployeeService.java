@@ -160,21 +160,27 @@ public class EmployeeService {
 	 * unconditionally whenever shift_id is present, but it is
 	 * patch-shaped -- this platform's full-replace PUT would grow one
 	 * history row per save from clients echoing the current shift, so
-	 * the append is gated on an actual change.
+	 * the append is gated on an actual change. The comparison is
+	 * against the newest history row regardless of its effective date
+	 * (not "as of today"): resolving "current" as-of today would miss
+	 * a future-dated newest row (e.g. one seeded via
+	 * CreateEmployeeRequest.shiftEffectiveFrom) and treat an echoed PUT
+	 * as a change, appending a today-dated row that effectively drags
+	 * the planned effective date back to today. Comparing against the
+	 * newest row unconditionally makes echoing a future-dated
+	 * assignment a no-op too.
 	 */
 	private void appendShiftIfChanged(AuthorizationContext context, Long employeeId, Long shiftId) {
 		if (shiftId == null) {
 			return;
 		}
-		LocalDate today = LocalDate.now();
 		boolean unchanged = shiftAssignmentRepository
-				.findFirstByEmployeeIdAndCompanyIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDescIdDesc(
-						employeeId, context.companyId(), today)
+				.findFirstByEmployeeIdAndCompanyIdOrderByEffectiveFromDescIdDesc(employeeId, context.companyId())
 				.map(current -> current.getShiftId().equals(shiftId))
 				.orElse(false);
 		if (!unchanged) {
 			shiftAssignmentRepository.save(new EmployeeShiftAssignment(
-					context.companyId(), employeeId, shiftId, today));
+					context.companyId(), employeeId, shiftId, LocalDate.now()));
 		}
 	}
 

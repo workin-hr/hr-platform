@@ -60,9 +60,18 @@ public final class DaysOffParser {
 				continue;
 			}
 			if (token.chars().allMatch(Character::isDigit)) {
-				int index = Integer.parseInt(token);
-				if (index >= 0 && index <= 6) {
-					out.add(fromLegacyIndex(index));
+				// Legacy PHP's (int) cast on an all-digit token never
+				// throws (it saturates on overflow). weekly_off_days is
+				// VARCHAR(60), so a token longer than Integer can hold is
+				// storable; guard the length before parseInt so that
+				// case is dropped instead of throwing
+				// NumberFormatException. Any token this long is outside
+				// the 0-6 range anyway.
+				if (token.length() <= 2) {
+					int index = Integer.parseInt(token);
+					if (index >= 0 && index <= 6) {
+						out.add(fromLegacyIndex(index));
+					}
 				}
 				continue;
 			}
