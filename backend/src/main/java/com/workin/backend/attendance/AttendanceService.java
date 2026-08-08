@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.employees.EmployeeRepository;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantSessionVariable;
 
@@ -144,10 +145,10 @@ public class AttendanceService {
 			LocalDate date, Long exceptionTypeId) {
 		if (exceptionTypeId != null) {
 			if (date == null) {
-				return new MutationResult.InvalidShape("exception shape requires date");
+				return new MutationResult.InvalidShape(MessageKeys.ATTENDANCE_EXCEPTION_SHAPE_REQUIRES_DATE);
 			}
 			if (checkIn != null || checkOut != null || method != null || latitude != null || longitude != null) {
-				return new MutationResult.InvalidShape("exception shape forbids punch fields");
+				return new MutationResult.InvalidShape(MessageKeys.ATTENDANCE_EXCEPTION_SHAPE_FORBIDS_PUNCH);
 			}
 			if (exceptionTypeRepository.findByIdAndCompanyId(exceptionTypeId, context.companyId()).isEmpty()) {
 				return new MutationResult.NotFound();
@@ -156,10 +157,10 @@ public class AttendanceService {
 			return null;
 		}
 		if (checkIn == null || method == null) {
-			return new MutationResult.InvalidShape("punch shape requires checkIn and method");
+			return new MutationResult.InvalidShape(MessageKeys.ATTENDANCE_PUNCH_SHAPE_REQUIRES_CHECKIN);
 		}
 		if (date != null) {
-			return new MutationResult.InvalidShape("punch shape forbids date");
+			return new MutationResult.InvalidShape(MessageKeys.ATTENDANCE_PUNCH_SHAPE_FORBIDS_DATE);
 		}
 		Optional<Attendance> latestEarlierPunch = attendanceRepository
 				.findFirstByEmployeeIdAndCompanyIdAndExceptionTypeIdIsNullAndIdNotAndCheckInLessThanEqualOrderByCheckInDesc(
@@ -177,7 +178,8 @@ public class AttendanceService {
 		record NotFound() implements MutationResult {
 		}
 
-		record InvalidShape(String reason) implements MutationResult {
+		/** {@code messageKey} is a MessageKeys constant, not raw text -- see ApiException. */
+		record InvalidShape(String messageKey) implements MutationResult {
 		}
 
 		/** The 2-hour minimum-gap rule (hr-legacy check_in.php lines 33-42, create.php 67-73). */

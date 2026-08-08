@@ -39,6 +39,10 @@ public final class MessageKeys {
 	public static final String AUTH_MULTIPLE_MEMBERSHIPS = "auth.multiple_memberships";
 	public static final String SCHEDULE_NO_ASSIGNMENT = "schedule.no_assignment";
 	public static final String REQUESTS_LEAVE_BALANCE_EXISTS = "requests.leave_balance_exists";
+	public static final String ATTENDANCE_EXCEPTION_SHAPE_REQUIRES_DATE = "attendance.exception_shape_requires_date";
+	public static final String ATTENDANCE_EXCEPTION_SHAPE_FORBIDS_PUNCH = "attendance.exception_shape_forbids_punch";
+	public static final String ATTENDANCE_PUNCH_SHAPE_REQUIRES_CHECKIN = "attendance.punch_shape_requires_checkin";
+	public static final String ATTENDANCE_PUNCH_SHAPE_FORBIDS_DATE = "attendance.punch_shape_forbids_date";
 
 	private MessageKeys() {
 	}
