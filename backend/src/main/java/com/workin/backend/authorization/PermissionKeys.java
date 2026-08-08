@@ -21,6 +21,8 @@ public final class PermissionKeys {
 	public static final String JOB_TITLES_MANAGE = "job_titles.manage";
 	public static final String SHIFTS_READ = "shifts.read";
 	public static final String SHIFTS_MANAGE = "shifts.manage";
+	public static final String SCHEDULES_READ = "schedules.read";
+	public static final String SCHEDULES_MANAGE = "schedules.manage";
 	public static final String LEAVE_BALANCES_READ = "leave_balances.read";
 	public static final String LEAVE_BALANCES_MANAGE = "leave_balances.manage";
 	public static final String ASSETS_READ = "assets.read";
