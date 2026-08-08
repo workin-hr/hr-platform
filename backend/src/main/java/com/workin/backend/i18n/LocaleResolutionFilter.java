@@ -19,10 +19,20 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * legacy app_locale() precedence): explicit ?lang wins, then
  * Accept-Language, default English. Runs before the security chain so
  * even rejected requests render localized bodies.
+ *
+ * <p>The resolved value is also stashed as a request attribute
+ * ({@link #RESOLVED_LOCALE_ATTRIBUTE}) for {@link LocaleResolverConfig}
+ * to read: DispatcherServlet unconditionally rebuilds
+ * LocaleContextHolder from its own LocaleResolver bean at the top of
+ * every request, so that bean cannot itself read back through
+ * LocaleContextHolder (self-referential -- StackOverflowError) and
+ * needs a plain, non-ThreadLocal source of truth instead.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class LocaleResolutionFilter extends OncePerRequestFilter {
+
+	public static final String RESOLVED_LOCALE_ATTRIBUTE = LocaleResolutionFilter.class.getName() + ".RESOLVED_LOCALE";
 
 	@Override
 	protected void doFilterInternal(
@@ -32,6 +42,7 @@ public class LocaleResolutionFilter extends OncePerRequestFilter {
 		Locale locale = langParam != null && !langParam.isBlank()
 				? SupportedLocales.fromLangParam(langParam)
 				: SupportedLocales.fromAcceptLanguage(request.getHeader("Accept-Language"));
+		request.setAttribute(RESOLVED_LOCALE_ATTRIBUTE, locale);
 		LocaleContextHolder.setLocale(locale);
 		try {
 			filterChain.doFilter(request, response);

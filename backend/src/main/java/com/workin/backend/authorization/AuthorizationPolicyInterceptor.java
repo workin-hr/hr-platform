@@ -1,5 +1,7 @@
 package com.workin.backend.authorization;
 
+import java.io.IOException;
+
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -9,6 +11,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import tools.jackson.databind.ObjectMapper;
+
+import com.workin.backend.i18n.ApiErrorBody;
+import com.workin.backend.i18n.Messages;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.security.AuthenticatedPrincipal;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantContextException;
@@ -34,13 +41,19 @@ import com.workin.backend.tenancy.TenantContextService;
 public class AuthorizationPolicyInterceptor implements HandlerInterceptor {
 
 	private final TenantContextService tenantContextService;
+	private final Messages messages;
+	private final ObjectMapper objectMapper;
 
-	public AuthorizationPolicyInterceptor(TenantContextService tenantContextService) {
+	public AuthorizationPolicyInterceptor(
+			TenantContextService tenantContextService, Messages messages, ObjectMapper objectMapper) {
 		this.tenantContextService = tenantContextService;
+		this.messages = messages;
+		this.objectMapper = objectMapper;
 	}
 
 	@Override
-	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+	public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
+			throws IOException {
 		if (!(handler instanceof HandlerMethod handlerMethod)) {
 			return true;
 		}
@@ -51,23 +64,29 @@ public class AuthorizationPolicyInterceptor implements HandlerInterceptor {
 
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 		if (authentication == null || !(authentication.getPrincipal() instanceof AuthenticatedPrincipal principal)) {
-			response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-			return false;
+			return reject(response);
 		}
 
 		try {
 			AuthorizationContext context = tenantContextService.establishContext(
 					principal.identityId(), principal.claimedMembershipId(), principal.claimedCompanyId());
 			if (!context.hasPermission(required.value())) {
-				response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-				return false;
+				return reject(response);
 			}
 			request.setAttribute(AuthorizationContext.class.getName(), context);
 			return true;
 		} catch (TenantContextException ex) {
-			response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-			return false;
+			return reject(response);
 		}
+	}
+
+	/** Interceptor rejections bypass the advice, so the body is written here. */
+	private boolean reject(HttpServletResponse response) throws IOException {
+		response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+		response.setContentType("application/json;charset=UTF-8");
+		response.getWriter().write(objectMapper.writeValueAsString(
+				new ApiErrorBody(MessageKeys.ERROR_FORBIDDEN, messages.get(MessageKeys.ERROR_FORBIDDEN))));
+		return false;
 	}
 
 }
