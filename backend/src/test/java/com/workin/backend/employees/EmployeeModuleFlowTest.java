@@ -115,7 +115,7 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 	void lifecycleToggleRoundTripsAndIsIdempotent() {
 		AuthResponse admin = registerCompanyAdmin();
 		Long employeeId = create(admin.accessToken(),
-				new CreateEmployeeRequest("Life", "Cycle", uniquePhone(), null, null, null)).getBody().id();
+				new CreateEmployeeRequest("Life", "Cycle", uniquePhone(), null, null, null, null, null)).getBody().id();
 
 		ResponseEntity<EmployeeView> deactivated = setStatus(admin.accessToken(), employeeId, false);
 		assertThat(deactivated.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -147,7 +147,7 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 	void aDeactivatedEmployeeIsSkippedByPayrollCalculateUntilReactivated() {
 		AuthResponse admin = registerCompanyAdmin();
 		Long employeeId = create(admin.accessToken(),
-				new CreateEmployeeRequest("Pay", "Roll", uniquePhone(), null, null, null)).getBody().id();
+				new CreateEmployeeRequest("Pay", "Roll", uniquePhone(), null, null, null, null, null)).getBody().id();
 		HttpHeaders headers = bearer(admin.accessToken());
 		ResponseEntity<String> contract = restTemplate.exchange(
 				"/api/tenant/salary-contracts?employeeId=" + employeeId, HttpMethod.POST,
@@ -185,7 +185,7 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 		// bug deactivated the employee row specifically).
 		AuthResponse admin = registerCompanyAdmin();
 		Long employeeId = create(admin.accessToken(),
-				new CreateEmployeeRequest("Log", "Out", uniquePhone(), null, null, null)).getBody().id();
+				new CreateEmployeeRequest("Log", "Out", uniquePhone(), null, null, null, null, null)).getBody().id();
 
 		ResponseEntity<Void> logout = restTemplate.postForEntity(
 				"/api/auth/logout", new com.workin.backend.identity.RefreshTokenRequest(admin.refreshToken()),
@@ -222,7 +222,7 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 		OrgFixture org = createOrgStructure(admin.accessToken());
 
 		ResponseEntity<EmployeeView> created = create(admin.accessToken(), new CreateEmployeeRequest(
-				"Placed", "Emp", uniquePhone(), org.branchId(), org.departmentId(), org.jobTitleId()));
+				"Placed", "Emp", uniquePhone(), org.branchId(), org.departmentId(), org.jobTitleId(), null, null));
 		assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(created.getBody().branchId()).isEqualTo(org.branchId());
 		assertThat(created.getBody().departmentId()).isEqualTo(org.departmentId());
@@ -232,7 +232,7 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 		// Nulls clear the attribution.
 		ResponseEntity<EmployeeView> cleared = restTemplate.exchange(
 				"/api/tenant/employees/" + employeeId, HttpMethod.PUT,
-				new HttpEntity<>(new UpdateEmployeeRequest("Placed", "Emp", null, null, null),
+				new HttpEntity<>(new UpdateEmployeeRequest("Placed", "Emp", null, null, null, null),
 						bearer(admin.accessToken())),
 				EmployeeView.class);
 		assertThat(cleared.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -245,12 +245,12 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 		AuthResponse companyB = registerCompanyAdmin();
 		OrgFixture foreign = createOrgStructure(companyB.accessToken());
 		List<UpdateEmployeeRequest> badUpdates = List.of(
-				new UpdateEmployeeRequest("P", "E", foreign.branchId(), null, null),
-				new UpdateEmployeeRequest("P", "E", null, foreign.departmentId(), null),
-				new UpdateEmployeeRequest("P", "E", null, null, foreign.jobTitleId()),
-				new UpdateEmployeeRequest("P", "E", 999_999_999L, null, null),
-				new UpdateEmployeeRequest("P", "E", null, 999_999_999L, null),
-				new UpdateEmployeeRequest("P", "E", null, null, 999_999_999L));
+				new UpdateEmployeeRequest("P", "E", foreign.branchId(), null, null, null),
+				new UpdateEmployeeRequest("P", "E", null, foreign.departmentId(), null, null),
+				new UpdateEmployeeRequest("P", "E", null, null, foreign.jobTitleId(), null),
+				new UpdateEmployeeRequest("P", "E", 999_999_999L, null, null, null),
+				new UpdateEmployeeRequest("P", "E", null, 999_999_999L, null, null),
+				new UpdateEmployeeRequest("P", "E", null, null, 999_999_999L, null));
 		for (UpdateEmployeeRequest bad : badUpdates) {
 			ResponseEntity<String> response = restTemplate.exchange(
 					"/api/tenant/employees/" + employeeId, HttpMethod.PUT,
@@ -271,7 +271,7 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 		AuthResponse admin = registerCompanyAdmin();
 
 		ResponseEntity<EmployeeView> created = create(
-				admin.accessToken(), new CreateEmployeeRequest("Nour", "Hassan", uniquePhone(), null, null, null));
+				admin.accessToken(), new CreateEmployeeRequest("Nour", "Hassan", uniquePhone(), null, null, null, null, null));
 		assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(created.getBody().firstName()).isEqualTo("Nour");
 		assertThat(created.getBody().role()).isEqualTo("EMPLOYEE");
@@ -288,7 +288,7 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 
 		ResponseEntity<EmployeeView> updated = restTemplate.exchange(
 				"/api/tenant/employees/" + created.getBody().id(), HttpMethod.PUT,
-				new HttpEntity<>(new UpdateEmployeeRequest("Noura", "Hassan", null, null, null), bearer(admin.accessToken())),
+				new HttpEntity<>(new UpdateEmployeeRequest("Noura", "Hassan", null, null, null, null), bearer(admin.accessToken())),
 				EmployeeView.class);
 		assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(updated.getBody().firstName()).isEqualTo("Noura");
@@ -297,7 +297,7 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 	@Test
 	void theAdminSurfaceNeverExposesCredentialFields() {
 		AuthResponse admin = registerCompanyAdmin();
-		create(admin.accessToken(), new CreateEmployeeRequest("Sami", "Adel", uniquePhone(), null, null, null));
+		create(admin.accessToken(), new CreateEmployeeRequest("Sami", "Adel", uniquePhone(), null, null, null, null, null));
 
 		ResponseEntity<String> raw = restTemplate.exchange(
 				"/api/tenant/employees", HttpMethod.GET, new HttpEntity<>(bearer(admin.accessToken())),
@@ -313,11 +313,11 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 	void duplicatePhoneIsACleanConflict() {
 		AuthResponse admin = registerCompanyAdmin();
 		String phone = uniquePhone();
-		create(admin.accessToken(), new CreateEmployeeRequest("First", "User", phone, null, null, null));
+		create(admin.accessToken(), new CreateEmployeeRequest("First", "User", phone, null, null, null, null, null));
 
 		ResponseEntity<String> second = restTemplate.exchange(
 				"/api/tenant/employees", HttpMethod.POST,
-				new HttpEntity<>(new CreateEmployeeRequest("Second", "User", phone, null, null, null), bearer(admin.accessToken())),
+				new HttpEntity<>(new CreateEmployeeRequest("Second", "User", phone, null, null, null, null, null), bearer(admin.accessToken())),
 				String.class);
 
 		assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
@@ -331,7 +331,7 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 		assertThat(list(hr.accessToken()).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 		ResponseEntity<String> createAttempt = restTemplate.exchange(
 				"/api/tenant/employees", HttpMethod.POST,
-				new HttpEntity<>(new CreateEmployeeRequest("Nope", "Nope", null, null, null, null), bearer(hr.accessToken())),
+				new HttpEntity<>(new CreateEmployeeRequest("Nope", "Nope", null, null, null, null, null, null), bearer(hr.accessToken())),
 				String.class);
 		assertThat(createAttempt.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 	}
@@ -346,7 +346,7 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 
 		ResponseEntity<String> createAttempt = restTemplate.exchange(
 				"/api/tenant/employees", HttpMethod.POST,
-				new HttpEntity<>(new CreateEmployeeRequest("Still", "No", null, null, null, null), bearer(hr.accessToken())),
+				new HttpEntity<>(new CreateEmployeeRequest("Still", "No", null, null, null, null, null, null), bearer(hr.accessToken())),
 				String.class);
 		assertThat(createAttempt.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 	}
@@ -356,7 +356,7 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 		AuthResponse companyA = registerCompanyAdmin();
 		AuthResponse companyB = registerCompanyAdmin();
 		Long companyAEmployeeId = create(
-				companyA.accessToken(), new CreateEmployeeRequest("Alia", "Amr", uniquePhone(), null, null, null)).getBody().id();
+				companyA.accessToken(), new CreateEmployeeRequest("Alia", "Amr", uniquePhone(), null, null, null, null, null)).getBody().id();
 
 		// hr-legacy#2's read shape: B reading A's employee.
 		ResponseEntity<String> crossRead = restTemplate.exchange(
@@ -367,7 +367,7 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 		// hr-legacy#3's mutation shape: B editing A's employee.
 		ResponseEntity<String> crossUpdate = restTemplate.exchange(
 				"/api/tenant/employees/" + companyAEmployeeId, HttpMethod.PUT,
-				new HttpEntity<>(new UpdateEmployeeRequest("Taken", "Over", null, null, null), bearer(companyB.accessToken())),
+				new HttpEntity<>(new UpdateEmployeeRequest("Taken", "Over", null, null, null, null), bearer(companyB.accessToken())),
 				String.class);
 		assertThat(crossUpdate.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 

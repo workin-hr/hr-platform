@@ -301,4 +301,64 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 				.isEqualTo(HttpStatus.BAD_REQUEST);
 	}
 
+	@Test
+	void employeeCreateAndUpdateAppendAssignmentHistory() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long shiftA = createShift(admin.companyId(), "Shift A", "09:00", "17:00", null);
+		Long shiftB = createShift(admin.companyId(), "Shift B", "10:00", "18:00", null);
+
+		// Create with a shift + explicit effective date writes one history row.
+		String createBody = "{\"firstName\": \"Shifted\", \"lastName\": \"Emp\", \"phone\": \""
+				+ uniquePhone() + "\", \"shiftId\": " + shiftA
+				+ ", \"shiftEffectiveFrom\": \"2026-03-01\"}";
+		ResponseEntity<String> created = restTemplate.exchange(
+				"/api/tenant/employees", HttpMethod.POST,
+				new HttpEntity<>(createBody, bearer(admin.accessToken())), String.class);
+		assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		Long employeeId = jdbc().queryForObject(
+				"SELECT id FROM employees WHERE first_name = 'Shifted' AND company_id = ?",
+				Long.class, admin.companyId());
+		assertThat(assignmentRows(employeeId)).isEqualTo(1);
+
+		// Update to a different shift appends a second row (history, never in-place).
+		String updateToB = "{\"firstName\": \"Shifted\", \"lastName\": \"Emp\", \"shiftId\": " + shiftB + "}";
+		restTemplate.exchange("/api/tenant/employees/" + employeeId, HttpMethod.PUT,
+				new HttpEntity<>(updateToB, bearer(admin.accessToken())), String.class);
+		assertThat(assignmentRows(employeeId)).isEqualTo(2);
+
+		// Re-sending the same shift on a full-replace PUT is a no-op --
+		// deviation from legacy's unconditional append, recorded in
+		// EmployeeService (legacy's PHP update is patch-shaped; a PUT
+		// client echoing shiftId would otherwise grow history per save).
+		restTemplate.exchange("/api/tenant/employees/" + employeeId, HttpMethod.PUT,
+				new HttpEntity<>(updateToB, bearer(admin.accessToken())), String.class);
+		assertThat(assignmentRows(employeeId)).isEqualTo(2);
+
+		// Null shiftId means "no schedule statement", not "unassign".
+		String updateNoShift = "{\"firstName\": \"Shifted\", \"lastName\": \"Emp\"}";
+		restTemplate.exchange("/api/tenant/employees/" + employeeId, HttpMethod.PUT,
+				new HttpEntity<>(updateNoShift, bearer(admin.accessToken())), String.class);
+		assertThat(assignmentRows(employeeId)).isEqualTo(2);
+	}
+
+	@Test
+	void employeeCreateWithForeignShiftIsNotFound() {
+		AuthResponse admin = registerCompanyAdmin();
+		AuthResponse other = registerCompanyAdmin();
+		Long foreignShift = createShift(other.companyId(), "Foreign", "09:00", "17:00", null);
+
+		String body = "{\"firstName\": \"X\", \"lastName\": \"Y\", \"phone\": \""
+				+ uniquePhone() + "\", \"shiftId\": " + foreignShift + "}";
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/tenant/employees", HttpMethod.POST,
+				new HttpEntity<>(body, bearer(admin.accessToken())), String.class);
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	private Integer assignmentRows(Long employeeId) {
+		return jdbc().queryForObject(
+				"SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = ?",
+				Integer.class, employeeId);
+	}
+
 }
