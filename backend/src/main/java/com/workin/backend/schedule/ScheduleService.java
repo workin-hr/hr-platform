@@ -23,6 +23,7 @@ import com.workin.backend.companysettings.CompanySettingsService;
 import com.workin.backend.employees.EmployeeRepository;
 import com.workin.backend.i18n.ApiException;
 import com.workin.backend.i18n.MessageKeys;
+import com.workin.backend.i18n.Messages;
 import com.workin.backend.organization.Shift;
 import com.workin.backend.organization.ShiftRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
@@ -40,7 +41,14 @@ import com.workin.backend.tenancy.TenantSessionVariable;
 @Service
 public class ScheduleService {
 
-	static final String WEEKLY_REST_LABEL = "Weekly rest";
+	/**
+	 * Persisted token for generated rest rows — localized at every
+	 * read via MessageKeys.SCHEDULE_WEEKLY_REST. Public because it is
+	 * the cross-module contract the attendance-calendar engine reads
+	 * (i18n spec; closes the visibility seam PR #67's final review
+	 * flagged).
+	 */
+	public static final String WEEKLY_REST = "WEEKLY_REST";
 
 	/**
 	 * Hardening addition, not a ported legacy behavior: legacy's
@@ -58,6 +66,7 @@ public class ScheduleService {
 	private final CompanySettingsService companySettingsService;
 	private final ResourceScopeService resourceScopeService;
 	private final TenantSessionVariable tenantSessionVariable;
+	private final Messages messages;
 
 	public ScheduleService(
 			EmployeeShiftAssignmentRepository assignmentRepository,
@@ -66,7 +75,8 @@ public class ScheduleService {
 			ShiftRepository shiftRepository,
 			CompanySettingsService companySettingsService,
 			ResourceScopeService resourceScopeService,
-			TenantSessionVariable tenantSessionVariable) {
+			TenantSessionVariable tenantSessionVariable,
+			Messages messages) {
 		this.assignmentRepository = assignmentRepository;
 		this.scheduleRepository = scheduleRepository;
 		this.employeeRepository = employeeRepository;
@@ -74,6 +84,7 @@ public class ScheduleService {
 		this.companySettingsService = companySettingsService;
 		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
+		this.messages = messages;
 	}
 
 	/** Latest assignment with effective_from <= onDate (schedule_shift_for_employee_on_date). */
@@ -160,7 +171,7 @@ public class ScheduleService {
 			boolean rest = DaysOffParser.parseDaysOff(shift.getDaysOff()).contains(d.getDayOfWeek())
 					|| companyRest.contains(d.getDayOfWeek());
 			if (rest) {
-				upsertDay(context.companyId(), employeeId, d, null, null, null, WEEKLY_REST_LABEL);
+				upsertDay(context.companyId(), employeeId, d, null, null, null, WEEKLY_REST);
 			} else {
 				upsertDay(context.companyId(), employeeId, d, blankToNull(shift.getName()),
 						shift.getStartTime(), shift.getEndTime(), null);
@@ -232,13 +243,21 @@ public class ScheduleService {
 				effectiveTo);
 	}
 
+	/** Token -> localized label; any other persisted text passes through verbatim. */
+	private String localizeException(String exceptionNote) {
+		return WEEKLY_REST.equals(exceptionNote)
+				? messages.get(MessageKeys.SCHEDULE_WEEKLY_REST)
+				: exceptionNote;
+	}
+
 	/** schedule_collect_weekly_rest_days: shift ∪ company, ascending legacy dow order. */
 	private List<WeeklyRestDayView> weeklyRestDays(Long companyId, Shift shift) {
 		Set<DayOfWeek> union = DaysOffParser.parseDaysOff(shift.getDaysOff());
 		union.addAll(companyRestDays(companyId));
 		return union.stream()
 				.sorted(Comparator.comparingInt(DaysOffParser::toLegacyIndex))
-				.map(d -> new WeeklyRestDayView(DaysOffParser.toLegacyIndex(d), DaysOffParser.englishLabel(d)))
+				// day.0..day.6 — the enumerable key family MessageCatalogSyncTest checks explicitly.
+				.map(d -> new WeeklyRestDayView(DaysOffParser.toLegacyIndex(d), messages.get("day." + DaysOffParser.toLegacyIndex(d))))
 				.toList();
 	}
 
@@ -263,7 +282,7 @@ public class ScheduleService {
 			EmployeeSchedule row = manual.get(d);
 			if (row != null) {
 				out.add(new ScheduleDayView(row.getId(), d, row.getName(),
-						row.getStartTime(), row.getEndTime(), row.getExceptionNote()));
+						row.getStartTime(), row.getEndTime(), localizeException(row.getExceptionNote())));
 				continue;
 			}
 			Optional<Shift> dayShift = shiftForEmployeeOnDate(companyId, employeeId, d);
@@ -275,7 +294,7 @@ public class ScheduleService {
 					|| companyRest.contains(d.getDayOfWeek());
 			if (rest) {
 				// schedule_row_from_shift: an exception label suppresses the shift columns.
-				out.add(new ScheduleDayView(null, d, null, null, null, WEEKLY_REST_LABEL));
+				out.add(new ScheduleDayView(null, d, null, null, null, messages.get(MessageKeys.SCHEDULE_WEEKLY_REST)));
 			} else {
 				out.add(new ScheduleDayView(null, d, blankToNull(shift.getName()),
 						shift.getStartTime(), shift.getEndTime(), null));
