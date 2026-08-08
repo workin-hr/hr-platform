@@ -1,6 +1,8 @@
 package com.workin.backend.companysettings;
 
 import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.dao.DataIntegrityViolationException;
@@ -67,7 +69,11 @@ public class CompanySettingsService {
 		return new EffectiveCompanySettings(
 				settings.map(CompanySettings::getMonthStartDay).map(Short::intValue).orElse(FALLBACK_MONTH_START_DAY),
 				settings.map(CompanySettings::getMonthEndDay).map(Short::intValue).orElse(null),
-				settings.map(CompanySettings::getMonthlyLeaveAccrual).orElse(FALLBACK_MONTHLY_LEAVE_ACCRUAL));
+				settings.map(CompanySettings::getMonthlyLeaveAccrual).orElse(FALLBACK_MONTHLY_LEAVE_ACCRUAL),
+				settings.map(CompanySettings::getWeeklyOffDays)
+						.map(raw -> Arrays.stream(raw.split("[,،;]+"))
+								.map(String::trim).filter(s -> !s.isEmpty()).toList())
+						.orElse(List.of()));
 	}
 
 }
