@@ -1,10 +1,14 @@
 package com.workin.backend.schedule;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,6 +36,17 @@ public class ScheduleController {
 			@RequestParam int year, @RequestParam int month) {
 		return scheduleService.monthlyOverview(contextFrom(request), employeeId, year, month)
 				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+	}
+
+	@RequiresPermission(PermissionKeys.SCHEDULES_MANAGE)
+	@PostMapping("/{employeeId}/assign")
+	public ResponseEntity<Void> assign(
+			HttpServletRequest request, @PathVariable Long employeeId,
+			@Valid @RequestBody AssignScheduleRequest body) {
+		if (!scheduleService.assign(contextFrom(request), employeeId, body)) {
+			throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+		}
+		return ResponseEntity.noContent().build();
 	}
 
 	private static AuthorizationContext contextFrom(HttpServletRequest request) {

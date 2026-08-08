@@ -103,6 +103,14 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 				HttpMethod.GET, new HttpEntity<>(bearer(token)), MonthlyOverviewView.class);
 	}
 
+	private ResponseEntity<Void> assign(String token, Long employeeId, Long shiftId, List<String> dates) {
+		String body = "{\"shiftId\": " + shiftId + ", \"dates\": [\""
+				+ String.join("\", \"", dates) + "\"]}";
+		return restTemplate.exchange(
+				"/api/tenant/schedules/" + employeeId + "/assign",
+				HttpMethod.POST, new HttpEntity<>(body, bearer(token)), Void.class);
+	}
+
 	@Test
 	void monthlyOverviewResolvesAssignmentHistory() {
 		AuthResponse admin = registerCompanyAdmin();
@@ -170,6 +178,51 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 		// An ordinary weekday keeps the shift snapshot.
 		assertThat(body.days().get(1).name()).isEqualTo("Day");
 		assertThat(body.days().get(1).exception()).isNull();
+	}
+
+	@Test
+	void assignWritesManualRowsThatWinOverComputedOnes() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = createEmployee(admin.companyId());
+		Long dayShift = createShift(admin.companyId(), "Day", "09:00", "17:00", "Fri");
+		Long nightShift = createShift(admin.companyId(), "Night", "22:00", "06:00", null);
+		insertAssignment(admin.companyId(), employeeId, dayShift, "2026-03-01");
+
+		// 2026-03-06 is a Friday -- computed classification would be rest.
+		ResponseEntity<Void> response = assign(admin.accessToken(), employeeId, nightShift,
+				List.of("2026-03-06", "2026-03-16"));
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+		MonthlyOverviewView body = monthly(admin.accessToken(), employeeId, 2026, 3).getBody();
+		ScheduleDayView friday = body.days().get(5);
+		// Manual row wins over the computed rest day, exactly as
+		// schedule_compute_days_for_range checks manual first.
+		assertThat(friday.id()).isNotNull();
+		assertThat(friday.name()).isEqualTo("Night");
+		assertThat(friday.startTime()).isEqualTo(LocalTime.of(22, 0));
+		assertThat(friday.exception()).isNull();
+		assertThat(body.days().get(15).name()).isEqualTo("Night");
+
+		// Re-assigning the same date is an upsert, not a duplicate row.
+		assign(admin.accessToken(), employeeId, dayShift, List.of("2026-03-06"));
+		Integer rows = jdbc().queryForObject(
+				"SELECT COUNT(*) FROM employee_schedules WHERE employee_id = ? AND schedule_date = '2026-03-06'::date",
+				Integer.class, employeeId);
+		assertThat(rows).isEqualTo(1);
+		assertThat(monthly(admin.accessToken(), employeeId, 2026, 3).getBody().days().get(5).name())
+				.isEqualTo("Day");
+	}
+
+	@Test
+	void assignRejectsUnknownEmployeeOrShift() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = createEmployee(admin.companyId());
+		Long shiftId = createShift(admin.companyId(), "Day", "09:00", "17:00", null);
+
+		assertThat(assign(admin.accessToken(), 999999L, shiftId, List.of("2026-03-02")).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(assign(admin.accessToken(), employeeId, 999999L, List.of("2026-03-02")).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
 	}
 
 }

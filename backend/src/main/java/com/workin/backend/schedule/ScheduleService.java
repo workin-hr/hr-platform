@@ -2,6 +2,7 @@ package com.workin.backend.schedule;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -11,8 +12,11 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.companysettings.CompanySettingsService;
@@ -79,6 +83,51 @@ public class ScheduleService {
 		DayOfWeek dow = date.getDayOfWeek();
 		return DaysOffParser.parseDaysOff(shift == null ? null : shift.getDaysOff()).contains(dow)
 				|| companyRestDays(companyId).contains(dow);
+	}
+
+	/**
+	 * assign_employee_schedule.php: a materialization write -- snapshots
+	 * the chosen shift onto specific dates, clearing any exception note.
+	 * Distinct from changing the employee's ongoing assignment (that is
+	 * employee create/update's append to employee_shift_assignments).
+	 * Legacy's notification_to_employee call is out (no notification
+	 * infrastructure -- spec Out item). Uniform 404 replaces legacy's
+	 * distinct EMPLOYEE_NOT_FOUND/SHIFT_NOT_FOUND messages (house rule).
+	 */
+	@Transactional
+	public boolean assign(AuthorizationContext context, Long employeeId, AssignScheduleRequest request) {
+		tenantSessionVariable.apply(context.companyId());
+		if (!employeeInScope(context, employeeId)) {
+			return false;
+		}
+		Optional<Shift> shift = shiftRepository.findByIdAndCompanyId(request.shiftId(), context.companyId());
+		if (shift.isEmpty()) {
+			return false;
+		}
+		for (LocalDate date : request.dates()) {
+			upsertDay(context.companyId(), employeeId, date,
+					blankToNull(shift.get().getName()), shift.get().getStartTime(),
+					shift.get().getEndTime(), null);
+		}
+		return true;
+	}
+
+	/**
+	 * Read-then-write upsert (JPA has no native ON CONFLICT); the V33
+	 * UNIQUE constraint is the backstop under concurrent writes -- a
+	 * lost race surfaces as 409, the CompanySettingsService precedent.
+	 */
+	private void upsertDay(Long companyId, Long employeeId, LocalDate date,
+			String name, LocalTime startTime, LocalTime endTime, String exceptionNote) {
+		EmployeeSchedule row = scheduleRepository
+				.findByEmployeeIdAndCompanyIdAndScheduleDate(employeeId, companyId, date)
+				.orElseGet(() -> new EmployeeSchedule(companyId, employeeId, date));
+		row.snapshot(name, startTime, endTime, exceptionNote);
+		try {
+			scheduleRepository.saveAndFlush(row);
+		} catch (DataIntegrityViolationException ex) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT, "schedule day was written concurrently", ex);
+		}
 	}
 
 	@Transactional(readOnly = true)
