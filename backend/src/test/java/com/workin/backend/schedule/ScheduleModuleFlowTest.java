@@ -111,6 +111,25 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 				HttpMethod.POST, new HttpEntity<>(body, bearer(token)), Void.class);
 	}
 
+	private ResponseEntity<GenerateResultView> generate(String token, Long employeeId, String from, String to) {
+		String body = "{\"from\": \"" + from + "\", \"to\": \"" + to + "\"}";
+		try {
+			return restTemplate.exchange(
+					"/api/tenant/schedules/" + employeeId + "/generate",
+					HttpMethod.POST, new HttpEntity<>(body, bearer(token)), GenerateResultView.class);
+		} catch (org.springframework.web.client.HttpStatusCodeException e) {
+			// Handle error responses (400, 404, etc.)
+			return ResponseEntity.status(e.getStatusCode()).body(null);
+		} catch (org.springframework.web.client.RestClientException e) {
+			// Handle deserialization errors for error responses
+			if (e.getCause() instanceof org.springframework.http.converter.HttpMessageNotReadableException) {
+				// This happens when the response is an error and can't be deserialized as GenerateResultView
+				return ResponseEntity.badRequest().body(null);
+			}
+			throw e;
+		}
+	}
+
 	@Test
 	void monthlyOverviewResolvesAssignmentHistory() {
 		AuthResponse admin = registerCompanyAdmin();
@@ -223,6 +242,63 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 				.isEqualTo(HttpStatus.NOT_FOUND);
 		assertThat(assign(admin.accessToken(), employeeId, 999999L, List.of("2026-03-02")).getStatusCode())
 				.isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void generateReplacesExistingRowsAndLabelsRestDays() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = createEmployee(admin.companyId());
+		Long dayShift = createShift(admin.companyId(), "Day", "09:00", "17:00", "Fri");
+		Long nightShift = createShift(admin.companyId(), "Night", "22:00", "06:00", null);
+		setCompanyWeeklyOffDays(admin.companyId(), "Sat");
+		insertAssignment(admin.companyId(), employeeId, dayShift, "2026-03-01");
+		// A pre-existing manual row inside the range -- regenerate must replace it.
+		assign(admin.accessToken(), employeeId, nightShift, List.of("2026-03-02"));
+		// And one outside the range -- must survive untouched.
+		assign(admin.accessToken(), employeeId, nightShift, List.of("2026-04-01"));
+
+		ResponseEntity<GenerateResultView> response =
+				generate(admin.accessToken(), employeeId, "2026-03-01", "2026-03-31");
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody().count()).isEqualTo(31);
+		assertThat(response.getBody().shiftId()).isEqualTo(dayShift);
+		assertThat(response.getBody().shiftName()).isEqualTo("Day");
+
+		// Regenerate is destructive by design (legacy's only exposed mode):
+		// the manual Night row on Mar 2 became a Day row.
+		String mar2Name = jdbc().queryForObject(
+				"SELECT name FROM employee_schedules WHERE employee_id = ? AND schedule_date = '2026-03-02'::date",
+				String.class, employeeId);
+		assertThat(mar2Name).isEqualTo("Day");
+		// Rest days persisted with the exception label and no shift columns.
+		String mar6Note = jdbc().queryForObject(
+				"SELECT exception_note FROM employee_schedules WHERE employee_id = ? AND schedule_date = '2026-03-06'::date",
+				String.class, employeeId);
+		assertThat(mar6Note).isEqualTo("Weekly rest");
+		String mar7Note = jdbc().queryForObject(
+				"SELECT exception_note FROM employee_schedules WHERE employee_id = ? AND schedule_date = '2026-03-07'::date",
+				String.class, employeeId);
+		assertThat(mar7Note).isEqualTo("Weekly rest");
+		// The out-of-range manual row survived.
+		String apr1Name = jdbc().queryForObject(
+				"SELECT name FROM employee_schedules WHERE employee_id = ? AND schedule_date = '2026-04-01'::date",
+				String.class, employeeId);
+		assertThat(apr1Name).isEqualTo("Night");
+	}
+
+	@Test
+	void generateWithoutAssignmentOrWithInvertedRangeIsBadRequest() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = createEmployee(admin.companyId());
+
+		assertThat(generate(admin.accessToken(), employeeId, "2026-03-01", "2026-03-31").getStatusCode())
+				.isEqualTo(HttpStatus.BAD_REQUEST);
+
+		Long shiftId = createShift(admin.companyId(), "Day", "09:00", "17:00", null);
+		insertAssignment(admin.companyId(), employeeId, shiftId, "2026-03-01");
+		assertThat(generate(admin.accessToken(), employeeId, "2026-03-31", "2026-03-01").getStatusCode())
+				.isEqualTo(HttpStatus.BAD_REQUEST);
 	}
 
 }

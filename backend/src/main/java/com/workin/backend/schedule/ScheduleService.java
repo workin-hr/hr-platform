@@ -113,6 +113,54 @@ public class ScheduleService {
 	}
 
 	/**
+	 * schedule_generate_for_employee with $replace_existing = true (the
+	 * only mode legacy's endpoint exposes): deletes the range, then
+	 * re-materializes one row per day from that day's assignment,
+	 * skipping days with no assignment yet. The eligibility gate
+	 * resolves the assignment on `to` (legacy's exact probe). 400s are
+	 * split by cause (invalid range vs. no assignment) where legacy
+	 * reuses SHIFT_NOT_ASSIGNED for both -- recorded normalization,
+	 * same status code.
+	 */
+	@Transactional
+	public Optional<GenerateResultView> generate(
+			AuthorizationContext context, Long employeeId, GenerateScheduleRequest request) {
+		tenantSessionVariable.apply(context.companyId());
+		if (!employeeInScope(context, employeeId)) {
+			return Optional.empty();
+		}
+		if (request.to().isBefore(request.from())) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "to precedes from");
+		}
+		EmployeeShiftAssignment assignment = assignmentOnDate(context.companyId(), employeeId, request.to())
+				.orElseThrow(() -> new ResponseStatusException(
+						HttpStatus.BAD_REQUEST, "no shift assignment effective in range"));
+		scheduleRepository.deleteRange(employeeId, context.companyId(), request.from(), request.to());
+		Set<DayOfWeek> companyRest = companyRestDays(context.companyId());
+		int count = 0;
+		for (LocalDate d = request.from(); !d.isAfter(request.to()); d = d.plusDays(1)) {
+			Optional<Shift> dayShift = shiftForEmployeeOnDate(context.companyId(), employeeId, d);
+			if (dayShift.isEmpty()) {
+				continue;
+			}
+			Shift shift = dayShift.get();
+			boolean rest = DaysOffParser.parseDaysOff(shift.getDaysOff()).contains(d.getDayOfWeek())
+					|| companyRest.contains(d.getDayOfWeek());
+			if (rest) {
+				upsertDay(context.companyId(), employeeId, d, null, null, null, WEEKLY_REST_LABEL);
+			} else {
+				upsertDay(context.companyId(), employeeId, d, blankToNull(shift.getName()),
+						shift.getStartTime(), shift.getEndTime(), null);
+			}
+			count++;
+		}
+		Shift resolved = shiftRepository.findByIdAndCompanyId(assignment.getShiftId(), context.companyId())
+				.orElse(null);
+		return Optional.of(new GenerateResultView(
+				count, assignment.getShiftId(), resolved != null ? resolved.getName() : null));
+	}
+
+	/**
 	 * Read-then-write upsert (JPA has no native ON CONFLICT); the V33
 	 * UNIQUE constraint is the backstop under concurrent writes -- a
 	 * lost race surfaces as 409, the CompanySettingsService precedent.

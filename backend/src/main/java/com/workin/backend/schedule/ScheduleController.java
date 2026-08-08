@@ -49,6 +49,15 @@ public class ScheduleController {
 		return ResponseEntity.noContent().build();
 	}
 
+	@RequiresPermission(PermissionKeys.SCHEDULES_MANAGE)
+	@PostMapping("/{employeeId}/generate")
+	public GenerateResultView generate(
+			HttpServletRequest request, @PathVariable Long employeeId,
+			@Valid @RequestBody GenerateScheduleRequest body) {
+		return scheduleService.generate(contextFrom(request), employeeId, body)
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+	}
+
 	private static AuthorizationContext contextFrom(HttpServletRequest request) {
 		Object context = request.getAttribute(AuthorizationContext.class.getName());
 		if (context == null) {
