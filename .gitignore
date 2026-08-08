@@ -20,3 +20,7 @@ __pycache__/
 # Never run git commands *inside* either submodule directory that would
 # push, commit, or otherwise modify them — reference only. See ADR-0001
 # (docs/adr/ADR-0001-repository-strategy.md) for the full policy.
+
+# Session-local git worktrees (never repository content)
+.claude/worktrees/
+.superpowers/
