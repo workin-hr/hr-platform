@@ -197,8 +197,8 @@ decision the owner makes (new `SCHEDULES_*` keys vs. reusing
 
 ## Consequences
 
-Unblocks the attendance-calendar engine (needs `shiftForEmployeeOnDate`
-+ `isWeeklyRestDay` to classify a day before it can decide
+Unblocks the attendance-calendar engine (needs `shiftForEmployeeOnDate` +
+`isWeeklyRestDay` to classify a day before it can decide
 worked/rest/absent), the weekly-rest-credit rule (same dependency),
 and payroll's real attendance-figures derivation (currently hardcoded
 to "full attendance every day" in `PayrollBatchService.calculate`).

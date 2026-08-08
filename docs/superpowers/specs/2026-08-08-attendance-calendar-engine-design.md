@@ -152,10 +152,10 @@ per-day loop exactly (`attendance_calendar_helper.php:277-420`):
      formula — this is what stops an in-progress shift from showing
      phantom hours before it's actually over; (e) otherwise the
      display-duration formula: complete punches → raw
-     `checkOut - checkIn` minutes; exactly one punch → `expected_minutes
-     - ATTENDANCE_INCOMPLETE_PUNCH_DEDUCTION_MINUTES` (the constant is
-     `120`, `attendance_calendar_helper.php:7`), floored at `0`; both
-     absent → `0`.
+     `checkOut - checkIn` minutes; exactly one punch →
+     `expected_minutes - ATTENDANCE_INCOMPLETE_PUNCH_DEDUCTION_MINUTES`
+     (the constant is `120`, `attendance_calendar_helper.php:7`),
+     floored at `0`; both absent → `0`.
 3. No attendance row, day is rest/holiday → classify **Rest** or
    **Holiday**, synthetic row with a stable negative id:
    `-1 * (employeeId * 100000000 + (int(dateWithoutDashes) % 100000000))`
