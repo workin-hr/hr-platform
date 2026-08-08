@@ -38,6 +38,7 @@ public final class MessageKeys {
 	public static final String SCHEDULE_CONCURRENT_WRITE = "schedule.concurrent_write";
 	public static final String AUTH_MULTIPLE_MEMBERSHIPS = "auth.multiple_memberships";
 	public static final String SCHEDULE_NO_ASSIGNMENT = "schedule.no_assignment";
+	public static final String REQUESTS_LEAVE_BALANCE_EXISTS = "requests.leave_balance_exists";
 
 	private MessageKeys() {
 	}
