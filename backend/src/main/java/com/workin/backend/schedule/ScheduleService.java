@@ -22,6 +22,8 @@ import org.springframework.web.server.ResponseStatusException;
 import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.companysettings.CompanySettingsService;
 import com.workin.backend.employees.EmployeeRepository;
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.organization.Shift;
 import com.workin.backend.organization.ShiftRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
@@ -140,10 +142,10 @@ public class ScheduleService {
 			return Optional.empty();
 		}
 		if (request.to().isBefore(request.from())) {
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "to precedes from");
+			throw new ApiException(HttpStatus.BAD_REQUEST, MessageKeys.SCHEDULE_INVALID_RANGE);
 		}
 		if (ChronoUnit.DAYS.between(request.from(), request.to()) >= GENERATE_MAX_DAYS) {
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "range exceeds " + GENERATE_MAX_DAYS + " days");
+			throw new ApiException(HttpStatus.BAD_REQUEST, MessageKeys.SCHEDULE_RANGE_EXCEEDS_MAX, GENERATE_MAX_DAYS);
 		}
 		EmployeeShiftAssignment assignment = assignmentOnDate(context.companyId(), employeeId, request.to())
 				.orElseThrow(() -> new ResponseStatusException(
@@ -187,7 +189,7 @@ public class ScheduleService {
 		try {
 			scheduleRepository.saveAndFlush(row);
 		} catch (DataIntegrityViolationException ex) {
-			throw new ResponseStatusException(HttpStatus.CONFLICT, "schedule day was written concurrently", ex);
+			throw new ApiException(HttpStatus.CONFLICT, MessageKeys.SCHEDULE_CONCURRENT_WRITE, ex);
 		}
 	}
 

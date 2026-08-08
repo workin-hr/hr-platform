@@ -20,6 +20,8 @@ import org.springframework.web.server.ResponseStatusException;
 import com.workin.backend.authorization.PermissionKeys;
 import com.workin.backend.authorization.RequiresPermission;
 import com.workin.backend.authorization.ResourceScopeType;
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.members.MemberAdminService.MutationResult;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantRole;
@@ -118,11 +120,11 @@ public class MemberController {
 			}
 			case MutationResult.NotFound notFound -> throw new ResponseStatusException(HttpStatus.NOT_FOUND);
 			case MutationResult.SelfMutation selfMutation ->
-					throw new ResponseStatusException(HttpStatus.CONFLICT, "own membership cannot be administered");
+					throw new ApiException(HttpStatus.CONFLICT, MessageKeys.MEMBERS_OWN_MEMBERSHIP);
 			case MutationResult.LastAdmin lastAdmin ->
-					throw new ResponseStatusException(HttpStatus.CONFLICT, "last active company admin");
+					throw new ApiException(HttpStatus.CONFLICT, MessageKeys.MEMBERS_LAST_ADMIN);
 			case MutationResult.Duplicate duplicate ->
-					throw new ResponseStatusException(HttpStatus.CONFLICT, "already present");
+					throw new ApiException(HttpStatus.CONFLICT, MessageKeys.MEMBERS_ALREADY_PRESENT);
 		}
 	}
 

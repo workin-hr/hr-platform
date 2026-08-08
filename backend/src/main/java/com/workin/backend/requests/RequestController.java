@@ -20,6 +20,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.authorization.PermissionKeys;
 import com.workin.backend.authorization.RequiresPermission;
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.requests.RequestService.MutationResult;
 import com.workin.backend.tenancy.AuthorizationContext;
 
@@ -93,7 +95,7 @@ public class RequestController {
 
 	private static void requireOrderedDates(java.time.LocalDate from, java.time.LocalDate to) {
 		if (to.isBefore(from)) {
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "toDate must not precede fromDate");
+			throw new ApiException(HttpStatus.BAD_REQUEST, MessageKeys.REQUESTS_INVALID_DATE_RANGE);
 		}
 	}
 
@@ -103,7 +105,7 @@ public class RequestController {
 			case MutationResult.NotFound notFound -> throw new ResponseStatusException(HttpStatus.NOT_FOUND);
 			case MutationResult.WrongState wrongState -> throw new ResponseStatusException(HttpStatus.CONFLICT);
 			case MutationResult.InsufficientBalance insufficientBalance ->
-					throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "insufficient leave balance");
+					throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, MessageKeys.REQUESTS_INSUFFICIENT_BALANCE);
 		};
 	}
 

@@ -5,8 +5,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
+import javax.sql.DataSource;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -29,6 +32,10 @@ class I18nFlowTest extends AbstractIntegrationTest {
 
 	@Autowired
 	private TestRestTemplate restTemplate;
+
+	@Autowired
+	@Qualifier("flywayDataSource")
+	private DataSource flywayDataSource;
 
 	private static String uniquePhone() {
 		return "+2" + PHONE.incrementAndGet();
@@ -57,6 +64,68 @@ class I18nFlowTest extends AbstractIntegrationTest {
 	private Map<String, Object> getError(String token, String url, String acceptLanguage) {
 		return restTemplate.exchange(
 				url, HttpMethod.GET, new HttpEntity<>(bearer(token, acceptLanguage)), Map.class).getBody();
+	}
+
+	private Long jdbcCreateEmployee(Long companyId) {
+		return new org.springframework.jdbc.core.JdbcTemplate(flywayDataSource).queryForObject(
+				"INSERT INTO employees (company_id, first_name, last_name) VALUES (?, 'I18n', 'Emp') RETURNING id",
+				Long.class, companyId);
+	}
+
+	private void jdbcCreateAssignment(Long companyId, Long employeeId) {
+		org.springframework.jdbc.core.JdbcTemplate jdbc =
+				new org.springframework.jdbc.core.JdbcTemplate(flywayDataSource);
+		Long shiftId = jdbc.queryForObject(
+				"INSERT INTO shifts (company_id, name, start_time, end_time) "
+						+ "VALUES (?, 'Day', '09:00'::time, '17:00'::time) RETURNING id",
+				Long.class, companyId);
+		jdbc.update(
+				"INSERT INTO employee_shift_assignments (company_id, employee_id, shift_id, effective_from) "
+						+ "VALUES (?, ?, ?, '2026-01-01'::date)",
+				companyId, employeeId, shiftId);
+	}
+
+	@Test
+	void keyedErrorsCarryStableCodeAndLocalizedMessage() {
+		String phone = uniquePhone();
+		restTemplate.postForEntity(
+				"/api/auth/register",
+				new RegisterCompanyRequest("I18n Dup Co", phone, "correct horse battery staple"),
+				AuthResponse.class);
+
+		// Duplicate registration, Arabic requested via param.
+		ResponseEntity<Map> duplicate = restTemplate.postForEntity(
+				"/api/auth/register?lang=ar",
+				new RegisterCompanyRequest("I18n Dup Co", phone, "correct horse battery staple"),
+				Map.class);
+		assertThat(duplicate.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+		assertThat(duplicate.getBody().get("code")).isEqualTo("auth.phone_already_registered");
+		assertThat(duplicate.getBody().get("message")).isEqualTo("رقم الهاتف مسجّل مسبقاً");
+
+		// Wrong password, English default.
+		ResponseEntity<Map> badLogin = restTemplate.postForEntity(
+				"/api/auth/login",
+				new com.workin.backend.identity.LoginRequest(phone, "wrong password entirely"),
+				Map.class);
+		assertThat(badLogin.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+		assertThat(badLogin.getBody().get("code")).isEqualTo("auth.invalid_credentials");
+		assertThat(badLogin.getBody().get("message")).isEqualTo("Invalid credentials");
+	}
+
+	@Test
+	void messageFormatArgsRenderInsideLocalizedText() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = jdbcCreateEmployee(admin.companyId());
+		jdbcCreateAssignment(admin.companyId(), employeeId);
+
+		String body = "{\"from\": \"2026-01-01\", \"to\": \"2027-06-30\"}";
+		ResponseEntity<Map> response = restTemplate.exchange(
+				"/api/tenant/schedules/" + employeeId + "/generate?lang=ar", HttpMethod.POST,
+				new HttpEntity<>(body, bearer(admin.accessToken(), null)), Map.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody().get("code")).isEqualTo("schedule.range_exceeds_max");
+		assertThat((String) response.getBody().get("message")).isEqualTo("النطاق يتجاوز 370 يوماً");
 	}
 
 	@Test

@@ -7,6 +7,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.tenancy.IdentityMembershipIndexService;
 import com.workin.backend.tenancy.IdentityMembershipIndexService.MembershipSummary;
 
@@ -38,11 +40,11 @@ public class LoginService {
 		Identity identity = identityRepository.findByPhone(request.phone())
 				.filter(candidate -> passwordEncoder.matches(request.password(), candidate.getPasswordHash()))
 				.filter(Identity::isActive)
-				.orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+				.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, MessageKeys.AUTH_INVALID_CREDENTIALS));
 
 		List<MembershipSummary> memberships = membershipIndexService.findMembershipsForIdentity(identity.getId());
 		if (memberships.isEmpty()) {
-			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No active tenant membership");
+			throw new ApiException(HttpStatus.UNAUTHORIZED, MessageKeys.AUTH_NO_ACTIVE_MEMBERSHIP);
 		}
 		if (memberships.size() > 1) {
 			throw new ResponseStatusException(
