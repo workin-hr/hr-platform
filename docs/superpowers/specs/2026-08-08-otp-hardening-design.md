@@ -49,10 +49,12 @@ via `backend/src/main/java/com/workin/backend/authorization/PermissionKeys.java`
 **In — legacy behavior catalog (all read from the current helper file):**
 
 - **Soft-invalidate, not delete** (`otp_clear_for_phone`, lines 77-89):
-  ```
+
+  ```sql
   UPDATE otp_codes SET is_used = 1
   WHERE phone = ? AND COALESCE(is_used, 0) = 0
   ```
+
   replacing the prior version's `DELETE FROM otp_codes WHERE phone = ?`.
   Rows are kept for audit and as a rate-limit fallback source. Verification
   (`otp_verify_latest_for_phone`, lines 244-263) gained `AND COALESCE(is_used, 0) = 0`

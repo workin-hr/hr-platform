@@ -32,6 +32,7 @@ cross-reference yet), but the mechanism has no OTP logic in legacy and
 shouldn't gain any.
 
 Confirmed legacy behavior:
+
 - Instance list is config-driven, ordered primary-then-fallback
   (`whatsapp_instance_ids()`, `:25-41`), from two `AppConfig` values,
   each skipped if blank/placeholder. Concrete instance IDs are
