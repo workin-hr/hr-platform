@@ -23,7 +23,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.workin.backend.AbstractIntegrationTest;
+import com.workin.backend.authorization.PermissionKeys;
 import com.workin.backend.identity.AuthResponse;
+import com.workin.backend.identity.LoginRequest;
 import com.workin.backend.identity.RegisterCompanyRequest;
 
 /**
@@ -88,6 +90,34 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 				companyId, value);
 	}
 
+	private record HrFixture(String accessToken, Long membershipId, Long companyId) {
+	}
+
+	private HrFixture loginHrMember(Long companyId) {
+		JdbcTemplate jdbc = jdbc();
+		String phone = uniquePhone();
+		String password = "correct horse battery staple";
+		Long identityId = jdbc.queryForObject(
+				"INSERT INTO identities (phone, password_hash) VALUES (?, ?) RETURNING id",
+				Long.class, phone, passwordEncoder.encode(password));
+		Long membershipId = jdbc.queryForObject(
+				"INSERT INTO tenant_memberships (identity_id, company_id, status) VALUES (?, ?, 'ACTIVE') RETURNING id",
+				Long.class, identityId, companyId);
+		jdbc.update(
+				"INSERT INTO membership_roles (membership_id, company_id, role) VALUES (?, ?, 'HR')",
+				membershipId, companyId);
+		AuthResponse login = restTemplate.postForEntity(
+				"/api/auth/login", new LoginRequest(phone, password), AuthResponse.class).getBody();
+		return new HrFixture(login.accessToken(), membershipId, companyId);
+	}
+
+	private void grantPermission(HrFixture hr, String permissionKey) {
+		jdbc().update(
+				"INSERT INTO membership_permission_overrides (membership_id, company_id, permission_id, effect) "
+						+ "SELECT ?, ?, p.id, 'ALLOW' FROM permissions p WHERE p.permission_key = ?",
+				hr.membershipId(), hr.companyId(), permissionKey);
+	}
+
 	private HttpHeaders bearer(String accessToken) {
 		HttpHeaders headers = new HttpHeaders();
 		if (accessToken != null) {
@@ -113,20 +143,20 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 
 	private ResponseEntity<GenerateResultView> generate(String token, Long employeeId, String from, String to) {
 		String body = "{\"from\": \"" + from + "\", \"to\": \"" + to + "\"}";
+		HttpEntity<String> entity = new HttpEntity<>(body, bearer(token));
+		String path = "/api/tenant/schedules/" + employeeId + "/generate";
 		try {
-			return restTemplate.exchange(
-					"/api/tenant/schedules/" + employeeId + "/generate",
-					HttpMethod.POST, new HttpEntity<>(body, bearer(token)), GenerateResultView.class);
-		} catch (org.springframework.web.client.HttpStatusCodeException e) {
-			// Handle error responses (400, 404, etc.)
-			return ResponseEntity.status(e.getStatusCode()).body(null);
+			return restTemplate.exchange(path, HttpMethod.POST, entity, GenerateResultView.class);
 		} catch (org.springframework.web.client.RestClientException e) {
-			// Handle deserialization errors for error responses
-			if (e.getCause() instanceof org.springframework.http.converter.HttpMessageNotReadableException) {
-				// This happens when the response is an error and can't be deserialized as GenerateResultView
-				return ResponseEntity.badRequest().body(null);
-			}
-			throw e;
+			// Error response bodies (Spring's default {timestamp,status,
+			// error,path} shape) don't deserialize as GenerateResultView --
+			// TestRestTemplate's no-op error handler means this
+			// deserialization failure, not an HTTP status exception, is
+			// what we see for every 4xx/5xx. Re-probe as a raw string to
+			// recover the real status code (safe: a rejected generate call
+			// never mutated anything).
+			ResponseEntity<String> raw = restTemplate.exchange(path, HttpMethod.POST, entity, String.class);
+			return ResponseEntity.status(raw.getStatusCode()).body(null);
 		}
 	}
 
@@ -353,6 +383,59 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 				"/api/tenant/employees", HttpMethod.POST,
 				new HttpEntity<>(body, bearer(admin.accessToken())), String.class);
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void monthlyOverviewRequiresSchedulesRead() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = createEmployee(admin.companyId());
+		HrFixture hr = loginHrMember(admin.companyId());
+
+		assertThat(monthly(hr.accessToken(), employeeId, 2026, 3).getStatusCode())
+				.isEqualTo(HttpStatus.FORBIDDEN);
+
+		grantPermission(hr, PermissionKeys.SCHEDULES_READ);
+		assertThat(monthly(hr.accessToken(), employeeId, 2026, 3).getStatusCode())
+				.isEqualTo(HttpStatus.OK);
+	}
+
+	@Test
+	void writesRequireSchedulesManage() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = createEmployee(admin.companyId());
+		Long shiftId = createShift(admin.companyId(), "Day", "09:00", "17:00", null);
+		HrFixture hr = loginHrMember(admin.companyId());
+		grantPermission(hr, PermissionKeys.SCHEDULES_READ);
+
+		assertThat(assign(hr.accessToken(), employeeId, shiftId, List.of("2026-03-02")).getStatusCode())
+				.isEqualTo(HttpStatus.FORBIDDEN);
+		assertThat(generate(hr.accessToken(), employeeId, "2026-03-01", "2026-03-31").getStatusCode())
+				.isEqualTo(HttpStatus.FORBIDDEN);
+	}
+
+	@Test
+	void crossTenantAccessIsUniformNotFound() {
+		AuthResponse admin = registerCompanyAdmin();
+		AuthResponse other = registerCompanyAdmin();
+		Long foreignEmployee = createEmployee(other.companyId());
+		Long foreignShift = createShift(other.companyId(), "Foreign", "09:00", "17:00", null);
+		Long ownEmployee = createEmployee(admin.companyId());
+
+		assertThat(monthly(admin.accessToken(), foreignEmployee, 2026, 3).getStatusCode())
+				.isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(assign(admin.accessToken(), foreignEmployee, foreignShift, List.of("2026-03-02"))
+				.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(assign(admin.accessToken(), ownEmployee, foreignShift, List.of("2026-03-02"))
+				.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+		assertThat(generate(admin.accessToken(), foreignEmployee, "2026-03-01", "2026-03-31")
+				.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void unauthenticatedCallsAreRejected() {
+		assertThat(monthly(null, 1L, 2026, 3).getStatusCode().is2xxSuccessful()).isFalse();
+		assertThat(assign(null, 1L, 1L, List.of("2026-03-02")).getStatusCode().is2xxSuccessful()).isFalse();
+		assertThat(generate(null, 1L, "2026-03-01", "2026-03-31").getStatusCode().is2xxSuccessful()).isFalse();
 	}
 
 	private Integer assignmentRows(Long employeeId) {
