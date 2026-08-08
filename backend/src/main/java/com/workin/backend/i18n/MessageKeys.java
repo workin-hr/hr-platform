@@ -36,6 +36,8 @@ public final class MessageKeys {
 	public static final String SCHEDULE_INVALID_RANGE = "schedule.invalid_range";
 	public static final String SCHEDULE_RANGE_EXCEEDS_MAX = "schedule.range_exceeds_max";
 	public static final String SCHEDULE_CONCURRENT_WRITE = "schedule.concurrent_write";
+	public static final String AUTH_MULTIPLE_MEMBERSHIPS = "auth.multiple_memberships";
+	public static final String SCHEDULE_NO_ASSIGNMENT = "schedule.no_assignment";
 
 	private MessageKeys() {
 	}

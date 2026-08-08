@@ -5,7 +5,6 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.i18n.ApiException;
 import com.workin.backend.i18n.MessageKeys;
@@ -47,9 +46,7 @@ public class LoginService {
 			throw new ApiException(HttpStatus.UNAUTHORIZED, MessageKeys.AUTH_NO_ACTIVE_MEMBERSHIP);
 		}
 		if (memberships.size() > 1) {
-			throw new ResponseStatusException(
-					HttpStatus.CONFLICT,
-					"Multiple active tenant memberships require explicit tenant selection");
+			throw new ApiException(HttpStatus.CONFLICT, MessageKeys.AUTH_MULTIPLE_MEMBERSHIPS);
 		}
 		MembershipSummary membership = memberships.get(0);
 

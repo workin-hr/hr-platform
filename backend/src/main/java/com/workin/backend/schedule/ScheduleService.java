@@ -17,7 +17,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.companysettings.CompanySettingsService;
@@ -148,8 +147,7 @@ public class ScheduleService {
 			throw new ApiException(HttpStatus.BAD_REQUEST, MessageKeys.SCHEDULE_RANGE_EXCEEDS_MAX, GENERATE_MAX_DAYS);
 		}
 		EmployeeShiftAssignment assignment = assignmentOnDate(context.companyId(), employeeId, request.to())
-				.orElseThrow(() -> new ResponseStatusException(
-						HttpStatus.BAD_REQUEST, "no shift assignment effective in range"));
+				.orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, MessageKeys.SCHEDULE_NO_ASSIGNMENT));
 		scheduleRepository.deleteRange(employeeId, context.companyId(), request.from(), request.to());
 		Set<DayOfWeek> companyRest = companyRestDays(context.companyId());
 		int count = 0;
