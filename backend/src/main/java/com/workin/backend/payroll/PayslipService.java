@@ -43,6 +43,7 @@ public class PayslipService {
 	private final SalaryContractService salaryContractService;
 	private final PenaltyRepository penaltyRepository;
 	private final PayrollCalculationService payrollCalculationService;
+	private final WorkHoursResolver workHoursResolver;
 	private final TenantSessionVariable tenantSessionVariable;
 
 	private final ResourceScopeService resourceScopeService;
@@ -54,6 +55,7 @@ public class PayslipService {
 			SalaryContractService salaryContractService,
 			PenaltyRepository penaltyRepository,
 			PayrollCalculationService payrollCalculationService,
+			WorkHoursResolver workHoursResolver,
 			ResourceScopeService resourceScopeService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.payslipRepository = payslipRepository;
@@ -62,6 +64,7 @@ public class PayslipService {
 		this.salaryContractService = salaryContractService;
 		this.penaltyRepository = penaltyRepository;
 		this.payrollCalculationService = payrollCalculationService;
+		this.workHoursResolver = workHoursResolver;
 		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
@@ -149,15 +152,29 @@ public class PayslipService {
 	}
 
 	private void recompute(Payslip payslip, PayrollBatch batch, SalaryContract contract, AttendanceInput attendanceInput) {
+		// The manual-entry surface supplies overtime directly rather than
+		// deriving it, so total worked hours are synthesised as "the
+		// expected hours for the entered present days, plus the entered
+		// overtime". The computation then re-derives exactly the overtime
+		// that was typed in, and HR's override survives the port.
+		BigDecimal workHoursPerDay = workHoursResolver.forEmployee(payslip.getCompanyId(), payslip.getEmployeeId());
+		BigDecimal enteredOvertime =
+				attendanceInput.overtimeHours() != null ? attendanceInput.overtimeHours() : BigDecimal.ZERO;
+		BigDecimal totalWorkedHours = workHoursPerDay
+				.multiply(BigDecimal.valueOf(attendanceInput.daysPresent()))
+				.add(enteredOvertime);
 		PayrollCalculationService.AttendanceFigures attendance = new PayrollCalculationService.AttendanceFigures(
-				attendanceInput.daysPresent(), attendanceInput.daysAbsent(), attendanceInput.daysLeave(),
-				attendanceInput.overtimeHours() != null ? attendanceInput.overtimeHours() : BigDecimal.ZERO);
+				attendanceInput.daysPresent(), totalWorkedHours,
+				attendanceInput.daysAbsent(), attendanceInput.daysLeave(),
+				0, 0, workHoursPerDay);
 
 		List<Penalty> unappliedPenalties = penaltyRepository.findByEmployeeIdAndPenaltyDateBetweenAndAppliedToPayroll(
 				payslip.getEmployeeId(), batch.getPeriodFrom(), batch.getPeriodTo(), false);
 
 		PayrollCalculationService.PayslipComputation computation =
-				payrollCalculationService.compute(contract, attendance, unappliedPenalties, BigDecimal.ZERO);
+				payrollCalculationService.compute(contract, attendance, unappliedPenalties, BigDecimal.ZERO,
+						PayrollCalculationService.PeriodProgress.complete(),
+						PayrollCalculationService.OvertimePolicy.standard());
 
 		PayrollBatchService.applyComputation(payslip, attendance, computation);
 	}

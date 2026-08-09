@@ -62,6 +62,7 @@ public class PayrollBatchService {
 	private final PenaltyRepository penaltyRepository;
 	private final AdvanceRepository advanceRepository;
 	private final PayrollCalculationService payrollCalculationService;
+	private final WorkHoursResolver workHoursResolver;
 	private final CompanySettingsService companySettingsService;
 	private final TenantSessionVariable tenantSessionVariable;
 
@@ -73,6 +74,7 @@ public class PayrollBatchService {
 			PenaltyRepository penaltyRepository,
 			AdvanceRepository advanceRepository,
 			PayrollCalculationService payrollCalculationService,
+			WorkHoursResolver workHoursResolver,
 			CompanySettingsService companySettingsService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.payrollBatchRepository = payrollBatchRepository;
@@ -82,6 +84,7 @@ public class PayrollBatchService {
 		this.penaltyRepository = penaltyRepository;
 		this.advanceRepository = advanceRepository;
 		this.payrollCalculationService = payrollCalculationService;
+		this.workHoursResolver = workHoursResolver;
 		this.companySettingsService = companySettingsService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
@@ -149,13 +152,25 @@ public class PayrollBatchService {
 				continue;
 			}
 
+			// STILL FABRICATED -- issue #71. The formulas below are now a
+			// verified legacy port, but these inputs are not yet derived
+			// from the attendance-calendar engine: every employee is
+			// assumed present for the whole period with no overtime. Wiring
+			// the engine in is the remaining half of that issue; until then
+			// a calculated batch understates absence.
+			BigDecimal workHoursPerDay = workHoursResolver.forEmployee(context.companyId(), employee.getId());
 			PayrollCalculationService.AttendanceFigures attendance =
-					new PayrollCalculationService.AttendanceFigures(totalDaysInPeriod, 0, 0, BigDecimal.ZERO);
+					new PayrollCalculationService.AttendanceFigures(
+							totalDaysInPeriod,
+							workHoursPerDay.multiply(BigDecimal.valueOf(totalDaysInPeriod)),
+							0, 0, 0, 0, workHoursPerDay);
 			List<Penalty> unappliedPenalties = penaltyRepository.findByEmployeeIdAndPenaltyDateBetweenAndAppliedToPayroll(
 					employee.getId(), batch.getPeriodFrom(), batch.getPeriodTo(), false);
 
 			PayrollCalculationService.PayslipComputation computation = payrollCalculationService.compute(
-					contract.get(), attendance, unappliedPenalties, BigDecimal.ZERO);
+					contract.get(), attendance, unappliedPenalties, BigDecimal.ZERO,
+					PayrollCalculationService.PeriodProgress.complete(),
+					PayrollCalculationService.OvertimePolicy.standard());
 
 			Payslip payslip = new Payslip(batchId, employee.getId(), context.companyId());
 			applyComputation(payslip, attendance, computation);
@@ -284,10 +299,12 @@ public class PayrollBatchService {
 	static void applyComputation(
 			Payslip payslip, PayrollCalculationService.AttendanceFigures attendance,
 			PayrollCalculationService.PayslipComputation computation) {
-		payslip.setDaysPresent((short) attendance.daysPresent());
+		// days_present is a computed total -- punched days plus earned rest
+		// plus credited holidays -- not the raw punch count.
+		payslip.setDaysPresent((short) computation.daysPresent());
 		payslip.setDaysAbsent((short) attendance.daysAbsent());
 		payslip.setDaysLeave((short) attendance.daysLeave());
-		payslip.setOvertimeHours(attendance.overtimeHours());
+		payslip.setOvertimeHours(computation.overtimeHours());
 		payslip.setBasicSalary(computation.basicSalary());
 		payslip.setHousingAllowance(computation.allowances());
 		payslip.setOvertimePay(computation.overtimePay());
