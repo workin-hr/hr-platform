@@ -404,3 +404,17 @@ unmerged PR.
 | Impact | `hr-legacy#20` marked **Closed by construction** in the consolidated matrix — no employee hard-delete endpoint is on the roadmap; deactivation is the removal mechanism. `hr-legacy#16`/F-04 recorded as **no live caller confirmed**, parked with a standing acceptance criterion for the future QR slice. No code change: A2 is satisfied by the absence of a delete endpoint; A5 is a finding-status update. With D-029 and D-030 recorded, **no product decision remains open on the Migration-Readiness Gate** — every remaining item needs client source (Flutter), device hardware, or the cutover window. |
 | Follow-up | If a live QR caller is later identified, reopen `#16`/F-04 and add the 2-hour guard to the QR self-check-in slice. If a genuine hard-delete requirement ever appears, it would need its own decision superseding A2. |
 | Evidence | `docs/migration/pending-decisions-brief.md` (A2/A5 questions and options); `docs/migration/consolidated-task-matrix.md` rows `hr-legacy#20`/`#16`/F-04; `docs/legacy/business-rule-extraction.md` (employee-deletion and QR-gap findings); direct repository-owner selection, this conversation, 2026-08-08. |
+
+
+## D-031: Payroll Uses A Fixed 30-Day Divisor, Not Real Calendar Days
+
+| Field | Value |
+|---|---|
+| Decision | Payroll's day rate is `gross_salary / 30` in every month, and the daily-wage-to-monthly conversion is `daily_wage * 30`. The divisor is a fixed 30, never the period's real calendar length. Penalties are priced at the same rate. |
+| Status | Accepted |
+| Owner | Repository owner (standing instruction, 2026-08-09: hr-platform's business rules match hr-legacy exactly) |
+| Related ADR | None — a business-rule finding, not a target-system architecture choice. |
+| Reason | `docs/bootstrap/open-questions.md` recorded this as undecided ("fixed 30-day divisor vs real calendar days"). It turned out not to be a decision to make: reading `payroll_compute_employee_payslip` in full (`hr-legacy/apis/helpers/payroll_calculation.php:1162-1172` @ `d113204`) settles it as a fact of the system being replaced. The constant is `PENALTY_CALENDAR_DAYS_PER_MONTH = 30` (`penalties_amount_helper.php:8`), applied to the day rate, the daily-wage conversion and the penalty rate alike. Adopting it follows from the standing match-legacy instruction, and it is what the migration-correctness reconciliation compares against. |
+| Impact | An absent day costs the same in February as in a 31-day month. Implemented in `PayrollCalculationService` (PR #79) and pinned by a dedicated case in `PayrollCalculationServiceTest`. Closes the open question; no further product input required. |
+| Follow-up | If the business ever wants real calendar days, that is a deliberate change visible on every payslip, and it must wait until reconciliation against real legacy data is green — before then, the change is indistinguishable from a migration fault. |
+| Evidence | `hr-legacy/apis/helpers/payroll_calculation.php:1162-1172` and `penalties_amount_helper.php:8` @ `d113204`; `backend/src/main/java/com/workin/backend/payroll/PayrollCalculationService.java`; `docs/bootstrap/open-questions.md`. |
