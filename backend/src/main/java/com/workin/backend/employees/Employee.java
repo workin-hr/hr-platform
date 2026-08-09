@@ -1,5 +1,7 @@
 package com.workin.backend.employees;
 
+import java.math.BigDecimal;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -52,6 +54,17 @@ public class Employee {
 
 	@Column(name = "job_title_id")
 	private Long jobTitleId;
+
+	/**
+	 * Legacy's per-employee expected-hours override (V37, ported from
+	 * `employees.expected_daily_hours decimal(5,2) DEFAULT NULL`). Read
+	 * only by the attendance-calendar engine's expected-minutes fallback,
+	 * where NULL and 0 both mean "unset" -- legacy's
+	 * {@code NULLIF(...,0)} semantics. No mutator: nothing in the current
+	 * API surface sets it, exactly as the employees CRUD slice left it.
+	 */
+	@Column(name = "expected_daily_hours")
+	private BigDecimal expectedDailyHours;
 
 	protected Employee() {
 	}
@@ -106,6 +119,10 @@ public class Employee {
 
 	public Long getJobTitleId() {
 		return jobTitleId;
+	}
+
+	public BigDecimal getExpectedDailyHours() {
+		return expectedDailyHours;
 	}
 
 	/** Lifecycle toggle -- deactivated employees are skipped by payroll calculate. */
