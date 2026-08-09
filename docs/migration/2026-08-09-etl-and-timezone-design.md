@@ -238,6 +238,7 @@ wall-clock like the others and note it; do not let it hold up the
 attendance load.
 
 ## Open Questions
+
 - **The current value and flip history of `configs.is_daylight_saving`.**
   Not recorded in either repo. It does not change the rule, but it
   determines how far off the historical instants are, which the decision
