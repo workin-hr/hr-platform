@@ -8,8 +8,39 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+/**
+ * <b>The one tenant-attributable table with no row-level security</b>
+ * (issue #74), so every query here carries an obligation the database
+ * is not enforcing for it.
+ *
+ * <p>V15's own header calls the table "global like identities". That is
+ * not accurate — {@code refresh_tokens} has {@code company_id NOT NULL}
+ * and a {@code membership_id}, and the value is load-bearing: it is
+ * carried through rotation into the next access token's tenant claim.
+ * The comment cannot be corrected in place, because editing an applied
+ * migration breaks Flyway's checksum validation, so the real reasoning
+ * is recorded here instead.
+ *
+ * <p><b>Why RLS is not simply switched on.</b> The standard fail-closed
+ * policy resolves {@code app.current_company_id}, and the whole point
+ * of {@link #findByTokenHash} is that it runs <em>before</em> any
+ * tenant context exists — login and refresh are how the caller earns
+ * one. Under RLS that lookup would match zero rows and refresh would
+ * fail for everyone. The company is discovered <em>from</em> the row;
+ * it cannot be a precondition for reading it.
+ *
+ * <p><b>The compensating control.</b> Every finder here is keyed on
+ * something unguessable or already proven: a SHA-256 token hash, the
+ * primary key, a family UUID the caller demonstrated possession of, or
+ * the authenticated identity. None accepts a company. That is what
+ * makes the missing policy safe today, and
+ * {@code RefreshTokenRepositoryScopeTest} pins it — a new finder that
+ * breaks the pattern fails the build rather than silently becoming the
+ * first cross-tenant read in the system.
+ */
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
 
+	/** Pre-tenant-context by necessity: the hash is the only thing the caller has yet. */
 	Optional<RefreshToken> findByTokenHash(String tokenHash);
 
 	/**
