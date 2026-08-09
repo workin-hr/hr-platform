@@ -80,7 +80,12 @@ class TenantContextIsolationTest extends AbstractIntegrationTest {
 		ResponseEntity<String> response = restTemplate.exchange(
 				"/api/tenant/me", HttpMethod.GET, new HttpEntity<>(headers), String.class);
 
-		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+		// 401, not 403: an unusable token leaves the request
+		// unauthenticated, and there is no principal to deny. The old 403
+		// came from Spring Security's fallback entry point, not from a
+		// deliberate choice (issue #70). Fail-closed behaviour is
+		// unchanged -- the token still reaches nothing.
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 	}
 
 	@Test
@@ -101,7 +106,12 @@ class TenantContextIsolationTest extends AbstractIntegrationTest {
 		ResponseEntity<String> response = restTemplate.exchange(
 				"/api/tenant/me", HttpMethod.GET, new HttpEntity<>(headers), String.class);
 
-		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+		// 401, not 403: an unusable token leaves the request
+		// unauthenticated, and there is no principal to deny. The old 403
+		// came from Spring Security's fallback entry point, not from a
+		// deliberate choice (issue #70). Fail-closed behaviour is
+		// unchanged -- the token still reaches nothing.
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 	}
 
 	@Test

@@ -12,6 +12,7 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.stereotype.Component;
 
 import com.workin.backend.i18n.ApiErrorBody;
+import com.workin.backend.i18n.LocaleResolutionFilter;
 import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.i18n.Messages;
 
@@ -60,7 +61,7 @@ public class ApiSecurityErrorHandler implements AuthenticationEntryPoint, Access
 	public void commence(
 			HttpServletRequest request, HttpServletResponse response, AuthenticationException authException)
 			throws IOException {
-		write(response, HttpServletResponse.SC_UNAUTHORIZED, MessageKeys.ERROR_UNAUTHORIZED);
+		write(request, response, HttpServletResponse.SC_UNAUTHORIZED, MessageKeys.ERROR_UNAUTHORIZED);
 	}
 
 	/** Authenticated, but not allowed through. */
@@ -68,17 +69,27 @@ public class ApiSecurityErrorHandler implements AuthenticationEntryPoint, Access
 	public void handle(
 			HttpServletRequest request, HttpServletResponse response, AccessDeniedException accessDeniedException)
 			throws IOException {
-		write(response, HttpServletResponse.SC_FORBIDDEN, MessageKeys.ERROR_FORBIDDEN);
+		write(request, response, HttpServletResponse.SC_FORBIDDEN, MessageKeys.ERROR_FORBIDDEN);
 	}
 
-	private void write(HttpServletResponse response, int status, String messageKey) throws IOException {
+	/**
+	 * The locale comes from the request rather than
+	 * {@code LocaleContextHolder}: this runs inside Spring Security's
+	 * chain, which can reject a request before
+	 * {@code LocaleResolutionFilter} has published anything, and relying
+	 * on filter ordering here would fail silently in exactly one
+	 * direction — English is the fallback, so a broken lookup still
+	 * returns a plausible body.
+	 */
+	private void write(HttpServletRequest request, HttpServletResponse response, int status, String messageKey)
+			throws IOException {
 		if (response.isCommitted()) {
 			return;
 		}
+		String message = messages.getIn(LocaleResolutionFilter.resolve(request), messageKey);
 		response.setStatus(status);
 		response.setContentType("application/json;charset=UTF-8");
-		response.getWriter().write(
-				objectMapper.writeValueAsString(new ApiErrorBody(messageKey, messages.get(messageKey))));
+		response.getWriter().write(objectMapper.writeValueAsString(new ApiErrorBody(messageKey, message)));
 	}
 
 }
