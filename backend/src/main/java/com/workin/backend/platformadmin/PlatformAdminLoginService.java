@@ -3,7 +3,9 @@ package com.workin.backend.platformadmin;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
+
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 
 /**
  * Authenticates a platform administrator by phone/password. There is no
@@ -36,11 +38,11 @@ public class PlatformAdminLoginService {
 
 	public PlatformAdmin login(PlatformAdminLoginRequest request) {
 		PlatformAdmin admin = platformAdminRepository.findByPhone(request.phone())
-				.orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+				.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, MessageKeys.AUTH_INVALID_CREDENTIALS));
 		if (!passwordEncoder.matches(request.password(), admin.getPasswordHash()) || !admin.isActive()) {
 			auditService.record(admin.getId(), PlatformAdminAuditEventType.LOGIN_FAILED,
 					admin.isActive() ? "wrong password" : "inactive account");
-			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+			throw new ApiException(HttpStatus.UNAUTHORIZED, MessageKeys.AUTH_INVALID_CREDENTIALS);
 		}
 		auditService.record(admin.getId(), PlatformAdminAuditEventType.LOGIN, null);
 		return admin;

@@ -8,9 +8,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.authorization.PublicUseCase;
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 
 /**
  * No register endpoint here, deliberately -- see
@@ -48,7 +49,7 @@ public class PlatformAdminAuthController {
 	@PostMapping("/refresh")
 	public PlatformAdminAuthResponse refresh(@Valid @RequestBody PlatformAdminRefreshTokenRequest request) {
 		PlatformAdminSessionService.RotatedSession session = platformAdminSessionService.rotate(request.refreshToken())
-				.orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid refresh token"));
+				.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, MessageKeys.AUTH_INVALID_REFRESH_TOKEN));
 		String accessToken = platformAdminJwtService.issueAccessToken(
 				session.platformAdminId(), session.familyId().toString());
 		return new PlatformAdminAuthResponse(accessToken, session.rawToken(), session.platformAdminId());

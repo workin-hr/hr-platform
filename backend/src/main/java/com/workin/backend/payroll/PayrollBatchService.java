@@ -11,7 +11,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.advances.Advance;
 import com.workin.backend.advances.AdvanceRepository;
@@ -20,6 +19,8 @@ import com.workin.backend.companysettings.CompanySettingsService;
 import com.workin.backend.companysettings.EffectiveCompanySettings;
 import com.workin.backend.employees.Employee;
 import com.workin.backend.employees.EmployeeRepository;
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.penalties.Penalty;
 import com.workin.backend.penalties.PenaltyRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
@@ -113,7 +114,7 @@ public class PayrollBatchService {
 		} catch (DataIntegrityViolationException ex) {
 			// V10's real UNIQUE(company_id, month, year) constraint --
 			// no app-level pre-check, see class Javadoc.
-			throw new ResponseStatusException(HttpStatus.CONFLICT, "A payroll batch for this month/year already exists", ex);
+			throw new ApiException(HttpStatus.CONFLICT, MessageKeys.PAYROLL_BATCH_EXISTS, ex);
 		}
 	}
 

@@ -92,10 +92,6 @@ public final class DaysOffParser {
 		return legacyIndex == 0 ? DayOfWeek.SUNDAY : DayOfWeek.of(legacyIndex);
 	}
 
-	public static String englishLabel(DayOfWeek dow) {
-		return dow.getDisplayName(java.time.format.TextStyle.FULL, Locale.ENGLISH);
-	}
-
 	private DaysOffParser() {
 	}
 

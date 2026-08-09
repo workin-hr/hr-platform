@@ -9,8 +9,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantSessionVariable;
 
@@ -55,7 +56,7 @@ public class CompanySettingsService {
 		} catch (DataIntegrityViolationException ex) {
 			// A lost concurrent-insert race on the UNIQUE constraint --
 			// thrown, not returned (the LeaveBalanceService precedent).
-			throw new ResponseStatusException(HttpStatus.CONFLICT, "settings were created concurrently", ex);
+			throw new ApiException(HttpStatus.CONFLICT, MessageKeys.COMPANY_SETTINGS_CONCURRENT_WRITE, ex);
 		}
 	}
 

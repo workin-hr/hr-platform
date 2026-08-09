@@ -11,11 +11,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.authorization.ResourceScope;
 import com.workin.backend.authorization.ResourceScopeRepository;
 import com.workin.backend.authorization.ResourceScopeType;
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.organization.BranchRepository;
 import com.workin.backend.organization.DepartmentRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
@@ -368,8 +369,8 @@ public class MemberAdminService {
 	 * {@code UnexpectedRollbackException} as a 500. Same 409 the
 	 * pre-check answers; mirrors {@code PayrollBatchService.create}.
 	 */
-	private static ResponseStatusException duplicateConflict(DataIntegrityViolationException ex) {
-		return new ResponseStatusException(HttpStatus.CONFLICT, "already present", ex);
+	private static ApiException duplicateConflict(DataIntegrityViolationException ex) {
+		return new ApiException(HttpStatus.CONFLICT, MessageKeys.MEMBERS_ALREADY_PRESENT, ex);
 	}
 
 	/**

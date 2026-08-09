@@ -74,7 +74,6 @@ class DaysOffParserTest {
 	void legacyIndexAndLabelConversions() {
 		assertThat(DaysOffParser.toLegacyIndex(DayOfWeek.SUNDAY)).isZero();
 		assertThat(DaysOffParser.toLegacyIndex(DayOfWeek.SATURDAY)).isEqualTo(6);
-		assertThat(DaysOffParser.englishLabel(DayOfWeek.SUNDAY)).isEqualTo("Sunday");
 	}
 
 }

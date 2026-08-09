@@ -12,6 +12,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.authorization.ResourceScopeService;
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.organization.BranchRepository;
 import com.workin.backend.organization.DepartmentRepository;
 import com.workin.backend.organization.JobTitleRepository;
@@ -104,7 +106,7 @@ public class EmployeeService {
 		} catch (DataIntegrityViolationException ex) {
 			// employees.phone is globally UNIQUE (V8); same clean-409
 			// pattern as RegistrationService's registration race.
-			throw new ResponseStatusException(HttpStatus.CONFLICT, "Phone number already in use", ex);
+			throw new ApiException(HttpStatus.CONFLICT, MessageKeys.EMPLOYEES_PHONE_IN_USE, ex);
 		}
 	}
 

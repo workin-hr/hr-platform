@@ -319,11 +319,11 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 		String mar6Note = jdbc().queryForObject(
 				"SELECT exception_note FROM employee_schedules WHERE employee_id = ? AND schedule_date = '2026-03-06'::date",
 				String.class, employeeId);
-		assertThat(mar6Note).isEqualTo("Weekly rest");
+		assertThat(mar6Note).isEqualTo("WEEKLY_REST");
 		String mar7Note = jdbc().queryForObject(
 				"SELECT exception_note FROM employee_schedules WHERE employee_id = ? AND schedule_date = '2026-03-07'::date",
 				String.class, employeeId);
-		assertThat(mar7Note).isEqualTo("Weekly rest");
+		assertThat(mar7Note).isEqualTo("WEEKLY_REST");
 		// The out-of-range manual row survived.
 		String apr1Name = jdbc().queryForObject(
 				"SELECT name FROM employee_schedules WHERE employee_id = ? AND schedule_date = '2026-04-01'::date",
@@ -501,6 +501,55 @@ class ScheduleModuleFlowTest extends AbstractIntegrationTest {
 				.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 		assertThat(generate(admin.accessToken(), foreignEmployee, "2026-03-01", "2026-03-31")
 				.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void generatePersistsTheTokenAndReadsLocalizeIt() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = createEmployee(admin.companyId());
+		Long shift = createShift(admin.companyId(), "Day", "09:00", "17:00", "Fri");
+		insertAssignment(admin.companyId(), employeeId, shift, "2026-03-01");
+
+		generate(admin.accessToken(), employeeId, "2026-03-01", "2026-03-31");
+
+		// The row stores the stable token, not display text (owner
+		// decision 2026-08-08: localize on read).
+		String persisted = jdbc().queryForObject(
+				"SELECT exception_note FROM employee_schedules WHERE employee_id = ? AND schedule_date = '2026-03-06'::date",
+				String.class, employeeId);
+		assertThat(persisted).isEqualTo("WEEKLY_REST");
+
+		// English read localizes the token.
+		MonthlyOverviewView en = monthly(admin.accessToken(), employeeId, 2026, 3).getBody();
+		assertThat(en.days().get(5).exception()).isEqualTo("Weekly rest");
+	}
+
+	@Test
+	void monthlyOverviewSpeaksArabicOnRequest() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long employeeId = createEmployee(admin.companyId());
+		Long shift = createShift(admin.companyId(), "Day", "09:00", "17:00", "Fri");
+		setCompanyWeeklyOffDays(admin.companyId(), "Sat");
+		insertAssignment(admin.companyId(), employeeId, shift, "2026-03-01");
+
+		ResponseEntity<MonthlyOverviewView> response = restTemplate.exchange(
+				"/api/tenant/schedules/" + employeeId + "/monthly?year=2026&month=3&lang=ar",
+				HttpMethod.GET, new HttpEntity<>(bearer(admin.accessToken())), MonthlyOverviewView.class);
+
+		MonthlyOverviewView body = response.getBody();
+		assertThat(body.weeklyRestDays())
+				.containsExactly(new WeeklyRestDayView(5, "الجمعة"), new WeeklyRestDayView(6, "السبت"));
+		// 2026-03-06 is a Friday: rest label in Arabic (legacy string).
+		assertThat(body.days().get(5).exception()).isEqualTo("إجازة أسبوعية");
+		// A manual note passes through untouched regardless of locale.
+		assign(admin.accessToken(), employeeId, shift, List.of("2026-03-02"));
+		jdbc().update(
+				"UPDATE employee_schedules SET exception_note = 'custom HR note' WHERE employee_id = ? AND schedule_date = '2026-03-02'::date",
+				employeeId);
+		MonthlyOverviewView after = restTemplate.exchange(
+				"/api/tenant/schedules/" + employeeId + "/monthly?year=2026&month=3&lang=ar",
+				HttpMethod.GET, new HttpEntity<>(bearer(admin.accessToken())), MonthlyOverviewView.class).getBody();
+		assertThat(after.days().get(1).exception()).isEqualTo("custom HR note");
 	}
 
 	@Test

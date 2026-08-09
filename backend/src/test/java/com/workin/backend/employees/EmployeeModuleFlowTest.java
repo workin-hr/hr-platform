@@ -328,7 +328,14 @@ class EmployeeModuleFlowTest extends AbstractIntegrationTest {
 		AuthResponse admin = registerCompanyAdmin();
 		HrFixture hr = loginHrMember(admin.companyId());
 
-		assertThat(list(hr.accessToken()).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+		// String.class, not the List<EmployeeView>-typed list() helper: a
+		// 403 now carries a real {code, message} JSON object body, which
+		// list()'s ParameterizedTypeReference<List<EmployeeView>> cannot
+		// parse (it's an object, not an array) -- status is all this
+		// assertion needs.
+		ResponseEntity<String> listAttempt = restTemplate.exchange(
+				"/api/tenant/employees", HttpMethod.GET, new HttpEntity<>(bearer(hr.accessToken())), String.class);
+		assertThat(listAttempt.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 		ResponseEntity<String> createAttempt = restTemplate.exchange(
 				"/api/tenant/employees", HttpMethod.POST,
 				new HttpEntity<>(new CreateEmployeeRequest("Nope", "Nope", null, null, null, null, null, null), bearer(hr.accessToken())),

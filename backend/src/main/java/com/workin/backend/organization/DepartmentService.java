@@ -10,9 +10,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.employees.EmployeeRepository;
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantSessionVariable;
 
@@ -103,7 +104,7 @@ public class DepartmentService {
 			departmentRepository.delete(found.get());
 			departmentRepository.flush();
 		} catch (DataIntegrityViolationException ex) {
-			throw new ResponseStatusException(HttpStatus.CONFLICT, "department is still referenced", ex);
+			throw new ApiException(HttpStatus.CONFLICT, MessageKeys.ORGANIZATION_DEPARTMENT_REFERENCED, ex);
 		}
 		return true;
 	}

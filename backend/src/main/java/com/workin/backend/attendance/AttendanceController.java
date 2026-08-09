@@ -23,6 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
 import com.workin.backend.attendance.AttendanceService.MutationResult;
 import com.workin.backend.authorization.PermissionKeys;
 import com.workin.backend.authorization.RequiresPermission;
+import com.workin.backend.i18n.ApiException;
 import com.workin.backend.tenancy.AuthorizationContext;
 
 /** Thin delegation, module template. */
@@ -81,7 +82,7 @@ public class AttendanceController {
 			case MutationResult.Done done -> done.view();
 			case MutationResult.NotFound notFound -> throw new ResponseStatusException(HttpStatus.NOT_FOUND);
 			case MutationResult.InvalidShape invalidShape ->
-					throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalidShape.reason());
+					throw new ApiException(HttpStatus.BAD_REQUEST, invalidShape.messageKey());
 			case MutationResult.GapViolation gapViolation -> throw new ResponseStatusException(HttpStatus.CONFLICT);
 		};
 	}

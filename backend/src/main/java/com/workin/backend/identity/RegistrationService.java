@@ -4,9 +4,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.tenancy.MembershipRoleAssignment;
 import com.workin.backend.tenancy.MembershipRoleRepository;
 import com.workin.backend.tenancy.TenantMembership;
@@ -51,7 +52,7 @@ public class RegistrationService {
 	@Transactional
 	public Registered register(RegisterCompanyRequest request) {
 		if (companyRepository.existsByPhone(request.phone()) || identityRepository.existsByPhone(request.phone())) {
-			throw new ResponseStatusException(HttpStatus.CONFLICT, "Phone number already registered");
+			throw new ApiException(HttpStatus.CONFLICT, MessageKeys.AUTH_PHONE_ALREADY_REGISTERED);
 		}
 
 		// The precheck above is only a fast path -- it does not close the
@@ -69,7 +70,7 @@ public class RegistrationService {
 			identity = identityRepository.save(
 					new Identity(request.phone(), passwordEncoder.encode(request.password())));
 		} catch (DataIntegrityViolationException ex) {
-			throw new ResponseStatusException(HttpStatus.CONFLICT, "Phone number already registered", ex);
+			throw new ApiException(HttpStatus.CONFLICT, MessageKeys.AUTH_PHONE_ALREADY_REGISTERED, ex);
 		}
 
 		tenantSessionVariable.apply(company.getId());

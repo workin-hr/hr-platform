@@ -8,10 +8,11 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.employees.EmployeeRepository;
+import com.workin.backend.i18n.ApiException;
+import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantSessionVariable;
 
@@ -80,8 +81,7 @@ public class LeaveBalanceService {
 			// the transaction rollback-only, so returning normally would
 			// die at commit with UnexpectedRollbackException (the
 			// PayrollBatchService.create precedent).
-			throw new ResponseStatusException(HttpStatus.CONFLICT,
-					"A leave balance for this employee and year already exists", ex);
+			throw new ApiException(HttpStatus.CONFLICT, MessageKeys.REQUESTS_LEAVE_BALANCE_EXISTS, ex);
 		}
 	}
 
