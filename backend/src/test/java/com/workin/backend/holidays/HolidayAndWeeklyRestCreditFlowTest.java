@@ -145,12 +145,16 @@ class HolidayAndWeeklyRestCreditFlowTest extends AbstractIntegrationTest {
 
 		// Legacy upserts here. Only update rejects a collision.
 		assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		// Scoped by company: the suite shares one database, and several
+		// tests deliberately use this same date for different companies.
 		assertThat(jdbc().queryForObject(
-				"SELECT name FROM company_official_holidays WHERE holiday_date = '2026-03-19'::date",
-				String.class)).isEqualTo("Eid");
+				"SELECT name FROM company_official_holidays "
+						+ "WHERE company_id = ? AND holiday_date = '2026-03-19'::date",
+				String.class, admin.companyId())).isEqualTo("Eid");
 		assertThat(jdbc().queryForObject(
-				"SELECT count(*) FROM company_official_holidays WHERE holiday_date = '2026-03-19'::date",
-				Integer.class)).isEqualTo(1);
+				"SELECT count(*) FROM company_official_holidays "
+						+ "WHERE company_id = ? AND holiday_date = '2026-03-19'::date",
+				Integer.class, admin.companyId())).isEqualTo(1);
 	}
 
 	@Test
@@ -159,7 +163,9 @@ class HolidayAndWeeklyRestCreditFlowTest extends AbstractIntegrationTest {
 		createHolidays(admin.accessToken(), "First", "2026-03-19");
 		createHolidays(admin.accessToken(), "Second", "2026-03-20");
 		Long secondId = jdbc().queryForObject(
-				"SELECT id FROM company_official_holidays WHERE holiday_date = '2026-03-20'::date", Long.class);
+				"SELECT id FROM company_official_holidays "
+						+ "WHERE company_id = ? AND holiday_date = '2026-03-20'::date",
+				Long.class, admin.companyId());
 
 		ResponseEntity<String> response = restTemplate.exchange(
 				"/api/tenant/official-holidays/" + secondId, HttpMethod.PUT,
@@ -176,7 +182,9 @@ class HolidayAndWeeklyRestCreditFlowTest extends AbstractIntegrationTest {
 		AuthResponse other = registerCompanyAdmin();
 		createHolidays(other.accessToken(), "Theirs", "2026-03-19");
 		Long foreignId = jdbc().queryForObject(
-				"SELECT id FROM company_official_holidays WHERE holiday_date = '2026-03-19'::date", Long.class);
+				"SELECT id FROM company_official_holidays "
+						+ "WHERE company_id = ? AND holiday_date = '2026-03-19'::date",
+				Long.class, other.companyId());
 
 		ResponseEntity<String> response = restTemplate.exchange(
 				"/api/tenant/official-holidays/" + foreignId, HttpMethod.GET,
