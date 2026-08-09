@@ -60,11 +60,10 @@ Three things make it worse:
 - **The toggle is manual**, so it never aligned with real Egypt DST
   dates. Substituting `Africa/Cairo` does not recover the truth; it
   invents a different wrong answer.
-- **The dashboard writes with a third, unknown offset.** `dashboard/includes/db.php`
-  issues no `SET time_zone` and sets no PHP default, so it uses the
-  MySQL server default. Static analysis suggests it writes no `datetime`
-  columns — **this must be confirmed against the real dump before it is
-  relied on.**
+- **The dashboard writes with a third, unknown offset** — `dashboard/includes/db.php`
+  issues no `SET time_zone` and sets no PHP default. **Resolved 2026-08-09,
+  see "Dashboard datetime provenance" below: it does not affect
+  attendance.**
 - **`method='excel'` rows never had a server offset at all.** They carry
   fingerprint-device local wall clock and are ambiguous independently of
   the config flag.
@@ -195,11 +194,50 @@ in legacy ids or nobody can read them.
 
 ---
 
-## Open Questions
+## Dashboard Datetime Provenance — resolved 2026-08-09
 
-- **Confirm the dashboard writes no `datetime` columns** against the
-  real dump. Static analysis says it does not; if it does, those rows
-  carry a third unknown offset and need segmenting.
+The open worry was that the dashboard, which sets no timezone at all,
+might have written attendance punches under a third unknown offset. An
+earlier pass concluded it writes no `datetime` columns. **That was
+wrong** — it does write one. The conclusion still holds, for a better
+reason.
+
+**`attendance.check_in` — written, and timezone-independent.**
+`dashboard/includes/request_actions_dashboard.php:114-127` inserts an
+exception row per approved leave day:
+
+```php
+$date = $day->format('Y-m-d');
+run('INSERT INTO attendance (employee_id, check_in, method, exception_type_id)
+     VALUES (?, ?, ?, ?)', [$employee_id, $date . ' 00:00:00', 'app', $exception_type_id]);
+```
+
+The value is a **date-derived midnight literal**, built by concatenating
+a `DATE` column with `' 00:00:00'`. It never reads a clock, so no
+offset — the dashboard's missing timezone cannot corrupt it. It is also
+exactly the category-only exception shape, which under the wall-clock
+rule lands at UTC midnight and is still recognised by
+`AttendanceRules.isExceptionOnlyRow()`.
+
+The only other dashboard write to `attendance`
+(`pages/company_settings/page.php:159`) sets `exception_type_id = NULL`
+and touches no temporal column.
+
+**Conclusion: historical attendance carries no third offset, and may
+move under the rule above.** No `method`-based segmentation is needed
+for dashboard provenance — only the separate `method='excel'`
+device-clock case already noted.
+
+**One genuinely ambiguous dashboard write remains, and it is not
+attendance.** `branches.expires_at` (`includes/org_helper.php:811-823`)
+is a user-entered `datetime-local` normalised through `strtotime()`
+under the dashboard's unset timezone. It is QR-code expiry — a
+future-dated operational value on a feature D-030 parked with no known
+live caller, and it feeds neither attendance nor payroll. Migrate it as
+wall-clock like the others and note it; do not let it hold up the
+attendance load.
+
+## Open Questions
 - **The current value and flip history of `configs.is_daylight_saving`.**
   Not recorded in either repo. It does not change the rule, but it
   determines how far off the historical instants are, which the decision

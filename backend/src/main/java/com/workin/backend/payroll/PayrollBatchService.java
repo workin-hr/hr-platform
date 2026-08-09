@@ -62,7 +62,7 @@ public class PayrollBatchService {
 	private final PenaltyRepository penaltyRepository;
 	private final AdvanceRepository advanceRepository;
 	private final PayrollCalculationService payrollCalculationService;
-	private final WorkHoursResolver workHoursResolver;
+	private final PayrollAttendanceFiguresService payrollAttendanceFiguresService;
 	private final CompanySettingsService companySettingsService;
 	private final TenantSessionVariable tenantSessionVariable;
 
@@ -74,7 +74,7 @@ public class PayrollBatchService {
 			PenaltyRepository penaltyRepository,
 			AdvanceRepository advanceRepository,
 			PayrollCalculationService payrollCalculationService,
-			WorkHoursResolver workHoursResolver,
+			PayrollAttendanceFiguresService payrollAttendanceFiguresService,
 			CompanySettingsService companySettingsService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.payrollBatchRepository = payrollBatchRepository;
@@ -84,7 +84,7 @@ public class PayrollBatchService {
 		this.penaltyRepository = penaltyRepository;
 		this.advanceRepository = advanceRepository;
 		this.payrollCalculationService = payrollCalculationService;
-		this.workHoursResolver = workHoursResolver;
+		this.payrollAttendanceFiguresService = payrollAttendanceFiguresService;
 		this.companySettingsService = companySettingsService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
@@ -152,24 +152,19 @@ public class PayrollBatchService {
 				continue;
 			}
 
-			// STILL FABRICATED -- issue #71. The formulas below are now a
-			// verified legacy port, but these inputs are not yet derived
-			// from the attendance-calendar engine: every employee is
-			// assumed present for the whole period with no overtime. Wiring
-			// the engine in is the remaining half of that issue; until then
-			// a calculated batch understates absence.
-			BigDecimal workHoursPerDay = workHoursResolver.forEmployee(context.companyId(), employee.getId());
-			PayrollCalculationService.AttendanceFigures attendance =
-					new PayrollCalculationService.AttendanceFigures(
-							totalDaysInPeriod,
-							workHoursPerDay.multiply(BigDecimal.valueOf(totalDaysInPeriod)),
-							0, 0, 0, 0, workHoursPerDay);
+			// Real figures, derived from the attendance-calendar engine
+			// (issue #71). Note this read is not side-effect free: serving
+			// the calendar auto-closes stale open punches, exactly as
+			// legacy's payroll does when it reads attendance.
+			PayrollAttendanceFiguresService.Derived derived = payrollAttendanceFiguresService.derive(
+					context, employee.getId(), batch.getPeriodFrom(), batch.getPeriodTo(), LocalDate.now());
+			PayrollCalculationService.AttendanceFigures attendance = derived.figures();
 			List<Penalty> unappliedPenalties = penaltyRepository.findByEmployeeIdAndPenaltyDateBetweenAndAppliedToPayroll(
 					employee.getId(), batch.getPeriodFrom(), batch.getPeriodTo(), false);
 
 			PayrollCalculationService.PayslipComputation computation = payrollCalculationService.compute(
 					contract.get(), attendance, unappliedPenalties, BigDecimal.ZERO,
-					PayrollCalculationService.PeriodProgress.complete(),
+					derived.progress(),
 					PayrollCalculationService.OvertimePolicy.standard());
 
 			Payslip payslip = new Payslip(batchId, employee.getId(), context.companyId());
