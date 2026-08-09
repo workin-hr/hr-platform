@@ -203,8 +203,12 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "AND a.check_in = TIMESTAMPTZ '2026-03-03 00:00:00+00'")).isEqualTo(1);
 
 			// --- transform 1: EAV collapsed into typed columns, list joined in order
+			// Scoped to the migrated company: other tests write their own
+			// company_settings rows into the shared database.
 			try (ResultSet rs = st.executeQuery(
-					"SELECT weekly_off_days, overtime_rate FROM company_settings")) {
+					"SELECT s.weekly_off_days, s.overtime_rate FROM company_settings s "
+							+ "JOIN migration.id_map m ON m.entity = 'companies' AND m.new_id = s.company_id "
+							+ "WHERE m.legacy_id = 1")) {
 				rs.next();
 				assertThat(rs.getString(1)).isEqualTo("Friday,Saturday");
 				assertThat(rs.getBigDecimal(2)).isEqualByComparingTo("150");
@@ -215,10 +219,12 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 			assertThat(scalar(st,
 					"SELECT count(*) FROM membership_permission_overrides o "
 							+ "JOIN permissions p ON p.id = o.permission_id "
+							+ "JOIN migration.id_map m ON m.entity = 'tenant_memberships' AND m.new_id = o.membership_id "
 							+ "WHERE p.permission_key LIKE 'branches.%' AND o.effect = 'ALLOW'")).isEqualTo(2);
 			assertThat(scalar(st,
 					"SELECT count(*) FROM membership_permission_overrides o "
 							+ "JOIN permissions p ON p.id = o.permission_id "
+							+ "JOIN migration.id_map m ON m.entity = 'tenant_memberships' AND m.new_id = o.membership_id "
 							+ "WHERE p.permission_key LIKE 'shifts.%'")).isZero();
 
 			// --- counts artifact
@@ -232,13 +238,21 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 					scalar(st, "SELECT new_id FROM migration.id_map WHERE entity = 'companies' AND legacy_id = 1"));
 
 			// --- rerun safety: running the whole program again changes nothing
-			long attendanceBefore = scalar(st, "SELECT count(*) FROM attendance");
+			long attendanceBefore = scalar(st,
+					"SELECT count(*) FROM attendance a "
+							+ "JOIN migration.id_map m ON m.entity = 'attendance' AND m.new_id = a.id");
 			long mapBefore = scalar(st, "SELECT count(*) FROM migration.id_map");
 			st.execute(load);
 			st.execute(finalize);
-			assertThat(scalar(st, "SELECT count(*) FROM attendance")).isEqualTo(attendanceBefore);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM attendance a "
+							+ "JOIN migration.id_map m ON m.entity = 'attendance' AND m.new_id = a.id"))
+					.isEqualTo(attendanceBefore);
 			assertThat(scalar(st, "SELECT count(*) FROM migration.id_map")).isEqualTo(mapBefore);
-			assertThat(scalar(st, "SELECT count(*) FROM membership_permission_overrides")).isEqualTo(2);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM membership_permission_overrides o "
+							+ "JOIN migration.id_map m ON m.entity = 'tenant_memberships' "
+							+ "AND m.new_id = o.membership_id")).isEqualTo(2);
 		}
 	}
 
