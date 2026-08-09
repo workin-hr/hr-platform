@@ -405,7 +405,6 @@ unmerged PR.
 | Follow-up | If a live QR caller is later identified, reopen `#16`/F-04 and add the 2-hour guard to the QR self-check-in slice. If a genuine hard-delete requirement ever appears, it would need its own decision superseding A2. |
 | Evidence | `docs/migration/pending-decisions-brief.md` (A2/A5 questions and options); `docs/migration/consolidated-task-matrix.md` rows `hr-legacy#20`/`#16`/F-04; `docs/legacy/business-rule-extraction.md` (employee-deletion and QR-gap findings); direct repository-owner selection, this conversation, 2026-08-08. |
 
-
 ## D-031: Payroll Uses A Fixed 30-Day Divisor, Not Real Calendar Days
 
 | Field | Value |

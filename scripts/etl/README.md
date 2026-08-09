@@ -68,7 +68,6 @@ legacy primary keys cannot carry over, and the old-to-new map must be
 materialised during load and **retained** — reconciliation reports in
 legacy ids or nobody can read them.
 
-
 ## Running a load
 
 ```sh
