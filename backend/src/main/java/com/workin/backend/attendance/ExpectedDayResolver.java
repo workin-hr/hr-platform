@@ -3,12 +3,13 @@ package com.workin.backend.attendance;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.util.Optional;
+import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
 import com.workin.backend.employees.Employee;
 import com.workin.backend.employees.EmployeeRepository;
+import com.workin.backend.holidays.OfficialHolidayService;
 import com.workin.backend.i18n.MessageKeys;
 import com.workin.backend.i18n.Messages;
 import com.workin.backend.organization.JobTitle;
@@ -53,23 +54,36 @@ public class ExpectedDayResolver {
 	private final ScheduleService scheduleService;
 	private final EmployeeRepository employeeRepository;
 	private final JobTitleRepository jobTitleRepository;
+	private final OfficialHolidayService holidayService;
 	private final Messages messages;
 
 	public ExpectedDayResolver(
 			ScheduleService scheduleService,
 			EmployeeRepository employeeRepository,
 			JobTitleRepository jobTitleRepository,
+			OfficialHolidayService holidayService,
 			Messages messages) {
 		this.scheduleService = scheduleService;
 		this.employeeRepository = employeeRepository;
 		this.jobTitleRepository = jobTitleRepository;
+		this.holidayService = holidayService;
 		this.messages = messages;
 	}
 
-	/** Caller must already hold a tenant transaction (the ScheduleService convention). */
+	/**
+	 * Caller must already hold a tenant transaction (the ScheduleService
+	 * convention). Looks the day's holiday up on its own; a caller
+	 * walking a range should pre-fetch and use the overload instead.
+	 */
 	public ExpectedDay resolve(Long companyId, Long employeeId, LocalDate date) {
+		return resolve(companyId, employeeId, date, holidayService.holidaysByDate(companyId, date, date));
+	}
+
+	/** The batched form: {@code holidayByDate} covers at least {@code date}. */
+	public ExpectedDay resolve(
+			Long companyId, Long employeeId, LocalDate date, Map<LocalDate, String> holidayByDate) {
 		Shift shift = scheduleService.shiftForEmployeeOnDate(companyId, employeeId, date).orElse(null);
-		String exception = scheduleExceptionForDay(companyId, shift, date);
+		String exception = scheduleExceptionForDay(companyId, shift, date, holidayByDate);
 
 		// Branch 1 -- rest or holiday. Note legacy tests `!== null`, not
 		// emptiness, and keeps the shift's own columns on the result even
@@ -105,31 +119,22 @@ public class ExpectedDayResolver {
 	 * (an empty name falls back to the weekly-rest label), then weekly
 	 * rest, then null.
 	 *
-	 * <p>The holiday half is the same declared stub the schedule module
-	 * already carries — {@link #officialHolidayName} is always empty
-	 * until the holidays module lands, so today only the weekly-rest arm
-	 * can fire.
+	 * <p>The holiday arm is live as of V38; it was a declared stub while
+	 * {@code company_official_holidays} had no counterpart here.
 	 */
-	private String scheduleExceptionForDay(Long companyId, Shift shift, LocalDate date) {
-		Optional<String> holiday = officialHolidayName(companyId, date);
-		if (holiday.isPresent()) {
-			String name = holiday.get().trim();
+	private String scheduleExceptionForDay(
+			Long companyId, Shift shift, LocalDate date, Map<LocalDate, String> holidayByDate) {
+		if (holidayByDate.containsKey(date)) {
+			// A blank holiday name renders as the weekly-rest label while
+			// the day still reports as a holiday -- label and flag
+			// disagree. Legacy's behaviour, ported rather than corrected.
+			String name = holidayByDate.get(date) == null ? "" : holidayByDate.get(date).trim();
 			return name.isEmpty() ? weeklyRestLabel() : name;
 		}
 		if (scheduleService.isWeeklyRestDay(companyId, shift, date)) {
 			return weeklyRestLabel();
 		}
 		return null;
-	}
-
-	/**
-	 * official_holidays_by_date_in_range, stubbed. The
-	 * {@code company_official_holidays} table has no hr-platform
-	 * counterpart yet; the weekly-rest-and-holiday-credit slice adds it
-	 * and this is the single seam it replaces.
-	 */
-	private Optional<String> officialHolidayName(Long companyId, LocalDate date) {
-		return Optional.empty();
 	}
 
 	private String weeklyRestLabel() {

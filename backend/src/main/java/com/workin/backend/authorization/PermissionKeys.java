@@ -51,6 +51,9 @@ public final class PermissionKeys {
 	public static final String PENALTIES_MANAGE = "penalties.manage";
 	public static final String MEMBERS_READ = "members.read";
 	public static final String MEMBERS_MANAGE = "members.manage";
+	public static final String HOLIDAYS_READ = "holidays.read";
+	public static final String HOLIDAYS_MANAGE = "holidays.manage";
+
 	public static final String PLATFORM_COMPANIES_READ = "platform.companies.read";
 	public static final String PLATFORM_COMPANIES_APPROVE = "platform.companies.approve";
 	public static final String PLATFORM_COMPANIES_SUSPEND = "platform.companies.suspend";
