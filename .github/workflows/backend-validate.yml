@@ -42,6 +42,17 @@ jobs:
           python3 scripts/check_flyway_versions.py --self-test
           python3 scripts/check_flyway_versions.py
 
+      # A bare write to a FORCE-ROW-LEVEL-SECURITY table matches zero rows
+      # and still succeeds under a non-superuser migration role (V35 did
+      # exactly that). The Java suite cannot catch it -- Testcontainers'
+      # default Postgres user is a superuser and bypasses RLS -- so this
+      # runs here, before Java, alongside the other fast migration guards.
+      - name: Fail on unguarded writes to FORCE-RLS tables
+        working-directory: .
+        run: |
+          python3 scripts/check_rls_migration_safety.py --self-test
+          python3 scripts/check_rls_migration_safety.py
+
       # PMR-10's reconciliation harness must stay proven-working: its
       # self-tests exercise every detection class on synthetic samples.
       - name: Migration-diff harness self-test
