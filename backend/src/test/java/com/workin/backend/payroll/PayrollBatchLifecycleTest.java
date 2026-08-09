@@ -222,10 +222,21 @@ class PayrollBatchLifecycleTest extends AbstractIntegrationTest {
 				"/api/tenant/payroll-batches/" + batchId + "/calculate", HttpMethod.POST,
 				new HttpEntity<>(headers), PayrollBatchView.class);
 
-		Integer daysPresent = jdbc.queryForObject(
-				"SELECT days_present FROM payslips WHERE batch_id = ? AND employee_id = ?",
-				Integer.class, batchId, employeeId);
-		assertThat(daysPresent).isEqualTo(28);
+		// Asserted on the period itself rather than on days_present. It used
+		// to read days_present == 28, but only because calculate() assumed
+		// full attendance and so echoed the period length back. Now that
+		// payroll pays on real attendance (#71), an employee with no punches
+		// has no present days, and the period length has to be checked
+		// where it actually lives.
+		java.time.LocalDate periodFrom = jdbc.queryForObject(
+				"SELECT period_from FROM payroll_batches WHERE id = ?",
+				java.time.LocalDate.class, batchId);
+		java.time.LocalDate periodTo = jdbc.queryForObject(
+				"SELECT period_to FROM payroll_batches WHERE id = ?",
+				java.time.LocalDate.class, batchId);
+		assertThat(periodFrom).isEqualTo(java.time.LocalDate.of(2026, 2, 26));
+		assertThat(periodTo).isEqualTo(java.time.LocalDate.of(2026, 3, 25));
+		assertThat(java.time.temporal.ChronoUnit.DAYS.between(periodFrom, periodTo) + 1).isEqualTo(28);
 	}
 
 	@Test
