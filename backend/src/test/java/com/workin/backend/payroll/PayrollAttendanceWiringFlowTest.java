@@ -94,9 +94,13 @@ class PayrollAttendanceWiringFlowTest extends AbstractIntegrationTest {
 				companyId, employeeId, date + "T09:00:00Z", date + "T17:00:00Z");
 	}
 
-	/** Every working day of March 2026 except the Fri/Sat rest days. */
+	/**
+	 * Every working day of March 2026 except the Fri/Sat rest days.
+	 * Starts at the 1st -- 2026-03-01 is a Sunday, so it is a working day
+	 * here, not part of the weekend.
+	 */
 	private void punchWholeMarch(Long companyId, Long employeeId) {
-		for (int day = 2; day <= 31; day++) {
+		for (int day = 1; day <= 31; day++) {
 			java.time.LocalDate date = java.time.LocalDate.of(2026, 3, day);
 			int dow = date.getDayOfWeek().getValue();
 			if (dow == 5 || dow == 6) {
@@ -160,13 +164,38 @@ class PayrollAttendanceWiringFlowTest extends AbstractIntegrationTest {
 	}
 
 	@Test
-	void missingDaysCostTheGrossDayRateEach() {
+	void aMissingDayCostsTheGrossDayRate() {
 		AuthResponse admin = registerCompanyAdmin();
 		Long fullMonth = employeeOnSalary(admin.companyId(), "3000");
 		Long shortMonth = employeeOnSalary(admin.companyId(), "3000");
 		punchWholeMarch(admin.companyId(), fullMonth);
 		punchWholeMarch(admin.companyId(), shortMonth);
-		// Take two working days back off the second employee.
+		// Wednesday the 18th. Chosen so the following Fri/Sat rest block
+		// still has three covered workdays behind it (the 16th, 17th and
+		// 19th) and stays earned -- otherwise the absence cascades, which
+		// aMissedWeekAlsoVoidsTheWeeklyRestThatFollowsIt covers instead.
+		jdbc().update(
+				"DELETE FROM attendance WHERE employee_id = ? AND check_in::date = '2026-03-18'::date",
+				shortMonth);
+
+		Long batchId = createAndCalculateMarchBatch(admin);
+
+		Slip full = payslip(batchId, fullMonth);
+		Slip shortSlip = payslip(batchId, shortMonth);
+		assertThat(shortSlip.daysAbsent()).isEqualTo(full.daysAbsent() + 1);
+		// gross 3000 / 30 = 100 a day, taken off the whole gross.
+		assertThat(full.netSalary().subtract(shortSlip.netSalary())).isEqualByComparingTo("100.00");
+	}
+
+	@Test
+	void aMissedWeekAlsoVoidsTheWeeklyRestThatFollowsIt() {
+		AuthResponse admin = registerCompanyAdmin();
+		Long fullMonth = employeeOnSalary(admin.companyId(), "3000");
+		Long shortMonth = employeeOnSalary(admin.companyId(), "3000");
+		punchWholeMarch(admin.companyId(), fullMonth);
+		punchWholeMarch(admin.companyId(), shortMonth);
+		// Monday and Tuesday off, leaving only two covered days before the
+		// Fri/Sat block -- one short of the three the rest day needs.
 		jdbc().update(
 				"DELETE FROM attendance WHERE employee_id = ? AND check_in::date IN "
 						+ "('2026-03-02'::date, '2026-03-03'::date)",
@@ -176,9 +205,11 @@ class PayrollAttendanceWiringFlowTest extends AbstractIntegrationTest {
 
 		Slip full = payslip(batchId, fullMonth);
 		Slip shortSlip = payslip(batchId, shortMonth);
-		assertThat(shortSlip.daysAbsent()).isEqualTo(full.daysAbsent() + 2);
-		// gross 3000 / 30 = 100 a day, taken off the whole gross.
-		assertThat(full.netSalary().subtract(shortSlip.netSalary())).isEqualByComparingTo("200.00");
+		// Two missed workdays, plus the two-day rest block they failed to
+		// earn -- four absences, not two. This cascade is legacy's rule and
+		// the reason a short week costs more than the days missed.
+		assertThat(shortSlip.daysAbsent()).isEqualTo(full.daysAbsent() + 4);
+		assertThat(full.netSalary().subtract(shortSlip.netSalary())).isEqualByComparingTo("400.00");
 	}
 
 	@Test
