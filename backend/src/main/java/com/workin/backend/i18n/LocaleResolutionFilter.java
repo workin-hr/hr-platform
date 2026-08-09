@@ -34,14 +34,34 @@ public class LocaleResolutionFilter extends OncePerRequestFilter {
 
 	public static final String RESOLVED_LOCALE_ATTRIBUTE = LocaleResolutionFilter.class.getName() + ".RESOLVED_LOCALE";
 
+	/**
+	 * The precedence rule itself, callable without having gone through
+	 * the filter.
+	 *
+	 * <p>Spring Security rejects an unauthenticated request from inside
+	 * its own chain, and cannot rely on this filter having run first --
+	 * filter ordering between the two is not something a caller should
+	 * have to reason about. {@code ApiSecurityErrorHandler} therefore
+	 * resolves the locale straight from the request through here, so
+	 * both paths share one definition of the rule rather than growing a
+	 * second, subtly different copy.
+	 */
+	public static Locale resolve(HttpServletRequest request) {
+		Object alreadyResolved = request.getAttribute(RESOLVED_LOCALE_ATTRIBUTE);
+		if (alreadyResolved instanceof Locale locale) {
+			return locale;
+		}
+		String langParam = request.getParameter("lang");
+		return langParam != null && !langParam.isBlank()
+				? SupportedLocales.fromLangParam(langParam)
+				: SupportedLocales.fromAcceptLanguage(request.getHeader("Accept-Language"));
+	}
+
 	@Override
 	protected void doFilterInternal(
 			HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
 			throws ServletException, IOException {
-		String langParam = request.getParameter("lang");
-		Locale locale = langParam != null && !langParam.isBlank()
-				? SupportedLocales.fromLangParam(langParam)
-				: SupportedLocales.fromAcceptLanguage(request.getHeader("Accept-Language"));
+		Locale locale = resolve(request);
 		request.setAttribute(RESOLVED_LOCALE_ATTRIBUTE, locale);
 		LocaleContextHolder.setLocale(locale);
 		try {

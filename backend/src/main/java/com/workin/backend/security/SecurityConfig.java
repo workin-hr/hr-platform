@@ -37,11 +37,15 @@ public class SecurityConfig {
 	@Bean
 	@Order(1)
 	public SecurityFilterChain platformAdminSecurityFilterChain(
-			HttpSecurity http, PlatformAdminJwtService platformAdminJwtService) throws Exception {
+			HttpSecurity http, PlatformAdminJwtService platformAdminJwtService,
+			ApiSecurityErrorHandler apiSecurityErrorHandler) throws Exception {
 		http
 			.securityMatcher("/api/platform-admin/**")
 			.csrf(csrf -> csrf.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+			.exceptionHandling(exceptions -> exceptions
+				.authenticationEntryPoint(apiSecurityErrorHandler)
+				.accessDeniedHandler(apiSecurityErrorHandler))
 			.authorizeHttpRequests(authorize -> authorize
 				// Refresh and logout authenticate by refresh-token
 				// possession -- the access token may already be expired
@@ -56,10 +60,17 @@ public class SecurityConfig {
 
 	@Bean
 	@Order(2)
-	public SecurityFilterChain tenantSecurityFilterChain(HttpSecurity http, JwtService jwtService) throws Exception {
+	public SecurityFilterChain tenantSecurityFilterChain(
+			HttpSecurity http, JwtService jwtService,
+			ApiSecurityErrorHandler apiSecurityErrorHandler) throws Exception {
 		http
 			.csrf(csrf -> csrf.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+			// Issue #70: without these, an expired token is answered by
+			// Spring Boot's default error JSON instead of {code, message}.
+			.exceptionHandling(exceptions -> exceptions
+				.authenticationEntryPoint(apiSecurityErrorHandler)
+				.accessDeniedHandler(apiSecurityErrorHandler))
 			.authorizeHttpRequests(authorize -> authorize
 				// A ResponseStatusException (e.g. 409/401 thrown from a
 				// controller) triggers an internal servlet ERROR

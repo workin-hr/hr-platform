@@ -52,7 +52,12 @@ class PlatformAdminDomainSeparationTest extends AbstractIntegrationTest {
 		ResponseEntity<String> response = restTemplate.exchange(
 				"/api/platform-admin/me", HttpMethod.GET, new HttpEntity<>(headers), String.class);
 
-		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+		// 401, not 403: the platform chain never authenticated this token,
+		// so there is no principal to deny. It used to answer 403 only
+		// because no entry point was registered and Spring Security fell
+		// back to Http403ForbiddenEntryPoint (issue #70). The rejection
+		// itself is unchanged -- the token still gets nowhere.
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 	}
 
 	@Test
@@ -64,7 +69,9 @@ class PlatformAdminDomainSeparationTest extends AbstractIntegrationTest {
 		ResponseEntity<String> response = restTemplate.exchange(
 				"/api/tenant/me", HttpMethod.GET, new HttpEntity<>(headers), String.class);
 
-		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+		// Same reasoning in the other direction: the tenant chain cannot
+		// authenticate a platform-admin token, so this is 401.
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 	}
 
 	private String registerTenantAndGetToken() {

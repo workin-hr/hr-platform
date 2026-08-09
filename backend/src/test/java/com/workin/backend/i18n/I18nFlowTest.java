@@ -178,4 +178,70 @@ class I18nFlowTest extends AbstractIntegrationTest {
 				});
 	}
 
+	/**
+	 * Issue #70. Before {@code ApiSecurityErrorHandler} existed, this
+	 * returned Spring Boot's {@code {timestamp, status, error, path}}
+	 * instead — and nothing caught it, because every unauthenticated
+	 * assertion in the suite only checked that the call had not
+	 * succeeded. Access tokens expire every 15 minutes, so this is the
+	 * error clients hit most often; it gets a real assertion now.
+	 */
+	@Test
+	void aMissingTokenIsAnOnContractUnauthorizedInBothLanguages() {
+		ResponseEntity<Map> english = restTemplate.exchange(
+				"/api/tenant/employees", HttpMethod.GET,
+				new HttpEntity<>(bearer(null, null)), Map.class);
+
+		assertThat(english.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+		assertThat(english.getBody().get("code")).isEqualTo("error.unauthorized");
+		assertThat(english.getBody().get("message")).isEqualTo("Unauthorized");
+		// The old default shape is gone, not merely supplemented.
+		assertThat(english.getBody()).doesNotContainKeys("timestamp", "status", "error", "path");
+
+		ResponseEntity<Map> arabic = restTemplate.exchange(
+				"/api/tenant/employees?lang=ar", HttpMethod.GET,
+				new HttpEntity<>(bearer(null, null)), Map.class);
+
+		assertThat(arabic.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+		assertThat(arabic.getBody().get("code")).isEqualTo("error.unauthorized");
+		assertThat(arabic.getBody().get("message")).isEqualTo("غير مصرّح");
+	}
+
+	@Test
+	void anExpiredOrMalformedTokenIsAlsoOnContract() {
+		ResponseEntity<Map> response = restTemplate.exchange(
+				"/api/tenant/employees", HttpMethod.GET,
+				new HttpEntity<>(bearer("not.a.valid.jwt", null)), Map.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+		assertThat(response.getBody().get("code")).isEqualTo("error.unauthorized");
+	}
+
+	/** The platform-admin chain is separate; it gets the same treatment. */
+	@Test
+	void thePlatformAdminChainIsOnContractToo() {
+		ResponseEntity<Map> response = restTemplate.exchange(
+				"/api/platform-admin/me", HttpMethod.GET,
+				new HttpEntity<>(bearer(null, null)), Map.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+		assertThat(response.getBody().get("code")).isEqualTo("error.unauthorized");
+	}
+
+	/**
+	 * The permit for {@code /error} exists so a controller-thrown
+	 * ResponseStatusException keeps its real status through the servlet
+	 * ERROR dispatch. Adding an entry point must not have disturbed
+	 * that: a 404 has to stay a 404 rather than collapsing into the new
+	 * 401.
+	 */
+	@Test
+	void controllerThrownStatusesStillSurviveTheErrorDispatch() {
+		AuthResponse admin = registerCompanyAdmin();
+
+		Map<String, Object> body = getError(admin.accessToken(), "/api/tenant/employees/99999999", null);
+
+		assertThat(body.get("code")).isEqualTo("error.not_found");
+	}
+
 }

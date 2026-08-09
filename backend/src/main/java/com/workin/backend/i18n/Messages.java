@@ -1,5 +1,7 @@
 package com.workin.backend.i18n;
 
+import java.util.Locale;
+
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.stereotype.Component;
@@ -19,7 +21,17 @@ public class Messages {
 	}
 
 	public String get(String key, Object... args) {
-		return messageSource.getMessage(key, args, LocaleContextHolder.getLocale());
+		return getIn(LocaleContextHolder.getLocale(), key, args);
+	}
+
+	/**
+	 * For callers that cannot trust {@link LocaleContextHolder} — notably
+	 * Spring Security's entry point, which rejects a request from inside
+	 * its own filter chain and so may run before
+	 * {@code LocaleResolutionFilter} has published anything.
+	 */
+	public String getIn(Locale locale, String key, Object... args) {
+		return messageSource.getMessage(key, args, locale);
 	}
 
 }
