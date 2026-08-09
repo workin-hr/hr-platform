@@ -194,22 +194,25 @@ class PayrollAttendanceWiringFlowTest extends AbstractIntegrationTest {
 		Long shortMonth = employeeOnSalary(admin.companyId(), "3000");
 		punchWholeMarch(admin.companyId(), fullMonth);
 		punchWholeMarch(admin.companyId(), shortMonth);
-		// Monday and Tuesday off, leaving only two covered days before the
-		// Fri/Sat block -- one short of the three the rest day needs.
+		// The workdays behind the 6th/7th rest block are the 1st to the 5th
+		// (the 1st is a Sunday, so it works here). Removing the 3rd, 4th
+		// and 5th leaves only two covered -- one short of the three the
+		// block needs. Taking just two days off would still leave three,
+		// which is why aMissingDayCostsTheGrossDayRate does not cascade.
 		jdbc().update(
 				"DELETE FROM attendance WHERE employee_id = ? AND check_in::date IN "
-						+ "('2026-03-02'::date, '2026-03-03'::date)",
+						+ "('2026-03-03'::date, '2026-03-04'::date, '2026-03-05'::date)",
 				shortMonth);
 
 		Long batchId = createAndCalculateMarchBatch(admin);
 
 		Slip full = payslip(batchId, fullMonth);
 		Slip shortSlip = payslip(batchId, shortMonth);
-		// Two missed workdays, plus the two-day rest block they failed to
-		// earn -- four absences, not two. This cascade is legacy's rule and
-		// the reason a short week costs more than the days missed.
-		assertThat(shortSlip.daysAbsent()).isEqualTo(full.daysAbsent() + 4);
-		assertThat(full.netSalary().subtract(shortSlip.netSalary())).isEqualByComparingTo("400.00");
+		// Three missed workdays, plus the two-day rest block they failed to
+		// earn -- five absences, not three. This cascade is legacy's rule
+		// and the reason a short week costs more than the days missed.
+		assertThat(shortSlip.daysAbsent()).isEqualTo(full.daysAbsent() + 5);
+		assertThat(full.netSalary().subtract(shortSlip.netSalary())).isEqualByComparingTo("500.00");
 	}
 
 	@Test
