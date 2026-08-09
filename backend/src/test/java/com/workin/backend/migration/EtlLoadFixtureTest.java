@@ -13,6 +13,7 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -188,7 +189,9 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 					"SELECT check_in FROM attendance a JOIN migration.id_map m "
 							+ "ON m.entity = 'attendance' AND m.new_id = a.id WHERE m.legacy_id = 101")) {
 				rs.next();
-				assertThat(rs.getObject(1, Instant.class)).isEqualTo(Instant.parse("2026-03-02T09:00:00Z"));
+				// PgJDBC will not convert timestamptz straight to Instant.
+				assertThat(rs.getObject(1, OffsetDateTime.class).toInstant())
+						.isEqualTo(Instant.parse("2026-03-02T09:00:00Z"));
 			}
 			// --- and the exception day still lands exactly on UTC midnight,
 			// which is what keeps isExceptionOnlyRow() recognising it
