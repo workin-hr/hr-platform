@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.backend.authorization.ResourceScopeService;
 import com.workin.backend.employees.EmployeeRepository;
+import com.workin.backend.holidays.OfficialHolidayService;
 import com.workin.backend.requests.LeaveRequest;
 import com.workin.backend.requests.LeaveRequestRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
@@ -55,6 +56,8 @@ public class AttendanceCalendarService {
 	private final LeaveRequestRepository leaveRequestRepository;
 	private final EmployeeRepository employeeRepository;
 	private final ExpectedDayResolver expectedDayResolver;
+	private final OfficialHolidayService holidayService;
+	private final WeeklyRestCreditService weeklyRestCreditService;
 	private final AttendanceSessionService sessionService;
 	private final ResourceScopeService resourceScopeService;
 	private final TenantSessionVariable tenantSessionVariable;
@@ -65,6 +68,8 @@ public class AttendanceCalendarService {
 			LeaveRequestRepository leaveRequestRepository,
 			EmployeeRepository employeeRepository,
 			ExpectedDayResolver expectedDayResolver,
+			OfficialHolidayService holidayService,
+			WeeklyRestCreditService weeklyRestCreditService,
 			AttendanceSessionService sessionService,
 			ResourceScopeService resourceScopeService,
 			TenantSessionVariable tenantSessionVariable) {
@@ -73,6 +78,8 @@ public class AttendanceCalendarService {
 		this.leaveRequestRepository = leaveRequestRepository;
 		this.employeeRepository = employeeRepository;
 		this.expectedDayResolver = expectedDayResolver;
+		this.holidayService = holidayService;
+		this.weeklyRestCreditService = weeklyRestCreditService;
 		this.sessionService = sessionService;
 		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
@@ -103,48 +110,61 @@ public class AttendanceCalendarService {
 
 		Map<LocalDate, Attendance> byDate = rowsByDate(companyId, employeeId, from, to);
 		Map<Long, String> exceptionNames = exceptionTypeNames(companyId);
+		// One query for the range instead of legacy's one per day. Same
+		// answers; the per-day form remains for the deadline scan.
+		Map<LocalDate, String> holidayByDate = holidayService.holidaysByDate(companyId, from, to);
+		Map<LocalDate, WeeklyRestCreditService.DayCoverage> coverage =
+				weeklyRestCreditService.attendanceFlags(companyId, employeeId, from, to);
+		LocalDate asOfDate = AttendanceRules.dayOf(asOf);
 
 		List<CalendarDayView> days = new ArrayList<>();
 		for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
-			days.add(classify(companyId, employeeId, date, byDate.get(date), exceptionNames, asOf));
+			days.add(classify(companyId, employeeId, date, byDate.get(date), exceptionNames,
+					holidayByDate, coverage, asOfDate, asOf));
 		}
 		return Optional.of(days);
 	}
 
 	private CalendarDayView classify(
 			Long companyId, Long employeeId, LocalDate date, Attendance row,
-			Map<Long, String> exceptionNames, Instant asOf) {
-		ExpectedDay expected = expectedDayResolver.resolve(companyId, employeeId, date);
+			Map<Long, String> exceptionNames, Map<LocalDate, String> holidayByDate,
+			Map<LocalDate, WeeklyRestCreditService.DayCoverage> coverage, LocalDate asOfDate, Instant asOf) {
+		ExpectedDay expected = expectedDayResolver.resolve(companyId, employeeId, date, holidayByDate);
 		boolean restOrHoliday = expected.restDay();
-		// Always false while official holidays are a stub; kept as the seam
-		// the holiday slice fills, because it is what makes a holiday
-		// outrank weekly rest.
-		boolean officialHoliday = false;
+		// A holiday outranks weekly rest: a day that is both reports as the
+		// holiday only, which is what stops it being counted twice.
+		boolean officialHoliday = holidayByDate.containsKey(date);
 		boolean weeklyRest = restOrHoliday && !officialHoliday;
+		// Only a weekly-rest day carries a credit; a holiday does not, which
+		// is what keeps the two from being counted twice.
+		WeeklyRestCredit credit = weeklyRest
+				? weeklyRestCreditService.status(companyId, employeeId, date, coverage, asOfDate)
+				: null;
 
 		if (row != null) {
-			return classifyExistingRow(
-					companyId, employeeId, date, row, expected, exceptionNames, weeklyRest, officialHoliday, asOf);
+			return classifyExistingRow(companyId, employeeId, date, row, expected, exceptionNames,
+					weeklyRest, officialHoliday, credit, asOf);
 		}
 		if (restOrHoliday) {
 			// Branch B -- a rest or holiday day with nothing recorded.
-			return new CalendarDayView(
+			return CalendarDayView.of(
 					date, null, AttendanceRules.syntheticRowId(employeeId, date), null, null,
-					0, 0, null, expected.restNote(), false, weeklyRest, officialHoliday);
+					0, 0, null, expected.restNote(), false, weeklyRest, officialHoliday, credit);
 		}
 		// Branch C -- a working day with no row. An approved timed request
 		// still credits its window here, with no punch behind it.
 		int missingDuration = approvedTimedRequest(companyId, employeeId, date)
 				.map(request -> missionWindowMinutes(request))
 				.orElse(0);
-		return new CalendarDayView(
+		return CalendarDayView.of(
 				date, null, AttendanceRules.syntheticRowId(employeeId, date), null, null,
-				missingDuration, 0, null, null, missingDuration <= 0, false, false);
+				missingDuration, 0, null, null, missingDuration <= 0, false, false, null);
 	}
 
 	private CalendarDayView classifyExistingRow(
 			Long companyId, Long employeeId, LocalDate date, Attendance row, ExpectedDay expected,
-			Map<Long, String> exceptionNames, boolean weeklyRest, boolean officialHoliday, Instant asOf) {
+			Map<Long, String> exceptionNames, boolean weeklyRest, boolean officialHoliday,
+			WeeklyRestCredit credit, Instant asOf) {
 		String exceptionName = row.getExceptionTypeId() == null
 				? null
 				: exceptionNames.get(row.getExceptionTypeId());
@@ -158,19 +178,19 @@ public class AttendanceCalendarService {
 			int duration = approvedTimedRequest(companyId, employeeId, date)
 					.map(request -> timedRequestWorkedMinutes(date, row, expected, request))
 					.orElse(0);
-			return new CalendarDayView(
+			return CalendarDayView.of(
 					date, row.getId(), row.getId(), null, null,
 					duration, 0, row.getExceptionTypeId(), blankToNull(exceptionName),
-					false, weeklyRest, officialHoliday);
+					false, weeklyRest, officialHoliday, credit);
 		}
 
 		// Branch A2 -- a normal punched day, the only branch that reports
 		// real expected minutes.
 		int duration = workedMinutes(companyId, employeeId, date, row, expected, asOf);
-		return new CalendarDayView(
+		return CalendarDayView.of(
 				date, row.getId(), row.getId(), row.getCheckIn(), row.getCheckOut(),
 				duration, expected.expectedMinutes(), row.getExceptionTypeId(), blankToNull(exceptionName),
-				false, weeklyRest, officialHoliday);
+				false, weeklyRest, officialHoliday, credit);
 	}
 
 	/**

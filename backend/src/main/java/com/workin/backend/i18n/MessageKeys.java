@@ -48,4 +48,8 @@ public final class MessageKeys {
 	private MessageKeys() {
 	}
 
+
+	public static final String HOLIDAYS_NAME_REQUIRED = "holidays.name_required";
+	public static final String HOLIDAYS_DATES_REQUIRED = "holidays.dates_required";
+	public static final String HOLIDAYS_DATE_ALREADY_TAKEN = "holidays.date_already_taken";
 }

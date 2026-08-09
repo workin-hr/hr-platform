@@ -26,7 +26,9 @@ import java.time.LocalDate;
  * @param exceptionTypeName       the exception label, or the rest/holiday label on a synthesized rest day
  * @param isMissing               a working day with nothing credited to it — an absence
  * @param isWeeklyRest            weekly rest, and not an official holiday (a holiday outranks it)
- * @param isOfficialHoliday       always false until the holidays module lands
+ * @param isOfficialHoliday       the day is an official holiday, which outranks weekly rest
+ * @param weeklyRestCredit        earned/void/pending on a weekly-rest day, null on any other day
+ * @param isWeeklyRestVoid        shorthand for {@code weeklyRestCredit == VOID} — legacy reports both
  */
 public record CalendarDayView(
 		LocalDate date,
@@ -40,5 +42,18 @@ public record CalendarDayView(
 		String exceptionTypeName,
 		boolean isMissing,
 		boolean isWeeklyRest,
-		boolean isOfficialHoliday) {
+		boolean isOfficialHoliday,
+		WeeklyRestCredit weeklyRestCredit,
+		boolean isWeeklyRestVoid) {
+
+	static CalendarDayView of(
+			LocalDate date, Long attendanceId, long id, Instant checkIn, Instant checkOut,
+			int durationMinutes, int expectedDurationMinutes, Long exceptionTypeId, String exceptionTypeName,
+			boolean isMissing, boolean isWeeklyRest, boolean isOfficialHoliday, WeeklyRestCredit credit) {
+		return new CalendarDayView(
+				date, attendanceId, id, checkIn, checkOut, durationMinutes, expectedDurationMinutes,
+				exceptionTypeId, exceptionTypeName, isMissing, isWeeklyRest, isOfficialHoliday,
+				credit, credit == WeeklyRestCredit.VOID);
+	}
+
 }
