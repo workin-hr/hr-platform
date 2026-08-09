@@ -67,6 +67,17 @@ public class Attendance {
 		this.exceptionTypeId = null;
 	}
 
+	/**
+	 * The synthetic check-out {@link AttendanceSessionService} writes for
+	 * a punch the employee never closed. Shape-consistent by
+	 * construction: it only ever runs against a row that already has a
+	 * real check-in and no check-out, and it touches nothing else — so a
+	 * punch row stays a punch row.
+	 */
+	public void closeAt(Instant checkOut) {
+		this.checkOut = checkOut;
+	}
+
 	public void applyException(Instant midnightCheckIn, Long exceptionTypeId) {
 		this.checkIn = midnightCheckIn;
 		this.checkOut = null;

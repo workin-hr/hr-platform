@@ -32,9 +32,12 @@ import com.workin.backend.tenancy.AuthorizationContext;
 public class AttendanceController {
 
 	private final AttendanceService attendanceService;
+	private final AttendanceCalendarService attendanceCalendarService;
 
-	public AttendanceController(AttendanceService attendanceService) {
+	public AttendanceController(
+			AttendanceService attendanceService, AttendanceCalendarService attendanceCalendarService) {
 		this.attendanceService = attendanceService;
+		this.attendanceCalendarService = attendanceCalendarService;
 	}
 
 	@RequiresPermission(PermissionKeys.ATTENDANCE_READ)
@@ -45,6 +48,31 @@ public class AttendanceController {
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
 			@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
 		return attendanceService.list(contextFrom(request), employeeId, from, to);
+	}
+
+	/**
+	 * The classified day-by-day view: one row per calendar day in the
+	 * range, worked or not. Replaces legacy's three overlapping read
+	 * paths (the {@code full_month} branch, {@code fill_days}, and the
+	 * plain month scan) with a single range endpoint.
+	 *
+	 * <p>Not idempotent, deliberately: serving it auto-closes any stale
+	 * open punch first, exactly as legacy does before every such read.
+	 * A range whose end precedes its start returns an empty list rather
+	 * than an error — legacy's behaviour.
+	 *
+	 * <p>Declared before {@code /{attendanceId}} for readability only;
+	 * the two cannot collide, since this pattern has two segments.
+	 */
+	@RequiresPermission(PermissionKeys.ATTENDANCE_READ)
+	@GetMapping("/{employeeId}/calendar")
+	public List<CalendarDayView> calendar(
+			HttpServletRequest request,
+			@PathVariable Long employeeId,
+			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+		return attendanceCalendarService.calendar(contextFrom(request), employeeId, from, to)
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
 	}
 
 	@RequiresPermission(PermissionKeys.ATTENDANCE_READ)
