@@ -1,3 +1,29 @@
+#!/usr/bin/env python3
+"""Emit the legacy (MySQL) extraction for the hr-platform migration.
+
+`scripts/migration_diff.py` reconciles CSV exports and nothing produced
+them, so the harness has never had an input. This is that step.
+
+It emits SQL rather than connecting: this repository's tooling is
+stdlib-only by rule, so it must run on an operator's machine near
+production with no network installs and no MySQL driver. The operator
+pipes the output into `mysql` and redirects each result to the file
+named in the manifest.
+
+**Extraction only. Nothing here loads, and nothing writes to legacy.**
+
+Usage:
+    python3 scripts/etl/export_legacy.py --print-sql   > export.sql
+    python3 scripts/etl/export_legacy.py --manifest    > manifest.json
+    python3 scripts/etl/export_legacy.py --self-test
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+
+EXPORT_SQL = r"""
 -- Legacy (MySQL) extraction for the hr-platform migration.
 -- Produces the CSV exports scripts/migration_diff.py reconciles against
 -- the Postgres side. READ ONLY: nothing here writes to legacy.
@@ -132,3 +158,83 @@ SELECT * FROM setting_allowed_values ORDER BY id;
 -- the is_daylight_saving question is answered by the dump itself rather
 -- than from memory.
 SELECT config_key, config_value FROM configs WHERE config_key = 'is_daylight_saving';
+
+"""
+
+MANIFEST = r"""
+{
+  "_comment": "Input to scripts/migration_diff.py. expected_count is the measured legacy baseline from docs/migration/table-volume-analysis.md; fill the remaining nulls from the real dump before a cutover run.",
+  "tables": [
+    {"file": "companies.csv", "key": ["id"], "expected_count": null},
+    {"file": "employees.csv", "key": ["id"], "expected_count": 2871},
+    {"file": "attendance.csv", "key": ["id"], "expected_count": 36316},
+    {"file": "attendance_days.csv", "key": ["id"], "expected_count": 36316},
+    {"file": "exception_types.csv", "key": ["id"], "expected_count": null},
+    {"file": "shifts.csv", "key": ["id"], "expected_count": null},
+    {"file": "branches.csv", "key": ["id"], "expected_count": null},
+    {"file": "job_titles.csv", "key": ["id"], "expected_count": null},
+    {"file": "requests.csv", "key": ["id"], "expected_count": null},
+    {"file": "request_types.csv", "key": ["id"], "expected_count": null},
+    {"file": "company_official_holidays.csv", "key": ["id"], "expected_count": null},
+    {"file": "salary_contracts.csv", "key": ["id"], "expected_count": null},
+    {"file": "payroll_batches.csv", "key": ["id"], "expected_count": null},
+    {"file": "advances.csv", "key": ["id"], "expected_count": null},
+    {"file": "penalties.csv", "key": ["id"], "expected_count": null}
+  ]
+}
+"""
+
+
+def self_test() -> int:
+    failures: list[str] = []
+
+    def check(name: str, condition: bool) -> None:
+        print(("OK  " if condition else "FAIL ") + name)
+        if not condition:
+            failures.append(name)
+
+    # The rule this whole file exists to implement.
+    check("session is pinned to UTC", "SET time_zone = '+00:00'" in EXPORT_SQL)
+    check(
+        "datetime columns are exported verbatim, not shifted",
+        "DATE_FORMAT(check_in" in EXPORT_SQL and "CONVERT_TZ" not in EXPORT_SQL,
+    )
+    check(
+        "legacy's own day bucketing is exported for the conformance check",
+        "DATE(check_in) AS legacy_day" in EXPORT_SQL,
+    )
+    check(
+        "method is carried so excel-device rows can be segmented",
+        "method, exception_type_id" in EXPORT_SQL,
+    )
+    check(
+        "the daylight-saving flag is captured from the dump itself",
+        "is_daylight_saving" in EXPORT_SQL,
+    )
+    check("extraction is read-only", not any(
+        word in EXPORT_SQL.upper() for word in ("INSERT INTO", "UPDATE ", "DELETE FROM", "DROP ", "ALTER ")))
+
+    manifest = json.loads(MANIFEST)
+    files = [t["file"] for t in manifest["tables"]]
+    check("manifest lists attendance and its day bucketing",
+          "attendance.csv" in files and "attendance_days.csv" in files)
+    check("every manifest entry declares a key", all(t.get("key") for t in manifest["tables"]))
+    check("measured baselines are carried",
+          any(t["file"] == "attendance.csv" and t["expected_count"] == 36316 for t in manifest["tables"]))
+
+    return 1 if failures else 0
+
+
+def main() -> int:
+    if "--manifest" in sys.argv:
+        print(MANIFEST.strip())
+        return 0
+    if "--print-sql" in sys.argv:
+        print(EXPORT_SQL.strip())
+        return 0
+    print(__doc__)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(self_test() if "--self-test" in sys.argv else main())

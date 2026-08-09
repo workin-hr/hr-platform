@@ -13,8 +13,20 @@ The load and the two non-copy transforms are still to be written.
 
 | File | What it is |
 |---|---|
-| `export_legacy_mysql.sql` | Read-only SELECTs producing one CSV per table |
-| `manifest.json` | Input to `scripts/migration_diff.py` |
+| `export_legacy.py` | Emits the read-only extraction SQL and the manifest |
+
+```sh
+python3 scripts/etl/export_legacy.py --print-sql > export.sql
+python3 scripts/etl/export_legacy.py --manifest  > manifest.json
+python3 scripts/etl/export_legacy.py --self-test
+```
+
+It emits SQL rather than connecting to anything. This repository's
+tooling is stdlib-only by rule, so it has to run on an operator's
+machine near production with no network installs and no MySQL driver.
+The Phase 0 lock also forbids a bare `.sql` file outside `backend/`,
+which is the guard working as intended — an extraction script is
+operator tooling, not application code.
 
 ## The timezone rule is implemented here, not decided here
 
