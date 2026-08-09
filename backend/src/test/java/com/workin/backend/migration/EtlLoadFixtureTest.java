@@ -81,14 +81,19 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 	}
 
 	/**
-	 * A miniature dump: one company, two employees sharing nothing, a
-	 * shift, an exception type, two punches (one of them a midnight
-	 * exception day), a permission row, and the EAV settings chain.
+	 * A miniature dump: one company, two employees, a shift, an exception
+	 * type, two punches (one of them a midnight exception day), a
+	 * permission row, and the EAV settings chain.
+	 *
+	 * <p>Each test gets its own migration schema and its own phone numbers.
+	 * The suite shares one database, and both the staging tables and the
+	 * unique phone columns are global -- without this, a second test
+	 * either stages the same legacy id twice or collides on a phone.
 	 */
-	private static void stageFixture(Statement st) throws Exception {
+	private static void stageFixture(Statement st, String token) throws Exception {
 		st.execute("""
 				INSERT INTO migration.stg_companies (id, name, phone, status)
-				VALUES ('1', 'Legacy Co', '+201000000001', 'active');
+				VALUES ('1', 'Legacy Co', '+2010TOKEN01', 'active');
 
 				INSERT INTO migration.stg_branches (id, company_id, name, is_active)
 				VALUES ('7', '1', 'HQ', '1');
@@ -106,8 +111,8 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				  (id, company_id, branch_id, job_title_id, expected_daily_hours, first_name,
 				   last_name, phone, password_hash, role, is_active)
 				VALUES
-				  ('11', '1', '7', '4', '6.00', 'Sara', 'Ali', '+201111111111', '$2y$hash', 'hr', '1'),
-				  ('12', '1', '7', '4', NULL,   'Omar', 'Nabil', '+201222222222', '$2y$hash2', 'employee', '1');
+				  ('11', '1', '7', '4', '6.00', 'Sara', 'Ali', '+2011TOKEN11', '$2y$hash', 'hr', '1'),
+				  ('12', '1', '7', '4', NULL,   'Omar', 'Nabil', '+2012TOKEN22', '$2y$hash2', 'employee', '1');
 
 				-- A real punch, and a midnight exception day.
 				INSERT INTO migration.stg_attendance
@@ -131,7 +136,7 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 
 				INSERT INTO migration.stg_company_setting_values (id, company_setting_id, setting_allowed_value_id)
 				VALUES ('400', '300', '10'), ('401', '300', '11'), ('402', '301', '20');
-				""");
+				""".replace("TOKEN", token));
 		// The dump's can_* columns arrive with the CSV header; add the two
 		// this fixture exercises.
 		st.execute("ALTER TABLE migration.stg_hr_permissions ADD COLUMN IF NOT EXISTS can_branches TEXT");
@@ -153,8 +158,9 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 		String finalize = emit("finalize");
 
 		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
 			st.execute(ddl);
-			stageFixture(st);
+			stageFixture(st, "5551");
 			st.execute(load);
 			st.execute(finalize);
 
@@ -170,8 +176,12 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 					"SELECT new_id FROM migration.id_map WHERE entity = 'employees' AND legacy_id = 11");
 			assertThat(scalar(st,
 					"SELECT count(*) FROM attendance WHERE employee_id = " + employeeNewId)).isEqualTo(2);
+			// Scoped to the mapped rows: the suite shares one database and
+			// other tests create employees of their own.
 			assertThat(scalar(st,
-					"SELECT count(*) FROM employees e JOIN companies c ON c.id = e.company_id")).isEqualTo(2);
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map m ON m.entity = 'employees' AND m.new_id = e.id "
+							+ "JOIN companies c ON c.id = e.company_id")).isEqualTo(2);
 
 			// --- the wall-clock rule: the reading is preserved, not shifted
 			try (ResultSet rs = st.executeQuery(
@@ -237,7 +247,7 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
 			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
 			st.execute(ddl);
-			stageFixture(st);
+			stageFixture(st, "6661");
 			// A flag this dump has and PERMISSION_MAP does not.
 			st.execute("ALTER TABLE migration.stg_hr_permissions ADD COLUMN can_teleport TEXT");
 
