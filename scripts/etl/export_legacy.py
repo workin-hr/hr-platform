@@ -57,7 +57,7 @@ SET SESSION group_concat_max_len = 1000000;
 -- which is the encoding migration_diff.py expects.
 
 -- ---------- companies ----------
-SELECT id, name, phone, status, created_at
+SELECT id, company_name AS name, phone, status, created_at
 FROM companies
 ORDER BY id;
 
@@ -112,7 +112,7 @@ FROM job_titles ORDER BY id;
 
 -- ---------- requests ----------
 SELECT id, employee_id, request_type_id, from_date, to_date,
-       from_time, to_time, status, reply, approver_id, decided_at,
+       from_time, to_time, notes, status, reply, approver_id, decided_at,
        created_at, updated_at
 FROM requests ORDER BY id;
 
@@ -218,6 +218,11 @@ def self_test() -> int:
     )
     check("extraction is read-only", not any(
         word in EXPORT_SQL.upper() for word in ("INSERT INTO", "UPDATE ", "DELETE FROM", "DROP ", "ALTER ")))
+    check(
+        "companies is selected by its real column name, not the target's",
+        "company_name AS name" in EXPORT_SQL and "SELECT id, name," not in EXPORT_SQL,
+    )
+    check("requests.notes is carried, not just reply", "from_time, to_time, notes," in EXPORT_SQL)
 
     manifest = json.loads(MANIFEST)
     files = [t["file"] for t in manifest["tables"]]

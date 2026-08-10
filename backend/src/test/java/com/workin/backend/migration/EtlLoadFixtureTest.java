@@ -82,9 +82,11 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 	}
 
 	/**
-	 * A miniature dump: one company, two employees, a shift, an exception
-	 * type, two punches (one of them a midnight exception day), a
-	 * permission row, and the EAV settings chain.
+	 * A miniature dump: two companies, four employees -- two of them
+	 * sharing a phone across companies, two more sharing a phone within
+	 * one company -- a shift, an exception type, two punches (one of them
+	 * a midnight exception day), permission rows, a decided request, and
+	 * the EAV settings chain.
 	 *
 	 * <p>Each test gets its own migration schema and its own phone numbers.
 	 * The suite shares one database, and both the staging tables and the
@@ -94,7 +96,8 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 	private static void stageFixture(Statement st, String token) throws Exception {
 		st.execute("""
 				INSERT INTO migration.stg_companies (id, name, phone, status)
-				VALUES ('1', 'Legacy Co', '+2010TOKEN01', 'active');
+				VALUES ('1', 'Legacy Co', '+2010TOKEN01', 'active'),
+				       ('2', 'Second Co', '+2020TOKEN02', 'active');
 
 				INSERT INTO migration.stg_branches (id, company_id, name, is_active)
 				VALUES ('7', '1', 'HQ', '1');
@@ -108,12 +111,19 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				INSERT INTO migration.stg_exception_types (id, company_id, name)
 				VALUES ('3', '1', 'Sick');
 
+				-- 11 and 12 are each other's own phone anchor. 13 (company 2)
+				-- shares 11's phone across companies -- the case identities
+				-- exist for. 14 (company 1, same company as 12) shares 12's
+				-- phone -- the data-quality duplicate tenant_memberships must
+				-- collapse rather than reject.
 				INSERT INTO migration.stg_employees
 				  (id, company_id, branch_id, job_title_id, expected_daily_hours, first_name,
 				   last_name, phone, password_hash, role, is_active)
 				VALUES
 				  ('11', '1', '7', '4', '6.00', 'Sara', 'Ali', '+2011TOKEN11', '$2y$hash', 'hr', '1'),
-				  ('12', '1', '7', '4', NULL,   'Omar', 'Nabil', '+2012TOKEN22', '$2y$hash2', 'employee', '1');
+				  ('12', '1', '7', '4', NULL,   'Omar', 'Nabil', '+2012TOKEN22', '$2y$hash2', 'employee', '1'),
+				  ('13', '2', NULL, NULL, NULL, 'Laila', 'Fathy', '+2011TOKEN11', '$2y$hash3', 'employee', '1'),
+				  ('14', '1', NULL, NULL, NULL, 'Nabil', 'Omar', '+2012TOKEN22', '$2y$hash4', 'employee', '1');
 
 				-- A real punch, and a midnight exception day.
 				INSERT INTO migration.stg_attendance
@@ -123,7 +133,19 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				  ('102', '11', '2026-03-03 00:00:00', NULL, 'app', '3');
 
 				INSERT INTO migration.stg_hr_permissions (id, employee_id)
-				VALUES ('55', '11');
+				VALUES ('55', '11'), ('56', '14');
+
+				-- A decided request: exercises approver_id/decided_at/notes,
+				-- which the load previously dropped on the floor.
+				INSERT INTO migration.stg_request_types (id, company_id, name)
+				VALUES ('1', '1', 'Sick Leave');
+
+				INSERT INTO migration.stg_requests
+				  (id, employee_id, request_type_id, from_date, to_date, notes, status, reply,
+				   approver_id, decided_at)
+				VALUES
+				  ('200', '12', '1', '2026-03-05', '2026-03-05', 'Doctor appointment', 'approved',
+				   'Get well soon', '11', '2026-03-04 10:00:00');
 
 				-- The EAV chain: one company setting per definition.
 				INSERT INTO migration.stg_setting_definitions (id, setting_key)
@@ -138,11 +160,13 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				INSERT INTO migration.stg_company_setting_values (id, company_setting_id, setting_allowed_value_id)
 				VALUES ('400', '300', '10'), ('401', '300', '11'), ('402', '301', '20');
 				""".replace("TOKEN", token));
-		// The dump's can_* columns arrive with the CSV header; add the two
-		// this fixture exercises.
-		st.execute("ALTER TABLE migration.stg_hr_permissions ADD COLUMN IF NOT EXISTS can_branches TEXT");
-		st.execute("ALTER TABLE migration.stg_hr_permissions ADD COLUMN IF NOT EXISTS can_shifts TEXT");
-		st.execute("UPDATE migration.stg_hr_permissions SET can_branches = '1', can_shifts = '0'");
+		// ddl() already declares every known can_* column; only set the
+		// three this fixture exercises, the rest stay NULL (ungranted).
+		st.execute("""
+				UPDATE migration.stg_hr_permissions SET can_branches = '1', can_shifts = '0'
+				WHERE employee_id = '11';
+				UPDATE migration.stg_hr_permissions SET can_employees = '1' WHERE employee_id = '14';
+				""");
 	}
 
 	private static long scalar(Statement st, String sql) throws Exception {
@@ -165,12 +189,20 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 			st.execute(load);
 			st.execute(finalize);
 
-			// --- the durable map exists and covers the FK-referenced entities
-			assertThat(scalar(st, "SELECT count(*) FROM migration.id_map WHERE entity = 'companies'")).isEqualTo(1);
-			assertThat(scalar(st, "SELECT count(*) FROM migration.id_map WHERE entity = 'employees'")).isEqualTo(2);
+			// --- the durable map exists and covers the FK-referenced entities.
+			// 4 employees: 11/12 are their own phone anchors, 13 shares 11's
+			// phone from a different company, 14 shares 12's phone from the
+			// SAME company (a data-quality duplicate).
+			assertThat(scalar(st, "SELECT count(*) FROM migration.id_map WHERE entity = 'companies'")).isEqualTo(2);
+			assertThat(scalar(st, "SELECT count(*) FROM migration.id_map WHERE entity = 'employees'")).isEqualTo(4);
 			assertThat(scalar(st, "SELECT count(*) FROM migration.id_map WHERE entity = 'attendance'")).isEqualTo(2);
+			// One id_map entry per employee, including the two duplicates --
+			// hr_permissions needs every legacy employee id resolvable.
 			assertThat(scalar(st, "SELECT count(*) FROM migration.id_map WHERE entity = 'tenant_memberships'"))
-					.isEqualTo(2);
+					.isEqualTo(4);
+			// Only 2 distinct phones exist, so only 2 identities -- 13 shares
+			// 11's, 14 shares 12's, neither mints a new one.
+			assertThat(scalar(st, "SELECT count(*) FROM migration.id_map WHERE entity = 'identities'")).isEqualTo(2);
 
 			// --- foreign keys resolve through the map, not raw legacy ids
 			long employeeNewId = scalar(st,
@@ -182,7 +214,38 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 			assertThat(scalar(st,
 					"SELECT count(*) FROM employees e "
 							+ "JOIN migration.id_map m ON m.entity = 'employees' AND m.new_id = e.id "
-							+ "JOIN companies c ON c.id = e.company_id")).isEqualTo(2);
+							+ "JOIN companies c ON c.id = e.company_id")).isEqualTo(4);
+
+			// --- employees.phone is globally UNIQUE: only the phone anchor
+			// (11, 12) keeps it on the employees row; the duplicate (13, 14)
+			// gets NULL, since the shared phone lives on the identity.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map m ON m.entity = 'employees' AND m.new_id = e.id "
+							+ "WHERE (m.legacy_id = 11 AND e.phone IS NOT NULL) "
+							+ "   OR (m.legacy_id = 13 AND e.phone IS NULL) "
+							+ "   OR (m.legacy_id = 12 AND e.phone IS NOT NULL) "
+							+ "   OR (m.legacy_id = 14 AND e.phone IS NULL)")).isEqualTo(4);
+
+			// --- tenant_memberships has UNIQUE(identity_id, company_id): 12
+			// and 14 (same company, same phone) collapse onto one real row,
+			// so 4 employees produce only 3 memberships.
+			assertThat(scalar(st,
+					"SELECT count(DISTINCT t.id) FROM tenant_memberships t "
+							+ "JOIN migration.id_map m ON m.entity = 'tenant_memberships' AND m.new_id = t.id "
+							+ "WHERE m.legacy_id IN (11, 12, 13, 14)")).isEqualTo(3);
+			assertThat(scalar(st,
+					"SELECT count(DISTINCT new_id) FROM migration.id_map "
+							+ "WHERE entity = 'tenant_memberships' AND legacy_id IN (12, 14)")).isEqualTo(1);
+			// 11 (company 1) and 13 (company 2) get DIFFERENT memberships --
+			// one per company -- but the SAME identity, since it's one phone.
+			assertThat(scalar(st,
+					"SELECT count(DISTINCT new_id) FROM migration.id_map "
+							+ "WHERE entity = 'tenant_memberships' AND legacy_id IN (11, 13)")).isEqualTo(2);
+			assertThat(scalar(st,
+					"SELECT count(DISTINCT t.identity_id) FROM tenant_memberships t "
+							+ "JOIN migration.id_map m ON m.entity = 'tenant_memberships' AND m.new_id = t.id "
+							+ "WHERE m.legacy_id IN (11, 13)")).isEqualTo(1);
 
 			// --- the wall-clock rule: the reading is preserved, not shifted
 			try (ResultSet rs = st.executeQuery(
@@ -226,6 +289,31 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "JOIN permissions p ON p.id = o.permission_id "
 							+ "JOIN migration.id_map m ON m.entity = 'tenant_memberships' AND m.new_id = o.membership_id "
 							+ "WHERE p.permission_key LIKE 'shifts.%'")).isZero();
+			// can_employees (14) resolves through id_map like any other flag,
+			// even though 14 shares its membership with 12 -- all 5 keys land
+			// on that one shared row.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM membership_permission_overrides o "
+							+ "JOIN migration.id_map m ON m.entity = 'tenant_memberships' AND m.new_id = o.membership_id "
+							+ "WHERE m.legacy_id = 14")).isEqualTo(5);
+
+			// --- requests carries approver, decision time and notes, which
+			// the load previously dropped: approver_id resolves through the
+			// same tenant_memberships map hr_permissions uses.
+			try (ResultSet rs = st.executeQuery(
+					"SELECT r.notes, r.status, r.decided_at, am.legacy_id AS approver_legacy_id "
+							+ "FROM requests r "
+							+ "JOIN migration.id_map m ON m.entity = 'requests' AND m.new_id = r.id "
+							+ "JOIN migration.id_map am ON am.entity = 'tenant_memberships' "
+							+ "     AND am.new_id = r.approver_membership_id "
+							+ "WHERE m.legacy_id = 200")) {
+				assertThat(rs.next()).isTrue();
+				assertThat(rs.getString("notes")).isEqualTo("Doctor appointment");
+				assertThat(rs.getString("status")).isEqualTo("APPROVED");
+				assertThat(rs.getLong("approver_legacy_id")).isEqualTo(11);
+				assertThat(rs.getObject("decided_at", OffsetDateTime.class).toInstant())
+						.isEqualTo(Instant.parse("2026-03-04T10:00:00Z"));
+			}
 
 			// --- counts artifact: finalize counts the real target table, which
 			// is correct for production (empty before cutover) but not for this
@@ -255,10 +343,15 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "JOIN migration.id_map m ON m.entity = 'attendance' AND m.new_id = a.id"))
 					.isEqualTo(attendanceBefore);
 			assertThat(scalar(st, "SELECT count(*) FROM migration.id_map")).isEqualTo(mapBefore);
+			// Scoped through the real tables (companies -> tenant_memberships),
+			// not id_map directly: 12 and 14 share one membership, so joining
+			// id_map straight to the overrides would double-count that row's
+			// 5 grants once per legacy id mapped onto it.
 			assertThat(scalar(st,
 					"SELECT count(*) FROM membership_permission_overrides o "
-							+ "JOIN migration.id_map m ON m.entity = 'tenant_memberships' "
-							+ "AND m.new_id = o.membership_id")).isEqualTo(2);
+							+ "JOIN tenant_memberships t ON t.id = o.membership_id "
+							+ "JOIN migration.id_map m ON m.entity = 'companies' AND m.new_id = t.company_id "
+							+ "WHERE m.legacy_id IN (1, 2)")).isEqualTo(7);
 		}
 	}
 
