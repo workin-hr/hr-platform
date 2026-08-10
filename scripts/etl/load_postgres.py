@@ -38,6 +38,32 @@ from __future__ import annotations
 
 import sys
 
+# hr_permissions can_* flag -> the permission keys it grants, in the
+# same order as hr-legacy's own column order (mysql_workin.schema.sql)
+# so STAGING below can declare them positionally for COPY. A flag
+# present in the dump but absent here aborts the load: silently
+# dropping a permission is how someone loses access after cutover.
+PERMISSION_MAP = {
+    "can_dashboard": ["reports.read"],
+    "can_recent_activities": ["activities.read"],
+    "can_branches": ["branches.read", "branches.manage"],
+    "can_departments": ["departments.read", "departments.manage"],
+    "can_job_titles": ["job_titles.read", "job_titles.manage"],
+    "can_shifts": ["shifts.read", "shifts.manage"],
+    "can_leave_balances": ["leave_balances.read", "leave_balances.manage"],
+    "can_assets": ["assets.read", "assets.manage"],
+    "can_advances": ["advances.read", "advances.manage", "advances.approve"],
+    "can_workforce_planning": ["workforce_planning.read", "workforce_planning.manage"],
+    "can_salary_calculator": ["salary_calculator.read"],
+    "can_company_settings": ["company.settings.read", "company.settings.manage"],
+    "can_employees": ["employees.read", "employees.manage", "employees.decisions.manage",
+                       "notifications.manage", "complaints.manage"],
+    "can_attendance": ["attendance.read", "attendance.correct"],
+    "can_requests": ["requests.read", "requests.approve"],
+    "can_payroll": ["payroll.read", "payroll.run"],
+    "can_penalties": ["penalties.read", "penalties.manage"],
+}
+
 # --------------------------------------------------------------------
 # Staging: every column TEXT. Legacy types are re-asserted on the way
 # into the real tables, so a bad value fails at the cast with the row in
@@ -69,7 +95,7 @@ STAGING = {
     ],
     "requests": [
         "id", "employee_id", "request_type_id", "from_date", "to_date", "from_time", "to_time",
-        "status", "reply", "approver_id", "decided_at", "created_at", "updated_at",
+        "notes", "status", "reply", "approver_id", "decided_at", "created_at", "updated_at",
     ],
     "company_official_holidays": ["id", "company_id", "name", "holiday_date", "created_at"],
     "salary_contracts": [
@@ -87,30 +113,16 @@ STAGING = {
         "id", "employee_id", "penalty_type", "penalty_days", "reason", "penalty_date",
         "applied_to_payroll", "created_at",
     ],
-    # Transform sources, loaded in legacy shape.
-    "hr_permissions": None,  # columns discovered at load time -- see PERMISSION_MAP
+    # Transform sources, loaded in legacy shape. hr_permissions' column
+    # list must match hr-legacy's own column order exactly: plain COPY
+    # matches positionally, not by CSV header name, so this is not a
+    # convenience -- it is what makes `\copy ... FROM 'hr_permissions.csv'`
+    # against the real export line up at all.
+    "hr_permissions": ["id", "employee_id"] + list(PERMISSION_MAP) + ["updated_at"],
     "legacy_company_settings": ["id", "company_id", "setting_definition_id"],
     "company_setting_values": ["id", "company_setting_id", "setting_allowed_value_id"],
     "setting_definitions": ["id", "setting_key"],
     "setting_allowed_values": ["id", "setting_definition_id", "value", "sort_order"],
-}
-
-# hr_permissions can_* flag -> the permission keys it grants.
-# A flag present in the dump but absent here aborts the load: silently
-# dropping a permission is how someone loses access after cutover.
-PERMISSION_MAP = {
-    "can_dashboard": ["reports.read"],
-    "can_recent_activities": ["activities.read"],
-    "can_branches": ["branches.read", "branches.manage"],
-    "can_departments": ["departments.read", "departments.manage"],
-    "can_job_titles": ["job_titles.read", "job_titles.manage"],
-    "can_shifts": ["shifts.read", "shifts.manage"],
-    "can_leave_balances": ["leave_balances.read", "leave_balances.manage"],
-    "can_assets": ["assets.read", "assets.manage"],
-    "can_advances": ["advances.read", "advances.manage", "advances.approve"],
-    "can_workforce_planning": ["workforce_planning.read", "workforce_planning.manage"],
-    "can_salary_calculator": ["salary_calculator.read"],
-    "can_company_settings": ["company.settings.read", "company.settings.manage"],
 }
 
 # Legacy setting_key -> typed company_settings column. pay_overtime is
@@ -159,17 +171,6 @@ def _ddl() -> str:
         "-- ================= staging =================",
     ]
     for table, columns in STAGING.items():
-        if columns is None:
-            # hr_permissions is discovered: its can_* set differs by dump.
-            out += [
-                f"CREATE TABLE IF NOT EXISTS migration.stg_{table} (",
-                "    id TEXT, employee_id TEXT",
-                ");",
-                "-- Remaining can_* columns are added by the operator's COPY",
-                "-- header; see the load section's unmapped-flag guard.",
-                "",
-            ]
-            continue
         cols = ",\n".join(f"    {c} TEXT" for c in columns)
         out += [f"CREATE TABLE IF NOT EXISTS migration.stg_{table} (", cols, ");", ""]
     return "\n".join(out)
@@ -273,16 +274,35 @@ WHERE NOT EXISTS (SELECT 1 FROM exception_types e WHERE e.id = m.new_id);
 
     # ---------- employees ----------
     p.append(_allocate("employees", "migration.stg_employees"))
+    p.append("""
+-- One row per distinct phone: the deterministic identity anchor (the
+-- lowest legacy employee id owning that phone, possibly in a different
+-- company). Computed once and joined wherever "does this employee own
+-- the identity, or share someone else's" matters, instead of a
+-- correlated subquery per row.
+CREATE TEMP TABLE IF NOT EXISTS migration_phone_anchor AS
+SELECT s.phone, MIN(s.id::BIGINT) AS anchor_employee_id
+FROM migration.stg_employees s
+WHERE s.phone IS NOT NULL AND s.phone <> ''
+GROUP BY s.phone;
+""".strip())
     p.append(f"""
+-- employees.phone is globally UNIQUE (V8), unlike legacy's -- the same
+-- phone can legitimately own employee rows in several companies. Only
+-- the phone anchor keeps its phone here; every other employee sharing
+-- it gets NULL, since the real, shared phone lives on the identity
+-- every one of them is linked to via tenant_memberships.
 INSERT INTO employees (id, company_id, first_name, last_name, phone, role, active,
                        branch_id, department_id, job_title_id, expected_daily_hours)
 OVERRIDING SYSTEM VALUE
-SELECT m.new_id, cm.new_id, s.first_name, COALESCE(s.last_name, ''), s.phone,
+SELECT m.new_id, cm.new_id, s.first_name, COALESCE(s.last_name, ''),
+       CASE WHEN pa.anchor_employee_id = s.id::BIGINT THEN s.phone ELSE NULL END,
        UPPER(COALESCE(s.role, 'employee')), COALESCE(s.is_active, '1') = '1',
        bm.new_id, NULL, jm.new_id, s.expected_daily_hours::NUMERIC
 FROM migration.stg_employees s
 JOIN migration.id_map m ON m.entity = 'employees' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
+LEFT JOIN migration_phone_anchor pa ON pa.phone = s.phone
 {_fk('bm', 'branches', 's.branch_id')}
 {_fk('jm', 'job_titles', 's.job_title_id')}
 WHERE NOT EXISTS (SELECT 1 FROM employees e WHERE e.id = m.new_id);
@@ -293,20 +313,14 @@ WHERE NOT EXISTS (SELECT 1 FROM employees e WHERE e.id = m.new_id);
 -- identities: one per distinct phone. Legacy has no identity table --
 -- an employee row carries its own credentials -- and the same phone can
 -- appear in several companies, which legacy rejects at login rather
--- than modelling. The lowest employee id owning a phone is the
--- deterministic anchor.
+-- than modelling.
 INSERT INTO migration.id_map (entity, legacy_id, new_id)
-SELECT 'identities', anchor.employee_id, nextval(pg_get_serial_sequence('identities', 'id'))
-FROM (
-    SELECT MIN(s.id::BIGINT) AS employee_id, s.phone
-    FROM migration.stg_employees s
-    WHERE s.phone IS NOT NULL AND s.phone <> ''
-    GROUP BY s.phone
-) anchor
+SELECT 'identities', pa.anchor_employee_id, nextval(pg_get_serial_sequence('identities', 'id'))
+FROM migration_phone_anchor pa
 WHERE NOT EXISTS (
     SELECT 1 FROM migration.id_map m
-    WHERE m.entity = 'identities' AND m.legacy_id = anchor.employee_id)
-ORDER BY anchor.employee_id;
+    WHERE m.entity = 'identities' AND m.legacy_id = pa.anchor_employee_id)
+ORDER BY pa.anchor_employee_id;
 
 INSERT INTO identities (id, phone, password_hash) OVERRIDING SYSTEM VALUE
 SELECT m.new_id, s.phone, COALESCE(s.password_hash, '!')
@@ -316,15 +330,35 @@ WHERE NOT EXISTS (SELECT 1 FROM identities i WHERE i.id = m.new_id);
 """.strip())
 
     p.append("""
--- tenant_memberships: one per employee that has an identity. Keyed on
--- the employee id, which is what hr_permissions references.
-INSERT INTO migration.id_map (entity, legacy_id, new_id)
-SELECT 'tenant_memberships', s.id::BIGINT,
-       nextval(pg_get_serial_sequence('tenant_memberships', 'id'))
+-- tenant_memberships has UNIQUE(identity_id, company_id): two employee
+-- rows in the SAME company sharing a phone (the data-quality shape
+-- legacy's own MULTIPLE_ACCOUNTS_SAME_PHONE login check rejects rather
+-- than models) must collapse onto one real row, not two. The lowest
+-- employee id per (company, phone) is the membership anchor; every
+-- other employee sharing it still gets its own id_map entry --
+-- hr_permissions references employee_id directly -- pointing at the
+-- anchor's new_id rather than a fresh one.
+CREATE TEMP TABLE IF NOT EXISTS migration_membership_anchor AS
+SELECT s.company_id, s.phone, MIN(s.id::BIGINT) AS anchor_employee_id
 FROM migration.stg_employees s
-JOIN migration.id_map im ON im.entity = 'identities'
-     AND im.legacy_id = (SELECT MIN(x.id::BIGINT) FROM migration.stg_employees x WHERE x.phone = s.phone)
 WHERE s.phone IS NOT NULL AND s.phone <> ''
+GROUP BY s.company_id, s.phone;
+
+INSERT INTO migration.id_map (entity, legacy_id, new_id)
+SELECT 'tenant_memberships', ma.anchor_employee_id,
+       nextval(pg_get_serial_sequence('tenant_memberships', 'id'))
+FROM migration_membership_anchor ma
+WHERE NOT EXISTS (
+    SELECT 1 FROM migration.id_map m
+    WHERE m.entity = 'tenant_memberships' AND m.legacy_id = ma.anchor_employee_id)
+ORDER BY ma.anchor_employee_id;
+
+INSERT INTO migration.id_map (entity, legacy_id, new_id)
+SELECT 'tenant_memberships', s.id::BIGINT, am.new_id
+FROM migration.stg_employees s
+JOIN migration_membership_anchor ma ON ma.company_id = s.company_id AND ma.phone = s.phone
+JOIN migration.id_map am ON am.entity = 'tenant_memberships' AND am.legacy_id = ma.anchor_employee_id
+WHERE s.id::BIGINT <> ma.anchor_employee_id
   AND NOT EXISTS (
       SELECT 1 FROM migration.id_map m
       WHERE m.entity = 'tenant_memberships' AND m.legacy_id = s.id::BIGINT)
@@ -333,11 +367,12 @@ ORDER BY s.id::BIGINT;
 INSERT INTO tenant_memberships (id, identity_id, company_id, status) OVERRIDING SYSTEM VALUE
 SELECT m.new_id, im.new_id, cm.new_id,
        CASE WHEN COALESCE(s.is_active, '1') = '1' THEN 'ACTIVE' ELSE 'DISABLED' END
-FROM migration.stg_employees s
-JOIN migration.id_map m ON m.entity = 'tenant_memberships' AND m.legacy_id = s.id::BIGINT
+FROM migration_membership_anchor ma
+JOIN migration.stg_employees s ON s.id::BIGINT = ma.anchor_employee_id
+JOIN migration.id_map m ON m.entity = 'tenant_memberships' AND m.legacy_id = ma.anchor_employee_id
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
-JOIN migration.id_map im ON im.entity = 'identities'
-     AND im.legacy_id = (SELECT MIN(x.id::BIGINT) FROM migration.stg_employees x WHERE x.phone = s.phone)
+JOIN migration_phone_anchor pa ON pa.phone = ma.phone
+JOIN migration.id_map im ON im.entity = 'identities' AND im.legacy_id = pa.anchor_employee_id
 WHERE NOT EXISTS (SELECT 1 FROM tenant_memberships t WHERE t.id = m.new_id);
 
 INSERT INTO membership_roles (membership_id, company_id, role)
@@ -366,18 +401,23 @@ WHERE NOT EXISTS (SELECT 1 FROM request_types r WHERE r.id = m.new_id);
 """.strip())
 
     p.append(_allocate("requests", "migration.stg_requests"))
-    p.append("""
+    p.append(f"""
+-- approver_id is the legacy employee who decided the request; resolved
+-- through tenant_memberships like hr_permissions is, and left NULL for
+-- the not-yet-decided case rather than requiring one.
 INSERT INTO requests (id, employee_id, company_id, request_type_id, from_date, to_date,
-                      from_time, to_time, status, reply)
+                      from_time, to_time, notes, status, reply, approver_membership_id, decided_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id, rt.new_id,
        s.from_date::DATE, s.to_date::DATE, s.from_time::TIME, s.to_time::TIME,
-       UPPER(COALESCE(s.status, 'pending')), s.reply
+       s.notes, UPPER(COALESCE(s.status, 'pending')), s.reply, am.new_id,
+       (s.decided_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_requests s
 JOIN migration.id_map m ON m.entity = 'requests' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
 JOIN employees e ON e.id = emp.new_id
 JOIN migration.id_map rt ON rt.entity = 'request_types' AND rt.legacy_id = s.request_type_id::BIGINT
+{_fk('am', 'tenant_memberships', 's.approver_id')}
 WHERE NOT EXISTS (SELECT 1 FROM requests r WHERE r.id = m.new_id);
 """.strip())
 
@@ -565,6 +605,25 @@ def _finalize() -> str:
     counts = "\nUNION ALL\n".join(
         f"    SELECT '{e}'::TEXT, count(*)::BIGINT FROM {e}" for e in LOAD_ORDER
     )
+    # Unmapped-FK guard, for every mapped entity: id_map is allocated
+    # unconditionally (that step only needs the row's OWN legacy id), but
+    # the real INSERT INTO <entity> silently drops a row whose FK chain
+    # doesn't resolve (an INNER JOIN to a missing parent's id_map row).
+    # So the guard cannot check id_map membership -- checking it against
+    # `WHERE NOT EXISTS` is comparing an entry that is by then always
+    # there. It has to check whether the mapped row actually landed.
+    guards = "\n\n".join(f"""
+DO $$
+DECLARE missing BIGINT;
+BEGIN
+    SELECT count(*) INTO missing
+    FROM migration.id_map m
+    WHERE m.entity = '{e}'
+      AND NOT EXISTS (SELECT 1 FROM {e} t WHERE t.id = m.new_id);
+    IF missing > 0 THEN
+        RAISE EXCEPTION 'ETL: % {e} rows were allocated an id but never loaded -- a parent was missing from the export', missing;
+    END IF;
+END $$;""".strip() for e in LOAD_ORDER)
     return f"""
 -- ================= finalize =================
 -- Identity sequences are pushed past the loaded ids. Skipping this makes
@@ -579,19 +638,9 @@ SELECT * FROM (
 ) t
 ON CONFLICT (entity) DO UPDATE SET rows = EXCLUDED.rows, recorded = now();
 
--- Unmapped-foreign-key guard: a row that reached staging but never got
--- an id means a parent was missing from the export.
-DO $$
-DECLARE missing BIGINT;
-BEGIN
-    SELECT count(*) INTO missing
-    FROM migration.stg_attendance s
-    WHERE NOT EXISTS (SELECT 1 FROM migration.id_map m
-                      WHERE m.entity = 'attendance' AND m.legacy_id = s.id::BIGINT);
-    IF missing > 0 THEN
-        RAISE EXCEPTION 'ETL: % attendance rows were staged but never mapped', missing;
-    END IF;
-END $$;
+-- Unmapped-foreign-key guard: an id_map entry with no matching row means
+-- a parent was missing from the export and the row was silently dropped.
+{guards}
 """.strip()
 
 
@@ -627,8 +676,8 @@ def self_test() -> int:
     check("identity sequences are advanced past migrated ids", "setval(" in sql)
     check("unmapped permission flags abort the load",
           "unmapped hr_permissions flags" in load)
-    check("unmapped attendance rows abort the load",
-          "were staged but never mapped" in sql)
+    check("every mapped entity gets an unmapped-FK guard, not just attendance",
+          sql.count("were allocated an id but never loaded") >= len(LOAD_ORDER))
     check("both non-copy transforms are present",
           "TRANSFORM 1" in load and "TRANSFORM 2" in load)
     check("pay_overtime is not silently invented as a column",
@@ -637,6 +686,16 @@ def self_test() -> int:
           all(SECTIONS[s]() for s in SECTIONS))
     check("every mapped entity gets a sequence fixup",
           all(f"pg_get_serial_sequence('{e}', 'id')" in sql for e in LOAD_ORDER))
+    check("PERMISSION_MAP covers every legacy can_* flag (17, per hr-legacy@d113204)",
+          len(PERMISSION_MAP) == 17)
+    check("stg_hr_permissions declares real can_* columns for \\copy, not just id/employee_id",
+          all(f"    {flag} TEXT" in sql for flag in PERMISSION_MAP))
+    check("employees.phone is not carried for every duplicate of a shared phone",
+          "THEN s.phone ELSE NULL" in load)
+    check("tenant_memberships collapses same-company shared-phone duplicates onto one row",
+          "migration_membership_anchor" in load)
+    check("requests carries approver, decision time, and notes, not just reply",
+          "approver_membership_id" in load and "s.notes" in load)
 
     return 1 if failures else 0
 
