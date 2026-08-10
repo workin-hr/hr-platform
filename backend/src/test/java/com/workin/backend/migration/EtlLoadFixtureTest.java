@@ -227,9 +227,15 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "JOIN migration.id_map m ON m.entity = 'tenant_memberships' AND m.new_id = o.membership_id "
 							+ "WHERE p.permission_key LIKE 'shifts.%'")).isZero();
 
-			// --- counts artifact
+			// --- counts artifact: finalize counts the real target table, which
+			// is correct for production (empty before cutover) but not for this
+			// suite, where every prior test's rows are still sitting in the same
+			// shared `attendance` table. Assert it matches a live recount rather
+			// than a literal 2, which is what the artifact actually promises.
+			long attendanceTotal = scalar(st, "SELECT count(*) FROM attendance");
 			assertThat(scalar(st,
-					"SELECT rows FROM migration.load_counts WHERE entity = 'attendance'")).isEqualTo(2);
+					"SELECT rows FROM migration.load_counts WHERE entity = 'attendance'"))
+					.isEqualTo(attendanceTotal);
 
 			// --- the sequence was advanced, so a fresh insert cannot collide
 			long freshCompany = scalar(st,
