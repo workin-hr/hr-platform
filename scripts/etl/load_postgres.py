@@ -89,6 +89,8 @@ STAGING = {
         "expires_at", "is_active", "created_at",
     ],
     "job_titles": ["id", "company_id", "department_id", "name", "work_hours", "is_active", "created_at"],
+    "departments": ["id", "company_id", "name", "manager_id", "is_active", "created_at"],
+    "department_branches": ["department_id", "branch_id"],
     "request_types": [
         "id", "company_id", "name", "is_active", "deduct_balance", "counts_as_paid_leave",
         "add_attendance_exception", "exception_type_id", "created_at",
@@ -125,23 +127,44 @@ STAGING = {
     "setting_allowed_values": ["id", "setting_definition_id", "value", "sort_order"],
 }
 
-# Legacy setting_key -> typed company_settings column. pay_overtime is
-# deliberately absent: the typed table has no column for it. See README.
+# Legacy setting_key -> typed company_settings column. BOOLEAN columns
+# get string-normalised rather than cast (see _load's setting_cases):
+# payroll_company_pays_overtime (hr-legacy/apis/helpers/
+# payroll_calculation.php:140-149) treats only '1'/'true'/'yes'/'on'
+# (case-insensitive, trimmed) as true, anything else present as false --
+# a plain ::BOOLEAN cast would error on values legacy itself treats as
+# false, and accept a couple (e.g. 't') legacy does not.
 SETTING_COLUMNS = {
     "month_start_day": ("month_start_day", "SMALLINT"),
     "month_end_day": ("month_end_day", "SMALLINT"),
     "weekly_off_days": ("weekly_off_days", "VARCHAR"),
     "overtime_rate": ("overtime_rate", "NUMERIC"),
     "monthly_leave_accrual": ("monthly_leave_accrual", "NUMERIC"),
+    "pay_overtime": ("pay_overtime", "BOOLEAN"),
 }
 
+# setting_key values accepted as "true" by payroll_company_pays_overtime.
+# A row that exists but doesn't match is false; no row at all (the
+# aggregate below sees nothing) stays NULL -- unset, not false --
+# so EffectiveCompanySettings' own default (true) applies downstream.
+TRUTHY_SETTING_VALUES = ("1", "true", "yes", "on")
+
 # Entities whose ids are allocated and mapped, in foreign-key order.
+# departments precedes job_titles/employees (both reference it), but
+# departments.manager_id -> employees is the reverse direction -- a
+# genuine cycle, resolved by loading departments with manager_id NULL
+# here and backfilling it once employees exist (see _load).
 LOAD_ORDER = [
-    "companies", "branches", "job_titles", "shifts", "exception_types", "employees",
+    "companies", "departments", "branches", "job_titles", "shifts", "exception_types", "employees",
     "identities", "tenant_memberships", "request_types", "requests",
     "company_official_holidays", "salary_contracts", "payroll_batches", "advances",
     "penalties", "attendance",
 ]
+
+# Tables loaded through mapped parents but without a legacy id of their own.
+# They still need row-count artifacts and sequence finalization.
+AUXILIARY_LOAD_TABLES = ["department_branches"]
+ARTIFACT_TABLES = LOAD_ORDER + AUXILIARY_LOAD_TABLES
 
 
 def _ddl() -> str:
@@ -222,6 +245,24 @@ JOIN migration.id_map m ON m.entity = 'companies' AND m.legacy_id = s.id::BIGINT
 WHERE NOT EXISTS (SELECT 1 FROM companies c WHERE c.id = m.new_id);
 """.strip())
 
+    # ---------- departments ----------
+    # manager_id is deliberately NULL here: departments.manager_id ->
+    # employees is the reverse of employees/job_titles.department_id ->
+    # departments, a genuine cycle. Employees don't have ids yet at this
+    # point in the load, so manager_id is backfilled after the employees
+    # block below, once migration.id_map has an 'employees' entry to
+    # resolve it through.
+    p.append(_allocate("departments", "migration.stg_departments"))
+    p.append("""
+INSERT INTO departments (id, company_id, name, is_active, created_at) OVERRIDING SYSTEM VALUE
+SELECT m.new_id, cm.new_id, s.name, COALESCE(s.is_active, '1') = '1',
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
+FROM migration.stg_departments s
+JOIN migration.id_map m ON m.entity = 'departments' AND m.legacy_id = s.id::BIGINT
+JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
+WHERE NOT EXISTS (SELECT 1 FROM departments d WHERE d.id = m.new_id);
+""".strip())
+
     # ---------- branches / job_titles / shifts / exception_types ----------
     p.append(_allocate("branches", "migration.stg_branches"))
     p.append("""
@@ -236,17 +277,58 @@ JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company
 WHERE NOT EXISTS (SELECT 1 FROM branches b WHERE b.id = m.new_id);
 """.strip())
 
-    p.append(_allocate("job_titles", "migration.stg_job_titles"))
     p.append("""
--- department_id is dropped: legacy departments are not in this export,
--- so carrying the raw id would point at nothing.
+-- department_branches has a composite legacy key, so it needs no id_map
+-- row of its own. Both parents still resolve through the durable map,
+-- and company_id is derived from the department after requiring the
+-- branch to belong to the same company.
+INSERT INTO department_branches (department_id, branch_id, company_id)
+SELECT dm.new_id, bm.new_id, d.company_id
+FROM migration.stg_department_branches s
+JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.legacy_id = s.department_id::BIGINT
+JOIN migration.id_map bm ON bm.entity = 'branches' AND bm.legacy_id = s.branch_id::BIGINT
+JOIN departments d ON d.id = dm.new_id
+JOIN branches b ON b.id = bm.new_id AND b.company_id = d.company_id
+ON CONFLICT (department_id, branch_id) DO NOTHING;
+
+-- Unlike id-mapped tables, the junction cannot use finalize's generic
+-- id_map guard. Check every staged pair explicitly so an orphaned or
+-- cross-company assignment aborts instead of disappearing silently.
+DO $$
+DECLARE missing BIGINT;
+BEGIN
+    SELECT count(*) INTO missing
+    FROM migration.stg_department_branches s
+    LEFT JOIN migration.id_map dm
+      ON dm.entity = 'departments' AND dm.legacy_id = s.department_id::BIGINT
+    LEFT JOIN migration.id_map bm
+      ON bm.entity = 'branches' AND bm.legacy_id = s.branch_id::BIGINT
+    LEFT JOIN departments d ON d.id = dm.new_id
+    LEFT JOIN branches b ON b.id = bm.new_id
+    WHERE dm.new_id IS NULL OR bm.new_id IS NULL
+       OR d.id IS NULL OR b.id IS NULL
+       OR d.company_id IS DISTINCT FROM b.company_id
+       OR NOT EXISTS (
+           SELECT 1 FROM department_branches db
+           WHERE db.department_id = dm.new_id
+             AND db.branch_id = bm.new_id
+             AND db.company_id = d.company_id);
+    IF missing > 0 THEN
+        RAISE EXCEPTION 'ETL: % department_branches rows were not loaded -- a parent was missing or belonged to another company', missing;
+    END IF;
+END $$;
+""".strip())
+
+    p.append(_allocate("job_titles", "migration.stg_job_titles"))
+    p.append(f"""
 INSERT INTO job_titles (id, company_id, department_id, name, work_hours, is_active)
 OVERRIDING SYSTEM VALUE
-SELECT m.new_id, cm.new_id, NULL, s.name,
+SELECT m.new_id, cm.new_id, dm.new_id, s.name,
        COALESCE(s.work_hours::NUMERIC, 8), COALESCE(s.is_active, '1') = '1'
 FROM migration.stg_job_titles s
 JOIN migration.id_map m ON m.entity = 'job_titles' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
+{_fk('dm', 'departments', 's.department_id')}
 WHERE NOT EXISTS (SELECT 1 FROM job_titles j WHERE j.id = m.new_id);
 """.strip())
 
@@ -298,14 +380,26 @@ OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.first_name, COALESCE(s.last_name, ''),
        CASE WHEN pa.anchor_employee_id = s.id::BIGINT THEN s.phone ELSE NULL END,
        UPPER(COALESCE(s.role, 'employee')), COALESCE(s.is_active, '1') = '1',
-       bm.new_id, NULL, jm.new_id, s.expected_daily_hours::NUMERIC
+       bm.new_id, dm.new_id, jm.new_id, s.expected_daily_hours::NUMERIC
 FROM migration.stg_employees s
 JOIN migration.id_map m ON m.entity = 'employees' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
 LEFT JOIN migration_phone_anchor pa ON pa.phone = s.phone
 {_fk('bm', 'branches', 's.branch_id')}
+{_fk('dm', 'departments', 's.department_id')}
 {_fk('jm', 'job_titles', 's.job_title_id')}
 WHERE NOT EXISTS (SELECT 1 FROM employees e WHERE e.id = m.new_id);
+
+-- departments.manager_id backfill: the reverse half of the cycle noted
+-- above. Employees now have ids, so this can resolve; NULL legacy
+-- manager_id (most departments) or a manager who never got an id both
+-- leave it NULL rather than blocking the department.
+UPDATE departments d
+SET manager_id = mgr.new_id
+FROM migration.stg_departments s
+JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.legacy_id = s.id::BIGINT
+{_fk('mgr', 'employees', 's.manager_id')}
+WHERE d.id = dm.new_id AND d.manager_id IS DISTINCT FROM mgr.new_id;
 """.strip())
 
     # ---------- identity model ----------
@@ -525,8 +619,13 @@ WHERE NOT EXISTS (SELECT 1 FROM attendance a WHERE a.id = m.new_id);
 """.strip())
 
     # ---------- transform: EAV -> typed company_settings ----------
+    truthy = ", ".join(f"'{v}'" for v in TRUTHY_SETTING_VALUES)
     setting_cases = "\n".join(
-        f"       MAX(CASE WHEN d.setting_key = '{key}' THEN v.value END)::{sql_type} AS {column},"
+        # bool_or, not MAX: Postgres's MAX has no BOOLEAN overload.
+        (f"       bool_or(CASE WHEN d.setting_key = '{key}' THEN "
+         f"LOWER(TRIM(v.value)) IN ({truthy}) END) AS {column},"
+         if sql_type == "BOOLEAN" else
+         f"       MAX(CASE WHEN d.setting_key = '{key}' THEN v.value END)::{sql_type} AS {column},")
         for key, (column, sql_type) in SETTING_COLUMNS.items()
     ).rstrip(",")
     p.append(f"""
@@ -537,7 +636,7 @@ WHERE NOT EXISTS (SELECT 1 FROM attendance a WHERE a.id = m.new_id);
 -- A multi-valued setting (weekly_off_days is a list) becomes a
 -- comma-joined string in the order legacy renders it: sort_order, then id.
 INSERT INTO company_settings (company_id, month_start_day, month_end_day,
-                              weekly_off_days, overtime_rate, monthly_leave_accrual)
+                              weekly_off_days, overtime_rate, monthly_leave_accrual, pay_overtime)
 SELECT cm.new_id,
 {setting_cases}
 FROM migration.stg_legacy_company_settings cs
@@ -600,10 +699,10 @@ def _finalize() -> str:
     seq = "\n".join(
         f"SELECT setval(pg_get_serial_sequence('{e}', 'id'), "
         f"GREATEST((SELECT COALESCE(MAX(id), 1) FROM {e}), 1));"
-        for e in LOAD_ORDER
+        for e in ARTIFACT_TABLES
     )
     counts = "\nUNION ALL\n".join(
-        f"    SELECT '{e}'::TEXT, count(*)::BIGINT FROM {e}" for e in LOAD_ORDER
+        f"    SELECT '{e}'::TEXT, count(*)::BIGINT FROM {e}" for e in ARTIFACT_TABLES
     )
     # Unmapped-FK guard, for every mapped entity: id_map is allocated
     # unconditionally (that step only needs the row's OWN legacy id), but
@@ -680,8 +779,8 @@ def self_test() -> int:
           sql.count("were allocated an id but never loaded") >= len(LOAD_ORDER))
     check("both non-copy transforms are present",
           "TRANSFORM 1" in load and "TRANSFORM 2" in load)
-    check("pay_overtime is not silently invented as a column",
-          "pay_overtime" not in load)
+    check("pay_overtime is string-normalised, not blindly cast (V40 typed it BOOLEAN)",
+          "LOWER(TRIM(v.value)) IN ('1', 'true', 'yes', 'on')" in load)
     check("sections are independently emittable",
           all(SECTIONS[s]() for s in SECTIONS))
     check("every mapped entity gets a sequence fixup",
@@ -696,6 +795,19 @@ def self_test() -> int:
           "migration_membership_anchor" in load)
     check("requests carries approver, decision time, and notes, not just reply",
           "approver_membership_id" in load and "s.notes" in load)
+    check("departments is loaded, not silently dropped", "departments" in LOAD_ORDER)
+    check("department branch assignments load through both mapped parents",
+          "INSERT INTO department_branches" in load
+          and "migration.stg_department_branches" in load
+          and "ETL: % department_branches rows were not loaded" in load)
+    check("auxiliary junction gets a sequence fixup and count artifact",
+          "department_branches" in ARTIFACT_TABLES
+          and "pg_get_serial_sequence('department_branches', 'id')" in sql
+          and "SELECT 'department_branches'::TEXT, count(*)::BIGINT" in sql)
+    check("job_titles AND employees.department_id both resolve through the departments map",
+          load.count("JOIN migration.id_map dm ON dm.entity = 'departments'") >= 2)
+    check("departments.manager_id backfills after employees exist (breaks the cycle)",
+          "UPDATE departments d" in load and "SET manager_id = mgr.new_id" in load)
 
     return 1 if failures else 0
 

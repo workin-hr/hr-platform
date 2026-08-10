@@ -141,6 +141,13 @@ public class PayrollBatchService {
 		int totalDaysInPeriod = (int) (ChronoUnit.DAYS.between(batch.getPeriodFrom(), batch.getPeriodTo()) + 1);
 		List<Employee> activeEmployees = employeeRepository.findByCompanyIdOrderById(context.companyId())
 				.stream().filter(Employee::isActive).toList();
+		// payroll_overtime_multiplier_from_setting / payroll_company_pays_overtime
+		// (hr-legacy/apis/helpers/payroll_calculation.php:125-149), resolved
+		// once per batch rather than per employee -- the setting is
+		// company-wide, not employee-specific.
+		EffectiveCompanySettings companySettings = companySettingsService.effective(context.companyId());
+		PayrollCalculationService.OvertimePolicy overtimePolicy = new PayrollCalculationService.OvertimePolicy(
+				companySettings.overtimeMultiplier(), companySettings.payOvertime());
 
 		for (Employee employee : activeEmployees) {
 			Optional<com.workin.backend.payroll.SalaryContract> contract =
@@ -165,7 +172,7 @@ public class PayrollBatchService {
 			PayrollCalculationService.PayslipComputation computation = payrollCalculationService.compute(
 					contract.get(), attendance, unappliedPenalties, BigDecimal.ZERO,
 					derived.progress(),
-					PayrollCalculationService.OvertimePolicy.standard());
+					overtimePolicy);
 
 			Payslip payslip = new Payslip(batchId, employee.getId(), context.companyId());
 			applyComputation(payslip, attendance, computation);

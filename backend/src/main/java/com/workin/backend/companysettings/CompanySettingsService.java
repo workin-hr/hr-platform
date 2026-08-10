@@ -1,6 +1,7 @@
 package com.workin.backend.companysettings;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -12,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.backend.i18n.ApiException;
 import com.workin.backend.i18n.MessageKeys;
+import com.workin.backend.payroll.PayrollCalculationService;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantSessionVariable;
 
@@ -27,6 +29,8 @@ public class CompanySettingsService {
 
 	private static final int FALLBACK_MONTH_START_DAY = 1;
 	private static final BigDecimal FALLBACK_MONTHLY_LEAVE_ACCRUAL = new BigDecimal("21.0");
+	private static final BigDecimal PERCENTAGE_FORM_THRESHOLD = BigDecimal.TEN;
+	private static final BigDecimal PERCENTAGE_FORM_DIVISOR = BigDecimal.valueOf(100);
 
 	private final CompanySettingsRepository companySettingsRepository;
 	private final TenantSessionVariable tenantSessionVariable;
@@ -74,7 +78,26 @@ public class CompanySettingsService {
 				settings.map(CompanySettings::getWeeklyOffDays)
 						.map(raw -> Arrays.stream(raw.split("[,،;]+"))
 								.map(String::trim).filter(s -> !s.isEmpty()).toList())
-						.orElse(List.of()));
+						.orElse(List.of()),
+				resolveOvertimeMultiplier(settings.map(CompanySettings::getOvertimeRate).orElse(null)),
+				settings.map(CompanySettings::getPayOvertime).orElse(true));
+	}
+
+	/**
+	 * {@code payroll_overtime_multiplier_from_setting}
+	 * (hr-legacy/apis/helpers/payroll_calculation.php:125-133): unset or
+	 * non-positive falls back to the default; a value over 10 is read as
+	 * a percentage ({@code 125} -> {@code 1.25}); otherwise the raw value
+	 * is already a multiplier (e.g. {@code 1.5}) and is used as-is.
+	 */
+	private static BigDecimal resolveOvertimeMultiplier(BigDecimal raw) {
+		if (raw == null || raw.signum() <= 0) {
+			return PayrollCalculationService.DEFAULT_OVERTIME_MULTIPLIER;
+		}
+		if (raw.compareTo(PERCENTAGE_FORM_THRESHOLD) > 0) {
+			return raw.divide(PERCENTAGE_FORM_DIVISOR, 4, RoundingMode.HALF_UP);
+		}
+		return raw;
 	}
 
 }

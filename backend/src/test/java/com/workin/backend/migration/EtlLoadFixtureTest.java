@@ -102,8 +102,17 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				INSERT INTO migration.stg_branches (id, company_id, name, is_active)
 				VALUES ('7', '1', 'HQ', '1');
 
-				INSERT INTO migration.stg_job_titles (id, company_id, name, work_hours, is_active)
-				VALUES ('4', '1', 'Engineer', '7.50', '1');
+				-- manager_id (11) is the reverse half of the departments/employees
+				-- cycle: 11 doesn't have an id yet when departments load, so this
+				-- proves the manager_id backfill after employees load.
+				INSERT INTO migration.stg_departments (id, company_id, name, manager_id, is_active, created_at)
+				VALUES ('20', '1', 'Engineering', '11', '1', '2026-02-01 08:30:00');
+
+				INSERT INTO migration.stg_department_branches (department_id, branch_id)
+				VALUES ('20', '7');
+
+				INSERT INTO migration.stg_job_titles (id, company_id, department_id, name, work_hours, is_active)
+				VALUES ('4', '1', '20', 'Engineer', '7.50', '1');
 
 				INSERT INTO migration.stg_shifts (id, company_id, name, start_time, end_time, days_off, is_active)
 				VALUES ('9', '1', 'Day', '09:00:00', '17:00:00', 'Friday,Saturday', '1');
@@ -117,13 +126,13 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				-- phone -- the data-quality duplicate tenant_memberships must
 				-- collapse rather than reject.
 				INSERT INTO migration.stg_employees
-				  (id, company_id, branch_id, job_title_id, expected_daily_hours, first_name,
+				  (id, company_id, branch_id, department_id, job_title_id, expected_daily_hours, first_name,
 				   last_name, phone, password_hash, role, is_active)
 				VALUES
-				  ('11', '1', '7', '4', '6.00', 'Sara', 'Ali', '+2011TOKEN11', '$2y$hash', 'hr', '1'),
-				  ('12', '1', '7', '4', NULL,   'Omar', 'Nabil', '+2012TOKEN22', '$2y$hash2', 'employee', '1'),
-				  ('13', '2', NULL, NULL, NULL, 'Laila', 'Fathy', '+2011TOKEN11', '$2y$hash3', 'employee', '1'),
-				  ('14', '1', NULL, NULL, NULL, 'Nabil', 'Omar', '+2012TOKEN22', '$2y$hash4', 'employee', '1');
+				  ('11', '1', '7', '20', '4', '6.00', 'Sara', 'Ali', '+2011TOKEN11', '$2y$hash', 'hr', '1'),
+				  ('12', '1', '7', NULL, '4', NULL,   'Omar', 'Nabil', '+2012TOKEN22', '$2y$hash2', 'employee', '1'),
+				  ('13', '2', NULL, NULL, NULL, NULL, 'Laila', 'Fathy', '+2011TOKEN11', '$2y$hash3', 'employee', '1'),
+				  ('14', '1', NULL, NULL, NULL, NULL, 'Nabil', 'Omar', '+2012TOKEN22', '$2y$hash4', 'employee', '1');
 
 				-- A real punch, and a midnight exception day.
 				INSERT INTO migration.stg_attendance
@@ -149,16 +158,18 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 
 				-- The EAV chain: one company setting per definition.
 				INSERT INTO migration.stg_setting_definitions (id, setting_key)
-				VALUES ('1', 'weekly_off_days'), ('2', 'overtime_rate');
+				VALUES ('1', 'weekly_off_days'), ('2', 'overtime_rate'), ('3', 'pay_overtime');
 
 				INSERT INTO migration.stg_setting_allowed_values (id, setting_definition_id, value, sort_order)
-				VALUES ('10', '1', 'Friday', '1'), ('11', '1', 'Saturday', '2'), ('20', '2', '150', '1');
+				VALUES ('10', '1', 'Friday', '1'), ('11', '1', 'Saturday', '2'),
+				       ('20', '2', '150', '1'), ('30', '3', 'off', '1');
 
 				INSERT INTO migration.stg_legacy_company_settings (id, company_id, setting_definition_id)
-				VALUES ('300', '1', '1'), ('301', '1', '2');
+				VALUES ('300', '1', '1'), ('301', '1', '2'), ('302', '1', '3');
 
 				INSERT INTO migration.stg_company_setting_values (id, company_setting_id, setting_allowed_value_id)
-				VALUES ('400', '300', '10'), ('401', '300', '11'), ('402', '301', '20');
+				VALUES ('400', '300', '10'), ('401', '300', '11'),
+				       ('402', '301', '20'), ('403', '302', '30');
 				""".replace("TOKEN", token));
 		// ddl() already declares every known can_* column; only set the
 		// three this fixture exercises, the rest stay NULL (ungranted).
@@ -203,6 +214,33 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 			// Only 2 distinct phones exist, so only 2 identities -- 13 shares
 			// 11's, 14 shares 12's, neither mints a new one.
 			assertThat(scalar(st, "SELECT count(*) FROM migration.id_map WHERE entity = 'identities'")).isEqualTo(2);
+
+			// --- departments: job_titles and employees both resolve
+			// department_id, the department-branch pair resolves both parents,
+			// and manager_id (a forward reference to an employee that did not
+			// have an id yet when departments loaded) is backfilled afterwards.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM job_titles j "
+							+ "JOIN migration.id_map jm ON jm.entity = 'job_titles' AND jm.new_id = j.id "
+							+ "JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.new_id = j.department_id "
+							+ "WHERE jm.legacy_id = 4 AND dm.legacy_id = 20")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.new_id = e.department_id "
+							+ "WHERE em.legacy_id = 11 AND dm.legacy_id = 20")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM departments d "
+							+ "JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.new_id = d.id "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = d.manager_id "
+							+ "WHERE dm.legacy_id = 20 AND em.legacy_id = 11 "
+							+ "AND d.created_at = TIMESTAMPTZ '2026-02-01 08:30:00+00'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM department_branches db "
+							+ "JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.new_id = db.department_id "
+							+ "JOIN migration.id_map bm ON bm.entity = 'branches' AND bm.new_id = db.branch_id "
+							+ "JOIN departments d ON d.id = db.department_id AND d.company_id = db.company_id "
+							+ "WHERE dm.legacy_id = 20 AND bm.legacy_id = 7")).isEqualTo(1);
 
 			// --- foreign keys resolve through the map, not raw legacy ids
 			long employeeNewId = scalar(st,
@@ -269,12 +307,13 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 			// Scoped to the migrated company: other tests write their own
 			// company_settings rows into the shared database.
 			try (ResultSet rs = st.executeQuery(
-					"SELECT s.weekly_off_days, s.overtime_rate FROM company_settings s "
+					"SELECT s.weekly_off_days, s.overtime_rate, s.pay_overtime FROM company_settings s "
 							+ "JOIN migration.id_map m ON m.entity = 'companies' AND m.new_id = s.company_id "
 							+ "WHERE m.legacy_id = 1")) {
 				rs.next();
 				assertThat(rs.getString(1)).isEqualTo("Friday,Saturday");
 				assertThat(rs.getBigDecimal(2)).isEqualByComparingTo("150");
+				assertThat(rs.getObject(3, Boolean.class)).isFalse();
 			}
 
 			// --- transform 2: the granted flag became ALLOW overrides, the
@@ -336,6 +375,10 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 					"SELECT count(*) FROM attendance a "
 							+ "JOIN migration.id_map m ON m.entity = 'attendance' AND m.new_id = a.id");
 			long mapBefore = scalar(st, "SELECT count(*) FROM migration.id_map");
+			long departmentBranchesBefore = scalar(st,
+					"SELECT count(*) FROM department_branches db "
+							+ "JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.new_id = db.department_id "
+							+ "WHERE dm.legacy_id = 20");
 			st.execute(load);
 			st.execute(finalize);
 			assertThat(scalar(st,
@@ -343,6 +386,10 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "JOIN migration.id_map m ON m.entity = 'attendance' AND m.new_id = a.id"))
 					.isEqualTo(attendanceBefore);
 			assertThat(scalar(st, "SELECT count(*) FROM migration.id_map")).isEqualTo(mapBefore);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM department_branches db "
+							+ "JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.new_id = db.department_id "
+							+ "WHERE dm.legacy_id = 20")).isEqualTo(departmentBranchesBefore);
 			// Scoped through the real tables (companies -> tenant_memberships),
 			// not id_map directly: 12 and 14 share one membership, so joining
 			// id_map straight to the overrides would double-count that row's

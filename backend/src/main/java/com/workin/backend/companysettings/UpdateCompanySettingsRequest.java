@@ -17,5 +17,6 @@ public record UpdateCompanySettingsRequest(
 		@Min(1) @Max(31) Short monthEndDay,
 		@Size(max = 60) String weeklyOffDays,
 		@PositiveOrZero BigDecimal overtimeRate,
-		@PositiveOrZero BigDecimal monthlyLeaveAccrual) {
+		@PositiveOrZero BigDecimal monthlyLeaveAccrual,
+		Boolean payOvertime) {
 }

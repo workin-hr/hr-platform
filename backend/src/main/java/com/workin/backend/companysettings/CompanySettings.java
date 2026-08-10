@@ -42,6 +42,9 @@ public class CompanySettings {
 	@Column(name = "monthly_leave_accrual")
 	private BigDecimal monthlyLeaveAccrual;
 
+	@Column(name = "pay_overtime")
+	private Boolean payOvertime;
+
 	protected CompanySettings() {
 	}
 
@@ -56,6 +59,7 @@ public class CompanySettings {
 		this.weeklyOffDays = request.weeklyOffDays();
 		this.overtimeRate = request.overtimeRate();
 		this.monthlyLeaveAccrual = request.monthlyLeaveAccrual();
+		this.payOvertime = request.payOvertime();
 	}
 
 	public Long getId() {
@@ -84,6 +88,10 @@ public class CompanySettings {
 
 	public BigDecimal getMonthlyLeaveAccrual() {
 		return monthlyLeaveAccrual;
+	}
+
+	public Boolean getPayOvertime() {
+		return payOvertime;
 	}
 
 }

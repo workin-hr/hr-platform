@@ -110,6 +110,12 @@ FROM branches ORDER BY id;
 SELECT id, company_id, department_id, name, work_hours, is_active, created_at
 FROM job_titles ORDER BY id;
 
+SELECT id, company_id, name, manager_id, is_active, created_at
+FROM departments ORDER BY id;
+
+SELECT department_id, branch_id
+FROM department_branches ORDER BY department_id, branch_id;
+
 -- ---------- requests ----------
 SELECT id, employee_id, request_type_id, from_date, to_date,
        from_time, to_time, notes, status, reply, approver_id, decided_at,
@@ -178,6 +184,8 @@ MANIFEST = r"""
     {"file": "shifts.csv", "key": ["id"], "expected_count": null},
     {"file": "branches.csv", "key": ["id"], "expected_count": null},
     {"file": "job_titles.csv", "key": ["id"], "expected_count": null},
+    {"file": "departments.csv", "key": ["id"], "expected_count": null},
+    {"file": "department_branches.csv", "key": ["department_id", "branch_id"], "expected_count": 1245},
     {"file": "requests.csv", "key": ["id"], "expected_count": null},
     {"file": "request_types.csv", "key": ["id"], "expected_count": null},
     {"file": "company_official_holidays.csv", "key": ["id"], "expected_count": null},
@@ -223,6 +231,11 @@ def self_test() -> int:
         "company_name AS name" in EXPORT_SQL and "SELECT id, name," not in EXPORT_SQL,
     )
     check("requests.notes is carried, not just reply", "from_time, to_time, notes," in EXPORT_SQL)
+    check("departments and their branch assignments are exported, not silently dropped",
+          "FROM departments ORDER BY id" in EXPORT_SQL
+          and "FROM department_branches ORDER BY department_id, branch_id" in EXPORT_SQL
+          and "departments.csv" in MANIFEST
+          and "department_branches.csv" in MANIFEST)
 
     manifest = json.loads(MANIFEST)
     files = [t["file"] for t in manifest["tables"]]
