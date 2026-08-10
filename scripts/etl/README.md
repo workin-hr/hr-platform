@@ -50,7 +50,8 @@ converts `timestamp` on read and never converts `datetime`.
 ## Before running a real extraction
 
 1. Fill the `expected_count` nulls in `manifest.json` from the dump.
-   Two are already measured: employees 2,871 and attendance 36,316.
+   Three are already measured: employees 2,871, attendance 36,316, and
+   department-branch assignments 1,245.
 2. Capture `configs.is_daylight_saving`. The final query records it. It
    does not change the rule, but it determines how far off historical
    instants are and belongs in the decision log.
@@ -111,6 +112,8 @@ reads it (`'1'`/`'true'`/`'yes'`/`'on'`, case-insensitive, else false; no
 row at all stays unset, not false) and payroll now resolves both it and
 `overtime_rate` from real company settings instead of a hardcoded
 default. `departments` loads before `job_titles`/`employees` (both
-reference it); `departments.manager_id` is the reverse of that
-reference, a genuine cycle, so it loads NULL and is backfilled once
-employees have ids.
+reference it); `department_branches` then resolves both sides of its
+composite legacy key through the durable id map and derives its tenant
+from the mapped department. `departments.manager_id` is the reverse of
+the employee reference, a genuine cycle, so it loads NULL and is
+backfilled once employees have ids.

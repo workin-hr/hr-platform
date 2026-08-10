@@ -90,6 +90,7 @@ STAGING = {
     ],
     "job_titles": ["id", "company_id", "department_id", "name", "work_hours", "is_active", "created_at"],
     "departments": ["id", "company_id", "name", "manager_id", "is_active", "created_at"],
+    "department_branches": ["department_id", "branch_id"],
     "request_types": [
         "id", "company_id", "name", "is_active", "deduct_balance", "counts_as_paid_leave",
         "add_attendance_exception", "exception_type_id", "created_at",
@@ -144,7 +145,7 @@ SETTING_COLUMNS = {
 
 # setting_key values accepted as "true" by payroll_company_pays_overtime.
 # A row that exists but doesn't match is false; no row at all (the
-# MAX(CASE...) below sees nothing) stays NULL -- unset, not false --
+# aggregate below sees nothing) stays NULL -- unset, not false --
 # so EffectiveCompanySettings' own default (true) applies downstream.
 TRUTHY_SETTING_VALUES = ("1", "true", "yes", "on")
 
@@ -159,6 +160,11 @@ LOAD_ORDER = [
     "company_official_holidays", "salary_contracts", "payroll_batches", "advances",
     "penalties", "attendance",
 ]
+
+# Tables loaded through mapped parents but without a legacy id of their own.
+# They still need row-count artifacts and sequence finalization.
+AUXILIARY_LOAD_TABLES = ["department_branches"]
+ARTIFACT_TABLES = LOAD_ORDER + AUXILIARY_LOAD_TABLES
 
 
 def _ddl() -> str:
@@ -248,8 +254,9 @@ WHERE NOT EXISTS (SELECT 1 FROM companies c WHERE c.id = m.new_id);
     # resolve it through.
     p.append(_allocate("departments", "migration.stg_departments"))
     p.append("""
-INSERT INTO departments (id, company_id, name, is_active) OVERRIDING SYSTEM VALUE
-SELECT m.new_id, cm.new_id, s.name, COALESCE(s.is_active, '1') = '1'
+INSERT INTO departments (id, company_id, name, is_active, created_at) OVERRIDING SYSTEM VALUE
+SELECT m.new_id, cm.new_id, s.name, COALESCE(s.is_active, '1') = '1',
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_departments s
 JOIN migration.id_map m ON m.entity = 'departments' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -268,6 +275,48 @@ FROM migration.stg_branches s
 JOIN migration.id_map m ON m.entity = 'branches' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
 WHERE NOT EXISTS (SELECT 1 FROM branches b WHERE b.id = m.new_id);
+""".strip())
+
+    p.append("""
+-- department_branches has a composite legacy key, so it needs no id_map
+-- row of its own. Both parents still resolve through the durable map,
+-- and company_id is derived from the department after requiring the
+-- branch to belong to the same company.
+INSERT INTO department_branches (department_id, branch_id, company_id)
+SELECT dm.new_id, bm.new_id, d.company_id
+FROM migration.stg_department_branches s
+JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.legacy_id = s.department_id::BIGINT
+JOIN migration.id_map bm ON bm.entity = 'branches' AND bm.legacy_id = s.branch_id::BIGINT
+JOIN departments d ON d.id = dm.new_id
+JOIN branches b ON b.id = bm.new_id AND b.company_id = d.company_id
+ON CONFLICT (department_id, branch_id) DO NOTHING;
+
+-- Unlike id-mapped tables, the junction cannot use finalize's generic
+-- id_map guard. Check every staged pair explicitly so an orphaned or
+-- cross-company assignment aborts instead of disappearing silently.
+DO $$
+DECLARE missing BIGINT;
+BEGIN
+    SELECT count(*) INTO missing
+    FROM migration.stg_department_branches s
+    LEFT JOIN migration.id_map dm
+      ON dm.entity = 'departments' AND dm.legacy_id = s.department_id::BIGINT
+    LEFT JOIN migration.id_map bm
+      ON bm.entity = 'branches' AND bm.legacy_id = s.branch_id::BIGINT
+    LEFT JOIN departments d ON d.id = dm.new_id
+    LEFT JOIN branches b ON b.id = bm.new_id
+    WHERE dm.new_id IS NULL OR bm.new_id IS NULL
+       OR d.id IS NULL OR b.id IS NULL
+       OR d.company_id IS DISTINCT FROM b.company_id
+       OR NOT EXISTS (
+           SELECT 1 FROM department_branches db
+           WHERE db.department_id = dm.new_id
+             AND db.branch_id = bm.new_id
+             AND db.company_id = d.company_id);
+    IF missing > 0 THEN
+        RAISE EXCEPTION 'ETL: % department_branches rows were not loaded -- a parent was missing or belonged to another company', missing;
+    END IF;
+END $$;
 """.strip())
 
     p.append(_allocate("job_titles", "migration.stg_job_titles"))
@@ -650,10 +699,10 @@ def _finalize() -> str:
     seq = "\n".join(
         f"SELECT setval(pg_get_serial_sequence('{e}', 'id'), "
         f"GREATEST((SELECT COALESCE(MAX(id), 1) FROM {e}), 1));"
-        for e in LOAD_ORDER
+        for e in ARTIFACT_TABLES
     )
     counts = "\nUNION ALL\n".join(
-        f"    SELECT '{e}'::TEXT, count(*)::BIGINT FROM {e}" for e in LOAD_ORDER
+        f"    SELECT '{e}'::TEXT, count(*)::BIGINT FROM {e}" for e in ARTIFACT_TABLES
     )
     # Unmapped-FK guard, for every mapped entity: id_map is allocated
     # unconditionally (that step only needs the row's OWN legacy id), but
@@ -747,6 +796,14 @@ def self_test() -> int:
     check("requests carries approver, decision time, and notes, not just reply",
           "approver_membership_id" in load and "s.notes" in load)
     check("departments is loaded, not silently dropped", "departments" in LOAD_ORDER)
+    check("department branch assignments load through both mapped parents",
+          "INSERT INTO department_branches" in load
+          and "migration.stg_department_branches" in load
+          and "ETL: % department_branches rows were not loaded" in load)
+    check("auxiliary junction gets a sequence fixup and count artifact",
+          "department_branches" in ARTIFACT_TABLES
+          and "pg_get_serial_sequence('department_branches', 'id')" in sql
+          and "SELECT 'department_branches'::TEXT, count(*)::BIGINT" in sql)
     check("job_titles AND employees.department_id both resolve through the departments map",
           load.count("JOIN migration.id_map dm ON dm.entity = 'departments'") >= 2)
     check("departments.manager_id backfills after employees exist (breaks the cycle)",

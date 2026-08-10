@@ -20,7 +20,10 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import sys
+
+from export_legacy import MANIFEST
 
 # entity -> (target table, extra select columns) with the id mapped back.
 EXPORTS = [
@@ -41,6 +44,13 @@ EXPORTS = [
     ("exception_types", "SELECT m.legacy_id AS id, t.name FROM exception_types t"),
     ("shifts", "SELECT m.legacy_id AS id, t.name, t.start_time, t.end_time, t.days_off FROM shifts t"),
     ("branches", "SELECT m.legacy_id AS id, t.name, t.address FROM branches t"),
+    ("departments",
+     "SELECT m.legacy_id AS id, cm.legacy_id AS company_id, t.name, "
+     "em.legacy_id AS manager_id, CASE WHEN t.is_active THEN 1 ELSE 0 END AS is_active, "
+     "to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS created_at "
+     "FROM departments t "
+     "JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.new_id = t.company_id "
+     "LEFT JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = t.manager_id"),
     ("job_titles", "SELECT m.legacy_id AS id, t.name, t.work_hours FROM job_titles t"),
     ("request_types", "SELECT m.legacy_id AS id, t.name, t.counts_as_paid_leave FROM request_types t"),
     ("requests",
@@ -61,6 +71,17 @@ EXPORTS = [
      "FROM penalties t JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = t.employee_id"),
 ]
 
+# Composite-key tables do not have a legacy id to materialize in id_map.
+# Their parent ids are still translated back before reconciliation.
+JUNCTION_EXPORTS = [
+    ("department_branches",
+     "SELECT dm.legacy_id AS department_id, bm.legacy_id AS branch_id "
+     "FROM department_branches t "
+     "JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.new_id = t.department_id "
+     "JOIN migration.id_map bm ON bm.entity = 'branches' AND bm.new_id = t.branch_id "
+     "ORDER BY dm.legacy_id, bm.legacy_id;"),
+]
+
 
 def build() -> str:
     out = [
@@ -76,6 +97,9 @@ def build() -> str:
             f"{select}\n"
             f"JOIN migration.id_map m ON m.entity = '{table}' AND m.new_id = t.id\n"
             f"ORDER BY m.legacy_id;\n")
+    for entity, select in JUNCTION_EXPORTS:
+        out.append(f"-- {entity}.csv")
+        out.append(f"{select}\n")
     return "\n".join(out)
 
 
@@ -88,6 +112,9 @@ def self_test() -> int:
             failures.append(name)
 
     sql = build()
+    manifest_files = {spec["file"] for spec in json.loads(MANIFEST)["tables"]}
+    export_files = ({f"{entity}.csv" for entity, _ in EXPORTS}
+                    | {f"{entity}.csv" for entity, _ in JUNCTION_EXPORTS})
     check("no export reports a raw target id",
           sql.count("legacy_id AS id") == len(EXPORTS))
     check("every export joins the id map", sql.count("JOIN migration.id_map m") == len(EXPORTS))
@@ -97,7 +124,15 @@ def self_test() -> int:
           "attendance_days.csv" in sql and "'YYYY-MM-DD') AS legacy_day" in sql)
     check("foreign keys are reported as legacy ids too",
           "em.legacy_id AS employee_id" in sql and "cm.legacy_id AS company_id" in sql)
-    check("every export is deterministically ordered", sql.count("ORDER BY m.legacy_id;") == len(EXPORTS))
+    check("every id-mapped export is deterministically ordered",
+          sql.count("ORDER BY m.legacy_id;") == len(EXPORTS))
+    check("department export maps company and manager ids back to legacy ids",
+          "departments.csv" in sql and "em.legacy_id AS manager_id" in sql)
+    check("department branch export maps both halves of its composite key",
+          "department_branches.csv" in sql
+          and "dm.legacy_id AS department_id" in sql
+          and "ORDER BY dm.legacy_id, bm.legacy_id;" in sql)
+    check("every manifest file has a target-side export", export_files == manifest_files)
     return 1 if failures else 0
 
 
