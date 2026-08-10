@@ -97,18 +97,20 @@ you can look up in the old system.
 
 ## Known legacy-data ambiguities, surfaced rather than guessed
 
-- **`pay_overtime` has nowhere to go.** Legacy has the setting and the
-  payroll port reads it, but the typed `company_settings` table has no
-  column for it, so the load cannot carry it. Payroll currently assumes
-  overtime is always paid. A company that had it switched off will be
-  overpaid after cutover.
 - **Legacy has no identity or membership table.** Credentials live on
   the employee row, so identities are derived one-per-distinct-phone and
   memberships one-per-employee. The same phone in two companies is
   something legacy rejects at login rather than models.
-- **`departments` is not in the export**, so `employees.department_id`
-  and `job_titles.department_id` load as NULL rather than pointing at
-  nothing.
 - **`branches.expires_at`** is a user-entered wall clock written by the
   dashboard under no timezone at all. Migrated as wall clock like
   everything else; it is QR expiry on a parked feature.
+
+`pay_overtime` (V40) and `departments` are both migrated now:
+`pay_overtime` is string-normalised the way `payroll_company_pays_overtime`
+reads it (`'1'`/`'true'`/`'yes'`/`'on'`, case-insensitive, else false; no
+row at all stays unset, not false) and payroll now resolves both it and
+`overtime_rate` from real company settings instead of a hardcoded
+default. `departments` loads before `job_titles`/`employees` (both
+reference it); `departments.manager_id` is the reverse of that
+reference, a genuine cycle, so it loads NULL and is backfilled once
+employees have ids.

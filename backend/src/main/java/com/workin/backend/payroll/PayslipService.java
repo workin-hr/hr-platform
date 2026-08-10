@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.backend.authorization.ResourceScopeService;
+import com.workin.backend.companysettings.CompanySettingsService;
+import com.workin.backend.companysettings.EffectiveCompanySettings;
 import com.workin.backend.employees.EmployeeRepository;
 import com.workin.backend.penalties.Penalty;
 import com.workin.backend.penalties.PenaltyRepository;
@@ -48,6 +50,8 @@ public class PayslipService {
 
 	private final ResourceScopeService resourceScopeService;
 
+	private final CompanySettingsService companySettingsService;
+
 	public PayslipService(
 			PayslipRepository payslipRepository,
 			PayrollBatchRepository payrollBatchRepository,
@@ -57,7 +61,8 @@ public class PayslipService {
 			PayrollCalculationService payrollCalculationService,
 			WorkHoursResolver workHoursResolver,
 			ResourceScopeService resourceScopeService,
-			TenantSessionVariable tenantSessionVariable) {
+			TenantSessionVariable tenantSessionVariable,
+			CompanySettingsService companySettingsService) {
 		this.payslipRepository = payslipRepository;
 		this.payrollBatchRepository = payrollBatchRepository;
 		this.employeeRepository = employeeRepository;
@@ -67,6 +72,7 @@ public class PayslipService {
 		this.workHoursResolver = workHoursResolver;
 		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
+		this.companySettingsService = companySettingsService;
 	}
 
 	@Transactional
@@ -171,10 +177,12 @@ public class PayslipService {
 		List<Penalty> unappliedPenalties = penaltyRepository.findByEmployeeIdAndPenaltyDateBetweenAndAppliedToPayroll(
 				payslip.getEmployeeId(), batch.getPeriodFrom(), batch.getPeriodTo(), false);
 
+		EffectiveCompanySettings companySettings = companySettingsService.effective(payslip.getCompanyId());
 		PayrollCalculationService.PayslipComputation computation =
 				payrollCalculationService.compute(contract, attendance, unappliedPenalties, BigDecimal.ZERO,
 						PayrollCalculationService.PeriodProgress.complete(),
-						PayrollCalculationService.OvertimePolicy.standard());
+						new PayrollCalculationService.OvertimePolicy(
+								companySettings.overtimeMultiplier(), companySettings.payOvertime()));
 
 		PayrollBatchService.applyComputation(payslip, attendance, computation);
 	}

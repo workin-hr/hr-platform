@@ -20,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.workin.backend.AbstractIntegrationTest;
+import com.workin.backend.companysettings.CompanySettingsView;
 import com.workin.backend.companysettings.UpdateCompanySettingsRequest;
 import com.workin.backend.identity.AuthResponse;
 import com.workin.backend.identity.RegisterCompanyRequest;
@@ -95,6 +96,98 @@ class PayrollBatchLifecycleTest extends AbstractIntegrationTest {
 		assertThat(payslipResponse.getBody().netSalary()).isEqualByComparingTo("3000.00");
 	}
 
+	private record DraftBatch(Long employeeId, Long batchId) {
+	}
+
+	private DraftBatch draftDailyWageBatch(AuthResponse company, HttpHeaders headers, int month, int year) {
+		Long employeeId = createEmployeeRecord(company.companyId());
+		UpsertSalaryContractRequest contractRequest = new UpsertSalaryContractRequest(
+				SalaryMode.DAILY, null, BigDecimal.valueOf(100), null, null, null, null, null,
+				null, null, null, null, null, LocalDate.of(2026, 1, 1));
+		restTemplate.exchange("/api/tenant/salary-contracts?employeeId=" + employeeId, HttpMethod.POST,
+				new HttpEntity<>(contractRequest, headers), SalaryContractView.class);
+		ResponseEntity<PayrollBatchView> batch = restTemplate.exchange(
+				"/api/tenant/payroll-batches", HttpMethod.POST,
+				new HttpEntity<>(new CreateBatchRequest((short) month, (short) year), headers), PayrollBatchView.class);
+		assertThat(batch.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		return new DraftBatch(employeeId, batch.getBody().id());
+	}
+
+	@Test
+	void payOvertimeFalseZeroesOvertimePayButStillRecordsTheHours() {
+		// payroll_company_pays_overtime (hr-legacy/apis/helpers/payroll_calculation.php:140-149):
+		// hours are still calculated; pay is zero when disabled.
+		AuthResponse companyA = register("Overtime Paid Co");
+		HttpHeaders headersA = bearer(companyA.accessToken());
+		DraftBatch draftA = draftDailyWageBatch(companyA, headersA, 1, 2026);
+
+		ResponseEntity<PayslipView> withOvertime = restTemplate.exchange(
+				"/api/tenant/payslips", HttpMethod.POST,
+				new HttpEntity<>(
+						new CreatePayslipRequest(draftA.batchId(), draftA.employeeId(), 30, 0, 0, BigDecimal.valueOf(4)),
+						headersA),
+				PayslipView.class);
+		assertThat(withOvertime.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(withOvertime.getBody().overtimeHours()).isEqualByComparingTo("4.0");
+		assertThat(withOvertime.getBody().overtimePay()).isGreaterThan(BigDecimal.ZERO);
+
+		AuthResponse companyB = register("Overtime Off Co");
+		HttpHeaders headersB = bearer(companyB.accessToken());
+		DraftBatch draftB = draftDailyWageBatch(companyB, headersB, 1, 2026);
+		restTemplate.exchange("/api/tenant/company-settings", HttpMethod.PUT,
+				new HttpEntity<>(new UpdateCompanySettingsRequest(null, null, null, null, null, false), headersB),
+				CompanySettingsView.class);
+
+		ResponseEntity<PayslipView> withoutPay = restTemplate.exchange(
+				"/api/tenant/payslips", HttpMethod.POST,
+				new HttpEntity<>(
+						new CreatePayslipRequest(draftB.batchId(), draftB.employeeId(), 30, 0, 0, BigDecimal.valueOf(4)),
+						headersB),
+				PayslipView.class);
+		assertThat(withoutPay.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		// Hours are still recorded -- only the pay is suppressed.
+		assertThat(withoutPay.getBody().overtimeHours()).isEqualByComparingTo("4.0");
+		assertThat(withoutPay.getBody().overtimePay()).isEqualByComparingTo(BigDecimal.ZERO);
+	}
+
+	@Test
+	void overtimeRatePercentageFormNormalizesToTheSameMultiplierAsRawForm() {
+		// payroll_overtime_multiplier_from_setting (:125-133): raw > 10 is
+		// read as a percentage (150 -> 1.5); raw <= 10 is already a
+		// multiplier (1.5 passed through unchanged). Both must produce the
+		// same overtime pay for the same hours.
+		AuthResponse companyA = register("Percentage Form Co");
+		HttpHeaders headersA = bearer(companyA.accessToken());
+		DraftBatch draftA = draftDailyWageBatch(companyA, headersA, 1, 2026);
+		restTemplate.exchange("/api/tenant/company-settings", HttpMethod.PUT,
+				new HttpEntity<>(new UpdateCompanySettingsRequest(null, null, null, new BigDecimal("150"), null, null),
+						headersA),
+				CompanySettingsView.class);
+		ResponseEntity<PayslipView> percentageForm = restTemplate.exchange(
+				"/api/tenant/payslips", HttpMethod.POST,
+				new HttpEntity<>(
+						new CreatePayslipRequest(draftA.batchId(), draftA.employeeId(), 30, 0, 0, BigDecimal.valueOf(5)),
+						headersA),
+				PayslipView.class);
+
+		AuthResponse companyB = register("Raw Multiplier Co");
+		HttpHeaders headersB = bearer(companyB.accessToken());
+		DraftBatch draftB = draftDailyWageBatch(companyB, headersB, 1, 2026);
+		restTemplate.exchange("/api/tenant/company-settings", HttpMethod.PUT,
+				new HttpEntity<>(new UpdateCompanySettingsRequest(null, null, null, new BigDecimal("1.5"), null, null),
+						headersB),
+				CompanySettingsView.class);
+		ResponseEntity<PayslipView> rawForm = restTemplate.exchange(
+				"/api/tenant/payslips", HttpMethod.POST,
+				new HttpEntity<>(
+						new CreatePayslipRequest(draftB.batchId(), draftB.employeeId(), 30, 0, 0, BigDecimal.valueOf(5)),
+						headersB),
+				PayslipView.class);
+
+		assertThat(percentageForm.getBody().overtimePay()).isGreaterThan(BigDecimal.ZERO);
+		assertThat(percentageForm.getBody().overtimePay()).isEqualByComparingTo(rawForm.getBody().overtimePay());
+	}
+
 	@Test
 	void dailyContractWithoutADailyWageIsRejectedAtWriteNotAtCalculate() {
 		AuthResponse companyA = register("Company A");
@@ -157,7 +250,7 @@ class PayrollBatchLifecycleTest extends AbstractIntegrationTest {
 		// start > end case: the period spans from the previous month).
 		restTemplate.exchange(
 				"/api/tenant/company-settings", HttpMethod.PUT,
-				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 26, (short) 25, null, null, null), headers),
+				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 26, (short) 25, null, null, null, null), headers),
 				String.class);
 
 		ResponseEntity<PayrollBatchView> batch = restTemplate.exchange(
@@ -180,7 +273,7 @@ class PayrollBatchLifecycleTest extends AbstractIntegrationTest {
 		// by the shifted-window test above.)
 		restTemplate.exchange(
 				"/api/tenant/company-settings", HttpMethod.PUT,
-				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 30, (short) 31, null, null, null), headers),
+				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 30, (short) 31, null, null, null, null), headers),
 				String.class);
 
 		ResponseEntity<PayrollBatchView> batch = restTemplate.exchange(
@@ -211,7 +304,7 @@ class PayrollBatchLifecycleTest extends AbstractIntegrationTest {
 		// getPeriodTo().getDayOfMonth() would have stored 25.
 		restTemplate.exchange(
 				"/api/tenant/company-settings", HttpMethod.PUT,
-				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 26, (short) 25, null, null, null), headers),
+				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 26, (short) 25, null, null, null, null), headers),
 				String.class);
 
 		Long batchId = restTemplate.exchange(

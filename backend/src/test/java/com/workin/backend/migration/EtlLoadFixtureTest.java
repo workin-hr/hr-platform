@@ -102,8 +102,14 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				INSERT INTO migration.stg_branches (id, company_id, name, is_active)
 				VALUES ('7', '1', 'HQ', '1');
 
-				INSERT INTO migration.stg_job_titles (id, company_id, name, work_hours, is_active)
-				VALUES ('4', '1', 'Engineer', '7.50', '1');
+				-- manager_id (11) is the reverse half of the departments/employees
+				-- cycle: 11 doesn't have an id yet when departments load, so this
+				-- proves the manager_id backfill after employees load.
+				INSERT INTO migration.stg_departments (id, company_id, name, manager_id, is_active)
+				VALUES ('20', '1', 'Engineering', '11', '1');
+
+				INSERT INTO migration.stg_job_titles (id, company_id, department_id, name, work_hours, is_active)
+				VALUES ('4', '1', '20', 'Engineer', '7.50', '1');
 
 				INSERT INTO migration.stg_shifts (id, company_id, name, start_time, end_time, days_off, is_active)
 				VALUES ('9', '1', 'Day', '09:00:00', '17:00:00', 'Friday,Saturday', '1');
@@ -117,13 +123,13 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				-- phone -- the data-quality duplicate tenant_memberships must
 				-- collapse rather than reject.
 				INSERT INTO migration.stg_employees
-				  (id, company_id, branch_id, job_title_id, expected_daily_hours, first_name,
+				  (id, company_id, branch_id, department_id, job_title_id, expected_daily_hours, first_name,
 				   last_name, phone, password_hash, role, is_active)
 				VALUES
-				  ('11', '1', '7', '4', '6.00', 'Sara', 'Ali', '+2011TOKEN11', '$2y$hash', 'hr', '1'),
-				  ('12', '1', '7', '4', NULL,   'Omar', 'Nabil', '+2012TOKEN22', '$2y$hash2', 'employee', '1'),
-				  ('13', '2', NULL, NULL, NULL, 'Laila', 'Fathy', '+2011TOKEN11', '$2y$hash3', 'employee', '1'),
-				  ('14', '1', NULL, NULL, NULL, 'Nabil', 'Omar', '+2012TOKEN22', '$2y$hash4', 'employee', '1');
+				  ('11', '1', '7', '20', '4', '6.00', 'Sara', 'Ali', '+2011TOKEN11', '$2y$hash', 'hr', '1'),
+				  ('12', '1', '7', NULL, '4', NULL,   'Omar', 'Nabil', '+2012TOKEN22', '$2y$hash2', 'employee', '1'),
+				  ('13', '2', NULL, NULL, NULL, NULL, 'Laila', 'Fathy', '+2011TOKEN11', '$2y$hash3', 'employee', '1'),
+				  ('14', '1', NULL, NULL, NULL, NULL, 'Nabil', 'Omar', '+2012TOKEN22', '$2y$hash4', 'employee', '1');
 
 				-- A real punch, and a midnight exception day.
 				INSERT INTO migration.stg_attendance
@@ -203,6 +209,26 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 			// Only 2 distinct phones exist, so only 2 identities -- 13 shares
 			// 11's, 14 shares 12's, neither mints a new one.
 			assertThat(scalar(st, "SELECT count(*) FROM migration.id_map WHERE entity = 'identities'")).isEqualTo(2);
+
+			// --- departments: job_titles and employees both resolve
+			// department_id, and manager_id (a forward reference to an
+			// employee that didn't have an id yet when departments loaded)
+			// is correctly backfilled afterwards.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM job_titles j "
+							+ "JOIN migration.id_map jm ON jm.entity = 'job_titles' AND jm.new_id = j.id "
+							+ "JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.new_id = j.department_id "
+							+ "WHERE jm.legacy_id = 4 AND dm.legacy_id = 20")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.new_id = e.department_id "
+							+ "WHERE em.legacy_id = 11 AND dm.legacy_id = 20")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM departments d "
+							+ "JOIN migration.id_map dm ON dm.entity = 'departments' AND dm.new_id = d.id "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = d.manager_id "
+							+ "WHERE dm.legacy_id = 20 AND em.legacy_id = 11")).isEqualTo(1);
 
 			// --- foreign keys resolve through the map, not raw legacy ids
 			long employeeNewId = scalar(st,

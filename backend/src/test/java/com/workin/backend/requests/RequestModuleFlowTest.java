@@ -312,7 +312,7 @@ class RequestModuleFlowTest extends AbstractIntegrationTest {
 		Long employeeId = createEmployee(admin.companyId());
 		restTemplate.exchange(
 				"/api/tenant/company-settings", HttpMethod.PUT,
-				new HttpEntity<>(new UpdateCompanySettingsRequest(null, null, null, null, new BigDecimal("15.5")),
+				new HttpEntity<>(new UpdateCompanySettingsRequest(null, null, null, null, new BigDecimal("15.5"), null),
 						bearer(admin.accessToken())),
 				String.class);
 		RequestTypeView type = createRequestType(admin.accessToken(), "Annual leave", true, false, null);

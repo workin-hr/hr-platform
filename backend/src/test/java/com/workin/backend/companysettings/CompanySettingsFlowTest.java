@@ -113,21 +113,23 @@ class CompanySettingsFlowTest extends AbstractIntegrationTest {
 		assertThat(empty.getBody().weeklyOffDays()).isNull();
 		assertThat(empty.getBody().overtimeRate()).isNull();
 		assertThat(empty.getBody().monthlyLeaveAccrual()).isNull();
+		assertThat(empty.getBody().payOvertime()).isNull();
 
 		ResponseEntity<CompanySettingsView> updated = putSettings(admin.accessToken(),
 				new UpdateCompanySettingsRequest((short) 26, (short) 25, "Fri,Sat",
-						new BigDecimal("1.50"), new BigDecimal("15.5")));
+						new BigDecimal("1.50"), new BigDecimal("15.5"), false));
 		assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(updated.getBody().monthStartDay()).isEqualTo((short) 26);
 		assertThat(updated.getBody().monthEndDay()).isEqualTo((short) 25);
 		assertThat(updated.getBody().weeklyOffDays()).isEqualTo("Fri,Sat");
+		assertThat(updated.getBody().payOvertime()).isFalse();
 		assertThat(getSettings(admin.accessToken()).getBody().monthlyLeaveAccrual())
 				.isEqualByComparingTo("15.5");
 
 		// Second PUT updates the same row -- start unset again.
 		ResponseEntity<CompanySettingsView> second = putSettings(admin.accessToken(),
 				new UpdateCompanySettingsRequest(null, (short) 25, "Fri,Sat",
-						new BigDecimal("1.50"), new BigDecimal("15.5")));
+						new BigDecimal("1.50"), new BigDecimal("15.5"), null));
 		assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(second.getBody().monthStartDay()).isNull();
 
@@ -145,17 +147,17 @@ class CompanySettingsFlowTest extends AbstractIntegrationTest {
 
 		ResponseEntity<String> dayZero = restTemplate.exchange(
 				"/api/tenant/company-settings", HttpMethod.PUT,
-				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 0, null, null, null, null),
+				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 0, null, null, null, null, null),
 						bearer(admin.accessToken())),
 				String.class);
 		ResponseEntity<String> dayThirtyTwo = restTemplate.exchange(
 				"/api/tenant/company-settings", HttpMethod.PUT,
-				new HttpEntity<>(new UpdateCompanySettingsRequest(null, (short) 32, null, null, null),
+				new HttpEntity<>(new UpdateCompanySettingsRequest(null, (short) 32, null, null, null, null),
 						bearer(admin.accessToken())),
 				String.class);
 		ResponseEntity<String> negativeAccrual = restTemplate.exchange(
 				"/api/tenant/company-settings", HttpMethod.PUT,
-				new HttpEntity<>(new UpdateCompanySettingsRequest(null, null, null, null, new BigDecimal("-1.0")),
+				new HttpEntity<>(new UpdateCompanySettingsRequest(null, null, null, null, new BigDecimal("-1.0"), null),
 						bearer(admin.accessToken())),
 				String.class);
 
@@ -170,9 +172,9 @@ class CompanySettingsFlowTest extends AbstractIntegrationTest {
 		AuthResponse companyB = registerCompanyAdmin();
 
 		putSettings(companyA.accessToken(),
-				new UpdateCompanySettingsRequest((short) 26, (short) 25, null, null, null));
+				new UpdateCompanySettingsRequest((short) 26, (short) 25, null, null, null, null));
 		putSettings(companyB.accessToken(),
-				new UpdateCompanySettingsRequest((short) 1, null, "Sun", null, new BigDecimal("30.0")));
+				new UpdateCompanySettingsRequest((short) 1, null, "Sun", null, new BigDecimal("30.0"), null));
 
 		CompanySettingsView viewA = getSettings(companyA.accessToken()).getBody();
 		CompanySettingsView viewB = getSettings(companyB.accessToken()).getBody();
@@ -192,7 +194,7 @@ class CompanySettingsFlowTest extends AbstractIntegrationTest {
 
 		ResponseEntity<String> putDenied = restTemplate.exchange(
 				"/api/tenant/company-settings", HttpMethod.PUT,
-				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 1, null, null, null, null),
+				new HttpEntity<>(new UpdateCompanySettingsRequest((short) 1, null, null, null, null, null),
 						bearer(reader.accessToken())),
 				String.class);
 		assertThat(putDenied.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
