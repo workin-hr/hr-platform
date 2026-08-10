@@ -66,8 +66,8 @@ ORDER BY id;
 -- payroll's overtime divisor reads it.
 SELECT id, company_id, branch_id, department_id, job_title_id,
        employee_code, expected_daily_hours, first_name, last_name,
-       phone, country_code, national_id, birth_date, gender,
-       hire_date, is_active, created_at, updated_at
+       phone, country_code, password_hash, role, national_id, birth_date,
+       gender, hire_date, is_active, created_at, updated_at
 FROM employees
 ORDER BY id;
 
@@ -149,6 +149,11 @@ FROM penalties ORDER BY id;
 -- typed company_settings columns. Exported in source shape; the
 -- transform is designed separately.
 SELECT * FROM hr_permissions ORDER BY id;
+-- The EAV chain. `company_settings` is legacy's join table between a
+-- company and a setting definition; it is exported as
+-- company_settings.csv and staged as stg_legacy_company_settings, so it
+-- is not confused with the new typed table of the same name.
+SELECT id, company_id, setting_definition_id FROM company_settings ORDER BY id;
 SELECT * FROM company_setting_values ORDER BY id;
 SELECT * FROM setting_definitions ORDER BY id;
 SELECT * FROM setting_allowed_values ORDER BY id;

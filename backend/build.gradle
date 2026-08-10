@@ -74,6 +74,16 @@ dependencyManagement {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// Without this Gradle prints only "AssertionFailedError at Foo.java:12"
+	// and swallows the message, which on CI -- the only place the
+	// Testcontainers suite can run -- means a failure gives you a line
+	// number and nothing to act on.
+	testLogging {
+		exceptionFormat = 'full'
+		showExceptions = true
+		showCauses = true
+		showStackTraces = true
+	}
 	// This sandbox's Docker daemon (29.7.1, API 1.55) rejects the old,
 	// hardcoded low API-version ping some Testcontainers releases use by
 	// default -- proven root cause during the H2 spike (see

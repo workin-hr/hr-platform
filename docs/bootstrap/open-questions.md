@@ -28,8 +28,8 @@ implementation time:
   field going forward, or intentionally payslip-only (`hr-legacy#14`)?~~
   **Resolved 2026-08-07 (D-029)**: a real, settable contract field —
   the already-shipped payroll-group behavior is confirmed correct.
-- Preserve the legacy fixed-30-day payroll divisor, or move to real
-  calendar days for day-rate/absence calculations?
+- ~~Preserve the legacy fixed-30-day payroll divisor, or move to real calendar days?~~ **Resolved 2026-08-09 (D-031): fixed 30.** Not a decision in the end — reading `payroll_compute_employee_payslip` in full showed `PENALTY_CALENDAR_DAYS_PER_MONTH = 30` drives the day rate, the daily-wage conversion and penalties alike.
+
 - Where does per-company fiscal-period configuration
   (`month_start_day`/`month_end_day`) live until the `company_settings`
   module is built? **Resolved 2026-08-07**: the typed

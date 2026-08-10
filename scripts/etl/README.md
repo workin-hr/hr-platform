@@ -6,14 +6,17 @@ the step that did not exist when `scripts/migration_diff.py` was written
 
 ## Status
 
-**Extraction only. Nothing here loads, and no data has been moved.**
-The load and the two non-copy transforms are still to be written.
+Extraction and load are both **executable end to end and proven against
+fixtures** in `EtlLoadFixtureTest` (real Postgres, CI). **No production
+data has been moved** — that needs a dump.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `export_legacy.py` | Emits the read-only extraction SQL and the manifest |
+| `export_legacy.py` | Emits the read-only MySQL extraction and the manifest |
+| `load_postgres.py` | Emits the PostgreSQL load: staging, id maps, both transforms |
+| `export_target_postgres.py` | Emits the target-side export, keyed back to legacy ids |
 
 ```sh
 python3 scripts/etl/export_legacy.py --print-sql > export.sql
@@ -64,3 +67,48 @@ also outstanding: the new tables use `GENERATED ALWAYS AS IDENTITY`, so
 legacy primary keys cannot carry over, and the old-to-new map must be
 materialised during load and **retained** — reconciliation reports in
 legacy ids or nobody can read them.
+
+## Running a load
+
+```sh
+python3 scripts/etl/load_postgres.py --print-sql | psql "$TARGET"
+```
+
+Sections are independently emittable (`--section ddl|copy|load|finalize`)
+so a test can skip `copy` — `\copy` is a psql meta-command — and stage
+rows itself. That is what `EtlLoadFixtureTest` does.
+
+The load is **deterministic** (ids allocated in legacy-id order),
+**restartable** (every step skips what it already did), **rerun-safe**
+(a completed load re-run inserts nothing), and **fail-fast**: an
+unmapped `can_*` permission flag or an attendance row that never got an
+id aborts with a named error rather than loading something partial.
+
+## Artifacts reconciliation consumes
+
+| Artifact | What it is |
+|---|---|
+| `migration.id_map` | `(entity, legacy_id) -> new_id`, a real table |
+| `migration.load_counts` | rows loaded per entity |
+
+`export_target_postgres.py` reports **legacy** ids by joining the map,
+so `migration_diff.py` compares like for like and a finding names a row
+you can look up in the old system.
+
+## Known legacy-data ambiguities, surfaced rather than guessed
+
+- **`pay_overtime` has nowhere to go.** Legacy has the setting and the
+  payroll port reads it, but the typed `company_settings` table has no
+  column for it, so the load cannot carry it. Payroll currently assumes
+  overtime is always paid. A company that had it switched off will be
+  overpaid after cutover.
+- **Legacy has no identity or membership table.** Credentials live on
+  the employee row, so identities are derived one-per-distinct-phone and
+  memberships one-per-employee. The same phone in two companies is
+  something legacy rejects at login rather than models.
+- **`departments` is not in the export**, so `employees.department_id`
+  and `job_titles.department_id` load as NULL rather than pointing at
+  nothing.
+- **`branches.expires_at`** is a user-entered wall clock written by the
+  dashboard under no timezone at all. Migrated as wall clock like
+  everything else; it is QR expiry on a parked feature.
