@@ -65,6 +65,24 @@ Repository owner confirmed 2026-08-11:
 - **D-c: the `leave_balance` duplicate risk is detected at extraction
   and aborted at load.** See "Failure Modes" below.
 
+## Dependency: The `created_at` Repair Must Land First
+
+D-b is currently unimplementable. The load blocks for 14 of the 15
+entities that stage a legacy `created_at` omit it from their `INSERT`
+column list, so the target's `DEFAULT now()` applies and every migrated
+row claims the cutover instant. `departments` is the only entity that
+carries it through, added by `#85`.
+
+`payroll_batches` is one of the 14. Deriving `payslips.created_at` from
+its parent batch would therefore yield the load clock for all 2,836
+payslips — precisely the outcome D-b rejected.
+
+The repair is tracked separately in
+[`2026-08-11-etl-created-at-repair.md`](../plans/2026-08-11-etl-created-at-repair.md)
+and ships as its own PR, in the shape of `#84`. This slice rebases on it.
+Implementing this slice first would produce code that passes its own
+fixtures and is wrong on production data.
+
 ## Scope
 
 **In:**
