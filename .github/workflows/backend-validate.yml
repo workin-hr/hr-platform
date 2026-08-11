@@ -59,6 +59,17 @@ jobs:
         working-directory: .
         run: python3 scripts/migration_diff.py --self-test
 
+      # The coverage auditor proves no legacy column is dropped without a
+      # recorded decision. Only --self-test runs here: --check needs the
+      # legacy MySQL schema, which lives in a separate repository this
+      # workflow does not check out. The self-test exercises every
+      # detection class on synthetic fixtures, so a regression in the
+      # detector itself still fails the build; run --check locally against
+      # a legacy checkout before changing the ETL.
+      - name: ETL coverage-audit self-test
+        working-directory: .
+        run: python3 scripts/etl/coverage_audit.py --self-test
+
       - name: Set up Java 25 (immutable action reference; exact version, not checksum-verified)
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
         with:

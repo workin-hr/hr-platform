@@ -17,6 +17,21 @@ data has been moved** — that needs a dump.
 | `export_legacy.py` | Emits the read-only MySQL extraction and the manifest |
 | `load_postgres.py` | Emits the PostgreSQL load: staging, id maps, both transforms |
 | `export_target_postgres.py` | Emits the target-side export, keyed back to legacy ids |
+| `coverage_audit.py` | Proves no legacy column is dropped without a recorded decision |
+
+```sh
+python3 scripts/etl/coverage_audit.py --report   # every gap, by class
+python3 scripts/etl/coverage_audit.py --check    # fails on an unregistered gap
+python3 scripts/etl/coverage_audit.py --self-test
+```
+
+`--check` is the one that matters: every gap must be registered as
+`ACCEPTED` (decided, with a reason) or `PENDING` (owed a decision, with a
+note). A gap in neither fails, and so does a registry entry that no
+longer corresponds to a real gap. Columns can still be dropped —
+deliberately, in writing — but not quietly. `--report` and `--check` need
+the legacy schema (`--schema PATH`, default `../hr-legacy/`);
+`--self-test` needs nothing and is what CI runs.
 
 ```sh
 python3 scripts/etl/export_legacy.py --print-sql > export.sql
@@ -108,8 +123,11 @@ you can look up in the old system.
   memberships one-per-employee. The same phone in two companies is
   something legacy rejects at login rather than models.
 - **`branches.expires_at`** is a user-entered wall clock written by the
-  dashboard under no timezone at all. Migrated as wall clock like
-  everything else; it is QR expiry on a parked feature.
+  dashboard under no timezone at all. It is QR expiry on a parked
+  feature. **It is not currently migrated** — it is staged and then never
+  written, a gap `coverage_audit.py` found and this file previously
+  described the opposite of. Registered as `PENDING` in that script until
+  it is loaded under the same wall-clock rule as `attendance.check_in`.
 
 `pay_overtime` (V40) and `departments` are both migrated now:
 `pay_overtime` is string-normalised the way `payroll_company_pays_overtime`
