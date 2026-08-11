@@ -69,7 +69,31 @@ EXPORTS = [
     ("penalties",
      "SELECT m.legacy_id AS id, em.legacy_id AS employee_id, t.penalty_days, t.penalty_date "
      "FROM penalties t JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = t.employee_id"),
+    ("payslips",
+     "SELECT m.legacy_id AS id, bm.legacy_id AS batch_id, em.legacy_id AS employee_id, "
+     "t.basic_salary, t.net_salary, t.gross_salary, t.total_deductions FROM payslips t "
+     "JOIN migration.id_map bm ON bm.entity = 'payroll_batches' AND bm.new_id = t.batch_id "
+     "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = t.employee_id"),
+    # remaining_days is reported on both sides deliberately: it is GENERATED
+    # by each engine independently, so comparing it proves they agree.
+    ("leave_balance",
+     "SELECT m.legacy_id AS id, em.legacy_id AS employee_id, t.year, t.total_days, "
+     "t.used_days, t.remaining_days FROM leave_balances t "
+     "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = t.employee_id"),
+    ("employee_schedules",
+     "SELECT m.legacy_id AS id, em.legacy_id AS employee_id, t.schedule_date, t.name, "
+     "t.start_time, t.end_time, t.exception_note FROM employee_schedules t "
+     "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = t.employee_id"),
+    ("employee_shift_assignments",
+     "SELECT m.legacy_id AS id, em.legacy_id AS employee_id, sm.legacy_id AS shift_id, "
+     "t.effective_from FROM employee_shift_assignments t "
+     "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = t.employee_id "
+     "JOIN migration.id_map sm ON sm.entity = 'shifts' AND sm.new_id = t.shift_id"),
 ]
+
+# Manifest file name -> the id_map entity and target table, where the
+# legacy and target names diverge. leave_balance is the only one.
+EXPORT_TABLE_OVERRIDE = {"leave_balance": "leave_balances"}
 
 # Composite-key tables do not have a legacy id to materialize in id_map.
 # Their parent ids are still translated back before reconciliation.
@@ -91,7 +115,7 @@ def build() -> str:
         "",
     ]
     for entity, select in EXPORTS:
-        table = "attendance" if entity == "attendance_days" else entity
+        table = "attendance" if entity == "attendance_days" else EXPORT_TABLE_OVERRIDE.get(entity, entity)
         out.append(f"-- {entity}.csv")
         out.append(
             f"{select}\n"

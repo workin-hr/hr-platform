@@ -85,6 +85,12 @@ ACCEPTED: dict[str, str] = {
         "(load_postgres.py's identity transform consumes this column). The target "
         "employees.password_hash column is vestigial and is its own question."
     ),
+    "leave_balance.remaining_days": (
+        "GENERATED ALWAYS AS (total_days - used_days) STORED on both sides; "
+        "PostgreSQL rejects an INSERT naming it. Exported from both sides so "
+        "migration_diff proves the two engines compute it identically, and "
+        "asserted in EtlLoadFixtureTest -- carried by computation, not by copy."
+    ),
 }
 
 # Legacy tables with no extraction at all. Registered as whole tables
@@ -92,11 +98,7 @@ ACCEPTED: dict[str, str] = {
 ACCEPTED_TABLES: dict[str, str] = {}
 
 PENDING_TABLES: dict[str, str] = {
-    "payslips": "Target V11 exists. Slice specced in 2026-08-11-etl-payroll-history-design.md.",
-    "leave_balance": "Target V25 leave_balances exists. Same slice.",
-    "employee_schedules": "Target V33 exists. Same slice.",
-    "employee_shift_assignments": "Target V33 exists. Same slice.",
-    "notifications": "4,014 rows. No target table. Keep-or-drop is a product call.",
+    "notifications":"4,014 rows. No target table. Keep-or-drop is a product call.",
     "complaints": "Support inbox. No target table. Product call.",
     "assets": "Company assets issued to employees. No target table. Product call.",
     "administrative_decisions": "Company announcements. No target table. Product call.",

@@ -154,6 +154,41 @@ SELECT id, employee_id, penalty_type, penalty_days, reason, penalty_date,
        applied_to_payroll, created_at
 FROM penalties ORDER BY id;
 
+-- ---------- payroll history and scheduling ----------
+-- Four tables with a shipped target schema and, until now, no migration
+-- path at all. payslips are copied verbatim rather than recomputed: they
+-- are the record of what an employee was actually paid, not an input to
+-- be re-derived (D-a).
+SELECT id, batch_id, employee_id, days_present, days_absent, days_leave,
+       overtime_hours, basic_salary, allowances, overtime_pay, penalties_total,
+       advance_deduction, other_deductions, net_salary, food_allowance,
+       risk_allowance, transport_allowance, incentives, insurance_deduction,
+       tax_deduction, advances_deduction, fund_deduction, gross_salary,
+       total_entitlements, total_deductions
+FROM payslips ORDER BY id;
+
+-- remaining_days is GENERATED on both sides. Exported so migration_diff
+-- can prove the two engines agree on it; never inserted.
+SELECT id, employee_id, year, period_from_month, period_to_month,
+       monthly_cap_days, total_days, used_days, remaining_days
+FROM leave_balance ORDER BY id;
+
+-- Legacy has no unique key on (employee_id, year) but V25 declares one.
+-- Counted here, at dump time, so a duplicate is a decision made with real
+-- numbers weeks before cutover rather than an abort discovered during it.
+SELECT employee_id, year, COUNT(*) AS duplicate_rows
+FROM leave_balance
+GROUP BY employee_id, year
+HAVING COUNT(*) > 1
+ORDER BY employee_id, year;
+
+SELECT id, employee_id, schedule_date, name, start_time, end_time,
+       exception_note, created_at
+FROM employee_schedules ORDER BY id;
+
+SELECT id, employee_id, shift_id, effective_from, created_at
+FROM employee_shift_assignments ORDER BY id;
+
 -- ---------- conversions, exported raw for transform ----------
 -- These two are NOT row copies. hr_permissions expands into
 -- membership_permission_overrides, and the EAV settings pivot into the
@@ -241,7 +276,11 @@ MANIFEST = r"""
     {"file": "salary_contracts.csv", "key": ["id"], "expected_count": null},
     {"file": "payroll_batches.csv", "key": ["id"], "expected_count": null},
     {"file": "advances.csv", "key": ["id"], "expected_count": null},
-    {"file": "penalties.csv", "key": ["id"], "expected_count": null}
+    {"file": "penalties.csv", "key": ["id"], "expected_count": null},
+    {"file": "payslips.csv", "key": ["id"], "expected_count": 2836},
+    {"file": "leave_balance.csv", "key": ["id"], "expected_count": 2980},
+    {"file": "employee_schedules.csv", "key": ["id"], "expected_count": 352},
+    {"file": "employee_shift_assignments.csv", "key": ["id"], "expected_count": 3568}
   ]
 }
 """

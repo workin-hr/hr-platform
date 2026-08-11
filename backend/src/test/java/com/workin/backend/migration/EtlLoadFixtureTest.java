@@ -209,6 +209,34 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				VALUES ('650', '11', 'late', '0.5', 'Late arrival', '2026-02-12', '0',
 				        '2026-02-12 11:00:00');
 
+				-- Payroll history and scheduling. payslips hang off batch 90 and
+				-- employee 11, which share company 1 -- the agreeing case the
+				-- cross-tenant guard permits.
+				INSERT INTO migration.stg_payslips
+				  (id, batch_id, employee_id, days_present, days_absent, days_leave,
+				   overtime_hours, basic_salary, allowances, overtime_pay, net_salary,
+				   gross_salary, total_entitlements, total_deductions)
+				VALUES ('800', '90', '11', '22', '0', '1', '6.5',
+				        '5000.00', '750.00', '203.13', '5953.13',
+				        '5953.13', '5953.13', '0.00');
+
+				-- total_days - used_days = 12.5, computed by PostgreSQL rather
+				-- than copied: remaining_days is GENERATED on both sides.
+				INSERT INTO migration.stg_leave_balance
+				  (id, employee_id, year, period_from_month, period_to_month,
+				   monthly_cap_days, total_days, used_days, remaining_days)
+				VALUES ('900', '11', '2025', '1', '12', '2.50', '21.0', '8.5', '12.5');
+
+				INSERT INTO migration.stg_employee_schedules
+				  (id, employee_id, schedule_date, name, start_time, end_time,
+				   exception_note, created_at)
+				VALUES ('700', '11', '2026-03-02', 'Ramadan', '10:00:00', '16:00:00',
+				        'Reduced hours', '2026-02-25 06:15:00');
+
+				INSERT INTO migration.stg_employee_shift_assignments
+				  (id, employee_id, shift_id, effective_from, created_at)
+				VALUES ('750', '11', '9', '2026-01-01', '2025-12-20 09:00:00');
+
 				-- The EAV chain: one company setting per definition.
 				INSERT INTO migration.stg_setting_definitions (id, setting_key)
 				VALUES ('1', 'weekly_off_days'), ('2', 'overtime_rate'), ('3', 'pay_overtime');
@@ -413,6 +441,47 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "AND a.deduction_payroll_year = 2026 "
 							+ "AND a.deduction_payroll_month = 3")).isEqualTo(1);
 
+			// --- payroll history and scheduling: four tables that had a
+			// shipped target schema and no migration path at all.
+			// payslips: verbatim figures (D-a), company and created_at both
+			// derived from the parent batch (D-b).
+			assertThat(scalar(st,
+					"SELECT count(*) FROM payslips p "
+							+ "JOIN migration.id_map m ON m.entity = 'payslips' AND m.new_id = p.id "
+							+ "JOIN migration.id_map bm ON bm.entity = 'payroll_batches' AND bm.new_id = p.batch_id "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = p.employee_id "
+							+ "JOIN payroll_batches b ON b.id = p.batch_id AND b.company_id = p.company_id "
+							+ "WHERE m.legacy_id = 800 AND bm.legacy_id = 90 AND em.legacy_id = 11 "
+							+ "AND p.net_salary = 5953.13 AND p.basic_salary = 5000.00 "
+							+ "AND p.created_at = TIMESTAMPTZ '2026-04-01 12:00:00+00'")).isEqualTo(1);
+			// leave_balances: remaining_days is computed by PostgreSQL and must
+			// equal what MySQL computed; created_at is Jan 1 of its own year.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM leave_balances lb "
+							+ "JOIN migration.id_map m ON m.entity = 'leave_balances' AND m.new_id = lb.id "
+							+ "JOIN employees e ON e.id = lb.employee_id AND e.company_id = lb.company_id "
+							+ "WHERE m.legacy_id = 900 AND lb.year = 2025 "
+							+ "AND lb.total_days = 21.0 AND lb.used_days = 8.5 "
+							+ "AND lb.remaining_days = 12.5 "
+							+ "AND lb.monthly_cap_days = 2.50 "
+							+ "AND lb.created_at = TIMESTAMPTZ '2025-01-01 00:00:00+00'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employee_schedules es "
+							+ "JOIN migration.id_map m ON m.entity = 'employee_schedules' AND m.new_id = es.id "
+							+ "JOIN employees e ON e.id = es.employee_id AND e.company_id = es.company_id "
+							+ "WHERE m.legacy_id = 700 AND es.schedule_date = DATE '2026-03-02' "
+							+ "AND es.start_time = TIME '10:00:00' "
+							+ "AND es.created_at = TIMESTAMPTZ '2026-02-25 06:15:00+00'")).isEqualTo(1);
+			// Two foreign keys resolved through the map, and the shift's company
+			// agrees with the employee's.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employee_shift_assignments a "
+							+ "JOIN migration.id_map m ON m.entity = 'employee_shift_assignments' AND m.new_id = a.id "
+							+ "JOIN migration.id_map sm ON sm.entity = 'shifts' AND sm.new_id = a.shift_id "
+							+ "JOIN shifts sh ON sh.id = a.shift_id AND sh.company_id = a.company_id "
+							+ "WHERE m.legacy_id = 750 AND sm.legacy_id = 9 "
+							+ "AND a.effective_from = DATE '2026-01-01'")).isEqualTo(1);
+
 			// --- foreign keys resolve through the map, not raw legacy ids
 			long employeeNewId = scalar(st,
 					"SELECT new_id FROM migration.id_map WHERE entity = 'employees' AND legacy_id = 11");
@@ -588,6 +657,36 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 			assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> st.execute(load)))
 					.hasMessageContaining("unmapped hr_permissions flags")
 					.hasMessageContaining("can_teleport");
+		}
+	}
+
+	/**
+	 * Legacy permits two leave_balance rows for one employee-year; V25's
+	 * UNIQUE(employee_id, year) does not, and
+	 * duplicate-business-key-analysis.md never examined this table. This is
+	 * the failure most likely to actually occur on production data, so the
+	 * abort is executed here rather than asserted to exist in the SQL text.
+	 */
+	@Test
+	void aDuplicateLeaveBalanceForOneEmployeeYearAbortsTheLoad() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "7771");
+			// A second balance for employee 11, same year as the fixture's.
+			st.execute("""
+					INSERT INTO migration.stg_leave_balance
+					  (id, employee_id, year, period_from_month, period_to_month,
+					   monthly_cap_days, total_days, used_days, remaining_days)
+					VALUES ('901', '11', '2025', '1', '12', '2.50', '5.0', '1.0', '4.0');
+					""");
+
+			assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> st.execute(load)))
+					.hasMessageContaining("duplicate (employee_id, year)")
+					.hasMessageContaining("11/2025");
 		}
 	}
 
