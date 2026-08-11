@@ -158,15 +158,19 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 
 				-- A decided request: exercises approver_id/decided_at/notes,
 				-- which the load previously dropped on the floor.
-				INSERT INTO migration.stg_request_types (id, company_id, name)
-				VALUES ('1', '1', 'Sick Leave');
+				INSERT INTO migration.stg_request_types (id, company_id, name, created_at)
+				VALUES ('1', '1', 'Sick Leave', '2025-05-01 09:00:00');
+
+				INSERT INTO migration.stg_company_official_holidays
+				  (id, company_id, name, holiday_date, created_at)
+				VALUES ('310', '1', 'Eid', '2026-03-20', '2025-12-01 08:00:00');
 
 				INSERT INTO migration.stg_requests
 				  (id, employee_id, request_type_id, from_date, to_date, notes, status, reply,
-				   approver_id, decided_at)
+				   approver_id, decided_at, created_at)
 				VALUES
 				  ('200', '12', '1', '2026-03-05', '2026-03-05', 'Doctor appointment', 'approved',
-				   'Get well soon', '11', '2026-03-04 10:00:00');
+				   'Get well soon', '11', '2026-03-04 10:00:00', '2026-03-01 07:45:00');
 
 				-- The EAV chain: one company setting per definition.
 				INSERT INTO migration.stg_setting_definitions (id, setting_key)
@@ -305,6 +309,26 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "WHERE m.legacy_id = 102 "
 							+ "AND a.created_at = TIMESTAMPTZ '2026-03-04 06:30:00+00' "
 							+ "AND a.check_in = TIMESTAMPTZ '2026-03-03 00:00:00+00'")).isEqualTo(1);
+
+			assertThat(scalar(st,
+					"SELECT count(*) FROM request_types rt "
+							+ "JOIN migration.id_map m ON m.entity = 'request_types' AND m.new_id = rt.id "
+							+ "WHERE m.legacy_id = 1 AND rt.created_at = TIMESTAMPTZ '2025-05-01 09:00:00+00'"))
+					.isEqualTo(1);
+			// created_at and decided_at are distinct instants and both survive.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM requests r "
+							+ "JOIN migration.id_map m ON m.entity = 'requests' AND m.new_id = r.id "
+							+ "WHERE m.legacy_id = 200 "
+							+ "AND r.created_at = TIMESTAMPTZ '2026-03-01 07:45:00+00' "
+							+ "AND r.decided_at = TIMESTAMPTZ '2026-03-04 10:00:00+00'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM company_official_holidays h "
+							+ "JOIN migration.id_map m ON m.entity = 'company_official_holidays' "
+							+ "AND m.new_id = h.id "
+							+ "WHERE m.legacy_id = 310 "
+							+ "AND h.created_at = TIMESTAMPTZ '2025-12-01 08:00:00+00' "
+							+ "AND h.holiday_date = DATE '2026-03-20'")).isEqualTo(1);
 
 			// --- foreign keys resolve through the map, not raw legacy ids
 			long employeeNewId = scalar(st,
