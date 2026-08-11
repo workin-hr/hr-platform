@@ -130,19 +130,28 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				-- collapse rather than reject.
 				INSERT INTO migration.stg_employees
 				  (id, company_id, branch_id, department_id, job_title_id, expected_daily_hours, first_name,
-				   last_name, phone, password_hash, role, is_active)
+				   last_name, phone, password_hash, role, is_active, created_at)
 				VALUES
-				  ('11', '1', '7', '20', '4', '6.00', 'Sara', 'Ali', '+2011TOKEN11', '$2y$hash', 'hr', '1'),
-				  ('12', '1', '7', NULL, '4', NULL,   'Omar', 'Nabil', '+2012TOKEN22', '$2y$hash2', 'employee', '1'),
-				  ('13', '2', NULL, NULL, NULL, NULL, 'Laila', 'Fathy', '+2011TOKEN11', '$2y$hash3', 'employee', '1'),
-				  ('14', '1', NULL, NULL, NULL, NULL, 'Nabil', 'Omar', '+2012TOKEN22', '$2y$hash4', 'employee', '1');
+				  ('11', '1', '7', '20', '4', '6.00', 'Sara', 'Ali', '+2011TOKEN11', '$2y$hash', 'hr', '1',
+				   '2025-04-01 08:00:00'),
+				  ('12', '1', '7', NULL, '4', NULL,   'Omar', 'Nabil', '+2012TOKEN22', '$2y$hash2', 'employee', '1',
+				   '2025-04-02 08:00:00'),
+				  ('13', '2', NULL, NULL, NULL, NULL, 'Laila', 'Fathy', '+2011TOKEN11', '$2y$hash3', 'employee', '1',
+				   '2025-04-03 08:00:00'),
+				  ('14', '1', NULL, NULL, NULL, NULL, 'Nabil', 'Omar', '+2012TOKEN22', '$2y$hash4', 'employee', '1',
+				   '2025-04-04 08:00:00');
 
-				-- A real punch, and a midnight exception day.
+				-- A real punch, and a midnight exception day. created_at is when
+				-- the punch was RECORDED; check_in is the wall-clock moment being
+				-- recorded. Deliberately different values, so a regression that
+				-- conflates the two fails here.
 				INSERT INTO migration.stg_attendance
-				  (id, employee_id, check_in, check_out, method, exception_type_id)
+				  (id, employee_id, check_in, check_out, method, exception_type_id, created_at)
 				VALUES
-				  ('101', '11', '2026-03-02 09:00:00', '2026-03-02 17:00:00', 'app', NULL),
-				  ('102', '11', '2026-03-03 00:00:00', NULL, 'app', '3');
+				  ('101', '11', '2026-03-02 09:00:00', '2026-03-02 17:00:00', 'app', NULL,
+				   '2026-03-02 17:05:00'),
+				  ('102', '11', '2026-03-03 00:00:00', NULL, 'app', '3',
+				   '2026-03-04 06:30:00');
 
 				INSERT INTO migration.stg_hr_permissions (id, employee_id)
 				VALUES ('55', '11'), ('56', '14');
@@ -276,6 +285,26 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "JOIN migration.id_map m ON m.entity = 'exception_types' AND m.new_id = et.id "
 							+ "WHERE m.legacy_id = 3 AND et.created_at = TIMESTAMPTZ '2025-03-04 13:00:00+00'"))
 					.isEqualTo(1);
+
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map m ON m.entity = 'employees' AND m.new_id = e.id "
+							+ "WHERE m.legacy_id = 11 AND e.created_at = TIMESTAMPTZ '2025-04-01 08:00:00+00'"))
+					.isEqualTo(1);
+			// The recorded-at instant is carried AND the wall-clock rule still
+			// holds: check_in is untouched, created_at is its own value.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM attendance a "
+							+ "JOIN migration.id_map m ON m.entity = 'attendance' AND m.new_id = a.id "
+							+ "WHERE m.legacy_id = 101 "
+							+ "AND a.created_at = TIMESTAMPTZ '2026-03-02 17:05:00+00' "
+							+ "AND a.check_in = TIMESTAMPTZ '2026-03-02 09:00:00+00'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM attendance a "
+							+ "JOIN migration.id_map m ON m.entity = 'attendance' AND m.new_id = a.id "
+							+ "WHERE m.legacy_id = 102 "
+							+ "AND a.created_at = TIMESTAMPTZ '2026-03-04 06:30:00+00' "
+							+ "AND a.check_in = TIMESTAMPTZ '2026-03-03 00:00:00+00'")).isEqualTo(1);
 
 			// --- foreign keys resolve through the map, not raw legacy ids
 			long employeeNewId = scalar(st,

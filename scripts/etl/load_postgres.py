@@ -381,12 +381,14 @@ GROUP BY s.phone;
 -- it gets NULL, since the real, shared phone lives on the identity
 -- every one of them is linked to via tenant_memberships.
 INSERT INTO employees (id, company_id, first_name, last_name, phone, role, active,
-                       branch_id, department_id, job_title_id, expected_daily_hours)
+                       branch_id, department_id, job_title_id, expected_daily_hours,
+                       created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.first_name, COALESCE(s.last_name, ''),
        CASE WHEN pa.anchor_employee_id = s.id::BIGINT THEN s.phone ELSE NULL END,
        UPPER(COALESCE(s.role, 'employee')), COALESCE(s.is_active, '1') = '1',
-       bm.new_id, dm.new_id, jm.new_id, s.expected_daily_hours::NUMERIC
+       bm.new_id, dm.new_id, jm.new_id, s.expected_daily_hours::NUMERIC,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_employees s
 JOIN migration.id_map m ON m.entity = 'employees' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -609,13 +611,14 @@ WHERE NOT EXISTS (SELECT 1 FROM penalties pn WHERE pn.id = m.new_id);
 -- detection and moves every early-morning punch to the previous day.
 -- See docs/migration/2026-08-09-etl-and-timezone-design.md.
 INSERT INTO attendance (id, employee_id, company_id, check_in, check_out, method,
-                        latitude, longitude, exception_type_id)
+                        latitude, longitude, exception_type_id, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id,
        (s.check_in::TIMESTAMP AT TIME ZONE 'UTC'),
        (s.check_out::TIMESTAMP AT TIME ZONE 'UTC'),
        CASE WHEN s.exception_type_id IS NULL THEN COALESCE(s.method, 'app') ELSE NULL END,
-       s.latitude::NUMERIC, s.longitude::NUMERIC, ex.new_id
+       s.latitude::NUMERIC, s.longitude::NUMERIC, ex.new_id,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_attendance s
 JOIN migration.id_map m ON m.entity = 'attendance' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
