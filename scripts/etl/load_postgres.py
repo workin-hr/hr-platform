@@ -238,8 +238,9 @@ def _load() -> str:
     # ---------- companies ----------
     p.append(_allocate("companies", "migration.stg_companies"))
     p.append("""
-INSERT INTO companies (id, name, phone, active) OVERRIDING SYSTEM VALUE
-SELECT m.new_id, s.name, s.phone, COALESCE(s.status, 'active') = 'active'
+INSERT INTO companies (id, name, phone, active, created_at) OVERRIDING SYSTEM VALUE
+SELECT m.new_id, s.name, s.phone, COALESCE(s.status, 'active') = 'active',
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_companies s
 JOIN migration.id_map m ON m.entity = 'companies' AND m.legacy_id = s.id::BIGINT
 WHERE NOT EXISTS (SELECT 1 FROM companies c WHERE c.id = m.new_id);
@@ -266,11 +267,13 @@ WHERE NOT EXISTS (SELECT 1 FROM departments d WHERE d.id = m.new_id);
     # ---------- branches / job_titles / shifts / exception_types ----------
     p.append(_allocate("branches", "migration.stg_branches"))
     p.append("""
-INSERT INTO branches (id, company_id, name, address, latitude, longitude, radius_meters, is_active)
+INSERT INTO branches (id, company_id, name, address, latitude, longitude, radius_meters,
+                      is_active, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.name, s.address,
        s.latitude::NUMERIC, s.longitude::NUMERIC, COALESCE(s.radius_meters::INT, 0),
-       COALESCE(s.is_active, '1') = '1'
+       COALESCE(s.is_active, '1') = '1',
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_branches s
 JOIN migration.id_map m ON m.entity = 'branches' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -321,10 +324,11 @@ END $$;
 
     p.append(_allocate("job_titles", "migration.stg_job_titles"))
     p.append(f"""
-INSERT INTO job_titles (id, company_id, department_id, name, work_hours, is_active)
+INSERT INTO job_titles (id, company_id, department_id, name, work_hours, is_active, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, dm.new_id, s.name,
-       COALESCE(s.work_hours::NUMERIC, 8), COALESCE(s.is_active, '1') = '1'
+       COALESCE(s.work_hours::NUMERIC, 8), COALESCE(s.is_active, '1') = '1',
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_job_titles s
 JOIN migration.id_map m ON m.entity = 'job_titles' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -334,10 +338,11 @@ WHERE NOT EXISTS (SELECT 1 FROM job_titles j WHERE j.id = m.new_id);
 
     p.append(_allocate("shifts", "migration.stg_shifts"))
     p.append("""
-INSERT INTO shifts (id, company_id, name, start_time, end_time, days_off, is_active)
+INSERT INTO shifts (id, company_id, name, start_time, end_time, days_off, is_active, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.name, s.start_time::TIME, s.end_time::TIME, s.days_off,
-       COALESCE(s.is_active, '1') = '1'
+       COALESCE(s.is_active, '1') = '1',
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_shifts s
 JOIN migration.id_map m ON m.entity = 'shifts' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -346,8 +351,9 @@ WHERE NOT EXISTS (SELECT 1 FROM shifts sh WHERE sh.id = m.new_id);
 
     p.append(_allocate("exception_types", "migration.stg_exception_types"))
     p.append("""
-INSERT INTO exception_types (id, company_id, name) OVERRIDING SYSTEM VALUE
-SELECT m.new_id, cm.new_id, s.name
+INSERT INTO exception_types (id, company_id, name, created_at) OVERRIDING SYSTEM VALUE
+SELECT m.new_id, cm.new_id, s.name,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_exception_types s
 JOIN migration.id_map m ON m.entity = 'exception_types' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT

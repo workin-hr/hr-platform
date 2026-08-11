@@ -95,12 +95,12 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 	 */
 	private static void stageFixture(Statement st, String token) throws Exception {
 		st.execute("""
-				INSERT INTO migration.stg_companies (id, name, phone, status)
-				VALUES ('1', 'Legacy Co', '+2010TOKEN01', 'active'),
-				       ('2', 'Second Co', '+2020TOKEN02', 'active');
+				INSERT INTO migration.stg_companies (id, name, phone, status, created_at)
+				VALUES ('1', 'Legacy Co', '+2010TOKEN01', 'active', '2025-01-15 09:00:00'),
+				       ('2', 'Second Co', '+2020TOKEN02', 'active', '2025-02-20 14:30:00');
 
-				INSERT INTO migration.stg_branches (id, company_id, name, is_active)
-				VALUES ('7', '1', 'HQ', '1');
+				INSERT INTO migration.stg_branches (id, company_id, name, is_active, created_at)
+				VALUES ('7', '1', 'HQ', '1', '2025-03-01 10:00:00');
 
 				-- manager_id (11) is the reverse half of the departments/employees
 				-- cycle: 11 doesn't have an id yet when departments load, so this
@@ -111,14 +111,17 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				INSERT INTO migration.stg_department_branches (department_id, branch_id)
 				VALUES ('20', '7');
 
-				INSERT INTO migration.stg_job_titles (id, company_id, department_id, name, work_hours, is_active)
-				VALUES ('4', '1', '20', 'Engineer', '7.50', '1');
+				INSERT INTO migration.stg_job_titles
+				  (id, company_id, department_id, name, work_hours, is_active, created_at)
+				VALUES ('4', '1', '20', 'Engineer', '7.50', '1', '2025-03-02 11:00:00');
 
-				INSERT INTO migration.stg_shifts (id, company_id, name, start_time, end_time, days_off, is_active)
-				VALUES ('9', '1', 'Day', '09:00:00', '17:00:00', 'Friday,Saturday', '1');
+				INSERT INTO migration.stg_shifts
+				  (id, company_id, name, start_time, end_time, days_off, is_active, created_at)
+				VALUES ('9', '1', 'Day', '09:00:00', '17:00:00', 'Friday,Saturday', '1',
+				        '2025-03-03 12:00:00');
 
-				INSERT INTO migration.stg_exception_types (id, company_id, name)
-				VALUES ('3', '1', 'Sick');
+				INSERT INTO migration.stg_exception_types (id, company_id, name, created_at)
+				VALUES ('3', '1', 'Sick', '2025-03-04 13:00:00');
 
 				-- 11 and 12 are each other's own phone anchor. 13 (company 2)
 				-- shares 11's phone across companies -- the case identities
@@ -241,6 +244,38 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "JOIN migration.id_map bm ON bm.entity = 'branches' AND bm.new_id = db.branch_id "
 							+ "JOIN departments d ON d.id = db.department_id AND d.company_id = db.company_id "
 							+ "WHERE dm.legacy_id = 20 AND bm.legacy_id = 7")).isEqualTo(1);
+
+			// --- created_at is the legacy instant, not the load clock.
+			// Legacy timestamps are true UTC epochs (the settled rule), so
+			// the staged wall clock and the stored instant are the same
+			// moment. Before this was carried, every migrated row claimed
+			// it was created at the cutover instant.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM companies c "
+							+ "JOIN migration.id_map m ON m.entity = 'companies' AND m.new_id = c.id "
+							+ "WHERE (m.legacy_id = 1 AND c.created_at = TIMESTAMPTZ '2025-01-15 09:00:00+00') "
+							+ "   OR (m.legacy_id = 2 AND c.created_at = TIMESTAMPTZ '2025-02-20 14:30:00+00')"))
+					.isEqualTo(2);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM branches b "
+							+ "JOIN migration.id_map m ON m.entity = 'branches' AND m.new_id = b.id "
+							+ "WHERE m.legacy_id = 7 AND b.created_at = TIMESTAMPTZ '2025-03-01 10:00:00+00'"))
+					.isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM job_titles j "
+							+ "JOIN migration.id_map m ON m.entity = 'job_titles' AND m.new_id = j.id "
+							+ "WHERE m.legacy_id = 4 AND j.created_at = TIMESTAMPTZ '2025-03-02 11:00:00+00'"))
+					.isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM shifts sh "
+							+ "JOIN migration.id_map m ON m.entity = 'shifts' AND m.new_id = sh.id "
+							+ "WHERE m.legacy_id = 9 AND sh.created_at = TIMESTAMPTZ '2025-03-03 12:00:00+00'"))
+					.isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM exception_types et "
+							+ "JOIN migration.id_map m ON m.entity = 'exception_types' AND m.new_id = et.id "
+							+ "WHERE m.legacy_id = 3 AND et.created_at = TIMESTAMPTZ '2025-03-04 13:00:00+00'"))
+					.isEqualTo(1);
 
 			// --- foreign keys resolve through the map, not raw legacy ids
 			long employeeNewId = scalar(st,
