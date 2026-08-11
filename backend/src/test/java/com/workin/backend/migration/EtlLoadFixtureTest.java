@@ -690,4 +690,59 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 		}
 	}
 
+	/**
+	 * A payslip can reach company_id through its batch or through its
+	 * employee. Legacy has no tenant column on payslips to check against,
+	 * so if those two disagree the row belongs to neither company
+	 * cleanly -- and loading it silently would put one company's payroll
+	 * inside another's. Employee 13 belongs to company 2; batch 90 to
+	 * company 1.
+	 */
+	@Test
+	void aPayslipWhoseBatchAndEmployeeDisagreeOnCompanyAbortsTheLoad() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "8881");
+			st.execute("""
+					INSERT INTO migration.stg_payslips
+					  (id, batch_id, employee_id, days_present, basic_salary, net_salary)
+					VALUES ('801', '90', '13', '20', '3000.00', '3000.00');
+					""");
+
+			assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> st.execute(load)))
+					.hasMessageContaining("belong to different companies")
+					.hasMessageContaining("801");
+		}
+	}
+
+	/**
+	 * Same class of cross-tenant contamination on the scheduling side:
+	 * shift 9 belongs to company 1, employee 13 to company 2. The
+	 * assignment would otherwise load with the employee's company and a
+	 * foreign company's shift.
+	 */
+	@Test
+	void aShiftAssignmentReferencingAnotherCompanysShiftAbortsTheLoad() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "9991");
+			st.execute("""
+					INSERT INTO migration.stg_employee_shift_assignments
+					  (id, employee_id, shift_id, effective_from, created_at)
+					VALUES ('751', '13', '9', '2026-01-01', '2025-12-20 09:00:00');
+					""");
+
+			assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> st.execute(load)))
+					.hasMessageContaining("reference a shift from another company");
+		}
+	}
+
 }
