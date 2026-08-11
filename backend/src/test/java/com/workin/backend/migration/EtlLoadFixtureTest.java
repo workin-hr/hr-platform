@@ -172,6 +172,30 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				  ('200', '12', '1', '2026-03-05', '2026-03-05', 'Doctor appointment', 'approved',
 				   'Get well soon', '11', '2026-03-04 10:00:00', '2026-03-01 07:45:00');
 
+				-- The payroll group: first fixture coverage of any kind. These
+				-- four are in LOAD_ORDER but were never staged, so their load
+				-- blocks ran against zero rows until now.
+				INSERT INTO migration.stg_salary_contracts
+				  (id, employee_id, salary_mode, basic_salary, daily_wage, effective_from, created_at)
+				VALUES ('500', '11', 'monthly', '5000.00', '0.00', '2026-01-01',
+				        '2025-12-15 10:00:00');
+
+				INSERT INTO migration.stg_payroll_batches
+				  (id, company_id, month, year, period_from, period_to, status, created_at)
+				VALUES ('90', '1', '3', '2026', '2026-03-01', '2026-03-31', 'finalized',
+				        '2026-04-01 12:00:00');
+
+				INSERT INTO migration.stg_advances
+				  (id, employee_id, amount, remaining, reason, status, request_date, created_at)
+				VALUES ('600', '11', '1000.00', '250.00', 'Emergency', 'approved', '2026-02-10',
+				        '2026-02-10 09:30:00');
+
+				INSERT INTO migration.stg_penalties
+				  (id, employee_id, penalty_type, penalty_days, reason, penalty_date,
+				   applied_to_payroll, created_at)
+				VALUES ('650', '11', 'late', '0.5', 'Late arrival', '2026-02-12', '0',
+				        '2026-02-12 11:00:00');
+
 				-- The EAV chain: one company setting per definition.
 				INSERT INTO migration.stg_setting_definitions (id, setting_key)
 				VALUES ('1', 'weekly_off_days'), ('2', 'overtime_rate'), ('3', 'pay_overtime');
@@ -329,6 +353,31 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "WHERE m.legacy_id = 310 "
 							+ "AND h.created_at = TIMESTAMPTZ '2025-12-01 08:00:00+00' "
 							+ "AND h.holiday_date = DATE '2026-03-20'")).isEqualTo(1);
+
+			// --- the payroll group: first fixture coverage, and the batch
+			// timestamp the payslips slice will derive from.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM salary_contracts sc "
+							+ "JOIN migration.id_map m ON m.entity = 'salary_contracts' AND m.new_id = sc.id "
+							+ "WHERE m.legacy_id = 500 "
+							+ "AND sc.created_at = TIMESTAMPTZ '2025-12-15 10:00:00+00' "
+							+ "AND sc.salary_mode = 'MONTHLY'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM payroll_batches b "
+							+ "JOIN migration.id_map m ON m.entity = 'payroll_batches' AND m.new_id = b.id "
+							+ "WHERE m.legacy_id = 90 "
+							+ "AND b.created_at = TIMESTAMPTZ '2026-04-01 12:00:00+00' "
+							+ "AND b.status = 'FINALIZED'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM advances a "
+							+ "JOIN migration.id_map m ON m.entity = 'advances' AND m.new_id = a.id "
+							+ "WHERE m.legacy_id = 600 "
+							+ "AND a.created_at = TIMESTAMPTZ '2026-02-10 09:30:00+00'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM penalties pn "
+							+ "JOIN migration.id_map m ON m.entity = 'penalties' AND m.new_id = pn.id "
+							+ "WHERE m.legacy_id = 650 "
+							+ "AND pn.created_at = TIMESTAMPTZ '2026-02-12 11:00:00+00'")).isEqualTo(1);
 
 			// --- foreign keys resolve through the map, not raw legacy ids
 			long employeeNewId = scalar(st,

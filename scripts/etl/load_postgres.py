@@ -546,7 +546,7 @@ WHERE NOT EXISTS (SELECT 1 FROM company_official_holidays h WHERE h.id = m.new_i
 INSERT INTO salary_contracts (id, employee_id, company_id, salary_mode, basic_salary, daily_wage,
        housing_allowance, transport_allowance, food_allowance, risk_allowance, incentives,
        insurance_deduction, tax_deduction, advances_deduction, fund_deduction, penalty_deduction,
-       effective_from)
+       effective_from, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id, UPPER(COALESCE(s.salary_mode, 'monthly')),
        COALESCE(s.basic_salary::NUMERIC, 0), COALESCE(s.daily_wage::NUMERIC, 0),
@@ -555,7 +555,8 @@ SELECT m.new_id, emp.new_id, e.company_id, UPPER(COALESCE(s.salary_mode, 'monthl
        COALESCE(s.incentives::NUMERIC, 0), COALESCE(s.insurance_deduction::NUMERIC, 0),
        COALESCE(s.tax_deduction::NUMERIC, 0), COALESCE(s.advances_deduction::NUMERIC, 0),
        COALESCE(s.fund_deduction::NUMERIC, 0), COALESCE(s.penalty_deduction::NUMERIC, 0),
-       s.effective_from::DATE
+       s.effective_from::DATE,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_salary_contracts s
 JOIN migration.id_map m ON m.entity = 'salary_contracts' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
@@ -565,11 +566,13 @@ WHERE NOT EXISTS (SELECT 1 FROM salary_contracts c WHERE c.id = m.new_id);
 
     p.append(_allocate("payroll_batches", "migration.stg_payroll_batches"))
     p.append("""
-INSERT INTO payroll_batches (id, company_id, month, year, period_from, period_to, status)
+INSERT INTO payroll_batches (id, company_id, month, year, period_from, period_to, status,
+                             created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.month::SMALLINT, s.year::SMALLINT,
        s.period_from::DATE, s.period_to::DATE,
-       CASE WHEN LOWER(COALESCE(s.status, 'draft')) IN ('finalized', 'final') THEN 'FINALIZED' ELSE 'DRAFT' END
+       CASE WHEN LOWER(COALESCE(s.status, 'draft')) IN ('finalized', 'final') THEN 'FINALIZED' ELSE 'DRAFT' END,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_payroll_batches s
 JOIN migration.id_map m ON m.entity = 'payroll_batches' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -579,11 +582,12 @@ WHERE NOT EXISTS (SELECT 1 FROM payroll_batches b WHERE b.id = m.new_id);
     p.append(_allocate("advances", "migration.stg_advances"))
     p.append("""
 INSERT INTO advances (id, employee_id, company_id, amount, remaining, reason,
-                      rejection_reason, status, request_date)
+                      rejection_reason, status, request_date, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id, COALESCE(s.amount::NUMERIC, 0),
        COALESCE(s.remaining::NUMERIC, 0), s.reason, s.rejection_reason,
-       UPPER(COALESCE(s.status, 'pending')), s.request_date::DATE
+       UPPER(COALESCE(s.status, 'pending')), s.request_date::DATE,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_advances s
 JOIN migration.id_map m ON m.entity = 'advances' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
@@ -594,11 +598,12 @@ WHERE NOT EXISTS (SELECT 1 FROM advances a WHERE a.id = m.new_id);
     p.append(_allocate("penalties", "migration.stg_penalties"))
     p.append("""
 INSERT INTO penalties (id, employee_id, company_id, penalty_type, penalty_days, reason,
-                       penalty_date, applied_to_payroll)
+                       penalty_date, applied_to_payroll, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id, s.penalty_type,
        COALESCE(s.penalty_days::NUMERIC, 0), s.reason, s.penalty_date::DATE,
-       COALESCE(s.applied_to_payroll, '0') = '1'
+       COALESCE(s.applied_to_payroll, '0') = '1',
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_penalties s
 JOIN migration.id_map m ON m.entity = 'penalties' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
