@@ -62,7 +62,7 @@ dependencies {
 	// ahead of F-23 (the architecture test it will enforce), which needs
 	// more of the authorization framework built out first. Not yet
 	// exercised by a test in this slice -- tracked, not silently dropped.
-	testImplementation 'com.tngtech.archunit:archunit-junit5:1.4.2'
+	testImplementation 'com.tngtech.archunit:archunit-junit5:1.5.0'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
