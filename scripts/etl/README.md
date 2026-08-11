@@ -124,10 +124,10 @@ you can look up in the old system.
   something legacy rejects at login rather than models.
 - **`branches.expires_at`** is a user-entered wall clock written by the
   dashboard under no timezone at all. It is QR expiry on a parked
-  feature. **It is not currently migrated** — it is staged and then never
-  written, a gap `coverage_audit.py` found and this file previously
-  described the opposite of. Registered as `PENDING` in that script until
-  it is loaded under the same wall-clock rule as `attendance.check_in`.
+  feature. Migrated as wall clock like everything else — but only since
+  `coverage_audit.py` caught that it was staged and then never written,
+  while this file had claimed for three releases that it was migrated.
+  The claim is now backed by a fixture assertion rather than by prose.
 
 `pay_overtime` (V40) and `departments` are both migrated now:
 `pay_overtime` is string-normalised the way `payroll_company_pays_overtime`
