@@ -104,7 +104,7 @@ FROM shifts ORDER BY id;
 
 SELECT id, company_id, name, address, latitude, longitude, radius_meters,
        DATE_FORMAT(expires_at, '%Y-%m-%d %H:%i:%s') AS expires_at,
-       is_active, created_at
+       qr_code, is_active, created_at
 FROM branches ORDER BY id;
 
 SELECT id, company_id, department_id, name, work_hours, is_active, created_at
@@ -141,8 +141,13 @@ FROM salary_contracts ORDER BY id;
 SELECT id, company_id, month, year, period_from, period_to, status, created_at
 FROM payroll_batches ORDER BY id;
 
+-- The deduction_* scheduling columns are carried: V12 has a target column
+-- for each, and without them an installment repayment loads as the
+-- single-month default, misstating the arrangement.
 SELECT id, employee_id, amount, remaining, reason, rejection_reason,
-       status, request_date, created_at, updated_at
+       status, request_date, created_at, updated_at,
+       deduction_mode, deduction_month_count, deduction_amount_per_month,
+       deduction_payroll_year, deduction_payroll_month
 FROM advances ORDER BY id;
 
 SELECT id, employee_id, penalty_type, penalty_days, reason, penalty_date,

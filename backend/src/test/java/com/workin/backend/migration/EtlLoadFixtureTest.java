@@ -99,8 +99,14 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				VALUES ('1', 'Legacy Co', '+2010TOKEN01', 'active', '2025-01-15 09:00:00'),
 				       ('2', 'Second Co', '+2020TOKEN02', 'active', '2025-02-20 14:30:00');
 
-				INSERT INTO migration.stg_branches (id, company_id, name, is_active, created_at)
-				VALUES ('7', '1', 'HQ', '1', '2025-03-01 10:00:00');
+				-- expires_at is a legacy `datetime`: literal wall clock, loaded as
+				-- the same reading in UTC, never shifted. qr_code is a plain
+				-- string. Both have target columns and were previously staged or
+				-- exported and then dropped.
+				INSERT INTO migration.stg_branches
+				  (id, company_id, name, is_active, created_at, qr_code, expires_at)
+				VALUES ('7', '1', 'HQ', '1', '2025-03-01 10:00:00',
+				        'QR-HQ-001', '2027-06-30 23:59:00');
 
 				-- manager_id (11) is the reverse half of the departments/employees
 				-- cycle: 11 doesn't have an id yet when departments load, so this
@@ -185,10 +191,17 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				VALUES ('90', '1', '3', '2026', '2026-03-01', '2026-03-31', 'finalized',
 				        '2026-04-01 12:00:00');
 
+				-- An INSTALLMENTS advance, not the single-month default: the whole
+				-- point of carrying the scheduling columns is the case where the
+				-- repayment is spread, and a fixture using the default value
+				-- would pass even if the columns were still dropped.
 				INSERT INTO migration.stg_advances
-				  (id, employee_id, amount, remaining, reason, status, request_date, created_at)
+				  (id, employee_id, amount, remaining, reason, status, request_date, created_at,
+				   deduction_mode, deduction_month_count, deduction_amount_per_month,
+				   deduction_payroll_year, deduction_payroll_month)
 				VALUES ('600', '11', '1000.00', '250.00', 'Emergency', 'approved', '2026-02-10',
-				        '2026-02-10 09:30:00');
+				        '2026-02-10 09:30:00',
+				        'installments', '4', '250.00', '2026', '3');
 
 				INSERT INTO migration.stg_penalties
 				  (id, employee_id, penalty_type, penalty_days, reason, penalty_date,
@@ -378,6 +391,27 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "JOIN migration.id_map m ON m.entity = 'penalties' AND m.new_id = pn.id "
 							+ "WHERE m.legacy_id = 650 "
 							+ "AND pn.created_at = TIMESTAMPTZ '2026-02-12 11:00:00+00'")).isEqualTo(1);
+
+			// --- columns that had a target all along and were dropped anyway.
+			// expires_at is a legacy datetime: the same wall-clock reading in
+			// UTC, NOT shifted, exactly like attendance.check_in.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM branches b "
+							+ "JOIN migration.id_map m ON m.entity = 'branches' AND m.new_id = b.id "
+							+ "WHERE m.legacy_id = 7 AND b.qr_code = 'QR-HQ-001' "
+							+ "AND b.expires_at = TIMESTAMPTZ '2027-06-30 23:59:00+00'")).isEqualTo(1);
+			// The installment schedule survives: a 1000 advance repaid over 4
+			// months at 250 is not a single-month deduction, and loading it as
+			// the column default would misstate the arrangement.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM advances a "
+							+ "JOIN migration.id_map m ON m.entity = 'advances' AND m.new_id = a.id "
+							+ "WHERE m.legacy_id = 600 "
+							+ "AND a.deduction_mode = 'INSTALLMENTS' "
+							+ "AND a.deduction_month_count = 4 "
+							+ "AND a.deduction_amount_per_month = 250.00 "
+							+ "AND a.deduction_payroll_year = 2026 "
+							+ "AND a.deduction_payroll_month = 3")).isEqualTo(1);
 
 			// --- foreign keys resolve through the map, not raw legacy ids
 			long employeeNewId = scalar(st,

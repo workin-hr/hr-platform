@@ -142,21 +142,6 @@ PENDING: dict[str, str] = {
         "Real data written by advances/create.php and update.php. No target "
         "column; needs one or an explicit drop."
     ),
-    "branches.expires_at": (
-        "CONFIRMED BUG, not a decision. Staged and given a target column, then "
-        "never written -- it appears in load_postgres.py's STAGING list and "
-        "nowhere else. scripts/etl/README.md states it IS migrated, which is "
-        "wrong. Needs the same wall-clock treatment as attendance.check_in."
-    ),
-    "branches.qr_code": (
-        "Target column exists (V-migration), never extracted. QR is a parked "
-        "feature (D-030) but the column is real data with somewhere to land."
-    ),
-    "advances.deduction_mode": "Target column exists; extract and load it.",
-    "advances.deduction_month_count": "Target column exists; extract and load it.",
-    "advances.deduction_amount_per_month": "Target column exists; extract and load it.",
-    "advances.deduction_payroll_year": "Target column exists; extract and load it.",
-    "advances.deduction_payroll_month": "Target column exists; extract and load it.",
     "companies.company_code": (
         "Human-facing company identifier. Decide whether tenants keep their "
         "existing code after cutover or are renumbered."

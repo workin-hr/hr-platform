@@ -86,7 +86,7 @@ STAGING = {
     "shifts": ["id", "company_id", "name", "start_time", "end_time", "days_off", "is_active", "created_at"],
     "branches": [
         "id", "company_id", "name", "address", "latitude", "longitude", "radius_meters",
-        "expires_at", "is_active", "created_at",
+        "expires_at", "qr_code", "is_active", "created_at",
     ],
     "job_titles": ["id", "company_id", "department_id", "name", "work_hours", "is_active", "created_at"],
     "departments": ["id", "company_id", "name", "manager_id", "is_active", "created_at"],
@@ -110,6 +110,8 @@ STAGING = {
     "advances": [
         "id", "employee_id", "amount", "remaining", "reason", "rejection_reason",
         "status", "request_date", "created_at", "updated_at",
+        "deduction_mode", "deduction_month_count", "deduction_amount_per_month",
+        "deduction_payroll_year", "deduction_payroll_month",
     ],
     "penalties": [
         "id", "employee_id", "penalty_type", "penalty_days", "reason", "penalty_date",
@@ -267,13 +269,18 @@ WHERE NOT EXISTS (SELECT 1 FROM departments d WHERE d.id = m.new_id);
     # ---------- branches / job_titles / shifts / exception_types ----------
     p.append(_allocate("branches", "migration.stg_branches"))
     p.append("""
+-- expires_at is a legacy `datetime`, not a `timestamp`: literal wall clock
+-- with no offset ever applied, so it loads as the same reading in UTC and
+-- is never shifted -- the same rule attendance.check_in follows.
 INSERT INTO branches (id, company_id, name, address, latitude, longitude, radius_meters,
-                      is_active, created_at)
+                      is_active, created_at, qr_code, expires_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.name, s.address,
        s.latitude::NUMERIC, s.longitude::NUMERIC, COALESCE(s.radius_meters::INT, 0),
        COALESCE(s.is_active, '1') = '1',
-       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC'),
+       s.qr_code,
+       (s.expires_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_branches s
 JOIN migration.id_map m ON m.entity = 'branches' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -581,13 +588,23 @@ WHERE NOT EXISTS (SELECT 1 FROM payroll_batches b WHERE b.id = m.new_id);
 
     p.append(_allocate("advances", "migration.stg_advances"))
     p.append("""
+-- deduction_mode is a lowercase legacy enum and the target CHECKs against
+-- uppercase, same shape as status. The remaining scheduling columns are
+-- nullable in both, except month_count which defaults to 1 on both sides.
 INSERT INTO advances (id, employee_id, company_id, amount, remaining, reason,
-                      rejection_reason, status, request_date, created_at)
+                      rejection_reason, status, request_date, created_at,
+                      deduction_mode, deduction_month_count, deduction_amount_per_month,
+                      deduction_payroll_year, deduction_payroll_month)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id, COALESCE(s.amount::NUMERIC, 0),
        COALESCE(s.remaining::NUMERIC, 0), s.reason, s.rejection_reason,
        UPPER(COALESCE(s.status, 'pending')), s.request_date::DATE,
-       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC'),
+       UPPER(COALESCE(s.deduction_mode, 'single_payroll_month')),
+       COALESCE(s.deduction_month_count::INT, 1),
+       s.deduction_amount_per_month::NUMERIC,
+       s.deduction_payroll_year::SMALLINT,
+       s.deduction_payroll_month::SMALLINT
 FROM migration.stg_advances s
 JOIN migration.id_map m ON m.entity = 'advances' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
