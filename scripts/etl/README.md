@@ -59,6 +59,11 @@ converts `timestamp` on read and never converts `datetime`.
    legacy's own `DATE(check_in)` per row and is what conformance test 3
    compares against — the check that the wall-clock rule was actually
    applied.
+4. Read the `created_at_quality` probe rows. Every `zero_dates` and
+   `null_dates` count must be 0. The load casts `created_at` into a NOT
+   NULL `TIMESTAMPTZ`, and MySQL's `0000-00-00 00:00:00` has no
+   PostgreSQL equivalent — a nonzero count is a decision to make before
+   cutover, not a surprise during it.
 
 ## Not covered
 
