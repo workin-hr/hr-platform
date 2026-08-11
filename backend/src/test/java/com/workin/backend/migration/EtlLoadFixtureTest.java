@@ -604,6 +604,18 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 					"SELECT rows FROM migration.load_counts WHERE entity = 'attendance'"))
 					.isEqualTo(attendanceTotal);
 
+			// Same for the four history/scheduling tables: reconciliation reads
+			// migration.load_counts rather than a number scrolling past in a
+			// terminal, so each entity must actually have a row there.
+			for (String entity : new String[] {
+					"payslips", "leave_balances", "employee_schedules",
+					"employee_shift_assignments"}) {
+				assertThat(scalar(st,
+						"SELECT rows FROM migration.load_counts WHERE entity = '" + entity + "'"))
+						.as("load_counts row for %s", entity)
+						.isEqualTo(scalar(st, "SELECT count(*) FROM " + entity));
+			}
+
 			// --- the sequence was advanced, so a fresh insert cannot collide
 			long freshCompany = scalar(st,
 					"INSERT INTO companies (name, phone) VALUES ('Post Cutover', '+20999') RETURNING id");
