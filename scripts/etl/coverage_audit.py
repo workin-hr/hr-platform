@@ -264,6 +264,24 @@ SCHEDULED: dict[str, str] = {
         "target; the preference is normalizing it into explicit contract dates "
         "or equivalent terms rather than carrying a bare month count."
     ),
+    # D-034 -- the three columns the 2026-08-12 brief omitted from Q7.
+    "employees.is_mobile_attendance_enabled": (
+        "D-034: preserve and migrate. Mobile-attendance eligibility is an "
+        "employee-level business rule and must remain unchanged after cutover, "
+        "so a migrated employee keeps exactly the phone check-in eligibility "
+        "they had in legacy."
+    ),
+    "employees.can_check_in_any_branch": (
+        "D-034: preserve and migrate. An employee-level attendance permission "
+        "that must retain its legacy behaviour -- dropping it would silently "
+        "widen or narrow where someone may check in."
+    ),
+    "employees.join_request_status": (
+        "D-034: preserve and migrate even though the join-request workflow is "
+        "not built. Legacy values map into an explicit onboarding/join status "
+        "in the target so existing employee state is not lost; the future "
+        "workflow builds on that state rather than reconstructing it."
+    ),
 }
 
 SCHEDULED_TABLES: dict[str, str] = {
@@ -308,24 +326,12 @@ PENDING_TABLES: dict[str, str] = {}
 # Known, undecided, and owed an answer. The note names what has to be
 # resolved -- 'TODO' is not a note.
 PENDING: dict[str, str] = {
-    # These three were never asked. The 2026-08-12 brief claimed to convert
-    # all 47 gaps into questions and covered 44 -- Q7 asked about four
-    # employees.* columns and there were seven. Two of the three change what
-    # an employee can actually do, so they are not clerical.
-    "employees.is_mobile_attendance_enabled": (
-        "Per-employee mobile-attendance opt-in. Affects attendance behaviour, "
-        "so dropping it silently changes what employees can do. Not covered by "
-        "D-032 -- omitted from the brief's Q7, still owed a decision."
-    ),
-    "employees.can_check_in_any_branch": (
-        "Per-employee geofence exemption; same class as the flag above, and "
-        "the same omission from the brief. Dropping it silently widens or "
-        "narrows where an employee may check in."
-    ),
-    "employees.join_request_status": (
-        "Onboarding gate with no target column. Not covered by D-032; decide "
-        "alongside the join-request flow, which the rewrite has not built."
-    ),
+    # Empty as of D-034. Every known gap is now either a recorded drop or a
+    # recorded commitment to migrate -- no gap is waiting on a decision.
+    # This is a state to defend, not a finish line: a new legacy column, or
+    # a new detection class, lands here first and --check fails until
+    # somebody decides. Empty means nothing is owed an answer today, not
+    # that nothing ever will be.
 }
 
 

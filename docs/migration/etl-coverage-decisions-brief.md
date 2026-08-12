@@ -376,6 +376,28 @@ the `created_at` defect: a value that disappears without anything failing.
   column; decide alongside the join-request flow, which the rewrite has
   not built.
 
+### Answered 2026-08-12 — all three migrate (D-034)
+
+- **`is_mobile_attendance_enabled`** — preserve and migrate. Mobile
+  attendance eligibility is an employee-level business rule and must
+  remain unchanged after cutover.
+- **`can_check_in_any_branch`** — preserve and migrate. An employee-level
+  attendance permission that must retain its legacy behaviour.
+- **`join_request_status`** — preserve and migrate **even though the
+  join-request workflow is not implemented**. Legacy values map into an
+  explicit onboarding/join status in the target so existing employee
+  state is not lost; the future workflow builds on that state rather than
+  reconstructing it.
+
+The third is the interesting one: it migrates state for a feature that
+does not exist. That is the right call precisely because the state cannot
+be recovered later — the workflow can be built whenever, but the legacy
+values disappear with the legacy database.
+
+**`PENDING` is now empty.** Every one of the 47 gaps is either a recorded
+drop or a recorded commitment to migrate. Nothing is waiting on a
+decision.
+
 ## Open Questions Created By The Answers
 
 These are not gaps in the answers — they are consequences that surfaced
