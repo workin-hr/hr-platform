@@ -37,7 +37,14 @@ Design, in order:
    default-allow for anything else — including ordinary commands like
    `add`, `fetch`, `remote`, `stash`, `cherry-pick` that are not in scope
    for this guard and must not be broken by it.
-7. As defense in depth against command substitution / backticks hiding a
+7. Resolve indirect execution. A segment that is not itself a Git
+   invocation may still run one: `bash deploy.sh`, `./deploy.sh`,
+   `source deploy.sh`, or `bash -c "git push"`. The referenced script is
+   read and its contents evaluated through this same function
+   (`evaluate_command`), recursively, bounded by `MAX_SCRIPT_DEPTH` and a
+   visited-set so a self-sourcing script terminates. See "Indirect
+   execution through a script file" below.
+8. As defense in depth against command substitution / backticks hiding a
    dangerous invocation inside what looks like a single argument (which
    step 3's tokenizer cannot see into — a real limitation, documented
    below and in docs/bootstrap/audit-remediation.md), a secondary regex
@@ -52,12 +59,17 @@ Design, in order:
    structural analysis did not already block, the command is blocked as
    "possibly obfuscated" rather than allowed — this is the "fail closed
    when ambiguous" behavior applied to what the parser cannot fully see.
-8. Any command this guard cannot parse at all (unbalanced quotes, decode
-   errors) is treated as a Git-related ambiguity only if it looks like it
-   might contain a "git" token; otherwise it fails open, since blocking
-   *all* Bash commands whenever this guard has a parsing hiccup is a much
-   larger, unrelated blast radius than its purpose justifies. See
-   "Residual limitations" below and in the audit-remediation document.
+9. Any segment this guard cannot parse at all (unbalanced quotes, decode
+   errors) is treated as a Git-related ambiguity only if that segment
+   looks like it might contain a "git" token; otherwise it fails open,
+   since blocking *all* Bash commands whenever this guard has a parsing
+   hiccup is a much larger, unrelated blast radius than its purpose
+   justifies. The failure is contained to the offending segment: an
+   earlier version aborted the whole evaluation on the first tokenizer
+   error and then fail-closed-checked the *entire* command, so one stray
+   quote could both mask every remaining segment and block an unrelated
+   command line. See "Residual limitations" below and in the
+   audit-remediation document.
 
 This module is both the hook entry point (`python3 scripts/git_guard.py`,
 reading stdin) and an importable library for the regression tests in
@@ -90,6 +102,36 @@ scripts/test_git_guard.py, and any other importer of this module) keep the
 prior, branch-agnostic behavior unchanged — this is an opt-in addition, not
 a change to `evaluate_command`'s existing default behavior.
 
+## Indirect execution through a script file
+
+On 2026-08-12 an agent ran `bash push-and-open-prs.sh` in this repository.
+The command string contained no blocked verb, the guard allowed it, and the
+script pushed five branches — an operation this guard exists to reserve for
+a human, performed with nobody's finger on the trigger. The script had been
+written by the agent itself and handed to the human to run; treating it as
+inert because it was a file rather than a command line is the whole of the
+mistake.
+
+Step 7 closes that path for the cases it can see: shell interpreters
+(`bash`/`sh`/`zsh`/`ksh`/`dash`/`ash`), `source` and `.`, direct execution
+by path, and inline `bash -c` strings.
+
+Two properties matter more than coverage:
+
+- **Contents are evaluated, not searched.** The script's text goes through
+  `evaluate_command` exactly as a command line would. A raw text search for
+  "git push" would block any script that merely *discusses* pushing — a
+  commit message, a PR body, an `echo` — which is the same false-positive
+  class `_extract_command_substitutions` was already narrowed to fix.
+  Heredoc bodies and `#` comments are stripped for the same reason: both
+  are prose, not commands.
+- **Over-blocking is the safe direction, under-blocking is not.** A false
+  positive means a human runs the script, which was the status quo. A
+  false negative means the guard silently does nothing. So `bash -n
+  script.sh` (a syntax check that executes nothing) is blocked if the
+  script contains a blocked operation, and a chain nested deeper than
+  `MAX_SCRIPT_DEPTH` is blocked rather than assumed safe.
+
 ## Residual limitations (cannot be technically enforced by this guard)
 
 - Command substitution and backticks (`$(...)`, `` `...` ``) are not
@@ -103,6 +145,19 @@ a change to `evaluate_command`'s existing default behavior.
   can defeat both layers.
 - Git global-option recognition is a practical subset of real Git's
   option grammar, not a full reimplementation of Git's argument parser.
+- Script resolution is static and covers shell scripts only. A script
+  whose path is built at runtime (`bash "$TARGET"`), one fetched or
+  generated during the run, a Makefile target, or a Git call made from
+  inside a Python/Node program is not resolved — step 7 reduces the blast
+  radius of the common case, it does not eliminate the class. A script
+  the hook process cannot read (permissions, binary, larger than
+  `MAX_SCRIPT_BYTES`) falls through to allow, on the reasoning that a file
+  this process cannot read is usually one the shell cannot execute either;
+  that reasoning does not hold if the two run as different users.
+- Contents are evaluated as they are on disk at hook time. A script
+  modified between the guard's read and the shell's execution is not
+  covered; this guard prevents accidents, not a determined adversary with
+  write access to the working tree.
 - This guard only inspects the Bash tool's `command` string before
   execution. It has no visibility into what a previously-approved command
   actually did, and no way to intercept non-Bash tool calls or MCP-server
@@ -447,6 +502,225 @@ def analyze_segment(
     return classify_git_invocation(cmd_tokens[1:], branch_getter)
 
 
+# ---------------------------------------------------------------------------
+# Script-file resolution
+# ---------------------------------------------------------------------------
+#
+# `bash deploy.sh` contains no blocked verb, so before this layer existed a
+# script performing `git push` ran with the guard active and nothing to
+# stop it. See the module docstring, "Indirect execution through a script
+# file", for the incident this responds to.
+#
+# The contents are evaluated through `evaluate_command` — the same
+# structural pipeline a command line goes through — deliberately, not with
+# a text search. A script that merely *mentions* `git push` in an echo or a
+# heredoc is not performing one, and re-introducing that false-positive
+# class would repeat the bug `_extract_command_substitutions` was narrowed
+# to fix.
+
+SHELL_BASENAMES = {"bash", "sh", "zsh", "ksh", "dash", "ash"}
+SCRIPT_SUFFIXES = {".sh", ".bash", ".zsh", ".ksh"}
+MAX_SCRIPT_DEPTH = 3
+MAX_SCRIPT_BYTES = 1_000_000
+
+_HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def find_shell_payload(tokens: list[str]) -> tuple[str, str] | None:
+    """Identify what a shell invocation would actually execute.
+
+    Returns ("file", path) when the segment runs a script file, ("command",
+    text) when it runs an inline `-c` string, or None when the segment is
+    not a shell invocation at all. `tokens` must already have had
+    `strip_env_wrapper` applied."""
+    if not tokens:
+        return None
+    head = tokens[0]
+    base = basename_of(head)
+
+    if base == "source" or head == ".":
+        for t in tokens[1:]:
+            if not t.startswith("-"):
+                return ("file", t)
+        return None
+
+    if base in SHELL_BASENAMES:
+        i = 1
+        n = len(tokens)
+        while i < n:
+            t = tokens[i]
+            if t == "--":
+                i += 1
+                break
+            if t in ("-c", "--command"):
+                return ("command", tokens[i + 1]) if i + 1 < n else None
+            # Bundled short flags such as `bash -ec 'git push'` still take
+            # the next argument as a command string.
+            if t.startswith("-") and not t.startswith("--") and "c" in t[1:]:
+                return ("command", tokens[i + 1]) if i + 1 < n else None
+            if t.startswith("-") or ASSIGNMENT_RE.match(t):
+                i += 1
+                continue
+            return ("file", t)
+        return ("file", tokens[i]) if i < n else None
+
+    # Direct execution by path: ./deploy.sh, scripts/deploy.sh, /tmp/x.sh.
+    if "/" in head:
+        return ("file", head)
+    return None
+
+
+def _read_script_text(path: str) -> str | None:
+    """Return the text of a script we can meaningfully evaluate, or None.
+
+    None means "not a text script this guard can read" — a compiled binary
+    reached by path (`/usr/bin/git`), something too large to be a hook
+    script, or a file the hook process cannot read. Those fall through to
+    the caller's default rather than blocking: a file this process cannot
+    read is generally one the shell cannot execute either."""
+    try:
+        if os.path.getsize(path) > MAX_SCRIPT_BYTES:
+            return None
+        with open(path, "rb") as handle:
+            raw = handle.read()
+    except OSError:
+        return None
+    if b"\x00" in raw[:4096]:
+        return None
+    if not raw.startswith(b"#!") and os.path.splitext(path)[1] not in SCRIPT_SUFFIXES:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def strip_heredoc_bodies(text: str) -> str:
+    """Remove heredoc bodies, keeping the line that opens them.
+
+    A heredoc body is data, not commands. PR descriptions and commit
+    messages routinely discuss `git push` or `git rebase`, and treating
+    that prose as an invocation is precisely the false positive this guard
+    already fixed once for `echo "git push"`."""
+    lines = text.splitlines()
+    kept: list[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        kept.append(line)
+        match = _HEREDOC_RE.search(line)
+        i += 1
+        if match:
+            delimiter = match.group(2)
+            while i < n and lines[i].strip() != delimiter:
+                i += 1
+            i += 1  # skip the closing delimiter line itself
+    return "\n".join(kept)
+
+
+def strip_shell_comments(text: str) -> str:
+    """Remove `#` comments, tracking quote state so a `#` inside a string
+    (or a `$#`) is left alone.
+
+    Without this the guard is unusable on real scripts: an apostrophe in an
+    ordinary comment ("Each PR's base") reads as an unterminated quote, the
+    segment splitter swallows the rest of the file into one blob, and the
+    whole script fails closed. `scripts/verify-bootstrap.sh` and
+    `scripts/check-bootstrap-prerequisites.sh` both hit exactly that.
+    Comments are never executed, so dropping them costs nothing."""
+    out: list[str] = []
+    quote: str | None = None
+    prev = "\n"
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if quote:
+            out.append(c)
+            if c == "\\" and quote == '"' and i + 1 < n:
+                out.append(text[i + 1])
+                prev = text[i + 1]
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+            prev = c
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            out.append(c)
+            out.append(text[i + 1])
+            prev = text[i + 1]
+            i += 2
+            continue
+        if c in ("'", '"'):
+            quote = c
+            out.append(c)
+            prev = c
+            i += 1
+            continue
+        if c == "#" and prev in " \t\n":
+            while i < n and text[i] != "\n":
+                i += 1
+            continue  # the newline itself is emitted on the next iteration
+        out.append(c)
+        prev = c
+        i += 1
+    return "".join(out)
+
+
+def analyze_script_invocation(
+    segment: str,
+    branch_getter: Callable[[str | None], str | None] | None,
+    depth: int,
+    visited: frozenset[str],
+) -> tuple[str, str] | None:
+    """Returns (verdict, reason) if this segment executes something whose
+    contents this guard could resolve, else None."""
+    try:
+        tokens = shlex.split(segment, posix=True)
+    except ValueError:
+        return None  # evaluate_command's UnparsableCommand path owns this case
+    tokens = strip_env_wrapper(tokens)
+    payload = find_shell_payload(tokens)
+    if payload is None:
+        return None
+    kind, value = payload
+
+    if depth >= MAX_SCRIPT_DEPTH:
+        return (
+            "block",
+            f"shell indirection nested deeper than {MAX_SCRIPT_DEPTH} levels; this guard "
+            "cannot verify what would ultimately run, so it fails closed",
+        )
+
+    if kind == "command":
+        verdict, reason = evaluate_command(value, branch_getter, depth + 1, visited)
+        if verdict == "block":
+            return ("block", f"inline shell command would run a blocked operation -> {reason}")
+        return None
+
+    path = os.path.abspath(value)
+    if not os.path.isfile(path):
+        return None
+    real = os.path.realpath(path)
+    if real in visited:
+        return None  # already evaluated on this path; cycles must terminate
+    text = _read_script_text(path)
+    if text is None:
+        return None
+
+    # Order matters: heredoc bodies are located by line, before comment
+    # stripping can disturb them; line continuations are joined first so a
+    # command split across lines is analyzed as one.
+    cleaned = strip_shell_comments(strip_heredoc_bodies(text.replace("\\\n", " ")))
+    verdict, reason = evaluate_command(cleaned, branch_getter, depth + 1, visited | {real})
+    if verdict == "block":
+        return ("block", f"script {value} would run a blocked operation -> {reason}")
+    return None
+
+
 # A heuristic, non-authoritative safety net for dangerous git subcommands
 # hidden inside command substitution / backticks, which the tokenizer above
 # cannot see into (it treats `$(git push)` as a single opaque argument to
@@ -502,34 +776,52 @@ def _extract_command_substitutions(raw_command: str) -> list[str]:
 def evaluate_command(
     raw_command: str,
     branch_getter: Callable[[str | None], str | None] | None = None,
+    _script_depth: int = 0,
+    _visited: frozenset[str] | None = None,
 ) -> tuple[str, str]:
     """Top-level entry point used by both the hook and the tests. Returns
     (verdict, reason).
 
     `branch_getter` is forwarded to the `git commit` branch-protection rule
     (see module docstring). Omitting it — every pre-existing call site in
-    this module's tests — leaves that rule's prior behavior unchanged."""
+    this module's tests — leaves that rule's prior behavior unchanged.
+
+    `_script_depth` and `_visited` are internal bookkeeping for the
+    script-resolution layer (see `analyze_script_invocation`): the depth
+    bounds recursion and `_visited` makes a script that sources itself
+    terminate. External callers never pass them."""
     if not raw_command or not raw_command.strip():
         return ("allow", "empty command")
+    visited = frozenset() if _visited is None else _visited
 
-    try:
-        segments = split_top_level(raw_command)
-        blocked_reasons = []
-        for segment in segments:
+    segments = split_top_level(raw_command)
+    blocked_reasons = []
+    for segment in segments:
+        # Tokenizer failures are contained to the segment that caused them.
+        # Previously one unparsable segment aborted the whole evaluation and
+        # fell through to a fail-closed check against the *entire* command,
+        # so a single odd quote could both mask the remaining segments and
+        # block an otherwise fine command line.
+        try:
             result = analyze_segment(segment, branch_getter)
-            if result is not None and result[0] == "block":
+        except UnparsableCommand as exc:
+            # Fail closed only if this segment looks git-related; blocking
+            # every unparsable Bash command regardless of content would be a
+            # disproportionate blast radius for a git-specific guard.
+            if re.search(r"\bgit\b", segment):
+                blocked_reasons.append(f"unparsable segment mentions git; failing closed ({exc})")
+            continue
+        if result is not None:
+            if result[0] == "block":
                 blocked_reasons.append(result[1])
-        if blocked_reasons:
-            return ("block", "; ".join(blocked_reasons))
-    except UnparsableCommand as exc:
-        # A command we cannot tokenize at all. Fail closed only if it looks
-        # like it might involve git — blocking every unparsable Bash
-        # command regardless of content (e.g. one with unusual quoting in
-        # an unrelated one-liner) would be a disproportionate blast radius
-        # for a git-specific guard.
-        if re.search(r"\bgit\b", raw_command):
-            return ("block", f"unparsable command mentions git; failing closed ({exc})")
-        return ("allow", f"unparsable command does not appear to involve git ({exc})")
+            continue
+        # Not a git invocation itself — but it may execute one indirectly,
+        # through a script file or an inline `-c` string.
+        indirect = analyze_script_invocation(segment, branch_getter, _script_depth, visited)
+        if indirect is not None and indirect[0] == "block":
+            blocked_reasons.append(indirect[1])
+    if blocked_reasons:
+        return ("block", "; ".join(blocked_reasons))
 
     # Defense-in-depth heuristic for substitution-hidden invocations. Scoped
     # to actual $(...)/backtick regions only (see

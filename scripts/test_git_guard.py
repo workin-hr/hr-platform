@@ -15,8 +15,10 @@ scripts/validate_phase0.py (invoked as a subprocess check), and
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -256,6 +258,157 @@ def run_hook_subprocess_case(payload: dict, expect_exit: int) -> tuple[bool, str
     )
 
 
+def _write_script(directory: Path, name: str, body: str) -> Path:
+    path = directory / name
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def run_script_scanning_cases() -> list[tuple[bool, str]]:
+    """Regression tests for a real incident on 2026-08-12.
+
+    The guard inspects the Bash tool's *command string*. `bash deploy.sh`
+    contains no blocked verb, so a script performing `git push` executed
+    with the guard active and nobody's finger on the trigger. Closing that
+    means resolving the invoked script and evaluating its contents.
+
+    The hard requirement is that this must NOT reintroduce the
+    false-positive class the obfuscation heuristic was already narrowed to
+    avoid (see `_extract_command_substitutions`): a script that merely
+    *mentions* `git push` — in an echo, a heredoc, a PR body — is not
+    performing one. So the script's contents go through the same structural
+    evaluation as a command line, never a raw text search."""
+    results: list[tuple[bool, str]] = []
+
+    def check(label: str, command: str, expected: str) -> None:
+        verdict, reason = git_guard.evaluate_command(command)
+        ok = verdict == expected
+        results.append(
+            (
+                ok,
+                f"{'OK ' if ok else 'FAIL'} script-scan {label}: -> {verdict} "
+                f"(expected {expected}): {reason}",
+            )
+        )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        push = _write_script(d, "push.sh", "#!/usr/bin/env bash\nset -e\ngit push -u origin main\n")
+        safe = _write_script(d, "safe.sh", '#!/usr/bin/env bash\ngit status\necho "done"\n')
+
+        # Mentions, not invocations. All three must stay allowed.
+        mentions = _write_script(
+            d,
+            "mentions.sh",
+            "#!/usr/bin/env bash\n"
+            'echo "git push is blocked here"\n'
+            "printf 'git merge\\n'\n"
+            "# remember to git push when the review lands\n",
+        )
+        heredoc = _write_script(
+            d,
+            "heredoc.sh",
+            "#!/usr/bin/env bash\n"
+            "gh pr create --body-file - <<'PRBODY'\n"
+            "This PR explains why git push --force is never acceptable.\n"
+            "git rebase main would also rewrite history.\n"
+            "PRBODY\n"
+            "echo done\n",
+        )
+
+        # An apostrophe in a comment reads as an unterminated quote. Before
+        # comments were stripped this swallowed the rest of the file into
+        # one blob and failed the whole script closed — which blocked
+        # scripts/verify-bootstrap.sh, a script that touches no blocked
+        # operation at all. Both directions are pinned here: the innocent
+        # script stays allowed, and the apostrophe must not become a place
+        # to hide a real push.
+        apostrophe_safe = _write_script(
+            d,
+            "apostrophe-safe.sh",
+            "#!/usr/bin/env bash\n"
+            "# Each PR's base is the branch below it; GitHub's UI shows this.\n"
+            "git status\n"
+            "echo done\n",
+        )
+        apostrophe_push = _write_script(
+            d,
+            "apostrophe-push.sh",
+            "#!/usr/bin/env bash\n"
+            "# Each PR's base is the branch below it.\n"
+            "git push -u origin main\n",
+        )
+        # A `#` that is not a comment must survive: $# and a quoted hash.
+        hash_literal = _write_script(
+            d,
+            "hash-literal.sh",
+            '#!/usr/bin/env bash\necho "count=$#"\necho "issue #42"\ngit log --oneline\n',
+        )
+
+        p = push.as_posix()
+        nested = _write_script(d, "outer.sh", f'#!/usr/bin/env bash\necho starting\nbash "{p}"\n')
+        cycle_path = (d / "cycle.sh").as_posix()
+        cycle = _write_script(d, "cycle.sh", f'#!/usr/bin/env bash\nbash "{cycle_path}"\n')
+
+        # A chain deeper than the recursion limit cannot be cleared, so it
+        # must fail closed rather than be waved through.
+        deep_last = _write_script(d, "deep3.sh", "#!/usr/bin/env bash\ngit push\n")
+        deep2 = _write_script(d, "deep2.sh", f'#!/usr/bin/env bash\nbash "{deep_last.as_posix()}"\n')
+        deep1 = _write_script(d, "deep1.sh", f'#!/usr/bin/env bash\nbash "{deep2.as_posix()}"\n')
+        deep0 = _write_script(d, "deep0.sh", f'#!/usr/bin/env bash\nbash "{deep1.as_posix()}"\n')
+
+        check("bash <script that pushes>", f'bash "{p}"', "block")
+        check("sh <script that pushes>", f'sh "{p}"', "block")
+        check("bash -n <script that pushes>", f'bash -n "{p}"', "block")
+        check("bash <script that only reads>", f'bash "{safe.as_posix()}"', "allow")
+        check("bash <script that only echoes git text>", f'bash "{mentions.as_posix()}"', "allow")
+        check("bash <script with git text in a heredoc>", f'bash "{heredoc.as_posix()}"', "allow")
+        check("bash <script that runs a pushing script>", f'bash "{nested.as_posix()}"', "block")
+        check("bash <self-referencing script>", f'bash "{cycle.as_posix()}"', "allow")
+        check("bash <chain deeper than the limit>", f'bash "{deep0.as_posix()}"', "block")
+        check("bash <nonexistent script>", f'bash "{(d / "nope.sh").as_posix()}"', "allow")
+        check("bash <apostrophe in comment, no push>", f'bash "{apostrophe_safe.as_posix()}"', "allow")
+        check("bash <apostrophe in comment, real push>", f'bash "{apostrophe_push.as_posix()}"', "block")
+        check("bash <non-comment # characters>", f'bash "{hash_literal.as_posix()}"', "allow")
+
+        # Relative and sourced forms, evaluated from inside the temp dir.
+        previous_cwd = os.getcwd()
+        try:
+            os.chdir(d)
+            check("./<script that pushes>", "./push.sh", "block")
+            check("source <script that pushes>", "source ./push.sh", "block")
+            check(". <script that pushes>", ". ./push.sh", "block")
+            check("./<script that only reads>", "./safe.sh", "allow")
+        finally:
+            os.chdir(previous_cwd)
+
+    # `bash -c` is the same hole without a file: the blocked verb sits in a
+    # quoted argument, so the outer tokenizer sees only `bash`. Found while
+    # implementing the script-file layer, fixed by the same mechanism.
+    check("bash -c <inline push>", 'bash -c "git push origin main"', "block")
+    check("bash -ec <inline push>", "bash -ec 'git push'", "block")
+    check("sh -c <inline reset --hard>", "sh -c 'git reset --hard HEAD'", "block")
+    check("bash -c <inline safe command>", 'bash -c "echo hello"', "allow")
+    check("sh -c <inline git status>", "sh -c 'git status'", "allow")
+    check("bash -c <inline text mentioning push>", "bash -c 'echo \"git push\"'", "allow")
+
+    # Must not regress the interpreter cases already relied on elsewhere in
+    # this repository: these Python files contain the literal text "git push"
+    # in abundance (this file most of all), and running them is routine.
+    check("python3 running this very test file", f'python3 "{Path(__file__).as_posix()}"', "allow")
+    check("python3 validate_phase0.py", "python3 scripts/validate_phase0.py", "allow")
+    check("real git binary by absolute path", "/usr/bin/git status", "allow")
+
+    # This repository's own shell scripts, evaluated as real files. These are
+    # run routinely (verify-bootstrap.sh is a required gate), so if the
+    # script layer ever starts blocking them it must fail here rather than
+    # in someone's terminal.
+    for name in sorted(p.name for p in (ROOT / "scripts").glob("*.sh")):
+        check(f"repo script {name}", f'bash "{(ROOT / "scripts" / name).as_posix()}"', "allow")
+
+    return results
+
+
 def main() -> int:
     failures = 0
     total = 0
@@ -310,6 +463,12 @@ def main() -> int:
     print(message)
     if not ok:
         failures += 1
+
+    for ok, message in run_script_scanning_cases():
+        total += 1
+        print(message)
+        if not ok:
+            failures += 1
 
     # End-to-end proof that the actual hook entry point (stdin JSON in,
     # exit code + stderr JSON out) behaves correctly, not just the library
