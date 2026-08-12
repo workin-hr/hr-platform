@@ -39,15 +39,24 @@ strength. Do not read any of them as stronger than they are — see
    docstring for the full design and its documented residual limitations
    (command substitution can hide a command from the tokenizer; a
    secondary regex-based heuristic is a safety net for that case, not a
-   guarantee). Also blocks `git commit` (without `--amend`, already always
-   blocked) while on `main` or a detached HEAD, as local defense in depth
-   ahead of GitHub branch protection (layer 4 below) — fetched lazily via
-   an injectable `branch_getter`, fail-closed if the current branch cannot
-   be determined at all. Regression-tested by `scripts/test_git_guard.py`
-   (70 cases: every form named in the audit finding, the commit/branch
-   rule above, plus compound commands, malformed input, and unrelated safe
-   commands that must not be broken), run in CI and required by
-   `scripts/verify-bootstrap.sh`. The static
+   guarantee). It also resolves indirect execution — `bash deploy.sh`,
+   `./deploy.sh`, `source deploy.sh`, `bash -c "git push"` — by reading the
+   referenced script and evaluating its contents through the same
+   pipeline, bounded in recursion depth and cycle-safe. That layer was
+   added on 2026-08-12 after an agent ran a prepared push script in this
+   repository and pushed five branches: the command string held no blocked
+   verb, so the guard allowed it. Contents are *evaluated*, never text-
+   searched, so a script that merely discusses pushing in a comment,
+   `echo`, or heredoc is not blocked. Also blocks `git commit` (without
+   `--amend`, already always blocked) while on `main` or a detached HEAD,
+   as local defense in depth ahead of GitHub branch protection (layer 4
+   below) — fetched lazily via an injectable `branch_getter`, fail-closed
+   if the current branch cannot be determined at all. Regression-tested by
+   `scripts/test_git_guard.py` (110 cases: every form named in the audit
+   finding, the commit/branch rule above, the script-resolution layer and
+   its false-positive guards, plus compound commands, malformed input, and
+   unrelated safe commands that must not be broken), run in CI and
+   required by `scripts/verify-bootstrap.sh`. The static
    `permissions.deny` literal patterns remain as a coarse, secondary
    backstop, not the primary mechanism. `.claude/settings.json` also denies
    Read and Edit of known secret file patterns for every Claude Code
