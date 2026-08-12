@@ -182,7 +182,7 @@ Two properties matter more than coverage:
   Handling it correctly means teaching `split_top_level` heredoc syntax —
   recognize the operator, consume to the delimiter, and decide whether the
   receiving command executes the body. That is a change to the tokenizer,
-  deliberately out of scope here and tracked separately.
+  deliberately out of scope here and tracked as issue #94.
 
   Workaround until then: write multi-line text with a file-writing tool
   rather than a shell heredoc, then `git commit -F <file>`.
