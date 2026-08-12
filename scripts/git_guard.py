@@ -158,6 +158,34 @@ Two properties matter more than coverage:
   modified between the guard's read and the shell's execution is not
   covered; this guard prevents accidents, not a determined adversary with
   write access to the working tree.
+- **Heredocs in the command string itself are not understood.**
+  `strip_heredoc_bodies` above applies only to script *files*.
+  `split_top_level` has no notion of `<<'EOF'`, so a heredoc body is
+  split on newlines like any other text and an apostrophe inside it reads
+  as an unterminated quote. Concrete, reproduced 2026-08-12:
+
+      cat > msg.txt <<'MSG'
+      which is exactly the shape of the created_at defect's problem
+      MSG
+      git add -A && git commit -F msg.txt
+
+  is denied, and removing the apostrophe from `defect's` makes the same
+  command allowed. The `git commit` is real, so this is a false positive
+  produced by prose in a commit message.
+
+  **Do not "fix" this by stripping heredoc bodies from the raw command.**
+  A heredoc fed to a shell is executed, unlike one fed to `cat`:
+  `bash <<'EOF'` / `git push` / `EOF` is currently caught only because
+  the naive newline split turns `git push` into its own segment. Stripping
+  bodies would silently remove that detection and trade a false positive
+  for a false negative, which is the wrong direction for this guard.
+  Handling it correctly means teaching `split_top_level` heredoc syntax —
+  recognize the operator, consume to the delimiter, and decide whether the
+  receiving command executes the body. That is a change to the tokenizer,
+  deliberately out of scope here and tracked separately.
+
+  Workaround until then: write multi-line text with a file-writing tool
+  rather than a shell heredoc, then `git commit -F <file>`.
 - This guard only inspects the Bash tool's `command` string before
   execution. It has no visibility into what a previously-approved command
   actually did, and no way to intercept non-Bash tool calls or MCP-server
