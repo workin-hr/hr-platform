@@ -86,7 +86,7 @@ STAGING = {
     "shifts": ["id", "company_id", "name", "start_time", "end_time", "days_off", "is_active", "created_at"],
     "branches": [
         "id", "company_id", "name", "address", "latitude", "longitude", "radius_meters",
-        "expires_at", "is_active", "created_at",
+        "expires_at", "qr_code", "is_active", "created_at",
     ],
     "job_titles": ["id", "company_id", "department_id", "name", "work_hours", "is_active", "created_at"],
     "departments": ["id", "company_id", "name", "manager_id", "is_active", "created_at"],
@@ -110,10 +110,33 @@ STAGING = {
     "advances": [
         "id", "employee_id", "amount", "remaining", "reason", "rejection_reason",
         "status", "request_date", "created_at", "updated_at",
+        "deduction_mode", "deduction_month_count", "deduction_amount_per_month",
+        "deduction_payroll_year", "deduction_payroll_month",
     ],
     "penalties": [
         "id", "employee_id", "penalty_type", "penalty_days", "reason", "penalty_date",
         "applied_to_payroll", "created_at",
+    ],
+    "payslips": [
+        "id", "batch_id", "employee_id", "days_present", "days_absent", "days_leave",
+        "overtime_hours", "basic_salary", "allowances", "overtime_pay", "penalties_total",
+        "advance_deduction", "other_deductions", "net_salary", "food_allowance",
+        "risk_allowance", "transport_allowance", "incentives", "insurance_deduction",
+        "tax_deduction", "advances_deduction", "fund_deduction", "gross_salary",
+        "total_entitlements", "total_deductions",
+    ],
+    # Staged under the LEGACY name; the target table is leave_balances.
+    # See LOAD_ORDER for why the two must not be confused.
+    "leave_balance": [
+        "id", "employee_id", "year", "period_from_month", "period_to_month",
+        "monthly_cap_days", "total_days", "used_days", "remaining_days",
+    ],
+    "employee_schedules": [
+        "id", "employee_id", "schedule_date", "name", "start_time", "end_time",
+        "exception_note", "created_at",
+    ],
+    "employee_shift_assignments": [
+        "id", "employee_id", "shift_id", "effective_from", "created_at",
     ],
     # Transform sources, loaded in legacy shape. hr_permissions' column
     # list must match hr-legacy's own column order exactly: plain COPY
@@ -159,6 +182,19 @@ LOAD_ORDER = [
     "identities", "tenant_memberships", "request_types", "requests",
     "company_official_holidays", "salary_contracts", "payroll_batches", "advances",
     "penalties", "attendance",
+    # History and scheduling. All four are foreign-key leaves -- nothing in
+    # the target schema REFERENCES them -- so they append here with no cycle
+    # to resolve.
+    #
+    # NOTE the name: these entries are TARGET table names, because _finalize
+    # uses them directly as such (pg_get_serial_sequence, the count rollup,
+    # the unmapped-FK guard). Every other entity's legacy and target names
+    # happen to match; `leave_balances` is the first that does not. Its
+    # STAGING key, CSV, and staging table stay on the legacy singular
+    # `leave_balance`. Writing the legacy name here emits SQL against a
+    # table PostgreSQL does not have, and fails in finalize -- after every
+    # INSERT has already run.
+    "payslips", "leave_balances", "employee_schedules", "employee_shift_assignments",
 ]
 
 # Tables loaded through mapped parents but without a legacy id of their own.
@@ -267,13 +303,18 @@ WHERE NOT EXISTS (SELECT 1 FROM departments d WHERE d.id = m.new_id);
     # ---------- branches / job_titles / shifts / exception_types ----------
     p.append(_allocate("branches", "migration.stg_branches"))
     p.append("""
+-- expires_at is a legacy `datetime`, not a `timestamp`: literal wall clock
+-- with no offset ever applied, so it loads as the same reading in UTC and
+-- is never shifted -- the same rule attendance.check_in follows.
 INSERT INTO branches (id, company_id, name, address, latitude, longitude, radius_meters,
-                      is_active, created_at)
+                      is_active, created_at, qr_code, expires_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.name, s.address,
        s.latitude::NUMERIC, s.longitude::NUMERIC, COALESCE(s.radius_meters::INT, 0),
        COALESCE(s.is_active, '1') = '1',
-       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC'),
+       s.qr_code,
+       (s.expires_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_branches s
 JOIN migration.id_map m ON m.entity = 'branches' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -581,13 +622,23 @@ WHERE NOT EXISTS (SELECT 1 FROM payroll_batches b WHERE b.id = m.new_id);
 
     p.append(_allocate("advances", "migration.stg_advances"))
     p.append("""
+-- deduction_mode is a lowercase legacy enum and the target CHECKs against
+-- uppercase, same shape as status. The remaining scheduling columns are
+-- nullable in both, except month_count which defaults to 1 on both sides.
 INSERT INTO advances (id, employee_id, company_id, amount, remaining, reason,
-                      rejection_reason, status, request_date, created_at)
+                      rejection_reason, status, request_date, created_at,
+                      deduction_mode, deduction_month_count, deduction_amount_per_month,
+                      deduction_payroll_year, deduction_payroll_month)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id, COALESCE(s.amount::NUMERIC, 0),
        COALESCE(s.remaining::NUMERIC, 0), s.reason, s.rejection_reason,
        UPPER(COALESCE(s.status, 'pending')), s.request_date::DATE,
-       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC'),
+       UPPER(COALESCE(s.deduction_mode, 'single_payroll_month')),
+       COALESCE(s.deduction_month_count::INT, 1),
+       s.deduction_amount_per_month::NUMERIC,
+       s.deduction_payroll_year::SMALLINT,
+       s.deduction_payroll_month::SMALLINT
 FROM migration.stg_advances s
 JOIN migration.id_map m ON m.entity = 'advances' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
@@ -635,6 +686,157 @@ JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.empl
 JOIN employees e ON e.id = emp.new_id
 {_fk('ex', 'exception_types', 's.exception_type_id')}
 WHERE NOT EXISTS (SELECT 1 FROM attendance a WHERE a.id = m.new_id);
+""".strip())
+
+    # ---------- payroll history and scheduling ----------
+    # payslips carry company_id from their BATCH: a payslip belongs to the
+    # payroll run that produced it. created_at likewise -- legacy has no
+    # timestamp column on payslips at all, and a payslip comes into
+    # existence when its batch is calculated (D-b). The employee's own
+    # company is cross-checked immediately below.
+    p.append(_allocate("payslips", "migration.stg_payslips"))
+    p.append("""
+INSERT INTO payslips (id, batch_id, employee_id, company_id, days_present, days_absent,
+                      days_leave, overtime_hours, basic_salary, allowances, overtime_pay,
+                      penalties_total, advance_deduction, other_deductions, net_salary,
+                      food_allowance, risk_allowance, transport_allowance, incentives,
+                      insurance_deduction, tax_deduction, advances_deduction,
+                      fund_deduction, gross_salary, total_entitlements, total_deductions,
+                      created_at)
+OVERRIDING SYSTEM VALUE
+SELECT m.new_id, bm.new_id, emp.new_id, b.company_id,
+       COALESCE(s.days_present::SMALLINT, 0), COALESCE(s.days_absent::SMALLINT, 0),
+       COALESCE(s.days_leave::SMALLINT, 0), COALESCE(s.overtime_hours::NUMERIC, 0),
+       COALESCE(s.basic_salary::NUMERIC, 0), COALESCE(s.allowances::NUMERIC, 0),
+       COALESCE(s.overtime_pay::NUMERIC, 0), COALESCE(s.penalties_total::NUMERIC, 0),
+       COALESCE(s.advance_deduction::NUMERIC, 0), COALESCE(s.other_deductions::NUMERIC, 0),
+       COALESCE(s.net_salary::NUMERIC, 0), COALESCE(s.food_allowance::NUMERIC, 0),
+       COALESCE(s.risk_allowance::NUMERIC, 0), COALESCE(s.transport_allowance::NUMERIC, 0),
+       COALESCE(s.incentives::NUMERIC, 0), COALESCE(s.insurance_deduction::NUMERIC, 0),
+       COALESCE(s.tax_deduction::NUMERIC, 0), COALESCE(s.advances_deduction::NUMERIC, 0),
+       COALESCE(s.fund_deduction::NUMERIC, 0), COALESCE(s.gross_salary::NUMERIC, 0),
+       COALESCE(s.total_entitlements::NUMERIC, 0), COALESCE(s.total_deductions::NUMERIC, 0),
+       b.created_at
+FROM migration.stg_payslips s
+JOIN migration.id_map m ON m.entity = 'payslips' AND m.legacy_id = s.id::BIGINT
+JOIN migration.id_map bm ON bm.entity = 'payroll_batches' AND bm.legacy_id = s.batch_id::BIGINT
+JOIN payroll_batches b ON b.id = bm.new_id
+JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
+WHERE NOT EXISTS (SELECT 1 FROM payslips ps WHERE ps.id = m.new_id);
+""".strip())
+    p.append("""
+-- A payslip can reach company_id two ways, through its batch or through
+-- its employee, and they must agree. Legacy has no tenant column here to
+-- check against, so the two mapped parents are compared directly: a
+-- disagreement is a cross-tenant row, and loading it silently would put
+-- one company's payroll inside another's.
+DO $$
+DECLARE crossed TEXT;
+BEGIN
+    SELECT string_agg(m.legacy_id || ' (batch company ' || p.company_id
+                      || ', employee company ' || e.company_id || ')', ', ')
+    INTO crossed
+    FROM payslips p
+    JOIN migration.id_map m ON m.entity = 'payslips' AND m.new_id = p.id
+    JOIN employees e ON e.id = p.employee_id
+    WHERE e.company_id <> p.company_id;
+    IF crossed IS NOT NULL THEN
+        RAISE EXCEPTION 'ETL: payslips whose batch and employee belong to different companies: %', crossed;
+    END IF;
+END $$;
+""".strip())
+
+    # leave_balances: the duplicate guard runs BEFORE allocation, so the
+    # failure names an employee and a year rather than an index.
+    p.append("""
+-- Legacy has only PRIMARY KEY(id) and a plain KEY on employee_id; V25
+-- declares UNIQUE(employee_id, year). Checked here by name rather than
+-- letting the constraint fire with a message naming an index. An employee
+-- whose balance is split across two rows must not silently lose days.
+DO $$
+DECLARE dupes TEXT;
+BEGIN
+    SELECT string_agg(d.employee_id || '/' || d.year, ', ') INTO dupes
+    FROM (
+        SELECT s.employee_id, s.year
+        FROM migration.stg_leave_balance s
+        GROUP BY s.employee_id, s.year
+        HAVING count(*) > 1
+    ) d;
+    IF dupes IS NOT NULL THEN
+        RAISE EXCEPTION 'ETL: leave_balance has duplicate (employee_id, year) rows: %. V25 declares UNIQUE(employee_id, year); decide which balance is real before loading.', dupes;
+    END IF;
+END $$;
+""".strip())
+    p.append(_allocate("leave_balances", "migration.stg_leave_balance"))
+    p.append("""
+-- remaining_days is GENERATED ALWAYS AS STORED on both sides: naming it
+-- in this INSERT makes PostgreSQL reject the statement. It is still
+-- exported from both sides so migration_diff proves the two engines
+-- compute it identically. created_at derives from the row's own year --
+-- the balance IS the year, so the row cannot predate it (D-b).
+INSERT INTO leave_balances (id, employee_id, company_id, year, period_from_month,
+                            period_to_month, monthly_cap_days, total_days, used_days,
+                            created_at)
+OVERRIDING SYSTEM VALUE
+SELECT m.new_id, emp.new_id, e.company_id, s.year::SMALLINT,
+       COALESCE(s.period_from_month::SMALLINT, 1),
+       COALESCE(s.period_to_month::SMALLINT, 12),
+       s.monthly_cap_days::NUMERIC,
+       COALESCE(s.total_days::NUMERIC, 0), COALESCE(s.used_days::NUMERIC, 0),
+       make_timestamptz(s.year::INT, 1, 1, 0, 0, 0, 'UTC')
+FROM migration.stg_leave_balance s
+JOIN migration.id_map m ON m.entity = 'leave_balances' AND m.legacy_id = s.id::BIGINT
+JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
+JOIN employees e ON e.id = emp.new_id
+WHERE NOT EXISTS (SELECT 1 FROM leave_balances lb WHERE lb.id = m.new_id);
+""".strip())
+
+    p.append(_allocate("employee_schedules", "migration.stg_employee_schedules"))
+    p.append("""
+INSERT INTO employee_schedules (id, company_id, employee_id, schedule_date, name,
+                                start_time, end_time, exception_note, created_at)
+OVERRIDING SYSTEM VALUE
+SELECT m.new_id, e.company_id, emp.new_id, s.schedule_date::DATE, s.name,
+       s.start_time::TIME, s.end_time::TIME, s.exception_note,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
+FROM migration.stg_employee_schedules s
+JOIN migration.id_map m ON m.entity = 'employee_schedules' AND m.legacy_id = s.id::BIGINT
+JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
+JOIN employees e ON e.id = emp.new_id
+WHERE NOT EXISTS (SELECT 1 FROM employee_schedules es WHERE es.id = m.new_id);
+""".strip())
+
+    p.append(_allocate("employee_shift_assignments", "migration.stg_employee_shift_assignments"))
+    p.append("""
+INSERT INTO employee_shift_assignments (id, company_id, employee_id, shift_id,
+                                        effective_from, created_at)
+OVERRIDING SYSTEM VALUE
+SELECT m.new_id, e.company_id, emp.new_id, sh.new_id,
+       s.effective_from::DATE,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
+FROM migration.stg_employee_shift_assignments s
+JOIN migration.id_map m ON m.entity = 'employee_shift_assignments' AND m.legacy_id = s.id::BIGINT
+JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
+JOIN employees e ON e.id = emp.new_id
+JOIN migration.id_map sh ON sh.entity = 'shifts' AND sh.legacy_id = s.shift_id::BIGINT
+WHERE NOT EXISTS (SELECT 1 FROM employee_shift_assignments a WHERE a.id = m.new_id);
+""".strip())
+    p.append("""
+-- A shift belonging to another tenant would put the assignment in the
+-- wrong company. Legacy has no tenant column on either side, so the two
+-- mapped parents are compared directly.
+DO $$
+DECLARE crossed BIGINT;
+BEGIN
+    SELECT count(*) INTO crossed
+    FROM employee_shift_assignments a
+    JOIN shifts sh ON sh.id = a.shift_id
+    WHERE sh.company_id <> a.company_id;
+    IF crossed > 0 THEN
+        RAISE EXCEPTION 'ETL: % employee_shift_assignments rows reference a shift from another company', crossed;
+    END IF;
+END $$;
 """.strip())
 
     # ---------- transform: EAV -> typed company_settings ----------
