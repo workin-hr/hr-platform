@@ -238,8 +238,9 @@ def _load() -> str:
     # ---------- companies ----------
     p.append(_allocate("companies", "migration.stg_companies"))
     p.append("""
-INSERT INTO companies (id, name, phone, active) OVERRIDING SYSTEM VALUE
-SELECT m.new_id, s.name, s.phone, COALESCE(s.status, 'active') = 'active'
+INSERT INTO companies (id, name, phone, active, created_at) OVERRIDING SYSTEM VALUE
+SELECT m.new_id, s.name, s.phone, COALESCE(s.status, 'active') = 'active',
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_companies s
 JOIN migration.id_map m ON m.entity = 'companies' AND m.legacy_id = s.id::BIGINT
 WHERE NOT EXISTS (SELECT 1 FROM companies c WHERE c.id = m.new_id);
@@ -266,11 +267,13 @@ WHERE NOT EXISTS (SELECT 1 FROM departments d WHERE d.id = m.new_id);
     # ---------- branches / job_titles / shifts / exception_types ----------
     p.append(_allocate("branches", "migration.stg_branches"))
     p.append("""
-INSERT INTO branches (id, company_id, name, address, latitude, longitude, radius_meters, is_active)
+INSERT INTO branches (id, company_id, name, address, latitude, longitude, radius_meters,
+                      is_active, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.name, s.address,
        s.latitude::NUMERIC, s.longitude::NUMERIC, COALESCE(s.radius_meters::INT, 0),
-       COALESCE(s.is_active, '1') = '1'
+       COALESCE(s.is_active, '1') = '1',
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_branches s
 JOIN migration.id_map m ON m.entity = 'branches' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -321,10 +324,11 @@ END $$;
 
     p.append(_allocate("job_titles", "migration.stg_job_titles"))
     p.append(f"""
-INSERT INTO job_titles (id, company_id, department_id, name, work_hours, is_active)
+INSERT INTO job_titles (id, company_id, department_id, name, work_hours, is_active, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, dm.new_id, s.name,
-       COALESCE(s.work_hours::NUMERIC, 8), COALESCE(s.is_active, '1') = '1'
+       COALESCE(s.work_hours::NUMERIC, 8), COALESCE(s.is_active, '1') = '1',
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_job_titles s
 JOIN migration.id_map m ON m.entity = 'job_titles' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -334,10 +338,11 @@ WHERE NOT EXISTS (SELECT 1 FROM job_titles j WHERE j.id = m.new_id);
 
     p.append(_allocate("shifts", "migration.stg_shifts"))
     p.append("""
-INSERT INTO shifts (id, company_id, name, start_time, end_time, days_off, is_active)
+INSERT INTO shifts (id, company_id, name, start_time, end_time, days_off, is_active, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.name, s.start_time::TIME, s.end_time::TIME, s.days_off,
-       COALESCE(s.is_active, '1') = '1'
+       COALESCE(s.is_active, '1') = '1',
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_shifts s
 JOIN migration.id_map m ON m.entity = 'shifts' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -346,8 +351,9 @@ WHERE NOT EXISTS (SELECT 1 FROM shifts sh WHERE sh.id = m.new_id);
 
     p.append(_allocate("exception_types", "migration.stg_exception_types"))
     p.append("""
-INSERT INTO exception_types (id, company_id, name) OVERRIDING SYSTEM VALUE
-SELECT m.new_id, cm.new_id, s.name
+INSERT INTO exception_types (id, company_id, name, created_at) OVERRIDING SYSTEM VALUE
+SELECT m.new_id, cm.new_id, s.name,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_exception_types s
 JOIN migration.id_map m ON m.entity = 'exception_types' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -375,12 +381,14 @@ GROUP BY s.phone;
 -- it gets NULL, since the real, shared phone lives on the identity
 -- every one of them is linked to via tenant_memberships.
 INSERT INTO employees (id, company_id, first_name, last_name, phone, role, active,
-                       branch_id, department_id, job_title_id, expected_daily_hours)
+                       branch_id, department_id, job_title_id, expected_daily_hours,
+                       created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.first_name, COALESCE(s.last_name, ''),
        CASE WHEN pa.anchor_employee_id = s.id::BIGINT THEN s.phone ELSE NULL END,
        UPPER(COALESCE(s.role, 'employee')), COALESCE(s.is_active, '1') = '1',
-       bm.new_id, dm.new_id, jm.new_id, s.expected_daily_hours::NUMERIC
+       bm.new_id, dm.new_id, jm.new_id, s.expected_daily_hours::NUMERIC,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_employees s
 JOIN migration.id_map m ON m.entity = 'employees' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -481,12 +489,14 @@ ON CONFLICT DO NOTHING;
     p.append(_allocate("request_types", "migration.stg_request_types"))
     p.append(f"""
 INSERT INTO request_types (id, company_id, name, is_active, deduct_balance,
-                           counts_as_paid_leave, add_attendance_exception, exception_type_id)
+                           counts_as_paid_leave, add_attendance_exception, exception_type_id,
+                           created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.name,
        COALESCE(s.is_active, '1') = '1', COALESCE(s.deduct_balance, '0') = '1',
        COALESCE(s.counts_as_paid_leave, '1') = '1', COALESCE(s.add_attendance_exception, '0') = '1',
-       em.new_id
+       em.new_id,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_request_types s
 JOIN migration.id_map m ON m.entity = 'request_types' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -500,12 +510,14 @@ WHERE NOT EXISTS (SELECT 1 FROM request_types r WHERE r.id = m.new_id);
 -- through tenant_memberships like hr_permissions is, and left NULL for
 -- the not-yet-decided case rather than requiring one.
 INSERT INTO requests (id, employee_id, company_id, request_type_id, from_date, to_date,
-                      from_time, to_time, notes, status, reply, approver_membership_id, decided_at)
+                      from_time, to_time, notes, status, reply, approver_membership_id, decided_at,
+                      created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id, rt.new_id,
        s.from_date::DATE, s.to_date::DATE, s.from_time::TIME, s.to_time::TIME,
        s.notes, UPPER(COALESCE(s.status, 'pending')), s.reply, am.new_id,
-       (s.decided_at::TIMESTAMP AT TIME ZONE 'UTC')
+       (s.decided_at::TIMESTAMP AT TIME ZONE 'UTC'),
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_requests s
 JOIN migration.id_map m ON m.entity = 'requests' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
@@ -518,9 +530,10 @@ WHERE NOT EXISTS (SELECT 1 FROM requests r WHERE r.id = m.new_id);
     # ---------- holidays ----------
     p.append(_allocate("company_official_holidays", "migration.stg_company_official_holidays"))
     p.append("""
-INSERT INTO company_official_holidays (id, company_id, name, holiday_date)
+INSERT INTO company_official_holidays (id, company_id, name, holiday_date, created_at)
 OVERRIDING SYSTEM VALUE
-SELECT m.new_id, cm.new_id, s.name, s.holiday_date::DATE
+SELECT m.new_id, cm.new_id, s.name, s.holiday_date::DATE,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_company_official_holidays s
 JOIN migration.id_map m ON m.entity = 'company_official_holidays' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -533,7 +546,7 @@ WHERE NOT EXISTS (SELECT 1 FROM company_official_holidays h WHERE h.id = m.new_i
 INSERT INTO salary_contracts (id, employee_id, company_id, salary_mode, basic_salary, daily_wage,
        housing_allowance, transport_allowance, food_allowance, risk_allowance, incentives,
        insurance_deduction, tax_deduction, advances_deduction, fund_deduction, penalty_deduction,
-       effective_from)
+       effective_from, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id, UPPER(COALESCE(s.salary_mode, 'monthly')),
        COALESCE(s.basic_salary::NUMERIC, 0), COALESCE(s.daily_wage::NUMERIC, 0),
@@ -542,7 +555,8 @@ SELECT m.new_id, emp.new_id, e.company_id, UPPER(COALESCE(s.salary_mode, 'monthl
        COALESCE(s.incentives::NUMERIC, 0), COALESCE(s.insurance_deduction::NUMERIC, 0),
        COALESCE(s.tax_deduction::NUMERIC, 0), COALESCE(s.advances_deduction::NUMERIC, 0),
        COALESCE(s.fund_deduction::NUMERIC, 0), COALESCE(s.penalty_deduction::NUMERIC, 0),
-       s.effective_from::DATE
+       s.effective_from::DATE,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_salary_contracts s
 JOIN migration.id_map m ON m.entity = 'salary_contracts' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
@@ -552,11 +566,13 @@ WHERE NOT EXISTS (SELECT 1 FROM salary_contracts c WHERE c.id = m.new_id);
 
     p.append(_allocate("payroll_batches", "migration.stg_payroll_batches"))
     p.append("""
-INSERT INTO payroll_batches (id, company_id, month, year, period_from, period_to, status)
+INSERT INTO payroll_batches (id, company_id, month, year, period_from, period_to, status,
+                             created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.month::SMALLINT, s.year::SMALLINT,
        s.period_from::DATE, s.period_to::DATE,
-       CASE WHEN LOWER(COALESCE(s.status, 'draft')) IN ('finalized', 'final') THEN 'FINALIZED' ELSE 'DRAFT' END
+       CASE WHEN LOWER(COALESCE(s.status, 'draft')) IN ('finalized', 'final') THEN 'FINALIZED' ELSE 'DRAFT' END,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_payroll_batches s
 JOIN migration.id_map m ON m.entity = 'payroll_batches' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT
@@ -566,11 +582,12 @@ WHERE NOT EXISTS (SELECT 1 FROM payroll_batches b WHERE b.id = m.new_id);
     p.append(_allocate("advances", "migration.stg_advances"))
     p.append("""
 INSERT INTO advances (id, employee_id, company_id, amount, remaining, reason,
-                      rejection_reason, status, request_date)
+                      rejection_reason, status, request_date, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id, COALESCE(s.amount::NUMERIC, 0),
        COALESCE(s.remaining::NUMERIC, 0), s.reason, s.rejection_reason,
-       UPPER(COALESCE(s.status, 'pending')), s.request_date::DATE
+       UPPER(COALESCE(s.status, 'pending')), s.request_date::DATE,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_advances s
 JOIN migration.id_map m ON m.entity = 'advances' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
@@ -581,11 +598,12 @@ WHERE NOT EXISTS (SELECT 1 FROM advances a WHERE a.id = m.new_id);
     p.append(_allocate("penalties", "migration.stg_penalties"))
     p.append("""
 INSERT INTO penalties (id, employee_id, company_id, penalty_type, penalty_days, reason,
-                       penalty_date, applied_to_payroll)
+                       penalty_date, applied_to_payroll, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id, s.penalty_type,
        COALESCE(s.penalty_days::NUMERIC, 0), s.reason, s.penalty_date::DATE,
-       COALESCE(s.applied_to_payroll, '0') = '1'
+       COALESCE(s.applied_to_payroll, '0') = '1',
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_penalties s
 JOIN migration.id_map m ON m.entity = 'penalties' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
@@ -603,13 +621,14 @@ WHERE NOT EXISTS (SELECT 1 FROM penalties pn WHERE pn.id = m.new_id);
 -- detection and moves every early-morning punch to the previous day.
 -- See docs/migration/2026-08-09-etl-and-timezone-design.md.
 INSERT INTO attendance (id, employee_id, company_id, check_in, check_out, method,
-                        latitude, longitude, exception_type_id)
+                        latitude, longitude, exception_type_id, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id,
        (s.check_in::TIMESTAMP AT TIME ZONE 'UTC'),
        (s.check_out::TIMESTAMP AT TIME ZONE 'UTC'),
        CASE WHEN s.exception_type_id IS NULL THEN COALESCE(s.method, 'app') ELSE NULL END,
-       s.latitude::NUMERIC, s.longitude::NUMERIC, ex.new_id
+       s.latitude::NUMERIC, s.longitude::NUMERIC, ex.new_id,
+       (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_attendance s
 JOIN migration.id_map m ON m.entity = 'attendance' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT

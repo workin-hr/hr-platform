@@ -164,6 +164,50 @@ SELECT * FROM company_setting_values ORDER BY id;
 SELECT * FROM setting_definitions ORDER BY id;
 SELECT * FROM setting_allowed_values ORDER BY id;
 
+-- ---------- created_at quality probe ----------
+-- The load carries legacy created_at into NOT NULL TIMESTAMPTZ columns.
+-- MySQL permits '0000-00-00 00:00:00' where PostgreSQL has no such value,
+-- and invalid-date-analysis.md proves zero-dates are real in this dump --
+-- it just never examined these columns. A single bad value aborts the
+-- cutover run at the cast, so it is counted here, at dump time, while
+-- there is still time to decide what to do about it.
+SELECT 'created_at_quality' AS probe, t.name AS table_name,
+       t.zero_dates, t.null_dates
+FROM (
+    SELECT 'companies' AS name,
+           SUM(created_at = '0000-00-00 00:00:00') AS zero_dates,
+           SUM(created_at IS NULL) AS null_dates FROM companies
+    UNION ALL SELECT 'employees',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM employees
+    UNION ALL SELECT 'attendance',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM attendance
+    UNION ALL SELECT 'branches',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM branches
+    UNION ALL SELECT 'shifts',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM shifts
+    UNION ALL SELECT 'job_titles',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM job_titles
+    UNION ALL SELECT 'departments',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM departments
+    UNION ALL SELECT 'exception_types',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM exception_types
+    UNION ALL SELECT 'request_types',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM request_types
+    UNION ALL SELECT 'requests',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM requests
+    UNION ALL SELECT 'company_official_holidays',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM company_official_holidays
+    UNION ALL SELECT 'salary_contracts',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM salary_contracts
+    UNION ALL SELECT 'payroll_batches',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM payroll_batches
+    UNION ALL SELECT 'advances',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM advances
+    UNION ALL SELECT 'penalties',
+           SUM(created_at = '0000-00-00 00:00:00'), SUM(created_at IS NULL) FROM penalties
+) t
+ORDER BY t.name;
+
 -- ---------- the offset the export ran under, for the record ----------
 -- Recorded so a later reader can tell what the exporter assumed, and so
 -- the is_daylight_saving question is answered by the dump itself rather
@@ -236,6 +280,12 @@ def self_test() -> int:
           and "FROM department_branches ORDER BY department_id, branch_id" in EXPORT_SQL
           and "departments.csv" in MANIFEST
           and "department_branches.csv" in MANIFEST)
+    check(
+        "created_at is probed for zero-dates before the load depends on it",
+        "created_at_quality" in EXPORT_SQL
+        and "0000-00-00 00:00:00" in EXPORT_SQL
+        and EXPORT_SQL.count("AS zero_dates") == 1,
+    )
 
     manifest = json.loads(MANIFEST)
     files = [t["file"] for t in manifest["tables"]]
