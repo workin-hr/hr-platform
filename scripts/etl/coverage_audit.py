@@ -18,14 +18,36 @@ legacy column that does not reach the target, in three detection classes:
                         -- the exact shape of the created_at defect
 
 The point is not the report. The point is `--check`: every gap must be
-registered in ACCEPTED (a decision was made and recorded) or PENDING (a
-decision is owed, with a tracking note). A gap in neither fails the
-build. So a column can still be dropped -- deliberately, in writing --
-but it can no longer be dropped quietly.
+registered in exactly one of three states. A gap in none of them fails
+the build. So a column can still be dropped -- deliberately, in writing
+-- but it can no longer be dropped quietly.
 
-A stale registry entry fails too. An accepted drop that has since been
-implemented, or a pending gap that has since been closed, is a lie in
-the ledger, and a ledger nobody trusts is worse than none.
+    ACCEPTED   decided not to migrate. The value is deliberately lost,
+               and the reason is the entry -- without one it is
+               indistinguishable from an oversight.
+    SCHEDULED  decided to migrate, not migrated yet. Names the decision
+               that settled it (D-032 and the like), enforced by
+               --self-test, because an entry that cannot cite a decision
+               is a PENDING note wearing a different label.
+    PENDING    nobody has decided. The note says what must be resolved;
+               'TODO' is not a note.
+
+SCHEDULED exists because deciding to migrate does not close a gap. The
+value still is not in the target, so `--check` must keep failing on it,
+while the ledger stops describing a settled question as open. Collapsing
+it into either neighbour loses something real: ACCEPTED would assert the
+value is deliberately gone, PENDING would keep asking a question that has
+an answer.
+
+Two failure modes beyond an unregistered gap:
+
+- A **stale** entry -- an accepted drop since implemented, or a gap since
+  closed -- is a lie in the ledger, and a ledger nobody trusts is worse
+  than none.
+- A **conflicting** entry, registered in more than one state, asserts two
+  contradictory things at once. Because `check` unions the registries the
+  contradiction otherwise registers as fine: `salary_contracts.total` sat
+  in both ACCEPTED and PENDING undetected until this check was added.
 
 Stdlib only, no database connection, same rule as the rest of
 `scripts/etl/` -- it parses source, it does not query anything.
@@ -91,130 +113,225 @@ ACCEPTED: dict[str, str] = {
         "migration_diff proves the two engines compute it identically, and "
         "asserted in EtlLoadFixtureTest -- carried by computation, not by copy."
     ),
+    "employees.token_version": (
+        "D-032 A7: dropped. A legacy JWT-invalidation counter, replaced by the "
+        "refresh-token/session revocation model (F-26). Nothing in the target "
+        "reads a per-user token generation, so carrying it would migrate a "
+        "number with no consumer."
+    ),
+    "configs.id": (
+        "D-032 A8: dropped. The generic legacy configs table is not reproduced; "
+        "keys proven required by business behaviour become typed platform "
+        "configuration instead, so the surrogate row id has nothing to identify."
+    ),
 }
 
 # Legacy tables with no extraction at all. Registered as whole tables
 # because per-column entries would say the same thing 8-25 times.
-ACCEPTED_TABLES: dict[str, str] = {}
-
-PENDING_TABLES: dict[str, str] = {
-    "notifications":"4,014 rows. No target table. Keep-or-drop is a product call.",
-    "complaints": "Support inbox. No target table. Product call.",
-    "assets": "Company assets issued to employees. No target table. Product call.",
-    "administrative_decisions": "Company announcements. No target table. Product call.",
-    "workforce_planning": "Headcount targets. No target table. Product call.",
-    "employee_docs": "Document metadata; files live outside the DB. Product call.",
-    "push_tokens": "FCM tokens; F-08 says push never worked end-to-end. Product call.",
-    "otp_codes": "Short-lived codes. Almost certainly not worth migrating -- confirm.",
-    "banners": "Marketing surface. No target table. Product call.",
-    "app_content": "CMS-ish content. No target table. Product call.",
-    "faq_categories": "Reference/content data. No target table. Product call.",
-    "faq_items": "Reference/content data. No target table. Product call.",
-    "phone_countries": "Reference data; the new platform may seed its own. Confirm.",
-    "company_activities": "Lookup referenced by companies.company_activity_id. Confirm.",
-    "company_sizes": "Lookup referenced by companies.company_size_id. Confirm.",
-    "company_titles": "Lookup referenced by companies.company_title_id. Confirm.",
+ACCEPTED_TABLES: dict[str, str] = {
+    "push_tokens": (
+        "D-032 A2: dropped. F-08 confirms push never worked end-to-end in "
+        "legacy, so these are dead FCM registrations -- migrating them would "
+        "carry tokens that were never able to deliver anything."
+    ),
+    "otp_codes": (
+        "D-032 A2: dropped. Short-lived verification codes with no value once "
+        "expired; no historical or compliance use was claimed for them."
+    ),
+    "phone_countries": (
+        "D-032 A2: legacy rows and ids deliberately not carried. The new "
+        "platform seeds its own canonical reference dataset, so nothing "
+        "downstream may depend on a legacy phone_countries id."
+    ),
 }
+
+# Decided to migrate, not yet migrated. Distinct from ACCEPTED (which
+# means the value is deliberately lost) and from PENDING (which means
+# nobody has decided yet). These are settled questions owed an
+# implementation, so --check must keep failing on them while no longer
+# describing them as open. Every entry names the decision that settled
+# it -- an entry without one is just a PENDING note in disguise.
+SCHEDULED: dict[str, str] = {
+    # A1 -- companies do not authenticate as principals; their logins become
+    # COMPANY_ADMIN identities. Hashes are bcrypt (password_hash($x,
+    # PASSWORD_BCRYPT)) and port to BCryptPasswordEncoder unchanged.
+    "companies.password_hash": (
+        "D-032 A1: becomes the credential of a minted COMPANY_ADMIN identity "
+        "rather than a company principal. Blocked on OQ-1 -- identities.phone "
+        "and companies.phone are both UNIQUE, so a company whose login phone "
+        "belongs to one of its own employees must reuse that identity and be "
+        "granted the role, never get a duplicate."
+    ),
+    "companies.email": (
+        "D-032 A1: preserved to establish the COMPANY_ADMIN identity. Needs a "
+        "target column; identities currently carries phone only."
+    ),
+    "companies.otp_verified": (
+        "D-032 A1: onboarding state needed to establish the admin identity. "
+        "Which subset of onboarding state the target keeps is an implementation "
+        "detail of the identity-minting slice."
+    ),
+    "companies.profile_completed": (
+        "D-032 A1: onboarding state, same slice as otp_verified."
+    ),
+    # A3 -- companies schema expansion. Target has 5 columns today.
+    "companies.company_code": (
+        "D-032 A3: preserve exactly, never renumber. It is the legacy/external "
+        "tenant identifier, so a generated replacement would break every "
+        "outside reference to a tenant."
+    ),
+    "companies.first_name": (
+        "D-032 A3: preserved as the company contact and used when creating the "
+        "initial COMPANY_ADMIN identity. Explicitly does NOT create an employee "
+        "row for that person."
+    ),
+    "companies.last_name": "D-032 A3: company contact surname; same slice as first_name.",
+    "companies.commercial_reg_url": (
+        "D-032 A3: preserve the registration document including the underlying "
+        "file. Blocked on the file-migration work stream, which does not exist "
+        "-- every artifact in scripts/etl/ emits SQL and moves no bytes."
+    ),
+    "companies.logo_url": (
+        "D-032 A3: preserve the asset itself; tenants must not re-upload "
+        "branding. Blocked on the same file-migration work stream."
+    ),
+    "companies.rejection_reason": (
+        "D-032 A3: preserved together with the associated approval/rejection "
+        "state, so existing workflow history is not lost."
+    ),
+    "companies.main_branch_address": (
+        "D-032 A3: folds into the main branch as a fallback when "
+        "branches.address is missing, then company-level address data stops "
+        "being maintained separately."
+    ),
+    "companies.country_code": (
+        "D-032 A3: droppable only AFTER phones normalize to E.164 successfully. "
+        "Per OQ-2 a phone that cannot be normalized keeps its original value and "
+        "is marked migration-invalid, so this column cannot be dropped "
+        "unconditionally and stays scheduled rather than accepted."
+    ),
+    "companies.company_activity_id": (
+        "D-032 A3: mapped by semantic value/code into a seeded lookup, not by "
+        "legacy numeric id."
+    ),
+    "companies.company_title_id": (
+        "D-032 A3: mapped by value into a seeded lookup. company_titles' exact "
+        "semantics are to be confirmed during implementation."
+    ),
+    "companies.company_size_id": (
+        "D-032 A3: mapped by value into a seeded lookup, not by legacy id."
+    ),
+    # A5 -- updated_at across all mutable business entities.
+    "companies.updated_at": (
+        "D-032 A5: updated_at lands on all mutable business entities under one "
+        "auditing model, database-enforced per OQ-3 so ETL, administrative "
+        "scripts and the application share identical semantics. 3 of 40 "
+        "migrations carry it today."
+    ),
+    "exception_types.updated_at": (
+        "D-032 A5: same platform-wide auditing rollout as companies.updated_at."
+    ),
+    # A4 -- advances scheduling.
+    "advances.deduction_type": (
+        "D-032 A4: semantics preserved. If validation against real rows proves "
+        "it 100% equivalent to deduction_mode, a migration assertion enforces "
+        "that instead of a duplicate column; any differing value is mapped "
+        "explicitly. Blocked on a data dump -- only a schema dump exists."
+    ),
+    "advances.deduction_installments_json": (
+        "D-032 A4: normalized into advance_installment (or equivalent) schedule "
+        "records. It is the only record of what repayment was actually agreed."
+    ),
+    # A6 -- deactivation must survive.
+    "exception_types.is_active": (
+        "D-032 A6: the target must carry is_active or an equivalent status, and "
+        "the read paths that list exception types must filter on it -- otherwise "
+        "the column lands and an inactive type still reappears in selectors."
+    ),
+    # A7 -- employee columns.
+    "employees.address": (
+        "D-032 A7: preserved as employee profile data and treated as PII. Per "
+        "OQ-4 it is readable only by the employee themself, COMPANY_ADMIN, "
+        "authorized HR roles and SUPER_ADMIN, enforced at the service/API layer "
+        "and excluded from general employee list responses."
+    ),
+    "employees.photo_url": (
+        "D-032 A7: preserve both the reference and the underlying image. "
+        "Blocked on the file-migration work stream."
+    ),
+    "employees.contract_duration_months": (
+        "D-032 A7: not dropped until fixed-term contract semantics exist in the "
+        "target; the preference is normalizing it into explicit contract dates "
+        "or equivalent terms rather than carrying a bare month count."
+    ),
+    # D-034 -- the three columns the 2026-08-12 brief omitted from Q7.
+    "employees.is_mobile_attendance_enabled": (
+        "D-034: preserve and migrate. Mobile-attendance eligibility is an "
+        "employee-level business rule and must remain unchanged after cutover, "
+        "so a migrated employee keeps exactly the phone check-in eligibility "
+        "they had in legacy."
+    ),
+    "employees.can_check_in_any_branch": (
+        "D-034: preserve and migrate. An employee-level attendance permission "
+        "that must retain its legacy behaviour -- dropping it would silently "
+        "widen or narrow where someone may check in."
+    ),
+    "employees.join_request_status": (
+        "D-034: preserve and migrate even though the join-request workflow is "
+        "not built. Legacy values map into an explicit onboarding/join status "
+        "in the target so existing employee state is not lost; the future "
+        "workflow builds on that state rather than reconstructing it."
+    ),
+}
+
+SCHEDULED_TABLES: dict[str, str] = {
+    "notifications": (
+        "D-032 A2: migrate all notification history. 4,014 rows. Needs a "
+        "tenant-scoped target module, not an archive table."
+    ),
+    "complaints": (
+        "D-032 A2: migrate all complaint/support history with its tenant "
+        "ownership and business state intact."
+    ),
+    "assets": "D-032 A2: migrate all company asset records issued to employees.",
+    "administrative_decisions": (
+        "D-032 A2: migrate all records and history of company announcements."
+    ),
+    "workforce_planning": "D-032 A2: migrate all headcount-target records.",
+    "employee_docs": (
+        "D-032 A2: migrate the metadata AND the actual files from uploads/ into "
+        "platform-controlled storage. The file half has no mechanism today."
+    ),
+    "banners": "D-032 A2: migrate all existing legacy content.",
+    "app_content": "D-032 A2: migrate all existing legacy content.",
+    "faq_categories": "D-032 A2: migrate all existing legacy content.",
+    "faq_items": "D-032 A2: migrate all existing legacy content.",
+    "company_activities": (
+        "D-032 A2: preserve the business values and map them to seeded/"
+        "normalized lookup values. Legacy numeric ids are deliberately not "
+        "depended on."
+    ),
+    "company_sizes": (
+        "D-032 A2: preserve business values, map to seeded lookups, do not "
+        "depend on legacy ids."
+    ),
+    "company_titles": (
+        "D-032 A2: preserve business values and map to seeded lookups. The exact "
+        "semantics of this table are to be confirmed during implementation."
+    ),
+}
+
+PENDING_TABLES: dict[str, str] = {}
 
 # Known, undecided, and owed an answer. The note names what has to be
 # resolved -- 'TODO' is not a note.
 PENDING: dict[str, str] = {
-    "companies.password_hash": (
-        "Company-level login credentials. Legacy companies log in with "
-        "phone+password; the identities transform derives only from "
-        "stg_employees, so nothing carries company credentials across. "
-        "Decide whether company login survives cutover at all."
-    ),
-    "companies.email": "Part of the company-onboarding surface; no target column.",
-    "companies.otp_verified": "Registration/verification state; no target column.",
-    "companies.profile_completed": "Onboarding gate; no target column.",
-    "employees.is_mobile_attendance_enabled": (
-        "Per-employee mobile-attendance opt-in. Affects attendance behaviour, "
-        "so dropping it silently changes what employees can do."
-    ),
-    "employees.can_check_in_any_branch": (
-        "Per-employee geofence exemption; same class as the flag above."
-    ),
-    "employees.join_request_status": "Onboarding gate; no target column.",
-    "advances.deduction_type": (
-        "Legacy enum single_month/multiple_months. Looks redundant with "
-        "deduction_mode, but redundancy has to be confirmed, not assumed."
-    ),
-    "advances.deduction_installments_json": (
-        "Real data written by advances/create.php and update.php. No target "
-        "column; needs one or an explicit drop."
-    ),
-    "companies.company_code": (
-        "Human-facing company identifier. Decide whether tenants keep their "
-        "existing code after cutover or are renumbered."
-    ),
-    "companies.first_name": (
-        "Company contact person's name, distinct from the company name. Decide "
-        "whether the contact becomes an employee/identity row or is dropped."
-    ),
-    "companies.last_name": "Company contact person's surname; same decision as first_name.",
-    "companies.country_code": (
-        "Dial-code prefix for the company phone. Decide whether the target "
-        "stores it separately or folds it into the phone value."
-    ),
-    "companies.commercial_reg_url": (
-        "Uploaded commercial-registration document. Likely a compliance record; "
-        "decide whether it must be retained."
-    ),
-    "companies.logo_url": (
-        "Tenant branding shown in the clients. Decide whether branding survives "
-        "cutover or tenants re-upload."
-    ),
-    "companies.rejection_reason": (
-        "Company-approval workflow state, paired with the status enum. Decide "
-        "whether rejection history is retained."
-    ),
-    "companies.main_branch_address": (
-        "Free-text address on the tenant row, separate from branches.address. "
-        "Decide whether it maps onto the main branch or is dropped."
-    ),
-    "companies.company_activity_id": (
-        "FK into company_activities, itself unextracted. Decide the lookup "
-        "tables and this column together, not separately."
-    ),
-    "companies.company_title_id": "FK into company_titles; decide with the lookup tables.",
-    "companies.company_size_id": "FK into company_sizes; decide with the lookup tables.",
-    "companies.updated_at": (
-        "The target companies table has created_at only. Decide whether any "
-        "entity needs updated_at, since several legacy tables carry one."
-    ),
-    "configs.id": (
-        "configs is read only for the is_daylight_saving probe and has no target "
-        "table; confirm no other config key is needed post-cutover."
-    ),
-    "employees.address": (
-        "Employee home address. Decide whether the rewrite stores personal "
-        "addresses at all -- there may be a data-minimisation argument not to."
-    ),
-    "employees.photo_url": (
-        "Employee photo shown in the clients. Decide whether photos survive "
-        "cutover or are re-uploaded."
-    ),
-    "employees.contract_duration_months": (
-        "Fixed-term contract length. Confirm with payroll whether any rule "
-        "depends on it before dropping."
-    ),
-    "employees.token_version": (
-        "Legacy JWT-invalidation counter. The rewrite revokes via refresh-token "
-        "families (F-26), so this is probably obsolete -- confirm, do not assume."
-    ),
-    "exception_types.is_active": (
-        "Legacy can deactivate an exception type; the target cannot. A migrated "
-        "inactive type would silently become active and reappear in pickers."
-    ),
-    "exception_types.updated_at": (
-        "No target column. Decide alongside companies.updated_at rather than "
-        "table by table."
-    ),
-    "salary_contracts.total": (
-        "GENERATED ALWAYS AS STORED in legacy; the target has no such column. "
-        "Should still be exported for cross-engine comparison."
-    ),
+    # Empty as of D-034. Every known gap is now either a recorded drop or a
+    # recorded commitment to migrate -- no gap is waiting on a decision.
+    # This is a state to defend, not a finish line: a new legacy column, or
+    # a new detection class, lands here first and --check fails until
+    # somebody decides. Empty means nothing is owed an answer today, not
+    # that nothing ever will be.
 }
 
 
@@ -342,15 +459,32 @@ def find_gaps(legacy, target, exported, staging, inserted) -> list[tuple[str, st
     return sorted(gaps)
 
 
-def check(gaps) -> tuple[list[str], list[str]]:
-    """-> (unregistered, stale). Both must be empty for --check to pass.
+def _conflicting(*registries: dict[str, str]) -> list[str]:
+    """Keys appearing in more than one registry.
+
+    The three states are mutually exclusive claims: dropped, owed a
+    decision, or decided-and-owed-an-implementation. A key in two of them
+    asserts two contradictory things, and because `check` unions the
+    registries the contradiction registers as fine -- which is how
+    `salary_contracts.total` sat in both ACCEPTED and PENDING unnoticed.
+    """
+    seen: dict[str, int] = {}
+    for registry in registries:
+        for key in registry:
+            seen[key] = seen.get(key, 0) + 1
+    return sorted(k for k, n in seen.items() if n > 1)
+
+
+def check(gaps) -> tuple[list[str], list[str], list[str]]:
+    """-> (unregistered, stale, conflicting). All three must be empty for
+    `--check` to pass.
 
     Table-level gaps are matched against the table registries, column
     gaps against the column ones, so a whole unextracted table does not
     need one entry per column saying the same thing.
     """
-    registered_cols = set(ACCEPTED) | set(PENDING)
-    registered_tables = set(ACCEPTED_TABLES) | set(PENDING_TABLES)
+    registered_cols = set(ACCEPTED) | set(PENDING) | set(SCHEDULED)
+    registered_tables = set(ACCEPTED_TABLES) | set(PENDING_TABLES) | set(SCHEDULED_TABLES)
     seen_tables = {key for kind, key, _ in gaps if kind == "UNEXTRACTED_TABLE"}
     seen_cols = {key for kind, key, _ in gaps if kind != "UNEXTRACTED_TABLE"}
     unregistered = sorted(
@@ -361,7 +495,11 @@ def check(gaps) -> tuple[list[str], list[str]]:
         [k for k in registered_tables if k not in seen_tables]
         + [k for k in registered_cols if k not in seen_cols]
     )
-    return unregistered, stale
+    conflicting = (
+        _conflicting(ACCEPTED, PENDING, SCHEDULED)
+        + _conflicting(ACCEPTED_TABLES, PENDING_TABLES, SCHEDULED_TABLES)
+    )
+    return unregistered, stale, sorted(conflicting)
 
 
 # --------------------------------------------------------------------
@@ -448,7 +586,7 @@ def self_test() -> int:
             staging, inserted)),
     )
 
-    unregistered, stale = check([("UNEXTRACTED_COLUMN", "kept.never_extracted", "")])
+    unregistered, stale, conflicting = check([("UNEXTRACTED_COLUMN", "kept.never_extracted", "")])
     check_that("an unregistered gap is reported by --check", unregistered == ["kept.never_extracted"])
     check_that("a registry entry with no matching gap is reported as stale",
                "salary_contracts.total" in stale)
@@ -456,6 +594,23 @@ def self_test() -> int:
                all(len(v.strip()) > 20 for v in ACCEPTED.values()))
     check_that("every PENDING entry carries a note",
                all(len(v.strip()) > 20 for v in PENDING.values()))
+
+    # The three states are mutually exclusive claims. A key in two of them
+    # asserts two contradictory things at once, and the union in `check`
+    # makes that register as fine -- which is exactly how
+    # salary_contracts.total sat in both ACCEPTED and PENDING undetected.
+    check_that("no key is registered in more than one state", conflicting == [])
+    check_that("a key in two registries is reported as conflicting",
+               _conflicting({"a.b": "x"}, {"a.b": "y"}) == ["a.b"])
+    check_that("a key in one registry is not reported as conflicting",
+               _conflicting({"a.b": "x"}, {"c.d": "y"}) == [])
+    check_that("every SCHEDULED entry names the decision that settled it",
+               all(re.match(r"^D-\d+", v.strip()) for v in SCHEDULED.values()))
+    check_that("every SCHEDULED_TABLES entry names the decision that settled it",
+               all(re.match(r"^D-\d+", v.strip()) for v in SCHEDULED_TABLES.values()))
+    check_that("every SCHEDULED entry carries a note beyond the decision id",
+               all(len(v.strip()) > 20 for v in
+                   list(SCHEDULED.values()) + list(SCHEDULED_TABLES.values())))
 
     return 1 if failures else 0
 
@@ -504,17 +659,26 @@ def main(argv: list[str]) -> int:
         return 2
 
     gaps = find_gaps(*load_inputs(schema_path))
-    unregistered, stale = check(gaps)
+    unregistered, stale, conflicting = check(gaps)
 
     if "--check" in argv:
         for key in unregistered:
-            print(f"UNREGISTERED GAP: {key} -- record it in ACCEPTED (with a reason) "
-                  f"or PENDING (with what must be decided)")
+            print(f"UNREGISTERED GAP: {key} -- record it in ACCEPTED (with a reason), "
+                  f"SCHEDULED (with the decision that settled it), or PENDING "
+                  f"(with what must be decided)")
         for key in stale:
             print(f"STALE REGISTRY ENTRY: {key} -- no longer a gap; remove it")
-        if unregistered or stale:
+        for key in conflicting:
+            print(f"CONFLICTING REGISTRY ENTRY: {key} -- registered in more than one "
+                  f"state; the three are mutually exclusive claims")
+        if unregistered or stale or conflicting:
             return 1
-        print(f"OK: {len(gaps)} gaps, all registered")
+        print(
+            f"OK: {len(gaps)} gaps, all registered "
+            f"({len(ACCEPTED) + len(ACCEPTED_TABLES)} accepted, "
+            f"{len(SCHEDULED) + len(SCHEDULED_TABLES)} scheduled, "
+            f"{len(PENDING) + len(PENDING_TABLES)} pending a decision)"
+        )
         return 0
 
     by_kind: dict[str, list[tuple[str, str]]] = {}
@@ -523,12 +687,24 @@ def main(argv: list[str]) -> int:
     for kind in ("UNEXTRACTED_TABLE", "UNEXTRACTED_COLUMN", "UNLOADED_COLUMN"):
         entries = by_kind.get(kind, [])
         print(f"\n=== {kind} ({len(entries)}) ===")
-        accepted = ACCEPTED_TABLES if kind == "UNEXTRACTED_TABLE" else ACCEPTED
-        pending = PENDING_TABLES if kind == "UNEXTRACTED_TABLE" else PENDING
+        is_table = kind == "UNEXTRACTED_TABLE"
+        accepted = ACCEPTED_TABLES if is_table else ACCEPTED
+        scheduled = SCHEDULED_TABLES if is_table else SCHEDULED
+        pending = PENDING_TABLES if is_table else PENDING
         for key, detail in entries:
-            state = "ACCEPTED" if key in accepted else "PENDING " if key in pending else "UNREGISTERED"
+            if key in accepted:
+                state = "ACCEPTED "
+            elif key in scheduled:
+                state = "SCHEDULED"
+            elif key in pending:
+                state = "PENDING  "
+            else:
+                state = "UNREGISTERED"
             print(f"  [{state}] {key:52} {detail}")
-    print(f"\ntotal gaps: {len(gaps)}   unregistered: {len(unregistered)}   stale: {len(stale)}")
+    print(
+        f"\ntotal gaps: {len(gaps)}   unregistered: {len(unregistered)}   "
+        f"stale: {len(stale)}   conflicting: {len(conflicting)}"
+    )
     return 0
 
 
