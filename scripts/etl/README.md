@@ -25,11 +25,19 @@ python3 scripts/etl/coverage_audit.py --check    # fails on an unregistered gap
 python3 scripts/etl/coverage_audit.py --self-test
 ```
 
-`--check` is the one that matters: every gap must be registered as
-`ACCEPTED` (decided, with a reason) or `PENDING` (owed a decision, with a
-note). A gap in neither fails, and so does a registry entry that no
-longer corresponds to a real gap. Columns can still be dropped —
-deliberately, in writing — but not quietly. `--report` and `--check` need
+`--check` is the one that matters: every gap must be registered in
+exactly one of three states — `ACCEPTED` (decided not to migrate, with a
+reason), `SCHEDULED` (decided to migrate, not yet migrated, naming the
+decision that settled it), or `PENDING` (nobody has decided, with a note
+saying what must be resolved). A gap in none of them fails. So does a
+registry entry that no longer corresponds to a real gap, and one
+registered in more than one state at once. Columns can still be dropped —
+deliberately, in writing — but not quietly.
+
+`SCHEDULED` exists because deciding to migrate does not close a gap: the
+value still is not in the target, so the check must keep failing while
+the ledger stops calling a settled question open. As of D-032 the ledger
+reads 47 gaps — 8 accepted, 36 scheduled, 3 still pending a decision. `--report` and `--check` need
 the legacy schema (`--schema PATH`, default `../hr-legacy/`);
 `--self-test` needs nothing and is what CI runs.
 

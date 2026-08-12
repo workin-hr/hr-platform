@@ -352,11 +352,35 @@ transfer mechanism, integrity verification, and a URL-rewriting step so
 the migrated rows point at the new locations. None of that exists today,
 and it is not a variation on work that does.
 
+## Three Columns This Brief Never Asked About
+
+This document claimed to convert all 47 gaps into questions. It converted
+44. Q7 was headed *"Four employee columns with no target"* and there were
+seven — `is_mobile_attendance_enabled`, `can_check_in_any_branch` and
+`join_request_status` were never put to the owner, so D-032 does not
+cover them and they remain `PENDING` in the ledger.
+
+Two of the three are not clerical:
+
+- **`employees.is_mobile_attendance_enabled`** — per-employee opt-in for
+  mobile attendance. Dropping it silently changes whether an employee can
+  check in from their phone at all.
+- **`employees.can_check_in_any_branch`** — per-employee geofence
+  exemption. Dropping it silently widens or narrows where someone may
+  check in.
+
+Both change what an employee can *do*, which is the same class of risk as
+the `created_at` defect: a value that disappears without anything failing.
+
+- **`employees.join_request_status`** — onboarding gate with no target
+  column; decide alongside the join-request flow, which the rewrite has
+  not built.
+
 ## Open Questions Created By The Answers
 
 These are not gaps in the answers — they are consequences that surfaced
-while recording them, and each needs a human call before the
-corresponding work can be built.
+while recording them. All four were answered on 2026-08-12 and are
+recorded as **D-033**.
 
 **OQ-1 — Phone collision between company admins and employees.**
 `identities.phone` and `companies.phone` are both `UNIQUE`. A1 mints a
@@ -384,6 +408,47 @@ controls. Which roles may read it, and does it appear in list endpoints
 or only on a single-employee read? This is an authorization-catalog
 entry (F-14–F-25), not an ETL concern, but the migration is what makes
 the data present.
+
+### Answers (2026-08-12)
+
+**OQ-1 — reuse, never duplicate.** If a legacy company login phone
+matches an existing employee identity for the same tenant/person, reuse
+that identity and grant it the `COMPANY_ADMIN` membership/role. Never
+create a duplicate identity for the same person. If the phone matches an
+identity belonging to a different person or tenant context that cannot be
+safely reconciled, **flag the record for explicit migration remediation
+rather than guessing**.
+
+That last clause requires a remediation channel the ETL does not have
+today: a way to abort a single record and report it, instead of aborting
+the load. The existing guards are all load-level aborts.
+
+**OQ-2 — preserve, mark invalid, block activation.** If a login phone
+cannot be normalized to valid E.164, preserve the original legacy value,
+mark the record **migration-invalid**, and block automatic
+activation/login until corrected. Do not silently rewrite, discard, or
+fabricate a phone number.
+
+This needs a migration-invalid state on the target row, which does not
+exist yet — and it means `companies.country_code` cannot be dropped
+unconditionally, since unnormalized rows still need it.
+
+**OQ-3 — database-enforced.** `updated_at` must be database-enforced so
+writes from the ETL, administrative scripts, and the application behave
+identically. JPA auditing may remain as an application convenience but
+must not be the sole mechanism or the source of truth.
+
+Note the interaction with migration: a database trigger fires on the
+ETL's own INSERTs, so migrated rows would carry the load timestamp unless
+the trigger is suppressed during load — the same trap `created_at` fell
+into with `DEFAULT now()`, where ~50,000 rows would have claimed the
+cutover instant.
+
+**OQ-4 — restricted read, excluded from lists.** Employee home address is
+PII. Readable by the employee themself, `COMPANY_ADMIN`, authorized HR
+roles, and `SUPER_ADMIN`. Managers and unrelated employees must not
+receive it by default. Enforced at the service/API level and excluded
+from general employee list responses unless explicitly required.
 
 ## Ledger Consequence
 
