@@ -124,6 +124,24 @@ ACCEPTED: dict[str, str] = {
         "keys proven required by business behaviour become typed platform "
         "configuration instead, so the surrogate row id has nothing to identify."
     ),
+    "employees.is_active": (
+        "Found 2026-08-13 by the UNTARGETED_COLUMN detection class (see "
+        "PENDING's header comment): not a drop, a rename. The value is "
+        "carried -- load_postgres.py's employees INSERT computes "
+        "`COALESCE(s.is_active, '1') = '1'` into the target `active` "
+        "boolean column -- but the column name itself changed, so it has "
+        "no target column under its legacy name. No information loss: "
+        "legacy's is_active is already effectively boolean."
+    ),
+    "requests.approver_id": (
+        "Found 2026-08-13, same detection class as employees.is_active "
+        "above. Not a drop: load_postgres.py's requests INSERT resolves "
+        "`s.approver_id` (a legacy employee id) through the "
+        "tenant_memberships id map into the target `approver_membership_id` "
+        "column -- the role-split architecture (ADR-0009/ADR-0010) "
+        "represents 'who approved this' as a membership, not a bare "
+        "employee id, so the rename is the point, not an oversight."
+    ),
 }
 
 # Legacy tables with no extraction at all. Registered as whole tables
@@ -326,12 +344,102 @@ PENDING_TABLES: dict[str, str] = {}
 # Known, undecided, and owed an answer. The note names what has to be
 # resolved -- 'TODO' is not a note.
 PENDING: dict[str, str] = {
-    # Empty as of D-034. Every known gap is now either a recorded drop or a
-    # recorded commitment to migrate -- no gap is waiting on a decision.
-    # This is a state to defend, not a finish line: a new legacy column, or
-    # a new detection class, lands here first and --check fails until
-    # somebody decides. Empty means nothing is owed an answer today, not
-    # that nothing ever will be.
+    # Found 2026-08-13, running the real ETL end to end for the first time:
+    # a new detection class (UNTARGETED_COLUMN, find_gaps() above) landed
+    # here exactly as the note below predicted. All seven are selected in
+    # export_legacy.py's employees SELECT and staged in load_postgres.py's
+    # STAGING, but no target column exists for any of them and none is in
+    # the actual INSERT INTO employees (...). Decision brief:
+    # docs/migration/2026-08-13-etl-real-data-findings-decision-brief.md.
+    # Until answered, `--check`'s "0 pending" from before this date was
+    # incomplete, not a clean bill of health -- these were real gaps the
+    # tool simply could not see.
+    "employees.employee_code": (
+        "No target column. Was already a KNOWN, deliberate exclusion -- "
+        "V8__create_employees.sql's own comment calls it 'intentionally "
+        "omitted... tracked follow-up' -- but was never registered here, "
+        "so coverage_audit.py disagreed with the migration's own SQL "
+        "comment about whether this was decided. Needs a decision: carry "
+        "it as a real column, or formally accept the drop."
+    ),
+    "employees.country_code": (
+        "No target column. Never flagged as a decision before this run. "
+        "Needed to interpret employees.phone as anything but a bare "
+        "digit string; dropping it silently changes what a migrated "
+        "phone number means. Needs a decision: add a target column, or "
+        "accept the drop and record why phone interpretation doesn't "
+        "need it."
+    ),
+    "employees.national_id": (
+        "No target column. Never flagged as a decision before this run. "
+        "A legal-identity field with likely compliance weight -- not "
+        "something to drop by omission. Needs a decision: add a target "
+        "column, or accept the drop with an explicit reason."
+    ),
+    "employees.birth_date": (
+        "No target column. Never flagged as a decision before this run. "
+        "invalid-date-analysis.md already found 2 of 2,871 rows with a "
+        "zero-date here, on the assumption the column would migrate as "
+        "NULL -- that assumption has no target column to land in today. "
+        "Needs a decision: add a target column (with the zero-date "
+        "remediation invalid-date-analysis.md already proposed), or "
+        "accept the drop."
+    ),
+    "employees.gender": (
+        "No target column. Never flagged as a decision before this run. "
+        "Needs a decision: add a target column, or accept the drop."
+    ),
+    "employees.hire_date": (
+        "No target column. Never flagged as a decision before this run. "
+        "invalid-date-analysis.md already found 22 of 2,871 rows with a "
+        "zero-date here, on the same NULL-remediation assumption as "
+        "birth_date above, with nowhere to load. Needs a decision: add a "
+        "target column, or accept the drop."
+    ),
+    "employees.updated_at": (
+        "No target column. Never flagged as a decision before this run. "
+        "Related to OQ-3 (D-033): the decided rule is that updated_at "
+        "must be database-enforced across every mutable business entity, "
+        "which implies employees needs this column regardless of whether "
+        "legacy's own historical values are worth carrying. Needs a "
+        "decision: add the column (OQ-3 may settle this on its own), or "
+        "accept the drop of the historical values specifically."
+    ),
+    "attendance.updated_at": (
+        "No target column, confirmed by reading V21__create_attendance.sql "
+        "directly -- the table has no updated_at at all. Same OQ-3 family "
+        "as employees.updated_at above; found by the same UNTARGETED_COLUMN "
+        "detection class on 2026-08-13, applied to every table, not just "
+        "employees. Needs the same decision: add the column, or accept "
+        "the drop of legacy's historical values."
+    ),
+    "advances.updated_at": (
+        "No target column. Same OQ-3 family and same discovery as "
+        "attendance.updated_at above. Needs the same decision."
+    ),
+    "requests.updated_at": (
+        "No target column -- V25__create_requests_and_leave_balances.sql's "
+        "own comment already says so explicitly ('no updated_at'), which "
+        "means this was a known omission at the time V25 was written but, "
+        "like employees.employee_code, was never carried into this ledger "
+        "as a registered decision. Same OQ-3 family as the other three. "
+        "Needs the same decision."
+    ),
+    "companies.status": (
+        "Found 2026-08-13 by the UNTARGETED_COLUMN detection class, "
+        "applied to every table. Not a clean rename like "
+        "employees.is_active: load_postgres.py's companies INSERT computes "
+        "`COALESCE(s.status, 'active') = 'active'` into the target `active` "
+        "boolean, which collapses legacy's four-state status "
+        "(`active`/`pending`/`rejected`/`suspended`) into two "
+        "(active/not-active) -- a real information loss, not a rename. "
+        "Directly related to finding C in the 2026-08-13 real-data decision "
+        "brief: 61 of 66 `pending` companies have no name yet, and after "
+        "this collapse a migrated `pending`, `rejected`, and `suspended` "
+        "company are indistinguishable from each other. Needs a decision: "
+        "is losing that distinction acceptable, or does the target need a "
+        "real status column instead of a boolean?"
+    ),
 }
 
 
@@ -447,6 +555,24 @@ def find_gaps(legacy, target, exported, staging, inserted) -> list[tuple[str, st
                 ))
             elif (
                 column in staging.get(table, [])
+                and column not in target.get(target_table, [])
+            ):
+                # A column that IS selected and IS staged, but has no target
+                # column at all, is invisible to both neighboring branches:
+                # the first only fires when the column is unextracted, and
+                # the third (below) requires a target column to exist. Found
+                # 2026-08-13 running the real load: employees.hire_date and
+                # six siblings fell through here silently -- selected,
+                # staged, never inserted, registered nowhere, and
+                # `--check` still reported "0 pending" because nothing
+                # detected them as a gap in the first place.
+                gaps.append((
+                    "UNTARGETED_COLUMN",
+                    f"{table}.{column}",
+                    "selected and staged, but no target column exists",
+                ))
+            elif (
+                column in staging.get(table, [])
                 and target_table in inserted
                 and column in target.get(target_table, [])
                 and column not in inserted[target_table]
@@ -511,7 +637,8 @@ CREATE TABLE `kept` (
   `id` int(10) UNSIGNED NOT NULL,
   `carried` varchar(50) NOT NULL,
   `never_extracted` varchar(50) DEFAULT NULL,
-  `staged_not_loaded` timestamp NOT NULL
+  `staged_not_loaded` timestamp NOT NULL,
+  `selected_untargeted` varchar(50) DEFAULT NULL
 )
 CREATE TABLE `orphan` (
   `id` int(10) UNSIGNED NOT NULL,
@@ -520,7 +647,7 @@ CREATE TABLE `orphan` (
 """
 
 _FIXTURE_EXPORT = """
-SELECT id, carried, staged_not_loaded FROM kept ORDER BY id;
+SELECT id, carried, staged_not_loaded, selected_untargeted FROM kept ORDER BY id;
 """
 
 _FIXTURE_MIGRATIONS = [
@@ -530,7 +657,7 @@ _FIXTURE_MIGRATIONS = [
 
 _FIXTURE_LOAD = '''
 STAGING = {
-    "kept": ["id", "carried", "staged_not_loaded"],
+    "kept": ["id", "carried", "staged_not_loaded", "selected_untargeted"],
 }
 INSERT INTO kept (id, carried)
 '''
@@ -551,7 +678,8 @@ def self_test() -> int:
     inserted = parse_inserted(_FIXTURE_LOAD)
 
     check_that("legacy DDL parses into tables and columns",
-               legacy.get("kept") == ["id", "carried", "never_extracted", "staged_not_loaded"])
+               legacy.get("kept") == ["id", "carried", "never_extracted", "staged_not_loaded",
+                                       "selected_untargeted"])
     check_that("target schema reads CREATE TABLE columns",
                "never_extracted" in target.get("kept", []))
     check_that("ALTER TABLE ADD COLUMN counts as a target column",
@@ -559,7 +687,7 @@ def self_test() -> int:
                    ["CREATE TABLE t (\n    id BIGINT\n);", "ALTER TABLE t ADD COLUMN added_later TEXT;"]
                ).get("t", []))
     check_that("staging and INSERT column lists parse",
-               staging.get("kept") == ["id", "carried", "staged_not_loaded"]
+               staging.get("kept") == ["id", "carried", "staged_not_loaded", "selected_untargeted"]
                and inserted.get("kept") == {"id", "carried"})
     check_that("a column written by a backfill UPDATE counts as loaded",
                parse_inserted("INSERT INTO d (id, name)\n...\nUPDATE d SET manager_id = m.new_id\n")
@@ -574,6 +702,9 @@ def self_test() -> int:
                kinds.get("UNEXTRACTED_COLUMN") == "kept.never_extracted")
     check_that("detects a staged column left out of the INSERT (the created_at shape)",
                kinds.get("UNLOADED_COLUMN") == "kept.staged_not_loaded")
+    check_that("detects a selected+staged column with no target column at all "
+               "(the employees.hire_date shape)",
+               kinds.get("UNTARGETED_COLUMN") == "kept.selected_untargeted")
     check_that("a carried column is not reported", not any("kept.carried" == k for _, k, _ in gaps))
 
     # A column named only in an unrelated statement must not count as covered.
@@ -684,7 +815,7 @@ def main(argv: list[str]) -> int:
     by_kind: dict[str, list[tuple[str, str]]] = {}
     for kind, key, detail in gaps:
         by_kind.setdefault(kind, []).append((key, detail))
-    for kind in ("UNEXTRACTED_TABLE", "UNEXTRACTED_COLUMN", "UNLOADED_COLUMN"):
+    for kind in ("UNEXTRACTED_TABLE", "UNEXTRACTED_COLUMN", "UNTARGETED_COLUMN", "UNLOADED_COLUMN"):
         entries = by_kind.get(kind, [])
         print(f"\n=== {kind} ({len(entries)}) ===")
         is_table = kind == "UNEXTRACTED_TABLE"

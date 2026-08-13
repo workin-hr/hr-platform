@@ -169,36 +169,37 @@ script bug.** Confirmed nothing downstream references these 3 ids
 them is low-risk, but that's still a decision, not a default. **Not
 documented in `orphan-reference-analysis.md`.**
 
-### I. `coverage_audit.py` has a real detection blind spot — 7 `employees` columns are invisible to the ledger
+### I. `coverage_audit.py` had a real detection blind spot — **fixed 2026-08-13**
 
-Traced precisely in `find_gaps()` (`scripts/etl/coverage_audit.py`
-~line 429): a column is flagged `UNEXTRACTED_COLUMN` ("no target
-column") only when it is **absent from the SELECT**; it's flagged
-`UNLOADED_COLUMN` ("staged but absent from INSERT") only when **a
-target column exists**. A column that is selected, staged, has **no**
-target column, and is never inserted — falls through both branches and
-is reported as nothing at all. `employees.employee_code`,
-`.country_code`, `.national_id`, `.birth_date`, `.gender`,
-`.hire_date`, `.updated_at` are exactly this case: all seven appear in
-`export_legacy.py`'s `employees` SELECT and in `load_postgres.py`'s
-STAGING list, none has a target column (confirmed against the full
-column set from V8 + V29 + V37), and none is in the actual `INSERT INTO
-employees (...)`. (`password_hash` looked like an eighth instance at
-first glance — it is not: it's already correctly registered `ACCEPTED`
-in the ledger, because a target column genuinely exists for it and the
-credential is deliberately carried onto `identities.password_hash`
-instead per the identity/membership role split, not dropped.)
-**This means `coverage_audit.py --check`'s "47 gaps — 0 pending" is
-incomplete**: these 7 columns are registered nowhere — not `ACCEPTED`,
-not `SCHEDULED`, not `PENDING` — despite being a real, confirmed
-drop-in-progress today. `employee_code` at least was a *known,
-deliberate* exclusion (documented in `V8__create_employees.sql`'s own
-comment as "intentionally omitted... tracked follow-up"); the other six
-were never flagged as a decision at all. **Decision/fix needed on two
-levels**: (1) each of the 7 columns needs the same kind of accept/drop
-call the other 47 gaps got, and (2) `find_gaps()` itself needs a third
-detection branch for "selected + staged + no target column" so this
-class of gap can't recur invisibly.
+Traced precisely in `find_gaps()` (`scripts/etl/coverage_audit.py`): a
+column was flagged `UNEXTRACTED_COLUMN` ("no target column") only when
+**absent from the SELECT**; flagged `UNLOADED_COLUMN` ("staged but
+absent from INSERT") only when **a target column exists**. A column
+that is selected, staged, has **no** target column, and is never
+inserted fell through both branches, invisible.
+
+**Fixed and self-tested the same day** — a third detection branch,
+`UNTARGETED_COLUMN`, was added (covered by a new self-test fixture and
+assertion; `--report`'s kind list updated too, since it was separately
+hardcoded to the two old kinds and would have kept omitting the new
+class from its own output even after detection was fixed). The fix is
+general — it runs against every table — so it surfaced **11 real gaps
+total**, not just the 7 `employees` columns found by manual inspection:
+9 registered `PENDING` (7 `employees` columns, plus
+`attendance`/`advances`/`requests.updated_at`, plus
+`companies.status`), 2 registered `ACCEPTED` as clean renames
+(`employees.is_active` → target `active`; `requests.approver_id` →
+target `approver_membership_id`). Full enumeration, root cause, and the
+9 pending columns' individual decisions:
+`docs/migration/2026-08-13-etl-real-data-findings-decision-brief.md`
+§"Finding I".
+
+**Ledger state: `47 gaps — 8 accepted, 39 scheduled, 0 pending` (before)
+→ `60 gaps — 10 accepted, 39 scheduled, 11 pending a decision` (after,
+current).** `--self-test` and `--check` both pass against the new
+state. **The pre-2026-08-13 "0 pending" was never an accurate "nothing
+undecided" — treat any reference to "47 gaps" or "0 pending" from
+before this date as stale.**
 
 ### J. `migration_diff.py` cannot currently reconcile 18 of 21 tables — header mismatch, not a data problem
 
@@ -234,27 +235,45 @@ once the data-quality blockers were patched around. Confirms
 well within a single maintenance window at this data volume — no slow
 queries or performance concerns surfaced.
 
-### How this changes items 6–8
+### How this changes items 6–8 — immediate priority order
 
 OQ-1/OQ-2/OQ-3 (below) are about the `COMPANY_ADMIN` identity-minting
 layer, which sits *on top of* the base entity load this run just
-exercised. Findings C, E, F, G, H land on tables OQ-1–3 don't touch
-directly, but the pattern is identical — an abort where a decision
-belongs, discovered only by running against real data — and finding I
-means the coverage ledger itself cannot currently be trusted as a
-complete picture without a fix. Building OQ-1–3 now, on top of a base
-load that doesn't complete cleanly and a coverage ledger with a proven
-blind spot, would repeat the exact mistake finding I just found.
-**Recommended sequencing**: resolve A/B/I/J (tooling; no product
-decision needed, these are bugs) and get C/D/E/F/G/H in front of the
-repository owner as a decision brief (same shape as
-`etl-coverage-decisions-brief.md`) before starting OQ-1–3 implementation.
+exercised. Findings C–H land on tables OQ-1–3 don't touch directly, but
+the pattern is identical — an abort where a decision belongs,
+discovered only by running against real data. Finding I is fixed (see
+above) but the 9 gaps it surfaced are `PENDING`, not answered. Building
+OQ-1–3 now, on top of a base load that doesn't complete cleanly, would
+mean the first real production load attempt hits C–H's six aborts
+*again*, on top of whatever OQ-1–3 add.
+
+**Immediate priority, in order:**
+
+1. **Resolve findings C–H and the 9 `PENDING` gaps finding I surfaced**
+   — the decision brief is
+   `docs/migration/2026-08-13-etl-real-data-findings-decision-brief.md`,
+   same shape as `etl-coverage-decisions-brief.md`'s Q1–Q8. Nothing
+   below this can be built correctly while these are open — a
+   placeholder or default chosen without the repository owner's input
+   is exactly the class of silent, undocumented judgment call this
+   repo's process exists to prevent.
+2. **Fix A, B, and J** — pure tooling bugs, no product decision needed.
+   Minimal patches and tests are prepared (not applied) in the decision
+   brief's "Prepared fixes" section.
+3. **Re-run the full ETL end to end** against real data once 1 and 2
+   land, and confirm it completes cleanly with no scratch-only
+   workarounds needed this time.
+4. **Only then** start OQ-1 → OQ-2 → OQ-3 implementation (items 6–8
+   below), in that order.
+5. **Then** P1 (items 9–11), **then** the 39 `SCHEDULED` ledger entries
+   (item 12).
 
 ## P0 — Blocks the `COMPANY_ADMIN` minting slice
 
-**Status 2026-08-13: hold.** Per the run above, implementation on 6–8
-should wait for the A/B/I/J tooling fixes and the C/D/E/F/G/H decision
-brief — see "How this changes items 6–8" above for why.
+**Status 2026-08-13: hold — 4th in the priority order above.**
+Implementation on 6–8 should wait for step 1 (the C–H decision brief
+and the 9 `PENDING` gaps from finding I) and step 2 (the A/B/J fixes)
+to land, then step 3 (a clean full-ETL re-run), before starting here.
 
 | # | Item | Why it blocks | Source |
 |---|---|---|---|
