@@ -95,79 +95,75 @@ columns in `STAGING` (and decide whether the target needs them — this
 is itself new coverage-ledger material, see finding I) or make the
 `SELECT` explicit and matching.
 
-### C. `companies.company_name` is NULL for 61 of 269 companies (22.7%) — concentrated in `pending` signup
+### C. `companies.company_name` is NULL for 61 of 269 companies (22.7%) — concentrated in `pending` signup — **DECIDED 2026-08-13 (D-035, Q1/A1)**
 
 Target `companies.name` is `NOT NULL`; the load aborts on the first
 such row. Breakdown by legacy `status`: `active` 198/198 have a name,
 `rejected` 2/2, `suspended` 3/3 — but `pending` is 61 NULL of 66
-(92%). This reads as a real product state: a company mid-signup that
-hasn't submitted a business name yet, not corrupt data. **Not
-documented anywhere before this run.** **Decision needed**: what a
-migrated `pending`-with-no-name company gets for `name` (placeholder
-string? migration-invalid flag, same shape as OQ-2? exclude
-pending-incomplete companies from this migration pass entirely?) — this
-is a new open question in the same family as OQ-1/OQ-2, not something
-to default silently.
+(92%). **Decided**: all companies migrate, including `pending` ones;
+`name` stays nullable (no placeholder, not migration-invalid, this is
+a valid legacy lifecycle state); a non-null name is required only at
+activation (application-layer rule, not yet built). `companies.status`
+also gets a real target column preserving all four legacy states
+instead of the boolean `load_postgres.py` currently computes — moved
+from `PENDING` to `SCHEDULED` in `coverage_audit.py`. Full answer:
+`2026-08-13-etl-real-data-findings-decision-brief.md` A1.
 
-### D. `salary_contracts.effective_from` zero-dates — already known, now empirically confirmed as a hard abort
+### D. `salary_contracts.effective_from` zero-dates — **DECIDED 2026-08-13 (D-035, Q2/A2)**
 
 `invalid-date-analysis.md` already found 23 of 2,829 rows with
-`effective_from = '0000-00-00'` and flagged it as needing a business
-decision (the column is `NOT NULL`, so `NULL` isn't an option). This
-run confirms it's not just a query-level finding: it is a literal load
-abort (`ERROR: date/time field value out of range: "0000-00-00"`).
-No new decision needed beyond what that document already asks for —
-recorded here because seeing it actually break the load is stronger
-evidence than the earlier query-only count.
+`effective_from = '0000-00-00'`; this run confirmed it as a literal
+load abort, not just a query-level finding. **Decided**: migrate the
+contracts, fall back to the row's own `created_at` date, and record the
+repair in migration remediation/audit output (a mechanism that does not
+exist yet — see "Engineering now owed" below). Full answer: brief A2.
 
-### E. 13 of 36,316 `attendance` rows violate the "punches XOR exception day" invariant
+### E. 13 of 36,316 `attendance` rows violate the "punches XOR exception day" invariant — **DECIDED 2026-08-13 (D-035, Q3/A3)**
 
 `docs/legacy/business-rule-extraction.md` documents attendance rows as
-either real punches or a category-only exception day, never both; the
-target schema enforces this with `CHECK (exception_type_id IS NULL OR
-check_out IS NULL)`. **13 real rows have both `check_out` and
-`exception_type_id` set** (e.g. legacy id 376: `check_out =
-2026-07-01 16:27:16`, `exception_type_id = 50`). This contradicts the
-documented invariant the target schema was built on — either the
-business-rule extraction missed a legacy code path that allows both, or
-these 13 rows are themselves a legacy data-quality defect (e.g. an
-exception applied after a punch already existed, and legacy's own code
-never blocked that). **Not documented anywhere before this run.**
-**Decision needed**: which field wins (this run kept `check_out`,
-cleared `exception_type_id`, as a test-only choice, not a
-recommendation) and whether legacy's actual business logic needs
-re-reading for this case.
+either real punches or a category-only exception day, never both; **13
+real rows have both `check_out` and `exception_type_id` set** (e.g.
+legacy id 376). **Decided**: these are legacy data-quality defects, not
+a real exception to the rule. Preserve `check_in`/`check_out`, clear
+`exception_type_id`, record each remediation individually, keep the
+target `CHECK` constraint as-is. Full answer: brief A3.
 
-### F. `leave_balance.year = '0000'` for 6 of 2,980 rows
+### F. `leave_balance.year = '0000'` for 6 of 2,980 rows — **DECIDED 2026-08-13 (D-035, Q4/A4)**
 
-Breaks the load's synthesized `created_at`
-(`make_timestamptz(s.year::INT, 1, 1, 0, 0, 0, 'UTC')` — see
-`load_postgres.py`'s D-b comment, "the balance IS the year, so the row
-cannot predate it") with `ERROR: date field value out of range:
-0-01-01`. All 6 affected rows: employee legacy ids 4731, 4732, 4772,
-4779, 4806, 4808. **Not documented in `invalid-date-analysis.md`**,
-which doesn't cover this table. **Decision needed**: same family as
-`salary_contracts.effective_from` — what a zero-year balance row
-becomes (`year` isn't nullable per V25's schema; a sentinel year, or
-exclusion, needs a call).
+Breaks the load's synthesized `created_at`. All 6 affected rows:
+employee legacy ids 4731, 4732, 4772, 4779, 4806, 4808. **Decided**: do
+**not** synthesize a year — the one finding of the six where guessing
+was explicitly rejected. Preserve these 6 rows in migration
+remediation/quarantine output; exclude them from the operational
+`leave_balances` load until a correct year is supplied by a human. Full
+answer: brief A4.
 
-### G. `employee_shift_assignments.effective_from` zero-dates — 23 of 3,568 rows (0.64%)
+### G. `employee_shift_assignments.effective_from` zero-dates — 23 of 3,568 rows (0.64%) — **DECIDED 2026-08-13 (D-035, Q5/A5)**
 
 Same defect class as D, on a column `invalid-date-analysis.md` never
-checked. `ERROR: date/time field value out of range: "0000-00-00"`.
-**Not documented before this run. Decision needed**, same shape as D.
+checked. **Decided**: same fallback as D — the row's own `created_at`
+date, recorded explicitly as a repair. Full answer: brief A5.
 
-### H. 3 `exception_types` rows reference a company that does not exist
+### H. 3 `exception_types` rows reference a company that does not exist — **DECIDED 2026-08-13 (D-035, Q6/A6)**
 
-Legacy `exception_types` ids 1, 3, 4 all have `company_id = 19`, and no
-`companies` row with `id = 19` exists in this dump. `load_postgres.py`'s
-own fail-fast guard caught this correctly (`ETL: 3 exception_types rows
-were allocated an id but never loaded -- a parent was missing from the
-export`) — **this is the guard working exactly as designed, not a
-script bug.** Confirmed nothing downstream references these 3 ids
-(zero `attendance` or `request_types` rows point to them), so dropping
-them is low-risk, but that's still a decision, not a default. **Not
-documented in `orphan-reference-analysis.md`.**
+Legacy `exception_types` ids 1, 3, 4 all have `company_id = 19`, which
+doesn't exist in this dump. `load_postgres.py`'s own fail-fast guard
+caught this correctly — the guard working as designed, not a script
+bug. **Decided**: exclude all three from the operational migration;
+record the exclusion explicitly in migration reconciliation/remediation
+output. Full answer: brief A6.
+
+### Engineering now owed for C–H (decided, not yet built)
+
+D-035's answers converge on **one shared mechanism none of this repo's
+tooling has today**: a migration remediation/audit output that records
+every repaired, quarantined, or excluded row, referenced by name in
+A2/A3/A5/A6 and required by A4's quarantine specifically. Designing and
+building it — and the `companies` status-column schema change from
+A1 — are real engineering work now unblocked by decision, tracked
+alongside the 40 `SCHEDULED` ledger entries (39 original +
+`companies.status`) once the remaining `PENDING` gaps below are also
+resolved.
 
 ### I. `coverage_audit.py` had a real detection blind spot — **fixed 2026-08-13**
 
@@ -185,21 +181,30 @@ hardcoded to the two old kinds and would have kept omitting the new
 class from its own output even after detection was fixed). The fix is
 general — it runs against every table — so it surfaced **11 real gaps
 total**, not just the 7 `employees` columns found by manual inspection:
-9 registered `PENDING` (7 `employees` columns, plus
-`attendance`/`advances`/`requests.updated_at`, plus
+11 registered `PENDING` at the time of the fix (7 `employees` columns,
+plus `attendance`/`advances`/`requests.updated_at`, plus
 `companies.status`), 2 registered `ACCEPTED` as clean renames
 (`employees.is_active` → target `active`; `requests.approver_id` →
-target `approver_membership_id`). Full enumeration, root cause, and the
-9 pending columns' individual decisions:
+target `approver_membership_id`). Full enumeration and root cause:
 `docs/migration/2026-08-13-etl-real-data-findings-decision-brief.md`
 §"Finding I".
 
-**Ledger state: `47 gaps — 8 accepted, 39 scheduled, 0 pending` (before)
-→ `60 gaps — 10 accepted, 39 scheduled, 11 pending a decision` (after,
-current).** `--self-test` and `--check` both pass against the new
-state. **The pre-2026-08-13 "0 pending" was never an accurate "nothing
-undecided" — treat any reference to "47 gaps" or "0 pending" from
-before this date as stale.**
+**Update, same day**: `companies.status` was answered as part of Q1
+(D-035, A1 — see finding C above) and moved from `PENDING` to
+`SCHEDULED`. **10 gaps remain `PENDING` and undecided**: the 7
+`employees` columns (`employee_code`, `country_code`, `national_id`,
+`birth_date`, `gender`, `hire_date`, `updated_at`) plus
+`attendance.updated_at`, `advances.updated_at`, `requests.updated_at`.
+None of these has been put to the repository owner yet.
+
+**Ledger state: `47 gaps — 8 accepted, 39 scheduled, 0 pending` (before
+2026-08-13) → `60 gaps — 10 accepted, 40 scheduled, 10 pending a
+decision` (current).** `--self-test` and `--check` both pass. **The
+pre-2026-08-13 "0 pending" was never an accurate "nothing undecided" —
+treat any reference to "47 gaps" or "0 pending" from before this date
+as stale.** Per the repository owner's explicit instruction: A/B/J stay
+unimplemented and OQ-1/OQ-2/OQ-3 stay unstarted until all 10 of these
+are decided and `--check` reports 0 pending.
 
 ### J. `migration_diff.py` cannot currently reconcile 18 of 21 tables — header mismatch, not a data problem
 
@@ -241,39 +246,45 @@ OQ-1/OQ-2/OQ-3 (below) are about the `COMPANY_ADMIN` identity-minting
 layer, which sits *on top of* the base entity load this run just
 exercised. Findings C–H land on tables OQ-1–3 don't touch directly, but
 the pattern is identical — an abort where a decision belongs,
-discovered only by running against real data. Finding I is fixed (see
-above) but the 9 gaps it surfaced are `PENDING`, not answered. Building
-OQ-1–3 now, on top of a base load that doesn't complete cleanly, would
-mean the first real production load attempt hits C–H's six aborts
-*again*, on top of whatever OQ-1–3 add.
+discovered only by running against real data.
+
+**Status 2026-08-13, later the same day: C–H answered (D-035); 10 of
+11 finding-I gaps remain open.**
 
 **Immediate priority, in order:**
 
-1. **Resolve findings C–H and the 9 `PENDING` gaps finding I surfaced**
-   — the decision brief is
-   `docs/migration/2026-08-13-etl-real-data-findings-decision-brief.md`,
-   same shape as `etl-coverage-decisions-brief.md`'s Q1–Q8. Nothing
-   below this can be built correctly while these are open — a
-   placeholder or default chosen without the repository owner's input
-   is exactly the class of silent, undocumented judgment call this
-   repo's process exists to prevent.
+1. ~~Resolve findings C–H~~ **Done — D-035, recorded in
+   `decision-log.md` and
+   `2026-08-13-etl-real-data-findings-decision-brief.md` (A1–A6).**
+   **Resolve the remaining 10 `PENDING` coverage-ledger gaps** finding
+   I surfaced (7 `employees` columns + 3 `updated_at` columns) — not
+   yet put to the repository owner. Nothing below this can be built
+   correctly while these are open — a placeholder or default chosen
+   without explicit input is exactly the class of silent, undocumented
+   judgment call this repo's process exists to prevent. `--check` must
+   reach 0 pending.
 2. **Fix A, B, and J** — pure tooling bugs, no product decision needed.
    Minimal patches and tests are prepared (not applied) in the decision
-   brief's "Prepared fixes" section.
-3. **Re-run the full ETL end to end** against real data once 1 and 2
-   land, and confirm it completes cleanly with no scratch-only
-   workarounds needed this time.
+   brief's "Prepared fixes" section. **Also now owed by D-035's
+   answers**: the shared migration remediation/audit output mechanism
+   (referenced by C–H's decisions) and the `companies` status-column
+   schema change (finding C / Q1) — real engineering, not yet built.
+3. **Re-run the full ETL end to end** against real data once step 1
+   reaches 0 pending and step 2 lands, and confirm it completes cleanly
+   with no scratch-only workarounds needed this time.
 4. **Only then** start OQ-1 → OQ-2 → OQ-3 implementation (items 6–8
    below), in that order.
-5. **Then** P1 (items 9–11), **then** the 39 `SCHEDULED` ledger entries
-   (item 12).
+5. **Then** P1 (items 9–11), **then** the 39 (now 40) `SCHEDULED`
+   ledger entries (item 12).
 
 ## P0 — Blocks the `COMPANY_ADMIN` minting slice
 
-**Status 2026-08-13: hold — 4th in the priority order above.**
-Implementation on 6–8 should wait for step 1 (the C–H decision brief
-and the 9 `PENDING` gaps from finding I) and step 2 (the A/B/J fixes)
-to land, then step 3 (a clean full-ETL re-run), before starting here.
+**Status 2026-08-13: hold — 4th in the priority order above.** C–H are
+decided (D-035); 10 `PENDING` gaps from finding I are not. Implementation
+on 6–8 waits for step 1 (those 10, reaching 0 pending) and step 2 (the
+A/B/J fixes, plus D-035's remediation-output and `companies` schema
+work) to land, then step 3 (a clean full-ETL re-run), before starting
+here.
 
 | # | Item | Why it blocks | Source |
 |---|---|---|---|
@@ -303,7 +314,7 @@ to land, then step 3 (a clean full-ETL re-run), before starting here.
 
 | # | Item | Source |
 |---|---|---|
-| 12 | Implement the 39 `SCHEDULED` ledger entries in `coverage_audit.py` | Each entry cites the decision that settled it; `--self-test` enforces the citation. This is the largest block of remaining work — decided, not built. |
+| 12 | Implement the 40 `SCHEDULED` ledger entries in `coverage_audit.py` (39 original + `companies.status`, D-035) | Each entry cites the decision that settled it; `--self-test` enforces the citation. This is the largest block of remaining work — decided, not built. |
 
 ## P2 — Known gaps outside the coverage ledger
 

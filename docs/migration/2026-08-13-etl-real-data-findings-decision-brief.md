@@ -1,6 +1,21 @@
 # ETL Real-Data Findings — Decision Brief (2026-08-13)
 
-## Status: Awaiting decision (2026-08-13)
+## Status: Q1–Q6 answered 2026-08-13; registered as D-035
+
+Q1–Q6 were answered by the repository owner on 2026-08-13, recorded
+verbatim below their questions and registered as **D-035** in
+[`decision-log.md`](../bootstrap/decision-log.md). `companies.status`
+moved from `PENDING` to `SCHEDULED` in `coverage_audit.py` as a direct
+result. Q2–Q6 have no coverage-ledger entry to move — they're row-level
+data defects, not column-coverage gaps — so their "done" state is a
+`load_postgres.py` change plus tests, tracked in the punch list.
+
+**10 of the 11 `PENDING` coverage-ledger gaps below (Finding I) remain
+undecided** — the 7 `employees` columns plus
+`attendance`/`advances`/`requests.updated_at`. Per the repository
+owner's explicit sequencing: OQ-1/OQ-2/OQ-3 and the A/B/J tooling fixes
+wait for those decisions too, then a clean ETL re-run, before any
+implementation begins.
 
 ## Purpose
 
@@ -75,9 +90,24 @@ flagged placeholder), and give `companies` a real status column instead
 of a boolean — the three-way distinction is cheap to keep now and
 expensive to reconstruct later if it turns out to matter operationally.
 
-### A1
+### A1 (2026-08-13)
 
-> _(repository owner's answer goes here)_
+> Migrate all legacy companies, including incomplete pending signups.
+> Preserve the four legacy lifecycle states in an explicit target
+> status field. A pending company may have no name; do not fabricate a
+> placeholder name and do not classify this valid legacy lifecycle
+> state as migration-invalid. Require a non-null name before
+> activation.
+
+**All three sub-questions resolved**: (1) `pending` companies migrate,
+no exclusion. (2) `name` stays nullable at the data layer — no
+placeholder, no migration-invalid flag; this is explicitly *not* the
+same shape as OQ-2's phone-normalization failures, it's a legitimate
+in-progress state. "Non-null name before activation" is an
+application-layer rule, not a migration-time fabrication — not yet
+implemented anywhere. (3) `status` gets a real target column, not a
+boolean — `companies.status` moved from `PENDING` to `SCHEDULED` in
+`coverage_audit.py`, citing D-035.
 
 ---
 
@@ -109,9 +139,18 @@ here as a recommendation, not a decision, since that document already
 flagged it needs explicit confirmation this doesn't collide with
 anything payroll-period-calculation-dependent (`hr-legacy#12`, `#13`).
 
-### A2
+### A2 (2026-08-13)
 
-> _(repository owner's answer goes here)_
+> For the 23 zero-date salary_contracts.effective_from values, migrate
+> the contracts and use the row's created_at date as the deterministic
+> fallback. Record the repair in migration remediation/audit output so
+> the synthesized value remains traceable.
+
+Matches the recommended default. **New requirement beyond the earlier
+recommendation**: the fallback must be recorded in a migration
+remediation/audit output — this mechanism does not exist yet in
+`load_postgres.py` and is shared infrastructure Q3/Q5/Q6 also depend
+on (see D-035's Follow-up).
 
 ---
 
@@ -149,9 +188,19 @@ recommendation; the "or re-read legacy's business logic" option above
 may be the better answer and needs someone who can actually check
 before this is treated as settled.
 
-### A3
+### A3 (2026-08-13)
 
-> _(repository owner's answer goes here)_
+> Treat the 13 rows containing both a completed punch and an exception
+> category as legacy data-quality defects. Preserve the real
+> check_in/check_out timestamps, clear exception_type_id for those
+> rows, and record each remediation. Keep the target XOR constraint.
+
+Resolves the open question in favor of "these 13 rows are wrong," not
+"the documented rule is incomplete." Matches the recommended default's
+field choice (keep punch, clear exception). **Explicitly keeps the
+target `CHECK` constraint** — the constraint was correct; the data
+wasn't. Each of the 13 remediations must be individually recorded, same
+shared audit-output dependency as A2.
 
 ---
 
@@ -181,9 +230,19 @@ for a contract start date), a leave balance's `year` is load-bearing
 for what the balance actually means, and a wrong guess here
 misrepresents an employee's actual leave entitlement.
 
-### A4
+### A4 (2026-08-13)
 
-> _(repository owner's answer goes here)_
+> Do not synthesize a year for the six leave_balance.year = '0000'
+> rows. Preserve them in the migration remediation/quarantine output
+> and exclude them from the operational leave_balances load until the
+> correct year is supplied.
+
+Matches the recommended default (exclude, don't guess) — the one
+finding of the six where fabricating a value was explicitly rejected
+rather than a fallback chosen. Introduces a **quarantine** concept
+beyond A2/A3/A5's "repair and record" pattern: these 6 rows need to be
+held somewhere retrievable, not merely logged, pending a human supplying
+the real year. No such mechanism exists yet.
 
 ---
 
@@ -205,9 +264,15 @@ row's own `created_at`) or exclusion pending correction?
 same reasoning as Q2 — a shift assignment's effective date being
 slightly off is lower-stakes than a leave balance's year being wrong.
 
-### A5
+### A5 (2026-08-13)
 
-> _(repository owner's answer goes here)_
+> For the 23 zero-date employee_shift_assignments.effective_from
+> values, use the row's created_at date as the migration fallback and
+> record the repair explicitly.
+
+Matches the recommended default and A2's pattern exactly — same
+fallback, same explicit-recording requirement, same shared audit-output
+dependency.
 
 ---
 
@@ -237,9 +302,18 @@ schema should have cascaded and didn't)?
 chasing why company 19 vanished from a snapshot dump is unlikely to be
 answerable from the dump itself.
 
-### A6
+### A6 (2026-08-13)
 
-> _(repository owner's answer goes here)_
+> Exclude legacy exception_types IDs 1, 3, and 4 from the operational
+> migration because their parent company does not exist and no
+> downstream rows reference them. Record the three exclusions
+> explicitly in migration reconciliation/remediation output.
+
+Matches the recommended default (drop, no investigation required first
+— the "nothing references them" confirmation already done in Q6 above
+was sufficient). Same explicit-recording requirement as A2/A3/A5,
+extending the shared audit-output dependency to reconciliation output
+specifically, not just remediation.
 
 ---
 

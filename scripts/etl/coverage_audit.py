@@ -300,6 +300,18 @@ SCHEDULED: dict[str, str] = {
         "in the target so existing employee state is not lost; the future "
         "workflow builds on that state rather than reconstructing it."
     ),
+    # D-035 -- Q1 of the 2026-08-13 real-data findings brief.
+    "companies.status": (
+        "D-035 A1: preserve all four legacy lifecycle states "
+        "(active/pending/rejected/suspended) in an explicit target status "
+        "column -- not the boolean `active` load_postgres.py currently "
+        "computes via `COALESCE(s.status, 'active') = 'active'`, which "
+        "collapses pending/rejected/suspended into a single indistinguishable "
+        "state. A pending company with no name is a valid lifecycle state, "
+        "not a migration-invalid one; name stays nullable at the data layer, "
+        "with a non-null name required only at activation (application-layer "
+        "rule, not yet implemented)."
+    ),
 }
 
 SCHEDULED_TABLES: dict[str, str] = {
@@ -346,14 +358,16 @@ PENDING_TABLES: dict[str, str] = {}
 PENDING: dict[str, str] = {
     # Found 2026-08-13, running the real ETL end to end for the first time:
     # a new detection class (UNTARGETED_COLUMN, find_gaps() above) landed
-    # here exactly as the note below predicted. All seven are selected in
-    # export_legacy.py's employees SELECT and staged in load_postgres.py's
-    # STAGING, but no target column exists for any of them and none is in
-    # the actual INSERT INTO employees (...). Decision brief:
+    # 11 entries here exactly as the note below predicted. All are
+    # selected and staged (7 on employees, plus attendance/advances/
+    # requests.updated_at, plus companies.status) but have no target
+    # column and are never inserted. Decision brief:
     # docs/migration/2026-08-13-etl-real-data-findings-decision-brief.md.
-    # Until answered, `--check`'s "0 pending" from before this date was
-    # incomplete, not a clean bill of health -- these were real gaps the
-    # tool simply could not see.
+    # companies.status was answered 2026-08-13 (D-035, Q1) and moved to
+    # SCHEDULED; the 10 employees/updated_at entries below remain
+    # undecided. Until each is answered, `--check`'s "0 pending" from
+    # before 2026-08-13 was incomplete, not a clean bill of health --
+    # these were real gaps the tool simply could not see.
     "employees.employee_code": (
         "No target column. Was already a KNOWN, deliberate exclusion -- "
         "V8__create_employees.sql's own comment calls it 'intentionally "
@@ -424,21 +438,6 @@ PENDING: dict[str, str] = {
         "like employees.employee_code, was never carried into this ledger "
         "as a registered decision. Same OQ-3 family as the other three. "
         "Needs the same decision."
-    ),
-    "companies.status": (
-        "Found 2026-08-13 by the UNTARGETED_COLUMN detection class, "
-        "applied to every table. Not a clean rename like "
-        "employees.is_active: load_postgres.py's companies INSERT computes "
-        "`COALESCE(s.status, 'active') = 'active'` into the target `active` "
-        "boolean, which collapses legacy's four-state status "
-        "(`active`/`pending`/`rejected`/`suspended`) into two "
-        "(active/not-active) -- a real information loss, not a rename. "
-        "Directly related to finding C in the 2026-08-13 real-data decision "
-        "brief: 61 of 66 `pending` companies have no name yet, and after "
-        "this collapse a migrated `pending`, `rejected`, and `suspended` "
-        "company are indistinguishable from each other. Needs a decision: "
-        "is losing that distinction acceptable, or does the target need a "
-        "real status column instead of a boolean?"
     ),
 }
 
