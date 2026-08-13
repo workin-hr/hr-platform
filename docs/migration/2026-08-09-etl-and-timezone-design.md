@@ -239,10 +239,16 @@ attendance load.
 
 ## Open Questions
 
-- **The current value and flip history of `configs.is_daylight_saving`.**
-  Not recorded in either repo. It does not change the rule, but it
-  determines how far off the historical instants are, which the decision
-  log should state honestly.
+- **The current value of `configs.is_daylight_saving`** is `true`,
+  confirmed 2026-08-13 by querying `mysql_workin.schema.sql` +
+  `mysql_workin.data.sql` (dump dated 2026-08-03) directly — see
+  `scripts/etl/README.md` §"Before running a real extraction" #2 and
+  `scripts/etl/export_legacy.py`'s final `SELECT` statement, which
+  captures this at export time going forward. **The flip history is
+  still not recorded anywhere** — a single current value says nothing
+  about when the flag was last toggled, so it does not change how far
+  off any specific historical instant is; it only confirms which regime
+  applies to the most recent punches at dump time.
 - **Per-company timezone** as the eventual correct model — out of scope
   here, named so the wall-clock load is understood as a migration
   measure rather than a permanent design.

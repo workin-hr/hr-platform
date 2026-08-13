@@ -20,15 +20,17 @@ blocks a specific downstream piece of work; `P2` is the bulk of
 remaining, unblocked engineering; `P3` is explicitly deferred, listed
 here only so it isn't mistaken for an open item.
 
-## P0 — Blocks any real extraction/load
+## P0 — Blocks any real extraction/load — **RESOLVED 2026-08-13**
 
-| # | Item | Why it blocks | Source |
-|---|---|---|---|
-| 1 | Obtain a production data dump | Only a 54 KB schema dump exists today. Blocks OQ-1's collision population count, Q4's assertion-vs-column branch, and every other data-shaped question. | D-032 impact; D-034 follow-up |
-| 2 | Fill `expected_count` nulls in `manifest.json` from the dump | Three counts are already measured (employees 2,871; attendance 36,316; department-branch assignments 1,245) — the rest are null | `scripts/etl/README.md` §"Before running a real extraction" #1 |
-| 3 | Capture `configs.is_daylight_saving` | Doesn't change the timezone rule but determines how far off historical instants are; belongs in the decision log | README #2 |
-| 4 | Export `attendance_days.csv` alongside `attendance.csv` | Carries legacy's own `DATE(check_in)` per row; what conformance test 3 checks the wall-clock rule against | README #3 |
-| 5 | Read `created_at_quality` probe rows; confirm `zero_dates`/`null_dates` are 0 | The load casts `created_at` into `NOT NULL TIMESTAMPTZ`; MySQL's `0000-00-00 00:00:00` has no PostgreSQL equivalent — a nonzero count needs a decision before cutover, not a surprise during it | README #4 |
+| # | Item | Why it blocks | Source | Resolution |
+|---|---|---|---|---|
+| 1 | Obtain a production data dump | Only a 54 KB schema dump was known when this list was first written. Blocks OQ-1's collision population count, Q4's assertion-vs-column branch, and every other data-shaped question. | D-032 impact; D-034 follow-up | **Already present locally**: `hr-legacy/mysql_workin.schema.sql` + `hr-legacy/mysql_workin.data.sql` (dump dated 2026-08-03, gitignored, 8.4 MB data). This is the same dataset `table-volume-analysis.md` and `invalid-date-analysis.md` were built from on 2026-08-04 — row counts cross-checked and match exactly. It is a point-in-time snapshot, not a live connection to production; re-verify against a fresh snapshot before an actual cutover run. |
+| 2 | Fill `expected_count` nulls in `manifest.json` from the dump | Three counts were already measured (employees 2,871; attendance 36,316; department-branch assignments 1,245) — the rest were null | `scripts/etl/README.md` §"Before running a real extraction" #1 | **Done.** All 13 remaining nulls filled by direct count against the loaded dump and written into `scripts/etl/export_legacy.py`'s `MANIFEST`: `companies` 269, `exception_types` 111, `shifts` 302, `branches` 375, `job_titles` 1,684, `departments` 950, `requests` 213, `request_types` 192, `company_official_holidays` 69, `salary_contracts` 2,829, `payroll_batches` 61, `advances` 24, `penalties` 15. |
+| 3 | Capture `configs.is_daylight_saving` | Doesn't change the timezone rule but determines how far off historical instants are; belongs in the decision log | README #2 | **Done — value is `true`.** Recorded in `docs/migration/2026-08-09-etl-and-timezone-design.md`'s Open Questions. Flip history remains unrecorded — a single current value doesn't establish when the flag last toggled. |
+| 4 | Export `attendance_days.csv` alongside `attendance.csv` | Carries legacy's own `DATE(check_in)` per row; what conformance test 3 checks the wall-clock rule against | README #3 | **Confirmed** — one row per attendance record, matches the existing 36,316 baseline. |
+| 5 | Read `created_at_quality` probe rows; confirm `zero_dates`/`null_dates` are 0 | The load casts `created_at` into `NOT NULL TIMESTAMPTZ`; MySQL's `0000-00-00 00:00:00` has no PostgreSQL equivalent — a nonzero count needs a decision before cutover, not a surprise during it | README #4 | **Clean — 0 zero-dates, 0 nulls across all 15 probed tables.** No remediation decision needed. Recorded in `docs/migration/invalid-date-analysis.md`. |
+
+Method for items 1–5: loaded `mysql_workin.schema.sql` + `mysql_workin.data.sql` into a throwaway local Docker MySQL 8.0 container, ran `scripts/etl/export_legacy.py`'s probe queries against it, container destroyed immediately after. No production credentials were used or requested.
 
 ## P0 — Blocks the `COMPANY_ADMIN` minting slice
 
@@ -93,7 +95,15 @@ README itself, but not an open engineering item.
 
 ## Standing risk
 
-The largest untested assumption across every item above: **the ETL has
-never run against real production data** (`scripts/etl/README.md`
-§Status). Everything in P0 items 2–5 and P0 items 6–8 is fixture-proven,
-not production-proven, until item 1 (the dump) lands.
+As of 2026-08-13, the extraction-side probes (P0 items 2–5) have been
+run against a real legacy data snapshot (`mysql_workin.data.sql`, dated
+2026-08-03) — see the resolution notes above. **The load side is still
+untested against real data**: `scripts/etl/README.md` §Status's "no
+production data has been moved" remains true — `load_postgres.py` has
+only run against fixtures (`EtlLoadFixtureTest`), never against this
+dump's ~62K rows end to end. P0 items 6–8 (`COMPANY_ADMIN` minting) are
+still fixture-proven, not production-proven. The snapshot itself is also
+10 days old at time of writing and point-in-time — re-verify row counts
+and probe results against a fresher dump before an actual cutover run,
+per the "Findings Requiring A Fresh Production Snapshot" caveat already
+carried in `table-volume-analysis.md` and `invalid-date-analysis.md`.

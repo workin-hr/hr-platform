@@ -60,6 +60,28 @@ load the full dataset for counting. **Proven from data.**
   (`hr-legacy#12`, `#13`).
 - **Evidence**: Direct query, 2026-08-04.
 
+## Table Or Column: `created_at` (15 tables, `timestamp`, `NOT NULL`)
+
+- **Invalid Value Pattern Checked**: `0000-00-00 00:00:00` (MySQL
+  zero-date) and `NULL`, across every table `scripts/etl/load_postgres.py`
+  casts into a `NOT NULL TIMESTAMPTZ`: `companies`, `employees`,
+  `attendance`, `branches`, `shifts`, `job_titles`, `departments`,
+  `exception_types`, `request_types`, `requests`,
+  `company_official_holidays`, `salary_contracts`, `payroll_batches`,
+  `advances`, `penalties`.
+- **Result**: **Clean — 0 zero-dates and 0 nulls in every one of the 15
+  tables.** Unlike `hire_date`/`birth_date`/`salary_contracts.effective_from`
+  above, `created_at` has no invalid rows in this dump. No remediation
+  decision is needed before the load runs.
+- **Method**: `scripts/etl/export_legacy.py --print-sql`'s
+  `created_at_quality` probe, run 2026-08-13 against the same
+  `mysql_workin.schema.sql` + `mysql_workin.data.sql` dump (dated
+  2026-08-03) this document's other findings were measured from — same
+  throwaway Docker MySQL container method as the rest of this file.
+- **Evidence**: `scripts/etl/README.md` §"Before running a real
+  extraction" #4 named this as a required pre-extraction check; this is
+  that check, run.
+
 ## Findings Requiring A Fresh Production Snapshot
 
 Point-in-time snapshot (dump date 2026-08-03). Re-run before actual
