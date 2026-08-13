@@ -37,12 +37,14 @@ deliberately, in writing — but not quietly.
 `SCHEDULED` exists because deciding to migrate does not close a gap: the
 value still is not in the target, so the check must keep failing while
 the ledger stops calling a settled question open. As of 2026-08-13 the
-ledger reads 60 gaps — 10 accepted, 39 scheduled, 11 still pending a
-decision. The 11 pending include the `UNTARGETED_COLUMN` detection
-class added that day (a column selected and staged but with no target
-column at all, invisible to `find_gaps()` before then) — see
-`docs/migration/2026-08-13-etl-real-data-findings-decision-brief.md`.
-Any count printed here will drift the moment a decision lands; treat
+ledger reads 60 gaps — 10 accepted, 50 scheduled, 0 pending a decision.
+That 0 briefly went to 11 the same day, when the `UNTARGETED_COLUMN`
+detection class was added (a column selected and staged but with no
+target column at all, invisible to `find_gaps()` before then) — see
+`docs/migration/2026-08-13-etl-real-data-findings-decision-brief.md`
+for the full history and D-035/D-036 in `decision-log.md` for the
+answers that closed it back out. Any count printed here will drift the
+moment a new gap appears; treat
 `python3 scripts/etl/coverage_audit.py --check`'s own output as the
 current truth, not this sentence. `--report` and `--check` need
 the legacy schema (`--schema PATH`, default `../hr-legacy/`);

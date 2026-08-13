@@ -1,21 +1,29 @@
 # ETL Real-Data Findings — Decision Brief (2026-08-13)
 
-## Status: Q1–Q6 answered 2026-08-13; registered as D-035
+## Status: Fully answered 2026-08-13 — D-035 and D-036; ledger back to 0 pending
 
 Q1–Q6 were answered by the repository owner on 2026-08-13, recorded
 verbatim below their questions and registered as **D-035** in
-[`decision-log.md`](../bootstrap/decision-log.md). `companies.status`
-moved from `PENDING` to `SCHEDULED` in `coverage_audit.py` as a direct
-result. Q2–Q6 have no coverage-ledger entry to move — they're row-level
-data defects, not column-coverage gaps — so their "done" state is a
-`load_postgres.py` change plus tests, tracked in the punch list.
+[`decision-log.md`](../bootstrap/decision-log.md). Later the same day,
+the remaining 10 `PENDING` coverage-ledger gaps Finding I surfaced were
+also answered and registered as **D-036**: six `employees` business
+fields (`employee_code`, `country_code`, `national_id`, `birth_date`,
+`gender`, `hire_date`) genuinely needed a fresh decision; the four
+`updated_at` columns (`employees`, `attendance`, `advances`, `requests`)
+did not — the repository owner directed these be moved citing D-033's
+OQ-3 directly, not treated as new product calls. `coverage_audit.py`
+now reads **60 gaps — 10 accepted, 50 scheduled, 0 pending a
+decision.**
 
-**10 of the 11 `PENDING` coverage-ledger gaps below (Finding I) remain
-undecided** — the 7 `employees` columns plus
-`attendance`/`advances`/`requests.updated_at`. Per the repository
-owner's explicit sequencing: OQ-1/OQ-2/OQ-3 and the A/B/J tooling fixes
-wait for those decisions too, then a clean ETL re-run, before any
-implementation begins.
+Q2–Q6 have no coverage-ledger entry to move — they're row-level data
+defects, not column-coverage gaps — so their "done" state is a
+`load_postgres.py` change plus tests, tracked in the punch list, not
+the ledger.
+
+**Per the repository owner's explicit sequencing, now that `PENDING`
+is empty**: fix findings A, B, and J (tooling, with tests) next, then
+re-run the real ETL end to end and confirm it completes cleanly, and
+only then start OQ-1 → OQ-2 → OQ-3 implementation.
 
 ## Purpose
 
@@ -367,17 +375,19 @@ manual inspection of `employees` alone:
 
 | Column | Registered as | Why |
 |---|---|---|
-| `employees.employee_code` | `PENDING` | No target column. Was a *known* exclusion — `V8__create_employees.sql`'s own comment calls it "intentionally omitted... tracked follow-up" — but was never registered in the ledger, so the ledger and the migration's own SQL comment disagreed about whether this was decided. |
-| `employees.country_code` | `PENDING` | No target column. Never flagged as a decision before this run. |
-| `employees.national_id` | `PENDING` | No target column. Never flagged. Legal-identity field, likely compliance-relevant. |
-| `employees.birth_date` | `PENDING` | No target column. `invalid-date-analysis.md` already assumed this would migrate as `NULL` for 2 zero-date rows — there is currently nowhere for it to land at all. |
-| `employees.gender` | `PENDING` | No target column. Never flagged. |
-| `employees.hire_date` | `PENDING` | No target column. Same shape as `birth_date` — `invalid-date-analysis.md` already assumed `NULL` remediation for 22 zero-date rows, with nowhere to load. |
-| `employees.updated_at` | `PENDING` | No target column. Directly relevant to OQ-3 (D-033), which requires database-enforced `updated_at` on every mutable business entity. |
-| `attendance.updated_at` | `PENDING` | No target column (confirmed directly against `V21__create_attendance.sql`). Same OQ-3 family. |
-| `advances.updated_at` | `PENDING` | No target column. Same OQ-3 family. |
-| `requests.updated_at` | `PENDING` | No target column — `V25__create_requests_and_leave_balances.sql`'s own comment already says "no updated_at" explicitly, another case (like `employee_code`) of a known-at-the-time omission never carried into the ledger as a registered decision. Same OQ-3 family. |
-| `companies.status` | `PENDING` | See Q1 above — not a clean drop, a lossy collapse into a boolean. |
+| Column | Registered as (final) | Why it was invisible / what was decided |
+|---|---|---|
+| `employees.employee_code` | `SCHEDULED`, D-036 | Was a *known* exclusion — `V8__create_employees.sql`'s own comment calls it "intentionally omitted... tracked follow-up" — but was never registered in the ledger. **D-036: preserve and migrate exactly, do not renumber.** |
+| `employees.country_code` | `SCHEDULED`, D-036 | Never flagged as a decision before this run. **D-036: preserve for phone normalization; retain original components for remediation when E.164 normalization fails.** |
+| `employees.national_id` | `SCHEDULED`, D-036 | Never flagged. Legal-identity field. **D-036: migrate as-is.** |
+| `employees.birth_date` | `SCHEDULED`, D-036 | `invalid-date-analysis.md` already assumed this would migrate as `NULL` for 2 zero-date rows — there was nowhere for it to land. **D-036: migrate valid values, zero-dates → NULL with the remediation recorded, never an invented date.** |
+| `employees.gender` | `SCHEDULED`, D-036 | Never flagged. **D-036: migrate with an explicit legacy-to-target value mapping** (legacy is a clean 3-value `enum('male','female','other')`). |
+| `employees.hire_date` | `SCHEDULED`, D-036 | Same shape as `birth_date` — 22 zero-date rows already found, nowhere to load. **D-036: same treatment as `birth_date`.** |
+| `employees.updated_at` | `SCHEDULED`, D-033 | Directly relevant to OQ-3, which requires database-enforced `updated_at` on every mutable business entity. **Owner directed: cite D-033 directly, not a new decision.** |
+| `attendance.updated_at` | `SCHEDULED`, D-033 | No target column (confirmed directly against `V21__create_attendance.sql`). Same OQ-3 family, same directive. |
+| `advances.updated_at` | `SCHEDULED`, D-033 | Same OQ-3 family, same directive. |
+| `requests.updated_at` | `SCHEDULED`, D-033 | `V25__create_requests_and_leave_balances.sql`'s own comment already says "no updated_at" — a known-at-the-time omission never registered. Same OQ-3 family, same directive. |
+| `companies.status` | `SCHEDULED`, D-035 | See Q1 above — not a clean drop, a lossy collapse into a boolean. Resolved same day as the fix, ahead of the other 10. |
 
 Two more instances the same fix caught turned out **not** to be real
 gaps, and are registered `ACCEPTED` instead, each with the target
@@ -394,16 +404,24 @@ before this run, because a target column genuinely exists for it and
 the credential is deliberately carried onto `identities.password_hash`
 instead, not silently dropped.
 
-### Ledger state, before and after
+### Ledger state, before, during, and after
 
 Before 2026-08-13: `47 gaps — 8 accepted, 39 scheduled, 0 pending`.
 **This was never an accurate "nothing is undecided" — it was 11 real
 gaps the tool could not see, reported as if they did not exist.**
 
-After the fix: `60 gaps — 10 accepted, 39 scheduled, 11 pending a
-decision`. `--self-test` and `--check` both pass. This is the number to
-treat as current; do not cite "47 gaps, 0 pending" anywhere going
-forward without the 2026-08-13 correction attached.
+Immediately after the detection fix, same day: `60 gaps — 10 accepted,
+39 scheduled, 11 pending a decision` — the blind spot closed, the
+decisions still open.
+
+After D-035 (Q1 only): `60 gaps — 10 accepted, 40 scheduled, 10
+pending`.
+
+**After D-036, same day: `60 gaps — 10 accepted, 50 scheduled, 0
+pending a decision`.** `--self-test` and `--check` both pass. This is
+the number to treat as current; do not cite "47 gaps, 0 pending" or the
+intermediate "11 pending" anywhere going forward without the
+2026-08-13 correction attached.
 
 ---
 

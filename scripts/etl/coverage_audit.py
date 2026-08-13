@@ -312,6 +312,67 @@ SCHEDULED: dict[str, str] = {
         "with a non-null name required only at activation (application-layer "
         "rule, not yet implemented)."
     ),
+    # D-036 -- the six employees business fields UNTARGETED_COLUMN found
+    # with no prior decision.
+    "employees.employee_code": (
+        "D-036: preserve and migrate exactly, do not renumber. Legacy's own "
+        "(company_id, employee_code) uniqueness (unique_employee_code_per_company, "
+        "uq_employees_company_code) carries the value as-is. Was already a "
+        "KNOWN, deliberate exclusion at the schema level -- "
+        "V8__create_employees.sql's own comment calls it 'intentionally "
+        "omitted... tracked follow-up' -- this decision is what that "
+        "follow-up was waiting on."
+    ),
+    "employees.country_code": (
+        "D-036: preserve its semantics for phone normalization. Do not drop "
+        "it until E.164 normalization succeeds; retain the original "
+        "components (this column plus the bare phone digits) for "
+        "remediation when normalization fails -- directly reusable by "
+        "OQ-2's (D-033) migration-invalid-phone mechanism once built."
+    ),
+    "employees.national_id": (
+        "D-036: migrate as-is."
+    ),
+    "employees.birth_date": (
+        "D-036: migrate valid values; map legacy zero-dates to NULL and "
+        "record the remediation, never an invented date. Matches "
+        "invalid-date-analysis.md's original proposal for the 2 of 2,871 "
+        "zero-date rows already found there -- this decision gives that "
+        "proposal a target column to land in."
+    ),
+    "employees.gender": (
+        "D-036: migrate with an explicit legacy-to-target value mapping. "
+        "Legacy is a clean 3-value enum('male','female','other'), "
+        "nullable -- the target mapping is 1:1 by value, not a collapse "
+        "(contrast companies.status above)."
+    ),
+    "employees.hire_date": (
+        "D-036: migrate valid values; map legacy zero-dates to NULL and "
+        "record the remediation, never a synthesized hire date. Same "
+        "shape as birth_date above; invalid-date-analysis.md already found "
+        "22 of 2,871 zero-date rows here."
+    ),
+    # D-036 -- the four updated_at columns were NOT a new decision; the
+    # repository owner directed these be moved citing D-033/OQ-3 directly.
+    "employees.updated_at": (
+        "D-033 (OQ-3): updated_at must be database-enforced across every "
+        "mutable business entity. D-036 directs this cited as an OQ-3 "
+        "consequence, not a fresh decision -- employees needs this column "
+        "for the same reason every other mutable entity does."
+    ),
+    "attendance.updated_at": (
+        "D-033 (OQ-3): same as employees.updated_at above. No target "
+        "column exists yet, confirmed against V21__create_attendance.sql "
+        "directly."
+    ),
+    "advances.updated_at": (
+        "D-033 (OQ-3): same as employees.updated_at above."
+    ),
+    "requests.updated_at": (
+        "D-033 (OQ-3): same as employees.updated_at above. "
+        "V25__create_requests_and_leave_balances.sql's own comment already "
+        "noted 'no updated_at' as a known omission when it was written."
+    ),
 }
 
 SCHEDULED_TABLES: dict[str, str] = {
@@ -356,89 +417,16 @@ PENDING_TABLES: dict[str, str] = {}
 # Known, undecided, and owed an answer. The note names what has to be
 # resolved -- 'TODO' is not a note.
 PENDING: dict[str, str] = {
-    # Found 2026-08-13, running the real ETL end to end for the first time:
-    # a new detection class (UNTARGETED_COLUMN, find_gaps() above) landed
-    # 11 entries here exactly as the note below predicted. All are
-    # selected and staged (7 on employees, plus attendance/advances/
-    # requests.updated_at, plus companies.status) but have no target
-    # column and are never inserted. Decision brief:
-    # docs/migration/2026-08-13-etl-real-data-findings-decision-brief.md.
-    # companies.status was answered 2026-08-13 (D-035, Q1) and moved to
-    # SCHEDULED; the 10 employees/updated_at entries below remain
-    # undecided. Until each is answered, `--check`'s "0 pending" from
-    # before 2026-08-13 was incomplete, not a clean bill of health --
-    # these were real gaps the tool simply could not see.
-    "employees.employee_code": (
-        "No target column. Was already a KNOWN, deliberate exclusion -- "
-        "V8__create_employees.sql's own comment calls it 'intentionally "
-        "omitted... tracked follow-up' -- but was never registered here, "
-        "so coverage_audit.py disagreed with the migration's own SQL "
-        "comment about whether this was decided. Needs a decision: carry "
-        "it as a real column, or formally accept the drop."
-    ),
-    "employees.country_code": (
-        "No target column. Never flagged as a decision before this run. "
-        "Needed to interpret employees.phone as anything but a bare "
-        "digit string; dropping it silently changes what a migrated "
-        "phone number means. Needs a decision: add a target column, or "
-        "accept the drop and record why phone interpretation doesn't "
-        "need it."
-    ),
-    "employees.national_id": (
-        "No target column. Never flagged as a decision before this run. "
-        "A legal-identity field with likely compliance weight -- not "
-        "something to drop by omission. Needs a decision: add a target "
-        "column, or accept the drop with an explicit reason."
-    ),
-    "employees.birth_date": (
-        "No target column. Never flagged as a decision before this run. "
-        "invalid-date-analysis.md already found 2 of 2,871 rows with a "
-        "zero-date here, on the assumption the column would migrate as "
-        "NULL -- that assumption has no target column to land in today. "
-        "Needs a decision: add a target column (with the zero-date "
-        "remediation invalid-date-analysis.md already proposed), or "
-        "accept the drop."
-    ),
-    "employees.gender": (
-        "No target column. Never flagged as a decision before this run. "
-        "Needs a decision: add a target column, or accept the drop."
-    ),
-    "employees.hire_date": (
-        "No target column. Never flagged as a decision before this run. "
-        "invalid-date-analysis.md already found 22 of 2,871 rows with a "
-        "zero-date here, on the same NULL-remediation assumption as "
-        "birth_date above, with nowhere to load. Needs a decision: add a "
-        "target column, or accept the drop."
-    ),
-    "employees.updated_at": (
-        "No target column. Never flagged as a decision before this run. "
-        "Related to OQ-3 (D-033): the decided rule is that updated_at "
-        "must be database-enforced across every mutable business entity, "
-        "which implies employees needs this column regardless of whether "
-        "legacy's own historical values are worth carrying. Needs a "
-        "decision: add the column (OQ-3 may settle this on its own), or "
-        "accept the drop of the historical values specifically."
-    ),
-    "attendance.updated_at": (
-        "No target column, confirmed by reading V21__create_attendance.sql "
-        "directly -- the table has no updated_at at all. Same OQ-3 family "
-        "as employees.updated_at above; found by the same UNTARGETED_COLUMN "
-        "detection class on 2026-08-13, applied to every table, not just "
-        "employees. Needs the same decision: add the column, or accept "
-        "the drop of legacy's historical values."
-    ),
-    "advances.updated_at": (
-        "No target column. Same OQ-3 family and same discovery as "
-        "attendance.updated_at above. Needs the same decision."
-    ),
-    "requests.updated_at": (
-        "No target column -- V25__create_requests_and_leave_balances.sql's "
-        "own comment already says so explicitly ('no updated_at'), which "
-        "means this was a known omission at the time V25 was written but, "
-        "like employees.employee_code, was never carried into this ledger "
-        "as a registered decision. Same OQ-3 family as the other three. "
-        "Needs the same decision."
-    ),
+    # Empty as of D-036 (2026-08-13). The UNTARGETED_COLUMN detection
+    # class (find_gaps() above) landed 11 entries here the same day it
+    # was added -- 7 on employees, attendance/advances/requests.updated_at,
+    # and companies.status. All 11 are now answered: companies.status by
+    # D-035 (Q1), the other 10 by D-036. See
+    # docs/migration/2026-08-13-etl-real-data-findings-decision-brief.md
+    # for the full history. Empty means nothing is owed an answer today,
+    # not that nothing ever will be -- a new legacy column, or a new
+    # detection class, lands here first and --check fails until somebody
+    # decides.
 }
 
 

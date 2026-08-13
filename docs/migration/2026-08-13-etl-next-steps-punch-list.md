@@ -191,20 +191,23 @@ target `approver_membership_id`). Full enumeration and root cause:
 
 **Update, same day**: `companies.status` was answered as part of Q1
 (D-035, A1 — see finding C above) and moved from `PENDING` to
-`SCHEDULED`. **10 gaps remain `PENDING` and undecided**: the 7
-`employees` columns (`employee_code`, `country_code`, `national_id`,
-`birth_date`, `gender`, `hire_date`, `updated_at`) plus
-`attendance.updated_at`, `advances.updated_at`, `requests.updated_at`.
-None of these has been put to the repository owner yet.
+`SCHEDULED`. **The remaining 10 gaps were also answered the same day**
+— six `employees` business fields (`employee_code`, `country_code`,
+`national_id`, `birth_date`, `gender`, `hire_date`) as **D-036**, a
+genuinely new decision; the four `updated_at` columns
+(`employees`/`attendance`/`advances`/`requests`) moved citing **D-033**
+(OQ-3) directly, per the repository owner's own direction that these
+weren't a fresh call. Answers: `decision-log.md` D-036;
+`2026-08-13-etl-real-data-findings-decision-brief.md` §"Finding I".
 
 **Ledger state: `47 gaps — 8 accepted, 39 scheduled, 0 pending` (before
-2026-08-13) → `60 gaps — 10 accepted, 40 scheduled, 10 pending a
-decision` (current).** `--self-test` and `--check` both pass. **The
-pre-2026-08-13 "0 pending" was never an accurate "nothing undecided" —
-treat any reference to "47 gaps" or "0 pending" from before this date
-as stale.** Per the repository owner's explicit instruction: A/B/J stay
-unimplemented and OQ-1/OQ-2/OQ-3 stay unstarted until all 10 of these
-are decided and `--check` reports 0 pending.
+2026-08-13) → `60 gaps — 10 accepted, 50 scheduled, 0 pending a
+decision` (current, after D-035 + D-036).** `--self-test` and `--check`
+both pass. **The pre-2026-08-13 "0 pending" was never an accurate
+"nothing undecided"** — it was 11 real gaps the tool couldn't see;
+treat any reference to "47 gaps" from before this date as stale. **The
+ledger is back to 0 pending as of D-036** — step 1 of the priority
+order below is complete.
 
 ### J. `migration_diff.py` cannot currently reconcile 18 of 21 tables — header mismatch, not a data problem
 
@@ -248,43 +251,46 @@ exercised. Findings C–H land on tables OQ-1–3 don't touch directly, but
 the pattern is identical — an abort where a decision belongs,
 discovered only by running against real data.
 
-**Status 2026-08-13, later the same day: C–H answered (D-035); 10 of
-11 finding-I gaps remain open.**
+**Status 2026-08-13, later the same day: C–H answered (D-035); all 11
+finding-I gaps answered (D-035 + D-036); ledger at 0 pending. Step 1
+complete.**
 
 **Immediate priority, in order:**
 
-1. ~~Resolve findings C–H~~ **Done — D-035, recorded in
-   `decision-log.md` and
-   `2026-08-13-etl-real-data-findings-decision-brief.md` (A1–A6).**
-   **Resolve the remaining 10 `PENDING` coverage-ledger gaps** finding
-   I surfaced (7 `employees` columns + 3 `updated_at` columns) — not
-   yet put to the repository owner. Nothing below this can be built
-   correctly while these are open — a placeholder or default chosen
-   without explicit input is exactly the class of silent, undocumented
-   judgment call this repo's process exists to prevent. `--check` must
-   reach 0 pending.
-2. **Fix A, B, and J** — pure tooling bugs, no product decision needed.
-   Minimal patches and tests are prepared (not applied) in the decision
-   brief's "Prepared fixes" section. **Also now owed by D-035's
-   answers**: the shared migration remediation/audit output mechanism
-   (referenced by C–H's decisions) and the `companies` status-column
-   schema change (finding C / Q1) — real engineering, not yet built.
-3. **Re-run the full ETL end to end** against real data once step 1
-   reaches 0 pending and step 2 lands, and confirm it completes cleanly
-   with no scratch-only workarounds needed this time.
+1. ~~Resolve findings C–H and the 11 `PENDING` coverage-ledger gaps~~
+   **Done.** C–H: D-035, recorded in `decision-log.md` and
+   `2026-08-13-etl-real-data-findings-decision-brief.md` (A1–A6). The 11
+   coverage gaps: `companies.status` by D-035 (Q1); the 6 `employees`
+   business fields by **D-036** (a genuine new decision); the 4
+   `updated_at` columns moved citing **D-033** directly, per the
+   repository owner's own direction that these weren't a fresh call.
+   `coverage_audit.py --check` now reads **60 gaps — 10 accepted, 50
+   scheduled, 0 pending a decision.**
+2. **Fix A, B, and J, with tests** — pure tooling bugs, no product
+   decision needed. Minimal patches and tests are prepared (not
+   applied) in the decision brief's "Prepared fixes" section — this is
+   the next step now that step 1 is done. **Also now owed by D-035/D-036's
+   answers, tracked but not yet built**: the shared migration
+   remediation/audit output mechanism (referenced by C, D, E, F, G, H's
+   decisions), the `companies` status-column schema change (D-035), and
+   six new `employees` target columns plus one each on
+   `attendance`/`advances`/`requests` (D-036) — none of this is A/B/J,
+   but none of it exists yet either.
+3. **Re-run the full ETL end to end** against real data once step 2
+   lands, and confirm it completes cleanly with no scratch-only
+   workarounds needed this time.
 4. **Only then** start OQ-1 → OQ-2 → OQ-3 implementation (items 6–8
    below), in that order.
-5. **Then** P1 (items 9–11), **then** the 39 (now 40) `SCHEDULED`
-   ledger entries (item 12).
+5. **Then** P1 (items 9–11), **then** the 40 `SCHEDULED` ledger entries
+   (item 12).
 
 ## P0 — Blocks the `COMPANY_ADMIN` minting slice
 
-**Status 2026-08-13: hold — 4th in the priority order above.** C–H are
-decided (D-035); 10 `PENDING` gaps from finding I are not. Implementation
-on 6–8 waits for step 1 (those 10, reaching 0 pending) and step 2 (the
-A/B/J fixes, plus D-035's remediation-output and `companies` schema
-work) to land, then step 3 (a clean full-ETL re-run), before starting
-here.
+**Status 2026-08-13: hold — 4th in the priority order above.** All
+decisions (D-035, D-036) are recorded and the ledger is at 0 pending —
+step 1 is done. Implementation on 6–8 waits for step 2 (the A/B/J fixes
+with tests, plus the schema/remediation-output work D-035/D-036
+created) and step 3 (a clean full-ETL re-run), before starting here.
 
 | # | Item | Why it blocks | Source |
 |---|---|---|---|
