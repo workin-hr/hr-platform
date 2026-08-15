@@ -92,8 +92,21 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 	 * The suite shares one database, and both the staging tables and the
 	 * unique phone columns are global -- without this, a second test
 	 * either stages the same legacy id twice or collides on a phone.
+	 *
+	 * <p>V44's catalog tables are the same problem in a third place, and
+	 * the reason for the TRUNCATE below. Every entity the load writes is
+	 * guarded by {@code WHERE NOT EXISTS (... WHERE id = m.new_id)}, which
+	 * is only rerun-safe while {@code migration.id_map} survives -- and
+	 * every test here drops it with the schema. Fresh ids then clear that
+	 * guard while {@code setting_definitions.setting_key}'s own UNIQUE
+	 * still holds the previous test's rows, so the second full load in the
+	 * suite aborts on a duplicate key. Every other target table survives
+	 * this because it has no natural unique key to collide on; it just
+	 * accumulates rows, which is why assertions below scope through
+	 * {@code migration.id_map} rather than counting a whole table.
 	 */
 	private static void stageFixture(Statement st, String token) throws Exception {
+		st.execute("TRUNCATE setting_allowed_values, setting_definitions RESTART IDENTITY");
 		st.execute("""
 				INSERT INTO migration.stg_companies (id, name, phone, status, created_at)
 				VALUES ('1', 'Legacy Co', '+2010TOKEN01', 'active', '2025-01-15 09:00:00'),
@@ -804,8 +817,10 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "AND e.hire_date = DATE '2020-06-15'")).isEqualTo(1);
 
 			// The same code in two different companies, both migrated.
-			assertThat(scalar(st, "SELECT count(*) FROM employees WHERE employee_code = 'EMP-001'"))
-					.isEqualTo(2);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE e.employee_code = 'EMP-001'")).isEqualTo(2);
 			// 14 had no code in legacy; absent must stay absent, not become ''.
 			assertThat(scalar(st,
 					"SELECT count(*) FROM employees e "
@@ -825,6 +840,12 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 	 * <p>Without a guard on the raw staged text this does not merely
 	 * produce a wrong value, it aborts the whole load: PostgreSQL rejects
 	 * {@code '0000-00-00'::DATE} outright.
+	 *
+	 * <p>Employee 11's real dates are asserted in the same test on
+	 * purpose. "12's dates are NULL" is true of an unpopulated column
+	 * too, so on its own it would pass against a load that carries no
+	 * dates at all and prove nothing; pairing it with a row whose dates
+	 * must be present is what makes the NULL meaningful.
 	 */
 	@Test
 	void legacyZeroDatesOnEmployeesBecomeNullRatherThanAnInventedDate() throws Exception {
@@ -837,6 +858,14 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 			stageFixture(st, "4441");
 			st.execute(load);
 
+			// A row with real dates carries them...
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE em.legacy_id = 11 "
+							+ "AND e.birth_date = DATE '1990-01-01' "
+							+ "AND e.hire_date = DATE '2020-06-15'")).isEqualTo(1);
+			// ...and only then does the zero-date row's NULL mean anything.
 			assertThat(scalar(st,
 					"SELECT count(*) FROM employees e "
 							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
@@ -844,9 +873,11 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 							+ "AND e.birth_date IS NULL AND e.hire_date IS NULL")).isEqualTo(1);
 
 			// Specifically NOT the created_at fallback effective_from uses:
-			// no employee may end up dated by when the row was created.
+			// no employee may end up dated by when its row was created.
 			assertThat(scalar(st,
-					"SELECT count(*) FROM employees WHERE hire_date = DATE '2025-04-02'")).isEqualTo(0);
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE e.hire_date = DATE '2025-04-02'")).isEqualTo(0);
 		}
 	}
 
@@ -869,9 +900,12 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 			stageFixture(st, "2221");
 			st.execute(load);
 
-			assertThat(scalar(st, "SELECT count(*) FROM employees WHERE gender = 'female'")).isEqualTo(1);
-			assertThat(scalar(st, "SELECT count(*) FROM employees WHERE gender = 'male'")).isEqualTo(1);
-			assertThat(scalar(st, "SELECT count(*) FROM employees WHERE gender = 'other'")).isEqualTo(1);
+			String scoped = "SELECT count(*) FROM employees e "
+					+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+					+ "WHERE e.gender = ";
+			assertThat(scalar(st, scoped + "'female'")).isEqualTo(1);
+			assertThat(scalar(st, scoped + "'male'")).isEqualTo(1);
+			assertThat(scalar(st, scoped + "'other'")).isEqualTo(1);
 			assertThat(scalar(st,
 					"SELECT count(*) FROM employees e "
 							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
