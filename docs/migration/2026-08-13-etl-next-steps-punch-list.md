@@ -266,19 +266,72 @@ complete.**
    repository owner's own direction that these weren't a fresh call.
    `coverage_audit.py --check` now reads **60 gaps — 10 accepted, 50
    scheduled, 0 pending a decision.**
-2. **Fix A, B, and J, with tests** — pure tooling bugs, no product
-   decision needed. Minimal patches and tests are prepared (not
-   applied) in the decision brief's "Prepared fixes" section — this is
-   the next step now that step 1 is done. **Also now owed by D-035/D-036's
-   answers, tracked but not yet built**: the shared migration
-   remediation/audit output mechanism (referenced by C, D, E, F, G, H's
-   decisions), the `companies` status-column schema change (D-035), and
-   six new `employees` target columns plus one each on
-   `attendance`/`advances`/`requests` (D-036) — none of this is A/B/J,
-   but none of it exists yet either.
-3. **Re-run the full ETL end to end** against real data once step 2
-   lands, and confirm it completes cleanly with no scratch-only
-   workarounds needed this time.
+2. ~~**Fix A, B, and J, with tests**~~ **Done 2026-08-15, but not as
+   this list predicted.** A/B/J were filed here as "pure tooling bugs,
+   no product decision needed"; two of the three turned out otherwise:
+   - **Fix A** — the prepared `INTO OUTFILE` patch was **unimplementable**.
+     Production has `secure_file_priv = /dev/null/`, and `INTO OUTFILE`
+     writes to the *database server's* filesystem regardless. Rebuilt as
+     driver-based extraction (`export_legacy.py --extract`), which
+     required overriding this repo's stdlib-only rule — **D-038**.
+   - **Fix B** — not mechanical either. It needed the product answer
+     "does the platform keep an admin-editable bilingual settings
+     catalog?" (yes), making it schema work. This list's own column
+     enumeration was also wrong: 9 drifted columns on
+     `setting_definitions`, not 8 — `sort_order` was omitted.
+   - **Fix J** — was mechanical, as predicted. `migration_diff.py` now
+     compares on the intersection of headers and reports a column-set
+     difference as its own finding.
+   - **Schema wave done alongside**: `V41` (`companies.status`, `name`
+     nullable), `V42` (six `employees` business fields), `V43`
+     (`updated_at` ×4, column-only — OQ-3's trigger is still item 8),
+     `V44` (settings catalog, global/no-RLS), plus the catalog load.
+   **Still owed from D-035/D-036 and NOT built**: the shared migration
+   remediation/audit output mechanism referenced by A2/A3/A5/A6 and
+   required by A4's quarantine. It remains its own unresolved design
+   question (a table? a report? both?) and still blocks implementing
+   C–H's remediation correctly.
+3. ~~**Re-run the full ETL end to end**~~ **Done 2026-08-15 as a
+   rehearsal — the load completes cleanly (D-039).** Run in an isolated
+   local PostgreSQL 17.6 (portable binaries; no Docker, no admin) against
+   real data extracted read-only from live production: 45 migrations,
+   full load, reconciliation over all 21 tables. **This document's
+   "Standing risk" verdict below — "the load does not complete cleanly"
+   — is superseded.**
+   Getting there required implementing four decisions that were
+   **recorded but never built**, each of which aborted the load in turn
+   and none of which any self-test had caught (they assert against
+   emitted SQL text, not against a database): **A2** and **A5**
+   (`effective_from` zero-date fallback), **A3** (attendance XOR
+   remediation), **A6** (orphaned `exception_types` exclusion).
+   Not yet done: a rehearsal under an actual **write freeze**. All 21
+   tables grew 4.3–59.6% in twelve days, and `attendance` gained rows
+   *during* both the verification and the rehearsal itself. Cutover is
+   planned as a **single controlled write-freeze window** (owner
+   direction, D-039), which is what makes the ongoing legacy defects
+   non-blocking — the remediation runs once against a final set.
+3b. **New, found by the rehearsal — reconciliation cannot tell a
+   deliberate transform from a defect.** Fix J made all 21 tables
+   comparable, and they now compare; but seven report cell mismatches
+   that are all correct-by-design (`UPPER()` enum normalisation, MySQL
+   `tinyint` to Postgres `boolean`, `COALESCE(...,0)`, A2/A5's date
+   repair, exception-only rows carrying no `method`). That is ~100
+   expected findings, any one of which could hide a real regression.
+   `migration_diff.py` needs a declared set of expected per-column
+   transformations so only *undeclared* differences are findings.
+3a. **Findings E and F are ongoing legacy defects**, not the fixed sets
+   D-035 assumed: `hr-legacy` issues **#28** (attendance XOR invariant,
+   39 rows growing ~2/day) and **#29** (`leave_balance.year = 0000`, 16
+   rows growing). **Per the standing rule, legacy PHP is not patched** —
+   both issues document root causes for the rewrite; neither is a
+   request to change legacy, and no legacy work is owed. Prevention is
+   platform-side: E's is already enforced by
+   `V21__create_attendance.sql:32`'s `CHECK`; F's is largely structural,
+   since PostgreSQL will not coerce `0` into a date the way MySQL's
+   `YEAR` does. **Legacy keeps producing both until cutover, accepted.**
+   The only real consequence is sequencing: a single frozen cutover
+   window lets the migration remediation run once against a final set; a
+   phased cutover means it must run repeatedly (**D-037**).
 4. **Only then** start OQ-1 → OQ-2 → OQ-3 implementation (items 6–8
    below), in that order.
 5. **Then** P1 (items 9–11), **then** the 40 `SCHEDULED` ledger entries
@@ -369,3 +422,32 @@ Requiring A Fresh Production Snapshot" caveat already carried in
 `table-volume-analysis.md` and `invalid-date-analysis.md`; a fresher
 snapshot could easily have different rows hitting findings C/E/F/G/H,
 not just different counts.
+
+### Update, 2026-08-15 — most of the above is superseded
+
+The snapshot this section worries about **no longer exists on the
+working machine**, and it did not need to: read-only production access
+was supplied instead, and every finding was re-verified directly against
+live production (**D-037**). Four held unchanged (C, D, G, H); two — E
+and F — turned out to be *ongoing* defects rather than fixed sets, and
+are documented for the rewrite as `hr-legacy` #28 and #29 rather than
+patched, per the standing rule that legacy PHP is not changed.
+
+**"The load does not complete cleanly" is no longer true.** A full
+rehearsal on 2026-08-15 — isolated local PostgreSQL 17.6, real
+production data, 45 migrations, full load, reconciliation across all 21
+tables — completed cleanly with no scratch-only workarounds (**D-039**).
+What made that possible was implementing A2, A3, A5 and A6, which had
+been decided since 2026-08-13 and never built.
+
+`scripts/etl/README.md` §Status's "no production data has been moved"
+remains true in the direction that matters: production has only ever
+been **read**, never written, and the read-only guarantee is enforced
+server-side (`SET SESSION TRANSACTION READ ONLY`, verified against the
+live host — **D-038**). Production data has now been copied to a local
+isolated database for rehearsal purposes.
+
+The remaining live risk is no longer data quality but **timing**: the
+dataset moves continuously, so every count is stale the moment it is
+taken. That is answered by cutover design rather than by analysis — a
+single controlled write-freeze window (**D-039**).

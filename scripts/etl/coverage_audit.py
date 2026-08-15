@@ -17,6 +17,24 @@ legacy column that does not reach the target, in three detection classes:
     UNLOADED_COLUMN     staged, then left out of the INSERT column list
                         -- the exact shape of the created_at defect
 
+A fourth check, `check_export_staging_agreement`, sits beside these three
+rather than inside `find_gaps`: it does not ask "does a legacy column
+reach the target" (a data-loss question, answered by the ACCEPTED/
+SCHEDULED/PENDING ledger below), it asks "would `\\copy` even accept this
+file" (a load-mechanics question with no ledger entry to owe, because it
+is never something to decide to accept -- it is only ever a bug). This is
+Fix B: `export_legacy.py` used `SELECT *` on four tables while
+`load_postgres.py`'s STAGING declared far fewer columns for two of them,
+and `\\copy` matches a CSV to `migration.stg_<table>` positionally, so the
+mismatch surfaces at load time as "extra data after last expected
+column" -- a live-database-only failure until this check existed.
+`check_export_staging_agreement` reads the same three artifacts as
+`find_gaps` (reusing `parse_legacy_schema` to resolve what a `SELECT *`
+actually expands to, since that is unknowable from EXPORT_SQL's text
+alone) and fails loudly the moment EXPORT_SQL and STAGING disagree, in
+length, order, or content, for any table -- not only the four Fix B
+happened to hit.
+
 The point is not the report. The point is `--check`: every gap must be
 registered in exactly one of three states. A gap in none of them fails
 the build. So a column can still be dropped -- deliberately, in writing
@@ -79,6 +97,18 @@ LOAD_SCRIPT = os.path.join("scripts", "etl", "load_postgres.py")
 # other table keeps its name; a new divergence belongs here, not in a
 # special case somewhere in the load.
 TABLE_MAP = {"leave_balance": "leave_balances"}
+
+# EXPORT_SQL's FROM-clause table name -> the STAGING key that same
+# statement's rows land in. Every other STAGING key equals its EXPORT_SQL
+# table name; company_settings is the one exception, for the same reason
+# TABLE_MAP exists on the target side: `company_settings` is legacy's EAV
+# join table, staged as legacy_company_settings (STAGING key,
+# load_postgres.py:147) so it is never confused with the *target*
+# company_settings -- the typed table the EAV pivots into. Used only by
+# check_export_staging_agreement below; parse_exported()/find_gaps() above
+# predate this constant and do not need it (TRANSFORM_SOURCES already
+# skips company_settings there).
+EXPORT_TABLE_TO_STAGING_KEY = {"company_settings": "legacy_company_settings"}
 
 # Legacy tables that are inputs to a transform rather than row copies.
 # Their columns are consumed by the transform, not mapped one-to-one, so
@@ -483,13 +513,225 @@ def parse_exported(export_sql: str) -> dict[str, object]:
     return out
 
 
+def parse_permission_map(load_src: str) -> list[str]:
+    """PERMISSION_MAP's keys, in the file's own definition order -- the
+    same order hr-legacy's own hr_permissions columns are in
+    (load_postgres.py:41-45's own comment on PERMISSION_MAP says so
+    explicitly), and therefore the order STAGING's hr_permissions entry
+    expands to via `+ list(PERMISSION_MAP) +` -- see parse_staging below.
+
+    Returns [] if PERMISSION_MAP is absent (self_test's synthetic
+    fixtures below have no reason to define it, and only hr_permissions'
+    STAGING entry ever references it).
+    """
+    if "PERMISSION_MAP = {" not in load_src:
+        return []
+    block = load_src.split("PERMISSION_MAP = {", 1)[1].split("\n}", 1)[0]
+    return re.findall(r'"(\w+)":', block)
+
+
 def parse_staging(load_src: str) -> dict[str, list[str]]:
-    """The STAGING dict -> {legacy table: [staged column, ...]}."""
+    """The STAGING dict -> {legacy table: [staged column, ...]}.
+
+    Every entry but one is a plain list literal, handled by the original,
+    simpler version of this function: `"(\\w+)":\\s*(\\[[^\\]]*\\])`. The
+    exception is hr_permissions -- `["id", "employee_id"] +
+    list(PERMISSION_MAP) + ["updated_at"]` (load_postgres.py:146) -- which
+    that simpler regex would silently truncate to the first bracket's 2
+    columns instead of the real 20. That blind spot was harmless as long
+    as nothing compared STAGING's column *count* for a TRANSFORM_SOURCES
+    table (find_gaps skips those entirely), but check_export_staging_
+    agreement does exactly that for every STAGING table, and immediately
+    reported a false "hr_permissions: STAGING declares ['id',
+    'employee_id']" mismatch the first time it ran for real (2026-08-15)
+    -- not a real EXPORT_SQL/STAGING drift, this parser's own blind spot.
+    So this version walks each entry's full source chunk in order,
+    resolving both `[...]` literals and `list(PERMISSION_MAP)` references
+    positionally -- order matters here exactly as much as it does for
+    \\copy itself, since hr_permissions' `updated_at` must land last.
+    """
+    permission_keys = parse_permission_map(load_src)
     block = load_src.split("STAGING = {", 1)[1].split("\n}", 1)[0]
+    # One chunk per entry: a lookahead split on each 4-space-indented
+    # `"key":` line keeps a multi-line list literal (e.g. "employees":
+    # [...] spanning several lines) attached to its own key rather than
+    # bleeding into the next entry.
+    chunks = re.split(r'(?=^    "\w+":)', block, flags=re.M)
     out: dict[str, list[str]] = {}
-    for m in re.finditer(r'"(\w+)":\s*(\[[^\]]*\])', block):
-        out[m.group(1)] = re.findall(r'"(\w+)"', m.group(2))
+    for chunk in chunks:
+        key_match = re.match(r'\s*"(\w+)":', chunk)
+        if not key_match:
+            continue
+        cols: list[str] = []
+        for piece in re.finditer(r"\[[^\]]*\]|list\(PERMISSION_MAP\)", chunk):
+            if piece.group(0) == "list(PERMISSION_MAP)":
+                cols.extend(permission_keys)
+            else:
+                cols.extend(re.findall(r'"(\w+)"', piece.group(0)))
+        out[key_match.group(1)] = cols
     return out
+
+
+# Statements parse_export_select_columns must not treat as a table's row
+# copy: export_legacy.py's own _classify_statement (export_legacy.py:406-
+# 434) recognizes these same three by the same markers and routes them to
+# "REPORT" instead of "TABLE". This module intentionally does not import
+# export_legacy.py (see load_inputs' docstring-equivalent comment below --
+# every scripts/etl/ file parses its neighbours as text, not as a module,
+# same reasoning NULL_MARKER duplicates rather than imports in
+# export_legacy.py itself), so the three markers are duplicated here
+# rather than shared. Getting this wrong is not cosmetic: the
+# created_at_quality probe is one statement with a dozen `FROM <table>`
+# clauses inside a UNION ALL, and without this filter
+# parse_export_select_columns would misread its first FROM table as a
+# giant, garbled "column list" spanning the whole UNION.
+_REPORT_MARKERS = ("HAVING COUNT(*) > 1", "CREATED_AT_QUALITY", "IS_DAYLIGHT_SAVING")
+
+
+def _split_select_columns(collist: str) -> list[str]:
+    """A SELECT clause's column list -> the individual column expressions.
+
+    Splits on top-level commas only, tracking paren depth, because
+    `DATE_FORMAT(check_in, '%Y-%m-%d %H:%i:%s') AS check_in`
+    (export_legacy.py's attendance/branches SELECTs) contains a comma that
+    is not a column separator. A plain `.split(',')` would cut that
+    expression in half and misreport a mismatch against STAGING that does
+    not exist.
+    """
+    columns: list[str] = []
+    depth = 0
+    current = ""
+    for ch in collist:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            columns.append(current)
+            current = ""
+        else:
+            current += ch
+    columns.append(current)
+    return [c for c in columns if c.strip()]
+
+
+def _resolved_column_name(expr: str) -> str:
+    """One SELECT-list expression -> the name it lands under in the CSV
+    (and therefore the name \\copy matches, positionally, against STAGING).
+
+    `company_name AS name` -> "name" (cursor.description / the CSV header
+    uses the alias, not the source column -- export_legacy.py's own
+    self-test pins this down: "companies is selected by its real column
+    name, not the target's", export_legacy.py:668-671). A bare column with
+    no alias resolves to itself.
+    """
+    expr = expr.strip()
+    alias = re.search(r"\bAS\s+(\w+)\s*$", expr, re.I)
+    if alias:
+        return alias.group(1)
+    return expr.split(".")[-1].strip()
+
+
+def parse_export_select_columns(export_sql: str, legacy: dict[str, list[str]]) -> dict[str, list[str]]:
+    """EXPORT_SQL -> {STAGING-key table: [column, ...]}, in SELECT order,
+    exactly as \\copy will read them off the CSV.
+
+    This is deliberately NOT parse_exported() above: that function returns
+    an unordered, statement-wide word bag (deliberately tolerant, for
+    find_gaps' "is this legacy column mentioned anywhere" purpose) or the
+    sentinel "ALL" for `SELECT *`. Neither is precise enough to catch Fix
+    B: \\copy matches migration.stg_<table> to the CSV positionally, not by
+    header name (load_postgres.py:141-146's hr_permissions comment says so
+    explicitly), so an exact, ORDERED column list is the only thing
+    capable of proving EXPORT_SQL and STAGING agree -- a same-length,
+    different-order pair is just as broken as a different-length one, and
+    a word-bag comparison would call it fine.
+
+    `SELECT *` is resolved against `legacy` (parse_legacy_schema's output)
+    -- the only way to know what `*` expands to without a live database,
+    and the reason this function takes the legacy schema as an argument at
+    all. That resolution is also what makes this check catch a
+    *regression* back to SELECT * on some future table, not just today's
+    four already-fixed ones.
+
+    Comment lines are stripped BEFORE splitting on ';', exactly as
+    export_legacy.py's own _split_statements does and for the identical
+    reason (export_legacy.py:386-403): several of EXPORT_SQL's comments
+    read as ordinary English ("...redirect each SELECT to the matching
+    file...", "...exported FROM the dump itself...") and would otherwise
+    risk being mistaken for SQL keywords by the regexes below, or a
+    literal ';' inside a comment splitting one statement into two.
+    parse_exported() above skips this step because it only needs a
+    tolerant word bag; this function needs the real statement boundary.
+    """
+    sql_only = "\n".join(
+        line for line in export_sql.splitlines() if not line.strip().startswith("--")
+    )
+    out: dict[str, list[str]] = {}
+    for stmt in sql_only.split(";"):
+        stmt = stmt.strip()
+        if not stmt:
+            continue
+        upper = stmt.upper()
+        if upper.startswith("SET"):
+            continue
+        if any(marker in upper for marker in _REPORT_MARKERS):
+            continue
+        table_match = re.search(r"\bFROM\s+(\w+)\b", stmt, re.I)
+        if not table_match:
+            continue
+        table = table_match.group(1)
+        select_match = re.search(
+            r"SELECT\s+(.*?)\s+FROM\s+" + re.escape(table) + r"\b", stmt, re.I | re.S
+        )
+        if not select_match:
+            continue
+        collist = select_match.group(1).strip()
+        if collist == "*":
+            resolved = list(legacy.get(table, []))
+        else:
+            resolved = [_resolved_column_name(c) for c in _split_select_columns(collist)]
+        # attendance is exported twice (the row copy, and its own
+        # DATE(check_in) bucketing for conformance test 3) -- both `FROM
+        # attendance`, same as _classify_statement distinguishes them
+        # (export_legacy.py:441-446). STAGING keys the bucketing query
+        # under "attendance_days", not "attendance", so this must too or
+        # the second statement silently overwrites the first in `out`.
+        key = "attendance_days" if table == "attendance" and "legacy_day" in [c.lower() for c in resolved] else table
+        key = EXPORT_TABLE_TO_STAGING_KEY.get(key, key)
+        out[key] = resolved
+    return out
+
+
+def check_export_staging_agreement(
+    exported_cols: dict[str, list[str]], staging: dict[str, list[str]]
+) -> list[str]:
+    """-> one message per table where EXPORT_SQL's SELECT and STAGING's
+    declared columns disagree, in either length, order, or content.
+
+    This is Fix B, generalized into a standing check: before it,
+    setting_definitions selected 11 legacy columns (SELECT *) while
+    STAGING declared 2, and setting_allowed_values selected 7 while
+    STAGING declared 4 -- a live `\\copy` would reject both with "extra
+    data after last expected column", but nothing here needs a live
+    database to say the same thing. Every table STAGING declares is
+    checked, not only the four transform sources Fix B happened to hit:
+    the positional-match hazard this guards against applies to every
+    \\copy in load_postgres.py's `_copy()`, row-copy tables included.
+    """
+    problems: list[str] = []
+    for table in sorted(staging):
+        if table not in exported_cols:
+            continue
+        expected = staging[table]
+        actual = exported_cols[table]
+        if actual != expected:
+            problems.append(
+                f"{table}: EXPORT_SQL selects {actual!r} but STAGING declares "
+                f"{expected!r} -- \\copy matches migration.stg_{table} to the CSV "
+                f"positionally, so these must be identical, in the same order"
+            )
+    return problems
 
 
 def parse_inserted(load_src: str) -> dict[str, set[str]]:
@@ -730,6 +972,97 @@ def self_test() -> int:
                all(len(v.strip()) > 20 for v in
                    list(SCHEDULED.values()) + list(SCHEDULED_TABLES.values())))
 
+    # ----------------------------------------------------------------
+    # check_export_staging_agreement: the check that would have caught
+    # Fix B (EXPORT_SQL's SELECT * vs STAGING's short column list)
+    # without a live database. Exercised here against synthetic input, so
+    # this proves the detector itself works even where the sibling
+    # hr-legacy checkout (needed for a REAL --check run) is absent.
+    # ----------------------------------------------------------------
+    agreeing_export = parse_export_select_columns(_FIXTURE_EXPORT, legacy)
+    agreeing_staging = parse_staging(_FIXTURE_LOAD)
+    check_that("agreeing EXPORT_SQL and STAGING columns report no problem",
+               check_export_staging_agreement(agreeing_export, agreeing_staging) == [])
+
+    # The exact Fix B shape: EXPORT_SQL selects every legacy column
+    # (SELECT *) while STAGING under-declares. Resolving `*` needs the
+    # legacy schema -- this is the one assertion in this block that would
+    # NOT pass if parse_export_select_columns silently treated `*` as "no
+    # columns" instead of resolving it.
+    star_schema = parse_legacy_schema(
+        "CREATE TABLE `widgets` (\n"
+        "  `id` int(10) UNSIGNED NOT NULL,\n"
+        "  `name` varchar(50) NOT NULL,\n"
+        "  `extra_column` varchar(50) DEFAULT NULL\n"
+        ")\n"
+    )
+    star_export = parse_export_select_columns("SELECT * FROM widgets ORDER BY id;\n", star_schema)
+    star_staging = {"widgets": ["id", "name"]}
+    star_problems = check_export_staging_agreement(star_export, star_staging)
+    check_that("SELECT * is resolved through the legacy schema, not skipped",
+               star_export.get("widgets") == ["id", "name", "extra_column"])
+    check_that("a SELECT * that outgrows STAGING is reported, by name, as a mismatch "
+               "(the exact shape Fix B was)",
+               len(star_problems) == 1 and "widgets" in star_problems[0])
+
+    # An explicit column list can drift from STAGING too, same as SELECT *
+    # can -- the bug is the drift, not the spelling of the SELECT clause.
+    explicit_export = parse_export_select_columns(
+        "SELECT id, name, extra_column FROM widgets ORDER BY id;\n", star_schema
+    )
+    explicit_problems = check_export_staging_agreement(explicit_export, star_staging)
+    check_that("an explicit SELECT list that disagrees with STAGING is also caught, "
+               "not just SELECT *",
+               len(explicit_problems) == 1 and "widgets" in explicit_problems[0])
+
+    # A same-length, different-ORDER pair must fail too: \copy is
+    # positional, so a reordered column list silently swaps two columns'
+    # values rather than raising "extra data" the way a length mismatch
+    # does -- arguably more dangerous for being silent, and exactly what a
+    # naive set-equality comparison (instead of list equality) would miss.
+    reordered_export = parse_export_select_columns(
+        "SELECT name, id FROM widgets ORDER BY id;\n", star_schema
+    )
+    reordered_problems = check_export_staging_agreement(reordered_export, {"widgets": ["id", "name"]})
+    check_that("a same-length but reordered column list is still reported -- "
+               "set equality alone would miss this",
+               len(reordered_problems) == 1 and "widgets" in reordered_problems[0])
+
+    # A comma inside a function call's arguments (DATE_FORMAT's format
+    # string, exactly as export_legacy.py's attendance/branches SELECTs
+    # use it) must not be mistaken for a column separator.
+    func_export = parse_export_select_columns(
+        "SELECT id, DATE_FORMAT(ts, '%Y-%m-%d %H:%i:%s') AS ts FROM widgets ORDER BY id;\n",
+        star_schema,
+    )
+    check_that("a comma inside a function call's arguments does not split a column in two",
+               func_export.get("widgets") == ["id", "ts"])
+
+    # REPORT statements (leave_balance duplicates, the created_at
+    # zero-date probe, is_daylight_saving) must never be mistaken for a
+    # table's row-copy SELECT -- the created_at_quality probe in
+    # particular is one statement containing a dozen `FROM <table>`
+    # clauses inside a UNION ALL, and misreading it would corrupt
+    # whichever table's entry it clobbers.
+    report_export = parse_export_select_columns(
+        "SELECT employee_id, year, COUNT(*) AS duplicate_rows FROM leave_balance "
+        "GROUP BY employee_id, year HAVING COUNT(*) > 1 ORDER BY employee_id, year;\n",
+        legacy,
+    )
+    check_that("a REPORT statement (leave_balance duplicate check) is not treated as a "
+               "row-copy SELECT for leave_balance",
+               "leave_balance" not in report_export)
+
+    # company_settings (EXPORT_SQL's FROM-clause name) must resolve to the
+    # legacy_company_settings STAGING key, the same divergence TABLE_MAP
+    # models for the target side.
+    cs_export = parse_export_select_columns(
+        "SELECT id, company_id, setting_definition_id FROM company_settings ORDER BY id;\n",
+        legacy,
+    )
+    check_that("company_settings resolves to the legacy_company_settings STAGING key",
+               "legacy_company_settings" in cs_export and "company_settings" not in cs_export)
+
     return 1 if failures else 0
 
 
@@ -761,6 +1094,7 @@ def load_inputs(schema_path: str):
         parse_exported(export_sql),
         parse_staging(load_src),
         parse_inserted(load_src),
+        export_sql,
     )
 
 
@@ -776,8 +1110,20 @@ def main(argv: list[str]) -> int:
         print("pass --schema PATH, or run --self-test which needs no schema", file=sys.stderr)
         return 2
 
-    gaps = find_gaps(*load_inputs(schema_path))
+    legacy, target, exported, staging, inserted, export_sql = load_inputs(schema_path)
+    gaps = find_gaps(legacy, target, exported, staging, inserted)
     unregistered, stale, conflicting = check(gaps)
+
+    # Fix B, as a standing check rather than a one-time fix: EXPORT_SQL's
+    # SELECT list and STAGING's declared columns must agree, in order, for
+    # every table \copy loads. Independent of the ACCEPTED/SCHEDULED/
+    # PENDING ledger above -- it is not a "column silently dropped"
+    # question (find_gaps' domain), it is "would \copy even accept this
+    # file" -- so it is not unioned into `gaps`/`check()` and gets its own
+    # pass/fail here.
+    export_problems = check_export_staging_agreement(
+        parse_export_select_columns(export_sql, legacy), staging
+    )
 
     if "--check" in argv:
         for key in unregistered:
@@ -789,13 +1135,16 @@ def main(argv: list[str]) -> int:
         for key in conflicting:
             print(f"CONFLICTING REGISTRY ENTRY: {key} -- registered in more than one "
                   f"state; the three are mutually exclusive claims")
-        if unregistered or stale or conflicting:
+        for problem in export_problems:
+            print(f"EXPORT_SQL/STAGING MISMATCH: {problem}")
+        if unregistered or stale or conflicting or export_problems:
             return 1
         print(
             f"OK: {len(gaps)} gaps, all registered "
             f"({len(ACCEPTED) + len(ACCEPTED_TABLES)} accepted, "
             f"{len(SCHEDULED) + len(SCHEDULED_TABLES)} scheduled, "
-            f"{len(PENDING) + len(PENDING_TABLES)} pending a decision)"
+            f"{len(PENDING) + len(PENDING_TABLES)} pending a decision), "
+            f"0 EXPORT_SQL/STAGING mismatches"
         )
         return 0
 
@@ -819,9 +1168,15 @@ def main(argv: list[str]) -> int:
             else:
                 state = "UNREGISTERED"
             print(f"  [{state}] {key:52} {detail}")
+    print(f"\n=== EXPORT_SQL / STAGING mismatches ({len(export_problems)}) ===")
+    if not export_problems:
+        print("  (none)")
+    for problem in export_problems:
+        print(f"  {problem}")
     print(
         f"\ntotal gaps: {len(gaps)}   unregistered: {len(unregistered)}   "
-        f"stale: {len(stale)}   conflicting: {len(conflicting)}"
+        f"stale: {len(stale)}   conflicting: {len(conflicting)}   "
+        f"export/staging mismatches: {len(export_problems)}"
     )
     return 0
 

@@ -1,0 +1,20 @@
+# Only needed for `python3 scripts/etl/export_legacy.py --extract`, the
+# live driver-based extraction. --print-sql, --manifest, and --self-test
+# need nothing beyond the stdlib and stay that way -- export_legacy.py
+# imports PyMySQL lazily, inside run_extraction(), specifically so those
+# three modes are unaffected by whether this file's pin is installed.
+#
+# Why a driver at all, when this repo's tooling is stdlib-only by rule:
+# production's secure_file_priv is /dev/null/, which disables MySQL's own
+# SELECT ... INTO OUTFILE outright, and INTO OUTFILE writes to the
+# database server's filesystem regardless -- production here is managed
+# shared hosting, so the file could never be retrieved even if permitted.
+# There is no connectionless extraction path against this host. See
+# export_legacy.py's module docstring and docs/bootstrap/decision-log.md
+# D-037.
+#
+# Why PyMySQL specifically: pure-Python, no C extension to compile, so it
+# installs on an operator's machine near production with nothing beyond
+# `pip install -r scripts/etl/requirements.txt` -- no build toolchain, no
+# matching MySQL client headers.
+PyMySQL==1.1.1

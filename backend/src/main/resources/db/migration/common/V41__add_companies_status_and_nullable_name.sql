@@ -1,0 +1,43 @@
+-- D-035 (A1): live production has four company lifecycle states
+-- (hr-legacy/mysql_workin.schema.sql:207, `status enum('pending',
+-- 'active','rejected','suspended') NOT NULL DEFAULT 'pending'`), not
+-- the boolean this table currently models. Preserve all four
+-- explicitly rather than collapsing back to active/inactive --
+-- V1__create_companies.sql's minimal-schema note flagged this as the
+-- reason `status` wasn't here from the start.
+--
+-- name becomes nullable: a pending signup legitimately has no name
+-- yet. Live production, 2026-08-15: 81 of 317 companies are pending,
+-- all 81 unnamed; all 223 active companies are named -- D-035/D-037's
+-- finding C, re-verified unchanged. A1 does not exclude these rows or
+-- fabricate a placeholder name. A non-null name is required only at
+-- activation, as an application-layer rule (D-035) -- not enforced
+-- here.
+--
+-- companies.active (BOOLEAN) is NOT dropped by this migration. A1
+-- supersedes it conceptually, but grep of backend/src/main/java found
+-- it still live as a mapped entity field: Company.java declares
+-- `@Column(nullable = false) private boolean active = true;` with a
+-- public isActive() getter, and RegistrationService constructs every
+-- new Company through the two-arg constructor, which leaves it at its
+-- default `true`. No call site anywhere in backend/src/main/java
+-- reads Company.isActive() -- the getter itself is unused -- but the
+-- column is still a mapped, NOT NULL JPA field, so dropping it is a
+-- separate, later decision, not taken here.
+--
+-- DEFAULT 'active' deliberately DIVERGES from legacy's own default of
+-- 'pending'. The default only ever applies to rows this platform
+-- creates itself -- the ETL sets status explicitly from the legacy
+-- value, so migrated rows never see it. The only other writer is
+-- RegistrationService, and this platform has no approval/activation
+-- workflow yet: defaulting new registrations to 'pending' would strand
+-- them in a state nothing can move them out of. 'active' therefore
+-- preserves today's actual behaviour (companies.active already
+-- defaults TRUE and nothing ever flips it).
+-- FOLLOW-UP, required when the activation workflow lands: registration
+-- must then set status = 'pending' explicitly and this default should
+-- be reconsidered, or new signups will silently self-activate.
+ALTER TABLE companies
+    ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'active'
+        CONSTRAINT companies_status_check CHECK (status IN ('active', 'pending', 'rejected', 'suspended')),
+    ALTER COLUMN name DROP NOT NULL;

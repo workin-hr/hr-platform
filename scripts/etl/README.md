@@ -14,7 +14,8 @@ data has been moved** — that needs a dump.
 
 | File | What it is |
 |---|---|
-| `export_legacy.py` | Emits the read-only MySQL extraction and the manifest |
+| `export_legacy.py` | Emits the read-only MySQL extraction/manifest, and (`--extract`) runs it against a live database |
+| `requirements.txt` | `PyMySQL`, needed only by `export_legacy.py --extract` |
 | `load_postgres.py` | Emits the PostgreSQL load: staging, id maps, both transforms |
 | `export_target_postgres.py` | Emits the target-side export, keyed back to legacy ids |
 | `coverage_audit.py` | Proves no legacy column is dropped without a recorded decision |
@@ -56,12 +57,43 @@ python3 scripts/etl/export_legacy.py --manifest  > manifest.json
 python3 scripts/etl/export_legacy.py --self-test
 ```
 
-It emits SQL rather than connecting to anything. This repository's
-tooling is stdlib-only by rule, so it has to run on an operator's
-machine near production with no network installs and no MySQL driver.
-The Phase 0 lock also forbids a bare `.sql` file outside `backend/`,
-which is the guard working as intended — an extraction script is
-operator tooling, not application code.
+These three need nothing beyond the stdlib and always will. A fourth
+mode, `--extract`, connects for real and writes CSVs directly:
+
+```sh
+pip install -r scripts/etl/requirements.txt
+DB_HOST=... DB_USER=... DB_PASS=... DB_NAME=... \
+    python3 scripts/etl/export_legacy.py --extract --out ./legacy_export
+```
+
+**This used to be impossible by rule** ("stdlib-only, no MySQL driver, no
+network installs, run near production") and the rule is gone on purpose,
+not by accident: production's `secure_file_priv` is `/dev/null/`, which
+disables MySQL's own `SELECT ... INTO OUTFILE` outright — the fix the
+2026-08-13 brief originally proposed — and even where `INTO OUTFILE`
+isn't disabled it writes to the *database server's* filesystem, which on
+this managed shared host could never be retrieved anyway. There is no
+connectionless extraction path against the real host. `--extract` imports
+PyMySQL (pure-Python, no compilation) lazily, inside the function that
+needs it, so `--print-sql`/`--manifest`/`--self-test` stay dependency-free
+— only an operator running a live extraction needs
+`scripts/etl/requirements.txt` installed. The Phase 0 lock forbidding a
+bare `.sql` file outside `backend/` still holds and is unaffected —
+`--extract` never writes SQL to disk, only CSVs.
+
+Credentials (`DB_HOST`/`DB_USER`/`DB_PASS`/`DB_NAME`/`DB_PORT`, the last
+optional, default 3306) come from the environment only — never a CLI
+argument (shell history, `ps` on a shared host), never a file, never
+logged. `--extract` refuses to run anything that is not `SELECT` or
+`SET` (`export_legacy.py`'s `_classify_statement`), and additionally puts
+the session itself into `SET SESSION TRANSACTION READ ONLY` before
+EXPORT_SQL runs — read-only enforced structurally, not only documented.
+`--extract` writes one CSV per table (using Python's `csv` module, so
+embedded newlines/quotes and the NULL-vs-literal-`\N` collision are
+handled correctly by construction — see `write_csv_rows`'s docstring),
+plus `manifest.json` with `expected_count` measured from the rows this
+run actually wrote (see "Manifest counts are measured, not remembered"
+below), not carried from a stale snapshot.
 
 ## The timezone rule is implemented here, not decided here
 
@@ -79,23 +111,39 @@ loaded:
 `SET time_zone = '+00:00'` does the right thing to both, because MySQL
 converts `timestamp` on read and never converts `datetime`.
 
+## Manifest counts are measured, not remembered
+
+The `expected_count`s in the static `MANIFEST` constant (and the
+`manifest.json` `--manifest` prints) are the 2026-08-03 snapshot's
+counts, kept only as a historical baseline. D-037
+(`docs/bootstrap/decision-log.md`, 2026-08-15) found every single one
+stale — all 21 tables grew 4.3%–59.6% in the 12 days since, and
+`attendance` grew *during the verification session that found this*.
+`--extract` does not carry those constants forward: it counts the rows
+it actually wrote and generates a fresh `<out>/manifest.json` from that,
+via `build_measured_manifest`. **Hand `migration_diff.py` the
+`manifest.json` a real `--extract` run produced, never the static one
+`--manifest` prints** — the latter is now guaranteed wrong.
+
 ## Before running a real extraction
 
-1. Fill the `expected_count` nulls in `manifest.json` from the dump.
-   Three are already measured: employees 2,871, attendance 36,316, and
-   department-branch assignments 1,245.
-2. Capture `configs.is_daylight_saving`. The final query records it. It
-   does not change the rule, but it determines how far off historical
-   instants are and belongs in the decision log.
-3. Export `attendance_days.csv` alongside `attendance.csv`. It carries
-   legacy's own `DATE(check_in)` per row and is what conformance test 3
-   compares against — the check that the wall-clock rule was actually
-   applied.
-4. Read the `created_at_quality` probe rows. Every `zero_dates` and
-   `null_dates` count must be 0. The load casts `created_at` into a NOT
-   NULL `TIMESTAMPTZ`, and MySQL's `0000-00-00 00:00:00` has no
-   PostgreSQL equivalent — a nonzero count is a decision to make before
-   cutover, not a surprise during it.
+1. Capture `configs.is_daylight_saving`. `--extract` prints it (and the
+   other diagnostic queries below) to stderr; it does not change the
+   timezone rule, but it determines how far off historical instants are
+   and belongs in the decision log.
+2. Read the `created_at_quality` probe rows `--extract` prints. Every
+   `zero_dates` and `null_dates` count must be 0. The load casts
+   `created_at` into a NOT NULL `TIMESTAMPTZ`, and MySQL's
+   `0000-00-00 00:00:00` has no PostgreSQL equivalent — a nonzero count
+   is a decision to make before cutover, not a surprise during it.
+3. Read the `leave_balance` duplicate-key rows `--extract` prints (legacy
+   has no unique key on `(employee_id, year)` but V25 declares one) — a
+   nonzero count is, again, a decision to make with real numbers before
+   cutover, not an abort discovered during it.
+
+(`attendance_days.csv` no longer needs a separate manual step — it is
+just another TABLE statement in `EXPORT_SQL`, written automatically by
+`--extract` alongside `attendance.csv`.)
 
 ## Not covered
 

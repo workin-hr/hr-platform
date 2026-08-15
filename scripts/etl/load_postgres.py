@@ -146,8 +146,28 @@ STAGING = {
     "hr_permissions": ["id", "employee_id"] + list(PERMISSION_MAP) + ["updated_at"],
     "legacy_company_settings": ["id", "company_id", "setting_definition_id"],
     "company_setting_values": ["id", "company_setting_id", "setting_allowed_value_id"],
-    "setting_definitions": ["id", "setting_key"],
-    "setting_allowed_values": ["id", "setting_definition_id", "value", "sort_order"],
+    # Fix B: these two were the actual bug (docs/migration/2026-08-13-etl-
+    # real-data-findings-decision-brief.md). export_legacy.py used to
+    # SELECT * here -- 11 and 7 legacy columns respectively -- while this
+    # dict declared only 2 and 4. \copy matches a CSV to this table
+    # positionally, not by header name (see the hr_permissions comment
+    # below), so that drift is not a missing value, it is every column
+    # after the declared ones shifted left, and \copy rejected the whole
+    # file with "extra data after last expected column". These two lists
+    # are now the FULL legacy column set minus updated_at (verified dead:
+    # zero reads anywhere in hr-legacy, and V44__create_settings_catalog.sql
+    # deliberately has no such target column -- see EXPORT_SQL's comment
+    # in export_legacy.py, right above these same two SELECTs).
+    # coverage_audit.py's check_export_staging_agreement enforces that
+    # these two lists never again drift from what EXPORT_SQL actually
+    # selects.
+    "setting_definitions": [
+        "id", "setting_key", "label_ar", "label_en", "description_ar",
+        "description_en", "icon_data", "is_multi", "is_required", "sort_order",
+    ],
+    "setting_allowed_values": [
+        "id", "setting_definition_id", "value", "label_ar", "label_en", "sort_order",
+    ],
 }
 
 # Legacy setting_key -> typed company_settings column. BOOLEAN columns
@@ -178,6 +198,16 @@ TRUTHY_SETTING_VALUES = ("1", "true", "yes", "on")
 # genuine cycle, resolved by loading departments with manager_id NULL
 # here and backfilling it once employees exist (see _load).
 LOAD_ORDER = [
+    # setting_definitions/setting_allowed_values (V44) are global catalog
+    # tables -- no RLS, no company_id, same precedent as
+    # common/V4__create_permission_catalog.sql's permissions table (see
+    # V44's own comment block) -- so they have no foreign-key dependency
+    # on anything else in this list and could run anywhere. Listed first
+    # for that reason: the only internal ordering constraint is
+    # setting_allowed_values.setting_definition_id -> setting_definitions,
+    # which _load() satisfies by allocating/inserting definitions before
+    # allowed_values (see the "settings catalog" section below).
+    "setting_definitions", "setting_allowed_values",
     "companies", "departments", "branches", "job_titles", "shifts", "exception_types", "employees",
     "identities", "tenant_memberships", "request_types", "requests",
     "company_official_holidays", "salary_contracts", "payroll_batches", "advances",
@@ -390,7 +420,44 @@ JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.legacy_id = s.company
 WHERE NOT EXISTS (SELECT 1 FROM shifts sh WHERE sh.id = m.new_id);
 """.strip())
 
-    p.append(_allocate("exception_types", "migration.stg_exception_types"))
+    # D-035/A6 (finding H): legacy exception_types 1, 3 and 4 all point at
+    # company_id 19, which does not exist -- still true against live
+    # production on 2026-08-15, unchanged since the 2026-08-03 snapshot
+    # (D-037). A6 decided to exclude them from the operational migration
+    # and record the exclusion explicitly, "not a silent drop".
+    #
+    # A silent drop is exactly what happened before this guard: ids were
+    # allocated for all three, then the INSERT's join to the company map
+    # dropped them, leaving orphaned migration.id_map rows behind (proved
+    # in the 2026-08-15 rehearsal -- 142 staged, 139 loaded, ids 1/3/4
+    # still present in id_map). Filtering at ALLOCATION instead means no
+    # id_map entry is ever created for an unresolvable parent.
+    #
+    # This deliberately does NOT touch _finalize()'s unmapped-FK guard.
+    # That guard fires when an id_map entry has no matching loaded row; by
+    # keeping these rows out of id_map entirely, the guard never sees them
+    # and stays fully armed for any OTHER unexpected unmapped FK -- which
+    # is the case it exists to catch.
+    _orphan_company = (
+        "NOT EXISTS (SELECT 1 FROM migration.id_map cm "
+        "WHERE cm.entity = 'companies' AND cm.legacy_id = s.company_id::BIGINT)"
+    )
+    p.append(_allocate("exception_types", "migration.stg_exception_types",
+                       where=f"NOT ({_orphan_company})"))
+    p.append(f"""
+-- The exclusion, recorded as an artifact rather than left implicit --
+-- reconciliation reads migration.load_counts, so a reader comparing
+-- legacy's exception_types count against the target's finds the
+-- difference already explained here instead of looking like data loss.
+-- Still owed: A6's "record the exclusion" arguably wants the excluded
+-- ids themselves, not just a count. That needs D-035's shared
+-- remediation/audit output, which does not exist yet.
+INSERT INTO migration.load_counts (entity, rows)
+SELECT 'exception_types_excluded_orphaned_company', count(*)
+FROM migration.stg_exception_types s
+WHERE {_orphan_company}
+ON CONFLICT (entity) DO UPDATE SET rows = EXCLUDED.rows, recorded = now();
+""".strip())
     p.append("""
 INSERT INTO exception_types (id, company_id, name, created_at) OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.name,
@@ -584,6 +651,31 @@ WHERE NOT EXISTS (SELECT 1 FROM company_official_holidays h WHERE h.id = m.new_i
     # ---------- payroll ----------
     p.append(_allocate("salary_contracts", "migration.stg_salary_contracts"))
     p.append("""
+-- effective_from zero-dates (D-035/A2, re-verified live and unchanged at
+-- 23 of 3,242 rows, D-037 finding D): legacy's effective_from is
+-- `date NOT NULL` with no default (invalid-date-analysis.md), so these
+-- rows hold the MySQL zero-date placeholder '0000-00-00' rather than a
+-- legitimately absent value -- unlike hire_date/birth_date, NULL is not
+-- an option here even in principle. A plain s.effective_from::DATE
+-- aborts the load outright ("date/time field value out of range:
+-- 0000-00-00") the moment a real production dump reaches this INSERT.
+--
+-- The guard is on the RAW STAGED TEXT, not a pre-cast value: CASE
+-- evaluates its WHEN condition per row and only evaluates the matching
+-- branch's expression for that row, so a row that fails the regex never
+-- reaches ::DATE at all -- the bad cast is never attempted, not merely
+-- caught. The pattern requires a non-zero leading year digit, which
+-- excludes '0000-00-00' (and, as a side effect, any empty or otherwise
+-- malformed value) without needing a cast to test.
+--
+-- Fallback is the row's OWN created_at (staged and used unmodified two
+-- lines below; verified zero-date-free for this table by export_legacy.py's
+-- created_at_quality probe, invalid-date-analysis.md's "created_at (15
+-- tables)" finding) -- deliberately NOT now(): a load-time timestamp on
+-- a migrated row is the exact D-033/OQ-3 trap (a migrated row silently
+-- reading as if it happened during the load). Recording this repair in
+-- migration remediation/audit output, as A2 also requires, remains owed
+-- -- that mechanism does not exist yet and is not built here.
 INSERT INTO salary_contracts (id, employee_id, company_id, salary_mode, basic_salary, daily_wage,
        housing_allowance, transport_allowance, food_allowance, risk_allowance, incentives,
        insurance_deduction, tax_deduction, advances_deduction, fund_deduction, penalty_deduction,
@@ -596,7 +688,10 @@ SELECT m.new_id, emp.new_id, e.company_id, UPPER(COALESCE(s.salary_mode, 'monthl
        COALESCE(s.incentives::NUMERIC, 0), COALESCE(s.insurance_deduction::NUMERIC, 0),
        COALESCE(s.tax_deduction::NUMERIC, 0), COALESCE(s.advances_deduction::NUMERIC, 0),
        COALESCE(s.fund_deduction::NUMERIC, 0), COALESCE(s.penalty_deduction::NUMERIC, 0),
-       s.effective_from::DATE,
+       CASE WHEN s.effective_from ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}$'
+            THEN s.effective_from::DATE
+            ELSE s.created_at::DATE
+       END,
        (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_salary_contracts s
 JOIN migration.id_map m ON m.entity = 'salary_contracts' AND m.legacy_id = s.id::BIGINT
@@ -671,14 +766,46 @@ WHERE NOT EXISTS (SELECT 1 FROM penalties pn WHERE pn.id = m.new_id);
 -- shift. Changing this to a real offset silently breaks exception-day
 -- detection and moves every early-morning punch to the previous day.
 -- See docs/migration/2026-08-09-etl-and-timezone-design.md.
+--
+-- D-035/A3 (finding E): a legacy row may carry BOTH a completed punch
+-- and an exception category, which V21's
+-- CHECK (exception_type_id IS NULL OR check_out IS NULL) rejects
+-- outright -- the first real load aborted here. A3 decided the
+-- constraint is right and the DATA is wrong: preserve the real
+-- check_in/check_out, clear exception_type_id, keep the CHECK. So the
+-- exception is dropped for exactly those rows, and nothing else about
+-- them changes -- the row is not excluded and the punches are not
+-- nulled.
+--
+-- The guard reads the RAW staged text (same approach as A2/A5's
+-- effective_from regex above) rather than a cast, so it is structural
+-- rather than tied to a row count: D-035 sized this at 13 rows, it was
+-- 39 of 39,881 on 2026-08-15, and it grows ~2/day because legacy is
+-- deliberately not patched (workin-hr/hr-legacy issue #28, D-037).
+-- Whatever the count is at extraction time, this handles it.
+--
+-- `method` keys off the SAME remediated condition, not the raw
+-- exception id. A row we have just decided to treat as a real punch
+-- must keep its real method; forcing NULL there would preserve the
+-- punch while discarding how it was recorded. `method` is nulled only
+-- for a genuine exception-only row (exception set AND no checkout).
+--
+-- Still owed: A3 also requires each remediation be recorded
+-- individually. No per-row audit mechanism exists in this file yet --
+-- that is D-035's shared remediation/audit output, still an open
+-- design question.
 INSERT INTO attendance (id, employee_id, company_id, check_in, check_out, method,
                         latitude, longitude, exception_type_id, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, emp.new_id, e.company_id,
        (s.check_in::TIMESTAMP AT TIME ZONE 'UTC'),
        (s.check_out::TIMESTAMP AT TIME ZONE 'UTC'),
-       CASE WHEN s.exception_type_id IS NULL THEN COALESCE(s.method, 'app') ELSE NULL END,
-       s.latitude::NUMERIC, s.longitude::NUMERIC, ex.new_id,
+       CASE WHEN s.exception_type_id IS NULL
+                 OR (s.check_out IS NOT NULL AND s.check_out <> '')
+            THEN COALESCE(s.method, 'app') ELSE NULL END,
+       s.latitude::NUMERIC, s.longitude::NUMERIC,
+       CASE WHEN s.check_out IS NOT NULL AND s.check_out <> ''
+            THEN NULL ELSE ex.new_id END,
        (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_attendance s
 JOIN migration.id_map m ON m.entity = 'attendance' AND m.legacy_id = s.id::BIGINT
@@ -774,7 +901,44 @@ END $$;
 -- in this INSERT makes PostgreSQL reject the statement. It is still
 -- exported from both sides so migration_diff proves the two engines
 -- compute it identically. created_at derives from the row's own year --
--- the balance IS the year, so the row cannot predate it (D-b).
+-- the balance IS the year, so the row cannot predate it (D-b) -- EXCEPT
+-- when year is legacy's zero-sentinel, handled by the CASE below.
+--
+-- year = 0: legacy's `year(4) NOT NULL` (hr-legacy/mysql_workin.schema.sql:613)
+-- silently stores an unset/invalid year as MySQL YEAR's zero-value
+-- ('0000') instead of rejecting it (hr-legacy issue #29; root cause is
+-- `??`, which guards only a missing/null key, at
+-- apis/helpers/employee_create_helper.php:207 and
+-- apis/api/employees/create.php:202 -- an explicit '' or 0 slips
+-- through where the adjacent period_from_month/period_to_month/
+-- monthly_cap_days lines use the correct isset(...) && ... !== ''
+-- guard). D-035/A4 quarantined these rows on the premise that they
+-- could not be stored target-side. They can: leave_balances.year is
+-- SMALLINT NOT NULL (V25__create_requests_and_leave_balances.sql:55)
+-- and SMALLINT stores 0 fine -- the ONLY thing that fails is this
+-- derived created_at, because make_timestamptz(0, 1, 1, ...) errors
+-- ("date field value out of range: 0-01-01"): there is no year 0 in
+-- the proleptic Gregorian calendar Postgres uses. The owner's
+-- 2026-08-15 carry-as-is decision (A4 reopened and superseded, see
+-- D-037 in docs/bootstrap/decision-log.md) replaces the quarantine:
+-- year is carried through unchanged, including 0 -- no exclusion, no
+-- invented year -- and only the synthesis below is repaired.
+--
+-- The guard is the legacy column's own valid range, not merely
+-- "<> 0": MySQL's year(4) accepts 1901-2155 as real years and 0000 as
+-- its sole out-of-band value, so anything outside that range is
+-- already not a real legacy year and takes the fallback rather than
+-- ever reaching make_timestamptz. The fallback is the parent
+-- employee's own created_at (e, already joined below for company_id)
+-- -- the nearest real, deterministic timestamp available, and the
+-- balance cannot predate the employee who holds it. It is
+-- deliberately NOT now(): a load-time timestamp on a migrated row is
+-- the exact trap D-033/OQ-3 exists to prevent (a migrated row
+-- silently reading as if it happened during the load).
+--
+-- New platform writes must never produce year = 0; V45 adds the CHECK
+-- that documents this as a legacy-only sentinel and why it cannot be
+-- enforced at the database layer for new rows.
 INSERT INTO leave_balances (id, employee_id, company_id, year, period_from_month,
                             period_to_month, monthly_cap_days, total_days, used_days,
                             created_at)
@@ -784,7 +948,10 @@ SELECT m.new_id, emp.new_id, e.company_id, s.year::SMALLINT,
        COALESCE(s.period_to_month::SMALLINT, 12),
        s.monthly_cap_days::NUMERIC,
        COALESCE(s.total_days::NUMERIC, 0), COALESCE(s.used_days::NUMERIC, 0),
-       make_timestamptz(s.year::INT, 1, 1, 0, 0, 0, 'UTC')
+       CASE WHEN s.year::INT BETWEEN 1901 AND 2155
+            THEN make_timestamptz(s.year::INT, 1, 1, 0, 0, 0, 'UTC')
+            ELSE e.created_at
+       END
 FROM migration.stg_leave_balance s
 JOIN migration.id_map m ON m.entity = 'leave_balances' AND m.legacy_id = s.id::BIGINT
 JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.employee_id::BIGINT
@@ -809,11 +976,33 @@ WHERE NOT EXISTS (SELECT 1 FROM employee_schedules es WHERE es.id = m.new_id);
 
     p.append(_allocate("employee_shift_assignments", "migration.stg_employee_shift_assignments"))
     p.append("""
+-- effective_from zero-dates (D-035/A5, re-verified live and unchanged at
+-- 23 of 4,184 rows, D-037 finding G): same defect shape as salary_contracts
+-- above and the same fallback decision -- see that INSERT's comment for
+-- the full reasoning (NOT NULL column, zero-date is legacy's own invalid
+-- placeholder not a legitimate absence, guard must run on the raw staged
+-- text so the bad ::DATE cast is never attempted for a bad row, not just
+-- caught after). Fallback is this row's own created_at, which IS staged
+-- (STAGING["employee_shift_assignments"] above, and export_legacy.py's
+-- own SELECT for this table) and used unmodified two lines below.
+--
+-- One difference from salary_contracts: export_legacy.py's
+-- created_at_quality probe does NOT include employee_shift_assignments
+-- in its 15-table zero-date check (invalid-date-analysis.md's "created_at
+-- (15 tables)" list), so unlike salary_contracts.created_at, this
+-- fallback value has not itself been proven zero-date-free against live
+-- data. No zero-date has ever been observed here, and extending that
+-- probe means touching export_legacy.py, which is out of scope for this
+-- change -- left as a residual, currently-unverified risk rather than
+-- silently widened.
 INSERT INTO employee_shift_assignments (id, company_id, employee_id, shift_id,
                                         effective_from, created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, e.company_id, emp.new_id, sh.new_id,
-       s.effective_from::DATE,
+       CASE WHEN s.effective_from ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}$'
+            THEN s.effective_from::DATE
+            ELSE s.created_at::DATE
+       END,
        (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_employee_shift_assignments s
 JOIN migration.id_map m ON m.entity = 'employee_shift_assignments' AND m.legacy_id = s.id::BIGINT
@@ -837,6 +1026,63 @@ BEGIN
         RAISE EXCEPTION 'ETL: % employee_shift_assignments rows reference a shift from another company', crossed;
     END IF;
 END $$;
+""".strip())
+
+    # ---------- settings catalog: load into V44's target tables ----------
+    # Until now the load only pivoted the EAV chain into company_settings'
+    # six typed columns (below) and dropped setting_definitions/
+    # setting_allowed_values entirely once the pivot had read them.
+    # V44__create_settings_catalog.sql gives them real target tables, so
+    # they are now ALSO loaded here as an ordinary id-mapped row copy --
+    # in addition to, not instead of, feeding TRANSFORM 1 below, which
+    # keeps reading directly from migration.stg_setting_definitions /
+    # migration.stg_setting_allowed_values and is unchanged by this block.
+    #
+    # Presentation metadata only -- V44's own comment block states the
+    # premise this load must not violate: the six typed company_settings
+    # columns remain the SOLE authority for a company's chosen VALUE.
+    # Nothing below writes to company_settings or company_setting_values;
+    # doing so would reintroduce legacy's EAV by accident.
+    p.append("-- ================= settings catalog (V44) =================")
+    p.append(_allocate("setting_definitions", "migration.stg_setting_definitions"))
+    p.append("""
+-- is_multi/is_required are legacy tinyint(1), string-compared to '1' the
+-- same way every other legacy boolean in this file is (e.g. employees'
+-- COALESCE(s.is_active, '1') = '1' above) rather than cast, since a
+-- tinyint(1) column is TEXT in staging and ::BOOLEAN would reject values
+-- that are merely absent. updated_at is not selected by EXPORT_SQL for
+-- this table (see its comment there) so there is nothing to carry here.
+INSERT INTO setting_definitions (id, setting_key, label_ar, label_en, description_ar,
+                                 description_en, icon_data, is_multi, is_required, sort_order)
+OVERRIDING SYSTEM VALUE
+SELECT m.new_id, s.setting_key, s.label_ar, s.label_en, s.description_ar, s.description_en,
+       s.icon_data, COALESCE(s.is_multi, '0') = '1', COALESCE(s.is_required, '0') = '1',
+       COALESCE(s.sort_order::INT, 0)
+FROM migration.stg_setting_definitions s
+JOIN migration.id_map m ON m.entity = 'setting_definitions' AND m.legacy_id = s.id::BIGINT
+WHERE NOT EXISTS (SELECT 1 FROM setting_definitions sd WHERE sd.id = m.new_id);
+""".strip())
+
+    p.append(_allocate("setting_allowed_values", "migration.stg_setting_allowed_values"))
+    p.append("""
+-- setting_definition_id resolves through migration.id_map exactly like
+-- every other foreign key in this file: plain JOIN, not LEFT JOIN,
+-- because V44 declares it NOT NULL REFERENCES setting_definitions --
+-- the same "required FK" convention company_id follows on departments/
+-- branches/etc. above (a plain `JOIN migration.id_map cm ON cm.entity =
+-- 'companies' ...`), as opposed to the LEFT JOIN _fk() helper
+-- (load_postgres.py:296-298) reserved for optional FKs like
+-- branches.department_id. A row whose parent
+-- definition never loaded is silently skipped by this INNER JOIN and
+-- then caught -- not silently dropped -- by finalize()'s unmapped-FK
+-- guard, same fail-fast pattern as every other entity in LOAD_ORDER.
+INSERT INTO setting_allowed_values (id, setting_definition_id, value, label_ar, label_en, sort_order)
+OVERRIDING SYSTEM VALUE
+SELECT m.new_id, dm.new_id, s.value, s.label_ar, s.label_en, COALESCE(s.sort_order::INT, 0)
+FROM migration.stg_setting_allowed_values s
+JOIN migration.id_map m ON m.entity = 'setting_allowed_values' AND m.legacy_id = s.id::BIGINT
+JOIN migration.id_map dm ON dm.entity = 'setting_definitions' AND dm.legacy_id = s.setting_definition_id::BIGINT
+WHERE NOT EXISTS (SELECT 1 FROM setting_allowed_values av WHERE av.id = m.new_id);
 """.strip())
 
     # ---------- transform: EAV -> typed company_settings ----------
@@ -1029,6 +1275,117 @@ def self_test() -> int:
           load.count("JOIN migration.id_map dm ON dm.entity = 'departments'") >= 2)
     check("departments.manager_id backfills after employees exist (breaks the cycle)",
           "UPDATE departments d" in load and "SET manager_id = mgr.new_id" in load)
+
+    # ---------- leave_balances year=0 sentinel (D-035/A4 superseded by the
+    # owner's 2026-08-15 carry-as-is decision, D-037) ----------
+    lb_section = load.split("INSERT INTO leave_balances (id, employee_id", 1)[-1] \
+        .split("FROM migration.stg_leave_balance s", 1)[0]
+    check("leave_balances.year is carried through unchanged, including 0 -- "
+          "no exclusion, no substituted year (D-035/A4's quarantine is "
+          "superseded by the owner's carry-as-is call, D-037)",
+          "s.year::SMALLINT" in lb_section)
+    check("make_timestamptz is guarded to legacy year(4)'s real range and is "
+          "never reached for year 0 or any other non-real year",
+          "CASE WHEN s.year::INT BETWEEN 1901 AND 2155" in lb_section
+          and "THEN make_timestamptz(s.year::INT, 1, 1, 0, 0, 0, 'UTC')" in lb_section)
+    check("the created_at fallback is the parent employee's own created_at, "
+          "never now() -- the D-033/OQ-3 trap of a migrated row silently "
+          "reading as if it happened during the load",
+          "ELSE e.created_at" in lb_section and "now()" not in lb_section)
+
+    # ---------- salary_contracts / employee_shift_assignments effective_from
+    # zero-dates (D-035/A2, D-035/A5; re-verified live and unchanged,
+    # D-037 findings D and G) ----------
+    sc_section = load.split("INSERT INTO salary_contracts (id, employee_id", 1)[-1] \
+        .split("FROM migration.stg_salary_contracts s", 1)[0]
+    check("salary_contracts.effective_from's zero-date guard tests the raw "
+          "staged text, not a pre-cast value -- a bad row never reaches "
+          "::DATE at all (D-035/A2)",
+          "CASE WHEN s.effective_from ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}$'" in sc_section
+          and "THEN s.effective_from::DATE" in sc_section)
+    check("salary_contracts.effective_from's fallback is the row's own "
+          "created_at, never now() (D-035/A2's decided fallback; the "
+          "D-033/OQ-3 trap of a migrated row silently reading as if it "
+          "happened during the load)",
+          "ELSE s.created_at::DATE" in sc_section and "now()" not in sc_section)
+
+    esa_section = load.split("INSERT INTO employee_shift_assignments (id, company_id", 1)[-1] \
+        .split("FROM migration.stg_employee_shift_assignments s", 1)[0]
+    check("employee_shift_assignments.effective_from's zero-date guard tests "
+          "the raw staged text, not a pre-cast value -- a bad row never "
+          "reaches ::DATE at all (D-035/A5)",
+          "CASE WHEN s.effective_from ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}$'" in esa_section
+          and "THEN s.effective_from::DATE" in esa_section)
+    check("employee_shift_assignments.effective_from's fallback is the "
+          "row's own created_at, never now() (D-035/A5's decided fallback; "
+          "same D-033/OQ-3 trap)",
+          "ELSE s.created_at::DATE" in esa_section and "now()" not in esa_section)
+    check("both effective_from guards use the identical regex (same defect "
+          "shape, same fallback decision -- D-035/A5 explicitly reuses A2's "
+          "rule rather than inventing a second one)",
+          sql.count("CASE WHEN s.effective_from ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}$'") == 2)
+
+    # ---------- D-035/A3: attendance punches-XOR-exception (finding E) ----------
+    att_section = load.split("INSERT INTO attendance (id, employee_id", 1)[-1] \
+        .split("FROM migration.stg_attendance s", 1)[0]
+    check("a row carrying real punches has its exception cleared, keyed off "
+          "the raw staged check_out text (D-035/A3)",
+          "CASE WHEN s.check_out IS NOT NULL AND s.check_out <> ''" in att_section
+          and "THEN NULL ELSE ex.new_id END" in att_section)
+    check("A3 preserves the punches -- check_in/check_out are still selected "
+          "unconditionally, so the row is neither dropped nor blanked",
+          "(s.check_in::TIMESTAMP AT TIME ZONE 'UTC')" in att_section
+          and "(s.check_out::TIMESTAMP AT TIME ZONE 'UTC')" in att_section)
+    check("method keys off the REMEDIATED condition, so a preserved punch "
+          "keeps its real method instead of being nulled as if it were an "
+          "exception-only row",
+          "CASE WHEN s.exception_type_id IS NULL\n                 OR "
+          "(s.check_out IS NOT NULL AND s.check_out <> '')" in att_section)
+    check("A3 does not relax V21's CHECK -- the load never drops or alters "
+          "a constraint to make the data fit (A3: the constraint was "
+          "correct, the data was wrong)",
+          "DROP CONSTRAINT" not in sql.upper()
+          and "ALTER TABLE ATTENDANCE" not in sql.upper()
+          and "SET CONSTRAINTS" not in sql.upper())
+
+    # ---------- D-035/A6: orphaned exception_types (finding H) ----------
+    check("exception_types with an unresolvable company are excluded at "
+          "ALLOCATION, so no orphaned migration.id_map row is left behind "
+          "(D-035/A6's 'not a silent drop')",
+          "-- exception_types: allocate ids" in load
+          and "WHERE NOT (NOT EXISTS (SELECT 1 FROM migration.id_map cm" in load)
+    check("the exclusion is recorded as a reconciliation-readable artifact, "
+          "using the existing load_counts mechanism rather than a new one",
+          "'exception_types_excluded_orphaned_company'" in load
+          and "INSERT INTO migration.load_counts (entity, rows)" in load)
+
+    # ---------- settings catalog load (V44) ----------
+    check("setting_definitions and setting_allowed_values load into their "
+          "own V44 target tables, not just consumed as a pivot source",
+          "INSERT INTO setting_definitions (" in load
+          and "INSERT INTO setting_allowed_values (" in load)
+    check("both new entities are registered in migration.id_map like every other entity",
+          "setting_definitions" in LOAD_ORDER and "setting_allowed_values" in LOAD_ORDER)
+    check("setting_allowed_values.setting_definition_id resolves through the id_map, "
+          "not the raw staged legacy id",
+          "dm.entity = 'setting_definitions' AND dm.legacy_id = s.setting_definition_id::BIGINT" in load)
+    check("is_multi/is_required are string-normalised like every other legacy "
+          "tinyint(1)/boolean column, not cast",
+          "COALESCE(s.is_multi, '0') = '1'" in load
+          and "COALESCE(s.is_required, '0') = '1'" in load)
+    catalog_section = load.split("-- ================= settings catalog (V44) =================", 1)[-1] \
+        .split("-- TRANSFORM 1:", 1)[0]
+    check("the catalog load section writes only to the two V44 tables -- "
+          "presentation metadata only, per V44's comment block, never to "
+          "company_settings/company_setting_values (that would reintroduce "
+          "legacy's EAV by accident)",
+          "INSERT INTO company_settings" not in catalog_section
+          and "INSERT INTO company_setting_values" not in catalog_section
+          and "INSERT INTO setting_definitions" in catalog_section
+          and "INSERT INTO setting_allowed_values" in catalog_section)
+    check("TRANSFORM 1 (the EAV pivot) is unchanged: still the sole writer of "
+          "company_settings' six typed columns",
+          "INSERT INTO company_settings (company_id, month_start_day" in load)
 
     return 1 if failures else 0
 

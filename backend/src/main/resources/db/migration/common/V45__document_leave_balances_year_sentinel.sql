@@ -1,0 +1,62 @@
+-- Documents and bounds leave_balances.year = 0 as a LEGACY-PRESERVED
+-- SENTINEL, not a real calendar year. It means "the real year is
+-- unknown and was never recorded" and is valid ONLY on rows migrated
+-- from legacy history. New platform writes must NEVER produce it.
+--
+-- Where it comes from: legacy's `leave_balance.year` is `year(4) NOT
+-- NULL` (hr-legacy/mysql_workin.schema.sql:613). `??` in
+-- apis/helpers/employee_create_helper.php:207 and
+-- apis/api/employees/create.php:202 guards only a missing/null key, so
+-- an explicit '' or 0 slips through and MySQL's YEAR type silently
+-- stores its zero-value ('0000') instead of rejecting it -- the
+-- adjacent period_from_month/period_to_month/monthly_cap_days lines use
+-- the correct isset(...) && ... !== '' guard, so this is a narrow,
+-- specific bug, not a general validation gap. Root cause and live
+-- counts (16 of 3,501 rows, 2026-08-15, growing at roughly one per day)
+-- are filed as workin-hr/hr-legacy issue #29. Per the standing rule,
+-- legacy PHP is not patched for it -- the row keeps arriving until
+-- cutover.
+--
+-- Why year = 0 is STORABLE here: leave_balances.year is SMALLINT NOT
+-- NULL (V25__create_requests_and_leave_balances.sql:55), and SMALLINT
+-- stores 0 fine -- the target column was never the obstacle. D-035/A4
+-- originally quarantined these rows on the premise that they could not
+-- be stored target-side and excluded them from the operational load.
+-- That premise was wrong. The owner's 2026-08-15 decision (reopening
+-- A4, recorded in D-037, docs/bootstrap/decision-log.md) supersedes the
+-- quarantine: year is carried through unchanged, including 0 -- no
+-- exclusion, no invented year. The only thing that actually failed was
+-- the load's derived created_at, which called
+-- make_timestamptz(year, 1, 1, ...) with year 0 and errored ("date
+-- field value out of range: 0-01-01") -- there is no year 0 in the
+-- proleptic Gregorian calendar Postgres uses. That synthesis is fixed
+-- in scripts/etl/load_postgres.py's leave_balances INSERT (this same
+-- change) to fall back to the parent employee's own created_at instead
+-- of ever reaching make_timestamptz with a non-real year.
+--
+-- What this CHECK does and does NOT enforce: it permits exactly the
+-- values legacy's own `year(4)` column could ever have produced --
+-- 1901-2155, the documented real range of MySQL's YEAR(4)
+-- (https://dev.mysql.com/doc/refman/8.0/en/year.html) -- plus 0 as the
+-- single preserved out-of-band sentinel, matching the same bound
+-- load_postgres.py's created_at guard now uses. It rejects everything
+-- else (negative years, or anything implausibly large) as neither a
+-- real legacy year nor the known sentinel.
+--
+-- It deliberately CANNOT enforce "0 is allowed only on migrated rows,
+-- never on a new platform write" -- a CHECK evaluates a single row's
+-- value with no notion of who wrote it or when, so it must either
+-- reject every 0 (which would break re-running this migration's
+-- constraint against already-migrated history) or permit every 0
+-- (which would let a new write slip a sentinel in same as legacy does
+-- today). Prohibiting year = 0 for new writes is therefore an
+-- APPLICATION-LAYER rule, not a database one. Hard database-level
+-- enforcement -- rejecting a *new* zero while still permitting the
+-- ones already carried over -- needs the same load-suppression
+-- mechanism D-033/OQ-3 will introduce (punch-list P0 item 8, the
+-- migrated-row/new-row distinction OQ-3 already has to solve for
+-- `updated_at`). That mechanism does not exist yet; this CHECK
+-- deliberately does not attempt to duplicate it ahead of time.
+ALTER TABLE leave_balances
+    ADD CONSTRAINT leave_balances_year_check
+        CHECK (year = 0 OR year BETWEEN 1901 AND 2155);
