@@ -210,6 +210,47 @@ target `CHECK` constraint** — the constraint was correct; the data
 wasn't. Each of the 13 remediations must be individually recorded, same
 shared audit-output dependency as A2.
 
+#### Amendment, 2026-08-15 — remediation is not prevention
+
+Re-verified against **live production**, not the 2026-08-03 snapshot:
+the count is now **39 of 39,881**, up from 13 of 36,316 — tripled in
+twelve days against 9.8% table growth, with new violations arriving 1–5
+per day through 2026-08-09, concentrated in companies 269 and 124.
+
+A3 is still correct and unchanged **as a migration decision**. What it
+does not do — and was never scoped to do — is stop the source system
+producing more. The two halves are now tracked separately:
+
+- **Migration remediation** (A3, unchanged): preserve the punches,
+  clear `exception_type_id`, record each repair individually, keep the
+  target `CHECK`. It applies to whatever the violating set is *at
+  extraction time* — a moving number, not 13.
+- **Prevention — in the new platform, not in legacy.** Per the standing
+  rule that legacy PHP is not patched, `workin-hr/hr-legacy` issue #28
+  documents the defect rather than proposing a legacy change. Prevention
+  is already in place target-side: `V21__create_attendance.sql:32`
+  carries `CHECK (exception_type_id IS NULL OR check_out IS NULL)`, so
+  the state is rejected at the database layer once cutover completes.
+
+**Legacy therefore keeps producing violations until cutover, and that is
+accepted, not an outstanding task.** The consequence is only for
+sequencing: a single frozen cutover window makes A3 sufficient on its
+own, because the repair runs once against a final set. A phased cutover
+does not — legacy keeps admitting new violations at roughly 2/day after
+the repair has run, so the remediation would have to run repeatedly
+rather than once.
+
+Investigation for #28 also found that the dominant source is probably
+not the manual admin-edit path but an **automatic** one:
+`attendance_auto_close_stale_open_sessions()`
+(`apis/helpers/attendance_session_helper.php`) fills `check_out` on any
+open row whose `check_in` is not exactly midnight, without clearing
+`exception_type_id`. An automatic path fits the steady daily arrival
+rate far better than sporadic admin edits. **The rewrite must not
+reproduce this behaviour** — when auto-closing a stale session it should
+skip any row carrying an exception category rather than punching a
+checkout over it.
+
 ---
 
 ## Q4. `leave_balance.year = '0000'` for 6 rows — what remediation value?
@@ -251,6 +292,73 @@ rather than a fallback chosen. Introduces a **quarantine** concept
 beyond A2/A3/A5's "repair and record" pattern: these 6 rows need to be
 held somewhere retrievable, not merely logged, pending a human supplying
 the real year. No such mechanism exists yet.
+
+#### Amendment, 2026-08-15 — a growing queue, not a fixed six
+
+Re-verified against **live production**: **16 of 3,501** rows now carry
+`year = '0000'`, not 6 of 2,980. The original six are untouched (all
+company 228); ten new ones appeared within twelve days, all in company
+307, in a near-contiguous id block.
+
+A4's *decision* is unchanged and still right — do not guess a year,
+quarantine and wait for a human. But A4's *sizing* was wrong in a way
+that changes the mechanism it depends on: it was scoped as a one-time
+queue of six rows, cleared once. It is a **continuously fed queue**, so
+the quarantine output cannot be a one-shot artifact handed over at
+cutover — it has to keep accepting rows for as long as the source bug
+lives.
+
+- **Migration remediation** (A4 as decided): quarantine, exclude from
+  the operational `leave_balances` load, never synthesize a year. **But
+  see the reopened option below — A4 may no longer be the best choice.**
+- **Prevention — in the new platform, not in legacy.** Per the standing
+  rule that legacy PHP is not patched, `workin-hr/hr-legacy` issue #29
+  documents the defect rather than proposing a legacy change. Root cause
+  confirmed at `apis/helpers/employee_create_helper.php:207` and
+  `apis/api/employees/create.php:202` — `??` guards only a *missing or
+  null* key, so an explicit `""` or `0` casts to `0` and MySQL's `YEAR`
+  stores `0000`. Prevention target-side is largely structural:
+  PostgreSQL will not silently coerce `0` into a date the way MySQL's
+  `YEAR` does, so the rewrite mainly needs the API-boundary validation
+  that `leave_balances/generate.php` already applies in legacy.
+
+#### Reopened by the same investigation — "carry as-is" is available
+
+A4 chose quarantine on the framing "what year would we invent?" That
+framing assumed the row could not be stored. It can:
+`leave_balances.year` is `SMALLINT NOT NULL`
+(`V25__create_requests_and_leave_balances.sql:55`), and **SMALLINT
+stores `0` perfectly well.** The target column was never the obstacle.
+
+The only thing that actually fails is the load's *derived* `created_at`:
+
+```sql
+make_timestamptz(s.year::INT, 1, 1, 0, 0, 0, 'UTC')   -- load_postgres.py:817
+-- ERROR: date field value out of range: 0-01-01
+```
+
+So these rows can migrate faithfully with `year = 0` carried through —
+no invented value, no exclusion — by changing only the `created_at`
+synthesis to fall back when the year is not a real year. That preserves
+the defect visibly for correction after the system is transformed,
+rather than holding a quarantine queue that grows until cutover.
+
+**This is an open decision, not a change made here.** A4 as written is
+still a valid migration-side answer; "carry as-is" is a phase-1 answer
+that better matches the standing preference for migrating faithfully and
+fixing after transformation. It needs an explicit call.
+
+The enabling condition is worth recording once, because it is shared:
+production `sql_mode` is `NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION` —
+no `STRICT_TRANS_TABLES`, no `NO_ZERO_DATE`, no `NO_ZERO_IN_DATE`. The
+server silently coerces rather than rejecting, which is the same
+enabler behind A2's and A5's `'0000-00-00'` values. Tightening it would
+close the whole class at the database layer, but would also start
+rejecting writes the application currently gets away with, so it needs
+its own assessment rather than being bundled here.
+
+Consequence: once #29 ships the queue stops growing and can be drained.
+Until then, quarantining treats a symptom.
 
 ---
 
