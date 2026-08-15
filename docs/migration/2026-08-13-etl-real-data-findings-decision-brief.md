@@ -80,6 +80,7 @@ other — both are `active = false`. Registered as `companies.status` in
 `coverage_audit.py`'s `PENDING`.
 
 **The question.** Three sub-questions, answerable together:
+
 1. Do `pending` (incomplete-signup) companies migrate at all, or are
    they excluded from this migration pass as not-yet-real tenants?
 2. If they migrate, what does `name` become — a placeholder string
@@ -612,6 +613,7 @@ after last expected column`.
 
 **Minimal fix**: two options, and this is really a Q7-shaped decision
 in miniature, not a pure mechanical fix — someone needs to say which:
+
 1. Replace `SELECT *` with an explicit column list matching `STAGING`'s
    current 2/4 columns exactly (accepts today's drop of the 9 newer
    columns as deliberate, matching however Q4/Q6 of the earlier
