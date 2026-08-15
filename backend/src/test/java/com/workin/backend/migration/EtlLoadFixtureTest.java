@@ -134,18 +134,30 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				-- exist for. 14 (company 1, same company as 12) shares 12's
 				-- phone -- the data-quality duplicate tenant_memberships must
 				-- collapse rather than reject.
+				-- The six D-036 business fields are staged here too, since the
+				-- load must carry them (V42). 11 is the fully-populated row;
+				-- 12 holds MySQL zero-dates in BOTH date columns; 13 reuses
+				-- 11's employee_code from a DIFFERENT company (which the
+				-- per-company UNIQUE must allow); 14 has no code at all.
+				-- Between them the three legacy gender enum values are each
+				-- represented exactly once.
 				INSERT INTO migration.stg_employees
 				  (id, company_id, branch_id, department_id, job_title_id, expected_daily_hours, first_name,
-				   last_name, phone, password_hash, role, is_active, created_at)
+				   last_name, phone, password_hash, role, is_active, created_at,
+				   employee_code, country_code, national_id, birth_date, gender, hire_date)
 				VALUES
 				  ('11', '1', '7', '20', '4', '6.00', 'Sara', 'Ali', '+2011TOKEN11', '$2y$hash', 'hr', '1',
-				   '2025-04-01 08:00:00'),
+				   '2025-04-01 08:00:00',
+				   'EMP-001', '+20', '29001011234567', '1990-01-01', 'female', '2020-06-15'),
 				  ('12', '1', '7', NULL, '4', NULL,   'Omar', 'Nabil', '+2012TOKEN22', '$2y$hash2', 'employee', '1',
-				   '2025-04-02 08:00:00'),
+				   '2025-04-02 08:00:00',
+				   'EMP-002', NULL, NULL, '0000-00-00', '', '0000-00-00'),
 				  ('13', '2', NULL, NULL, NULL, NULL, 'Laila', 'Fathy', '+2011TOKEN11', '$2y$hash3', 'employee', '1',
-				   '2025-04-03 08:00:00'),
+				   '2025-04-03 08:00:00',
+				   'EMP-001', NULL, NULL, NULL, 'male', NULL),
 				  ('14', '1', NULL, NULL, NULL, NULL, 'Nabil', 'Omar', '+2012TOKEN22', '$2y$hash4', 'employee', '1',
-				   '2025-04-04 08:00:00');
+				   '2025-04-04 08:00:00',
+				   NULL, NULL, NULL, NULL, 'other', NULL);
 
 				-- A real punch, and a midnight exception day. created_at is when
 				-- the punch was RECORDED; check_in is the wall-clock moment being
@@ -754,6 +766,116 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 
 			assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> st.execute(load)))
 					.hasMessageContaining("reference a shift from another company");
+		}
+	}
+
+	/**
+	 * D-036's six employees business fields. V42 added the columns; until
+	 * the load populates them they are six columns of NULL on every
+	 * migrated row, which reads as "legacy never had this data" rather
+	 * than "the load dropped it".
+	 *
+	 * <p>{@code employee_code} is asserted twice over: preserved verbatim
+	 * (D-036 says preserve, do not renumber), and reusable across
+	 * companies — 11 and 13 share {@code EMP-001} from different
+	 * companies, which V42's {@code UNIQUE (company_id, employee_code)}
+	 * must permit and a plain global UNIQUE would reject.
+	 */
+	@Test
+	void employeesCarryTheSixD036BusinessFieldsVerbatim() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "3331");
+			st.execute(load);
+
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE em.legacy_id = 11 "
+							+ "AND e.employee_code = 'EMP-001' "
+							+ "AND e.country_code = '+20' "
+							+ "AND e.national_id = '29001011234567' "
+							+ "AND e.birth_date = DATE '1990-01-01' "
+							+ "AND e.gender = 'female' "
+							+ "AND e.hire_date = DATE '2020-06-15'")).isEqualTo(1);
+
+			// The same code in two different companies, both migrated.
+			assertThat(scalar(st, "SELECT count(*) FROM employees WHERE employee_code = 'EMP-001'"))
+					.isEqualTo(2);
+			// 14 had no code in legacy; absent must stay absent, not become ''.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE em.legacy_id = 14 AND e.employee_code IS NULL")).isEqualTo(1);
+		}
+	}
+
+	/**
+	 * Employee 12 carries {@code '0000-00-00'} in both date columns.
+	 * Unlike {@code salary_contracts.effective_from} — legacy
+	 * {@code NOT NULL}, so a zero-date there must fall back to the row's
+	 * own {@code created_at} (D-035/A2) — {@code birth_date} and
+	 * {@code hire_date} are nullable in legacy, so NULL is the honest
+	 * mapping and D-036 says never invent a date.
+	 *
+	 * <p>Without a guard on the raw staged text this does not merely
+	 * produce a wrong value, it aborts the whole load: PostgreSQL rejects
+	 * {@code '0000-00-00'::DATE} outright.
+	 */
+	@Test
+	void legacyZeroDatesOnEmployeesBecomeNullRatherThanAnInventedDate() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "4441");
+			st.execute(load);
+
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE em.legacy_id = 12 "
+							+ "AND e.birth_date IS NULL AND e.hire_date IS NULL")).isEqualTo(1);
+
+			// Specifically NOT the created_at fallback effective_from uses:
+			// no employee may end up dated by when the row was created.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees WHERE hire_date = DATE '2025-04-02'")).isEqualTo(0);
+		}
+	}
+
+	/**
+	 * Legacy {@code gender} is {@code enum('male','female','other')},
+	 * mapped 1:1 by value (D-036) against V42's CHECK, which mirrors the
+	 * enum exactly. Employee 12 holds {@code ''} — what MySQL stores for
+	 * an invalid enum value in non-strict mode, and a value V42's CHECK
+	 * rejects. It maps to NULL ("no gender recorded"), the only mapping
+	 * that neither invents a gender nor aborts the load.
+	 */
+	@Test
+	void everyLegacyGenderValueMapsOneToOneAndTheEmptyPlaceholderBecomesNull() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "2221");
+			st.execute(load);
+
+			assertThat(scalar(st, "SELECT count(*) FROM employees WHERE gender = 'female'")).isEqualTo(1);
+			assertThat(scalar(st, "SELECT count(*) FROM employees WHERE gender = 'male'")).isEqualTo(1);
+			assertThat(scalar(st, "SELECT count(*) FROM employees WHERE gender = 'other'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE em.legacy_id = 12 AND e.gender IS NULL")).isEqualTo(1);
 		}
 	}
 
