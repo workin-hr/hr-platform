@@ -77,6 +77,37 @@ avoiding them does not break legitimate business behaviour. Every intentional
 difference must be explicit, justified and tested — bug-for-bug parity is not
 the goal, and neither is silent correction.
 
+### Recorded exception: the session-token mechanism
+
+**Accepted 2026-08-16, amending this ADR's own Open Questions.**
+
+Strict contract parity governs **storage and business behaviour**. It does not
+extend to reproducing a known weak security posture.
+
+- **Kept, because it is business behaviour:** legacy's login semantics and the
+  API-visible outcomes they produce — including
+  **409 `MULTIPLE_ACCOUNTS_SAME_PHONE`**, the single-`pending`-account login
+  path, and the three distinct 403 outcomes below it
+  (`login_employee.php:70-107`). Tenant switching is **not** introduced in
+  Phase 1; the multi-tenant identity model that removes the 409 remains Phase 3.
+- **Not reverted, as an explicit exception:** legacy's **10-year JWT**. Phase 1
+  keeps the short-lived access token plus refresh-token rotation model already
+  built (ADR-0005). Legacy's token lifetime is a recorded defect
+  (`hr-legacy#7`: no company-admin revocation mechanism), and reintroducing it
+  would mean deliberately shipping a vulnerability to satisfy a parity rule
+  aimed at a different concern.
+
+This is the same read/write split applied to security rather than data: tolerate
+what legacy produced, decline to keep producing it. Consistent with how
+`hr-legacy#15`, `#16` and `#20` are already handled — behaviour preserved where
+legitimate, defects not reproduced.
+
+**The cost is real and is accepted:** this is a client-visible break. The Flutter
+clients must adopt token refresh, which ADR-0005 already recorded as a scoped
+exception to the don't-change-the-clients direction. It is the one deliberate
+divergence from strict contract parity in Phase 1, and any further one needs its
+own decision rather than this precedent.
+
 ## Alternatives Considered
 
 - **Continue the concurrent approach.** Rejected: it had already produced four
@@ -161,9 +192,9 @@ the goal, and neither is silent correction.
 - Whether Phase 1 delivers all 38 modules in one release or several internal
   milestones. The **cutover** is one event by this decision; the engineering
   sequence within it is not yet fixed.
-- Whether the Phase 1 authentication contract keeps legacy's 10-year JWT or
-  adopts short-lived tokens. ADR-0005 chose the latter under the old sequencing;
-  strict contract parity argues for the former. Not resolved here.
+- ~~Whether the Phase 1 authentication contract keeps legacy's 10-year JWT or
+  adopts short-lived tokens.~~ **Resolved 2026-08-16 — see the Decision's
+  "Recorded exception" below.**
 - What acceptance threshold ends Phase 1 — how much of the differential harness
   must be green, and who signs it off.
 - Whether `configs` (which serves both the runtime timezone flag and the desktop
