@@ -121,3 +121,42 @@ jobs:
       # runs it on demand.
       - name: Run backend test suite (and compile the frozen Phase 2 suite)
         run: ./gradlew clean test compilePhase2TestJava --console=plain
+
+      # Gradle prints a test count only when something fails, so a green
+      # build is silent about what actually ran -- and a test class that
+      # is never picked up looks exactly like one that passed. That is
+      # not good enough when a specific test is the gate on starting the
+      # next phase of work. This reads the JUnit XML Gradle already
+      # writes and prints per-class counts, so "did it run" is answerable
+      # from the log rather than by inference.
+      - name: Summarise which tests ran
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, re
+          # Read the <testsuite> attributes with a regex rather than an
+          # XML parser: this needs no third-party dependency on the
+          # runner and avoids the stdlib parser's entity-expansion
+          # surface entirely. Gradle writes this element's shape, and it
+          # is the only thing being read.
+          HEAD = re.compile(r'<testsuite\b[^>]*>')
+          ATTR = re.compile(r'(\w+)="([^"]*)"')
+          rows, totals = [], [0, 0, 0]
+          for path in sorted(glob.glob('build/test-results/test/TEST-*.xml')):
+              with open(path, encoding='utf-8') as handle:
+                  head = HEAD.search(handle.read(4096))
+              if not head:
+                  print(f"?? could not read suite header: {path}")
+                  continue
+              attrs = dict(ATTR.findall(head.group(0)))
+              tests = int(attrs.get('tests', 0))
+              failures = int(attrs.get('failures', 0)) + int(attrs.get('errors', 0))
+              skipped = int(attrs.get('skipped', 0))
+              totals[0] += tests; totals[1] += failures; totals[2] += skipped
+              rows.append((attrs.get('name', '?'), tests, failures, skipped))
+          for name, tests, failures, skipped in rows:
+              flag = 'FAIL' if failures else ('SKIP' if tests and skipped == tests else 'ok  ')
+              print(f"{flag} {tests:4d} {name}")
+          print(f"\n{len(rows)} classes, {totals[0]} tests, "
+                f"{totals[1]} failed, {totals[2]} skipped")
+          PY
