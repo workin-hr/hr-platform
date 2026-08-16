@@ -314,6 +314,52 @@ def _copy() -> str:
     return "\n".join(out)
 
 
+def _unterminated_literals(sql: str) -> list[str]:
+    """-> [description], one per string literal left open at end of line.
+
+    A tiny scanner rather than a regex, because the thing being detected
+    is precisely a quote that is not where it looks like it is. Tracks
+    doubled '' as an escape, and skips `--` comments, whose prose may
+    hold apostrophes freely.
+    """
+    problems: list[str] = []
+    index, line_no, in_string, opened_at = 0, 1, False, 1
+    while index < len(sql):
+        char = sql[index]
+        if char == "\n":
+            if in_string:
+                problems.append(f"line {opened_at}: string literal never closed on its line")
+                in_string = False
+            line_no += 1
+        elif in_string:
+            if char == "'":
+                if sql[index + 1:index + 2] == "'":
+                    index += 1
+                else:
+                    in_string = False
+        elif char == "'":
+            in_string, opened_at = True, line_no
+        elif sql[index:index + 2] == "--":
+            newline = sql.find("\n", index)
+            index = len(sql) if newline == -1 else newline
+            continue
+        index += 1
+    return problems
+
+
+def _lit(text: str) -> str:
+    """A SQL string literal with apostrophes doubled.
+
+    The rule text is prose quoted from the decision that authorised the
+    repair, and prose has apostrophes: "the row's own created_at" closed
+    its literal at `row'` and produced `syntax error at or near "own"` on
+    the first statement of every load (2026-08-16). Escaping here rather
+    than at each call site means a rule can be written the way the
+    decision actually words it.
+    """
+    return "'" + text.replace("'", "''") + "'"
+
+
 def _remediation(entity: str, column: str, original: str, applied: str, rule: str,
                  decision: str, where: str, source: str | None = None) -> str:
     """Record one repaired cell per matching staged row.
@@ -333,8 +379,8 @@ def _remediation(entity: str, column: str, original: str, applied: str, rule: st
     return f"""
 INSERT INTO migration.remediation_log
        (entity, legacy_id, column_name, original, applied, rule, decision_ref)
-SELECT '{entity}', s.id::BIGINT, '{column}', {original}, {applied},
-       '{rule}', '{decision}'
+SELECT {_lit(entity)}, s.id::BIGINT, {_lit(column)}, {original}, {applied},
+       {_lit(rule)}, {_lit(decision)}
 FROM {source or f'migration.stg_{entity}'} s
 JOIN migration.id_map m ON m.entity = '{entity}' AND m.legacy_id = s.id::BIGINT
 WHERE {where}
@@ -1410,6 +1456,16 @@ def self_test() -> int:
     ]
     check("no emitted SQL carries an uninterpolated Python placeholder",
           not _placeholders)
+    # The other half of the same lesson. No string literal here spans a
+    # newline, so one that appears to is an apostrophe that closed its
+    # literal early -- what "the row's own created_at" did on 2026-08-16,
+    # aborting every load at `syntax error at or near "own"`. Substring
+    # assertions cannot see this: the broken SQL still contains every
+    # fragment they look for. Comments are skipped, since prose in a `--`
+    # comment may hold apostrophes freely.
+    check("no emitted SQL leaves a string literal unterminated",
+          not [problem for section in SECTIONS.values()
+               for problem in _unterminated_literals(section())])
     check("every mapped entity gets a sequence fixup",
           all(f"pg_get_serial_sequence('{e}', 'id')" in sql for e in LOAD_ORDER))
     check("PERMISSION_MAP covers every legacy can_* flag (17, per hr-legacy@d113204)",
