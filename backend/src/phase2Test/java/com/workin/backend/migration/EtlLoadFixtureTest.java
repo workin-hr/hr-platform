@@ -18,12 +18,18 @@ import java.time.OffsetDateTime;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import com.workin.backend.AbstractIntegrationTest;
-
 /**
  * Runs the ETL load program emitted by
  * {@code scripts/etl/load_postgres.py} against a real Postgres, with a
  * small representative dump staged by hand.
+ *
+ * <p><b>Phase 2 asset, frozen 2026-08-16.</b> Moved out of
+ * {@code src/test} into {@code src/phase2Test} by the strategy reset:
+ * this proves the PostgreSQL target schema and the load program, neither
+ * of which Phase 1 uses. It runs only on {@code ./gradlew phase2Test},
+ * never as part of {@code check}, so storage-migration work cannot gate
+ * a Phase 1 application build. It is still compiled on every CI run, so
+ * the frozen work cannot silently stop building.
  *
  * <p>The point is to have the machinery <b>proven before a real dump
  * exists</b>: the load, the durable id mapping, both non-copy
@@ -36,7 +42,7 @@ import com.workin.backend.AbstractIntegrationTest;
  * {@code \copy} is a psql meta-command — and staging is populated
  * directly instead, which is exactly what that section would have done.
  */
-class EtlLoadFixtureTest extends AbstractIntegrationTest {
+class EtlLoadFixtureTest extends AbstractPostgresMigrationTest {
 
 	private static Path repoRoot;
 

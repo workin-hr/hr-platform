@@ -53,6 +53,19 @@ jobs:
           python3 scripts/check_rls_migration_safety.py --self-test
           python3 scripts/check_rls_migration_safety.py
 
+      # ---------------------------------------------------------------
+      # Phase 2 (storage migration) assets — FROZEN 2026-08-16.
+      #
+      # These guard the PostgreSQL/ETL work that Phase 1 does not use.
+      # They are kept running because they are pure, database-free
+      # emitted-SQL checks that finish in about a second each, so they
+      # protect the frozen work without meaningfully gating a Phase 1
+      # build. The expensive coupling — EtlLoadFixtureTest, ~3 minutes of
+      # Testcontainers PostgreSQL inside the application suite — is what
+      # the reset removed: it now lives in the `phase2Test` source set
+      # and runs only on `./gradlew phase2Test`.
+      # ---------------------------------------------------------------
+
       # PMR-10's reconciliation harness must stay proven-working: its
       # self-tests exercise every detection class on synthetic samples.
       - name: Migration-diff harness self-test
@@ -87,5 +100,11 @@ jobs:
           distribution: temurin
           java-version: "25"
 
-      - name: Run backend test suite (real Postgres via Testcontainers)
-        run: ./gradlew clean test --console=plain
+      # `compilePhase2TestJava` compiles the frozen Phase 2 migration
+      # suite without running it. Frozen work must not be allowed to stop
+      # building unnoticed, but running it here would reintroduce exactly
+      # the coupling the reset removed -- ~3 minutes of Testcontainers
+      # PostgreSQL inside the application build. `./gradlew phase2Test`
+      # runs it on demand.
+      - name: Run backend test suite (and compile the frozen Phase 2 suite)
+        run: ./gradlew clean test compilePhase2TestJava --console=plain
