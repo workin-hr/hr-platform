@@ -53,6 +53,19 @@ jobs:
           python3 scripts/check_rls_migration_safety.py --self-test
           python3 scripts/check_rls_migration_safety.py
 
+      # Phase 1: the legacy MySQL schema is an external contract, and
+      # backend/src/test/resources/legacy/ carries a vendored copy so
+      # tests can run against a real MariaDB. Only --self-test runs
+      # here: the comparison needs a hr-legacy checkout this workflow
+      # does not have, exactly like coverage_audit.py --check. The
+      # self-test proves the drift detector itself still works, so a
+      # regression in the detector fails the build; run the real
+      # comparison locally against a sibling checkout before changing
+      # the vendored file.
+      - name: Legacy schema drift-detector self-test
+        working-directory: .
+        run: python3 scripts/check_legacy_schema_drift.py --self-test
+
       # ---------------------------------------------------------------
       # Phase 2 (storage migration) assets — FROZEN 2026-08-16.
       #
