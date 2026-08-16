@@ -257,6 +257,43 @@ def _ddl() -> str:
         "    recorded TIMESTAMPTZ NOT NULL DEFAULT now()",
         ");",
         "",
+        "-- Per-row record of every value this load repaired, required by four",
+        "-- decisions that shipped with nowhere to write one: D-035/A2 ('record",
+        "-- the repair so the synthesized value remains traceable'), A3 ('record",
+        "-- each repair individually'), A5 (explicitly reusing A2's rule), and",
+        "-- D-036 ('zero-dates -> NULL with the remediation recorded'). Until",
+        "-- this table existed each of those silently discarded the value it",
+        "-- replaced -- load_counts can say how many rows were touched, never",
+        "-- which, and never what was there before.",
+        "--",
+        "-- Deliberately NOT the id-only guard every target table uses. That one",
+        "-- is rerun-safe only while migration.id_map survives (issue #99); this",
+        "-- keys on business identity, so (entity, legacy_id, column_name) names",
+        "-- a repaired cell without consulting the map at all and a rerun is a",
+        "-- no-op even if the map is gone.",
+        "--",
+        "-- original/applied are TEXT on purpose: the value being recorded is",
+        "-- precisely the one that had no valid type in the target, so a typed",
+        "-- column could not hold it. decision_ref is NOT NULL because a repair",
+        "-- nobody decided on is a bug, not a remediation.",
+        "--",
+        "-- Lives in the migration schema, not the business schema: whether this",
+        "-- is a migration-run artifact that retires at cutover or a permanent",
+        "-- audit record is an open question (see the 2026-08-16 design brief).",
+        "-- This placement is the reversible one -- promoting it later is a",
+        "-- migration, demoting a business table is not.",
+        "CREATE TABLE IF NOT EXISTS migration.remediation_log (",
+        "    entity       TEXT   NOT NULL,",
+        "    legacy_id    BIGINT NOT NULL,",
+        "    column_name  TEXT   NOT NULL,",
+        "    original     TEXT,",
+        "    applied      TEXT,",
+        "    rule         TEXT   NOT NULL,",
+        "    decision_ref TEXT   NOT NULL,",
+        "    recorded     TIMESTAMPTZ NOT NULL DEFAULT now(),",
+        "    PRIMARY KEY (entity, legacy_id, column_name)",
+        ");",
+        "",
         "-- ================= staging =================",
     ]
     for table, columns in STAGING.items():
@@ -274,6 +311,40 @@ def _copy() -> str:
         out.append(
             f"\\copy migration.stg_{table} FROM '{source}' WITH (FORMAT csv, HEADER true, NULL '\\N')")
     return "\n".join(out)
+
+
+def _remediation(entity: str, column: str, original: str, applied: str, rule: str,
+                 decision: str, where: str, source: str | None = None) -> str:
+    """Record one repaired cell per matching staged row.
+
+    Emitted immediately after the entity's own INSERT, and joined to
+    migration.id_map for the same reason every other statement here is:
+    a record naming an id nobody can trace back to the legacy row is not
+    a record. The join is also what keeps this honest about rows that
+    never loaded -- the load's unmapped-FK guard aborts if anything
+    allocated an id and then failed to load, so an id_map row means the
+    repair really was applied to a row that exists.
+
+    ON CONFLICT DO NOTHING rather than a NOT EXISTS guard: the primary
+    key already states what makes a repair unique, so a rerun needs no
+    separate condition to re-derive it.
+    """
+    return f"""
+INSERT INTO migration.remediation_log
+       (entity, legacy_id, column_name, original, applied, rule, decision_ref)
+SELECT '{entity}', s.id::BIGINT, '{column}', {original}, {applied},
+       '{rule}', '{decision}'
+FROM {source or f'migration.stg_{entity}'} s
+JOIN migration.id_map m ON m.entity = '{entity}' AND m.legacy_id = s.id::BIGINT
+WHERE {where}
+ON CONFLICT (entity, legacy_id, column_name) DO NOTHING;
+""".strip()
+
+
+# A staged date column holding anything other than a real yyyy-mm-dd --
+# in practice MySQL's '0000-00-00'. Written once so the repair and the
+# record of the repair can never disagree about which rows were repaired.
+_ZERO_DATE = "{col} IS NOT NULL AND {col} !~ '^[1-9][0-9]{{3}}-[0-9]{{2}}-[0-9]{{2}}$'"
 
 
 def _allocate(entity: str, source: str, legacy_id: str = "id", where: str = "TRUE") -> str:
@@ -543,6 +614,19 @@ LEFT JOIN migration_phone_anchor pa ON pa.phone = s.phone
 {_fk('jm', 'job_titles', 's.job_title_id')}
 WHERE NOT EXISTS (SELECT 1 FROM employees e WHERE e.id = m.new_id);
 
+""".strip())
+    for _column, _rule in (
+        ("birth_date", "legacy zero-date -> NULL, never an invented date"),
+        ("hire_date", "legacy zero-date -> NULL, never an invented date"),
+    ):
+        p.append(_remediation(
+            "employees", _column, f"s.{_column}", "NULL", _rule, "D-036",
+            _ZERO_DATE.format(col=f"s.{_column}")))
+    p.append(_remediation(
+        "employees", "gender", "s.gender", "NULL",
+        "MySQL non-strict invalid-enum placeholder -> NULL, no gender invented",
+        "D-036", "s.gender = ''"))
+    p.append("""
 -- departments.manager_id backfill: the reverse half of the cycle noted
 -- above. Employees now have ids, so this can resolve; NULL legacy
 -- manager_id (most departments) or a manager who never got an id both
@@ -736,6 +820,14 @@ JOIN migration.id_map emp ON emp.entity = 'employees' AND emp.legacy_id = s.empl
 JOIN employees e ON e.id = emp.new_id
 WHERE NOT EXISTS (SELECT 1 FROM salary_contracts c WHERE c.id = m.new_id);
 """.strip())
+    # The one repair that invents a value rather than clearing one, which
+    # is exactly why A2 asked for it to stay traceable: the loaded date
+    # looks entirely ordinary and nothing else distinguishes it from a
+    # date legacy really held.
+    p.append(_remediation(
+        "salary_contracts", "effective_from", "s.effective_from", "s.created_at::DATE::TEXT",
+        "legacy zero-date -> the row's own created_at (legacy NOT NULL, so NULL is unavailable)",
+        "D-035/A2", _ZERO_DATE.format(col="s.effective_from")))
 
     p.append(_allocate("payroll_batches", "migration.stg_payroll_batches"))
     p.append("""
@@ -851,6 +943,15 @@ JOIN employees e ON e.id = emp.new_id
 {_fk('ex', 'exception_types', 's.exception_type_id')}
 WHERE NOT EXISTS (SELECT 1 FROM attendance a WHERE a.id = m.new_id);
 """.strip())
+    # A3 says "record each repair individually" -- a count of how many
+    # rows were repaired is what load_counts already does, and explicitly
+    # not what A3 asked for. The punches are preserved, so the exception
+    # is the value that disappears and therefore the one recorded.
+    p.append(_remediation(
+        "attendance", "exception_type_id", "s.exception_type_id", "NULL",
+        "punches and an exception day on one row -> keep the punches, clear the exception",
+        "D-035/A3",
+        "s.exception_type_id IS NOT NULL\n  AND s.check_out IS NOT NULL AND s.check_out <> ''"))
 
     # ---------- payroll history and scheduling ----------
     # payslips carry company_id from their BATCH: a payslip belongs to the
@@ -1048,6 +1149,13 @@ JOIN employees e ON e.id = emp.new_id
 JOIN migration.id_map sh ON sh.entity = 'shifts' AND sh.legacy_id = s.shift_id::BIGINT
 WHERE NOT EXISTS (SELECT 1 FROM employee_shift_assignments a WHERE a.id = m.new_id);
 """.strip())
+    # A5 explicitly reuses A2's rule rather than inventing a second one,
+    # so it records the same way, under its own decision reference.
+    p.append(_remediation(
+        "employee_shift_assignments", "effective_from",
+        "s.effective_from", "s.created_at::DATE::TEXT",
+        "legacy zero-date -> the row's own created_at (legacy NOT NULL, so NULL is unavailable)",
+        "D-035/A5", _ZERO_DATE.format(col="s.effective_from")))
     p.append("""
 -- A shift belonging to another tenant would put the assignment in the
 -- wrong company. Legacy has no tenant column on either side, so the two
@@ -1342,6 +1450,36 @@ def self_test() -> int:
           "value maps 1:1 by value, no collapse (D-036)",
           "NULLIF(s.gender, '')" in emp_section
           and "CASE WHEN s.gender" not in emp_section)
+
+    # ---------- the remediation log (D-035/A2,A3,A5 + D-036) ----------
+    check("the remediation log is a real table, keyed on business identity "
+          "so a rerun is a no-op even without migration.id_map (issue #99) "
+          "-- not the id-only guard every target table uses",
+          "CREATE TABLE IF NOT EXISTS migration.remediation_log (" in sql
+          and "PRIMARY KEY (entity, legacy_id, column_name)" in sql
+          and load.count("ON CONFLICT (entity, legacy_id, column_name) DO NOTHING")
+              == load.count("INSERT INTO migration.remediation_log"))
+    check("every repair records the value it replaced, not merely that a "
+          "repair happened -- the original is the one thing nothing else in "
+          "the system still holds",
+          load.count("INSERT INTO migration.remediation_log\n"
+                     "       (entity, legacy_id, column_name, original, applied, "
+                     "rule, decision_ref)") == 6)
+    check("every zero-date guard in the load has a matching log entry -- a "
+          "repair nobody recorded is the defect A2/A5/D-036 were written "
+          "to prevent",
+          load.count("!~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}$'")
+          == load.count("~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}$'\n            THEN"))
+    check("each repair cites the decision that authorised it, the way every "
+          "coverage-ledger entry does",
+          all(f"'{ref}'" in load for ref in ("D-035/A2", "D-035/A3", "D-035/A5", "D-036")))
+    check("A3 is recorded per row, not as a count -- 'record each repair "
+          "individually' is precisely what load_counts cannot do",
+          "'attendance', s.id::BIGINT, 'exception_type_id'" in load
+          and "s.exception_type_id IS NOT NULL" in load)
+    check("A2/A5 record the synthesized date they applied, so a fallback is "
+          "distinguishable from a date legacy really held",
+          load.count("'effective_from', s.effective_from, s.created_at::DATE::TEXT") == 2)
 
     # ---------- leave_balances year=0 sentinel (D-035/A4 superseded by the
     # owner's 2026-08-15 carry-as-is decision, D-037) ----------

@@ -939,7 +939,7 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
 			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
 			st.execute(ddl);
-			stageFixture(st, "6661");
+			stageFixture(st, "6665");
 			st.execute(load);
 
 			// Employee 12: both zero-dates and the '' gender placeholder.
