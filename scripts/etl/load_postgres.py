@@ -36,6 +36,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import sys
 
 # hr_permissions can_* flag -> the permission keys it grants, in the
@@ -626,7 +627,7 @@ WHERE NOT EXISTS (SELECT 1 FROM employees e WHERE e.id = m.new_id);
         "employees", "gender", "s.gender", "NULL",
         "MySQL non-strict invalid-enum placeholder -> NULL, no gender invented",
         "D-036", "s.gender = ''"))
-    p.append("""
+    p.append(f"""
 -- departments.manager_id backfill: the reverse half of the cycle noted
 -- above. Employees now have ids, so this can resolve; NULL legacy
 -- manager_id (most departments) or a manager who never got an id both
@@ -1395,6 +1396,20 @@ def self_test() -> int:
           "LOWER(TRIM(v.value)) IN ('1', 'true', 'yes', 'on')" in load)
     check("sections are independently emittable",
           all(SECTIONS[s]() for s in SECTIONS))
+    # Every SQL block here is a Python string and most are f-strings, so a
+    # helper call like {_fk(...)} is one missing `f` away from being emitted
+    # to psql verbatim -- valid Python, valid-looking source, and a syntax
+    # error on the first statement of every load. Happened 2026-08-16,
+    # splitting one f-string in two and leaving the second half plain. The
+    # only braces that legitimately survive into SQL are regex quantifiers.
+    _placeholders = [
+        line
+        for section in SECTIONS.values()
+        for line in section().splitlines()
+        if "{" in re.sub(r"\[0-9\]\{\d+\}", "", line)
+    ]
+    check("no emitted SQL carries an uninterpolated Python placeholder",
+          not _placeholders)
     check("every mapped entity gets a sequence fixup",
           all(f"pg_get_serial_sequence('{e}', 'id')" in sql for e in LOAD_ORDER))
     check("PERMISSION_MAP covers every legacy can_* flag (17, per hr-legacy@d113204)",
