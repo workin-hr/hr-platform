@@ -37,6 +37,29 @@ public final class TenantFilter {
 	 */
 	public static final String CONDITION = "company_id = :" + COMPANY_ID_PARAMETER;
 
+	/**
+	 * The value bound when no tenant scope is established.
+	 *
+	 * <p>This is what restores the property PostgreSQL RLS gave for
+	 * free. An un-enabled Hibernate filter restricts nothing, so a
+	 * transaction that simply forgot to activate would read every tenant
+	 * ({@code TenantFilterFailClosedTest} asserts that default
+	 * explicitly). Binding a value no row can carry makes the unscoped
+	 * case return <em>zero</em> rows instead — exactly what RLS did when
+	 * {@code app.current_company_id} was unset.
+	 *
+	 * <p>Negative because legacy company ids are
+	 * {@code int(10) UNSIGNED} and cannot be negative, so this can never
+	 * collide with a real tenant.
+	 *
+	 * <p>It is a backstop, not the mechanism. Code that means to be
+	 * tenant-scoped should fail loudly via
+	 * {@link com.workin.backend.tenancy.TenantScope#current()} rather
+	 * than quietly read nothing — the sentinel exists for the case
+	 * nobody thought about.
+	 */
+	public static final long NO_TENANT = -1L;
+
 	private TenantFilter() {
 	}
 
