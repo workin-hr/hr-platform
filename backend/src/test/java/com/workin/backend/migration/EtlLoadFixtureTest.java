@@ -913,4 +913,196 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 		}
 	}
 
+	/**
+	 * Every decision that repairs a value requires the repair to be
+	 * recorded — A2 "so the synthesized value remains traceable", A3
+	 * "record each repair individually", A5 by explicit reuse of A2's
+	 * rule, D-036 "with the remediation recorded". Until now there was
+	 * nowhere to record one, so five shipped repairs silently discarded
+	 * the value they replaced.
+	 *
+	 * <p>The log lives in the {@code migration} schema beside
+	 * {@code id_map} and {@code load_counts}, so it is dropped with them
+	 * per test — assertions here need no id-map scoping, unlike every
+	 * target-table assertion above.
+	 *
+	 * <p>Asserting {@code original} is the whole point. A log that
+	 * recorded only "birth_date was repaired" would satisfy the letter of
+	 * "record the remediation" while losing the one thing nothing else in
+	 * the system still holds: what legacy actually had.
+	 */
+	@Test
+	void everyD036RepairIsRecordedWithTheOriginalLegacyValue() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "6661");
+			st.execute(load);
+
+			// Employee 12: both zero-dates and the '' gender placeholder.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'employees' AND legacy_id = 12 "
+							+ "AND column_name = 'birth_date' "
+							+ "AND original = '0000-00-00' AND applied IS NULL "
+							+ "AND decision_ref = 'D-036'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'employees' AND legacy_id = 12 "
+							+ "AND column_name = 'hire_date' "
+							+ "AND original = '0000-00-00' AND applied IS NULL "
+							+ "AND decision_ref = 'D-036'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'employees' AND legacy_id = 12 "
+							+ "AND column_name = 'gender' "
+							+ "AND original = '' AND applied IS NULL "
+							+ "AND decision_ref = 'D-036'")).isEqualTo(1);
+
+			// Employee 11 carries real values in all three; a repair logged
+			// for it would mean the predicate is matching healthy rows.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'employees' AND legacy_id = 11")).isEqualTo(0);
+		}
+	}
+
+	/**
+	 * A2 is the one repair that invents a value rather than clearing one:
+	 * a zero-date {@code effective_from} becomes the row's own
+	 * {@code created_at}, because legacy declares the column NOT NULL.
+	 * That makes the record more important here than anywhere else — the
+	 * loaded date looks entirely ordinary, and without the log nothing
+	 * distinguishes it from a date legacy really held.
+	 */
+	@Test
+	void theSynthesizedEffectiveFromIsRecordedSoTheFallbackStaysTraceable() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "6662");
+			st.execute("""
+					INSERT INTO migration.stg_salary_contracts
+					  (id, employee_id, salary_mode, basic_salary, daily_wage, effective_from, created_at)
+					VALUES ('501', '11', 'monthly', '7000.00', '0.00', '0000-00-00',
+					        '2025-11-20 10:00:00');
+
+					INSERT INTO migration.stg_employee_shift_assignments
+					  (id, employee_id, shift_id, effective_from, created_at)
+					VALUES ('752', '11', '9', '0000-00-00', '2025-10-05 08:00:00');
+					""");
+			st.execute(load);
+
+			// The repaired row loaded with the fallback...
+			assertThat(scalar(st,
+					"SELECT count(*) FROM salary_contracts c "
+							+ "JOIN migration.id_map cm ON cm.entity = 'salary_contracts' "
+							+ "AND cm.new_id = c.id "
+							+ "WHERE cm.legacy_id = 501 "
+							+ "AND c.effective_from = DATE '2025-11-20'")).isEqualTo(1);
+			// ...and the log says where that date came from.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'salary_contracts' AND legacy_id = 501 "
+							+ "AND column_name = 'effective_from' "
+							+ "AND original = '0000-00-00' AND applied = '2025-11-20' "
+							+ "AND decision_ref = 'D-035/A2'")).isEqualTo(1);
+
+			// A5 reuses A2's rule rather than inventing a second one, so it
+			// records the same way, under its own decision.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'employee_shift_assignments' AND legacy_id = 752 "
+							+ "AND column_name = 'effective_from' "
+							+ "AND original = '0000-00-00' AND applied = '2025-10-05' "
+							+ "AND decision_ref = 'D-035/A5'")).isEqualTo(1);
+
+			// Contract 500 has a real date and must not be logged.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'salary_contracts' AND legacy_id = 500")).isEqualTo(0);
+		}
+	}
+
+	/**
+	 * A3 says "record each repair individually" — a count of how many
+	 * attendance rows were repaired is what {@code load_counts} already
+	 * does and is explicitly not what A3 asked for. Row 103 holds real
+	 * punches and an exception day at once; the load keeps the punches
+	 * and clears the exception, so the exception is the value that
+	 * disappears and therefore the one that must be recorded.
+	 */
+	@Test
+	void eachAttendanceXorRepairIsRecordedIndividually() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "6663");
+			st.execute("""
+					INSERT INTO migration.stg_attendance
+					  (id, employee_id, check_in, check_out, method, exception_type_id, created_at)
+					VALUES ('103', '11', '2026-03-06 09:00:00', '2026-03-06 17:00:00', 'app', '3',
+					        '2026-03-06 17:10:00');
+					""");
+			st.execute(load);
+
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'attendance' AND legacy_id = 103 "
+							+ "AND column_name = 'exception_type_id' "
+							+ "AND original = '3' AND applied IS NULL "
+							+ "AND decision_ref = 'D-035/A3'")).isEqualTo(1);
+
+			// 102 is the legal exception-only row: exception, no check_out.
+			// Repairing or logging it would be the regression.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'attendance' AND legacy_id = 102")).isEqualTo(0);
+		}
+	}
+
+	/**
+	 * The log must not grow on a rerun. Deliberately not guarded the way
+	 * every target table is — {@code WHERE NOT EXISTS (... id = m.new_id)}
+	 * is only rerun-safe while {@code migration.id_map} survives, which is
+	 * the defect this suite hit on 2026-08-15 and issue #99 records. The
+	 * log keys on business identity instead: an entity, a legacy id and a
+	 * column name identify a repaired cell without consulting the map at
+	 * all.
+	 */
+	@Test
+	void theRemediationLogDoesNotGrowWhenTheLoadIsRerun() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "6664");
+			st.execute(load);
+
+			long first = scalar(st, "SELECT count(*) FROM migration.remediation_log");
+			assertThat(first).isGreaterThan(0);
+
+			st.execute(load);
+
+			assertThat(scalar(st, "SELECT count(*) FROM migration.remediation_log"))
+					.isEqualTo(first);
+			// And specifically not two rows for the same repaired cell.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'employees' AND legacy_id = 12 "
+							+ "AND column_name = 'birth_date'")).isEqualTo(1);
+		}
+	}
+
 }
