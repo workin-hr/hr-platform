@@ -488,14 +488,51 @@ GROUP BY s.phone;
 -- the phone anchor keeps its phone here; every other employee sharing
 -- it gets NULL, since the real, shared phone lives on the identity
 -- every one of them is linked to via tenant_memberships.
+--
+-- The six D-036 business fields V42 added come across here. Three are
+-- verbatim (employee_code, country_code, national_id) -- D-036 says
+-- preserve, do not renumber, and legacy's own UNIQUE
+-- (company_id, employee_code) pair (mysql_workin.schema.sql:1099-1100)
+-- already guarantees what V42's single UNIQUE re-asserts, so a verbatim
+-- copy cannot collide. The other three need a guard, because the raw
+-- staged text holds values Postgres will not take:
+--
+--   birth_date / hire_date -- '0000-00-00'. Both are nullable in legacy
+--   (schema:417,421), so unlike salary_contracts.effective_from (legacy
+--   NOT NULL, hence its created_at fallback ~200 lines below) NULL is
+--   the honest mapping and D-036 forbids inventing a date. The regex
+--   tests the staged TEXT so the bad cast is never attempted -- casting
+--   first and repairing after would abort the load, not fall back. It
+--   is calibrated to invalid-date-analysis.md's live finding that
+--   '0000-00-00' is the only invalid pattern observed on these two
+--   columns; a partial zero-date ('2020-00-00') would still slip
+--   through to the cast, unobserved in this data but not impossible.
+--
+--   gender -- '' , what MySQL stores for an invalid enum value in
+--   non-strict mode, and a value V42's CHECK rejects. NULL ("no gender
+--   recorded") is the only mapping that neither invents a gender nor
+--   aborts the load. Every real value maps 1:1 (D-036), no collapse.
+--
+-- Recording these two repairs in migration remediation/audit output
+-- remains owed, exactly as it is for effective_from -- that mechanism
+-- does not exist yet and is not built here.
 INSERT INTO employees (id, company_id, first_name, last_name, phone, role, active,
                        branch_id, department_id, job_title_id, expected_daily_hours,
+                       employee_code, country_code, national_id, birth_date, hire_date, gender,
                        created_at)
 OVERRIDING SYSTEM VALUE
 SELECT m.new_id, cm.new_id, s.first_name, COALESCE(s.last_name, ''),
        CASE WHEN pa.anchor_employee_id = s.id::BIGINT THEN s.phone ELSE NULL END,
        UPPER(COALESCE(s.role, 'employee')), COALESCE(s.is_active, '1') = '1',
        bm.new_id, dm.new_id, jm.new_id, s.expected_daily_hours::NUMERIC,
+       s.employee_code, s.country_code, s.national_id,
+       CASE WHEN s.birth_date ~ '^[1-9][0-9]{{3}}-[0-9]{{2}}-[0-9]{{2}}$'
+            THEN s.birth_date::DATE
+       END,
+       CASE WHEN s.hire_date ~ '^[1-9][0-9]{{3}}-[0-9]{{2}}-[0-9]{{2}}$'
+            THEN s.hire_date::DATE
+       END,
+       NULLIF(s.gender, ''),
        (s.created_at::TIMESTAMP AT TIME ZONE 'UTC')
 FROM migration.stg_employees s
 JOIN migration.id_map m ON m.entity = 'employees' AND m.legacy_id = s.id::BIGINT
@@ -1275,6 +1312,36 @@ def self_test() -> int:
           load.count("JOIN migration.id_map dm ON dm.entity = 'departments'") >= 2)
     check("departments.manager_id backfills after employees exist (breaks the cycle)",
           "UPDATE departments d" in load and "SET manager_id = mgr.new_id" in load)
+
+    # ---------- D-036: the six employees business fields V42 added ----------
+    emp_section = load.split("INSERT INTO employees (id, company_id", 1)[-1] \
+        .split("FROM migration.stg_employees s", 1)[0]
+    check("all six D-036 business fields are actually loaded, not left as "
+          "six columns of NULL that read as 'legacy never had this data'",
+          all(f"s.{c}" in emp_section for c in
+              ("employee_code", "country_code", "national_id",
+               "birth_date", "hire_date", "gender")))
+    check("employee_code, country_code and national_id are carried verbatim "
+          "-- D-036 says preserve, do not renumber, and legacy's own "
+          "UNIQUE (company_id, employee_code) means a verbatim copy cannot "
+          "collide with V42's",
+          "s.employee_code, s.country_code, s.national_id," in emp_section)
+    check("birth_date/hire_date zero-date guards test the raw staged text, "
+          "not a pre-cast value -- a bad row never reaches ::DATE at all "
+          "(same shape as D-035/A2's effective_from guard)",
+          all(f"CASE WHEN s.{c} ~ '^[1-9][0-9]{{3}}-[0-9]{{2}}-[0-9]{{2}}$'"
+              in emp_section and f"THEN s.{c}::DATE" in emp_section
+              for c in ("birth_date", "hire_date")))
+    check("birth_date/hire_date fall back to NULL, never an invented date "
+          "and never created_at -- both are nullable in legacy, unlike "
+          "effective_from, so D-036's 'never an invented date' applies",
+          "ELSE s.created_at::DATE" not in emp_section
+          and "now()" not in emp_section)
+    check("gender's '' (MySQL's non-strict-mode invalid-enum placeholder) "
+          "becomes NULL rather than aborting on V42's CHECK; every real "
+          "value maps 1:1 by value, no collapse (D-036)",
+          "NULLIF(s.gender, '')" in emp_section
+          and "CASE WHEN s.gender" not in emp_section)
 
     # ---------- leave_balances year=0 sentinel (D-035/A4 superseded by the
     # owner's 2026-08-15 carry-as-is decision, D-037) ----------
