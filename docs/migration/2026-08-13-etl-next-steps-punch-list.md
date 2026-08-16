@@ -202,12 +202,24 @@ weren't a fresh call. Answers: `decision-log.md` D-036;
 
 **Ledger state: `47 gaps — 8 accepted, 39 scheduled, 0 pending` (before
 2026-08-13) → `60 gaps — 10 accepted, 50 scheduled, 0 pending a
-decision` (current, after D-035 + D-036).** `--self-test` and `--check`
-both pass. **The pre-2026-08-13 "0 pending" was never an accurate
-"nothing undecided"** — it was 11 real gaps the tool couldn't see;
-treat any reference to "47 gaps" from before this date as stale. **The
-ledger is back to 0 pending as of D-036** — step 1 of the priority
-order below is complete.
+decision` (after D-035 + D-036) → `54 gaps — 10 accepted, 44 scheduled,
+0 pending a decision` (current, 2026-08-16).** `--self-test` and
+`--check` both pass. **The pre-2026-08-13 "0 pending" was never an
+accurate "nothing undecided"** — it was 11 real gaps the tool couldn't
+see; treat any reference to "47 gaps" from before this date as stale.
+**The ledger is back to 0 pending as of D-036** — step 1 of the
+priority order below is complete.
+
+**Update, 2026-08-16**: the six `employees` business fields are now
+loaded, not merely decided, so all six left the ledger — that is the
+60 → 54 drop. Closing them surfaced a defect in the auditor itself:
+`parse_target_schema` read one `ADD COLUMN` per `ALTER TABLE`, so V42's
+six-column ALTER registered as one, and five of the six sat
+misclassified as `UNTARGETED_COLUMN` ("no target column exists") from
+the day V42 merged. Understating the target schema makes this tool
+*miss* a gap rather than invent one — the same silent-miss class as
+Finding I itself. Fixed, with a regression case; the previous
+single-column self-test passed throughout.
 
 ### J. `migration_diff.py` cannot currently reconcile 18 of 21 tables — header mismatch, not a data problem
 
