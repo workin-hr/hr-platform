@@ -342,46 +342,24 @@ SCHEDULED: dict[str, str] = {
         "with a non-null name required only at activation (application-layer "
         "rule, not yet implemented)."
     ),
-    # D-036 -- the six employees business fields UNTARGETED_COLUMN found
-    # with no prior decision.
-    "employees.employee_code": (
-        "D-036: preserve and migrate exactly, do not renumber. Legacy's own "
-        "(company_id, employee_code) uniqueness (unique_employee_code_per_company, "
-        "uq_employees_company_code) carries the value as-is. Was already a "
-        "KNOWN, deliberate exclusion at the schema level -- "
-        "V8__create_employees.sql's own comment calls it 'intentionally "
-        "omitted... tracked follow-up' -- this decision is what that "
-        "follow-up was waiting on."
-    ),
-    "employees.country_code": (
-        "D-036: preserve its semantics for phone normalization. Do not drop "
-        "it until E.164 normalization succeeds; retain the original "
-        "components (this column plus the bare phone digits) for "
-        "remediation when normalization fails -- directly reusable by "
-        "OQ-2's (D-033) migration-invalid-phone mechanism once built."
-    ),
-    "employees.national_id": (
-        "D-036: migrate as-is."
-    ),
-    "employees.birth_date": (
-        "D-036: migrate valid values; map legacy zero-dates to NULL and "
-        "record the remediation, never an invented date. Matches "
-        "invalid-date-analysis.md's original proposal for the 2 of 2,871 "
-        "zero-date rows already found there -- this decision gives that "
-        "proposal a target column to land in."
-    ),
-    "employees.gender": (
-        "D-036: migrate with an explicit legacy-to-target value mapping. "
-        "Legacy is a clean 3-value enum('male','female','other'), "
-        "nullable -- the target mapping is 1:1 by value, not a collapse "
-        "(contrast companies.status above)."
-    ),
-    "employees.hire_date": (
-        "D-036: migrate valid values; map legacy zero-dates to NULL and "
-        "record the remediation, never a synthesized hire date. Same "
-        "shape as birth_date above; invalid-date-analysis.md already found "
-        "22 of 2,871 zero-date rows here."
-    ),
+    # D-036's six employees business fields are NOT listed here any more.
+    # SCHEDULED means "decided, implementation owed"; V42 gave all six a
+    # target column and the 2026-08-16 load populates them, so they are
+    # no longer gaps and a SCHEDULED entry would be a stale claim that
+    # work is still owed. `--check` says so itself, by design:
+    # "STALE REGISTRY ENTRY ... no longer a gap; remove it".
+    #
+    # The decisions they recorded are not lost -- each is restated where
+    # it is now enforced: load_postgres.py's employees INSERT comments
+    # the mapping per field, its --self-test asserts each one, and
+    # EtlLoadFixtureTest proves them against real Postgres.
+    #
+    # Note only employee_code ever reached "no longer a gap" on its own.
+    # The other five stayed misclassified as UNTARGETED_COLUMN ("no
+    # target column exists") even after V42 added them, because
+    # parse_target_schema read one ADD COLUMN per ALTER TABLE; fixed in
+    # the same change that removed these entries.
+    #
     # D-036 -- the four updated_at columns were NOT a new decision; the
     # repository owner directed these be moved citing D-033/OQ-3 directly.
     "employees.updated_at": (
@@ -480,6 +458,14 @@ def parse_target_schema(sql_by_version: list[str]) -> dict[str, list[str]]:
     column added by a later migration is still a target column, and
     reading only CREATE TABLE understates the schema (V27 added
     employees.expected_daily_hours exactly this way).
+
+    One ALTER TABLE may add several columns, so the whole statement is
+    matched and every ADD COLUMN inside it read, rather than anchoring
+    each column to its own `ALTER TABLE` (only the first clause carries
+    that prefix). Anchoring is what the code did until 2026-08-16, and
+    it silently understated V42 by five of its six columns -- which
+    understates the target schema, the exact direction that makes this
+    auditor miss a gap rather than invent one.
     """
     out: dict[str, list[str]] = {}
     reserved = {"CONSTRAINT", "PRIMARY", "UNIQUE", "FOREIGN", "CHECK"}
@@ -487,8 +473,11 @@ def parse_target_schema(sql_by_version: list[str]) -> dict[str, list[str]]:
         for m in re.finditer(r"CREATE TABLE (?:IF NOT EXISTS )?(\w+)\s*\((.*?)\n\);", sql, re.S):
             cols = re.findall(r"^\s+(\w+)\s+[A-Z]", m.group(2), re.M)
             out[m.group(1)] = [c for c in cols if c.upper() not in reserved]
-        for m in re.finditer(r"ALTER TABLE (\w+)\s+ADD COLUMN (?:IF NOT EXISTS )?(\w+)", sql, re.I):
-            out.setdefault(m.group(1), []).append(m.group(2))
+        for m in re.finditer(r"ALTER TABLE (\w+)(.*?);", sql, re.S | re.I):
+            for column in re.findall(
+                r"ADD COLUMN (?:IF NOT EXISTS )?(\w+)", m.group(2), re.I
+            ):
+                out.setdefault(m.group(1), []).append(column)
     return out
 
 
@@ -915,6 +904,18 @@ def self_test() -> int:
                "added_later" in parse_target_schema(
                    ["CREATE TABLE t (\n    id BIGINT\n);", "ALTER TABLE t ADD COLUMN added_later TEXT;"]
                ).get("t", []))
+    # Regression: only the first clause of a multi-column ALTER carries
+    # the `ALTER TABLE` prefix, so anchoring each column to it read one
+    # of V42's six and silently understated the target schema -- which
+    # makes this auditor MISS a gap, the one direction it must not fail
+    # in. The single-column case above passed throughout.
+    check_that("every ADD COLUMN of a multi-column ALTER TABLE counts, not just the first",
+               parse_target_schema([
+                   "CREATE TABLE t (\n    id BIGINT\n);",
+                   "ALTER TABLE t\n    ADD COLUMN a TEXT,\n    ADD COLUMN b DATE,\n"
+                   "    ADD COLUMN c VARCHAR(10)\n        CONSTRAINT t_c_check CHECK (c IN ('x')),\n"
+                   "    ADD CONSTRAINT t_a_unique UNIQUE (a);",
+               ]).get("t", []) == ["id", "a", "b", "c"])
     check_that("staging and INSERT column lists parse",
                staging.get("kept") == ["id", "carried", "staged_not_loaded", "selected_untargeted"]
                and inserted.get("kept") == {"id", "carried"})

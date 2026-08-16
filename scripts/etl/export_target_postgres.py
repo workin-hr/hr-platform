@@ -23,14 +23,28 @@ from __future__ import annotations
 import json
 import sys
 
-from export_legacy import MANIFEST
+from export_legacy import EXPORT_SQL, MANIFEST
 
 # entity -> (target table, extra select columns) with the id mapped back.
 EXPORTS = [
     ("companies", "SELECT m.legacy_id AS id, t.name, t.phone FROM companies t"),
+    # The six D-036 business fields are named exactly as export_legacy.py
+    # names them, so migration_diff.py's shared-column intersection picks
+    # them up and compares values. Until the 2026-08-16 load populated
+    # them they could only ever be reported as `source-only` -- a column
+    # set difference, never a verdict on a single cell.
+    #
+    # Two of them are expected to differ on the repaired rows, by design:
+    # birth_date/hire_date where legacy holds '0000-00-00', and gender
+    # where legacy holds ''. Those are the D-036 repairs, and they are
+    # exactly the rows the still-unbuilt remediation output owes a record
+    # of -- so until finding 3b's declared-transformation support lands,
+    # they surface here as findings rather than nowhere.
     ("employees",
      "SELECT m.legacy_id AS id, cm.legacy_id AS company_id, t.first_name, t.last_name, "
-     "t.phone, t.role, t.active, t.expected_daily_hours FROM employees t "
+     "t.phone, t.role, t.active, t.expected_daily_hours, "
+     "t.employee_code, t.country_code, t.national_id, t.birth_date, t.gender, t.hire_date "
+     "FROM employees t "
      "JOIN migration.id_map cm ON cm.entity = 'companies' AND cm.new_id = t.company_id"),
     ("attendance",
      "SELECT m.legacy_id AS id, em.legacy_id AS employee_id, "
@@ -157,6 +171,23 @@ def self_test() -> int:
           and "dm.legacy_id AS department_id" in sql
           and "ORDER BY dm.legacy_id, bm.legacy_id;" in sql)
     check("every manifest file has a target-side export", export_files == manifest_files)
+    # A column only gets compared if BOTH sides emit it under the same
+    # name -- migration_diff.py intersects the two headers and reports
+    # anything else as a column-set difference, which is a structural
+    # note, not a verdict on any value. Asserting both sides at once is
+    # the point: naming these here while export_legacy.py called them
+    # something else would read as covered and compare nothing.
+    employees_select = next(select for entity, select in EXPORTS if entity == "employees")
+    # Scoped to the legacy employees SELECT, not the whole EXPORT_SQL:
+    # `country_code` is also a companies column, so an unscoped substring
+    # test would pass even if employees never selected it.
+    legacy_employees = EXPORT_SQL.split("-- ---------- employees ----------", 1)[-1] \
+        .split("FROM employees", 1)[0]
+    check("the six D-036 business fields are reconciled, not just loaded -- "
+          "both exports name them identically so the differ compares values",
+          all(f"t.{column}" in employees_select and column in legacy_employees
+              for column in ("employee_code", "country_code", "national_id",
+                             "birth_date", "gender", "hire_date")))
     return 1 if failures else 0
 
 

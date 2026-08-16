@@ -70,6 +70,17 @@ jobs:
         working-directory: .
         run: python3 scripts/etl/coverage_audit.py --self-test
 
+      # The load program's own self-test asserts, on the emitted SQL, every
+      # remediation decision it encodes -- which fallback each zero-date
+      # guard uses, that no repair reaches for now(), that a value is never
+      # cast before it is guarded. The file has always documented this
+      # command (its module docstring) but nothing ran it, so the
+      # assertions guarded review, not the build. Emitting SQL needs no
+      # database, so it belongs here alongside the other ETL self-tests.
+      - name: ETL load-program self-test
+        working-directory: .
+        run: python3 scripts/etl/load_postgres.py --self-test
+
       - name: Set up Java 25 (immutable action reference; exact version, not checksum-verified)
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961  # v5.7.0
         with:

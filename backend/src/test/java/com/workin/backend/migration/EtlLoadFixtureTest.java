@@ -92,8 +92,21 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 	 * The suite shares one database, and both the staging tables and the
 	 * unique phone columns are global -- without this, a second test
 	 * either stages the same legacy id twice or collides on a phone.
+	 *
+	 * <p>V44's catalog tables are the same problem in a third place, and
+	 * the reason for the TRUNCATE below. Every entity the load writes is
+	 * guarded by {@code WHERE NOT EXISTS (... WHERE id = m.new_id)}, which
+	 * is only rerun-safe while {@code migration.id_map} survives -- and
+	 * every test here drops it with the schema. Fresh ids then clear that
+	 * guard while {@code setting_definitions.setting_key}'s own UNIQUE
+	 * still holds the previous test's rows, so the second full load in the
+	 * suite aborts on a duplicate key. Every other target table survives
+	 * this because it has no natural unique key to collide on; it just
+	 * accumulates rows, which is why assertions below scope through
+	 * {@code migration.id_map} rather than counting a whole table.
 	 */
 	private static void stageFixture(Statement st, String token) throws Exception {
+		st.execute("TRUNCATE setting_allowed_values, setting_definitions RESTART IDENTITY");
 		st.execute("""
 				INSERT INTO migration.stg_companies (id, name, phone, status, created_at)
 				VALUES ('1', 'Legacy Co', '+2010TOKEN01', 'active', '2025-01-15 09:00:00'),
@@ -134,18 +147,30 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 				-- exist for. 14 (company 1, same company as 12) shares 12's
 				-- phone -- the data-quality duplicate tenant_memberships must
 				-- collapse rather than reject.
+				-- The six D-036 business fields are staged here too, since the
+				-- load must carry them (V42). 11 is the fully-populated row;
+				-- 12 holds MySQL zero-dates in BOTH date columns; 13 reuses
+				-- 11's employee_code from a DIFFERENT company (which the
+				-- per-company UNIQUE must allow); 14 has no code at all.
+				-- Between them the three legacy gender enum values are each
+				-- represented exactly once.
 				INSERT INTO migration.stg_employees
 				  (id, company_id, branch_id, department_id, job_title_id, expected_daily_hours, first_name,
-				   last_name, phone, password_hash, role, is_active, created_at)
+				   last_name, phone, password_hash, role, is_active, created_at,
+				   employee_code, country_code, national_id, birth_date, gender, hire_date)
 				VALUES
 				  ('11', '1', '7', '20', '4', '6.00', 'Sara', 'Ali', '+2011TOKEN11', '$2y$hash', 'hr', '1',
-				   '2025-04-01 08:00:00'),
+				   '2025-04-01 08:00:00',
+				   'EMP-001', '+20', '29001011234567', '1990-01-01', 'female', '2020-06-15'),
 				  ('12', '1', '7', NULL, '4', NULL,   'Omar', 'Nabil', '+2012TOKEN22', '$2y$hash2', 'employee', '1',
-				   '2025-04-02 08:00:00'),
+				   '2025-04-02 08:00:00',
+				   'EMP-002', NULL, NULL, '0000-00-00', '', '0000-00-00'),
 				  ('13', '2', NULL, NULL, NULL, NULL, 'Laila', 'Fathy', '+2011TOKEN11', '$2y$hash3', 'employee', '1',
-				   '2025-04-03 08:00:00'),
+				   '2025-04-03 08:00:00',
+				   'EMP-001', NULL, NULL, NULL, 'male', NULL),
 				  ('14', '1', NULL, NULL, NULL, NULL, 'Nabil', 'Omar', '+2012TOKEN22', '$2y$hash4', 'employee', '1',
-				   '2025-04-04 08:00:00');
+				   '2025-04-04 08:00:00',
+				   NULL, NULL, NULL, NULL, 'other', NULL);
 
 				-- A real punch, and a midnight exception day. created_at is when
 				-- the punch was RECORDED; check_in is the wall-clock moment being
@@ -754,6 +779,329 @@ class EtlLoadFixtureTest extends AbstractIntegrationTest {
 
 			assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> st.execute(load)))
 					.hasMessageContaining("reference a shift from another company");
+		}
+	}
+
+	/**
+	 * D-036's six employees business fields. V42 added the columns; until
+	 * the load populates them they are six columns of NULL on every
+	 * migrated row, which reads as "legacy never had this data" rather
+	 * than "the load dropped it".
+	 *
+	 * <p>{@code employee_code} is asserted twice over: preserved verbatim
+	 * (D-036 says preserve, do not renumber), and reusable across
+	 * companies — 11 and 13 share {@code EMP-001} from different
+	 * companies, which V42's {@code UNIQUE (company_id, employee_code)}
+	 * must permit and a plain global UNIQUE would reject.
+	 */
+	@Test
+	void employeesCarryTheSixD036BusinessFieldsVerbatim() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "3331");
+			st.execute(load);
+
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE em.legacy_id = 11 "
+							+ "AND e.employee_code = 'EMP-001' "
+							+ "AND e.country_code = '+20' "
+							+ "AND e.national_id = '29001011234567' "
+							+ "AND e.birth_date = DATE '1990-01-01' "
+							+ "AND e.gender = 'female' "
+							+ "AND e.hire_date = DATE '2020-06-15'")).isEqualTo(1);
+
+			// The same code in two different companies, both migrated.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE e.employee_code = 'EMP-001'")).isEqualTo(2);
+			// 14 had no code in legacy; absent must stay absent, not become ''.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE em.legacy_id = 14 AND e.employee_code IS NULL")).isEqualTo(1);
+		}
+	}
+
+	/**
+	 * Employee 12 carries {@code '0000-00-00'} in both date columns.
+	 * Unlike {@code salary_contracts.effective_from} — legacy
+	 * {@code NOT NULL}, so a zero-date there must fall back to the row's
+	 * own {@code created_at} (D-035/A2) — {@code birth_date} and
+	 * {@code hire_date} are nullable in legacy, so NULL is the honest
+	 * mapping and D-036 says never invent a date.
+	 *
+	 * <p>Without a guard on the raw staged text this does not merely
+	 * produce a wrong value, it aborts the whole load: PostgreSQL rejects
+	 * {@code '0000-00-00'::DATE} outright.
+	 *
+	 * <p>Employee 11's real dates are asserted in the same test on
+	 * purpose. "12's dates are NULL" is true of an unpopulated column
+	 * too, so on its own it would pass against a load that carries no
+	 * dates at all and prove nothing; pairing it with a row whose dates
+	 * must be present is what makes the NULL meaningful.
+	 */
+	@Test
+	void legacyZeroDatesOnEmployeesBecomeNullRatherThanAnInventedDate() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "4441");
+			st.execute(load);
+
+			// A row with real dates carries them...
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE em.legacy_id = 11 "
+							+ "AND e.birth_date = DATE '1990-01-01' "
+							+ "AND e.hire_date = DATE '2020-06-15'")).isEqualTo(1);
+			// ...and only then does the zero-date row's NULL mean anything.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE em.legacy_id = 12 "
+							+ "AND e.birth_date IS NULL AND e.hire_date IS NULL")).isEqualTo(1);
+
+			// Specifically NOT the created_at fallback effective_from uses:
+			// no employee may end up dated by when its row was created.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE e.hire_date = DATE '2025-04-02'")).isEqualTo(0);
+		}
+	}
+
+	/**
+	 * Legacy {@code gender} is {@code enum('male','female','other')},
+	 * mapped 1:1 by value (D-036) against V42's CHECK, which mirrors the
+	 * enum exactly. Employee 12 holds {@code ''} — what MySQL stores for
+	 * an invalid enum value in non-strict mode, and a value V42's CHECK
+	 * rejects. It maps to NULL ("no gender recorded"), the only mapping
+	 * that neither invents a gender nor aborts the load.
+	 */
+	@Test
+	void everyLegacyGenderValueMapsOneToOneAndTheEmptyPlaceholderBecomesNull() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "2221");
+			st.execute(load);
+
+			String scoped = "SELECT count(*) FROM employees e "
+					+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+					+ "WHERE e.gender = ";
+			assertThat(scalar(st, scoped + "'female'")).isEqualTo(1);
+			assertThat(scalar(st, scoped + "'male'")).isEqualTo(1);
+			assertThat(scalar(st, scoped + "'other'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM employees e "
+							+ "JOIN migration.id_map em ON em.entity = 'employees' AND em.new_id = e.id "
+							+ "WHERE em.legacy_id = 12 AND e.gender IS NULL")).isEqualTo(1);
+		}
+	}
+
+	/**
+	 * Every decision that repairs a value requires the repair to be
+	 * recorded — A2 "so the synthesized value remains traceable", A3
+	 * "record each repair individually", A5 by explicit reuse of A2's
+	 * rule, D-036 "with the remediation recorded". Until now there was
+	 * nowhere to record one, so five shipped repairs silently discarded
+	 * the value they replaced.
+	 *
+	 * <p>The log lives in the {@code migration} schema beside
+	 * {@code id_map} and {@code load_counts}, so it is dropped with them
+	 * per test — assertions here need no id-map scoping, unlike every
+	 * target-table assertion above.
+	 *
+	 * <p>Asserting {@code original} is the whole point. A log that
+	 * recorded only "birth_date was repaired" would satisfy the letter of
+	 * "record the remediation" while losing the one thing nothing else in
+	 * the system still holds: what legacy actually had.
+	 */
+	@Test
+	void everyD036RepairIsRecordedWithTheOriginalLegacyValue() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "6665");
+			st.execute(load);
+
+			// Employee 12: both zero-dates and the '' gender placeholder.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'employees' AND legacy_id = 12 "
+							+ "AND column_name = 'birth_date' "
+							+ "AND original = '0000-00-00' AND applied IS NULL "
+							+ "AND decision_ref = 'D-036'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'employees' AND legacy_id = 12 "
+							+ "AND column_name = 'hire_date' "
+							+ "AND original = '0000-00-00' AND applied IS NULL "
+							+ "AND decision_ref = 'D-036'")).isEqualTo(1);
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'employees' AND legacy_id = 12 "
+							+ "AND column_name = 'gender' "
+							+ "AND original = '' AND applied IS NULL "
+							+ "AND decision_ref = 'D-036'")).isEqualTo(1);
+
+			// Employee 11 carries real values in all three; a repair logged
+			// for it would mean the predicate is matching healthy rows.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'employees' AND legacy_id = 11")).isEqualTo(0);
+		}
+	}
+
+	/**
+	 * A2 is the one repair that invents a value rather than clearing one:
+	 * a zero-date {@code effective_from} becomes the row's own
+	 * {@code created_at}, because legacy declares the column NOT NULL.
+	 * That makes the record more important here than anywhere else — the
+	 * loaded date looks entirely ordinary, and without the log nothing
+	 * distinguishes it from a date legacy really held.
+	 */
+	@Test
+	void theSynthesizedEffectiveFromIsRecordedSoTheFallbackStaysTraceable() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "6662");
+			st.execute("""
+					INSERT INTO migration.stg_salary_contracts
+					  (id, employee_id, salary_mode, basic_salary, daily_wage, effective_from, created_at)
+					VALUES ('501', '11', 'monthly', '7000.00', '0.00', '0000-00-00',
+					        '2025-11-20 10:00:00');
+
+					INSERT INTO migration.stg_employee_shift_assignments
+					  (id, employee_id, shift_id, effective_from, created_at)
+					VALUES ('752', '11', '9', '0000-00-00', '2025-10-05 08:00:00');
+					""");
+			st.execute(load);
+
+			// The repaired row loaded with the fallback...
+			assertThat(scalar(st,
+					"SELECT count(*) FROM salary_contracts c "
+							+ "JOIN migration.id_map cm ON cm.entity = 'salary_contracts' "
+							+ "AND cm.new_id = c.id "
+							+ "WHERE cm.legacy_id = 501 "
+							+ "AND c.effective_from = DATE '2025-11-20'")).isEqualTo(1);
+			// ...and the log says where that date came from.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'salary_contracts' AND legacy_id = 501 "
+							+ "AND column_name = 'effective_from' "
+							+ "AND original = '0000-00-00' AND applied = '2025-11-20' "
+							+ "AND decision_ref = 'D-035/A2'")).isEqualTo(1);
+
+			// A5 reuses A2's rule rather than inventing a second one, so it
+			// records the same way, under its own decision.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'employee_shift_assignments' AND legacy_id = 752 "
+							+ "AND column_name = 'effective_from' "
+							+ "AND original = '0000-00-00' AND applied = '2025-10-05' "
+							+ "AND decision_ref = 'D-035/A5'")).isEqualTo(1);
+
+			// Contract 500 has a real date and must not be logged.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'salary_contracts' AND legacy_id = 500")).isEqualTo(0);
+		}
+	}
+
+	/**
+	 * A3 says "record each repair individually" — a count of how many
+	 * attendance rows were repaired is what {@code load_counts} already
+	 * does and is explicitly not what A3 asked for. Row 103 holds real
+	 * punches and an exception day at once; the load keeps the punches
+	 * and clears the exception, so the exception is the value that
+	 * disappears and therefore the one that must be recorded.
+	 */
+	@Test
+	void eachAttendanceXorRepairIsRecordedIndividually() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "6663");
+			st.execute("""
+					INSERT INTO migration.stg_attendance
+					  (id, employee_id, check_in, check_out, method, exception_type_id, created_at)
+					VALUES ('103', '11', '2026-03-06 09:00:00', '2026-03-06 17:00:00', 'app', '3',
+					        '2026-03-06 17:10:00');
+					""");
+			st.execute(load);
+
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'attendance' AND legacy_id = 103 "
+							+ "AND column_name = 'exception_type_id' "
+							+ "AND original = '3' AND applied IS NULL "
+							+ "AND decision_ref = 'D-035/A3'")).isEqualTo(1);
+
+			// 102 is the legal exception-only row: exception, no check_out.
+			// Repairing or logging it would be the regression.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'attendance' AND legacy_id = 102")).isEqualTo(0);
+		}
+	}
+
+	/**
+	 * The log must not grow on a rerun. Deliberately not guarded the way
+	 * every target table is — {@code WHERE NOT EXISTS (... id = m.new_id)}
+	 * is only rerun-safe while {@code migration.id_map} survives, which is
+	 * the defect this suite hit on 2026-08-15 and issue #99 records. The
+	 * log keys on business identity instead: an entity, a legacy id and a
+	 * column name identify a repaired cell without consulting the map at
+	 * all.
+	 */
+	@Test
+	void theRemediationLogDoesNotGrowWhenTheLoadIsRerun() throws Exception {
+		String ddl = emit("ddl");
+		String load = emit("load");
+
+		try (Connection connection = superuser(); Statement st = connection.createStatement()) {
+			st.execute("DROP SCHEMA IF EXISTS migration CASCADE");
+			st.execute(ddl);
+			stageFixture(st, "6664");
+			st.execute(load);
+
+			long first = scalar(st, "SELECT count(*) FROM migration.remediation_log");
+			assertThat(first).isGreaterThan(0);
+
+			st.execute(load);
+
+			assertThat(scalar(st, "SELECT count(*) FROM migration.remediation_log"))
+					.isEqualTo(first);
+			// And specifically not two rows for the same repaired cell.
+			assertThat(scalar(st,
+					"SELECT count(*) FROM migration.remediation_log "
+							+ "WHERE entity = 'employees' AND legacy_id = 12 "
+							+ "AND column_name = 'birth_date'")).isEqualTo(1);
 		}
 	}
 
