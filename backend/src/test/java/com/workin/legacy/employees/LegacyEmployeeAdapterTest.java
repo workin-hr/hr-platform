@@ -2,18 +2,16 @@ package com.workin.legacy.employees;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.LocalDate;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.MariaDBContainer;
+
+import com.workin.legacy.AbstractLegacyMySqlTest;
+import com.workin.legacy.LegacyValues;
 
 /**
  * Proves the legacy persistence pattern against a real MariaDB running
@@ -40,84 +38,29 @@ import org.testcontainers.containers.MariaDBContainer;
  * reworked, so there is no MySQL context to load it into. That step
  * comes next, and this test is what it will build on.
  */
-class LegacyEmployeeAdapterTest {
-
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
-
-	static {
-		MARIADB.start();
-	}
+class LegacyEmployeeAdapterTest extends AbstractLegacyMySqlTest {
 
 	@BeforeAll
-	static void applyLegacySchemaAndSeed() throws Exception {
-		String schema = readResource("legacy/mysql_workin.schema.sql");
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			// The dump is one statement per `;` at end of line. Splitting
-			// on that is enough because it contains no routines, triggers
-			// or views -- independently inventoried as zero of each
-			// (ADR-0004), which is also why no DELIMITER handling is
-			// needed here.
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-
-			// MySQL rejects '0000-00-00' under a strict sql_mode. Legacy
-			// production runs non-strict -- which is precisely how the 24
-			// zero-date rows got there -- so the fixture reproduces that
-			// mode rather than pretending the data cannot exist.
-			st.execute("SET SESSION sql_mode = ''");
-			st.execute("""
-					INSERT INTO companies (id, company_name, phone, status, created_at)
-					VALUES (1, 'Legacy Co', '+201000000001', 'active', '2025-01-15 09:00:00')
-					""");
-			st.execute("""
-					INSERT INTO branches (id, company_id, name, is_active, created_at)
-					VALUES (7, 1, 'HQ', 1, '2025-03-01 10:00:00')
-					""");
-			// 11 is fully populated; 12 carries both zero dates, the ''
-			// gender placeholder MySQL writes for an invalid enum in
-			// non-strict mode, and is_active = 2 -- a value legacy's own
-			// `=== 1` reads as false.
-			st.execute("""
-					INSERT INTO employees
-					  (id, company_id, branch_id, employee_code, first_name, last_name, phone,
-					   role, birth_date, gender, hire_date, is_active, is_mobile_attendance_enabled,
-					   can_check_in_any_branch, join_request_status, token_version, created_at)
-					VALUES
-					  (11, 1, 7, 'EMP-001', 'Sara', 'Ali', '+201100000011',
-					   'hr', '1990-01-01', 'female', '2020-06-15', 1, 1, 0, 'accepted', 1,
-					   '2025-04-01 08:00:00'),
-					  (12, 1, 7, 'EMP-002', 'Omar', 'Nabil', '+201200000012',
-					   'employee', '0000-00-00', '', '0000-00-00', 2, 0, 1, 'pending', 1,
-					   '2025-04-02 08:00:00')
-					""");
-		}
-	}
-
-	private static Connection connect() throws Exception {
-		return DriverManager.getConnection(
-				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-	}
-
-	private static String readResource(String name) throws IOException {
-		try (InputStream in = LegacyEmployeeAdapterTest.class.getClassLoader()
-				.getResourceAsStream(name)) {
-			if (in == null) {
-				throw new IllegalStateException("missing test resource: " + name);
-			}
-			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-		}
-	}
-
-	private static String column(long employeeId, String columnName) throws Exception {
-		try (Connection connection = connect(); Statement st = connection.createStatement();
-				ResultSet rs = st.executeQuery(
-						"SELECT " + columnName + " FROM employees WHERE id = " + employeeId)) {
-			rs.next();
-			return rs.getString(1);
-		}
+	static void seed() throws Exception {
+		seedAsLegacyWould("""
+				INSERT INTO companies (id, company_name, phone, status, created_at)
+				VALUES (1, 'Legacy Co', '+201000000001', 'active', '2025-01-15 09:00:00')
+				""", """
+				INSERT INTO branches (id, company_id, name, is_active, created_at)
+				VALUES (7, 1, 'HQ', 1, '2025-03-01 10:00:00')
+				""", """
+				INSERT INTO employees
+				  (id, company_id, branch_id, employee_code, first_name, last_name, phone,
+				   role, birth_date, gender, hire_date, is_active, is_mobile_attendance_enabled,
+				   can_check_in_any_branch, join_request_status, token_version, created_at)
+				VALUES
+				  (11, 1, 7, 'EMP-001', 'Sara', 'Ali', '+201100000011',
+				   'hr', '1990-01-01', 'female', '2020-06-15', 1, 1, 0, 'accepted', 1,
+				   '2025-04-01 08:00:00'),
+				  (12, 1, 7, 'EMP-002', 'Omar', 'Nabil', '+201200000012',
+				   'employee', '0000-00-00', '', '0000-00-00', 2, 0, 1, 'pending', 1,
+				   '2025-04-02 08:00:00')
+				""");
 	}
 
 	/**
@@ -127,18 +70,18 @@ class LegacyEmployeeAdapterTest {
 	 */
 	@Test
 	void aLegacyZeroDateCanBeReadAsTextWithoutTheDriverRaising() throws Exception {
-		assertThat(column(12, "birth_date")).isEqualTo("0000-00-00");
-		assertThat(column(12, "hire_date")).isEqualTo("0000-00-00");
-		assertThat(com.workin.legacy.LegacyValues.toDate(column(12, "birth_date")))
+		assertThat(employeeColumn(12, "birth_date")).isEqualTo("0000-00-00");
+		assertThat(employeeColumn(12, "hire_date")).isEqualTo("0000-00-00");
+		assertThat(LegacyValues.toDate(employeeColumn(12, "birth_date")))
 				.isNull();
 	}
 
 	/** ...and a real date still round-trips to a real date. */
 	@Test
 	void realDatesSurviveTheSameTextPath() throws Exception {
-		assertThat(com.workin.legacy.LegacyValues.toDate(column(11, "birth_date")))
+		assertThat(LegacyValues.toDate(employeeColumn(11, "birth_date")))
 				.isEqualTo(LocalDate.of(1990, 1, 1));
-		assertThat(com.workin.legacy.LegacyValues.toDate(column(11, "hire_date")))
+		assertThat(LegacyValues.toDate(employeeColumn(11, "hire_date")))
 				.isEqualTo(LocalDate.of(2020, 6, 15));
 	}
 
@@ -150,9 +93,9 @@ class LegacyEmployeeAdapterTest {
 	@Test
 	void tinyintBooleansFollowLegacysStrictEqualityWithOne() throws Exception {
 		assertThat(com.workin.legacy.LegacyValues
-				.toBoolean(Integer.valueOf(column(11, "is_active")))).isTrue();
+				.toBoolean(Integer.valueOf(employeeColumn(11, "is_active")))).isTrue();
 		assertThat(com.workin.legacy.LegacyValues
-				.toBoolean(Integer.valueOf(column(12, "is_active")))).isFalse();
+				.toBoolean(Integer.valueOf(employeeColumn(12, "is_active")))).isFalse();
 	}
 
 	/**
@@ -163,15 +106,15 @@ class LegacyEmployeeAdapterTest {
 	 */
 	@Test
 	void enumsArriveInTheirLegacySpellingIncludingTheEmptyPlaceholder() throws Exception {
-		assertThat(column(11, "role")).isEqualTo("hr");
-		assertThat(column(11, "gender")).isEqualTo("female");
-		assertThat(column(12, "gender")).isEqualTo("");
+		assertThat(employeeColumn(11, "role")).isEqualTo("hr");
+		assertThat(employeeColumn(11, "gender")).isEqualTo("female");
+		assertThat(employeeColumn(12, "gender")).isEqualTo("");
 
 		assertThat(com.workin.legacy.LegacyValues
-				.toEnum(LegacyEmployee.Role.class, column(11, "role")))
+				.toEnum(LegacyEmployee.Role.class, employeeColumn(11, "role")))
 				.isEqualTo(LegacyEmployee.Role.HR);
 		assertThat(com.workin.legacy.LegacyValues
-				.toEnum(LegacyEmployee.Gender.class, column(12, "gender")))
+				.toEnum(LegacyEmployee.Gender.class, employeeColumn(12, "gender")))
 				.isNull();
 	}
 
