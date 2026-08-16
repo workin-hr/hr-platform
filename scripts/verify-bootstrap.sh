@@ -38,6 +38,7 @@ python3 scripts/test_edit_audit_log.py
 python3 scripts/test_check_flyway_versions.py
 python3 scripts/test_check_rls_migration_safety.py
 python3 scripts/test_migration_diff.py
+python3 scripts/test_check_legacy_schema_drift.py
 
 echo "[3/3] Running external tool checks (BOOTSTRAP_STRICT=$STRICT)"
 

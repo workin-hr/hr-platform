@@ -13,9 +13,37 @@ java {
 	}
 }
 
+// Phase 2 assets: the ETL/reconciliation suite that proves the
+// PostgreSQL target schema and load program. Frozen, not deleted
+// (strategy reset, 2026-08-16) -- kept compiling and runnable on
+// demand so it cannot rot, but deliberately NOT wired into `check`,
+// so ETL work can never gate a Phase 1 build.
+//
+// Declared before `configurations` because a source set creates its own
+// implementation/runtimeOnly configurations; the block below extends
+// those, it does not create them.
+sourceSets {
+	phase2Test {
+		compileClasspath += sourceSets.main.output
+		runtimeClasspath += sourceSets.main.output
+	}
+}
+
 configurations {
 	compileOnly {
 		extendsFrom annotationProcessor
+	}
+	// Phase 2 tests carry their OWN PostgreSQL dependencies rather than
+	// borrowing the application's. That is the whole point of the split:
+	// Phase 1 runs the application against the legacy MySQL contract, so
+	// `main` stops depending on Postgres -- and the migration suite,
+	// which genuinely needs Postgres, must not be what keeps that
+	// dependency alive.
+	phase2TestImplementation {
+		extendsFrom testImplementation
+	}
+	phase2TestRuntimeOnly {
+		extendsFrom testRuntimeOnly
 	}
 }
 
@@ -64,6 +92,27 @@ dependencies {
 	// exercised by a test in this slice -- tracked, not silently dropped.
 	testImplementation 'com.tngtech.archunit:archunit-junit5:1.5.0'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+	// Phase 1 substrate. MariaDB, not MySQL: production is MariaDB
+	// 11.8.8 (D-037, verified read-only against the live host), and the
+	// legacy schema uses MariaDB-tolerated syntax MySQL 8 warns on --
+	// `int(10) UNSIGNED` display widths among it. Testing against the
+	// engine production actually runs is the whole point of Phase 1.
+	//
+	// Added alongside the PostgreSQL substrate, not replacing it: the
+	// application still runs on PostgreSQL until auth/authz is reworked,
+	// and 38 integration tests depend on that. The swap happens when the
+	// replacement exists, not before.
+	testImplementation 'org.testcontainers:testcontainers-mariadb'
+	testImplementation 'org.mariadb.jdbc:mariadb-java-client'
+
+	// Phase 2 suite only. These are the dependencies Phase 1 removes
+	// from the application; the migration suite keeps them here so the
+	// frozen work stays executable without holding `main` on Postgres.
+	phase2TestImplementation 'org.flywaydb:flyway-core'
+	phase2TestImplementation 'org.flywaydb:flyway-database-postgresql'
+	phase2TestImplementation 'org.testcontainers:testcontainers-postgresql'
+	phase2TestRuntimeOnly 'org.postgresql:postgresql'
 }
 
 dependencyManagement {
@@ -91,6 +140,28 @@ tasks.named('test') {
 	// Testcontainers 2.x's ping mechanism is fixed; these env vars are
 	// kept as a documented, harmless belt-and-braces match to the spike's
 	// proven-working configuration for this specific environment.
+	environment 'DOCKER_HOST', 'unix:///var/run/docker.sock'
+	environment 'DOCKER_API_VERSION', '1.55'
+}
+
+// Run explicitly: `./gradlew phase2Test`. Deliberately absent from
+// `check` and from the `test` task's dependencies -- a Phase 2 asset
+// must never be able to fail a Phase 1 build. It is still compiled by
+// `./gradlew compilePhase2TestJava`, which CI does run, so the frozen
+// work cannot silently stop building.
+tasks.register('phase2Test', Test) {
+	description = 'Phase 2 (storage migration) suite: ETL load against a real PostgreSQL. Not part of `check`.'
+	group = 'verification'
+	testClassesDirs = sourceSets.phase2Test.output.classesDirs
+	classpath = sourceSets.phase2Test.runtimeClasspath
+	useJUnitPlatform()
+	shouldRunAfter tasks.named('test')
+	testLogging {
+		exceptionFormat = 'full'
+		showExceptions = true
+		showCauses = true
+		showStackTraces = true
+	}
 	environment 'DOCKER_HOST', 'unix:///var/run/docker.sock'
 	environment 'DOCKER_API_VERSION', '1.55'
 }

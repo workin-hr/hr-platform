@@ -53,6 +53,32 @@ jobs:
           python3 scripts/check_rls_migration_safety.py --self-test
           python3 scripts/check_rls_migration_safety.py
 
+      # Phase 1: the legacy MySQL schema is an external contract, and
+      # backend/src/test/resources/legacy/ carries a vendored copy so
+      # tests can run against a real MariaDB. Only --self-test runs
+      # here: the comparison needs a hr-legacy checkout this workflow
+      # does not have, exactly like coverage_audit.py --check. The
+      # self-test proves the drift detector itself still works, so a
+      # regression in the detector fails the build; run the real
+      # comparison locally against a sibling checkout before changing
+      # the vendored file.
+      - name: Legacy schema drift-detector self-test
+        working-directory: .
+        run: python3 scripts/check_legacy_schema_drift.py --self-test
+
+      # ---------------------------------------------------------------
+      # Phase 2 (storage migration) assets — FROZEN 2026-08-16.
+      #
+      # These guard the PostgreSQL/ETL work that Phase 1 does not use.
+      # They are kept running because they are pure, database-free
+      # emitted-SQL checks that finish in about a second each, so they
+      # protect the frozen work without meaningfully gating a Phase 1
+      # build. The expensive coupling — EtlLoadFixtureTest, ~3 minutes of
+      # Testcontainers PostgreSQL inside the application suite — is what
+      # the reset removed: it now lives in the `phase2Test` source set
+      # and runs only on `./gradlew phase2Test`.
+      # ---------------------------------------------------------------
+
       # PMR-10's reconciliation harness must stay proven-working: its
       # self-tests exercise every detection class on synthetic samples.
       - name: Migration-diff harness self-test
@@ -87,5 +113,50 @@ jobs:
           distribution: temurin
           java-version: "25"
 
-      - name: Run backend test suite (real Postgres via Testcontainers)
-        run: ./gradlew clean test --console=plain
+      # `compilePhase2TestJava` compiles the frozen Phase 2 migration
+      # suite without running it. Frozen work must not be allowed to stop
+      # building unnoticed, but running it here would reintroduce exactly
+      # the coupling the reset removed -- ~3 minutes of Testcontainers
+      # PostgreSQL inside the application build. `./gradlew phase2Test`
+      # runs it on demand.
+      - name: Run backend test suite (and compile the frozen Phase 2 suite)
+        run: ./gradlew clean test compilePhase2TestJava --console=plain
+
+      # Gradle prints a test count only when something fails, so a green
+      # build is silent about what actually ran -- and a test class that
+      # is never picked up looks exactly like one that passed. That is
+      # not good enough when a specific test is the gate on starting the
+      # next phase of work. This reads the JUnit XML Gradle already
+      # writes and prints per-class counts, so "did it run" is answerable
+      # from the log rather than by inference.
+      - name: Summarise which tests ran
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob, re
+          # Read the <testsuite> attributes with a regex rather than an
+          # XML parser: this needs no third-party dependency on the
+          # runner and avoids the stdlib parser's entity-expansion
+          # surface entirely. Gradle writes this element's shape, and it
+          # is the only thing being read.
+          HEAD = re.compile(r'<testsuite\b[^>]*>')
+          ATTR = re.compile(r'(\w+)="([^"]*)"')
+          rows, totals = [], [0, 0, 0]
+          for path in sorted(glob.glob('build/test-results/test/TEST-*.xml')):
+              with open(path, encoding='utf-8') as handle:
+                  head = HEAD.search(handle.read(4096))
+              if not head:
+                  print(f"?? could not read suite header: {path}")
+                  continue
+              attrs = dict(ATTR.findall(head.group(0)))
+              tests = int(attrs.get('tests', 0))
+              failures = int(attrs.get('failures', 0)) + int(attrs.get('errors', 0))
+              skipped = int(attrs.get('skipped', 0))
+              totals[0] += tests; totals[1] += failures; totals[2] += skipped
+              rows.append((attrs.get('name', '?'), tests, failures, skipped))
+          for name, tests, failures, skipped in rows:
+              flag = 'FAIL' if failures else ('SKIP' if tests and skipped == tests else 'ok  ')
+              print(f"{flag} {tests:4d} {name}")
+          print(f"\n{len(rows)} classes, {totals[0]} tests, "
+                f"{totals[1]} failed, {totals[2]} skipped")
+          PY
