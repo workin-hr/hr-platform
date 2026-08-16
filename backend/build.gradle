@@ -93,6 +93,19 @@ dependencies {
 	testImplementation 'com.tngtech.archunit:archunit-junit5:1.5.0'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
+	// Phase 1 substrate. MariaDB, not MySQL: production is MariaDB
+	// 11.8.8 (D-037, verified read-only against the live host), and the
+	// legacy schema uses MariaDB-tolerated syntax MySQL 8 warns on --
+	// `int(10) UNSIGNED` display widths among it. Testing against the
+	// engine production actually runs is the whole point of Phase 1.
+	//
+	// Added alongside the PostgreSQL substrate, not replacing it: the
+	// application still runs on PostgreSQL until auth/authz is reworked,
+	// and 38 integration tests depend on that. The swap happens when the
+	// replacement exists, not before.
+	testImplementation 'org.testcontainers:testcontainers-mariadb'
+	testImplementation 'org.mariadb.jdbc:mariadb-java-client'
+
 	// Phase 2 suite only. These are the dependencies Phase 1 removes
 	// from the application; the migration suite keeps them here so the
 	// frozen work stays executable without holding `main` on Postgres.
