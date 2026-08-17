@@ -6,6 +6,9 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -122,16 +125,45 @@ class LegacyEmployeeAdapterTest extends AbstractLegacyMySqlTest {
 	 * The legacy schema applies unmodified. This is the assertion that
 	 * would catch the contract being quietly adjusted to suit Java --
 	 * the thing the Database Rule exists to prevent.
+	 *
+	 * <p>Checked against the vendored schema's own {@code CREATE TABLE}
+	 * names, not a raw {@code information_schema.tables} count. The
+	 * shared MariaDB instance ({@code AbstractLegacyMySqlTest}) now also
+	 * applies {@code phase1_extensions.schema.sql} -- new Phase 1
+	 * infrastructure (e.g. {@code legacy_refresh_tokens}) that is
+	 * legitimately not part of the legacy contract. A global count can't
+	 * tell that apart from the contract itself changing; asserting the
+	 * vendored file's own 42 table names are exactly the tables present
+	 * can.
 	 */
 	@Test
 	void theVendoredLegacySchemaAppliesToARealMariaDbUnmodified() throws Exception {
+		List<String> vendoredTableNames = vendoredTableNames();
+		assertThat(vendoredTableNames).hasSize(42);
+
 		try (Connection connection = connect(); Statement st = connection.createStatement();
 				ResultSet rs = st.executeQuery(
 						"SELECT count(*) FROM information_schema.tables "
-								+ "WHERE table_schema = DATABASE()")) {
+								+ "WHERE table_schema = DATABASE() AND table_name IN ("
+								+ vendoredTableNames.stream().map(name -> "'" + name + "'")
+										.reduce((a, b) -> a + "," + b).orElseThrow()
+								+ ")")) {
 			rs.next();
-			assertThat(rs.getInt(1)).isEqualTo(42);
+			assertThat(rs.getInt(1))
+					.describedAs("every vendored table name must exist in the applied schema, unmodified")
+					.isEqualTo(42);
 		}
+	}
+
+	/** Every {@code CREATE TABLE `name`} in the vendored schema, in file order. */
+	private static List<String> vendoredTableNames() throws Exception {
+		String schema = readResource("legacy/mysql_workin.schema.sql");
+		Matcher matcher = Pattern.compile("(?m)^CREATE TABLE `([a-zA-Z0-9_]+)`").matcher(schema);
+		List<String> names = new java.util.ArrayList<>();
+		while (matcher.find()) {
+			names.add(matcher.group(1));
+		}
+		return names;
 	}
 
 }
