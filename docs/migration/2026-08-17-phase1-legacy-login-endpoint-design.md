@@ -224,13 +224,94 @@ piece of logic they would call (`LegacyLoginResolver`,
 `TenantScopeFilter`, `TenantAwareJpaTransactionManager`) already exists
 and is already tested.
 
+## Decided — 2026-08-17, later the same day
+
+**Full profile swap, once — not a simultaneous dual datasource.** The
+app boots against either PostgreSQL or MySQL, not both at once. Scope
+for the login endpoint specifically: stand up a distinct,
+explicitly-activated Spring profile that boots against MySQL/MariaDB,
+prove the login endpoint works end to end under it, and leave the
+default PostgreSQL profile and its test suite completely untouched.
+Flipping the *default* profile once enough modules exist is a separate,
+later decision.
+
+## Blocked — not built: the profile mechanism itself
+
+Investigating what "stand up a profile-scoped config class" actually
+requires surfaced a larger blocker than that phrase implies, and this
+document stops here rather than forcing a partial version of it.
+
+**`BackendApplication` is a single `@SpringBootApplication` with no
+existing `@Profile` usage anywhere in `backend/src/main/java` (checked
+directly — zero hits).** Its implicit `@ComponentScan` and Spring Boot's
+default JPA autoconfiguration together reach all of `com.workin.backend`:
+31 `@Entity` classes, every `@Repository`, and every `@Service`/
+`@RestController` that depends on one — which, transitively, is nearly
+all of it. `LegacyAdapterIsolationTest`'s own javadoc anticipates "an
+explicit `@EntityScan`/`@EnableJpaRepositories` under the MySQL profile,"
+but that only addresses entity/repository *scanning*. It does not
+address:
+
+- **Postgres-specific beans that run unconditionally today** —
+  `RlsDataSourceConfig` (`applicationDataSource`/`flywayDataSource`,
+  built with the Postgres JDBC driver via `JdbcConnectionDetails`) and
+  `SuperuserStartupCheck` (an `ApplicationRunner` that queries Postgres's
+  `pg_user` catalog against `applicationDataSource` on every boot, ADR-0002
+  condition 1). Both are plain `@Component`/`@Configuration` with no
+  `@Profile` guard; under a MySQL-pointed context they would either fail
+  outright (wrong SQL dialect) or need to not exist at all.
+- **`spring.flyway.locations=classpath:db/migration/common,classpath:db/migration/rls`**
+  in `application.properties` — Postgres DDL, unconditional, would need to
+  not run under this profile.
+- **Every existing controller/service with a JPA-repository dependency**
+  (the 20 already-mapped modules' worth) would fail Spring context
+  startup with `NoSuchBeanDefinitionException` the moment the default
+  entity/repository scan of `com.workin.backend` is disabled or redirected
+  — which restricting scanning to `com.workin.legacy.**` under the new
+  profile necessarily does. `@EnableJpaRepositories`/`@EntityScan` are
+  *additive*, not a replacement for the default scan; suppressing the
+  default requires excluding Spring Boot's JPA/DataSource/Flyway
+  autoconfiguration for this profile specifically (e.g. profile-scoped
+  `spring.autoconfigure.exclude`), which in turn means hand-building the
+  JPA infrastructure (`LocalContainerEntityManagerFactoryBean`,
+  `PlatformTransactionManager`) the way `RlsDataSourceConfig` does for
+  Postgres today, plus deciding what happens to every controller/service
+  that can no longer be instantiated.
+
+So "the mechanism" is not one profile-scoped `@Configuration` class — it
+is excluding or reworking the boot path of most of the existing
+application under the new profile, correctly, without breaking the
+default profile it currently serves. That is a repository-wide
+restructuring decision (which packages are cross-cutting infrastructure
+reachable from both profiles — `JwtService` and the security scaffolding
+the login controller needs are themselves under `com.workin.backend.identity`
+— versus which are Postgres-domain-specific and must be excluded), not
+something this task's scope covers, and forcing a narrower proof (e.g. a
+hand-built `ApplicationContext` wiring only the new beans, bypassing
+`BackendApplication` entirely) would validate the classes' own wiring
+but not the real question: how the deployed application actually boots
+in MySQL mode. That would be a different, lesser proof than what was
+asked, presented as if it answered the same question.
+
+**Not built**: the login controller, the `@Order(3)` security chain, the
+profile itself, and the end-to-end HTTP test. Every piece of logic they
+would call — `LegacyLoginResolver`, `LegacyTenantContextService`,
+`LegacyRefreshTokenService`, `TenantScopeFilter`,
+`TenantAwareJpaTransactionManager` — already exists and is already
+tested in isolation (54 classes, 345 tests, 0 failed, unchanged from the
+prior entry; nothing in this investigation touched production code).
+
 ## Next
 
-A decision on how Phase 1's MySQL/MariaDB substrate becomes a live part
-of the running application: a second simultaneous Spring
-datasource/JPA context, or a full profile-based swap timed to land with
-(or before) the login endpoint. Once decided, the controller and
-security chain are the mechanical step this document already specified
-in its original "Wiring into `SecurityConfig`" section, and punch-list
-item #10 (the forged-claim isolation attack) can follow immediately
-after.
+A decision on how much of `com.workin.backend`'s existing boot path gets
+excluded or reworked under the new MySQL profile, and how cross-cutting
+infrastructure (`JwtService`, the security-config scaffolding, anything
+else the legacy login path needs that currently lives inside
+`com.workin.backend`) is shared between both profiles without pulling
+Postgres-specific beans (`RlsDataSourceConfig`, `SuperuserStartupCheck`,
+the RLS Flyway migrations) along with it. Likely its own ADR, given the
+size of the restructuring and that it determines how every future
+Phase 1 HTTP endpoint gets built, not just this one. Once resolved, the
+controller and security chain are the mechanical step this document
+already specified, and punch-list item #10 (the forged-claim isolation
+attack) can follow immediately after.
