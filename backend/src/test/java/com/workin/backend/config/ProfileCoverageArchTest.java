@@ -7,8 +7,10 @@ import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Controller;
 import org.springframework.stereotype.Service;
@@ -126,17 +128,52 @@ class ProfileCoverageArchTest {
 	/**
 	 * The one class the ArchUnit sweep above deliberately skips, checked
 	 * directly instead: {@code SecurityConfig} must stay reachable under
-	 * both profiles (it is on the cross-cutting allowlist), but its
-	 * platform-admin chain must not.
+	 * both profiles (it is on the cross-cutting allowlist), but each of
+	 * its {@code @Bean SecurityFilterChain} methods must be individually
+	 * guarded -- the sweep only inspects {@code SecurityConfig} as a
+	 * class, never its members, so a chain missing its own
+	 * {@code @Profile} is invisible to it. This test previously checked
+	 * {@code platformAdminSecurityFilterChain} and
+	 * {@code legacySecurityFilterChain} by name only, which is exactly
+	 * how {@code tenantSecurityFilterChain} shipped without a guard and
+	 * this test still passed -- checking a named subset of the chains
+	 * gives the same false confidence the class-level sweep would if it
+	 * only checked some classes in a package. Fixed to enumerate every
+	 * {@code SecurityFilterChain}-returning {@code @Bean} method, so a
+	 * fourth chain added later cannot repeat the omission silently.
 	 */
 	@Test
-	void securityConfigGatesEachChainCorrectly() throws NoSuchMethodException {
+	void securityConfigGatesEachChainCorrectly() {
 		Class<com.workin.backend.security.SecurityConfig> securityConfig =
 				com.workin.backend.security.SecurityConfig.class;
 		assertThat(securityConfig.isAnnotationPresent(Profile.class))
 				.describedAs("SecurityConfig itself must stay unguarded -- it is reused under both profiles")
 				.isFalse();
 
+		// The general guard: every SecurityFilterChain-returning @Bean
+		// method must carry SOME exclusion profile, whichever direction
+		// -- this is what would have caught tenantSecurityFilterChain
+		// shipping unguarded, and catches a future fourth chain the same
+		// way, without needing this test edited every time one is added.
+		var chainMethods = java.util.Arrays.stream(securityConfig.getMethods())
+				.filter(method -> method.getReturnType().equals(SecurityFilterChain.class))
+				.filter(method -> method.isAnnotationPresent(Bean.class))
+				.toList();
+		assertThat(chainMethods)
+				.describedAs("no SecurityFilterChain @Bean methods found on SecurityConfig -- "
+						+ "this guard would pass vacuously")
+				.isNotEmpty();
+		java.util.List<String> unguardedChains = chainMethods.stream()
+				.filter(method -> !method.isAnnotationPresent(Profile.class))
+				.map(java.lang.reflect.Method::getName)
+				.toList();
+		assertThat(unguardedChains)
+				.describedAs("every SecurityFilterChain @Bean on SecurityConfig must carry @Profile "
+						+ "-- an unguarded chain is a general-purpose fallback that stays reachable "
+						+ "under both profiles at once")
+				.isEmpty();
+
+		// The specific expectations: which direction each named chain guards.
 		var platformAdminChain = java.util.Arrays.stream(securityConfig.getMethods())
 				.filter(method -> method.getName().equals("platformAdminSecurityFilterChain"))
 				.findFirst()
@@ -155,6 +192,17 @@ class ProfileCoverageArchTest {
 						+ "-- it depends on LegacyTenantContextService, which does not exist there")
 				.isNotNull();
 		assertThat(legacyChain.getAnnotation(Profile.class).value()).containsExactly("phase1-mysql");
+
+		var tenantChain = java.util.Arrays.stream(securityConfig.getMethods())
+				.filter(method -> method.getName().equals("tenantSecurityFilterChain"))
+				.findFirst()
+				.orElseThrow();
+		assertThat(tenantChain.getAnnotation(Profile.class))
+				.describedAs("the general Postgres-tenant catch-all (no securityMatcher) must not be "
+						+ "reachable under phase1-mysql -- it authenticates via plain JwtAuthenticationFilter "
+						+ "with no re-validation through LegacyTenantContextService")
+				.isNotNull();
+		assertThat(tenantChain.getAnnotation(Profile.class).value()).containsExactly("!phase1-mysql");
 	}
 
 	/**

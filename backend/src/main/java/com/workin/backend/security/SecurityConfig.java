@@ -145,6 +145,7 @@ public class SecurityConfig {
 
 	@Bean
 	@Order(3)
+	@Profile("!phase1-mysql")
 	public SecurityFilterChain tenantSecurityFilterChain(
 			HttpSecurity http, JwtService jwtService,
 			ApiSecurityErrorHandler apiSecurityErrorHandler) throws Exception {
