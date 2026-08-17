@@ -7,6 +7,7 @@ import java.util.Set;
 import jakarta.persistence.EntityManager;
 
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Profile;
 
 import com.workin.backend.tenancy.TenantRole;
 
@@ -27,6 +28,7 @@ import com.workin.backend.tenancy.TenantRole;
  * role/override change is live on the very next request by
  * construction.
  */
+@Profile("!phase1-mysql")
 @Service
 public class PermissionEvaluationService {
 

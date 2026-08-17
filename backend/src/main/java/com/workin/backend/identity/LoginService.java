@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Profile;
 
 import com.workin.backend.i18n.ApiException;
 import com.workin.backend.i18n.MessageKeys;
@@ -19,6 +20,7 @@ import com.workin.backend.tenancy.IdentityMembershipIndexService.MembershipSumma
  * Dimension 1: "an identity may have memberships in multiple tenants")
  * is real, separate follow-up work, not implemented here.
  */
+@Profile("!phase1-mysql")
 @Service
 public class LoginService {
 

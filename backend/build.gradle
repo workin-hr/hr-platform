@@ -100,11 +100,14 @@ dependencies {
 	// engine production actually runs is the whole point of Phase 1.
 	//
 	// Added alongside the PostgreSQL substrate, not replacing it: the
-	// application still runs on PostgreSQL until auth/authz is reworked,
-	// and 38 integration tests depend on that. The swap happens when the
-	// replacement exists, not before.
+	// application still runs on PostgreSQL by default, and ~50
+	// integration tests depend on that. The phase1-mysql profile (ADR-0013
+	// / D-043) is what actually boots the application against this driver
+	// -- runtimeOnly, not testImplementation, because LegacyPersistenceConfig
+	// is production code, even though today's only proven substrate is a
+	// test container (see LegacyPersistenceConfig's own javadoc).
 	testImplementation 'org.testcontainers:testcontainers-mariadb'
-	testImplementation 'org.mariadb.jdbc:mariadb-java-client'
+	runtimeOnly 'org.mariadb.jdbc:mariadb-java-client'
 
 	// Phase 2 suite only. These are the dependencies Phase 1 removes
 	// from the application; the migration suite keeps them here so the

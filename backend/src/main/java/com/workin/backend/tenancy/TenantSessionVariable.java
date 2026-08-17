@@ -3,6 +3,7 @@ package com.workin.backend.tenancy;
 import jakarta.persistence.EntityManager;
 
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 
 /**
  * Applies the RLS tenant scope ({@code SET LOCAL app.current_company_id})
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
  * id of a row created in this same transaction) -- this component
  * applies scope, it does not vouch for it.
  */
+@Profile("!phase1-mysql")
 @Component
 public class TenantSessionVariable {
 

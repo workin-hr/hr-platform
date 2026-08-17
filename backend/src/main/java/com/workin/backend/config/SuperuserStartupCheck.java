@@ -9,6 +9,7 @@ import javax.sql.DataSource;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 
 /**
  * ADR-0002's Decision (condition 1) treats the non-superuser application
@@ -36,6 +37,7 @@ import org.springframework.stereotype.Component;
  * {@code IdentityMembershipIndexServiceTest}, for the safety invariant
  * this check cannot enforce for it.
  */
+@Profile("!phase1-mysql")
 @Component
 public class SuperuserStartupCheck implements ApplicationRunner {
 

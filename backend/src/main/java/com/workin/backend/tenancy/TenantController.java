@@ -3,6 +3,7 @@ package com.workin.backend.tenancy;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.context.annotation.Profile;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.security.AuthenticatedPrincipal;
@@ -15,6 +16,7 @@ import com.workin.backend.security.AuthenticatedPrincipal;
  * turn that claim into a validated {@link AuthorizationContext} before
  * returning anything.
  */
+@Profile("!phase1-mysql")
 @RestController
 public class TenantController {
 

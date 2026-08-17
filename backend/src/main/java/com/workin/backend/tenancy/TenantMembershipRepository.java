@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 /**
  * RLS-scoped access to tenant_memberships -- every query through this
  * repository runs against the {@code app_runtime} DataSource
- * (RlsDataSourceConfig's {@code @Primary} bean) and is therefore
+ * (PostgresPersistenceConfig's {@code @Primary} bean) and is therefore
  * filtered by whatever {@code app.current_company_id} the current
  * transaction has set. Use this once a tenant context is already
  * established. Resolving *which* tenant an identity belongs to, before

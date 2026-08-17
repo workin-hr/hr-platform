@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Profile;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.backend.security.OpaqueTokens;
@@ -23,6 +24,7 @@ import com.workin.backend.tenancy.IdentityMembershipIndexService;
  * back, silently disarming reuse detection. Controllers translate empty
  * results to 401.
  */
+@Profile("!phase1-mysql")
 @Service
 public class RefreshTokenService {
 
