@@ -315,3 +315,11 @@ Phase 1 HTTP endpoint gets built, not just this one. Once resolved, the
 controller and security chain are the mechanical step this document
 already specified, and punch-list item #10 (the forged-claim isolation
 attack) can follow immediately after.
+
+**Update, 2026-08-17**: `docs/adr/ADR-0013-phase1-mysql-profile-bootstrap.md`
+now proposes a concrete mechanism (`Proposed`, not yet `Accepted`) — a
+`legacy` Spring profile, inactive by default, with Boot's single-context
+JPA/DataSource/Flyway autoconfiguration replaced by two explicit
+profile-gated configuration classes. Login-endpoint work (the controller,
+the `@Order(2)` security chain, the end-to-end test) resumes once the ADR
+is reviewed and accepted.
