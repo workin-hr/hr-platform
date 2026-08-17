@@ -5,6 +5,8 @@ import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.workin.legacy.authorization.LegacyHrPermissionEnforcer;
+import com.workin.legacy.authorization.LegacyHrPermissionKey;
 import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.employees.LegacyEmployeeRepository;
 
@@ -24,18 +26,33 @@ import com.workin.legacy.employees.LegacyEmployeeRepository;
  * {@code com.workin.legacy.TenantBindingEndToEndTest} exercises, now
  * reachable over real HTTP through the real security chain instead of a
  * manually driven filter.
+ *
+ * <p>{@link #permissionGatedEmployeeIds()} exists for the same reason,
+ * one call site later: punch-list item #11 (D-044) needs proof its
+ * {@code require()} check actually gates a real HTTP request, and no
+ * real legacy-side endpoint calls it yet either.
  */
 @RestController
 class LegacyIsolationProbeController {
 
 	private final LegacyEmployeeRepository legacyEmployeeRepository;
+	private final LegacyHrPermissionEnforcer legacyHrPermissionEnforcer;
 
-	LegacyIsolationProbeController(LegacyEmployeeRepository legacyEmployeeRepository) {
+	LegacyIsolationProbeController(
+			LegacyEmployeeRepository legacyEmployeeRepository,
+			LegacyHrPermissionEnforcer legacyHrPermissionEnforcer) {
 		this.legacyEmployeeRepository = legacyEmployeeRepository;
+		this.legacyHrPermissionEnforcer = legacyHrPermissionEnforcer;
 	}
 
 	@GetMapping("/api/legacy/test/probe/employee-ids")
 	List<Long> employeeIds() {
+		return legacyEmployeeRepository.findAll().stream().map(LegacyEmployee::getId).toList();
+	}
+
+	@GetMapping("/api/legacy/test/probe/permission-gated")
+	List<Long> permissionGatedEmployeeIds() {
+		legacyHrPermissionEnforcer.require(LegacyHrPermissionKey.CAN_EMPLOYEES);
 		return legacyEmployeeRepository.findAll().stream().map(LegacyEmployee::getId).toList();
 	}
 
