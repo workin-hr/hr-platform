@@ -48,6 +48,28 @@ import static org.assertj.core.api.Assertions.assertThat;
  * this outcome at the pure decision-function level, which does not need
  * the database at all.
  *
+ * <p><b>Also not covered, for a stronger reason: an employee referencing
+ * a nonexistent {@code company_id}.</b> A code review flagged
+ * {@code LegacyLoginController.toCandidate()}'s original unchecked
+ * {@code IllegalStateException} on a missing company as a potential
+ * unhandled-500 risk and proposed testing it by seeding a dangling
+ * reference. Attempting that seed here failed with
+ * {@code SQLIntegrityConstraintViolationException}:
+ * {@code employees} carries a real, enforced foreign key,
+ * {@code fk_employee_company FOREIGN KEY (company_id) REFERENCES companies (id) ON DELETE CASCADE}
+ * (`mysql_workin.schema.sql:1622-1624`) -- added via a later
+ * {@code ALTER TABLE}, the same pattern as the phone unique key above,
+ * which is why an earlier grep restricted to the {@code CREATE TABLE}
+ * block missed it. The scenario is therefore not merely hard to seed
+ * but structurally impossible against this schema: MariaDB refuses the
+ * insert, and {@code ON DELETE CASCADE} means even a later-deleted
+ * company takes its employees with it rather than orphaning them.
+ * {@code toCandidate()} was still hardened to skip-and-log rather than
+ * throw -- defensive depth against a defect class this schema happens
+ * to rule out today, not a fix for a reachable production bug -- and
+ * {@link LegacyLoginControllerTest} proves that defensive behaviour
+ * with a mocked repository, where no such constraint applies.
+ *
  * <p>It deliberately does <b>not</b> attempt a
  * subsequent authenticated request through {@code legacySecurityFilterChain}
  * against a protected resource -- no protected legacy business endpoint
@@ -130,7 +152,7 @@ class LegacyLoginEndToEndTest {
 					   is_active, is_mobile_attendance_enabled, can_check_in_any_branch,
 					   join_request_status, token_version, created_at)
 					VALUES
-					  (90011, 9001, 9101, 'Login', 'Success', '+201100090011', 'employee', '%s',
+					  (90011, 9001, 9101, 'Login', 'Success', '+201100090011', 'employee', '%1$s',
 					   1, 1, 0, 'accepted', 1, '2025-04-01 08:00:00'),
 					  (90041, 9002, 9102, 'Suspended', 'Co', '+201100090041', 'employee', '%1$s',
 					   1, 1, 0, 'accepted', 1, '2025-04-01 08:00:00')

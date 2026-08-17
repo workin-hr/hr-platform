@@ -1,9 +1,12 @@
 package com.workin.legacy.auth;
 
 import java.util.List;
+import java.util.Optional;
 
 import jakarta.validation.Valid;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,6 +50,8 @@ import com.workin.legacy.employees.LegacyEmployeeRepository;
 @RestController
 public class LegacyLoginController {
 
+	private static final Logger log = LoggerFactory.getLogger(LegacyLoginController.class);
+
 	private final LegacyEmployeeRepository legacyEmployeeRepository;
 	private final LegacyCompanyRepository legacyCompanyRepository;
 	private final TenantFilterActivator tenantFilterActivator;
@@ -74,7 +79,11 @@ public class LegacyLoginController {
 		tenantFilterActivator.deactivateForPreTenantLookup();
 
 		List<LegacyEmployee> candidates = legacyEmployeeRepository.findByPhoneOrderByIdDesc(request.phone());
-		List<LegacyLoginCandidate> projected = candidates.stream().map(this::toCandidate).toList();
+		List<LegacyLoginCandidate> projected = candidates.stream()
+				.map(this::toCandidate)
+				.filter(Optional::isPresent)
+				.map(Optional::get)
+				.toList();
 
 		LegacyLoginResolution resolution = LegacyLoginResolver.resolve(
 				projected, hash -> passwordEncoder.matches(request.password(), hash));
@@ -100,20 +109,40 @@ public class LegacyLoginController {
 	 * is exactly this join ({@code login_employee.php:18-48}), done here
 	 * per-candidate since a phone match is rarely more than one or two
 	 * rows.
+	 *
+	 * <p>Empty means the employee references a {@code company_id} that
+	 * does not exist. {@code employees} actually carries a real,
+	 * enforced {@code fk_employee_company FOREIGN KEY (company_id)
+	 * REFERENCES companies (id) ON DELETE CASCADE}
+	 * (`mysql_workin.schema.sql:1622-1624`), so this branch is defensive
+	 * depth against a defect class this schema already rules out --
+	 * confirmed by trying to seed it in
+	 * {@code LegacyLoginEndToEndTest}, which fails with
+	 * {@code SQLIntegrityConstraintViolationException} rather than
+	 * producing the row -- not a fix for a currently reachable
+	 * production bug. Kept anyway: a skip-and-log costs nothing here,
+	 * degrades correctly if the constraint is ever relaxed, and matches
+	 * how the ETL work already treats this same defect class elsewhere
+	 * ({@code 2026-08-13-etl-real-data-findings-decision-brief.md}
+	 * finding H, orphaned {@code exception_types} rows, a table with no
+	 * such constraint).
 	 */
-	private LegacyLoginCandidate toCandidate(LegacyEmployee employee) {
-		LegacyCompany company = legacyCompanyRepository.findById(employee.getCompanyId())
-				.orElseThrow(() -> new IllegalStateException(
-						"Legacy employee " + employee.getId() + " references company "
-								+ employee.getCompanyId() + ", which does not exist"));
-		return new LegacyLoginCandidate(
+	private Optional<LegacyLoginCandidate> toCandidate(LegacyEmployee employee) {
+		Optional<LegacyCompany> company = legacyCompanyRepository.findById(employee.getCompanyId());
+		if (company.isEmpty()) {
+			log.warn(
+					"Legacy employee {} references company {}, which does not exist -- excluding this candidate from login",
+					employee.getId(), employee.getCompanyId());
+			return Optional.empty();
+		}
+		return Optional.of(new LegacyLoginCandidate(
 				employee.getId(),
 				employee.getCompanyId(),
 				LegacyValues.fromEnum(employee.role()),
 				LegacyValues.fromEnum(employee.joinRequestStatus()),
 				employee.active(),
-				company.getStatus(),
-				employee.getPasswordHash());
+				company.get().getStatus(),
+				employee.getPasswordHash()));
 	}
 
 }
