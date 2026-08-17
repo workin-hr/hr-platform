@@ -38,20 +38,30 @@ public abstract class AbstractLegacyMySqlTest {
 	static {
 		MARIADB.start();
 		try {
-			applyLegacySchema();
+			applySchema("legacy/mysql_workin.schema.sql");
+			applySchema("legacy/phase1_extensions.schema.sql");
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not apply the legacy schema", ex);
 		}
 	}
 
-	private static void applyLegacySchema() throws Exception {
-		String schema = readResource("legacy/mysql_workin.schema.sql");
+	/**
+	 * Applies one schema file's statements. Called once for the vendored,
+	 * drift-checked legacy contract and once for
+	 * {@code phase1_extensions.schema.sql} -- new Phase 1 infrastructure
+	 * that is not part of that contract and must never be folded into the
+	 * vendored file, or {@code check_legacy_schema_drift.py} would start
+	 * comparing tables hr-legacy was never asked about.
+	 */
+	private static void applySchema(String resourceName) throws Exception {
+		String schema = readResource(resourceName);
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
 			// One statement per `;` at end of line. Splitting on that is
-			// sufficient because the dump contains no routines, triggers
-			// or views -- independently inventoried as zero of each
-			// (ADR-0004) -- which is also why no DELIMITER handling is
-			// needed.
+			// sufficient because neither schema file contains routines,
+			// triggers or views -- independently inventoried as zero of
+			// each for the vendored file (ADR-0004), and not used by the
+			// Phase 1 extension file by construction -- which is also why
+			// no DELIMITER handling is needed.
 			for (String statement : schema.split(";\\s*\\R")) {
 				if (!statement.isBlank()) {
 					st.execute(statement);
