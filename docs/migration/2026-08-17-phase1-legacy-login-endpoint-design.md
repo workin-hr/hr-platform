@@ -317,9 +317,18 @@ already specified, and punch-list item #10 (the forged-claim isolation
 attack) can follow immediately after.
 
 **Update, 2026-08-17**: `docs/adr/ADR-0013-phase1-mysql-profile-bootstrap.md`
-now proposes a concrete mechanism (`Proposed`, not yet `Accepted`) — a
-`legacy` Spring profile, inactive by default, with Boot's single-context
-JPA/DataSource/Flyway autoconfiguration replaced by two explicit
-profile-gated configuration classes. Login-endpoint work (the controller,
-the `@Order(2)` security chain, the end-to-end test) resumes once the ADR
-is reviewed and accepted.
+proposed a concrete mechanism — a Spring profile, inactive by default, with
+Boot's single-context JPA/DataSource/Flyway autoconfiguration replaced by two
+explicit profile-gated configuration classes.
+
+**Update, 2026-08-17 (later the same day)**: **ADR-0013 is now `Accepted`**
+(`docs/bootstrap/decision-log.md` D-043), with four owner-required
+amendments: the profile is named **`phase1-mysql`**, not `legacy`; the
+ArchUnit profile-coverage guard must be built first or in the same commit as
+the bootstrap wiring, not after; no Flyway ownership of any MariaDB schema,
+including `legacy_refresh_tokens` (external contract, drift-checked, not
+application-migrated); and platform-admin auth is excluded from
+`phase1-mysql` unless legacy-PHP discovery proves it belongs to the
+strict-parity contract. Login-endpoint work (the ArchUnit guard, the
+profile-gated bootstrap, the controller, the `@Order(2)` security chain, the
+end-to-end test) resumes against this accepted design.

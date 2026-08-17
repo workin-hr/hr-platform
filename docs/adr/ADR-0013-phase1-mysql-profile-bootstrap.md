@@ -6,10 +6,10 @@
 |---|---|
 | ADR ID | ADR-0013 |
 | Title | Phase 1 MySQL-Profile Application Bootstrap |
-| Status | Proposed |
-| Date | 2026-08-17 |
+| Status | Accepted |
+| Date | 2026-08-17 (accepted 2026-08-17, with amendments — see `docs/bootstrap/decision-log.md` D-043) |
 | Owners | Solution Architect |
-| Deciders | Repository owner |
+| Deciders | Repository owner — recorded in `docs/bootstrap/decision-log.md` D-043 |
 | Related Issues | None yet |
 | Supersedes | None — makes concrete what ADR-0011 left open ("the swap happens when the replacement exists," not its shape) |
 | Superseded By | None |
@@ -87,26 +87,52 @@ them is uniformly Postgres-only.
 
 ## Decision
 
-**Approval status: Proposed — this decision has not been approved.** This
-section describes a candidate direction; it must not be read as an accepted
-architecture decision until `Status` above changes to `Accepted`.
+**Accepted 2026-08-17, with four amendments the repository owner required
+before implementation** (`docs/bootstrap/decision-log.md` D-043). The
+amendments are folded directly into the numbered decisions below, each
+marked **(amended)** where it changes what the original research proposed.
 
-**1. Introduce a `legacy` Spring profile, inactive by default.** The
-default (no profile, or any profile other than `legacy`) preserves today's
-behavior byte-for-byte: PostgreSQL, RLS, all 20 mapped modules, all existing
-tests. `legacy` is explicitly activated (`SPRING_PROFILES_ACTIVE=legacy`) —
-never the implicit default — until a later, separate decision flips that,
-once module coverage justifies it (tracked as an Open Question below, not
-decided here).
+**1. Introduce a `phase1-mysql` Spring profile, inactive by default.**
+**(amended — renamed from `legacy`.)** The profile represents a
+storage/runtime mode — which database the application is pointed at — not
+every legacy-compatibility concern; `legacy` as a name conflated the two.
+The default (no profile, or any profile other than `phase1-mysql`) preserves
+today's behavior byte-for-byte: PostgreSQL, RLS, all 20 mapped modules, all
+existing tests. `phase1-mysql` is explicitly activated
+(`SPRING_PROFILES_ACTIVE=phase1-mysql`) — never the implicit default —
+**during development**, and stays that way until every required Phase 1
+surface (the remapped modules, item #12, and the 19 currently-missing
+modules, item #13) is remapped and parity-proven. Only then does it become
+the normal runtime, for one single production cutover — not a gradual,
+module-by-module default flip. This is a firmer statement than the original
+proposal's "once module coverage justifies it"; the trigger is full required
+Phase 1 surface + parity proof, not an earlier partial milestone, consistent
+with ADR-0011's "cutover is one event."
 
-**2. Disable Spring Boot's single-context JPA/DataSource/Flyway
+**2. Build the profile-coverage guard first, in the same commit as the
+bootstrap wiring — not after.** **(amended — this was an Open Question in
+the original proposal; it is now a firm requirement, not a sequencing
+preference.)** The whole design depends on a Postgres-specific bean never
+silently reaching the `phase1-mysql` context. An ArchUnit test (matching
+this repository's established pattern — `AuthorizationPolicyArchTest`,
+`LegacyAdapterIsolationTest`) must assert every class in the five mixed
+packages (`identity`, `security`, `tenancy`, `config`, `authorization`) that
+depends on a `com.workin.backend`-scoped `@Repository`, or otherwise requires
+a Postgres-only bean, carries `@Profile("!phase1-mysql")` — and must exist
+and pass *before or alongside* the `@Profile` annotations it checks, verified
+against the mistake (a class missing the annotation must fail the build), the
+same way `TenantFilterCoverageTest` was verified against forgetting to filter
+a tenant-owned entity. An omitted `@Profile` fails the build, not just a
+future context-startup error someone has to notice.
+
+**3. Disable Spring Boot's single-context JPA/DataSource/Flyway
 autoconfiguration globally**, on `BackendApplication`:
 `exclude = {DataSourceAutoConfiguration.class, JpaRepositoriesAutoConfiguration.class, HibernateJpaAutoConfiguration.class, FlywayAutoConfiguration.class}`.
 Replace what it did with two explicit, mutually exclusive, profile-gated
 `@Configuration` classes — never both active at once, which is exactly what
 "full profile swap, not simultaneous" means at the bean-definition level:
 
-   - **`PostgresPersistenceConfig`** (`@Profile("!legacy")`) — moves
+   - **`PostgresPersistenceConfig`** (`@Profile("!phase1-mysql")`) — moves
      `RlsDataSourceConfig`'s existing `applicationDataSource`/
      `flywayDataSource` beans here unchanged, adds an explicit
      `LocalContainerEntityManagerFactoryBean`/`PlatformTransactionManager`
@@ -115,26 +141,37 @@ Replace what it did with two explicit, mutually exclusive, profile-gated
      made explicit rather than changed. Flyway locations
      (`db/migration/common`, `db/migration/rls`) move from
      `application.properties` into this class's own Flyway configuration,
-     also `@Profile("!legacy")`-gated.
-   - **`LegacyPersistenceConfig`** (`@Profile("legacy")`, new) — a MariaDB
-     `DataSource` built the same way `AbstractLegacyMySqlTest` already proves
-     out (promoting that test-only connection logic to production
-     configuration, not inventing a new one), `@EnableJpaRepositories(basePackages = "com.workin.legacy", transactionManagerRef = "legacyTransactionManager", ...)`
+     also `@Profile("!phase1-mysql")`-gated.
+   - **`LegacyPersistenceConfig`** (`@Profile("phase1-mysql")`, new) — a
+     MariaDB `DataSource` built the same way `AbstractLegacyMySqlTest`
+     already proves out (promoting that test-only connection logic to
+     production configuration, not inventing a new one),
+     `@EnableJpaRepositories(basePackages = "com.workin.legacy", transactionManagerRef = "legacyTransactionManager", ...)`
      wired to the already-built `TenantAwareJpaTransactionManager` as the
-     `PlatformTransactionManager`, `@EntityScan("com.workin.legacy")`. No
-     Flyway against the vendored legacy schema itself (Phase 1 never
-     migrates legacy's own tables — `check_legacy_schema_drift.py` is what
-     keeps it honest instead); Phase-1-owned tables
-     (`legacy_refresh_tokens`, currently applied only inside
-     `AbstractLegacyMySqlTest` from `phase1_extensions.schema.sql`) get
-     their own Flyway location, `db/migration/legacy`, active only under
-     this profile — mirroring `db/migration/rls`'s existing precedent of a
-     domain-scoped migration folder alongside `common`.
+     `PlatformTransactionManager`, `@EntityScan("com.workin.legacy")`. **No
+     Flyway ownership of any MariaDB schema whatsoever (amended — broader
+     than the original proposal).** The vendored legacy schema itself was
+     already out of scope (Phase 1 never migrates legacy's own tables —
+     `check_legacy_schema_drift.py` is what keeps it honest instead); the
+     amendment extends the same rule to Phase-1-owned tables
+     (`legacy_refresh_tokens`) — **no `db/migration/legacy` Flyway location
+     is introduced by this ADR.** Phase 1 treats the entire MariaDB schema,
+     including its own additions, as an external contract for now.
+     Schema-drift verification/self-tests stay (`check_legacy_schema_drift.py`
+     for the vendored tables; an equivalent self-test obligation for
+     `legacy_refresh_tokens`'s shape), but *how* `legacy_refresh_tokens`
+     gets created against a real, non-test MariaDB instance is explicitly
+     **not decided by this ADR** and needs its own, separately-approved
+     mechanism before `phase1-mysql` can run against anything beyond a test
+     container that applies `phase1_extensions.schema.sql` directly. This
+     does not block the login endpoint or this ADR's own scope, since every
+     environment `phase1-mysql` runs in today (tests, the end-to-end proof
+     this ADR requires) already applies that file outside the application.
 
-**3. Component scanning stays `com.workin.backend`'s full tree under the
-default profile** (`PostgresPersistenceConfig`'s `@Profile("!legacy")`
+**4. Component scanning stays `com.workin.backend`'s full tree under the
+default profile** (`PostgresPersistenceConfig`'s `@Profile("!phase1-mysql")`
 carries `@ComponentScan("com.workin.backend")` alongside its `@EntityScan`,
-so nothing about default-profile behavior changes). Under `legacy`,
+so nothing about default-profile behavior changes). Under `phase1-mysql`,
 `LegacyPersistenceConfig` carries `@ComponentScan("com.workin.legacy")` —
 `com.workin.legacy` is scanned **only** here, never unconditionally, so
 `LegacyAdapterIsolationTest`'s existing package-placement assertions need no
@@ -143,43 +180,58 @@ change: they prove a source-code fact (legacy classes live outside
 and remain the prerequisite that makes this profile-gating possible at all,
 not the runtime mechanism itself.
 
-**4. Guard the twelve pure-Postgres-domain packages by scan-exclusion, not
+**5. Guard the twelve pure-Postgres-domain packages by scan-exclusion, not
 per-class annotation.** `PostgresPersistenceConfig`'s
 `@ComponentScan("com.workin.backend")` stays whole-tree (default profile is
 unchanged); nothing needs excluding there. The problem is the opposite
-direction — under `legacy`, `BackendApplication`'s own implicit
+direction — under `phase1-mysql`, `BackendApplication`'s own implicit
 `@SpringBootApplication` scan must stop reaching `com.workin.backend` at
 all, so those 20 modules' controllers/services are never even attempted.
 Concretely: `BackendApplication` moves from an implicit, unqualified
 `@ComponentScan` to `@SpringBootApplication(scanBasePackages = {})` (or
 equivalent — scan nothing by default) plus the two profile-gated
 `@Configuration` classes above supplying their own `@ComponentScan`, so under
-`legacy`, only `com.workin.legacy` and the cross-cutting classes listed next
-are ever scanned.
+`phase1-mysql`, only `com.workin.legacy` and the cross-cutting classes listed
+next are ever scanned.
 
-**5. Guard the thirty-three mixed-package Postgres-specific classes
-individually with `@Profile("!legacy")`** — the full list is the "Postgres-
-only" column of the table in Context. This is a one-time, bounded,
-enumerable change (33 annotations), not an open-ended convention. The five
-cross-cutting classes/exceptions (`JwtService`, `TenantScope`,
-`TenantScopeFilter`, `NoTenantScopeException`, `TenantContextException`) and
-the whole `i18n` package need no guard — they carry no JPA dependency and are
-safe to construct under either profile.
+**6. Guard the thirty-three mixed-package Postgres-specific classes
+individually with `@Profile("!phase1-mysql")`** — the full list is the
+"Postgres-only" column of the table in Context. This is a one-time, bounded,
+enumerable change (33 annotations), not an open-ended convention, and is
+exactly what Decision §2's ArchUnit guard checks. The five cross-cutting
+classes/exceptions (`JwtService`, `TenantScope`, `TenantScopeFilter`,
+`NoTenantScopeException`, `TenantContextException`) and the whole `i18n`
+package need no guard — they carry no JPA dependency and are safe to
+construct under either profile.
 
-**6. `SecurityConfig` gets a third chain**, `@Order(2)`,
+**7. `SecurityConfig` gets a third chain**, `@Order(2)`,
 `securityMatcher("/api/legacy/**")`, wired to `JwtAuthenticationFilter`
 (reused unchanged, per the existing login-endpoint design doc's decision)
 and the not-yet-built `LegacyTenantScopeFilter`-equivalent request binding.
 The existing no-matcher tenant chain (today `@Order(2)`) shifts to
-`@Order(3)`. The platform-admin chain's `@Bean` method itself gets
-`@Profile("!legacy")`, since `PlatformAdminJwtService` lives in the now
-profile-excluded `platformadmin` package — platform-admin login is not
-reachable under the `legacy` profile (see Open Questions: is that
-acceptable, or does platform-admin need its own cross-cutting treatment
-later).
+`@Order(3)`.
 
-**7. `AuthorizationPolicyWebConfig`'s blanket interceptor registration does
-not run under `legacy`** (it is itself Postgres-guarded, §5). This is
+**8. Platform-admin login is excluded from `phase1-mysql` by default, and
+stays excluded unless discovery proves otherwise.** **(amended — this was
+an Open Question the original proposal merely assumed an answer to; it is
+now a firm decision with an explicit test.)** The rule is not "exclude it
+because the current PostgreSQL application happens to have it" — that
+reasoning would justify carrying over anything. The rule is: platform-admin
+auth is included in `phase1-mysql` **only if discovery proves it belongs to
+the legacy PHP contract required for full replacement** (i.e., legacy PHP
+has an equivalent platform-admin surface that Phase 1's strict-parity
+obligation, D-040, actually requires reproducing). No such discovery has
+been done. Until it is, platform-admin is **frozen with the new-platform
+model** — the platform-admin chain's `@Bean` method gets
+`@Profile("!phase1-mysql")`, since `PlatformAdminJwtService` lives in the
+now profile-excluded `platformadmin` package, and platform-admin login is
+simply not reachable under `phase1-mysql`. If a future discovery pass finds
+a legacy platform-admin contract Phase 1 must replicate, that reopens this
+specific point — it does not retroactively justify anything else being
+carried over on the same "it already exists" reasoning.
+
+**9. `AuthorizationPolicyWebConfig`'s blanket interceptor registration does
+not run under `phase1-mysql`** (it is itself Postgres-guarded, §6). This is
 consistent with, not a new gap alongside, the already-known fact that
 `hr_permissions` authorization mapping (punch-list item #11) is not built
 for legacy yet — `@RequiresPermission` simply has no active enforcement
@@ -218,6 +270,12 @@ equivalent.
   `config`, and `authorization`, and touches significantly more files for
   marginal benefit over 33 explicit annotations. Not proposed now; worth
   reconsidering if the mixed-package list grows.
+- **Flyway-managed MariaDB migrations for Phase-1-owned tables**
+  (`db/migration/legacy`, the original proposal's approach for
+  `legacy_refresh_tokens`). Rejected by the repository owner: Phase 1 treats
+  the legacy MariaDB schema, including its own additions, as an external
+  contract, not application-owned DDL — see Decision §3. Reopens only with
+  separate approval.
 
 ## Consequences
 
@@ -227,18 +285,22 @@ equivalent.
   tests are the check.
 - **A new ongoing discipline**: any future Postgres-specific class added to
   `identity`, `security`, `tenancy`, `config`, or `authorization` needs
-  `@Profile("!legacy")`, or it silently attempts construction under
-  `legacy` and fails context startup with a clear
-  `NoSuchBeanDefinitionException` — loud, not silent, but still a rule a
-  human has to remember. See Risks for the proposed mitigation.
-- **Platform-admin login is not reachable under the `legacy` profile** as
-  proposed. If that turns out to be needed sooner than expected, it needs
-  its own treatment (see Open Questions).
-- **`@RequiresPermission` enforcement does not run under `legacy`** until
-  punch-list item #11 (`hr_permissions` mapping) gives it a legacy-side
-  equivalent. No regression versus today (nothing legacy-side exists yet
-  regardless), but worth stating rather than leaving implicit, per ADR-0012
-  item 4's own standard.
+  `@Profile("!phase1-mysql")`, or the build fails immediately via the
+  Decision §2 ArchUnit guard — loud and pre-merge, not a runtime surprise.
+- **Platform-admin login is not reachable under `phase1-mysql`**, on
+  purpose, pending discovery proving otherwise (Decision §8).
+- **`@RequiresPermission` enforcement does not run under `phase1-mysql`**
+  until punch-list item #11 (`hr_permissions` mapping) gives it a
+  legacy-side equivalent. No regression versus today (nothing legacy-side
+  exists yet regardless), but worth stating rather than leaving implicit,
+  per ADR-0012 item 4's own standard.
+- **How `legacy_refresh_tokens` gets created against a real MariaDB instance
+  is unresolved** — this ADR deliberately does not introduce Flyway
+  ownership of any MariaDB schema. `phase1-mysql` is provably runnable only
+  against environments that apply `phase1_extensions.schema.sql` outside the
+  application (currently: test containers). Running `phase1-mysql` against
+  a real, persistent MariaDB instance needs a separately-approved schema-
+  provisioning mechanism first.
 - **This determines how every future Phase 1 HTTP endpoint boots**, not
   just login — accepting this ADR unblocks the login controller, the
   `@Order(2)` security chain, and the end-to-end test the design doc has
@@ -247,16 +309,11 @@ equivalent.
 
 ## Risks
 
-- **The 33-class guard list rots.** Mitigation: an ArchUnit test, matching
-  this repository's own established pattern (`AuthorizationPolicyArchTest`,
-  `LegacyAdapterIsolationTest`) — assert every class in the five mixed
-  packages that depends on a `com.workin.backend`-scoped `@Repository`
-  carries `@Profile("!legacy")`. Not built by this ADR; proposed as the
-  first thing implementation does once accepted, before the profile is
-  wired, so the guard exists from the start rather than being bolted on
-  after a gap is found the hard way (the same lesson `coverage_audit.py`'s
-  Finding I and `parse_target_schema`'s ALTER-TABLE gap already taught this
-  repository twice).
+- **The 33-class guard list rots.** Mitigation: Decision §2's ArchUnit guard,
+  required first/same-commit, not bolted on after a gap is found the hard
+  way (the same lesson `coverage_audit.py`'s Finding I and
+  `parse_target_schema`'s ALTER-TABLE gap already taught this repository
+  twice).
 - **`scanBasePackages = {}` on `@SpringBootApplication` is an unusual
   pattern** and easy to get subtly wrong (e.g. accidentally also
   suppressing Spring Boot's own autoconfiguration classes, which live
@@ -266,12 +323,11 @@ equivalent.
   assumed from reading the source). Mitigation: the end-to-end test the
   login-endpoint design doc already specifies is exactly what proves this
   in practice.
-- **Splitting Flyway locations per profile means the two profiles' schemas
-  can drift out of sync with what each one's tests actually exercise** if
-  `db/migration/legacy` isn't kept under the same self-testing discipline
-  `check_legacy_schema_drift.py` already applies to the vendored schema.
-  Mitigation: `legacy_refresh_tokens` already has its own test coverage;
-  extend the same pattern to any future `db/migration/legacy` addition.
+- **No MariaDB schema-provisioning story exists yet for anything beyond test
+  containers.** Mitigation: explicitly out of scope for this ADR and for the
+  login endpoint (both only ever need to run against a test container);
+  flagged in Consequences so it is not discovered late, the same standard
+  this branch has held to at every prior blocker.
 
 ## Validation Evidence
 
@@ -293,37 +349,29 @@ equivalent.
   `com.workin.legacy`, not `com.workin.backend.tenancy` — already correctly
   scoped for this ADR's mechanism, no move needed.
 - `backend/build.gradle` confirms Spring Boot 4.1.0 — the autoconfiguration
-  classes named in Decision §2
+  classes named in Decision §3
   (`DataSourceAutoConfiguration`/`JpaRepositoriesAutoConfiguration`/
   `HibernateJpaAutoConfiguration`/`FlywayAutoConfiguration`) are current
   Spring Boot 4.x/Spring Data JPA package names as of this version; verify
   exact import paths against the actual dependency versions during
   implementation rather than assuming from memory.
-- Still needed before this can move from `Proposed` to `Accepted`: a real
-  boot of the application under the `legacy` profile (the end-to-end test
-  the login-endpoint design doc already specifies), proving both that the
-  default profile is unaffected and that the new profile actually starts —
-  static source analysis alone, which is all this ADR's research consisted
-  of, cannot substitute for that.
+- A real boot of the application under the `phase1-mysql` profile (the
+  end-to-end test the login-endpoint design doc already specifies), proving
+  both that the default profile is unaffected and that the new profile
+  actually starts, is required as part of implementation — static source
+  analysis alone, which is all this ADR's research consisted of, cannot
+  substitute for that.
 
 ## Open Questions
 
-- Is platform-admin login needed under the `legacy` profile at all during
-  Phase 1, or is it acceptable that it stays default-profile-only until a
-  later phase? This ADR assumes the latter but does not decide it.
-- What triggers flipping `legacy` from an explicitly-activated profile to
-  the actual default — punch-list item #13 (all 19 missing modules)
-  completing, item #12 (remapping the 20 built modules) completing, some
-  earlier internal milestone, or a separate owner call unrelated to module
-  count? ADR-0011 itself left this open ("whether Phase 1 delivers all 38
-  modules in one release or several internal milestones... the engineering
-  sequence within it is not yet fixed") — this ADR does not resolve it,
-  only makes today's mechanism not depend on the answer.
-- Should the 33-class-list ArchUnit guard (Risks) be written before or
-  alongside the profile mechanism itself, given it is the actual safety net
-  the mechanism depends on? Proposed as "before," but this is a sequencing
-  preference, not forced by anything structural.
-- Does `db/migration/legacy` need the same `check_legacy_schema_drift.py`-style
-  self-testing discipline from day one, or is `LegacyRefreshTokenServiceTest`'s
-  existing coverage sufficient until the migration set grows? Not resolved
-  here.
+- Does `db/migration/legacy` — or any future MariaDB schema-provisioning
+  mechanism for `legacy_refresh_tokens` and whatever Phase-1-owned tables
+  follow it — need Flyway, a different tool, or a manual/documented
+  runbook? Decision §3 rules out the original Flyway proposal but does not
+  pick a replacement; needs its own, separately-approved decision before
+  `phase1-mysql` can run against a real, persistent MariaDB instance.
+- Beyond the specific case of Decision §8, is there a general process for
+  deciding which further pieces of the current PostgreSQL application (if
+  any) get pulled into `phase1-mysql` versus frozen with the new-platform
+  model, or is each case decided individually as it comes up, the way
+  platform-admin just was?
