@@ -4,6 +4,9 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * Reads {@link LegacyEmployee} from the legacy MySQL contract.
@@ -39,5 +42,45 @@ public interface LegacyEmployeeRepository extends JpaRepository<LegacyEmployee, 
 	 * multi-tenant identity model that removes it is Phase 3.
 	 */
 	List<LegacyEmployee> findByPhoneOrderByIdDesc(String phone);
+
+	/**
+	 * Legacy's {@code employee_issue_session_token()} bump (P-7, D-049):
+	 * invalidates any previously issued token for this employee by
+	 * advancing the version a fresh login's token embeds. A bulk update,
+	 * not a load-mutate-save, for the same reason
+	 * {@code LegacyRefreshTokenRepository.transitionIfStatus} is one --
+	 * this runs pre-tenant (login), where no scope is established yet,
+	 * and a bulk HQL update bypasses the {@code @Filter} entirely rather
+	 * than depending on it being disabled first.
+	 *
+	 * <p>{@code clearAutomatically}: the caller re-reads this row
+	 * ({@code findById}) immediately after to embed the new value in the
+	 * issued token, and without this the persistence context would still
+	 * hand back the pre-bump entity from its first-level cache.
+	 */
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
+	@Query("update LegacyEmployee e set e.tokenVersion = e.tokenVersion + 1 where e.id = :id")
+	int bumpTokenVersion(@Param("id") Long id);
+
+	/**
+	 * {@code branch_assigned_employees_count()} (PR 12.3a, D-056): any
+	 * employee row referencing the branch, active or not, join-request
+	 * status irrelevant -- the pre-check that blocks a branch's hard
+	 * delete. Deliberately not the active-roster count below; legacy
+	 * itself uses two different counts for two different questions.
+	 */
+	long countByBranchIdAndCompanyId(Long branchId, Long companyId);
+
+	/**
+	 * {@code branch_active_employees_count()} / {@code list.php}'s
+	 * per-row {@code employees_count} (PR 12.3a): accepted-roster
+	 * ({@code COALESCE(join_request_status, 'accepted') = 'accepted'})
+	 * and active. Native, not JPQL: {@code COALESCE} against a raw
+	 * column, the same one-hop shape {@code sql_employee_roster_join_clause()}
+	 * builds in PHP.
+	 */
+	@Query(value = "SELECT COUNT(*) FROM employees WHERE branch_id = :branchId AND company_id = :companyId "
+			+ "AND COALESCE(join_request_status, 'accepted') = 'accepted' AND is_active = 1", nativeQuery = true)
+	long countActiveRosterByBranchIdAndCompanyId(@Param("branchId") Long branchId, @Param("companyId") Long companyId);
 
 }

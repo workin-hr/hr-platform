@@ -108,6 +108,37 @@ exception to the don't-change-the-clients direction. It is the one deliberate
 divergence from strict contract parity in Phase 1, and any further one needs its
 own decision rather than this precedent.
 
+### Evidence precedence for Phase 1 compatibility work
+
+**Accepted 2026-08-18** (`docs/bootstrap/decision-log.md` D-058).
+
+Phase 1 compatibility work — every Wave 12.x module — routinely has to decide
+what "the same behaviour" means when the sources that could answer that
+disagree: a schema file, the PHP source, a Java model built for a different
+target, documentation, or the live system. **When evidence conflicts, Phase 1
+precedence is:**
+
+1. **Live production behaviour/data**
+2. **The PHP implementation** (the actual source, its full execution path —
+   not a summary or a memory of what it "should" do)
+3. **The legacy schema** (the vendored dump, including every `ALTER TABLE`
+   constraint — not just `CREATE TABLE` column lists; D-050 found a real,
+   load-bearing unique constraint that a column-list-only reading missed)
+4. **Documentation** (ADRs, specifications, prior decisions)
+5. **The existing Java/PostgreSQL implementation** — lowest precedence. It was
+   built against the redesigned target model, not transcribed from PHP, and
+   this ADR's own "Java adapts to storage" line already governs it: it is
+   never assumed compatible merely because it exists.
+
+This orders sources; it does not license modernizing what's found. **Java
+adapts to storage, storage does not adapt to Java, and Phase 1 does not
+redesign, clean, normalize, or migrate the database** — the existing MariaDB
+schema and its data, irregularities included, are the contract. A defect
+found while establishing what "the same behaviour" means (D-055's
+`manager_id`-clearing bug is the first recorded instance) is reproduced and
+recorded, not silently fixed, unless the repository owner explicitly approves
+a divergence for that specific case.
+
 ## Alternatives Considered
 
 - **Continue the concurrent approach.** Rejected: it had already produced four

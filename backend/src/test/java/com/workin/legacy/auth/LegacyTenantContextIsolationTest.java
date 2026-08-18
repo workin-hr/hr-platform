@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.util.Map;
 
 import javax.crypto.SecretKey;
 
@@ -25,50 +26,38 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
+import com.workin.backend.i18n.ApiErrorBody;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.attendance.LegacyExceptionTypePage;
 
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 
 /**
- * Punch-list item #10: the legacy-side port of
- * {@code com.workin.backend.tenancy.TenantContextIsolationTest}'s
- * guarantee, now that item #9 gives it a real HTTP stack to attack --
- * {@code JwtAuthenticationFilter} to {@code legacySecurityFilterChain}'s
- * resolver to {@code LegacyTenantContextService} to
- * {@code TenantScopeFilter} to {@code TenantAwareJpaTransactionManager},
- * against real MariaDB.
+ * Punch-list item #10, re-pointed for PR 12.1 (D-045's Follow-up):
+ * {@code LegacyIsolationProbeController} (test-only, never shipped) is
+ * deleted now that {@code attendance_exception_types} is a real,
+ * guarded business endpoint -- this proves the same forged-claim
+ * guarantee against it instead.
  *
- * <p>ADR-0012 item 3 requires every {@code RlsFailClosedTest}/
- * {@code TenantContextIsolationTest} scenario ported assertion-for-
- * assertion. The RLS-fail-closed side was ported first
- * ({@code TenantFilterFailClosedTest}, an un-enabled filter restricts
- * nothing); this is the other half -- a validly-signed token whose
- * claims do not match what the authenticated identity actually owns
- * must still be refused, not trusted.
- *
- * <p>No protected legacy business endpoint exists yet (items #11-13),
- * so {@link LegacyIsolationProbeController} (test-only, {@code
- * src/test}, never shipped) stands in as the tenant-owned resource
- * behind the chain -- the same move
- * {@code com.workin.legacy.TenantBindingEndToEndTest} made to prove the
- * honest-path binding before any real module existed, extended here to
- * the adversarial case and driven over real HTTP instead of a manually
- * constructed filter invocation.
- *
- * <p>Unlike the PostgreSQL original, a rejected claim here does not
- * surface as a 404 from the controller -- {@code
- * legacySecurityFilterChain}'s resolver catches {@code
- * NoTenantScopeException} itself and resolves to {@code
- * Optional.empty()} (SecurityConfig's own javadoc), so {@code
- * TenantScopeFilter} never establishes scope and the request reaches
- * the controller anyway, authenticated but unscoped. What proves the
- * claim was never trusted is what the controller then reads: {@code
- * TenantAwareJpaTransactionManager} binds the {@code NO_TENANT}
- * sentinel to the unscoped transaction, so the query returns zero rows
- * -- not company B's data, and not company A's either, since scope was
- * never established for either. A 200 with an empty body is therefore
- * the correct assertion, not a 403/404.
+ * <p><b>Why the forged-claim tests assert 401 {@code
+ * unauthorized_invalid_token}, not 200-with-empty and not {@code
+ * session_replaced}.</b> {@code LegacyRequestGuard.requireAuth()}'s
+ * {@code token_version} check (P-7) is deliberately tenant-blind (see
+ * that class's javadoc) -- it matches legacy's own {@code
+ * requireEmployeeSessionValid()}, which carries no {@code company_id}
+ * predicate, so a forged-tenant-claim request with an otherwise genuine,
+ * current session passes that specific check. Tenant-claim forgery is
+ * caught by a separate, later check in the same method: {@code
+ * requireAuth} also requires {@code TenantScope.isEstablished()} --
+ * true only when {@code LegacyTenantContextService.validate} already
+ * re-derived and cross-checked this exact claim during {@code
+ * SecurityConfig}'s resolver -- before it will hand back a company id
+ * for the controller to use. A forged claim never establishes scope, so
+ * it is refused here, before the query ever runs -- stricter than the
+ * old probe-based 200-with-empty (which relied solely on the {@code
+ * NO_TENANT}-bound filter), and the reason a business endpoint needed
+ * its own guard rather than the probe's bare tenant-filtered read.
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -77,7 +66,7 @@ class LegacyTenantContextIsolationTest {
 
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
 	private static final String JWT_SECRET = "test-only-secret-not-used-in-production-000000000000";
-	private static final String PROBE_PATH = "/api/legacy/test/probe/employee-ids";
+	private static final String EXCEPTION_TYPES_PATH = "/api/legacy/attendance_exception_types";
 
 	private static final long COMPANY_A = 9201L;
 	private static final long COMPANY_B = 9202L;
@@ -122,7 +111,7 @@ class LegacyTenantContextIsolationTest {
 		}
 	}
 
-	/** Two companies, one employee each -- the attacker (A) and the victim (B). */
+	/** Two companies, one employee each -- the attacker (A) and the victim (B); A also owns one exception type, so the honest-path test proves real data, not just a non-empty page. */
 	private static void seed() throws Exception {
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
 			st.execute("SET SESSION sql_mode = ''");
@@ -147,6 +136,10 @@ class LegacyTenantContextIsolationTest {
 					  (92021, 9202, 9302, 'Victim', 'B', '+201100092021', 'employee', 1, 1, 0,
 					   'accepted', 1, '2025-04-01 08:00:00')
 					""");
+			st.execute("""
+					INSERT INTO exception_types (id, company_id, name, is_active, created_at, updated_at) VALUES
+					  (9701, 9201, 'Sick Leave A', 1, '2025-04-01 08:00:00', '2025-04-01 08:00:00')
+					""");
 		}
 	}
 
@@ -166,50 +159,40 @@ class LegacyTenantContextIsolationTest {
 	/**
 	 * The primary attack this branch exists to close: a validly-signed
 	 * token for a real identity (employee A), with its {@code
-	 * membership_id} claim honest (matches D-042's issuance decision --
-	 * a legacy token always sets it equal to the employee id at issuance)
-	 * but its {@code tenant_id} claim pointing at company B -- exactly
-	 * what a tampered token, or a bug that trusts the claim directly,
-	 * would produce.
+	 * membership_id} claim honest but its {@code tenant_id} claim
+	 * pointing at company B.
 	 */
 	@Test
 	void aTokenClaimingAnotherCompanysTenancyIsRejected() {
-		String forgedToken = jwtService.issueAccessToken(EMPLOYEE_A, EMPLOYEE_A, COMPANY_B, "test-session");
+		String forgedToken = employeeToken(EMPLOYEE_A, EMPLOYEE_A, COMPANY_B, 1L);
 
-		ResponseEntity<Long[]> response = probeWith(forgedToken);
+		ResponseEntity<ApiErrorBody> response = restTemplate.exchange(
+				EXCEPTION_TYPES_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(forgedToken)), ApiErrorBody.class);
 
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody())
-				.describedAs("the forged tenant claim must not be trusted -- not company B's data, "
-						+ "and not company A's either, since scope was never actually established")
-				.isEmpty();
+		assertThat(response.getStatusCode().value())
+				.describedAs("the forged tenant claim must not be trusted -- denied before the query runs")
+				.isEqualTo(401);
+		assertThat(response.getBody().code()).isEqualTo("unauthorized_invalid_token");
 	}
 
-	/**
-	 * The independent guard clause: a validly-signed token whose {@code
-	 * sub} is employee A, but whose {@code membership_id} claims employee
-	 * B's row -- refused even though {@code tenant_id} correctly names
-	 * B's own company, because the row does not belong to the
-	 * authenticated identity.
-	 */
+	/** The independent guard clause: {@code sub} is employee A, but {@code membership_id} claims employee B's row. */
 	@Test
 	void aTokenClaimingSomeoneElsesEmployeeRowAsItsOwnMembershipIsRejected() {
-		String forgedToken = jwtService.issueAccessToken(EMPLOYEE_A, EMPLOYEE_B, COMPANY_B, "test-session");
+		String forgedToken = employeeToken(EMPLOYEE_A, EMPLOYEE_B, COMPANY_B, 1);
 
-		ResponseEntity<Long[]> response = probeWith(forgedToken);
+		ResponseEntity<ApiErrorBody> response = restTemplate.exchange(
+				EXCEPTION_TYPES_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(forgedToken)), ApiErrorBody.class);
 
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody()).isEmpty();
+		assertThat(response.getStatusCode().value()).isEqualTo(401);
+		assertThat(response.getBody().code()).isEqualTo("unauthorized_invalid_token");
 	}
 
 	/**
-	 * {@code JwtService} is shared, unforked code -- this is the same
-	 * fail-closed-not-crashing property
-	 * {@code TenantContextIsolationTest} already proves on the
-	 * PostgreSQL side, re-proven here to confirm
-	 * {@code legacySecurityFilterChain} wires the same {@code
-	 * apiSecurityErrorHandler} entry point rather than falling back to
-	 * Spring Security's default (issue #70).
+	 * {@code JwtService} is shared, unforked code -- re-proves {@code
+	 * legacySecurityFilterChain} wires {@code apiSecurityErrorHandler}
+	 * rather than falling back to Spring Security's default (issue #70).
+	 * Unaffected by P-7: this token never reaches {@code
+	 * JwtAuthenticationFilter}'s success path at all.
 	 */
 	@Test
 	void aSignedTokenMissingATenantClaimFailsClosedInsteadOfCrashing() {
@@ -222,31 +205,31 @@ class LegacyTenantContextIsolationTest {
 				.compact();
 
 		ResponseEntity<String> response = restTemplate.exchange(
-				PROBE_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(malformedToken)), String.class);
+				EXCEPTION_TYPES_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(malformedToken)), String.class);
 
 		assertThat(response.getStatusCode().value()).isEqualTo(401);
 	}
 
 	/**
-	 * The control case: an honest, unforged token reads exactly its own
-	 * company's data -- proving the probe endpoint and the honest path
-	 * through the chain both actually work, so the adversarial tests
-	 * above are proving a real guard, not an endpoint that rejects
-	 * everything.
+	 * The control case: an honest, unforged token with a genuine {@code
+	 * token_version} claim reads exactly its own company's data.
 	 */
 	@Test
 	void aGenuineTokenReadsOnlyItsOwnCompanysData() {
-		String honestToken = jwtService.issueAccessToken(EMPLOYEE_A, EMPLOYEE_A, COMPANY_A, "test-session");
+		String honestToken = employeeToken(EMPLOYEE_A, EMPLOYEE_A, COMPANY_A, 1L);
 
-		ResponseEntity<Long[]> response = probeWith(honestToken);
+		ResponseEntity<LegacyExceptionTypePage> response = restTemplate.exchange(
+				EXCEPTION_TYPES_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(honestToken)),
+				LegacyExceptionTypePage.class);
 
 		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody()).containsExactly(EMPLOYEE_A);
+		assertThat(response.getBody().data()).extracting("name").containsExactly("Sick Leave A");
 	}
 
-	private ResponseEntity<Long[]> probeWith(String token) {
-		return restTemplate.exchange(
-				PROBE_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(token)), Long[].class);
+	private String employeeToken(long identityId, long membershipId, long companyId, long tokenVersion) {
+		return jwtService.issueAccessToken(
+				identityId, membershipId, companyId, "test-session",
+				Map.of("role", "employee", "token_version", tokenVersion));
 	}
 
 	private HttpHeaders headersFor(String token) {

@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.Date;
+import java.util.Map;
 import java.util.UUID;
 
 import javax.crypto.SecretKey;
@@ -49,13 +50,28 @@ public class JwtService {
 	}
 
 	public String issueAccessToken(Long identityId, Long membershipId, Long companyId, String sessionId) {
+		return issueAccessToken(identityId, membershipId, companyId, sessionId, Map.of());
+	}
+
+	/**
+	 * {@code extraClaims} exists only for {@code com.workin.legacy.auth.LegacyLoginController}
+	 * (P-7/P-8, D-049): the legacy contract needs {@code role} and a
+	 * {@code token_version} snapshot embedded at issuance, which the
+	 * minimal Postgres-facing claim set (Dimension 6) deliberately never
+	 * carries. No {@code /api/auth/**} caller passes anything here, so
+	 * this does not change what a Postgres-identity token contains.
+	 */
+	public String issueAccessToken(
+			Long identityId, Long membershipId, Long companyId, String sessionId, Map<String, Object> extraClaims) {
 		Instant now = Instant.now();
-		return Jwts.builder()
+		var builder = Jwts.builder()
 				.subject(String.valueOf(identityId))
 				.claim("sid", sessionId)
 				.id(UUID.randomUUID().toString())
 				.claim("membership_id", membershipId)
-				.claim("tenant_id", companyId)
+				.claim("tenant_id", companyId);
+		extraClaims.forEach(builder::claim);
+		return builder
 				.issuer(ISSUER)
 				.audience().add(AUDIENCE).and()
 				.issuedAt(Date.from(now))

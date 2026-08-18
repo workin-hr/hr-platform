@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,7 +16,6 @@ import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRe
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -24,23 +24,21 @@ import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.attendance.LegacyExceptionTypeView;
 
 /**
- * Proves {@code LegacyHrPermissionEnforcer} (punch-list item #11,
- * D-044) actually gates a real HTTP request through
- * {@code legacySecurityFilterChain}, over real MariaDB -- the same
- * "minimal test-scoped protected resource" move
- * {@code LegacyTenantContextIsolationTest} made for item #10, extended
- * here to {@link LegacyIsolationProbeController#permissionGatedEmployeeIds()}.
+ * Proves {@code LegacyHrPermissionEnforcer} (punch-list item #11, D-044)
+ * actually gates a real HTTP request through {@code
+ * legacySecurityFilterChain}, over real MariaDB.
  *
- * <p>D-044 requires this to reproduce {@code hr_session_has_permission()}'s
- * real deny shape: a missing {@code hr_permissions} row denies by
- * default, exactly as covered at the unit level by
- * {@code com.workin.legacy.authorization.LegacyHrPermissionEnforcerTest}.
- * This class adds the one thing a unit test cannot: proof the check is
- * actually reached from a real request, with a real
- * {@code AuthenticatedPrincipal} supplied by the real chain, not a
- * hand-constructed one.
+ * <p>Re-pointed for PR 12.1 (D-045's Follow-up): the deleted {@code
+ * LegacyIsolationProbeController} gated an invented {@code
+ * CAN_EMPLOYEES} check no legacy endpoint actually enforces. {@code
+ * POST /api/legacy/attendance_exception_types} gates on {@code
+ * can_company_settings} for real -- legacy's own {@code create.php}
+ * calls {@code require_company_settings_access()}
+ * (D-046/hr-legacy evidence) -- so this now proves the enforcer against
+ * evidence-backed behaviour instead.
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -48,7 +46,7 @@ import com.workin.backend.identity.JwtService;
 class LegacyHrPermissionEnforcerEndToEndTest {
 
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
-	private static final String PROBE_PATH = "/api/legacy/test/probe/permission-gated";
+	private static final String CREATE_PATH = "/api/legacy/attendance_exception_types";
 
 	private static final long COMPANY = 9401L;
 	private static final long EMPLOYEE_WITH_PERMISSION = 94011L;
@@ -91,8 +89,8 @@ class LegacyHrPermissionEnforcerEndToEndTest {
 	}
 
 	/**
-	 * One company, two employees: one with {@code can_employees} granted,
-	 * one with no {@code hr_permissions} row at all -- the real
+	 * One company, two HR employees: one with {@code can_company_settings}
+	 * granted, one with no {@code hr_permissions} row at all -- the real
 	 * {@code hr_session_has_permission()} deny-by-default shape, not a
 	 * flag explicitly set to zero.
 	 */
@@ -126,7 +124,7 @@ class LegacyHrPermissionEnforcerEndToEndTest {
 					   can_company_settings, can_employees, can_attendance, can_requests,
 					   can_payroll, can_penalties)
 					VALUES
-					  (9601, 94011, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0)
+					  (9601, 94011, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0)
 					""");
 			// 94012 deliberately gets no hr_permissions row.
 		}
@@ -147,36 +145,38 @@ class LegacyHrPermissionEnforcerEndToEndTest {
 	}
 
 	@Test
-	void anEmployeeWithTheGrantedPermissionReads200() {
-		String token = jwtService.issueAccessToken(
-				EMPLOYEE_WITH_PERMISSION, EMPLOYEE_WITH_PERMISSION, COMPANY, "test-session");
+	void anEmployeeWithTheGrantedPermissionCreates201() {
+		String token = employeeToken(EMPLOYEE_WITH_PERMISSION);
 
-		ResponseEntity<Long[]> response = probeWith(token);
+		ResponseEntity<LegacyExceptionTypeView> response = restTemplate.exchange(
+				CREATE_PATH, org.springframework.http.HttpMethod.POST,
+				new HttpEntity<>(Map.of("name", "Granted Path Type"), headersFor(token)),
+				LegacyExceptionTypeView.class);
 
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody()).contains(EMPLOYEE_WITH_PERMISSION, EMPLOYEE_WITHOUT_PERMISSION);
+		assertThat(response.getStatusCode().value()).isEqualTo(201);
+		assertThat(response.getBody().name()).isEqualTo("Granted Path Type");
 	}
 
 	/**
 	 * {@code hr-legacy#8}'s real gap shape reproduced honestly: this is
 	 * not a malformed or forged token -- it is a genuine, correctly
-	 * tenant-scoped employee who simply has no {@code hr_permissions} row,
-	 * exactly as legacy would deny them.
+	 * tenant-scoped HR employee who simply has no {@code hr_permissions}
+	 * row, exactly as legacy would deny them.
 	 */
 	@Test
 	void anEmployeeWithNoHrPermissionsRowAtAllReads403() {
-		String token = jwtService.issueAccessToken(
-				EMPLOYEE_WITHOUT_PERMISSION, EMPLOYEE_WITHOUT_PERMISSION, COMPANY, "test-session");
+		String token = employeeToken(EMPLOYEE_WITHOUT_PERMISSION);
 
 		ResponseEntity<String> response = restTemplate.exchange(
-				PROBE_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(token)), String.class);
+				CREATE_PATH, org.springframework.http.HttpMethod.POST,
+				new HttpEntity<>(Map.of("name", "Denied Path Type"), headersFor(token)), String.class);
 
 		assertThat(response.getStatusCode().value()).isEqualTo(403);
 	}
 
-	private ResponseEntity<Long[]> probeWith(String token) {
-		return restTemplate.exchange(
-				PROBE_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(token)), Long[].class);
+	private String employeeToken(long employeeId) {
+		return jwtService.issueAccessToken(
+				employeeId, employeeId, COMPANY, "test-session", Map.of("role", "hr", "token_version", 1L));
 	}
 
 	private HttpHeaders headersFor(String token) {

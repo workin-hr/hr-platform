@@ -40,10 +40,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 		if (header != null && header.startsWith("Bearer ")) {
 			try {
 				Claims claims = jwtService.parseAndValidate(header.substring("Bearer ".length()));
+				Number tokenVersionClaim = claims.get("token_version", Number.class);
 				AuthenticatedPrincipal principal = new AuthenticatedPrincipal(
 						Long.valueOf(claims.getSubject()),
 						claims.get("membership_id", Number.class).longValue(),
-						claims.get("tenant_id", Number.class).longValue());
+						claims.get("tenant_id", Number.class).longValue(),
+						claims.get("role", String.class),
+						tokenVersionClaim == null ? null : tokenVersionClaim.longValue());
 				Authentication authentication = new UsernamePasswordAuthenticationToken(
 						principal, null, List.of());
 				SecurityContextHolder.getContext().setAuthentication(authentication);

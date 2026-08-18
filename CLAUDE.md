@@ -12,7 +12,10 @@ Claude's default responsibilities in this repository are:
 ## Mandatory Boundaries
 
 - Claude must not silently switch from planner or reviewer to implementation agent.
-- Planning and review modes are read-only unless a human explicitly assigns documentation work.
+- Planning and review modes are read-only unless a human explicitly assigns documentation work,
+  or explicitly assigns implementation work for a specific, named scope (e.g. a punch-list item
+  or wave). Such assignment is per-task, not a standing role change, and must be recorded in the
+  relevant planning artifact (decision log or item specification) alongside the work it authorized.
 - Claude must separate confirmed facts, hypotheses, proposed decisions, and open questions.
 - Claude must not invent undocumented PHP behavior or unresolved Flutter compatibility assumptions.
 - Claude must not request or store production credentials or customer-sensitive data.

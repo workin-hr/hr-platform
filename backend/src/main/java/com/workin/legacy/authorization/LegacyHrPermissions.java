@@ -7,6 +7,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import org.hibernate.annotations.Filter;
+
+import com.workin.legacy.EmployeeDerivedTenantFilter;
 import com.workin.legacy.LegacyValues;
 
 /**
@@ -20,29 +23,38 @@ import com.workin.legacy.LegacyValues;
  * §7's canonical-permission redesign, which stays Phase 3 target-schema
  * work (D-044).
  *
- * <h2>Why this carries no {@code @Filter}</h2>
- * <p>Unlike every other tenant-owned legacy entity in this package
- * ({@code LegacyEmployee}), {@code hr_permissions} has no
- * {@code company_id} column at all -- only {@code employee_id}, unique,
- * with a foreign key to {@code employees} (confirmed directly against
- * {@code mysql_workin.schema.sql}). {@code TenantFilterCoverageTest}'s
- * {@code isTenantOwned()} decides tenant ownership by the presence of a
- * mapped {@code company_id} column, so this entity is correctly not
- * flagged -- and adding {@code @Filter(TenantFilter.NAME, ...)} here
- * would be a genuine SQL error, not extra safety, since Hibernate would
- * append a {@code company_id = :companyId} predicate against a table
- * that has no such column.
+ * <h2>Now carries {@link EmployeeDerivedTenantFilter} (P-1b) — corrected in PR 12.2</h2>
+ * <p>This entity previously carried no tenancy filter at all, reasoned
+ * as safe because its only call site ({@link LegacyHrPermissionEnforcer})
+ * looks up a row by the <em>authenticated</em> employee id (the JWT's
+ * re-derivation-backed {@code identityId}, never a request-supplied
+ * one) — self-scoped by construction, the same class of exemption
+ * {@code LegacyRefreshToken} still carries. That reasoning was correct
+ * for what existed at the time, but rested on P-1a being the only
+ * mechanism available: {@code hr_permissions} has no {@code company_id}
+ * column, so the only filter that existed could not apply to it without
+ * Hibernate emitting SQL against a nonexistent column.
  *
- * <p>Tenant safety instead comes from the caller: {@link LegacyHrPermissionEnforcer}
- * only ever looks up a row by the <em>authenticated</em> employee id
- * (the JWT's re-derivation-backed {@code identityId}, never a
- * request-supplied one), never an arbitrary one. That is the same
- * "self-scoped by construction, named explicitly rather than left
- * implicit" pattern {@code TenantFilterActivator#deactivateForPreTenantLookup()}
- * already documents for the pre-tenant phone lookup.
+ * <p>PR 12.2's redesigned {@code TenantFilterCoverageTest} — which
+ * decides tenant ownership from the vendored schema's real columns,
+ * not from what a Java mapping happens to declare — correctly flagged
+ * this table as employee-derived tenant-owned (it has {@code
+ * employee_id}, a foreign key to {@code employees}) and unfiltered.
+ * With {@link EmployeeDerivedTenantFilter} (P-1b) now available, "self-
+ * scoped by construction because the caller behaves" is no longer the
+ * only option, so this adopts it: defense in depth, consistent with
+ * ADR-0012's one-enforcement-point model, and closes the gap against
+ * any future call site that queries this repository some other way.
+ * Every current real call site already runs with tenant scope
+ * established (the permission gate runs after {@code LegacyRequestGuard}
+ * / {@code LegacyTenantContextService} establish it), so this is not a
+ * behaviour change for anything that exists today — proven, not just
+ * argued, by {@code LegacyHrPermissionEnforcerEndToEndTest} staying
+ * green with this filter applied.
  */
 @Entity
 @Table(name = "hr_permissions")
+@Filter(name = EmployeeDerivedTenantFilter.NAME, condition = EmployeeDerivedTenantFilter.CONDITION)
 public class LegacyHrPermissions {
 
 	@Id

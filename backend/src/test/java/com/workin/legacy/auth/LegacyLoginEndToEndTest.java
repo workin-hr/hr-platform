@@ -4,6 +4,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.Statement;
 
 import org.junit.jupiter.api.Test;
@@ -11,6 +12,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -20,6 +24,8 @@ import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.i18n.ApiErrorBody;
+import com.workin.backend.identity.JwtService;
+import com.workin.legacy.attendance.LegacyExceptionTypePage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -100,6 +106,9 @@ class LegacyLoginEndToEndTest {
 
 	@Autowired
 	private TestRestTemplate restTemplate;
+
+	@Autowired
+	private JwtService jwtService;
 
 	static {
 		MARIADB.start();
@@ -219,6 +228,82 @@ class LegacyLoginEndToEndTest {
 
 		assertThat(response.getStatusCode().value()).isEqualTo(403);
 		assertThat(response.getBody().code()).isEqualTo("company_account_not_active");
+	}
+
+	/**
+	 * D-049 Follow-up (c)'s atomicity proof, part 1: the token_version
+	 * embedded in the issued access token (the claim P-7 checks on every
+	 * later request) is not just "a" version -- it is the exact value
+	 * {@link LegacyLoginService}'s bump left in {@code employees} at the
+	 * end of the same transaction, read directly from the database
+	 * rather than assumed equal.
+	 */
+	@Test
+	void successfulLoginIssuesTheBumpedTokenVersionMatchingTheDatabase() throws Exception {
+		ResponseEntity<LegacyAuthResponse> response = restTemplate.postForEntity(
+				"/api/legacy/auth/login_employee",
+				new LegacyLoginRequest("+201100090011", KNOWN_PASSWORD),
+				LegacyAuthResponse.class);
+
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		long claimedVersion = jwtService.parseAndValidate(response.getBody().accessToken())
+				.get("token_version", Number.class).longValue();
+		long databaseVersion = readTokenVersion(90011L);
+
+		assertThat(claimedVersion)
+				.describedAs("the token's token_version claim must be the exact value the login "
+						+ "transaction's bump left in employees.token_version, not an earlier or assumed one")
+				.isEqualTo(databaseVersion);
+	}
+
+	/**
+	 * D-049 Follow-up (c)'s atomicity proof, part 2: two real logins
+	 * against the same employee, over real HTTP, through the real
+	 * {@code legacySecurityFilterChain} -- not a fabricated stale claim
+	 * (that guarantee is already proven at the claim level by {@code
+	 * LegacyExceptionTypeEndToEndTest.aStaleTokenVersionIsRejectedAsSessionReplaced}).
+	 * This proves the same guarantee end to end: logging in a second time
+	 * genuinely invalidates the first session's token, and the second
+	 * token genuinely works.
+	 */
+	@Test
+	void thePreviousTokenIsRejectedAndTheNewTokenIsAcceptedAfterASecondLogin() {
+		String firstToken = login90011();
+		String secondToken = login90011();
+
+		assertThat(firstToken).isNotEqualTo(secondToken);
+
+		ResponseEntity<ApiErrorBody> rejectedResponse = listExceptionTypesWith(firstToken, ApiErrorBody.class);
+		assertThat(rejectedResponse.getStatusCode().value()).isEqualTo(401);
+		assertThat(rejectedResponse.getBody().code()).isEqualTo("session_replaced");
+
+		ResponseEntity<LegacyExceptionTypePage> acceptedResponse =
+				listExceptionTypesWith(secondToken, LegacyExceptionTypePage.class);
+		assertThat(acceptedResponse.getStatusCode().value()).isEqualTo(200);
+	}
+
+	private String login90011() {
+		ResponseEntity<LegacyAuthResponse> response = restTemplate.postForEntity(
+				"/api/legacy/auth/login_employee",
+				new LegacyLoginRequest("+201100090011", KNOWN_PASSWORD),
+				LegacyAuthResponse.class);
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		return response.getBody().accessToken();
+	}
+
+	private <T> ResponseEntity<T> listExceptionTypesWith(String token, Class<T> type) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(token);
+		return restTemplate.exchange(
+				"/api/legacy/attendance_exception_types", HttpMethod.GET, new HttpEntity<>(headers), type);
+	}
+
+	private static long readTokenVersion(long employeeId) throws Exception {
+		try (Connection connection = connect(); Statement st = connection.createStatement();
+				ResultSet rs = st.executeQuery("SELECT token_version FROM employees WHERE id = " + employeeId)) {
+			rs.next();
+			return rs.getLong(1);
+		}
 	}
 
 }

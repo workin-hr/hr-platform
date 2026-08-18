@@ -22,16 +22,21 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 /**
- * Covers {@link LegacyLoginController} properties
+ * Covers {@link LegacyLoginService} properties
  * {@link LegacyLoginEndToEndTest} cannot: cases needing two
  * {@code employees} rows sharing one phone number, which the vendored
  * schema's own {@code UNIQUE KEY `phone` (`phone`)} makes unseedable
  * against real MariaDB (see that class's javadoc for the 409 case, the
  * same constraint). Mocked repositories have no such constraint, so the
  * sibling-candidate shape is testable here at the unit level instead.
+ *
+ * <p>Retargeted from the former {@code LegacyLoginControllerTest} at the
+ * repository owner's direction, 2026-08-18 (D-049 Follow-up (c)): the
+ * login use case this class exercises now lives in {@link
+ * LegacyLoginService}, not {@link LegacyLoginController}, which is thin.
  */
 @ExtendWith(MockitoExtension.class)
-class LegacyLoginControllerTest {
+class LegacyLoginServiceTest {
 
 	private static final String PASSWORD = "Secret123!";
 
@@ -50,7 +55,7 @@ class LegacyLoginControllerTest {
 
 	@Test
 	void aDanglingCompanyReferenceOnOneCandidateDoesNotFailLoginForAValidSiblingCandidate() {
-		LegacyLoginController controller = new LegacyLoginController(
+		LegacyLoginService service = new LegacyLoginService(
 				legacyEmployeeRepository, legacyCompanyRepository, tenantFilterActivator,
 				passwordEncoder, jwtService, legacyRefreshTokenService);
 
@@ -71,10 +76,16 @@ class LegacyLoginControllerTest {
 		when(passwordEncoder.matches(eq(PASSWORD), anyString())).thenReturn(true);
 		when(legacyRefreshTokenService.issue(90052L))
 				.thenReturn(new LegacyRefreshTokenService.IssuedLegacyRefreshToken("raw-token", "family-id"));
-		when(jwtService.issueAccessToken(eq(90052L), eq(90052L), eq(9001L), anyString()))
+		// P-7 (D-049): login bumps token_version and re-reads it before issuing.
+		LegacyEmployee bumpedEmployee = org.mockito.Mockito.mock(LegacyEmployee.class);
+		when(bumpedEmployee.getTokenVersion()).thenReturn(2);
+		when(legacyEmployeeRepository.findById(90052L)).thenReturn(Optional.of(bumpedEmployee));
+		when(jwtService.issueAccessToken(
+						eq(90052L), eq(90052L), eq(9001L), anyString(),
+						eq(java.util.Map.of("role", "employee", "token_version", 2L))))
 				.thenReturn("access-token");
 
-		LegacyAuthResponse response = controller.login(new LegacyLoginRequest("+201100090051", PASSWORD));
+		LegacyAuthResponse response = service.login(new LegacyLoginRequest("+201100090051", PASSWORD));
 
 		assertThat(response.employeeId()).isEqualTo(90052L);
 		assertThat(response.companyId()).isEqualTo(9001L);
