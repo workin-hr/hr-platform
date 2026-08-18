@@ -8,11 +8,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.context.annotation.Profile;
 
 import com.workin.backend.authorization.PublicUseCase;
 import com.workin.backend.i18n.ApiException;
 import com.workin.backend.i18n.MessageKeys;
 
+@Profile("!phase1-mysql")
 @RestController
 public class AuthController {
 

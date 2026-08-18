@@ -11,7 +11,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * Shared real-Postgres integration test base, mirroring the H2 spike's
  * proven setup (docs/migration/technical-spike-plan.md's "Full Spike
  * Findings"). {@code @ServiceConnection} populates the same
- * {@code JdbcConnectionDetails} abstraction RlsDataSourceConfig reads in
+ * {@code JdbcConnectionDetails} abstraction PostgresPersistenceConfig reads in
  * production, wired here to the ephemeral test container instead.
  *
  * <p>Deliberately the "singleton container" pattern, not

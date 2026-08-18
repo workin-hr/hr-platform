@@ -46,11 +46,24 @@ maintaining a second, divergent copy of these rules — see
 - `ADR-0009-dashboard-vs-desktop-admin-client.md` — Option E, role-based
   split; all Validation Evidence items resolved 2026-08-05
 - `ADR-0010-authorization-model.md` — all six dimensions decided
-  2026-08-05; detailed reference: `docs/architecture/authorization-model.md`
+  2026-08-05; detailed reference: `docs/architecture/authorization-model.md`.
+  **Dimension 2's identity/membership sequence and Dimension 7's RLS step
+  describe a model Phase 1 does not have** — see ADR-0011, ADR-0012
+- `ADR-0011-phase-sequencing.md` — implementation, then storage, then
+  modernization; strict legacy API contract parity and full 38-module
+  replacement in Phase 1 (accepted 2026-08-16)
+- `ADR-0012-phase-1-tenant-isolation.md` — tenant isolation without
+  row-level security while Phase 1 runs on MySQL, with its compensating
+  controls and fail-closed obligations (accepted 2026-08-16)
+- `ADR-0013-phase1-mysql-profile-bootstrap.md` — the `phase1-mysql`
+  Spring profile that points the application at legacy MySQL, inactive
+  by default and guarded by an ArchUnit profile-coverage test, becoming
+  the normal runtime only at the single Phase 1 cutover (accepted
+  2026-08-17 with four owner-required amendments, `docs/bootstrap/decision-log.md` D-043)
 
 ## Proposed ADRs
 
-None — all 10 ADRs have a recorded decision as of 2026-08-05. ADR-0006's
+None — all 13 ADRs have a recorded decision as of 2026-08-17. ADR-0006's
 Part B (final vendor protocol/connectivity detail) is the only remaining
 open ADR sub-item, tracked within `ADR-0006-attendance-edge-gateway-direction.md`
 itself, not as a separately `Proposed` ADR.

@@ -11,7 +11,10 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import org.hibernate.annotations.Filter;
+
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.TenantFilter;
 
 /**
  * The legacy {@code employees} row, mapped exactly as MySQL holds it.
@@ -49,6 +52,7 @@ import com.workin.legacy.LegacyValues;
  */
 @Entity
 @Table(name = "employees")
+@Filter(name = TenantFilter.NAME, condition = TenantFilter.CONDITION)
 public class LegacyEmployee {
 
 	/**

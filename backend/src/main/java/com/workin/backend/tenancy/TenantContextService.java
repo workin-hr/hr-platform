@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Profile;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.backend.authorization.PermissionEvaluationService;
@@ -22,6 +23,7 @@ import com.workin.backend.authorization.PermissionEvaluationService;
  * the membership from the database and cross-checks it against the
  * authenticated identity, never the other way around.
  */
+@Profile("!phase1-mysql")
 @Service
 public class TenantContextService {
 

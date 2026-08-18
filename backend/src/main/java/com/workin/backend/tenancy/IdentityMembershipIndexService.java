@@ -7,6 +7,7 @@ import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Profile;
 
 /**
  * Resolves which tenant(s) an already-authenticated identity belongs to
@@ -30,6 +31,7 @@ import org.springframework.stereotype.Service;
  * SECURITY DEFINER function scoped narrowly to this one lookup) is
  * worth revisiting once more of the authorization model is built out.
  */
+@Profile("!phase1-mysql")
 @Service
 public class IdentityMembershipIndexService {
 

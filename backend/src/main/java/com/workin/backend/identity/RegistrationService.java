@@ -3,6 +3,7 @@ package com.workin.backend.identity;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Profile;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.HttpStatus;
 
@@ -24,6 +25,7 @@ import com.workin.backend.tenancy.TenantSessionVariable;
  * inserts too, so app.current_company_id must be set to the brand-new
  * company's id <em>before</em> those two inserts, or RLS rejects them.
  */
+@Profile("!phase1-mysql")
 @Service
 public class RegistrationService {
 

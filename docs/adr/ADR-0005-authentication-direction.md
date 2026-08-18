@@ -7,12 +7,48 @@
 | ADR ID | ADR-0005 |
 | Title | Authentication Direction |
 | Status | Accepted |
-| Date | 2026-08-02 (renamed and rewritten 2026-08-04, accepted 2026-08-04 — see `docs/bootstrap/decision-log.md` D-017) |
+| Date | 2026-08-02 (renamed and rewritten 2026-08-04, accepted 2026-08-04 — see `docs/bootstrap/decision-log.md` D-017; **survives the 2026-08-16 strategy reset as a recorded exception — see "Phase 1 Status" below**) |
 | Owners | Solution Architect |
 | Deciders | Human engineering leadership — recorded at approval time in `docs/bootstrap/decision-log.md` |
 | Related Issues | `hr-legacy#7`, `hr-legacy#15`, `hr-platform#18` |
 | Supersedes | None |
 | Superseded By | None |
+
+## Phase 1 Status (2026-08-16)
+
+ADR-0011's strategy reset commits Phase 1 to **strict legacy API contract
+parity**, which on its face contradicts this ADR: legacy issues one 10-year JWT
+with the role in the token, and this ADR replaced that with short-lived access
+tokens plus refresh-token rotation.
+
+**This ADR's token model stands.** The repository owner resolved the conflict on
+2026-08-16 (`docs/bootstrap/decision-log.md` D-042, ADR-0011's "Recorded
+exception"): parity governs **storage and business behaviour**, not the session
+mechanism, because *the goal is storage and business-contract parity, not
+reproducing a known weak security posture*.
+
+What that means concretely for Phase 1:
+
+- **Preserved** — legacy's login *semantics* and their API-visible outcomes,
+  including **409 `MULTIPLE_ACCOUNTS_SAME_PHONE`**, the single-`pending`-account
+  login path, and the three distinct 403 outcomes below it
+  (`hr-legacy/apis/api/auth/login_employee.php:70-107`). These are business
+  rules, and Phase 1 reproduces them exactly.
+- **Not preserved** — the 10-year lifetime and the absence of revocation
+  (`hr-legacy#7`). Reintroducing those would ship a known vulnerability to
+  satisfy a parity rule aimed at a different concern.
+- **Not introduced** — tenant switching. Removing the 409 requires the
+  multi-tenant identity model, which is Phase 3 (ADR-0011). Phase 1 keeps
+  legacy's one-employee-row-per-session shape.
+
+This is the read/write split ADR-0011 applies to data, applied to security:
+tolerate what legacy produced, decline to keep producing it. **It is a
+client-visible break** — the Flutter clients must adopt refresh — and it is the
+one deliberate divergence from strict contract parity in Phase 1. Any further
+divergence needs its own decision rather than citing this precedent.
+
+The Open Questions below about refresh lifetime and simultaneous sessions remain
+open and are unaffected.
 
 ## Scope Correction (2026-08-04)
 

@@ -7,6 +7,7 @@ import java.util.Set;
 import jakarta.persistence.EntityManager;
 
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Profile;
 
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantRole;
@@ -28,6 +29,7 @@ import com.workin.backend.tenancy.TenantRole;
  * context. Nothing is cached across requests (Dimension 5) -- a scope
  * change bites on the very next request.
  */
+@Profile("!phase1-mysql")
 @Service
 public class ResourceScopeService {
 

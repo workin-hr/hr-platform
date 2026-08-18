@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
@@ -37,6 +38,7 @@ import com.workin.backend.tenancy.TenantContextService;
  * reuse it instead of re-establishing -- Dimension 5's permitted
  * request-local memoization, and nothing more.
  */
+@Profile("!phase1-mysql")
 @Component
 public class AuthorizationPolicyInterceptor implements HandlerInterceptor {
 
