@@ -808,6 +808,45 @@ unmerged PR.
 | Follow-up | Preserve dependency order: branches, then PR #107, then PR #108. Keep the review findings open until human re-review, and do not begin Wave 12.4 before all Wave 12.3 boundaries are green, reviewed, and merged. |
 | Evidence | `LegacyPersistenceConfig`; `application-phase1-mysql.properties`; `LegacyValues` and `LegacyValuesTest` (19 tests); `LegacyQueryParameters` and `LegacyQueryParametersTest` (8 tests); `LegacyDepartmentEndToEndTest` (29 tests); `LegacyDepartmentTenancyTest` (6 tests); `hr-legacy/apis/helpers/org_hierarchy.php::normalize_id_list`; PHP's documented integer/float/string/array conversion behavior; local PHP 8.3 cast and `parse_str()` runtime probes, including normalized names and keyed/append mixtures; Spring MVC request-parameter binding documentation; the aggregate-only production query described above; all five `hr-legacy/apis/api/departments/*.php` files. |
 
+## D-062: PR 12.3c (`job_titles`) Packaged — Wave 12.3 Engineering Implementation Complete
+
+| Field | Value |
+|---|---|
+| Decision | PR 12.3c is implemented and packaged in the approved boundary: `LegacyJobTitle`, repository, service, controller, and `LegacyJobTitleView`; all five `/api/legacy/job_titles` endpoints; P-1a; legacy left-joined department name and branch summary derived through real `department_branches` rows. With D-060 and D-061, Wave 12.3 engineering implementation is complete. |
+| Status | Implemented and verified after final independent review: the requested full gate `./gradlew clean test phase2Test --console=plain` completed successfully: MariaDB/default suite 71 classes and 492 tests, PostgreSQL migration suite 1 class and 12 tests, with 0 failures, errors, or skips in either suite. Packaged in the 12.3c boundary and awaiting human review and merge. |
+| Owner | Implementation agent, explicitly directed by the repository owner with “can complete wave 12.3” and “proceed”, 2026-08-18. |
+| Related ADR | `docs/adr/ADR-0011-phase-sequencing.md`; `docs/adr/ADR-0012-phase-1-tenant-isolation.md`; D-054, D-057, D-058, D-060, D-061. |
+| Reason | `job_titles` depends on the branch/department/junction cluster for its complete read shape, so it followed feature-complete 12.3a and 12.3b. The implementation preserves the PHP constraints: `department_id` is required on create despite schema nullability, can never be cleared by update, and must identify an active owned department for create/update; reads may still return titles whose department is inactive. Names are not made unique. |
+| Impact | Five endpoints are available under `/api/legacy/job_titles`. Tests prove active-only title visibility, inactive-department readability, branchless null summaries, branch and department filters, snake-case wire fields, required and positive work-hours validation, malformed work-hours and department-id validation, MariaDB-persisted DECIMAL rounding in update responses, active owned department validation, update and null-name quirks, repeatable soft delete, D-057, and cross-tenant denial. Aggregate-only inspection of the local legacy snapshot found 1,684 titles, no null or orphan department references, 24 titles pointing to inactive departments, four pointing to branchless departments, work hours from 1 through 16, and duplicate names in 147 company/name groups; no new uniqueness rule was added. |
+| Follow-up | **Closed by D-063 production evidence.** Production has 1,897 non-null `job_titles.department_id` references, zero missing departments, and zero cross-company departments. The scoped Java joins have no current production compatibility difference to settle. D-060 remains approved and closed; publication preserves 12.3b before 12.3c. |
+| Evidence | `backend/src/main/java/com/workin/legacy/organization/LegacyJobTitle*.java`; `LegacyJobTitleEndToEndTest` (15 tests); `LegacyJobTitleTenancyTest` (4 tests); all five `hr-legacy/apis/api/job_titles/*.php` files read in full; local vendored schema plus local legacy snapshot aggregate checks; exact final gate recorded in D-064. |
+
+## D-063: Wave 12.3 Production Relationship Evidence — Department Manager And Job-Title Department Findings Closed
+
+| Field | Value |
+|---|---|
+| Decision | The two Wave 12.3 production-data-dependent join findings are closed with direct aggregate evidence. No additional security divergence is needed for department manager names or job-title department and branch summaries because neither dirty relationship exists in current production data. |
+| Status | Accepted — evidence complete and packaged with the Wave 12.3 PR stack; not blocked by these two findings. |
+| Owner | Repository owner provided access to the repository `.env` credentials and directed production verification, 2026-08-18. The implementation agent ran aggregate-only queries in a server-enforced read-only session. |
+| Related ADR | `docs/adr/ADR-0011-phase-sequencing.md` evidence precedence and production-verification requirements; D-058, D-061, D-062. |
+| Reason | PHP department reads join employees by manager ID without a company predicate, and PHP job-title reads join departments by department ID without a company predicate. Java scopes both joins to the caller company. The review correctly required production counts before treating those scoped joins as compatible with current data. |
+| Impact | After `SET SESSION TRANSACTION READ ONLY`, `@@tx_read_only` returned 1 before either aggregate query. `departments.manager_id`: 0 non-null references, 0 missing employee references, 0 cross-company employee references. `job_titles.department_id`: 1,897 non-null references, 0 missing department references, 0 cross-company department references. Therefore neither theoretical PHP cross-company read path is reachable from current production rows, and the scoped Java responses preserve the current production-visible result. No code change or new divergence decision is required. |
+| Follow-up | None for these two findings. Keep normal review and sequential publication boundaries. |
+| Evidence | Direct aggregate-only production queries in this conversation using credentials from the gitignored repository `.env`; server session verified read-only with `@@tx_read_only = 1`; no customer rows or credential values were printed or stored. |
+
+## D-064: Wave 12.3 Final Independent Review Complete — Four P2 Findings Resolved
+
+| Field | Value |
+|---|---|
+| Decision | The complete corrected Wave 12.3 diff received the mandatory final independent read-only review before any staging or commit. The reviewer found no P1 and four real P2 issues: mixed 12.3b/12.3c test sources, department-update database-failure response parity, malformed numeric-input parity, and the branchless-department update's post-commit response failure. All four are resolved locally. |
+| Status | Review complete and all P1/P2 findings resolved. The changes are selectively packaged in the approved dependency-ordered branches and draft PRs. Human merge is still required before Wave 12.4 can start. |
+| Owner | Independent review agent for findings; implementation agent for corrections, both under repository-owner direction in this conversation, 2026-08-18. |
+| Related ADR | `docs/adr/ADR-0011-phase-sequencing.md`; `docs/adr/ADR-0012-phase-1-tenant-isolation.md`; D-054, D-055, D-060, D-061, D-062, D-063. |
+| Reason | Strict Phase 1 parity requires the Java adapter to preserve MariaDB/PHP validation, transaction, persistence-normalization, and dirty-row response behavior. The approved sequential PR boundary also requires 12.3b to compile and prove itself without 12.3c types. |
+| Impact | Department update now translates persistence failures to 400 `invalid_branch_ids` while the transaction rolls back, proven by a failure injected after the native junction delete plus assertions for the audit marker, original department name, and original link. A branchless department update commits its write and then returns the legacy 500 caused by the post-commit INNER JOIN response lookup. Malformed numeric manager, branch-list, and department inputs follow PHP's integer-cast validation paths rather than leaking `NumberFormatException`. Department and job-title E2E/tenancy tests are split into four resource-specific classes, making 12.3b independently green before 12.3c. |
+| Follow-up | Review and merge the packaged boundaries in dependency order: D-060/branches, 12.3b (`departments` + `department_branches`), then 12.3c (`job_titles`). Do not begin Wave 12.4 before all three are green and merged. |
+| Evidence | Independent review findings in this conversation; `LegacyDepartmentEndToEndTest` (20 tests); `LegacyDepartmentTenancyTest` (6 tests); `LegacyJobTitleEndToEndTest` (15 tests); `LegacyJobTitleTenancyTest` (4 tests); `./gradlew clean test phase2Test --console=plain` — BUILD SUCCESSFUL in 2m17s; MariaDB/default: 71 classes, 492 tests, 0 failures/errors/skips; PostgreSQL Phase 2: 1 class, 12 tests, 0 failures/errors/skips; `python3 scripts/validate_phase0.py` — passed. |
+
 ## D-066: Production Database Access Limited To Explicit Read-Only Evidence Checks
 
 | Field | Value |
