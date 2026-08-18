@@ -168,8 +168,7 @@ exception.
 Full suite: 54 classes, 345 tests, 0 failed, 0 skipped, confirmed via
 JUnit XML.
 
-## Blocked — not built: the controller, the security chain, the
-## end-to-end HTTP test
+## Blocked — not built: the controller, the security chain, the end-to-end HTTP test
 
 Building these next surfaced a blocker one level up from the
 refresh-token question, and a harder one: **no Phase 1 code has ever run

@@ -132,41 +132,41 @@ Replace what it did with two explicit, mutually exclusive, profile-gated
 `@Configuration` classes — never both active at once, which is exactly what
 "full profile swap, not simultaneous" means at the bean-definition level:
 
-   - **`PostgresPersistenceConfig`** (`@Profile("!phase1-mysql")`) — moves
-     `RlsDataSourceConfig`'s existing `applicationDataSource`/
-     `flywayDataSource` beans here unchanged, adds an explicit
-     `LocalContainerEntityManagerFactoryBean`/`PlatformTransactionManager`
-     pair and `@EnableJpaRepositories(basePackages = "com.workin.backend", ...)`
-     / `@EntityScan("com.workin.backend")` — i.e., today's implicit behavior,
-     made explicit rather than changed. Flyway locations
-     (`db/migration/common`, `db/migration/rls`) move from
-     `application.properties` into this class's own Flyway configuration,
-     also `@Profile("!phase1-mysql")`-gated.
-   - **`LegacyPersistenceConfig`** (`@Profile("phase1-mysql")`, new) — a
-     MariaDB `DataSource` built the same way `AbstractLegacyMySqlTest`
-     already proves out (promoting that test-only connection logic to
-     production configuration, not inventing a new one),
-     `@EnableJpaRepositories(basePackages = "com.workin.legacy", transactionManagerRef = "legacyTransactionManager", ...)`
-     wired to the already-built `TenantAwareJpaTransactionManager` as the
-     `PlatformTransactionManager`, `@EntityScan("com.workin.legacy")`. **No
-     Flyway ownership of any MariaDB schema whatsoever (amended — broader
-     than the original proposal).** The vendored legacy schema itself was
-     already out of scope (Phase 1 never migrates legacy's own tables —
-     `check_legacy_schema_drift.py` is what keeps it honest instead); the
-     amendment extends the same rule to Phase-1-owned tables
-     (`legacy_refresh_tokens`) — **no `db/migration/legacy` Flyway location
-     is introduced by this ADR.** Phase 1 treats the entire MariaDB schema,
-     including its own additions, as an external contract for now.
-     Schema-drift verification/self-tests stay (`check_legacy_schema_drift.py`
-     for the vendored tables; an equivalent self-test obligation for
-     `legacy_refresh_tokens`'s shape), but *how* `legacy_refresh_tokens`
-     gets created against a real, non-test MariaDB instance is explicitly
-     **not decided by this ADR** and needs its own, separately-approved
-     mechanism before `phase1-mysql` can run against anything beyond a test
-     container that applies `phase1_extensions.schema.sql` directly. This
-     does not block the login endpoint or this ADR's own scope, since every
-     environment `phase1-mysql` runs in today (tests, the end-to-end proof
-     this ADR requires) already applies that file outside the application.
+- **`PostgresPersistenceConfig`** (`@Profile("!phase1-mysql")`) — moves
+  `RlsDataSourceConfig`'s existing `applicationDataSource`/
+  `flywayDataSource` beans here unchanged, adds an explicit
+  `LocalContainerEntityManagerFactoryBean`/`PlatformTransactionManager`
+  pair and `@EnableJpaRepositories(basePackages = "com.workin.backend", ...)`
+  / `@EntityScan("com.workin.backend")` — i.e., today's implicit behavior,
+  made explicit rather than changed. Flyway locations
+  (`db/migration/common`, `db/migration/rls`) move from
+  `application.properties` into this class's own Flyway configuration,
+  also `@Profile("!phase1-mysql")`-gated.
+- **`LegacyPersistenceConfig`** (`@Profile("phase1-mysql")`, new) — a
+  MariaDB `DataSource` built the same way `AbstractLegacyMySqlTest`
+  already proves out (promoting that test-only connection logic to
+  production configuration, not inventing a new one),
+  `@EnableJpaRepositories(basePackages = "com.workin.legacy", transactionManagerRef = "legacyTransactionManager", ...)`
+  wired to the already-built `TenantAwareJpaTransactionManager` as the
+  `PlatformTransactionManager`, `@EntityScan("com.workin.legacy")`. **No
+  Flyway ownership of any MariaDB schema whatsoever (amended — broader
+  than the original proposal).** The vendored legacy schema itself was
+  already out of scope (Phase 1 never migrates legacy's own tables —
+  `check_legacy_schema_drift.py` is what keeps it honest instead); the
+  amendment extends the same rule to Phase-1-owned tables
+  (`legacy_refresh_tokens`) — **no `db/migration/legacy` Flyway location
+  is introduced by this ADR.** Phase 1 treats the entire MariaDB schema,
+  including its own additions, as an external contract for now.
+  Schema-drift verification/self-tests stay (`check_legacy_schema_drift.py`
+  for the vendored tables; an equivalent self-test obligation for
+  `legacy_refresh_tokens`'s shape), but *how* `legacy_refresh_tokens`
+  gets created against a real, non-test MariaDB instance is explicitly
+  **not decided by this ADR** and needs its own, separately-approved
+  mechanism before `phase1-mysql` can run against anything beyond a test
+  container that applies `phase1_extensions.schema.sql` directly. This
+  does not block the login endpoint or this ADR's own scope, since every
+  environment `phase1-mysql` runs in today (tests, the end-to-end proof
+  this ADR requires) already applies that file outside the application.
 
 **4. Component scanning stays `com.workin.backend`'s full tree under the
 default profile** (`PostgresPersistenceConfig`'s `@Profile("!phase1-mysql")`
