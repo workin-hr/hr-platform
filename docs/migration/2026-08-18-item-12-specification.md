@@ -5,6 +5,10 @@
 **Specification ready for approval. D-1 through D-6 were all settled by the
 repository owner on 2026-08-18.**
 
+**Amended 2026-08-18 by D-045 and D-046**, after discovery for Wave 12.1
+disproved two of this document's own assumptions — see §2.1. The build order,
+PR boundaries and every settled decision below are otherwise unchanged.
+
 **No implementation has been done, and none may begin** until this specification
 is approved. Wave 12.1 does not start before then.
 
@@ -105,6 +109,48 @@ Already merged and proven against real MariaDB (items 1–11, PR #100/#101):
 
 These are measured facts, not hypotheses. Each is reproducible from the
 vendored schema and the Java sources.
+
+### 2.1 — Two of this specification's own assumptions were disproven
+
+Recorded here rather than silently edited away, because both were written into
+the acceptance proof and both were caught by the §10 execution rule working as
+intended — before any code was written.
+
+**A. `can_job_titles` does not gate anything (D-045).** §9 originally specified
+`LegacyHrPermissionEnforcer` requiring `can_job_titles` as a step in the Wave
+12.1 evidence chain. Legacy never enforces that flag. Enforcement lives in
+helper wrappers (`require_company_settings_access` → `require_hr_permission`),
+called at **22 sites across 8 modules**, and only **two of the seventeen
+`can_*` flags are ever enforced**: `can_company_settings` and `can_employees`.
+The other fifteen — `can_job_titles` among them — are client-facing UI data for
+the desktop menu. Implementing the gate as specified would have **added**
+authorization legacy does not have, rejecting users legacy admits.
+
+D-044 had already required exactly this check ("each one's enforcement... must
+be checked against what legacy's own equivalent endpoint actually does... so
+parity isn't assumed"); this specification failed to apply its own governing
+decision. D-045 promotes that Follow-up to a binding per-endpoint checklist
+item.
+
+**B. The real guard stack is three checks larger, and Phase 1 has none of
+them (D-045).** Every legacy endpoint runs `requireAuth()`, which enforces JWT
+presence, then `token_version` against `employees.token_version` (single active
+session, 401 `SESSION_REPLACED`), then role membership (403
+`FORBIDDEN_INSUFFICIENT_ROLE`) — followed by `requireCompanyActive()` (403
+`COMPANY_ACCOUNT_NOT_ACTIVE`). Phase 1's JWT carries `membership_id`/`tenant_id`
+with **no role claim and no `token_version` enforcement**. Claiming endpoint
+parity without these would weaken authorization in the opposite direction:
+admitting requests legacy rejects. They become prerequisites P-7, P-8 and P-9.
+
+**C. `job_titles` is not an isolated module (D-046).** Four of its five
+endpoints carry three joins each, returning `department_name` and a
+`branches_summary` `GROUP_CONCAT` over `department_branches` → `branches`. It
+cannot reach parity without `departments`, `branches` and `department_branches`
+— the last needing P-1c, scheduled for Wave 2. Wave 12.1's module is therefore
+**`attendance_exception_types`**, which is single-table for list/one/create/
+update, carries a direct `company_id`, and still exercises an ungated read path,
+a genuinely gated write path (`can_company_settings`), role-conditional
+visibility, search and pagination.
 
 ### F-1 — The single-condition tenant filter does not generalise (blocking)
 
@@ -296,6 +342,9 @@ each is why a table-by-table order would be wrong.
 | **P-4** | **Coverage guard extension** — `TenantFilterCoverageTest` must require every tenant-owned entity to declare *exactly one* named policy (P-1a/P-1b/P-1c) and still fail closed | every module | Otherwise the guard silently accepts an unfiltered derived-tenancy entity, or one carrying a policy that does not match its columns. |
 | **P-5** | **Employee/company column completion** — extend `LegacyEmployee` / `LegacyCompany` to the columns endpoints actually return | most modules | F-5. |
 | **P-6** | **Parity harness** — a reusable way to assert a Java response equals the legacy PHP endpoint's shape | every module | Otherwise "contract parity" is asserted per-PR by eye. |
+| **P-7** | **`token_version` session-replacement validation** — the authenticated employee's token claim must equal `employees.token_version`, else 401 `SESSION_REPLACED` | every authenticated endpoint | D-045. Legacy's single-active-session guarantee. Phase 1 maps the column but never checks it, so every legacy endpoint would admit a replaced session. |
+| **P-8** | **Legacy role authorization** — a role claim on the legacy JWT and a per-endpoint allowed-roles check, else 403 `FORBIDDEN_INSUFFICIENT_ROLE` | every endpoint with a role list | D-045. Phase 1's JWT carries no role claim at all. |
+| **P-9** | **Active-company validation** — `companies.status = ACTIVE`, else 403 `COMPANY_ACCOUNT_NOT_ACTIVE` | every authenticated endpoint | D-045. Applied by `requireCompanyActive()` on every endpoint examined. |
 
 ---
 
@@ -350,8 +399,8 @@ provability on real MariaDB.
 
 | Wave | Content | Rationale |
 |---|---|---|
-| **0** | `job_titles` end-to-end + P-2, P-3, P-6 | Smallest real business module that exercises the whole path. Direct `company_id`, so it needs **no** new tenancy mechanism; `can_job_titles` already exists; 5 endpoints; one `tinyint(1)` and one timestamp. Closes the PR #101 evidence gap (§9) at the earliest possible point and fixes the module template before it is copied 18 times. |
-| **1** | `branches`, `departments` (+`department_branches`), `shifts`, `exception_types`, `request_types`, `company_official_holidays` | All direct-`company_id` CRUD masters reusing the Wave 0 template unchanged. 32 endpoints. Every later wave has FKs into these. `department_branches` is **not** employee-derived; it needs P-1c and moves to Wave 2 alongside the tenancy policies. |
+| **0** | `attendance_exception_types` end-to-end + P-2, P-3, P-6, **P-7, P-8, P-9** | **Amended by D-046** (was `job_titles`, which needs three joins into Wave 1/2 tables — §2.1C). Single-table for list/one/create/update with a direct `company_id`, so it needs no new tenancy mechanism, yet still exercises an ungated read path, a gated write path whose legacy counterpart genuinely requires `can_company_settings`, role-conditional visibility, search and pagination. Carries the three new request guards because every later module needs them. Closes the PR #101 evidence gap (§9) at the earliest possible point and fixes the module template before it is copied 18 times. |
+| **1** | `branches`, `departments`, `shifts`, `job_titles` (rescheduled here by D-046, after its join targets exist), `request_types`, `company_official_holidays` | All direct-`company_id` CRUD masters reusing the Wave 0 template unchanged. 32 endpoints. Every later wave has FKs into these. `department_branches` is **not** employee-derived; it needs P-1c and moves to Wave 2 alongside the tenancy policies. |
 | **2** | **P-1a + P-1b + P-1c + P-4**, then `employees` + `hr_employees` with P-5, and `department_branches` | The tenancy policies gate everything after. Landing them with `employees` is deliberate: `employees` is the join target of P-1b, so the mechanism and its join target are proven together. `department_branches` lands here because it is the sole P-1c consumer. 17 endpoints. |
 | **3** | `attendance` (+`exception_types` consumers), `employee_schedules`, `employee_shift_assignments` | First derived-tenancy consumers. `attendance` is the largest single module (15 endpoints) and the richest calculation logic to reuse. |
 | **4** | `requests`, `leave_balances` | Coupled by the approval side effect on `used_days`. 17 endpoints. `approver_id` vs `approver_membership_id` is resolved here. |
@@ -372,7 +421,7 @@ ends green on CI.
 
 | PR | Branch | Contents | Tests that must pass before merge |
 |---|---|---|---|
-| 12.1 | `phase1/item12-job-titles-first-module` | P-2, P-3, P-6, `LegacyJobTitle` + repository + service + controller under `/api/legacy/job_titles/**`; deletes `LegacyIsolationProbeController` | Real-MariaDB adapter test; **full-path E2E** (login → JWT → server-side tenant re-derivation → `TenantScope`/filter binding → `can_job_titles` → real repository → MariaDB) per §9; cross-tenant denial; permission-denied (403); `phase1-mysql` off ⇒ default profile unaffected; **§10.1 applied strictly to all five legacy `job_titles` endpoints** before 12.1 is called complete |
+| 12.1 | `phase1/item12-attendance-exception-types` | P-2, P-3, P-6, **P-7, P-8, P-9**, `LegacyExceptionType` + repository + service + controller under `/api/legacy/attendance_exception_types/**`; re-points the isolation proofs and deletes `LegacyIsolationProbeController` | Real-MariaDB adapter test; **full-path E2E** per §9; each guard proven independently — replaced session (401), insufficient role (403), inactive company (403), missing `can_company_settings` on a write (403); cross-tenant denial; `phase1-mysql` off ⇒ default profile unaffected; **§10.1 applied strictly to all five legacy endpoints** before 12.1 is called complete |
 | 12.2 | `phase1/item12-tenancy-policies` | **Standalone security-mechanism PR** (owner-accepted 2026-08-18). P-1a, P-1b, P-1c and P-4 only — no modules. Corrects `TenantFilter`'s disproven javadoc claim (U-1) | Each policy returns zero rows unscoped (fail-closed) — asserted per policy, not once; coverage guard fails the build when a tenant-owned entity declares no policy **or the wrong one for its columns**, verified against the mistake as `TenantFilterCoverageTest` was; forged-claim isolation test extended to one P-1b table and to `department_branches`; **index and query-plan verification (D-2) — a true merge gate.** `EXPLAIN` evidence on the high-volume derived paths (`attendance`, `payslips`) against an indexed `employees(company_id)`, recorded in the PR. An unacceptable plan is resolved **inside 12.2 before merge** — by an evidence-backed index or a revised policy implementation — never by merging the mechanism and carrying performance correctness as later debt |
 | 12.3 | `phase1/item12-org-masters` | `branches`, `departments`, `shifts`, `exception_types`, `request_types`, `company_official_holidays` (all direct-tenancy, P-1a) | Per-module adapter + E2E parity; FK integrity across the org set; the `departments ↔ employees` cycle mapped id-only |
 | 12.4 | `phase1/item12-employees` | P-5 + `employees`, `hr_employees`, and `department_branches` (sole P-1c consumer) | Column-completion parity vs legacy payload; zero-date rows readable; P-1b proven through its join target; P-1c proven on `department_branches` |
@@ -395,36 +444,49 @@ than leaking item 13 schema into item 12.
 
 ## 9. Closing the PR #101 evidence gap, in PR 12.1
 
-The gap, as item 9/10/11 recorded it: every isolation and permission proof so
+The gap, as items 9/10/11 recorded it: every isolation and permission proof so
 far terminates at a **test-only probe controller**
-(`LegacyIsolationProbeController`), because no real legacy business endpoint
-exists. Nothing yet proves the composed path end to end.
+(`LegacyIsolationProbeController`, in `src/test`), because no real legacy
+business endpoint exists. Nothing yet proves the composed path end to end.
 
-`job_titles` closes it at the first opportunity because it needs no new
-mechanism: direct `company_id`, an existing `can_job_titles` flag, and 5
-endpoints.
+`attendance_exception_types` closes it (D-046): single-table, direct
+`company_id`, and a write path whose legacy counterpart genuinely enforces
+`can_company_settings` (D-045).
 
-The proof obligation for PR 12.1 — one test, real HTTP, real MariaDB,
-`phase1-mysql` active, **no probe controller anywhere in the path**:
+The proof obligation for PR 12.1 — real HTTP, real MariaDB, `phase1-mysql`
+active, **no probe controller anywhere in the path**:
 
 1. `POST /api/legacy/auth/login_employee` with seeded legacy credentials →
-   a real JWT.
-2. That JWT on `GET /api/legacy/job_titles` → `legacySecurityFilterChain`
-   authenticates it.
-3. `LegacyTenantContextService` re-derives the tenant from the employee row,
+   a real JWT carrying the employee's role and `token_version`.
+2. That JWT on `GET /api/legacy/attendance_exception_types` →
+   `legacySecurityFilterChain` authenticates it.
+3. **P-7** — the token's `token_version` matches `employees.token_version`.
+4. **P-8** — the role satisfies the endpoint's allowed-roles list (for list/one
+   legacy allows any authenticated employee; for create/update/delete,
+   `COMPANY_ADMIN` or `HR`).
+5. **P-9** — the employee's company is `ACTIVE`.
+6. `LegacyTenantContextService` re-derives the tenant from the employee row,
    not from the token claim.
-4. `TenantAwareJpaTransactionManager` binds the filter for the transaction.
-5. `LegacyHrPermissionEnforcer` requires `can_job_titles`.
-6. `LegacyJobTitleRepository` returns only that company's rows.
+7. `TenantAwareJpaTransactionManager` binds the tenant filter for the
+   transaction.
+8. On writes only, `LegacyHrPermissionEnforcer` requires
+   `can_company_settings` — because legacy's create/update/delete do
+   (`require_company_settings_access`). **List and one carry no permission
+   gate, and Phase 1 must not add one.**
+9. `LegacyExceptionTypeRepository` returns only that company's rows.
 
-Plus the three negative cases on the same real endpoint: a forged `tenant_id`
-claim reads zero rows; an employee with `can_job_titles = 0` gets 403; a second
-company's job titles are never visible.
+Negative cases on the same real endpoint, each proven independently: a forged
+`tenant_id` claim reads zero rows; a stale `token_version` yields 401; an
+`EMPLOYEE`-role token yields 403 on create; an inactive company yields 403; an
+employee with `can_company_settings = 0` yields 403 on write but **succeeds on
+list** (the divergence a module-named gate would have hidden); a second
+company's rows are never visible.
 
-Once this passes, `LegacyIsolationProbeController` should be deleted in the same
-PR — its purpose is served.
-
----
+Once these pass, `LegacyTenantContextIsolationTest` and the permission proof are
+re-pointed at this endpoint and `LegacyIsolationProbeController` is deleted in
+the same PR. Per D-045's Follow-up, `LegacyHrPermissionEnforcerEndToEndTest`
+must not survive in a form that asserts `CAN_EMPLOYEES` on an endpoint whose
+legacy counterpart does not enforce it.
 
 ## 10. Parity tests required at every boundary
 
@@ -508,7 +570,14 @@ owner. Nothing below is left to implementer discretion.
 | — | Should PR 12.2 be a standalone security-mechanism PR? | **Yes.** And direct tenancy, employee-derived tenancy, and the `department_branches` case are three explicitly named policies (P-1a/P-1b/P-1c), not one generic filter. |
 | — | Status of U-2 | **Promoted to a binding execution rule** — see §10. |
 
-**Gate**: Wave 12.1 does not begin until this specification is approved.
+### 12.1 Opened by Wave 12.1 discovery — needed before PR 12.1 implements writes
+
+| # | Decision | Options | Recommendation |
+|---|---|---|---|
+| **D-7** | `exception_type_name_exists()` checks name uniqueness **globally across every company** — no `company_id` predicate. One tenant's name blocks another's, and the 409 leaks that another tenant's row exists. | **(a)** Reproduce it — strict parity (ADR-0011), but it requires deliberately bypassing the tenant filter to read across tenants, contradicting ADR-0012's fail-closed model. **(b)** Scope uniqueness to the company — an accepted divergence under §10.1, and a tenant-isolation fix. | **(b)**, recorded as an explicit accepted divergence. Reproducing a cross-tenant read to preserve a defect would make ADR-0012's one-enforcement-point model conditional, and the observable difference is narrow: a name another tenant already uses stops returning 409. |
+
+**Gate**: Wave 12.1 does not begin until this specification is approved, and
+its create/update paths do not begin until D-7 is settled.
 
 ---
 
