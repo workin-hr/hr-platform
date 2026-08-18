@@ -2,7 +2,11 @@
 
 ## Status
 
-**Proposed — awaiting owner approval. No implementation has been done.**
+**Specification proposed. D-1 and D-4 were settled by the repository owner on
+2026-08-18; D-2, D-3, D-5 and D-6 remain open.**
+
+**No implementation has been done, and none may begin** until this specification
+and the four remaining decisions are explicitly approved.
 
 This is a planning artifact, per this repository's [`CLAUDE.md`](../../CLAUDE.md)
 boundary. It specifies punch-list item 12
@@ -59,7 +63,7 @@ Tenancy column below is the single most important axis — see finding F-1.
 | 8 | `RequestType` | `requests` | `request_types` | direct `company_id` | 8 / 9 | `request_types` (5) |
 | 9 | `OfficialHoliday` | `holidays` | `company_official_holidays` | direct `company_id` | 5 / 5 | `company_official_holidays` (5) |
 | 10 | `PayrollBatch` | `payroll` | `payroll_batches` | direct `company_id` | 7 / 8 | `payroll_batches` (10) |
-| 11 | `CompanySettings` | `companysettings` | `company_settings` | direct `company_id` | 8 / 4 (EAV) | `company_settings` (6) |
+| 11 | `CompanySettings` | `companysettings` | `company_settings` | direct `company_id` | 8 / 4 (EAV) | `company_settings` (6) — **deferred to item 13 (D-4)** |
 | 12 | `DepartmentBranch` | `organization` | `department_branches` | **derived** via `department_id` | 4 / 2 | (within `departments`) |
 | 13 | `Attendance` | `attendance` | `attendance` | **derived** via `employee_id` | 9 / 10 | `attendance` (15) |
 | 14 | `EmployeeSchedule` | `schedule` | `employee_schedules` | **derived** via `employee_id` | 8 / 8 | `schedules` (3) |
@@ -74,6 +78,10 @@ Tenancy column below is the single most important axis — see finding F-1.
 **Totals**: 10 tables carry `company_id` directly, 1 is the tenant root, and
 **10 do not carry it at all**. The 19 legacy modules these tables serve hold
 **128 of the 200 legacy endpoint files**.
+
+Row 11 (`company_settings`, 6 endpoints) is listed for completeness of the
+shared-table analysis but is **out of Item 12's delivery scope** per D-4. Item
+12 therefore delivers 20 tables and 122 endpoint files.
 
 ### 1.2 What Item 12 can build on
 
@@ -184,7 +192,9 @@ row per company with six typed columns (`month_start_day`, `month_end_day`,
 legacy's is an EAV join to `company_setting_values` keyed by
 `setting_definition_id`. This is a genuine rewrite, not a remap, and it drags in
 two legacy-only tables (`setting_definitions`, `setting_allowed_values`) that
-are formally item 13 scope.
+are formally item 13 scope. **Resolved by D-4**: `company_settings` is removed
+from Item 12 and lands in item 13 with those two tables, rather than leaking
+item 13 schema into item 12.
 
 ### F-5 — The two hub tables have the largest column gaps
 
@@ -242,7 +252,32 @@ Mostly already solved by `LegacyValues`; listed so no boundary re-discovers them
 | `members` package (16 files, 7 membership-coupled) | **No legacy counterpart.** `tenant_memberships` / `membership_roles` / `membership_resource_scopes` do not exist in legacy. Not remappable — excluded from Item 12; its Phase 1 replacement is `hr_permissions` + `hr_employees`. |
 | `identity` (`Identity`, `RefreshToken`) | **Already replaced** by `LegacyEmployee` + `legacy_refresh_tokens` (item 9). |
 | `platformadmin` | **Out of scope** — no legacy equivalent, and it is not tenant-facing. |
-| `companysettings` | **Rewrite** (F-4). |
+| `companysettings` | **Deferred to item 13** (D-4). |
+
+### 4.1 The reuse constraint attached to D-1
+
+D-1 selects the `com.workin.legacy` port, but with an explicit limit recorded by
+the owner on 2026-08-18:
+
+> Phase 1 controllers, application orchestration, persistence, and security
+> wiring may be legacy-specific. Proven business logic must **not** be
+> duplicated. Where logic is genuinely storage-independent and parity-proven,
+> extract or reuse it as pure shared logic rather than maintaining two
+> implementations.
+
+Operationally, for every module PR:
+
+- **Legacy-specific, duplicated deliberately**: controller, route, DTO
+  assembly to the legacy payload shape, repository/entity, permission gate,
+  tenancy policy selection.
+- **Extracted and shared, never re-implemented**: calculation and rule logic
+  that takes values in and returns values out — payroll arithmetic, attendance
+  derivation, schedule expansion, leave accrual. These move to a pure,
+  dependency-free class both profiles call.
+- **The test that keeps this honest**: extracted logic keeps its existing
+  PostgreSQL-profile unit tests *and* gains legacy parity tests. If a rule needs
+  a second implementation to satisfy legacy, that is evidence of a behavioural
+  difference (U-2) and must be recorded, not forked silently.
 
 ---
 
@@ -253,10 +288,12 @@ each is why a table-by-table order would be wrong.
 
 | ID | Prerequisite | Unlocks | Why shared |
 |---|---|---|---|
-| **P-1** | **Derived tenant filter** — a second `@FilterDef` whose condition scopes via `employee_id IN (SELECT id FROM employees WHERE company_id = :companyId)`, plus the `department_id` variant | 10 of 21 tables | F-1. Without it `TenantFilterCoverageTest` fails the build on the first such entity. |
+| **P-1a** | **Direct tenancy policy** — today's `company_id = :companyId` condition, renamed and documented as *one* named policy rather than "the" filter | 10 of 21 tables | F-1. Making it explicitly one policy among several is what stops the next table being forced through it. |
+| **P-1b** | **Employee-derived tenancy policy** — a **separate** `@FilterDef` scoping via `employee_id IN (SELECT id FROM employees WHERE company_id = :companyId)` | 9 of 21 tables | F-1. Nine tables share this exact one-hop path. Owner decision 2026-08-18: a distinct policy, not a parameterisation of P-1a. |
+| **P-1c** | **`department_branches` — the remaining case, named and handled on its own** | 1 table | Reaches tenancy via `department_id → departments.company_id`, not `employee_id`. Owner decision 2026-08-18: identify it separately; do **not** force it through a generic filter. |
 | **P-2** | **Legacy authorization context** — a per-request record carrying `employeeId` + `companyId`, resolved from the authenticated legacy JWT, replacing `AuthorizationContext` | every module | F-3. Partially exists inside `LegacyTenantContextService`; needs promoting to a reusable request-scoped component. |
 | **P-3** | **Permission gate helper** — a uniform way for a legacy controller to require a `can_*` flag | every module | `LegacyHrPermissionEnforcer` exists; needs a call-site convention (D-044 forbids an annotation/interceptor shape). |
-| **P-4** | **Coverage guard extension** — `TenantFilterCoverageTest` must understand two filter kinds and still fail closed | every module | Otherwise the guard silently accepts an unfiltered derived-tenancy entity. |
+| **P-4** | **Coverage guard extension** — `TenantFilterCoverageTest` must require every tenant-owned entity to declare *exactly one* named policy (P-1a/P-1b/P-1c) and still fail closed | every module | Otherwise the guard silently accepts an unfiltered derived-tenancy entity, or one carrying a policy that does not match its columns. |
 | **P-5** | **Employee/company column completion** — extend `LegacyEmployee` / `LegacyCompany` to the columns endpoints actually return | most modules | F-5. |
 | **P-6** | **Parity harness** — a reusable way to assert a Java response equals the legacy PHP endpoint's shape | every module | Otherwise "contract parity" is asserted per-PR by eye. |
 
@@ -269,9 +306,12 @@ graph TD
   P2[P-2 legacy auth context] --> P3[P-3 permission gate]
   P2 --> W0
   P3 --> W0
-  W0[Wave 0: job_titles<br/>first real endpoint] --> P1[P-1 derived tenant filter]
+  W0[Wave 0: job_titles<br/>first real endpoint] --> P1B[P-1b employee-derived policy]
+  W0 --> P1A[P-1a direct policy, named]
   W0 --> P6[P-6 parity harness]
-  P1 --> P4[P-4 coverage guard]
+  P1A --> P4[P-4 coverage guard]
+  P1B --> P4
+  P1C[P-1c department_branches<br/>named separately] --> P4
   P4 --> D[derived-tenancy modules]
 
   W0 --> ORG[Wave 1: branches, departments,<br/>shifts, exception_types,<br/>request_types, holidays]
@@ -282,7 +322,8 @@ graph TD
   D --> PAY[Wave 5: salary_contracts, advances,<br/>penalties, payroll_batches, payslips]
   REQ --> PAY
   ATT --> PAY
-  PAY --> CS[Wave 6: company_settings EAV,<br/>companies/profile]
+  PAY --> CS[Wave 6: companies/profile completion]
+  CS -.-> I13[company_settings — deferred to item 13<br/>with setting_definitions +<br/>setting_allowed_values]
 ```
 
 Hard ordering constraints, from real foreign keys:
@@ -310,12 +351,12 @@ provability on real MariaDB.
 | Wave | Content | Rationale |
 |---|---|---|
 | **0** | `job_titles` end-to-end + P-2, P-3, P-6 | Smallest real business module that exercises the whole path. Direct `company_id`, so it needs **no** new tenancy mechanism; `can_job_titles` already exists; 5 endpoints; one `tinyint(1)` and one timestamp. Closes the PR #101 evidence gap (§9) at the earliest possible point and fixes the module template before it is copied 18 times. |
-| **1** | `branches`, `departments` (+`department_branches`), `shifts`, `exception_types`, `request_types`, `company_official_holidays` | All direct-`company_id` CRUD masters reusing the Wave 0 template unchanged. 32 endpoints. Every later wave has FKs into these. `department_branches` is the one derived case — take it here only if P-1 has landed, else defer it to Wave 2. |
-| **2** | **P-1 + P-4**, then `employees` + `hr_employees` with P-5 | P-1 is the gating mechanism for everything after. Landing it with `employees` is deliberate: `employees` is the join target of the derived filter, so the mechanism and its join target are proven together. 17 endpoints. |
+| **1** | `branches`, `departments` (+`department_branches`), `shifts`, `exception_types`, `request_types`, `company_official_holidays` | All direct-`company_id` CRUD masters reusing the Wave 0 template unchanged. 32 endpoints. Every later wave has FKs into these. `department_branches` is **not** employee-derived; it needs P-1c and moves to Wave 2 alongside the tenancy policies. |
+| **2** | **P-1a + P-1b + P-1c + P-4**, then `employees` + `hr_employees` with P-5, and `department_branches` | The tenancy policies gate everything after. Landing them with `employees` is deliberate: `employees` is the join target of P-1b, so the mechanism and its join target are proven together. `department_branches` lands here because it is the sole P-1c consumer. 17 endpoints. |
 | **3** | `attendance` (+`exception_types` consumers), `employee_schedules`, `employee_shift_assignments` | First derived-tenancy consumers. `attendance` is the largest single module (15 endpoints) and the richest calculation logic to reuse. |
 | **4** | `requests`, `leave_balances` | Coupled by the approval side effect on `used_days`. 17 endpoints. `approver_id` vs `approver_membership_id` is resolved here. |
 | **5** | `salary_contracts` → `advances` → `penalties` → `payroll_batches` → `payslips` | Strict FK/aggregation order. Highest business risk (money), so it goes after the pattern is proven six times. `salary_contracts.total` (F-6) and `advances`' 9 unmapped `deduction_*` columns are resolved here. 36 endpoints. |
-| **6** | `company_settings` (EAV rewrite), `companies`/`profile` completion | Genuinely different work (F-4), isolated last so it never blocks the mechanical waves. Pulls in `setting_definitions`/`setting_allowed_values`, which formally belong to item 13 — flagged as D-4. |
+| **6** | `companies` / `profile` column completion | The last hub-table gap (F-5). Isolated at the end so it never blocks the mechanical waves. **`company_settings` is no longer here** — D-4 moved it to item 13. |
 
 Rationale against criterion 2 (downstream unlock): Wave 0+1 unlock every later
 wave's FK targets; Wave 2's P-1 unlocks 10 tables at once. Against criterion 3
@@ -332,18 +373,23 @@ ends green on CI.
 | PR | Branch | Contents | Tests that must pass before merge |
 |---|---|---|---|
 | 12.1 | `phase1/item12-job-titles-first-module` | P-2, P-3, P-6, `LegacyJobTitle` + repository + service + controller under `/api/legacy/job_titles/**` | Real-MariaDB adapter test; **full-path E2E** (login → JWT → `TenantScope` → filter → `can_job_titles` → repository) per §9; cross-tenant denial; permission-denied (403); `phase1-mysql` off ⇒ default profile unaffected |
-| 12.2 | `phase1/item12-derived-tenant-filter` | P-1 + P-4 only — mechanism, no modules | Derived filter returns zero rows unscoped (fail-closed); coverage guard fails the build when a derived-tenancy entity is unfiltered (verified against the mistake, as `TenantFilterCoverageTest` was); forged-claim isolation test extended to a derived table |
-| 12.3 | `phase1/item12-org-masters` | `branches`, `departments`, `department_branches`, `shifts`, `exception_types`, `request_types`, `company_official_holidays` | Per-module adapter + E2E parity; FK integrity across the org set; the `departments ↔ employees` cycle mapped id-only |
-| 12.4 | `phase1/item12-employees` | P-5 + `employees`, `hr_employees` | Column-completion parity vs legacy payload; zero-date rows readable; derived filter proven through its join target |
+| 12.2 | `phase1/item12-tenancy-policies` | **Standalone security-mechanism PR** (owner-accepted 2026-08-18). P-1a, P-1b, P-1c and P-4 only — no modules. Corrects `TenantFilter`'s disproven javadoc claim (U-1) | Each policy returns zero rows unscoped (fail-closed) — asserted per policy, not once; coverage guard fails the build when a tenant-owned entity declares no policy **or the wrong one for its columns**, verified against the mistake as `TenantFilterCoverageTest` was; forged-claim isolation test extended to one P-1b table and to `department_branches` |
+| 12.3 | `phase1/item12-org-masters` | `branches`, `departments`, `shifts`, `exception_types`, `request_types`, `company_official_holidays` (all direct-tenancy, P-1a) | Per-module adapter + E2E parity; FK integrity across the org set; the `departments ↔ employees` cycle mapped id-only |
+| 12.4 | `phase1/item12-employees` | P-5 + `employees`, `hr_employees`, and `department_branches` (sole P-1c consumer) | Column-completion parity vs legacy payload; zero-date rows readable; P-1b proven through its join target; P-1c proven on `department_branches` |
 | 12.5 | `phase1/item12-attendance-schedules` | `attendance`, `employee_schedules`, `employee_shift_assignments` | Calculation-parity tests vs legacy; derived tenancy on three tables; timezone handling unchanged |
 | 12.6 | `phase1/item12-requests-leave-balances` | `requests`, `leave_balances` | Approval side effect on `used_days`; generated `remaining_days` read-only; `approver_id` mapping |
 | 12.7 | `phase1/item12-payroll-contracts-advances-penalties` | `salary_contracts`, `advances`, `penalties` | `total` generated-column read-only; `deduction_*` columns mapped; money arithmetic parity |
 | 12.8 | `phase1/item12-payroll-batches-payslips` | `payroll_batches`, `payslips` | End-to-end payroll run parity against a seeded legacy fixture; aggregation across four upstream tables |
-| 12.9 | `phase1/item12-company-settings-eav` | `company_settings` rewrite | EAV read/write parity; no reintroduction of legacy EAV into Phase 2's typed model |
+| 12.9 | `phase1/item12-companies-profile` | `companies` / `profile` column completion (F-5) | Legacy company payload parity; onboarding/status columns readable; tenant-root behaviour unchanged |
 
-PR 12.2 is deliberately mechanism-only: it is the one change that can silently
-weaken tenant isolation across ten tables, and it should be reviewable without
+PR 12.2 is deliberately mechanism-only, and the owner accepted it as a
+standalone security PR on 2026-08-18: it is the one change that can silently
+weaken tenant isolation across ten tables, and it must be reviewable without
 module noise around it.
+
+`company_settings` has **no PR in this list** — D-4 moved it to item 13, where
+it lands together with `setting_definitions` and `setting_allowed_values` rather
+than leaking item 13 schema into item 12.
 
 ---
 
@@ -382,6 +428,14 @@ PR — its purpose is served.
 
 ## 10. Parity tests required at every boundary
 
+**Execution rule (owner decision, 2026-08-18, from U-2).** Existing Java service
+logic is **not** assumed to match legacy PHP merely because the module already
+exists. Every module must establish behavioural parity against legacy evidence
+and MariaDB-backed tests before it counts as remapped. "The entity already
+existed" is not evidence; a cited PHP source location plus a passing
+MariaDB-backed parity test is. A module whose parity cannot be established is
+reported as such, not quietly marked done.
+
 Applies to each module PR, not just the first:
 
 - **Adapter-level**, against real MariaDB via `AbstractLegacyMySqlTest`: every
@@ -405,8 +459,8 @@ fact from hypothesis.
 
 | # | Assumption | Status |
 |---|---|---|
-| U-1 | `TenantFilter`'s "every tenant-owned table has `company_id`" | **Disproven** (F-1). The javadoc should be corrected as part of PR 12.2. |
-| U-2 | Legacy business logic in PHP matches the Java service logic built against the redesigned schema | **Unproven.** Java services were written for the target model, not transcribed from PHP. Parity must be established per module, not assumed — this is the largest schedule risk in Item 12. |
+| U-1 | `TenantFilter`'s "every tenant-owned table has `company_id`" | **Disproven** (F-1), and accepted as disproven by the owner on 2026-08-18. The javadoc is corrected in PR 12.2, which replaces the single filter with three named policies. |
+| U-2 | Legacy business logic in PHP matches the Java service logic built against the redesigned schema | **Unproven, and promoted to a binding execution rule** (§10, owner decision 2026-08-18). Java services were written for the target model, not transcribed from PHP. Still the largest schedule risk in Item 12. |
 | U-3 | Response shapes of current `/api/tenant/**` DTOs match legacy PHP payloads | **Unproven**, and unlikely by default. Needs P-6. |
 | U-4 | The 24 known zero-date rows are the only defective legacy data | **Partially proven** (`hr-legacy#28/#29` inventory); not re-verified since. |
 | U-5 | One-hop `employee_id → employees.company_id` is sufficient for all 9 derived tables | **Proven structurally** from the schema; not proven for soft-deleted or cross-company-transferred employees. |
@@ -414,16 +468,28 @@ fact from hypothesis.
 
 ---
 
-## 12. Decisions required before implementation
+## 12. Decisions
+
+### 12.1 Settled by the repository owner, 2026-08-18
+
+| # | Decision | Outcome |
+|---|---|---|
+| **D-1** | Port into `com.workin.legacy`, or generalise the existing PostgreSQL-oriented beans to run under both profiles? (F-2) | **Port.** Preserves the clean profile boundary ADR-0013 established and keeps Phase 2's frozen code untouched (D-040). Constrained by §4.1: legacy-specific wiring may be duplicated, proven business logic may not — storage-independent, parity-proven logic is extracted and shared. |
+| **D-4** | `company_settings` needs `setting_definitions` + `setting_allowed_values`, formally item 13 scope. Pull them in, or defer? | **Removed from Item 12.** It lands in item 13 together with its two dependency tables, keeping that dependency intact rather than leaking item 13 schema into item 12. |
+| — | Should PR 12.2 be a standalone security-mechanism PR? | **Yes.** And direct tenancy, employee-derived tenancy, and the `department_branches` case are three explicitly named policies (P-1a/P-1b/P-1c), not one generic filter. |
+| — | Status of U-2 | **Promoted to a binding execution rule** — see §10. |
+
+### 12.2 Still open — required before Wave 0 may start
 
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
-| **D-1** | Port into `com.workin.legacy`, or generalise existing domain services to run under both profiles? (F-2) | **(a)** Port — duplicates service/controller shells, keeps profiles cleanly separated, matches items 9–11. **(b)** Generalise — extract persistence ports so one service serves both; less duplication, but touches frozen Phase 2 code and risks regressing the default profile. | **(a) Port.** It preserves the "full profile swap, not simultaneous" property ADR-0013 accepted, and keeps Phase 2's frozen code untouched (D-040). Reuse comes from moving calculation logic, not from sharing live beans. |
-| **D-2** | Derived tenancy: Hibernate `@Filter` subquery (P-1), or a mandatory repository-level join? | Filter keeps enforcement in one place and preserves the fail-closed sentinel; a subquery per read has a cost on large tables (`attendance`, `payslips`). | Filter, with an indexed `employees(company_id)` check measured in PR 12.2 before it is copied. |
-| **D-3** | `created_at` / `updated_at` on 12 legacy tables have no Java counterpart. Map read-only, maintain on write, or ignore? | Legacy PHP sets them. Ignoring them means Phase 1 writes rows legacy tooling sees as never updated. | Maintain on write — but this is a behavioural decision, not mine to make. |
-| **D-4** | `company_settings` (Wave 6) requires `setting_definitions` + `setting_allowed_values`, which are formally item 13 scope. Pull them into Item 12, or defer `company_settings` to item 13? | | Defer `company_settings` to item 13 and drop Wave 6 from Item 12, so Item 12 stays "remap what is built". |
-| **D-5** | Is `members` (16 files, ADR-0010 membership model) formally excluded from Phase 1, or does it need a legacy-shaped replacement? | | Exclude explicitly and record it, so its absence is a decision rather than an omission. |
-| **D-6** | Acceptance threshold: what proves a module "done"? | ADR-0011 lists this as an open question ("what acceptance threshold ends Phase 1"). | Per-module: all parity tests in §10 green, and the legacy module's endpoint count fully served. |
+| **D-2** | Derived tenancy: Hibernate `@Filter` subquery (P-1b), or a mandatory repository-level join? | Filter keeps enforcement in one place and preserves the fail-closed sentinel; a subquery per read has a cost on large tables (`attendance`, `payslips`). | Filter, with an indexed `employees(company_id)` check measured in PR 12.2 before it is copied. |
+| **D-3** | `created_at` / `updated_at` on 12 legacy tables have no Java counterpart. Map read-only, maintain on write, or ignore? | Legacy PHP sets them. Ignoring them means Phase 1 writes rows legacy tooling sees as never updated. | Maintain on write — a behavioural decision, not mine to make. |
+| **D-5** | Is `members` (16 files, ADR-0010 membership model) formally excluded from Phase 1, or does it need a legacy-shaped replacement? | Its four backing tables do not exist in legacy. | Exclude explicitly and record it, so its absence is a decision rather than an omission. |
+| **D-6** | Acceptance threshold: what proves a module "done"? | ADR-0011 lists this as an open question. | Per-module: all §10 parity tests green, the execution rule satisfied with cited legacy evidence, and the legacy module's endpoint count fully served. |
+
+**Gate**: no Wave 0 implementation begins until this specification is approved
+and D-2, D-3, D-5 and D-6 are settled.
 
 ---
 
