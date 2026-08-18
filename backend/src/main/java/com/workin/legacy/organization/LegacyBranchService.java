@@ -26,7 +26,7 @@ import com.workin.legacy.employees.LegacyEmployeeRepository;
 /**
  * Wave 12.3a's six endpoints, ported behaviour-for-behaviour from {@code
  * hr-legacy/apis/api/branches/*.php}, with D-056's delete pre-check and
- * one flagged, deliberate divergence -- see {@link #update} below.
+ * one explicitly approved security divergence -- see {@link #update} below.
  */
 @Service
 public class LegacyBranchService {
@@ -110,7 +110,7 @@ public class LegacyBranchService {
 	}
 
 	/**
-	 * {@code update.php}, with one flagged divergence.
+	 * {@code update.php}, with the D-060 approved security divergence.
 	 *
 	 * <h2>Not reproduced: a confirmed cross-tenant read in legacy's own {@code update.php}</h2>
 	 * <p>Legacy's update has <b>no existence/ownership check at all</b>
@@ -125,20 +125,11 @@ public class LegacyBranchService {
 	 * directly against the source twice this conversation; not a
 	 * misreading.
 	 *
-	 * <p>This is not treated as ordinary business behaviour to preserve
-	 * under D-058 -- it is a tenant-isolation defect, the same category
-	 * ADR-0011's recorded exception for legacy's 10-year JWT already
-	 * covers ("strict contract parity governs storage and business
-	 * behaviour... it does not extend to reproducing a known weak
-	 * security posture"). Building a deliberate cross-tenant leak into
-	 * new code would also contradict this module's own P-1a tenant
-	 * filter and every isolation test this codebase runs elsewhere.
-	 * <b>Flagged for the repository owner's explicit confirmation, not
-	 * silently decided</b> -- see this PR's report. Implemented instead:
-	 * a company-scoped existence check up front, 404 {@code
-	 * branch_not_found} if the id does not belong to the caller's
-	 * company, matching every other endpoint's own ownership-check shape
-	 * in this same file.
+	 * <p>D-060 explicitly approves this security divergence. A company-scoped
+	 * lookup returns the same 404 branch_not_found for both a nonexistent id
+	 * and an id owned by another tenant. It deliberately reproduces neither
+	 * legacy path: no cross-tenant 200 response and no public_row(null) 500.
+	 * The uniform response prevents disclosure and id enumeration.
 	 *
 	 * <h2>{@code isset()} semantics, not {@code array_key_exists()}</h2>
 	 * <p>Unlike Wave 12.1's {@code exception_types} update (which used
