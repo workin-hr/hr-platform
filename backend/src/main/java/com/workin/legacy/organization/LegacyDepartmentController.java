@@ -4,6 +4,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -13,9 +15,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.auth.LegacyRequestGuard;
@@ -38,12 +40,12 @@ public class LegacyDepartmentController {
 	}
 
 	@GetMapping
-	public List<LegacyDepartmentView> list(
-			@RequestParam(name = "branch_id", required = false) String rawBranchId,
-			@RequestParam(name = "branch_ids", required = false) String branchIds) {
+	public List<LegacyDepartmentView> list(HttpServletRequest request) {
 		LegacyRequestContext context = guard();
-		List<String> ids = branchIds == null || branchIds.trim().isEmpty()
-				? List.of() : Arrays.asList(branchIds.trim().split(","));
+		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
+		Object rawBranchId = query.value("branch_id");
+		String branchIds = LegacyValues.toPhpString(query.value("branch_ids")).trim();
+		List<String> ids = branchIds.isEmpty() ? List.of() : Arrays.asList(branchIds.split(","));
 		return departmentService.list(context.companyId(), LegacyValues.toPhpLong(rawBranchId), ids);
 	}
 

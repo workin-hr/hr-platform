@@ -259,6 +259,45 @@ class LegacyDepartmentEndToEndTest {
 	}
 
 	@Test
+	void bracketArrayBranchIdUsesPhpArrayCastInsteadOfSpringScalarBinding() {
+		for (String query : List.of(
+				"?branch_id%5B%5D=18811",
+				"?branch_id%5B%5D=18811&branch_id%5B%5D=18812",
+				"?branch_id%5B%5D=abc&branch_id%5B%5D=18811branch",
+				"?branch_id%5B%5D=")) {
+			assertThat(departmentNames(DEPARTMENTS + query)).isEmpty();
+		}
+	}
+
+	@Test
+	void duplicateAndMixedBranchIdAssignmentsFollowPhpParseStrPrecedence() {
+		List<String> branch18812 = departmentNames(DEPARTMENTS + "?branch_id=18812");
+
+		assertThat(departmentNames(DEPARTMENTS + "?branch_id=18811&branch_id=18812"))
+				.containsExactlyElementsOf(branch18812);
+		assertThat(departmentNames(DEPARTMENTS + "?branch_id=18811&branch_id%5B%5D=18812"))
+				.isEmpty();
+		assertThat(departmentNames(DEPARTMENTS + "?branch_id%5B%5D=18811&branch_id=18812"))
+				.containsExactlyElementsOf(branch18812);
+	}
+
+	@Test
+	void branchIdsArrayAndMixedShapesUsePhpExplicitStringCast() {
+		List<String> unfiltered = departmentNames(DEPARTMENTS);
+		List<String> branch18812 = departmentNames(DEPARTMENTS + "?branch_ids=18812");
+
+		for (String query : List.of(
+				"?branch_ids%5B%5D=18811",
+				"?branch_ids%5B%5D=18811&branch_ids%5B%5D=18812",
+				"?branch_ids%5B%5D=abc",
+				"?branch_ids=18811&branch_ids%5B%5D=18812")) {
+			assertThat(departmentNames(DEPARTMENTS + query)).containsExactlyElementsOf(unfiltered);
+		}
+		assertThat(departmentNames(DEPARTMENTS + "?branch_ids%5B%5D=18811&branch_ids=18812"))
+				.containsExactlyElementsOf(branch18812);
+	}
+
+	@Test
 	void departmentOneIncludesInactiveLinkedBranchesUnlikeList() {
 		LegacyDepartmentView row = get(DEPARTMENTS + "/18850", ADMIN_1, LegacyDepartmentView.class).getBody();
 		assertThat(row.branchNames()).isEqualTo("Alpha Branch, Inactive Branch");
