@@ -142,6 +142,27 @@ class LegacyValuesTest {
 		assertThat(LegacyValues.phpArrayValues("not-an-array")).isEmpty();
 	}
 
+	@Test
+	void phpStringCastPreservesJsonScalarSemantics() {
+		assertThat(LegacyValues.toPhpString(null)).isEmpty();
+		assertThat(LegacyValues.toPhpString(false)).isEmpty();
+		assertThat(LegacyValues.toPhpString(true)).isEqualTo("1");
+		assertThat(LegacyValues.toPhpString(42)).isEqualTo("42");
+		assertThat(LegacyValues.toPhpString(7.0)).isEqualTo("7");
+		assertThat(LegacyValues.toPhpString(new BigDecimal("7.25"))).isEqualTo("7.25");
+		assertThat(LegacyValues.toPhpString(0.0000001d)).isEqualTo("1.0E-7");
+		assertThat(LegacyValues.toPhpString(" Normal ")).isEqualTo(" Normal ");
+		assertThat(LegacyValues.toPhpString("")).isEmpty();
+	}
+
+	@Test
+	void phpStringCastUsesArrayRatherThanJavaCollectionOrMapRendering() {
+		for (Object value : new Object[] {
+				new Object[0], new int[] {1}, List.of(), List.of("value"), Map.of("key", "value")}) {
+			assertThat(LegacyValues.toPhpString(value)).isEqualTo("Array");
+		}
+	}
+
 	// ---------- zero dates ----------
 
 	/**

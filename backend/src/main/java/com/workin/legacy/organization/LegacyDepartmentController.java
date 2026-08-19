@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.auth.LegacyRequestGuard;
 import com.workin.legacy.employees.LegacyEmployee;
@@ -38,12 +39,12 @@ public class LegacyDepartmentController {
 
 	@GetMapping
 	public List<LegacyDepartmentView> list(
-			@RequestParam(name = "branch_id", required = false) Long branchId,
+			@RequestParam(name = "branch_id", required = false) String rawBranchId,
 			@RequestParam(name = "branch_ids", required = false) String branchIds) {
 		LegacyRequestContext context = guard();
 		List<String> ids = branchIds == null || branchIds.trim().isEmpty()
 				? List.of() : Arrays.asList(branchIds.trim().split(","));
-		return departmentService.list(context.companyId(), branchId, ids);
+		return departmentService.list(context.companyId(), LegacyValues.toPhpLong(rawBranchId), ids);
 	}
 
 	@GetMapping("/{id}")

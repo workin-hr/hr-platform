@@ -2,6 +2,7 @@ package com.workin.legacy;
 
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -103,6 +104,46 @@ public final class LegacyValues {
 	}
 
 	/**
+	 * A JSON-decoded value converted like PHP's explicit {@code (string)} cast.
+	 *
+	 * <p>Null and false become the empty string, true becomes {@code "1"}, strings remain
+	 * unchanged, and JSON arrays/objects become {@code "Array"}. PHP also raises an
+	 * {@code E_WARNING} for that last conversion; D-068 explicitly treats warning display as
+	 * diagnostic behavior outside the Phase-1 business response contract while preserving the
+	 * converted value. Floating-point formatting follows the legacy runtime's default 14-digit
+	 * precision instead of Java collection or number {@code toString()} behavior.
+	 */
+	public static String toPhpString(Object raw) {
+		if (raw == null || Boolean.FALSE.equals(raw)) {
+			return "";
+		}
+		if (Boolean.TRUE.equals(raw)) {
+			return "1";
+		}
+		if (raw instanceof CharSequence sequence) {
+			return sequence.toString();
+		}
+		if (raw instanceof Collection<?> || raw instanceof Map<?, ?> || raw.getClass().isArray()) {
+			return "Array";
+		}
+		if (raw instanceof BigInteger integer) {
+			if (integer.compareTo(BigInteger.valueOf(Long.MAX_VALUE)) <= 0
+					&& integer.compareTo(BigInteger.valueOf(Long.MIN_VALUE)) >= 0) {
+				return integer.toString();
+			}
+			return phpFloatString(integer.doubleValue());
+		}
+		if (raw instanceof Byte || raw instanceof Short || raw instanceof Integer || raw instanceof Long) {
+			return raw.toString();
+		}
+		if (raw instanceof Number number) {
+			return phpFloatString(number.doubleValue());
+		}
+		throw new LegacyValueException(
+				"Unsupported JSON-decoded value for PHP string conversion: " + raw.getClass().getName());
+	}
+
+	/**
 	 * PHP {@code empty(...)} for request values produced by {@code json_decode(..., true)}.
 	 *
 	 * <p>Only null, false, numeric zero, the exact strings {@code ""}/{@code "0"}, and empty PHP
@@ -195,6 +236,39 @@ public final class LegacyValues {
 			// PHP treats NAN/INF as non-empty; finite JSON numbers never reach this fallback.
 			return number.doubleValue() == 0d;
 		}
+	}
+
+	private static String phpFloatString(double value) {
+		if (Double.isNaN(value)) {
+			return "NAN";
+		}
+		if (Double.isInfinite(value)) {
+			return value > 0 ? "INF" : "-INF";
+		}
+
+		String formatted = String.format(Locale.ROOT, "%.14G", value);
+		int exponentMarker = formatted.indexOf('E');
+		if (exponentMarker < 0) {
+			return trimFractionZeros(formatted, false);
+		}
+
+		String mantissa = trimFractionZeros(formatted.substring(0, exponentMarker), true);
+		int exponent = Integer.parseInt(formatted.substring(exponentMarker + 1));
+		return mantissa + "E" + (exponent >= 0 ? "+" : "") + exponent;
+	}
+
+	private static String trimFractionZeros(String value, boolean retainScientificFraction) {
+		if (!value.contains(".")) {
+			return retainScientificFraction ? value + ".0" : value;
+		}
+		int end = value.length();
+		while (end > 0 && value.charAt(end - 1) == '0') {
+			end--;
+		}
+		if (end > 0 && value.charAt(end - 1) == '.') {
+			return retainScientificFraction ? value.substring(0, end) + "0" : value.substring(0, end - 1);
+		}
+		return value.substring(0, end);
 	}
 
 	/**

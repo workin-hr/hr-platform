@@ -3,12 +3,14 @@ package com.workin.legacy.organization;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import javax.sql.DataSource;
@@ -230,6 +232,30 @@ class LegacyDepartmentEndToEndTest {
 				DEPARTMENTS + "?branch_id=18813", ADMIN_1, LegacyDepartmentView[].class).getBody();
 		assertThat(rows).extracting(LegacyDepartmentView::name).containsExactly("Mixed Active Links");
 		assertThat(rows[0].branchNames()).isEqualTo("Alpha Branch");
+	}
+
+	@Test
+	void branchIdQueryUsesPhpIntegerCoercionBeforeFiltering() {
+		List<String> unfiltered = departmentNames(DEPARTMENTS);
+		for (String query : List.of(
+				"?branch_id=abc",
+				"?branch_id=0",
+				"?branch_id=",
+				"?branch_id=-18811branch",
+				"?branch_id=-9223372036854775809overflow")) {
+			assertThat(departmentNames(DEPARTMENTS + query)).containsExactlyElementsOf(unfiltered);
+		}
+
+		List<String> branch18811 = departmentNames(DEPARTMENTS + "?branch_id=18811");
+		assertThat(departmentNames(DEPARTMENTS + "?branch_id=18811branch"))
+				.containsExactlyElementsOf(branch18811);
+		assertThat(departmentNames(DEPARTMENTS + "?branch_id=%20%2018811branch"))
+				.containsExactlyElementsOf(branch18811);
+		assertThat(departmentNames(DEPARTMENTS + "?branch_id=%2B18811branch"))
+				.containsExactlyElementsOf(branch18811);
+
+		assertThat(departmentNames(DEPARTMENTS + "?branch_id=9223372036854775808overflow"))
+				.isEmpty();
 	}
 
 	@Test
@@ -487,8 +513,17 @@ class LegacyDepartmentEndToEndTest {
 				employeeId, employeeId, companyId, "test-session", Map.of("role", role, "token_version", 1L));
 	}
 
+	private List<String> departmentNames(String path) {
+		ResponseEntity<LegacyDepartmentView[]> response = get(
+				path, ADMIN_1, LegacyDepartmentView[].class);
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		return java.util.Arrays.stream(response.getBody()).map(LegacyDepartmentView::name).toList();
+	}
+
 	private <T> ResponseEntity<T> get(String path, long employeeId, Class<T> type) {
-		return restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headersFor(tokenFor(employeeId))), type);
+		return restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + path), HttpMethod.GET,
+				new HttpEntity<>(headersFor(tokenFor(employeeId))), type);
 	}
 
 	private <T> ResponseEntity<T> post(String path, long employeeId, Map<String, Object> body, Class<T> type) {
