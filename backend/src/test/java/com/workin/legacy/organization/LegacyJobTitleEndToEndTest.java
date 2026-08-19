@@ -269,6 +269,29 @@ class LegacyJobTitleEndToEndTest {
 	}
 
 	@Test
+	void normalizedJobTitleQueryNamesApplyTheirCanonicalFilters() {
+		assertThat(jobTitleNames(JOB_TITLES + "?branch.id=18812"))
+				.containsExactlyElementsOf(jobTitleNames(JOB_TITLES + "?branch_id=18812"));
+		assertThat(jobTitleNames(JOB_TITLES + "?department+id=18841"))
+				.containsExactlyElementsOf(jobTitleNames(JOB_TITLES + "?department_id=18841"));
+	}
+
+	@Test
+	void keyedJobTitleQueryArraysRemainArrayShapedBeforeEndpointCasts() {
+		List<String> branch18812 = jobTitleNames(JOB_TITLES + "?branch_id=18812");
+		List<String> department18841 = jobTitleNames(JOB_TITLES + "?department_id=18841");
+
+		assertThat(jobTitleNames(JOB_TITLES + "?branch_id%5Bitem%5D=18812")).isEmpty();
+		assertThat(jobTitleNames(
+				JOB_TITLES + "?department_id%5Bitem%5D=18841&department_id%5Bother%5D=18851")).isEmpty();
+		assertThat(jobTitleNames(JOB_TITLES + "?branch_id=18811&branch_id%5Bitem%5D=18812")).isEmpty();
+		assertThat(jobTitleNames(JOB_TITLES + "?branch_id%5Bitem%5D=18811&branch_id=18812"))
+				.containsExactlyElementsOf(branch18812);
+		assertThat(jobTitleNames(JOB_TITLES + "?department_id%5Bitem%5D=18851&department_id=18841"))
+				.containsExactlyElementsOf(department18841);
+	}
+
+	@Test
 	void oneHidesInactiveAndForeignRows() {
 		assertThat(get(JOB_TITLES + "/18902", ADMIN_1, ApiErrorBody.class).getStatusCode().value()).isEqualTo(404);
 		assertThat(get(JOB_TITLES + "/18904", ADMIN_1, ApiErrorBody.class).getStatusCode().value()).isEqualTo(404);
