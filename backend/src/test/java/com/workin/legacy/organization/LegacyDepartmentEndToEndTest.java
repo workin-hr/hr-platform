@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.InputStream;
 import java.net.URI;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -21,6 +22,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -62,6 +64,9 @@ class LegacyDepartmentEndToEndTest {
 
 	@Autowired
 	private JwtService jwtService;
+
+	@LocalServerPort
+	private int serverPort;
 
 	@Autowired
 	@Qualifier("legacyDataSource")
@@ -256,6 +261,17 @@ class LegacyDepartmentEndToEndTest {
 
 		assertThat(departmentNames(DEPARTMENTS + "?branch_id=9223372036854775808overflow"))
 				.isEmpty();
+	}
+
+	@Test
+	void malformedPercentEncodingIsRejectedByTheHttpServerPerD070() throws Exception {
+		for (String query : List.of(
+				"?branch_id=%",
+				"?branch_id=%ZZ",
+				"?branch_id=%2",
+				"?branch_ids=%ZZ")) {
+			assertThat(rawGetStatus(DEPARTMENTS + query, ADMIN_1)).isEqualTo(400);
+		}
 	}
 
 	@Test
@@ -584,6 +600,22 @@ class LegacyDepartmentEndToEndTest {
 		return restTemplate.exchange(
 				URI.create(restTemplate.getRootUri() + path), HttpMethod.GET,
 				new HttpEntity<>(headersFor(tokenFor(employeeId))), type);
+	}
+
+	private int rawGetStatus(String path, long employeeId) throws Exception {
+		try (Socket socket = new Socket("127.0.0.1", serverPort)) {
+			socket.setSoTimeout(10_000);
+			String request = "GET " + path + " HTTP/1.1\r\n"
+					+ "Host: 127.0.0.1:" + serverPort + "\r\n"
+					+ "Authorization: Bearer " + tokenFor(employeeId) + "\r\n"
+					+ "Connection: close\r\n\r\n";
+			socket.getOutputStream().write(request.getBytes(StandardCharsets.ISO_8859_1));
+			socket.getOutputStream().flush();
+
+			String response = new String(socket.getInputStream().readAllBytes(), StandardCharsets.ISO_8859_1);
+			String[] statusParts = response.substring(0, response.indexOf("\r\n")).split(" ", 3);
+			return Integer.parseInt(statusParts[1]);
+		}
 	}
 
 	private <T> ResponseEntity<T> post(String path, long employeeId, Map<String, Object> body, Class<T> type) {
