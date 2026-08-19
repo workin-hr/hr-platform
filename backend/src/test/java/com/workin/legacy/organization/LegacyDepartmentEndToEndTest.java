@@ -254,6 +254,7 @@ class LegacyDepartmentEndToEndTest {
 
 	@Test
 	void adminWithNoHrPermissionsRowCanCreateDepartmentUsingLegacySnakeCaseKeys() throws Exception {
+		assertThat(queryLong("SELECT COUNT(*) FROM hr_permissions WHERE employee_id = " + ADMIN_1)).isZero();
 		ResponseEntity<LegacyDepartmentView> response = post(
 				DEPARTMENTS, ADMIN_1,
 				Map.of("name", "Created Department", "branch_ids", java.util.List.of(18812, 18811, 18811)),
