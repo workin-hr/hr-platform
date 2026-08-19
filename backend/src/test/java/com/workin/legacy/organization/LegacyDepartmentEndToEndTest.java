@@ -298,6 +298,27 @@ class LegacyDepartmentEndToEndTest {
 	}
 
 	@Test
+	void normalizedDepartmentQueryNamesApplyTheirCanonicalFilters() {
+		assertThat(departmentNames(DEPARTMENTS + "?branch.id=18811"))
+				.containsExactlyElementsOf(departmentNames(DEPARTMENTS + "?branch_id=18811"));
+		assertThat(departmentNames(DEPARTMENTS + "?branch+id=18812"))
+				.containsExactlyElementsOf(departmentNames(DEPARTMENTS + "?branch_id=18812"));
+		assertThat(departmentNames(DEPARTMENTS + "?branch.ids=18812"))
+				.containsExactlyElementsOf(departmentNames(DEPARTMENTS + "?branch_ids=18812"));
+	}
+
+	@Test
+	void keyedDepartmentQueryArraysRemainArrayShapedBeforeEndpointCasts() {
+		List<String> unfiltered = departmentNames(DEPARTMENTS);
+
+		assertThat(departmentNames(DEPARTMENTS + "?branch_id%5Bitem%5D=18811")).isEmpty();
+		assertThat(departmentNames(
+				DEPARTMENTS + "?branch_id%5Bitem%5D=18811&branch_id%5Bother%5D=18812")).isEmpty();
+		assertThat(departmentNames(DEPARTMENTS + "?branch_ids%5Bitem%5D=18811"))
+				.containsExactlyElementsOf(unfiltered);
+	}
+
+	@Test
 	void departmentOneIncludesInactiveLinkedBranchesUnlikeList() {
 		LegacyDepartmentView row = get(DEPARTMENTS + "/18850", ADMIN_1, LegacyDepartmentView.class).getBody();
 		assertThat(row.branchNames()).isEqualTo("Alpha Branch, Inactive Branch");
