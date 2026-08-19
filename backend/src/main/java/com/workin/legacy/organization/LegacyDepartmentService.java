@@ -96,14 +96,15 @@ public class LegacyDepartmentService {
 		if (rawName == null || String.valueOf(rawName).isEmpty()) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
 		}
-		Set<Long> branchIds = normalizePositiveIds(asCollection(value(body, "branchIds", "branch_ids")));
+		Set<Long> branchIds = normalizePositiveIds(
+				LegacyValues.phpArrayValues(value(body, "branchIds", "branch_ids")));
 		if (branchIds.isEmpty()) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_branch_ids");
 		}
 		validateActiveBranchesForCreate(companyId, branchIds);
 
 		Object rawManagerId = value(body, "managerId", "manager_id");
-		Long managerId = phpEmpty(rawManagerId) ? null : LegacyValues.toPhpLong(rawManagerId);
+		Long managerId = LegacyValues.isPhpEmpty(rawManagerId) ? null : LegacyValues.toPhpLong(rawManagerId);
 		// create.php casts first and validates only when the cast result remains truthy.
 		if (managerId != null && managerId != 0L) {
 			validateManager(companyId, managerId);
@@ -134,7 +135,7 @@ public class LegacyDepartmentService {
 
 		boolean managerPresent = contains(body, "managerId", "manager_id");
 		Object rawManagerId = value(body, "managerId", "manager_id");
-		if (managerPresent && !phpEmpty(rawManagerId)) {
+		if (managerPresent && !LegacyValues.isPhpEmpty(rawManagerId)) {
 			validateManager(companyId, LegacyValues.toPhpLong(rawManagerId));
 		}
 
@@ -149,7 +150,8 @@ public class LegacyDepartmentService {
 			}
 
 			if (containsNonNull(body, "branchIds", "branch_ids")) {
-				Set<Long> branchIds = normalizePositiveIds(asCollection(value(body, "branchIds", "branch_ids")));
+				Set<Long> branchIds = normalizePositiveIds(
+						LegacyValues.phpArrayValues(value(body, "branchIds", "branch_ids")));
 				if (branchIds.isEmpty() || !allActiveBranchesBelongTo(companyId, branchIds)) {
 					throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_branch_ids");
 				}
@@ -299,20 +301,10 @@ public class LegacyDepartmentService {
 		return ids;
 	}
 
-	private static Collection<?> asCollection(Object value) {
-		return value instanceof Collection<?> collection ? collection : List.of();
-	}
-
 	private static String displayName(LegacyEmployee employee) {
 		String first = employee.getFirstName() == null ? "" : employee.getFirstName();
 		String last = employee.getLastName() == null ? "" : employee.getLastName();
 		return (first + " " + last).trim();
-	}
-
-	private static boolean phpEmpty(Object value) {
-		return value == null || Boolean.FALSE.equals(value) || "".equals(value) || "0".equals(value)
-				|| (value instanceof Number number && number.doubleValue() == 0d)
-				|| (value instanceof Collection<?> collection && collection.isEmpty());
 	}
 
 	private static boolean contains(Map<String, Object> body, String camel, String snake) {

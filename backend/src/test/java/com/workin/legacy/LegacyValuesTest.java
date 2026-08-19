@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -55,7 +58,7 @@ class LegacyValuesTest {
 		assertThat(LegacyValues.fromBoolean(false)).isEqualTo(0);
 	}
 
-	// ---------- PHP scalar numeric casts ----------
+	// ---------- PHP numeric casts and array semantics ----------
 
 	@Test
 	void phpIntegerCastConsumesLeadingNumericTextAndTruncatesTowardZero() {
@@ -85,6 +88,58 @@ class LegacyValuesTest {
 			assertThat(LegacyValues.toPhpLong(value)).isZero();
 			assertThat(LegacyValues.toPhpDecimal(value)).isEqualByComparingTo(BigDecimal.ZERO);
 		}
+	}
+
+	@Test
+	void phpNumericCastsUsePhpArrayTruthinessForArraysCollectionsAndMaps() {
+		for (Object empty : new Object[] {new Object[0], new int[0], List.of(), Map.of()}) {
+			assertThat(LegacyValues.toPhpLong(empty)).isZero();
+			assertThat(LegacyValues.toPhpDecimal(empty)).isEqualByComparingTo(BigDecimal.ZERO);
+		}
+
+		for (Object nonEmpty : new Object[] {
+				new Object[] {null}, new int[] {0}, List.of(0), Map.of("key", 0)}) {
+			assertThat(LegacyValues.toPhpLong(nonEmpty)).isEqualTo(1L);
+			assertThat(LegacyValues.toPhpDecimal(nonEmpty)).isEqualByComparingTo(BigDecimal.ONE);
+		}
+	}
+
+	@Test
+	void phpIntegerCastSaturatesAtThe64BitPlatformBoundsInsteadOfWrapping() {
+		assertThat(LegacyValues.toPhpLong("9223372036854775807")).isEqualTo(Long.MAX_VALUE);
+		assertThat(LegacyValues.toPhpLong("9223372036854775808")).isEqualTo(Long.MAX_VALUE);
+		assertThat(LegacyValues.toPhpLong("42.42e42hours")).isEqualTo(Long.MAX_VALUE);
+
+		assertThat(LegacyValues.toPhpLong("-9223372036854775808")).isEqualTo(Long.MIN_VALUE);
+		assertThat(LegacyValues.toPhpLong("-9223372036854775809")).isEqualTo(Long.MIN_VALUE);
+		assertThat(LegacyValues.toPhpLong("-42.42e42hours")).isEqualTo(Long.MIN_VALUE);
+	}
+
+	@Test
+	void phpEmptyDistinguishesEmptyAndNonEmptyJsonDecodedValues() {
+		for (Object empty : new Object[] {
+				null, false, 0, 0L, -0.0d, BigDecimal.ZERO, "", "0",
+				new Object[0], new int[0], List.of(), Map.of()}) {
+			assertThat(LegacyValues.isPhpEmpty(empty)).isTrue();
+		}
+
+		for (Object nonEmpty : new Object[] {
+				true, 1, -1, new BigDecimal("0.01"), "00", " ",
+				new Object[] {null}, new int[] {0}, List.of(0), Map.of("key", 0)}) {
+			assertThat(LegacyValues.isPhpEmpty(nonEmpty)).isFalse();
+		}
+	}
+
+	@Test
+	void phpArrayIterationUsesElementsAndAssociativeMapValues() {
+		Map<String, Object> associative = new LinkedHashMap<>();
+		associative.put("first", "18811branch");
+		associative.put("second", 18812);
+
+		assertThat(LegacyValues.phpArrayValues(new int[] {1, 2}).toArray()).containsExactly(1, 2);
+		assertThat(LegacyValues.phpArrayValues(List.of("a", "b")).toArray()).containsExactly("a", "b");
+		assertThat(LegacyValues.phpArrayValues(associative).toArray()).containsExactly("18811branch", 18812);
+		assertThat(LegacyValues.phpArrayValues("not-an-array")).isEmpty();
 	}
 
 	// ---------- zero dates ----------

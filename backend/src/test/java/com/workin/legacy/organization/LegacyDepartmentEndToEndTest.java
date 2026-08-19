@@ -298,6 +298,32 @@ class LegacyDepartmentEndToEndTest {
 	}
 
 	@Test
+	void createUsesPhpEmptyAndAssociativeArrayValuesForJsonObjects() throws Exception {
+		Map<String, Object> body = new HashMap<>();
+		body.put("name", "PHP Object Shapes");
+		body.put("manager_id", Map.of());
+		body.put("branch_ids", Map.of("primary", "18811branch", "secondary", 18812));
+
+		ResponseEntity<LegacyDepartmentView> created = post(
+				DEPARTMENTS, ADMIN_1, body, LegacyDepartmentView.class);
+		assertThat(created.getStatusCode().value()).isEqualTo(201);
+		assertThat(created.getBody().managerId()).isNull();
+		assertThat(created.getBody().branchIds()).isEqualTo("18811,18812");
+		assertThat(departmentString(created.getBody().id(), "manager_id")).isNull();
+		assertThat(linkCount(created.getBody().id())).isEqualTo(2);
+
+		ResponseEntity<ApiErrorBody> nonEmptyManager = post(
+				DEPARTMENTS, ADMIN_1,
+				Map.of(
+						"name", "PHP Nonempty Manager Object",
+						"branch_ids", java.util.List.of(18811),
+						"manager_id", Map.of("value", "ignored-by-php-array-cast")),
+				ApiErrorBody.class);
+		assertThat(nonEmptyManager.getStatusCode().value()).isEqualTo(404);
+		assertThat(nonEmptyManager.getBody().code()).isEqualTo("employee_not_found");
+	}
+
+	@Test
 	void departmentNumericInputsFollowPhpIntegerCastValidationPaths() throws Exception {
 		ResponseEntity<LegacyDepartmentView> created = post(
 				DEPARTMENTS, ADMIN_1,
