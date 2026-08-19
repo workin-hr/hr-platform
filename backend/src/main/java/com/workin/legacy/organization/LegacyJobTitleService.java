@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.backend.i18n.ApiException;
+import com.workin.legacy.LegacyValues;
 
 /** Wave 12.3c's five job-title endpoints, ported from {@code hr-legacy/apis/api/job_titles/*.php}. */
 @Service
@@ -86,11 +87,11 @@ public class LegacyJobTitleService {
 		if (name.isEmpty()) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
 		}
-		long departmentId = toLongLikePhp(rawDepartmentId);
+		long departmentId = LegacyValues.toPhpLong(rawDepartmentId);
 		if (departmentId <= 0 || !activeDepartmentBelongsTo(companyId, departmentId)) {
 			throw new ApiException(HttpStatus.NOT_FOUND, "department_not_found");
 		}
-		BigDecimal workHours = toDecimal(rawWorkHours);
+		BigDecimal workHours = LegacyValues.toPhpDecimal(rawWorkHours);
 		if (workHours.compareTo(BigDecimal.ZERO) <= 0) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
 		}
@@ -129,7 +130,7 @@ public class LegacyJobTitleService {
 			if (raw == null || "".equals(raw)) {
 				throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
 			}
-			BigDecimal workHours = toDecimal(raw);
+			BigDecimal workHours = LegacyValues.toPhpDecimal(raw);
 			if (workHours.compareTo(BigDecimal.ZERO) <= 0) {
 				throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
 			}
@@ -138,7 +139,7 @@ public class LegacyJobTitleService {
 		}
 		if (contains(body, "departmentId", "department_id")) {
 			Object raw = value(body, "departmentId", "department_id");
-			long departmentId = raw == null || "".equals(raw) ? 0L : toLongLikePhp(raw);
+			long departmentId = raw == null || "".equals(raw) ? 0L : LegacyValues.toPhpLong(raw);
 			if (departmentId <= 0 || !activeDepartmentBelongsTo(companyId, departmentId)) {
 				throw new ApiException(HttpStatus.NOT_FOUND, "department_not_found");
 			}
@@ -215,33 +216,6 @@ public class LegacyJobTitleService {
 	private LegacyJobTitle findOwned(long companyId, long id) {
 		return jobTitleRepository.findByIdAndCompanyId(id, companyId)
 				.orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "job_title_not_found"));
-	}
-
-	private static BigDecimal toDecimal(Object value) {
-		try {
-			if (value instanceof BigDecimal decimal) {
-				return decimal;
-			}
-			return new BigDecimal(String.valueOf(value));
-		} catch (NumberFormatException ex) {
-			// PHP casts malformed numeric input to zero; the caller maps nonpositive
-			// values to the legacy 400 field_required response.
-			return BigDecimal.ZERO;
-		}
-	}
-
-	private static long toLongLikePhp(Object value) {
-		if (value instanceof Number number) {
-			return number.longValue();
-		}
-		if (value instanceof Boolean bool) {
-			return bool ? 1L : 0L;
-		}
-		try {
-			return new BigDecimal(String.valueOf(value).trim()).longValue();
-		} catch (NumberFormatException ex) {
-			return 0L;
-		}
 	}
 
 	private static boolean contains(Map<String, Object> body, String camel, String snake) {

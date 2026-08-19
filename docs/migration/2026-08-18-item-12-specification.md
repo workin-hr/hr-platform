@@ -564,7 +564,11 @@ Applies to each module PR, not just the first:
   spellings; generated columns rejected on write.
 - **Tenant isolation**: cross-tenant read returns zero rows; unscoped
   transaction returns zero rows (`NO_TENANT`), never all rows.
-- **Permission**: the module's `can_*` flag denies by default and denies when 0.
+- **Permission parity**: reproduce a `can_*` denial only where the corresponding
+  PHP endpoint demonstrably enforces that flag. When PHP has no permission gate,
+  the required negative test proves that an otherwise-authorized caller succeeds
+  with the flag at 0 or with no `hr_permissions` row, so Java does not invent a
+  stricter authorization contract (D-044/D-057).
 - **Contract parity**: response shape diffed against the legacy PHP endpoint —
   field names, types, null representation, and status codes. This is the test
   class that does not exist yet and is P-6.

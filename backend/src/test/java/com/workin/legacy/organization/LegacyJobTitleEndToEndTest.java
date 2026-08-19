@@ -188,7 +188,8 @@ class LegacyJobTitleEndToEndTest {
 	}
 
 	@Test
-	void createUsesLegacySnakeCaseTrimmingAndPersistedDecimal() throws Exception {
+	void adminWithNoHrPermissionsRowCanCreateUsingLegacyKeysAndPersistedDecimal() throws Exception {
+		assertThat(queryLong("SELECT COUNT(*) FROM hr_permissions WHERE employee_id = " + ADMIN_1)).isZero();
 		ResponseEntity<LegacyJobTitleView> response = post(
 				JOB_TITLES, ADMIN_1,
 				Map.of("name", "  QA Engineer  ", "department_id", 18841, "work_hours", 7.25),
@@ -197,6 +198,24 @@ class LegacyJobTitleEndToEndTest {
 		assertThat(response.getBody().name()).isEqualTo("QA Engineer");
 		assertThat(response.getBody().workHours()).isEqualByComparingTo("7.25");
 		assertThat(jobTitleString(response.getBody().id(), "work_hours")).isEqualTo("7.25");
+	}
+
+	@Test
+	void createUsesPhpLeadingNumericWhitespaceAndBooleanCasts() throws Exception {
+		LegacyJobTitleView leadingNumeric = post(
+				JOB_TITLES, ADMIN_1,
+				Map.of(
+						"name", "Leading Numeric", "department_id", " 18841department",
+						"work_hours", " 7.5hours"),
+				LegacyJobTitleView.class).getBody();
+		assertThat(leadingNumeric.departmentId()).isEqualTo(18841L);
+		assertThat(leadingNumeric.workHours()).isEqualByComparingTo("7.50");
+
+		LegacyJobTitleView booleanHours = post(
+				JOB_TITLES, ADMIN_1,
+				Map.of("name", "Boolean Hours", "department_id", 18841, "work_hours", true),
+				LegacyJobTitleView.class).getBody();
+		assertThat(booleanHours.workHours()).isEqualByComparingTo("1.00");
 	}
 
 	@Test
@@ -213,7 +232,7 @@ class LegacyJobTitleEndToEndTest {
 				JOB_TITLES, ADMIN_1, Map.of("name", "Missing Hours", "department_id", 18841), ApiErrorBody.class);
 		assertThat(missing.getStatusCode().value()).isEqualTo(400);
 		assertThat(missing.getBody().code()).isEqualTo("field_required");
-		for (Object value : java.util.List.of(0, "abc")) {
+		for (Object value : java.util.List.of(0, "abc", false, "", "   ")) {
 			ResponseEntity<ApiErrorBody> response = post(
 					JOB_TITLES, ADMIN_1,
 					Map.of("name", "Bad Hours", "department_id", 18841, "work_hours", value), ApiErrorBody.class);
@@ -240,12 +259,18 @@ class LegacyJobTitleEndToEndTest {
 		assertThat(put(
 				JOB_TITLES + "/18906", ADMIN_1, Map.of("is_active", 0), ApiErrorBody.class).getBody().code())
 				.isEqualTo("nothing_to_update");
-		for (Object value : java.util.List.of(0, "abc")) {
+		for (Object value : java.util.List.of(0, "abc", false, "", "   ")) {
 			ResponseEntity<ApiErrorBody> response = put(
 					JOB_TITLES + "/18906", ADMIN_1, Map.of("work_hours", value), ApiErrorBody.class);
 			assertThat(response.getStatusCode().value()).isEqualTo(400);
 			assertThat(response.getBody().code()).isEqualTo("field_required");
 		}
+		Map<String, Object> nullHours = new HashMap<>();
+		nullHours.put("work_hours", null);
+		ResponseEntity<ApiErrorBody> nullResponse = put(
+				JOB_TITLES + "/18906", ADMIN_1, nullHours, ApiErrorBody.class);
+		assertThat(nullResponse.getStatusCode().value()).isEqualTo(400);
+		assertThat(nullResponse.getBody().code()).isEqualTo("field_required");
 		ResponseEntity<ApiErrorBody> malformedDepartment = put(
 				JOB_TITLES + "/18906", ADMIN_1, Map.of("department_id", "abc"), ApiErrorBody.class);
 		assertThat(malformedDepartment.getStatusCode().value()).isEqualTo(404);
@@ -271,6 +296,16 @@ class LegacyJobTitleEndToEndTest {
 		assertThat(row.branchesSummary()).isEqualTo("Beta Branch");
 		assertThat(row.workHours()).isEqualByComparingTo("6.56");
 		assertThat(jobTitleString(18906, "work_hours")).isEqualTo("6.56");
+	}
+
+	@Test
+	void updateUsesPhpLeadingNumericCasts() {
+		LegacyJobTitleView row = put(
+				JOB_TITLES + "/18906", ADMIN_1,
+				Map.of("department_id", "18853department", "work_hours", " 6.5hours"),
+				LegacyJobTitleView.class).getBody();
+		assertThat(row.departmentId()).isEqualTo(18853L);
+		assertThat(row.workHours()).isEqualByComparingTo("6.50");
 	}
 
 	@Test
@@ -315,6 +350,14 @@ class LegacyJobTitleEndToEndTest {
 				ResultSet rs = st.executeQuery("SELECT " + column + " FROM job_titles WHERE id = " + id)) {
 			rs.next();
 			return rs.getString(1);
+		}
+	}
+
+	private static long queryLong(String sql) throws Exception {
+		try (Connection connection = connect(); Statement st = connection.createStatement();
+				ResultSet rs = st.executeQuery(sql)) {
+			rs.next();
+			return rs.getLong(1);
 		}
 	}
 
