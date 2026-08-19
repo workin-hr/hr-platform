@@ -35,7 +35,7 @@ import com.workin.backend.identity.JwtService;
  * phase1-mysql} active, every request through the real {@link
  * LegacyBranchController}. Covers D-056 (delete pre-check), D-057
  * (verified no-permission-gate negative, and the role gate applying to
- * reads too, unlike Wave 12.1), and the flagged update-ownership
+ * reads too, unlike Wave 12.1), and the approved D-060 update-ownership
  * divergence documented on {@link LegacyBranchService#update}.
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -375,7 +375,7 @@ class LegacyBranchEndToEndTest {
 	}
 
 	/**
-	 * The flagged divergence from legacy (see {@code
+	 * The D-060 approved divergence from legacy (see {@code
 	 * LegacyBranchService#update}'s javadoc): legacy's own update has no
 	 * ownership check at all and would leak another company's branch
 	 * data back in the response. This proves the safe behaviour actually
@@ -384,6 +384,16 @@ class LegacyBranchEndToEndTest {
 	@Test
 	void updateOfAnotherCompanysBranchReturns404NotTheOtherCompanysData() {
 		ResponseEntity<ApiErrorBody> response = put(BASE_PATH + "/8904", ADMIN_1, Map.of("name", "Hijacked"), ApiErrorBody.class);
+
+		assertThat(response.getStatusCode().value()).isEqualTo(404);
+		assertThat(response.getBody().code()).isEqualTo("branch_not_found");
+	}
+
+	/** D-060: missing and cross-tenant ids deliberately share one non-enumerating 404 contract. */
+	@Test
+	void updateOfMissingBranchReturnsTheSame404AsAnotherTenantsBranch() {
+		ResponseEntity<ApiErrorBody> response = put(
+				BASE_PATH + "/899999", ADMIN_1, Map.of("name", "Missing"), ApiErrorBody.class);
 
 		assertThat(response.getStatusCode().value()).isEqualTo(404);
 		assertThat(response.getBody().code()).isEqualTo("branch_not_found");
