@@ -3,6 +3,8 @@ package com.workin.legacy.organization;
 import java.util.List;
 import java.util.Map;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -12,9 +14,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.auth.LegacyRequestGuard;
@@ -37,12 +39,12 @@ public class LegacyJobTitleController {
 	}
 
 	@GetMapping
-	public List<LegacyJobTitleView> list(
-			@RequestParam(name = "branch_id", required = false) String rawBranchId,
-			@RequestParam(name = "department_id", required = false) String rawDepartmentId) {
+	public List<LegacyJobTitleView> list(HttpServletRequest request) {
 		LegacyRequestContext context = guard();
+		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
 		return jobTitleService.list(
-				context.companyId(), LegacyValues.toPhpLong(rawBranchId), LegacyValues.toPhpLong(rawDepartmentId));
+				context.companyId(), LegacyValues.toPhpLong(query.value("branch_id")),
+				LegacyValues.toPhpLong(query.value("department_id")));
 	}
 
 	@GetMapping("/{id}")
