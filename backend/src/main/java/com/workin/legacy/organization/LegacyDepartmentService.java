@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.backend.i18n.ApiException;
+import com.workin.legacy.LegacyValues;
 import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.employees.LegacyEmployeeRepository;
 
@@ -102,7 +103,7 @@ public class LegacyDepartmentService {
 		validateActiveBranchesForCreate(companyId, branchIds);
 
 		Object rawManagerId = value(body, "managerId", "manager_id");
-		Long managerId = phpEmpty(rawManagerId) ? null : toLongLikePhp(rawManagerId);
+		Long managerId = phpEmpty(rawManagerId) ? null : LegacyValues.toPhpLong(rawManagerId);
 		// create.php casts first and validates only when the cast result remains truthy.
 		if (managerId != null && managerId != 0L) {
 			validateManager(companyId, managerId);
@@ -134,7 +135,7 @@ public class LegacyDepartmentService {
 		boolean managerPresent = contains(body, "managerId", "manager_id");
 		Object rawManagerId = value(body, "managerId", "manager_id");
 		if (managerPresent && !phpEmpty(rawManagerId)) {
-			validateManager(companyId, toLongLikePhp(rawManagerId));
+			validateManager(companyId, LegacyValues.toPhpLong(rawManagerId));
 		}
 
 		try {
@@ -144,7 +145,7 @@ public class LegacyDepartmentService {
 			}
 			// COALESCE(NULL, manager_id): null (and omission) is a deliberate no-op, D-055.
 			if (managerPresent && rawManagerId != null) {
-				department.setManagerId(toLongLikePhp(rawManagerId));
+				department.setManagerId(LegacyValues.toPhpLong(rawManagerId));
 			}
 
 			if (containsNonNull(body, "branchIds", "branch_ids")) {
@@ -157,6 +158,9 @@ public class LegacyDepartmentService {
 
 			departmentRepository.save(department);
 			entityManager.flush();
+			// PHP re-selects after UPDATE. Refresh before rendering so MariaDB-normalized values
+			// (notably non-strict VARCHAR truncation) are the values returned to the caller.
+			entityManager.refresh(department);
 		} catch (DataAccessException | PersistenceException ex) {
 			// update.php catches every database failure in its transaction, rolls back,
 			// and reports invalid_branch_ids even when the failed statement was the row update.
@@ -287,7 +291,7 @@ public class LegacyDepartmentService {
 			return ids;
 		}
 		for (Object value : raw) {
-			long id = toLongLikePhp(value);
+			long id = LegacyValues.toPhpLong(value);
 			if (id > 0) {
 				ids.add(id);
 			}
@@ -309,20 +313,6 @@ public class LegacyDepartmentService {
 		return value == null || Boolean.FALSE.equals(value) || "".equals(value) || "0".equals(value)
 				|| (value instanceof Number number && number.doubleValue() == 0d)
 				|| (value instanceof Collection<?> collection && collection.isEmpty());
-	}
-
-	private static long toLongLikePhp(Object value) {
-		if (value instanceof Number number) {
-			return number.longValue();
-		}
-		if (value instanceof Boolean bool) {
-			return bool ? 1L : 0L;
-		}
-		try {
-			return new java.math.BigDecimal(String.valueOf(value).trim()).longValue();
-		} catch (NumberFormatException ex) {
-			return 0L;
-		}
 	}
 
 	private static boolean contains(Map<String, Object> body, String camel, String snake) {

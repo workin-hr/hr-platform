@@ -3,6 +3,7 @@ package com.workin.legacy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 import org.junit.jupiter.api.Test;
@@ -52,6 +53,38 @@ class LegacyValuesTest {
 	void writingABooleanProducesOneOrZero() {
 		assertThat(LegacyValues.fromBoolean(true)).isEqualTo(1);
 		assertThat(LegacyValues.fromBoolean(false)).isEqualTo(0);
+	}
+
+	// ---------- PHP scalar numeric casts ----------
+
+	@Test
+	void phpIntegerCastConsumesLeadingNumericTextAndTruncatesTowardZero() {
+		assertThat(LegacyValues.toPhpLong("18811branch")).isEqualTo(18811L);
+		assertThat(LegacyValues.toPhpLong("  -7.9 hours")).isEqualTo(-7L);
+		assertThat(LegacyValues.toPhpLong("1e3suffix")).isEqualTo(1000L);
+		assertThat(LegacyValues.toPhpLong(7.9)).isEqualTo(7L);
+	}
+
+	@Test
+	void phpFloatCastConsumesLeadingNumericTextAndWhitespace() {
+		assertThat(LegacyValues.toPhpDecimal("7.5hours")).isEqualByComparingTo("7.5");
+		assertThat(LegacyValues.toPhpDecimal("  .75  ")).isEqualByComparingTo("0.75");
+		assertThat(LegacyValues.toPhpDecimal("1e2days")).isEqualByComparingTo("100");
+		assertThat(LegacyValues.toPhpDecimal(new BigDecimal("6.555")))
+				.isEqualByComparingTo("6.555");
+	}
+
+	@Test
+	void phpNumericCastsMapBooleansMalformedEmptyZeroAndNull() {
+		assertThat(LegacyValues.toPhpLong(true)).isEqualTo(1L);
+		assertThat(LegacyValues.toPhpLong(false)).isZero();
+		assertThat(LegacyValues.toPhpDecimal(true)).isEqualByComparingTo(BigDecimal.ONE);
+		assertThat(LegacyValues.toPhpDecimal(false)).isEqualByComparingTo(BigDecimal.ZERO);
+
+		for (Object value : new Object[] {"abc", "", "   ", "0", 0, null}) {
+			assertThat(LegacyValues.toPhpLong(value)).isZero();
+			assertThat(LegacyValues.toPhpDecimal(value)).isEqualByComparingTo(BigDecimal.ZERO);
+		}
 	}
 
 	// ---------- zero dates ----------

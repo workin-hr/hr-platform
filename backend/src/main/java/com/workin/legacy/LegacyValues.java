@@ -1,8 +1,11 @@
 package com.workin.legacy;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The legacy MySQL contract's value semantics, as pure functions.
@@ -35,6 +38,14 @@ public final class LegacyValues {
 	 */
 	private static final String ZERO_DATE = "0000-00-00";
 
+	/**
+	 * PHP numeric casts consume the numeric prefix of a string instead of requiring the whole
+	 * value to be numeric. The exponent is part of the prefix only when it is complete, so
+	 * {@code "1efoo"} correctly falls back to the prefix {@code "1"}.
+	 */
+	private static final Pattern PHP_NUMERIC_PREFIX = Pattern.compile(
+			"^\\s*[+-]?(?:(?:\\d+(?:\\.\\d*)?)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?");
+
 	private LegacyValues() {
 	}
 
@@ -53,6 +64,57 @@ public final class LegacyValues {
 	/** Writes stay within the two values legacy uses. */
 	public static Integer fromBoolean(boolean value) {
 		return value ? 1 : 0;
+	}
+
+	/**
+	 * A JSON scalar converted like PHP's {@code (int)} cast.
+	 *
+	 * <p>Numbers truncate toward zero, booleans become 1/0, null and malformed or empty strings
+	 * become 0, and leading-numeric strings retain their numeric prefix. Non-scalar JSON values
+	 * are outside this helper's contract and follow PHP's invalid-input validation path as 0.
+	 */
+	public static long toPhpLong(Object raw) {
+		return phpNumericValue(raw).longValue();
+	}
+
+	/**
+	 * A JSON scalar converted like PHP's {@code (float)} cast, represented as {@link BigDecimal}
+	 * so MariaDB remains the authority for the target column's scale and range normalization.
+	 */
+	public static BigDecimal toPhpDecimal(Object raw) {
+		return phpNumericValue(raw);
+	}
+
+	private static BigDecimal phpNumericValue(Object raw) {
+		if (raw == null) {
+			return BigDecimal.ZERO;
+		}
+		if (raw instanceof BigDecimal decimal) {
+			return decimal;
+		}
+		if (raw instanceof Number number) {
+			try {
+				return new BigDecimal(String.valueOf(number));
+			} catch (NumberFormatException ex) {
+				return BigDecimal.ZERO;
+			}
+		}
+		if (raw instanceof Boolean bool) {
+			return bool ? BigDecimal.ONE : BigDecimal.ZERO;
+		}
+		if (!(raw instanceof CharSequence sequence)) {
+			return BigDecimal.ZERO;
+		}
+
+		Matcher matcher = PHP_NUMERIC_PREFIX.matcher(sequence);
+		if (!matcher.find()) {
+			return BigDecimal.ZERO;
+		}
+		try {
+			return new BigDecimal(matcher.group().trim());
+		} catch (NumberFormatException ex) {
+			return BigDecimal.ZERO;
+		}
 	}
 
 	/**

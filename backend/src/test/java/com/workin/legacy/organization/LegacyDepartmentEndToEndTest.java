@@ -11,8 +11,11 @@ import java.sql.Statement;
 import java.util.HashMap;
 import java.util.Map;
 
+import javax.sql.DataSource;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -57,6 +60,10 @@ class LegacyDepartmentEndToEndTest {
 
 	@Autowired
 	private JwtService jwtService;
+
+	@Autowired
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	static {
 		MARIADB.start();
@@ -160,6 +167,15 @@ class LegacyDepartmentEndToEndTest {
 					  (188021, 18802, 18821, 'Admin', 'Two', '+201100188021', 'company_admin', 1, 1, 0, 'accepted', 1, '2025-06-01 08:00:00'),
 					  (188031, 18803, 18831, 'Admin', 'Suspended', '+201100188031', 'company_admin', 1, 1, 0, 'accepted', 1, '2025-06-01 08:00:00')
 					""");
+		}
+	}
+
+	@Test
+	void applicationConnectionsUseProductionEquivalentNonStrictSqlMode() throws Exception {
+		try (Connection first = legacyDataSource.getConnection();
+				Connection second = legacyDataSource.getConnection()) {
+			assertThat(sessionSqlMode(first)).isEmpty();
+			assertThat(sessionSqlMode(second)).isEmpty();
 		}
 	}
 
@@ -301,6 +317,16 @@ class LegacyDepartmentEndToEndTest {
 				Map.of("branch_ids", java.util.List.of("abc")), ApiErrorBody.class);
 		assertThat(branchIds.getStatusCode().value()).isEqualTo(400);
 		assertThat(branchIds.getBody().code()).isEqualTo("invalid_branch_ids");
+
+		LegacyDepartmentView leadingManager = put(
+				DEPARTMENTS + "/18846", ADMIN_1, Map.of("manager_id", " 188012employee"),
+				LegacyDepartmentView.class).getBody();
+		assertThat(leadingManager.managerId()).isEqualTo(HR_1);
+
+		LegacyDepartmentView leadingBranch = put(
+				DEPARTMENTS + "/18847", ADMIN_1, Map.of("branch_ids", java.util.List.of("18812branch")),
+				LegacyDepartmentView.class).getBody();
+		assertThat(leadingBranch.branchIds()).isEqualTo("18812");
 	}
 
 	@Test
@@ -319,6 +345,19 @@ class LegacyDepartmentEndToEndTest {
 				LegacyDepartmentView.class).getBody();
 		assertThat(row.branchIds()).isEqualTo("18812");
 		assertThat(linkCount(18847)).isEqualTo(1);
+	}
+
+	@Test
+	void updateReturnsMariaDbPersistedTruncatedName() throws Exception {
+		String submitted = "N".repeat(300);
+		String persisted = "N".repeat(255);
+
+		LegacyDepartmentView row = put(
+				DEPARTMENTS + "/18847", ADMIN_1, Map.of("name", submitted), LegacyDepartmentView.class)
+				.getBody();
+
+		assertThat(row.name()).isEqualTo(persisted);
+		assertThat(departmentString(18847, "name")).isEqualTo(persisted);
 	}
 
 	@Test
@@ -387,6 +426,14 @@ class LegacyDepartmentEndToEndTest {
 
 	private static String departmentString(long id, String column) throws Exception {
 		return queryString("SELECT " + column + " FROM departments WHERE id = " + id);
+	}
+
+	private static String sessionSqlMode(Connection connection) throws Exception {
+		try (Statement statement = connection.createStatement();
+				ResultSet result = statement.executeQuery("SELECT @@SESSION.sql_mode")) {
+			result.next();
+			return result.getString(1);
+		}
 	}
 
 
