@@ -899,6 +899,19 @@ unmerged PR.
 | Follow-up | Keep this boundary narrow: it does not authorize suppressing or changing PHP-visible value semantics, and it does not generalize into ignoring business errors. Any future PHP warning whose presence is itself part of an approved response contract needs its own owner decision. |
 | Evidence | Repository-owner direction in this conversation, 2026-08-19; `hr-legacy/apis/helpers/functions.php::body`; `hr-legacy/apis/api/job_titles/create.php` and `update.php`; PHP 8.3 CLI probes of explicit string casts; PHP manual, “Converting to string”; `LegacyValues.toPhpString` and `LegacyValuesTest`. |
 
+## D-069: Query-Parameter And Explicit String Coercion Corrections Applied
+
+| Field | Value |
+|---|---|
+| Decision | The remaining Wave 12.3 coercion gaps are corrected at the shared compatibility boundary. Department and job-title list controllers now receive raw query strings and pass `branch_id`/`department_id` through `LegacyValues.toPhpLong(...)`, so Spring cannot reject a PHP-coercible value before application code sees it. Job-title create/update use `LegacyValues.toPhpString(...)` wherever PHP explicitly casts `name` to string. No controller or service carries a local parser. |
+| Status | Implemented and dependency-ordered. PR #107 carries the shared helper plus department query use; PR #108 is rebased onto #107 and carries job-title query/name use. Both remain drafts awaiting human re-review. |
+| Owner | Repository owner directed the query-parameter and shared string-coercion fixes and explicitly approved D-068's warning-output boundary, 2026-08-19. |
+| Related ADR | `docs/adr/ADR-0011-phase-sequencing.md`; D-058, D-061, D-062, D-067, D-068. |
+| Reason | Spring converts non-`String` `@RequestParam` arguments before invoking a controller, while PHP casts raw query text itself. Java also rendered mixed JSON values with collection/map/boolean `toString()` rules that differ from PHP's explicit `(string)` result. These differences changed filter activation, validation, stored names, and returned rows. |
+| Impact | Malformed query text becomes zero and disables filters; leading-numeric, whitespace-padded, signed, empty, zero, and signed-overflow inputs follow the shared PHP integer semantics. `name: false` on job-title create returns 400 `field_required`; true/scalar conversion follows PHP; JSON arrays and associative objects persist `"Array"`; Java does not inject PHP warning text. No MariaDB schema or data was changed. |
+| Follow-up | Refresh both draft PR descriptions and evidence comments, then await human re-review. Do not merge either PR or begin Wave 12.4. |
+| Evidence | `LegacyValuesTest` (19 tests); `LegacyDepartmentEndToEndTest` (24 tests); `LegacyDepartmentTenancyTest` (6 tests); `LegacyJobTitleEndToEndTest` (21 tests); `LegacyJobTitleTenancyTest` (4 tests); focused 74-test gate; full sequential gate: MariaDB/default 71 classes and 511 tests, PostgreSQL Phase 2 1 class and 12 tests, zero failures/errors/skips; Phase 0 validation; Markdown lint over 217 tracked files; local PHP 8.3 cast probes; PHP string-conversion documentation; Spring MVC request-parameter conversion documentation. |
+
 ## D-070: Malformed HTTP Percent Encoding Remains Server-Rejected
 
 | Field | Value |

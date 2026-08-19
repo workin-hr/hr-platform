@@ -77,13 +77,13 @@ public class LegacyJobTitleService {
 		Object rawName = value(body, "name", "name");
 		Object rawDepartmentId = value(body, "departmentId", "department_id");
 		Object rawWorkHours = value(body, "workHours", "work_hours");
-		if (rawName == null || String.valueOf(rawName).isEmpty()
+		if (rawName == null || "".equals(rawName)
 				|| rawDepartmentId == null || "".equals(rawDepartmentId)
 				|| rawWorkHours == null || "".equals(rawWorkHours)) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
 		}
 
-		String name = String.valueOf(rawName).trim();
+		String name = LegacyValues.toPhpString(rawName).trim();
 		if (name.isEmpty()) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
 		}
@@ -122,7 +122,7 @@ public class LegacyJobTitleService {
 		boolean touched = false;
 		if (contains(body, "name", "name")) {
 			Object raw = value(body, "name", "name");
-			row.setName(raw == null ? "" : String.valueOf(raw).trim());
+			row.setName(LegacyValues.toPhpString(raw).trim());
 			touched = true;
 		}
 		if (contains(body, "workHours", "work_hours")) {

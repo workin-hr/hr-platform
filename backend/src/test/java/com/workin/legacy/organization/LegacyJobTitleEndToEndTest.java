@@ -3,12 +3,14 @@ package com.workin.legacy.organization;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -182,6 +184,52 @@ class LegacyJobTitleEndToEndTest {
 	}
 
 	@Test
+	void branchIdQueryUsesPhpIntegerCoercionBeforeFiltering() {
+		List<String> unfiltered = jobTitleNames(JOB_TITLES);
+		for (String query : List.of(
+				"?branch_id=abc",
+				"?branch_id=0",
+				"?branch_id=",
+				"?branch_id=-18812branch",
+				"?branch_id=-9223372036854775809overflow")) {
+			assertThat(jobTitleNames(JOB_TITLES + query)).containsExactlyElementsOf(unfiltered);
+		}
+
+		List<String> branch18812 = jobTitleNames(JOB_TITLES + "?branch_id=18812");
+		assertThat(jobTitleNames(JOB_TITLES + "?branch_id=18812branch"))
+				.containsExactlyElementsOf(branch18812);
+		assertThat(jobTitleNames(JOB_TITLES + "?branch_id=%20%2018812branch"))
+				.containsExactlyElementsOf(branch18812);
+		assertThat(jobTitleNames(JOB_TITLES + "?branch_id=%2B18812branch"))
+				.containsExactlyElementsOf(branch18812);
+		assertThat(jobTitleNames(JOB_TITLES + "?branch_id=9223372036854775808overflow"))
+				.isEmpty();
+	}
+
+	@Test
+	void departmentIdQueryUsesPhpIntegerCoercionBeforeFiltering() {
+		List<String> unfiltered = jobTitleNames(JOB_TITLES);
+		for (String query : List.of(
+				"?department_id=abc",
+				"?department_id=0",
+				"?department_id=",
+				"?department_id=-18841department",
+				"?department_id=-9223372036854775809overflow")) {
+			assertThat(jobTitleNames(JOB_TITLES + query)).containsExactlyElementsOf(unfiltered);
+		}
+
+		List<String> department18841 = jobTitleNames(JOB_TITLES + "?department_id=18841");
+		assertThat(jobTitleNames(JOB_TITLES + "?department_id=18841legacy"))
+				.containsExactlyElementsOf(department18841);
+		assertThat(jobTitleNames(JOB_TITLES + "?department_id=%20%2018841legacy"))
+				.containsExactlyElementsOf(department18841);
+		assertThat(jobTitleNames(JOB_TITLES + "?department_id=%2B18841legacy"))
+				.containsExactlyElementsOf(department18841);
+		assertThat(jobTitleNames(JOB_TITLES + "?department_id=9223372036854775808overflow"))
+				.isEmpty();
+	}
+
+	@Test
 	void oneHidesInactiveAndForeignRows() {
 		assertThat(get(JOB_TITLES + "/18902", ADMIN_1, ApiErrorBody.class).getStatusCode().value()).isEqualTo(404);
 		assertThat(get(JOB_TITLES + "/18904", ADMIN_1, ApiErrorBody.class).getStatusCode().value()).isEqualTo(404);
@@ -216,6 +264,29 @@ class LegacyJobTitleEndToEndTest {
 				Map.of("name", "Boolean Hours", "department_id", 18841, "work_hours", true),
 				LegacyJobTitleView.class).getBody();
 		assertThat(booleanHours.workHours()).isEqualByComparingTo("1.00");
+	}
+
+	@Test
+	void createUsesPhpStringCastForFalseNameValidation() {
+		ResponseEntity<ApiErrorBody> response = post(
+				JOB_TITLES, ADMIN_1,
+				Map.of("name", false, "department_id", 18841, "work_hours", 8),
+				ApiErrorBody.class);
+		assertThat(response.getStatusCode().value()).isEqualTo(400);
+		assertThat(response.getBody().code()).isEqualTo("field_required");
+	}
+
+	@Test
+	void createPersistsPhpArrayStringForArrayAndAssociativeObjectNames() throws Exception {
+		for (Object rawName : List.of(List.of(), List.of("ignored"), Map.of("key", "ignored"))) {
+			ResponseEntity<LegacyJobTitleView> response = post(
+					JOB_TITLES, ADMIN_1,
+					Map.of("name", rawName, "department_id", 18841, "work_hours", 8),
+					LegacyJobTitleView.class);
+			assertThat(response.getStatusCode().value()).isEqualTo(201);
+			assertThat(response.getBody().name()).isEqualTo("Array");
+			assertThat(jobTitleString(response.getBody().id(), "name")).isEqualTo("Array");
+		}
 	}
 
 	@Test
@@ -309,12 +380,22 @@ class LegacyJobTitleEndToEndTest {
 	}
 
 	@Test
-	void updateNullNameReproducesLegacyBlankNameBehavior() throws Exception {
+	void updateUsesPhpStringCastForNullFalseAndAssociativeObjectNames() throws Exception {
 		Map<String, Object> body = new HashMap<>();
 		body.put("name", null);
 		LegacyJobTitleView row = put(JOB_TITLES + "/18908", ADMIN_1, body, LegacyJobTitleView.class).getBody();
 		assertThat(row.name()).isEmpty();
 		assertThat(jobTitleString(18908, "name")).isEmpty();
+
+		row = put(JOB_TITLES + "/18908", ADMIN_1, Map.of("name", false), LegacyJobTitleView.class).getBody();
+		assertThat(row.name()).isEmpty();
+		assertThat(jobTitleString(18908, "name")).isEmpty();
+
+		row = put(
+				JOB_TITLES + "/18908", ADMIN_1, Map.of("name", Map.of("key", "ignored")),
+				LegacyJobTitleView.class).getBody();
+		assertThat(row.name()).isEqualTo("Array");
+		assertThat(jobTitleString(18908, "name")).isEqualTo("Array");
 	}
 
 	@Test
@@ -369,8 +450,16 @@ class LegacyJobTitleEndToEndTest {
 				employeeId, employeeId, companyId, "test-session", Map.of("role", role, "token_version", 1L));
 	}
 
+	private List<String> jobTitleNames(String path) {
+		ResponseEntity<LegacyJobTitleView[]> response = get(path, ADMIN_1, LegacyJobTitleView[].class);
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		return java.util.Arrays.stream(response.getBody()).map(LegacyJobTitleView::name).toList();
+	}
+
 	private <T> ResponseEntity<T> get(String path, long employeeId, Class<T> type) {
-		return restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headersFor(tokenFor(employeeId))), type);
+		return restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + path), HttpMethod.GET,
+				new HttpEntity<>(headersFor(tokenFor(employeeId))), type);
 	}
 
 	private <T> ResponseEntity<T> post(String path, long employeeId, Map<String, Object> body, Class<T> type) {
