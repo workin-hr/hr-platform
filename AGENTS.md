@@ -32,7 +32,9 @@
 - Planning agents are read-only unless explicitly assigned a documentation task.
 - Review agents are always read-only.
 - Implementers cannot approve or merge their own work.
-- No agent may access production databases, biometric data, private keys, or unrestricted organization tokens.
+- Agents may access a production database only when the user explicitly authorizes a specific read-only evidence or compatibility check.
+- Production database access is strictly read-only: enforce a read-only transaction and use only non-mutating queries such as `SELECT` or `SHOW`. Never insert, update, delete, replace, repair, migrate, or otherwise change production data, schema, routines, permissions, or configuration. A session setting used solely to enforce read-only transaction mode is allowed.
+- Never print, log, commit, or otherwise expose production credentials. Access to biometric data, private keys, and unrestricted organization tokens remains prohibited.
 - No agent may silently resolve unclear requirements or make irreversible architecture decisions.
 
 <!-- SPECKIT START -->

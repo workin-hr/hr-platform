@@ -86,7 +86,8 @@ public class LegacyPersistenceConfig {
 	public DataSource legacyDataSource(
 			@Value("${app.legacy-db.jdbc-url}") String jdbcUrl,
 			@Value("${app.legacy-db.username}") String username,
-			@Value("${app.legacy-db.password}") String password) {
+			@Value("${app.legacy-db.password}") String password,
+			@Value("${app.legacy-db.connection-init-sql:}") String connectionInitSql) {
 		HikariDataSource dataSource = DataSourceBuilder.create()
 			.type(HikariDataSource.class)
 			.url(jdbcUrl)
@@ -95,6 +96,12 @@ public class LegacyPersistenceConfig {
 			.build();
 		dataSource.setConnectionTimeout(5000);
 		dataSource.setInitializationFailTimeout(5000);
+		if (!connectionInitSql.isBlank()) {
+			// Hikari executes this once for every new physical connection before pooling it.
+			// Phase 1 tests use it to reproduce production's non-strict MariaDB session mode
+			// on the application's connections, rather than only on fixture connections.
+			dataSource.setConnectionInitSql(connectionInitSql);
+		}
 		return dataSource;
 	}
 

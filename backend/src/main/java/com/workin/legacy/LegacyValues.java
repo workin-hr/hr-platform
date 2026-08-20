@@ -1,8 +1,17 @@
 package com.workin.legacy;
 
+import java.lang.reflect.Array;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The legacy MySQL contract's value semantics, as pure functions.
@@ -35,6 +44,16 @@ public final class LegacyValues {
 	 */
 	private static final String ZERO_DATE = "0000-00-00";
 
+	/**
+	 * PHP numeric casts consume the numeric prefix of a string instead of requiring the whole
+	 * value to be numeric. The exponent is part of the prefix only when it is complete, so
+	 * {@code "1efoo"} correctly falls back to the prefix {@code "1"}.
+	 */
+	private static final Pattern PHP_NUMERIC_PREFIX = Pattern.compile(
+			"^\\s*[+-]?(?:(?:\\d+(?:\\.\\d*)?)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?");
+	private static final BigDecimal PHP_INT_MAX = BigDecimal.valueOf(Long.MAX_VALUE);
+	private static final BigDecimal PHP_INT_MIN = BigDecimal.valueOf(Long.MIN_VALUE);
+
 	private LegacyValues() {
 	}
 
@@ -53,6 +72,203 @@ public final class LegacyValues {
 	/** Writes stay within the two values legacy uses. */
 	public static Integer fromBoolean(boolean value) {
 		return value ? 1 : 0;
+	}
+
+	/**
+	 * A JSON-decoded value converted like PHP's {@code (int)} cast on the legacy 64-bit runtime.
+	 *
+	 * <p>Numbers truncate toward zero, booleans become 1/0, null and malformed or empty strings
+	 * become 0, leading-numeric strings retain their numeric prefix, and PHP arrays become 0/1
+	 * according to emptiness. Values outside the signed integer range saturate at the platform
+	 * bound; they never use {@link BigDecimal#longValue()}'s wraparound result.
+	 */
+	public static long toPhpLong(Object raw) {
+		BigDecimal value = phpNumericValue(raw);
+		if (value.compareTo(PHP_INT_MAX) > 0) {
+			return Long.MAX_VALUE;
+		}
+		if (value.compareTo(PHP_INT_MIN) < 0) {
+			return Long.MIN_VALUE;
+		}
+		return value.longValue();
+	}
+
+	/**
+	 * A JSON-decoded value converted like PHP's {@code (float)} cast, represented as
+	 * {@link BigDecimal} so MariaDB remains the authority for the target column's scale and range
+	 * normalization. PHP converts arrays through their 0/1 integer value before converting to
+	 * float, so array-shaped JSON follows the same emptiness rule here.
+	 */
+	public static BigDecimal toPhpDecimal(Object raw) {
+		return phpNumericValue(raw);
+	}
+
+	/**
+	 * A JSON-decoded value converted like PHP's explicit {@code (string)} cast.
+	 *
+	 * <p>Null and false become the empty string, true becomes {@code "1"}, strings remain
+	 * unchanged, and JSON arrays/objects become {@code "Array"}. PHP also raises an
+	 * {@code E_WARNING} for that last conversion; D-068 explicitly treats warning display as
+	 * diagnostic behavior outside the Phase-1 business response contract while preserving the
+	 * converted value. Floating-point formatting follows the legacy runtime's default 14-digit
+	 * precision instead of Java collection or number {@code toString()} behavior.
+	 */
+	public static String toPhpString(Object raw) {
+		if (raw == null || Boolean.FALSE.equals(raw)) {
+			return "";
+		}
+		if (Boolean.TRUE.equals(raw)) {
+			return "1";
+		}
+		if (raw instanceof CharSequence sequence) {
+			return sequence.toString();
+		}
+		if (raw instanceof Collection<?> || raw instanceof Map<?, ?> || raw.getClass().isArray()) {
+			return "Array";
+		}
+		if (raw instanceof BigInteger integer) {
+			if (integer.compareTo(BigInteger.valueOf(Long.MAX_VALUE)) <= 0
+					&& integer.compareTo(BigInteger.valueOf(Long.MIN_VALUE)) >= 0) {
+				return integer.toString();
+			}
+			return phpFloatString(integer.doubleValue());
+		}
+		if (raw instanceof Byte || raw instanceof Short || raw instanceof Integer || raw instanceof Long) {
+			return raw.toString();
+		}
+		if (raw instanceof Number number) {
+			return phpFloatString(number.doubleValue());
+		}
+		throw new LegacyValueException(
+				"Unsupported JSON-decoded value for PHP string conversion: " + raw.getClass().getName());
+	}
+
+	/**
+	 * PHP {@code empty(...)} for request values produced by {@code json_decode(..., true)}.
+	 *
+	 * <p>Only null, false, numeric zero, the exact strings {@code ""}/{@code "0"}, and empty PHP
+	 * arrays are empty. JSON arrays and objects arrive in Java as collections and maps; Java arrays
+	 * are also supported so the shared compatibility function is complete at its public boundary.
+	 */
+	public static boolean isPhpEmpty(Object raw) {
+		if (raw == null || Boolean.FALSE.equals(raw)) {
+			return true;
+		}
+		if (raw instanceof Number number) {
+			return isNumericZero(number);
+		}
+		if (raw instanceof CharSequence sequence) {
+			return sequence.isEmpty() || "0".contentEquals(sequence);
+		}
+		if (raw instanceof Collection<?> collection) {
+			return collection.isEmpty();
+		}
+		if (raw instanceof Map<?, ?> map) {
+			return map.isEmpty();
+		}
+		return raw.getClass().isArray() && Array.getLength(raw) == 0;
+	}
+
+	/**
+	 * Values yielded by PHP {@code foreach} over an array decoded from JSON.
+	 *
+	 * <p>PHP associative arrays iterate their values, not their keys. Jackson represents the same
+	 * JSON object as a map, so returning {@link Map#values()} preserves {@code normalize_id_list()}
+	 * behavior. A non-array value produces the same empty input that PHP's normalizer returns.
+	 */
+	public static Collection<?> phpArrayValues(Object raw) {
+		if (raw instanceof Collection<?> collection) {
+			return collection;
+		}
+		if (raw instanceof Map<?, ?> map) {
+			return map.values();
+		}
+		if (raw != null && raw.getClass().isArray()) {
+			int length = Array.getLength(raw);
+			List<Object> values = new ArrayList<>(length);
+			for (int index = 0; index < length; index++) {
+				values.add(Array.get(raw, index));
+			}
+			return values;
+		}
+		return List.of();
+	}
+
+	private static BigDecimal phpNumericValue(Object raw) {
+		if (raw == null) {
+			return BigDecimal.ZERO;
+		}
+		if (raw instanceof BigDecimal decimal) {
+			return decimal;
+		}
+		if (raw instanceof Number number) {
+			try {
+				return new BigDecimal(String.valueOf(number));
+			} catch (NumberFormatException ex) {
+				return BigDecimal.ZERO;
+			}
+		}
+		if (raw instanceof Boolean bool) {
+			return bool ? BigDecimal.ONE : BigDecimal.ZERO;
+		}
+		if (raw instanceof Collection<?> || raw instanceof Map<?, ?> || raw.getClass().isArray()) {
+			return isPhpEmpty(raw) ? BigDecimal.ZERO : BigDecimal.ONE;
+		}
+		if (!(raw instanceof CharSequence sequence)) {
+			return BigDecimal.ZERO;
+		}
+
+		Matcher matcher = PHP_NUMERIC_PREFIX.matcher(sequence);
+		if (!matcher.find()) {
+			return BigDecimal.ZERO;
+		}
+		try {
+			return new BigDecimal(matcher.group().trim());
+		} catch (NumberFormatException ex) {
+			return BigDecimal.ZERO;
+		}
+	}
+
+	private static boolean isNumericZero(Number number) {
+		try {
+			return new BigDecimal(String.valueOf(number)).signum() == 0;
+		} catch (NumberFormatException ex) {
+			// PHP treats NAN/INF as non-empty; finite JSON numbers never reach this fallback.
+			return number.doubleValue() == 0d;
+		}
+	}
+
+	private static String phpFloatString(double value) {
+		if (Double.isNaN(value)) {
+			return "NAN";
+		}
+		if (Double.isInfinite(value)) {
+			return value > 0 ? "INF" : "-INF";
+		}
+
+		String formatted = String.format(Locale.ROOT, "%.14G", value);
+		int exponentMarker = formatted.indexOf('E');
+		if (exponentMarker < 0) {
+			return trimFractionZeros(formatted, false);
+		}
+
+		String mantissa = trimFractionZeros(formatted.substring(0, exponentMarker), true);
+		int exponent = Integer.parseInt(formatted.substring(exponentMarker + 1));
+		return mantissa + "E" + (exponent >= 0 ? "+" : "") + exponent;
+	}
+
+	private static String trimFractionZeros(String value, boolean retainScientificFraction) {
+		if (!value.contains(".")) {
+			return retainScientificFraction ? value + ".0" : value;
+		}
+		int end = value.length();
+		while (end > 0 && value.charAt(end - 1) == '0') {
+			end--;
+		}
+		if (end > 0 && value.charAt(end - 1) == '.') {
+			return retainScientificFraction ? value.substring(0, end) + "0" : value.substring(0, end - 1);
+		}
+		return value.substring(0, end);
 	}
 
 	/**
