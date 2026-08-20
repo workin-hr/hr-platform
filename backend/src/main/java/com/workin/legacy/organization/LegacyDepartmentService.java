@@ -92,12 +92,15 @@ public class LegacyDepartmentService {
 	/** {@code create.php}: branch and manager validation precede one atomic row-plus-link insert. */
 	@Transactional
 	public LegacyDepartmentView create(long companyId, Map<String, Object> body) {
+		// required(body, [NAME, BRANCH_IDS]) runs both isset()/empty-string checks before
+		// normalize_id_list ever sees branch_ids: a missing/null/"" branch_ids is field_required,
+		// distinct from a present-but-empty-after-normalization set (invalid_branch_ids).
 		Object rawName = value(body, "name", "name");
-		if (rawName == null || String.valueOf(rawName).isEmpty()) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
-		}
-		Set<Long> branchIds = normalizePositiveIds(
-				LegacyValues.phpArrayValues(value(body, "branchIds", "branch_ids")));
+		requireField(rawName);
+		Object rawBranchIds = value(body, "branchIds", "branch_ids");
+		requireField(rawBranchIds);
+
+		Set<Long> branchIds = normalizePositiveIds(LegacyValues.phpArrayValues(rawBranchIds));
 		if (branchIds.isEmpty()) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_branch_ids");
 		}
@@ -112,12 +115,15 @@ public class LegacyDepartmentService {
 
 		try {
 			LegacyDepartment department = departmentRepository.save(
-					new LegacyDepartment(companyId, String.valueOf(rawName), managerId));
+					new LegacyDepartment(companyId, LegacyValues.toPhpString(rawName), managerId));
 			entityManager.flush();
 			entityManager.refresh(department);
 			departmentBranchRepository.saveAll(branchIds.stream()
 					.map(branchId -> new LegacyDepartmentBranch(department.getId(), branchId)).toList());
 			entityManager.flush();
+			// PHP's INSERT try/catch commits before this read-back runs (create.php); a missing row
+			// here is a post-commit failure PHP never maps to field_required, so orElseThrow()
+			// deliberately surfaces as an unmapped error instead of being caught below.
 			return mutationView(companyId, department).orElseThrow();
 		} catch (DataAccessException | PersistenceException ex) {
 			throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "field_required", ex);
@@ -142,7 +148,7 @@ public class LegacyDepartmentService {
 		try {
 			Object rawName = value(body, "name", "name");
 			if (contains(body, "name", "name") && rawName != null) {
-				department.setName(String.valueOf(rawName));
+				department.setName(LegacyValues.toPhpString(rawName));
 			}
 			// COALESCE(NULL, manager_id): null (and omission) is a deliberate no-op, D-055.
 			if (managerPresent && rawManagerId != null) {
@@ -305,6 +311,17 @@ public class LegacyDepartmentService {
 		String first = employee.getFirstName() == null ? "" : employee.getFirstName();
 		String last = employee.getLastName() == null ? "" : employee.getLastName();
 		return (first + " " + last).trim();
+	}
+
+	/**
+	 * {@code required()}: PHP {@code isset()} is false for both a missing key and an explicit JSON
+	 * {@code null}; only the exact empty string additionally fails. {@code 0}, {@code false}, and
+	 * {@code []} are not required-field failures in PHP and must not become one here.
+	 */
+	private static void requireField(Object raw) {
+		if (raw == null || "".equals(raw)) {
+			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
+		}
 	}
 
 	private static boolean contains(Map<String, Object> body, String camel, String snake) {

@@ -104,7 +104,9 @@ public final class LegacyQueryParameters {
 	}
 
 	private static Object phpArrayKey(String key) {
-		if (key.matches("-?(?:0|[1-9]\\d*)")) {
+		// PHP's canonical-decimal-integer rule is (string)(int)$key === $key, which specifically
+		// excludes "-0": (int)"-0" is 0, but (string)0 is "0", not "-0", so it stays a string key.
+		if (key.matches("0|-?[1-9]\\d*")) {
 			try {
 				return Long.valueOf(key);
 			} catch (NumberFormatException ignored) {

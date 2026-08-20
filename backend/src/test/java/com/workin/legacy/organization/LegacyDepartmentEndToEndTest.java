@@ -390,6 +390,37 @@ class LegacyDepartmentEndToEndTest {
 	}
 
 	@Test
+	void createDistinguishesMissingNullAndEmptyStringFieldsFromInvalidBranchIds() {
+		// required(body, [NAME, BRANCH_IDS]): isset()/=== '' checks run before normalize_id_list, so a
+		// missing/null/"" branch_ids is field_required, distinct from a present-but-empty-after-cast set.
+		ResponseEntity<ApiErrorBody> missingName = post(
+				DEPARTMENTS, ADMIN_1, Map.of("branch_ids", java.util.List.of(18811)), ApiErrorBody.class);
+		assertThat(missingName.getStatusCode().value()).isEqualTo(400);
+		assertThat(missingName.getBody().code()).isEqualTo("field_required");
+
+		ResponseEntity<ApiErrorBody> missingBranchIds = post(
+				DEPARTMENTS, ADMIN_1, Map.of("name", "Missing Branch Ids"), ApiErrorBody.class);
+		assertThat(missingBranchIds.getStatusCode().value()).isEqualTo(400);
+		assertThat(missingBranchIds.getBody().code()).isEqualTo("field_required");
+
+		Map<String, Object> nullBranchIds = new HashMap<>();
+		nullBranchIds.put("name", "Null Branch Ids");
+		nullBranchIds.put("branch_ids", null);
+		ResponseEntity<ApiErrorBody> nullResponse = post(DEPARTMENTS, ADMIN_1, nullBranchIds, ApiErrorBody.class);
+		assertThat(nullResponse.getStatusCode().value()).isEqualTo(400);
+		assertThat(nullResponse.getBody().code()).isEqualTo("field_required");
+
+		ResponseEntity<ApiErrorBody> emptyStringBranchIds = post(
+				DEPARTMENTS, ADMIN_1, Map.of("name", "Empty String Branch Ids", "branch_ids", ""),
+				ApiErrorBody.class);
+		assertThat(emptyStringBranchIds.getStatusCode().value()).isEqualTo(400);
+		assertThat(emptyStringBranchIds.getBody().code()).isEqualTo("field_required");
+
+		// A present-but-empty array is isset() and !== '', so it clears required() and only fails
+		// once normalize_id_list() produces an empty set — this is createRejectsEmptyOrInvalidBranchSetsWithLegacyStatuses.
+	}
+
+	@Test
 	void createRejectsManagerFromAnotherCompany() {
 		ResponseEntity<ApiErrorBody> response = post(
 				DEPARTMENTS, ADMIN_1,
@@ -477,6 +508,46 @@ class LegacyDepartmentEndToEndTest {
 	}
 
 	@Test
+	void createAndUpdateStoreThePhpPdoCastOfNonStringNameValues() throws Exception {
+		// Neither create.php nor update.php apply an explicit PHP (string) cast to `name` -- the
+		// JSON-decoded value binds directly into a PDO parameter. Verified against a real MariaDB PDO
+		// probe (non-strict sql_mode, matching this profile): false persists "", true persists "1",
+		// and a JSON array/object persists "Array" with PHP's accompanying (suppressed) conversion
+		// warning -- identical to LegacyValues.toPhpString's explicit-cast semantics, so routing
+		// through it here reproduces PDO's implicit binding result rather than inventing new behavior.
+		Map<String, Object> falseName = new HashMap<>();
+		falseName.put("name", false);
+		falseName.put("branch_ids", java.util.List.of(18811));
+		LegacyDepartmentView falseCreated = post(DEPARTMENTS, ADMIN_1, falseName, LegacyDepartmentView.class)
+				.getBody();
+		assertThat(falseCreated.name()).isEqualTo("");
+		assertThat(departmentString(falseCreated.id(), "name")).isEqualTo("");
+
+		Map<String, Object> arrayName = new HashMap<>();
+		arrayName.put("name", java.util.List.of("a", "b"));
+		arrayName.put("branch_ids", java.util.List.of(18811));
+		LegacyDepartmentView arrayCreated = post(DEPARTMENTS, ADMIN_1, arrayName, LegacyDepartmentView.class)
+				.getBody();
+		assertThat(arrayCreated.name()).isEqualTo("Array");
+		assertThat(departmentString(arrayCreated.id(), "name")).isEqualTo("Array");
+
+		Map<String, Object> numberName = new HashMap<>();
+		numberName.put("name", 42);
+		numberName.put("branch_ids", java.util.List.of(18811));
+		LegacyDepartmentView numberCreated = post(DEPARTMENTS, ADMIN_1, numberName, LegacyDepartmentView.class)
+				.getBody();
+		assertThat(numberCreated.name()).isEqualTo("42");
+		assertThat(departmentString(numberCreated.id(), "name")).isEqualTo("42");
+
+		Map<String, Object> trueUpdate = new HashMap<>();
+		trueUpdate.put("name", true);
+		LegacyDepartmentView trueUpdated = put(
+				DEPARTMENTS + "/" + falseCreated.id(), ADMIN_1, trueUpdate, LegacyDepartmentView.class).getBody();
+		assertThat(trueUpdated.name()).isEqualTo("1");
+		assertThat(departmentString(falseCreated.id(), "name")).isEqualTo("1");
+	}
+
+	@Test
 	void updateReturnsMariaDbPersistedTruncatedName() throws Exception {
 		String submitted = "N".repeat(300);
 		String persisted = "N".repeat(255);
@@ -520,6 +591,37 @@ class LegacyDepartmentEndToEndTest {
 		assertThat(delete(DEPARTMENTS + "/18849", ADMIN_1, Void.class).getStatusCode().value()).isEqualTo(200);
 		assertThat(departmentLong(18849, "is_active")).isZero();
 		assertThat(linkCount(18849)).isEqualTo(1);
+	}
+
+	@Test
+	void onlyExactZeroIdIsIdRequiredNegativeIdsFallThroughToTheNormalLookup() {
+		// one.php/update.php/delete.php: $id = (int)($_GET['id'] ?? 0); if (!$id) fail(ID_REQUIRED);
+		// Only 0 is falsy in PHP; a negative id stays truthy and reaches the ordinary not-found path.
+		ResponseEntity<ApiErrorBody> zeroOne = get(DEPARTMENTS + "/0", ADMIN_1, ApiErrorBody.class);
+		assertThat(zeroOne.getStatusCode().value()).isEqualTo(400);
+		assertThat(zeroOne.getBody().code()).isEqualTo("id_required");
+
+		ResponseEntity<ApiErrorBody> zeroUpdate = put(
+				DEPARTMENTS + "/0", ADMIN_1, Map.of("name", "Zero Id"), ApiErrorBody.class);
+		assertThat(zeroUpdate.getStatusCode().value()).isEqualTo(400);
+		assertThat(zeroUpdate.getBody().code()).isEqualTo("id_required");
+
+		ResponseEntity<ApiErrorBody> zeroDelete = delete(DEPARTMENTS + "/0", ADMIN_1, ApiErrorBody.class);
+		assertThat(zeroDelete.getStatusCode().value()).isEqualTo(400);
+		assertThat(zeroDelete.getBody().code()).isEqualTo("id_required");
+
+		ResponseEntity<ApiErrorBody> negativeOne = get(DEPARTMENTS + "/-5", ADMIN_1, ApiErrorBody.class);
+		assertThat(negativeOne.getStatusCode().value()).isEqualTo(404);
+		assertThat(negativeOne.getBody().code()).isEqualTo("forbidden");
+
+		ResponseEntity<ApiErrorBody> negativeUpdate = put(
+				DEPARTMENTS + "/-5", ADMIN_1, Map.of("name", "Negative Id"), ApiErrorBody.class);
+		assertThat(negativeUpdate.getStatusCode().value()).isEqualTo(404);
+		assertThat(negativeUpdate.getBody().code()).isEqualTo("department_not_found");
+
+		ResponseEntity<ApiErrorBody> negativeDelete = delete(DEPARTMENTS + "/-5", ADMIN_1, ApiErrorBody.class);
+		assertThat(negativeDelete.getStatusCode().value()).isEqualTo(404);
+		assertThat(negativeDelete.getBody().code()).isEqualTo("department_not_found");
 	}
 
 	@Test

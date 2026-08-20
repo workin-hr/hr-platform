@@ -88,6 +88,27 @@ class LegacyQueryParametersTest {
 	}
 
 	@Test
+	void negativeZeroArrayKeyStaysAStringKeyDistinctFromIntegerZero() {
+		// PHP 8.3 parse_str: (string)(int)"-0" === "0", not "-0", so "-0" is not a canonical
+		// integer key and parse_str keeps it as a distinct string key from int key 0.
+		Object keyedThenKeyed = LegacyQueryParameters.parse(
+				"branch_ids[-0]=aaa&branch_ids[0]=bbb").value("branch_ids");
+		Map<Object, String> expectedKeyedThenKeyed = new LinkedHashMap<>();
+		expectedKeyedThenKeyed.put("-0", "aaa");
+		expectedKeyedThenKeyed.put(0L, "bbb");
+		assertThat(keyedThenKeyed).isEqualTo(expectedKeyedThenKeyed);
+
+		// A following [] append computes its index from existing integer keys only; "-0" is a
+		// string key and does not contribute, so the append still lands on index 0.
+		Object keyedThenAppended = LegacyQueryParameters.parse(
+				"branch_ids[-0]=aaa&branch_ids[]=ccc").value("branch_ids");
+		Map<Object, String> expectedKeyedThenAppended = new LinkedHashMap<>();
+		expectedKeyedThenAppended.put("-0", "aaa");
+		expectedKeyedThenAppended.put(0L, "ccc");
+		assertThat(keyedThenAppended).isEqualTo(expectedKeyedThenAppended);
+	}
+
+	@Test
 	void mixedScalarAndKeyedAssignmentsUseTheLastAssignmentShape() {
 		Object scalarThenArray = LegacyQueryParameters.parse(
 				"department_id=18841&department_id[item]=18851").value("department_id");

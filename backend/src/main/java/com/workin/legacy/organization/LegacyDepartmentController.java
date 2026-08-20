@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.workin.backend.i18n.ApiException;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
@@ -52,6 +53,7 @@ public class LegacyDepartmentController {
 	@GetMapping("/{id}")
 	public LegacyDepartmentView one(@PathVariable long id) {
 		LegacyRequestContext context = guard();
+		requireId(id);
 		return departmentService.one(context.companyId(), id);
 	}
 
@@ -64,6 +66,7 @@ public class LegacyDepartmentController {
 	@PutMapping("/{id}")
 	public LegacyDepartmentView update(@PathVariable long id, @RequestBody Map<String, Object> body) {
 		LegacyRequestContext context = guard();
+		requireId(id);
 		// PHP commits first, then its INNER JOIN response lookup fails for a branchless
 		// department. Unwrap outside the service transaction to preserve that 500-after-commit quirk.
 		return departmentService.update(context.companyId(), id, body)
@@ -73,6 +76,7 @@ public class LegacyDepartmentController {
 	@DeleteMapping("/{id}")
 	public ResponseEntity<Void> delete(@PathVariable long id) {
 		LegacyRequestContext context = guard();
+		requireId(id);
 		departmentService.delete(context.companyId(), id);
 		return ResponseEntity.ok().build();
 	}
@@ -82,6 +86,17 @@ public class LegacyDepartmentController {
 				LegacyEmployee.Role.COMPANY_ADMIN, LegacyEmployee.Role.HR, LegacyEmployee.Role.MANAGER);
 		requestGuard.requireCompanyActive(context.companyId());
 		return context;
+	}
+
+	/**
+	 * {@code one.php}/{@code update.php}/{@code delete.php}: {@code $id = (int)($_GET['id'] ?? 0);
+	 * if (!$id) fail(ID_REQUIRED);}. Only exact zero is falsy in PHP; a negative id stays truthy and
+	 * falls through unchanged to the normal (not-found) lookup, so this must not become {@code id <= 0}.
+	 */
+	private static void requireId(long id) {
+		if (id == 0) {
+			throw new ApiException(HttpStatus.BAD_REQUEST, "id_required");
+		}
 	}
 
 }
