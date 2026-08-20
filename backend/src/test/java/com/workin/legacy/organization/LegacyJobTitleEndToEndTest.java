@@ -310,6 +310,37 @@ class LegacyJobTitleEndToEndTest {
 	}
 
 	@Test
+	void onlyExactZeroIdIsIdRequiredNegativeIdsFallThroughToTheNormalLookup() {
+		// one.php/update.php/delete.php: $id = (int)($_GET['id'] ?? 0); if (!$id) fail(ID_REQUIRED);
+		// Only 0 is falsy in PHP; a negative id stays truthy and reaches the ordinary not-found path.
+		ResponseEntity<ApiErrorBody> zeroOne = get(JOB_TITLES + "/0", ADMIN_1, ApiErrorBody.class);
+		assertThat(zeroOne.getStatusCode().value()).isEqualTo(400);
+		assertThat(zeroOne.getBody().code()).isEqualTo("id_required");
+
+		ResponseEntity<ApiErrorBody> zeroUpdate = put(
+				JOB_TITLES + "/0", ADMIN_1, Map.of("name", "Zero Id"), ApiErrorBody.class);
+		assertThat(zeroUpdate.getStatusCode().value()).isEqualTo(400);
+		assertThat(zeroUpdate.getBody().code()).isEqualTo("id_required");
+
+		ResponseEntity<ApiErrorBody> zeroDelete = delete(JOB_TITLES + "/0", ADMIN_1, ApiErrorBody.class);
+		assertThat(zeroDelete.getStatusCode().value()).isEqualTo(400);
+		assertThat(zeroDelete.getBody().code()).isEqualTo("id_required");
+
+		ResponseEntity<ApiErrorBody> negativeOne = get(JOB_TITLES + "/-5", ADMIN_1, ApiErrorBody.class);
+		assertThat(negativeOne.getStatusCode().value()).isEqualTo(404);
+		assertThat(negativeOne.getBody().code()).isEqualTo("job_title_not_found");
+
+		ResponseEntity<ApiErrorBody> negativeUpdate = put(
+				JOB_TITLES + "/-5", ADMIN_1, Map.of("name", "Negative Id"), ApiErrorBody.class);
+		assertThat(negativeUpdate.getStatusCode().value()).isEqualTo(404);
+		assertThat(negativeUpdate.getBody().code()).isEqualTo("job_title_not_found");
+
+		ResponseEntity<ApiErrorBody> negativeDelete = delete(JOB_TITLES + "/-5", ADMIN_1, ApiErrorBody.class);
+		assertThat(negativeDelete.getStatusCode().value()).isEqualTo(404);
+		assertThat(negativeDelete.getBody().code()).isEqualTo("job_title_not_found");
+	}
+
+	@Test
 	void adminWithNoHrPermissionsRowCanCreateUsingLegacyKeysAndPersistedDecimal() throws Exception {
 		assertThat(queryLong("SELECT COUNT(*) FROM hr_permissions WHERE employee_id = " + ADMIN_1)).isZero();
 		ResponseEntity<LegacyJobTitleView> response = post(
