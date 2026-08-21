@@ -13,6 +13,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,6 +24,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
@@ -70,6 +72,12 @@ class LegacyEmployeeReadEndToEndTest {
 
 	@Autowired
 	private JwtService jwtService;
+
+	// Two beans of this type exist (the MVC one and actuator's); the MVC
+	// mapping is the one that knows about the legacy PHP routes.
+	@Autowired
+	@Qualifier("requestMappingHandlerMapping")
+	private RequestMappingHandlerMapping handlerMapping;
 
 	static {
 		MARIADB.start();
@@ -263,6 +271,103 @@ class LegacyEmployeeReadEndToEndTest {
 	}
 
 	@Test
+	void anUnauthenticatedRequestIsPhpsUnauthorizedNoToken() {
+		// getAuth() returns null with no Bearer header, and requireAuth()
+		// fails with UNAUTHORIZED_NO_TOKEN -- inside the endpoint, in PHP's
+		// envelope, not as a framework rejection.
+		Map<String, Object> body = exchangeWithoutToken(LIST, HttpMethod.GET, 401);
+		assertThat(body.keySet()).containsExactly("success", "message");
+		assertThat(body.get("success")).isEqualTo(false);
+		assertThat(body.get("message")).isEqualTo("Unauthorized — no token");
+	}
+
+	@Test
+	void anInvalidOrExpiredBearerIsAlsoUnauthorizedNoToken() {
+		// jwtDecode() returns null for a malformed token, a bad signature and
+		// an expired exp alike (functions.php:435-456), so all three reach
+		// requireAuth as "no auth payload" -- unauthorized_no_token, never
+		// unauthorized_invalid_token, which legacy reserves for a decoded
+		// token that identifies no employee.
+		for (String token : List.of("not-a-jwt", "a.b.c", tokenFor(ADMIN_1) + "tampered")) {
+			ResponseEntity<Map<String, Object>> response = exchangeWithToken(LIST, HttpMethod.GET, token);
+			assertThat(response.getStatusCode().value()).isEqualTo(401);
+			assertThat(response.getBody().get("message")).isEqualTo("Unauthorized — no token");
+		}
+	}
+
+	@Test
+	void theMethodGuardPrecedesAuthentication() {
+		// list.php's first statement is the method check; requireAuth() is the
+		// third. An unauthenticated POST is therefore a 405, and answering 401
+		// here would mean Spring rejected the request before the endpoint ran.
+		Map<String, Object> body = exchangeWithoutToken(LIST, HttpMethod.POST, 405);
+		assertThat(body.get("success")).isEqualTo(false);
+		assertThat(body.get("message")).isEqualTo("Invalid method");
+		assertThat(exchangeWithoutToken(ONE, HttpMethod.DELETE, 405).get("message")).isEqualTo("Invalid method");
+	}
+
+	@Test
+	void aStaleTokenVersionIsSessionReplaced() {
+		String stale = jwtService.issueAccessToken(
+				ADMIN_1, ADMIN_1, COMPANY_1, "test-session", Map.of("role", "company_admin", "token_version", 99L));
+		ResponseEntity<Map<String, Object>> response = exchangeWithToken(LIST, HttpMethod.GET, stale);
+		assertThat(response.getStatusCode().value()).isEqualTo(401);
+		assertThat(response.getBody().get("message"))
+				.isEqualTo("Signed in from another device. Your session here was ended.");
+	}
+
+	@Test
+	void aTokenForAnEmployeeThatNoLongerExistsIsUnauthorizedInvalidToken() {
+		// requireEmployeeSessionValid(): `if (!$row) fail(UNAUTHORIZED_INVALID_TOKEN)`
+		// comes before the token_version comparison, so a deleted employee is
+		// not told its session was replaced.
+		String deleted = jwtService.issueAccessToken(
+				9_999_999L, 9_999_999L, COMPANY_1, "test-session",
+				Map.of("role", "company_admin", "token_version", 1L));
+		ResponseEntity<Map<String, Object>> response = exchangeWithToken(LIST, HttpMethod.GET, deleted);
+		assertThat(response.getStatusCode().value()).isEqualTo(401);
+		assertThat(response.getBody().get("message")).isEqualTo("Unauthorized — invalid or expired token");
+	}
+
+	@Test
+	void aForgedTenantClaimFailsClosedInThePhpEnvelope() {
+		// A real, current token for company 1's admin, claiming company 2.
+		// LegacyTenantContextService refuses to vouch for it, TenantScope is
+		// never established, and requireAuth denies rather than falling
+		// through to a query under an unscoped filter.
+		String forged = jwtService.issueAccessToken(
+				ADMIN_1, ADMIN_1, COMPANY_2, "test-session", Map.of("role", "company_admin", "token_version", 1L));
+		ResponseEntity<Map<String, Object>> response = exchangeWithToken(LIST, HttpMethod.GET, forged);
+		assertThat(response.getStatusCode().value()).isEqualTo(401);
+		assertThat(response.getBody().get("success")).isEqualTo(false);
+		assertThat(response.getBody().get("message")).isEqualTo("Unauthorized — invalid or expired token");
+	}
+
+	@Test
+	void everyMappedPhpRouteAuthenticatesInsideTheEndpoint() {
+		// LegacyPhpRoutes permits these prefixes past Spring's authorization
+		// decision, so the guarantee that replaces .authenticated() has to be
+		// proven per route, not per module: no mapped /apis/** path may answer
+		// an unauthenticated GET with anything but PHP's 401.
+		List<String> routes = handlerMapping.getHandlerMethods().keySet().stream()
+				.flatMap(info -> info.getPatternValues().stream())
+				.filter(pattern -> pattern.startsWith("/apis/"))
+				.distinct()
+				.sorted()
+				.toList();
+		assertThat(routes).isNotEmpty();
+		for (String route : routes) {
+			ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+					URI.create(restTemplate.getRootUri() + route), HttpMethod.GET, new HttpEntity<>(new HttpHeaders()),
+					new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
+			assertThat(response.getStatusCode().value())
+					.withFailMessage("%s answered %s unauthenticated", route, response.getStatusCode())
+					.isEqualTo(401);
+			assertThat(response.getBody().get("message")).isEqualTo("Unauthorized — no token");
+		}
+	}
+
+	@Test
 	void theMessageFollowsAppLocale() {
 		// ?lang=ar wins outright.
 		assertThat(getMap(LIST + "?lang=ar", ADMIN_1).get("message")).isEqualTo("الموظفون");
@@ -317,6 +422,20 @@ class LegacyEmployeeReadEndToEndTest {
 				new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
 		assertThat(response.getStatusCode().value()).isEqualTo(200);
 		return response.getBody();
+	}
+
+	private Map<String, Object> exchangeWithoutToken(String path, HttpMethod method, int expectedStatus) {
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + path), method, new HttpEntity<>(new HttpHeaders()),
+				new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
+		assertThat(response.getStatusCode().value()).isEqualTo(expectedStatus);
+		return response.getBody();
+	}
+
+	private ResponseEntity<Map<String, Object>> exchangeWithToken(String path, HttpMethod method, String token) {
+		return restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + path), method, new HttpEntity<>(headersFor(token)),
+				new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
 	}
 
 	private ResponseEntity<Map<String, Object>> exchange(String path, HttpMethod method, long employeeId) {

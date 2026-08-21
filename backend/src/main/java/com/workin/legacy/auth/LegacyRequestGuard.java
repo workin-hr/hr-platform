@@ -109,14 +109,15 @@ public class LegacyRequestGuard {
 	 * place every endpoint already passes through before touching a
 	 * company id.
 	 *
-	 * @throws ApiException 401 {@code session_replaced} if the
-	 *         authenticated employee's current {@code token_version}
-	 *         does not match the token's, or if there is no legacy
-	 *         principal on the request at all; 403 {@code
-	 *         forbidden_insufficient_role} if roles are given and the
-	 *         token's role claim is not among them; 401 {@code
-	 *         unauthorized_invalid_token} if the claimed tenant was never
-	 *         re-derived and vouched for by {@code LegacyTenantContextService}
+	 * @throws ApiException 401 {@code unauthorized_no_token} if there is
+	 *         no legacy principal on the request at all; 401 {@code
+	 *         unauthorized_invalid_token} if the token identifies no
+	 *         employee row (or a non-positive id), or if the claimed tenant
+	 *         was never re-derived and vouched for by {@code
+	 *         LegacyTenantContextService}; 401 {@code session_replaced} if
+	 *         the employee exists but its current {@code token_version} does
+	 *         not match the token's; 403 {@code forbidden_insufficient_role}
+	 *         if roles are given and the token's role claim is not among them
 	 */
 	@Transactional
 	public LegacyRequestContext requireAuth(LegacyEmployee.Role... allowedRoles) {
@@ -162,12 +163,28 @@ public class LegacyRequestGuard {
 	 * pre-trust lookups.
 	 */
 	private void requireSessionValid(AuthenticatedPrincipal principal) {
+		// PHP fails in three distinguishable ways, and the codes are not
+		// interchangeable: a non-positive employee id and a missing employee
+		// row are both unauthorized_invalid_token ("this token does not
+		// identify anybody"), while only a real employee whose token_version
+		// moved on is session_replaced ("you were signed out elsewhere").
+		// Collapsing the missing row into session_replaced told a deleted
+		// employee's client to re-authenticate against an account that no
+		// longer exists.
+		if (principal.identityId() <= 0) {
+			throw new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized_invalid_token");
+		}
 		tenantFilterActivator.deactivateForPreTenantLookup();
-		Integer currentVersion = legacyEmployeeRepository.findById(principal.identityId())
-				.map(LegacyEmployee::getTokenVersion)
-				.orElse(null);
+		LegacyEmployee employee = legacyEmployeeRepository.findById(principal.identityId()).orElse(null);
+		if (employee == null) {
+			throw new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized_invalid_token");
+		}
+		// (int) ($row['token_version'] ?? 0) -- a null column reads as 0 and
+		// can therefore only match a claim of 0, never a real version.
+		Integer currentVersion = employee.getTokenVersion();
+		long databaseVersion = currentVersion == null ? 0L : currentVersion.longValue();
 		long claimedVersion = principal.claimedTokenVersion() == null ? -1L : principal.claimedTokenVersion();
-		if (currentVersion == null || claimedVersion != currentVersion.longValue()) {
+		if (claimedVersion != databaseVersion) {
 			throw new ApiException(HttpStatus.UNAUTHORIZED, "session_replaced");
 		}
 	}

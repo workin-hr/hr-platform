@@ -103,15 +103,28 @@ def read_upstream(legacy_root: str, name: str) -> dict:
     return json.loads(completed.stdout.decode("utf-8"))
 
 
-def check(legacy_root: str, write: bool) -> int:
+def check(legacy_root: str, write: bool, vendored_dir: str = VENDORED_DIR, read=None) -> int:
+    """Compare (or regenerate) every vendored catalog.
+
+    `vendored_dir` and `read` are injection points for
+    `test_check_legacy_lang_drift.py`: the tests drive real files in a
+    temporary directory and a stub upstream reader, so the comparison,
+    the write path and the reporting are all covered without Docker or a
+    sibling hr-legacy checkout.
+    """
+    read = read if read is not None else read_upstream
     failures = 0
     for name in CATALOGS:
-        expected = render(name, read_upstream(legacy_root, name))
-        path = os.path.join(VENDORED_DIR, name + ".properties")
+        expected = render(name, read(legacy_root, name))
+        path = os.path.join(vendored_dir, name + ".properties")
         if write:
             with open(path, "w", encoding="utf-8", newline="\n") as handle:
                 handle.write(expected)
             print("WROTE %s" % path)
+            continue
+        if not os.path.isfile(path):
+            failures += 1
+            print("MISSING: %s does not exist; re-run with --write" % path)
             continue
         with open(path, encoding="utf-8") as handle:
             actual = handle.read()
