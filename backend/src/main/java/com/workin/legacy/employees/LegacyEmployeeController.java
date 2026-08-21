@@ -4,6 +4,8 @@ import java.util.Map;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -62,6 +64,20 @@ public class LegacyEmployeeController {
 		requireId(query);
 		Map<String, Object> employee = employeeService.one(context, LegacyValues.toPhpLong(query.value("id")));
 		return LegacyApiResponse.ok(message(request, "employee_profile"), employee);
+	}
+
+	/**
+	 * {@code employees/create.php}: POST, admin/HR, then the whole validation
+	 * chain, one transaction, and a post-commit re-read rendered as 201.
+	 */
+	@RequestMapping("/create.php")
+	public ResponseEntity<LegacyApiResponse> create(
+			HttpServletRequest request, @RequestBody(required = false) Map<String, Object> body) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = administrative();
+		Map<String, Object> employee = employeeService.create(context, body == null ? Map.of() : body);
+		return ResponseEntity.status(201)
+				.body(LegacyApiResponse.ok(message(request, "employee_created"), employee));
 	}
 
 	/** {@code employees/deactivate.php}: DELETE, admin/HR, then the scoped write and the notification. */

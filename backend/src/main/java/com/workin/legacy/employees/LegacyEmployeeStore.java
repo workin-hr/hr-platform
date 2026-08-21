@@ -1,5 +1,6 @@
 package com.workin.legacy.employees;
 
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -13,7 +14,11 @@ import javax.sql.DataSource;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 
@@ -138,9 +143,11 @@ public class LegacyEmployeeStore {
 			AND e.company_id=?""";
 
 	private final JdbcTemplate jdbcTemplate;
+	private final TransactionTemplate transactions;
 
 	public LegacyEmployeeStore(DataSource legacyDataSource) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
+		this.transactions = new TransactionTemplate(new DataSourceTransactionManager(legacyDataSource));
 	}
 
 	/** {@code list.php}'s {@code db_value("SELECT COUNT(*) ...")}. */
@@ -341,6 +348,212 @@ public class LegacyEmployeeStore {
 	private static long idOf(Map<String, Object> employee) {
 		Object id = employee.get("id");
 		return id instanceof Number number ? number.longValue() : 0L;
+	}
+
+	/**
+	 * {@code employees_has_column($column)} ({@code functions.php:1002-1014}).
+	 *
+	 * <p>PHP caches this in a function-local {@code static}, i.e. for one
+	 * request. Callers here resolve it once per endpoint invocation and pass the
+	 * answer down rather than caching it on this singleton, which would give it
+	 * a JVM lifetime PHP never had.
+	 */
+	public boolean employeesHasColumn(String column) {
+		Long count = jdbcTemplate.queryForObject(
+				"""
+				SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+				WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'employees' AND COLUMN_NAME = ?""",
+				Long.class, column);
+		return count != null && count > 0;
+	}
+
+	/** {@code create.php}'s inline branch check: the id must exist <em>in this company</em>. */
+	public boolean branchExistsInCompany(long branchId, long companyId) {
+		return count("SELECT COUNT(*) FROM branches WHERE id=? AND company_id=?", branchId, companyId) > 0;
+	}
+
+	/**
+	 * {@code company_default_active_branch_id()} ({@code functions.php:957-970}):
+	 * the lowest-id active branch, used when the request omits one because
+	 * {@code employees.branch_id} is NOT NULL.
+	 */
+	public Long companyDefaultActiveBranchId(long companyId) {
+		if (companyId <= 0) {
+			return null;
+		}
+		List<Long> ids = jdbcTemplate.queryForList(
+				"SELECT id FROM branches WHERE company_id = ? AND is_active = 1 ORDER BY id ASC LIMIT 1",
+				Long.class, companyId);
+		return ids.isEmpty() || ids.get(0) == null || ids.get(0) <= 0 ? null : ids.get(0);
+	}
+
+	/**
+	 * {@code department_belongs_to_branch()} ({@code org_hierarchy.php:14-21}).
+	 * Note what is <em>not</em> here: no company predicate and no active check --
+	 * the junction row alone decides. D-075 adds the company check separately, in
+	 * the service, so the divergence stays visible.
+	 */
+	public boolean departmentBelongsToBranch(long departmentId, long branchId) {
+		return count(
+				"SELECT COUNT(*) FROM department_branches WHERE department_id = ? AND branch_id = ?",
+				departmentId, branchId) > 0;
+	}
+
+	/** {@code department_belongs_to_company()} ({@code org_hierarchy.php:4-12}): company <em>and</em> active. */
+	public boolean departmentBelongsToCompany(long departmentId, long companyId) {
+		return count(
+				"SELECT COUNT(*) FROM departments WHERE id = ? AND company_id = ? AND is_active = 1",
+				departmentId, companyId) > 0;
+	}
+
+	/**
+	 * {@code job_title_belongs_to_department()} ({@code org_hierarchy.php:33-41}):
+	 * active, and in that department -- again with no company predicate of its
+	 * own (D-075).
+	 */
+	public boolean jobTitleBelongsToDepartment(long jobTitleId, long departmentId) {
+		return count(
+				"SELECT COUNT(*) FROM job_titles WHERE id = ? AND department_id = ? AND is_active = 1",
+				jobTitleId, departmentId) > 0;
+	}
+
+	/**
+	 * D-075's fail-closed test, and nothing more: does this id belong to a
+	 * <em>different</em> company? A missing row answers false, because PHP's own
+	 * check already rejects it -- this exists only to close the cross-company
+	 * hole PHP's company-predicate-free lookups leave open.
+	 */
+	public boolean departmentExistsInOtherCompany(long departmentId, long companyId) {
+		return count(
+				"SELECT COUNT(*) FROM departments WHERE id = ? AND company_id <> ?", departmentId, companyId) > 0;
+	}
+
+	/** The same fail-closed test for a job title (D-075). */
+	public boolean jobTitleExistsInOtherCompany(long jobTitleId, long companyId) {
+		return count(
+				"SELECT COUNT(*) FROM job_titles WHERE id = ? AND company_id <> ?", jobTitleId, companyId) > 0;
+	}
+
+	/** {@code shift_belongs_to_company()} ({@code org_hierarchy.php:43-50}): company-scoped, active or not. */
+	public boolean shiftBelongsToCompany(long shiftId, long companyId) {
+		return count("SELECT COUNT(*) FROM shifts s WHERE s.id = ? AND s.company_id = ?", shiftId, companyId) > 0;
+	}
+
+	/**
+	 * {@code create.php}'s employee INSERT: a fixed column list, plus
+	 * {@code can_check_in_any_branch} only when the column exists.
+	 *
+	 * @return {@code get_last_inserted_id()}
+	 */
+	public long insertEmployee(Map<String, Object> columns) {
+		List<String> names = new ArrayList<>(columns.keySet());
+		String placeholders = String.join(", ", java.util.Collections.nCopies(names.size(), "?"));
+		String sql = "INSERT INTO employees (" + String.join(", ", names) + ") VALUES (" + placeholders + ")";
+		KeyHolder keys = new GeneratedKeyHolder();
+		jdbcTemplate.update(connection -> {
+			PreparedStatement statement = connection.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS);
+			int index = 1;
+			for (String name : names) {
+				statement.setObject(index++, columns.get(name));
+			}
+			return statement;
+		}, keys);
+		return keys.getKey() == null ? 0L : keys.getKey().longValue();
+	}
+
+	/**
+	 * {@code create.php}'s salary INSERT. Housing is hard-coded to 0 there even
+	 * though the request may carry one, and {@code effective_from} is the
+	 * employee's hire date, not today.
+	 */
+	public void insertSalaryContract(long employeeId, Map<String, Object> amounts, String effectiveFrom) {
+		jdbcTemplate.update(
+				"""
+				INSERT INTO salary_contracts (
+					employee_id, basic_salary, housing_allowance, transport_allowance, food_allowance,
+					risk_allowance, incentives, insurance_deduction, tax_deduction, advances_deduction,
+					fund_deduction, penalty_deduction, effective_from
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+				employeeId,
+				amounts.get("basic_salary"), 0, amounts.get("transport_allowance"), amounts.get("food_allowance"),
+				amounts.get("risk_allowance"), amounts.get("incentives"), amounts.get("insurance_deduction"),
+				amounts.get("tax_deduction"), amounts.get("advances_deduction"), amounts.get("fund_deduction"),
+				amounts.get("penalty_deduction"), effectiveFrom);
+	}
+
+	/** {@code create.php}'s {@code SELECT id FROM leave_balance WHERE employee_id=? AND year=?}. */
+	public boolean leaveBalanceExists(long employeeId, long year) {
+		return count("SELECT COUNT(*) FROM leave_balance WHERE employee_id=? AND year=?", employeeId, year) > 0;
+	}
+
+	/** The update branch of {@code create.php}'s leave-balance upsert -- {@code used_days} untouched. */
+	public void updateLeaveBalance(
+			long employeeId, long year, Object totalDays, long fromMonth, long toMonth, Object monthlyCap) {
+		jdbcTemplate.update(
+				"""
+				UPDATE leave_balance SET total_days=?, period_from_month=?, period_to_month=?, monthly_cap_days=?
+				WHERE employee_id=? AND year=?""",
+				totalDays, fromMonth, toMonth, monthlyCap, employeeId, year);
+	}
+
+	/** The insert branch, which seeds {@code used_days} at 0. */
+	public void insertLeaveBalance(
+			long employeeId, long year, Object totalDays, long fromMonth, long toMonth, Object monthlyCap) {
+		jdbcTemplate.update(
+				"""
+				INSERT INTO leave_balance (
+					employee_id, year, total_days, used_days, period_from_month, period_to_month, monthly_cap_days
+				) VALUES (?, ?, ?, 0, ?, ?, ?)""",
+				employeeId, year, totalDays, fromMonth, toMonth, monthlyCap);
+	}
+
+	/** {@code create.php}'s shift-assignment INSERT, appended rather than replacing anything. */
+	public void insertShiftAssignment(long employeeId, long shiftId, String effectiveFrom) {
+		jdbcTemplate.update(
+				"INSERT INTO employee_shift_assignments (employee_id, shift_id, effective_from) VALUES (?, ?, ?)",
+				employeeId, shiftId, effectiveFrom);
+	}
+
+	/**
+	 * {@code create.php}'s post-commit re-read. Deliberately <b>id-only</b>: PHP
+	 * has no company predicate here, because the row was just inserted under the
+	 * authenticated company and there is nothing to scope against.
+	 */
+	public Map<String, Object> findByIdWithOrgLabels(long employeeId) {
+		List<Map<String, Object>> rows = jdbcTemplate.query(
+				"""
+				SELECT
+					e.*,
+					b.name AS branch_name,
+					s.name AS department_name,
+					jt.name AS job_title_name
+				FROM employees AS e
+				LEFT JOIN branches AS b ON b.id = e.branch_id
+				LEFT JOIN departments AS s ON s.id = e.department_id
+				LEFT JOIN job_titles AS jt ON jt.id = e.job_title_id
+				WHERE e.id = ?""",
+				ROW_MAPPER, employeeId);
+		return rows.isEmpty() ? null : rows.get(0);
+	}
+
+	/**
+	 * {@code $pdo->beginTransaction() ... commit()} with
+	 * {@code catch (Throwable $e) { rollBack(); }}.
+	 *
+	 * <p>A {@code DataSourceTransactionManager} over the same {@code DataSource}
+	 * the {@link JdbcTemplate} uses, so every statement inside the callback joins
+	 * one real database transaction. It is built here rather than exposed as a
+	 * bean on purpose: the application's transaction manager is JPA's, and adding
+	 * a second one to the context would change what an unqualified
+	 * {@code @Transactional} means everywhere else.
+	 */
+	public <T> T inTransaction(java.util.function.Supplier<T> work) {
+		return transactions.execute(status -> work.get());
+	}
+
+	private long count(String sql, Object... params) {
+		Long value = jdbcTemplate.queryForObject(sql, Long.class, params);
+		return value == null ? 0L : value;
 	}
 
 	/**
