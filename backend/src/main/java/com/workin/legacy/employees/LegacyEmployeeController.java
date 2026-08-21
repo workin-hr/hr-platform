@@ -80,6 +80,43 @@ public class LegacyEmployeeController {
 				.body(LegacyApiResponse.ok(message(request, "employee_created"), employee));
 	}
 
+	/**
+	 * {@code employees/update.php}: PUT, admin/HR, the query id, then a body
+	 * that is validated key by key and finally written as whatever survived.
+	 * The two notifications are sent after the transaction has committed, so
+	 * neither can undo the update.
+	 */
+	@RequestMapping("/update.php")
+	public LegacyApiResponse update(
+			HttpServletRequest request, @RequestBody(required = false) Map<String, Object> body) {
+		requireMethod(request, "PUT");
+		LegacyRequestContext context = administrative();
+		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
+		requireId(query);
+		long employeeId = LegacyValues.toPhpLong(query.value("id"));
+
+		LegacyEmployeeService.UpdateOutcome outcome = employeeService.update(
+				context, employeeId, body == null ? Map.of() : body);
+		// t() runs at insert time, so the stored notification text follows this
+		// request's locale -- including the {title} placeholder, which takes the
+		// job title as the post-commit re-read sees it.
+		String locale = messages.resolveLocale(request);
+		employeeService.notifyAfterUpdate(
+				context, employeeId, outcome,
+				messages.translate(locale, "notif_job_title_changed_title", null),
+				messages.translate(locale, "notif_job_title_changed_body", Map.of(
+						"title", outcome.employee() == null ? "" : jobTitleName(outcome.employee()))),
+				messages.translate(locale, "notif_schedule_assigned_title", null),
+				messages.translate(locale, "notif_schedule_assigned_body", null));
+		return LegacyApiResponse.ok(message(request, "employee_updated"), outcome.employee());
+	}
+
+	/** {@code (string) ($row['job_title_name'] ?? '')} for the notification body. */
+	private static String jobTitleName(Map<String, Object> employee) {
+		Object name = employee.get("job_title_name");
+		return name == null ? "" : name.toString();
+	}
+
 	/** {@code employees/deactivate.php}: DELETE, admin/HR, then the scoped write and the notification. */
 	@RequestMapping("/deactivate.php")
 	public LegacyApiResponse deactivate(HttpServletRequest request) {

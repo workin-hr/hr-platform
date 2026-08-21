@@ -64,6 +64,17 @@ public class LegacyHrPermissionEnforcer {
 		}
 	}
 
+	/**
+	 * The same check without the {@code ApiException}, for callers that render a
+	 * different error contract. {@code employees/update.php} is one: it fails
+	 * with legacy's own {@code forbidden} key in the PHP envelope (D-074), while
+	 * {@link #require} raises the platform {@code error.forbidden} the merged
+	 * {@code /api/legacy/**} modules answer with.
+	 */
+	public boolean has(LegacyHrPermissionKey key) {
+		return hasPermission(key);
+	}
+
 	private boolean hasPermission(LegacyHrPermissionKey key) {
 		if (!(SecurityContextHolder.getContext().getAuthentication() != null
 				&& SecurityContextHolder.getContext().getAuthentication().getPrincipal()

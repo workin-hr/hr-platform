@@ -61,6 +61,24 @@ class LegacyPhpDateYearTest {
 	}
 
 	@Test
+	void onlyRealMonthNamesAreAccepted() {
+		// Measured: PHP knows the three-letter abbreviation, the full name and
+		// September's extra 'sept' -- and rejects anything with a suffix on it.
+		assertThat(LegacyPhpDateYear.of("Sept 21 2026", TODAY)).isEqualTo(2026);
+		assertThat(LegacyPhpDateYear.of("21 Sept 2026", TODAY)).isEqualTo(2026);
+		assertThat(LegacyPhpDateYear.of("September 21 2026", TODAY)).isEqualTo(2026);
+		assertThat(LegacyPhpDateYear.of("June 21 2026", TODAY)).isEqualTo(2026);
+
+		for (String rejected : java.util.List.of(
+				"AugustXYZ 21 2026", "21 AugXYZ 2026", "SeptemberXYZ 21 2026",
+				"Augu 21 2026", "Au 21 2026", "Jly 21 2026", "Tue 21 2026")) {
+			assertThatThrownBy(() -> LegacyPhpDateYear.of(rejected, TODAY))
+					.describedAs("input %s", rejected)
+					.isInstanceOf(LegacyPhpDateYear.LegacyPhpDateException.class);
+		}
+	}
+
+	@Test
 	void aDayPastTheMonthsEndRollsForwardRatherThanFailing() {
 		// Measured: 2026-02-30 resolves to 2026-03-02, so the year survives.
 		assertThat(LegacyPhpDateYear.of("2026-02-30", TODAY)).isEqualTo(2026);

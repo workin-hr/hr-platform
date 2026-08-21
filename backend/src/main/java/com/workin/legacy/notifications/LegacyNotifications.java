@@ -31,7 +31,7 @@ public class LegacyNotifications {
 			INSERT INTO notifications (
 				company_id, recipient_kind, from_employee_id, to_employee_id,
 				title, body, notification_type, reference_type, reference_id
-			) VALUES (?, 'employee', ?, ?, ?, ?, ?, NULL, NULL)""";
+			) VALUES (?, 'employee', ?, ?, ?, ?, ?, ?, ?)""";
 
 	private final JdbcTemplate jdbcTemplate;
 	private final LegacyPushDelivery pushDelivery;
@@ -50,6 +50,18 @@ public class LegacyNotifications {
 	 */
 	public long toEmployee(
 			long companyId, long toEmployeeId, Long fromEmployeeId, String type, String title, String body) {
+		return toEmployee(companyId, toEmployeeId, fromEmployeeId, type, title, body, null, null);
+	}
+
+	/**
+	 * The same call with {@code $reference_type} and {@code $reference_id} --
+	 * {@code employees/update.php}'s shift notification passes {@code 'shift'}
+	 * and the shift id, and {@code notification_insert()} casts the id with
+	 * {@code (int)} while leaving the type as given.
+	 */
+	public long toEmployee(
+			long companyId, long toEmployeeId, Long fromEmployeeId, String type, String title, String body,
+			String referenceType, Long referenceId) {
 		KeyHolder keys = new GeneratedKeyHolder();
 		jdbcTemplate.update(connection -> {
 			PreparedStatement statement = connection.prepareStatement(INSERT, PreparedStatement.RETURN_GENERATED_KEYS);
@@ -63,6 +75,12 @@ public class LegacyNotifications {
 			statement.setString(4, title);
 			statement.setString(5, body);
 			statement.setString(6, type);
+			statement.setString(7, referenceType);
+			if (referenceId == null) {
+				statement.setNull(8, java.sql.Types.INTEGER);
+			} else {
+				statement.setLong(8, referenceId);
+			}
 			return statement;
 		}, keys);
 		long notificationId = keys.getKey() == null ? 0L : keys.getKey().longValue();

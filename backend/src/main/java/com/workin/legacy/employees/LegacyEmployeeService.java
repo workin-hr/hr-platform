@@ -16,6 +16,8 @@ import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 import com.workin.legacy.auth.LegacyRequestContext;
+import com.workin.legacy.authorization.LegacyHrPermissionEnforcer;
+import com.workin.legacy.authorization.LegacyHrPermissionKey;
 import com.workin.legacy.employees.LegacyEmployee.Role;
 import com.workin.legacy.notifications.LegacyNotifications;
 import com.workin.legacy.wire.LegacyApiException;
@@ -43,8 +45,28 @@ public class LegacyEmployeeService {
 	/** {@code preg_replace('/\s+/u', ' ', $code)} in {@code normalize_employee_code()}. */
 	private static final Pattern WHITESPACE_RUN = Pattern.compile("\\s+", Pattern.UNICODE_CHARACTER_CLASS);
 
+	/** {@code $self_allowed} -- what an HR session may change about itself. */
+	private static final java.util.Set<String> SELF_UPDATABLE_FIELDS = java.util.Set.of(
+			"first_name", "last_name", "phone", "country_code", "address", "password");
+
+	/** {@code $allowed_columns}, in {@code update.php}'s own order. */
+	private static final List<String> UPDATABLE_COLUMNS = List.of(
+			"employee_code", "first_name", "last_name", "phone", "country_code", "branch_id", "department_id",
+			"job_title_id", "national_id", "birth_date", "gender", "address", "hire_date",
+			"contract_duration_months", "expected_daily_hours", "is_mobile_attendance_enabled", "is_active");
+
+	/** The same list plus the column {@code employees_has_column()} may add. */
+	private static final List<String> UPDATABLE_COLUMNS_WITH_ANY_BRANCH = java.util.stream.Stream.concat(
+			UPDATABLE_COLUMNS.stream(), java.util.stream.Stream.of("can_check_in_any_branch")).toList();
+
+	/** Columns whose already-normalised value is bound as a number, not a PHP string cast. */
+	private static final java.util.Set<String> NUMERIC_UPDATE_COLUMNS = java.util.Set.of(
+			"branch_id", "department_id", "expected_daily_hours", "is_mobile_attendance_enabled",
+			"is_active", "can_check_in_any_branch");
+
 	private final LegacyEmployeeStore store;
 	private final LegacyNotifications notifications;
+	private final LegacyHrPermissionEnforcer permissionEnforcer;
 	private final LegacyPhoneNumbers phoneNumbers;
 	private final LegacyClock clock;
 	/**
@@ -57,10 +79,12 @@ public class LegacyEmployeeService {
 	private final PasswordEncoder bcrypt;
 
 	public LegacyEmployeeService(
-			LegacyEmployeeStore store, LegacyNotifications notifications, LegacyPhoneNumbers phoneNumbers,
+			LegacyEmployeeStore store, LegacyNotifications notifications,
+			LegacyHrPermissionEnforcer permissionEnforcer, LegacyPhoneNumbers phoneNumbers,
 			LegacyClock clock, PasswordEncoder bcrypt) {
 		this.store = store;
 		this.notifications = notifications;
+		this.permissionEnforcer = permissionEnforcer;
 		this.phoneNumbers = phoneNumbers;
 		this.clock = clock;
 		this.bcrypt = bcrypt;
@@ -532,6 +556,257 @@ public class LegacyEmployeeService {
 
 	private static String messageOf(Throwable ex) {
 		return ex.getMessage() == null ? ex.getClass().getName() : ex.getMessage();
+	}
+
+	/**
+	 * {@code employees/update.php}. Read from the PHP source in its own right --
+	 * it is not create's mirror image, and the places where it differs are the
+	 * places most likely to be normalised away by accident.
+	 *
+	 * <p>The endpoint mutates {@code $body} as it validates, then writes exactly
+	 * the keys that survive. That is why the order below matters: branch removes
+	 * its own key when it resolves to nothing, department keeps a null, and the
+	 * "is there anything to do" question is asked twice with different answers.
+	 */
+	public UpdateOutcome update(
+			LegacyRequestContext context, long employeeId, Map<String, Object> requestBody) {
+		// empty($body): an empty object, and only an empty one, stops here.
+		if (LegacyValues.isPhpEmpty(requestBody)) {
+			throw new LegacyApiException(400, "nothing_to_update");
+		}
+		Map<String, Object> body = new LinkedHashMap<>(requestBody);
+
+		// The employee is read before any permission decision, and the read is
+		// company-scoped, so another tenant's id is a 404 rather than a 403.
+		Map<String, Object> employee = store.findOne(employeeId, context.companyId());
+		if (employee == null) {
+			throw new LegacyApiException(404, "employee_not_found");
+		}
+
+		// is_hr_session also names MANAGER, but requireAuth already rejected
+		// managers, so only HR reaches either branch. Changing somebody else
+		// needs can_employees; changing yourself does not, and instead reduces
+		// the body to six fields before anything else looks at it.
+		boolean hrSession = context.role() == Role.HR;
+		if (hrSession && employeeId != context.employeeId()
+				&& !permissionEnforcer.has(LegacyHrPermissionKey.CAN_EMPLOYEES)) {
+			// require_hr_permission() fails with LangKey::FORBIDDEN, so the
+			// message is legacy's 'forbidden', not the platform's error.forbidden.
+			throw new LegacyApiException(403, "forbidden");
+		}
+		if (hrSession && employeeId == context.employeeId()) {
+			body.keySet().retainAll(SELF_UPDATABLE_FIELDS);
+		}
+
+		// Branch: a request value that normalises to nothing removes the key
+		// entirely, so an existing branch is never cleared. A supplied branch
+		// must belong to this company.
+		Long targetBranchId = body.containsKey("branch_id")
+				? normalizeOptionalBranchId(body.get("branch_id"))
+				: normalizeOptionalBranchId(employee.get("branch_id"));
+		if (body.containsKey("branch_id")) {
+			if (targetBranchId != null) {
+				if (!store.branchExistsInCompany(targetBranchId, context.companyId())) {
+					throw new LegacyApiException(404, "branch_not_found");
+				}
+				body.put("branch_id", targetBranchId);
+			} else {
+				body.remove("branch_id");
+			}
+		}
+
+		// Department: the same normaliser, but the null is kept -- so a
+		// department can be cleared where a branch cannot.
+		Long targetDepartmentId = body.containsKey("department_id")
+				? normalizeOptionalBranchId(body.get("department_id"))
+				: normalizeOptionalBranchId(employee.get("department_id"));
+		if (body.containsKey("department_id")) {
+			if (targetDepartmentId != null
+					&& !departmentValidForBranch(targetDepartmentId, targetBranchId, context.companyId())) {
+				throw new LegacyApiException(404, "department_not_found");
+			}
+			body.put("department_id", targetDepartmentId);
+		}
+
+		// Job title: an (int) cast, never a null -- so clearing it while a
+		// department is in play validates 0 against that department and 404s.
+		// The value stored is the raw body value, not this cast.
+		long targetJobTitleId = body.containsKey("job_title_id")
+				? LegacyValues.toPhpLong(body.get("job_title_id"))
+				: LegacyValues.toPhpLong(employee.get("job_title_id"));
+		if (body.containsKey("job_title_id") && targetDepartmentId != null
+				&& !jobTitleValidForDepartment(targetJobTitleId, targetDepartmentId, context.companyId())) {
+			throw new LegacyApiException(404, "job_title_not_found");
+		}
+
+		// isset() plus a positive cast: shift_id = 0 or null validates nothing.
+		Long shiftId = body.get("shift_id") == null ? null : LegacyValues.toPhpLong(body.get("shift_id"));
+		if (shiftId != null && shiftId > 0 && !store.shiftBelongsToCompany(shiftId, context.companyId())) {
+			throw new LegacyApiException(404, "shift_not_found");
+		}
+
+		// Phone: normalize_employee_phone(), which only strips to digits. This
+		// is NOT create's country-aware resolver -- no country normalisation and
+		// no validity check, so update accepts numbers create would reject.
+		if (body.containsKey("phone")) {
+			String newPhone = normalizeEmployeePhone(body.get("phone"));
+			if (newPhone != null && store.phoneExistsGlobally(newPhone, employeeId)) {
+				throw new LegacyApiException(409, "phone_already_exists");
+			}
+			body.put("phone", newPhone);
+			if (newPhone == null) {
+				body.put("country_code", null);
+			} else {
+				String countryCode = LegacyValues.toPhpString(body.get("country_code")).trim();
+				if (countryCode.isEmpty()) {
+					throw new LegacyApiException(400, "field_required", null, Map.of("field", "country_code"));
+				}
+				body.put("country_code", countryCode);
+			}
+		}
+
+		if (body.containsKey("employee_code")) {
+			String newCode = normalizeEmployeeCode(body.get("employee_code"));
+			if (newCode.isEmpty()) {
+				throw new LegacyApiException(400, "field_required", null, Map.of("field", "employee_code"));
+			}
+			if (!EMPLOYEE_CODE_FORMAT.matcher(newCode).matches()) {
+				throw new LegacyApiException(400, "employee_code_invalid", null, Map.of("field", "employee_code"));
+			}
+			if (store.employeeCodeExistsInCompany(context.companyId(), newCode, employeeId)) {
+				throw new LegacyApiException(409, "employee_code_already_exists");
+			}
+			body.put("employee_code", newCode);
+		}
+
+		boolean hasAnyBranchColumn = store.employeesHasColumn("can_check_in_any_branch");
+		if (body.containsKey("is_mobile_attendance_enabled")) {
+			body.put("is_mobile_attendance_enabled", exactTruthFlag(body, "is_mobile_attendance_enabled", 0));
+		}
+		if (hasAnyBranchColumn && body.containsKey("can_check_in_any_branch")) {
+			body.put("can_check_in_any_branch", exactTruthFlag(body, "can_check_in_any_branch", 0));
+		}
+		if (body.containsKey("is_active")) {
+			body.put("is_active", exactTruthFlag(body, "is_active", 0));
+		}
+		if (body.containsKey("expected_daily_hours")) {
+			double hours = LegacyValues.toPhpDecimal(body.get("expected_daily_hours")).doubleValue();
+			if (hours <= 0) {
+				throw new LegacyApiException(400, "invalid_input", null, Map.of("field", "expected_daily_hours"));
+			}
+			body.put("expected_daily_hours", hours);
+		}
+
+		// Only these columns are writable, and unknown keys are simply ignored.
+		Map<String, Object> updates = new LinkedHashMap<>();
+		for (String column : hasAnyBranchColumn ? UPDATABLE_COLUMNS_WITH_ANY_BRANCH : UPDATABLE_COLUMNS) {
+			if (body.containsKey(column)) {
+				updates.put(column, updatableColumnValue(column, body.get(column)));
+			}
+		}
+		if (body.containsKey("password")) {
+			String plainPassword = LegacyValues.toPhpString(body.get("password")).trim();
+			if (!plainPassword.isEmpty()) {
+				updates.put("password_hash", bcrypt.encode(plainPassword));
+			}
+		}
+
+		// The second "nothing to update", and the interesting one: the presence
+		// of a shift_id key -- any value, including 0 -- or a non-empty salary
+		// of any type gets past it, even though neither may write anything.
+		if (updates.isEmpty() && !body.containsKey("shift_id") && LegacyValues.isPhpEmpty(body.get("salary"))) {
+			throw new LegacyApiException(400, "nothing_to_update");
+		}
+
+		long previousJobTitleId = LegacyValues.toPhpLong(employee.get("job_title_id"));
+		String hireDateForSalary = body.get("hire_date") != null
+				? LegacyValues.toPhpString(body.get("hire_date"))
+				: employee.get("hire_date") != null
+						? LegacyValues.toPhpString(employee.get("hire_date"))
+						: clock.todayAsString();
+		String shiftEffectiveFrom = body.get("shift_effective_from") != null
+				? LegacyValues.toPhpString(body.get("shift_effective_from"))
+				: clock.todayAsString();
+		Object salary = body.get("salary");
+		try {
+			store.inTransaction(() -> {
+				store.updateEmployeeColumns(employeeId, context.companyId(), updates);
+				// Appended every time, never replacing or de-duplicating.
+				if (shiftId != null && shiftId > 0) {
+					store.insertShiftAssignment(employeeId, shiftId, shiftEffectiveFrom);
+				}
+				// is_array() as well as non-empty, and only for an employee with
+				// no contract at all -- update never adds a second one.
+				if (!LegacyValues.isPhpEmpty(salary) && salary instanceof Map<?, ?>
+						&& store.countSalaryContracts(employeeId) == 0) {
+					store.insertSalaryContract(employeeId, salaryAmounts(salary), hireDateForSalary);
+				}
+				return null;
+			});
+		} catch (Throwable ex) { // NOPMD - catch (Throwable $e), around the transaction only
+			// fail(ERROR_WITH_MESSAGE, 500, $e->getMessage()) -- a different key
+			// from create's, and the same exception-text-as-data shape.
+			throw new LegacyApiException(500, "error_with_message", messageOf(ex));
+		}
+
+		Map<String, Object> updated = store.findByIdWithOrgLabels(employeeId);
+		if (updated != null) {
+			store.attachLatestSalaryContract(updated);
+			store.attachLatestShiftAssignment(updated);
+		}
+		return new UpdateOutcome(
+				updated,
+				updated != null && body.containsKey("job_title_id")
+						&& LegacyValues.toPhpLong(body.get("job_title_id")) != previousJobTitleId,
+				updated != null && shiftId != null && shiftId > 0 ? shiftId : null);
+	}
+
+	/**
+	 * The two notifications {@code update.php} sends after the transaction has
+	 * already committed.
+	 *
+	 * <p>They are deliberately outside it: a failure here returns 500 with the
+	 * employee update already durable, which is legacy's behaviour and not
+	 * something to "fix" by widening the transaction. The controller calls this
+	 * because the message text depends on the request locale.
+	 */
+	public void notifyAfterUpdate(
+			LegacyRequestContext context, long employeeId, UpdateOutcome outcome,
+			String jobTitleTitle, String jobTitleBody, String shiftTitle, String shiftBody) {
+		if (outcome.jobTitleChanged()) {
+			notifications.toEmployee(
+					context.companyId(), employeeId, context.employeeId(), "job_title_changed",
+					jobTitleTitle, jobTitleBody);
+		}
+		if (outcome.assignedShiftId() != null) {
+			notifications.toEmployee(
+					context.companyId(), employeeId, context.employeeId(), "schedule_assigned",
+					shiftTitle, shiftBody, "shift", outcome.assignedShiftId());
+		}
+	}
+
+	/** {@code normalize_employee_phone()} ({@code functions.php:70-73}): digits, or null. */
+	private static String normalizeEmployeePhone(Object raw) {
+		String digits = LegacyPhoneNumbers.digitsOnly(LegacyValues.toPhpString(raw).trim());
+		return digits.isEmpty() ? null : digits;
+	}
+
+	/**
+	 * The value the dynamic UPDATE binds. The normalised keys were written back
+	 * into the body already; everything else binds the way PDO would (D-071).
+	 */
+	private static Object updatableColumnValue(String column, Object value) {
+		if (value == null) {
+			return null;
+		}
+		if (NUMERIC_UPDATE_COLUMNS.contains(column) && value instanceof Number number) {
+			return number;
+		}
+		return LegacyValues.toPhpString(value);
+	}
+
+	/** What {@code update.php} produced, so the controller can send the right notifications. */
+	public record UpdateOutcome(Map<String, Object> employee, boolean jobTitleChanged, Long assignedShiftId) {
 	}
 
 	/**

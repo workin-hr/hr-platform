@@ -1,8 +1,8 @@
 package com.workin.legacy;
 
 import java.time.LocalDate;
-import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,6 +36,7 @@ import java.util.regex.Pattern;
  * 08/21/2026 / 8/21/2026                    m/d/Y with slashes
  * 21 Aug 2026 / 21 August 2026              day first, month name
  * Aug 21 2026 / August 21, 2026             month name first
+ * Sept 21 2026                              September's extra abbreviation
  * 0000-00-00                                -1  (PHP renders year -0001)
  * now / today                               today's year
  * tomorrow / yesterday                      that day's year
@@ -46,7 +47,9 @@ import java.util.regex.Pattern;
  * <p>Rejected, and therefore a 500 with a rolled-back transaction:
  * {@code 2026-13-01}, {@code 2026-12-32}, {@code 2026-08-21garbage},
  * {@code 2026-08-21 garbage}, {@code 2026-08/21}, {@code 2026/08-21},
- * {@code invalid text}, the empty string, {@code Array}, {@code 1}.
+ * {@code invalid text}, the empty string, {@code Array}, {@code 1}, and any
+ * month name with a suffix on it -- {@code AugustXYZ}, {@code AugXYZ},
+ * {@code SeptemberXYZ}, {@code Augu}, {@code Au}, {@code Jly}.
  *
  * <p>Deliberately outside the grammar: relative expressions beyond the four
  * keywords ({@code +1 week}, {@code next monday}, {@code last day of}),
@@ -76,8 +79,27 @@ public final class LegacyPhpDateYear {
 	/** A bare four digits is a {@code HHMM} time of day, so the year is today's. */
 	private static final Pattern BARE_TIME = Pattern.compile("^(\\d{2})(\\d{2})$");
 
-	private static final List<String> MONTH_PREFIXES = List.of(
-			"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec");
+	/**
+	 * The exact English month names {@code strtotime()} accepts: the standard
+	 * three-letter abbreviation, the full name, and September's extra
+	 * {@code sept}. Measured under PHP 8.3 -- an arbitrary suffix is not
+	 * tolerated ({@code AugustXYZ}, {@code AugXYZ}, {@code SeptemberXYZ},
+	 * {@code Augu}, {@code Au} and {@code Jly} are all rejected), so this is a
+	 * membership test rather than a prefix match.
+	 */
+	private static final Map<String, Integer> MONTH_NAMES = Map.ofEntries(
+			Map.entry("jan", 1), Map.entry("january", 1),
+			Map.entry("feb", 2), Map.entry("february", 2),
+			Map.entry("mar", 3), Map.entry("march", 3),
+			Map.entry("apr", 4), Map.entry("april", 4),
+			Map.entry("may", 5),
+			Map.entry("jun", 6), Map.entry("june", 6),
+			Map.entry("jul", 7), Map.entry("july", 7),
+			Map.entry("aug", 8), Map.entry("august", 8),
+			Map.entry("sep", 9), Map.entry("sept", 9), Map.entry("september", 9),
+			Map.entry("oct", 10), Map.entry("october", 10),
+			Map.entry("nov", 11), Map.entry("november", 11),
+			Map.entry("dec", 12), Map.entry("december", 12));
 
 	private LegacyPhpDateYear() {
 	}
@@ -174,17 +196,13 @@ public final class LegacyPhpDateYear {
 		return hour < 24 && minute < 60 && second < 60;
 	}
 
-	/** PHP matches month names by their first three letters, case-insensitively. */
+	/** Case-insensitive, but the whole word has to be a month name PHP knows. */
 	private static int monthFromName(String name) {
-		String lower = name.toLowerCase(Locale.ROOT);
-		if (lower.length() < 3) {
+		Integer month = MONTH_NAMES.get(name.toLowerCase(Locale.ROOT));
+		if (month == null) {
 			throw new LegacyPhpDateException();
 		}
-		int index = MONTH_PREFIXES.indexOf(lower.substring(0, 3));
-		if (index < 0) {
-			throw new LegacyPhpDateException();
-		}
-		return index + 1;
+		return month;
 	}
 
 	private static int digits(Matcher matcher, int group) {

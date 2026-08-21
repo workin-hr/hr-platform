@@ -462,6 +462,35 @@ public class LegacyEmployeeStore {
 	}
 
 	/**
+	 * {@code update.php}'s dynamic {@code UPDATE employees SET ... WHERE id=? AND company_id=?}.
+	 *
+	 * <p>Only the columns the request actually carried are written -- the
+	 * allowed-column loop builds the set -- and the company predicate is what
+	 * keeps a native statement tenant-safe.
+	 */
+	public void updateEmployeeColumns(long employeeId, long companyId, Map<String, Object> columns) {
+		if (columns.isEmpty()) {
+			return;
+		}
+		List<String> assignments = new ArrayList<>();
+		List<Object> params = new ArrayList<>();
+		for (Map.Entry<String, Object> column : columns.entrySet()) {
+			assignments.add(column.getKey() + "=?");
+			params.add(column.getValue());
+		}
+		params.add(employeeId);
+		params.add(companyId);
+		jdbcTemplate.update(
+				"UPDATE employees SET " + String.join(", ", assignments) + " WHERE id=? AND company_id=?",
+				params.toArray());
+	}
+
+	/** {@code update.php}'s salary guard: a contract is inserted only when the employee has none. */
+	public long countSalaryContracts(long employeeId) {
+		return count("SELECT COUNT(*) FROM salary_contracts WHERE employee_id = ?", employeeId);
+	}
+
+	/**
 	 * {@code create.php}'s salary INSERT. Housing is hard-coded to 0 there even
 	 * though the request may carry one, and {@code effective_from} is the
 	 * employee's hire date, not today.
