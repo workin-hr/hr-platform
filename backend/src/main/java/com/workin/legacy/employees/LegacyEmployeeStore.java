@@ -654,6 +654,16 @@ public class LegacyEmployeeStore {
 		jdbcTemplate.update("DELETE FROM employees WHERE id = ? AND company_id = ?", employeeId, companyId);
 	}
 
+	/**
+	 * {@code upload_photo.php}'s scoped {@code UPDATE employees SET photo_url=?}.
+	 * Its row count is ignored, exactly as PHP ignores it -- a missing or
+	 * foreign target updates nothing and the endpoint carries on to the re-read.
+	 */
+	public void updatePhotoUrl(long employeeId, long companyId, String photoUrl) {
+		jdbcTemplate.update(
+				"UPDATE employees SET photo_url=? WHERE id=? AND company_id=?", photoUrl, employeeId, companyId);
+	}
+
 	/** The cascade's first statement: notifications on either side of the employee. */
 	public void deleteNotificationsFor(long employeeId) {
 		jdbcTemplate.update(

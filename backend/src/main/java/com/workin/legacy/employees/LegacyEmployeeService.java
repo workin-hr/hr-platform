@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -15,6 +16,7 @@ import com.workin.legacy.LegacyPhpDateYear;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
+import com.workin.legacy.uploads.LegacyFileUploads;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.authorization.LegacyHrPermissionEnforcer;
 import com.workin.legacy.authorization.LegacyHrPermissionKey;
@@ -69,6 +71,7 @@ public class LegacyEmployeeService {
 	private final LegacyHrPermissionEnforcer permissionEnforcer;
 	private final LegacyPhoneNumbers phoneNumbers;
 	private final LegacyClock clock;
+	private final LegacyFileUploads fileUploads;
 	/**
 	 * {@code password_hash($p, PASSWORD_BCRYPT)}. The shared bean is the same
 	 * encoder legacy login already verifies with; it writes the {@code $2a$}
@@ -81,12 +84,13 @@ public class LegacyEmployeeService {
 	public LegacyEmployeeService(
 			LegacyEmployeeStore store, LegacyNotifications notifications,
 			LegacyHrPermissionEnforcer permissionEnforcer, LegacyPhoneNumbers phoneNumbers,
-			LegacyClock clock, PasswordEncoder bcrypt) {
+			LegacyClock clock, LegacyFileUploads fileUploads, PasswordEncoder bcrypt) {
 		this.store = store;
 		this.notifications = notifications;
 		this.permissionEnforcer = permissionEnforcer;
 		this.phoneNumbers = phoneNumbers;
 		this.clock = clock;
+		this.fileUploads = fileUploads;
 		this.bcrypt = bcrypt;
 	}
 
@@ -423,15 +427,16 @@ public class LegacyEmployeeService {
 	 * collapse internal whitespace runs to a single space.
 	 *
 	 * <p>The parameter is {@code ?string} under {@code strict_types=1}, so a
-	 * JSON number or boolean is a {@code TypeError} in PHP -- an uncaught 500,
-	 * not a validation error. That 500's exact body (PHP adds {@code file},
-	 * {@code line} and {@code trace}) is the shape still deferred, so this
-	 * raises a 500 carrying the type-error text and nothing else.
+	 * JSON number or boolean is a {@code TypeError} in PHP -- and PHP never
+	 * catches it. That makes it an uncaught failure, not an application
+	 * response, so it goes out through D-084's generic 500 rather than as a
+	 * {@code LegacyApiException} carrying the technical text. The message here
+	 * is for the server log only.
 	 */
 	private static String normalizeEmployeeCode(Object raw) {
 		if (raw != null && !(raw instanceof CharSequence)) {
-			throw new LegacyApiException(
-					500, "normalize_employee_code(): Argument #1 ($code) must be of type ?string, "
+			throw new IllegalArgumentException(
+					"normalize_employee_code(): Argument #1 ($code) must be of type ?string, "
 							+ phpTypeName(raw) + " given");
 		}
 		String code = raw == null ? "" : raw.toString().trim();
@@ -807,6 +812,34 @@ public class LegacyEmployeeService {
 
 	/** What {@code update.php} produced, so the controller can send the right notifications. */
 	public record UpdateOutcome(Map<String, Object> employee, boolean jobTitleChanged, Long assignedShiftId) {
+	}
+
+	/**
+	 * {@code employees/upload_photo.php}, after the controller has resolved the
+	 * target and applied the employee-role self restriction.
+	 *
+	 * <p>The order is legacy's, and it is the part worth preserving: the file is
+	 * stored first, then the scoped update runs, then the row is read back. The
+	 * target's existence is never checked, so a missing or foreign id leaves a
+	 * stored file, a zero-row update and a null re-read -- and PHP then hands
+	 * that null to {@code public_row(array $row)}, which is a {@code TypeError}
+	 * it does not catch. Nothing deletes the file, here or there.
+	 */
+	public Map<String, Object> uploadPhoto(
+			LegacyRequestContext context, long targetEmployeeId, MultipartFile file) {
+		String photoUrl = fileUploads.store(file, "photos");
+		if (photoUrl == null) {
+			throw new LegacyApiException(400, "no_file_uploaded");
+		}
+		store.updatePhotoUrl(targetEmployeeId, context.companyId(), photoUrl);
+		Map<String, Object> employee = store.findWithOrgLabels(targetEmployeeId, context.companyId());
+		if (employee == null) {
+			// public_row(null): an uncaught TypeError in PHP, so D-084's generic
+			// 500 -- with the uploaded file left exactly where it was written.
+			throw new IllegalStateException(
+					"public_row(): Argument #1 ($row) must be of type array, null given");
+		}
+		return employee;
 	}
 
 	/**

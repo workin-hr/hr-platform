@@ -118,6 +118,56 @@ public class LegacyEmployeeController {
 		return name == null ? "" : name.toString();
 	}
 
+	/**
+	 * {@code employees/upload_photo.php}: POST, and the only employee endpoint
+	 * an {@code employee} role may call at all -- for its own row.
+	 *
+	 * <p>The target defaults to the authenticated employee when no {@code id} is
+	 * given, and a falsy target is rejected before anything is read or written.
+	 * Nothing checks that the target exists: that check simply is not in the
+	 * source, and adding one would change which requests store a file.
+	 */
+	@RequestMapping("/upload_photo.php")
+	public LegacyApiResponse uploadPhoto(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = requestGuard.requireAuth(
+				LegacyEmployee.Role.COMPANY_ADMIN, LegacyEmployee.Role.HR, LegacyEmployee.Role.MANAGER,
+				LegacyEmployee.Role.EMPLOYEE);
+		requestGuard.requireCompanyActive(context.companyId());
+
+		// (int) ($_GET['id'] ?? (int) ($auth['employee_id'] ?? 0))
+		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
+		long targetEmployeeId = query.value("id") != null
+				? LegacyValues.toPhpLong(query.value("id"))
+				: context.employeeId();
+		if (targetEmployeeId == 0) {
+			throw new LegacyApiException(400, "employee_id_required");
+		}
+		// The employee role may only ever touch its own photo. Every other role
+		// may target anybody in the company -- a manager is not limited to its
+		// own branch here, unlike on employees/one.php.
+		if (context.role() == LegacyEmployee.Role.EMPLOYEE && targetEmployeeId != context.employeeId()) {
+			throw new LegacyApiException(403, "forbidden");
+		}
+
+		Map<String, Object> employee = employeeService.uploadPhoto(
+				context, targetEmployeeId, multipartFile(request, "photo"));
+		return LegacyApiResponse.ok(message(request, "photo_uploaded"), employee);
+	}
+
+	/**
+	 * {@code $_FILES['photo']}. A request that is not multipart at all, or one
+	 * without that part, is the same "no file" PHP sees -- and the part is
+	 * {@code photo}, not {@code file} ({@code upload_slots.php:10}).
+	 */
+	private static org.springframework.web.multipart.MultipartFile multipartFile(
+			HttpServletRequest request, String partName) {
+		if (request instanceof org.springframework.web.multipart.MultipartHttpServletRequest multipart) {
+			return multipart.getFile(partName);
+		}
+		return null;
+	}
+
 	/** {@code employees/delete_preview.php}: GET, admin/HR, the id, then fourteen counts. */
 	@RequestMapping("/delete_preview.php")
 	public LegacyApiResponse deletePreview(HttpServletRequest request) {

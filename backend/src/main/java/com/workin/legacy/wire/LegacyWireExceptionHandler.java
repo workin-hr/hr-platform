@@ -2,6 +2,8 @@ package com.workin.legacy.wire;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.ResponseEntity;
@@ -22,6 +24,15 @@ import com.workin.backend.i18n.ApiException;
 @RestControllerAdvice(basePackages = "com.workin.legacy.employees")
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class LegacyWireExceptionHandler {
+
+	private static final Logger LOG = LoggerFactory.getLogger(LegacyWireExceptionHandler.class);
+
+	/**
+	 * D-084's fixed text. Deliberately not a catalog key and deliberately not
+	 * localized: it is Phase 1's own contract for a failure legacy never
+	 * defined, not a legacy message.
+	 */
+	private static final String INTERNAL_SERVER_ERROR = "Internal server error";
 
 	private final LegacyMessages messages;
 
@@ -50,6 +61,39 @@ public class LegacyWireExceptionHandler {
 	public ResponseEntity<LegacyApiResponse> handlePlatform(ApiException ex, HttpServletRequest request) {
 		String text = messages.translate(messages.resolveLocale(request), ex.getCode(), null);
 		return ResponseEntity.status(ex.getStatus()).body(LegacyApiResponse.fail(text, null));
+	}
+
+	/**
+	 * D-084: the final fallback for an exception no specific handler claimed.
+	 *
+	 * <p>Legacy has no contract here. {@code employee_cascade_delete_related()}
+	 * rolls back and rethrows, {@code delete.php} does not translate it, and
+	 * what the client then sees depends on {@code AppConfig::DEBUG} -- a value
+	 * that lives in the gitignored {@code constants.php} and cannot be
+	 * established from this repository. With it true PHP emits the exception
+	 * message, file, line and stack trace; with it false the response depends on
+	 * the runtime's {@code display_errors} and is not a stable JSON contract at
+	 * all.
+	 *
+	 * <p>So Phase 1 takes an explicit divergence: one deterministic body,
+	 * carrying nothing about the failure. No {@code data}, no {@code meta}, no
+	 * exception text, no SQL, no file, line or stack. The real exception is
+	 * logged here instead, which is where that detail belongs.
+	 *
+	 * <p>{@code Exception}, not {@code Throwable}: an {@code OutOfMemoryError} or
+	 * {@code StackOverflowError} must not be rendered as a tidy 500 and left to
+	 * continue. Transaction helpers still catch {@code Throwable} where PHP's
+	 * rollback semantics require it -- rolling back and rendering are different
+	 * jobs.
+	 *
+	 * <p>This is scoped to {@code com.workin.legacy.employees} with the rest of
+	 * this advice; {@code /api/legacy/**} and the PostgreSQL surface are
+	 * untouched.
+	 */
+	@ExceptionHandler(Exception.class)
+	public ResponseEntity<LegacyApiResponse> handleUnexpected(Exception ex, HttpServletRequest request) {
+		LOG.error("unhandled exception serving {} {}", request.getMethod(), request.getRequestURI(), ex);
+		return ResponseEntity.status(500).body(LegacyApiResponse.fail(INTERNAL_SERVER_ERROR, null));
 	}
 
 }

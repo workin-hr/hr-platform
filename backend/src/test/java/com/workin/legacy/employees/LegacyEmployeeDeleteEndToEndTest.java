@@ -282,11 +282,16 @@ class LegacyEmployeeDeleteEndToEndTest {
 
 		// The manager clear is the second-to-last statement, so by the time this
 		// throws every destructive delete has already run inside the transaction.
-		Mockito.doThrow(new IllegalStateException("cascade interrupted"))
+		Mockito.doThrow(new IllegalStateException("cascade interrupted: jdbc said no"))
 				.when(storeSpy).clearDepartmentManager(Mockito.anyLong(), Mockito.anyLong());
 		try {
-			assertThat(exchange(DELETE + "?id=" + id + "&cascade=1", HttpMethod.DELETE, ADMIN)
-					.getStatusCode().is5xxServerError()).isTrue();
+			ResponseEntity<Map<String, Object>> response = exchange(
+					DELETE + "?id=" + id + "&cascade=1", HttpMethod.DELETE, ADMIN);
+			// D-084: one deterministic body, carrying nothing about the failure.
+			assertThat(response.getStatusCode().value()).isEqualTo(500);
+			assertThat(response.getBody()).containsExactly(
+					Map.entry("success", false), Map.entry("message", "Internal server error"));
+			assertThat(response.getBody().toString()).doesNotContain("jdbc said no").doesNotContain("cascade");
 		} finally {
 			Mockito.reset(storeSpy);
 		}
@@ -308,14 +313,42 @@ class LegacyEmployeeDeleteEndToEndTest {
 		// history without removing the employee.
 		Mockito.doReturn(0).when(storeSpy).deleteEmployeeScoped(Mockito.anyLong(), Mockito.anyLong());
 		try {
-			assertThat(exchange(DELETE + "?id=" + id + "&cascade=1", HttpMethod.DELETE, ADMIN)
-					.getStatusCode().is5xxServerError()).isTrue();
+			ResponseEntity<Map<String, Object>> response = exchange(
+					DELETE + "?id=" + id + "&cascade=1", HttpMethod.DELETE, ADMIN);
+			assertThat(response.getStatusCode().value()).isEqualTo(500);
+			// employee_delete_failed is the helper's internal marker, not a
+			// client-visible message.
+			assertThat(response.getBody().get("message")).isEqualTo("Internal server error");
+			assertThat(response.getBody().toString()).doesNotContain("employee_delete_failed");
 		} finally {
 			Mockito.reset(storeSpy);
 		}
 
 		assertThat(count("SELECT COUNT(*) FROM employees WHERE id = " + id)).isOne();
 		assertThat(tableCounts(id)).isEqualTo(before);
+	}
+
+	@Test
+	void theSpecificHandlersStillOwnTheirOwnEnvelopes() throws Exception {
+		// D-084 is a fallback, not a replacement: an explicit fail() equivalent
+		// and a guard-stack ApiException both keep their legacy messages.
+		long id = employee(9800, "01029000800");
+		relatedRows(id, false);
+		assertThat(exchange(DELETE + "?id=" + id, HttpMethod.DELETE, ADMIN).getBody().get("message"))
+				.isEqualTo("Cannot delete employee because there are related records");
+		assertThat(exchange(DELETE + "?id=" + OTHER_COMPANY_EMPLOYEE, HttpMethod.DELETE, ADMIN)
+				.getBody().get("message")).isEqualTo("Employee not found");
+
+		// LegacyRequestGuard's ApiException, translated through the catalog.
+		String employeeRoleToken = jwtService.issueAccessToken(
+				ADMIN, ADMIN, COMPANY_1, "test-session", Map.of("role", "employee", "token_version", 1L));
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(employeeRoleToken);
+		ResponseEntity<Map<String, Object>> denied = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + DELETE + "?id=" + id), HttpMethod.DELETE,
+				new HttpEntity<>(headers), new ParameterizedTypeReference<Map<String, Object>>() { });
+		assertThat(denied.getStatusCode().value()).isEqualTo(403);
+		assertThat(denied.getBody().get("message")).isEqualTo("Forbidden — insufficient role");
 	}
 
 	@Test

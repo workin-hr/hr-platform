@@ -171,6 +171,22 @@ class LegacyEmployeeCreateEndToEndTest {
 	}
 
 	@Test
+	void aNonStringEmployeeCodeIsAnUncaughtFailureNotAValidationError() {
+		// normalize_employee_code(?string) under strict_types=1: a JSON number
+		// is a TypeError PHP never catches, so it is not an application
+		// response. D-084 renders it as the generic 500 rather than handing the
+		// client the type-error text.
+		Map<String, Object> body = validBody("6600", "01012340050");
+		body.put("employee_code", 6600);
+
+		ResponseEntity<Map<String, Object>> response = post(body, ADMIN_1);
+		assertThat(response.getStatusCode().value()).isEqualTo(500);
+		assertThat(response.getBody()).containsExactly(
+				Map.entry("success", false), Map.entry("message", "Internal server error"));
+		assertThat(response.getBody().toString()).doesNotContain("normalize_employee_code");
+	}
+
+	@Test
 	void requiredFieldsAreCheckedInPhpsOrder() {
 		Map<String, Object> body = new LinkedHashMap<>();
 		assertThat(message(post(body, ADMIN_1), 400)).isEqualTo("Field 'first_name' is required");
