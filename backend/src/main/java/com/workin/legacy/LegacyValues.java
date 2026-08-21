@@ -175,6 +175,46 @@ public final class LegacyValues {
 		return "1".equals(value) || "true".equals(value) || "on".equals(value) || "yes".equals(value);
 	}
 
+	/**
+	 * PHP's {@code trim()} with its default character list: space, tab,
+	 * newline, carriage return, NUL and vertical tab.
+	 *
+	 * <p>Narrower than {@link String#strip()}, which would also take the Unicode
+	 * spaces an Arabic label can legitimately contain, and than
+	 * {@link String#trim()}, which takes every control character below
+	 * {@code U+0020}. The difference is only visible on odd input -- which is
+	 * exactly the input a spreadsheet upload supplies.
+	 */
+	public static String phpTrim(String value) {
+		if (value == null) {
+			return "";
+		}
+		int start = 0;
+		int end = value.length();
+		while (start < end && isPhpTrimmable(value.charAt(start))) {
+			start++;
+		}
+		while (end > start && isPhpTrimmable(value.charAt(end - 1))) {
+			end--;
+		}
+		return value.substring(start, end);
+	}
+
+	private static boolean isPhpTrimmable(char character) {
+		return character == ' ' || character == '\t' || character == '\n'
+				|| character == '\r' || character == '\0' || character == 0x0B;
+	}
+
+	/**
+	 * {@code mb_strtolower($value, 'UTF-8')}: a locale-independent lower-casing,
+	 * which {@link Locale#ROOT} is -- notably not the platform default, where a
+	 * Turkish locale would fold {@code I} to a dotless {@code i} and change which
+	 * lookup key a branch name lands on.
+	 */
+	public static String mbStrToLower(String value) {
+		return value == null ? "" : value.toLowerCase(Locale.ROOT);
+	}
+
 	public static boolean isPhpEmpty(Object raw) {
 		if (raw == null || Boolean.FALSE.equals(raw)) {
 			return true;

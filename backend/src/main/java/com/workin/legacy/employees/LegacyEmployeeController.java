@@ -1,9 +1,11 @@
 package com.workin.legacy.employees;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,6 +16,7 @@ import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.auth.LegacyRequestGuard;
+import com.workin.legacy.employees.spreadsheet.LegacyEmployeeTemplate;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyApiResponse;
 import com.workin.legacy.wire.LegacyMessages;
@@ -284,6 +287,42 @@ public class LegacyEmployeeController {
 		Map<String, Object> employee = employeeService.reactivate(
 				context, LegacyValues.toPhpLong(query.value("id")));
 		return LegacyApiResponse.ok(message(request, "employee_reactivated"), employee);
+	}
+
+	/**
+	 * {@code employees/template_excel.php}: the bulk-import template, as a
+	 * download rather than an envelope.
+	 *
+	 * <p>Alone in this module it has <em>no</em> method guard -- the PHP file
+	 * simply has no {@code REQUEST_METHOD} check -- so a POST, a PUT or a HEAD
+	 * downloads the template exactly as a GET does. {@code requireMethod} is
+	 * therefore not called here, and that is deliberate rather than an omission.
+	 * The auth and active-company guards still run, in that order.
+	 *
+	 * <p>The body is a file, so this handler returns the bytes itself instead of
+	 * a {@link LegacyApiResponse}. A guard failure still throws, so failures keep
+	 * the PHP envelope; only the success path is a download.
+	 */
+	@RequestMapping("/template_excel.php")
+	public void templateExcel(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		LegacyRequestContext context = administrative();
+		LegacyEmployeeService.Template template = employeeService.template(
+				context, LegacyQueryParameters.parse(request.getQueryString()));
+
+		// The CSV branch's Content-Type reaches the client as
+		// "text/csv;charset=UTF-8" rather than PHP's "text/csv; charset=utf-8".
+		// Tomcat intercepts this one header name and re-serializes the value
+		// whichever way it is set -- setHeader(), setContentType() or a
+		// ResponseEntity all land in the same place -- so the optional whitespace
+		// and the charset's case are not ours to choose. RFC 9110 makes both
+		// spellings the same media type and every client parses them alike, so
+		// this is a formatting difference in a header, not a content one. Noted
+		// rather than worked around: the workaround would mean writing raw bytes
+		// past the container.
+		response.setHeader("Content-Type", template.contentType());
+		response.setHeader("Content-Disposition", LegacyEmployeeTemplate.contentDisposition(template.filename()));
+		response.setStatus(200);
+		response.getOutputStream().write(template.content());
 	}
 
 	/**

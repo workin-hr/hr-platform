@@ -20,6 +20,7 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.workin.legacy.LegacyValues;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 
 /**
@@ -672,6 +673,43 @@ public class LegacyEmployeeStore {
 	}
 
 	/** One of the cascade's thirteen {@code DELETE FROM <table> WHERE employee_id = ?} statements. */
+	/**
+	 * {@code employee_excel_build_lookups()}
+	 * ({@code employee_excel_helper.php}): four name-to-id maps, keyed by
+	 * {@code mb_strtolower(trim($name))}.
+	 *
+	 * <p>Three of the four filter on {@code is_active = 1}; shifts do not, which
+	 * is legacy's asymmetry and not a transcription slip. None of them carries an
+	 * {@code ORDER BY}, so the iteration order is whatever the server returns --
+	 * which matters because the template's example values are the <em>first</em>
+	 * key of each map. J2 is still unresolved on the duplicate-name behaviour that
+	 * follows from the same keying, and no ordering is invented here to paper over
+	 * it: the query is the query legacy runs.
+	 *
+	 * <p>Two rows whose names differ only in case or surrounding whitespace
+	 * collapse onto one key, and the later row's id wins while the earlier row's
+	 * position is kept -- PHP array assignment, which {@link LinkedHashMap#put}
+	 * reproduces exactly.
+	 */
+	public LinkedHashMap<String, Long> spreadsheetLookup(String table, long companyId, boolean activeOnly) {
+		if (!LOOKUP_TABLES.contains(table)) {
+			// A table name reaches SQL by concatenation, so it may only ever be
+			// one the helper itself lists.
+			throw new IllegalArgumentException("not a lookup table: " + table);
+		}
+		String sql = "SELECT id, name FROM " + table + " WHERE company_id=?" + (activeOnly ? " AND is_active=1" : "");
+		LinkedHashMap<String, Long> lookup = new LinkedHashMap<>();
+		jdbcTemplate.query(sql, rs -> {
+			String name = rs.getString("name");
+			lookup.put(LegacyValues.mbStrToLower(LegacyValues.phpTrim(name == null ? "" : name)), rs.getLong("id"));
+		}, companyId);
+		return lookup;
+	}
+
+	/** The tables {@code employee_excel_build_lookups()} reads, and the only names {@link #spreadsheetLookup} accepts. */
+	private static final java.util.Set<String> LOOKUP_TABLES =
+			java.util.Set.of("branches", "departments", "job_titles", "shifts");
+
 	public void deleteByEmployeeId(String table, long employeeId) {
 		if (!CASCADE_TABLES.contains(table)) {
 			// A table name reaches SQL by concatenation, so it may only ever be

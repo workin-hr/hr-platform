@@ -1,0 +1,372 @@
+[
+    {
+        "key": "employee_code",
+        "required": true,
+        "label_ar": "كود الموظف (اجباري)\nأرقام فقط",
+        "label_en": "Employee code (required)\nDigits only",
+        "aliases": [
+            "employee_code",
+            "emp_code",
+            "code",
+            "كود_الموظف",
+            "كود الموظف"
+        ]
+    },
+    {
+        "key": "first_name",
+        "required": true,
+        "label_ar": "الاسم الأول (اجباري)",
+        "label_en": "First name (required)",
+        "aliases": [
+            "first_name",
+            "firstname",
+            "fname",
+            "الاسم_الاول",
+            "الاسم الاول",
+            "الاسم الأول"
+        ]
+    },
+    {
+        "key": "last_name",
+        "required": true,
+        "label_ar": "الاسم الأخير (اجباري)",
+        "label_en": "Last name (required)",
+        "aliases": [
+            "last_name",
+            "lastname",
+            "lname",
+            "الاسم_الاخير",
+            "الاسم الاخير",
+            "الاسم الأخير"
+        ]
+    },
+    {
+        "key": "country_code",
+        "required": false,
+        "label_ar": "كود الدولة (اختياري)",
+        "label_en": "Country code (optional)",
+        "aliases": [
+            "country_code",
+            "كود_الدولة",
+            "كود الدولة"
+        ]
+    },
+    {
+        "key": "phone",
+        "required": false,
+        "label_ar": "رقم التليفون (اختياري)\nمطلوب لو الموظف هيسجل دخول من التطبيق",
+        "label_en": "Phone (optional)\nRequired for employee app login",
+        "aliases": [
+            "phone",
+            "mobile",
+            "الهاتف",
+            "رقم_الهاتف",
+            "رقم التلفون",
+            "رقم التليفون"
+        ]
+    },
+    {
+        "key": "password",
+        "required": false,
+        "label_ar": "كلمة المرور (اختياري)\nمطلوبة مع رقم التليفون لتسجيل الدخول من التطبيق",
+        "label_en": "Password (optional)\nRequired with phone for employee app login",
+        "aliases": [
+            "password",
+            "كلمة_المرور",
+            "كلمه المرور",
+            "كلمة المرور"
+        ]
+    },
+    {
+        "key": "shift_name",
+        "required": true,
+        "label_ar": "الوردية (اجباري)\nأضف الورديات في النظام أولاً",
+        "label_en": "Shift (required)\nAdd shifts in the system first",
+        "aliases": [
+            "shift_name",
+            "shift",
+            "الوردية",
+            "اسم_الوردية",
+            "اسم الوردية"
+        ]
+    },
+    {
+        "key": "national_id",
+        "required": false,
+        "label_ar": "الرقم القومي (اختياري)",
+        "label_en": "National ID (optional)",
+        "aliases": [
+            "national_id",
+            "nid",
+            "الرقم_القومي",
+            "الرقم القومي"
+        ]
+    },
+    {
+        "key": "birth_date",
+        "required": false,
+        "label_ar": "تاريخ الميلاد (اختياري)",
+        "label_en": "Birth date (optional)",
+        "aliases": [
+            "birth_date",
+            "dob",
+            "تاريخ_الميلاد",
+            "تاريخ الميلاد"
+        ]
+    },
+    {
+        "key": "gender",
+        "required": false,
+        "label_ar": "النوع (اختياري)",
+        "label_en": "Gender (optional)",
+        "aliases": [
+            "gender",
+            "النوع",
+            "الجنس"
+        ]
+    },
+    {
+        "key": "address",
+        "required": false,
+        "label_ar": "العنوان (اختياري)",
+        "label_en": "Address (optional)",
+        "aliases": [
+            "address",
+            "العنوان"
+        ]
+    },
+    {
+        "key": "is_mobile_attendance_enabled",
+        "required": true,
+        "label_ar": "حضور من الموبايل (اجباري)\nنعم أو لا",
+        "label_en": "Mobile attendance (required)\nYes or no",
+        "aliases": [
+            "is_mobile_attendance_enabled",
+            "mobile_attendance",
+            "حضور_موبايل",
+            "حضور من الموبايل",
+            "السماح بتسجيل الحضور من الموبايل"
+        ]
+    },
+    {
+        "key": "hire_date",
+        "required": false,
+        "label_ar": "تاريخ التعيين (اختياري)",
+        "label_en": "Hire date (optional)",
+        "aliases": [
+            "hire_date",
+            "تاريخ_التعيين",
+            "تاريخ التعيين"
+        ]
+    },
+    {
+        "key": "branch_name",
+        "required": true,
+        "label_ar": "الفرع (اجباري)\nأضف الفروع في النظام أولاً ثم اكتب اسم الفرع",
+        "label_en": "Branch (required)\nAdd branches in the system first",
+        "aliases": [
+            "branch_name",
+            "branch",
+            "الفرع",
+            "اسم_الفرع",
+            "اسم الفرع"
+        ]
+    },
+    {
+        "key": "department_name",
+        "required": true,
+        "label_ar": "القسم (اجباري)\nأضف الأقسام في النظام أولاً ثم اكتب اسم القسم",
+        "label_en": "Department (required)\nAdd departments in the system first",
+        "aliases": [
+            "department_name",
+            "department",
+            "القسم",
+            "اسم_القسم",
+            "اسم القسم"
+        ]
+    },
+    {
+        "key": "job_title_name",
+        "required": true,
+        "label_ar": "المسمى الوظيفي (اجباري)\nأضف المسميات في النظام أولاً ثم اكتب الاسم",
+        "label_en": "Job title (required)\nAdd job titles in the system first",
+        "aliases": [
+            "job_title_name",
+            "job_title",
+            "المسمى",
+            "المسمى_الوظيفي",
+            "المسمى الوظيفي"
+        ]
+    },
+    {
+        "key": "expected_daily_hours",
+        "required": true,
+        "label_ar": "ساعات العمل (اجباري)",
+        "label_en": "Work hours (required)",
+        "aliases": [
+            "expected_daily_hours",
+            "daily_hours",
+            "work_hours",
+            "ساعات_اليوم",
+            "ساعات العمل"
+        ]
+    },
+    {
+        "key": "contract_duration_years",
+        "required": false,
+        "label_ar": "مدة العقد بالسنين (اختياري)",
+        "label_en": "Contract years (optional)",
+        "aliases": [
+            "contract_duration_years",
+            "contract_years",
+            "مدة_العقد",
+            "مدة العقد",
+            "مدة العقد بالسنين"
+        ]
+    },
+    {
+        "key": "salary_basic",
+        "required": true,
+        "label_ar": "الراتب الأساسي (اجباري)",
+        "label_en": "Basic salary (required)",
+        "group_ar": "استحقاقات",
+        "group_en": "Entitlements",
+        "aliases": [
+            "salary_basic",
+            "basic_salary",
+            "basic",
+            "الراتب_الاساسي",
+            "الراتب الأساسي"
+        ]
+    },
+    {
+        "key": "salary_transport",
+        "required": false,
+        "label_ar": "بدل انتقال (اختياري)",
+        "label_en": "Transport allowance (optional)",
+        "group_ar": "استحقاقات",
+        "group_en": "Entitlements",
+        "aliases": [
+            "salary_transport",
+            "transport",
+            "بدل_انتقال",
+            "بدل انتقال"
+        ]
+    },
+    {
+        "key": "salary_food_allowance",
+        "required": false,
+        "label_ar": "بدل طعام (اختياري)",
+        "label_en": "Food allowance (optional)",
+        "group_ar": "استحقاقات",
+        "group_en": "Entitlements",
+        "aliases": [
+            "salary_food_allowance",
+            "food_allowance",
+            "بدل_طعام",
+            "بدل طعام"
+        ]
+    },
+    {
+        "key": "salary_risk_allowance",
+        "required": false,
+        "label_ar": "بدل مخاطر (اختياري)",
+        "label_en": "Risk allowance (optional)",
+        "group_ar": "استحقاقات",
+        "group_en": "Entitlements",
+        "aliases": [
+            "salary_risk_allowance",
+            "risk_allowance",
+            "بدل_مخاطر",
+            "بدل مخاطر"
+        ]
+    },
+    {
+        "key": "salary_incentives",
+        "required": false,
+        "label_ar": "حوافز (اختياري)",
+        "label_en": "Incentives (optional)",
+        "group_ar": "استحقاقات",
+        "group_en": "Entitlements",
+        "aliases": [
+            "salary_incentives",
+            "incentives",
+            "حوافز"
+        ]
+    },
+    {
+        "key": "salary_insurance_deduction",
+        "required": false,
+        "label_ar": "التأمينات (اختياري)",
+        "label_en": "Insurance (optional)",
+        "group_ar": "استقطاعات",
+        "group_en": "Deductions",
+        "aliases": [
+            "salary_insurance_deduction",
+            "insurance_deduction",
+            "التأمينات",
+            "خصم_تأمين",
+            "خصم تأمين"
+        ]
+    },
+    {
+        "key": "salary_tax_deduction",
+        "required": false,
+        "label_ar": "الضرائب (اختياري)",
+        "label_en": "Taxes (optional)",
+        "group_ar": "استقطاعات",
+        "group_en": "Deductions",
+        "aliases": [
+            "salary_tax_deduction",
+            "tax_deduction",
+            "الضرائب",
+            "خصم_ضريبة",
+            "خصم ضريبة"
+        ]
+    },
+    {
+        "key": "salary_advances_deduction",
+        "required": false,
+        "label_ar": "تأمين طبي (اختياري)",
+        "label_en": "Medical insurance (optional)",
+        "group_ar": "استقطاعات",
+        "group_en": "Deductions",
+        "aliases": [
+            "salary_advances_deduction",
+            "advances_deduction",
+            "تأمين_طبي",
+            "تأمين طبي",
+            "medical_insurance"
+        ]
+    },
+    {
+        "key": "salary_fund_deduction",
+        "required": false,
+        "label_ar": "الصناديق (اختياري)",
+        "label_en": "Funds (optional)",
+        "group_ar": "استقطاعات",
+        "group_en": "Deductions",
+        "aliases": [
+            "salary_fund_deduction",
+            "fund_deduction",
+            "الصناديق",
+            "خصم_صندوق",
+            "خصم صندوق"
+        ]
+    },
+    {
+        "key": "salary_penalty_deduction",
+        "required": false,
+        "label_ar": "خصومات ثابتة أخرى (اختياري)",
+        "label_en": "Other fixed deductions (optional)",
+        "group_ar": "استقطاعات",
+        "group_en": "Deductions",
+        "aliases": [
+            "salary_penalty_deduction",
+            "penalty_deduction",
+            "other_fixed_deductions",
+            "خصومات_ثابته_اخري",
+            "خصومات ثابتة أخرى"
+        ]
+    }
+]

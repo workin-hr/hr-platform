@@ -21,6 +21,9 @@ import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.authorization.LegacyHrPermissionEnforcer;
 import com.workin.legacy.authorization.LegacyHrPermissionKey;
 import com.workin.legacy.employees.LegacyEmployee.Role;
+import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetColumns;
+import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetLookups;
+import com.workin.legacy.employees.spreadsheet.LegacyEmployeeTemplate;
 import com.workin.legacy.notifications.LegacyNotifications;
 import com.workin.legacy.wire.LegacyApiException;
 
@@ -1019,6 +1022,54 @@ public class LegacyEmployeeService {
 		long raw = LegacyValues.toPhpLong(rawLimit == null ? DEFAULT_LIMIT : rawLimit);
 		long limit = Math.min(Math.max(1, raw == 0 ? DEFAULT_LIMIT : raw), MAX_LIMIT);
 		return new Pagination(page, limit, (page - 1) * limit);
+	}
+
+	/**
+	 * {@code employees/template_excel.php}: the lookups, then the template, as
+	 * the bytes and headers the response is made of.
+	 *
+	 * <p>{@code $format = strtolower(trim((string) ($_GET['format'] ?? 'xlsx')))}
+	 * and then a single {@code === 'csv'} test, so CSV is the exception and
+	 * everything else -- a missing parameter, {@code xlsx}, {@code XLSX}, an
+	 * empty value, a typo -- is an XLSX. Reproduced as the same one-sided test
+	 * rather than as a format whitelist, because a whitelist would turn the typo
+	 * into an error legacy never raises.
+	 */
+	public Template template(LegacyRequestContext context, LegacyQueryParameters query) {
+		// `?? 'xlsx'` is a null coalesce, not an empty check: `?format=` arrives as
+		// the empty string, stays empty, and so is simply not "csv".
+		Object rawFormat = query.value("format");
+		String format = LegacyValues.mbStrToLower(
+				LegacyValues.phpTrim(rawFormat == null ? "xlsx" : LegacyValues.toPhpString(rawFormat)));
+
+		LegacyEmployeeSpreadsheetLookups lookups = lookups(context.companyId());
+		List<String> headers = LegacyEmployeeSpreadsheetColumns.templateHeaders(
+				lookups.firstShiftName(), lookups.firstBranchName(),
+				lookups.firstDepartmentName(), lookups.firstJobTitleName(),
+				clock.todayAsString());
+
+		boolean csv = "csv".equals(format);
+		return new Template(
+				csv ? LegacyEmployeeTemplate.csv(headers) : LegacyEmployeeTemplate.xlsx(headers),
+				csv ? LegacyEmployeeTemplate.CSV_CONTENT_TYPE : LegacyEmployeeTemplate.XLSX_CONTENT_TYPE,
+				LegacyEmployeeTemplate.filename(clock.todayAsString(), csv));
+	}
+
+	/**
+	 * {@code employee_excel_build_lookups($company_id)}: the four name-to-id maps
+	 * the template's examples and the analyzer's matching are both built from.
+	 */
+	public LegacyEmployeeSpreadsheetLookups lookups(long companyId) {
+		return new LegacyEmployeeSpreadsheetLookups(
+				store.spreadsheetLookup("branches", companyId, true),
+				store.spreadsheetLookup("departments", companyId, true),
+				store.spreadsheetLookup("job_titles", companyId, true),
+				// Shifts alone are not filtered on is_active -- legacy's asymmetry.
+				store.spreadsheetLookup("shifts", companyId, false));
+	}
+
+	/** One {@code template_excel.php} response: the file, its type and its name. */
+	public record Template(byte[] content, String contentType, String filename) {
 	}
 
 	/** {@code pagination_meta()} ({@code helpers/pagination.php:28-39}), key order included. */

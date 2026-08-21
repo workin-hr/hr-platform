@@ -1,0 +1,559 @@
+{
+    "generated_on": "2026-08-21",
+    "generated_arabic": [
+        {
+            "index": 0,
+            "expected_key": "employee_code",
+            "header": "كود الموظف (اجباري)\nأرقام فقط\nمثال: 1001",
+            "normalized": "employee_code"
+        },
+        {
+            "index": 1,
+            "expected_key": "first_name",
+            "header": "الاسم الأول (اجباري)\nمثال: محمد",
+            "normalized": "first_name"
+        },
+        {
+            "index": 2,
+            "expected_key": "last_name",
+            "header": "الاسم الأخير (اجباري)\nمثال: أحمد",
+            "normalized": "last_name"
+        },
+        {
+            "index": 3,
+            "expected_key": "country_code",
+            "header": "كود الدولة (اختياري)\nمثال: +20",
+            "normalized": "country_code"
+        },
+        {
+            "index": 4,
+            "expected_key": "phone",
+            "header": "رقم التليفون (اختياري)\nمطلوب لو الموظف هيسجل دخول من التطبيق\nمثال: 01012345678",
+            "normalized": "phone"
+        },
+        {
+            "index": 5,
+            "expected_key": "password",
+            "header": "كلمة المرور (اختياري)\nمطلوبة مع رقم التليفون لتسجيل الدخول من التطبيق\nمثال: 123456",
+            "normalized": "password"
+        },
+        {
+            "index": 6,
+            "expected_key": "shift_name",
+            "header": "الوردية (اجباري)\nأضف الورديات في النظام أولاً\nمثال: صباحي",
+            "normalized": "shift_name"
+        },
+        {
+            "index": 7,
+            "expected_key": "national_id",
+            "header": "الرقم القومي (اختياري)\nمثال: 29801011234567",
+            "normalized": "national_id"
+        },
+        {
+            "index": 8,
+            "expected_key": "birth_date",
+            "header": "تاريخ الميلاد (اختياري)\nمثال: 1990-01-15",
+            "normalized": "birth_date"
+        },
+        {
+            "index": 9,
+            "expected_key": "gender",
+            "header": "النوع (اختياري)\nمثال: ذكر",
+            "normalized": "gender"
+        },
+        {
+            "index": 10,
+            "expected_key": "address",
+            "header": "العنوان (اختياري)\nمثال: القاهرة",
+            "normalized": "address"
+        },
+        {
+            "index": 11,
+            "expected_key": "is_mobile_attendance_enabled",
+            "header": "حضور من الموبايل (اجباري)\nنعم أو لا\nمثال: نعم",
+            "normalized": "is_mobile_attendance_enabled"
+        },
+        {
+            "index": 12,
+            "expected_key": "hire_date",
+            "header": "تاريخ التعيين (اختياري)\nمثال: 2026-08-21",
+            "normalized": "hire_date"
+        },
+        {
+            "index": 13,
+            "expected_key": "branch_name",
+            "header": "الفرع (اجباري)\nأضف الفروع في النظام أولاً ثم اكتب اسم الفرع\nمثال: الفرع الرئيسي",
+            "normalized": "branch_name"
+        },
+        {
+            "index": 14,
+            "expected_key": "department_name",
+            "header": "القسم (اجباري)\nأضف الأقسام في النظام أولاً ثم اكتب اسم القسم\nمثال: الموارد البشرية",
+            "normalized": "department_name"
+        },
+        {
+            "index": 15,
+            "expected_key": "job_title_name",
+            "header": "المسمى الوظيفي (اجباري)\nأضف المسميات في النظام أولاً ثم اكتب الاسم\nمثال: موظف",
+            "normalized": "job_title_name"
+        },
+        {
+            "index": 16,
+            "expected_key": "expected_daily_hours",
+            "header": "ساعات العمل (اجباري)\nمثال: 8",
+            "normalized": "expected_daily_hours"
+        },
+        {
+            "index": 17,
+            "expected_key": "contract_duration_years",
+            "header": "مدة العقد بالسنين (اختياري)\nمثال: 1",
+            "normalized": "contract_duration_years"
+        },
+        {
+            "index": 18,
+            "expected_key": "salary_basic",
+            "header": "الراتب الأساسي (اجباري)\nمثال: 5000",
+            "normalized": "salary_basic"
+        },
+        {
+            "index": 19,
+            "expected_key": "salary_transport",
+            "header": "بدل انتقال (اختياري)\nمثال: 200",
+            "normalized": "salary_transport"
+        },
+        {
+            "index": 20,
+            "expected_key": "salary_food_allowance",
+            "header": "بدل طعام (اختياري)\nمثال: 150",
+            "normalized": "salary_food_allowance"
+        },
+        {
+            "index": 21,
+            "expected_key": "salary_risk_allowance",
+            "header": "بدل مخاطر (اختياري)",
+            "normalized": "salary_risk_allowance"
+        },
+        {
+            "index": 22,
+            "expected_key": "salary_incentives",
+            "header": "حوافز (اختياري)",
+            "normalized": "salary_incentives"
+        },
+        {
+            "index": 23,
+            "expected_key": "salary_insurance_deduction",
+            "header": "التأمينات (اختياري)",
+            "normalized": "salary_insurance_deduction"
+        },
+        {
+            "index": 24,
+            "expected_key": "salary_tax_deduction",
+            "header": "الضرائب (اختياري)",
+            "normalized": "salary_tax_deduction"
+        },
+        {
+            "index": 25,
+            "expected_key": "salary_advances_deduction",
+            "header": "تأمين طبي (اختياري)",
+            "normalized": "salary_advances_deduction"
+        },
+        {
+            "index": 26,
+            "expected_key": "salary_fund_deduction",
+            "header": "الصناديق (اختياري)",
+            "normalized": "salary_fund_deduction"
+        },
+        {
+            "index": 27,
+            "expected_key": "salary_penalty_deduction",
+            "header": "خصومات ثابتة أخرى (اختياري)",
+            "normalized": "salary_penalty_deduction"
+        }
+    ],
+    "label_en": [
+        {
+            "index": 0,
+            "key": "employee_code",
+            "label_en": "Employee code (required)\nDigits only",
+            "normalized": "employee_code"
+        },
+        {
+            "index": 1,
+            "key": "first_name",
+            "label_en": "First name (required)",
+            "normalized": "first_name"
+        },
+        {
+            "index": 2,
+            "key": "last_name",
+            "label_en": "Last name (required)",
+            "normalized": "last_name"
+        },
+        {
+            "index": 3,
+            "key": "country_code",
+            "label_en": "Country code (optional)",
+            "normalized": "country_code"
+        },
+        {
+            "index": 4,
+            "key": "phone",
+            "label_en": "Phone (optional)\nRequired for employee app login",
+            "normalized": "phone"
+        },
+        {
+            "index": 5,
+            "key": "password",
+            "label_en": "Password (optional)\nRequired with phone for employee app login",
+            "normalized": "password"
+        },
+        {
+            "index": 6,
+            "key": "shift_name",
+            "label_en": "Shift (required)\nAdd shifts in the system first",
+            "normalized": "shift_name"
+        },
+        {
+            "index": 7,
+            "key": "national_id",
+            "label_en": "National ID (optional)",
+            "normalized": "national_id"
+        },
+        {
+            "index": 8,
+            "key": "birth_date",
+            "label_en": "Birth date (optional)",
+            "normalized": "birth_date"
+        },
+        {
+            "index": 9,
+            "key": "gender",
+            "label_en": "Gender (optional)",
+            "normalized": "gender"
+        },
+        {
+            "index": 10,
+            "key": "address",
+            "label_en": "Address (optional)",
+            "normalized": "address"
+        },
+        {
+            "index": 11,
+            "key": "is_mobile_attendance_enabled",
+            "label_en": "Mobile attendance (required)\nYes or no",
+            "normalized": "phone"
+        },
+        {
+            "index": 12,
+            "key": "hire_date",
+            "label_en": "Hire date (optional)",
+            "normalized": "hire_date"
+        },
+        {
+            "index": 13,
+            "key": "branch_name",
+            "label_en": "Branch (required)\nAdd branches in the system first",
+            "normalized": "branch_name"
+        },
+        {
+            "index": 14,
+            "key": "department_name",
+            "label_en": "Department (required)\nAdd departments in the system first",
+            "normalized": "department_name"
+        },
+        {
+            "index": 15,
+            "key": "job_title_name",
+            "label_en": "Job title (required)\nAdd job titles in the system first",
+            "normalized": "job_title_name"
+        },
+        {
+            "index": 16,
+            "key": "expected_daily_hours",
+            "label_en": "Work hours (required)",
+            "normalized": "expected_daily_hours"
+        },
+        {
+            "index": 17,
+            "key": "contract_duration_years",
+            "label_en": "Contract years (optional)",
+            "normalized": "contract_duration_years"
+        },
+        {
+            "index": 18,
+            "key": "salary_basic",
+            "label_en": "Basic salary (required)",
+            "normalized": "salary_basic"
+        },
+        {
+            "index": 19,
+            "key": "salary_transport",
+            "label_en": "Transport allowance (optional)",
+            "normalized": "salary_transport"
+        },
+        {
+            "index": 20,
+            "key": "salary_food_allowance",
+            "label_en": "Food allowance (optional)",
+            "normalized": "salary_food_allowance"
+        },
+        {
+            "index": 21,
+            "key": "salary_risk_allowance",
+            "label_en": "Risk allowance (optional)",
+            "normalized": "salary_risk_allowance"
+        },
+        {
+            "index": 22,
+            "key": "salary_incentives",
+            "label_en": "Incentives (optional)",
+            "normalized": "salary_incentives"
+        },
+        {
+            "index": 23,
+            "key": "salary_insurance_deduction",
+            "label_en": "Insurance (optional)",
+            "normalized": "salary_insurance_deduction"
+        },
+        {
+            "index": 24,
+            "key": "salary_tax_deduction",
+            "label_en": "Taxes (optional)",
+            "normalized": "salary_tax_deduction"
+        },
+        {
+            "index": 25,
+            "key": "salary_advances_deduction",
+            "label_en": "Medical insurance (optional)",
+            "normalized": "salary_advances_deduction"
+        },
+        {
+            "index": 26,
+            "key": "salary_fund_deduction",
+            "label_en": "Funds (optional)",
+            "normalized": "salary_fund_deduction"
+        },
+        {
+            "index": 27,
+            "key": "salary_penalty_deduction",
+            "label_en": "Other fixed deductions (optional)",
+            "normalized": "salary_penalty_deduction"
+        }
+    ],
+    "extra": [
+        {
+            "input": "Mobile attendance",
+            "normalized": "phone"
+        },
+        {
+            "input": "mobile_attendance",
+            "normalized": "phone"
+        },
+        {
+            "input": "is_mobile_attendance_enabled",
+            "normalized": "is_mobile_attendance_enabled"
+        },
+        {
+            "input": "Employee code",
+            "normalized": "employee_code"
+        },
+        {
+            "input": "first_name*",
+            "normalized": "first_name"
+        },
+        {
+            "input": "FIRST NAME",
+            "normalized": "first_name"
+        },
+        {
+            "input": "الاسم الأول",
+            "normalized": "first_name"
+        },
+        {
+            "input": "الاسم الاول",
+            "normalized": "first_name"
+        },
+        {
+            "input": "كود الموظف (اجباري)",
+            "normalized": "employee_code"
+        },
+        {
+            "input": "phone",
+            "normalized": "phone"
+        },
+        {
+            "input": "mobile",
+            "normalized": "phone"
+        },
+        {
+            "input": "unknown column",
+            "normalized": "unknown_column"
+        },
+        {
+            "input": "الراتب الأساسي (اجباري)",
+            "normalized": "salary_basic"
+        },
+        {
+            "input": "شيء\nمثال: 5",
+            "normalized": "شيء"
+        },
+        {
+            "input": "code_مثال: 1001",
+            "normalized": "employee_code"
+        },
+        {
+            "input": "basic",
+            "normalized": "salary_basic"
+        },
+        {
+            "input": "transport",
+            "normalized": "salary_transport"
+        },
+        {
+            "input": "Basic salary (required)",
+            "normalized": "salary_basic"
+        },
+        {
+            "input": "hire date — note",
+            "normalized": "hire_date"
+        },
+        {
+            "input": "",
+            "normalized": ""
+        }
+    ],
+    "group_row": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "استحقاقات",
+        "",
+        "",
+        "",
+        "",
+        "استقطاعات",
+        "",
+        "",
+        "",
+        ""
+    ],
+    "merges": [
+        "S1:W1",
+        "X1:AB1"
+    ],
+    "cell_styles": [
+        {
+            "18": 4,
+            "19": 4,
+            "20": 4,
+            "21": 4,
+            "22": 4,
+            "23": 5,
+            "24": 5,
+            "25": 5,
+            "26": 5,
+            "27": 5
+        },
+        {
+            "18": 4,
+            "19": 4,
+            "20": 4,
+            "21": 4,
+            "22": 4,
+            "23": 5,
+            "24": 5,
+            "25": 5,
+            "26": 5,
+            "27": 5
+        }
+    ],
+    "headers_raw": [
+        "كود الموظف (اجباري)\nأرقام فقط\nمثال: 1001",
+        "الاسم الأول (اجباري)\nمثال: محمد",
+        "الاسم الأخير (اجباري)\nمثال: أحمد",
+        "كود الدولة (اختياري)\nمثال: +20",
+        "رقم التليفون (اختياري)\nمطلوب لو الموظف هيسجل دخول من التطبيق\nمثال: 01012345678",
+        "كلمة المرور (اختياري)\nمطلوبة مع رقم التليفون لتسجيل الدخول من التطبيق\nمثال: 123456",
+        "الوردية (اجباري)\nأضف الورديات في النظام أولاً\nمثال: صباحي",
+        "الرقم القومي (اختياري)\nمثال: 29801011234567",
+        "تاريخ الميلاد (اختياري)\nمثال: 1990-01-15",
+        "النوع (اختياري)\nمثال: ذكر",
+        "العنوان (اختياري)\nمثال: القاهرة",
+        "حضور من الموبايل (اجباري)\nنعم أو لا\nمثال: نعم",
+        "تاريخ التعيين (اختياري)\nمثال: 2026-08-21",
+        "الفرع (اجباري)\nأضف الفروع في النظام أولاً ثم اكتب اسم الفرع\nمثال: الفرع الرئيسي",
+        "القسم (اجباري)\nأضف الأقسام في النظام أولاً ثم اكتب اسم القسم\nمثال: الموارد البشرية",
+        "المسمى الوظيفي (اجباري)\nأضف المسميات في النظام أولاً ثم اكتب الاسم\nمثال: موظف",
+        "ساعات العمل (اجباري)\nمثال: 8",
+        "مدة العقد بالسنين (اختياري)\nمثال: 1",
+        "الراتب الأساسي (اجباري)\nمثال: 5000",
+        "بدل انتقال (اختياري)\nمثال: 200",
+        "بدل طعام (اختياري)\nمثال: 150",
+        "بدل مخاطر (اختياري)",
+        "حوافز (اختياري)",
+        "التأمينات (اختياري)",
+        "الضرائب (اختياري)",
+        "تأمين طبي (اختياري)",
+        "الصناديق (اختياري)",
+        "خصومات ثابتة أخرى (اختياري)"
+    ],
+    "is_group_row": [
+        {
+            "cells": [
+                "استحقاقات",
+                "",
+                "استقطاعات"
+            ],
+            "result": true
+        },
+        {
+            "cells": [
+                "",
+                ""
+            ],
+            "result": false
+        },
+        {
+            "cells": [
+                "استحقاقات",
+                "كود"
+            ],
+            "result": false
+        },
+        {
+            "cells": [
+                "Entitlements",
+                "Deductions"
+            ],
+            "result": true
+        },
+        {
+            "cells": [
+                "deductions"
+            ],
+            "result": true
+        },
+        {
+            "cells": [
+                "كود الموظف",
+                "الاسم الأول"
+            ],
+            "result": false
+        }
+    ]
+}
