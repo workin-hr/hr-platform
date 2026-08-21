@@ -68,10 +68,54 @@ class LegacyPhoneNumbersTest {
 		assertThat(LegacyPhoneNumbers.decodePrefixes("[]")).isEmpty();
 		assertThat(LegacyPhoneNumbers.decodePrefixes("")).isEmpty();
 		assertThat(LegacyPhoneNumbers.decodePrefixes(null)).isEmpty();
-		// A JSON object is not a list in PHP either: is_array() fails on the
-		// decoded value's shape only after json_decode succeeds, and the
-		// delimiter split is what actually runs.
+	}
+
+	@Test
+	void jsonIsDecodedAsJsonNotSplitOnCommas() {
+		// The case a comma-split gets wrong: PHP yields ["010"], a split yields
+		// ["01","0"]. Verified against PHP 8.3.
+		assertThat(LegacyPhoneNumbers.decodePrefixes("[\"01,0\"]")).containsExactly("010");
+		// Escape sequences are decoded before the digit strip. The backslash is
+		// built rather than written: javac translates a literal \-u-XXXX in
+		// *source* before parsing, so a hand-written one would arrive here
+		// already decoded and prove nothing about the JSON decoder.
+		String backslash = String.valueOf((char) 92);
+		String escaped = "[\"" + backslash + "u0030" + backslash + "u0031" + backslash + "u0030\"]";
+		assertThat(escaped).doesNotContain("010");
+		assertThat(LegacyPhoneNumbers.decodePrefixes(escaped)).containsExactly("010");
+		// Whitespace inside a JSON string survives decoding and is stripped after.
+		assertThat(LegacyPhoneNumbers.decodePrefixes("[\" 010 \"]")).containsExactly("010");
+	}
+
+	@Test
+	void jsonElementsTakePhpsStringCast() {
+		// (string) casts: numbers stringify, true is "1", false and null are "".
+		assertThat(LegacyPhoneNumbers.decodePrefixes("[10,\"011\"]")).containsExactly("10", "011");
+		assertThat(LegacyPhoneNumbers.decodePrefixes("[true,false,null]")).containsExactly("1");
+		assertThat(LegacyPhoneNumbers.decodePrefixes("[1.5]")).containsExactly("15");
+		// A nested array or object casts to "Array", which contributes no digits.
+		assertThat(LegacyPhoneNumbers.decodePrefixes("[{\"prefix\":\"010\"},[\"011\"]]")).isEmpty();
+	}
+
+	@Test
+	void aJsonObjectRootIteratesItsValuesRatherThanFallingBackToTheSplit() {
+		// json_decode($raw, true) turns an object into an associative array, so
+		// is_array() is true and PHP never reaches the delimiter split. Proven
+		// by the case where the two disagree: {"a":"01,0"} is ["010"] in PHP,
+		// but ["01","0"] under a split.
 		assertThat(LegacyPhoneNumbers.decodePrefixes("{\"a\":\"010\"}")).containsExactly("010");
+		assertThat(LegacyPhoneNumbers.decodePrefixes("{\"a\":\"01,0\"}")).containsExactly("010");
+		assertThat(LegacyPhoneNumbers.decodePrefixes("{\"x\":\"010\",\"y\":\"011\"}"))
+				.containsExactly("010", "011");
+	}
+
+	@Test
+	void aScalarOrUndecodableRootFallsBackToTheDelimiterSplit() {
+		// is_array() is false for a decoded scalar, so the raw text is split.
+		assertThat(LegacyPhoneNumbers.decodePrefixes("\"010\"")).containsExactly("010");
+		assertThat(LegacyPhoneNumbers.decodePrefixes("123")).containsExactly("123");
+		assertThat(LegacyPhoneNumbers.decodePrefixes("not json at all")).isEmpty();
+		assertThat(LegacyPhoneNumbers.decodePrefixes("[\"010\",")).containsExactly("010");
 	}
 
 	@Test

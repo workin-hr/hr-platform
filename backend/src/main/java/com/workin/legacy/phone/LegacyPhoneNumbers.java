@@ -2,12 +2,19 @@ package com.workin.legacy.phone;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Service;
+
+import com.workin.legacy.LegacyValues;
+
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The normalization and validation half of legacy's phone helpers
@@ -45,6 +52,9 @@ public class LegacyPhoneNumbers {
 	private static final Pattern PREFIX_SEPARATORS = Pattern.compile("[\\s,;]+");
 	private static final Pattern SCIENTIFIC = Pattern.compile("^\\d+\\.?\\d*E[+-]?\\d+$", Pattern.CASE_INSENSITIVE);
 	private static final Pattern TRAILING_ZEROS = Pattern.compile("^\\d+\\.0+$");
+
+	/** The application's own mapper (Jackson 3, already on the classpath). */
+	private static final ObjectMapper JSON = new ObjectMapper();
 
 	private final LegacyPhoneCountries countries;
 
@@ -94,14 +104,30 @@ public class LegacyPhoneNumbers {
 	}
 
 	/**
-	 * {@code phone_country_decode_prefixes()}: JSON first, then a
-	 * {@code [\s,;]+} split of whatever else the column held, then digits-only,
-	 * blanks dropped, duplicates removed, order preserved.
+	 * {@code phone_country_decode_prefixes()}: {@code json_decode($raw, true)}
+	 * first, then a {@code [\s,;]+} split of whatever else the column held,
+	 * then digits-only, blanks dropped, duplicates removed, order preserved.
 	 *
-	 * <p>The JSON branch is hand-rolled rather than delegated to a parser
-	 * because PHP's {@code json_decode(...) is_array($decoded)} accepts exactly
-	 * one shape here -- a JSON array -- and anything else, including a JSON
-	 * object or a scalar, falls through to the delimiter split.
+	 * <p>Decoding uses the application's own Jackson mapper rather than a
+	 * hand-written parser, because PHP's decoder is a real JSON decoder: a
+	 * comma inside a string ({@code ["01,0"]}) and an escape sequence
+	 * ({@code ["010"]}) both have to survive it, and a split
+	 * on {@code ,} silently corrupts the first into two prefixes.
+	 *
+	 * <p><b>A JSON object root takes the array branch, not the fallback.</b>
+	 * {@code json_decode($raw, true)} turns an object into an associative array
+	 * and {@code is_array()} is then true, so PHP iterates the object's
+	 * <em>values</em>. Verified against PHP 8.3: {@code {"a":"01,0"}} yields
+	 * {@code ["010"]}, where a delimiter split would have yielded
+	 * {@code ["01","0"]}. Only a root that decodes to a scalar or fails to
+	 * decode reaches the split.
+	 *
+	 * <p>Element coercion is PHP's {@code (string)} cast, which is what
+	 * {@link LegacyValues#toPhpString} already reproduces: numbers stringify,
+	 * {@code true} becomes {@code "1"}, {@code false} and {@code null} become
+	 * the empty string, and a nested array or object becomes {@code "Array"} --
+	 * contributing no digits, so {@code [{"prefix":"010"},["011"]]} decodes to
+	 * nothing at all.
 	 */
 	public static List<String> decodePrefixes(Object raw) {
 		if (raw == null || "".equals(raw)) {
@@ -110,10 +136,10 @@ public class LegacyPhoneNumbers {
 		List<String> items;
 		if (raw instanceof Iterable<?> iterable) {
 			items = new ArrayList<>();
-			iterable.forEach(item -> items.add(item == null ? "" : item.toString()));
+			iterable.forEach(item -> items.add(LegacyValues.toPhpString(item)));
 		} else {
 			String text = raw.toString();
-			items = decodeJsonArray(text).orElseGet(() -> {
+			items = decodeJsonArrayOrObject(text).orElseGet(() -> {
 				List<String> split = new ArrayList<>();
 				for (String part : PREFIX_SEPARATORS.split(text)) {
 					if (!part.isEmpty()) {
@@ -309,26 +335,31 @@ public class LegacyPhoneNumbers {
 	}
 
 	/**
-	 * PHP's {@code json_decode($raw, true)} followed by {@code is_array()}:
-	 * a JSON array of scalars yields its elements, anything else yields nothing
-	 * and sends the caller to the delimiter split.
+	 * {@code json_decode($raw, true)} plus {@code is_array($decoded)}.
+	 *
+	 * <p>Returns the values to iterate when the root decodes to a JSON array or
+	 * object (both are PHP arrays under {@code assoc = true}), and nothing when
+	 * it decodes to a scalar or does not decode at all -- the two cases that
+	 * send PHP to the delimiter split.
 	 */
-	private static Optional<List<String>> decodeJsonArray(String text) {
-		String trimmed = text.trim();
-		if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) {
+	private static Optional<List<String>> decodeJsonArrayOrObject(String text) {
+		Object decoded;
+		try {
+			decoded = JSON.readValue(text, Object.class);
+		} catch (JacksonException ex) {
 			return Optional.empty();
 		}
-		String inner = trimmed.substring(1, trimmed.length() - 1).trim();
-		List<String> items = new ArrayList<>();
-		if (inner.isEmpty()) {
-			return Optional.of(items);
+		Collection<?> values;
+		if (decoded instanceof List<?> list) {
+			values = list;
+		} else if (decoded instanceof Map<?, ?> map) {
+			values = map.values();
+		} else {
+			return Optional.empty();
 		}
-		for (String element : inner.split(",", -1)) {
-			String value = element.trim();
-			if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) {
-				value = value.substring(1, value.length() - 1);
-			}
-			items.add(value);
+		List<String> items = new ArrayList<>();
+		for (Object value : values) {
+			items.add(LegacyValues.toPhpString(value));
 		}
 		return Optional.of(items);
 	}
