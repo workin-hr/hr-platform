@@ -128,7 +128,10 @@ public class SecurityConfig {
 			}
 		};
 		http
-			.securityMatcher("/api/legacy/**")
+			// "/apis/**" is legacy's own URL surface (D-021/ADR-0003), which
+			// D-074 makes authoritative for Wave 12.4 onwards; "/api/legacy/**"
+			// stays matched for the modules merged before that decision.
+			.securityMatcher("/api/legacy/**", "/apis/**")
 			.csrf(csrf -> csrf.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.exceptionHandling(exceptions -> exceptions
