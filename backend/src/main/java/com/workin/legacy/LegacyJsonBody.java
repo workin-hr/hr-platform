@@ -1,6 +1,11 @@
 package com.workin.legacy;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,6 +14,8 @@ import java.util.Map;
 import jakarta.servlet.http.HttpServletRequest;
 
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.json.JsonFactory;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -48,22 +55,63 @@ import tools.jackson.databind.ObjectMapper;
  */
 public final class LegacyJsonBody {
 
-	private static final ObjectMapper JSON = new ObjectMapper();
+	/**
+	 * PHP's {@code json_decode($json, true)} uses the default depth of 512, and
+	 * a probe puts the boundary exactly there: 511 nested levels decode, 512
+	 * fails with "Maximum stack depth exceeded" and therefore becomes
+	 * {@code []}. Jackson's own default is higher, so this mapper -- and only
+	 * this mapper -- is constrained to match. The application's ObjectMapper is
+	 * untouched.
+	 */
+	private static final int PHP_MAX_NESTING_DEPTH = 511;
+
+	private static final ObjectMapper JSON = new ObjectMapper(
+			JsonFactory.builder()
+					.streamReadConstraints(StreamReadConstraints.builder()
+							.maxNestingDepth(PHP_MAX_NESTING_DEPTH)
+							.build())
+					.build());
 
 	private LegacyJsonBody() {
 	}
 
 	/** Decodes the request body the way {@code body()} does. Never returns null. */
 	public static Map<String, Object> read(HttpServletRequest request) {
-		String raw;
+		byte[] raw;
 		try {
-			raw = new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+			raw = request.getInputStream().readAllBytes();
 		} catch (IOException ex) {
 			// file_get_contents('php://input') yielding nothing is an empty
 			// body, not a failure.
 			return new LinkedHashMap<>();
 		}
-		return decode(raw);
+		return decodeBytes(raw);
+	}
+
+	/**
+	 * The byte-level half: {@code json_decode()} requires valid UTF-8 and
+	 * returns null for anything else, so malformed input is {@code []} -- even
+	 * when the rest of the document is perfectly good JSON.
+	 *
+	 * <p>Decoding is therefore strict. {@code new String(bytes, UTF_8)} would
+	 * substitute U+FFFD for a bad sequence and hand the endpoint a document PHP
+	 * never accepted, which is a different request.
+	 */
+	public static Map<String, Object> decodeBytes(byte[] raw) {
+		if (raw == null || raw.length == 0) {
+			return new LinkedHashMap<>();
+		}
+		CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+				.onMalformedInput(CodingErrorAction.REPORT)
+				.onUnmappableCharacter(CodingErrorAction.REPORT);
+		CharBuffer decoded;
+		try {
+			decoded = decoder.decode(ByteBuffer.wrap(raw));
+		} catch (CharacterCodingException ex) {
+			// json_last_error(): "Malformed UTF-8 characters" -> null -> [].
+			return new LinkedHashMap<>();
+		}
+		return decode(decoded.toString());
 	}
 
 	/** The decoding itself, separated so it can be tested without a servlet. */

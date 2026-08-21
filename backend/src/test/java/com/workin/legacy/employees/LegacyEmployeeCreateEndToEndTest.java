@@ -205,6 +205,26 @@ class LegacyEmployeeCreateEndToEndTest {
 	}
 
 	@Test
+	void malformedUtf8BytesReachTheEndpointAsAnEmptyBody() {
+		// Over the wire, not through a String: json_decode() rejects invalid
+		// UTF-8 outright, so the endpoint sees [] and required() answers. A
+		// lenient decode would have substituted U+FFFD and created an employee
+		// PHP would never have accepted.
+		byte[] raw = new byte[] {
+			'{', '"', 'f', 'i', 'r', 's', 't', '_', 'n', 'a', 'm', 'e', '"', ':', '"',
+			(byte) 0xFF, (byte) 0xFE, '"', '}'};
+
+		HttpHeaders headers = jsonHeaders(tokenFor(ADMIN_1));
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + CREATE), HttpMethod.POST,
+				new HttpEntity<>(raw, headers),
+				new ParameterizedTypeReference<Map<String, Object>>() { });
+
+		assertThat(response.getStatusCode().value()).isEqualTo(400);
+		assertThat(response.getBody().get("message")).isEqualTo("Field 'first_name' is required");
+	}
+
+	@Test
 	void aScalarJsonRootIsTheOneShapeThatFails() {
 		// body() declares : array, so returning a decoded scalar is a TypeError
 		// PHP never catches -- D-084's generic 500, with nothing leaked.
