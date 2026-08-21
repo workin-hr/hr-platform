@@ -304,6 +304,31 @@ public class LegacyEmployeeController {
 	 * the PHP envelope; only the success path is a download.
 	 */
 	/**
+	 * {@code employees/stats.php}: GET, admin/HR/manager, the employee list
+	 * page's five aggregates.
+	 */
+	@RequestMapping("/stats.php")
+	public LegacyApiResponse stats(HttpServletRequest request) {
+		requireMethod(request, "GET");
+		LegacyRequestContext context = management();
+		Map<String, Object> stats = employeeService.stats(
+				context, LegacyQueryParameters.parse(request.getQueryString()));
+		return LegacyApiResponse.ok(message(request, "success"), stats);
+	}
+
+	/**
+	 * {@code employees/my_team.php}: GET, <em>manager only</em> -- the one
+	 * endpoint in this module an admin cannot reach.
+	 */
+	@RequestMapping("/my_team.php")
+	public LegacyApiResponse myTeam(HttpServletRequest request) {
+		requireMethod(request, "GET");
+		LegacyRequestContext context = requestGuard.requireAuth(LegacyEmployee.Role.MANAGER);
+		requestGuard.requireCompanyActive(context.companyId());
+		return LegacyApiResponse.ok(message(request, "my_team"), employeeService.myTeam(context));
+	}
+
+	/**
 	 * {@code employees/analyze_excel.php}: POST, admin/HR, then the uploaded
 	 * spreadsheet analyzed row by row without writing anything.
 	 *

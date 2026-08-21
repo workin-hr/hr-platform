@@ -10,6 +10,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.workin.legacy.LegacyClock;
+import com.workin.legacy.LegacyPhpArray;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
@@ -166,7 +167,9 @@ public class LegacyHrEmployeeService {
 		}
 		long branchId = LegacyValues.toPhpLong(body.get("branch_id"));
 
-		// isset(), so a present-but-null employee_code is treated as absent.
+		// isset(), so a present-but-null employee_code is treated as absent --
+		// and anything else is handed straight to normalize_employee_code(),
+		// whose parameter is typed `?string`.
 		String employeeCode = null;
 		if (body.get("employee_code") != null) {
 			employeeCode = normalizeEmployeeCode(body.get("employee_code"));
@@ -196,34 +199,51 @@ public class LegacyHrEmployeeService {
 		String finalCode = employeeCode;
 		Long finalDepartmentId = departmentId;
 
-		long employeeId = store.inTransaction(() -> {
-			String plainPassword = body.get("password") == null ? "" : trimmed(body.get("password"));
-			String passwordHash = phone[0] != null && !plainPassword.isEmpty()
-					? bcrypt.encode(plainPassword) : null;
+		long employeeId;
+		try {
+			employeeId = store.inTransaction(() -> {
+				String plainPassword = body.get("password") == null ? "" : trimmed(body.get("password"));
+				String passwordHash = phone[0] != null && !plainPassword.isEmpty()
+						? bcrypt.encode(plainPassword) : null;
 
-			Map<String, Object> columns = new LinkedHashMap<>();
-			columns.put("company_id", companyId);
-			columns.put("branch_id", branchId);
-			columns.put("department_id", finalDepartmentId);
-			columns.put("employee_code", finalCode);
-			columns.put("first_name", finalFirstName);
-			columns.put("last_name", finalLastName);
-			columns.put("country_code", phone[1]);
-			columns.put("phone", phone[0]);
-			columns.put("password_hash", passwordHash);
-			columns.put("role", roleText);
-			columns.put("national_id", body.get("national_id"));
-			columns.put("birth_date", body.get("birth_date"));
-			columns.put("gender", body.get("gender"));
-			columns.put("address", body.get("address"));
-			columns.put("hire_date", body.get("hire_date") == null
-					? clock.todayAsString() : body.get("hire_date"));
-			columns.put("is_active", 1);
+				Map<String, Object> columns = new LinkedHashMap<>();
+				columns.put("company_id", companyId);
+				columns.put("branch_id", branchId);
+				columns.put("department_id", finalDepartmentId);
+				columns.put("employee_code", finalCode);
+				columns.put("first_name", finalFirstName);
+				columns.put("last_name", finalLastName);
+				columns.put("country_code", phone[1]);
+				columns.put("phone", phone[0]);
+				columns.put("password_hash", passwordHash);
+				columns.put("role", roleText);
+				columns.put("national_id", body.get("national_id"));
+				columns.put("birth_date", body.get("birth_date"));
+				columns.put("gender", body.get("gender"));
+				columns.put("address", body.get("address"));
+				columns.put("hire_date", body.get("hire_date") == null
+						? clock.todayAsString() : body.get("hire_date"));
+				columns.put("is_active", 1);
 
-			long newId = store.insertEmployee(columns);
-			store.upsertHrPermissions(newId, permissionValues(permissions));
-			return newId;
-		});
+				long newId = store.insertEmployee(columns);
+				// Inside the transaction and after the insert, exactly where PHP
+				// has it -- so a scalar `permissions` rolls a written employee
+				// back rather than being rejected up front.
+				store.upsertHrPermissions(newId, permissionValues(permissions));
+				return newId;
+			});
+		} catch (Throwable ex) { // NOPMD - catch (Throwable $e), around the transaction only
+			// catch (Throwable $e) { $pdo->rollBack(); ... } -- the rollback is
+			// the transaction template's. A duplicate is reported as a phone
+			// conflict whatever the key was, which is create.php's own coarser
+			// mapping; everything else carries the exception text as data, as
+			// PHP does. Deliberately local: the global advice stays on
+			// Exception rather than being broadened to Throwable.
+			if (isDuplicateEntry(ex)) {
+				throw new LegacyApiException(409, "phone_already_exists");
+			}
+			throw new LegacyApiException(500, "employee_create_failed", messageOf(ex));
+		}
 
 		Map<String, Object> created = store.hrEmployeeWithPermissions(employeeId);
 		if (created == null) {
@@ -278,10 +298,25 @@ public class LegacyHrEmployeeService {
 	 * truthy value revokes rather than grants.
 	 */
 	private static List<Integer> permissionValues(Object permissions) {
-		Map<?, ?> supplied = permissions instanceof Map<?, ?> map ? map : Map.of();
+		// `$body['permissions'] ?? []` -- absent and null are both the empty
+		// array, and never reach the typed parameter.
+		Object supplied = permissions == null ? Map.of() : permissions;
+		if (!(supplied instanceof Map<?, ?>) && !(supplied instanceof List<?>)) {
+			// hr_permissions_upsert_sql(int $employee_id, array $permissions):
+			// a scalar is a TypeError, not an empty permission set. Treating it
+			// as empty would silently clear all seventeen flags on input PHP
+			// refuses outright.
+			throw new LegacyPhpArray.LegacyPhpTypeError(
+					"hr_permissions_upsert_sql(): Argument #2 ($permissions) must be of type array, "
+							+ phpTypeName(supplied) + " given");
+		}
+		// A JSON array decodes to a numeric-keyed PHP array, which is still an
+		// array: no TypeError, and every named lookup simply misses, so all
+		// seventeen come out as zeros.
+		Map<?, ?> named = supplied instanceof Map<?, ?> map ? map : Map.of();
 		List<Integer> values = new ArrayList<>(LegacyEmployeeStore.HR_PERMISSION_KEYS.size());
 		for (String key : LegacyEmployeeStore.HR_PERMISSION_KEYS) {
-			Object value = supplied.get(key);
+			Object value = named.get(key);
 			values.add(value == null ? 0 : (int) LegacyValues.toPhpLong(value));
 		}
 		return values;
@@ -314,12 +349,79 @@ public class LegacyHrEmployeeService {
 		return attached;
 	}
 
+	/**
+	 * {@code db_is_duplicate_entry()}: MySQL 1062 only, never every SQLSTATE
+	 * 23000 -- which would also catch NOT NULL and foreign-key violations.
+	 * Spring wraps the driver's exception, so the whole cause chain is searched.
+	 */
+	private static boolean isDuplicateEntry(Throwable ex) {
+		StringBuilder text = new StringBuilder();
+		for (Throwable current = ex; current != null; current = current.getCause()) {
+			if (current.getMessage() != null) {
+				text.append(current.getMessage()).append('\n');
+			}
+			if (current.getCause() == current) {
+				break;
+			}
+		}
+		String message = text.toString();
+		return message.contains("1062")
+				|| message.toLowerCase(java.util.Locale.ROOT).contains("duplicate entry");
+	}
+
+	private static String messageOf(Throwable ex) {
+		return ex.getMessage() == null ? ex.getClass().getName() : ex.getMessage();
+	}
+
 	/** {@code /^[0-9]{1,64}$/} -- {@code is_valid_employee_code_format()}. */
 	private static final Pattern EMPLOYEE_CODE_FORMAT = Pattern.compile("^[0-9]{1,64}$");
 
-	/** {@code normalize_employee_code()}. */
+	/**
+	 * {@code normalize_employee_code(?string $code)}: trim, then collapse
+	 * whitespace runs.
+	 *
+	 * <p>The parameter is typed, and {@code strict_types=1} means PHP does not
+	 * coerce into it. A JSON number, boolean or array in {@code employee_code}
+	 * is a {@code TypeError} before any coercion happens -- so the raw value is
+	 * type-checked here rather than being pushed through a string cast, which
+	 * would silently accept input legacy rejects.
+	 *
+	 * <p>The check sits before {@code beginTransaction()} in the PHP, and the
+	 * {@code TypeError} is uncaught, so it reaches the client as D-084's
+	 * generic 500 with nothing written.
+	 */
 	private static String normalizeEmployeeCode(Object raw) {
-		return trimmed(raw).replaceAll("\\s+", " ");
+		if (raw != null && !(raw instanceof String)) {
+			throw new LegacyPhpArray.LegacyPhpTypeError(
+					"normalize_employee_code(): Argument #1 ($code) must be of type ?string, "
+							+ phpTypeName(raw) + " given");
+		}
+		return LegacyValues.phpTrim((String) raw).replaceAll("\\s+", " ");
+	}
+
+	/**
+	 * The type name PHP puts in a {@code TypeError}: {@code int}, {@code float},
+	 * {@code string}, {@code array}, and {@code true}/{@code false} rather than
+	 * {@code bool}. Measured, not assumed.
+	 */
+	private static String phpTypeName(Object value) {
+		if (value instanceof Boolean flag) {
+			return flag ? "true" : "false";
+		}
+		if (value instanceof Integer || value instanceof Long) {
+			return "int";
+		}
+		if (value instanceof Double || value instanceof Float
+				|| value instanceof java.math.BigDecimal) {
+			return "float";
+		}
+		if (value instanceof String) {
+			return "string";
+		}
+		if (value instanceof java.util.List<?> || value instanceof Map<?, ?>) {
+			return "array";
+		}
+		return value == null ? "null" : value.getClass().getSimpleName();
 	}
 
 	/**
@@ -343,10 +445,24 @@ public class LegacyHrEmployeeService {
 		return new String[] {normalized, countryCode};
 	}
 
-	/** {@code employee_department_valid_for_branch()}. */
+	/**
+	 * {@code employee_department_valid_for_branch()} plus D-075.
+	 *
+	 * <p>The PHP checks only the {@code department_branches} junction when a
+	 * branch is known -- no company predicate -- so a department belonging to
+	 * another company would be accepted here if a dirty junction row happened to
+	 * link it to one of this company's branches. D-075 approves exactly that
+	 * narrow divergence: the foreign-company case fails closed with the same 404
+	 * the missing case produces, and nothing else about the check moves. A
+	 * same-tenant department that is inactive, unlinked or oddly linked still
+	 * behaves exactly as legacy does.
+	 */
 	private boolean departmentValidForBranch(Long departmentId, Long branchId, long companyId) {
 		if (departmentId == null || departmentId <= 0) {
 			return true;
+		}
+		if (store.departmentExistsInOtherCompany(departmentId, companyId)) {
+			return false;
 		}
 		if (branchId != null && branchId > 0) {
 			return store.departmentBelongsToBranch(departmentId, branchId);

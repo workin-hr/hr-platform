@@ -1142,6 +1142,100 @@ public class LegacyEmployeeService {
 		return importer.importRows(context.companyId(), rows, lookups(context.companyId()));
 	}
 
+	/**
+	 * {@code employees/stats.php}: five aggregates over one shared predicate.
+	 *
+	 * <p>The predicate is built once and reused for all five queries, so a filter
+	 * narrows the gender counts and the tenure average as well as the total --
+	 * they are not independent snapshots of the company.
+	 *
+	 * <p>The filters are legacy's own mix: {@code !empty()} for the three ids and
+	 * the two dates, but {@code isset()} for {@code is_active}, so
+	 * {@code ?is_active=0} filters where {@code ?branch_id=0} does not.
+	 *
+	 * <p><b>D-083 is not closed by this.</b> {@code CURDATE()} in the
+	 * new-this-month and tenure queries is evaluated by the database on the
+	 * connection's timezone, which Phase 1 does not yet set.
+	 */
+	public Map<String, Object> stats(LegacyRequestContext context, LegacyQueryParameters query) {
+		List<String> where = new ArrayList<>();
+		List<Object> params = new ArrayList<>();
+		where.add("e.company_id=?");
+		params.add(context.companyId());
+		where.add(store.rosterClause());
+
+		for (String filter : List.of("branch_id", "department_id", "job_title_id")) {
+			Object value = query.value(filter);
+			if (!LegacyValues.isPhpEmpty(value)) {
+				where.add("e." + filter + "=?");
+				params.add(LegacyValues.toPhpLong(value));
+			}
+		}
+
+		// isset(), not !empty(): is_active=0 is a filter here.
+		if (query.value("is_active") != null) {
+			where.add("e.is_active=?");
+			params.add(LegacyValues.toPhpLong(query.value("is_active")));
+		}
+
+		String hireDateExpression = "DATE(COALESCE(e.hire_date, e.created_at))";
+		if (!LegacyValues.isPhpEmpty(query.value("from"))) {
+			where.add(hireDateExpression + " >= ?");
+			params.add(LegacyValues.toPhpString(query.value("from")));
+		}
+		if (!LegacyValues.isPhpEmpty(query.value("to"))) {
+			where.add(hireDateExpression + " <= ?");
+			params.add(LegacyValues.toPhpString(query.value("to")));
+		}
+
+		if (context.role() == Role.MANAGER) {
+			where.add(store.managerScopeClause());
+			params.add(context.employeeId());
+			params.add(context.companyId());
+		}
+
+		String whereSql = String.join(" AND ", where);
+		long total = store.count(whereSql, params);
+		long male = store.count(whereSql + " AND LOWER(TRIM(e.gender)) = 'male'", params);
+		long female = store.count(whereSql + " AND LOWER(TRIM(e.gender)) = 'female'", params);
+		long newThisMonth = store.count(whereSql + """
+				 AND (
+					(e.hire_date IS NOT NULL
+					 AND YEAR(e.hire_date) = YEAR(CURDATE())
+					 AND MONTH(e.hire_date) = MONTH(CURDATE()))
+					OR (e.hire_date IS NULL
+						AND YEAR(e.created_at) = YEAR(CURDATE())
+						AND MONTH(e.created_at) = MONTH(CURDATE()))
+				)""", params);
+
+		Double averageTenure = store.averageTenureMonths(whereSql, params);
+		// round($raw, 1), and a null average is 0.0 rather than an absent key.
+		double tenure = averageTenure == null
+				? 0.0d
+				: java.math.BigDecimal.valueOf(averageTenure)
+						.setScale(1, java.math.RoundingMode.HALF_UP).doubleValue();
+
+		Map<String, Object> stats = new LinkedHashMap<>();
+		stats.put("total_employees", total);
+		stats.put("male_count", male);
+		stats.put("female_count", female);
+		stats.put("new_this_month", newThisMonth);
+		stats.put("avg_tenure_months", tenure);
+		return stats;
+	}
+
+	/**
+	 * {@code employees/my_team.php}: the manager's own branch.
+	 *
+	 * <p>Manager-only, and scoped by the manager's <em>stored</em> branch rather
+	 * than by anything in the request. There is no roster predicate here, so a
+	 * pending join request appears on the team even though {@code list.php} hides
+	 * it -- legacy's asymmetry, reproduced.
+	 */
+	public List<Map<String, Object>> myTeam(LegacyRequestContext context) {
+		return store.myTeam(context.companyId(), context.employeeId());
+	}
+
 	/** {@code pagination_meta()} ({@code helpers/pagination.php:28-39}), key order included. */
 	static Map<String, Object> paginationMeta(long total, Pagination pagination) {
 		long pages = pagination.limit() > 0 ? (long) Math.ceil((double) total / pagination.limit()) : 0;

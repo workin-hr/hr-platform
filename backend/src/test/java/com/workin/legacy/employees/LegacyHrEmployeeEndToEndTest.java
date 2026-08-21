@@ -75,6 +75,10 @@ class LegacyHrEmployeeEndToEndTest {
 
 	private static final long BRANCH_MAIN = 20011L;
 	private static final long DEPARTMENT_FIELD = 20021L;
+	/** Same company as the caller, but linked to no branch. */
+	private static final long DEPARTMENT_UNLINKED = 20023L;
+	/** Company 2 own department, dirtily linked to company 1 branch -- D-075 exists for this. */
+	private static final long DEPARTMENT_FOREIGN_DIRTY = 20024L;
 
 	/** {@code hr_permission_keys()} in source order -- the order responses carry. */
 	private static final List<String> PERMISSION_KEYS = List.of(
@@ -337,6 +341,201 @@ class LegacyHrEmployeeEndToEndTest {
 		// And nothing was written to that row.
 		assertThat(scalar("SELECT COUNT(*) FROM hr_permissions WHERE employee_id = " + HR_COMPANY_2))
 				.isZero();
+	}
+
+	// ------------------------------------------------------------------
+	// The typed-array boundary on `permissions`
+	// ------------------------------------------------------------------
+
+	@Test
+	void aJsonArrayOfPermissionsIsAnArrayAndClearsEveryFlag() {
+		// json_decode(..., true) turns a JSON array into a numeric-keyed PHP
+		// array. It satisfies `array $permissions`, so there is no TypeError --
+		// every named lookup simply misses and all seventeen come out as zeros.
+		put(UPDATE + "?id=" + HR_B, ADMIN_1, allPermissions(), 200);
+		put(UPDATE + "?id=" + HR_B, ADMIN_1, "{\"permissions\":[1,1,1]}", 200);
+		assertThat(permissionsOf(HR_B).values()).allMatch(value -> ((Number) value).intValue() == 0);
+
+		// An empty array is the same thing.
+		put(UPDATE + "?id=" + HR_B, ADMIN_1, allPermissions(), 200);
+		put(UPDATE + "?id=" + HR_B, ADMIN_1, "{\"permissions\":[]}", 200);
+		assertThat(permissionsOf(HR_B).values()).allMatch(value -> ((Number) value).intValue() == 0);
+	}
+
+	@Test
+	void anExplicitNullPermissionsIsTheEmptyArrayNotAFailure() {
+		// `$body['permissions'] ?? []` coalesces null before the typed call.
+		put(UPDATE + "?id=" + HR_B, ADMIN_1, allPermissions(), 200);
+		put(UPDATE + "?id=" + HR_B, ADMIN_1, "{\"permissions\":null}", 200);
+		assertThat(permissionsOf(HR_B).values()).allMatch(value -> ((Number) value).intValue() == 0);
+	}
+
+	@Test
+	void aScalarPermissionsOnUpdateIsATypeErrorAndWritesNothing() {
+		// hr_permissions_upsert_sql(int, array $permissions) is typed, and
+		// strict_types means a scalar is a TypeError rather than an empty set.
+		// Treating it as empty would silently clear all seventeen flags on input
+		// PHP refuses outright. Nothing catches it here, so it is D-084's 500.
+		put(UPDATE + "?id=" + HR_B, ADMIN_1, allPermissions(), 200);
+		Map<String, Object> before = permissionsOf(HR_B);
+
+		for (String scalar : List.of("\"yes\"", "1", "1.5", "true", "false")) {
+			Map<String, Object> body = put(
+					UPDATE + "?id=" + HR_B, ADMIN_1, "{\"permissions\":" + scalar + "}", 500);
+			assertThat(body.get("success")).as("permissions=%s", scalar).isEqualTo(false);
+			// D-084 exactly: the generic message, and no data key.
+			assertThat(body.get("message")).as("permissions=%s", scalar)
+					.isEqualTo("Internal server error");
+			assertThat(body).as("permissions=%s", scalar).doesNotContainKey("data");
+			// And the upsert never ran.
+			assertThat(permissionsOf(HR_B)).as("permissions=%s", scalar).isEqualTo(before);
+		}
+	}
+
+	@Test
+	void aScalarPermissionsOnCreateRollsBackTheEmployeeItHadAlreadyInserted() {
+		// In create.php the permissions upsert is inside the transaction and
+		// after the employee INSERT, so the TypeError is raised with a written
+		// row -- and create.php's own catch(Throwable) rolls it back and answers
+		// employee_create_failed with the exception text as data.
+		long before = employeeCount(COMPANY_1);
+		Map<String, Object> body = post(CREATE, ADMIN_1,
+				"{\"role\":\"hr\",\"branch_id\":" + BRANCH_MAIN + ",\"first_name\":\"Scalar\","
+						+ "\"employee_code\":\"7777\",\"permissions\":\"yes\"}", 500);
+
+		assertThat(body.get("success")).isEqualTo(false);
+		// Not D-084: PHP catches this one, so it keeps its own key and detail.
+		// The catalog message carries an unsubstituted {error} placeholder:
+		// fail() passes the detail as $data, never as a $replace.
+		assertThat(body.get("message")).isEqualTo("Failed to create employee: {error}");
+		assertThat((String) body.get("data"))
+				.contains("hr_permissions_upsert_sql()")
+				.contains("Argument #2 ($permissions)")
+				.contains("must be of type array, string given");
+
+		// The employee that was inserted before the failure is gone.
+		assertThat(employeeCount(COMPANY_1)).isEqualTo(before);
+		assertThat(scalar("SELECT COUNT(*) FROM employees WHERE company_id = " + COMPANY_1
+				+ " AND employee_code = '7777'")).isZero();
+	}
+
+	@Test
+	void theCaughtCreateFailureNamesThePhpTypeForEachScalar() {
+		// PHP renders true/false rather than bool, and int/float rather than
+		// integer/double. Measured under 8.3.
+		Map<String, String> expected = new LinkedHashMap<>();
+		expected.put("1", "int given");
+		expected.put("1.5", "float given");
+		expected.put("true", "true given");
+		expected.put("false", "false given");
+		int code = 7800;
+		for (Map.Entry<String, String> entry : expected.entrySet()) {
+			Map<String, Object> body = post(CREATE, ADMIN_1,
+					"{\"role\":\"hr\",\"branch_id\":" + BRANCH_MAIN + ",\"first_name\":\"S\","
+							+ "\"employee_code\":\"" + code++ + "\","
+							+ "\"permissions\":" + entry.getKey() + "}", 500);
+			assertThat((String) body.get("data")).as("permissions=%s", entry.getKey())
+					.contains(entry.getValue());
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// The typed-string boundary on `employee_code`
+	// ------------------------------------------------------------------
+
+	@Test
+	void aNonStringEmployeeCodeIsATypeErrorBeforeAnythingIsWritten() {
+		// normalize_employee_code(?string $code) is typed, and the call sits
+		// before beginTransaction(), so the TypeError is uncaught -- D-084's
+		// generic 500 with nothing written. The raw value must not be coerced to
+		// a string first, which would accept input legacy rejects.
+		long before = employeeCount(COMPANY_1);
+		for (String code : List.of("7001", "70.5", "true", "[1,2]", "{\"a\":1}")) {
+			Map<String, Object> body = post(CREATE, ADMIN_1,
+					"{\"role\":\"hr\",\"branch_id\":" + BRANCH_MAIN + ",\"first_name\":\"X\","
+							+ "\"employee_code\":" + code + "}", 500);
+			assertThat(body.get("message")).as("employee_code=%s", code)
+					.isEqualTo("Internal server error");
+			assertThat(body).as("employee_code=%s", code).doesNotContainKey("data");
+		}
+		assertThat(employeeCount(COMPANY_1)).isEqualTo(before);
+	}
+
+	@Test
+	void aStringOrAbsentEmployeeCodeStillBehavesNormally() {
+		// A real string is trimmed and stored...
+		Map<String, Object> body = post(CREATE, ADMIN_1,
+				"{\"role\":\"hr\",\"branch_id\":" + BRANCH_MAIN + ",\"first_name\":\"Coded\","
+						+ "\"employee_code\":\"  7002  \"}", 201);
+		@SuppressWarnings("unchecked")
+		Map<String, Object> user = (Map<String, Object>) body.get("data");
+		assertThat(user.get("employee_code")).isEqualTo("7002");
+
+		// ...and one with internal whitespace normalizes to a single space,
+		// which then fails the digits-only format check rather than being
+		// stored. Normalization and validation are separate steps, in that
+		// order, and only the second one rejects.
+		assertThat(post(CREATE, ADMIN_1,
+				"{\"role\":\"hr\",\"branch_id\":" + BRANCH_MAIN + ",\"first_name\":\"Spaced\","
+						+ "\"employee_code\":\"  70   02  \"}", 400).get("message"))
+				.isEqualTo("Employee code must contain digits only (at least one digit)");
+
+		// ...an explicit null is isset()-absent, so the column stays null...
+		Map<String, Object> withNull = post(CREATE, ADMIN_1,
+				"{\"role\":\"hr\",\"branch_id\":" + BRANCH_MAIN + ",\"first_name\":\"NoCode\","
+						+ "\"employee_code\":null}", 201);
+		@SuppressWarnings("unchecked")
+		Map<String, Object> nullCoded = (Map<String, Object>) withNull.get("data");
+		assertThat(nullCoded.get("employee_code")).isNull();
+
+		// ...and a blank string is the required-field failure, not a TypeError.
+		assertThat(post(CREATE, ADMIN_1,
+				"{\"role\":\"hr\",\"branch_id\":" + BRANCH_MAIN + ",\"first_name\":\"X\","
+						+ "\"employee_code\":\"   \"}", 400).get("message"))
+				.isEqualTo("Field 'employee_code' is required");
+	}
+
+	// ------------------------------------------------------------------
+	// D-075 on the department path
+	// ------------------------------------------------------------------
+
+	@Test
+	void aForeignCompanysDepartmentIsRefusedEvenThroughADirtyJunctionRow() {
+		// The PHP check is department_belongs_to_branch(), which reads only the
+		// junction table -- no company predicate. The fixture seeds exactly the
+		// dirty row that exploits it: company 2's department linked to company 1's
+		// branch. D-075 fails that closed, with the same 404 the missing case
+		// gives, and writes nothing.
+		assertThat(scalar("SELECT COUNT(*) FROM department_branches WHERE department_id = "
+				+ DEPARTMENT_FOREIGN_DIRTY + " AND branch_id = " + BRANCH_MAIN)).isEqualTo(1);
+
+		long employeesBefore = employeeCount(COMPANY_1);
+		long permissionsBefore = scalar("SELECT COUNT(*) FROM hr_permissions");
+
+		Map<String, Object> body = post(CREATE, ADMIN_1,
+				"{\"role\":\"hr\",\"branch_id\":" + BRANCH_MAIN + ",\"first_name\":\"Dirty\","
+						+ "\"employee_code\":\"7901\",\"department_id\":"
+						+ DEPARTMENT_FOREIGN_DIRTY + "}", 404);
+		assertThat(body.get("message")).isEqualTo("Department not found");
+
+		assertThat(employeeCount(COMPANY_1)).isEqualTo(employeesBefore);
+		assertThat(scalar("SELECT COUNT(*) FROM hr_permissions")).isEqualTo(permissionsBefore);
+	}
+
+	@Test
+	void sameTenantDepartmentBehaviourIsUnchanged() {
+		// D-075 narrows nothing inside the tenant: a linked department still
+		// works, and an unlinked same-company one still fails exactly as legacy
+		// makes it fail.
+		assertThat(post(CREATE, ADMIN_1,
+				"{\"role\":\"hr\",\"branch_id\":" + BRANCH_MAIN + ",\"first_name\":\"Linked\","
+						+ "\"employee_code\":\"7902\",\"department_id\":" + DEPARTMENT_FIELD + "}", 201)
+				.get("message")).isEqualTo("HR user created");
+
+		assertThat(post(CREATE, ADMIN_1,
+				"{\"role\":\"hr\",\"branch_id\":" + BRANCH_MAIN + ",\"first_name\":\"Unlinked\","
+						+ "\"employee_code\":\"7903\",\"department_id\":" + DEPARTMENT_UNLINKED + "}", 404)
+				.get("message")).isEqualTo("Department not found");
 	}
 
 	// ------------------------------------------------------------------
@@ -620,11 +819,13 @@ class LegacyHrEmployeeEndToEndTest {
 			st.execute("""
 					INSERT INTO departments (id, company_id, name, is_active, created_at) VALUES
 					  (20021, 20001, 'Operations', 1, '2025-04-10 10:00:00'),
-					  (20022, 20002, 'Other Co Department', 1, '2025-04-10 10:00:00')
+					  (20022, 20002, 'Other Co Department', 1, '2025-04-10 10:00:00'),
+					  (20023, 20001, 'Unlinked Department', 1, '2025-04-10 10:00:00'),
+					  (20024, 20002, 'Foreign Dirty Department', 1, '2025-04-10 10:00:00')
 					""");
 			st.execute("""
 					INSERT INTO department_branches (department_id, branch_id) VALUES
-					  (20021, 20011), (20022, 20012)
+					  (20021, 20011), (20022, 20012), (20024, 20011)
 					""");
 
 			insertEmployee(st, ADMIN_1, COMPANY_1, "'1001'", "company_admin", "+201000200011", "Rana");

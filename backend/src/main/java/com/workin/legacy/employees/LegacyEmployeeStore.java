@@ -711,6 +711,77 @@ public class LegacyEmployeeStore {
 			java.util.Set.of("branches", "departments", "job_titles", "shifts");
 
 	/**
+	 * {@code stats.php}'s average-tenure query, which is the only one of its five
+	 * that is not a {@code COUNT(*)}.
+	 *
+	 * <p>{@code AVG(...)} over an empty set is SQL NULL, which PHP turns into
+	 * {@code 0.0} rather than omitting the key -- so the null has to survive the
+	 * read to be distinguished from a real zero.
+	 *
+	 * <p>{@code CURDATE()} is evaluated by the database, on the connection's own
+	 * timezone. D-083 is the open blocker for that, and running this query does
+	 * not close it.
+	 */
+	public Double averageTenureMonths(String whereSql, List<Object> params) {
+		return jdbcTemplate.queryForObject(
+				"""
+				SELECT AVG(
+					TIMESTAMPDIFF(
+						MONTH,
+						COALESCE(e.hire_date, DATE(e.created_at)),
+						CURDATE()
+					)
+				)
+				FROM employees e
+				WHERE %s
+				AND COALESCE(e.hire_date, e.created_at) IS NOT NULL""".formatted(whereSql),
+				Double.class, params.toArray());
+	}
+
+	/**
+	 * {@code my_team.php}'s query: the manager's own branch, active only, self
+	 * excluded, with the three org labels and a correlated
+	 * {@code checked_in_today}.
+	 *
+	 * <p>No roster predicate -- {@code my_team.php} has none, unlike
+	 * {@code list.php}. A pending join request is on the team.
+	 *
+	 * <p>The subselect returns {@code DATE(check_in)} rather than a flag, so the
+	 * column is a date string when the employee checked in today and null
+	 * otherwise. {@code CURRENT_DATE} is the database's, which is D-083's
+	 * territory again.
+	 */
+	public List<Map<String, Object>> myTeam(long companyId, long managerEmployeeId) {
+		return jdbcTemplate.query(
+				"""
+				SELECT
+					e.*,
+					b.name AS branch_name,
+					s.name AS department_name,
+					jt.name AS job_title_name,
+					(
+						SELECT DATE(check_in)
+						FROM attendance
+						WHERE employee_id = e.id AND DATE(check_in) = CURRENT_DATE
+						LIMIT 1
+					) AS checked_in_today
+				FROM employees AS e
+				LEFT JOIN branches AS b ON b.id = e.branch_id
+				LEFT JOIN departments AS s ON s.id = e.department_id
+				LEFT JOIN job_titles AS jt ON jt.id = e.job_title_id
+				WHERE
+					e.company_id = ?
+					AND e.is_active = 1
+					AND e.id <> ?
+					AND e.branch_id = (
+						SELECT mb.branch_id FROM employees mb
+						WHERE mb.id = ? AND mb.company_id = ? LIMIT 1
+					)
+				ORDER BY e.first_name ASC, e.last_name ASC""",
+				ROW_MAPPER, companyId, managerEmployeeId, managerEmployeeId, companyId);
+	}
+
+	/**
 	 * {@code hr_permission_keys()}: the seventeen {@code hr_permissions.can_*}
 	 * columns <em>in source order</em>.
 	 *
