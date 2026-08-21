@@ -321,6 +321,26 @@ public class LegacyEmployeeController {
 		return LegacyApiResponse.ok(message(request, "employees_excel_analyzed"), analysis);
 	}
 
+	/**
+	 * {@code employees/import_bulk.php}: POST, admin/HR, then the reviewed rows.
+	 *
+	 * <p>Always 200 once the rows have passed the presence check -- the message
+	 * key is the only thing that moves, and only when nothing at all was
+	 * inserted. A mixed batch is {@code employees_imported}, not a failure.
+	 */
+	@RequestMapping("/import_bulk.php")
+	public LegacyApiResponse importBulk(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = administrative();
+		Map<String, Object> result = employeeService.importSpreadsheetRows(
+				context, LegacyJsonBody.read(request));
+
+		boolean nothingInserted = LegacyValues.toPhpLong(result.get("inserted")) == 0
+				&& !((List<?>) result.get("failed")).isEmpty();
+		return LegacyApiResponse.ok(
+				message(request, nothingInserted ? "employees_import_failed" : "employees_imported"), result);
+	}
+
 	@RequestMapping("/template_excel.php")
 	public void templateExcel(HttpServletRequest request, HttpServletResponse response) throws IOException {
 		LegacyRequestContext context = administrative();

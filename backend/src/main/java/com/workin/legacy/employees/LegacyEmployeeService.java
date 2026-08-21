@@ -12,6 +12,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.workin.legacy.LegacyClock;
+import com.workin.legacy.LegacyPhpArray;
 import com.workin.legacy.LegacyPhpDateYear;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
@@ -25,6 +26,7 @@ import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetAnalyzer
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetColumns;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetLookups;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetReader;
+import com.workin.legacy.employees.spreadsheet.LegacyEmployeeImporter;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeTemplate;
 import com.workin.legacy.notifications.LegacyNotifications;
 import com.workin.legacy.wire.LegacyApiException;
@@ -78,6 +80,7 @@ public class LegacyEmployeeService {
 	private final LegacyClock clock;
 	private final LegacyFileUploads fileUploads;
 	private final LegacyEmployeeSpreadsheetAnalyzer spreadsheetAnalyzer;
+	private final LegacyEmployeeImporter importer;
 	/**
 	 * {@code password_hash($p, PASSWORD_BCRYPT)}. The shared bean is the same
 	 * encoder legacy login already verifies with; it writes the {@code $2a$}
@@ -91,7 +94,7 @@ public class LegacyEmployeeService {
 			LegacyEmployeeStore store, LegacyNotifications notifications,
 			LegacyHrPermissionEnforcer permissionEnforcer, LegacyPhoneNumbers phoneNumbers,
 			LegacyClock clock, LegacyFileUploads fileUploads, PasswordEncoder bcrypt,
-			LegacyEmployeeSpreadsheetAnalyzer spreadsheetAnalyzer) {
+			LegacyEmployeeSpreadsheetAnalyzer spreadsheetAnalyzer, LegacyEmployeeImporter importer) {
 		this.store = store;
 		this.notifications = notifications;
 		this.permissionEnforcer = permissionEnforcer;
@@ -100,6 +103,7 @@ public class LegacyEmployeeService {
 		this.fileUploads = fileUploads;
 		this.bcrypt = bcrypt;
 		this.spreadsheetAnalyzer = spreadsheetAnalyzer;
+		this.importer = importer;
 	}
 
 	/**
@@ -1111,6 +1115,31 @@ public class LegacyEmployeeService {
 			// client reads, which LegacyMessages reproduces for free.
 			throw new LegacyApiException(400, ex.getMessage());
 		}
+	}
+
+	/**
+	 * {@code employees/import_bulk.php}: reviewed rows, imported one at a time.
+	 *
+	 * <p>{@code $rows = $body[Request::ROWS] ?? $body['rows'] ?? []} reads the
+	 * same key twice -- {@code Request::ROWS} <em>is</em> {@code 'rows'} -- so
+	 * there is one lookup, and a {@code null} value coalesces to the empty array
+	 * exactly as a missing key does.
+	 *
+	 * <p>After this guard nothing else changes the HTTP status: every row-level
+	 * problem is reported inside the result with a 200.
+	 */
+	public Map<String, Object> importSpreadsheetRows(
+			LegacyRequestContext context, Map<String, Object> body) {
+		Object raw = body.get("rows");
+		if (!LegacyPhpArray.isArray(raw)) {
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "rows"));
+		}
+		LegacyPhpArray rows = raw == null ? LegacyPhpArray.empty() : LegacyPhpArray.of(raw);
+		if (rows.isEmpty()) {
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "rows"));
+		}
+		// Lookups are built once for the whole batch, not once per row.
+		return importer.importRows(context.companyId(), rows, lookups(context.companyId()));
 	}
 
 	/** {@code pagination_meta()} ({@code helpers/pagination.php:28-39}), key order included. */
