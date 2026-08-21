@@ -8,8 +8,10 @@ import java.util.Optional;
 
 import javax.sql.DataSource;
 
+import org.springframework.context.annotation.ScopedProxyMode;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.annotation.RequestScope;
 
 /**
  * The storage half of legacy's phone-country helpers
@@ -28,8 +30,18 @@ import org.springframework.stereotype.Component;
  * {@code phone_countries_fallback_rows()}. The vendored schema happens to
  * contain the table today, but a deployment that predates it must keep
  * accepting the same phone numbers, so the fallback is ported rather than
- * assumed dead. The probe result is cached for the process, exactly as PHP's
- * {@code static $exists} caches it per request.
+ * assumed dead.
+ *
+ * <h2>Request-scoped, because PHP's cache is</h2>
+ * <p>{@code phone_countries_table_exists()} caches its answer in a
+ * function-local {@code static}, which in PHP lives for <em>one request</em>
+ * and is gone by the next one. A Spring singleton would turn a single transient
+ * probe failure -- a dropped connection, a moment of lock contention -- into
+ * fallback definitions for the rest of the JVM's life, while legacy would have
+ * retried on the very next request. So this component is request-scoped and
+ * keeps its cache per instance: probe once per request, reuse it within that
+ * request, probe again on the next one. No global cache, no TTL, no refresh
+ * schedule -- those would all be new behaviour, not the ported one.
  *
  * <h2>Not tenant-scoped</h2>
  * <p>{@code phone_countries} is reference configuration: no {@code company_id}
@@ -38,6 +50,7 @@ import org.springframework.stereotype.Component;
  * legacy accepts.
  */
 @Component
+@RequestScope(proxyMode = ScopedProxyMode.TARGET_CLASS)
 public class LegacyPhoneCountries {
 
 	/**
@@ -53,8 +66,8 @@ public class LegacyPhoneCountries {
 
 	private final JdbcTemplate jdbcTemplate;
 
-	/** PHP's {@code static $exists}: probed once, then reused. */
-	private volatile Boolean tableExists;
+	/** PHP's {@code static $exists}: probed once per request, then reused within it. */
+	private Boolean tableExists;
 
 	public LegacyPhoneCountries(DataSource legacyDataSource) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
@@ -133,9 +146,13 @@ public class LegacyPhoneCountries {
 
 	/**
 	 * {@code phone_countries_table_exists()}. Any failure means "absent": PHP
-	 * wraps the probe in {@code catch (Throwable $e)}, so a permissions error or
-	 * a broken connection sends it to the fallback definitions rather than
-	 * failing the request.
+	 * wraps the probe in {@code catch (Throwable $e)}, so a permissions error, a
+	 * broken connection or anything else sends it to the fallback definitions
+	 * rather than failing the request.
+	 *
+	 * <p>{@code Throwable} is deliberate and is scoped to this one statement --
+	 * ordinary country reads, employee logic and the endpoint itself are all
+	 * outside it, so a real failure there still surfaces.
 	 */
 	boolean tableExists() {
 		Boolean cached = tableExists;
@@ -150,16 +167,11 @@ public class LegacyPhoneCountries {
 					WHERE table_schema = DATABASE() AND table_name = ?""",
 					Long.class, "phone_countries");
 			exists = count != null && count > 0;
-		} catch (RuntimeException ex) {
+		} catch (Throwable ex) { // NOPMD - catch (Throwable $e), narrowly, as PHP does
 			exists = false;
 		}
 		tableExists = exists;
 		return exists;
-	}
-
-	/** Test seam for the absent-table path; production never calls it. */
-	void overrideTableExistsForTest(Boolean value) {
-		this.tableExists = value;
 	}
 
 	/** The fallback definitions, exposed for the tests that prove them. */

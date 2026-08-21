@@ -172,6 +172,26 @@ class LegacyPhoneCountriesMariaDbTest extends AbstractLegacyMySqlTest {
 	}
 
 	@Test
+	void aLaterInstanceRecoversAfterAFailedProbe() throws Exception {
+		// The request-scope property against a real database: one request's
+		// probe fails and gets the fallback definitions; the next request's
+		// instance probes again and finds the real table. A JVM-wide cache
+		// would have left every later request on the fallback.
+		RecoveringDataSource flaky = new RecoveringDataSource(dataSource);
+
+		LegacyPhoneCountries duringOutage = new LegacyPhoneCountries(flaky);
+		assertThat(duringOutage.tableExists()).isFalse();
+		// +973 exists only in the table, never in the fallback definitions.
+		assertThat(duringOutage.find("+973")).isEmpty();
+		assertThat(duringOutage.find("+966")).isPresent();
+
+		LegacyPhoneCountries afterRecovery = new LegacyPhoneCountries(flaky);
+		assertThat(afterRecovery.tableExists()).isTrue();
+		assertThat(afterRecovery.find("+973")).isPresent();
+		assertThat(afterRecovery.find("+966")).isEmpty();
+	}
+
+	@Test
 	void globalPhoneUniquenessMatchesEveryStoredSpelling() {
 		// The stored number itself.
 		assertThat(employees.phoneExistsGlobally("01012345678", null)).isTrue();
@@ -202,6 +222,32 @@ class LegacyPhoneCountriesMariaDbTest extends AbstractLegacyMySqlTest {
 		assertThat(employees.phoneExistsGlobally("01012345678", ACCEPTED)).isFalse();
 		assertThat(employees.phoneExistsGlobally("01012345678", 0L)).isTrue();
 		assertThat(employees.phoneExistsGlobally("01012345678", -5L)).isTrue();
+	}
+
+	/** Fails the first connection attempt, then delegates -- one bad moment, then health. */
+	private static final class RecoveringDataSource extends org.springframework.jdbc.datasource.AbstractDataSource {
+
+		private final DataSource delegate;
+		private final java.util.concurrent.atomic.AtomicBoolean failed =
+				new java.util.concurrent.atomic.AtomicBoolean();
+
+		private RecoveringDataSource(DataSource delegate) {
+			this.delegate = delegate;
+		}
+
+		@Override
+		public java.sql.Connection getConnection() throws java.sql.SQLException {
+			if (failed.compareAndSet(false, true)) {
+				throw new java.sql.SQLException("transient connection failure");
+			}
+			return delegate.getConnection();
+		}
+
+		@Override
+		public java.sql.Connection getConnection(String username, String password) throws java.sql.SQLException {
+			return getConnection();
+		}
+
 	}
 
 	private static DataSource dataSourceFor(String database) {
