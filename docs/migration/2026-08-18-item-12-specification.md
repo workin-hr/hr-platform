@@ -181,7 +181,8 @@ admitting requests legacy rejects. They become prerequisites P-7, P-8 and P-9.
 endpoints carry three joins each, returning `department_name` and a
 `branches_summary` `GROUP_CONCAT` over `department_branches` → `branches`. It
 cannot reach parity without `departments`, `branches` and `department_branches`
-— the last needing P-1c, scheduled for Wave 2. Wave 12.1's module is therefore
+— the last needing P-1c, which was then scheduled for the tenancy-policy wave
+and delivered as Wave 12.2 (D-053). Wave 12.1's module is therefore
 **`attendance_exception_types`**, which is single-table for list/one/create/
 update, carries a direct `company_id`, and still exercises an ungated read path,
 a genuinely gated write path (`can_company_settings`), role-conditional
@@ -277,10 +278,12 @@ are formally item 13 scope. **Resolved by D-4**: `company_settings` is removed
 from Item 12 and lands in item 13 with those two tables, rather than leaking
 item 13 schema into item 12.
 
-### F-5 — The two hub tables have the largest column gaps
+### F-5 — Target-model hub-table gaps do not equal Phase 1 adapter gaps
 
 The original `companies` (4 Java cols vs 21 legacy) and `employees` (11 vs 27)
-counts compare the PostgreSQL target entities to MariaDB. Wave 12.4 discovery
+counts remain accurate for what they measured: the **redesigned PostgreSQL
+entities** against MariaDB. They were never a count of missing `LegacyEmployee`
+or `LegacyCompany` fields. Wave 12.4 discovery
 confirmed that they do **not** describe the current Phase 1 adapters:
 `LegacyEmployee` already maps all 27 employee columns, while `LegacyCompany`
 maps the `id`/`status` pair the employee endpoints actually read. Legacy carries
@@ -395,7 +398,7 @@ graph TD
   P2[P-2 legacy auth context] --> P3[P-3 permission gate]
   P2 --> W0
   P3 --> W0
-  W0[Wave 0: job_titles<br/>first real endpoint] --> P1B[P-1b employee-derived policy]
+  W0[Wave 12.1: attendance_exception_types<br/>first real endpoint] --> P1B[P-1b employee-derived policy]
   W0 --> P1A[P-1a direct policy, named]
   W0 --> P6[P-6 parity harness]
   P1A --> P4[P-4 coverage guard]
@@ -445,7 +448,7 @@ provability on real MariaDB.
 |---|---|---|
 | **12.1** | `attendance_exception_types` end-to-end + P-2, P-3, P-6, **P-7, P-8, P-9** | **Amended by D-046** (was `job_titles`, which needs three joins into later organization tables — §2.1C). Single-table for list/one/create/update with a direct `company_id`, so it needs no new tenancy mechanism, yet still exercises an ungated read path, a gated write path whose legacy counterpart genuinely requires `can_company_settings`, role-conditional visibility, search and pagination. Carries the three new request guards because every later module needs them. Closes the PR #101 evidence gap (§9) at the earliest possible point and fixes the module template before it is copied 18 times. |
 | **12.2** | P-1a + P-1b + P-1c + P-4 | Standalone tenancy-policy mechanism and coverage guard, built before the remaining modules (D-053). |
-| **12.3** | **Corrected by D-054, 2026-08-18.** `branches` → `departments` (with `department_branches`) → `job_titles`, in that dependency order. 16 real endpoints across the three modules (`department_branches` has none of its own). | `department_branches` is mutated inside `departments`' own transaction and is required by department and job-title reads. Delivered as PRs #106, #107, and #108; all are merged. |
+| **12.3** | **Corrected by D-054, 2026-08-18.** `branches` → `departments` (with `department_branches`) → `job_titles`, in that dependency order. 16 real endpoints across the three modules (`department_branches` has none of its own). | `department_branches` is mutated inside `departments`' own transaction and is required by department and job-title reads. Delivered as commit `6f50ee1` (12.3a `branches`, alongside Waves 12.1 and 12.2) with PR #106 accepting D-060's uniform 404, then PR #107 (12.3b) and PR #108 (12.3c); all are on `main`. |
 | **12.4** | `employees` + `hr_employees` with P-5 | `employees` is P-1b's real join target. The boundary covers all 17 employee endpoints and only the company columns those endpoints actually require. |
 | **12.5** | `shifts` + `request_types` + `company_official_holidays` | Assigns the three master modules D-054 moved out of Wave 12.3. They land before their consumers: shifts before assignment APIs and request types before request APIs. None is a prerequisite for completing the Wave 12.4 endpoint adapter against existing legacy rows. |
 | **12.6** | `attendance` (+`exception_types` consumers), `employee_schedules`, `employee_shift_assignments` | First derived-tenancy consumers. `attendance` is the largest single module (15 endpoints) and the richest calculation logic to reuse. |
