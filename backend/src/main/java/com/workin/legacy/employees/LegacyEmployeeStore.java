@@ -15,6 +15,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import com.workin.legacy.phone.LegacyPhoneNumbers;
+
 /**
  * The employee read path, in legacy's own SQL and legacy's own value types.
  *
@@ -219,6 +221,64 @@ public class LegacyEmployeeStore {
 		Object name = assignment.get("shift_name");
 		employee.put("assigned_shift_name", name == null ? "" : name.toString());
 		employee.put("assigned_shift_effective_from", assignment.get("shift_effective_from"));
+	}
+
+	/**
+	 * {@code employee_phone_exists_globally($phone, $exclude)}
+	 * ({@code functions.php:99-117}).
+	 *
+	 * <p>Three properties of this query are contract, not detail. It is
+	 * <b>global</b>: no {@code company_id} predicate, because
+	 * {@code employees.phone} is a login identifier with a database-wide unique
+	 * index. It matches through {@code phone_sql_match_clause()}, so a number
+	 * stored in any of {@link LegacyPhoneNumbers#lookupVariants}' spellings --
+	 * or with {@code + - ( )} formatting still in the column -- counts as taken.
+	 * And it ignores rows whose {@code join_request_status} is
+	 * {@code 'rejected'} (NULL counting as {@code 'accepted'}), so a rejected
+	 * join request never blocks a real hire.
+	 */
+	public boolean phoneExistsGlobally(String phone, Long excludeEmployeeId) {
+		String digits = LegacyPhoneNumbers.digitsOnly(phone == null ? "" : phone.trim());
+		if (digits.isEmpty()) {
+			return false;
+		}
+		List<String> variants = LegacyPhoneNumbers.lookupVariants(digits);
+		if (variants.isEmpty()) {
+			return false;
+		}
+		String placeholders = String.join(", ", java.util.Collections.nCopies(variants.size(), "?"));
+		StringBuilder sql = new StringBuilder()
+				.append("SELECT COUNT(*) FROM employees WHERE (")
+				.append(LegacyPhoneNumbers.digitsSqlExpression("phone"))
+				.append(" IN (").append(placeholders).append("))")
+				.append(" AND COALESCE(join_request_status, 'accepted') <> 'rejected'");
+		List<Object> params = new ArrayList<>(variants);
+		if (excludeEmployeeId != null && excludeEmployeeId > 0) {
+			sql.append(" AND id <> ?");
+			params.add(excludeEmployeeId);
+		}
+		Long matches = jdbcTemplate.queryForObject(sql.toString(), Long.class, params.toArray());
+		return matches != null && matches > 0;
+	}
+
+	/**
+	 * {@code employee_code_exists_in_company($company_id, $code, $exclude)}
+	 * ({@code functions.php:150-167}): company-scoped, exact match on the
+	 * already-normalized code.
+	 */
+	public boolean employeeCodeExistsInCompany(long companyId, String employeeCode, Long excludeEmployeeId) {
+		if (employeeCode == null || employeeCode.isEmpty()) {
+			return false;
+		}
+		StringBuilder sql = new StringBuilder(
+				"SELECT COUNT(*) FROM employees WHERE company_id = ? AND employee_code = ?");
+		List<Object> params = new ArrayList<>(List.of(companyId, employeeCode));
+		if (excludeEmployeeId != null && excludeEmployeeId > 0) {
+			sql.append(" AND id <> ?");
+			params.add(excludeEmployeeId);
+		}
+		Long matches = jdbcTemplate.queryForObject(sql.toString(), Long.class, params.toArray());
+		return matches != null && matches > 0;
 	}
 
 	/**

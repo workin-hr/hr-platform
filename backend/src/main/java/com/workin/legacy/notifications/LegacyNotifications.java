@@ -71,15 +71,18 @@ public class LegacyNotifications {
 		// -- delivery is best effort in legacy, and the row is already durable.
 		// Wave 12.4 ships LegacyPushDeliveryUnavailable here; hr-platform#22
 		// owns the real delivery and remains a Phase 1 cutover blocker.
+		Map<String, String> payload = Map.of(
+				"notification_id", String.valueOf(notificationId),
+				"notification_type", type);
 		try {
-			pushDelivery.sendToEmployee(
-					toEmployeeId, title, body == null ? "" : body,
-					Map.of(
-							"notification_id", String.valueOf(notificationId),
-							"notification_type", type));
-		} catch (RuntimeException ignored) {
-			// Deliberately empty, as in PHP: a delivery failure must not change
-			// the API response or undo the stored notification.
+			pushDelivery.sendToEmployee(toEmployeeId, title, body == null ? "" : body, payload);
+		} catch (Throwable ignored) { // NOPMD - PHP catches Throwable here, and that is the point
+			// Deliberately empty and deliberately Throwable, matching
+			// `catch (Throwable $ignored)`: once the row is inserted, *nothing*
+			// the transport does may change the API outcome. The catch is
+			// wrapped around this one call and nothing else -- no database work
+			// and no part of the endpoint is inside it, so a genuine
+			// application failure still surfaces.
 		}
 		return notificationId;
 	}

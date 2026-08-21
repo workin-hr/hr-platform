@@ -64,6 +64,7 @@ class LegacyEmployeeLifecycleEndToEndTest {
 	private static final long STAFF_1 = 195013L;
 	private static final long STAFF_ARABIC = 195014L;
 	private static final long STAFF_PUSH = 195015L;
+	private static final long STAFF_THROWABLE = 195016L;
 	private static final long ADMIN_2 = 195021L;
 	private static final long STAFF_COMPANY_2 = 195022L;
 
@@ -214,6 +215,33 @@ class LegacyEmployeeLifecycleEndToEndTest {
 	}
 
 	@Test
+	@Order(46)
+	void aDeliveryFailureOutsideRuntimeExceptionIsSwallowedToo() throws Exception {
+		// PHP catches Throwable, not just the exception types an application
+		// would normally raise. An Error from the transport must be as
+		// invisible to the client as any other delivery failure, and must not
+		// undo the notification row that is already committed.
+		java.util.concurrent.atomic.AtomicInteger rowsVisibleAtPushTime =
+				new java.util.concurrent.atomic.AtomicInteger(-1);
+		org.mockito.Mockito.doAnswer(invocation -> {
+			rowsVisibleAtPushTime.set(notificationsFor(STAFF_THROWABLE).size());
+			throw new StackOverflowError("transport blew the stack");
+		}).when(pushDelivery).sendToEmployee(
+				org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString(),
+				org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
+
+		ResponseEntity<Map<String, Object>> response = call(
+				DEACTIVATE + "?id=" + STAFF_THROWABLE, HttpMethod.DELETE, ADMIN_1);
+
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		assertThat(response.getBody().get("success")).isEqualTo(true);
+		assertThat(response.getBody().get("message")).isEqualTo("Employee deactivated");
+		assertThat(rowsVisibleAtPushTime.get()).isEqualTo(1);
+		assertThat(notificationsFor(STAFF_THROWABLE)).hasSize(1);
+		assertThat(queryLong("SELECT is_active FROM employees WHERE id = " + STAFF_THROWABLE)).isZero();
+	}
+
+	@Test
 	@Order(5)
 	void aForeignOrMissingEmployeeIs404AndWritesNothing() throws Exception {
 		long before = queryLong("SELECT is_active FROM employees WHERE id = " + STAFF_COMPANY_2);
@@ -333,6 +361,7 @@ class LegacyEmployeeLifecycleEndToEndTest {
 			insertEmployee(st, STAFF_1, COMPANY_1, 19511L, "'1003'", "employee", "+201000195013");
 			insertEmployee(st, STAFF_ARABIC, COMPANY_1, 19511L, "'1004'", "employee", "+201000195014");
 			insertEmployee(st, STAFF_PUSH, COMPANY_1, 19511L, "'1005'", "employee", "+201000195015");
+			insertEmployee(st, STAFF_THROWABLE, COMPANY_1, 19511L, "'1006'", "employee", "+201000195016");
 			insertEmployee(st, ADMIN_2, COMPANY_2, 19521L, "'2001'", "company_admin", "+201000195021");
 			insertEmployee(st, STAFF_COMPANY_2, COMPANY_2, 19521L, "'2002'", "employee", "+201000195022");
 		}
