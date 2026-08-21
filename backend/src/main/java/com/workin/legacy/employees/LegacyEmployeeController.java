@@ -6,10 +6,10 @@ import java.util.Map;
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.workin.legacy.LegacyJsonBody;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
@@ -72,11 +72,12 @@ public class LegacyEmployeeController {
 	 * chain, one transaction, and a post-commit re-read rendered as 201.
 	 */
 	@RequestMapping("/create.php")
-	public ResponseEntity<LegacyApiResponse> create(
-			HttpServletRequest request, @RequestBody(required = false) Map<String, Object> body) {
+	public ResponseEntity<LegacyApiResponse> create(HttpServletRequest request) {
 		requireMethod(request, "POST");
 		LegacyRequestContext context = administrative();
-		Map<String, Object> employee = employeeService.create(context, body == null ? Map.of() : body);
+		// body(), not @RequestBody: a malformed document is an empty array in
+		// PHP and has to reach required(), not Spring's own error.
+		Map<String, Object> employee = employeeService.create(context, LegacyJsonBody.read(request));
 		return ResponseEntity.status(201)
 				.body(LegacyApiResponse.ok(message(request, "employee_created"), employee));
 	}
@@ -88,8 +89,7 @@ public class LegacyEmployeeController {
 	 * neither can undo the update.
 	 */
 	@RequestMapping("/update.php")
-	public LegacyApiResponse update(
-			HttpServletRequest request, @RequestBody(required = false) Map<String, Object> body) {
+	public LegacyApiResponse update(HttpServletRequest request) {
 		requireMethod(request, "PUT");
 		LegacyRequestContext context = administrative();
 		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
@@ -97,7 +97,7 @@ public class LegacyEmployeeController {
 		long employeeId = LegacyValues.toPhpLong(query.value("id"));
 
 		LegacyEmployeeService.UpdateOutcome outcome = employeeService.update(
-				context, employeeId, body == null ? Map.of() : body);
+				context, employeeId, LegacyJsonBody.read(request));
 		// t() runs at insert time, so the stored notification text follows this
 		// request's locale -- including the {title} placeholder, which takes the
 		// job title as the post-commit re-read sees it.

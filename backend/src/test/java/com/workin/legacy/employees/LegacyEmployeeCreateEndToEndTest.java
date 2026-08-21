@@ -187,6 +187,36 @@ class LegacyEmployeeCreateEndToEndTest {
 	}
 
 	@Test
+	void theBodyIsDecodedTheWayPhpsBodyHelperDoes() {
+		// body(): json_decode($raw, true) ?? [] -- a malformed document, an empty
+		// body and a literal null are all the same empty array, so the endpoint's
+		// own required() produces the response rather than the framework.
+		for (String raw : List.of("{ this is not json", "", "null", "   ")) {
+			assertThat(rawPost(raw, ADMIN_1).getBody().get("message"))
+					.describedAs("body %s", raw).isEqualTo("Field 'first_name' is required");
+		}
+
+		// A top-level JSON array is a real PHP array: not an error, but every
+		// named lookup misses it.
+		assertThat(rawPost("[\"first_name\", \"last_name\"]", ADMIN_1).getBody().get("message"))
+				.isEqualTo("Field 'first_name' is required");
+		assertThat(rawPost("[]", ADMIN_1).getBody().get("message"))
+				.isEqualTo("Field 'first_name' is required");
+	}
+
+	@Test
+	void aScalarJsonRootIsTheOneShapeThatFails() {
+		// body() declares : array, so returning a decoded scalar is a TypeError
+		// PHP never catches -- D-084's generic 500, with nothing leaked.
+		for (String raw : List.of("\"a string\"", "42", "true")) {
+			ResponseEntity<Map<String, Object>> response = rawPost(raw, ADMIN_1);
+			assertThat(response.getStatusCode().value()).describedAs("body %s", raw).isEqualTo(500);
+			assertThat(response.getBody()).containsExactly(
+					Map.entry("success", false), Map.entry("message", "Internal server error"));
+		}
+	}
+
+	@Test
 	void requiredFieldsAreCheckedInPhpsOrder() {
 		Map<String, Object> body = new LinkedHashMap<>();
 		assertThat(message(post(body, ADMIN_1), 400)).isEqualTo("Field 'first_name' is required");
@@ -603,6 +633,14 @@ class LegacyEmployeeCreateEndToEndTest {
 			body.put("country_code", "+20");
 		}
 		return body;
+	}
+
+	/** Sends a raw body, so malformed and scalar documents can be tested at all. */
+	private ResponseEntity<Map<String, Object>> rawPost(String rawBody, long employeeId) {
+		return restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + CREATE), HttpMethod.POST,
+				new HttpEntity<>(rawBody, jsonHeaders(tokenFor(employeeId))),
+				new ParameterizedTypeReference<Map<String, Object>>() { });
 	}
 
 	private ResponseEntity<Map<String, Object>> post(Map<String, Object> body, long employeeId) {

@@ -10,6 +10,7 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -104,6 +105,30 @@ class LegacyEmployeeUpdateEndToEndTest {
 		// Unknown keys are dropped by the allowed-column filter, so a body full
 		// of them reaches the *second* check and fails there instead.
 		assertThat(message(put(id, Map.of("not_a_column", "x")), 400)).isEqualTo("Nothing to update");
+	}
+
+	@Test
+	void aMalformedOrEmptyBodyIsNothingToUpdateRatherThanAFrameworkError() throws Exception {
+		long id = employee(7010, "01019000005");
+		// json_decode(...) ?? [] then empty($body): all of these stop at the
+		// endpoint's own first check.
+		for (String raw : List.of("{ not json at all", "", "null", "{}", "[]")) {
+			ResponseEntity<Map<String, Object>> response = rawPut(id, raw);
+			assertThat(response.getStatusCode().value()).describedAs("body %s", raw).isEqualTo(400);
+			assertThat(response.getBody().get("message")).isEqualTo("Nothing to update");
+		}
+
+		// A non-empty JSON array is a PHP array with numeric keys: it survives
+		// empty($body), then loses every named lookup and reaches the second
+		// nothing-to-update check.
+		ResponseEntity<Map<String, Object>> array = rawPut(id, "[\"address\", \"Cairo\"]");
+		assertThat(array.getStatusCode().value()).isEqualTo(400);
+		assertThat(array.getBody().get("message")).isEqualTo("Nothing to update");
+
+		// A scalar root is the TypeError case.
+		ResponseEntity<Map<String, Object>> scalar = rawPut(id, "\"just a string\"");
+		assertThat(scalar.getStatusCode().value()).isEqualTo(500);
+		assertThat(scalar.getBody().get("message")).isEqualTo("Internal server error");
 	}
 
 	@Test
@@ -397,6 +422,14 @@ class LegacyEmployeeUpdateEndToEndTest {
 		assertThat(single("SELECT is_active, is_mobile_attendance_enabled FROM employees WHERE id = " + id))
 				.containsEntry("is_active", "1")
 				.containsEntry("is_mobile_attendance_enabled", "0");
+	}
+
+	/** Sends a raw body to update, for the shapes a Map cannot express. */
+	private ResponseEntity<Map<String, Object>> rawPut(long employeeId, String rawBody) {
+		return restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + UPDATE + "?id=" + employeeId), HttpMethod.PUT,
+				new HttpEntity<>(rawBody, jsonHeaders(tokenFor(ADMIN))),
+				new ParameterizedTypeReference<Map<String, Object>>() { });
 	}
 
 	private ResponseEntity<Map<String, Object>> put(long employeeId, Map<String, Object> body) {
