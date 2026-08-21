@@ -139,6 +139,43 @@ public class LegacyEmployeeService {
 	}
 
 	/**
+	 * {@code deactivate.php}. The order is legacy's and it is observable: the
+	 * scoped {@code UPDATE} runs first, the existence check second, so a missing
+	 * or foreign id performs a zero-row write and then 404s.
+	 *
+	 * <p>The notification insert happens <em>after</em> the response row is
+	 * read, outside any transaction -- PHP has none here -- so a failure at that
+	 * point returns 500 with the employee already deactivated. That asymmetry is
+	 * reproduced rather than smoothed over (D-078's rule for evidenced
+	 * transaction boundaries), and it is why this method does not wrap the two
+	 * writes together.
+	 *
+	 * @param title the already-translated notification title -- {@code t()} runs
+	 *        in the caller's locale, so what lands in the row depends on the
+	 *        request that triggered it, exactly as in PHP
+	 */
+	public Map<String, Object> deactivate(LegacyRequestContext context, long employeeId, String title, String body) {
+		store.setActive(employeeId, context.companyId(), 0);
+		Map<String, Object> employee = store.findWithOrgLabels(employeeId, context.companyId());
+		if (employee == null) {
+			throw new LegacyApiException(404, "employee_not_found");
+		}
+		store.insertEmployeeNotification(
+				context.companyId(), employeeId, context.employeeId(), "employee_deactivated", title, body);
+		return employee;
+	}
+
+	/** {@code reactivate.php}: the same shape, with no notification of any kind. */
+	public Map<String, Object> reactivate(LegacyRequestContext context, long employeeId) {
+		store.setActive(employeeId, context.companyId(), 1);
+		Map<String, Object> employee = store.findWithOrgLabels(employeeId, context.companyId());
+		if (employee == null) {
+			throw new LegacyApiException(404, "employee_not_found");
+		}
+		return employee;
+	}
+
+	/**
 	 * {@code sort=employee_code} is matched exactly -- any other value, including
 	 * {@code employee_code } with whitespace or a different case, falls to the
 	 * default ordering.

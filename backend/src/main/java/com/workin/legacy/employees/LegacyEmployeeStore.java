@@ -222,6 +222,60 @@ public class LegacyEmployeeStore {
 	}
 
 	/**
+	 * {@code fetch_employee_with_org_labels($id, $company_id)}
+	 * ({@code functions.php:866-890}). The lifecycle endpoints re-read through
+	 * this, not through {@code one.php}'s query: same three left joins, no
+	 * correlated salary or shift columns.
+	 */
+	public Map<String, Object> findWithOrgLabels(long employeeId, long companyId) {
+		List<Map<String, Object>> rows = jdbcTemplate.query(ONE_SELECT, ROW_MAPPER, employeeId, companyId);
+		return rows.isEmpty() ? null : rows.get(0);
+	}
+
+	/**
+	 * {@code deactivate.php}/{@code reactivate.php}'s scoped
+	 * {@code UPDATE employees SET is_active=? WHERE id=? AND company_id=?}.
+	 *
+	 * <p>PHP runs this <em>before</em> checking that the employee exists, so a
+	 * missing or foreign id updates zero rows and only then 404s. The row count
+	 * is deliberately ignored for that reason, and the company predicate is what
+	 * makes the write tenant-safe -- a native statement Hibernate's filters
+	 * never see.
+	 */
+	public void setActive(long employeeId, long companyId, int active) {
+		jdbcTemplate.update(
+				"UPDATE employees SET is_active=? WHERE id=? AND company_id=?", active, employeeId, companyId);
+	}
+
+	/**
+	 * {@code notification_to_employee()} -> {@code notification_insert()}
+	 * ({@code helpers/notifications.php:52-143}), for the employee recipient
+	 * kind only. {@code notification_normalize_from()} turns a non-positive
+	 * sender into NULL, and {@code company_id} comes from the re-derived tenant,
+	 * never from a request value.
+	 *
+	 * <p><b>Not ported here: the push delivery.</b> After inserting the row PHP
+	 * calls {@code sendPushToEmployee()} inside a {@code try { } catch (Throwable
+	 * $ignored) { }}, so a push failure is invisible to the API and the response
+	 * is identical either way. Phase 1 has no push infrastructure at all (no FCM
+	 * credentials, no {@code push_tokens} adapter), so the row is written and the
+	 * push is left out -- an explicit, recorded functional gap for the cutover,
+	 * not a wire-contract difference and not a silent omission.
+	 */
+	public void insertEmployeeNotification(
+			long companyId, long toEmployeeId, Long fromEmployeeId, String type, String title, String body) {
+		jdbcTemplate.update(
+				"""
+				INSERT INTO notifications (
+					company_id, recipient_kind, from_employee_id, to_employee_id,
+					title, body, notification_type, reference_type, reference_id
+				) VALUES (?, 'employee', ?, ?, ?, ?, ?, NULL, NULL)""",
+				companyId,
+				fromEmployeeId != null && fromEmployeeId > 0 ? fromEmployeeId : null,
+				toEmployeeId, title, body, type);
+	}
+
+	/**
 	 * {@code manager_can_access_employee_branch()} ({@code functions.php:790-802}).
 	 * The join compares branches with {@code <=>}, so two employees whose
 	 * {@code branch_id} is NULL count as the same branch -- not reachable through

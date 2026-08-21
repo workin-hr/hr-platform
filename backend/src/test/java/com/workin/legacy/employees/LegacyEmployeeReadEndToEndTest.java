@@ -344,11 +344,14 @@ class LegacyEmployeeReadEndToEndTest {
 	}
 
 	@Test
-	void everyMappedPhpRouteAuthenticatesInsideTheEndpoint() {
+	void noMappedPhpRouteAnswersAnUnauthenticatedRequest() {
 		// LegacyPhpRoutes permits these prefixes past Spring's authorization
 		// decision, so the guarantee that replaces .authenticated() has to be
-		// proven per route, not per module: no mapped /apis/** path may answer
-		// an unauthenticated GET with anything but PHP's 401.
+		// proven per route rather than per module. An unauthenticated GET must
+		// end in one of PHP's own denials -- 401 unauthorized_no_token from
+		// requireAuth, or 405 invalid_method from the method guard that runs
+		// before it on a route with a different verb -- never a 200, and always
+		// in the PHP envelope.
 		List<String> routes = handlerMapping.getHandlerMethods().keySet().stream()
 				.flatMap(info -> info.getPatternValues().stream())
 				.filter(pattern -> pattern.startsWith("/apis/"))
@@ -356,15 +359,27 @@ class LegacyEmployeeReadEndToEndTest {
 				.sorted()
 				.toList();
 		assertThat(routes).isNotEmpty();
+
+		List<String> denied = new java.util.ArrayList<>();
 		for (String route : routes) {
 			ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
 					URI.create(restTemplate.getRootUri() + route), HttpMethod.GET, new HttpEntity<>(new HttpHeaders()),
 					new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
-			assertThat(response.getStatusCode().value())
-					.withFailMessage("%s answered %s unauthenticated", route, response.getStatusCode())
-					.isEqualTo(401);
-			assertThat(response.getBody().get("message")).isEqualTo("Unauthorized — no token");
+			int status = response.getStatusCode().value();
+			assertThat(status)
+					.withFailMessage("%s answered %d to an unauthenticated GET", route, status)
+					.isIn(401, 405);
+			assertThat(response.getBody().get("success"))
+					.withFailMessage("%s did not answer in the PHP envelope", route)
+					.isEqualTo(false);
+			assertThat(response.getBody().get("message"))
+					.isIn("Unauthorized — no token", "Invalid method");
+			if (status == 401) {
+				denied.add(route);
+			}
 		}
+		// Not every route is GET, but the ones that are must have authenticated.
+		assertThat(denied).contains(LIST, ONE);
 	}
 
 	@Test

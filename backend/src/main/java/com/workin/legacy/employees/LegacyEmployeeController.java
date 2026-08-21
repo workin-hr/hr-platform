@@ -64,6 +64,32 @@ public class LegacyEmployeeController {
 		return LegacyApiResponse.ok(message(request, "employee_profile"), employee);
 	}
 
+	/** {@code employees/deactivate.php}: DELETE, admin/HR, then the scoped write and the notification. */
+	@RequestMapping("/deactivate.php")
+	public LegacyApiResponse deactivate(HttpServletRequest request) {
+		requireMethod(request, "DELETE");
+		LegacyRequestContext context = administrative();
+		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
+		requireId(query);
+		Map<String, Object> employee = employeeService.deactivate(
+				context, LegacyValues.toPhpLong(query.value("id")),
+				message(request, "notif_employee_deactivated_title"),
+				message(request, "notif_employee_deactivated_body"));
+		return LegacyApiResponse.ok(message(request, "employee_deactivated"), employee);
+	}
+
+	/** {@code employees/reactivate.php}: PUT, admin/HR, no notification. */
+	@RequestMapping("/reactivate.php")
+	public LegacyApiResponse reactivate(HttpServletRequest request) {
+		requireMethod(request, "PUT");
+		LegacyRequestContext context = administrative();
+		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
+		requireId(query);
+		Map<String, Object> employee = employeeService.reactivate(
+				context, LegacyValues.toPhpLong(query.value("id")));
+		return LegacyApiResponse.ok(message(request, "employee_reactivated"), employee);
+	}
+
 	/**
 	 * Every method-guarded endpoint opens with
 	 * {@code if ($_SERVER['REQUEST_METHOD'] !== HttpMethod::GET) fail(INVALID_METHOD, 405);}
@@ -78,6 +104,21 @@ public class LegacyEmployeeController {
 		if (!expected.equals(request.getMethod())) {
 			throw new LegacyApiException(405, "invalid_method");
 		}
+	}
+
+	/**
+	 * {@code requireAuth([COMPANY_ADMIN, HR]); requireCompanyActive($company_id);}
+	 * -- the write-side role list, which drops MANAGER. Neither lifecycle
+	 * endpoint gates on an {@code hr_permissions} flag: only
+	 * {@code employees/update.php} does, and only for an HR session changing
+	 * somebody else (D-045/D-057's per-endpoint rule, re-checked here rather
+	 * than assumed).
+	 */
+	private LegacyRequestContext administrative() {
+		LegacyRequestContext context = requestGuard.requireAuth(
+				LegacyEmployee.Role.COMPANY_ADMIN, LegacyEmployee.Role.HR);
+		requestGuard.requireCompanyActive(context.companyId());
+		return context;
 	}
 
 	/** {@code requireAuth([COMPANY_ADMIN, HR, MANAGER]); requireCompanyActive($company_id);}. */
