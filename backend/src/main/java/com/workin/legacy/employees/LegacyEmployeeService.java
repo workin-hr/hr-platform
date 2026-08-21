@@ -1012,7 +1012,7 @@ public class LegacyEmployeeService {
 	}
 
 	/** {@code search_query_param()} ({@code helpers/pagination.php:44-47}). */
-	private static String searchQueryParam(LegacyQueryParameters query) {
+	static String searchQueryParam(LegacyQueryParameters query) {
 		String value = LegacyValues.toPhpString(query.value("search")).trim();
 		return value.isEmpty() ? null : value;
 	}
@@ -1022,7 +1022,7 @@ public class LegacyEmployeeService {
 	 * ({@code helpers/pagination.php:12-23}). {@code $raw ?: $defaultLimit} is
 	 * the subtle one: a limit that casts to {@code 0} becomes the default, not 1.
 	 */
-	private static Pagination paginationParams(LegacyQueryParameters query) {
+	static Pagination paginationParams(LegacyQueryParameters query) {
 		long page = Math.max(1, LegacyValues.toPhpLong(query.value("page") == null ? 1 : query.value("page")));
 		Object rawLimit = query.value("limit");
 		if (rawLimit == null) {
@@ -1143,7 +1143,7 @@ public class LegacyEmployeeService {
 	}
 
 	/** {@code pagination_meta()} ({@code helpers/pagination.php:28-39}), key order included. */
-	private static Map<String, Object> paginationMeta(long total, Pagination pagination) {
+	static Map<String, Object> paginationMeta(long total, Pagination pagination) {
 		long pages = pagination.limit() > 0 ? (long) Math.ceil((double) total / pagination.limit()) : 0;
 		Map<String, Object> meta = new LinkedHashMap<>();
 		meta.put("page", pagination.page());
@@ -1156,7 +1156,7 @@ public class LegacyEmployeeService {
 	}
 
 	/** {@code array{page:int, limit:int, offset:int}}. */
-	private record Pagination(long page, long limit, long offset) {
+	record Pagination(long page, long limit, long offset) {
 	}
 
 	/** One {@code list.php} response: {@code data} rows plus its {@code meta}. */

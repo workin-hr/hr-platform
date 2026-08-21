@@ -710,6 +710,89 @@ public class LegacyEmployeeStore {
 	private static final java.util.Set<String> LOOKUP_TABLES =
 			java.util.Set.of("branches", "departments", "job_titles", "shifts");
 
+	/**
+	 * {@code hr_permission_keys()}: the seventeen {@code hr_permissions.can_*}
+	 * columns <em>in source order</em>.
+	 *
+	 * <p>The order is part of the contract twice over -- it is the column order
+	 * of the upsert, and it is the key order of the {@code permissions} object
+	 * every HR response carries. Kept here rather than taken from
+	 * {@link com.workin.legacy.authorization.LegacyHrPermissionKey}, whose
+	 * declaration order differs and which exists for gating, where order does not
+	 * matter.
+	 */
+	public static final List<String> HR_PERMISSION_KEYS = List.of(
+			"can_dashboard", "can_recent_activities", "can_branches", "can_departments", "can_job_titles",
+			"can_shifts", "can_employees", "can_requests", "can_leave_balances", "can_penalties",
+			"can_assets", "can_advances", "can_workforce_planning", "can_salary_calculator",
+			"can_attendance", "can_payroll", "can_company_settings");
+
+	/** {@code hr_permissions_sql_select_prefixed('p')}. */
+	private static final String HR_PERMISSION_SELECT = HR_PERMISSION_KEYS.stream()
+			.map(key -> "p." + key).collect(java.util.stream.Collectors.joining(", "));
+
+	/**
+	 * {@code hr_employees/list.php}'s query: every column of the employee plus
+	 * the joined permission columns, newest first.
+	 *
+	 * <p>{@code ORDER BY e.id DESC} is the whole ordering -- no created_at
+	 * tiebreak and no name ordering, unlike {@code employees/list.php}.
+	 */
+	public List<Map<String, Object>> hrEmployeeList(String whereSql, List<Object> params, long limit, long offset) {
+		List<Object> bound = new ArrayList<>(params);
+		bound.add(limit);
+		bound.add(offset);
+		return jdbcTemplate.query(
+				"SELECT e.*, " + HR_PERMISSION_SELECT + " FROM employees AS e"
+						+ " LEFT JOIN hr_permissions AS p ON p.employee_id = e.id"
+						+ " WHERE " + whereSql + " ORDER BY e.id DESC LIMIT ? OFFSET ?",
+				ROW_MAPPER, bound.toArray());
+	}
+
+	/**
+	 * {@code update_permissions.php}'s target lookup: id <em>and</em> company, so
+	 * another tenant's employee is indistinguishable from a missing one.
+	 */
+	public Map<String, Object> hrEmployeeRoleInCompany(long employeeId, long companyId) {
+		List<Map<String, Object>> rows = jdbcTemplate.query(
+				"SELECT id, role FROM employees WHERE id=? AND company_id=?",
+				ROW_MAPPER, employeeId, companyId);
+		return rows.isEmpty() ? null : rows.get(0);
+	}
+
+	/** The employee with its permission columns joined, as both HR mutations reread it. */
+	public Map<String, Object> hrEmployeeWithPermissions(long employeeId) {
+		List<Map<String, Object>> rows = jdbcTemplate.query(
+				"SELECT e.*, " + HR_PERMISSION_SELECT + " FROM employees AS e"
+						+ " LEFT JOIN hr_permissions AS p ON p.employee_id = e.id WHERE e.id=?",
+				ROW_MAPPER, employeeId);
+		return rows.isEmpty() ? null : rows.get(0);
+	}
+
+	/**
+	 * {@code hr_permissions_upsert_sql()}: one row per employee, every one of the
+	 * seventeen columns written on every call.
+	 *
+	 * <p>{@code ON DUPLICATE KEY UPDATE col = VALUES(col)} for all seventeen is
+	 * what makes this a replacement rather than a patch -- a flag the caller did
+	 * not mention is written as 0, not left alone.
+	 */
+	public void upsertHrPermissions(long employeeId, List<Integer> values) {
+		String columns = String.join(", ", HR_PERMISSION_KEYS);
+		String placeholders = String.join(", ",
+				java.util.Collections.nCopies(HR_PERMISSION_KEYS.size() + 1, "?"));
+		String updates = HR_PERMISSION_KEYS.stream()
+				.map(key -> key + " = VALUES(" + key + ")")
+				.collect(java.util.stream.Collectors.joining(", "));
+		List<Object> bound = new ArrayList<>();
+		bound.add(employeeId);
+		bound.addAll(values);
+		jdbcTemplate.update(
+				"INSERT INTO hr_permissions (employee_id, " + columns + ") VALUES (" + placeholders + ")"
+						+ " ON DUPLICATE KEY UPDATE " + updates,
+				bound.toArray());
+	}
+
 	public void deleteByEmployeeId(String table, long employeeId) {
 		if (!CASCADE_TABLES.contains(table)) {
 			// A table name reaches SQL by concatenation, so it may only ever be
