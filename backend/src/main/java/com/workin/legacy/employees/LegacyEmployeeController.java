@@ -1,5 +1,6 @@
 package com.workin.legacy.employees;
 
+import java.util.List;
 import java.util.Map;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -115,6 +116,98 @@ public class LegacyEmployeeController {
 	private static String jobTitleName(Map<String, Object> employee) {
 		Object name = employee.get("job_title_name");
 		return name == null ? "" : name.toString();
+	}
+
+	/** {@code employees/delete_preview.php}: GET, admin/HR, the id, then fourteen counts. */
+	@RequestMapping("/delete_preview.php")
+	public LegacyApiResponse deletePreview(HttpServletRequest request) {
+		requireMethod(request, "GET");
+		LegacyRequestContext context = administrative();
+		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
+		requireId(query);
+		long employeeId = LegacyValues.toPhpLong(query.value("id"));
+		return LegacyApiResponse.ok(
+				message(request, "employee_delete_preview"),
+				previewPayload(request, employeeId, employeeService.deletePreview(context, employeeId)));
+	}
+
+	/**
+	 * {@code employees/delete.php}: DELETE, admin/HR, the id, and
+	 * {@code cascade} read through {@code FILTER_VALIDATE_BOOLEAN}.
+	 *
+	 * <h2>The one response this cannot render yet</h2>
+	 * <p>A cascade that throws is <em>not</em> translated by
+	 * {@code delete.php}: {@code employee_cascade_delete_related()} rolls back
+	 * and rethrows, and nothing catches it. What the client then sees depends on
+	 * {@code AppConfig::DEBUG}, whose real value lives in {@code constants.php}
+	 * -- a file this repository gitignores. The vendored
+	 * {@code constants.example.php} says {@code true}, which would install the
+	 * debug handler and emit {@code {success,message,file,line,trace}}; with it
+	 * false there is no handler at all and PHP's own fatal output is what
+	 * reaches the client. Neither is established by repository evidence, so this
+	 * endpoint deliberately does not manufacture either shape: the exception
+	 * propagates, the rollback is proven by tests, and the envelope waits for a
+	 * decision.
+	 */
+	@RequestMapping("/delete.php")
+	public LegacyApiResponse delete(HttpServletRequest request) {
+		requireMethod(request, "DELETE");
+		LegacyRequestContext context = administrative();
+		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
+		requireId(query);
+		long employeeId = LegacyValues.toPhpLong(query.value("id"));
+		boolean cascade = LegacyValues.toPhpFilterBoolean(query.value("cascade"));
+
+		try {
+			LegacyEmployeeService.DeleteOutcome outcome = employeeService.delete(context, employeeId, cascade);
+			if (outcome.deletedRelatedRecords() == null) {
+				// ok(EMPLOYEE_DELETED) -- no data key at all.
+				return LegacyApiResponse.ok(message(request, "employee_deleted"), null);
+			}
+			return LegacyApiResponse.ok(
+					message(request, "employee_deleted_with_related"),
+					Map.of("deleted_related_records", relatedItems(request, outcome.deletedRelatedRecords())));
+		} catch (LegacyEmployeeService.LegacyDeleteBlockedException blocked) {
+			throw new LegacyApiException(
+					409, "cannot_delete_employee_has_records",
+					previewPayload(request, employeeId, blocked.getPreview()));
+		}
+	}
+
+	/**
+	 * {@code employee_delete_preview_payload()}: the four keys, in this order,
+	 * with the zero-count categories dropped and the labels translated for this
+	 * request's locale.
+	 */
+	private Map<String, Object> previewPayload(
+			HttpServletRequest request, long employeeId,
+			List<LegacyEmployeeStore.RelatedRecordCount> counts) {
+		List<Map<String, Object>> items = relatedItems(request, counts);
+		long total = items.stream().mapToLong(item -> ((Number) item.get("count")).longValue()).sum();
+		Map<String, Object> payload = new java.util.LinkedHashMap<>();
+		payload.put("employee_id", employeeId);
+		payload.put("has_related_records", !items.isEmpty());
+		payload.put("total_related_records", total);
+		payload.put("related_records", items);
+		return payload;
+	}
+
+	/** One {@code {key, label, count}} per non-zero category, in the helper's order. */
+	private List<Map<String, Object>> relatedItems(
+			HttpServletRequest request, List<LegacyEmployeeStore.RelatedRecordCount> counts) {
+		String locale = messages.resolveLocale(request);
+		List<Map<String, Object>> items = new java.util.ArrayList<>();
+		for (LegacyEmployeeStore.RelatedRecordCount count : counts) {
+			if (count.count() <= 0) {
+				continue;
+			}
+			Map<String, Object> item = new java.util.LinkedHashMap<>();
+			item.put("key", count.key());
+			item.put("label", messages.translate(locale, count.labelKey(), null));
+			item.put("count", count.count());
+			items.add(item);
+		}
+		return items;
 	}
 
 	/** {@code employees/deactivate.php}: DELETE, admin/HR, then the scoped write and the notification. */

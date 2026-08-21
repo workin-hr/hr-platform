@@ -810,6 +810,111 @@ public class LegacyEmployeeService {
 	}
 
 	/**
+	 * {@code employees/delete_preview.php}. The employee's existence is proven
+	 * first, company-scoped, so a foreign id 404s before a single related-record
+	 * count is taken -- the counts themselves carry no company predicate, which
+	 * is exactly why the check has to come first.
+	 */
+	public List<LegacyEmployeeStore.RelatedRecordCount> deletePreview(
+			LegacyRequestContext context, long employeeId) {
+		if (!store.employeeExistsInCompany(employeeId, context.companyId())) {
+			throw new LegacyApiException(404, "employee_not_found");
+		}
+		return store.relatedRecordCounts(employeeId);
+	}
+
+	/**
+	 * {@code employees/delete.php}.
+	 *
+	 * <p>Three outcomes, and the difference between them is the whole endpoint:
+	 * related records without {@code cascade} is a 409 that writes nothing;
+	 * related records with {@code cascade} runs the helper's transaction; no
+	 * related records at all runs a single unwrapped delete that deliberately
+	 * leaves {@code departments.manager_id} alone (D-077).
+	 *
+	 * <p>PHP computes the summary twice on the 409 path -- once to decide, and
+	 * again inside {@code employee_delete_preview_payload()} to build the body.
+	 * That is reproduced rather than optimised away: the second read can see a
+	 * different database than the first, and collapsing them would change what
+	 * a concurrent write makes the client see.
+	 */
+	public DeleteOutcome delete(LegacyRequestContext context, long employeeId, boolean cascade) {
+		Map<String, Object> employee = store.findOne(employeeId, context.companyId());
+		if (employee == null) {
+			throw new LegacyApiException(404, "employee_not_found");
+		}
+
+		List<LegacyEmployeeStore.RelatedRecordCount> related = nonZero(store.relatedRecordCounts(employeeId));
+		if (!related.isEmpty() && !cascade) {
+			throw new LegacyDeleteBlockedException(store.relatedRecordCounts(employeeId));
+		}
+		if (!related.isEmpty()) {
+			// The helper rethrows whatever the transaction threw, and delete.php
+			// does not translate it -- see the note on the wire boundary in
+			// LegacyEmployeeController.
+			return new DeleteOutcome(nonZero(cascadeDeleteRelated(employeeId, context.companyId())));
+		}
+		store.deleteEmployeeUnscopedOfAnyTransaction(employeeId, context.companyId());
+		return new DeleteOutcome(null);
+	}
+
+	/**
+	 * {@code employee_cascade_delete_related()}
+	 * ({@code employee_delete_helper.php:66-133}), statement for statement.
+	 *
+	 * <p>The preview is taken <b>before</b> the transaction opens, and it is
+	 * that snapshot the response reports -- not how many rows each statement
+	 * actually removed. The table list is the helper's own (D-078): nothing is
+	 * inferred from foreign keys, and nothing is added.
+	 */
+	private List<LegacyEmployeeStore.RelatedRecordCount> cascadeDeleteRelated(long employeeId, long companyId) {
+		List<LegacyEmployeeStore.RelatedRecordCount> preview = store.relatedRecordCounts(employeeId);
+		return store.inTransaction(() -> {
+			store.deleteNotificationsFor(employeeId);
+			for (String table : store.cascadeTables()) {
+				store.deleteByEmployeeId(table, employeeId);
+			}
+			store.clearDepartmentManager(employeeId, companyId);
+			if (store.deleteEmployeeScoped(employeeId, companyId) != 1) {
+				// throw new RuntimeException('employee_delete_failed') -- the
+				// guard that stops the history from going without the employee.
+				throw new IllegalStateException("employee_delete_failed");
+			}
+			return preview;
+		});
+	}
+
+	/** {@code $items[] = ...} only when {@code $count > 0}. */
+	private static List<LegacyEmployeeStore.RelatedRecordCount> nonZero(
+			List<LegacyEmployeeStore.RelatedRecordCount> counts) {
+		return counts.stream().filter(count -> count.count() > 0).toList();
+	}
+
+	/** Either the cascade's pre-delete preview, or nothing at all for the direct path. */
+	public record DeleteOutcome(List<LegacyEmployeeStore.RelatedRecordCount> deletedRelatedRecords) {
+	}
+
+	/**
+	 * {@code fail(CANNOT_DELETE_EMPLOYEE_HAS_RECORDS, 409, employee_delete_preview_payload($id))}.
+	 * Carries the second summary so the controller can render it with translated
+	 * labels.
+	 */
+	public static class LegacyDeleteBlockedException extends RuntimeException {
+
+		private final transient List<LegacyEmployeeStore.RelatedRecordCount> preview;
+
+		public LegacyDeleteBlockedException(List<LegacyEmployeeStore.RelatedRecordCount> preview) {
+			super("cannot_delete_employee_has_records");
+			this.preview = preview;
+		}
+
+		public List<LegacyEmployeeStore.RelatedRecordCount> getPreview() {
+			return preview;
+		}
+
+	}
+
+	/**
 	 * {@code deactivate.php}. The order is legacy's and it is observable: the
 	 * scoped {@code UPDATE} runs first, the existence check second, so a missing
 	 * or foreign id performs a zero-row write and then 404s.

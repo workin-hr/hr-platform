@@ -65,6 +65,36 @@ import com.workin.legacy.phone.LegacyPhoneNumbers;
 @Repository
 public class LegacyEmployeeStore {
 
+	/**
+	 * {@code employee_related_records_summary()}'s definition list: response
+	 * key, label message key, table. Order is the response's order.
+	 */
+	private static final List<String[]> RELATED_RECORD_DEFINITIONS = List.of(
+			new String[] {"attendance", "employee_related_attendance", "attendance"},
+			new String[] {"schedules", "employee_related_schedules", "employee_schedules"},
+			new String[] {"shift_assignments", "employee_related_shift_assignments", "employee_shift_assignments"},
+			new String[] {"salary_contracts", "employee_related_salary_contracts", "salary_contracts"},
+			new String[] {"payslips", "employee_related_payslips", "payslips"},
+			new String[] {"penalties", "employee_related_penalties", "penalties"},
+			new String[] {"requests", "employee_related_requests", "requests"},
+			new String[] {"advances", "employee_related_advances", "advances"},
+			new String[] {"leave_balance", "employee_related_leave_balance", "leave_balance"},
+			new String[] {"documents", "employee_related_documents", "employee_docs"},
+			new String[] {"complaints", "employee_related_complaints", "complaints"},
+			new String[] {"notifications", "employee_related_notifications", "notifications"},
+			new String[] {"push_tokens", "employee_related_push_tokens", "push_tokens"},
+			new String[] {"hr_permissions", "employee_related_hr_permissions", "hr_permissions"});
+
+	/**
+	 * The cascade's delete order after {@code notifications}, exactly as the
+	 * helper lists it. Not derived from foreign keys: D-078 makes the PHP list
+	 * the contract.
+	 */
+	private static final List<String> CASCADE_TABLES = List.of(
+			"push_tokens", "payslips", "penalties", "requests", "advances", "leave_balance", "attendance",
+			"employee_schedules", "employee_shift_assignments", "salary_contracts", "employee_docs",
+			"complaints", "hr_permissions");
+
 	/** {@code sensitive_response_keys()} ({@code helpers/public_row.php:10}). */
 	private static final List<String> SENSITIVE_KEYS = List.of("password_hash", "token_version");
 
@@ -583,6 +613,87 @@ public class LegacyEmployeeStore {
 	private long count(String sql, Object... params) {
 		Long value = jdbcTemplate.queryForObject(sql, Long.class, params);
 		return value == null ? 0L : value;
+	}
+
+	/**
+	 * {@code employee_related_records_summary()}
+	 * ({@code employee_delete_helper.php:11-46}): fourteen counts, in this
+	 * order, with the zero ones dropped by the caller.
+	 *
+	 * <p>The order is part of the response, so it is a list rather than a map
+	 * built from a set. {@code notifications} is the one query with a different
+	 * shape -- it counts <em>rows</em> where the employee is on either side, not
+	 * each side separately, so a row that is both from and to the same employee
+	 * counts once.
+	 */
+	public List<RelatedRecordCount> relatedRecordCounts(long employeeId) {
+		List<RelatedRecordCount> counts = new ArrayList<>();
+		for (String[] definition : RELATED_RECORD_DEFINITIONS) {
+			String key = definition[0];
+			String labelKey = definition[1];
+			String table = definition[2];
+			long count = "notifications".equals(table)
+					? count("SELECT COUNT(*) FROM notifications WHERE to_employee_id = ? OR from_employee_id = ?",
+							employeeId, employeeId)
+					: count("SELECT COUNT(*) FROM " + table + " WHERE employee_id = ?", employeeId);
+			counts.add(new RelatedRecordCount(key, labelKey, count));
+		}
+		return counts;
+	}
+
+	/** {@code delete_preview.php}'s existence check: id and company, nothing else selected. */
+	public boolean employeeExistsInCompany(long employeeId, long companyId) {
+		return count("SELECT COUNT(*) FROM employees WHERE id = ? AND company_id = ?", employeeId, companyId) > 0;
+	}
+
+	/**
+	 * {@code delete.php}'s direct path: a single scoped delete, <b>not</b> inside
+	 * a transaction and with no manager cleanup (D-077).
+	 */
+	public void deleteEmployeeUnscopedOfAnyTransaction(long employeeId, long companyId) {
+		jdbcTemplate.update("DELETE FROM employees WHERE id = ? AND company_id = ?", employeeId, companyId);
+	}
+
+	/** The cascade's first statement: notifications on either side of the employee. */
+	public void deleteNotificationsFor(long employeeId) {
+		jdbcTemplate.update(
+				"DELETE FROM notifications WHERE to_employee_id = ? OR from_employee_id = ?",
+				employeeId, employeeId);
+	}
+
+	/** One of the cascade's thirteen {@code DELETE FROM <table> WHERE employee_id = ?} statements. */
+	public void deleteByEmployeeId(String table, long employeeId) {
+		if (!CASCADE_TABLES.contains(table)) {
+			// A table name reaches SQL by concatenation, so it may only ever be
+			// one the helper itself lists.
+			throw new IllegalArgumentException("not a cascade table: " + table);
+		}
+		jdbcTemplate.update("DELETE FROM " + table + " WHERE employee_id = ?", employeeId);
+	}
+
+	/**
+	 * The cascade's manager clear: company-scoped, so another company's
+	 * department keeps its (already impossible) reference. Only the cascade path
+	 * runs it -- D-077 keeps the direct path free of any cleanup.
+	 */
+	public void clearDepartmentManager(long employeeId, long companyId) {
+		jdbcTemplate.update(
+				"UPDATE departments SET manager_id = NULL WHERE manager_id = ? AND company_id = ?",
+				employeeId, companyId);
+	}
+
+	/** The cascade's final statement, whose row count the helper requires to be exactly 1. */
+	public int deleteEmployeeScoped(long employeeId, long companyId) {
+		return jdbcTemplate.update("DELETE FROM employees WHERE id = ? AND company_id = ?", employeeId, companyId);
+	}
+
+	/** The tables the cascade clears, in order, after {@code notifications}. */
+	public List<String> cascadeTables() {
+		return CASCADE_TABLES;
+	}
+
+	/** One row of the preview: its key, the message key for its label, and the count. */
+	public record RelatedRecordCount(String key, String labelKey, long count) {
 	}
 
 	/**

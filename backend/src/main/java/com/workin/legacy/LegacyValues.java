@@ -150,6 +150,31 @@ public final class LegacyValues {
 	 * arrays are empty. JSON arrays and objects arrive in Java as collections and maps; Java arrays
 	 * are also supported so the shared compatibility function is complete at its public boundary.
 	 */
+	/**
+	 * {@code filter_var($value, FILTER_VALIDATE_BOOLEAN)}.
+	 *
+	 * <p>Not a cast and not {@code empty()}: the filter recognises a fixed set
+	 * of spellings, case-insensitively and after trimming --
+	 * {@code 1 true on yes} are true, {@code 0 false off no ""} are false, and
+	 * anything else (including {@code 2}, {@code "y"} and {@code "TRUE!"}) is
+	 * unrecognised, which without {@code FILTER_NULL_ON_FAILURE} also means
+	 * false. {@code employees/delete.php} reads {@code cascade} this way, so
+	 * {@code ?cascade=on} really does destroy an employee's history.
+	 */
+	public static boolean toPhpFilterBoolean(Object raw) {
+		if (raw == null) {
+			return false;
+		}
+		if (raw instanceof Boolean flag) {
+			return flag;
+		}
+		if (raw instanceof Number number) {
+			return number.doubleValue() == 1.0d;
+		}
+		String value = toPhpString(raw).trim().toLowerCase(java.util.Locale.ROOT);
+		return "1".equals(value) || "true".equals(value) || "on".equals(value) || "yes".equals(value);
+	}
+
 	public static boolean isPhpEmpty(Object raw) {
 		if (raw == null || Boolean.FALSE.equals(raw)) {
 			return true;
