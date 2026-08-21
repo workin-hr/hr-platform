@@ -286,22 +286,65 @@ class LegacyEmployeeCreateEndToEndTest {
 	}
 
 	@Test
-	void theLeaveYearFollowsTheIsoFormsMariaDbItselfStores() throws Exception {
-		// Measured against PHP 8.3 and MariaDB 11.8 together: these are the
-		// shapes both agree on, so hire_date and the leave year stay consistent.
+	void theLeaveYearReproducesPhpsDateOfStrtotime() throws Exception {
+		// LegacyPhpDateYear's grammar, proven end to end and in the database.
 		assertThat(leaveYearFor("6500", "01012340041", "2026-08-21")).isEqualTo("2026");
 		assertThat(leaveYearFor("6501", "01012340042", "2026-08-21 12:30:00")).isEqualTo("2026");
 		assertThat(leaveYearFor("6502", "01012340043", "2026/08/21")).isEqualTo("2026");
 		assertThat(leaveYearFor("6503", "01012340044", "2026-8-1")).isEqualTo("2026");
 
-		// '0000-00-00' is stored as-is by MariaDB; PHP's year for it is -0001,
-		// which a YEAR(4) column stores as 0000 -- the same as year 0 here.
+		// '0000-00-00' is year -1 in PHP, which a YEAR(4) column stores as 0000.
 		assertThat(leaveYearFor("6504", "01012340045", "0000-00-00")).isEqualTo("0000");
-		// A month-name date is 0000-00-00 in the hire-date column, and the
-		// leave year agrees with it. PHP would have derived 2026 -- the
-		// documented strtotime() gap, not an accident.
-		assertThat(leaveYearFor("6505", "01012340046", "21 Aug 2026")).isEqualTo("0000");
+		assertThat(hireDateFor("6504")).isEqualTo("0000-00-00");
+
+		// The forms MariaDB will not store as a date still produce a real leave
+		// year, because strtotime() reads them. The two columns disagree, and
+		// that disagreement is what PHP does.
+		assertThat(leaveYearFor("6505", "01012340046", "21 Aug 2026")).isEqualTo("2026");
 		assertThat(hireDateFor("6505")).isEqualTo("0000-00-00");
+		assertThat(leaveYearFor("6506", "01012340047", "08/21/2026")).isEqualTo("2026");
+		assertThat(leaveYearFor("6507", "01012340048", "21-08-2026")).isEqualTo("2026");
+		// Day overflow rolls forward rather than failing.
+		assertThat(leaveYearFor("6508", "01012340049", "2026-02-30")).isEqualTo("2026");
+	}
+
+	@Test
+	void theRelativeKeywordsFollowTheLegacyClock() throws Exception {
+		String currentYear = String.valueOf(java.time.LocalDate.now(java.time.ZoneOffset.ofHours(2)).getYear());
+		String tomorrowYear = String.valueOf(
+				java.time.LocalDate.now(java.time.ZoneOffset.ofHours(2)).plusDays(1).getYear());
+		String yesterdayYear = String.valueOf(
+				java.time.LocalDate.now(java.time.ZoneOffset.ofHours(2)).minusDays(1).getYear());
+
+		assertThat(leaveYearFor("6520", "01012340060", "now")).isEqualTo(currentYear);
+		assertThat(leaveYearFor("6521", "01012340061", "today")).isEqualTo(currentYear);
+		assertThat(leaveYearFor("6522", "01012340062", "tomorrow")).isEqualTo(tomorrowYear);
+		assertThat(leaveYearFor("6523", "01012340063", "yesterday")).isEqualTo(yesterdayYear);
+	}
+
+	@Test
+	void anUnparseableHireDateRollsTheWholeCreateBackWithPhpsTypeError() throws Exception {
+		// strtotime() returns false, date('Y', false) raises a TypeError under
+		// strict_types=1, and because the expression sits inside the
+		// transaction the employee, salary and leave rows all disappear.
+		for (String rejected : List.of("invalid text", "2026-13-45", "2026-12-32", "1")) {
+			Map<String, Object> body = validBody("66" + Math.abs(rejected.hashCode() % 90 + 10),
+					"010123401" + String.format("%02d", Math.abs(rejected.hashCode() % 90 + 10)));
+			body.put("hire_date", rejected);
+			body.put("salary", Map.of("basic", 8888));
+
+			ResponseEntity<Map<String, Object>> response = post(body, ADMIN_1);
+			assertThat(response.getStatusCode().value())
+					.describedAs("hire_date %s", rejected).isEqualTo(500);
+			assertThat(response.getBody().get("message")).isEqualTo("Failed to create employee: {error}");
+			assertThat((String) response.getBody().get("data"))
+					.contains("date(): Argument #2 ($timestamp) must be of type ?int, false given");
+		}
+		// Nothing was written by any of them.
+		assertThat(count("SELECT COUNT(*) FROM salary_contracts WHERE basic_salary = 8888.00")).isZero();
+		assertThat(count(
+				"SELECT COUNT(*) FROM employees WHERE company_id = " + COMPANY_1
+				+ " AND employee_code LIKE '66%'")).isZero();
 	}
 
 	@Test
