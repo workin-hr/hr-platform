@@ -131,10 +131,11 @@ class LegacyEmployeeTemplateEndToEndTest {
 	@Test
 	void theCsvBranchIsSelectedOnlyByTheExactValueCsv() {
 		ResponseEntity<byte[]> csv = download(TEMPLATE + "?format=csv", ADMIN_1, HttpMethod.GET);
-		// PHP sends "text/csv; charset=utf-8"; Tomcat re-serializes this one
-		// header itself and drops the optional space, which RFC 9110 makes
-		// immaterial. The media type and charset are what the contract turns on,
-		// so they are what is asserted.
+		// D-074a: PHP sends "text/csv; charset=utf-8" and Tomcat re-serializes
+		// this one header itself, dropping the optional space. RFC 9110 makes
+		// the two spellings the same media type, and the decision records that
+		// the semantic value -- media type plus UTF-8 charset -- is what the
+		// contract turns on, so it is what is asserted.
 		String contentType = csv.getHeaders().getFirst("Content-Type");
 		assertThat(contentType.replace(" ", "").toLowerCase(java.util.Locale.ROOT))
 				.isEqualTo("text/csv;charset=utf-8");
@@ -158,8 +159,9 @@ class LegacyEmployeeTemplateEndToEndTest {
 		// `?format[]=csv` is deliberately absent: Tomcat rejects an unencoded
 		// square bracket in the query string with its own 400 before any
 		// handler runs, so testing it here would be testing the container.
-		// Recorded as a container-level divergence from PHP, which would take
-		// the value as an array, stringify it to "Array", and serve an XLSX.
+		// D-070's 2026-08-22 addendum covers it -- PHP would take the value as
+		// an array, stringify it to "Array" and serve an XLSX, and Phase 1 does
+		// not weaken or bypass Tomcat parsing to reproduce that.
 		for (String query : List.of("", "?format=xlsx", "?format=XLSX", "?format=garbage",
 				"?format=", "?format=CSVX", "?format=%20csv%20")) {
 			ResponseEntity<byte[]> response = download(TEMPLATE + query, ADMIN_1, HttpMethod.GET);

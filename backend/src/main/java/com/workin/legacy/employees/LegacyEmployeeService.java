@@ -21,8 +21,10 @@ import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.authorization.LegacyHrPermissionEnforcer;
 import com.workin.legacy.authorization.LegacyHrPermissionKey;
 import com.workin.legacy.employees.LegacyEmployee.Role;
+import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetAnalyzer;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetColumns;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetLookups;
+import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetReader;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeTemplate;
 import com.workin.legacy.notifications.LegacyNotifications;
 import com.workin.legacy.wire.LegacyApiException;
@@ -75,6 +77,7 @@ public class LegacyEmployeeService {
 	private final LegacyPhoneNumbers phoneNumbers;
 	private final LegacyClock clock;
 	private final LegacyFileUploads fileUploads;
+	private final LegacyEmployeeSpreadsheetAnalyzer spreadsheetAnalyzer;
 	/**
 	 * {@code password_hash($p, PASSWORD_BCRYPT)}. The shared bean is the same
 	 * encoder legacy login already verifies with; it writes the {@code $2a$}
@@ -87,7 +90,8 @@ public class LegacyEmployeeService {
 	public LegacyEmployeeService(
 			LegacyEmployeeStore store, LegacyNotifications notifications,
 			LegacyHrPermissionEnforcer permissionEnforcer, LegacyPhoneNumbers phoneNumbers,
-			LegacyClock clock, LegacyFileUploads fileUploads, PasswordEncoder bcrypt) {
+			LegacyClock clock, LegacyFileUploads fileUploads, PasswordEncoder bcrypt,
+			LegacyEmployeeSpreadsheetAnalyzer spreadsheetAnalyzer) {
 		this.store = store;
 		this.notifications = notifications;
 		this.permissionEnforcer = permissionEnforcer;
@@ -95,6 +99,7 @@ public class LegacyEmployeeService {
 		this.clock = clock;
 		this.fileUploads = fileUploads;
 		this.bcrypt = bcrypt;
+		this.spreadsheetAnalyzer = spreadsheetAnalyzer;
 	}
 
 	/**
@@ -1070,6 +1075,42 @@ public class LegacyEmployeeService {
 
 	/** One {@code template_excel.php} response: the file, its type and its name. */
 	public record Template(byte[] content, String contentType, String filename) {
+	}
+
+	/**
+	 * {@code employees/analyze_excel.php}: the uploaded file, analyzed.
+	 *
+	 * <p>The missing-file check is legacy's
+	 * {@code !isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK},
+	 * which covers both no part at all and a part the upload itself failed on.
+	 *
+	 * <p>A {@code RuntimeException} out of the helper is <em>not</em> an
+	 * uncaught error: {@code analyze_excel.php} catches it and passes its message
+	 * through as the API message with a 400. That is why it is translated here
+	 * into a {@link LegacyApiException} carrying the literal text, rather than
+	 * being left to D-084's deterministic 500.
+	 */
+	public Map<String, Object> analyzeSpreadsheet(
+			LegacyRequestContext context, MultipartFile file, boolean arabic) {
+		if (file == null || file.isEmpty()) {
+			throw new LegacyApiException(400, "no_file_uploaded");
+		}
+		byte[] content;
+		try {
+			content = file.getBytes();
+		} catch (java.io.IOException ex) {
+			// The part exists but could not be read -- legacy's upload error.
+			throw new LegacyApiException(400, "no_file_uploaded");
+		}
+
+		try {
+			return spreadsheetAnalyzer.analyze(content, context.companyId(), arabic, lookups(context.companyId()));
+		} catch (LegacyEmployeeSpreadsheetReader.LegacySpreadsheetException ex) {
+			// fail($e->getMessage(), 400) still goes through t(), and t() returns
+			// an unknown key unchanged -- so the helper's own sentence is what the
+			// client reads, which LegacyMessages reproduces for free.
+			throw new LegacyApiException(400, ex.getMessage());
+		}
 	}
 
 	/** {@code pagination_meta()} ({@code helpers/pagination.php:28-39}), key order included. */

@@ -108,9 +108,15 @@ class LegacyPhpDateYearTest {
 		// today's, not 2026. Surprising, and exactly why it is tested.
 		assertThat(LegacyPhpDateYear.of("2026", LocalDate.of(2030, 5, 4))).isEqualTo(2030);
 		assertThat(LegacyPhpDateYear.of("0830", LocalDate.of(2030, 5, 4))).isEqualTo(2030);
-		// Not a valid clock time, so not a valid value at all.
-		assertThatThrownBy(() -> LegacyPhpDateYear.of("2599", TODAY))
-				.isInstanceOf(LegacyPhpDateYear.LegacyPhpDateException.class);
+		assertThat(LegacyPhpDateYear.of("2400", LocalDate.of(2030, 5, 4))).isEqualTo(2030);
+		// ...but only while it reads as a clock time. A wider probe across the
+		// whole boundary (0059/0060, 1359/1360, 2400/2499) shows that four
+		// digits which are not a time are a *year*, taking today's month and
+		// day -- so these resolve rather than fail.
+		assertThat(LegacyPhpDateYear.of("2599", TODAY)).isEqualTo(2599);
+		assertThat(LegacyPhpDateYear.of("1990", TODAY)).isEqualTo(1990);
+		assertThat(LegacyPhpDateYear.of("0060", TODAY)).isEqualTo(60);
+		assertThat(LegacyPhpDateYear.of("9999", TODAY)).isEqualTo(9999);
 	}
 
 	@Test

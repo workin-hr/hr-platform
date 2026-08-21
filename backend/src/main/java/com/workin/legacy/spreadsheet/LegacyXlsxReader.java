@@ -238,18 +238,28 @@ public final class LegacyXlsxReader {
 	}
 
 	/**
-	 * Excel's serial date: day 1 is 1 January 1900, and the 1900 leap-year bug
-	 * means serials above 59 are one day ahead of the real calendar -- the same
-	 * offset legacy's {@code excel_serial_to_datetime_string()} applies.
+	 * {@code excel_serial_to_datetime_string()}
+	 * ({@code hr-legacy/apis/helpers/xlsx_parser.php}), which is deliberately
+	 * naive: the whole part is days since the 1899-12-30 epoch that serial 25569
+	 * pins to 1970-01-01, the fraction is a time of day, and there is <em>no</em>
+	 * correction for Excel's phantom 29 February 1900. Serials below 60
+	 * therefore land a day earlier than a leap-aware conversion would put them,
+	 * and that is the behaviour the analyzer sees.
+	 *
+	 * <p>The format is conditional in the same way: a whole-day serial returns
+	 * {@code Y-m-d} with no time at all, and only a fractional one returns
+	 * {@code Y-m-d H:i:s}. The conversion is in UTC ({@code gmdate}), so a
+	 * server timezone never shifts a punch time.
 	 */
-	static String excelSerialToDateTime(double serial) {
-		double days = serial >= 60 ? serial - 1 : serial;
-		long wholeDays = (long) Math.floor(days);
-		long seconds = Math.round((days - wholeDays) * 86_400d);
-		LocalDateTime moment = LocalDateTime.of(1899, 12, 31, 0, 0)
-				.plusDays(wholeDays)
-				.plusSeconds(seconds);
-		return moment.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+	public static String excelSerialToDateTime(double serial) {
+		// (int) $serial truncates toward zero, as a Java long cast does.
+		long days = (long) serial;
+		double time = serial - days;
+		long unixSeconds = (days - 25_569L) * 86_400L + Math.round(time * 86_400d);
+		LocalDateTime moment = LocalDateTime.ofEpochSecond(unixSeconds, 0, java.time.ZoneOffset.UTC);
+		return moment.format(time > 0
+				? DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+				: DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 	}
 
 	private static Element parse(byte[] xml) {

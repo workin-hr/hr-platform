@@ -303,6 +303,24 @@ public class LegacyEmployeeController {
 	 * a {@link LegacyApiResponse}. A guard failure still throws, so failures keep
 	 * the PHP envelope; only the success path is a download.
 	 */
+	/**
+	 * {@code employees/analyze_excel.php}: POST, admin/HR, then the uploaded
+	 * spreadsheet analyzed row by row without writing anything.
+	 *
+	 * <p>The locale decides which of the two rejection texts
+	 * {@code assert_template_structure()} produces, so it is resolved here and
+	 * passed down -- {@code $isAr = app_locale() === 'ar'} in the helper.
+	 */
+	@RequestMapping("/analyze_excel.php")
+	public LegacyApiResponse analyzeExcel(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = administrative();
+		boolean arabic = "ar".equals(messages.resolveLocale(request));
+		Map<String, Object> analysis = employeeService.analyzeSpreadsheet(
+				context, multipartFile(request, "file"), arabic);
+		return LegacyApiResponse.ok(message(request, "employees_excel_analyzed"), analysis);
+	}
+
 	@RequestMapping("/template_excel.php")
 	public void templateExcel(HttpServletRequest request, HttpServletResponse response) throws IOException {
 		LegacyRequestContext context = administrative();

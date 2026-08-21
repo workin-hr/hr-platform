@@ -132,15 +132,22 @@ class LegacySpreadsheetPrimitivesTest {
 		// shared string, inline string, number, boolean, date-formatted serial,
 		// and a sparse gap that becomes null.
 		assertThat(matrix.get(0)).containsExactly(
-				"shared value", "inline value", "42", "TRUE", "2024-03-01 00:00:00", null, "tail");
+				"shared value", "inline value", "42", "TRUE", "2024-03-01", null, "tail");
 	}
 
 	@Test
 	void excelSerialsUseThePhpEpochAndLeapYearOffset() {
-		assertThat(LegacyXlsxReader.excelSerialToDateTime(45352d)).startsWith("2024-03-01");
-		// Serial 60 is Excel's phantom 29 February 1900; PHP's conversion
-		// subtracts a day for everything from there on.
-		assertThat(LegacyXlsxReader.excelSerialToDateTime(59d)).startsWith("1900-02-28");
+		// Measured against the real excel_serial_to_datetime_string(): a
+		// whole-day serial carries no time part at all...
+		assertThat(LegacyXlsxReader.excelSerialToDateTime(45352d)).isEqualTo("2024-03-01");
+		assertThat(LegacyXlsxReader.excelSerialToDateTime(34973d)).isEqualTo("1995-10-01");
+		// ...and a fractional one does.
+		assertThat(LegacyXlsxReader.excelSerialToDateTime(45352.5d)).isEqualTo("2024-03-01 12:00:00");
+		// No correction for Excel's phantom 29 February 1900 is applied, so the
+		// early serials sit a day before a leap-aware conversion would put them.
+		assertThat(LegacyXlsxReader.excelSerialToDateTime(1d)).isEqualTo("1899-12-31");
+		assertThat(LegacyXlsxReader.excelSerialToDateTime(59d)).isEqualTo("1900-02-27");
+		assertThat(LegacyXlsxReader.excelSerialToDateTime(60d)).isEqualTo("1900-02-28");
 		assertThat(LegacyXlsxReader.columnIndex("A")).isZero();
 		assertThat(LegacyXlsxReader.columnIndex("Z")).isEqualTo(25);
 		assertThat(LegacyXlsxReader.columnIndex("AA")).isEqualTo(26);
