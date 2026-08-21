@@ -1,0 +1,87 @@
+package com.workin.legacy.notifications;
+
+import java.sql.PreparedStatement;
+import java.util.Map;
+
+import javax.sql.DataSource;
+
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.stereotype.Service;
+
+/**
+ * {@code notification_insert()} and its {@code notification_to_employee()}
+ * wrapper ({@code helpers/notifications.php:52-143}), for the employee
+ * recipient kind.
+ *
+ * <p>The order is the contract: insert the row, read back its id, then attempt
+ * the push with that id in the payload, and swallow anything the delivery
+ * throws. PHP does exactly that, which is why a device that never receives the
+ * push still leaves a readable notification and a successful API response.
+ *
+ * <p>The insert is native and carries {@code company_id} from the re-derived
+ * tenant, never from a request value -- Hibernate's filters do not apply to
+ * native statements.
+ */
+@Service
+public class LegacyNotifications {
+
+	private static final String INSERT = """
+			INSERT INTO notifications (
+				company_id, recipient_kind, from_employee_id, to_employee_id,
+				title, body, notification_type, reference_type, reference_id
+			) VALUES (?, 'employee', ?, ?, ?, ?, ?, NULL, NULL)""";
+
+	private final JdbcTemplate jdbcTemplate;
+	private final LegacyPushDelivery pushDelivery;
+
+	public LegacyNotifications(DataSource legacyDataSource, LegacyPushDelivery pushDelivery) {
+		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
+		this.pushDelivery = pushDelivery;
+	}
+
+	/**
+	 * {@code notification_to_employee($company_id, $to, $type, $title, $body, $from)}.
+	 *
+	 * @param fromEmployeeId the acting employee; {@code notification_normalize_from()}
+	 *        turns anything non-positive into SQL NULL
+	 * @return the inserted notification id, as {@code get_last_inserted_id()} does
+	 */
+	public long toEmployee(
+			long companyId, long toEmployeeId, Long fromEmployeeId, String type, String title, String body) {
+		KeyHolder keys = new GeneratedKeyHolder();
+		jdbcTemplate.update(connection -> {
+			PreparedStatement statement = connection.prepareStatement(INSERT, PreparedStatement.RETURN_GENERATED_KEYS);
+			statement.setLong(1, companyId);
+			if (fromEmployeeId != null && fromEmployeeId > 0) {
+				statement.setLong(2, fromEmployeeId);
+			} else {
+				statement.setNull(2, java.sql.Types.INTEGER);
+			}
+			statement.setLong(3, toEmployeeId);
+			statement.setString(4, title);
+			statement.setString(5, body);
+			statement.setString(6, type);
+			return statement;
+		}, keys);
+		long notificationId = keys.getKey() == null ? 0L : keys.getKey().longValue();
+
+		// try { sendPushToEmployee(...) } catch (Throwable $ignored) { }
+		// -- delivery is best effort in legacy, and the row is already durable.
+		// Wave 12.4 ships LegacyPushDeliveryUnavailable here; hr-platform#22
+		// owns the real delivery and remains a Phase 1 cutover blocker.
+		try {
+			pushDelivery.sendToEmployee(
+					toEmployeeId, title, body == null ? "" : body,
+					Map.of(
+							"notification_id", String.valueOf(notificationId),
+							"notification_type", type));
+		} catch (RuntimeException ignored) {
+			// Deliberately empty, as in PHP: a delivery failure must not change
+			// the API response or undo the stored notification.
+		}
+		return notificationId;
+	}
+
+}

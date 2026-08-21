@@ -12,6 +12,7 @@ import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.employees.LegacyEmployee.Role;
+import com.workin.legacy.notifications.LegacyNotifications;
 import com.workin.legacy.wire.LegacyApiException;
 
 /**
@@ -32,9 +33,11 @@ public class LegacyEmployeeService {
 	private static final Pattern DIGITS_ONLY = Pattern.compile("^\\d+$");
 
 	private final LegacyEmployeeStore store;
+	private final LegacyNotifications notifications;
 
-	public LegacyEmployeeService(LegacyEmployeeStore store) {
+	public LegacyEmployeeService(LegacyEmployeeStore store, LegacyNotifications notifications) {
 		this.store = store;
+		this.notifications = notifications;
 	}
 
 	/**
@@ -148,7 +151,9 @@ public class LegacyEmployeeService {
 	 * point returns 500 with the employee already deactivated. That asymmetry is
 	 * reproduced rather than smoothed over (D-078's rule for evidenced
 	 * transaction boundaries), and it is why this method does not wrap the two
-	 * writes together.
+	 * writes together. {@link LegacyNotifications} then attempts the push and
+	 * swallows its failure, exactly where PHP does -- see hr-platform#22 for the
+	 * delivery itself, which Wave 12.4 does not implement.
 	 *
 	 * @param title the already-translated notification title -- {@code t()} runs
 	 *        in the caller's locale, so what lands in the row depends on the
@@ -160,7 +165,7 @@ public class LegacyEmployeeService {
 		if (employee == null) {
 			throw new LegacyApiException(404, "employee_not_found");
 		}
-		store.insertEmployeeNotification(
+		notifications.toEmployee(
 				context.companyId(), employeeId, context.employeeId(), "employee_deactivated", title, body);
 		return employee;
 	}
