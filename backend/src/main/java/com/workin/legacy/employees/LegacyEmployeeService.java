@@ -39,6 +39,13 @@ public class LegacyEmployeeService {
 	/** {@code /^[0-9]{1,64}$/} -- {@code is_valid_employee_code_format()}. */
 	private static final Pattern EMPLOYEE_CODE_FORMAT = Pattern.compile("^[0-9]{1,64}$");
 
+	/**
+	 * The date shapes MariaDB accepts into a DATE column and {@code strtotime()}
+	 * reads the same way: {@code Y-m-d} or {@code Y/m/d}, single-digit parts
+	 * allowed, an optional time ignored.
+	 */
+	private static final Pattern ISO_DATE_PREFIX = Pattern.compile("^(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})");
+
 	/** {@code preg_replace('/\s+/u', ' ', $code)} in {@code normalize_employee_code()}. */
 	private static final Pattern WHITESPACE_RUN = Pattern.compile("\\s+", Pattern.UNICODE_CHARACTER_CLASS);
 
@@ -261,10 +268,14 @@ public class LegacyEmployeeService {
 					context, body, finalPhone, countryCode, employeeCode, finalBranchId, finalDepartmentId,
 					finalJobTitleId, finalShiftId, hireDate, shiftEffectiveFrom, expectedHours,
 					hasAnyBranchColumn));
-		} catch (RuntimeException ex) {
+		} catch (Throwable ex) { // NOPMD - catch (Throwable $e), around the transaction only
 			// catch (Throwable $e) { $pdo->rollBack(); fail(EMPLOYEE_CREATE_FAILED, 500, $e->getMessage()); }
 			// -- the rollback is the transaction template's; the exception text
 			// travels as the response's data payload, exactly as in PHP.
+			// Throwable, not RuntimeException: PHP rolls back for anything at
+			// all, and a half-written employee is worse than a lost stack trace.
+			// The catch covers the transaction and nothing else -- validation
+			// ran before it and the post-commit re-read runs after it.
 			throw new LegacyApiException(500, "employee_create_failed", messageOf(ex));
 		}
 
@@ -332,7 +343,7 @@ public class LegacyEmployeeService {
 
 		long leaveYear = body.get("leave_opening_year") != null
 				? LegacyValues.toPhpLong(body.get("leave_opening_year"))
-				: yearOf(hireDate);
+				: leaveYearForHireDate(hireDate);
 		Object leaveTotal = body.get("leave_opening_days") != null
 				? LegacyValues.toPhpDecimal(body.get("leave_opening_days")).doubleValue()
 				: 21.0;
@@ -497,17 +508,65 @@ public class LegacyEmployeeService {
 	}
 
 	/**
-	 * {@code date('Y', strtotime($hire_date))}. An unparseable date makes
-	 * {@code strtotime()} return false, and {@code date('Y', false)} is 1970 --
-	 * reproduced rather than rejected.
+	 * {@code date('Y', strtotime($hire_date))} -- the leave-balance year, and the
+	 * one place this endpoint depends on PHP's date parser.
+	 *
+	 * <h2>What was measured</h2>
+	 * <p>A PHP 8.3 run of the real expression, next to MariaDB 11.8's own
+	 * coercion of the same string into {@code employees.hire_date} under the
+	 * Phase 1 {@code sql_mode=''}:
+	 *
+	 * <pre>
+	 * input                  strtotime  date('Y')  MariaDB DATE
+	 * 2026-08-21             ok         2026       2026-08-21
+	 * 2026-08-21 12:30:00    ok         2026       2026-08-21
+	 * 2026/08/21             ok         2026       2026-08-21
+	 * 2026-8-1               ok         2026       2026-08-01
+	 * 0000-00-00             ok         -0001      0000-00-00
+	 * 21 Aug 2026            ok         2026       0000-00-00
+	 * Aug 21 2026            ok         2026       0000-00-00
+	 * 21-08-2026             ok         2026       0000-00-00
+	 * 08/21/2026             ok         2026       0000-00-00
+	 * 2026-02-30             ok         2026 (rolls to 03-02)  0000-00-00
+	 * tomorrow / now         ok         2026       0000-00-00
+	 * invalid text / '' / 2026-13-45 / Array / 1   false -&gt; TypeError
+	 * </pre>
+	 *
+	 * <p>Two facts that were not obvious. First, {@code strtotime()} returning
+	 * {@code false} does <b>not</b> yield 1970: under {@code strict_types=1},
+	 * {@code date('Y', false)} raises a {@code TypeError}, and because this
+	 * expression sits inside create's transaction the whole insert rolls back
+	 * and the request 500s. Second, {@code '0000-00-00'} parses to year
+	 * {@code -0001}, which {@code (int)} turns into {@code -1} and a
+	 * {@code YEAR(4)} column stores as {@code 0000}.
+	 *
+	 * <h2>The boundary this implements</h2>
+	 * <p>The ISO family -- the only forms MariaDB itself stores as a real date
+	 * -- is reproduced exactly. Everything else yields year 0, which a
+	 * {@code YEAR(4)} column stores as {@code 0000}, so the leave row agrees
+	 * with the {@code 0000-00-00} the hire-date column receives for exactly
+	 * those inputs.
+	 *
+	 * <p>That is <b>not</b> full parity, and the gap is deliberate rather than
+	 * hidden: for a month-name or relative date PHP stores {@code 0000-00-00}
+	 * with a real leave year, and for an unparseable one it 500s. Matching
+	 * either would mean porting {@code strtotime()} -- relative keywords, month
+	 * names, several numeric orders, overflow rolling -- which is a parser, not
+	 * a helper. Recorded for an owner decision rather than resolved here.
 	 */
-	private static long yearOf(String hireDate) {
-		try {
-			return java.time.LocalDate.parse(hireDate.length() >= 10 ? hireDate.substring(0, 10) : hireDate)
-					.getYear();
-		} catch (RuntimeException ex) {
-			return 1970L;
+	private static long leaveYearForHireDate(String hireDate) {
+		java.util.regex.Matcher matcher = ISO_DATE_PREFIX.matcher(hireDate == null ? "" : hireDate.trim());
+		if (!matcher.find()) {
+			return 0L;
 		}
+		int year = Integer.parseInt(matcher.group(1));
+		int month = Integer.parseInt(matcher.group(2));
+		int day = Integer.parseInt(matcher.group(3));
+		if (month < 1 || month > 12 || day < 1 || day > 31) {
+			// MariaDB stores 0000-00-00 for these, and so does the leave year.
+			return 0L;
+		}
+		return year;
 	}
 
 	/** {@code isset($x) && $x !== '' ? (int) $x : $default} for the leave period months. */
@@ -539,7 +598,7 @@ public class LegacyEmployeeService {
 		return value instanceof Map<?, ?> || value instanceof java.util.List<?> ? "array" : "object";
 	}
 
-	private static String messageOf(RuntimeException ex) {
+	private static String messageOf(Throwable ex) {
 		return ex.getMessage() == null ? ex.getClass().getName() : ex.getMessage();
 	}
 

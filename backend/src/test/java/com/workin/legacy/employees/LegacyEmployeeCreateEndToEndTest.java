@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
@@ -73,6 +74,13 @@ class LegacyEmployeeCreateEndToEndTest {
 
 	@Autowired
 	private JwtService jwtService;
+
+	/**
+	 * A spy, not a mock: every call runs for real except the one a test stubs,
+	 * so the rollback case exercises the same inserts as the happy path.
+	 */
+	@org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+	private LegacyEmployeeStore storeSpy;
 
 	static {
 		MARIADB.start();
@@ -242,6 +250,58 @@ class LegacyEmployeeCreateEndToEndTest {
 		assertThat(count("SELECT COUNT(*) FROM employees WHERE company_id = " + COMPANY_1)).isEqualTo(before);
 		assertThat(count("SELECT COUNT(*) FROM employees WHERE employee_code = '5400'")).isZero();
 		assertThat(count("SELECT COUNT(*) FROM salary_contracts WHERE basic_salary = 5000.00")).isZero();
+	}
+
+	@Test
+	void anErrorInsideTheTransactionRollsEverythingBackToo() throws Exception {
+		// PHP catches Throwable around the transaction, so the rollback does not
+		// depend on the failure being an ordinary exception. The shift
+		// assignment is the last write, which means the employee, the salary
+		// contract and the leave balance are all already inserted when this
+		// blows up -- and all three have to disappear.
+		Mockito.doThrow(new NoClassDefFoundError("a driver class went missing mid-transaction"))
+				.when(storeSpy).insertShiftAssignment(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyString());
+		try {
+			Map<String, Object> body = validBody("6400", "01012340040");
+			body.put("salary", Map.of("basic", 7777));
+
+			ResponseEntity<Map<String, Object>> response = post(body, ADMIN_1);
+			assertThat(response.getStatusCode().value()).isEqualTo(500);
+			assertThat(response.getBody().get("success")).isEqualTo(false);
+			assertThat(response.getBody().get("message")).isEqualTo("Failed to create employee: {error}");
+			assertThat((String) response.getBody().get("data"))
+					.contains("a driver class went missing mid-transaction");
+
+			assertThat(count("SELECT COUNT(*) FROM employees WHERE employee_code = '6400'")).isZero();
+			assertThat(count("SELECT COUNT(*) FROM salary_contracts WHERE basic_salary = 7777.00")).isZero();
+			assertThat(count(
+					"SELECT COUNT(*) FROM leave_balance lb"
+					+ " LEFT JOIN employees e ON e.id = lb.employee_id WHERE e.id IS NULL")).isZero();
+			assertThat(count(
+					"SELECT COUNT(*) FROM employee_shift_assignments esa"
+					+ " LEFT JOIN employees e ON e.id = esa.employee_id WHERE e.id IS NULL")).isZero();
+		} finally {
+			Mockito.reset(storeSpy);
+		}
+	}
+
+	@Test
+	void theLeaveYearFollowsTheIsoFormsMariaDbItselfStores() throws Exception {
+		// Measured against PHP 8.3 and MariaDB 11.8 together: these are the
+		// shapes both agree on, so hire_date and the leave year stay consistent.
+		assertThat(leaveYearFor("6500", "01012340041", "2026-08-21")).isEqualTo("2026");
+		assertThat(leaveYearFor("6501", "01012340042", "2026-08-21 12:30:00")).isEqualTo("2026");
+		assertThat(leaveYearFor("6502", "01012340043", "2026/08/21")).isEqualTo("2026");
+		assertThat(leaveYearFor("6503", "01012340044", "2026-8-1")).isEqualTo("2026");
+
+		// '0000-00-00' is stored as-is by MariaDB; PHP's year for it is -0001,
+		// which a YEAR(4) column stores as 0000 -- the same as year 0 here.
+		assertThat(leaveYearFor("6504", "01012340045", "0000-00-00")).isEqualTo("0000");
+		// A month-name date is 0000-00-00 in the hire-date column, and the
+		// leave year agrees with it. PHP would have derived 2026 -- the
+		// documented strtotime() gap, not an accident.
+		assertThat(leaveYearFor("6505", "01012340046", "21 Aug 2026")).isEqualTo("0000");
+		assertThat(hireDateFor("6505")).isEqualTo("0000-00-00");
 	}
 
 	@Test
@@ -448,6 +508,18 @@ class LegacyEmployeeCreateEndToEndTest {
 				new ParameterizedTypeReference<Map<String, Object>>() { });
 		assertThat(wrongMethod.getStatusCode().value()).isEqualTo(405);
 		assertThat(wrongMethod.getBody().get("message")).isEqualTo("Invalid method");
+	}
+
+	private String leaveYearFor(String code, String phone, String hireDate) throws Exception {
+		Map<String, Object> body = validBody(code, phone);
+		body.put("hire_date", hireDate);
+		long id = ((Number) data(post(body, ADMIN_1)).get("id")).longValue();
+		return (String) single("SELECT year FROM leave_balance WHERE employee_id = " + id).get("year");
+	}
+
+	private static String hireDateFor(String employeeCode) throws Exception {
+		return (String) single("SELECT hire_date FROM employees WHERE employee_code = '" + employeeCode + "'")
+				.get("hire_date");
 	}
 
 	private String mobileFlagFor(String code, String phone, Object flag) throws Exception {

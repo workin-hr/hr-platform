@@ -26,12 +26,13 @@ import org.springframework.context.annotation.ScopedProxyMode;
  * is: PHP resolves this once per request and forgets it, so a moment where the
  * config row is unreadable must not pin the whole JVM to the default offset.
  *
- * <p>What this deliberately does <em>not</em> do is change the JDBC session
- * timezone. {@code pdo.php} also runs {@code SET time_zone} on every legacy
- * connection, which affects how {@code TIMESTAMP} columns render and what
- * {@code CURDATE()} returns; that is a connection-level concern shared with
- * every later wave (attendance especially), and changing it here would reach
- * far outside Wave 12.4.
+ * <p><b>This class is only half of what legacy does, and the other half is an
+ * open Phase 1 cutover blocker (D-083).</b> {@code pdo.php:23-36} also issues
+ * {@code SET time_zone} on every legacy connection with the same offset, which
+ * decides how {@code TIMESTAMP} columns render, what {@code CURRENT_TIMESTAMP}
+ * defaults write, and what {@code NOW()}/{@code CURDATE()} return -- including
+ * in this module's own {@code stats.php}. Java does not do that yet. Do not
+ * treat this class as closing that requirement.
  */
 @Component
 @RequestScope(proxyMode = ScopedProxyMode.TARGET_CLASS)
