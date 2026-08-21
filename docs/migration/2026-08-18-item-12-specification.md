@@ -33,10 +33,12 @@ Wave 1 and §8's PR 12.3/12.4 rows stale and internally inconsistent — see §7
 `branches → departments`+`department_branches` → `job_titles`, as three
 sequential PRs (12.3a/12.3b/12.3c) — an engineering split only; the
 production Phase 1 cutover remains one complete replacement (D-040).
-**Wave 12.3 implementation is complete and packaged into its approved boundaries**: 12.3a
-(`branches`, D-060), 12.3b (`departments` + `department_branches`, D-061), and
-12.3c (`job_titles`, D-062). The sequential branches and draft PRs preserve
-that engineering split; human review and merge remain pending.
+**Wave 12.3 is complete and merged into `main`**: 12.3a (`branches`, PR #106,
+D-060), 12.3b (`departments` + `department_branches`, PR #107, D-061), and
+12.3c (`job_titles`, PR #108, D-062). Wave 12.4 (`employees` + `hr_employees`
+with P-5) is the active discovery boundary; implementation remains subject to
+its [discovery report](2026-08-20-wave-12.4-employees-discovery.md) and owner
+decisions.
 
 **Production evidence complete:** D-060 explicitly approves one uniform 404
 `branch_not_found` for missing and foreign branch-update IDs. D-063 closes the
@@ -179,7 +181,8 @@ admitting requests legacy rejects. They become prerequisites P-7, P-8 and P-9.
 endpoints carry three joins each, returning `department_name` and a
 `branches_summary` `GROUP_CONCAT` over `department_branches` → `branches`. It
 cannot reach parity without `departments`, `branches` and `department_branches`
-— the last needing P-1c, scheduled for Wave 2. Wave 12.1's module is therefore
+— the last needing P-1c, which was then scheduled for the tenancy-policy wave
+and delivered as Wave 12.2 (D-053). Wave 12.1's module is therefore
 **`attendance_exception_types`**, which is single-table for list/one/create/
 update, carries a direct `company_id`, and still exercises an ungated read path,
 a genuinely gated write path (`can_company_settings`), role-conditional
@@ -275,14 +278,21 @@ are formally item 13 scope. **Resolved by D-4**: `company_settings` is removed
 from Item 12 and lands in item 13 with those two tables, rather than leaking
 item 13 schema into item 12.
 
-### F-5 — The two hub tables have the largest column gaps
+### F-5 — Target-model hub-table gaps do not equal Phase 1 adapter gaps
 
-`companies` (4 Java cols vs 21 legacy) and `employees` (11 vs 27) are not
-partial mappings by accident — legacy carries the authentication and onboarding
-surface there (`password_hash`, `status`, `otp_verified`, `profile_completed`,
+The original `companies` (4 Java cols vs 21 legacy) and `employees` (11 vs 27)
+counts remain accurate for what they measured: the **redesigned PostgreSQL
+entities** against MariaDB. They were never a count of missing `LegacyEmployee`
+or `LegacyCompany` fields. Wave 12.4 discovery
+confirmed that they do **not** describe the current Phase 1 adapters:
+`LegacyEmployee` already maps all 27 employee columns, while `LegacyCompany`
+maps the `id`/`status` pair the employee endpoints actually read. Legacy carries
+authentication and onboarding fields across both hub tables (`password_hash`,
 `token_version`, `join_request_status`, `employee_code`, `national_id`,
-`hire_date`, `birth_date`, `gender`). Any endpoint returning a full legacy
-employee or company payload needs columns the current adapter does not map.
+`hire_date`, `birth_date`, and `gender` on employees; `status`, `otp_verified`,
+and `profile_completed` on companies). P-5 therefore completes endpoint
+read/write/payload use of the employee mapping in Wave 12.4 and adds no company
+profile columns until Wave 12.10 unless a Wave 12.4 endpoint proves it needs one.
 
 ### F-6 — Two legacy columns are database-generated
 
@@ -373,7 +383,7 @@ each is why a table-by-table order would be wrong.
 | **P-2** | **Legacy authorization context** — a per-request record carrying `employeeId` + `companyId`, resolved from the authenticated legacy JWT, replacing `AuthorizationContext` | every module | F-3. Partially exists inside `LegacyTenantContextService`; needs promoting to a reusable request-scoped component. |
 | **P-3** | **Permission gate helper** — a uniform way for a legacy controller to require a `can_*` flag | every module | `LegacyHrPermissionEnforcer` exists; needs a call-site convention (D-044 forbids an annotation/interceptor shape). |
 | **P-4** | **Coverage guard extension** — `TenantFilterCoverageTest` must require every tenant-owned entity to declare *exactly one* named policy (P-1a/P-1b/P-1c) and still fail closed. **Built (PR 12.2): tenant-ownership is now decided by parsing the vendored schema's real columns, not by what the Java mapping declares — closing the exact blind spot F-1 named, and catching a real, already-shipped gap (`LegacyHrPermissions`, unfiltered since Wave 12.1) in the process. See D-053.** | every module | Otherwise the guard silently accepts an unfiltered derived-tenancy entity, or one carrying a policy that does not match its columns. |
-| **P-5** | **Employee/company column completion** — extend `LegacyEmployee` / `LegacyCompany` to the columns endpoints actually return | most modules | F-5. |
+| **P-5** | **Employee/company endpoint mapping completion** — verify the already-complete 27-column `LegacyEmployee`, expose/write only the raw fields the 17 endpoints require, and extend `LegacyCompany` only when an endpoint proves a need beyond `id`/`status` | most modules | F-5; Wave 12.4 discovery found zero new employee column mappings and zero company column mappings are required. |
 | **P-6** | **Parity harness** — a reusable way to assert a Java response equals the legacy PHP endpoint's shape | every module | Otherwise "contract parity" is asserted per-PR by eye. |
 | **P-7** | **`token_version` session-replacement validation** — the authenticated employee's token claim must equal `employees.token_version`, else 401 `SESSION_REPLACED` | every authenticated endpoint | D-045. Legacy's single-active-session guarantee. Phase 1 maps the column but never checks it, so every legacy endpoint would admit a replaced session. |
 | **P-8** | **Legacy role authorization** — a role claim on the legacy JWT and a per-endpoint allowed-roles check, else 403 `FORBIDDEN_INSUFFICIENT_ROLE` | every endpoint with a role list | D-045. Phase 1's JWT carries no role claim at all. |
@@ -388,7 +398,7 @@ graph TD
   P2[P-2 legacy auth context] --> P3[P-3 permission gate]
   P2 --> W0
   P3 --> W0
-  W0[Wave 0: job_titles<br/>first real endpoint] --> P1B[P-1b employee-derived policy]
+  W0[Wave 12.1: attendance_exception_types<br/>first real endpoint] --> P1B[P-1b employee-derived policy]
   W0 --> P1A[P-1a direct policy, named]
   W0 --> P6[P-6 parity harness]
   P1A --> P4[P-4 coverage guard]
@@ -396,15 +406,19 @@ graph TD
   P1C[P-1c department_branches<br/>named separately] --> P4
   P4 --> D[derived-tenancy modules]
 
-  W0 --> ORG[Wave 1: branches, departments,<br/>shifts, exception_types,<br/>request_types, holidays]
-  ORG --> EMP[Wave 2: employees + hr_employees<br/>P-5 column completion]
+  W0 --> ORG[Wave 12.3: branches, departments,<br/>department_branches, job_titles]
+  ORG --> EMP[Wave 12.4: employees + hr_employees<br/>P-5 column completion]
+  EMP --> MASTER[Wave 12.5: shifts, request_types,<br/>company_official_holidays]
   EMP --> D
-  D --> ATT[Wave 3: attendance, schedules,<br/>employee_shift_assignments]
-  D --> REQ[Wave 4: requests, leave_balances]
-  D --> PAY[Wave 5: salary_contracts, advances,<br/>penalties, payroll_batches, payslips]
+  MASTER --> ATT[Wave 12.6: attendance, schedules,<br/>employee_shift_assignments]
+  MASTER --> REQ[Wave 12.7: requests, leave_balances]
+  D --> ATT
+  D --> REQ
+  D --> PAY[Wave 12.8: salary_contracts,<br/>advances, penalties]
   REQ --> PAY
   ATT --> PAY
-  PAY --> CS[Wave 6: companies/profile completion]
+  PAY --> RUN[Wave 12.9: payroll_batches, payslips]
+  RUN --> CS[Wave 12.10: companies/profile completion]
   CS -.-> I13[company_settings — deferred to item 13<br/>with setting_definitions +<br/>setting_allowed_values]
 ```
 
@@ -432,17 +446,22 @@ provability on real MariaDB.
 
 | Wave | Content | Rationale |
 |---|---|---|
-| **0** | `attendance_exception_types` end-to-end + P-2, P-3, P-6, **P-7, P-8, P-9** | **Amended by D-046** (was `job_titles`, which needs three joins into Wave 1/2 tables — §2.1C). Single-table for list/one/create/update with a direct `company_id`, so it needs no new tenancy mechanism, yet still exercises an ungated read path, a gated write path whose legacy counterpart genuinely requires `can_company_settings`, role-conditional visibility, search and pagination. Carries the three new request guards because every later module needs them. Closes the PR #101 evidence gap (§9) at the earliest possible point and fixes the module template before it is copied 18 times. |
-| **1** | **Corrected by D-054, 2026-08-18.** `branches` → `departments` (with `department_branches` — not a separate table in this wave, see below) → `job_titles`, in that dependency order. `shifts`, `request_types`, `company_official_holidays` **move out of this wave** to their own (number not yet assigned) — they don't block `job_titles` and bundling them here was never load-bearing. 16 real endpoints across the three modules (`department_branches` has none of its own). | **This row previously omitted `department_branches` even though it cited D-046 finding C as the reason `job_titles` was rescheduled here — and finding C names `department_branches` as one of `job_titles`' three required joins.** Wave 12.3 discovery (this conversation, 2026-08-18) confirmed by reading `departments/{create,update}.php` in full: `department_branches` is mutated entirely inside `departments`' own transaction and has no endpoint files of its own, so it cannot be "Wave 2's P-1c table" separately from `departments` — `departments`' own read queries `INNER JOIN` through it, so `departments` cannot reach read parity without it in the same unit of work. `job_titles`' `branches_summary` needs real `department_branches` rows to prove its `GROUP_CONCAT` shape. P-1c itself (the mechanism) is unaffected — already built in Wave 12.2 (D-053) — this correction is about which *wave* the `department_branches` *table* ships in, not the tenancy policy. |
-| **2** | **P-1a + P-1b + P-1c + P-4** (built, Wave 12.2/D-053), then `employees` + `hr_employees` with P-5 | `department_branches` **removed from this row by D-054** — it ships with `departments` in Wave 1/12.3b, not here (the row's endpoint count is unaffected, since `department_branches` never had endpoint files of its own to count). The tenancy policies gate everything after; landing them with `employees` is deliberate — `employees` is the join target of P-1b, so the mechanism and its join target are proven together. 17 endpoints. |
-| **3** | `attendance` (+`exception_types` consumers), `employee_schedules`, `employee_shift_assignments` | First derived-tenancy consumers. `attendance` is the largest single module (15 endpoints) and the richest calculation logic to reuse. |
-| **4** | `requests`, `leave_balances` | Coupled by the approval side effect on `used_days`. 17 endpoints. `approver_id` vs `approver_membership_id` is resolved here. |
-| **5** | `salary_contracts` → `advances` → `penalties` → `payroll_batches` → `payslips` | Strict FK/aggregation order. Highest business risk (money), so it goes after the pattern is proven six times. `salary_contracts.total` (F-6) and `advances`' 9 unmapped `deduction_*` columns are resolved here. 36 endpoints. |
-| **6** | `companies` / `profile` column completion | The last hub-table gap (F-5). Isolated at the end so it never blocks the mechanical waves. **`company_settings` is no longer here** — D-4 moved it to item 13. |
+| **12.1** | `attendance_exception_types` end-to-end + P-2, P-3, P-6, **P-7, P-8, P-9** | **Amended by D-046** (was `job_titles`, which needs three joins into later organization tables — §2.1C). Single-table for list/one/create/update with a direct `company_id`, so it needs no new tenancy mechanism, yet still exercises an ungated read path, a gated write path whose legacy counterpart genuinely requires `can_company_settings`, role-conditional visibility, search and pagination. Carries the three new request guards because every later module needs them. Closes the PR #101 evidence gap (§9) at the earliest possible point and fixes the module template before it is copied 18 times. |
+| **12.2** | P-1a + P-1b + P-1c + P-4 | Standalone tenancy-policy mechanism and coverage guard, built before the remaining modules (D-053). |
+| **12.3** | **Corrected by D-054, 2026-08-18.** `branches` → `departments` (with `department_branches`) → `job_titles`, in that dependency order. 16 real endpoints across the three modules (`department_branches` has none of its own). | `department_branches` is mutated inside `departments`' own transaction and is required by department and job-title reads. Delivered as commit `6f50ee1` (12.3a `branches`, alongside Waves 12.1 and 12.2) with PR #106 accepting D-060's uniform 404, then PR #107 (12.3b) and PR #108 (12.3c); all are on `main`. |
+| **12.4** | `employees` + `hr_employees` with P-5 | `employees` is P-1b's real join target. The boundary covers all 17 employee endpoints and only the company columns those endpoints actually require. |
+| **12.5** | `shifts` + `request_types` + `company_official_holidays` | Assigns the three master modules D-054 moved out of Wave 12.3. They land before their consumers: shifts before assignment APIs and request types before request APIs. None is a prerequisite for completing the Wave 12.4 endpoint adapter against existing legacy rows. |
+| **12.6** | `attendance` (+`exception_types` consumers), `employee_schedules`, `employee_shift_assignments` | First derived-tenancy consumers. `attendance` is the largest single module (15 endpoints) and the richest calculation logic to reuse. |
+| **12.7** | `requests`, `leave_balances` | Coupled by the approval side effect on `used_days`. 17 endpoints. `approver_id` vs `approver_membership_id` is resolved here. |
+| **12.8** | `salary_contracts` → `advances` → `penalties` | Establishes the money inputs before payroll execution. `salary_contracts.total` (F-6) and `advances`' 9 unmapped `deduction_*` columns are resolved here. |
+| **12.9** | `payroll_batches` → `payslips` | Payslips remain last in the payroll cluster because they aggregate salary, advances, penalties, and attendance-derived days. |
+| **12.10** | `companies` / `profile` column completion | The last hub-table gap (F-5). Isolated at the end so it never blocks the mechanical waves. **`company_settings` is no longer here** — D-4 moved it to item 13. |
 
-Rationale against criterion 2 (downstream unlock): Wave 0+1 unlock every later
-wave's FK targets; Wave 2's P-1 unlocks 10 tables at once. Against criterion 3
-(risk): payroll is deliberately last; against criterion 5, every wave is
+Rationale against criterion 2 (downstream unlock): Waves 12.1–12.3 establish the
+guards, tenancy policies, and organization relationships; Wave 12.4 completes
+the employee join target; Wave 12.5 lands the remaining masters before their
+consumer APIs. Against criterion 3, payroll is deliberately last; against
+criterion 5, every wave is
 provable against real MariaDB because each ends in HTTP-level tests.
 
 ---
@@ -458,13 +477,14 @@ ends green on CI.
 | 12.2 | `phase1/item12-tenancy-policies` | **Standalone security-mechanism PR** (owner-accepted 2026-08-18). P-1a, P-1b, P-1c and P-4 only — no modules. Corrects `TenantFilter`'s disproven javadoc claim (U-1). **Implemented (see D-053).** `EmployeeDerivedTenantFilter`/`DepartmentBranchesTenantFilter` (new, sibling classes to `TenantFilter`); `TenantFilterBinder`/`TenantFilterActivator` extended to bind/activate/deactivate all three together; `TenantFilterCoverageTest` redesigned to classify tenant-ownership from the vendored schema's real columns rather than the Java mapping — which caught and fixed a real, already-shipped gap (`LegacyHrPermissions`, unfiltered since Wave 12.1, now carries P-1b). Three test-scoped probe entities (`AttendanceProbeRow`, `PayslipProbeRow`, `DepartmentBranchProbeRow`) prove the mechanism against real tables without starting any business module | Each policy returns zero rows unscoped (fail-closed) — asserted per policy, not once (`DerivedTenancyPoliciesFailClosedTest`, 14 tests); coverage guard fails the build when a tenant-owned entity declares no policy **or the wrong one for its columns**, verified against the mistake as `TenantFilterCoverageTest` was; forged/wrong-tenant isolation proven for one P-1b table (`attendance`) and for `department_branches`, against real cross-tenant data; **index and query-plan verification (D-2) — a true merge gate, cleared with real evidence.** `EXPLAIN` evidence on the high-volume derived paths (`attendance`, `payslips`) at realistic volume (30 companies, 3,000 employees, 60,000/30,000 rows) shows MariaDB semi-joining through `employees`' indexed `company_id` and reaching each derived table via its own `employee_id` index — no full table scan in either plan (`TenantFilterQueryPlanTest`, real output recorded in D-053). No index needed adding; a query-shape fix was: the first filter-condition draft failed with a real `SQLGrammarException` against Hibernate's alias-templating and was corrected inside this PR before any test asserted success. Full suite: 410 tests, 0 failures, both profiles |
 | 12.3a | `phase1/item12-branches` | **Implemented — see D-060.** `branches`: `LegacyBranch` + repository + service + controller (`com.workin.legacy.organization`), all 6 endpoints (`list`, `one`, `create`, `update`, `delete`, `generate_qr`), P-1a; the location-coordinate heuristic ported literally as `LegacyBranchLocationResolver` (D-058: PHP is the specification for this logic, not an idealised redesign) | Per-module adapter + E2E parity vs legacy (37 tests: 28 E2E, 9 tenancy/adapter), verified against real production data first (D-059) — `radius_meters = 0`, both-null lat/lng, `is_active = 0` all round-trip; **D-056**: delete reproduces legacy's explicit `branch_assigned_employees_count()` pre-check (409 before attempting the delete, proven not to short-circuit-after-attempting), atomic `department_branches` cleanup + hard delete, FK-violation catch retained only as a documented race-condition fallback; **D-057**: explicit test proving a principal with no `hr_permissions` row at all succeeds on every write, and that the role gate (unlike Wave 12.1) applies to reads too; **D-060 explicitly approves a uniform 404 security divergence for branch update**: both a missing ID and another tenant's ID return `branch_not_found`; neither the legacy missing-ID 500 nor the cross-tenant 200 disclosure is reproduced |
 | 12.3b | `phase1/item12-departments` | **Implemented and corrected after owner review — see D-061/D-068/D-070.** `departments` and `department_branches` remain one aggregate boundary. All 5 endpoints; P-1a on `departments`; P-1c on real `department_branches`; row-plus-links create and full branch-set replacement are transactional. Test application connections use production-equivalent non-strict MariaDB semantics; numeric casts, explicit PHP string casts, PHP `empty(...)`, and associative-array value iteration are centralized in `LegacyValues`; raw query name normalization plus scalar/append/keyed shape is preserved in `LegacyQueryParameters`; mutation responses refresh MariaDB-persisted values | Independently runnable coverage: `LegacyValuesTest` (19 tests), `LegacyQueryParametersTest` (8 tests), `LegacyDepartmentEndToEndTest` (30 real-MariaDB HTTP tests), and `LegacyDepartmentTenancyTest` (6 adapter/tenancy tests), with no dependency on 12.3c types. Coverage proves join asymmetries, PHP scalar and array cast paths, normalized external parameter names, keyed arrays, ordered duplicate/mixed scalar/append/keyed query parsing before Spring conversion, and D-070's narrow server-level 400 divergence for invalid percent encoding; integer-bound saturation, object-shaped manager/branch inputs, MariaDB normalization, exact post-delete failure response plus full rollback, the branchless update's legacy 500-after-commit response quirk, D-055, D-057's absent permission gate, and cross-tenant denial. Production read-only evidence: 1,350 junction links, zero missing departments, zero missing branches, and zero cross-company links; no production mutation |
-| 12.3c | `phase1/item12-job-titles` | **Implemented and corrected after owner review — see D-062/D-065/D-067/D-069/D-070.** `LegacyJobTitle` + repository + service + controller + response view; all 5 endpoints; P-1a; active-department create/update validation; department cannot be cleared; inactive departments remain readable through the legacy left-join shape; correlated branch summary reproduced through the real department junction; shared `LegacyValues` coercion replaces service-local approximations; `branch_id`/`department_id` preserve PHP external-name normalization and raw scalar/append/keyed query shape through `LegacyQueryParameters` | Independently runnable coverage: `LegacyQueryParametersTest` (8 tests), `LegacyValuesTest` (19 tests), `LegacyJobTitleEndToEndTest` (27 real-MariaDB HTTP tests), and `LegacyJobTitleTenancyTest` (4 adapter/tenancy tests). Tests prove PHP scalar, array, and explicit string casts; normalized names, keyed arrays, and ordered duplicate/mixed scalar/append/keyed query parsing before Spring conversion; D-070's narrow server-level 400 divergence for invalid percent encoding; integer-bound saturation; active-row visibility; inactive and branchless department reads; response wire shape; persisted `"Array"` names and DECIMAL rounding; repeatable soft delete; D-057's absent permission gate; and cross-tenant denial. Final sequential gate `./gradlew clean test phase2Test --console=plain`: **BUILD SUCCESSFUL; MariaDB/default suite 72 classes and 531 tests; PostgreSQL migration suite 1 class and 12 tests; 0 failures, errors, or skips in both**. This final boundary is stacked on 12.3b; human re-review and merge remain pending |
-| 12.4 | `phase1/item12-employees` | P-5 + `employees`, `hr_employees` (`department_branches` **removed from this row by D-054** — it shipped with `departments` in 12.3b) | Column-completion parity vs legacy payload; zero-date rows readable; P-1b proven through its join target |
-| 12.5 | `phase1/item12-attendance-schedules` | `attendance`, `employee_schedules`, `employee_shift_assignments` | Calculation-parity tests vs legacy; derived tenancy on three tables; timezone handling unchanged |
-| 12.6 | `phase1/item12-requests-leave-balances` | `requests`, `leave_balances` | Approval side effect on `used_days`; generated `remaining_days` read-only; `approver_id` mapping |
-| 12.7 | `phase1/item12-payroll-contracts-advances-penalties` | `salary_contracts`, `advances`, `penalties` | `total` generated-column read-only; `deduction_*` columns mapped; money arithmetic parity |
-| 12.8 | `phase1/item12-payroll-batches-payslips` | `payroll_batches`, `payslips` | End-to-end payroll run parity against a seeded legacy fixture; aggregation across four upstream tables |
-| 12.9 | `phase1/item12-companies-profile` | `companies` / `profile` column completion (F-5) | Legacy company payload parity; onboarding/status columns readable; tenant-root behaviour unchanged |
+| 12.3c | `phase1/item12-job-titles` | **Implemented, reviewed, and merged as PR #108 — see D-062/D-065/D-067/D-069/D-070/D-072.** `LegacyJobTitle` + repository + service + controller + response view; all 5 endpoints; P-1a; active-department create/update validation; department cannot be cleared; inactive departments remain readable through the legacy left-join shape; correlated branch summary reproduced through the real department junction; shared `LegacyValues` coercion replaces service-local approximations; `branch_id`/`department_id` preserve PHP external-name normalization and raw scalar/append/keyed query shape through `LegacyQueryParameters` | Independently runnable coverage: `LegacyQueryParametersTest` (8 tests), `LegacyValuesTest` (19 tests), `LegacyJobTitleEndToEndTest` (27 real-MariaDB HTTP tests), and `LegacyJobTitleTenancyTest` (4 adapter/tenancy tests). Tests prove PHP scalar, array, and explicit string casts; normalized names, keyed arrays, and ordered duplicate/mixed scalar/append/keyed query parsing before Spring conversion; D-070's narrow server-level 400 divergence for invalid percent encoding; integer-bound saturation; active-row visibility; inactive and branchless department reads; response wire shape; persisted `"Array"` names and DECIMAL rounding; repeatable soft delete; D-057's absent permission gate; and cross-tenant denial. Final sequential gate `./gradlew clean test phase2Test --console=plain`: **BUILD SUCCESSFUL; MariaDB/default suite 72 classes and 531 tests; PostgreSQL migration suite 1 class and 12 tests; 0 failures, errors, or skips in both**. |
+| 12.4 | `phase1/item12-employees` | P-5 + `employees`, `hr_employees` (`department_branches` **removed from this row by D-054** — it shipped with `departments` in 12.3b) | Endpoint read/write/payload completion over the existing 27-column employee mapping; no company profile expansion; zero-date rows readable; P-1b proven through its real employee join target |
+| 12.5 | `phase1/item12-workforce-masters` | `shifts`, `request_types`, `company_official_holidays` | The three previously unassigned masters; shifts precede assignment APIs, request types precede request APIs, and holidays precede attendance/payroll consumers |
+| 12.6 | `phase1/item12-attendance-schedules` | `attendance`, `employee_schedules`, `employee_shift_assignments` | Calculation-parity tests vs legacy; derived tenancy on three tables; timezone handling unchanged |
+| 12.7 | `phase1/item12-requests-leave-balances` | `requests`, `leave_balances` | Approval side effect on `used_days`; generated `remaining_days` read-only; `approver_id` mapping |
+| 12.8 | `phase1/item12-payroll-contracts-advances-penalties` | `salary_contracts`, `advances`, `penalties` | `total` generated-column read-only; `deduction_*` columns mapped; money arithmetic parity |
+| 12.9 | `phase1/item12-payroll-batches-payslips` | `payroll_batches`, `payslips` | End-to-end payroll run parity against a seeded legacy fixture; aggregation across four upstream tables |
+| 12.10 | `phase1/item12-companies-profile` | `companies` / `profile` column completion (F-5) | Legacy company payload parity; onboarding/status columns readable; tenant-root behaviour unchanged |
 
 PR 12.2 is deliberately mechanism-only, and the owner accepted it as a
 standalone security PR on 2026-08-18: it is the one change that can silently
