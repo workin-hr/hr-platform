@@ -79,5 +79,5 @@ Two cross-cutting obligations sit outside the wave sequence:
 - MySQL-profile bootstrap mechanism: `docs/adr/ADR-0013-phase1-mysql-profile-bootstrap.md`, D-043
 - `hr_permissions` enforcement shape: D-044 (raw-column port, reproduces `hr-legacy#8`)
 - Wire contract: D-074 (literal PHP routes/envelope authoritative; `/api/legacy/**` is drift), reaffirming D-021/ADR-0003 and ADR-0011
-- Wave 12.4 employee decisions: D-075 (foreign-tenant refs fail closed), D-076 (no HR privilege escalation), D-077 (no `manager_id` cleanup), D-078 (cascade delete reproduced exactly)
+- Wave 12.4 employee decisions: D-075 (foreign-tenant refs fail closed), D-076 (no HR privilege escalation), D-077 (per-path manager behavior: cascade reproduces PHP's same-company `manager_id` clear, direct delete adds none), D-078 (cascade delete reproduced exactly)
 - Superseded: `docs/migration/2026-08-13-etl-next-steps-punch-list.md` (ETL/PostgreSQL path, frozen for Phase 2 per D-040)
