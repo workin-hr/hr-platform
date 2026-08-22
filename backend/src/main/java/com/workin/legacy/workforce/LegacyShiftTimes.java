@@ -3,6 +3,7 @@ package com.workin.legacy.workforce;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.workin.legacy.LegacyValues;
 import com.workin.legacy.wire.LegacyApiException;
 
 /**
@@ -27,6 +28,14 @@ import com.workin.legacy.wire.LegacyApiException;
  * happily, and the range check is what rejects it. One or two hour digits are
  * both accepted, so {@code 9:00} is valid input even though MariaDB never
  * produces it.
+ *
+ * <h2>Trim is PHP's trim, not Java's</h2>
+ * <p>{@code trim($t)} strips exactly {@code " \t\n\r\0\x0B"}. Java's
+ * {@link String#trim()} strips every character at or below {@code U+0020},
+ * which is a strict superset -- form feed (0x0C) most visibly. Using it
+ * would accept {@code "\f09:00"}, which PHP leaves untrimmed and then
+ * fails to match. {@link LegacyValues#phpTrim} is the measured charlist,
+ * and is what this helper uses.
  *
  * <p>MariaDB's {@code TIME} domain is far wider than this
  * ({@code -838:59:59 .. 838:59:59}), so an existing row can hold a value these
@@ -56,7 +65,7 @@ public final class LegacyShiftTimes {
 		if (raw == null) {
 			return null;
 		}
-		String trimmed = raw.trim();
+		String trimmed = LegacyValues.phpTrim(raw);
 		if (trimmed.isEmpty()) {
 			return null;
 		}
