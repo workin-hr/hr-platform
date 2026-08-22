@@ -44,16 +44,22 @@ public class LegacyOfficialHolidayService {
 	/**
 	 * {@code list.php}.
 	 *
-	 * <p>The two date bounds are {@code !empty()}-guarded, not
-	 * {@code isset()}-guarded, so {@code ?date_from=0} and {@code ?date_from=}
-	 * add no clause at all -- unlike {@code request_types}' {@code is_active},
-	 * where presence alone decides. The value is otherwise passed to the
-	 * comparison unvalidated: PHP does not check it parses as a date, and
-	 * neither does this.
+	 * <p><b>The query keys are {@code from} and {@code to}</b>, not
+	 * {@code date_from}/{@code date_to}. PHP reads
+	 * {@code $_GET[Request::DATE_FROM]}, and {@code Request::DATE_FROM} is
+	 * declared as the literal {@code 'from'} in {@code apis/config/request.php:26}
+	 * -- the constant's identifier is not its value. {@code employees/list.php}
+	 * and {@code employees/stats.php} use the same two constants.
+	 *
+	 * <p>The bounds are {@code !empty()}-guarded, not {@code isset()}-guarded,
+	 * so {@code ?from=0} and {@code ?from=} add no clause at all -- unlike
+	 * {@code request_types}' {@code is_active}, where presence alone decides.
+	 * The value is otherwise passed to the comparison unvalidated: PHP does not
+	 * check it parses as a date, and neither does this.
 	 */
 	public Page list(long companyId, LegacyQueryParameters query) {
-		String dateFrom = nonEmptyQueryValue(query, "date_from");
-		String dateTo = nonEmptyQueryValue(query, "date_to");
+		String dateFrom = nonEmptyQueryValue(query, "from");
+		String dateTo = nonEmptyQueryValue(query, "to");
 		String search = LegacyPagination.searchQueryParam(query);
 		LegacyPagination.Params pagination = LegacyPagination.params(query);
 

@@ -148,19 +148,36 @@ class LegacyOfficialHolidayEndToEndTest {
 	}
 
 	@Test
+	void theDateBoundsAreNamedFromAndTo() {
+		// The wire keys are `from` and `to`. PHP reads
+		// $_GET[Request::DATE_FROM], and Request::DATE_FROM is declared as the
+		// literal 'from' in apis/config/request.php:26 -- the constant's
+		// identifier is not its value.
+		assertThat(idsOf(get(LIST + "?from=2026-02-01&limit=100", ADMIN_1, 200)))
+				.contains(HOLIDAY_FEB, HOLIDAY_MAR).doesNotContain(HOLIDAY_JAN);
+		assertThat(idsOf(get(LIST + "?to=2026-01-31&limit=100", ADMIN_1, 200)))
+				.containsExactly(HOLIDAY_JAN);
+	}
+
+	@Test
+	void dateFromAndDateToAreNotAliasesAndFilterNothing() {
+		// Guarding the defect this test previously hid: the endpoint used to
+		// read date_from/date_to, and a test written with the same wrong keys
+		// confirmed the wrong contract. These names are not aliases in PHP --
+		// they are simply unknown query parameters, so they must be ignored.
+		int all = idsOf(get(LIST + "?limit=100", ADMIN_1, 200)).size();
+		assertThat(idsOf(get(LIST + "?date_from=2026-02-01&limit=100", ADMIN_1, 200))).hasSize(all);
+		assertThat(idsOf(get(LIST + "?date_to=2026-01-31&limit=100", ADMIN_1, 200))).hasSize(all);
+	}
+
+	@Test
 	void theDateBoundsUseEmptyNotPresence() {
 		// !empty(): "0" and an empty value add no clause at all, unlike
 		// request_types' isset()-driven is_active.
 		int all = idsOf(get(LIST + "?limit=100", ADMIN_1, 200)).size();
-		assertThat(idsOf(get(LIST + "?date_from=&limit=100", ADMIN_1, 200))).hasSize(all);
-		assertThat(idsOf(get(LIST + "?date_from=0&limit=100", ADMIN_1, 200))).hasSize(all);
-		assertThat(idsOf(get(LIST + "?date_to=0&limit=100", ADMIN_1, 200))).hasSize(all);
-
-		// ...and a real bound does filter.
-		assertThat(idsOf(get(LIST + "?date_from=2026-02-01&limit=100", ADMIN_1, 200)))
-				.contains(HOLIDAY_FEB, HOLIDAY_MAR).doesNotContain(HOLIDAY_JAN);
-		assertThat(idsOf(get(LIST + "?date_to=2026-01-31&limit=100", ADMIN_1, 200)))
-				.containsExactly(HOLIDAY_JAN);
+		assertThat(idsOf(get(LIST + "?from=&limit=100", ADMIN_1, 200))).hasSize(all);
+		assertThat(idsOf(get(LIST + "?from=0&limit=100", ADMIN_1, 200))).hasSize(all);
+		assertThat(idsOf(get(LIST + "?to=0&limit=100", ADMIN_1, 200))).hasSize(all);
 	}
 
 	@Test
