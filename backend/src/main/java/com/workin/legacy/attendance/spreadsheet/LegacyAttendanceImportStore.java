@@ -8,6 +8,8 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
 
+import com.workin.legacy.LegacyPdoException;
+
 /**
  * Every statement {@code import_excel.php} issues, on <b>one</b> connection.
  *
@@ -94,7 +96,7 @@ public class LegacyAttendanceImportStore {
 				return rows.next();
 			}
 		} catch (SQLException ex) {
-			throw new IllegalStateException(ex);
+			throw LegacyPdoException.from(ex);
 		}
 	}
 
@@ -110,7 +112,7 @@ public class LegacyAttendanceImportStore {
 			}
 			statement.executeUpdate();
 		} catch (SQLException ex) {
-			throw new IllegalStateException(ex);
+			throw LegacyPdoException.from(ex);
 		}
 	}
 
@@ -141,7 +143,7 @@ public class LegacyAttendanceImportStore {
 				return rows.next() && rows.getLong(1) > 0;
 			}
 		} catch (SQLException ex) {
-			throw new IllegalStateException(ex);
+			throw LegacyPdoException.from(ex);
 		}
 	}
 
@@ -158,7 +160,7 @@ public class LegacyAttendanceImportStore {
 			statement.setLong(3, companyId);
 			statement.executeUpdate();
 		} catch (SQLException ex) {
-			throw new IllegalStateException(ex);
+			throw LegacyPdoException.from(ex);
 		}
 	}
 
@@ -189,7 +191,7 @@ public class LegacyAttendanceImportStore {
 				return keys.next() ? keys.getLong(1) : 0L;
 			}
 		} catch (SQLException ex) {
-			throw new IllegalStateException(ex);
+			throw LegacyPdoException.from(ex);
 		}
 	}
 
@@ -201,7 +203,7 @@ public class LegacyAttendanceImportStore {
 			statement.setString(3, effectiveFrom);
 			statement.executeUpdate();
 		} catch (SQLException ex) {
-			throw new IllegalStateException(ex);
+			throw LegacyPdoException.from(ex);
 		}
 	}
 
@@ -220,7 +222,7 @@ public class LegacyAttendanceImportStore {
 				return positiveOnly && id <= 0 ? null : id;
 			}
 		} catch (SQLException ex) {
-			throw new IllegalStateException(ex);
+			throw LegacyPdoException.from(ex);
 		}
 	}
 
@@ -232,7 +234,7 @@ public class LegacyAttendanceImportStore {
 				return rows.next() ? rows.getLong(1) : 0L;
 			}
 		} catch (SQLException ex) {
-			throw new IllegalStateException(ex);
+			throw LegacyPdoException.from(ex);
 		}
 	}
 

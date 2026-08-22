@@ -529,24 +529,54 @@ class LegacyAttendanceImportEndToEndTest {
 	}
 
 	/**
-	 * {@code create} with a shift the company owns. What the database makes of
-	 * it is the point: {@code employees.branch_id} is {@code NOT NULL} with no
-	 * default and PHP's INSERT passes it NULL, so this endpoint's create path
-	 * fails at the database in legacy too. Pinned as measured rather than as
-	 * hoped -- the whole import rolls back and answers D-084's generic 500.
+	 * {@code create} with a shift the company owns, and the database refuses it:
+	 * {@code employees.branch_id} is {@code NOT NULL} with no default and PHP's
+	 * INSERT passes it NULL, so legacy's create path fails at the database too.
+	 *
+	 * <p>The status is the interesting part. A SQL failure is <b>400</b>, not a
+	 * 500, because {@code PDO::ERRMODE_EXCEPTION} raises a {@code PDOException}
+	 * and {@code PDOException extends RuntimeException} -- so
+	 * {@code import_excel.php}'s <em>first</em> catch claims it and answers
+	 * {@code invalid_file_type} with the driver's message in {@code data}.
+	 *
+	 * <p>The message below is measured, not composed: PHP 8.3 with mysqlnd
+	 * against MariaDB 11.8 produces exactly this string for exactly this
+	 * statement.
 	 */
 	@Test
-	void aCreateMappingFailsOnTheNotNullBranchAndRollsTheImportBack() {
+	void aCreateMappingHitsTheNotNullBranchAndIsAPdoBackedFourHundred() {
 		byte[] csv = csv("code,datetime", "555004,26/04/2026 08:03", "555004,26/04/2026 17:11");
 		String mappings = "{\"555004\":{\"type\":\"create\",\"shift_id\":" + SHIFT_1 + "}}";
 
-		Map<String, Object> body = post(ADMIN_1, "punch.csv", csv, mappings, 500);
+		Map<String, Object> body = post(ADMIN_1, "punch.csv", csv, mappings, 400);
 
-		// D-084: one deterministic body, nothing about the failure on the wire.
-		assertThat(body.get("message")).isEqualTo("Internal server error");
-		assertThat(body).doesNotContainKey("data");
+		assertThat(body.get("message")).isEqualTo("Invalid file type");
+		assertThat(body.get("data")).isEqualTo(
+				"SQLSTATE[23000]: Integrity constraint violation: 1048"
+						+ " Column 'branch_id' cannot be null");
+		// The transaction still rolled back in full.
 		assertThat(query("SELECT id FROM employees WHERE employee_code = '555004'")).isEmpty();
 		assertThat(query("SELECT id FROM employee_shift_assignments")).isEmpty();
+		assertThat(query("SELECT id FROM attendance")).isEmpty();
+	}
+
+	/**
+	 * The same mechanism on a different statement, so the parity is the
+	 * reconstruction and not one memorised string. A {@code sync_code} mapping
+	 * pointing at an employee id that does not exist updates nothing and is
+	 * still returned, and the attendance INSERT then violates the
+	 * {@code employee_id} foreign key.
+	 */
+	@Test
+	void aForeignKeyFailureIsTheSameFourHundredShape() {
+		byte[] csv = csv("code,datetime", "555005,26/04/2026 08:03", "555005,26/04/2026 17:11");
+		String mappings = "{\"555005\":{\"type\":\"sync_code\",\"employee_id\":99999999}}";
+
+		Map<String, Object> body = post(ADMIN_1, "punch.csv", csv, mappings, 400);
+
+		assertThat(body.get("message")).isEqualTo("Invalid file type");
+		assertThat(body.get("data").toString())
+				.startsWith("SQLSTATE[23000]: Integrity constraint violation: 1452 ");
 		assertThat(query("SELECT id FROM attendance")).isEmpty();
 	}
 

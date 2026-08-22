@@ -100,11 +100,53 @@ public final class LegacyPhpStrtotime {
 	private static final Pattern SHORT_YEAR_MONTH_DAY =
 			Pattern.compile("^(\\d{1,2})-(\\d{1,2})-(\\d{1,2})$");
 
-	private static final Pattern DAY_MONTHNAME_YEAR =
-			Pattern.compile("^(\\d{1,2})[\\s-]+([A-Za-z]+),?[\\s-]+(\\d{4})$");
+	/**
+	 * A clock time: {@code H:i}, {@code H:i:s}, and either with a meridiem.
+	 *
+	 * <p>{@code :} and {@code .} are interchangeable separators and may be
+	 * mixed ({@code 11:33.20} and {@code 11.33:20} both parse), every field is
+	 * one or two digits, and the meridiem needs no space before it. The width
+	 * and range rules are enforced in {@link #clockSeconds}, not here, because
+	 * they differ depending on whether a meridiem is present.
+	 */
+	private static final String CLOCK =
+			"(\\d{1,2})[:.](\\d{1,2})(?:[:.](\\d{1,2}))?(?:\\s*([AaPp])\\.?[Mm]\\.?)?";
 
-	private static final Pattern MONTHNAME_DAY_YEAR =
-			Pattern.compile("^([A-Za-z]+)[\\s-]+(\\d{1,2}),?[\\s-]+(\\d{4})$");
+	/** The separator between a date and the time that follows it: space, comma or {@code T}. */
+	private static final String DATE_TIME = "[\\s,T]+";
+
+	private static final Pattern CLOCK_TIME = Pattern.compile("^" + CLOCK + "$");
+
+	/**
+	 * {@code 26 Apr 2026}, optionally followed by a time.
+	 *
+	 * <p>The year is <b>required</b> in this form, and that is what makes
+	 * {@code 26 Apr 08:03} unparseable: PHP consumes {@code 08} as the year and
+	 * is then left with {@code :03}. Measured, and the reason this pattern is
+	 * not simply "day, month, optional year, optional time" -- that would have
+	 * accepted a value PHP rejects.
+	 */
+	private static final Pattern DAY_MONTHNAME_YEAR = Pattern.compile(
+			"^(\\d{1,2})[\\s-]+([A-Za-z]+),?[\\s-]+(\\d{1,4})(?:" + DATE_TIME + CLOCK + ")?$");
+
+	/**
+	 * {@code Apr 26}, {@code Apr 26 2026} and {@code Apr 26, 2026}, optionally
+	 * followed by a time.
+	 *
+	 * <p>Here the year <em>is</em> optional, and {@code Apr 26 08:03} therefore
+	 * parses -- {@code 08:03} carries a colon, so it can only be the time. The
+	 * asymmetry with the day-first form above is PHP's, measured both ways.
+	 */
+	private static final Pattern MONTHNAME_DAY_YEAR = Pattern.compile(
+			"^([A-Za-z]+)[\\s-]+(\\d{1,2}),?(?:[\\s-]+(\\d{1,4}))?(?:" + DATE_TIME + CLOCK + ")?$");
+
+	/** {@code 26 Apr} -- the reference year, at midnight. */
+	private static final Pattern DAY_MONTHNAME =
+			Pattern.compile("^(\\d{1,2})[\\s-]+([A-Za-z]+)$");
+
+	/** {@code Apr} and {@code Apr 2026}. */
+	private static final Pattern MONTHNAME_ONLY =
+			Pattern.compile("^([A-Za-z]+)(?:[\\s-]+(\\d{1,4}))?$");
 
 	private static final Pattern FOUR_DIGITS = Pattern.compile("^(\\d{2})(\\d{2})$");
 
@@ -225,15 +267,38 @@ public final class LegacyPhpStrtotime {
 		if (dayNameYear.matches()) {
 			Integer month = monthFromName(dayNameYear.group(2));
 			return month == null ? null
-					: at(roll(digits(dayNameYear, 3), month, digits(dayNameYear, 1), true),
-							LocalTime.MIDNIGHT);
+					: atClock(roll(yearOf(dayNameYear.group(3)), month, digits(dayNameYear, 1), true),
+							dayNameYear, 4);
 		}
 		Matcher nameDayYear = MONTHNAME_DAY_YEAR.matcher(value);
 		if (nameDayYear.matches()) {
 			Integer month = monthFromName(nameDayYear.group(1));
-			return month == null ? null
-					: at(roll(digits(nameDayYear, 3), month, digits(nameDayYear, 2), true),
-							LocalTime.MIDNIGHT);
+			if (month != null) {
+				int year = nameDayYear.group(3) == null
+						? today.getYear()
+						: yearOf(nameDayYear.group(3));
+				return atClock(roll(year, month, digits(nameDayYear, 2), true), nameDayYear, 4);
+			}
+			// Not a month after all: fall through rather than answering null,
+			// because `[A-Za-z]+` is broad enough to shadow another branch.
+		}
+		Matcher dayName = DAY_MONTHNAME.matcher(value);
+		if (dayName.matches()) {
+			Integer month = monthFromName(dayName.group(2));
+			if (month != null) {
+				return at(roll(today.getYear(), month, digits(dayName, 1), true), LocalTime.MIDNIGHT);
+			}
+		}
+		Matcher nameOnly = MONTHNAME_ONLY.matcher(value);
+		if (nameOnly.matches()) {
+			Integer month = monthFromName(nameOnly.group(1));
+			if (month != null) {
+				// `Apr` keeps the reference DAY -- measured against a 31st, where
+				// it rolls into the next month. `Apr 2026` is the first instead.
+				int year = nameOnly.group(2) == null ? today.getYear() : yearOf(nameOnly.group(2));
+				int day = nameOnly.group(2) == null ? today.getDayOfMonth() : 1;
+				return at(roll(year, month, day, true), LocalTime.MIDNIGHT);
+			}
 		}
 		return timeOnly(value, today, reference);
 	}
@@ -338,6 +403,11 @@ public final class LegacyPhpStrtotime {
 	 * fall back to being a year while six digits have nowhere left to go.
 	 */
 	private static LocalDateTime timeOnly(String value, LocalDate today, LocalDateTime reference) {
+		Matcher clock = CLOCK_TIME.matcher(value);
+		if (clock.matches()) {
+			Long seconds = clockSeconds(clock, 1);
+			return seconds == null ? null : today.atStartOfDay().plusSeconds(seconds);
+		}
 		Matcher four = FOUR_DIGITS.matcher(value);
 		if (four.matches()) {
 			int hour = digits(four, 1);
@@ -403,6 +473,74 @@ public final class LegacyPhpStrtotime {
 
 	private static int digits(Matcher matcher, int group) {
 		return Integer.parseInt(matcher.group(group));
+	}
+
+	/**
+	 * A date plus whatever clock the match carries, or midnight when it carries
+	 * none. A clock that is present but out of range makes the whole value
+	 * unparseable, exactly as PHP's {@code false} does.
+	 */
+	private static LocalDateTime atClock(LocalDate date, Matcher matcher, int firstGroup) {
+		if (date == null) {
+			return null;
+		}
+		if (matcher.group(firstGroup) == null) {
+			return date.atStartOfDay();
+		}
+		Long seconds = clockSeconds(matcher, firstGroup);
+		return seconds == null ? null : date.atStartOfDay().plusSeconds(seconds);
+	}
+
+	/**
+	 * Seconds since midnight for a {@link #CLOCK} match, or {@code null} where
+	 * {@code strtotime()} returns {@code false}.
+	 *
+	 * <p>The result can exceed a day: hour 24 is legal and rolls into the next
+	 * one ({@code 24:01} is 00:01 tomorrow), and second 60 is the leap second,
+	 * which rolls a minute ({@code 11:33:60} is 11:34:00). Second 61 is not
+	 * legal, and minute 60 is not legal either -- the two fields do <em>not</em>
+	 * share a rule, and all four of those were measured rather than assumed.
+	 *
+	 * <p>A meridiem tightens everything: the hour must be 1 to 12 ({@code 00:03 AM}
+	 * and {@code 13:03 PM} are both false), and the minute and second must be
+	 * written with two digits ({@code 1:5 PM} is false while a bare {@code 11:5}
+	 * is 11:05).
+	 */
+	private static Long clockSeconds(Matcher matcher, int firstGroup) {
+		String hourText = matcher.group(firstGroup);
+		String minuteText = matcher.group(firstGroup + 1);
+		String secondText = matcher.group(firstGroup + 2);
+		String meridiem = matcher.group(firstGroup + 3);
+
+		int hour = Integer.parseInt(hourText);
+		int minute = Integer.parseInt(minuteText);
+		int second = secondText == null ? 0 : Integer.parseInt(secondText);
+
+		if (minute > 59 || second > 60) {
+			return null;
+		}
+		if (meridiem == null) {
+			if (hour > 24) {
+				return null;
+			}
+		} else {
+			if (hour < 1 || hour > 12 || minuteText.length() != 2
+					|| (secondText != null && secondText.length() != 2)) {
+				return null;
+			}
+			hour = (hour % 12) + (Character.toUpperCase(meridiem.charAt(0)) == 'P' ? 12 : 0);
+		}
+		return (long) hour * 3600L + (long) minute * 60L + second;
+	}
+
+	/**
+	 * A year token of one to four digits. Four digits are literal; anything
+	 * shorter goes through {@link #twoDigitYear}, so {@code 026} and {@code 26}
+	 * are both 2026 and {@code 1} is 2001 -- measured.
+	 */
+	private static int yearOf(String text) {
+		int year = Integer.parseInt(text);
+		return text.length() == 4 ? year : twoDigitYear(year);
 	}
 
 }

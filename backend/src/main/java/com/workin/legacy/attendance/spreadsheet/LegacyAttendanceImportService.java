@@ -14,6 +14,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyJsonBody;
+import com.workin.legacy.LegacyPdoException;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.notifications.LegacyNotifications;
@@ -37,14 +38,25 @@ import com.workin.legacy.wire.LegacyApiException;
  * <li>the envelope, chosen from the format detected in step 3.</li>
  * </ol>
  *
- * <h2>Two catches, two very different outcomes</h2>
+ * <h2>Two catches, and the surprising thing is which one claims SQL</h2>
  * <p>{@code catch (RuntimeException)} rolls back and turns the message into a
  * 400: a key beginning {@code attendance_excel_} becomes the message key
  * itself, and anything else becomes {@code invalid_file_type} with the raw
  * message in {@code data}. {@code catch (Throwable)} rolls back and
- * <b>rethrows</b>, which under D-084 is the deterministic 500. So a malformed
- * spreadsheet is a 400 with a reason and a database failure is a 500 with
- * nothing -- and both leave the table untouched.
+ * <b>rethrows</b>, which under D-084 is the deterministic 500.
+ *
+ * <p><b>A database failure takes the first branch, not the second.</b>
+ * {@code apis/config/pdo.php} sets {@code PDO::ERRMODE_EXCEPTION} and PHP's
+ * {@code PDOException extends RuntimeException}, so a MariaDB constraint
+ * violation is a 400 carrying the driver's own message -- see
+ * {@link com.workin.legacy.LegacyPdoException}, which exists precisely to keep
+ * that distinguishable from a genuine internal error. The Throwable branch is
+ * left for failures PHP would not have called a {@code RuntimeException}.
+ *
+ * <p>Both branches roll back, and neither swallows a rollback that itself
+ * fails: PHP calls {@code $pdo->rollBack()} inside the catch body with no
+ * nested catch, so a failing rollback escapes and masks the mapped failure. A
+ * parser 400 must not survive a transaction that would not roll back.
  *
  * <h2>What "inserted == 0" does and does not do</h2>
  * <p>Zero inserts with <em>no</em> errors is
@@ -219,44 +231,85 @@ public class LegacyAttendanceImportService {
 	 */
 	private Map<String, Object> runImport(
 			long companyId, byte[] content, Map<String, Object> mappings) {
-		Connection connection = null;
-		boolean autoCommit = true;
+		// `$pdo = getDB(); $pdo->beginTransaction();` sit *above* the try, so a
+		// failure in either is uncaught in PHP and is D-084 here. Only what is
+		// inside the try can become a 400.
+		Connection connection = open();
+		boolean autoCommit = autoCommitOf(connection);
+
 		try {
-			connection = dataSource.getConnection();
-			autoCommit = connection.getAutoCommit();
-			connection.setAutoCommit(false);
-			LegacyAttendanceImportStore store = new LegacyAttendanceImportStore(connection);
-			Map<String, Object> result = LegacyAttendanceImporter.importPunchLog(
-					content, companyId, store, mappings, clock.now(), clock.offset());
-			connection.commit();
-			return result;
-		} catch (LegacyAttendanceImportException ex) {
-			rollback(connection);
-			// `catch (RuntimeException $e)`: the message decides the answer.
-			String key = ex.getMessage();
-			if (key != null && key.startsWith("attendance_excel_")) {
-				throw new LegacyApiException(400, key);
+			try {
+				connection.setAutoCommit(false);
+			} catch (SQLException ex) {
+				throw new IllegalStateException("beginTransaction", ex);
 			}
-			throw new LegacyApiException(400, "invalid_file_type", key);
-		} catch (RuntimeException | SQLException ex) {
-			// `catch (Throwable $e) { $pdo->rollBack(); throw $e; }` -- D-084's
-			// generic 500, with nothing about the failure on the wire.
-			rollback(connection);
-			throw ex instanceof RuntimeException runtime ? runtime : new IllegalStateException(ex);
+
+			try {
+				LegacyAttendanceImportStore store = new LegacyAttendanceImportStore(connection);
+				Map<String, Object> result = LegacyAttendanceImporter.importPunchLog(
+						content, companyId, store, mappings, clock.now(), clock.offset());
+				// commit() is inside the try in PHP too, so a commit failure is
+				// a PDOException caught by the first catch -- a 400, not a 500.
+				commit(connection);
+				return result;
+			} catch (LegacyAttendanceImportException | LegacyPdoException ex) {
+				// `catch (RuntimeException $e)`. PHP's PDOException *is* a
+				// RuntimeException, so a MariaDB constraint failure lands here
+				// rather than in the Throwable branch -- which is the whole
+				// reason LegacyPdoException exists as a distinct type. Every
+				// other Java RuntimeException keeps its D-084 treatment below.
+				//
+				// rollBack() is called here, not in a helper that swallows: PHP
+				// runs it inside the catch body with no nested catch, so a
+				// rollback that throws escapes and masks the mapped failure.
+				connection.rollback();
+				String key = ex.getMessage();
+				if (key != null && key.startsWith("attendance_excel_")) {
+					throw new LegacyApiException(400, key);
+				}
+				throw new LegacyApiException(400, "invalid_file_type", key);
+			} catch (RuntimeException ex) {
+				// `catch (Throwable $e) { $pdo->rollBack(); throw $e; }` --
+				// D-084's generic 500, with nothing about the failure on the
+				// wire. Same rollback rule: not swallowed.
+				connection.rollback();
+				throw ex;
+			}
+		} catch (SQLException ex) {
+			// Only a failed rollback reaches here, because every other SQL
+			// failure is already a LegacyPdoException. PHP has no catch around
+			// its rollBack() either, so this masks the original exception and
+			// becomes an unexpected failure -- deliberately, since a parser 400
+			// must not survive a transaction that would not roll back.
+			throw new IllegalStateException("rollBack", ex);
 		} finally {
 			close(connection, autoCommit);
 		}
 	}
 
-	private static void rollback(Connection connection) {
-		if (connection == null) {
-			return;
-		}
+	/** {@code getDB()}: a failure here is above the try, so it is never a 400. */
+	private Connection open() {
 		try {
-			connection.rollback();
-		} catch (SQLException ignored) { // NOPMD - a failed rollback must not mask the original failure
-			// PHP's rollBack() can throw too, and when it does the original
-			// exception is what the client sees. Same here.
+			return dataSource.getConnection();
+		} catch (SQLException ex) {
+			throw new IllegalStateException("getDB", ex);
+		}
+	}
+
+	private static boolean autoCommitOf(Connection connection) {
+		try {
+			return connection.getAutoCommit();
+		} catch (SQLException ex) {
+			throw new IllegalStateException("getAutoCommit", ex);
+		}
+	}
+
+	/** {@code $pdo->commit()} -- a PDOException, so the first catch claims it. */
+	private static void commit(Connection connection) {
+		try {
+			connection.commit();
+		} catch (SQLException ex) {
+			throw LegacyPdoException.from(ex);
 		}
 	}
 
