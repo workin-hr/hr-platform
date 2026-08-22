@@ -1192,7 +1192,7 @@ unmerged PR.
 | Follow-up | If hr-platform#22 ever makes delivery real and the volume proves unacceptable, suppression becomes its own decision at that point -- not an extension of this one. |
 | Evidence | `hr-legacy/apis/api/shifts/update.php:82-83` (`$time_changed` from key presence and non-null, never from a value comparison), `:85-98` (the broadcast, outside any transaction), `:47-66` (the `COALESCE` update that precedes it); `apis/api/shifts/update.php:20-28` (the lookup that omits `is_active`). |
 
-## D-090: Wave 12.5 Ports Two Functions Of `official_holidays_helper.php` And Leaves The Other Seven To Their Consuming Waves
+## D-090: Wave 12.5 Ports Two Functions Of `official_holidays_helper.php` And Leaves The Other Nine To Their Consuming Waves
 
 | Field | Value |
 |---|---|
@@ -1200,7 +1200,7 @@ unmerged PR.
 | Status | Accepted 2026-08-22, owner disposition on the Wave 12.5 discovery (PR #111). |
 | Owner | Repository owner, explicit direction in this conversation, 2026-08-22. |
 | Related ADR | `docs/adr/ADR-0011-phase-sequencing.md`; **D-4**, which moved `company_settings` to item 13; **D-054** and **D-073**, which set the wave sequence. |
-| Reason | A helper file is not a wave boundary -- its call sites are. Seven of these functions are attendance (12.6) and payroll (12.8/12.9) consumers, and several read `company_setting_values` through `company_setting_selected_values()`, which D-4 assigned to item 13. Porting the whole file to keep it "together" would drag item 13's dependency into a wave that has no endpoint needing it, and would ship untested code whose only real callers do not exist yet. |
+| Reason | A helper file is not a wave boundary -- its call sites are. Nine of these eleven functions are attendance (12.6) and payroll (12.8/12.9) consumers, and several read `company_setting_values` through `company_setting_selected_values()`, which D-4 assigned to item 13. Porting the whole file to keep it "together" would drag item 13's dependency into a wave that has no endpoint needing it, and would ship untested code whose only real callers do not exist yet. |
 | Impact | Wave 12.5's helper surface is two functions: a strict `Y-m-d` round-trip normaliser that silently drops invalid entries and deduplicates, and a company-scoped single-row fetch. The waves that call the remaining nine port them when they port their call sites, and inherit this decision rather than re-deciding the boundary. No item 13 dependency enters Phase 1 through this wave. |
 | Follow-up | Wave 12.6 and Waves 12.8/12.9 each port the subset their endpoints call. Whichever wave first needs `company_setting_selected_values()` must confirm item 13's status before proceeding, since D-4 still owns it. |
 | Evidence | `hr-legacy/apis/helpers/official_holidays_helper.php` (all eleven functions); call sites in this wave are `company_official_holidays/create.php:34-40` and `update.php:38-43` (`official_holidays_normalize_dates`), and `one.php:20`, `create.php:52,70`, `update.php:25,60`, `delete.php:20` (`official_holiday_assert_company_row`); `official_holidays_working_days_in_range()` and `official_holidays_working_credit_details_for_employee()` both call `company_setting_selected_values(..., CompanySettingEnum::WEEKLY_OFF_DAYS)`, the item 13 dependency. |
