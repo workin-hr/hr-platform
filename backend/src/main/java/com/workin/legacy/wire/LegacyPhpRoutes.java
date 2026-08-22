@@ -60,6 +60,7 @@ public final class LegacyPhpRoutes {
 		"/apis/api/hr_employees/**",
 		"/apis/api/shifts/**",
 		"/apis/api/request_types/**",
+		"/apis/api/company_official_holidays/**",
 	};
 
 	private LegacyPhpRoutes() {

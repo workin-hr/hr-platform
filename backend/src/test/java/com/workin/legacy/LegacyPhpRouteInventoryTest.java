@@ -99,19 +99,30 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/request_types/one.php",
 			"/apis/api/request_types/update.php");
 
+	/** Wave 12.5's {@code company_official_holidays} slice: five endpoints. */
+	private static final List<String> WAVE_125_OFFICIAL_HOLIDAY_ROUTES = List.of(
+			"/apis/api/company_official_holidays/create.php",
+			"/apis/api/company_official_holidays/delete.php",
+			"/apis/api/company_official_holidays/list.php",
+			"/apis/api/company_official_holidays/one.php",
+			"/apis/api/company_official_holidays/update.php");
+
 	/**
-	 * Every route the application is expected to map, composed from the slice
-	 * lists above.
-	 *
-	 * <p>Wave 12.5 adds one more group as it lands:
-	 * {@code WAVE_125_OFFICIAL_HOLIDAY_ROUTES} (5) in slice 4. It is named here
-	 * rather than stubbed empty, because an empty list would satisfy the
-	 * inventory while claiming coverage that does not exist.
+	 * Wave 12.5's three slices together. All three now exist, so this is the
+	 * whole wave and {@link #theWave125WaveIsCompleteAtFifteenEndpoints}
+	 * asserts the discovery's count against it.
 	 */
+	private static final List<String> WAVE_125_ROUTES = Stream.of(
+					WAVE_125_SHIFT_ROUTES,
+					WAVE_125_REQUEST_TYPE_ROUTES,
+					WAVE_125_OFFICIAL_HOLIDAY_ROUTES)
+			.flatMap(List::stream)
+			.toList();
+
+	/** Every route the application is expected to map. */
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 					WAVE_124_ROUTES,
-					WAVE_125_SHIFT_ROUTES,
-					WAVE_125_REQUEST_TYPE_ROUTES)
+					WAVE_125_ROUTES)
 			.flatMap(List::stream)
 			.sorted()
 			.toList();
@@ -180,12 +191,28 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
+	void theWave125OfficialHolidaySliceIsItsFullFiveEndpoints() {
+		assertThat(WAVE_125_OFFICIAL_HOLIDAY_ROUTES).hasSize(5);
+		assertThat(WAVE_125_OFFICIAL_HOLIDAY_ROUTES).allSatisfy(
+				route -> assertThat(route).startsWith("/apis/api/company_official_holidays/"));
+	}
+
+	@Test
+	void theWave125WaveIsCompleteAtFifteenEndpoints() {
+		// All three slices are delivered, so the aggregate can finally be
+		// checked against the accepted discovery's own number: fifteen
+		// endpoints, five per module. Until slice 4 this could only be asserted
+		// per slice, because a wave-sized constant holding a third of the wave
+		// would have misstated the contract.
+		assertThat(WAVE_125_ROUTES).hasSize(15);
+		assertThat(WAVE_125_ROUTES).doesNotHaveDuplicates();
+	}
+
+	@Test
 	void noRouteIsListedTwiceAcrossTheWaves() {
 		// A duplicate would hide a missing endpoint behind a matching count.
 		assertThat(EXPECTED_ROUTES).doesNotHaveDuplicates();
-		assertThat(EXPECTED_ROUTES)
-				.hasSize(WAVE_124_ROUTES.size() + WAVE_125_SHIFT_ROUTES.size()
-						+ WAVE_125_REQUEST_TYPE_ROUTES.size());
+		assertThat(EXPECTED_ROUTES).hasSize(WAVE_124_ROUTES.size() + WAVE_125_ROUTES.size());
 	}
 
 	@Test
@@ -196,7 +223,7 @@ class LegacyPhpRouteInventoryTest {
 		List<String> prefixes = List.of(com.workin.legacy.wire.LegacyPhpRoutes.CONTROLLER_GUARDED);
 		assertThat(prefixes).containsExactly(
 				"/apis/api/employees/**", "/apis/api/hr_employees/**", "/apis/api/shifts/**",
-				"/apis/api/request_types/**");
+				"/apis/api/request_types/**", "/apis/api/company_official_holidays/**");
 
 		for (String prefix : prefixes) {
 			String base = prefix.substring(0, prefix.length() - "**".length());
