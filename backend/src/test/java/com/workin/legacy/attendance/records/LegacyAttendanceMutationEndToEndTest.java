@@ -450,6 +450,41 @@ class LegacyAttendanceMutationEndToEndTest {
 		assertThat(status(send(UPDATE + "?id=0", HttpMethod.PUT, ADMIN_1, "{}"))).isEqualTo(400);
 	}
 
+	/**
+	 * PHP reads the scoped row and answers 404 BEFORE it calls body(), so a
+	 * missing or foreign id wins even when the body is a scalar that
+	 * body() would reject.
+	 *
+	 * <p>Reading the body first -- which an earlier revision of the
+	 * controller did -- turned these 404s into D-084 500s.
+	 */
+	@Test
+	void aScalarBodyDoesNotPreemptTheNotFoundAnswer() {
+		for (String scalar : java.util.List.of("42", "true", "\"text\"")) {
+			assertThat(status(send(UPDATE + "?id=999999", HttpMethod.PUT, ADMIN_1, scalar)))
+					.describedAs("missing id with body %s", scalar).isEqualTo(404);
+			assertThat(status(send(UPDATE + "?id=" + ATT_OTHER_COMPANY,
+					HttpMethod.PUT, ADMIN_1, scalar)))
+					.describedAs("foreign id with body %s", scalar).isEqualTo(404);
+		}
+	}
+
+	/**
+	 * The other half of the ordering proof: once the row IS found, the body
+	 * really is read, and a scalar reaches D-084. Without this, suppressing
+	 * body parsing entirely would also make the test above pass.
+	 */
+	@Test
+	void anExistingRowWithAScalarBodyStillReachesTheGenericFailure() {
+		long id = insertAttendance(EMPLOYEE_1, "2026-11-01 09:00:00", null, null);
+
+		ResponseEntity<Map<String, Object>> response =
+				send(UPDATE + "?id=" + id, HttpMethod.PUT, ADMIN_1, "42");
+
+		assertThat(response.getStatusCode().value()).isEqualTo(500);
+		assertThat(response.getBody().get("message"))
+				.isEqualTo("Internal server error");
+	}
 	@Test
 	void onlyCompanyAdminAndHrMayUpdate() {
 		long id = insertAttendance(EMPLOYEE_1, "2026-10-01 09:00:00", null, null);

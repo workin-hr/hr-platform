@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import org.springframework.stereotype.Service;
 
@@ -19,30 +20,41 @@ import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.wire.LegacyApiException;
 
 /**
- * `hr-legacy/apis/api/attendance/{one,delete,delete_range}.php`
- * (Wave 12.6 slice 1a-i).
+ * `hr-legacy/apis/api/attendance/{one,create,update,delete,delete_range}.php`
+ * -- Wave 12.6 slices 1a-i and 1a-ii.
  *
- * <p>These three are the subset of the attendance module whose function-level
- * closure reaches neither `schedule_helper`, nor `company_settings`, nor
- * `payroll_calculation` (Wave 12.6 discovery §G.1), so they are implementable
- * ahead of D-091. No settings or payroll code appears here.
+ * <p>None of the five reaches `schedule_helper`, `company_settings` or
+ * `payroll_calculation` (Wave 12.6 discovery, section G.1), which is why they
+ * land ahead of D-091. No settings or payroll code appears here.
  *
- * <p>`create.php` and `update.php` are deliberately <b>not</b> in this slice:
- * both call `strtotime()` and then read `date('H:i:s', $ts)` to decide whether
- * a punch is real, and {@link LegacyPhpStrtotime#dateOf} projects a
- * {@link LocalDate}, discarding the time-of-day that test needs. The grammar
- * itself already resolves those inputs -- ISO datetimes, `now`, bare `HHMM` --
- * so what slice 1a-t adds is a timestamp-preserving entry point, not a second
- * parser.
+ * <h2>The two behaviours most likely to be "tidied"</h2>
+ * <ul>
+ * <li>`update.php` <b>deletes</b> the row when both punches are cleared and no
+ * exception remains, and still answers `attendance_record_updated`. It is an
+ * update endpoint that can destroy the resource.</li>
+ * <li>`create.php` validates the exception type against the company and its
+ * active flag; `update.php` does <b>not</b>, and D-095 adds only an ownership
+ * preflight there, never an active check. The asymmetry is legacy's.</li>
+ * </ul>
  */
 @Service
 public class LegacyAttendanceService {
 
 	/**
-	 * `create.php:96` and `:38` -- a hard-coded Arabic string returned as
-	 * `Response::REASON`, not a catalog key. Preserved byte-for-byte: a
-	 * translation key would change the wire response for every client, and the
-	 * Wave 12.6 discovery records that decision (J.5, no decision number).
+	 * `create.php:96` -- a hard-coded Arabic string passed as
+	 * `Response::REASON`, kept byte-for-byte so the port matches the source.
+	 *
+	 * <p><b>It is not observable on the wire.</b> `fail()` takes that map as
+	 * `$replace`, a message-placeholder map, and the `invalid_input` catalog
+	 * entry has no `{reason}` token -- `en.php:303` is plain `Invalid input`
+	 * and `ar.php:306` its Arabic equivalent. Other keys do carry `{reason}`
+	 * (`company_rejected`, `employees_excel_invalid_template`); this one does
+	 * not. So a caller receives a bare `Invalid input` at 422 and never sees
+	 * this sentence.
+	 *
+	 * <p>The constant stays because the source has it and a reader comparing
+	 * the two should find it; the assertion that matters is on the message a
+	 * client actually gets.
 	 */
 	static final String DUPLICATE_PUNCH_REASON =
 			"\u0644\u0627 \u064a\u0645\u0643\u0646 \u062a\u0633\u062c\u064a\u0644 "
@@ -198,7 +210,7 @@ public class LegacyAttendanceService {
 				: value(body, "method");
 
 		long id = store.insert(employeeId, checkIn, checkOut, method, exceptionTypeId);
-		return store.recordFull(companyId, id);
+		return requirePublicRow(store.recordFull(companyId, id));
 	}
 
 	/** The outcome of `update.php` -- it can delete the row it was asked to update. */
@@ -217,11 +229,19 @@ public class LegacyAttendanceService {
 	 * final midnight normalization. Putting it earlier would replace legacy
 	 * failures that must still happen first.
 	 */
-	public UpdateOutcome update(long companyId, long id, Map<String, Object> body) {
+	public UpdateOutcome update(
+			long companyId, long id, Supplier<Map<String, Object>> bodySupplier) {
+		// The scoped row is read BEFORE the body, because PHP does:
+		//   attendance_record_full(...) -> 404 -> body()
+		// A missing or foreign id therefore answers 404 even when the body
+		// is a scalar that body() would choke on. Reading the body first
+		// would turn that 404 into a 500.
 		Map<String, Object> existing = store.recordFull(companyId, id);
 		if (existing == null) {
 			throw new LegacyApiException(404, "not_found");
 		}
+
+		Map<String, Object> body = bodySupplier.get();
 
 		boolean clearCheckIn = !LegacyValues.isPhpEmpty(value(body, "clear_check_in"))
 				|| (containsKey(body, "check_in") && isNullOrEmptyString(value(body, "check_in")));
@@ -311,7 +331,7 @@ public class LegacyAttendanceService {
 		}
 
 		store.update(id, newCheckIn, newCheckOut, newException);
-		return new UpdateOutcome(false, store.recordFull(companyId, id));
+		return new UpdateOutcome(false, requirePublicRow(store.recordFull(companyId, id)));
 	}
 
 	/**
@@ -407,6 +427,30 @@ public class LegacyAttendanceService {
 		return new RangeOutcome(data, Map.of("count", String.valueOf(deleted)));
 	}
 
+
+	/**
+	 * `public_row($row)` takes an array, so a post-write re-read that comes
+	 * back null is a PHP TypeError -- and nothing catches it, so D-084 owns the
+	 * response.
+	 *
+	 * <p>Only a concurrent delete or an employee cascade can open that window,
+	 * and legacy has no transaction to close it. What matters is that the race
+	 * must not be quietly converted into a success with the data key omitted:
+	 * the row was written, and the caller would be told nothing went wrong
+	 * while receiving no record.
+	 *
+	 * <p>Deliberately NOT applied to update's hard-delete branch, which calls
+	 * `ok(ATTENDANCE_RECORD_UPDATED, null)` on purpose -- there, an omitted
+	 * data key is the contract.
+	 */
+	private static Map<String, Object> requirePublicRow(Map<String, Object> row) {
+		if (row == null) {
+			// An ordinary exception, not a LegacyApiException: it must reach
+			// D-084's generic 500 rather than a keyed failure.
+			throw new IllegalStateException("attendance public_row received null");
+		}
+		return row;
+	}
 
 	private static Object value(Map<String, Object> body, String key) {
 		return body == null ? null : body.get(key);

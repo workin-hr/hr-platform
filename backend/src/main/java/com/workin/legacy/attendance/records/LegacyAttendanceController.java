@@ -23,15 +23,18 @@ import jakarta.servlet.http.HttpServletRequest;
  * (Wave 12.6 slices 1a-i and 1a-ii).
  *
  * <h2>Authority is checked inside the endpoint, not by `requireAuth`</h2>
- * <p>All three call a <b>bare</b> `requireAuth()`, so every authenticated role
- * passes the guard. `delete.php` and `delete_range.php` then apply their own
- * `in_array($auth['role'], [COMPANY_ADMIN, HR])` test and answer `forbidden`
- * 403 -- which is a different mechanism from passing a role list to
- * `requireAuth`, and a different error path. Reproduced where PHP puts it:
- * after `requireCompanyActive`, before any id is read.
+ * <p>All <b>five</b> routes call a bare `requireAuth()`, so every
+ * authenticated role passes the guard itself. Four of them --
+ * `create.php`, `update.php`, `delete.php` and `delete_range.php` -- then
+ * apply their own `in_array($auth['role'], [COMPANY_ADMIN, HR])` test and
+ * answer `forbidden` 403. That is a different mechanism from passing a role
+ * list to `requireAuth`, and a different error path: a MANAGER authenticates
+ * successfully and is refused afterwards. Reproduced where PHP puts it, after
+ * `requireCompanyActive` and before any id or body is touched.
  *
- * <p>`one.php` has no role list at all. Its access control is per-row and
- * lives in the service, after the record is fetched.
+ * <p>`one.php` has no role list and no in-endpoint role test. Its access
+ * control is per-row and lives in the service, applied after the record is
+ * fetched.
  *
  * <h2>The id key and its failure differ from earlier waves</h2>
  * <p>These endpoints use `(int) ($_GET['id'] ?? 0)` and fail with
@@ -91,8 +94,11 @@ public class LegacyAttendanceController {
 		LegacyRequestContext context = authenticated();
 		requireAdministrative(context);
 		long id = requiredId(request);
+		// The body is passed unread. update() reads the scoped row first and
+		// answers 404 before it ever calls this -- PHP's order, and the reason
+		// a missing id with a scalar body is a 404 rather than a 500.
 		LegacyAttendanceService.UpdateOutcome outcome = attendanceService.update(
-				context.companyId(), id, LegacyJsonBody.read(request));
+				context.companyId(), id, () -> LegacyJsonBody.read(request));
 		return LegacyApiResponse.ok(
 				message(request, "attendance_record_updated"), outcome.row());
 	}
