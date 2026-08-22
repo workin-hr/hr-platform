@@ -135,12 +135,27 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/attendance/create.php",
 			"/apis/api/attendance/update.php");
 
+	/**
+	 * Wave 12.6 slice 1b: the spreadsheet import, and only it.
+	 *
+	 * <p>{@code analyze_excel.php} is the endpoint next to it in PHP and is
+	 * <b>not</b> here: its closure reaches
+	 * {@code attendance_import_expected_for_day()}, and through that
+	 * {@code company_setting_selected_values()} and
+	 * {@code payroll_is_weekly_rest_day()}, which Item 13 and Waves 12.8/12.9
+	 * own. The import's own closure reaches none of them, which is the whole
+	 * reason the two could be separated at all.
+	 */
+	private static final List<String> WAVE_126_ATTENDANCE_1B_ROUTES = List.of(
+			"/apis/api/attendance/import_excel.php");
+
 	/** Every route the application is expected to map. */
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 					WAVE_124_ROUTES,
 					WAVE_125_ROUTES,
 					WAVE_126_ATTENDANCE_1A_I_ROUTES,
-					WAVE_126_ATTENDANCE_1A_II_ROUTES)
+					WAVE_126_ATTENDANCE_1A_II_ROUTES,
+					WAVE_126_ATTENDANCE_1B_ROUTES)
 			.flatMap(List::stream)
 			.sorted()
 			.toList();
@@ -247,11 +262,23 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void wave126HasFiveOfItsEighteenEndpointsMapped() {
-		// The wave is eighteen; five are delivered. Asserted so a later slice
+	void theWave126Slice1bIsTheImportEndpointAlone() {
+		assertThat(WAVE_126_ATTENDANCE_1B_ROUTES)
+				.containsExactly("/apis/api/attendance/import_excel.php");
+		// The sibling endpoint stays blocked, and nothing may map it by
+		// accident: analyze_excel.php reaches the frozen company_settings and
+		// payroll weekly-rest closure that import_excel.php does not.
+		assertThat(EXPECTED_ROUTES).doesNotContain("/apis/api/attendance/analyze_excel.php");
+	}
+
+	@Test
+	void wave126HasSixOfItsEighteenEndpointsMapped() {
+		// The wave is eighteen; six are delivered. Asserted so a later slice
 		// cannot quietly skip one, and so this number is visible in review.
-		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES.size() + WAVE_126_ATTENDANCE_1A_II_ROUTES.size())
-				.isEqualTo(5);
+		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES.size()
+						+ WAVE_126_ATTENDANCE_1A_II_ROUTES.size()
+						+ WAVE_126_ATTENDANCE_1B_ROUTES.size())
+				.isEqualTo(6);
 	}
 
 	@Test
@@ -261,7 +288,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(EXPECTED_ROUTES).hasSize(
 				WAVE_124_ROUTES.size() + WAVE_125_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1A_I_ROUTES.size()
-						+ WAVE_126_ATTENDANCE_1A_II_ROUTES.size());
+						+ WAVE_126_ATTENDANCE_1A_II_ROUTES.size()
+						+ WAVE_126_ATTENDANCE_1B_ROUTES.size());
 	}
 
 	@Test

@@ -35,6 +35,17 @@ public class LegacyNotifications {
 				title, body, notification_type, reference_type, reference_id
 			) VALUES (?, 'employee', ?, ?, ?, ?, ?, ?, ?)""";
 
+	/**
+	 * The same insert for {@code recipient_kind = 'company'}, where
+	 * {@code notification_insert()} forces {@code to_employee_id} to NULL and
+	 * skips the push entirely -- there is no device to send it to.
+	 */
+	private static final String INSERT_COMPANY = """
+			INSERT INTO notifications (
+				company_id, recipient_kind, from_employee_id, to_employee_id,
+				title, body, notification_type, reference_type, reference_id
+			) VALUES (?, 'company', ?, NULL, ?, ?, ?, ?, ?)""";
+
 	private final JdbcTemplate jdbcTemplate;
 	private final LegacyPushDelivery pushDelivery;
 
@@ -76,6 +87,49 @@ public class LegacyNotifications {
 			sent++;
 		}
 		return sent;
+	}
+
+	/**
+	 * {@code notification_to_company($company_id, $type, $title, $body, $from)}
+	 * ({@code helpers/notifications.php:145-166}).
+	 *
+	 * <p>A company-addressed notification, not a broadcast: <b>one</b> row with
+	 * {@code recipient_kind = 'company'} and no recipient employee, rather than
+	 * one row per employee. {@code notification_insert()} nulls
+	 * {@code to_employee_id} for this kind and its push block is guarded on the
+	 * employee kind, so nothing is ever delivered to a device -- which is why
+	 * this method has no {@code try/catch} around a delivery call and why
+	 * hr-platform#22 does not gate it.
+	 *
+	 * <p>{@code attendance/import_excel.php} is the caller, after the
+	 * transaction has committed. A failure here therefore leaves the imported
+	 * attendance rows in place, exactly as PHP does.
+	 *
+	 * @param fromEmployeeId the acting employee; anything non-positive becomes
+	 *        SQL NULL, as {@code notification_normalize_from()} does
+	 * @return the inserted notification id
+	 */
+	public long toCompany(
+			long companyId, Long fromEmployeeId, String type, String title, String body) {
+		KeyHolder keys = new GeneratedKeyHolder();
+		jdbcTemplate.update(connection -> {
+			PreparedStatement statement =
+					connection.prepareStatement(INSERT_COMPANY, PreparedStatement.RETURN_GENERATED_KEYS);
+			statement.setLong(1, companyId);
+			if (fromEmployeeId != null && fromEmployeeId > 0) {
+				statement.setLong(2, fromEmployeeId);
+			} else {
+				statement.setNull(2, java.sql.Types.INTEGER);
+			}
+			statement.setString(3, title);
+			statement.setString(4, body);
+			statement.setString(5, type);
+			// reference_type and reference_id: the caller passes neither.
+			statement.setNull(6, java.sql.Types.VARCHAR);
+			statement.setNull(7, java.sql.Types.INTEGER);
+			return statement;
+		}, keys);
+		return keys.getKey() == null ? 0L : keys.getKey().longValue();
 	}
 
 	/**

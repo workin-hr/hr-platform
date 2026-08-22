@@ -56,6 +56,21 @@ public final class LegacyCsvReader {
 	}
 
 	/**
+	 * The record parser on its own, for a caller that has already decided the
+	 * delimiter and positioned past whatever prefix it means to skip.
+	 *
+	 * <p>Exists because the attendance import's CSV branch is <em>not</em>
+	 * D-085's corrected reader: that decision is scoped to
+	 * {@code employee_excel_load_rows()}, and
+	 * {@code attendance_import_load_rows()} keeps legacy's own inverted BOM
+	 * handling. Both flows still parse records identically once the bytes are
+	 * chosen, so the parser is shared and only the byte positioning differs.
+	 */
+	public static List<List<String>> parseRecords(String text, char delimiter) {
+		return parse(text, delimiter);
+	}
+
+	/**
 	 * {@code fgetcsv()} semantics: double quotes enclose a field, a doubled quote
 	 * inside one is a literal quote, and a newline inside quotes stays part of
 	 * the field -- which the template's multi-line headers depend on.

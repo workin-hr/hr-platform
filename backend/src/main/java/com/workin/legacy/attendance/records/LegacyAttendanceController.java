@@ -5,10 +5,13 @@ import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.multipart.MultipartHttpServletRequest;
 
 import com.workin.legacy.LegacyJsonBody;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.attendance.spreadsheet.LegacyAttendanceImportService;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.auth.LegacyRequestGuard;
 import com.workin.legacy.employees.LegacyEmployee;
@@ -19,15 +22,16 @@ import com.workin.legacy.wire.LegacyMessages;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * `/apis/api/attendance/{one,create,update,delete,delete_range}.php`
- * (Wave 12.6 slices 1a-i and 1a-ii).
+ * `/apis/api/attendance/{one,create,update,delete,delete_range,import_excel}.php`
+ * (Wave 12.6 slices 1a-i, 1a-ii and 1b).
  *
  * <h2>Authority is checked inside the endpoint, not by `requireAuth`</h2>
- * <p>All <b>five</b> routes call a bare `requireAuth()`, so every
- * authenticated role passes the guard itself. Four of them --
- * `create.php`, `update.php`, `delete.php` and `delete_range.php` -- then
- * apply their own `in_array($auth['role'], [COMPANY_ADMIN, HR])` test and
- * answer `forbidden` 403. That is a different mechanism from passing a role
+ * <p>All <b>six</b> routes call a bare `requireAuth()`, so every
+ * authenticated role passes the guard itself. Five of them --
+ * `create.php`, `update.php`, `delete.php`, `delete_range.php` and
+ * `import_excel.php` -- then apply their own
+ * `in_array($auth['role'], [COMPANY_ADMIN, HR])` test and answer
+ * `forbidden` 403. That is a different mechanism from passing a role
  * list to `requireAuth`, and a different error path: a MANAGER authenticates
  * successfully and is refused afterwards. Reproduced where PHP puts it, after
  * `requireCompanyActive` and before any id or body is touched.
@@ -48,13 +52,16 @@ import jakarta.servlet.http.HttpServletRequest;
 public class LegacyAttendanceController {
 
 	private final LegacyAttendanceService attendanceService;
+	private final LegacyAttendanceImportService importService;
 	private final LegacyRequestGuard requestGuard;
 	private final LegacyMessages messages;
 
 	public LegacyAttendanceController(
-			LegacyAttendanceService attendanceService, LegacyRequestGuard requestGuard,
+			LegacyAttendanceService attendanceService,
+			LegacyAttendanceImportService importService, LegacyRequestGuard requestGuard,
 			LegacyMessages messages) {
 		this.attendanceService = attendanceService;
+		this.importService = importService;
 		this.requestGuard = requestGuard;
 		this.messages = messages;
 	}
@@ -132,6 +139,56 @@ public class LegacyAttendanceController {
 				messages.translate(
 						messages.resolveLocale(request), "attendance_range_deleted", outcome.replace()),
 				outcome.data());
+	}
+
+	/**
+	 * `import_excel.php`: POST, admin/HR, a `file` part and an optional
+	 * `mappings` form field.
+	 *
+	 * <p>The two success messages differ in more than wording. XLSX answers
+	 * `imported_xlsx` with an `{inserted}` placeholder, CSV answers
+	 * `imported_csv` with a `{count}` one -- two catalog keys, two placeholder
+	 * names, one number. The choice is made from the format detected in the
+	 * uploaded bytes at the start of the request, not from the filename and not
+	 * from whatever the reader ended up treating the file as.
+	 *
+	 * <p>The notification's title and body are resolved here, because they are
+	 * `t()` calls in PHP and therefore follow the request's locale.
+	 */
+	@RequestMapping("/import_excel.php")
+	public LegacyApiResponse importExcel(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = authenticated();
+		requireAdministrative(context);
+
+		String locale = messages.resolveLocale(request);
+		LegacyAttendanceImportService.Outcome outcome = importService.importExcel(
+				context,
+				multipartFile(request, "file"),
+				request.getParameter("mappings"),
+				inserted -> new String[] {
+					messages.translate(locale, "notif_attendance_imported_title", null),
+					messages.translate(locale, "notif_attendance_imported_body",
+							Map.of("count", String.valueOf(inserted))),
+				});
+
+		String countText = String.valueOf(outcome.inserted());
+		return LegacyApiResponse.ok(
+				outcome.xlsx()
+						? messages.translate(locale, "imported_xlsx", Map.of("inserted", countText))
+						: messages.translate(locale, "imported_csv", Map.of("count", countText)),
+				outcome.result());
+	}
+
+	/**
+	 * `$_FILES['file']`. A request that is not multipart at all, or one without
+	 * that part, is the "no file" PHP sees.
+	 */
+	private static MultipartFile multipartFile(HttpServletRequest request, String partName) {
+		if (request instanceof MultipartHttpServletRequest multipart) {
+			return multipart.getFile(partName);
+		}
+		return null;
 	}
 
 	private static void requireMethod(HttpServletRequest request, String expected) {

@@ -77,6 +77,23 @@ public class LegacyClock {
 	}
 
 	/**
+	 * The offset itself, for the rare caller that needs to turn one of legacy's
+	 * wall-clock values back into a Unix timestamp.
+	 *
+	 * <p>Exactly one does: {@code import_fingerprint_attendance_rows()}'s two
+	 * normalizers end {@code return $ts ? date(...) : null}, testing the
+	 * timestamp for truthiness rather than for {@code false}, so a value that
+	 * resolves to the Unix epoch is reported as unparseable. Deciding that
+	 * needs the offset the wall-clock value is expressed in.
+	 *
+	 * <p>Same resolution and same cache as {@link #today()} and {@link #now()};
+	 * this exposes the value, it does not compute a second one.
+	 */
+	public ZoneOffset offset() {
+		return zoneOffset();
+	}
+
+	/**
 	 * The offset {@code applyRuntimeTimezoneFromConfigs()} would have applied.
 	 * Any failure keeps +02:00, exactly as PHP's {@code catch (Throwable $ignored)}
 	 * does.
