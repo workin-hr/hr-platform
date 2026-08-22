@@ -24,6 +24,7 @@ import com.workin.backend.tenancy.NoTenantScopeException;
 import com.workin.backend.tenancy.TenantScope;
 import com.workin.backend.tenancy.TenantScopeFilter;
 import com.workin.legacy.auth.LegacyTenantContextService;
+import com.workin.legacy.wire.LegacyPhpRoutes;
 
 @Configuration
 @EnableWebSecurity
@@ -128,7 +129,10 @@ public class SecurityConfig {
 			}
 		};
 		http
-			.securityMatcher("/api/legacy/**")
+			// "/apis/**" is legacy's own URL surface (D-021/ADR-0003), which
+			// D-074 makes authoritative for Wave 12.4 onwards; "/api/legacy/**"
+			// stays matched for the modules merged before that decision.
+			.securityMatcher("/api/legacy/**", "/apis/**")
 			.csrf(csrf -> csrf.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.exceptionHandling(exceptions -> exceptions
@@ -137,6 +141,16 @@ public class SecurityConfig {
 			.authorizeHttpRequests(authorize -> authorize
 				.requestMatchers("/error").permitAll()
 				.requestMatchers("/api/legacy/auth/login_employee").permitAll()
+				// Legacy checks the HTTP method before authenticating, so a
+				// wrong-method request with no token is a 405 in PHP, not a
+				// 401. Ending these routes at .authenticated() would reorder
+				// that and answer in the platform error body instead of the
+				// PHP envelope (D-074). LegacyPhpRoutes documents the
+				// convention and the coverage test that keeps it honest: the
+				// listed prefixes authenticate inside the controller, via
+				// LegacyRequestGuard, exactly where PHP does. Everything else
+				// under /apis/** still falls through to .authenticated().
+				.requestMatchers(LegacyPhpRoutes.CONTROLLER_GUARDED).permitAll()
 				.anyRequest().authenticated())
 			.addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class)
 			.addFilterAfter(new TenantScopeFilter(tenantScope, resolver), JwtAuthenticationFilter.class);

@@ -1,0 +1,780 @@
+{
+    "generated_on": "2026-08-21",
+    "dates": [
+        {
+            "input": "2024-03-01",
+            "result": "2024-03-01"
+        },
+        {
+            "input": "2024-03-01 10:30:00",
+            "result": "2024-03-01"
+        },
+        {
+            "input": "2024-3-1",
+            "result": "2024-03-01"
+        },
+        {
+            "input": "1990-01-15",
+            "result": "1990-01-15"
+        },
+        {
+            "input": "15-01-1990",
+            "result": "1990-01-15"
+        },
+        {
+            "input": "01-15-1990",
+            "result": "01-15-1990"
+        },
+        {
+            "input": "15/01/1990",
+            "result": "1990-01-15"
+        },
+        {
+            "input": "01/15/1990",
+            "result": "01/15/1990"
+        },
+        {
+            "input": "1990/01/15",
+            "result": "1990-01-15"
+        },
+        {
+            "input": "15.01.1990",
+            "result": "1990-01-15"
+        },
+        {
+            "input": "2/3/2024",
+            "result": "2024-03-02"
+        },
+        {
+            "input": "13/1/2024",
+            "result": "2024-01-13"
+        },
+        {
+            "input": "31-12-2025",
+            "result": "2025-12-31"
+        },
+        {
+            "input": "29-02-2024",
+            "result": "2024-02-29"
+        },
+        {
+            "input": "30-02-2024",
+            "result": "2024-03-01"
+        },
+        {
+            "input": "1990-02-30",
+            "result": "1990-02-30"
+        },
+        {
+            "input": "Jan 15 1990",
+            "result": "1990-01-15"
+        },
+        {
+            "input": "15 Jan 1990",
+            "result": "1990-01-15"
+        },
+        {
+            "input": "January 15, 1990",
+            "result": "1990-01-15"
+        },
+        {
+            "input": "15-Jan-1990",
+            "result": "1990-01-15"
+        },
+        {
+            "input": "1990",
+            "result": "1990-08-21"
+        },
+        {
+            "input": "0",
+            "result": "0"
+        },
+        {
+            "input": "1",
+            "result": "1899-12-31"
+        },
+        {
+            "input": "59",
+            "result": "1900-02-27"
+        },
+        {
+            "input": "60",
+            "result": "1900-02-28"
+        },
+        {
+            "input": "45352",
+            "result": "2024-03-01"
+        },
+        {
+            "input": "34973",
+            "result": "1995-10-01"
+        },
+        {
+            "input": "99999",
+            "result": "2173-10-13"
+        },
+        {
+            "input": "100000",
+            "result": "2026-08-21"
+        },
+        {
+            "input": "100001",
+            "result": "2026-08-21"
+        },
+        {
+            "input": "45352.5",
+            "result": "2024-03-01"
+        },
+        {
+            "input": "  2024-03-01  ",
+            "result": "2024-03-01"
+        },
+        {
+            "input": "abc",
+            "result": "abc"
+        },
+        {
+            "input": "",
+            "result": null
+        },
+        {
+            "input": "today",
+            "result": "2026-08-21"
+        },
+        {
+            "input": "tomorrow",
+            "result": "2026-08-22"
+        },
+        {
+            "input": "now",
+            "result": "2026-08-21"
+        },
+        {
+            "input": "1-1-1",
+            "result": "2001-01-01"
+        },
+        {
+            "input": "2024-13-01",
+            "result": "2024-13-01"
+        },
+        {
+            "input": "0000-00-00",
+            "result": "0000-00-00"
+        },
+        {
+            "input": "20-08-2026",
+            "result": "2026-08-20"
+        },
+        {
+            "input": "2026-08-21T10:00:00",
+            "result": "2026-08-21"
+        },
+        {
+            "input": null,
+            "result": null
+        }
+    ],
+    "bools": [
+        {
+            "input": "1",
+            "default_minus1": 1,
+            "default_0": 1
+        },
+        {
+            "input": "true",
+            "default_minus1": 1,
+            "default_0": 1
+        },
+        {
+            "input": "yes",
+            "default_minus1": 1,
+            "default_0": 1
+        },
+        {
+            "input": "y",
+            "default_minus1": 1,
+            "default_0": 1
+        },
+        {
+            "input": "نعم",
+            "default_minus1": 1,
+            "default_0": 1
+        },
+        {
+            "input": "مفعل",
+            "default_minus1": 1,
+            "default_0": 1
+        },
+        {
+            "input": "active",
+            "default_minus1": 1,
+            "default_0": 1
+        },
+        {
+            "input": "TRUE",
+            "default_minus1": 1,
+            "default_0": 1
+        },
+        {
+            "input": "Yes",
+            "default_minus1": 1,
+            "default_0": 1
+        },
+        {
+            "input": " نعم ",
+            "default_minus1": 1,
+            "default_0": 1
+        },
+        {
+            "input": "0",
+            "default_minus1": 0,
+            "default_0": 0
+        },
+        {
+            "input": "false",
+            "default_minus1": 0,
+            "default_0": 0
+        },
+        {
+            "input": "no",
+            "default_minus1": 0,
+            "default_0": 0
+        },
+        {
+            "input": "n",
+            "default_minus1": 0,
+            "default_0": 0
+        },
+        {
+            "input": "لا",
+            "default_minus1": 0,
+            "default_0": 0
+        },
+        {
+            "input": "غير مفعل",
+            "default_minus1": 0,
+            "default_0": 0
+        },
+        {
+            "input": "inactive",
+            "default_minus1": 0,
+            "default_0": 0
+        },
+        {
+            "input": "NO",
+            "default_minus1": 0,
+            "default_0": 0
+        },
+        {
+            "input": "maybe",
+            "default_minus1": -1,
+            "default_0": 0
+        },
+        {
+            "input": "2",
+            "default_minus1": -1,
+            "default_0": 0
+        },
+        {
+            "input": "",
+            "default_minus1": -1,
+            "default_0": 0
+        },
+        {
+            "input": "  ",
+            "default_minus1": -1,
+            "default_0": 0
+        },
+        {
+            "input": "نعم ",
+            "default_minus1": 1,
+            "default_0": 1
+        },
+        {
+            "input": "Active",
+            "default_minus1": 1,
+            "default_0": 1
+        },
+        {
+            "input": null,
+            "default_minus1": -1,
+            "default_0": 0
+        }
+    ],
+    "genders": [
+        {
+            "input": "male",
+            "result": "male"
+        },
+        {
+            "input": "M",
+            "result": "male"
+        },
+        {
+            "input": "ذكر",
+            "result": "male"
+        },
+        {
+            "input": "رجل",
+            "result": "male"
+        },
+        {
+            "input": "female",
+            "result": "female"
+        },
+        {
+            "input": "F",
+            "result": "female"
+        },
+        {
+            "input": "أنثى",
+            "result": "female"
+        },
+        {
+            "input": "انثى",
+            "result": "female"
+        },
+        {
+            "input": "امرأة",
+            "result": "female"
+        },
+        {
+            "input": "امراة",
+            "result": "female"
+        },
+        {
+            "input": "Male",
+            "result": "male"
+        },
+        {
+            "input": "FEMALE",
+            "result": "female"
+        },
+        {
+            "input": "other",
+            "result": null
+        },
+        {
+            "input": "",
+            "result": null
+        },
+        {
+            "input": "  ",
+            "result": null
+        },
+        {
+            "input": "م",
+            "result": null
+        },
+        {
+            "input": "ا",
+            "result": null
+        },
+        {
+            "input": null,
+            "result": null
+        }
+    ],
+    "phone_cells": [
+        {
+            "input": "01012345678",
+            "result": "01012345678"
+        },
+        {
+            "input": " 01012345678 ",
+            "result": "01012345678"
+        },
+        {
+            "input": "1.012345678E9",
+            "result": "1012345678"
+        },
+        {
+            "input": "1012345678.0",
+            "result": "1012345678"
+        },
+        {
+            "input": "1012345678.00",
+            "result": "1012345678"
+        },
+        {
+            "input": "+201012345678",
+            "result": "+201012345678"
+        },
+        {
+            "input": "",
+            "result": ""
+        },
+        {
+            "input": "  ",
+            "result": ""
+        },
+        {
+            "input": "1.5E3",
+            "result": "1500"
+        },
+        {
+            "input": "10.5",
+            "result": "10.5"
+        },
+        {
+            "input": null,
+            "result": ""
+        },
+        {
+            "input": 1012345678,
+            "kind": "int",
+            "result": "1012345678"
+        },
+        {
+            "input": 1012345678,
+            "kind": "float",
+            "result": "1012345678"
+        }
+    ],
+    "assoc_rows": [
+        {
+            "label": "exact",
+            "row": [
+                "1",
+                "2",
+                "3"
+            ],
+            "result": {
+                "a": "1",
+                "b": "2",
+                "c": "3"
+            }
+        },
+        {
+            "label": "short",
+            "row": [
+                "1"
+            ],
+            "result": {
+                "a": "1",
+                "b": null,
+                "c": null
+            }
+        },
+        {
+            "label": "long",
+            "row": [
+                "1",
+                "2",
+                "3",
+                "4",
+                "5"
+            ],
+            "result": {
+                "a": "1",
+                "b": "2",
+                "c": "3"
+            }
+        },
+        {
+            "label": "empty",
+            "row": [],
+            "result": {
+                "a": null,
+                "b": null,
+                "c": null
+            }
+        },
+        {
+            "label": "no header",
+            "row": [
+                "1"
+            ],
+            "result": null
+        }
+    ],
+    "row_flags": [
+        {
+            "label": "all empty",
+            "row": {
+                "first_name": "",
+                "last_name": null,
+                "employee_code": "   "
+            },
+            "empty": true,
+            "hint": false,
+            "example": false
+        },
+        {
+            "label": "has value",
+            "row": {
+                "first_name": "Nour",
+                "last_name": "",
+                "employee_code": ""
+            },
+            "empty": false,
+            "hint": false,
+            "example": false
+        },
+        {
+            "label": "zero string",
+            "row": {
+                "first_name": "0"
+            },
+            "empty": false,
+            "hint": false,
+            "example": false
+        },
+        {
+            "label": "arabic example",
+            "row": {
+                "employee_code": "مثال: 1001",
+                "first_name": "x"
+            },
+            "empty": false,
+            "hint": true,
+            "example": true
+        },
+        {
+            "label": "english example",
+            "row": {
+                "first_name": "Example row"
+            },
+            "empty": false,
+            "hint": true,
+            "example": true
+        },
+        {
+            "label": "hint first name",
+            "row": {
+                "first_name": "الاسم الأول (اجباري)"
+            },
+            "empty": false,
+            "hint": true,
+            "example": false
+        },
+        {
+            "label": "hint shift",
+            "row": {
+                "shift_name": "الوردية (اجباري)"
+            },
+            "empty": false,
+            "hint": true,
+            "example": false
+        },
+        {
+            "label": "hint english branch",
+            "row": {
+                "branch_name": "Branch (required)"
+            },
+            "empty": false,
+            "hint": true,
+            "example": false
+        },
+        {
+            "label": "real row",
+            "row": {
+                "first_name": "Nour",
+                "last_name": "Adel",
+                "employee_code": "7001",
+                "shift_name": "night watch"
+            },
+            "empty": false,
+            "hint": false,
+            "example": false
+        },
+        {
+            "label": "salary hint",
+            "row": {
+                "salary_basic": "الراتب الأساسي (اجباري)"
+            },
+            "empty": false,
+            "hint": true,
+            "example": false
+        },
+        {
+            "label": "phone hint",
+            "row": {
+                "phone": "رقم التليفون (اختياري)"
+            },
+            "empty": false,
+            "hint": true,
+            "example": false
+        }
+    ],
+    "display_rows": [
+        {
+            "row": {
+                "is_mobile_attendance_enabled": "yes",
+                "gender": "male",
+                "birth_date": "34973",
+                "hire_date": "15/01/1990",
+                "first_name": "Nour"
+            },
+            "result": {
+                "is_mobile_attendance_enabled": "نعم",
+                "gender": "ذكر",
+                "birth_date": "1995-10-01",
+                "hire_date": "1990-01-15",
+                "first_name": "Nour"
+            }
+        },
+        {
+            "row": {
+                "is_mobile_attendance_enabled": "لا",
+                "gender": "F",
+                "birth_date": "",
+                "hire_date": null
+            },
+            "result": {
+                "is_mobile_attendance_enabled": "لا",
+                "gender": "أنثى",
+                "birth_date": "",
+                "hire_date": null
+            }
+        },
+        {
+            "row": {
+                "is_mobile_attendance_enabled": "maybe",
+                "gender": "other"
+            },
+            "result": {
+                "is_mobile_attendance_enabled": "maybe",
+                "gender": "other"
+            }
+        },
+        {
+            "row": {
+                "first_name": "no date keys at all"
+            },
+            "result": {
+                "first_name": "no date keys at all"
+            }
+        }
+    ],
+    "error_messages": [
+        {
+            "label": "empty context",
+            "row": [],
+            "messages": [
+                "الاسم الأول مطلوب",
+                "الاسم الأخير مطلوب",
+                "كود الموظف مطلوب",
+                "كود الموظف يجب أن يكون أرقاماً فقط",
+                "كود الموظف مستخدم مسبقاً في الشركة",
+                "كود الموظف مستخدم مسبقاً في الشركة",
+                "كود الموظف مكرر داخل الملف",
+                "رقم التليفون مستخدم مسبقاً",
+                "رقم التليفون مستخدم مسبقاً",
+                "ساعات العمل مطلوبة",
+                "الوردية مطلوبة",
+                "الوردية غير موجودة — اكتب اسم وردية مضافتة في الشركة",
+                "الفرع مطلوب — أضف الفروع في النظام أولاً ثم اكتب اسم الفرع",
+                "الفرع غير موجود — أضف الفرع في النظام أولاً أو اكتب اسم فرع موجود",
+                "القسم مطلوب — أضف الأقسام في النظام أولاً ثم اكتب اسم القسم",
+                "القسم غير موجود — أضف القسم في النظام أولاً أو اكتب اسم قسم موجود",
+                "القسم لا ينتمي للفرع المحدد",
+                "المسمى الوظيفي مطلوب — أضف المسميات في النظام أولاً ثم اكتب الاسم",
+                "المسمى الوظيفي غير موجود — أضف المسمى في النظام أولاً أو اكتب اسم مسمى موجود",
+                "المسمى الوظيفي لا ينتمي للقسم المحدد",
+                "حضور من الموبايل مطلوب — اكتب نعم أو لا",
+                "حضور من الموبايل غير صالح — اكتب نعم أو لا",
+                "رقم التلفون غير صالح لهذه الدولة (مثال: 010… أو 10…)",
+                "رقم التلفون غير صالح لهذه الدولة",
+                "الراتب الأساسي مطلوب",
+                "تعذّر إنشاء الموظف. راجع البيانات وحاول مرة أخرى",
+                "something_unmapped"
+            ],
+            "field_errors": {
+                "first_name": "الاسم الأول مطلوب",
+                "last_name": "الاسم الأخير مطلوب",
+                "employee_code": "كود الموظف مطلوب\nكود الموظف يجب أن يكون أرقاماً فقط\nكود الموظف مستخدم مسبقاً في الشركة\nكود الموظف مستخدم مسبقاً في الشركة\nكود الموظف مكرر داخل الملف",
+                "phone": "رقم التليفون مستخدم مسبقاً\nرقم التليفون مستخدم مسبقاً\nرقم التلفون غير صالح لهذه الدولة (مثال: 010… أو 10…)\nرقم التلفون غير صالح لهذه الدولة",
+                "expected_daily_hours": "ساعات العمل مطلوبة",
+                "shift_name": "الوردية مطلوبة\nالوردية غير موجودة — اكتب اسم وردية مضافتة في الشركة",
+                "branch_name": "الفرع مطلوب — أضف الفروع في النظام أولاً ثم اكتب اسم الفرع\nالفرع غير موجود — أضف الفرع في النظام أولاً أو اكتب اسم فرع موجود",
+                "department_name": "القسم مطلوب — أضف الأقسام في النظام أولاً ثم اكتب اسم القسم\nالقسم غير موجود — أضف القسم في النظام أولاً أو اكتب اسم قسم موجود\nالقسم لا ينتمي للفرع المحدد",
+                "job_title_name": "المسمى الوظيفي مطلوب — أضف المسميات في النظام أولاً ثم اكتب الاسم\nالمسمى الوظيفي غير موجود — أضف المسمى في النظام أولاً أو اكتب اسم مسمى موجود\nالمسمى الوظيفي لا ينتمي للقسم المحدد",
+                "is_mobile_attendance_enabled": "حضور من الموبايل مطلوب — اكتب نعم أو لا\nحضور من الموبايل غير صالح — اكتب نعم أو لا",
+                "salary_basic": "الراتب الأساسي مطلوب"
+            }
+        },
+        {
+            "label": "full context",
+            "row": {
+                "employee_code": " 70 01 ",
+                "phone": " 01012345678 ",
+                "shift_name": " Night Watch "
+            },
+            "messages": [
+                "الاسم الأول مطلوب",
+                "الاسم الأخير مطلوب",
+                "كود الموظف مطلوب",
+                "كود الموظف (70 01) يجب أن يكون أرقاماً فقط",
+                "كود الموظف (70 01) مستخدم مسبقاً في الشركة — غيّره لكود غير مستخدم",
+                "كود الموظف (70 01) مستخدم مسبقاً في الشركة — غيّره لكود غير مستخدم",
+                "كود الموظف (70 01) مكرر داخل الملف",
+                "رقم التليفون (01012345678) مستخدم مسبقاً",
+                "رقم التليفون (01012345678) مستخدم مسبقاً",
+                "ساعات العمل مطلوبة",
+                "الوردية مطلوبة",
+                "الوردية (Night Watch) غير موجودة — اكتب اسم وردية مضافتة في الشركة",
+                "الفرع مطلوب — أضف الفروع في النظام أولاً ثم اكتب اسم الفرع",
+                "الفرع غير موجود — أضف الفرع في النظام أولاً أو اكتب اسم فرع موجود",
+                "القسم مطلوب — أضف الأقسام في النظام أولاً ثم اكتب اسم القسم",
+                "القسم غير موجود — أضف القسم في النظام أولاً أو اكتب اسم قسم موجود",
+                "القسم لا ينتمي للفرع المحدد",
+                "المسمى الوظيفي مطلوب — أضف المسميات في النظام أولاً ثم اكتب الاسم",
+                "المسمى الوظيفي غير موجود — أضف المسمى في النظام أولاً أو اكتب اسم مسمى موجود",
+                "المسمى الوظيفي لا ينتمي للقسم المحدد",
+                "حضور من الموبايل مطلوب — اكتب نعم أو لا",
+                "حضور من الموبايل غير صالح — اكتب نعم أو لا",
+                "رقم التليفون (01012345678) غير صالح لهذه الدولة (مثال: 010… أو 10…)",
+                "رقم التليفون (01012345678) غير صالح لهذه الدولة",
+                "الراتب الأساسي مطلوب",
+                "تعذّر إنشاء الموظف. راجع البيانات وحاول مرة أخرى",
+                "something_unmapped"
+            ],
+            "field_errors": {
+                "first_name": "الاسم الأول مطلوب",
+                "last_name": "الاسم الأخير مطلوب",
+                "employee_code": "كود الموظف مطلوب\nكود الموظف (70 01) يجب أن يكون أرقاماً فقط\nكود الموظف (70 01) مستخدم مسبقاً في الشركة — غيّره لكود غير مستخدم\nكود الموظف (70 01) مستخدم مسبقاً في الشركة — غيّره لكود غير مستخدم\nكود الموظف (70 01) مكرر داخل الملف",
+                "phone": "رقم التليفون (01012345678) مستخدم مسبقاً\nرقم التليفون (01012345678) مستخدم مسبقاً\nرقم التليفون (01012345678) غير صالح لهذه الدولة (مثال: 010… أو 10…)\nرقم التليفون (01012345678) غير صالح لهذه الدولة",
+                "expected_daily_hours": "ساعات العمل مطلوبة",
+                "shift_name": "الوردية مطلوبة\nالوردية (Night Watch) غير موجودة — اكتب اسم وردية مضافتة في الشركة",
+                "branch_name": "الفرع مطلوب — أضف الفروع في النظام أولاً ثم اكتب اسم الفرع\nالفرع غير موجود — أضف الفرع في النظام أولاً أو اكتب اسم فرع موجود",
+                "department_name": "القسم مطلوب — أضف الأقسام في النظام أولاً ثم اكتب اسم القسم\nالقسم غير موجود — أضف القسم في النظام أولاً أو اكتب اسم قسم موجود\nالقسم لا ينتمي للفرع المحدد",
+                "job_title_name": "المسمى الوظيفي مطلوب — أضف المسميات في النظام أولاً ثم اكتب الاسم\nالمسمى الوظيفي غير موجود — أضف المسمى في النظام أولاً أو اكتب اسم مسمى موجود\nالمسمى الوظيفي لا ينتمي للقسم المحدد",
+                "is_mobile_attendance_enabled": "حضور من الموبايل مطلوب — اكتب نعم أو لا\nحضور من الموبايل غير صالح — اكتب نعم أو لا",
+                "salary_basic": "الراتب الأساسي مطلوب"
+            }
+        }
+    ],
+    "field_error_join": {
+        "employee_code": "كود الموظف مطلوب\nكود الموظف (7001) يجب أن يكون أرقاماً فقط"
+    },
+    "codes": [
+        "first_name_required",
+        "last_name_required",
+        "employee_code_required",
+        "employee_code_invalid",
+        "employee_code_exists",
+        "employee_code_already_exists",
+        "employee_code_duplicate_in_file",
+        "phone_already_exists",
+        "phone_exists",
+        "expected_daily_hours_required",
+        "shift_required",
+        "shift_not_found",
+        "branch_required",
+        "branch_not_found",
+        "department_required",
+        "department_not_found",
+        "department_branch_mismatch",
+        "job_title_required",
+        "job_title_not_found",
+        "job_title_department_mismatch",
+        "mobile_attendance_required",
+        "mobile_attendance_invalid",
+        "invalid_phone",
+        "invalid_phone_number",
+        "salary_basic_required",
+        "employee_create_failed",
+        "something_unmapped"
+    ]
+}

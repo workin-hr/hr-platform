@@ -1,0 +1,238 @@
+package com.workin.legacy;
+
+import java.time.LocalDate;
+import java.util.Locale;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * A bounded {@code strtotime()} for the date shapes legacy actually feeds it.
+ *
+ * <h2>Why bounded, and where the boundary is</h2>
+ * <p>PHP's {@code strtotime()} is a large natural-language date parser, and
+ * reproducing it in full is neither possible nor useful here. Two callers need
+ * it: {@code employees/create.php}, through {@code date('Y', strtotime($hire_date))}
+ * (see {@link LegacyPhpDateYear}), and {@code employee_excel_normalize_date_value()},
+ * which normalizes a spreadsheet date cell. Both receive dates, not prose.
+ *
+ * <p>So this grammar covers the date-shaped inputs and nothing else. <b>Every
+ * branch below was measured against a real PHP 8.3 CLI</b> rather than inferred
+ * from the documentation -- several of them do not behave the way the
+ * documentation suggests:
+ *
+ * <ul>
+ * <li>A dashed three-part value is read <em>right to left</em>: with a
+ *     four-digit last part it is {@code d-m-Y} ({@code 15-01-1990} is 15
+ *     January), but with every part short it is {@code y-m-d}
+ *     ({@code 1-1-1} is 1 January 2001, and {@code 1-1-69} is rejected because
+ *     69 is read as a day).</li>
+ * <li>A slashed three-part value is American: {@code 01/15/1990} is 15
+ *     January.</li>
+ * <li>Month and day <em>roll</em> rather than validate. {@code 31-4-2024} is 1
+ *     May, and zero is a legal value that rolls backwards: {@code 0-0-2024} is
+ *     30 November 2023. Only a month above 12 or a day above 31 is rejected.</li>
+ * <li>Month names are matched by exact membership: the three-letter
+ *     abbreviations, the full names, and {@code sept}. {@code septem} and
+ *     {@code janu} are both rejected.</li>
+ * <li>A bare four-digit value is a time when it reads as a valid {@code HHMM}
+ *     and a year otherwise -- {@code 1990} is the year 1990 because 19:90 is
+ *     not a time, while {@code 1200} is midday today. Six digits are
+ *     {@code HHMMSS} on the same rule. Hour 24 is legal and rolls into the
+ *     next day; hour 25 is not.</li>
+ * </ul>
+ *
+ * <p>Anything outside that grammar returns {@code null}, which is
+ * {@code strtotime()} returning {@code false}. The known divergence is
+ * therefore one-sided and narrow: a value PHP parses through some branch not
+ * listed above would be reported here as unparseable. Callers must handle
+ * {@code null} the way PHP handles {@code false}, and the two do differ in what
+ * that costs -- {@code normalize_date_value()} returns the raw cell, while
+ * {@code date()} raises a {@code TypeError}.
+ */
+public final class LegacyPhpStrtotime {
+
+	private static final Pattern ISO = Pattern.compile(
+			"^(\\d{4})-(\\d{1,2})-(\\d{1,2})(?:[ T](\\d{1,2}):(\\d{2})(?::(\\d{2}))?)?$");
+
+	private static final Pattern ISO_SLASHES = Pattern.compile(
+			"^(\\d{4})/(\\d{1,2})/(\\d{1,2})(?:[ T](\\d{1,2}):(\\d{2})(?::(\\d{2}))?)?$");
+
+	private static final Pattern YEAR_MONTH = Pattern.compile("^(\\d{4})-(\\d{1,2})$");
+
+	/** {@code 15-01-1990} -- day first when the year is last. */
+	private static final Pattern DAY_MONTH_YEAR = Pattern.compile("^(\\d{1,2})-(\\d{1,2})-(\\d{4})$");
+
+	/** {@code 01/15/1990} -- month first, because slashes are read the American way. */
+	private static final Pattern MONTH_DAY_YEAR = Pattern.compile("^(\\d{1,2})/(\\d{1,2})/(\\d{4})$");
+
+	/** {@code 1-1-1} -- with no four-digit part anywhere, the <em>year</em> comes first. */
+	private static final Pattern SHORT_YEAR_MONTH_DAY =
+			Pattern.compile("^(\\d{1,2})-(\\d{1,2})-(\\d{1,2})$");
+
+	private static final Pattern DAY_MONTHNAME_YEAR =
+			Pattern.compile("^(\\d{1,2})[\\s-]+([A-Za-z]+),?[\\s-]+(\\d{4})$");
+
+	private static final Pattern MONTHNAME_DAY_YEAR =
+			Pattern.compile("^([A-Za-z]+)[\\s-]+(\\d{1,2}),?[\\s-]+(\\d{4})$");
+
+	private static final Pattern FOUR_DIGITS = Pattern.compile("^(\\d{2})(\\d{2})$");
+
+	private static final Pattern SIX_DIGITS = Pattern.compile("^(\\d{2})(\\d{2})(\\d{2})$");
+
+	/**
+	 * The names PHP accepts, measured one by one. {@code sept} is the only
+	 * four-letter form it knows; {@code septem} and {@code janu} are not names.
+	 */
+	private static final Map<String, Integer> MONTH_NAMES = Map.ofEntries(
+			Map.entry("jan", 1), Map.entry("january", 1),
+			Map.entry("feb", 2), Map.entry("february", 2),
+			Map.entry("mar", 3), Map.entry("march", 3),
+			Map.entry("apr", 4), Map.entry("april", 4),
+			Map.entry("may", 5),
+			Map.entry("jun", 6), Map.entry("june", 6),
+			Map.entry("jul", 7), Map.entry("july", 7),
+			Map.entry("aug", 8), Map.entry("august", 8),
+			Map.entry("sep", 9), Map.entry("sept", 9), Map.entry("september", 9),
+			Map.entry("oct", 10), Map.entry("october", 10),
+			Map.entry("nov", 11), Map.entry("november", 11),
+			Map.entry("dec", 12), Map.entry("december", 12));
+
+	private LegacyPhpStrtotime() {
+	}
+
+	/**
+	 * The date {@code strtotime()} would resolve to, or {@code null} where it
+	 * would return {@code false}.
+	 *
+	 * @param today the current date under legacy's configured offset
+	 *        ({@link LegacyClock}) -- what the relative keywords and the
+	 *        time-only forms resolve against
+	 */
+	public static LocalDate dateOf(String raw, LocalDate today) {
+		String value = raw == null ? "" : raw.trim();
+		if (value.isEmpty()) {
+			return null;
+		}
+
+		LocalDate relative = relative(value, today);
+		if (relative != null) {
+			return relative;
+		}
+
+		Matcher iso = ISO.matcher(value);
+		if (iso.matches()) {
+			return roll(digits(iso, 1), digits(iso, 2), digits(iso, 3), timeIsValid(iso));
+		}
+		Matcher isoSlashes = ISO_SLASHES.matcher(value);
+		if (isoSlashes.matches()) {
+			return roll(digits(isoSlashes, 1), digits(isoSlashes, 2), digits(isoSlashes, 3),
+					timeIsValid(isoSlashes));
+		}
+		Matcher yearMonth = YEAR_MONTH.matcher(value);
+		if (yearMonth.matches()) {
+			return roll(digits(yearMonth, 1), digits(yearMonth, 2), 1, true);
+		}
+		Matcher dayMonthYear = DAY_MONTH_YEAR.matcher(value);
+		if (dayMonthYear.matches()) {
+			return roll(digits(dayMonthYear, 3), digits(dayMonthYear, 2), digits(dayMonthYear, 1), true);
+		}
+		Matcher monthDayYear = MONTH_DAY_YEAR.matcher(value);
+		if (monthDayYear.matches()) {
+			return roll(digits(monthDayYear, 3), digits(monthDayYear, 1), digits(monthDayYear, 2), true);
+		}
+		Matcher shortDate = SHORT_YEAR_MONTH_DAY.matcher(value);
+		if (shortDate.matches()) {
+			return roll(twoDigitYear(digits(shortDate, 1)), digits(shortDate, 2), digits(shortDate, 3), true);
+		}
+		Matcher dayNameYear = DAY_MONTHNAME_YEAR.matcher(value);
+		if (dayNameYear.matches()) {
+			Integer month = monthFromName(dayNameYear.group(2));
+			return month == null ? null : roll(digits(dayNameYear, 3), month, digits(dayNameYear, 1), true);
+		}
+		Matcher nameDayYear = MONTHNAME_DAY_YEAR.matcher(value);
+		if (nameDayYear.matches()) {
+			Integer month = monthFromName(nameDayYear.group(1));
+			return month == null ? null : roll(digits(nameDayYear, 3), month, digits(nameDayYear, 2), true);
+		}
+		return timeOnly(value, today);
+	}
+
+	/** {@code now}, {@code today}, {@code tomorrow}, {@code yesterday} -- case-insensitive, as PHP is. */
+	private static LocalDate relative(String value, LocalDate today) {
+		return switch (value.toLowerCase(Locale.ROOT)) {
+			case "now", "today" -> today;
+			case "tomorrow" -> today.plusDays(1);
+			case "yesterday" -> today.minusDays(1);
+			default -> null;
+		};
+	}
+
+	/**
+	 * A bare {@code HHMM} or {@code HHMMSS} is a time today; a four-digit value
+	 * that is not a valid time is a year, taking today's month and day. Hour 24
+	 * rolls into tomorrow, hour 25 is not a time at all -- and then four digits
+	 * fall back to being a year while six digits have nowhere left to go.
+	 */
+	private static LocalDate timeOnly(String value, LocalDate today) {
+		Matcher four = FOUR_DIGITS.matcher(value);
+		if (four.matches()) {
+			int hour = digits(four, 1);
+			int minute = digits(four, 2);
+			if (hour <= 24 && minute <= 59) {
+				return hour == 24 ? today.plusDays(1) : today;
+			}
+			// Not a time, so it is a year: 1990 is 19:90 to nobody.
+			return roll(Integer.parseInt(value), today.getMonthValue(), today.getDayOfMonth(), true);
+		}
+		Matcher six = SIX_DIGITS.matcher(value);
+		if (six.matches()) {
+			int hour = digits(six, 1);
+			int minute = digits(six, 2);
+			int second = digits(six, 3);
+			if (hour <= 24 && minute <= 59 && second <= 59) {
+				return hour == 24 ? today.plusDays(1) : today;
+			}
+		}
+		return null;
+	}
+
+	/** 00-69 are the 2000s, 70-99 the 1900s -- measured at both ends of the window. */
+	private static int twoDigitYear(int year) {
+		return year <= 69 ? 2000 + year : 1900 + year;
+	}
+
+	/**
+	 * Month and day roll rather than validate, in both directions -- so month 0
+	 * is the previous December and day 0 is the previous month's last day.
+	 * Only a month above 12 or a day above 31 makes the whole value
+	 * unparseable.
+	 */
+	private static LocalDate roll(int year, int month, int day, boolean timeIsValid) {
+		if (!timeIsValid || month < 0 || month > 12 || day < 0 || day > 31) {
+			return null;
+		}
+		return LocalDate.of(year, 1, 1).plusMonths(month - 1L).plusDays(day - 1L);
+	}
+
+	/** An out-of-range clock time makes the whole value unparseable in PHP. */
+	private static boolean timeIsValid(Matcher matcher) {
+		if (matcher.group(4) == null) {
+			return true;
+		}
+		int hour = Integer.parseInt(matcher.group(4));
+		int minute = Integer.parseInt(matcher.group(5));
+		int second = matcher.group(6) == null ? 0 : Integer.parseInt(matcher.group(6));
+		return hour < 24 && minute < 60 && second < 60;
+	}
+
+	/** Case-insensitive, but the whole word has to be a month name PHP knows. */
+	private static Integer monthFromName(String name) {
+		return MONTH_NAMES.get(name.toLowerCase(Locale.ROOT));
+	}
+
+	private static int digits(Matcher matcher, int group) {
+		return Integer.parseInt(matcher.group(group));
+	}
+
+}

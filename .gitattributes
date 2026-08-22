@@ -1,0 +1,16 @@
+# Vendored legacy compatibility artifacts are compared byte for byte, not
+# read as ordinary source: `check_legacy_lang_drift.py` and
+# `check_legacy_spreadsheet_columns_drift.py` diff the exact text they
+# exported from PHP, and `LegacyEmployeeTemplateTest` asserts that the CSV
+# this application generates equals the one PHP generates, byte for byte.
+#
+# On a checkout with `core.autocrlf=true` -- the Git for Windows default --
+# line-ending conversion would rewrite these files after export and turn
+# every one of those comparisons into a false failure. `-text` keeps them
+# exactly as committed on every platform.
+backend/src/main/resources/legacy/** -text
+backend/src/test/resources/legacy/** -text
+
+# Spreadsheet fixtures are ZIP containers; nothing about them is text.
+*.xlsx binary
+*.xls binary
