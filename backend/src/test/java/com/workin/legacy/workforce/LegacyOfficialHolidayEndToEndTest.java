@@ -315,6 +315,22 @@ class LegacyOfficialHolidayEndToEndTest {
 	}
 
 	@Test
+	void aSignedYearIsNotAValidDateThroughEitherWritePath() {
+		// PHP's Y field is four unsigned digits, so a signed year never
+		// normalises. Java's proleptic year parser would accept it, which is
+		// why the lexical field-shape guard exists.
+		Map<String, Object> created = send(CREATE, HttpMethod.POST, ADMIN_1,
+				"{\"name\":\"Signed Year\",\"holiday_dates\":[\"-0001-01-01\"]}").getBody();
+		assertThat(created.get("success")).isEqualTo(false);
+		assertThat(holidayIdForDate(COMPANY_1, "-0001-01-01")).isNull();
+
+		// A non-empty date that normalises to nothing is invalid_input, not a
+		// silent no-op -- the update path distinguishes those.
+		assertThat(status(send(UPDATE + "?id=" + HOLIDAY_SCRATCH, HttpMethod.PUT, ADMIN_1,
+				"{\"holiday_date\":\"-0001-01-01\"}"))).isEqualTo(400);
+	}
+
+	@Test
 	void createRejectsABlankNameAndAnAbsentDateSource() {
 		assertThat(status(send(CREATE, HttpMethod.POST, ADMIN_1,
 				"{\"name\":\"   \",\"holiday_date\":\"2030-07-01\"}"))).isEqualTo(400);

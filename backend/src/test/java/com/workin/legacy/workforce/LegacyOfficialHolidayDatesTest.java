@@ -72,6 +72,29 @@ class LegacyOfficialHolidayDatesTest {
 		assertThat(LegacyOfficialHolidayDates.normalize(List.of(value))).isEmpty();
 	}
 
+	/**
+	 * PHP's {@code Y} input field is an unsigned four-digit year. Java's
+	 * proleptic {@code uuuu} is not: it accepts a leading sign and more than
+	 * four digits, and then formats them back to the same string -- so the
+	 * round-trip check alone cannot reject them. A lexical guard on the field
+	 * shape runs first for exactly this reason.
+	 */
+	@Test
+	void theYearFieldIsFourUnsignedDigitsAsPhpRequires() {
+		// PHP accepts both ends of the range, including year zero.
+		assertThat(LegacyOfficialHolidayDates.normalize(List.of("0000-01-01")))
+				.containsExactly("0000-01-01");
+		assertThat(LegacyOfficialHolidayDates.normalize(List.of("9999-12-31")))
+				.containsExactly("9999-12-31");
+
+		// PHP rejects every one of these; a proleptic parse accepts the first
+		// two and the round trip cannot tell.
+		assertThat(LegacyOfficialHolidayDates.normalize(List.of("-0001-01-01"))).isEmpty();
+		assertThat(LegacyOfficialHolidayDates.normalize(List.of("+10000-01-01"))).isEmpty();
+		assertThat(LegacyOfficialHolidayDates.normalize(List.of("+2026-01-01"))).isEmpty();
+		assertThat(LegacyOfficialHolidayDates.normalize(List.of("10000-01-01"))).isEmpty();
+	}
+
 	@Test
 	void leapDaysFollowTheRealCalendar() {
 		assertThat(LegacyOfficialHolidayDates.normalize(List.of("2028-02-29")))

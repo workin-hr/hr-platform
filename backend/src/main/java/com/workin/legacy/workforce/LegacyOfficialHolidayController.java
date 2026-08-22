@@ -40,7 +40,7 @@ import jakarta.servlet.http.HttpServletRequest;
  * opposite in direction from D-075 and D-076. The other four endpoints keep the
  * gate, so mutation authority is untouched.
  *
- * <h2>Gate order on the four mutating endpoints</h2>
+ * <h2>Gate order on the four settings-gated endpoints</h2>
  * <p>{@code requireAuth} then {@code requireCompanyActive} then
  * {@code can_company_settings}, and only then the id or body -- PHP's order. So
  * a caller lacking the permission gets 403 whether the id is valid, foreign,
@@ -136,8 +136,10 @@ public class LegacyOfficialHolidayController {
 
 	/**
 	 * {@code requireAuth([COMPANY_ADMIN, HR]); requireCompanyActive(...);
-	 * require_company_settings_access($auth);} -- the four mutating endpoints,
-	 * in PHP's order and before any id or body is touched.
+	 * require_company_settings_access($auth);} -- the four settings-gated
+	 * endpoints, in PHP's order and before any id or body is touched. Note that
+	 * {@code one.php} is among them and is a GET: the gate is not about
+	 * mutation, it is about which endpoints legacy chose to gate.
 	 */
 	private LegacyRequestContext settingsGuarded() {
 		LegacyRequestContext context = requestGuard.requireAuth(
