@@ -388,6 +388,48 @@ class LegacyEmployeeCreateEndToEndTest {
 		assertThat(leaveYearFor("6523", "01012340063", "yesterday")).isEqualTo(yesterdayYear);
 	}
 
+	/**
+	 * A whitespace-only hire_date is NOT in the failure family above.
+	 *
+	 * <p>Measured under PHP 8.3: strtotime() reads a whitespace-only string
+	 * as "now", so date(Y, ...) yields the current year and the create
+	 * proceeds. Measured under MariaDB 11.8 with the Phase-1 sql_mode of "":
+	 * binding that raw string to a DATE column stores 0000-00-00 -- not NULL
+	 * and not the current date -- with no error.
+	 *
+	 * <p>Java used to reject it: LegacyPhpStrtotime trimmed the value to
+	 * empty and returned null, which LegacyPhpDateYear turned into the
+	 * TypeError and a rolled-back 500. That was a parity regression, and
+	 * this is its externally observable guard.
+	 */
+	@Test
+	void aWhitespaceOnlyHireDateSucceedsAndStoresTheZeroDate() throws Exception {
+		Map<String, Object> body = validBody("6701", "01012340171");
+		body.put("hire_date", "   ");
+
+		ResponseEntity<Map<String, Object>> response = post(body, ADMIN_1);
+		assertThat(response.getStatusCode().value()).isEqualTo(201);
+
+		// MariaDB stores the zero date for that raw value under sql_mode="".
+		assertThat(count("SELECT COUNT(*) FROM employees"
+				+ " WHERE employee_code = '6701' AND hire_date = '0000-00-00'"))
+				.isEqualTo(1);
+
+		// ...and the leave year came from date(Y, strtotime("   ")), which is
+		// the current year rather than year zero.
+		//
+		// The oracle is the APPLICATION clock, not the database. PHP computes
+		// this with date(), under the offset applyRuntimeTimezoneFromConfigs()
+		// installs -- +02:00 unless configs.is_daylight_saving says otherwise,
+		// and this fixture seeds no such row, so +02:00 is the measured path.
+		// YEAR(CURRENT_DATE) would be MariaDB's clock, and D-083 is precisely
+		// the open item saying those two cannot yet be assumed equal.
+		int applicationClockYear = java.time.LocalDate.now(java.time.ZoneOffset.ofHours(2)).getYear();
+		assertThat(count("SELECT COUNT(*) FROM leave_balance lb"
+				+ " JOIN employees e ON e.id = lb.employee_id"
+				+ " WHERE e.employee_code = '6701' AND lb.year = " + applicationClockYear))
+				.isEqualTo(1);
+	}
 	@Test
 	void anUnparseableHireDateRollsTheWholeCreateBackWithPhpsTypeError() throws Exception {
 		// strtotime() returns false, date('Y', false) raises a TypeError under

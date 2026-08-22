@@ -119,13 +119,46 @@ class LegacyPhpDateYearTest {
 		assertThat(LegacyPhpDateYear.of("9999", TODAY)).isEqualTo(9999);
 	}
 
+	/** Written as char values: Java resolves unicode escapes before lexing. */
+	private static final String NUL = String.valueOf((char) 0x00);
+	private static final String VERTICAL_TAB = String.valueOf((char) 0x0B);
+	private static final String FORM_FEED = String.valueOf((char) 0x0C);
+
+	/**
+	 * Measured under PHP 8.3 at a frozen reference, Etc/GMT-2. Accepted as
+	 * "now": one space, three spaces, tab, newline, NUL, and a mix of those.
+	 * Rejected: the empty string, carriage return, vertical tab, form feed.
+	 *
+	 * <p>A whitespace-only value is therefore not a failure and never was --
+	 * the empty string is. It was previously listed in the failure family
+	 * above, which the probe disproves.
+	 *
+	 * <p>The accepted set matches neither PHP trim() -- which strips carriage
+	 * return and vertical tab, both of which strtotime() rejects -- nor Java
+	 * String.trim(), which strips form feed, likewise rejected. That is why
+	 * it had to be measured rather than reasoned about.
+	 */
+	@Test
+	void whitespaceOnlyIsNowNotAFailure() {
+		for (String accepted : java.util.List.of(
+				" ", "   ", "\t", "\n", NUL, " \t\n ")) {
+			assertThat(LegacyPhpDateYear.of(accepted, TODAY))
+					.describedAs("accepted input of length %d", accepted.length())
+					.isEqualTo(TODAY.getYear());
+		}
+
+		for (String rejected : java.util.List.of("\r", VERTICAL_TAB, FORM_FEED)) {
+			assertThatThrownBy(() -> LegacyPhpDateYear.of(rejected, TODAY))
+					.isInstanceOf(LegacyPhpDateYear.LegacyPhpDateException.class);
+		}
+	}
 	@Test
 	void themeasuredFailureFamilyThrowsPhpsTypeError() {
 		// strtotime() returns false for each of these, and date('Y', false) is
 		// a TypeError under strict_types=1 -- which is a rolled-back 500, not a
 		// year of any kind.
 		for (String rejected : java.util.List.of(
-				"invalid text", "", "   ", "2026-13-45", "2026-13-01", "2026-12-32", "Array", "1")) {
+				"invalid text", "", "2026-13-45", "2026-13-01", "2026-12-32", "Array", "1")) {
 			assertThatThrownBy(() -> LegacyPhpDateYear.of(rejected, TODAY))
 					.describedAs("input %s", rejected)
 					.isInstanceOf(LegacyPhpDateYear.LegacyPhpDateException.class)

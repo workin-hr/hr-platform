@@ -24,11 +24,13 @@ import org.springframework.stereotype.Repository;
  * therefore reaches `employees.company_id` through a join, which is what
  * legacy does. No column is added and no denormalised company is stored.
  *
- * <h2>D-083 stays open here</h2>
- * <p>`check_in` and `check_out` are `datetime`, `created_at` and
- * `updated_at` are `timestamp`, and `attendance_record_full()` computes
- * `TIMESTAMPDIFF(MINUTE, check_in, check_out)` in the database. None of that
- * is timezone-corrected by this slice.
+ * <h2>D-083 stays open here, but not everywhere</h2>
+ * <p>`check_in` and `check_out` are `DATETIME`: MariaDB stores and returns
+ * them as wall-clock values with no session-timezone conversion, so neither
+ * they nor `DATE(check_in)` nor `TIMESTAMPDIFF` between them moves with
+ * `time_zone`. `created_at` and `updated_at` are `TIMESTAMP` and <em>are</em>
+ * converted on read -- that is this slice's D-083 exposure, and it is not
+ * corrected here.
  */
 @Repository
 public class LegacyAttendanceStore {
@@ -102,8 +104,17 @@ public class LegacyAttendanceStore {
 
 	/**
 	 * `delete_range.php`'s count, over the same joined predicate the delete
-	 * uses. `DATE(a.check_in)` is evaluated by MariaDB on the session
-	 * timezone -- another D-083 surface.
+	 * uses.
+	 *
+	 * <p><b>This predicate is not D-083-sensitive.</b> `check_in` is a
+	 * `DATETIME`, which MariaDB stores and returns as a wall-clock value with
+	 * no session-timezone conversion, so `DATE(a.check_in)` yields the same
+	 * day whatever `time_zone` is set to. Only `TIMESTAMP` columns convert.
+	 *
+	 * <p>D-083 does still affect this module, through
+	 * {@link #recordFull}: `created_at` and `updated_at` are `TIMESTAMP` and
+	 * are converted on read, and the attendance paths in later slices write
+	 * with the database's own `NOW()`.
 	 */
 	public long countInRange(long companyId, String from, String to) {
 		Long count = jdbcTemplate.queryForObject("""

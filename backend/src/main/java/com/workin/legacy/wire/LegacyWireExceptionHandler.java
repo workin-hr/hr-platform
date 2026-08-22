@@ -113,8 +113,9 @@ public class LegacyWireExceptionHandler {
 	 * jobs.
 	 *
 	 * <p>This fallback covers exactly the packages this advice lists -- today
-	 * {@code com.workin.legacy.employees} and {@code com.workin.legacy.workforce}
-	 * -- and D-084 authorizes a later legacy-route wave to inherit it by adding
+	 * {@code com.workin.legacy.employees}, {@code com.workin.legacy.workforce}
+	 * and {@code com.workin.legacy.attendance.records} -- and D-084 authorizes
+	 * a later legacy-route wave to inherit it by adding
 	 * its package to that list rather than by defining a second envelope.
 	 * {@code /api/legacy/**} and the PostgreSQL surface remain untouched.
 	 */
