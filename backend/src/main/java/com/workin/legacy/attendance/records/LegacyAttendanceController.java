@@ -2,9 +2,11 @@ package com.workin.legacy.attendance.records;
 
 import java.util.Map;
 
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.workin.legacy.LegacyJsonBody;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
@@ -17,7 +19,8 @@ import com.workin.legacy.wire.LegacyMessages;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * `/apis/api/attendance/{one,delete,delete_range}.php` (Wave 12.6 slice 1a-i).
+ * `/apis/api/attendance/{one,create,update,delete,delete_range}.php`
+ * (Wave 12.6 slices 1a-i and 1a-ii).
  *
  * <h2>Authority is checked inside the endpoint, not by `requireAuth`</h2>
  * <p>All three call a <b>bare</b> `requireAuth()`, so every authenticated role
@@ -61,6 +64,37 @@ public class LegacyAttendanceController {
 		long id = requiredId(request);
 		return LegacyApiResponse.ok(
 				message(request, "success"), attendanceService.one(context, id));
+	}
+
+	/** `create.php`: `ok(SUCCESS, public_row($inserted_row), 201)`. */
+	@RequestMapping("/create.php")
+	public ResponseEntity<LegacyApiResponse> create(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = authenticated();
+		requireAdministrative(context);
+		Map<String, Object> row = attendanceService.create(
+				context.companyId(), LegacyJsonBody.read(request));
+		return ResponseEntity.status(201)
+				.body(LegacyApiResponse.ok(message(request, "success"), row));
+	}
+
+	/**
+	 * `update.php`: `ok(ATTENDANCE_RECORD_UPDATED, public_row($updated_row))`.
+	 *
+	 * <p>The clear-both branch **deletes** the row and still answers
+	 * `attendance_record_updated`, with `ok(..., null)` -- so the envelope
+	 * omits `data` entirely rather than sending null.
+	 */
+	@RequestMapping("/update.php")
+	public LegacyApiResponse update(HttpServletRequest request) {
+		requireMethod(request, "PUT");
+		LegacyRequestContext context = authenticated();
+		requireAdministrative(context);
+		long id = requiredId(request);
+		LegacyAttendanceService.UpdateOutcome outcome = attendanceService.update(
+				context.companyId(), id, LegacyJsonBody.read(request));
+		return LegacyApiResponse.ok(
+				message(request, "attendance_record_updated"), outcome.row());
 	}
 
 	/** `delete.php`: `ok(SUCCESS)` -- no `data` key. */

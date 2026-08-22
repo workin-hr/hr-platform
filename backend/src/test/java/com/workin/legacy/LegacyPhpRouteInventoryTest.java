@@ -130,11 +130,17 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/attendance/delete_range.php",
 			"/apis/api/attendance/one.php");
 
+	/** Wave 12.6 slice 1a-ii: the two mutating attendance endpoints. */
+	private static final List<String> WAVE_126_ATTENDANCE_1A_II_ROUTES = List.of(
+			"/apis/api/attendance/create.php",
+			"/apis/api/attendance/update.php");
+
 	/** Every route the application is expected to map. */
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 					WAVE_124_ROUTES,
 					WAVE_125_ROUTES,
-					WAVE_126_ATTENDANCE_1A_I_ROUTES)
+					WAVE_126_ATTENDANCE_1A_I_ROUTES,
+					WAVE_126_ATTENDANCE_1A_II_ROUTES)
 			.flatMap(List::stream)
 			.sorted()
 			.toList();
@@ -228,10 +234,24 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES).hasSize(3);
 		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES)
 				.allSatisfy(route -> assertThat(route).startsWith("/apis/api/attendance/"));
-		// create.php and update.php belong to slice 1a-ii and must not be
-		// mapped yet -- the bidirectional inventory would fail if they were.
+		// create.php and update.php belong to slice 1a-ii, not here.
 		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES)
 				.doesNotContain("/apis/api/attendance/create.php", "/apis/api/attendance/update.php");
+	}
+
+	@Test
+	void theWave126Slice1aiiIsItsTwoEndpoints() {
+		assertThat(WAVE_126_ATTENDANCE_1A_II_ROUTES)
+				.containsExactlyInAnyOrder(
+						"/apis/api/attendance/create.php", "/apis/api/attendance/update.php");
+	}
+
+	@Test
+	void wave126HasFiveOfItsEighteenEndpointsMapped() {
+		// The wave is eighteen; five are delivered. Asserted so a later slice
+		// cannot quietly skip one, and so this number is visible in review.
+		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES.size() + WAVE_126_ATTENDANCE_1A_II_ROUTES.size())
+				.isEqualTo(5);
 	}
 
 	@Test
@@ -240,7 +260,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(EXPECTED_ROUTES).doesNotHaveDuplicates();
 		assertThat(EXPECTED_ROUTES).hasSize(
 				WAVE_124_ROUTES.size() + WAVE_125_ROUTES.size()
-						+ WAVE_126_ATTENDANCE_1A_I_ROUTES.size());
+						+ WAVE_126_ATTENDANCE_1A_I_ROUTES.size()
+						+ WAVE_126_ATTENDANCE_1A_II_ROUTES.size());
 	}
 
 	@Test

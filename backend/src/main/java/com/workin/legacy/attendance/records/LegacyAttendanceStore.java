@@ -1,5 +1,6 @@
 package com.workin.legacy.attendance.records;
 
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -12,11 +13,15 @@ import javax.sql.DataSource;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+import com.workin.legacy.LegacyJdbcValues;
+
 /**
- * `attendance`'s read and delete path for Wave 12.6 slice 1a-i --
- * `one.php`, `delete.php` and `delete_range.php`.
+ * `attendance`'s data access for Wave 12.6 slices 1a-i and 1a-ii --
+ * `one.php`, `create.php`, `update.php`, `delete.php` and `delete_range.php`.
  *
  * <h2>Tenancy is employee-derived, always</h2>
  * <p>The `attendance` table has <b>no `company_id`</b>
@@ -102,6 +107,108 @@ public class LegacyAttendanceStore {
 		jdbcTemplate.update("DELETE FROM attendance WHERE id=?", id);
 	}
 
+	/** `create.php`'s employee probe -- a count, not a row. */
+	public boolean employeeExistsInCompany(long companyId, long employeeId) {
+		Long count = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM employees WHERE id=? AND company_id=?",
+				Long.class, employeeId, companyId);
+		return count != null && count > 0;
+	}
+
+	/**
+	 * D-095's preflight for `update.php`: does this exception type belong to
+	 * the caller's company?
+	 *
+	 * <p>Company-scoped by predicate rather than by reading the foreign row's
+	 * `company_id` and comparing in Java -- the foreign value is never fetched,
+	 * so it cannot leak into a log, a message or a debugger. **No
+	 * `is_active` clause**: `update.php` must keep accepting a same-company
+	 * inactive exception type, unlike `create.php`.
+	 */
+	public boolean exceptionTypeBelongsToCompany(long companyId, long exceptionTypeId) {
+		Long count = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM exception_types WHERE id = ? AND company_id = ?",
+				Long.class, exceptionTypeId, companyId);
+		return count != null && count > 0;
+	}
+
+	/**
+	 * `create.php`'s previous-punch probe: the employee's latest `check_in`,
+	 * ordered by `check_in` and **not** by id, so a back-dated row can win.
+	 */
+	public String latestCheckIn(long employeeId) {
+		List<String> rows = jdbcTemplate.queryForList(
+				"SELECT check_in FROM attendance WHERE employee_id=? ORDER BY check_in DESC LIMIT 1",
+				String.class, employeeId);
+		return rows.isEmpty() ? null : rows.get(0);
+	}
+
+	/**
+	 * `SELECT TIMESTAMPDIFF(MINUTE, ?, ?)` -- evaluated by MariaDB, not in
+	 * Java, because the comparison legacy performs is the database's and both
+	 * operands may be strings it coerces.
+	 *
+	 * @return null when either operand does not coerce, which is SQL NULL
+	 */
+	public Long minutesBetween(String from, String to) {
+		return jdbcTemplate.queryForObject("SELECT TIMESTAMPDIFF(MINUTE, ?, ?)", Long.class, from, to);
+	}
+
+	/**
+	 * `create.php`'s INSERT.
+	 *
+	 * <p>The raw request strings are bound unchanged and MariaDB coerces them,
+	 * exactly as PDO does. Measured under `sql_mode=''`: `'2026-01-15'` stores
+	 * `2026-01-15 00:00:00`, while `'now'`, `'1990'`, `'0830'`, `'2026-02-30'`
+	 * and `'oops'` all store `0000-00-00 00:00:00`. The parser's opinion of
+	 * those strings is a separate matter and must not be substituted here.
+	 */
+	public long insert(long employeeId, String checkIn, String checkOut, Object method, Long exceptionTypeId) {
+		KeyHolder keys = new GeneratedKeyHolder();
+		jdbcTemplate.update(connection -> {
+			PreparedStatement statement = connection.prepareStatement(
+					"INSERT INTO attendance (employee_id, check_in, check_out, method, exception_type_id)"
+							+ " VALUES (?, ?, ?, ?, ?)",
+					PreparedStatement.RETURN_GENERATED_KEYS);
+			statement.setLong(1, employeeId);
+			statement.setString(2, checkIn);
+			bindNullable(statement, 3, checkOut);
+			statement.setString(4, com.workin.legacy.LegacyValues.toPhpString(method));
+			bindNullableId(statement, 5, exceptionTypeId);
+			return statement;
+		}, keys);
+		return keys.getKey() == null ? 0L : keys.getKey().longValue();
+	}
+
+	/** `update.php`'s UPDATE -- id-only, after the scoped read proved ownership. */
+	public void update(long id, String checkIn, String checkOut, Long exceptionTypeId) {
+		jdbcTemplate.update(connection -> {
+			PreparedStatement statement = connection.prepareStatement(
+					"UPDATE attendance SET check_in = ?, check_out = ?, exception_type_id = ? WHERE id = ?");
+			statement.setString(1, checkIn);
+			bindNullable(statement, 2, checkOut);
+			bindNullableId(statement, 3, exceptionTypeId);
+			statement.setLong(4, id);
+			return statement;
+		});
+	}
+
+	private static void bindNullable(PreparedStatement statement, int index, String value) throws SQLException {
+		if (value == null) {
+			statement.setNull(index, Types.VARCHAR);
+		} else {
+			statement.setString(index, value);
+		}
+	}
+
+	private static void bindNullableId(PreparedStatement statement, int index, Long value) throws SQLException {
+		if (value == null) {
+			statement.setNull(index, Types.INTEGER);
+		} else {
+			statement.setLong(index, value);
+		}
+	}
+
 	/**
 	 * `delete_range.php`'s count, over the same joined predicate the delete
 	 * uses.
@@ -151,27 +258,10 @@ public class LegacyAttendanceStore {
 			ResultSetMetaData meta = rs.getMetaData();
 			Map<String, Object> row = new LinkedHashMap<>();
 			for (int column = 1; column <= meta.getColumnCount(); column++) {
-				row.put(meta.getColumnLabel(column), value(rs, column, meta.getColumnType(column)));
+				row.put(meta.getColumnLabel(column), LegacyJdbcValues.read(rs, column, meta.getColumnType(column)));
 			}
 			return row;
 		};
-	}
-
-	/**
-	 * The same type set the Wave 12.4/12.5 stores use. Note what is
-	 * deliberately absent: `DECIMAL` is not in the numeric branch, so
-	 * `latitude` and `longitude` -- `decimal(10,7)` -- fall to `getString`.
-	 * That is correct: mysqlnd hands PHP a string for a DECIMAL and
-	 * `json_encode` renders it as a JSON string, so reading them as numbers
-	 * would change the wire type.
-	 */
-	private static Object value(ResultSet rs, int column, int sqlType) throws SQLException {
-		Object raw = switch (sqlType) {
-			case Types.BIT, Types.BOOLEAN, Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT ->
-				rs.getLong(column);
-			default -> rs.getString(column);
-		};
-		return rs.wasNull() ? null : raw;
 	}
 
 }

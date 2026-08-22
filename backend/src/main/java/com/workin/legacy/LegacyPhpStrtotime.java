@@ -13,12 +13,26 @@ import java.util.regex.Pattern;
  *
  * <h2>Why bounded, and where the boundary is</h2>
  * <p>PHP's {@code strtotime()} is a large natural-language date parser, and
- * reproducing it in full is neither possible nor useful here. Two callers need
- * it: {@code employees/create.php}, through {@code date('Y', strtotime($hire_date))}
- * (see {@link LegacyPhpDateYear}), and {@code employee_excel_normalize_date_value()},
- * which normalizes a spreadsheet date cell. Both receive dates, not prose.
+ * reproducing it in full is neither possible nor useful here. The evidenced
+ * callers are:
  *
- * <p>So this grammar covers the date-shaped inputs and nothing else. <b>Every
+ * <ul>
+ * <li>{@code employees/create.php}, through
+ *     {@code date('Y', strtotime($hire_date))} (see {@link LegacyPhpDateYear});</li>
+ * <li>{@code employee_excel_normalize_date_value()}, normalizing a spreadsheet
+ *     date cell;</li>
+ * <li>{@code attendance/create.php} and {@code attendance/update.php}, which
+ *     read {@code date('H:i:s', strtotime($v))} to tell an exception-only day
+ *     from a real punch -- so they need the resolved <em>time</em>, which is
+ *     what {@link #dateTimeOf} exposes.</li>
+ * </ul>
+ *
+ * <p>The first two receive dates. Attendance receives caller input, so the
+ * grammar's relative and time-only families ({@code now}, a bare
+ * {@code 0830}, the four-digit year fallback) are reachable from the wire and
+ * are not merely theoretical.
+ *
+ * <p>So this grammar covers those families and nothing else. <b>Every
  * branch below was measured against a real PHP 8.3 CLI</b> rather than inferred
  * from the documentation -- several of them do not behave the way the
  * documentation suggests:
@@ -52,7 +66,16 @@ import java.util.regex.Pattern;
  * <p>Anything outside that grammar returns {@code null}, which is
  * {@code strtotime()} returning {@code false}. The known divergence is
  * therefore one-sided and narrow: a value PHP parses through some branch not
- * listed above would be reported here as unparseable. Callers must handle
+ * listed above would be reported here as unparseable (D-094).
+ *
+ * <p>That one-sidedness was checked at the boundary rather than assumed. Java
+ * reaches this grammar through {@code raw.trim()}, which strips every
+ * character at or below {@code U+0020} -- a wider set than PHP's tokenizer
+ * ignores. A PHP 8.3 probe over four grammar representatives
+ * ({@code 2026-01-15}, {@code 15 Jan 1990}, {@code now}, {@code 0830}) with
+ * each of space, tab, LF, CR, VT, FF and NUL, leading and trailing, found
+ * <b>56 of 56 accepted with identical results</b>. So trimming cannot make
+ * this class accept something PHP rejects, nor give it a different meaning. Callers must handle
  * {@code null} the way PHP handles {@code false}, and the two do differ in what
  * that costs -- {@code normalize_date_value()} returns the raw cell, while
  * {@code date()} raises a {@code TypeError}.

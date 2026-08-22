@@ -1,12 +1,16 @@
 package com.workin.legacy.attendance.records;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.springframework.stereotype.Service;
 
 import com.workin.legacy.LegacyClock;
+import com.workin.legacy.attendance.LegacyExceptionTypeService;
+import com.workin.legacy.LegacyPhpDateYear;
 import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
@@ -34,12 +38,26 @@ import com.workin.legacy.wire.LegacyApiException;
 @Service
 public class LegacyAttendanceService {
 
+	/**
+	 * `create.php:96` and `:38` -- a hard-coded Arabic string returned as
+	 * `Response::REASON`, not a catalog key. Preserved byte-for-byte: a
+	 * translation key would change the wire response for every client, and the
+	 * Wave 12.6 discovery records that decision (J.5, no decision number).
+	 */
+	static final String DUPLICATE_PUNCH_REASON =
+			"\u0644\u0627 \u064a\u0645\u0643\u0646 \u062a\u0633\u062c\u064a\u0644 "
+					+ "\u0628\u0635\u0645\u062a\u064a\u0646 \u0645\u062a\u062a\u0627\u0644\u064a\u062a\u064a\u0646 "
+					+ "\u062e\u0644\u0627\u0644 \u0627\u0642\u0644 \u0645\u0646 \u0633\u0627\u0639\u062a\u064a\u0646";
+
 	private final LegacyAttendanceStore store;
 	private final LegacyClock clock;
+	private final LegacyExceptionTypeService exceptionTypes;
 
-	public LegacyAttendanceService(LegacyAttendanceStore store, LegacyClock clock) {
+	public LegacyAttendanceService(
+			LegacyAttendanceStore store, LegacyClock clock, LegacyExceptionTypeService exceptionTypes) {
 		this.store = store;
 		this.clock = clock;
+		this.exceptionTypes = exceptionTypes;
 	}
 
 	/**
@@ -62,6 +80,257 @@ public class LegacyAttendanceService {
 			throw new LegacyApiException(403, "forbidden");
 		}
 		return row;
+	}
+
+	/**
+	 * `create.php`, in PHP's statement order.
+	 *
+	 * <h2>The parser decides; it does not write</h2>
+	 * <p>`strtotime()` is used only to classify a real punch. The values
+	 * stored are the caller's raw strings, coerced by MariaDB exactly as PDO
+	 * hands them over -- measured under `sql_mode=''`: `'2026-01-15'` becomes
+	 * `2026-01-15 00:00:00`, while `'now'`, `'1990'`, `'0830'` and
+	 * `'2026-02-30'` all become `0000-00-00 00:00:00` even though the parser
+	 * resolves each to a real instant. Substituting the parsed value would
+	 * silently repair rows legacy stores as the zero date.
+	 *
+	 * <p>The one deliberate normalization is the exception-only branch, which
+	 * PHP itself writes as a formatted midnight anchor.
+	 */
+	public Map<String, Object> create(long companyId, Map<String, Object> body) {
+		required(body, "employee_id");
+
+		long employeeId = LegacyValues.toPhpLong(value(body, "employee_id"));
+		Object rawCheckIn = value(body, "check_in");
+		Object rawCheckOut = value(body, "check_out");
+
+		// `isset() && !== '' && !== null`, then `(int)`, then a non-positive
+		// result collapses back to null.
+		Long exceptionTypeId = null;
+		Object rawException = value(body, "exception_type_id");
+		if (rawException != null && !"".equals(rawException)) {
+			long cast = LegacyValues.toPhpLong(rawException);
+			exceptionTypeId = cast > 0 ? cast : null;
+		}
+
+		boolean hasCheckIn = rawCheckIn != null
+				&& !LegacyValues.phpTrim(LegacyValues.toPhpString(rawCheckIn)).isEmpty();
+		boolean hasCheckOut = rawCheckOut != null
+				&& !LegacyValues.phpTrim(LegacyValues.toPhpString(rawCheckOut)).isEmpty();
+		boolean hasException = exceptionTypeId != null;
+
+		if (!hasCheckIn && !hasCheckOut && !hasException) {
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "check_in"));
+		}
+
+		if (!store.employeeExistsInCompany(companyId, employeeId)) {
+			throw new LegacyApiException(400, "invalid_employee");
+		}
+
+		if (hasException) {
+			// create.php's own validator: same company AND active. update.php
+			// has no equivalent -- see D-095 -- and the two are not harmonised.
+			exceptionTypeId = exceptionTypes.validateIdForCompany(companyId, exceptionTypeId);
+			if (exceptionTypeId == null) {
+				throw new LegacyApiException(422, "invalid_input");
+			}
+		}
+
+		// A check_in whose resolved time is exactly midnight is NOT a real
+		// punch: that is how legacy separates an exception-only day from a
+		// genuine arrival, and it means a real 00:00 punch cannot be recorded
+		// through this endpoint.
+		boolean isRealPunchIn = false;
+		if (hasCheckIn) {
+			LocalDateTime parsed = LegacyPhpStrtotime.dateTimeOf(
+					LegacyValues.toPhpString(rawCheckIn), clock.now());
+			isRealPunchIn = parsed != null && !parsed.toLocalTime().equals(LocalTime.MIDNIGHT);
+		}
+		// A nonblank check_out counts as a real punch WITHOUT being parsed at
+		// all -- the asymmetry is legacy's and is preserved.
+		boolean hasRealPunch = isRealPunchIn || hasCheckOut;
+
+		String checkIn;
+		String checkOut;
+		if (hasException && !hasRealPunch) {
+			String anchorRaw = hasCheckIn
+					? LegacyValues.toPhpString(rawCheckIn)
+					: clock.today().toString();
+			LocalDateTime anchor = LegacyPhpStrtotime.dateTimeOf(anchorRaw, clock.now());
+			if (anchor == null) {
+				throw new LegacyApiException(422, "invalid_input");
+			}
+			checkIn = anchor.toLocalDate() + " 00:00:00";
+			checkOut = null;
+		} else {
+			if (!hasCheckIn) {
+				throw new LegacyApiException(400, "field_required", null, Map.of("field", "check_in"));
+			}
+			// Raw, not parsed. See the class note above.
+			checkIn = LegacyValues.toPhpString(rawCheckIn);
+			checkOut = hasCheckOut ? LegacyValues.toPhpString(rawCheckOut) : null;
+
+			String lastCheckIn = store.latestCheckIn(employeeId);
+			if (lastCheckIn != null) {
+				Long minutes = store.minutesBetween(lastCheckIn, checkIn);
+				// `$minutes = (int) db_value(...)` -- and `(int) null` is 0 in
+				// PHP, not "unknown". Measured on MariaDB 11.8: TIMESTAMPDIFF
+				// returns SQL NULL when the candidate does not coerce, for
+				// every odd raw value reachable here -- 'now', '1990', '0060',
+				// '0830', 'oops'. So PHP sees 0, which is inside [0, 120), and
+				// REJECTS. Treating null as "skip the check" would let those
+				// through where legacy refuses them.
+				long sinceLast = minutes == null ? 0L : minutes;
+				// A negative gap passes, and exactly 120 passes. Only [0, 120)
+				// is refused.
+				if (sinceLast >= 0 && sinceLast < 120) {
+					throw new LegacyApiException(
+							422, "invalid_input", null, Map.of("reason", DUPLICATE_PUNCH_REASON));
+				}
+			}
+		}
+
+		// `$body[METHOD] ?? APP` -- absent means 'app'. The column is an enum
+		// and MariaDB owns the coercion; no Java enum validation is added,
+		// because PHP performs none.
+		Object method = value(body, "method") == null
+				? "app"
+				: value(body, "method");
+
+		long id = store.insert(employeeId, checkIn, checkOut, method, exceptionTypeId);
+		return store.recordFull(companyId, id);
+	}
+
+	/** The outcome of `update.php` -- it can delete the row it was asked to update. */
+	public record UpdateOutcome(boolean deleted, Map<String, Object> row) {
+	}
+
+	/**
+	 * `update.php`, in PHP's statement order.
+	 *
+	 * <p>There is no nothing-to-update branch: an empty body rewrites the
+	 * stored values onto themselves and answers 200.
+	 *
+	 * <p>D-095's ownership preflight runs <b>immediately before the UPDATE</b>,
+	 * after every legacy branch above it has had its chance -- the hard-delete
+	 * path, the cleared-punch conversion, the required-check_in guard and the
+	 * final midnight normalization. Putting it earlier would replace legacy
+	 * failures that must still happen first.
+	 */
+	public UpdateOutcome update(long companyId, long id, Map<String, Object> body) {
+		Map<String, Object> existing = store.recordFull(companyId, id);
+		if (existing == null) {
+			throw new LegacyApiException(404, "not_found");
+		}
+
+		boolean clearCheckIn = !LegacyValues.isPhpEmpty(value(body, "clear_check_in"))
+				|| (containsKey(body, "check_in") && isNullOrEmptyString(value(body, "check_in")));
+		boolean clearCheckOut = !LegacyValues.isPhpEmpty(value(body, "clear_check_out"))
+				|| (containsKey(body, "check_out") && isNullOrEmptyString(value(body, "check_out")));
+		boolean clearException = !LegacyValues.isPhpEmpty(value(body, "clear_exception_type"))
+				|| (containsKey(body, "exception_type_id")
+						&& isNullOrEmptyString(value(body, "exception_type_id")));
+
+		String newCheckIn = clearCheckIn
+				? null
+				: (containsKey(body, "check_in")
+						? LegacyValues.toPhpString(value(body, "check_in"))
+						: LegacyValues.toPhpString(existing.get("check_in")));
+
+		String newCheckOut;
+		if (clearCheckOut) {
+			newCheckOut = null;
+		} else if (containsKey(body, "check_out")) {
+			Object supplied = value(body, "check_out");
+			newCheckOut = isNullOrEmptyString(supplied) ? null : LegacyValues.toPhpString(supplied);
+		} else {
+			Object stored = existing.get("check_out");
+			newCheckOut = stored == null ? null : LegacyValues.toPhpString(stored);
+		}
+
+		// Whether THIS request supplied the exception id decides whether D-095
+		// runs. An id merely inherited from the stored row does not trigger it.
+		boolean exceptionSupplied = false;
+		Long newException;
+		if (clearException) {
+			newException = null;
+		} else if (containsKey(body, "exception_type_id")) {
+			Object supplied = value(body, "exception_type_id");
+			newException = isNullOrEmptyString(supplied) ? null : LegacyValues.toPhpLong(supplied);
+			exceptionSupplied = true;
+		} else {
+			Object stored = existing.get("exception_type_id");
+			long cast = stored == null ? 0L : LegacyValues.toPhpLong(stored);
+			newException = cast == 0L ? null : cast;
+		}
+
+		// Both punches gone and no exception -> the row is DELETED, and the
+		// response is still attendance_record_updated with no data.
+		if ((clearCheckIn || newCheckIn == null || newCheckIn.isEmpty())
+				&& (clearCheckOut || newCheckOut == null)
+				&& newException == null) {
+			store.deleteById(id);
+			return new UpdateOutcome(true, null);
+		}
+
+		// Punches gone but an exception remains -> a midnight-anchored day,
+		// dated from the row's EXISTING check_in.
+		if ((clearCheckIn || newCheckIn == null || newCheckIn.isEmpty()) && newException != null) {
+			Object storedCheckIn = existing.get("check_in");
+			String base = storedCheckIn == null ? "now" : LegacyValues.toPhpString(storedCheckIn);
+			LocalDateTime parsedBase = LegacyPhpStrtotime.dateTimeOf(base, clock.now());
+			if (parsedBase == null) {
+				// `date('Y-m-d', false)` is a TypeError in PHP and nothing
+				// catches it here, so D-084 owns the response.
+				throw new LegacyPhpDateYear.LegacyPhpDateException();
+			}
+			newCheckIn = parsedBase.toLocalDate() + " 00:00:00";
+			newCheckOut = null;
+		}
+
+		if (newCheckIn == null || newCheckIn.isEmpty()) {
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "check_in"));
+		}
+
+		// Final exception-only normalization. A strtotime() that fails here is
+		// merely `is_midnight = false` -- not a validation error.
+		boolean hasCheckOut = newCheckOut != null && !LegacyValues.phpTrim(newCheckOut).isEmpty();
+		LocalDateTime parsedIn = LegacyPhpStrtotime.dateTimeOf(newCheckIn, clock.now());
+		boolean isMidnight = parsedIn != null && parsedIn.toLocalTime().equals(LocalTime.MIDNIGHT);
+		if (newException != null && !hasCheckOut && isMidnight) {
+			newCheckIn = parsedIn.toLocalDate() + " 00:00:00";
+			newCheckOut = null;
+		}
+
+		// D-095, immediately before the write and only for an id THIS request
+		// supplied. Foreign and missing are indistinguishable by design, and
+		// both reach D-084's generic 500 rather than a keyed failure.
+		if (exceptionSupplied && newException != null && newException > 0
+				&& !store.exceptionTypeBelongsToCompany(companyId, newException)) {
+			throw new ForeignExceptionTypeException();
+		}
+
+		store.update(id, newCheckIn, newCheckOut, newException);
+		return new UpdateOutcome(false, store.recordFull(companyId, id));
+	}
+
+	/**
+	 * D-095's abort. Deliberately not a {@link LegacyApiException}: it must
+	 * reach D-084's unexpected-exception path and render
+	 * `{"success": false, "message": "Internal server error"}` with no `data`,
+	 * so a caller cannot tell a foreign id from a nonexistent one, and no
+	 * exception-type name, company or ownership detail is disclosed.
+	 */
+	static final class ForeignExceptionTypeException extends RuntimeException {
+
+		private static final long serialVersionUID = 1L;
+
+		ForeignExceptionTypeException() {
+			// No message: nothing about the reference may reach a log line that
+			// could be surfaced.
+			super("attendance update referenced an exception type outside the company");
+		}
+
 	}
 
 	/** `delete.php`: a company-scoped existence probe, then an id-only hard delete. */
@@ -136,6 +405,30 @@ public class LegacyAttendanceService {
 		// fourth argument of ok() is $replace, a message placeholder map, not
 		// headers (`functions.php:380`).
 		return new RangeOutcome(data, Map.of("count", String.valueOf(deleted)));
+	}
+
+
+	private static Object value(Map<String, Object> body, String key) {
+		return body == null ? null : body.get(key);
+	}
+
+	private static boolean containsKey(Map<String, Object> body, String key) {
+		return body != null && body.containsKey(key);
+	}
+
+	/** `$v === null || $v === ''` -- the exact pair `update.php` tests. */
+	private static boolean isNullOrEmptyString(Object value) {
+		return value == null || "".equals(value);
+	}
+
+	/** `required($body, [$field])` -- missing, null and "" fail; "0" passes. */
+	private static void required(Map<String, Object> body, String... keys) {
+		for (String key : keys) {
+			Object supplied = value(body, key);
+			if (supplied == null || "".equals(supplied)) {
+				throw new LegacyApiException(400, "field_required", null, Map.of("field", key));
+			}
+		}
 	}
 
 }

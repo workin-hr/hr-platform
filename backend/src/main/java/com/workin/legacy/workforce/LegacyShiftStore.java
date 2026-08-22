@@ -17,6 +17,8 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+import com.workin.legacy.LegacyJdbcValues;
+
 import com.workin.legacy.LegacyValues;
 
 /**
@@ -208,31 +210,10 @@ public class LegacyShiftStore {
 			ResultSetMetaData meta = rs.getMetaData();
 			Map<String, Object> row = new LinkedHashMap<>();
 			for (int column = 1; column <= meta.getColumnCount(); column++) {
-				row.put(meta.getColumnLabel(column), value(rs, column, meta.getColumnType(column)));
+				row.put(meta.getColumnLabel(column), LegacyJdbcValues.read(rs, column, meta.getColumnType(column)));
 			}
 			return row;
 		};
-	}
-
-	/**
-	 * Legacy runs PDO with {@code ATTR_EMULATE_PREPARES => false}
-	 * ({@code apis/config/pdo.php:17}), so mysqlnd hands back native types and
-	 * {@code json_encode} renders {@code id}, {@code company_id} and
-	 * {@code is_active} as JSON numbers. {@code start_time}, {@code end_time},
-	 * {@code days_off} and {@code created_at} are strings.
-	 */
-	private static Object value(ResultSet rs, int column, int sqlType) throws SQLException {
-		Object raw = switch (sqlType) {
-			// BIT and BOOLEAN are in the list because MariaDB reports
-			// `tinyint(1)` as one of them, not as TINYINT -- which is exactly
-			// how `is_active` would otherwise reach a client as the string
-			// "1" instead of the number mysqlnd gives PHP. Same set as
-			// LegacyEmployeeStore's, deliberately.
-			case Types.BIT, Types.BOOLEAN, Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT ->
-				rs.getLong(column);
-			default -> rs.getString(column);
-		};
-		return rs.wasNull() ? null : raw;
 	}
 
 }

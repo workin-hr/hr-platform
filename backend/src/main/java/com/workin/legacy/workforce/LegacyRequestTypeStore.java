@@ -18,6 +18,8 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+import com.workin.legacy.LegacyJdbcValues;
+
 import com.workin.legacy.LegacyPagination;
 import com.workin.legacy.LegacyValues;
 
@@ -193,26 +195,10 @@ public class LegacyRequestTypeStore {
 			ResultSetMetaData meta = rs.getMetaData();
 			Map<String, Object> row = new LinkedHashMap<>();
 			for (int column = 1; column <= meta.getColumnCount(); column++) {
-				row.put(meta.getColumnLabel(column), value(rs, column, meta.getColumnType(column)));
+				row.put(meta.getColumnLabel(column), LegacyJdbcValues.read(rs, column, meta.getColumnType(column)));
 			}
 			return row;
 		};
-	}
-
-	/**
-	 * The same type set {@code LegacyEmployeeStore} and {@link LegacyShiftStore}
-	 * use: MariaDB reports {@code tinyint(1)} as BIT or BOOLEAN, and the four
-	 * flag columns here are all {@code tinyint(1)}, so leaving those out would
-	 * send {@code deduct_balance} as the string "1" where mysqlnd gives PHP a
-	 * number.
-	 */
-	private static Object value(ResultSet rs, int column, int sqlType) throws SQLException {
-		Object raw = switch (sqlType) {
-			case Types.BIT, Types.BOOLEAN, Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT ->
-				rs.getLong(column);
-			default -> rs.getString(column);
-		};
-		return rs.wasNull() ? null : raw;
 	}
 
 }

@@ -18,6 +18,8 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
+
+import com.workin.legacy.LegacyJdbcValues;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.workin.legacy.LegacyValues;
@@ -912,21 +914,9 @@ public class LegacyEmployeeStore {
 			if (SENSITIVE_KEYS.contains(label)) {
 				continue;
 			}
-			row.put(label, readValue(rs, metaData.getColumnType(column), column));
+			row.put(label, LegacyJdbcValues.read(rs, column, metaData.getColumnType(column)));
 		}
 		return row;
 	};
-
-	private static Object readValue(ResultSet rs, int sqlType, int column) throws SQLException {
-		switch (sqlType) {
-			case Types.BIT, Types.BOOLEAN, Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT -> {
-				long value = rs.getLong(column);
-				return rs.wasNull() ? null : value;
-			}
-			default -> {
-				return rs.getString(column);
-			}
-		}
-	}
 
 }

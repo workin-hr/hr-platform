@@ -18,6 +18,8 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
+import com.workin.legacy.LegacyJdbcValues;
+
 import com.workin.legacy.LegacyPagination;
 
 /**
@@ -173,20 +175,10 @@ public class LegacyOfficialHolidayStore {
 			ResultSetMetaData meta = rs.getMetaData();
 			Map<String, Object> row = new LinkedHashMap<>();
 			for (int column = 1; column <= meta.getColumnCount(); column++) {
-				row.put(meta.getColumnLabel(column), value(rs, column, meta.getColumnType(column)));
+				row.put(meta.getColumnLabel(column), LegacyJdbcValues.read(rs, column, meta.getColumnType(column)));
 			}
 			return row;
 		};
-	}
-
-	/** The same type set the other two stores use; see {@link LegacyShiftStore}. */
-	private static Object value(ResultSet rs, int column, int sqlType) throws SQLException {
-		Object raw = switch (sqlType) {
-			case Types.BIT, Types.BOOLEAN, Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT ->
-				rs.getLong(column);
-			default -> rs.getString(column);
-		};
-		return rs.wasNull() ? null : raw;
 	}
 
 }

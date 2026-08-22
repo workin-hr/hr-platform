@@ -532,6 +532,31 @@ class LegacyShiftEndToEndTest {
 	// Helpers
 	// ------------------------------------------------------------------
 
+	/**
+	 * D-096 retrospective for a second delivered package.
+	 *
+	 * <p>Not because shifts need their own zero-date specification -- that
+	 * rule lives in LegacyJdbcValues and has its own test. This proves the
+	 * workforce package actually consumes the shared reader, so the
+	 * correction did not silently become an employees-only fix.
+	 */
+	@Test
+	void aZeroCreatedAtReachesTheWireAsItsLiteralString() {
+		long id = 205199L;
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute("SET SESSION sql_mode = \'\'");
+			st.execute("INSERT INTO shifts (id, company_id, name, start_time, end_time,"
+					+ " is_active, created_at) VALUES (" + id + ", " + COMPANY_1
+					+ ", \'Zero Dated\', \'09:00:00\', \'17:00:00\', 1,"
+					+ " \'0000-00-00 00:00:00\')");
+		} catch (Exception ex) {
+			throw new IllegalStateException(ex);
+		}
+
+		Map<String, Object> row = dataOf(get(ONE + "?id=" + id, ADMIN_1, 200));
+		assertThat(row.get("created_at"))
+				.isEqualTo("0000-00-00 00:00:00");
+	}
 	private Map<String, Object> get(String path, long employeeId, int expectedStatus) {
 		ResponseEntity<Map<String, Object>> response = send(path, HttpMethod.GET, employeeId, null);
 		assertThat(response.getStatusCode().value()).as("%s: %s", path, response.getBody())

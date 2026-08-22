@@ -1,6 +1,7 @@
 package com.workin.legacy;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 
 import javax.sql.DataSource;
@@ -53,6 +54,21 @@ public class LegacyClock {
 	/** {@code date('Y-m-d')} under legacy's configured offset. */
 	public LocalDate today() {
 		return LocalDate.now(zoneOffset());
+	}
+
+	/**
+	 * The full instant {@code strtotime('now')} resolves to, under the same
+	 * offset {@link #today()} uses -- one resolution, not two.
+	 *
+	 * <p>Truncated to seconds on purpose. PHP's observable value is
+	 * {@code date('H:i:s', ...)}, which has no sub-second component, and
+	 * {@code attendance/create.php} branches on that string being exactly
+	 * {@code 00:00:00}. Keeping Java's nanoseconds would make an instant a few
+	 * hundred microseconds past midnight compare as non-midnight and classify a
+	 * PHP exception-only day as a real punch.
+	 */
+	public LocalDateTime now() {
+		return LocalDateTime.now(zoneOffset()).withNano(0);
 	}
 
 	/** {@code date('Y-m-d')} as the string PHP would produce. */
