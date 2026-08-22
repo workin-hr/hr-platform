@@ -43,8 +43,8 @@ in [`2026-08-18-item-12-specification.md`](2026-08-18-item-12-specification.md)
 | 12.3a | `branches` | **Merged** — commit `6f50ee1`, with PR #106 accepting D-060's uniform 404; D-056, D-057, D-058, D-059, D-060 |
 | 12.3b | `departments` + `department_branches` | **Merged** — PR #107; D-055, D-061, D-068, D-069, D-070, D-071 |
 | 12.3c | `job_titles` | **Merged** — PR #108; D-062, D-065, D-067, D-072 |
-| 12.4 | `employees` + `hr_employees` with P-5 | **Discovery/specification only** — [`2026-08-20-wave-12.4-employees-discovery.md`](2026-08-20-wave-12.4-employees-discovery.md); owner decisions recorded as D-074–D-078; **no Java implementation has started** |
-| 12.5 | `shifts`, `request_types`, `company_official_holidays` | Not started — assigned by D-073 |
+| 12.4 | `employees` + `hr_employees` with P-5 | **Merged** — discovery in PR #109 ([`2026-08-20-wave-12.4-employees-discovery.md`](2026-08-20-wave-12.4-employees-discovery.md)), implementation in PR #110, squash commit `f96a962`; all 17 endpoints delivered (14 `employees/*`, 3 `hr_employees/*`) with the route inventory asserted literally; D-074, D-074a, D-075–D-086 |
+| 12.5 | `shifts`, `request_types`, `company_official_holidays` | **Discovery/specification only** — [`2026-08-22-wave-12.5-workforce-masters-discovery.md`](2026-08-22-wave-12.5-workforce-masters-discovery.md); 15 endpoints inventoried; owner decisions recorded as **D-087–D-090**; **no Java implementation has started** -- it begins on a separate branch off updated `main` once the discovery merges |
 | 12.6 | `attendance`, `employee_schedules`, `employee_shift_assignments` | Not started |
 | 12.7 | `requests`, `leave_balances` | Not started |
 | 12.8 | `salary_contracts`, `advances`, `penalties` | Not started |
