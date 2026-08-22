@@ -35,11 +35,15 @@ package com.workin.legacy.wire;
  * {@code unauthorized_no_token} correct rather than accidental.
  *
  * <p>A legacy route added without its guard calls would be an unauthenticated
- * endpoint. {@code LegacyEmployeeReadEndToEndTest.everyMappedPhpRouteAuthenticatesInsideTheEndpoint}
+ * endpoint. {@code LegacyEmployeeReadEndToEndTest.noMappedPhpRouteAnswersAnUnauthenticatedRequest}
  * makes that a test failure rather than a review question: it enumerates the
  * live {@code RequestMappingHandlerMapping} and asserts that every mapped
- * {@code /apis/**} route answers an unauthenticated GET with PHP's 401, so a
- * new route that forgets {@code requireAuth} fails the build.
+ * {@code /apis/**} route answers an unauthenticated GET with one of PHP's own
+ * denials -- {@code 401 unauthorized_no_token} from {@code requireAuth}, or
+ * {@code 405 invalid_method} where the route's PHP verb is not GET and the
+ * method guard runs first -- never a 200, and always in the PHP envelope. Not
+ * every route answers 401: a POST-only or DELETE-only route legitimately
+ * denies with 405, because that is the order legacy checks in.
  *
  * <p>Anything under {@code /apis/**} that is <em>not</em> listed here keeps
  * falling through to {@code .anyRequest().authenticated()}, so an unported
@@ -55,6 +59,7 @@ public final class LegacyPhpRoutes {
 		"/apis/api/employees/**",
 		"/apis/api/hr_employees/**",
 		"/apis/api/shifts/**",
+		"/apis/api/request_types/**",
 	};
 
 	private LegacyPhpRoutes() {

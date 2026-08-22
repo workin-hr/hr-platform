@@ -101,9 +101,11 @@ public class LegacyWireExceptionHandler {
 	 * rollback semantics require it -- rolling back and rendering are different
 	 * jobs.
 	 *
-	 * <p>This is scoped to {@code com.workin.legacy.employees} with the rest of
-	 * this advice; {@code /api/legacy/**} and the PostgreSQL surface are
-	 * untouched.
+	 * <p>This fallback covers exactly the packages this advice lists -- today
+	 * {@code com.workin.legacy.employees} and {@code com.workin.legacy.workforce}
+	 * -- and D-084 authorizes a later legacy-route wave to inherit it by adding
+	 * its package to that list rather than by defining a second envelope.
+	 * {@code /api/legacy/**} and the PostgreSQL surface remain untouched.
 	 */
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<LegacyApiResponse> handleUnexpected(Exception ex, HttpServletRequest request) {

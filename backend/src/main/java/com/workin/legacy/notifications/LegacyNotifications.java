@@ -91,10 +91,14 @@ public class LegacyNotifications {
 	}
 
 	/**
-	 * The same call with {@code $reference_type} and {@code $reference_id} --
-	 * {@code employees/update.php}'s shift notification passes {@code 'shift'}
-	 * and the shift id, and {@code notification_insert()} casts the id with
-	 * {@code (int)} while leaving the type as given.
+	 * The same call with {@code $reference_type} and {@code $reference_id}.
+	 *
+	 * <p>Two endpoints reach it, both passing {@code 'shift'} and a shift id:
+	 * {@code employees/update.php:314} directly, for the one employee whose
+	 * assignment changed, and {@code shifts/update.php:97} through
+	 * {@link #broadcastToCompanyEmployees}, for every active employee of the
+	 * company. {@code notification_insert()} casts the id with {@code (int)}
+	 * while leaving the type as given.
 	 */
 	public long toEmployee(
 			long companyId, long toEmployeeId, Long fromEmployeeId, String type, String title, String body,

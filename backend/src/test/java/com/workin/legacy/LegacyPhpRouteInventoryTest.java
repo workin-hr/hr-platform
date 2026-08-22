@@ -91,19 +91,27 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/shifts/one.php",
 			"/apis/api/shifts/update.php");
 
+	/** Wave 12.5's {@code request_types} slice: five endpoints. */
+	private static final List<String> WAVE_125_REQUEST_TYPE_ROUTES = List.of(
+			"/apis/api/request_types/create.php",
+			"/apis/api/request_types/delete.php",
+			"/apis/api/request_types/list.php",
+			"/apis/api/request_types/one.php",
+			"/apis/api/request_types/update.php");
+
 	/**
 	 * Every route the application is expected to map, composed from the slice
 	 * lists above.
 	 *
-	 * <p>Wave 12.5 adds two more groups as they land:
-	 * {@code WAVE_125_REQUEST_TYPE_ROUTES} (5) in slice 3 and
-	 * {@code WAVE_125_OFFICIAL_HOLIDAY_ROUTES} (5) in slice 4. They are named
-	 * here rather than stubbed empty, because an empty list would satisfy the
+	 * <p>Wave 12.5 adds one more group as it lands:
+	 * {@code WAVE_125_OFFICIAL_HOLIDAY_ROUTES} (5) in slice 4. It is named here
+	 * rather than stubbed empty, because an empty list would satisfy the
 	 * inventory while claiming coverage that does not exist.
 	 */
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 					WAVE_124_ROUTES,
-					WAVE_125_SHIFT_ROUTES)
+					WAVE_125_SHIFT_ROUTES,
+					WAVE_125_REQUEST_TYPE_ROUTES)
 			.flatMap(List::stream)
 			.sorted()
 			.toList();
@@ -165,11 +173,19 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
+	void theWave125RequestTypeSliceIsItsFullFiveEndpoints() {
+		assertThat(WAVE_125_REQUEST_TYPE_ROUTES).hasSize(5);
+		assertThat(WAVE_125_REQUEST_TYPE_ROUTES)
+				.allSatisfy(route -> assertThat(route).startsWith("/apis/api/request_types/"));
+	}
+
+	@Test
 	void noRouteIsListedTwiceAcrossTheWaves() {
 		// A duplicate would hide a missing endpoint behind a matching count.
 		assertThat(EXPECTED_ROUTES).doesNotHaveDuplicates();
 		assertThat(EXPECTED_ROUTES)
-				.hasSize(WAVE_124_ROUTES.size() + WAVE_125_SHIFT_ROUTES.size());
+				.hasSize(WAVE_124_ROUTES.size() + WAVE_125_SHIFT_ROUTES.size()
+						+ WAVE_125_REQUEST_TYPE_ROUTES.size());
 	}
 
 	@Test
@@ -179,7 +195,8 @@ class LegacyPhpRouteInventoryTest {
 		// unauthenticated hole waiting for a future route.
 		List<String> prefixes = List.of(com.workin.legacy.wire.LegacyPhpRoutes.CONTROLLER_GUARDED);
 		assertThat(prefixes).containsExactly(
-				"/apis/api/employees/**", "/apis/api/hr_employees/**", "/apis/api/shifts/**");
+				"/apis/api/employees/**", "/apis/api/hr_employees/**", "/apis/api/shifts/**",
+				"/apis/api/request_types/**");
 
 		for (String prefix : prefixes) {
 			String base = prefix.substring(0, prefix.length() - "**".length());

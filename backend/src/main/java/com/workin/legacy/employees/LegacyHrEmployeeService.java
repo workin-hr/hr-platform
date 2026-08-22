@@ -10,6 +10,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.workin.legacy.LegacyClock;
+import com.workin.legacy.LegacyPagination;
 import com.workin.legacy.LegacyPhpArray;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
@@ -84,7 +85,7 @@ public class LegacyHrEmployeeService {
 	 * legacy's, and widening it would change what an existing client renders.
 	 */
 	public LegacyEmployeeService.Page list(LegacyRequestContext context, LegacyQueryParameters query) {
-		LegacyEmployeeService.Pagination pagination = LegacyEmployeeService.paginationParams(query);
+		LegacyPagination.Params pagination = LegacyEmployeeService.paginationParams(query);
 
 		List<String> where = new ArrayList<>();
 		List<Object> params = new ArrayList<>();
