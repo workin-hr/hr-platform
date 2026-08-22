@@ -94,7 +94,7 @@ public class LegacyHrEmployeeService {
 		where.add("e.role = ?");
 		params.add("hr");
 
-		String search = LegacyEmployeeService.searchQueryParam(query);
+		String search = LegacyPagination.searchQueryParam(query);
 		if (search != null) {
 			// One LIKE across the display name, the code and the phone -- no
 			// digits-only branch, unlike employees/list.php.

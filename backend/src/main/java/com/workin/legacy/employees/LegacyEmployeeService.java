@@ -130,7 +130,7 @@ public class LegacyEmployeeService {
 			params.add(LegacyValues.toPhpLong(departmentId));
 		}
 
-		String search = searchQueryParam(query);
+		String search = LegacyPagination.searchQueryParam(query);
 		if (search != null) {
 			String pattern = "%" + search + "%";
 			if (DIGITS_ONLY.matcher(search).matches()) {
@@ -1006,12 +1006,6 @@ public class LegacyEmployeeService {
 			return "CAST(NULLIF(e.employee_code, '') AS UNSIGNED) ASC, e.employee_code ASC, e.id ASC";
 		}
 		return "e.created_at DESC, e.id DESC";
-	}
-
-	/** {@code search_query_param()} ({@code helpers/pagination.php:44-47}). */
-	static String searchQueryParam(LegacyQueryParameters query) {
-		String value = LegacyValues.toPhpString(query.value("search")).trim();
-		return value.isEmpty() ? null : value;
 	}
 
 	/** {@code pagination_params()} -- see {@link LegacyPagination#params}. */

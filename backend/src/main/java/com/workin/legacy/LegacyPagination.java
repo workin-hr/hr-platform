@@ -22,7 +22,20 @@ import java.util.Map;
  * <li>{@code $_GET['limit'] ?? $_GET['per_page'] ?? $default} -- a null
  *     coalesce, so {@code ?limit=} (present but empty) wins over
  *     {@code per_page} and then casts to 0, which is the default again.</li>
+ * <li>{@code trim()} on the search needle strips PHP's charlist, not Java's.
+ *     PHP removes space, horizontal tab, newline, carriage return, NUL and
+ *     vertical tab; {@link String#trim()} removes every character at or below
+ *     {@code U+0020}, which additionally includes form feed. A needle that
+ *     lost its form feed matches rows PHP would not match, so
+ *     {@link LegacyValues#phpTrim} is used and not {@code String.trim()}.</li>
  * </ul>
+ *
+ * <p>That third rule was a live defect until this class owned it: Wave 12.4's
+ * own copy of {@code search_query_param()} used {@code String.trim()}, so
+ * {@code employees/list.php} and {@code hr_employees/list.php} both diverged
+ * from PHP for a form-feed-bearing needle. Both now call this method, and the
+ * difference is asserted over HTTP in each module's read tests rather than only
+ * in a unit test.
  */
 public final class LegacyPagination {
 

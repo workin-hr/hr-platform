@@ -199,6 +199,29 @@ class LegacyEmployeeReadEndToEndTest {
 	}
 
 	@Test
+	void aFormFeedStaysInTheSearchNeedleBecausePhpsTrimDoesNotStripIt() {
+		// PHP trims space, horizontal tab, newline, carriage return, NUL
+		// and vertical tab -- and nothing else. Form feed (U+000C) is not in
+		// that list, while Java String.trim() removes every character at or
+		// below U+0020 and would strip it. Trimmed the Java way, a form-feed
+		// prefixed needle would collapse to the plain term and match; in PHP
+		// the form feed stays inside the LIKE pattern and matches nothing.
+		assertThat(idsOf(getMap(LIST + "?search=Nour%20Adel", ADMIN_1))).containsExactly(STAFF_MAIN);
+
+		assertThat(idsOf(getMap(LIST + "?search=%0CNour%20Adel", ADMIN_1)))
+				.as("a leading form feed must survive into the LIKE needle")
+				.isEmpty();
+		assertThat(idsOf(getMap(LIST + "?search=Nour%20Adel%0C", ADMIN_1)))
+				.as("a trailing form feed must survive into the LIKE needle")
+				.isEmpty();
+
+		// The characters PHP *does* trim still behave as trimmed, so this is a
+		// narrow charlist difference and not "no trimming at all".
+		assertThat(idsOf(getMap(LIST + "?search=%20Nour%20Adel%20", ADMIN_1))).containsExactly(STAFF_MAIN);
+		assertThat(idsOf(getMap(LIST + "?search=%09Nour%20Adel%09", ADMIN_1))).containsExactly(STAFF_MAIN);
+	}
+
+	@Test
 	void sortIsMatchedExactlyAndOrdersCodesNumerically() {
 		List<Long> sorted = idsOf(getMap(LIST + "?sort=employee_code", ADMIN_1));
 		List<Long> defaultOrder = idsOf(getMap(LIST, ADMIN_1));
