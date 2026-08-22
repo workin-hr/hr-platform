@@ -188,19 +188,22 @@ public class LegacyEmployeeController {
 	 * {@code employees/delete.php}: DELETE, admin/HR, the id, and
 	 * {@code cascade} read through {@code FILTER_VALIDATE_BOOLEAN}.
 	 *
-	 * <h2>The one response this cannot render yet</h2>
-	 * <p>A cascade that throws is <em>not</em> translated by
-	 * {@code delete.php}: {@code employee_cascade_delete_related()} rolls back
-	 * and rethrows, and nothing catches it. What the client then sees depends on
-	 * {@code AppConfig::DEBUG}, whose real value lives in {@code constants.php}
-	 * -- a file this repository gitignores. The vendored
-	 * {@code constants.example.php} says {@code true}, which would install the
-	 * debug handler and emit {@code {success,message,file,line,trace}}; with it
-	 * false there is no handler at all and PHP's own fatal output is what
-	 * reaches the client. Neither is established by repository evidence, so this
-	 * endpoint deliberately does not manufacture either shape: the exception
-	 * propagates, the rollback is proven by tests, and the envelope waits for a
-	 * decision.
+	 * <h2>What a failing cascade answers</h2>
+	 * <p>A cascade that throws is <em>not</em> translated here, because
+	 * {@code delete.php} does not translate it either:
+	 * {@code employee_cascade_delete_related()} rolls back and rethrows, and
+	 * nothing catches it. In PHP the client-visible shape then depends on
+	 * {@code AppConfig::DEBUG}, whose real value lives in the gitignored
+	 * {@code constants.php} -- so it was never established by repository
+	 * evidence.
+	 *
+	 * <p>D-084 settled that: an uncaught exception on these routes answers one
+	 * deterministic, non-debug 500,
+	 * {@code {"success": false, "message": "Internal server error"}}, with no
+	 * {@code data} and no stack detail. So the rollback is proven by database
+	 * state in the tests, the exception propagates as it does in PHP, and
+	 * {@link com.workin.legacy.wire.LegacyWireExceptionHandler} renders that
+	 * envelope. Nothing is pending.
 	 */
 	@RequestMapping("/delete.php")
 	public LegacyApiResponse delete(HttpServletRequest request) {

@@ -8,8 +8,6 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -39,9 +37,13 @@ import com.workin.backend.identity.JwtService;
  *
  * <p><b>Neither closes D-083.</b> {@code stats.php} evaluates {@code CURDATE()}
  * and {@code my_team.php} evaluates {@code CURRENT_DATE} in the database, on
- * the connection's timezone -- which Phase 1 does not yet set. The
- * month-boundary and today-boundary assertions below are written to be
- * unambiguous under either offset rather than to hide the gap.
+ * the connection's timezone -- which Phase 1 does not yet set.
+ *
+ * <p>So this test never consults the application clock. Every date it seeds and
+ * every date it asserts comes from the database's own calendar, because that is
+ * the calendar the two endpoints query. Mixing the two would not have measured
+ * the gap; it would only have produced a test that fails for a few hours around
+ * a month boundary.
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -76,14 +78,16 @@ class LegacyEmployeeStatsAndTeamEndToEndTest {
 	private static final long ADMIN_2 = 201022L;
 	private static final long ADMIN_SUSPENDED = 201031L;
 
-	/**
-	 * Legacy's own application-side default offset -- no {@code configs} row is
-	 * seeded. Used for the fixture's own dates only; anything the database
-	 * evaluates is compared against {@link #databaseCurrentDate()} instead,
-	 * because the two are not the same clock while D-083 is open.
-	 */
-	private static LocalDate today() {
-		return LocalDate.now(ZoneOffset.ofHours(2));
+	/** The first of the database's current month, in its own calendar. */
+	private static String databaseFirstOfMonth() {
+		try (Connection connection = connect(); Statement st = connection.createStatement();
+				java.sql.ResultSet rs = st.executeQuery(
+						"SELECT DATE_FORMAT(CURRENT_DATE, '%Y-%m-01')")) {
+			rs.next();
+			return rs.getString(1);
+		} catch (Exception ex) {
+			throw new IllegalStateException(ex);
+		}
 	}
 
 	/** {@code CURRENT_DATE} as the database evaluates it, on its own session timezone. */
@@ -215,13 +219,11 @@ class LegacyEmployeeStatsAndTeamEndToEndTest {
 	@Test
 	void newThisMonthCountsTodaysMonthFromEitherDateColumn() {
 		Map<String, Object> data = dataOf(get(STATS, ADMIN_1, 200));
-		// One employee is seeded with a hire_date on the first of the current
-		// month, which both clocks agree on except in the hours around a month
-		// boundary -- CURDATE() is the database's, on its own session timezone,
-		// and D-083 is the open blocker for that. This endpoint does not close
-		// it; the fixture is simply placed where the two cannot disagree.
+		// One employee is seeded on the first of the database's current month,
+		// which is the calendar CURDATE() reads. Nothing here asserts that the
+		// database and the application clock agree -- they need not, and D-083
+		// is the open blocker for that. This endpoint does not close it.
 		assertThat(number(data.get("new_this_month"))).isEqualTo(1);
-		assertThat(databaseCurrentDate()).startsWith(today().toString().substring(0, 7));
 	}
 
 	@Test
@@ -408,7 +410,12 @@ class LegacyEmployeeStatsAndTeamEndToEndTest {
 	}
 
 	private static void seed() throws Exception {
-		String currentMonthHire = today().withDayOfMonth(1).toString();
+		// Seeded from the database's own calendar, not the application clock:
+		// stats.php counts new_this_month with CURDATE(), so the fixture has to
+		// be placed in the month that query will ask about. Deriving it from
+		// LegacyClock's +02:00 instead would make the test fail for real in the
+		// hours where the two calendars name different months.
+		String currentMonthHire = databaseFirstOfMonth();
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
 			st.execute("SET SESSION sql_mode = ''");
 			st.execute("""

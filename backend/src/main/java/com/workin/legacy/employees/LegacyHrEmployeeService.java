@@ -306,6 +306,12 @@ public class LegacyHrEmployeeService {
 			// a scalar is a TypeError, not an empty permission set. Treating it
 			// as empty would silently clear all seventeen flags on input PHP
 			// refuses outright.
+			// D-086: the deterministic half of PHP's message, and no more. The
+			// real one ends ", called in <file> on line <n>", naming a source
+			// location inside hr-legacy that this process does not have --
+			// synthesising one would put fabricated evidence in a payload the
+			// client reads. create.php catches this and returns it as data;
+			// update_permissions.php does not, and that stays D-084's 500.
 			throw new LegacyPhpArray.LegacyPhpTypeError(
 					"hr_permissions_upsert_sql(): Argument #2 ($permissions) must be of type array, "
 							+ phpTypeName(supplied) + " given");
@@ -392,6 +398,9 @@ public class LegacyHrEmployeeService {
 	 */
 	private static String normalizeEmployeeCode(Object raw) {
 		if (raw != null && !(raw instanceof String)) {
+			// Uncaught in PHP -- this call is before beginTransaction() -- so
+			// the text never reaches a client and D-084's generic 500 is the
+			// whole response. Built to D-086's rule regardless.
 			throw new LegacyPhpArray.LegacyPhpTypeError(
 					"normalize_employee_code(): Argument #1 ($code) must be of type ?string, "
 							+ phpTypeName(raw) + " given");
