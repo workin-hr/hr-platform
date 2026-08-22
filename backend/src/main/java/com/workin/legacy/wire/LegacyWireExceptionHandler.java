@@ -31,11 +31,22 @@ import com.workin.backend.i18n.ApiException;
  * <ul>
  * <li>{@code com.workin.legacy.employees} -- Wave 12.4</li>
  * <li>{@code com.workin.legacy.workforce} -- Wave 12.5</li>
+ * <li>{@code com.workin.legacy.attendance.records} -- Wave 12.6</li>
  * </ul>
+ *
+ * <p>The last entry is a <b>subpackage</b>, and deliberately so. Wave 12.1's
+ * {@code LegacyExceptionTypeController} sits in the parent
+ * {@code com.workin.legacy.attendance}, serves the merged
+ * {@code /api/legacy/**} surface and raises {@code ApiException} -- which this
+ * advice also handles. Listing the parent would therefore capture it and
+ * render D-074's PHP envelope where its clients expect
+ * {@code ApiErrorBody}, silently changing a Wave 12.1 contract. Naming only
+ * the subpackage keeps the two surfaces apart.
  */
 @RestControllerAdvice(basePackages = {
 	"com.workin.legacy.employees",
 	"com.workin.legacy.workforce",
+	"com.workin.legacy.attendance.records",
 })
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class LegacyWireExceptionHandler {

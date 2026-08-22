@@ -119,10 +119,22 @@ class LegacyPhpRouteInventoryTest {
 			.flatMap(List::stream)
 			.toList();
 
+	/**
+	 * Wave 12.6's slice 1a-i: the three attendance endpoints whose function
+	 * closure reaches neither {@code schedule_helper}, {@code company_settings}
+	 * nor {@code payroll_calculation}, so they land ahead of D-091. The wave's
+	 * other fifteen endpoints are not listed and get no placeholder.
+	 */
+	private static final List<String> WAVE_126_ATTENDANCE_1A_I_ROUTES = List.of(
+			"/apis/api/attendance/delete.php",
+			"/apis/api/attendance/delete_range.php",
+			"/apis/api/attendance/one.php");
+
 	/** Every route the application is expected to map. */
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 					WAVE_124_ROUTES,
-					WAVE_125_ROUTES)
+					WAVE_125_ROUTES,
+					WAVE_126_ATTENDANCE_1A_I_ROUTES)
 			.flatMap(List::stream)
 			.sorted()
 			.toList();
@@ -209,10 +221,26 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
+	void theWave126Slice1aiIsItsThreeEndpoints() {
+		// Named for the slice, not the wave: Wave 12.6 is eighteen endpoints
+		// and this is three of them, so a constant called WAVE_126_ROUTES
+		// would misstate the contract until the wave completes.
+		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES).hasSize(3);
+		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES)
+				.allSatisfy(route -> assertThat(route).startsWith("/apis/api/attendance/"));
+		// create.php and update.php belong to slice 1a-ii and must not be
+		// mapped yet -- the bidirectional inventory would fail if they were.
+		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES)
+				.doesNotContain("/apis/api/attendance/create.php", "/apis/api/attendance/update.php");
+	}
+
+	@Test
 	void noRouteIsListedTwiceAcrossTheWaves() {
 		// A duplicate would hide a missing endpoint behind a matching count.
 		assertThat(EXPECTED_ROUTES).doesNotHaveDuplicates();
-		assertThat(EXPECTED_ROUTES).hasSize(WAVE_124_ROUTES.size() + WAVE_125_ROUTES.size());
+		assertThat(EXPECTED_ROUTES).hasSize(
+				WAVE_124_ROUTES.size() + WAVE_125_ROUTES.size()
+						+ WAVE_126_ATTENDANCE_1A_I_ROUTES.size());
 	}
 
 	@Test
@@ -223,7 +251,8 @@ class LegacyPhpRouteInventoryTest {
 		List<String> prefixes = List.of(com.workin.legacy.wire.LegacyPhpRoutes.CONTROLLER_GUARDED);
 		assertThat(prefixes).containsExactly(
 				"/apis/api/employees/**", "/apis/api/hr_employees/**", "/apis/api/shifts/**",
-				"/apis/api/request_types/**", "/apis/api/company_official_holidays/**");
+				"/apis/api/request_types/**", "/apis/api/company_official_holidays/**",
+				"/apis/api/attendance/**");
 
 		for (String prefix : prefixes) {
 			String base = prefix.substring(0, prefix.length() - "**".length());

@@ -213,6 +213,36 @@ class LegacyExceptionTypeEndToEndTest {
 		assertThat(response.getBody().code()).isEqualTo("not_found");
 	}
 
+	/**
+	 * This module's failure contract is {@code ApiErrorBody}, and it must stay
+	 * that way as legacy {@code *.php} waves land.
+	 *
+	 * <p>{@code LegacyWireExceptionHandler} renders D-074's PHP envelope and
+	 * handles <b>both</b> {@code LegacyApiException} and {@code ApiException} --
+	 * and this controller raises the latter. Wave 12.6 put its attendance
+	 * routes in {@code com.workin.legacy.attendance.records} and listed only
+	 * that subpackage on the advice precisely so this controller, in the parent
+	 * {@code com.workin.legacy.attendance}, is not captured. Adding the parent
+	 * would silently convert every error here from
+	 * {@code {code, message}} to {@code {success, message}}.
+	 *
+	 * <p>So this asserts the discriminator directly on the raw body rather than
+	 * through a typed binding: {@code code} present, {@code success} absent.
+	 */
+	@Test
+	void theFailureBodyStaysApiErrorBodyAndDoesNotBecomeThePhpEnvelope() {
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				BASE_PATH + "/9203", HttpMethod.GET, new HttpEntity<>(headersFor(tokenFor(ADMIN_1))),
+				new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
+
+		assertThat(response.getStatusCode().value()).isEqualTo(404);
+		assertThat(response.getBody()).containsKey("code");
+		assertThat(response.getBody().get("code")).isEqualTo("not_found");
+		// The PHP envelope's marker. Its presence would mean the legacy wire
+		// advice had captured this controller.
+		assertThat(response.getBody()).doesNotContainKey("success");
+	}
+
 	// ---------- guard stack negatives (spec §9) ----------
 
 	@Test
