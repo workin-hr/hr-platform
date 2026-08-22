@@ -1,6 +1,8 @@
 package com.workin.legacy.notifications;
 
 import java.sql.PreparedStatement;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 
 import javax.sql.DataSource;
@@ -39,6 +41,41 @@ public class LegacyNotifications {
 	public LegacyNotifications(DataSource legacyDataSource, LegacyPushDelivery pushDelivery) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 		this.pushDelivery = pushDelivery;
+	}
+
+	/**
+	 * {@code notification_broadcast_company_employees()}
+	 * ({@code helpers/notifications.php:196-221}), which
+	 * {@code shifts/update.php} calls when a shift's window is touched.
+	 *
+	 * <p>Two things it deliberately does not do. It does <b>not</b> exclude the
+	 * acting employee: the recipient query is every active employee of the
+	 * company, so whoever saved the shift is notified about their own change.
+	 * And it is <b>not</b> transactional -- PHP inserts one row per recipient
+	 * with no surrounding transaction, so a failure part-way leaves the earlier
+	 * notifications committed. Both are reproduced (D-089).
+	 *
+	 * <p>{@code array_unique(array_filter($ids))} sits between the query and
+	 * the loop. Against auto-increment ids neither filter can remove anything --
+	 * the query already returns distinct, positive ids -- so it is kept as a
+	 * faithful no-op rather than as load-bearing logic.
+	 *
+	 * @return the number of recipients, as PHP's {@code $sent} counter does
+	 */
+	public int broadcastToCompanyEmployees(
+			long companyId, Long fromEmployeeId, String type, String title, String body,
+			String referenceType, Long referenceId) {
+		List<Long> recipients = jdbcTemplate.queryForList(
+				"SELECT id FROM employees WHERE company_id = ? AND is_active = 1", Long.class, companyId);
+		int sent = 0;
+		for (Long recipient : new LinkedHashSet<>(recipients)) {
+			if (recipient == null || recipient == 0L) {
+				continue;
+			}
+			toEmployee(companyId, recipient, fromEmployeeId, type, title, body, referenceType, referenceId);
+			sent++;
+		}
+		return sent;
 	}
 
 	/**

@@ -54,6 +54,7 @@ public final class LegacyPhpRoutes {
 	public static final String[] CONTROLLER_GUARDED = {
 		"/apis/api/employees/**",
 		"/apis/api/hr_employees/**",
+		"/apis/api/shifts/**",
 	};
 
 	private LegacyPhpRoutes() {
