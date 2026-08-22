@@ -223,7 +223,13 @@ public class LegacyShiftStore {
 	 */
 	private static Object value(ResultSet rs, int column, int sqlType) throws SQLException {
 		Object raw = switch (sqlType) {
-			case Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT -> rs.getLong(column);
+			// BIT and BOOLEAN are in the list because MariaDB reports
+			// `tinyint(1)` as one of them, not as TINYINT -- which is exactly
+			// how `is_active` would otherwise reach a client as the string
+			// "1" instead of the number mysqlnd gives PHP. Same set as
+			// LegacyEmployeeStore's, deliberately.
+			case Types.BIT, Types.BOOLEAN, Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT ->
+				rs.getLong(column);
 			default -> rs.getString(column);
 		};
 		return rs.wasNull() ? null : raw;

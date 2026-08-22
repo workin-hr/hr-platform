@@ -14,14 +14,29 @@ import com.workin.backend.i18n.ApiException;
 
 /**
  * Renders the PHP envelope for the endpoints that serve legacy's own routes
- * (D-074). Scoped to {@code com.workin.legacy.employees} on purpose: the merged
- * {@code /api/legacy/**} modules keep rendering
+ * (D-074). Scoped to the packages that carry those routes on purpose: the
+ * merged {@code /api/legacy/**} modules keep rendering
  * {@code com.workin.backend.i18n.ApiErrorBody} until the retroactive contract
  * audit D-074 requires, and the PostgreSQL surface is untouched. Ordered ahead
- * of {@code ApiExceptionHandler} so this advice wins for that package while the
- * global one still serves everything else.
+ * of {@code ApiExceptionHandler} so this advice wins for those packages while
+ * the global one still serves everything else.
+ *
+ * <p>The list grows one wave at a time, alongside
+ * {@link LegacyPhpRoutes#CONTROLLER_GUARDED} and for the same reason: a module
+ * belongs here once its controller maps literal {@code *.php} routes and raises
+ * {@link LegacyApiException}. A module added to the routes list but missed here
+ * would authenticate correctly and then answer every error with the platform
+ * body instead of PHP's -- silently, and only on the failure paths.
+ *
+ * <ul>
+ * <li>{@code com.workin.legacy.employees} -- Wave 12.4</li>
+ * <li>{@code com.workin.legacy.workforce} -- Wave 12.5</li>
+ * </ul>
  */
-@RestControllerAdvice(basePackages = "com.workin.legacy.employees")
+@RestControllerAdvice(basePackages = {
+	"com.workin.legacy.employees",
+	"com.workin.legacy.workforce",
+})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class LegacyWireExceptionHandler {
 
