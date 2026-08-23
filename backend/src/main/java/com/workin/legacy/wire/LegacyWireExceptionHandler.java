@@ -47,6 +47,7 @@ import com.workin.backend.i18n.ApiException;
 	"com.workin.legacy.employees",
 	"com.workin.legacy.workforce",
 	"com.workin.legacy.attendance.records",
+	"com.workin.legacy.schedules",
 })
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class LegacyWireExceptionHandler {

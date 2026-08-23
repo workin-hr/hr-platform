@@ -149,13 +149,24 @@ class LegacyPhpRouteInventoryTest {
 	private static final List<String> WAVE_126_ATTENDANCE_1B_ROUTES = List.of(
 			"/apis/api/attendance/import_excel.php");
 
+	/**
+	 * Wave 12.6 slice 2: the schedule assignment, and only it.
+	 *
+	 * <p>{@code schedules/} holds three endpoints and the other two are Wave
+	 * 12.6.5, blocked behind D-091's evidence and the narrow payroll
+	 * extraction. This one reaches neither, which is why it could land first.
+	 */
+	private static final List<String> WAVE_126_SCHEDULES_2_ROUTES = List.of(
+			"/apis/api/schedules/assign_employee_schedule.php");
+
 	/** Every route the application is expected to map. */
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 					WAVE_124_ROUTES,
 					WAVE_125_ROUTES,
 					WAVE_126_ATTENDANCE_1A_I_ROUTES,
 					WAVE_126_ATTENDANCE_1A_II_ROUTES,
-					WAVE_126_ATTENDANCE_1B_ROUTES)
+					WAVE_126_ATTENDANCE_1B_ROUTES,
+					WAVE_126_SCHEDULES_2_ROUTES)
 			.flatMap(List::stream)
 			.sorted()
 			.toList();
@@ -272,13 +283,25 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void wave126HasSixOfItsEighteenEndpointsMapped() {
-		// The wave is eighteen; six are delivered. Asserted so a later slice
+	void wave126HasSevenOfItsEighteenEndpointsMapped() {
+		// The wave is eighteen; seven are delivered. Asserted so a later slice
 		// cannot quietly skip one, and so this number is visible in review.
 		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1A_II_ROUTES.size()
-						+ WAVE_126_ATTENDANCE_1B_ROUTES.size())
-				.isEqualTo(6);
+						+ WAVE_126_ATTENDANCE_1B_ROUTES.size()
+						+ WAVE_126_SCHEDULES_2_ROUTES.size())
+				.isEqualTo(7);
+	}
+
+	@Test
+	void theWave126Slice2IsTheScheduleAssignmentAlone() {
+		assertThat(WAVE_126_SCHEDULES_2_ROUTES)
+				.containsExactly("/apis/api/schedules/assign_employee_schedule.php");
+		// The other two schedules endpoints are Wave 12.6.5 and stay unmapped
+		// while D-091's evidence and the payroll extraction are outstanding.
+		assertThat(EXPECTED_ROUTES).doesNotContain(
+				"/apis/api/schedules/employee_monthly_schedule.php",
+				"/apis/api/schedules/generate_employee_schedule.php");
 	}
 
 	@Test
@@ -289,7 +312,8 @@ class LegacyPhpRouteInventoryTest {
 				WAVE_124_ROUTES.size() + WAVE_125_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1A_I_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1A_II_ROUTES.size()
-						+ WAVE_126_ATTENDANCE_1B_ROUTES.size());
+						+ WAVE_126_ATTENDANCE_1B_ROUTES.size()
+						+ WAVE_126_SCHEDULES_2_ROUTES.size());
 	}
 
 	@Test
@@ -301,7 +325,7 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(prefixes).containsExactly(
 				"/apis/api/employees/**", "/apis/api/hr_employees/**", "/apis/api/shifts/**",
 				"/apis/api/request_types/**", "/apis/api/company_official_holidays/**",
-				"/apis/api/attendance/**");
+				"/apis/api/attendance/**", "/apis/api/schedules/**");
 
 		for (String prefix : prefixes) {
 			String base = prefix.substring(0, prefix.length() - "**".length());
