@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
+import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.notifications.LegacyNotifications;
 import com.workin.legacy.wire.LegacyApiException;
 
@@ -69,10 +70,16 @@ public class LegacyScheduleService {
 
 	private final LegacyScheduleStore store;
 	private final LegacyNotifications notifications;
+	private final LegacyScheduleCalendar scheduleCalendar;
+	private final com.workin.legacy.LegacyClock clock;
 
-	public LegacyScheduleService(LegacyScheduleStore store, LegacyNotifications notifications) {
+	public LegacyScheduleService(
+			LegacyScheduleStore store, LegacyNotifications notifications,
+			LegacyScheduleCalendar scheduleCalendar, com.workin.legacy.LegacyClock clock) {
 		this.store = store;
 		this.notifications = notifications;
+		this.scheduleCalendar = scheduleCalendar;
+		this.clock = clock;
 	}
 
 	/** The notification title and body, resolved by the controller because PHP resolves them with {@code t()}. */
@@ -123,6 +130,82 @@ public class LegacyScheduleService {
 				notificationText.title(),
 				notificationText.body() + (rawName.isEmpty() ? "" : " (" + rawName + ")"),
 				"schedule", shiftId);
+	}
+
+	/**
+	 * {@code employee_monthly_schedule.php}.
+	 *
+	 * <p>The target defaults to the caller, and an EMPLOYEE may only ask about
+	 * themselves. {@code month} and {@code year} default to <b>today</b> under
+	 * legacy's configured offset ({@code date('n')}/{@code date('Y')}), which is
+	 * D-099's clock, not the JVM's.
+	 */
+	public Map<String, Object> monthOverview(
+			LegacyRequestContext context, com.workin.legacy.LegacyQueryParameters query,
+			String locale, String weeklyRestLabel) {
+		long targetEmployeeId = query.value("employee_id") != null
+				? LegacyValues.toPhpLong(query.value("employee_id"))
+				: context.employeeId();
+		if (targetEmployeeId == 0L) {
+			throw new LegacyApiException(400, "employee_id_required");
+		}
+		if (context.role() == LegacyEmployee.Role.EMPLOYEE && targetEmployeeId != context.employeeId()) {
+			throw new LegacyApiException(403, "forbidden");
+		}
+		if (!store.employeeExistsInCompany(context.companyId(), targetEmployeeId)) {
+			throw new LegacyApiException(404, "employee_not_found");
+		}
+
+		java.time.LocalDate today = clock.today();
+		int month = query.value("month") != null
+				? (int) LegacyValues.toPhpLong(query.value("month"))
+				: today.getMonthValue();
+		int year = query.value("year") != null
+				? (int) LegacyValues.toPhpLong(query.value("year"))
+				: today.getYear();
+
+		return scheduleCalendar.monthOverview(
+				context.companyId(), targetEmployeeId, year, month, locale, weeklyRestLabel, today);
+	}
+
+	/**
+	 * {@code generate_employee_schedule.php}.
+	 *
+	 * <p>{@code replace} defaults to <b>true</b> when the key is absent --
+	 * {@code !isset($body['replace']) || (bool) $body['replace']} -- so a client
+	 * that omits it wipes the range. Only an explicitly falsy value keeps
+	 * existing rows.
+	 *
+	 * <p>{@code shift_not_assigned} is answered only when nothing was written
+	 * <em>and</em> no assignment was found. An empty or inverted range with an
+	 * assignment is a success reporting zero.
+	 */
+	public Map<String, Object> generate(
+			LegacyRequestContext context, Map<String, Object> body, String weeklyRestLabel) {
+		required(body, "employee_id");
+		required(body, "from_date");
+		required(body, "to_date");
+
+		long employeeId = LegacyValues.toPhpLong(body.get("employee_id"));
+		String from = LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("from_date")));
+		String to = LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("to_date")));
+		boolean replace = !body.containsKey("replace") || !LegacyValues.isPhpEmpty(body.get("replace"));
+
+		if (!store.employeeExistsInCompany(context.companyId(), employeeId)) {
+			throw new LegacyApiException(404, "employee_not_found");
+		}
+
+		LegacyScheduleCalendar.GenerationOutcome outcome = scheduleCalendar.generateForEmployee(
+				context.companyId(), employeeId, from, to, replace, weeklyRestLabel);
+		if (outcome.count() == 0 && outcome.shiftId() == null) {
+			throw new LegacyApiException(400, "shift_not_assigned");
+		}
+
+		Map<String, Object> data = new java.util.LinkedHashMap<>();
+		data.put("count", outcome.count());
+		data.put("shift_id", outcome.shiftId());
+		data.put("shift_name", outcome.shiftName());
+		return data;
 	}
 
 	/**

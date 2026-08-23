@@ -47,6 +47,59 @@ public class LegacyScheduleController {
 		this.messages = messages;
 	}
 
+	/**
+	 * {@code employee_monthly_schedule.php}: GET, and the only endpoint in this
+	 * module an EMPLOYEE can reach.
+	 *
+	 * <p>The role list admits EMPLOYEE, and the endpoint then restricts them to
+	 * their own id with its own 403 -- after the id is resolved and before the
+	 * employee row is read, so it cannot be used to probe ids.
+	 */
+	@RequestMapping("/employee_monthly_schedule.php")
+	public LegacyApiResponse employeeMonthlySchedule(HttpServletRequest request) {
+		if (!"GET".equals(request.getMethod())) {
+			throw new LegacyApiException(405, "invalid_method");
+		}
+		LegacyRequestContext context = requestGuard.requireAuth(
+				LegacyEmployee.Role.COMPANY_ADMIN, LegacyEmployee.Role.HR,
+				LegacyEmployee.Role.MANAGER, LegacyEmployee.Role.EMPLOYEE);
+		requestGuard.requireCompanyActive(context.companyId());
+
+		String locale = messages.resolveLocale(request);
+		return LegacyApiResponse.ok(
+				messages.translate(locale, "ok", null),
+				scheduleService.monthOverview(
+						context,
+						com.workin.legacy.LegacyQueryParameters.parse(request.getQueryString()),
+						locale,
+						messages.translate(locale, "schedule_weekly_rest", null)));
+	}
+
+	/**
+	 * {@code generate_employee_schedule.php}: POST, no EMPLOYEE.
+	 *
+	 * <p>Answers {@code shift_not_assigned} 400 when nothing was generated
+	 * <em>and</em> no assignment was found -- so an empty range with an
+	 * assignment is a success reporting zero, while no assignment at all is a
+	 * failure. Two ways to write nothing, two different statuses.
+	 */
+	@RequestMapping("/generate_employee_schedule.php")
+	public LegacyApiResponse generateEmployeeSchedule(HttpServletRequest request) {
+		if (!"POST".equals(request.getMethod())) {
+			throw new LegacyApiException(405, "invalid_method");
+		}
+		LegacyRequestContext context = requestGuard.requireAuth(
+				LegacyEmployee.Role.COMPANY_ADMIN, LegacyEmployee.Role.HR, LegacyEmployee.Role.MANAGER);
+		requestGuard.requireCompanyActive(context.companyId());
+
+		String locale = messages.resolveLocale(request);
+		return LegacyApiResponse.ok(
+				messages.translate(locale, "schedule_generated", null),
+				scheduleService.generate(
+						context, LegacyJsonBody.read(request),
+						messages.translate(locale, "schedule_weekly_rest", null)));
+	}
+
 	@RequestMapping("/assign_employee_schedule.php")
 	public LegacyApiResponse assignEmployeeSchedule(HttpServletRequest request) {
 		if (!"POST".equals(request.getMethod())) {

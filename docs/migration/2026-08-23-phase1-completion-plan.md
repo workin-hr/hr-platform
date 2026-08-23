@@ -56,15 +56,69 @@ Wave 12.6 legacy-route inventory stands at **6 of 18**.
 
 ### 1.2 Wave 12.6's remaining twelve endpoints
 
-| Slice | Endpoints | Count |
-|---|---|---|
-| 12.6.2 | `schedules/assign_employee_schedule` | 1 |
-| 12.6.3 | `attendance/check_in`, `check_in_qr`, `check_out` | 3 |
-| 12.6.4 | `attendance/list`, `stats`, `employee_monthly_attendance`, `analyze_excel` | 4 |
-| 12.6.5 | `schedules/employee_monthly_schedule`, `generate_employee_schedule` | 2 |
-| 12.6.6 | `attendance/overall_report`, `export` | 2 |
+| Slice | Endpoints | Count | State |
+|---|---|---|---|
+| 12.6.2 | `schedules/assign_employee_schedule` | 1 | complete |
+| 12.6.3 | `attendance/check_in`, `check_in_qr`, `check_out` | 3 | complete |
+| 12.6.4a | `attendance/analyze_excel` | 1 | complete |
+| 12.6.5 | `schedules/employee_monthly_schedule`, `generate_employee_schedule` | 2 | complete |
+| **12.6.4b** | `attendance/list`, `stats`, `employee_monthly_attendance` | 3 | **after Wave 12.7 — §1.5** |
+| 12.6.6 | `attendance/overall_report`, `export` | 2 | after Wave 12.7 |
 
-6 delivered + 12 remaining = 18. Consistent with the Wave 12.6 discovery §K.
+**13 of 18 delivered.** The remaining five all wait on the same Wave 12.7
+dependency.
+
+### 1.5 Ordering correction — three more endpoints depend on Wave 12.7
+
+**Recorded 2026-08-23, from a closure trace taken before implementing Wave
+12.6.4.** This is a dependency correction, not a scope reduction: all five
+endpoints remain Phase-1 scope and Item-12 scope, and none is deferred out of
+the phase.
+
+The Wave 12.6 discovery recorded the `requests` dependency for
+`overall_report.php` and `export.php` only. Tracing the rest of 12.6.4's
+closure found the same table reached by three more endpoints, through a
+different path:
+
+```
+attendance/list.php:276                       ─┐
+attendance/employee_monthly_attendance.php:104 ├─→ attendance_row_worked_minutes()
+attendance_calendar_helper.php:739             ┘   (attendance_employee_period_stats,
+                                                    i.e. stats.php's per-employee branch)
+                                                          │
+attendance_calendar_helper.php:161 ───────────────────────┴─→ attendance_approved_timed_request_for_day()
+                                                                    │
+                                                                    └─→ SELECT ... FROM requests
+```
+
+It is the **first statement** of `attendance_row_worked_minutes()` and is
+unconditional. `attendance_build_employee_range_calendar()`, which
+`list.php?fill_days=1` uses, reaches it three more times (`:310`, `:342`,
+`:391`) and additionally reaches `weekly_rest_credit_helper`.
+
+**Owner disposition, accepted 2026-08-23.** Reorder rather than pull the
+dependency forward. No bounded pre-12.7 `requests` reader is created, and
+`weekly_rest_credit_helper` is not pulled forward to preserve the old 12.6.4
+grouping. This applies the same ownership principle that already placed
+`overall_report`/`export` after Wave 12.7.
+
+The operational order is therefore:
+
+```
+12.6.3  check_in / check_in_qr / check_out                     [complete]
+12.6.4a analyze_excel                                          [complete]
+12.6.5  employee_monthly_schedule / generate_employee_schedule [complete]
+   |
+   v
+12.7    requests + leave_balances
+   |
+   v
+12.6.4b list / stats / employee_monthly_attendance
+12.6.6  overall_report / export
+```
+
+Wave 12.6 moves 13/18 → 18/18 once Wave 12.7 supplies the request boundary,
+subject only to a genuinely new dependency in those five closures.
 
 ### 1.3 The remaining order, and why each step sits where it does
 
@@ -79,14 +133,15 @@ None is introduced here for tidiness.
    |  gate: D-092 guard order + D-093 edge-case matrix (12.6.3 only)
    v
 12.6.3  check_in / check_in_qr / check_out
-12.6.4  list / stats / employee_monthly_attendance / analyze_excel
+12.6.4a analyze_excel
 12.6.5  employee_monthly_schedule / generate_employee_schedule
    |
    v
 12.7    requests + leave_balances
    |
-   |  gate: broad J.2 resolution
+   |  gate: broad J.2 resolution (12.6.6 only)
    v
+12.6.4b list / stats / employee_monthly_attendance   (§1.5)
 12.6.6  overall_report / export
    |
    v

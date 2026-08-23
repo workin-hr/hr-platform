@@ -81,14 +81,17 @@ public class LegacyAttendanceImportService {
 	private final LegacyAttendanceExcelImportAvailability availability;
 	private final LegacyNotifications notifications;
 	private final LegacyClock clock;
+	private final LegacyAttendanceAnalyzer analyzer;
 
 	public LegacyAttendanceImportService(
 			DataSource legacyDataSource, LegacyAttendanceExcelImportAvailability availability,
-			LegacyNotifications notifications, LegacyClock clock) {
+			LegacyNotifications notifications, LegacyClock clock,
+			LegacyAttendanceAnalyzer analyzer) {
 		this.dataSource = legacyDataSource;
 		this.availability = availability;
 		this.notifications = notifications;
 		this.clock = clock;
+		this.analyzer = analyzer;
 	}
 
 	/** What the controller needs to build the response: the payload and its envelope. */
@@ -105,6 +108,46 @@ public class LegacyAttendanceImportService {
 	 *        and therefore follow the request's locale -- and because it is
 	 *        only ever invoked when something was actually inserted
 	 */
+	/**
+	 * {@code analyze_excel.php}: the same guards and the same availability gate,
+	 * with no transaction because nothing is written.
+	 *
+	 * <p>The failure mapping is the import's minus the rollback --
+	 * {@code catch (RuntimeException)}, an {@code attendance_excel_} message
+	 * used as the key, anything else answered as {@code invalid_file_type} with
+	 * the message in {@code data}. A {@link com.workin.legacy.LegacyPdoException}
+	 * cannot arise here: no statement this path runs can fail the way an INSERT
+	 * can, and if one did it would be a genuine Java failure, not a mapped 400.
+	 */
+	public Map<String, Object> analyze(
+			LegacyRequestContext context, MultipartFile file, String weeklyRestLabel) {
+		if (!availability.isAvailable()) {
+			throw new LegacyApiException(
+					403, "attendance_excel_import_not_yet_available", null,
+					Map.of("date", availability.availableFromDisplay()));
+		}
+		if (file == null || file.getOriginalFilename() == null
+				|| file.getOriginalFilename().isEmpty()) {
+			throw new LegacyApiException(400, "no_file_uploaded");
+		}
+		byte[] content;
+		try {
+			content = file.getBytes();
+		} catch (IOException ex) {
+			throw new LegacyApiException(400, "no_file_uploaded");
+		}
+
+		try {
+			return analyzer.analyze(content, context.companyId(), clock.now(), weeklyRestLabel);
+		} catch (LegacyAttendanceImportException ex) {
+			String key = ex.getMessage();
+			if (key != null && key.startsWith("attendance_excel_")) {
+				throw new LegacyApiException(400, key);
+			}
+			throw new LegacyApiException(400, "invalid_file_type", key);
+		}
+	}
+
 	public Outcome importExcel(
 			LegacyRequestContext context, MultipartFile file, String mappingsRaw,
 			java.util.function.LongFunction<String[]> notificationText) {

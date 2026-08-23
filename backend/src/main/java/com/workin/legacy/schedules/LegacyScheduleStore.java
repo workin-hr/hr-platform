@@ -93,7 +93,21 @@ public class LegacyScheduleStore {
 
 	/** One day of the loop. Not transactional -- PHP has no transaction here. */
 	public void upsertDay(long employeeId, String date, String name, String startTime, String endTime) {
-		jdbcTemplate.update(UPSERT, employeeId, date, name, startTime, endTime, null);
+		upsertDay(employeeId, date, name, startTime, endTime, null);
+	}
+
+	/**
+	 * The same upsert with an exception note, which schedule <b>generation</b>
+	 * uses.
+	 *
+	 * <p>{@code assign_employee_schedule.php} always passes null and therefore
+	 * clears the note; {@code generate_employee_schedule.php} writes one on
+	 * every rest day and holiday. Same statement, opposite effect on the same
+	 * column.
+	 */
+	public void upsertDay(long employeeId, String date, String name, String startTime, String endTime,
+			String exceptionNote) {
+		jdbcTemplate.update(UPSERT, employeeId, date, name, startTime, endTime, exceptionNote);
 	}
 
 	private static RowMapper<Map<String, Object>> rowMapper() {

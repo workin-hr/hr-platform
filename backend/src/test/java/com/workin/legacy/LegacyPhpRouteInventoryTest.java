@@ -171,6 +171,20 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/attendance/check_in_qr.php",
 			"/apis/api/attendance/check_out.php");
 
+	/**
+	 * The pre-Wave-12.7 remainder of Waves 12.6.4 and 12.6.5.
+	 *
+	 * <p>Only three of those six endpoints are here. {@code list.php},
+	 * {@code stats.php} and {@code employee_monthly_attendance.php} reach
+	 * {@code attendance_row_worked_minutes()} and through it the {@code requests}
+	 * table, so they are ordered after Wave 12.7 alongside
+	 * {@code overall_report.php} and {@code export.php}. These three do not.
+	 */
+	private static final List<String> WAVE_126_PRE_127_ROUTES = List.of(
+			"/apis/api/attendance/analyze_excel.php",
+			"/apis/api/schedules/employee_monthly_schedule.php",
+			"/apis/api/schedules/generate_employee_schedule.php");
+
 	/** Every route the application is expected to map. */
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 					WAVE_124_ROUTES,
@@ -179,7 +193,8 @@ class LegacyPhpRouteInventoryTest {
 					WAVE_126_ATTENDANCE_1A_II_ROUTES,
 					WAVE_126_ATTENDANCE_1B_ROUTES,
 					WAVE_126_SCHEDULES_2_ROUTES,
-					WAVE_126_ATTENDANCE_3_ROUTES)
+					WAVE_126_ATTENDANCE_3_ROUTES,
+					WAVE_126_PRE_127_ROUTES)
 			.flatMap(List::stream)
 			.sorted()
 			.toList();
@@ -289,22 +304,44 @@ class LegacyPhpRouteInventoryTest {
 	void theWave126Slice1bIsTheImportEndpointAlone() {
 		assertThat(WAVE_126_ATTENDANCE_1B_ROUTES)
 				.containsExactly("/apis/api/attendance/import_excel.php");
-		// The sibling endpoint stays blocked, and nothing may map it by
-		// accident: analyze_excel.php reaches the frozen company_settings and
-		// payroll weekly-rest closure that import_excel.php does not.
-		assertThat(EXPECTED_ROUTES).doesNotContain("/apis/api/attendance/analyze_excel.php");
+		// analyze_excel.php was asserted absent while it was blocked. It is now
+		// delivered: its D-091 and payroll dependencies were resolved by the
+		// Wave 12.6.3 closure, and it does NOT reach the `requests` table that
+		// blocks its three siblings.
+		assertThat(EXPECTED_ROUTES).contains("/apis/api/attendance/analyze_excel.php");
 	}
 
 	@Test
-	void wave126HasTenOfItsEighteenEndpointsMapped() {
-		// The wave is eighteen; ten are delivered. Asserted so a later slice
-		// cannot quietly skip one, and so this number is visible in review.
+	void wave126HasThirteenOfItsEighteenEndpointsMapped() {
+		// The wave is eighteen; thirteen are delivered. The remaining five all
+		// depend on Wave 12.7's `requests` table -- see
+		// theFiveRequestDependentEndpointsStayUnmapped below.
 		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1A_II_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1B_ROUTES.size()
 						+ WAVE_126_SCHEDULES_2_ROUTES.size()
-						+ WAVE_126_ATTENDANCE_3_ROUTES.size())
-				.isEqualTo(10);
+						+ WAVE_126_ATTENDANCE_3_ROUTES.size()
+						+ WAVE_126_PRE_127_ROUTES.size())
+				.isEqualTo(13);
+	}
+
+	/**
+	 * The five endpoints Wave 12.7 unblocks, asserted absent.
+	 *
+	 * <p>{@code list}, {@code stats} and {@code employee_monthly_attendance}
+	 * reach {@code attendance_row_worked_minutes()}, whose first statement is
+	 * {@code attendance_approved_timed_request_for_day()} -- a read of the
+	 * {@code requests} table. {@code overall_report} and {@code export} reach it
+	 * through the payroll helpers. Same dependency, same ordering.
+	 */
+	@Test
+	void theFiveRequestDependentEndpointsStayUnmapped() {
+		assertThat(EXPECTED_ROUTES).doesNotContain(
+				"/apis/api/attendance/list.php",
+				"/apis/api/attendance/stats.php",
+				"/apis/api/attendance/employee_monthly_attendance.php",
+				"/apis/api/attendance/overall_report.php",
+				"/apis/api/attendance/export.php");
 	}
 
 	@Test
@@ -312,20 +349,17 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(WAVE_126_ATTENDANCE_3_ROUTES).hasSize(3);
 		assertThat(WAVE_126_ATTENDANCE_3_ROUTES)
 				.allSatisfy(route -> assertThat(route).startsWith("/apis/api/attendance/"));
-		// 12.6.4's four and 12.6.5's remaining two are not here.
-		assertThat(EXPECTED_ROUTES).doesNotContain(
-				"/apis/api/attendance/list.php", "/apis/api/attendance/stats.php",
-				"/apis/api/attendance/employee_monthly_attendance.php",
-				"/apis/api/attendance/overall_report.php", "/apis/api/attendance/export.php");
+		// The request-dependent five are asserted absent separately.
 	}
 
 	@Test
 	void theWave126Slice2IsTheScheduleAssignmentAlone() {
 		assertThat(WAVE_126_SCHEDULES_2_ROUTES)
 				.containsExactly("/apis/api/schedules/assign_employee_schedule.php");
-		// The other two schedules endpoints are Wave 12.6.5 and stay unmapped
-		// while D-091's evidence and the payroll extraction are outstanding.
-		assertThat(EXPECTED_ROUTES).doesNotContain(
+		// The other two schedules endpoints were blocked on D-091's evidence and
+		// the payroll extraction; both are closed, so all three are now mapped
+		// and the module is complete.
+		assertThat(EXPECTED_ROUTES).contains(
 				"/apis/api/schedules/employee_monthly_schedule.php",
 				"/apis/api/schedules/generate_employee_schedule.php");
 	}
@@ -340,7 +374,8 @@ class LegacyPhpRouteInventoryTest {
 						+ WAVE_126_ATTENDANCE_1A_II_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1B_ROUTES.size()
 						+ WAVE_126_SCHEDULES_2_ROUTES.size()
-						+ WAVE_126_ATTENDANCE_3_ROUTES.size());
+						+ WAVE_126_ATTENDANCE_3_ROUTES.size()
+						+ WAVE_126_PRE_127_ROUTES.size());
 	}
 
 	@Test

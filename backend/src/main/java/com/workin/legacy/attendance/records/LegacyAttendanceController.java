@@ -225,6 +225,28 @@ public class LegacyAttendanceController {
 	}
 
 	/**
+	 * `analyze_excel.php`: the import's dry run.
+	 *
+	 * <p>Same guards and same availability gate as `import_excel.php`, and the
+	 * gate still runs **before** the file is looked at. What differs is the
+	 * failure mapping: `analyze` catches `RuntimeException` and maps it, but has
+	 * **no transaction and no rollback**, because it writes nothing.
+	 */
+	@RequestMapping("/analyze_excel.php")
+	public LegacyApiResponse analyzeExcel(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = authenticated();
+		requireAdministrative(context);
+
+		String locale = messages.resolveLocale(request);
+		Map<String, Object> analysis = importService.analyze(
+				context, multipartFile(request, "file"),
+				messages.translate(locale, "schedule_weekly_rest", null));
+		return LegacyApiResponse.ok(
+				messages.translate(locale, "attendance_excel_analyzed", null), analysis);
+	}
+
+	/**
 	 * `$_FILES['file']`. A request that is not multipart at all, or one without
 	 * that part, is the "no file" PHP sees.
 	 */
