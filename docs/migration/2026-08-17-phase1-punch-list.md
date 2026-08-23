@@ -1,5 +1,14 @@
 # Phase 1 — Punch List
 
+> **Superseded as the operational tracker, 2026-08-23.** The authoritative
+> Phase-1 completion tracker is
+> [`2026-08-23-phase1-completion-plan.md`](2026-08-23-phase1-completion-plan.md),
+> which carries the reconciled endpoint ledger, the recomputed Item-13
+> inventory, the remaining wave order and the Phase-1 exit gate. This document
+> is kept for its **history** — items 1–11 and the Waves 12.1–12.4 record below
+> are accurate and unchanged. Its Item-12 wave table has been corrected to the
+> current status; its "Next, in order" section is superseded outright.
+
 ## Purpose
 
 D-040/ADR-0011 reset the migration sequencing on 2026-08-16: implement
@@ -44,31 +53,47 @@ in [`2026-08-18-item-12-specification.md`](2026-08-18-item-12-specification.md)
 | 12.3b | `departments` + `department_branches` | **Merged** — PR #107; D-055, D-061, D-068, D-069, D-070, D-071 |
 | 12.3c | `job_titles` | **Merged** — PR #108; D-062, D-065, D-067, D-072 |
 | 12.4 | `employees` + `hr_employees` with P-5 | **Merged** — discovery in PR #109 ([`2026-08-20-wave-12.4-employees-discovery.md`](2026-08-20-wave-12.4-employees-discovery.md)), implementation in PR #110, squash commit `f96a962`; all 17 endpoints delivered (14 `employees/*`, 3 `hr_employees/*`) with the route inventory asserted literally; D-074, D-074a, D-075–D-086 |
-| 12.5 | `shifts`, `request_types`, `company_official_holidays` | **Discovery/specification only** — [`2026-08-22-wave-12.5-workforce-masters-discovery.md`](2026-08-22-wave-12.5-workforce-masters-discovery.md); 15 endpoints inventoried; owner decisions recorded as **D-087–D-090**; **no Java implementation has started** -- it begins on a separate branch off updated `main` once the discovery merges |
-| 12.6 | `attendance`, `employee_schedules`, `employee_shift_assignments` | Not started |
-| 12.7 | `requests`, `leave_balances` | Not started |
-| 12.8 | `salary_contracts`, `advances`, `penalties` | Not started |
-| 12.9 | `payroll_batches`, `payslips` | Not started |
-| 12.10 | `companies` / `profile` column completion | Not started |
+| 12.5 | `shifts`, `request_types`, `company_official_holidays` | **Complete** — discovery [`2026-08-22-wave-12.5-workforce-masters-discovery.md`](2026-08-22-wave-12.5-workforce-masters-discovery.md), all 15 endpoints delivered across three slices with the route inventory asserted literally; D-087–D-090 |
+| 12.6 | `attendance` (15) + `schedules` (3) | **In progress — 6 of 18.** Slices 1a-i, 1a-ii and 1b complete (`one`, `delete`, `delete_range`, `create`, `update`, `import_excel`); D-091–D-098. Remaining twelve and their gates: completion plan §1.2–§1.3 |
+| 12.7 | `requests`, `leave_balances` | Not started — order and gates in completion plan §1.3 |
+| 12.8 | `salary_contracts`, `advances`, `penalties` | Not started — order and gates in completion plan §1.3 |
+| 12.9 | `payroll_batches`, `payslips` | Not started — order and gates in completion plan §1.3 |
+| 12.10 | `companies` hub completion: column completion **and** the three `company/*` endpoints | Not started — scope widened by owner disposition O-2, completion plan §1.4 |
 
 Two cross-cutting obligations sit outside the wave sequence:
 
-- **Retroactive contract audit (D-074).** Waves 12.1 and 12.3a/b/c shipped on the
-  `/api/legacy/**` route and flat-envelope surface, which D-074 rules
-  implementation drift rather than precedent. Those merged endpoints need a
-  contract audit and correction against the literal PHP wire contract **before
-  the Phase 1 production cutover**, tracked as its own boundary — no wave may
-  absorb it.
+- **Retroactive contract audit (D-074) — now Wave 12.R.** Waves 12.1 and
+  12.3a/b/c shipped on the `/api/legacy/**` route and flat-envelope surface,
+  which D-074 rules implementation drift rather than precedent. Owner
+  disposition **O-6** (2026-08-23) makes the correction its own explicit
+  engineering wave and closure boundary — **Wave 12.R**, covering 22 endpoints
+  (`attendance_exception_types` 5, `branches` 6, `departments` 5, `job_titles`
+  5, `auth/login_employee` 1) — rather than distributing it through unrelated
+  module waves. The engineering order is fixed: **remaining Item 12 → Wave 12.R
+  → Item 13**, so no endpoint is owned by both the retrofit wave and an Item-13
+  wave. Owning `auth/login_employee` does not make `auth` an Item-12 module.
+  Completion plan §1.3, §3.3, §4.1.
+- **D-083 is no longer cutover-only.** Owner disposition **O-4** reclassifies
+  the per-connection database timezone as an implementation prerequisite for
+  **Wave 12.6.3**, where attendance auto-close and time semantics require it.
+  Completion plan §4.3.
 - **`LegacyBranchService` numeric-cast investigation (D-071 follow-up).** Still
   open: what MariaDB's non-strict coercion does with a raw PDO-bound
   non-numeric string into `INT`/`DECIMAL`, and how any fix is packaged.
 
-## Next, in order
+## Next, in order — **superseded**
+
+> Superseded 2026-08-23 by
+> [`2026-08-23-phase1-completion-plan.md`](2026-08-23-phase1-completion-plan.md)
+> §1.3 (remaining Item-12 order) and §2 (recomputed Item-13 inventory). The
+> table below is kept as written except for item 13's scope figure, which was
+> factually wrong and is corrected in place.
+
 
 | # | Item | Why it's next |
 |---|---|---|
 | 12 | **Remap the remaining built modules** — *in progress; Waves 12.1–12.3 merged, 12.4 in discovery (see the wave-status table above)* | ADR-0011's discovery found 20 table names shared between the existing PostgreSQL entities and legacy MySQL. Those modules need the same treatment `employees` got — a Phase 1 adapter under `com.workin.legacy`, isolated from the PostgreSQL scan root — rather than a schema they don't actually run against in Phase 1. |
-| 13 | **Implement the 19 missing legacy modules** | ADR-0011: 19 of 38 legacy API modules and 23 of 42 legacy tables have no Java counterpart at all — the finding that roughly doubles remaining Phase 1 engineering versus the pre-reset trajectory. |
+| 13 | **Implement the remaining legacy modules — recomputed 2026-08-23 as 18 modules / 71 endpoint files** | ADR-0011's "19 of 38 modules have no Java counterpart" described the repository on 2026-08-16 and is preserved as history; it is **not** Item 13's delivery boundary. D-4 added `company_settings` with `setting_definitions`/`setting_allowed_values`, Wave 12.4 delivered `hr_employees`, and owner disposition **O-3** excluded the unreachable `time/now.php`. Membership and per-module detail: completion plan §2. |
 | 14 | **PostgreSQL/ETL remains frozen for Phase 2** | D-040 — not deleted; `phase2Test` keeps compiling and self-testing in CI, untouched until Phase 2's storage migration begins. |
 
 ## Standing references
