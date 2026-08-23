@@ -470,6 +470,136 @@ class LegacyScheduleMonthEndToEndTest {
 		assertThat(rows.get(3).get("name")).isEqualTo("Night");
 	}
 
+	// ------------------------------------------------------------------
+	// The range bounds are built with new DateTimeImmutable(), not a parser
+	// ------------------------------------------------------------------
+
+	/**
+	 * A PHP-accepted non-ISO bound works, and the raw string still reaches SQL.
+	 *
+	 * <p>{@code 2026/04/26} is accepted by {@code new DateTimeImmutable()} --
+	 * measured -- so it must not be a parser rejection. The DELETE and the
+	 * holiday lookup keep the caller's original strings, which MariaDB then
+	 * coerces itself; only the loop bounds are parsed.
+	 */
+	@Test
+	void aSlashSeparatedBoundIsAcceptedAsPhpAcceptsIt() {
+		assign(EMPLOYEE_1, SHIFT_DAY, "2026-01-01");
+
+		Map<String, Object> data = dataOf(generate(EMPLOYEE_1, "2026/04/01", "2026/04/03", null, 200));
+
+		assertThat(number(data.get("count"))).isEqualTo(3L);
+		assertThat(query("SELECT schedule_date FROM employee_schedules ORDER BY schedule_date")
+				.get(0).get("schedule_date")).hasToString("2026-04-01");
+	}
+
+	/** The eight-digit form works end to end: the parser takes it and so does SQL. */
+	@Test
+	void anEightDigitBoundIsAcceptedByBothTheParserAndTheQuery() {
+		assign(EMPLOYEE_1, SHIFT_DAY, "2026-01-01");
+
+		assertThat(number(dataOf(generate(EMPLOYEE_1, "20260401", "20260403", null, 200))
+				.get("count"))).isEqualTo(3L);
+	}
+
+	/**
+	 * <b>The parser and the SQL disagree, and the SQL decides.</b>
+	 *
+	 * <p>{@code new DateTimeImmutable('03-04-2026')} is 3 April 2026 -- the
+	 * bound parses. But the raw string is what reaches
+	 * {@code schedule_shift_for_employee_on_date()}, and MariaDB casts
+	 * {@code '03-04-2026'} to <b>NULL</b>, so {@code effective_from <= ?}
+	 * matches nothing and the endpoint answers {@code shift_not_assigned}
+	 * despite the employee having an assignment since January.
+	 *
+	 * <p>Both measured. This is exactly why the raw strings are not normalised
+	 * before the SQL: doing so would "fix" this into a 200 and diverge. Three
+	 * date surfaces in this wave now disagree about {@code 03-04-2026} --
+	 * the constructor accepts it, MariaDB nulls it, and the punch parser reads
+	 * it as day-first.
+	 */
+	@Test
+	void aDayFirstDashedBoundParsesButFindsNoAssignmentBecauseSqlNullsIt() {
+		assign(EMPLOYEE_1, SHIFT_DAY, "2026-01-01");
+
+		Map<String, Object> body = generate(EMPLOYEE_1, "01-04-2026", "03-04-2026", null, 400);
+
+		assertThat(body.get("message")).isEqualTo("No shift is assigned to this employee");
+		assertThat(query("SELECT id FROM employee_schedules")).isEmpty();
+	}
+
+	/**
+	 * An impossible day <b>rolls</b> rather than failing.
+	 *
+	 * <p>{@code new DateTimeImmutable('2026-02-30')} is 2 March 2026, so a range
+	 * ending there really does extend into March -- four days from 27 February,
+	 * not a rejection and not a truncation at the month end.
+	 */
+	@Test
+	void anImpossibleDayRollsForwardAsPhpDoes() {
+		assign(EMPLOYEE_1, SHIFT_DAY, "2026-01-01");
+
+		Map<String, Object> data = dataOf(generate(EMPLOYEE_1, "2026-02-27", "2026-02-30", null, 200));
+
+		// 27, 28 February plus 1, 2 March.
+		assertThat(number(data.get("count"))).isEqualTo(4L);
+		assertThat(query("SELECT schedule_date FROM employee_schedules ORDER BY schedule_date DESC")
+				.get(0).get("schedule_date")).hasToString("2026-03-02");
+	}
+
+	/**
+	 * <b>A malformed bound is a D-084 500, not {@code shift_not_assigned}.</b>
+	 *
+	 * <p>PHP's {@code new DateTimeImmutable('oops')} throws
+	 * {@code DateMalformedStringException}, and nothing on this path catches it
+	 * -- so it is an uncaught throwable, which D-084 answers with its fixed
+	 * envelope. Mapping it to a business error would tell the client their
+	 * employee has no shift, which is a different and wrong statement.
+	 *
+	 * <p>The response carries no exception text and no PHP file or line.
+	 */
+	@Test
+	void aMalformedBoundIsAnUnexpectedFailureNotAShiftError() {
+		assign(EMPLOYEE_1, SHIFT_DAY, "2026-01-01");
+
+		Map<String, Object> body = generate(EMPLOYEE_1, "oops", "2026-04-03", null, 500);
+
+		assertThat(body.get("success")).isEqualTo(false);
+		assertThat(body.get("message")).isEqualTo("Internal server error");
+		assertThat(body).doesNotContainKey("data");
+		assertThat(query("SELECT id FROM employee_schedules")).isEmpty();
+	}
+
+	/** {@code 26/04/2026} throws in PHP too -- the day-first slash form is not accepted here. */
+	@Test
+	void aDayFirstSlashBoundIsAlsoAnUnexpectedFailure() {
+		assign(EMPLOYEE_1, SHIFT_DAY, "2026-01-01");
+
+		assertThat(generate(EMPLOYEE_1, "2026-04-01", "26/04/2026", null, 500).get("message"))
+				.isEqualTo("Internal server error");
+	}
+
+	/**
+	 * The three outcomes stay distinct.
+	 *
+	 * <p>A parse failure is a 500, an inverted range is
+	 * {@code shift_not_assigned} 400 because the early return reports no shift,
+	 * and a valid range with no assignment is the same 400 by a different route.
+	 * The first must never collapse into the other two.
+	 */
+	@Test
+	void parseFailureInvertedRangeAndNoAssignmentAreThreeOutcomes() {
+		assign(EMPLOYEE_1, SHIFT_DAY, "2026-01-01");
+		assertThat(generate(EMPLOYEE_1, "oops", "2026-04-03", null, 500).get("message"))
+				.isEqualTo("Internal server error");
+		assertThat(generate(EMPLOYEE_1, "2026-04-05", "2026-04-01", null, 400).get("message"))
+				.isEqualTo("No shift is assigned to this employee");
+
+		execute("DELETE FROM employee_shift_assignments");
+		assertThat(generate(EMPLOYEE_1, "2026-04-01", "2026-04-03", null, 400).get("message"))
+				.isEqualTo("No shift is assigned to this employee");
+	}
+
 	@Test
 	void generationRequiresItsThreeFields() {
 		assertThat((String) send(GENERATE, ADMIN_1, HttpMethod.POST,

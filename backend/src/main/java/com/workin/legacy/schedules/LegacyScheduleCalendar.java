@@ -88,14 +88,17 @@ public class LegacyScheduleCalendar {
 	private final LegacyAttendanceCalendar calendar;
 	private final LegacyWeeklyOffDays weeklyOffDays;
 	private final LegacyScheduleStore store;
+	private final com.workin.legacy.LegacyClock clock;
 
 	public LegacyScheduleCalendar(
 			DataSource legacyDataSource, LegacyAttendanceCalendar calendar,
-			LegacyWeeklyOffDays weeklyOffDays, LegacyScheduleStore store) {
+			LegacyWeeklyOffDays weeklyOffDays, LegacyScheduleStore store,
+			com.workin.legacy.LegacyClock clock) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 		this.calendar = calendar;
 		this.weeklyOffDays = weeklyOffDays;
 		this.store = store;
+		this.clock = clock;
 	}
 
 	/** {@code schedule_generate_for_employee()}'s return array. */
@@ -252,9 +255,13 @@ public class LegacyScheduleCalendar {
 	public GenerationOutcome generateForEmployee(
 			long companyId, long employeeId, String from, String to, boolean replaceExisting,
 			String weeklyRestLabel) {
-		LocalDate start = parseDate(from);
-		LocalDate end = parseDate(to);
-		if (start == null || end == null || end.isBefore(start)) {
+		// Constructed before anything else, exactly as PHP does -- so a
+		// malformed bound throws before the assignment is looked up, and the
+		// inverted-range early return is a *separate* outcome from a parse
+		// failure and from having no assignment. Three different results.
+		LocalDate start = constructDate(from);
+		LocalDate end = constructDate(to);
+		if (end.isBefore(start)) {
 			return new GenerationOutcome(0, null, null);
 		}
 
@@ -412,12 +419,51 @@ public class LegacyScheduleCalendar {
 		return "ar".equals(locale) ? ARABIC_DAYS.get(clamped) : ENGLISH_DAYS.get(clamped);
 	}
 
-	/** {@code new DateTimeImmutable($from)} -- an unparseable date is a failure, not today. */
-	private static LocalDate parseDate(String raw) {
-		try {
-			return LocalDate.parse(raw.trim());
-		} catch (RuntimeException ex) {
-			return null;
+	/**
+	 * {@code new DateTimeImmutable($raw)} for the range bounds.
+	 *
+	 * <p>Measured on PHP 8.3: the constructor accepts exactly what
+	 * {@code strtotime()} accepts, with the same value, so the bounded
+	 * {@link com.workin.legacy.LegacyPhpStrtotime} grammar is reused rather than
+	 * a second parser being written. {@code 2026/04/26}, {@code 26-04-2026},
+	 * {@code 20260426} and {@code tomorrow} are all accepted; {@code 2026-02-30}
+	 * rolls to 2 March. See {@code LegacyPhpDateTimeConstructorTest} for the
+	 * matrix.
+	 *
+	 * <p><b>The empty string is the one divergence</b>, and it is reachable:
+	 * {@code required()} accepts {@code "  "} and {@code trim()} makes it empty,
+	 * at which point the constructor answers <em>now</em> while
+	 * {@code strtotime('')} is {@code false}. So it is handled here rather than
+	 * read as a parse failure.
+	 *
+	 * @throws PhpDateConstructionException where PHP's constructor would throw
+	 *         {@code DateMalformedStringException} -- which is <b>not</b> a
+	 *         business error and must not become {@code shift_not_assigned}
+	 */
+	private LocalDate constructDate(String raw) {
+		String value = raw == null ? "" : raw;
+		if (value.isEmpty()) {
+			// `new DateTimeImmutable('')` is "now".
+			return clock.today();
+		}
+		LocalDate parsed = com.workin.legacy.LegacyPhpStrtotime.dateOf(value, clock.today());
+		if (parsed == null) {
+			throw new PhpDateConstructionException();
+		}
+		return parsed;
+	}
+
+	/**
+	 * PHP's {@code DateMalformedStringException}, reaching D-084's generic 500.
+	 *
+	 * <p>Deliberately carries no message and no PHP file or line: legacy's
+	 * uncaught exception is not part of any wire contract, and inventing its
+	 * text would be fabricating evidence. What the client sees is D-084's fixed
+	 * envelope, which is what an uncaught PHP throwable produces.
+	 */
+	public static class PhpDateConstructionException extends RuntimeException {
+		PhpDateConstructionException() {
+			super("new DateTimeImmutable() would have thrown");
 		}
 	}
 

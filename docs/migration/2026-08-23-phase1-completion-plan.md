@@ -52,7 +52,8 @@ push delivery (O-1, §4.8).
 | 12.6.1a | `attendance` one/delete/delete_range/create/update | complete |
 | 12.6.1b | `attendance/import_excel` | complete |
 
-Wave 12.6 legacy-route inventory stands at **6 of 18**.
+Wave 12.6 legacy-route inventory stands at **13 of 18**. The remaining five
+all wait on the same Wave 12.7 dependency — see §1.5.
 
 ### 1.2 Wave 12.6's remaining twelve endpoints
 
@@ -128,9 +129,8 @@ None is introduced here for tidiness.
 ```
 12.6.2  schedules/assign_employee_schedule
    |
-   |  gate: D-091 evidence + narrow payroll extraction (J.2 partial)
-   |  gate: D-083 settled  (O-4 — prerequisite for 12.6.3)
-   |  gate: D-092 guard order + D-093 edge-case matrix (12.6.3 only)
+   |  gates: D-091 evidence, narrow payroll extraction, D-083, D-092/D-093
+   |  — all closed; D-083 by D-099
    v
 12.6.3  check_in / check_in_qr / check_out
 12.6.4a analyze_excel
@@ -157,15 +157,14 @@ None is introduced here for tidiness.
 12.R    D-074 wire-contract retrofit  (O-6 — closure boundary, §4.1)
 ```
 
-**12.6.2 is next and is not blocked.** Wave 12.6 discovery §K: the slice is
-"Also clean, also different: it performs repeated schedule upserts
-(`schedule_upsert_employee_day`) against `uniq_employee_schedule_date` and then
-crosses the D-082 notification boundary." Its readiness column reads "after 1b
-review", which is now satisfied.
+**Everything above the Wave 12.7 line is delivered.** 12.6.2, 12.6.3, 12.6.4a
+and 12.6.5 are complete, and their gates are all closed: D-091's evidence and
+the narrow `payroll_is_weekly_rest_day` extraction landed alongside D-099,
+D-083 was closed by D-099 itself, and D-092/D-093 are implemented and pinned in
+`LegacyCheckInEndToEndTest`.
 
-**12.6.3/4/5 are gated on D-091 evidence and the narrow payroll extraction**,
-and 12.6.3 additionally on D-092's guard order, §K.2's D-093 coordinate
-edge-case matrix, and — newly, under **O-4** — on D-083 being settled (§4.3).
+**What remains in Wave 12.6 is the five request-dependent endpoints**, for the
+reason §1.5 records.
 
 **12.7 precedes 12.6.6.** This is the one place where the wave numbers do not
 run in order, and it is forced by evidence, not preference. Wave 12.6 discovery
@@ -372,16 +371,16 @@ either count.
 
 ### 3.2 The ledger
 
-Every one of the 198 live endpoints is in exactly one bucket.
+Every one of the 198 live endpoints is in exactly one bucket. Counts are as of `6eb0e04`.
 
 | Status | Endpoints | What it covers |
 |---|---|---|
-| `FINAL_COMPATIBLE` | **38** | Delivered on the literal `/apis/api/**` URL with the D-074 envelope: Wave 12.4 (17), Wave 12.5 (15), Wave 12.6 slices 1a-i/1a-ii/1b (6). Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally. |
+| `FINAL_COMPATIBLE` | **45** | Delivered on the literal `/apis/api/**` URL with the D-074 envelope: Wave 12.4 (17), Wave 12.5 (15), Wave 12.6 slices 1a-i/1a-ii/1b (6), 12.6.2 (1), 12.6.3 (3), 12.6.4a (1) and 12.6.5 (2). Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally. |
 | `IMPLEMENTED_BUT_REQUIRES_D074_RETROFIT` | **22** | Shipped on `/api/legacy/**` with the flat envelope, which D-074 rules implementation drift: `attendance_exception_types` (5), `branches` (6), `departments` (5), `job_titles` (5), `auth/login_employee` (1). Owned by **Wave 12.R** (O-6, §4.1). |
-| `CURRENT_WAVE` | **12** | Wave 12.6's remaining twelve, per §1.2. |
+| `CURRENT_WAVE` | **5** | Wave 12.6's remaining five — `list`, `stats`, `employee_monthly_attendance`, `overall_report`, `export`. All five wait on Wave 12.7 (§1.5). |
 | `ITEM12_REMAINING` | **56** | Wave 12.7 (17), 12.8 (20), 12.9 (16), plus the three `company/*` endpoints now in Wave 12.10 (§1.4). |
 | `ITEM13_REMAINING` | **70** | §2.2's 71 less `auth/login_employee`, which is counted once, in the retrofit bucket. |
-| **Live total** | **198** | 38 + 22 + 12 + 56 + 70 |
+| **Live total** | **198** | 45 + 22 + 5 + 56 + 70 |
 | `EXPLICITLY_EXCLUDED_WITH_DECISION` | **1** | `apis/api/time/now.php` (O-3, §2.3). Outside the live total. |
 | **Endpoint files** | **199** | 198 live + 1 excluded |
 
@@ -416,9 +415,9 @@ Wave 12.R is not to be split into 21 + 1 unless new evidence requires it.
 
 **`analyze_excel.php` appears three times in the corpus and must not be
 conflated.** `employees/analyze_excel.php` is delivered (Wave 12.4,
-`FINAL_COMPATIBLE`); `attendance/analyze_excel.php` is Wave 12.6.4 and is
-explicitly asserted *not* mapped; `leave_balances/analyze_excel.php` is Wave
-12.7.
+`FINAL_COMPATIBLE`); `attendance/analyze_excel.php` is Wave 12.6.4a and is
+now delivered too; `leave_balances/analyze_excel.php` is Wave 12.7 and stays
+unmapped.
 
 **The PHP dashboard's 92 page files are not in any bucket** and are not part of
 the 198 (O-5, §4.9).

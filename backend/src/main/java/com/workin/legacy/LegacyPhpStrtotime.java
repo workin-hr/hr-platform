@@ -153,6 +153,24 @@ public final class LegacyPhpStrtotime {
 	private static final Pattern SIX_DIGITS = Pattern.compile("^(\\d{2})(\\d{2})(\\d{2})$");
 
 	/**
+	 * {@code 20260426} -- eight digits as {@code YYYYMMDD}.
+	 *
+	 * <p>Added under D-094 for {@code schedule_generate_for_employee()}, which
+	 * builds its range with {@code new DateTimeImmutable($raw)} and therefore
+	 * reaches this form. Exactly eight digits: seven parses as something else
+	 * entirely ({@code 2026042} is 11 February 2026) and nine is rejected, so
+	 * the width is the branch rather than a prefix rule.
+	 *
+	 * <p>The bounds are the ISO branch's, measured: month 13 is rejected
+	 * ({@code 20261301} is false), an over-long day rolls ({@code 20260431} is
+	 * 1 May), and a zero month or day rolls backwards ({@code 20260000} is
+	 * 30 November 2025). So it shares {@link #roll} rather than validating
+	 * separately.
+	 */
+	private static final Pattern EIGHT_DIGITS =
+			Pattern.compile("^(\\d{4})(\\d{2})(\\d{2})$");
+
+	/**
 	 * The names PHP accepts, measured one by one. {@code sept} is the only
 	 * four-letter form it knows. {@code septem} is not a name to PHP either;
 	 * {@code janu} is not a name but PHP still parses the string, as
@@ -243,6 +261,11 @@ public final class LegacyPhpStrtotime {
 			LocalDate date = roll(digits(isoSlashes, 1), digits(isoSlashes, 2), digits(isoSlashes, 3),
 					timeIsValid(isoSlashes));
 			return date == null ? null : date.atTime(timeOf(isoSlashes));
+		}
+		Matcher eightDigits = EIGHT_DIGITS.matcher(value);
+		if (eightDigits.matches()) {
+			return at(roll(digits(eightDigits, 1), digits(eightDigits, 2), digits(eightDigits, 3),
+					true), LocalTime.MIDNIGHT);
 		}
 		Matcher yearMonth = YEAR_MONTH.matcher(value);
 		if (yearMonth.matches()) {
