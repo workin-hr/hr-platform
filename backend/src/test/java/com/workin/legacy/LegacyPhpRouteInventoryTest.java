@@ -159,6 +159,18 @@ class LegacyPhpRouteInventoryTest {
 	private static final List<String> WAVE_126_SCHEDULES_2_ROUTES = List.of(
 			"/apis/api/schedules/assign_employee_schedule.php");
 
+	/**
+	 * Wave 12.6 slice 3: the three presence endpoints.
+	 *
+	 * <p>They share a helper closure with 12.6.4 and 12.6.5 but land first,
+	 * because they are the only ones that <b>write</b> attendance from the
+	 * server clock and the only ones that reach the geofence.
+	 */
+	private static final List<String> WAVE_126_ATTENDANCE_3_ROUTES = List.of(
+			"/apis/api/attendance/check_in.php",
+			"/apis/api/attendance/check_in_qr.php",
+			"/apis/api/attendance/check_out.php");
+
 	/** Every route the application is expected to map. */
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 					WAVE_124_ROUTES,
@@ -166,7 +178,8 @@ class LegacyPhpRouteInventoryTest {
 					WAVE_126_ATTENDANCE_1A_I_ROUTES,
 					WAVE_126_ATTENDANCE_1A_II_ROUTES,
 					WAVE_126_ATTENDANCE_1B_ROUTES,
-					WAVE_126_SCHEDULES_2_ROUTES)
+					WAVE_126_SCHEDULES_2_ROUTES,
+					WAVE_126_ATTENDANCE_3_ROUTES)
 			.flatMap(List::stream)
 			.sorted()
 			.toList();
@@ -283,14 +296,27 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void wave126HasSevenOfItsEighteenEndpointsMapped() {
-		// The wave is eighteen; seven are delivered. Asserted so a later slice
+	void wave126HasTenOfItsEighteenEndpointsMapped() {
+		// The wave is eighteen; ten are delivered. Asserted so a later slice
 		// cannot quietly skip one, and so this number is visible in review.
 		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1A_II_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1B_ROUTES.size()
-						+ WAVE_126_SCHEDULES_2_ROUTES.size())
-				.isEqualTo(7);
+						+ WAVE_126_SCHEDULES_2_ROUTES.size()
+						+ WAVE_126_ATTENDANCE_3_ROUTES.size())
+				.isEqualTo(10);
+	}
+
+	@Test
+	void theWave126Slice3IsTheThreePresenceEndpoints() {
+		assertThat(WAVE_126_ATTENDANCE_3_ROUTES).hasSize(3);
+		assertThat(WAVE_126_ATTENDANCE_3_ROUTES)
+				.allSatisfy(route -> assertThat(route).startsWith("/apis/api/attendance/"));
+		// 12.6.4's four and 12.6.5's remaining two are not here.
+		assertThat(EXPECTED_ROUTES).doesNotContain(
+				"/apis/api/attendance/list.php", "/apis/api/attendance/stats.php",
+				"/apis/api/attendance/employee_monthly_attendance.php",
+				"/apis/api/attendance/overall_report.php", "/apis/api/attendance/export.php");
 	}
 
 	@Test
@@ -313,7 +339,8 @@ class LegacyPhpRouteInventoryTest {
 						+ WAVE_126_ATTENDANCE_1A_I_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1A_II_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1B_ROUTES.size()
-						+ WAVE_126_SCHEDULES_2_ROUTES.size());
+						+ WAVE_126_SCHEDULES_2_ROUTES.size()
+						+ WAVE_126_ATTENDANCE_3_ROUTES.size());
 	}
 
 	@Test

@@ -67,6 +67,25 @@ public final class LegacyJdbcValues {
 	 * @return a {@link Long} for numeric columns, a {@link String} otherwise,
 	 *         or {@code null} for SQL NULL
 	 */
+	/**
+	 * A whole row as legacy's PDO would hand it back: every column read through
+	 * {@link #read}, keyed by its label, in projection order.
+	 *
+	 * <p>Shared because a `SELECT *` port that builds this by hand is one
+	 * `getObject()` away from re-introducing the temporal-object problem D-096
+	 * measured.
+	 */
+	public static org.springframework.jdbc.core.RowMapper<java.util.Map<String, Object>> rowMapper() {
+		return (ResultSet rs, int index) -> {
+			java.sql.ResultSetMetaData meta = rs.getMetaData();
+			java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+			for (int column = 1; column <= meta.getColumnCount(); column++) {
+				row.put(meta.getColumnLabel(column), read(rs, column, meta.getColumnType(column)));
+			}
+			return row;
+		};
+	}
+
 	public static Object read(ResultSet rs, int column, int sqlType) throws SQLException {
 		switch (sqlType) {
 			case Types.BIT, Types.BOOLEAN, Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT -> {

@@ -53,15 +53,17 @@ public class LegacyAttendanceController {
 
 	private final LegacyAttendanceService attendanceService;
 	private final LegacyAttendanceImportService importService;
+	private final LegacyCheckInService checkInService;
 	private final LegacyRequestGuard requestGuard;
 	private final LegacyMessages messages;
 
 	public LegacyAttendanceController(
 			LegacyAttendanceService attendanceService,
-			LegacyAttendanceImportService importService, LegacyRequestGuard requestGuard,
-			LegacyMessages messages) {
+			LegacyAttendanceImportService importService, LegacyCheckInService checkInService,
+			LegacyRequestGuard requestGuard, LegacyMessages messages) {
 		this.attendanceService = attendanceService;
 		this.importService = importService;
+		this.checkInService = checkInService;
 		this.requestGuard = requestGuard;
 		this.messages = messages;
 	}
@@ -181,6 +183,48 @@ public class LegacyAttendanceController {
 	}
 
 	/**
+	 * `check_in.php`: POST, bare `requireAuth()`, D-092 target restriction
+	 * inside the service.
+	 */
+	@RequestMapping("/check_in.php")
+	public LegacyApiResponse checkIn(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = authenticated();
+		String locale = messages.resolveLocale(request);
+		LegacyCheckInService.CheckInOutcome outcome = checkInService.checkIn(
+				context, LegacyJsonBody.read(request), messages.translate(locale, "schedule_weekly_rest", null));
+		return LegacyApiResponse.ok(
+				messages.translate(locale, "check_in_recorded", null),
+				ordered("attendance_id", outcome.attendanceId(), "time", outcome.time()));
+	}
+
+	/** `check_in_qr.php`: the QR code is proof of presence, so no geofence runs. */
+	@RequestMapping("/check_in_qr.php")
+	public LegacyApiResponse checkInQr(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = authenticated();
+		String locale = messages.resolveLocale(request);
+		LegacyCheckInService.CheckInOutcome outcome = checkInService.checkInByQr(
+				context, LegacyJsonBody.read(request), messages.translate(locale, "schedule_weekly_rest", null));
+		return LegacyApiResponse.ok(
+				messages.translate(locale, "qr_check_in_recorded", null),
+				ordered("attendance_id", outcome.attendanceId(), "time", outcome.time()));
+	}
+
+	/** `check_out.php`: no `required()`, because the GPS falls back to the open row's. */
+	@RequestMapping("/check_out.php")
+	public LegacyApiResponse checkOut(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = authenticated();
+		String locale = messages.resolveLocale(request);
+		LegacyCheckInService.CheckOutOutcome outcome = checkInService.checkOut(
+				context, LegacyJsonBody.read(request), messages.translate(locale, "schedule_weekly_rest", null));
+		return LegacyApiResponse.ok(
+				messages.translate(locale, "check_out_recorded", null),
+				ordered("duration_minutes", outcome.durationMinutes(), "time", outcome.time()));
+	}
+
+	/**
 	 * `$_FILES['file']`. A request that is not multipart at all, or one without
 	 * that part, is the "no file" PHP sees.
 	 */
@@ -189,6 +233,20 @@ public class LegacyAttendanceController {
 			return multipart.getFile(partName);
 		}
 		return null;
+	}
+
+	/**
+	 * A two-entry payload in PHP's key order.
+	 *
+	 * <p>{@code Map.of} is explicitly unordered, and these payloads are literal
+	 * PHP array literals whose order is part of the wire contract.
+	 */
+	private static Map<String, Object> ordered(String firstKey, Object first, String secondKey,
+			Object second) {
+		Map<String, Object> payload = new java.util.LinkedHashMap<>();
+		payload.put(firstKey, first);
+		payload.put(secondKey, second);
+		return payload;
 	}
 
 	private static void requireMethod(HttpServletRequest request, String expected) {

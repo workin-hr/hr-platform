@@ -292,6 +292,61 @@ class LegacySessionDataSourceTest {
 		}
 	}
 
+	/**
+	 * Closing the wrapper closes the pool it owns.
+	 *
+	 * <p>{@code legacyDataSource} hands the container this wrapper, not the
+	 * {@code HikariDataSource} inside it, so destroy-method inference sees only
+	 * this type. Lifecycle ownership follows construction.
+	 */
+	@Test
+	void closingTheWrapperClosesTheDelegate() throws Exception {
+		java.util.concurrent.atomic.AtomicBoolean closed =
+				new java.util.concurrent.atomic.AtomicBoolean(false);
+		class ClosableDelegate extends org.springframework.jdbc.datasource.AbstractDataSource
+				implements AutoCloseable {
+			@Override
+			public Connection getConnection() {
+				throw new UnsupportedOperationException("not used by this test");
+			}
+
+			@Override
+			public Connection getConnection(String username, String password) {
+				throw new UnsupportedOperationException("not used by this test");
+			}
+
+			@Override
+			public void close() {
+				closed.set(true);
+			}
+		}
+
+		try (LegacySessionDataSource wrapper = new LegacySessionDataSource(new ClosableDelegate())) {
+			assertThat(closed).isFalse();
+		}
+
+		assertThat(closed).isTrue();
+	}
+
+	/** A delegate with nothing to close is simply left alone. */
+	@Test
+	void closingToleratesANonCloseableDelegate() {
+		DataSource plain = new org.springframework.jdbc.datasource.AbstractDataSource() {
+			@Override
+			public Connection getConnection() {
+				throw new UnsupportedOperationException("not used by this test");
+			}
+
+			@Override
+			public Connection getConnection(String username, String password) {
+				throw new UnsupportedOperationException("not used by this test");
+			}
+		};
+
+		org.assertj.core.api.Assertions.assertThatCode(
+				() -> new LegacySessionDataSource(plain).close()).doesNotThrowAnyException();
+	}
+
 	/** The pure grammar, without a database. */
 	@Test
 	void theOffsetGrammarIsSharedAndPure() {

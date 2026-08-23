@@ -86,7 +86,7 @@ public final class LegacyShiftTimes {
 	 * when the two are equal, and an overnight wrap when the end is earlier.
 	 * Null propagates from either operand.
 	 */
-	static Integer durationMinutes(String startTime, String endTime) {
+	public static Integer durationMinutes(String startTime, String endTime) {
 		Integer start = toMinutes(startTime);
 		Integer end = toMinutes(endTime);
 		if (start == null || end == null) {

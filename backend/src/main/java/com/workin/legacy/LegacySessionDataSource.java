@@ -55,7 +55,7 @@ import javax.sql.DataSource;
  * connection is closed before the failure propagates, so a failing pool does
  * not leak.
  */
-public class LegacySessionDataSource implements DataSource {
+public class LegacySessionDataSource implements DataSource, AutoCloseable {
 
 	/** {@code SELECT config_value FROM configs WHERE config_key = ? LIMIT 1}. */
 	private static final String CONFIG_QUERY =
@@ -72,6 +72,26 @@ public class LegacySessionDataSource implements DataSource {
 	/** The pool this wraps, for callers that need Hikari's own configuration. */
 	public DataSource delegate() {
 		return delegate;
+	}
+
+	/**
+	 * Close the pool this owns.
+	 *
+	 * <p>{@code legacyDataSource} returns this wrapper rather than the
+	 * {@code HikariDataSource} it built, so the container only ever sees the
+	 * wrapper. Without this the pool would never be told to shut down on
+	 * context close -- Spring's destroy-method inference looks at the bean type
+	 * it was handed, and that is this class. Ownership follows construction:
+	 * whoever wrapped the delegate is responsible for closing it.
+	 *
+	 * <p>A delegate that is not closeable is left alone; there is nothing to
+	 * close and nothing to fail.
+	 */
+	@Override
+	public void close() throws Exception {
+		if (delegate instanceof AutoCloseable closeable) {
+			closeable.close();
+		}
 	}
 
 	@Override
