@@ -749,7 +749,10 @@ class LegacyAttendanceImportEndToEndTest {
 
 		assertThat(body.get("message"))
 				.isEqualTo("Only two columns are required: employee code, and punch date/time.");
-		assertThat(body.get("data")).isNull();
+		// The key is absent, not present and null. `fail($key, 400)` passes no
+		// $data at all, and D-074's envelope omits the key rather than sending
+		// `"data": null` -- which `get("data") == null` would not have caught.
+		assertThat(body).doesNotContainKey("data");
 	}
 
 	/**
@@ -767,6 +770,24 @@ class LegacyAttendanceImportEndToEndTest {
 
 		assertThat(body.get("message")).isEqualTo("Invalid file type");
 		assertThat(body.get("data")).isEqualTo("Cannot read XLS file. Invalid or corrupted file");
+	}
+
+	/**
+	 * D-098's second case: a valid OLE2 container holding no workbook at all.
+	 *
+	 * <p>Legacy dereferences an unset property index and grows a string until
+	 * the memory limit kills the process -- {@code Allowed memory size of
+	 * 134217728 bytes exhausted}. There is no wire contract to reproduce, so
+	 * the same bounded refusal answers it. Asserted at the endpoint rather than
+	 * only at the reader, because "bounded" is a claim about the response.
+	 */
+	@Test
+	void anOle2FileWithNoWorkbookStreamIsRefusedRatherThanExhaustingMemory() {
+		Map<String, Object> body = post(ADMIN_1, "other.xls", fixture("not_a_workbook.xls"), null, 400);
+
+		assertThat(body.get("message")).isEqualTo("Invalid file type");
+		assertThat(body.get("data")).isEqualTo("Cannot read XLS file. Invalid or corrupted file");
+		assertThat(query("SELECT id FROM attendance")).isEmpty();
 	}
 
 	// ------------------------------------------------------------------

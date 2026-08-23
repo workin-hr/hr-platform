@@ -227,6 +227,105 @@ class LegacySimpleXlsReaderDifferentialTest {
 				List.of("div by zero", "7")));
 	}
 
+	/**
+	 * {@code RK}, in every encoding the record allows.
+	 *
+	 * <p>These are the records HSSF will not write, so the fixture's cell
+	 * records were packed by hand -- and they matter because
+	 * {@code parseSheet()} decodes an {@code RK} through its own
+	 * {@code getIEEE754()} rather than through the {@code NUMBER} path, then
+	 * runs its own XF lookup, date check, multiplier and {@code sprintf} on the
+	 * result. Testing the renderer over {@code NUMBER} cells proves the
+	 * formatting; only this proves the <b>decoding</b>.
+	 *
+	 * <p>Four encodings, selected by the low two bits: a 30-bit signed integer
+	 * or the top 30 bits of a double, each optionally divided by 100. Both
+	 * signs, both range ends, and the format indices that divert the value to
+	 * the date branch and the {@code 0.00} branch.
+	 *
+	 * <p>{@code rk date and time} is {@code 06:00:00} and not the {@code 08:03}
+	 * the serial was built from: the double encoding keeps 21 mantissa bits, so
+	 * the time half is genuinely lost in the file. Both readers are decoding
+	 * the same truncated bits, which is exactly what this has to show.
+	 */
+	@Test
+	void packedRkCellsDecodeAsPhpDecodesThem() {
+		assertThat(grid("rk.xls")).isEqualTo(List.of(
+				List.of("Case", "Value"),
+				List.of("rk integer", "555004"),
+				List.of("rk integer two decimals", "555004.00"),
+				List.of("rk hundredths", "12.34"),
+				List.of("rk hundredths two decimals", "12.34"),
+				List.of("rk negative integer", "-1234"),
+				List.of("rk negative hundredths", "-12.34"),
+				List.of("rk integer maximum", "536870911"),
+				List.of("rk integer minimum", "-536870912"),
+				List.of("rk double", "1.5"),
+				List.of("rk double negative", "-12.25"),
+				List.of("rk double hundredths", "1.5"),
+				List.of("rk date", "2026-04-26 00:00:00"),
+				List.of("rk date and time", "2026-04-26 06:00:00"),
+				List.of("rk date hundredths", "2026-04-26 00:00:00")));
+	}
+
+	/**
+	 * {@code MULRK}: one record, a run of adjacent packed cells.
+	 *
+	 * <p>{@code SimpleXLS} walks the run with hand-written offset arithmetic --
+	 * a six-byte stride, the value read at {@code tmppos + 2}, the XF index the
+	 * date check reads four bytes earlier, and the last column taken from the
+	 * final two bytes of the record rather than from a count. Each row here
+	 * carries three adjacent numerics with <b>different</b> format indices, so
+	 * a run that reused one XF, or that walked the stride wrong, could not
+	 * produce these values by accident.
+	 */
+	@Test
+	void aMulRkRunDecodesAsPhpDecodesIt() {
+		assertThat(grid("mulrk.xls")).isEqualTo(List.of(
+				List.of("Case", "A", "B", "C"),
+				List.of("mulrk mixed", "555004", "12.34", "2026-04-26 00:00:00"),
+				List.of("mulrk doubles", "1.5", "-12.25", "1.5")));
+	}
+
+	/**
+	 * {@code MULBLANK} leaves its positions empty, in the middle of a row.
+	 *
+	 * <p>{@code parseSheet()} has an explicit case for it that does nothing.
+	 * The filled cells either side are what make that observable: they prove
+	 * the run was read and skipped rather than the record being mistaken for
+	 * something that shifts the rest of the row.
+	 */
+	@Test
+	void aMulBlankRunLeavesItsPositionsEmpty() {
+		assertThat(grid("mulblank.xls")).isEqualTo(List.of(
+				List.of("A", "B", "C", "D"),
+				List.of("a1", "", "", "d1"),
+				List.of("a2", "b2", "c2", "d2")));
+	}
+
+	/**
+	 * The three fixtures above really do carry the packed records.
+	 *
+	 * <p>Without this they would be indistinguishable from ordinary workbooks
+	 * if the byte-level rewrite that produced them ever stopped matching: the
+	 * assertions would still pass, over {@code NUMBER} and {@code BLANK} cells,
+	 * and would prove nothing about the branches they exist to cover. The
+	 * committed bytes are the artifact under test, so the check is on the
+	 * committed bytes.
+	 */
+	@Test
+	void thePackedFixturesCarryThePackedRecords() {
+		assertThat(LegacyXlsFixtures.recordSids(bytes("rk.xls")))
+				.describedAs("RK present, NUMBER gone")
+				.contains(0x027E).doesNotContain(0x0203);
+		assertThat(LegacyXlsFixtures.recordSids(bytes("mulrk.xls")))
+				.describedAs("MULRK present, NUMBER gone")
+				.contains(0x00BD).doesNotContain(0x0203);
+		assertThat(LegacyXlsFixtures.recordSids(bytes("mulblank.xls")))
+				.describedAs("MULBLANK present, BLANK gone")
+				.contains(0x00BE).doesNotContain(0x0201);
+	}
+
 	@Test
 	void onlyTheFirstSheetIsEverRead() {
 		assertThat(grid("multi_sheet.xls")).isEqualTo(List.of(
@@ -344,6 +443,9 @@ class LegacySimpleXlsReaderDifferentialTest {
 		"multi_sheet.xls       | punch_log | emp_code,datetime | 1",
 		"empty_sheet.xls       | punch_log |                   | 0",
 		"encrypted.xls         | punch_log |                   | 0",
+		"rk.xls                | punch_log | case,value        | 14",
+		"mulrk.xls             | punch_log | case,a,b,c        | 2",
+		"mulblank.xls          | punch_log | a,b,c,d           | 2",
 	})
 	void theWrapperAndLoadRowsMatchPhp(String fixture, String format, String keys, int rows) {
 		LegacyAttendanceImportReader.Loaded loaded = LegacyAttendanceImportReader.loadRows(bytes(fixture));
