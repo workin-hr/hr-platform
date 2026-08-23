@@ -3,7 +3,9 @@ package com.workin.legacy.attendance.spreadsheet;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
@@ -18,6 +20,9 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import org.apache.poi.hssf.usermodel.HSSFRow;
+import org.apache.poi.hssf.usermodel.HSSFSheet;
+import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -677,24 +682,88 @@ class LegacyAttendanceImportEndToEndTest {
 	}
 
 	// ------------------------------------------------------------------
-	// The XLS gap
+	// Excel 97-2003 (D-097)
 	// ------------------------------------------------------------------
 
 	/**
-	 * <b>A reported divergence, not a reproduction.</b> Legacy reads Excel
-	 * 97-2003 through the vendored {@code SimpleXLS} BIFF parser; there is no
-	 * Java equivalent in this repository and porting one is outside this slice.
-	 * An OLE2 upload therefore takes the same path PHP takes for a workbook
-	 * {@code SimpleXLS} cannot read: {@code invalid_file_type} 400 with the
-	 * message in {@code data}. A <em>valid</em> {@code .xls} imports in PHP and
-	 * is refused here.
+	 * A valid {@code .xls} imports, and answers with the <b>CSV</b> message.
+	 *
+	 * <p>{@code $is_xlsx_import = $format === 'xlsx';} is the whole rule, and
+	 * {@code .xls} is not {@code 'xlsx'}. So a successful workbook import falls
+	 * through to {@code ok(IMPORTED_CSV, ..., ['count' => ...])} -- a different
+	 * message key <em>and</em> a different placeholder from the one the XLSX
+	 * branch two tests up produces for the identical rows. Surprising enough to
+	 * be worth its own test: nothing about the response says "Excel".
 	 */
 	@Test
-	void anXlsUploadIsRefusedRatherThanParsed() {
-		byte[] ole2 = {(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0, (byte) 0xA1, (byte) 0xB1,
-			0x1A, (byte) 0xE1, 0x00, 0x00};
+	void aValidXlsImportsAndAnswersWithTheCsvMessage() {
+		Map<String, Object> body = post(ADMIN_1, "punch.xls", punchXls(), null, 200);
 
-		Map<String, Object> body = post(ADMIN_1, "punch.xls", ole2, null, 400);
+		assertThat(body.get("message")).isEqualTo("Imported 2 records from CSV");
+
+		Map<String, Object> data = dataOf(body);
+		assertThat(number(data.get("inserted"))).isEqualTo(2L);
+		assertThat(number(data.get("skipped"))).isZero();
+		assertThat((List<?>) data.get("errors")).isEmpty();
+
+		List<Map<String, Object>> rows = query(
+				"SELECT employee_id, check_in, check_out, method FROM attendance ORDER BY employee_id");
+		assertThat(rows).hasSize(2);
+		assertThat(timestamp(rows.get(0).get("check_in"))).isEqualTo("2026-04-26 08:03:00");
+		assertThat(timestamp(rows.get(0).get("check_out"))).isEqualTo("2026-04-26 17:11:00");
+		assertThat(rows.get(0).get("method")).isEqualTo("excel");
+		assertThat(rows.get(1).get("check_out")).isNull();
+	}
+
+	/**
+	 * D-097's accepted divergence, at the wire.
+	 *
+	 * <p>Legacy's vendored reader carries an incidental {@code BIFF7 = 0x500}
+	 * branch and parses this workbook; Phase 1 supports the documented Excel
+	 * 97-2003 surface only and refuses it deterministically through the
+	 * existing unreadable-XLS path. Bounded and explicit, not a gap.
+	 */
+	@Test
+	void aPreNinetySevenWorkbookIsTheDeterministicInvalidFilePath() {
+		Map<String, Object> body = post(ADMIN_1, "old.xls", fixture("biff5.xls"), null, 400);
+
+		assertThat(body.get("message")).isEqualTo("Invalid file type");
+		assertThat(body.get("data")).isEqualTo("Cannot read XLS file. Invalid or corrupted file");
+		assertThat(query("SELECT id FROM attendance")).isEmpty();
+	}
+
+	/**
+	 * An encrypted workbook is the <em>two-column</em> failure, not the
+	 * unreadable-file one.
+	 *
+	 * <p>That is measured, and it is not the shape one would guess.
+	 * {@code SimpleXLS} abandons the globals substream on {@code FILEPASS} but
+	 * never records an error, so {@code parseFile()} still reports success and
+	 * {@code rows()} simply finds no sheet. An empty sheet has no columns, and
+	 * the punch-log resolver rejects that with its own message key long before
+	 * anything decides the file was unreadable.
+	 */
+	@Test
+	void anEncryptedWorkbookFailsAsAnEmptySheet() {
+		Map<String, Object> body = post(ADMIN_1, "locked.xls", fixture("encrypted.xls"), null, 400);
+
+		assertThat(body.get("message"))
+				.isEqualTo("Only two columns are required: employee code, and punch date/time.");
+		assertThat(body.get("data")).isNull();
+	}
+
+	/**
+	 * A truncated container is refused in bounded time.
+	 *
+	 * <p>Legacy has no answer to reproduce here: {@code parseSheet()} walks off
+	 * the end of the workbook stream and does not terminate, so in a request it
+	 * dies on the execution-time limit. The bounded refusal below is the
+	 * nearest envelope legacy can actually produce, and it is a divergence
+	 * D-097's text does not cover.
+	 */
+	@Test
+	void aTruncatedWorkbookIsRefusedRatherThanHanging() {
+		Map<String, Object> body = post(ADMIN_1, "cut.xls", fixture("truncated.xls"), null, 400);
 
 		assertThat(body.get("message")).isEqualTo("Invalid file type");
 		assertThat(body.get("data")).isEqualTo("Cannot read XLS file. Invalid or corrupted file");
@@ -724,6 +793,51 @@ class LegacyAttendanceImportEndToEndTest {
 		rows.add(List.of(String.valueOf(EMPLOYEE_1), "26/04/2026 17:11"));
 		rows.add(List.of(String.valueOf(EMPLOYEE_2), "26/04/2026 09:00"));
 		return workbook(rows);
+	}
+
+	/**
+	 * The same rows again as an Excel 97-2003 workbook.
+	 *
+	 * <p>Written with POI rather than taken from the committed differential
+	 * fixtures because those carry their own employee codes, and this test is
+	 * about the response envelope, not about the reading. What the reader makes
+	 * of a two-column string sheet is proven against real PHP in
+	 * {@link LegacySimpleXlsReaderDifferentialTest}.
+	 */
+	private static byte[] punchXls() {
+		try (HSSFWorkbook workbook = new HSSFWorkbook();
+				ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
+			HSSFSheet sheet = workbook.createSheet("Punch");
+			List<List<String>> rows = List.of(
+					List.of("code", "datetime"),
+					List.of(String.valueOf(EMPLOYEE_1), "26/04/2026 08:03"),
+					List.of(String.valueOf(EMPLOYEE_1), "26/04/2026 17:11"),
+					List.of(String.valueOf(EMPLOYEE_2), "26/04/2026 09:00"));
+			for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
+				HSSFRow row = sheet.createRow(rowIndex);
+				List<String> cells = rows.get(rowIndex);
+				for (int cellIndex = 0; cellIndex < cells.size(); cellIndex++) {
+					row.createCell(cellIndex).setCellValue(cells.get(cellIndex));
+				}
+			}
+			workbook.write(bytes);
+			return bytes.toByteArray();
+		} catch (IOException ex) {
+			throw new UncheckedIOException(ex);
+		}
+	}
+
+	/** One of the committed differential fixtures, byte for byte. */
+	private static byte[] fixture(String name) {
+		String resource = "/legacy/spreadsheet/xls/" + name;
+		try (InputStream stream = LegacyAttendanceImportEndToEndTest.class.getResourceAsStream(resource)) {
+			if (stream == null) {
+				throw new IllegalStateException("missing fixture " + resource);
+			}
+			return stream.readAllBytes();
+		} catch (IOException ex) {
+			throw new UncheckedIOException(ex);
+		}
 	}
 
 	/** A minimal .xlsx: inline strings only, so no shared-string table is needed. */

@@ -71,6 +71,15 @@ dependencies {
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.13.0'
 
+	// D-097. The legacy attendance import accepts Excel 97-2003 `.xls`, which
+	// is BIFF8 -- a binary OLE2 format with no JDK reader. POI HSSF is the
+	// structural parser for exactly that surface and nothing else:
+	// LegacySimpleXlsReader renders the values, LegacyXlsxReader and
+	// LegacyCsvReader remain authoritative for XLSX and CSV, and neither is
+	// refactored onto POI. `poi` only -- `poi-ooxml` is deliberately NOT a
+	// dependency, because the XLSX path is already ported.
+	implementation 'org.apache.poi:poi:5.5.1'
+
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
 	// Boot 4 moved TestRestTemplate out of spring-boot-test into its own

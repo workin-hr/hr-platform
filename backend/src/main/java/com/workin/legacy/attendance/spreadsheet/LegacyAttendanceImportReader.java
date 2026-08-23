@@ -38,14 +38,23 @@ import com.workin.legacy.spreadsheet.LegacyXlsxReader;
  * column {@code detectCol()} finds. Reported rather than corrected.
  *
  * <h2>Which formats are actually readable</h2>
- * <p>CSV and XLSX. Legacy also handles {@code .xls} through
- * {@code parse_legacy_xls_spreadsheet()}, which delegates to the vendored
- * {@code SimpleXLS} BIFF reader -- there is no equivalent in this repository
- * and writing one is well outside this slice. An OLE2 upload therefore raises
- * the same {@code RuntimeException} shape PHP raises when {@code SimpleXLS}
- * cannot read a file, which the endpoint answers as {@code invalid_file_type}
- * 400. That is a genuine, reported divergence: a <em>valid</em> {@code .xls}
- * imports in PHP and is refused here.
+ * <p>All three. CSV and XLSX are read here; {@code .xls} is read by
+ * {@link LegacySimpleXlsReader}, which is D-097's bounded Apache POI HSSF
+ * adapter for the Excel 97-2003 surface {@code parse_legacy_xls_spreadsheet()}
+ * documents. Pre-97 BIFF is the one workbook shape legacy can sometimes read
+ * and this cannot; that is D-097's accepted divergence, not a gap.
+ *
+ * <h2>The {@code .xls} branch is not the other two</h2>
+ * <p>It is a separate early return in {@code attendance_import_load_rows()},
+ * and it differs from the shared path in three ways that all matter. Its rows
+ * come from the wrapper's own header handling, which drops any row with fewer
+ * than two non-blank cells -- the XLSX path has no such filter. It has no
+ * {@code 'empty'} short-circuit, so a workbook with no rows still reports a
+ * format. And its {@code unknown -> punch_log} fallback is
+ * <b>unconditional</b>, where the shared path only applies it to a sheet with
+ * exactly two non-blank columns. A three-column {@code .xls} therefore arrives
+ * as {@code punch_log} and fails on the two-column check, while the same three
+ * columns as CSV are {@code unknown} and fail as an unsupported format.
  */
 public final class LegacyAttendanceImportReader {
 
@@ -123,12 +132,12 @@ public final class LegacyAttendanceImportReader {
 			throw new LegacyAttendanceImportException("Empty or unreadable file");
 		}
 		if (detected == LegacySpreadsheetFormat.XLS) {
-			// parse_legacy_xls_spreadsheet() -> Shuchkin\SimpleXLS. Not ported;
-			// see the class comment. PHP's own message for an unreadable
-			// workbook is reproduced so the wire shape is one legacy can
-			// produce, rather than a new one.
-			throw new LegacyAttendanceImportException(
-					"Cannot read XLS file. Invalid or corrupted file");
+			// The whole `if ($format === 'xls')` branch, which returns before
+			// the CSV/XLSX path below ever runs.
+			List<Map<String, Object>> rows = xlsAssoc(LegacySimpleXlsReader.readFirstSheet(content));
+			List<String> keys = rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).keySet());
+			String importFormat = detectFormat(keys);
+			return new Loaded("unknown".equals(importFormat) ? "punch_log" : importFormat, rows, keys);
 		}
 
 		List<Map<String, Object>> rows = new ArrayList<>();
@@ -461,6 +470,42 @@ public final class LegacyAttendanceImportReader {
 		List<String> header = LegacySpreadsheetRows.normalizeHeaderRow(matrix.get(0));
 		for (int index = 1; index < matrix.size(); index++) {
 			Map<String, Object> combined = LegacySpreadsheetRows.assocRow(header, matrix.get(index));
+			if (combined != null) {
+				rows.add(combined);
+			}
+		}
+		return rows;
+	}
+
+	/**
+	 * {@code parse_legacy_xls_spreadsheet()}'s own header handling, which is
+	 * not {@link #assoc}.
+	 *
+	 * <p>The difference is the blank-row filter: a row reaching
+	 * {@code spreadsheet_assoc_row()} must carry at least two cells that are
+	 * neither null nor whitespace. {@code SimpleXLS} pads every row out to the
+	 * sheet's column count, so without it a workbook whose {@code DIMENSION}
+	 * claims more rows than were written would contribute a run of entirely
+	 * empty records.
+	 */
+	private static List<Map<String, Object>> xlsAssoc(List<List<String>> grid) {
+		List<Map<String, Object>> rows = new ArrayList<>();
+		if (grid.isEmpty()) {
+			return rows;
+		}
+		List<String> header = LegacySpreadsheetRows.normalizeHeaderRow(grid.get(0));
+		for (int index = 1; index < grid.size(); index++) {
+			List<String> record = grid.get(index);
+			int filled = 0;
+			for (String cell : record) {
+				if (!LegacyValues.phpTrim(cell).isEmpty()) {
+					filled++;
+				}
+			}
+			if (filled < 2) {
+				continue;
+			}
+			Map<String, Object> combined = LegacySpreadsheetRows.assocRow(header, record);
 			if (combined != null) {
 				rows.add(combined);
 			}
