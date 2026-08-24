@@ -186,18 +186,6 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/schedules/generate_employee_schedule.php");
 
 	/**
-	 * Wave 12.6.4b: the three endpoints Wave 12.7 slice 1 unblocked --
-	 * {@code list.php}, {@code stats.php} and
-	 * {@code employee_monthly_attendance.php} all reach
-	 * {@code attendance_row_worked_minutes()} and through it the
-	 * {@code requests} table, which now exists.
-	 */
-	private static final List<String> WAVE_1264B_ROUTES = List.of(
-			"/apis/api/attendance/list.php",
-			"/apis/api/attendance/stats.php",
-			"/apis/api/attendance/employee_monthly_attendance.php");
-
-	/**
 	 * Wave 12.7, slice 1: six of the module's seven endpoints.
 	 * {@code approve.php} is not here -- see {@code LegacyRequestService}'s
 	 * class javadoc for why its transaction shape is a separate slice.
@@ -209,6 +197,18 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/requests/one.php",
 			"/apis/api/requests/reject.php",
 			"/apis/api/requests/update.php");
+
+	/**
+	 * Wave 12.6.4b: the three endpoints Wave 12.7 slice 1 unblocked --
+	 * {@code list.php}, {@code stats.php} and
+	 * {@code employee_monthly_attendance.php} all reach
+	 * {@code attendance_row_worked_minutes()} and through it the
+	 * {@code requests} table, which now exists.
+	 */
+	private static final List<String> WAVE_1264B_ROUTES = List.of(
+			"/apis/api/attendance/list.php",
+			"/apis/api/attendance/stats.php",
+			"/apis/api/attendance/employee_monthly_attendance.php");
 
 	/** Every route the application is expected to map. */
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
