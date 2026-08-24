@@ -80,7 +80,7 @@ public class LegacyCheckInService {
 	}
 
 	/** {@code ok(CHECK_OUT_RECORDED, ['duration_minutes' => ..., 'time' => ...])}. */
-	public record CheckOutOutcome(int durationMinutes, String time) {
+	public record CheckOutOutcome(long durationMinutes, String time) {
 	}
 
 	/**
@@ -195,7 +195,7 @@ public class LegacyCheckInService {
 		long seconds = checkIn == null
 				? 0L
 				: java.time.Duration.between(checkIn, clock.now()).getSeconds();
-		return new CheckOutOutcome((int) phpRound(seconds / 60d), clock.now().format(SQL_DATE_TIME));
+		return new CheckOutOutcome(phpRound(seconds / 60d), clock.now().format(SQL_DATE_TIME));
 	}
 
 	// ------------------------------------------------------------------

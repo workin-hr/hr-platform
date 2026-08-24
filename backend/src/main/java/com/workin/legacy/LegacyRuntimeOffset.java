@@ -48,7 +48,7 @@ public final class LegacyRuntimeOffset {
 		if (configValue == null) {
 			return DEFAULT;
 		}
-		return DAYLIGHT_SAVING_VALUES.contains(configValue.trim().toLowerCase(Locale.ROOT))
+		return DAYLIGHT_SAVING_VALUES.contains(LegacyValues.phpTrim(configValue).toLowerCase(Locale.ROOT))
 				? DAYLIGHT_SAVING
 				: DEFAULT;
 	}

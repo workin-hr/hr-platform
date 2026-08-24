@@ -101,7 +101,7 @@ public class LegacyRequestTypeService {
 		long id = store.insert(
 				companyId, body.get("name"), isActive, deductBalance, countsAsPaidLeave,
 				addAttendanceException, exceptionTypeId);
-		return store.byId(id);
+		return requirePublicRow(store.byId(id));
 	}
 
 	/**
@@ -207,6 +207,19 @@ public class LegacyRequestTypeService {
 			return null;
 		}
 		return exceptionTypes.validateIdForCompany(companyId, id);
+	}
+
+	/**
+	 * {@code public_row($row)} takes an array, so a post-insert re-read that
+	 * comes back null is a PHP TypeError -- and nothing catches it, so D-084
+	 * owns the response. Only a concurrent delete can open that window; the
+	 * race must not be quietly converted into a 201 with the data key omitted.
+	 */
+	private static Map<String, Object> requirePublicRow(Map<String, Object> row) {
+		if (row == null) {
+			throw new IllegalStateException("request_type public_row received null");
+		}
+		return row;
 	}
 
 	/** {@code required($data, [$field])} -- missing, null and "" fail; "0" passes. */

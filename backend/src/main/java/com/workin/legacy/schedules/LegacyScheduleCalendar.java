@@ -118,9 +118,9 @@ public class LegacyScheduleCalendar {
 	 * other month reports the one in force at its end.
 	 */
 	public Map<String, Object> monthOverview(
-			long companyId, long employeeId, int year, int month, String locale,
+			long companyId, long employeeId, long year, long month, String locale,
 			String weeklyRestLabel, LocalDate today) {
-		int clampedMonth = Math.max(1, Math.min(12, month));
+		long clampedMonth = Math.max(1L, Math.min(12L, month));
 		String from = String.format("%04d-%02d-01", year, clampedMonth);
 		LocalDate firstDay = LocalDate.parse(from);
 		String to = firstDay.withDayOfMonth(firstDay.lengthOfMonth()).toString();
@@ -395,13 +395,13 @@ public class LegacyScheduleCalendar {
 	 * ({@code schedule_helper.php:233-262}): names only, no numbers.
 	 */
 	public static List<Integer> parseDaysOffToDows(String daysOff) {
-		String trimmed = daysOff == null ? "" : daysOff.trim();
+		String trimmed = LegacyValues.phpTrim(daysOff);
 		if (trimmed.isEmpty()) {
 			return List.of();
 		}
 		List<Integer> days = new ArrayList<>();
 		for (String part : trimmed.split("[,،;]+")) {
-			String token = part.trim().toLowerCase(Locale.ROOT);
+			String token = LegacyValues.phpTrim(part).toLowerCase(Locale.ROOT);
 			if (token.isEmpty()) {
 				continue;
 			}

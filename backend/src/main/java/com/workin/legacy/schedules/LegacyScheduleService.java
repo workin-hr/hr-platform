@@ -157,11 +157,11 @@ public class LegacyScheduleService {
 		}
 
 		java.time.LocalDate today = clock.today();
-		int month = query.value("month") != null
-				? (int) LegacyValues.toPhpLong(query.value("month"))
+		long month = query.value("month") != null
+				? LegacyValues.toPhpLong(query.value("month"))
 				: today.getMonthValue();
-		int year = query.value("year") != null
-				? (int) LegacyValues.toPhpLong(query.value("year"))
+		long year = query.value("year") != null
+				? LegacyValues.toPhpLong(query.value("year"))
 				: today.getYear();
 
 		return scheduleCalendar.monthOverview(
