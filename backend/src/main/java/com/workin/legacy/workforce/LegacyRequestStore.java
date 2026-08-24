@@ -154,20 +154,6 @@ public class LegacyRequestStore {
 				WHERE r.id = ? AND e.company_id = ?""", rowMapper(), id, companyId));
 	}
 
-	/**
-	 * {@code request_fetch_for_approval()} ({@code request_actions_helper.php:40-56}):
-	 * the request type's approval-side-effect columns, company-scoped.
-	 */
-	public Map<String, Object> forApproval(long id, long companyId) {
-		return single(jdbcTemplate.query("""
-				SELECT r.*, t.deduct_balance, t.counts_as_paid_leave, t.add_attendance_exception,
-					t.exception_type_id, t.name AS request_type_name
-				FROM requests r
-				JOIN request_types t ON t.id = r.request_type_id
-				JOIN employees e ON e.id = r.employee_id
-				WHERE r.id = ? AND e.company_id = ?""", rowMapper(), id, companyId));
-	}
-
 	public long insert(
 			long employeeId, long requestTypeId, String fromDate, String toDate,
 			String fromTime, String toTime, String notes) {
