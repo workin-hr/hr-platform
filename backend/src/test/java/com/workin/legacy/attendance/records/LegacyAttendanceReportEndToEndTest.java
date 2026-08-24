@@ -244,6 +244,21 @@ class LegacyAttendanceReportEndToEndTest {
 		assertThat(number(data.get("absent_days"))).isEqualTo(29);
 	}
 
+	/**
+	 * Codex/D-101: a parseable-but-non-ISO {@code date_from} (no dashes at
+	 * all) must still derive {@code total_days_in_month} from the parsed
+	 * date, not from re-splitting the raw string on {@code '-'} -- which
+	 * would find no second part and silently fall back to today's month.
+	 * February 2024 is a leap year (29 days), a value today's real month
+	 * could not produce by accident.
+	 */
+	@Test
+	void theAggregateBranchDerivesTheMonthFromTheParsedDateNotARawStringSplit() {
+		Map<String, Object> data = dataOf(
+				get(STATS + "?date_from=1%20February%202024", ADMIN_1, 200));
+		assertThat(number(data.get("total_days_in_month"))).isEqualTo(29);
+	}
+
 	@Test
 	void thePerEmployeeBranchWalksTheWholeWeekDayByDay() {
 		Map<String, Object> data = dataOf(get(

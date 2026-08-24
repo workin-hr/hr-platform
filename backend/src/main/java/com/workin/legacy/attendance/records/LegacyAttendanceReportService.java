@@ -194,7 +194,7 @@ public class LegacyAttendanceReportService {
 			return periodStatsPayload(context, targetEmployeeId, dateFromFilter, dateToFilter, weeklyRestLabel, today);
 		}
 
-		return aggregateStatsPayload(context, query, dateFromFilter, dateToFilter, today);
+		return aggregateStatsPayload(context, query, dateFromFilter, dateToFilter, dateFromFilterParsed);
 	}
 
 	private Map<String, Object> periodStatsPayload(
@@ -221,7 +221,7 @@ public class LegacyAttendanceReportService {
 
 	private Map<String, Object> aggregateStatsPayload(
 			LegacyRequestContext context, LegacyQueryParameters query, String dateFromFilter, String dateToFilter,
-			LocalDate today) {
+			LocalDate dateFromFilterParsed) {
 		Long branchId = nonZeroLong(query, "branch_id");
 		Long departmentId = nonZeroLong(query, "department_id");
 		String rawDateFrom = LegacyValues.isPhpEmpty(query.value("date_from"))
@@ -234,10 +234,17 @@ public class LegacyAttendanceReportService {
 
 		long holidayCredit = store.officialHolidayCountInRange(context.companyId(), dateFromFilter, dateToFilter);
 
-		String[] dateParts = dateFromFilter.split("-", -1);
-		int year = (int) LegacyValues.toPhpLong(dateParts.length > 0 ? dateParts[0] : String.valueOf(today.getYear()));
-		int month = (int) LegacyValues.toPhpLong(
-				dateParts.length > 1 ? dateParts[1] : String.valueOf(today.getMonthValue()));
+		// `explode('-', $date_from_filter)` against PHP's own indices: for a
+		// well-formed "Y-m-d" string (the only shape this filter is ever
+		// actually computed as, or a caller-supplied `date_from` that already
+		// parsed cleanly) this is identical to the exploded year/month: D-101
+		// records the deliberate narrowing for the one case it is not -- a
+		// parseable-but-non-ISO raw `date_from` (e.g. "February 2024"), where
+		// reusing the already-parsed date is what keeps this consistent with
+		// the SQL bind above rather than re-deriving a different value from
+		// the raw string's own dashes (or lack of them).
+		int year = dateFromFilterParsed.getYear();
+		int month = dateFromFilterParsed.getMonthValue();
 		int totalDaysInMonth = YearMonth.of(year, month).lengthOfMonth();
 
 		long effectivePresent = Math.min(totalDaysInMonth, aggregate.presentDays() + holidayCredit);
