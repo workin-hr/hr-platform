@@ -59,6 +59,12 @@ public class LegacyRequestApprovalStore {
 			WHERE sd.setting_key = 'monthly_leave_accrual'
 			ORDER BY sav.sort_order ASC, sav.id ASC""";
 
+	private static final String EXCEPTION_TYPE_ACTIVE_FOR_COMPANY =
+			"SELECT COUNT(*) FROM exception_types WHERE id = ? AND company_id = ? AND is_active = 1";
+
+	private static final String LOWEST_ACTIVE_EXCEPTION_TYPE_ID =
+			"SELECT id FROM exception_types WHERE company_id = ? AND is_active = 1 ORDER BY id ASC LIMIT 1";
+
 	private static final String ATTENDANCE_EXISTS_FOR_DAY =
 			"SELECT COUNT(*) FROM attendance WHERE employee_id = ? AND DATE(check_in) = ?";
 
@@ -187,6 +193,42 @@ public class LegacyRequestApprovalStore {
 	private static double phpFloatCast(String value) {
 		Matcher matcher = LEADING_NUMBER.matcher(value);
 		return matcher.find() ? Double.parseDouble(matcher.group()) : 0.0;
+	}
+
+	/**
+	 * {@code exception_type_resolve_for_company()}
+	 * ({@code exception_types_helper.php:20-45}), on this same connection --
+	 * {@link com.workin.legacy.attendance.LegacyExceptionTypeService#resolveForCompany}
+	 * is a pooled JPA call, and this transaction already holds one connection
+	 * for its whole duration; calling that pooled path here would be a nested
+	 * checkout, which under a concurrent burst of approvals can starve the
+	 * pool (each in-flight approval would need two connections at once) and
+	 * time out at the datasource's 5-second connection timeout.
+	 */
+	public long resolveExceptionTypeForCompany(long companyId, Long exceptionTypeId) {
+		if (exceptionTypeId != null && exceptionTypeId > 0 && exceptionTypeActiveForCompany(exceptionTypeId, companyId)) {
+			return exceptionTypeId;
+		}
+		try (PreparedStatement statement = connection.prepareStatement(LOWEST_ACTIVE_EXCEPTION_TYPE_ID)) {
+			statement.setLong(1, companyId);
+			try (ResultSet rows = statement.executeQuery()) {
+				return rows.next() ? rows.getLong(1) : 0L;
+			}
+		} catch (SQLException ex) {
+			throw LegacyPdoException.from(ex);
+		}
+	}
+
+	private boolean exceptionTypeActiveForCompany(long exceptionTypeId, long companyId) {
+		try (PreparedStatement statement = connection.prepareStatement(EXCEPTION_TYPE_ACTIVE_FOR_COMPANY)) {
+			statement.setLong(1, exceptionTypeId);
+			statement.setLong(2, companyId);
+			try (ResultSet rows = statement.executeQuery()) {
+				return rows.next() && rows.getLong(1) > 0;
+			}
+		} catch (SQLException ex) {
+			throw LegacyPdoException.from(ex);
+		}
 	}
 
 	public boolean attendanceExistsForDay(long employeeId, String date) {

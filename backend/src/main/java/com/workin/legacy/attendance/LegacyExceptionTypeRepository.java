@@ -42,13 +42,6 @@ public interface LegacyExceptionTypeRepository extends JpaRepository<LegacyExcep
 	 */
 	boolean existsByIdAndCompanyIdAndIsActive(Long id, Long companyId, Integer isActive);
 
-	/**
-	 * {@code exception_type_resolve_for_company()}'s fallback query
-	 * ({@code helpers/exception_types_helper.php:36-44}): the company's own
-	 * lowest-id active row, once the caller's requested id fails to validate.
-	 */
-	Optional<LegacyExceptionType> findFirstByCompanyIdAndIsActiveOrderByIdAsc(Long companyId, Integer isActive);
-
 	/** Company-scoped delete -- the row must belong to the caller's company, the same shape as legacy's own {@code DELETE ... WHERE id = ? AND company_id = ?}. */
 	void deleteByIdAndCompanyId(Long id, Long companyId);
 

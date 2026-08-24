@@ -20,7 +20,6 @@ import com.workin.legacy.LegacyPagination;
 import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
-import com.workin.legacy.attendance.LegacyExceptionTypeService;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.employees.LegacyEmployeeStore;
@@ -73,7 +72,6 @@ public class LegacyRequestService {
 	private final LegacyRequestStore store;
 	private final LegacyRequestTypeStore requestTypeStore;
 	private final LegacyEmployeeStore employeeStore;
-	private final LegacyExceptionTypeService exceptionTypes;
 	private final LegacyNotifications notifications;
 	private final LegacyPushDelivery pushDelivery;
 	private final LegacyMessages messages;
@@ -82,13 +80,12 @@ public class LegacyRequestService {
 
 	public LegacyRequestService(
 			LegacyRequestStore store, LegacyRequestTypeStore requestTypeStore,
-			LegacyEmployeeStore employeeStore, LegacyExceptionTypeService exceptionTypes,
+			LegacyEmployeeStore employeeStore,
 			LegacyNotifications notifications, LegacyPushDelivery pushDelivery, LegacyMessages messages,
 			LegacyClock clock, DataSource legacyDataSource) {
 		this.store = store;
 		this.requestTypeStore = requestTypeStore;
 		this.employeeStore = employeeStore;
-		this.exceptionTypes = exceptionTypes;
 		this.notifications = notifications;
 		this.pushDelivery = pushDelivery;
 		this.messages = messages;
@@ -344,10 +341,22 @@ public class LegacyRequestService {
 	 * reason {@code LegacyAttendanceImportService} does -- flipping it on a
 	 * connection whose transaction never rolled back would implicitly commit
 	 * it.
+	 *
+	 * <p>{@link LegacyClock#now()}/{@link LegacyClock#today()} are resolved
+	 * <b>before</b> the approval connection is borrowed, and {@code
+	 * exceptionTypes.resolveForCompany()} is never called here at all --
+	 * {@link LegacyRequestApprovalStore#resolveExceptionTypeForCompany} runs
+	 * the same query on the already-borrowed connection instead. Both would
+	 * otherwise be a nested pool checkout while this call already holds one
+	 * connection for its whole duration, which under a concurrent burst of
+	 * approvals can starve the datasource's pool and time out at its
+	 * 5-second connection timeout (Codex review).
 	 */
 	public void approve(LegacyRequestContext context, String locale, long id, String reply) {
 		String normalizedReply = reply != null && !reply.isEmpty() ? reply : null;
 		Long approverEmployeeId = context.employeeId() == 0L ? null : context.employeeId();
+		LocalDateTime now = clock.now();
+		LocalDate today = clock.today();
 
 		Connection connection = open();
 		boolean autoCommit;
@@ -372,8 +381,8 @@ public class LegacyRequestService {
 			long employeeId = LegacyValues.toPhpLong(request.get("employee_id"));
 			String fromDate = LegacyValues.toPhpString(request.get("from_date"));
 			String toDate = LegacyValues.toPhpString(request.get("to_date"));
-			int days = inclusiveDayCount(fromDate, toDate, clock.now());
-			int year = yearOf(fromDate, clock.now());
+			int days = inclusiveDayCount(fromDate, toDate, now);
+			int year = yearOf(fromDate, now);
 
 			if (!LegacyValues.isPhpEmpty(request.get("deduct_balance"))
 					&& insufficientLeaveBalance(approvalStore, employeeId, days, year)) {
@@ -386,10 +395,15 @@ public class LegacyRequestService {
 				throw new IllegalStateException("beginTransaction", ex);
 			}
 
+			// Catches Throwable, not just RuntimeException: an Error escaping
+			// here (e.g. OutOfMemoryError mid side-effect) must roll back too,
+			// otherwise it reaches `finally` with rollbackFailed still false,
+			// and close() would restore autoCommit on a still-open
+			// transaction -- which JDBC commits implicitly (Codex review).
 			try {
 				approvalStore.updateStatus(id, "approved", normalizedReply, approverEmployeeId);
 				applyApprovalSideEffects(approvalStore, employeeId, fromDate, toDate, days, year,
-						request, context.companyId(), clock.today());
+						request, context.companyId(), today);
 
 				String title = messages.translate(locale, "request_approved", null);
 				String notificationBody = normalizedReply != null && !LegacyValues.phpTrim(normalizedReply).isEmpty()
@@ -407,12 +421,11 @@ public class LegacyRequestService {
 					// The row is already durable inside this same transaction;
 					// a delivery failure must not roll back the approval.
 				}
-
-				connection.commit();
-			} catch (RuntimeException ex) {
+			} catch (Throwable ex) {
 				connection.rollback();
 				throw ex;
 			}
+			connection.commit();
 		} catch (SQLException ex) {
 			rollbackFailed = true;
 			throw new IllegalStateException("rollBack", ex);
@@ -475,7 +488,7 @@ public class LegacyRequestService {
 	private void applyAttendanceExceptions(
 			LegacyRequestApprovalStore approvalStore, long employeeId, String fromDate, String toDate,
 			Long suppliedExceptionTypeId, long companyId, LocalDate today) {
-		long exceptionTypeId = exceptionTypes.resolveForCompany(companyId, suppliedExceptionTypeId);
+		long exceptionTypeId = approvalStore.resolveExceptionTypeForCompany(companyId, suppliedExceptionTypeId);
 		if (exceptionTypeId <= 0) {
 			return;
 		}
