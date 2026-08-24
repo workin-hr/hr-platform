@@ -18,6 +18,7 @@ import com.workin.legacy.wire.LegacyApiException;
 @Service
 public class LegacyLeaveBalanceService {
 
+	private static final String FORBIDDEN = "forbidden_insufficient_role";
 	private static final List<String> UPDATE_FIELDS = List.of(
 			"total_days", "used_days", "period_from_month", "period_to_month", "monthly_cap_days");
 
@@ -46,15 +47,19 @@ public class LegacyLeaveBalanceService {
 		long companyId = number(row.get("company_id"));
 		long employeeId = number(row.get("employee_id"));
 		if (context.role() == LegacyEmployee.Role.EMPLOYEE) {
-			if (employeeId != context.employeeId()) throw new LegacyApiException(403, "forbidden");
+			if (employeeId != context.employeeId()) {
+				throw new LegacyApiException(403, FORBIDDEN);
+			}
 		} else {
-			if (companyId != context.companyId()) throw new LegacyApiException(403, "forbidden");
+			if (companyId != context.companyId()) {
+				throw new LegacyApiException(403, FORBIDDEN);
+			}
 			if (context.role() == LegacyEmployee.Role.MANAGER
 					&& !store.managerCanAccess(context.companyId(), context.employeeId(), employeeId)) {
-				throw new LegacyApiException(403, "forbidden");
+				throw new LegacyApiException(403, FORBIDDEN);
 			}
 		}
-		return publicRow(row);
+		return row;
 	}
 
 	public Map<String, Object> create(LegacyRequestContext context, Map<String, Object> body) {
@@ -64,7 +69,7 @@ public class LegacyLeaveBalanceService {
 		long employeeId = LegacyValues.toPhpLong(body.get("employee_id"));
 		int year = (int) LegacyValues.toPhpLong(body.get("year"));
 		if (store.employeeCompanyId(employeeId) != context.companyId()) {
-			throw new LegacyApiException(403, "forbidden");
+			throw new LegacyApiException(403, FORBIDDEN);
 		}
 		if (store.byEmployeeAndYear(employeeId, year) != null) {
 			throw new LegacyApiException(400, "already_exists");
@@ -79,32 +84,44 @@ public class LegacyLeaveBalanceService {
 				? LegacyValues.toPhpDecimal(body.get("monthly_cap_days")) : null;
 		long id = store.insert(employeeId, year, total, used, from, to, cap);
 		Map<String, Object> row = store.byId(id);
-		if (row == null) throw new IllegalStateException("public_row(): expected leave balance row");
-		return publicRow(row);
+		if (row == null) {
+			throw new IllegalStateException("public_row(): expected leave balance row");
+		}
+		return writeResponseRow(row);
 	}
 
 	public Map<String, Object> update(LegacyRequestContext context, long id, Map<String, Object> body) {
 		LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
 		for (String key : UPDATE_FIELDS) {
-			if (body.containsKey(key)) fields.put(key, body.get(key));
+			if (body.containsKey(key)) {
+				fields.put(key, body.get(key));
+			}
 		}
-		if (fields.isEmpty()) throw new LegacyApiException(400, "nothing_to_update");
+		if (fields.isEmpty()) {
+			throw new LegacyApiException(400, "nothing_to_update");
+		}
 		Map<String, Object> row = store.byId(id);
-		if (row == null) throw new LegacyApiException(400, "not_found");
+		if (row == null) {
+			throw new LegacyApiException(400, "not_found");
+		}
 		if (number(row.get("company_id")) != context.companyId()) {
-			throw new LegacyApiException(403, "forbidden");
+			throw new LegacyApiException(403, FORBIDDEN);
 		}
 		store.update(id, fields);
 		Map<String, Object> updated = store.byId(id);
-		if (updated == null) throw new IllegalStateException("public_row(): expected leave balance row");
-		return publicRow(updated);
+		if (updated == null) {
+			throw new IllegalStateException("public_row(): expected leave balance row");
+		}
+		return writeResponseRow(updated);
 	}
 
 	public void delete(LegacyRequestContext context, long id) {
 		Map<String, Object> row = store.byId(id);
-		if (row == null) throw new LegacyApiException(400, "not_found");
+		if (row == null) {
+			throw new LegacyApiException(400, "not_found");
+		}
 		if (number(row.get("company_id")) != context.companyId()) {
-			throw new LegacyApiException(403, "forbidden");
+			throw new LegacyApiException(403, FORBIDDEN);
 		}
 		store.delete(id);
 	}
@@ -133,7 +150,8 @@ public class LegacyLeaveBalanceService {
 		Long own = context.role() == LegacyEmployee.Role.EMPLOYEE ? context.employeeId() : null;
 		Long manager = context.role() == LegacyEmployee.Role.MANAGER ? context.employeeId() : null;
 		Long employeeFilter = null;
-		if (allowEmployeeFilter && own == null && manager == null && !LegacyValues.isPhpEmpty(query.value("employee_id"))) {
+		if (allowEmployeeFilter && own == null && manager == null
+				&& !LegacyValues.isPhpEmpty(query.value("employee_id"))) {
 			employeeFilter = LegacyValues.toPhpLong(query.value("employee_id"));
 		}
 		int yearFrom = (int) LegacyValues.toPhpLong(query.value("year_from"));
@@ -144,16 +162,19 @@ public class LegacyLeaveBalanceService {
 		if (from == null) {
 			Object rawYear = query.value("year");
 			year = rawYear == null ? clock.today().getYear() : (int) LegacyValues.toPhpLong(rawYear);
-			if (year <= 0) year = null;
+			if (year <= 0) {
+				year = null;
+			}
 		}
 		return new LegacyLeaveBalanceStore.Filter(
 				context.companyId(), own, manager, employeeFilter, from, to, year,
 				LegacyPagination.searchQueryParam(query));
 	}
 
-	private static Map<String, Object> publicRow(Map<String, Object> raw) {
+	/** Create/update PHP re-reads omit employee_code but do include the joined company_id. */
+	private static Map<String, Object> writeResponseRow(Map<String, Object> raw) {
 		Map<String, Object> result = new LinkedHashMap<>(raw);
-		result.remove("company_id");
+		result.remove("employee_code");
 		return result;
 	}
 
@@ -169,13 +190,27 @@ public class LegacyLeaveBalanceService {
 	}
 
 	private static long number(Object value) {
-		if (value == null) return 0;
-		if (value instanceof Number n) return n.longValue();
-		try { return Long.parseLong(String.valueOf(value)); } catch (NumberFormatException ignored) { return 0; }
+		if (value == null) {
+			return 0;
+		}
+		if (value instanceof Number number) {
+			return number.longValue();
+		}
+		try {
+			return Long.parseLong(String.valueOf(value));
+		} catch (NumberFormatException ignored) {
+			return 0;
+		}
 	}
 
 	private static double decimal(Object value) {
-		if (value == null) return 0;
-		try { return Double.parseDouble(String.valueOf(value)); } catch (NumberFormatException ignored) { return 0; }
+		if (value == null) {
+			return 0;
+		}
+		try {
+			return Double.parseDouble(String.valueOf(value));
+		} catch (NumberFormatException ignored) {
+			return 0;
+		}
 	}
 }
