@@ -54,16 +54,19 @@ public class LegacyAttendanceController {
 	private final LegacyAttendanceService attendanceService;
 	private final LegacyAttendanceImportService importService;
 	private final LegacyCheckInService checkInService;
+	private final LegacyAttendanceReportService reportService;
 	private final LegacyRequestGuard requestGuard;
 	private final LegacyMessages messages;
 
 	public LegacyAttendanceController(
 			LegacyAttendanceService attendanceService,
 			LegacyAttendanceImportService importService, LegacyCheckInService checkInService,
+			LegacyAttendanceReportService reportService,
 			LegacyRequestGuard requestGuard, LegacyMessages messages) {
 		this.attendanceService = attendanceService;
 		this.importService = importService;
 		this.checkInService = checkInService;
+		this.reportService = reportService;
 		this.requestGuard = requestGuard;
 		this.messages = messages;
 	}
@@ -255,6 +258,60 @@ public class LegacyAttendanceController {
 			return multipart.getFile(partName);
 		}
 		return null;
+	}
+
+	/**
+	 * `list.php`: `fill_days=1` expands each employee into one row per
+	 * calendar day; otherwise the paginated joined-row listing. Bare
+	 * `requireAuth()` -- every role reaches here and the per-role scoping
+	 * (own rows only for `EMPLOYEE`, optional filters otherwise) lives in the
+	 * service, identically in both branches.
+	 */
+	@RequestMapping("/list.php")
+	public LegacyApiResponse list(HttpServletRequest request) {
+		requireMethod(request, "GET");
+		LegacyRequestContext context = authenticated();
+		String locale = messages.resolveLocale(request);
+		LegacyAttendanceReportService.Listing listing = reportService.list(
+				context, LegacyQueryParameters.parse(request.getQueryString()),
+				messages.translate(locale, "schedule_weekly_rest", null));
+		return LegacyApiResponse.ok(message(request, "attendance_records"), listing.rows(), listing.meta());
+	}
+
+	/**
+	 * `stats.php`: a target employee id (self for `EMPLOYEE`, an optional
+	 * filter otherwise) branches to a day-by-day period walk; none at all is
+	 * the company/branch/department aggregate. `is_admin_or_hr` is computed in
+	 * PHP and never read, so there is no role list here either.
+	 */
+	@RequestMapping("/stats.php")
+	public LegacyApiResponse stats(HttpServletRequest request) {
+		requireMethod(request, "GET");
+		LegacyRequestContext context = authenticated();
+		String locale = messages.resolveLocale(request);
+		Map<String, Object> data = reportService.stats(
+				context, LegacyQueryParameters.parse(request.getQueryString()),
+				messages.translate(locale, "schedule_weekly_rest", null));
+		return LegacyApiResponse.ok(message(request, "success"), data);
+	}
+
+	/**
+	 * `employee_monthly_attendance.php`: `full_month=1` returns every calendar
+	 * day of the month via the range calendar; otherwise the raw attendance
+	 * rows for the month, stale-open-session-closed first. The four-role list
+	 * on `requireAuth` names every role that exists, so it authenticates
+	 * exactly as `authenticated()` does; the `EMPLOYEE` self-only restriction
+	 * is the service's own in-endpoint check, same as `reject.php`'s pattern.
+	 */
+	@RequestMapping("/employee_monthly_attendance.php")
+	public LegacyApiResponse employeeMonthlyAttendance(HttpServletRequest request) {
+		requireMethod(request, "GET");
+		LegacyRequestContext context = authenticated();
+		String locale = messages.resolveLocale(request);
+		LegacyAttendanceReportService.MonthlyAttendance result = reportService.employeeMonthlyAttendance(
+				context, LegacyQueryParameters.parse(request.getQueryString()),
+				messages.translate(locale, "schedule_weekly_rest", null));
+		return LegacyApiResponse.ok(message(request, "attendance_summary"), result.data(), result.meta());
 	}
 
 	/**

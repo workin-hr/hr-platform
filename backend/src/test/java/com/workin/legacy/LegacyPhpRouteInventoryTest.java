@@ -186,6 +186,18 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/schedules/generate_employee_schedule.php");
 
 	/**
+	 * Wave 12.6.4b: the three endpoints Wave 12.7 slice 1 unblocked --
+	 * {@code list.php}, {@code stats.php} and
+	 * {@code employee_monthly_attendance.php} all reach
+	 * {@code attendance_row_worked_minutes()} and through it the
+	 * {@code requests} table, which now exists.
+	 */
+	private static final List<String> WAVE_1264B_ROUTES = List.of(
+			"/apis/api/attendance/list.php",
+			"/apis/api/attendance/stats.php",
+			"/apis/api/attendance/employee_monthly_attendance.php");
+
+	/**
 	 * Wave 12.7, slice 1: six of the module's seven endpoints.
 	 * {@code approve.php} is not here -- see {@code LegacyRequestService}'s
 	 * class javadoc for why its transaction shape is a separate slice.
@@ -208,7 +220,8 @@ class LegacyPhpRouteInventoryTest {
 					WAVE_126_SCHEDULES_2_ROUTES,
 					WAVE_126_ATTENDANCE_3_ROUTES,
 					WAVE_126_PRE_127_ROUTES,
-					WAVE_127_REQUEST_ROUTES)
+					WAVE_127_REQUEST_ROUTES,
+					WAVE_1264B_ROUTES)
 			.flatMap(List::stream)
 			.sorted()
 			.toList();
@@ -326,34 +339,44 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void wave126HasThirteenOfItsEighteenEndpointsMapped() {
-		// The wave is eighteen; thirteen are delivered. The remaining five all
-		// depend on Wave 12.7's `requests` table -- see
-		// theFiveRequestDependentEndpointsStayUnmapped below.
+	void wave126HasSixteenOfItsEighteenEndpointsMapped() {
+		// The wave is eighteen; sixteen are delivered, three of them (this
+		// class's WAVE_1264B_ROUTES) only once Wave 12.7 slice 1 opened the
+		// `requests` table they read through attendance_row_worked_minutes().
+		// The remaining two -- overall_report.php and export.php -- stay
+		// unmapped; see theTwoPayrollReportEndpointsStayUnmapped below.
 		assertThat(WAVE_126_ATTENDANCE_1A_I_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1A_II_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_1B_ROUTES.size()
 						+ WAVE_126_SCHEDULES_2_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_3_ROUTES.size()
-						+ WAVE_126_PRE_127_ROUTES.size())
-				.isEqualTo(13);
+						+ WAVE_126_PRE_127_ROUTES.size()
+						+ WAVE_1264B_ROUTES.size())
+				.isEqualTo(16);
+	}
+
+	@Test
+	void theWave1264bSliceIsItsThreeEndpoints() {
+		assertThat(WAVE_1264B_ROUTES).hasSize(3);
+		assertThat(WAVE_1264B_ROUTES)
+				.containsExactlyInAnyOrder(
+						"/apis/api/attendance/list.php", "/apis/api/attendance/stats.php",
+						"/apis/api/attendance/employee_monthly_attendance.php");
 	}
 
 	/**
-	 * The five endpoints Wave 12.7 unblocks, asserted absent.
+	 * The two payroll-report endpoints Wave 12.7 does not unblock, asserted
+	 * absent.
 	 *
-	 * <p>{@code list}, {@code stats} and {@code employee_monthly_attendance}
-	 * reach {@code attendance_row_worked_minutes()}, whose first statement is
-	 * {@code attendance_approved_timed_request_for_day()} -- a read of the
-	 * {@code requests} table. {@code overall_report} and {@code export} reach it
-	 * through the payroll helpers. Same dependency, same ordering.
+	 * <p>{@code overall_report.php} and {@code export.php} reach
+	 * {@code attendance_row_worked_minutes()} through the payroll helpers, not
+	 * directly, and still carry the broader D-091 payroll boundary that
+	 * {@code list}, {@code stats} and {@code employee_monthly_attendance} do
+	 * not.
 	 */
 	@Test
-	void theFiveRequestDependentEndpointsStayUnmapped() {
+	void theTwoPayrollReportEndpointsStayUnmapped() {
 		assertThat(EXPECTED_ROUTES).doesNotContain(
-				"/apis/api/attendance/list.php",
-				"/apis/api/attendance/stats.php",
-				"/apis/api/attendance/employee_monthly_attendance.php",
 				"/apis/api/attendance/overall_report.php",
 				"/apis/api/attendance/export.php");
 	}
@@ -390,7 +413,8 @@ class LegacyPhpRouteInventoryTest {
 						+ WAVE_126_SCHEDULES_2_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_3_ROUTES.size()
 						+ WAVE_126_PRE_127_ROUTES.size()
-						+ WAVE_127_REQUEST_ROUTES.size());
+						+ WAVE_127_REQUEST_ROUTES.size()
+						+ WAVE_1264B_ROUTES.size());
 	}
 
 	@Test
