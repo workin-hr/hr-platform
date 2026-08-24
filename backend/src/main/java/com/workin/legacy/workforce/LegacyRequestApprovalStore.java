@@ -143,6 +143,34 @@ public class LegacyRequestApprovalStore {
 		return 21.0d;
 	}
 
+	/** {@code exception_type_resolve_for_company()} on the caller-owned D-100 connection. */
+	public long resolveExceptionTypeForCompany(
+			Connection connection, long companyId, Long exceptionTypeId) throws SQLException {
+		if (exceptionTypeId != null && exceptionTypeId > 0) {
+			try (PreparedStatement statement = connection.prepareStatement("""
+					SELECT COUNT(*) FROM exception_types
+					WHERE id = ? AND company_id = ? AND is_active = 1""")) {
+				statement.setLong(1, exceptionTypeId);
+				statement.setLong(2, companyId);
+				try (ResultSet rs = statement.executeQuery()) {
+					rs.next();
+					if (rs.getLong(1) > 0) {
+						return exceptionTypeId;
+					}
+				}
+			}
+		}
+		try (PreparedStatement statement = connection.prepareStatement("""
+				SELECT id FROM exception_types
+				WHERE company_id = ? AND is_active = 1
+				ORDER BY id ASC LIMIT 1""")) {
+			statement.setLong(1, companyId);
+			try (ResultSet rs = statement.executeQuery()) {
+				return rs.next() ? rs.getLong(1) : 0L;
+			}
+		}
+	}
+
 	public boolean attendanceExists(Connection connection, long employeeId, String date) throws SQLException {
 		try (PreparedStatement statement = connection.prepareStatement(
 				"SELECT COUNT(*) FROM attendance WHERE employee_id = ? AND DATE(check_in) = ?")) {
