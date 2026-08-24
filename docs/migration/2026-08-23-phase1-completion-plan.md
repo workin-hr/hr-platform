@@ -17,7 +17,7 @@ historical decision is rewritten.
 throughout. §8 records each one and what it changed; nothing in this document
 is left as an open question that a disposition settled.
 
-**Repository state measured for this document**
+### Repository state measured for this document
 
 | Source | Commit |
 |---|---|
@@ -81,7 +81,7 @@ The Wave 12.6 discovery recorded the `requests` dependency for
 closure found the same table reached by three more endpoints, through a
 different path:
 
-```
+```text
 attendance/list.php:276                       ─┐
 attendance/employee_monthly_attendance.php:104 ├─→ attendance_row_worked_minutes()
 attendance_calendar_helper.php:739             ┘   (attendance_employee_period_stats,
@@ -105,7 +105,7 @@ grouping. This applies the same ownership principle that already placed
 
 The operational order is therefore:
 
-```
+```text
 12.6.3  check_in / check_in_qr / check_out                     [complete]
 12.6.4a analyze_excel                                          [complete]
 12.6.5  employee_monthly_schedule / generate_employee_schedule [complete]
@@ -126,7 +126,7 @@ subject only to a genuinely new dependency in those five closures.
 Every ordering constraint below is quoted from an already-accepted document.
 None is introduced here for tidiness.
 
-```
+```text
 12.6.2  schedules/assign_employee_schedule
    |
    |  gates: D-091 evidence, narrow payroll extraction, D-083, D-092/D-093
@@ -356,7 +356,7 @@ counts module endpoint files and excludes the router.
 
 Applying **O-3**:
 
-```
+```text
 199   module endpoint files (router excluded)
  -1   apis/api/time/now.php — EXPLICITLY_EXCLUDED_WITH_DECISION (§2.3)
 ----
@@ -641,7 +641,7 @@ other live bucket at zero.
 Plus, separately, **1 physical endpoint file is explicitly excluded**:
 `/apis/api/time/now.php`.
 
-```
+```text
 198 live  +  1 excluded  =  199 physical endpoint files
 ```
 

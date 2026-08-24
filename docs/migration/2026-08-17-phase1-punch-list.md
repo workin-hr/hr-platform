@@ -89,7 +89,6 @@ Two cross-cutting obligations sit outside the wave sequence:
 > table below is kept as written except for item 13's scope figure, which was
 > factually wrong and is corrected in place.
 
-
 | # | Item | Why it's next |
 |---|---|---|
 | 12 | **Remap the remaining built modules** — *in progress; Waves 12.1–12.3 merged, 12.4 in discovery (see the wave-status table above)* | ADR-0011's discovery found 20 table names shared between the existing PostgreSQL entities and legacy MySQL. Those modules need the same treatment `employees` got — a Phase 1 adapter under `com.workin.legacy`, isolated from the PostgreSQL scan root — rather than a schema they don't actually run against in Phase 1. |
