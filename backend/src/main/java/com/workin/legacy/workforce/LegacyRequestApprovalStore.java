@@ -13,6 +13,7 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 import com.workin.legacy.LegacyJdbcValues;
+import com.workin.legacy.LegacyValues;
 
 /**
  * Connection-scoped persistence for {@code request_approve()}.
@@ -46,6 +47,20 @@ public class LegacyRequestApprovalStore {
 		}
 	}
 
+	/** First statement of PHP's insufficient-balance pre-check. */
+	public boolean leaveBalanceExists(Connection connection, long employeeId, int year) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement(
+				"SELECT COUNT(*) FROM leave_balance WHERE employee_id = ? AND year = ?")) {
+			statement.setLong(1, employeeId);
+			statement.setInt(2, year);
+			try (ResultSet rs = statement.executeQuery()) {
+				rs.next();
+				return rs.getLong(1) > 0;
+			}
+		}
+	}
+
+	/** Second statement of PHP's insufficient-balance pre-check. */
 	public Map<String, Object> leaveBalance(Connection connection, long employeeId, int year) throws SQLException {
 		try (PreparedStatement statement = connection.prepareStatement(
 				"SELECT * FROM leave_balance WHERE employee_id = ? AND year = ? LIMIT 1")) {
@@ -120,7 +135,7 @@ public class LegacyRequestApprovalStore {
 				while (rs.next()) {
 					String raw = rs.getString(1);
 					if (raw != null && !raw.isEmpty()) {
-						return phpLeadingDouble(raw);
+						return LegacyValues.toPhpDecimal(raw).doubleValue();
 					}
 				}
 			}
@@ -189,21 +204,5 @@ public class LegacyRequestApprovalStore {
 
 	private static long number(Object value) {
 		return value instanceof Number number ? number.longValue() : Long.parseLong(String.valueOf(value));
-	}
-
-	private static double phpLeadingDouble(String value) {
-		// The setting values are human-authored numeric catalog values in the
-		// legacy schema. Preserve PHP's leading-numeric cast for dirty text.
-		java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
-				"^\\s*[+-]?(?:(?:\\d+(?:\\.\\d*)?)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?")
-				.matcher(value);
-		if (!matcher.find()) {
-			return 0.0d;
-		}
-		try {
-			return Double.parseDouble(matcher.group().trim());
-		} catch (NumberFormatException ignored) {
-			return 0.0d;
-		}
 	}
 }
