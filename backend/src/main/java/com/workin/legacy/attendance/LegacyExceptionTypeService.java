@@ -182,6 +182,29 @@ public class LegacyExceptionTypeService {
 		legacyExceptionTypeRepository.deleteByIdAndCompanyId(id, companyId);
 	}
 
+	/**
+	 * {@code exception_type_validate_id_for_company($company_id, $id)}
+	 * ({@code helpers/exception_types_helper.php:47-63}).
+	 *
+	 * <p>It <b>nulls</b> rather than rejects. A null, a non-positive id, an id
+	 * belonging to another company, and an id that is deactivated all return
+	 * null, and the caller stores SQL NULL -- no error reaches the client. That
+	 * matters for {@code request_types}: pointing a request type at a foreign
+	 * exception type silently produces a request type with no exception type,
+	 * not a 404.
+	 *
+	 * <p>Lives here rather than in the calling module because
+	 * {@code exception_types} is Wave 12.1's table and this is its rule.
+	 */
+	public Long validateIdForCompany(long companyId, Long exceptionTypeId) {
+		if (exceptionTypeId == null || exceptionTypeId <= 0) {
+			return null;
+		}
+		return legacyExceptionTypeRepository.existsByIdAndCompanyIdAndIsActive(exceptionTypeId, companyId, 1)
+				? exceptionTypeId
+				: null;
+	}
+
 	private LegacyExceptionType findOwnedOrNotFound(long companyId, long id) {
 		Optional<LegacyExceptionType> row = legacyExceptionTypeRepository.findByIdAndCompanyId(id, companyId);
 		return row.orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "not_found"));

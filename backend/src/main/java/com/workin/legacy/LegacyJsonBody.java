@@ -114,6 +114,34 @@ public final class LegacyJsonBody {
 		return decode(decoded.toString());
 	}
 
+	/**
+	 * {@code json_decode($json, true)} on its own, without {@code body()}'s
+	 * {@code ?? []} and without its {@code : array} return type.
+	 *
+	 * <p>Needed where PHP decodes something that is <em>not</em> the request
+	 * body and tests the result itself -- {@code attendance/import_excel.php}'s
+	 * {@code mappings} form field is the first: it does
+	 * {@code $decoded = json_decode($raw, true); if (!is_array($decoded)) fail(...)},
+	 * so malformed JSON, a literal {@code null} and a bare scalar all have to be
+	 * distinguishable from a decoded object. Routing that through
+	 * {@link #decode} would turn the first two into an empty array and the third
+	 * into a thrown {@code TypeError}, none of which is what that endpoint does.
+	 *
+	 * @return the decoded value -- a {@link Map}, a {@link List}, a scalar, or
+	 *         {@code null} for both malformed input and a literal {@code null},
+	 *         exactly as {@code json_decode()} conflates them
+	 */
+	public static Object decodeValue(String raw) {
+		if (raw == null || raw.isBlank()) {
+			return null;
+		}
+		try {
+			return JSON.readValue(raw, Object.class);
+		} catch (JacksonException ex) {
+			return null;
+		}
+	}
+
 	/** The decoding itself, separated so it can be tested without a servlet. */
 	public static Map<String, Object> decode(String raw) {
 		if (raw == null || raw.isBlank()) {

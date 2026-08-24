@@ -21,6 +21,7 @@ import org.springframework.orm.jpa.SharedEntityManagerCreator;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import com.workin.legacy.LegacySessionDataSource;
 import com.workin.legacy.TenantAwareJpaTransactionManager;
 import com.workin.legacy.TenantFilterBinder;
 import com.zaxxer.hikari.HikariDataSource;
@@ -100,9 +101,17 @@ public class LegacyPersistenceConfig {
 			// Hikari executes this once for every new physical connection before pooling it.
 			// Phase 1 tests use it to reproduce production's non-strict MariaDB session mode
 			// on the application's connections, rather than only on fixture connections.
+			//
+			// Static session state only. The runtime time zone is deliberately NOT here:
+			// it is resolved from `configs.is_daylight_saving` on every checkout by
+			// LegacySessionDataSource (D-099), because a pooled connection outlives the
+			// request that created it and this hook would leave the pool pinned to
+			// whatever the flag said at startup.
 			dataSource.setConnectionInitSql(connectionInitSql);
 		}
-		return dataSource;
+		// getDB() resolves the offset and issues SET time_zone every time it opens a
+		// PDO connection; the wrapper does the same on every checkout (D-099/D-083).
+		return new LegacySessionDataSource(dataSource);
 	}
 
 	@Bean

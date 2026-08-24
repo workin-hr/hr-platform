@@ -199,6 +199,29 @@ class LegacyEmployeeReadEndToEndTest {
 	}
 
 	@Test
+	void aFormFeedStaysInTheSearchNeedleBecausePhpsTrimDoesNotStripIt() {
+		// PHP trims space, horizontal tab, newline, carriage return, NUL
+		// and vertical tab -- and nothing else. Form feed (U+000C) is not in
+		// that list, while Java String.trim() removes every character at or
+		// below U+0020 and would strip it. Trimmed the Java way, a form-feed
+		// prefixed needle would collapse to the plain term and match; in PHP
+		// the form feed stays inside the LIKE pattern and matches nothing.
+		assertThat(idsOf(getMap(LIST + "?search=Nour%20Adel", ADMIN_1))).containsExactly(STAFF_MAIN);
+
+		assertThat(idsOf(getMap(LIST + "?search=%0CNour%20Adel", ADMIN_1)))
+				.as("a leading form feed must survive into the LIKE needle")
+				.isEmpty();
+		assertThat(idsOf(getMap(LIST + "?search=Nour%20Adel%0C", ADMIN_1)))
+				.as("a trailing form feed must survive into the LIKE needle")
+				.isEmpty();
+
+		// The characters PHP *does* trim still behave as trimmed, so this is a
+		// narrow charlist difference and not "no trimming at all".
+		assertThat(idsOf(getMap(LIST + "?search=%20Nour%20Adel%20", ADMIN_1))).containsExactly(STAFF_MAIN);
+		assertThat(idsOf(getMap(LIST + "?search=%09Nour%20Adel%09", ADMIN_1))).containsExactly(STAFF_MAIN);
+	}
+
+	@Test
 	void sortIsMatchedExactlyAndOrdersCodesNumerically() {
 		List<Long> sorted = idsOf(getMap(LIST + "?sort=employee_code", ADMIN_1));
 		List<Long> defaultOrder = idsOf(getMap(LIST, ADMIN_1));
@@ -419,6 +442,50 @@ class LegacyEmployeeReadEndToEndTest {
 		return (Map<String, Object>) body.get("data");
 	}
 
+	/**
+	 * D-096 retrospective: a delivered Wave 12.4 surface must expose a stored
+	 * zero date and zero timestamp as their literal strings, as PHP/mysqlnd
+	 * does, rather than as JSON null.
+	 *
+	 * <p>The two columns are asserted for different reasons. hire_date is a
+	 * DATE, which measured wasNull() false and therefore always worked --
+	 * kept as proof the correction changed nothing there. created_at is a
+	 * TIMESTAMP, which measured wasNull() TRUE for an all-zero value, so
+	 * that is the assertion which was genuinely broken before D-096.
+	 */
+	@Test
+	void aZeroDateAndZeroTimestampReachTheWireAsLiteralStrings() throws Exception {
+		long id = 194099L;
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute("SET SESSION sql_mode = \'\'");
+			st.execute("INSERT INTO employees (id, company_id, branch_id, employee_code,"
+					+ " role, is_active, join_request_status, phone, first_name, last_name,"
+					+ " hire_date, created_at) VALUES (" + id + ", " + COMPANY_1
+					+ ", " + BRANCH_MAIN + ", \'9099\', \'employee\', 1,"
+					+ " \'accepted\', \'+201000194099\', \'Zero\', \'Dated\',"
+					+ " \'0000-00-00\', \'0000-00-00 00:00:00\')");
+		}
+
+		Map<String, Object> one = dataOf(getMap(ONE + "?id=" + id, ADMIN_1));
+		assertThat(one.get("hire_date")).isEqualTo("0000-00-00");
+		assertThat(one.get("created_at"))
+				.isEqualTo("0000-00-00 00:00:00");
+
+		// ...and through the list projection, a different query through the
+		// same shared reader.
+		Map<String, Object> listed = null;
+		for (Object candidate : (java.util.List<?>) getMap(LIST + "?limit=100", ADMIN_1).get("data")) {
+			@SuppressWarnings("unchecked")
+			Map<String, Object> employee = (Map<String, Object>) candidate;
+			if (((Number) employee.get("id")).longValue() == id) {
+				listed = employee;
+			}
+		}
+		assertThat(listed).describedAs("the zero-dated employee must appear in list.php").isNotNull();
+		assertThat(listed.get("hire_date")).isEqualTo("0000-00-00");
+		assertThat(listed.get("created_at"))
+				.isEqualTo("0000-00-00 00:00:00");
+	}
 	private Map<String, Object> getMap(String path, long employeeId) {
 		return getMap(path, employeeId, 200);
 	}

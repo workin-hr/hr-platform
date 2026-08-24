@@ -14,14 +14,41 @@ import com.workin.backend.i18n.ApiException;
 
 /**
  * Renders the PHP envelope for the endpoints that serve legacy's own routes
- * (D-074). Scoped to {@code com.workin.legacy.employees} on purpose: the merged
- * {@code /api/legacy/**} modules keep rendering
+ * (D-074). Scoped to the packages that carry those routes on purpose: the
+ * merged {@code /api/legacy/**} modules keep rendering
  * {@code com.workin.backend.i18n.ApiErrorBody} until the retroactive contract
  * audit D-074 requires, and the PostgreSQL surface is untouched. Ordered ahead
- * of {@code ApiExceptionHandler} so this advice wins for that package while the
- * global one still serves everything else.
+ * of {@code ApiExceptionHandler} so this advice wins for those packages while
+ * the global one still serves everything else.
+ *
+ * <p>The list grows one wave at a time, alongside
+ * {@link LegacyPhpRoutes#CONTROLLER_GUARDED} and for the same reason: a module
+ * belongs here once its controller maps literal {@code *.php} routes and raises
+ * {@link LegacyApiException}. A module added to the routes list but missed here
+ * would authenticate correctly and then answer every error with the platform
+ * body instead of PHP's -- silently, and only on the failure paths.
+ *
+ * <ul>
+ * <li>{@code com.workin.legacy.employees} -- Wave 12.4</li>
+ * <li>{@code com.workin.legacy.workforce} -- Wave 12.5</li>
+ * <li>{@code com.workin.legacy.attendance.records} -- Wave 12.6</li>
+ * </ul>
+ *
+ * <p>The last entry is a <b>subpackage</b>, and deliberately so. Wave 12.1's
+ * {@code LegacyExceptionTypeController} sits in the parent
+ * {@code com.workin.legacy.attendance}, serves the merged
+ * {@code /api/legacy/**} surface and raises {@code ApiException} -- which this
+ * advice also handles. Listing the parent would therefore capture it and
+ * render D-074's PHP envelope where its clients expect
+ * {@code ApiErrorBody}, silently changing a Wave 12.1 contract. Naming only
+ * the subpackage keeps the two surfaces apart.
  */
-@RestControllerAdvice(basePackages = "com.workin.legacy.employees")
+@RestControllerAdvice(basePackages = {
+	"com.workin.legacy.employees",
+	"com.workin.legacy.workforce",
+	"com.workin.legacy.attendance.records",
+	"com.workin.legacy.schedules",
+})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class LegacyWireExceptionHandler {
 
@@ -86,9 +113,12 @@ public class LegacyWireExceptionHandler {
 	 * rollback semantics require it -- rolling back and rendering are different
 	 * jobs.
 	 *
-	 * <p>This is scoped to {@code com.workin.legacy.employees} with the rest of
-	 * this advice; {@code /api/legacy/**} and the PostgreSQL surface are
-	 * untouched.
+	 * <p>This fallback covers exactly the packages this advice lists -- today
+	 * {@code com.workin.legacy.employees}, {@code com.workin.legacy.workforce}
+	 * and {@code com.workin.legacy.attendance.records} -- and D-084 authorizes
+	 * a later legacy-route wave to inherit it by adding
+	 * its package to that list rather than by defining a second envelope.
+	 * {@code /api/legacy/**} and the PostgreSQL surface remain untouched.
 	 */
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<LegacyApiResponse> handleUnexpected(Exception ex, HttpServletRequest request) {

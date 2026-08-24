@@ -12,6 +12,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.workin.legacy.LegacyClock;
+import com.workin.legacy.LegacyPagination;
 import com.workin.legacy.LegacyPhpArray;
 import com.workin.legacy.LegacyPhpDateYear;
 import com.workin.legacy.LegacyQueryParameters;
@@ -40,10 +41,6 @@ import com.workin.legacy.wire.LegacyApiException;
  */
 @Service
 public class LegacyEmployeeService {
-
-	/** {@code AppConfig::DEFAULT_LIMIT} / {@code pagination_params($default, 100)}. */
-	private static final long DEFAULT_LIMIT = 20;
-	private static final long MAX_LIMIT = 100;
 
 	/** {@code preg_match('/^\d+$/', $search_needle)}. */
 	private static final Pattern DIGITS_ONLY = Pattern.compile("^\\d+$");
@@ -113,7 +110,7 @@ public class LegacyEmployeeService {
 	 * the original statement.
 	 */
 	public Page list(LegacyRequestContext context, LegacyQueryParameters query) {
-		Pagination pagination = paginationParams(query);
+		LegacyPagination.Params pagination = paginationParams(query);
 
 		List<String> where = new ArrayList<>();
 		List<Object> params = new ArrayList<>();
@@ -133,7 +130,7 @@ public class LegacyEmployeeService {
 			params.add(LegacyValues.toPhpLong(departmentId));
 		}
 
-		String search = searchQueryParam(query);
+		String search = LegacyPagination.searchQueryParam(query);
 		if (search != null) {
 			String pattern = "%" + search + "%";
 			if (DIGITS_ONLY.matcher(search).matches()) {
@@ -1011,26 +1008,9 @@ public class LegacyEmployeeService {
 		return "e.created_at DESC, e.id DESC";
 	}
 
-	/** {@code search_query_param()} ({@code helpers/pagination.php:44-47}). */
-	static String searchQueryParam(LegacyQueryParameters query) {
-		String value = LegacyValues.toPhpString(query.value("search")).trim();
-		return value.isEmpty() ? null : value;
-	}
-
-	/**
-	 * {@code pagination_params(AppConfig::DEFAULT_LIMIT, 100)}
-	 * ({@code helpers/pagination.php:12-23}). {@code $raw ?: $defaultLimit} is
-	 * the subtle one: a limit that casts to {@code 0} becomes the default, not 1.
-	 */
-	static Pagination paginationParams(LegacyQueryParameters query) {
-		long page = Math.max(1, LegacyValues.toPhpLong(query.value("page") == null ? 1 : query.value("page")));
-		Object rawLimit = query.value("limit");
-		if (rawLimit == null) {
-			rawLimit = query.value("per_page");
-		}
-		long raw = LegacyValues.toPhpLong(rawLimit == null ? DEFAULT_LIMIT : rawLimit);
-		long limit = Math.min(Math.max(1, raw == 0 ? DEFAULT_LIMIT : raw), MAX_LIMIT);
-		return new Pagination(page, limit, (page - 1) * limit);
+	/** {@code pagination_params()} -- see {@link LegacyPagination#params}. */
+	static LegacyPagination.Params paginationParams(LegacyQueryParameters query) {
+		return LegacyPagination.params(query);
 	}
 
 	/**
@@ -1236,21 +1216,9 @@ public class LegacyEmployeeService {
 		return store.myTeam(context.companyId(), context.employeeId());
 	}
 
-	/** {@code pagination_meta()} ({@code helpers/pagination.php:28-39}), key order included. */
-	static Map<String, Object> paginationMeta(long total, Pagination pagination) {
-		long pages = pagination.limit() > 0 ? (long) Math.ceil((double) total / pagination.limit()) : 0;
-		Map<String, Object> meta = new LinkedHashMap<>();
-		meta.put("page", pagination.page());
-		meta.put("limit", pagination.limit());
-		meta.put("total", total);
-		meta.put("total_pages", pages);
-		meta.put("has_next", pagination.page() < pages);
-		meta.put("has_previous", pagination.page() > 1);
-		return meta;
-	}
-
-	/** {@code array{page:int, limit:int, offset:int}}. */
-	record Pagination(long page, long limit, long offset) {
+	/** {@code pagination_meta()} -- see {@link LegacyPagination#meta}. */
+	static Map<String, Object> paginationMeta(long total, LegacyPagination.Params pagination) {
+		return LegacyPagination.meta(total, pagination);
 	}
 
 	/** One {@code list.php} response: {@code data} rows plus its {@code meta}. */

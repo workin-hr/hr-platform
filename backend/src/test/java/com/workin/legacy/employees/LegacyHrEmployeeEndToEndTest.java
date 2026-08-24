@@ -623,6 +623,24 @@ class LegacyHrEmployeeEndToEndTest {
 	}
 
 	@Test
+	void aFormFeedStaysInTheHrSearchNeedleToo() {
+		// hr_employees/list.php shares the same search helper, so it shares
+		// the same charlist rule: PHP leaves form feed (U+000C) in place while
+		// Java String.trim() would strip it.
+		assertThat(idsOf(get(LIST + "?search=Salma", ADMIN_1, 200))).containsExactly(HR_A);
+
+		assertThat(idsOf(get(LIST + "?search=%0CSalma", ADMIN_1, 200)))
+				.as("a leading form feed must survive into the LIKE needle")
+				.isEmpty();
+		assertThat(idsOf(get(LIST + "?search=Salma%0C", ADMIN_1, 200)))
+				.as("a trailing form feed must survive into the LIKE needle")
+				.isEmpty();
+
+		// ...while the characters PHP does trim are still trimmed.
+		assertThat(idsOf(get(LIST + "?search=%20Salma%20", ADMIN_1, 200))).containsExactly(HR_A);
+	}
+
+	@Test
 	void everyListedRowCarriesItsPermissionsObject() {
 		@SuppressWarnings("unchecked")
 		List<Map<String, Object>> rows = (List<Map<String, Object>>) get(LIST, ADMIN_1, 200).get("data");
