@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.LegacyValues;
-import com.workin.legacy.attendance.LegacyExceptionTypeService;
 import com.workin.legacy.notifications.LegacyPushDelivery;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyMessages;
@@ -23,7 +22,6 @@ public class LegacyRequestApprovalService {
 
 	private final DataSource dataSource;
 	private final LegacyRequestApprovalStore store;
-	private final LegacyExceptionTypeService exceptionTypes;
 	private final LegacyPushDelivery pushDelivery;
 	private final LegacyMessages messages;
 	private final LegacyClock clock;
@@ -31,13 +29,11 @@ public class LegacyRequestApprovalService {
 	public LegacyRequestApprovalService(
 			DataSource legacyDataSource,
 			LegacyRequestApprovalStore store,
-			LegacyExceptionTypeService exceptionTypes,
 			LegacyPushDelivery pushDelivery,
 			LegacyMessages messages,
 			LegacyClock clock) {
 		this.dataSource = legacyDataSource;
 		this.store = store;
-		this.exceptionTypes = exceptionTypes;
 		this.pushDelivery = pushDelivery;
 		this.messages = messages;
 		this.clock = clock;
@@ -61,13 +57,16 @@ public class LegacyRequestApprovalService {
 			long employeeId = number(request.get("employee_id"));
 			String fromDate = string(request.get("from_date"));
 			String toDate = string(request.get("to_date"));
-			DateSpan span = dateSpan(fromDate, toDate);
+			boolean deductBalance = !LegacyValues.isPhpEmpty(request.get("deduct_balance"));
+			boolean addAttendanceException = !LegacyValues.isPhpEmpty(request.get("add_attendance_exception"));
+			DateSpan span = deductBalance || addAttendanceException ? dateSpan(fromDate, toDate) : null;
 			Map<String, Object> balance = null;
-			if (!LegacyValues.isPhpEmpty(request.get("deduct_balance"))) {
-				balance = store.leaveBalance(connection, employeeId, span.year());
-				if (balance != null) {
-					double total = decimal(balance.get("total_days"));
-					double used = decimal(balance.get("used_days"));
+			if (deductBalance) {
+				boolean exists = store.leaveBalanceExists(connection, employeeId, span.year());
+				if (exists) {
+					balance = store.leaveBalance(connection, employeeId, span.year());
+					double total = balance == null ? 0.0d : decimal(balance.get("total_days"));
+					double used = balance == null ? 0.0d : decimal(balance.get("used_days"));
 					if (Math.max(0.0d, total - used) < span.days()) {
 						throw new LegacyApiException(422, "insufficient_leave_balance");
 					}
@@ -79,7 +78,7 @@ public class LegacyRequestApprovalService {
 			try {
 				store.approveRequest(connection, requestId, reply, approverId);
 
-				if (!LegacyValues.isPhpEmpty(request.get("deduct_balance"))) {
+				if (deductBalance) {
 					double defaultDays = balance == null
 							? store.defaultAnnualLeaveDays(connection, companyId)
 							: 0.0d;
@@ -87,9 +86,9 @@ public class LegacyRequestApprovalService {
 							connection, balance, employeeId, span.year(), span.days(), defaultDays);
 				}
 
-				if (!LegacyValues.isPhpEmpty(request.get("add_attendance_exception"))) {
+				if (addAttendanceException) {
 					Long requestedType = positiveLongOrNull(request.get("exception_type_id"));
-					long resolved = exceptionTypes.resolveForCompany(companyId, requestedType);
+					long resolved = store.resolveExceptionTypeForCompany(connection, companyId, requestedType);
 					if (resolved > 0) {
 						applyAttendanceExceptions(connection, employeeId, span.start(), span.end(), resolved);
 					}
