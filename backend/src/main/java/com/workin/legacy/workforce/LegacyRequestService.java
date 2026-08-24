@@ -25,6 +25,7 @@ import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.employees.LegacyEmployeeStore;
 import com.workin.legacy.notifications.LegacyNotifications;
+import com.workin.legacy.notifications.LegacyPushDelivery;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyMessages;
 
@@ -43,19 +44,26 @@ import com.workin.legacy.wire.LegacyMessages;
  *
  * <h2>{@code approve}'s transaction</h2>
  * <p>{@code request_approve()} ({@code request_actions_helper.php:201-249})
- * writes {@code requests}, {@code leave_balance} and {@code attendance} all
- * inside one PDO transaction, sharing PHP's single global connection with the
- * pre-transaction fetch and balance check that precede it. {@link #approve}
- * reproduces the whole thing on <b>one</b> explicit {@link
- * java.sql.Connection}, borrowed for the entire call and passed into a single
- * {@link LegacyRequestApprovalStore} -- the same shape
+ * writes {@code requests}, {@code leave_balance}, {@code attendance} <b>and
+ * the approval notification</b> all inside one PDO transaction, sharing PHP's
+ * single global connection with the pre-transaction fetch and balance check
+ * that precede it -- {@code notification_request_decision_to_employee()} is
+ * called before {@code db_pdo()->commit()}, not after, so a failed
+ * notification insert rolls back the status change and every side effect with
+ * it. {@link #approve} reproduces the whole thing on <b>one</b> explicit
+ * {@link java.sql.Connection}, borrowed for the entire call and passed into a
+ * single {@link LegacyRequestApprovalStore} -- the same shape
  * {@link com.workin.legacy.attendance.spreadsheet.LegacyAttendanceImportService}
- * uses, just started earlier: PHP never re-reads {@code $request} once
- * fetched, so neither does this. Only the notification moves off that
- * connection, sent after it closes on the ordinary pooled {@link
- * LegacyNotifications} -- {@code LegacyAttendanceImportService}'s own "(7) the
- * notification, after the commit" precedent, safe here because nothing reads
- * the notification back.
+ * uses, just started earlier and carried further: PHP never re-reads
+ * {@code $request} once fetched, so neither does this, and unlike
+ * {@code LegacyAttendanceImportService}'s own "notification after the commit"
+ * shape, this notification's insert is issued by
+ * {@link LegacyRequestApprovalStore#insertNotification} on the <em>same</em>
+ * connection, before the commit -- only the best-effort push delivery
+ * attempt (swallowed exactly as PHP's {@code catch (Throwable $ignored)}
+ * does) runs alongside it, inside the transaction too, matching
+ * {@code notification_insert()}'s own {@code sendPushToEmployee(db_pdo(), ...)}
+ * call.
  */
 @Service
 public class LegacyRequestService {
@@ -67,6 +75,7 @@ public class LegacyRequestService {
 	private final LegacyEmployeeStore employeeStore;
 	private final LegacyExceptionTypeService exceptionTypes;
 	private final LegacyNotifications notifications;
+	private final LegacyPushDelivery pushDelivery;
 	private final LegacyMessages messages;
 	private final LegacyClock clock;
 	private final DataSource dataSource;
@@ -74,13 +83,14 @@ public class LegacyRequestService {
 	public LegacyRequestService(
 			LegacyRequestStore store, LegacyRequestTypeStore requestTypeStore,
 			LegacyEmployeeStore employeeStore, LegacyExceptionTypeService exceptionTypes,
-			LegacyNotifications notifications, LegacyMessages messages, LegacyClock clock,
-			DataSource legacyDataSource) {
+			LegacyNotifications notifications, LegacyPushDelivery pushDelivery, LegacyMessages messages,
+			LegacyClock clock, DataSource legacyDataSource) {
 		this.store = store;
 		this.requestTypeStore = requestTypeStore;
 		this.employeeStore = employeeStore;
 		this.exceptionTypes = exceptionTypes;
 		this.notifications = notifications;
+		this.pushDelivery = pushDelivery;
 		this.messages = messages;
 		this.clock = clock;
 		this.dataSource = legacyDataSource;
@@ -329,13 +339,11 @@ public class LegacyRequestService {
 	 * opened for the whole call: the fetch and the balance check run on it in
 	 * autocommit mode (matching PHP running them <em>above</em>
 	 * {@code beginTransaction()}), then it flips to manual-commit only for the
-	 * {@code requests} update and the side effects. A failed rollback skips the
-	 * {@code autoCommit} restore in {@code close()}, the same reason
-	 * {@code LegacyAttendanceImportService} does -- flipping it on a connection
-	 * whose transaction never rolled back would implicitly commit it. The
-	 * notification runs after the connection is closed, on the ordinary pooled
-	 * {@link LegacyNotifications} -- {@code LegacyAttendanceImportService}'s own
-	 * "(7) the notification, after the commit" precedent.
+	 * {@code requests} update, the side effects and the notification. A failed
+	 * rollback skips the {@code autoCommit} restore in {@code close()}, the same
+	 * reason {@code LegacyAttendanceImportService} does -- flipping it on a
+	 * connection whose transaction never rolled back would implicitly commit
+	 * it.
 	 */
 	public void approve(LegacyRequestContext context, String locale, long id, String reply) {
 		String normalizedReply = reply != null && !reply.isEmpty() ? reply : null;
@@ -351,10 +359,9 @@ public class LegacyRequestService {
 		}
 
 		LegacyRequestApprovalStore approvalStore = new LegacyRequestApprovalStore(connection);
-		Map<String, Object> request = null;
 		boolean rollbackFailed = false;
 		try {
-			request = approvalStore.forApproval(id, context.companyId());
+			Map<String, Object> request = approvalStore.forApproval(id, context.companyId());
 			if (request == null) {
 				throw new LegacyApiException(404, "not_found");
 			}
@@ -382,7 +389,25 @@ public class LegacyRequestService {
 			try {
 				approvalStore.updateStatus(id, "approved", normalizedReply, approverEmployeeId);
 				applyApprovalSideEffects(approvalStore, employeeId, fromDate, toDate, days, year,
-						request, context.companyId());
+						request, context.companyId(), clock.today());
+
+				String title = messages.translate(locale, "request_approved", null);
+				String notificationBody = normalizedReply != null && !LegacyValues.phpTrim(normalizedReply).isEmpty()
+						? normalizedReply
+						: messages.translate(locale, "request_approved_msg",
+								Map.of("type", LegacyValues.toPhpString(request.get("request_type_name"))));
+				long notificationId = approvalStore.insertNotification(
+						context.companyId(), employeeId, approverEmployeeId, "request_approved", title,
+						notificationBody, "request", id);
+				try {
+					pushDelivery.sendToEmployee(employeeId, title, notificationBody, Map.of(
+							"notification_id", String.valueOf(notificationId),
+							"notification_type", "request_approved"));
+				} catch (Throwable ignored) { // NOPMD - notification_insert()'s own catch (Throwable $ignored)
+					// The row is already durable inside this same transaction;
+					// a delivery failure must not roll back the approval.
+				}
+
 				connection.commit();
 			} catch (RuntimeException ex) {
 				connection.rollback();
@@ -394,15 +419,6 @@ public class LegacyRequestService {
 		} finally {
 			close(connection, autoCommit, !rollbackFailed);
 		}
-
-		String title = messages.translate(locale, "request_approved", null);
-		String body = normalizedReply != null
-				? normalizedReply
-				: messages.translate(locale, "request_approved_msg",
-						Map.of("type", LegacyValues.toPhpString(request.get("request_type_name"))));
-		notifications.toEmployee(
-				context.companyId(), LegacyValues.toPhpLong(request.get("employee_id")), approverEmployeeId,
-				"request_approved", title, body, "request", id);
 	}
 
 	/**
@@ -417,7 +433,7 @@ public class LegacyRequestService {
 	 */
 	private void applyApprovalSideEffects(
 			LegacyRequestApprovalStore approvalStore, long employeeId, String fromDate, String toDate,
-			int days, int year, Map<String, Object> request, long companyId) {
+			int days, int year, Map<String, Object> request, long companyId, LocalDate today) {
 		if (employeeId <= 0 || fromDate.isEmpty() || toDate.isEmpty()) {
 			return;
 		}
@@ -428,7 +444,8 @@ public class LegacyRequestService {
 		if (!LegacyValues.isPhpEmpty(request.get("add_attendance_exception"))) {
 			Long suppliedExceptionTypeId = LegacyValues.isPhpEmpty(request.get("exception_type_id"))
 					? null : LegacyValues.toPhpLong(request.get("exception_type_id"));
-			applyAttendanceExceptions(approvalStore, employeeId, fromDate, toDate, suppliedExceptionTypeId, companyId);
+			applyAttendanceExceptions(
+					approvalStore, employeeId, fromDate, toDate, suppliedExceptionTypeId, companyId, today);
 		}
 	}
 
@@ -443,16 +460,30 @@ public class LegacyRequestService {
 		approvalStore.insertLeaveBalance(employeeId, year, defaultLeaveDays, days);
 	}
 
-	/** {@code request_apply_attendance_exceptions()} ({@code request_actions_helper.php:130-174}). */
+	/**
+	 * {@code request_apply_attendance_exceptions()}
+	 * ({@code request_actions_helper.php:130-174}).
+	 *
+	 * <p>PHP parses both bounds with {@code new DateTimeImmutable(...)}, whose
+	 * grammar rolls a noncanonical-but-storable date -- {@code 2026-00-15},
+	 * which the configured non-strict MariaDB mode accepts and preserves --
+	 * into a valid one rather than throwing, exactly what
+	 * {@link LegacyPhpStrtotime#dateOf} already does for this codebase's other
+	 * callers. A strict {@code LocalDate.parse} would throw on that same input
+	 * and turn an existing request's approval into an unhandled 500.
+	 */
 	private void applyAttendanceExceptions(
 			LegacyRequestApprovalStore approvalStore, long employeeId, String fromDate, String toDate,
-			Long suppliedExceptionTypeId, long companyId) {
+			Long suppliedExceptionTypeId, long companyId, LocalDate today) {
 		long exceptionTypeId = exceptionTypes.resolveForCompany(companyId, suppliedExceptionTypeId);
 		if (exceptionTypeId <= 0) {
 			return;
 		}
-		LocalDate start = LocalDate.parse(fromDate);
-		LocalDate end = LocalDate.parse(toDate);
+		LocalDate start = LegacyPhpStrtotime.dateOf(fromDate, today);
+		LocalDate end = LegacyPhpStrtotime.dateOf(toDate, today);
+		if (start == null || end == null) {
+			throw new IllegalStateException("request_apply_attendance_exceptions: unparseable date bound");
+		}
 		if (end.isBefore(start)) {
 			return;
 		}

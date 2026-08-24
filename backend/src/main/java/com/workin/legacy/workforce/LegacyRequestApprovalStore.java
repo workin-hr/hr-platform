@@ -65,6 +65,16 @@ public class LegacyRequestApprovalStore {
 	private static final String INSERT_ATTENDANCE_EXCEPTION =
 			"INSERT INTO attendance (employee_id, check_in, method, exception_type_id) VALUES (?, ?, 'app', ?)";
 
+	/** {@code notification_insert()}'s employee-recipient INSERT, same shape as {@link
+	 * com.workin.legacy.notifications.LegacyNotifications}'s pooled one -- issued here instead
+	 * because {@code request_approve()} writes it on the same PDO instance as the rest of the
+	 * transaction, before the commit. */
+	private static final String INSERT_NOTIFICATION = """
+			INSERT INTO notifications (
+				company_id, recipient_kind, from_employee_id, to_employee_id,
+				title, body, notification_type, reference_type, reference_id
+			) VALUES (?, 'employee', ?, ?, ?, ?, ?, ?, ?)""";
+
 	/** PHP's {@code (float)} string cast: the longest leading numeric prefix, or 0.0 with none. */
 	private static final Pattern LEADING_NUMBER =
 			Pattern.compile("^\\s*[+-]?(\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?");
@@ -190,6 +200,45 @@ public class LegacyRequestApprovalStore {
 			statement.setString(2, date + " 00:00:00");
 			statement.setLong(3, exceptionTypeId);
 			statement.executeUpdate();
+		} catch (SQLException ex) {
+			throw LegacyPdoException.from(ex);
+		}
+	}
+
+	/**
+	 * {@code notification_insert()} ({@code notifications.php:52-115}), the
+	 * {@code recipient_kind = 'employee'} shape, on this same connection so its
+	 * failure rolls back the whole approval -- {@code request_approve()} calls
+	 * {@code notification_request_decision_to_employee()} inside its own
+	 * transaction, before {@code db_pdo()->commit()}.
+	 *
+	 * @return the generated id, as {@code get_last_inserted_id()} does
+	 */
+	public long insertNotification(
+			long companyId, long toEmployeeId, Long fromEmployeeId, String type, String title, String body,
+			String referenceType, Long referenceId) {
+		try (PreparedStatement statement =
+				connection.prepareStatement(INSERT_NOTIFICATION, PreparedStatement.RETURN_GENERATED_KEYS)) {
+			statement.setLong(1, companyId);
+			if (fromEmployeeId != null && fromEmployeeId > 0) {
+				statement.setLong(2, fromEmployeeId);
+			} else {
+				statement.setNull(2, Types.INTEGER);
+			}
+			statement.setLong(3, toEmployeeId);
+			statement.setString(4, title);
+			statement.setString(5, body);
+			statement.setString(6, type);
+			statement.setString(7, referenceType);
+			if (referenceId == null) {
+				statement.setNull(8, Types.INTEGER);
+			} else {
+				statement.setLong(8, referenceId);
+			}
+			statement.executeUpdate();
+			try (ResultSet keys = statement.getGeneratedKeys()) {
+				return keys.next() ? keys.getLong(1) : 0L;
+			}
 		} catch (SQLException ex) {
 			throw LegacyPdoException.from(ex);
 		}

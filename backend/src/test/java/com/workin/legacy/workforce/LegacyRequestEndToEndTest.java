@@ -90,6 +90,7 @@ class LegacyRequestEndToEndTest {
 	private static final long EMPLOYEE_APPROVE_INSUFFICIENT = 207018L;
 	private static final long EMPLOYEE_APPROVE_EXCEPTION_NAMED = 207019L;
 	private static final long EMPLOYEE_APPROVE_EXCEPTION_SKIP = 207020L;
+	private static final long EMPLOYEE_APPROVE_EXCEPTION_ROLLOVER = 207023L;
 
 	private static final long TYPE_1 = 207101L;
 	private static final long TYPE_1_INACTIVE = 207102L;
@@ -683,6 +684,72 @@ class LegacyRequestEndToEndTest {
 				.isEqualTo(before + 1);
 	}
 
+	/**
+	 * The reply column and the notification body normalise a whitespace-only
+	 * reply differently: PHP's own {@code $reply !== '' ? $reply : null} for
+	 * the column keeps the literal whitespace, but
+	 * {@code notification_request_decision_to_employee()}'s
+	 * {@code trim($reply) !== ''} check falls back to the translated message
+	 * for the notification body.
+	 */
+	@Test
+	void approveWithAWhitespaceOnlyReplyKeepsItInTheColumnButNotTheNotification() {
+		long id = insertRequest(TYPE_1, EMPLOYEE_1A, "pending");
+
+		send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, """
+				{"reply": "   "}
+				""");
+
+		assertThat(queryOne("SELECT reply FROM requests WHERE id = " + id).get("reply")).isEqualTo("   ");
+		Map<String, Object> notification = queryOne(
+				"SELECT body FROM notifications WHERE to_employee_id = " + EMPLOYEE_1A
+						+ " AND reference_type = 'request' AND reference_id = " + id
+						+ " ORDER BY id DESC LIMIT 1");
+		assertThat(notification.get("body")).isEqualTo("Your request (Vacation) has been approved");
+	}
+
+	@Test
+	void approveWithANonEmptyReplyUsesItAsTheNotificationBody() {
+		long id = insertRequest(TYPE_1, EMPLOYEE_1A, "pending");
+
+		send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, """
+				{"reply": "enjoy"}
+				""");
+
+		Map<String, Object> notification = queryOne(
+				"SELECT body FROM notifications WHERE to_employee_id = " + EMPLOYEE_1A
+						+ " AND reference_type = 'request' AND reference_id = " + id
+						+ " ORDER BY id DESC LIMIT 1");
+		assertThat(notification.get("body")).isEqualTo("enjoy");
+	}
+
+	/**
+	 * D-101/Codex: {@code request_apply_attendance_exceptions()} parses its
+	 * date bounds with PHP's rolling {@code DateTimeImmutable} grammar, not a
+	 * strict calendar. {@code create.php} itself never validates
+	 * {@code from_date}/{@code to_date} as a real calendar date, and the
+	 * pooled connection runs under this suite's configured {@code sql_mode=''}
+	 * -- the same non-strict mode legacy's own PDO uses -- so a noncanonical
+	 * {@code 2026-00-15} lands in the table exactly the way a submitted
+	 * request could. Approving it rolls that bound to {@code 2025-12-15}
+	 * rather than failing the approval outright.
+	 */
+	@Test
+	void approveWithAttendanceExceptionRollsANoncanonicalMonthLikePhpsDateParser() {
+		Map<String, Object> created = created("""
+				{"request_type_id": %d, "from_date": "2026-00-15", "to_date": "2026-00-15"}
+				""".formatted(TYPE_ATTENDANCE_EXCEPTION_WITH_TYPE), EMPLOYEE_APPROVE_EXCEPTION_ROLLOVER);
+		long id = number(dataOf(created).get("id"));
+
+		ResponseEntity<Map<String, Object>> response = send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, "{}");
+
+		assertThat(status(response)).isEqualTo(200);
+		List<Map<String, Object>> rows = query("SELECT DATE(check_in) AS d FROM attendance WHERE employee_id = "
+				+ EMPLOYEE_APPROVE_EXCEPTION_ROLLOVER);
+		assertThat(rows).hasSize(1);
+		assertThat(rows.get(0).get("d").toString()).isEqualTo("2025-12-15");
+	}
+
 	// ------------------------------------------------------------------
 	// Helpers
 	// ------------------------------------------------------------------
@@ -747,7 +814,7 @@ class LegacyRequestEndToEndTest {
 		String role = employeeId == MANAGER_1A ? "manager"
 				: employeeId == HR_1 ? "hr"
 				: employeeId == EMPLOYEE_1A || employeeId == EMPLOYEE_1A_TWIN || employeeId == EMPLOYEE_1B
-						|| employeeId == EMPLOYEE_2 ? "employee"
+						|| employeeId == EMPLOYEE_2 || employeeId == EMPLOYEE_APPROVE_EXCEPTION_ROLLOVER ? "employee"
 				: "company_admin";
 		long companyId = employeeId == ADMIN_2 || employeeId == EMPLOYEE_2 ? COMPANY_2
 				: employeeId == ADMIN_SUSPENDED ? COMPANY_SUSPENDED : COMPANY_1;
@@ -863,6 +930,8 @@ class LegacyRequestEndToEndTest {
 					"+201000207019", "Approve Exception Named");
 			employee(st, EMPLOYEE_APPROVE_EXCEPTION_SKIP, COMPANY_1, BRANCH_1A, "employee",
 					"+201000207020", "Approve Exception Skip");
+			employee(st, EMPLOYEE_APPROVE_EXCEPTION_ROLLOVER, COMPANY_1, BRANCH_1A, "employee",
+					"+201000207023", "Approve Exception Rollover");
 			employee(st, ADMIN_2, COMPANY_2, BRANCH_2, "company_admin", "+201000207021", "Admin Two");
 			employee(st, EMPLOYEE_2, COMPANY_2, BRANCH_2, "employee", "+201000207022", "Employee Two");
 			employee(st, ADMIN_SUSPENDED, COMPANY_SUSPENDED, BRANCH_2, "company_admin",
