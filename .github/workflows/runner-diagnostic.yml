@@ -1,0 +1,17 @@
+name: Runner Diagnostic
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prove GitHub-hosted runner provisioning
+        run: |
+          echo "runner provisioned"
+          uname -a
