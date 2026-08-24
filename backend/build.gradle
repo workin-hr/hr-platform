@@ -145,6 +145,29 @@ tasks.named('test') {
 		showCauses = true
 		showStackTraces = true
 	}
+	// The suite has grown past 1500 tests across many `@SpringBootTest`
+	// classes, each caching its own Spring `ApplicationContext` (and, for
+	// the Phase 1 legacy classes, its own `MariaDBContainer`) for the life
+	// of the single worker JVM Gradle's default (unset) settings give it.
+	// Nothing frees those contexts between classes, so the accumulated
+	// class loaders, JDBC driver state and Testcontainers/Ryuk bookkeeping
+	// eventually exhaust the JVM's default heap -- observed on CI as
+	// `OutOfMemoryError: Java heap space` failing unrelated test classes
+	// partway through an otherwise-passing run. `forkEvery` periodically
+	// restarts the worker so accumulated context state is actually
+	// released rather than merely garbage-collectable, which is the real
+	// fix; the heap bump is a modest safety margin for the classes that
+	// run before the first restart, not the primary mechanism.
+	//
+	// This repository is private on the GitHub Free plan (D-013), so
+	// `ubuntu-24.04` here is the **standard** private-repo runner --
+	// 2 vCPU / 7GB RAM, not the 16GB spec public repositories get. The
+	// Gradle daemon (a separate JVM), the Docker daemon, Ryuk and any
+	// MariaDB/PostgreSQL containers still alive within a fork's 25 classes
+	// all draw from that same 7GB, so both numbers stay conservative
+	// rather than sized as if this were a larger runner.
+	maxHeapSize = '2g'
+	forkEvery = 25
 	// This sandbox's Docker daemon (29.7.1, API 1.55) rejects the old,
 	// hardcoded low API-version ping some Testcontainers releases use by
 	// default -- proven root cause during the H2 spike (see
