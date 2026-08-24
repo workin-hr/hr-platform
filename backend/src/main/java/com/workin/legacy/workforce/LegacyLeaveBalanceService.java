@@ -146,11 +146,11 @@ public class LegacyLeaveBalanceService {
 	}
 
 	private LegacyLeaveBalanceStore.Filter filter(
-			LegacyRequestContext context, LegacyQueryParameters query, boolean allowEmployeeFilter) {
+			LegacyRequestContext context, LegacyQueryParameters query, boolean listFilters) {
 		Long own = context.role() == LegacyEmployee.Role.EMPLOYEE ? context.employeeId() : null;
 		Long manager = context.role() == LegacyEmployee.Role.MANAGER ? context.employeeId() : null;
 		Long employeeFilter = null;
-		if (allowEmployeeFilter && own == null && manager == null
+		if (listFilters && own == null && manager == null
 				&& !LegacyValues.isPhpEmpty(query.value("employee_id"))) {
 			employeeFilter = LegacyValues.toPhpLong(query.value("employee_id"));
 		}
@@ -168,7 +168,7 @@ public class LegacyLeaveBalanceService {
 		}
 		return new LegacyLeaveBalanceStore.Filter(
 				context.companyId(), own, manager, employeeFilter, from, to, year,
-				LegacyPagination.searchQueryParam(query));
+				listFilters ? LegacyPagination.searchQueryParam(query) : null);
 	}
 
 	/** Create/update PHP re-reads omit employee_code but do include the joined company_id. */
