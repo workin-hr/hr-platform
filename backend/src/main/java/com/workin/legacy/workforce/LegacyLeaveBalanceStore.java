@@ -49,13 +49,16 @@ public class LegacyLeaveBalanceStore {
 		if (filter.ownEmployeeId() != null) {
 			where.append(" AND e.id=?");
 			binds.add(filter.ownEmployeeId());
-		} else if (filter.managerEmployeeId() != null) {
-			where.append(" AND ").append(MANAGER_SCOPE);
-			binds.add(filter.managerEmployeeId());
-			binds.add(filter.companyId());
-		} else if (filter.employeeId() != null) {
-			where.append(" AND e.id=?");
-			binds.add(filter.employeeId());
+		} else {
+			if (filter.managerEmployeeId() != null) {
+				where.append(" AND ").append(MANAGER_SCOPE);
+				binds.add(filter.managerEmployeeId());
+				binds.add(filter.companyId());
+			}
+			if (filter.employeeId() != null) {
+				where.append(" AND e.id=?");
+				binds.add(filter.employeeId());
+			}
 		}
 		if (filter.yearFrom() != null && filter.yearTo() != null) {
 			where.append(" AND lb.year BETWEEN ? AND ?");
