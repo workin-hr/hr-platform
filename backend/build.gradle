@@ -145,6 +145,22 @@ tasks.named('test') {
 		showCauses = true
 		showStackTraces = true
 	}
+	// The suite has grown past 1500 tests across many `@SpringBootTest`
+	// classes, each caching its own Spring `ApplicationContext` (and, for
+	// the Phase 1 legacy classes, its own `MariaDBContainer`) for the life
+	// of the single worker JVM Gradle's default (unset) settings give it.
+	// Nothing frees those contexts between classes, so the accumulated
+	// class loaders, JDBC driver state and Testcontainers/Ryuk bookkeeping
+	// eventually exhaust the JVM's default heap -- observed on CI as
+	// `OutOfMemoryError: Java heap space` failing unrelated test classes
+	// partway through an otherwise-passing run, on a runner
+	// (`ubuntu-24.04`, 16GB) with room to spare at the OS level. `forkEvery`
+	// periodically restarts the worker so accumulated context state is
+	// actually released rather than merely garbage-collectable; the larger
+	// heap is a safety margin for the classes that run before the first
+	// restart.
+	maxHeapSize = '4g'
+	forkEvery = 50
 	// This sandbox's Docker daemon (29.7.1, API 1.55) rejects the old,
 	// hardcoded low API-version ping some Testcontainers releases use by
 	// default -- proven root cause during the H2 spike (see
