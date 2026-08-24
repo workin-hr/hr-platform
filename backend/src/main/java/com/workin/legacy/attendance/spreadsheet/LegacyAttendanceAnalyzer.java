@@ -1,5 +1,6 @@
 package com.workin.legacy.attendance.spreadsheet;
 
+import java.math.BigInteger;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -209,7 +210,7 @@ public class LegacyAttendanceAnalyzer {
 			String a = text(left.get("sheet_code"));
 			String b = text(right.get("sheet_code"));
 			if (isDigits(a) && isDigits(b)) {
-				return Long.compare(Long.parseLong(a), Long.parseLong(b));
+				return new BigInteger(a).compareTo(new BigInteger(b));
 			}
 			return a.compareToIgnoreCase(b);
 		});

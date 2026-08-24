@@ -11,6 +11,7 @@ import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import com.workin.legacy.LegacyValues;
 import com.workin.legacy.attendance.LegacyWeeklyOffDays;
 import com.workin.legacy.workforce.LegacyShiftTimes;
 
@@ -234,12 +235,12 @@ public class LegacyAttendanceCalendar {
 	 * two different grammars.
 	 */
 	public static boolean shiftMarksDayOff(String daysOff, int dayOfWeek) {
-		String trimmed = daysOff == null ? "" : daysOff.trim();
+		String trimmed = LegacyValues.phpTrim(daysOff);
 		if (trimmed.isEmpty()) {
 			return false;
 		}
 		for (String part : trimmed.split("[,،;]+")) {
-			String token = part.trim().toLowerCase(Locale.ROOT);
+			String token = LegacyValues.phpTrim(part).toLowerCase(Locale.ROOT);
 			if (token.isEmpty()) {
 				continue;
 			}

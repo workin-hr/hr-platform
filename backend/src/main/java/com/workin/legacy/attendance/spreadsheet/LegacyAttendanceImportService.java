@@ -278,7 +278,13 @@ public class LegacyAttendanceImportService {
 		// failure in either is uncaught in PHP and is D-084 here. Only what is
 		// inside the try can become a 400.
 		Connection connection = open();
-		boolean autoCommit = autoCommitOf(connection);
+		boolean autoCommit;
+		try {
+			autoCommit = autoCommitOf(connection);
+		} catch (RuntimeException ex) {
+			close(connection, true);
+			throw ex;
+		}
 
 		try {
 			try {
