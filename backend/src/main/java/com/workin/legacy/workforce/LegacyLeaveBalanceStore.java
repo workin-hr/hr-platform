@@ -20,6 +20,7 @@ import org.springframework.stereotype.Repository;
 
 import com.workin.legacy.LegacyJdbcValues;
 import com.workin.legacy.LegacyPagination;
+import com.workin.legacy.LegacyValues;
 
 /** Persistence for {@code apis/api/leave_balances/*.php}. */
 @Repository
@@ -111,13 +112,6 @@ public class LegacyLeaveBalanceStore {
 		return rows.isEmpty() || rows.getFirst() == null ? 0L : rows.getFirst();
 	}
 
-	public Long employeeBranchId(long employeeId, long companyId) {
-		List<Long> rows = jdbc.queryForList(
-				"SELECT branch_id FROM employees WHERE id=? AND company_id=? LIMIT 1", Long.class,
-				employeeId, companyId);
-		return rows.isEmpty() ? null : rows.getFirst();
-	}
-
 	public long insert(
 			long employeeId, int year, Object totalDays, Object usedDays,
 			int periodFrom, int periodTo, Object monthlyCap) {
@@ -144,15 +138,19 @@ public class LegacyLeaveBalanceStore {
 		StringBuilder sql = new StringBuilder("UPDATE leave_balance SET ");
 		int i = 0;
 		for (String column : fields.keySet()) {
-			if (i++ > 0) sql.append(',');
+			if (i++ > 0) {
+				sql.append(',');
+			}
 			sql.append('`').append(column).append("`=?");
 		}
 		sql.append(" WHERE id=?");
 		jdbc.update(connection -> {
 			PreparedStatement statement = connection.prepareStatement(sql.toString());
-			int p = 1;
-			for (Object value : fields.values()) bind(statement, p++, value);
-			statement.setLong(p, id);
+			int parameter = 1;
+			for (Object value : fields.values()) {
+				bind(statement, parameter++, value);
+			}
+			statement.setLong(parameter, id);
 			return statement;
 		});
 	}
@@ -183,7 +181,7 @@ public class LegacyLeaveBalanceStore {
 			ORDER BY sav.sort_order ASC, sav.id ASC""", String.class, companyId);
 		for (String value : values) {
 			if (value != null && !value.isEmpty()) {
-				try { return Double.parseDouble(value); } catch (NumberFormatException ignored) { return 0.0d; }
+				return LegacyValues.toPhpDecimal(value).doubleValue();
 			}
 		}
 		return 21.0d;
@@ -249,13 +247,9 @@ public class LegacyLeaveBalanceStore {
 
 	private static void bind(PreparedStatement statement, int index, Object value) throws SQLException {
 		if (value == null) {
-			statement.setNull(index, Types.NULL);
-		} else if (value instanceof Number number) {
-			statement.setObject(index, number);
-		} else if (value instanceof Boolean bool) {
-			statement.setBoolean(index, bool);
+			statement.setNull(index, Types.VARCHAR);
 		} else {
-			statement.setString(index, String.valueOf(value));
+			statement.setString(index, LegacyValues.toPhpString(value));
 		}
 	}
 }
