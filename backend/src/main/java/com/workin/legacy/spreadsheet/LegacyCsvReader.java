@@ -74,6 +74,11 @@ public final class LegacyCsvReader {
 	 * {@code fgetcsv()} semantics: double quotes enclose a field, a doubled quote
 	 * inside one is a literal quote, and a newline inside quotes stays part of
 	 * the field -- which the template's multi-line headers depend on.
+	 *
+	 * <p>An enclosure can only <b>start</b> at the first character of a field.
+	 * A quote reached after the field has already begun ({@code 12"3"}) is a
+	 * literal character, exactly as {@code fgetcsv()} treats it -- it does not
+	 * open an enclosure and swallow the digits that follow.
 	 */
 	private static List<List<String>> parse(String text, char delimiter) {
 		List<List<String>> records = new ArrayList<>();
@@ -97,7 +102,7 @@ public final class LegacyCsvReader {
 				}
 				continue;
 			}
-			if (character == '"') {
+			if (character == '"' && field.length() == 0) {
 				quoted = true;
 				sawAnything = true;
 			} else if (character == delimiter) {

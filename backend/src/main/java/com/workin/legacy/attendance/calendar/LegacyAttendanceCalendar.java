@@ -203,7 +203,7 @@ public class LegacyAttendanceCalendar {
 			Map<String, String> holidaysByDate, String weeklyRestLabel) {
 		String holiday = holidaysByDate.get(date);
 		if (holiday != null) {
-			String name = holiday.trim();
+			String name = LegacyValues.phpTrim(holiday);
 			return name.isEmpty() ? weeklyRestLabel : name;
 		}
 		return isWeeklyRestDay(companyId, date, shift) ? weeklyRestLabel : null;

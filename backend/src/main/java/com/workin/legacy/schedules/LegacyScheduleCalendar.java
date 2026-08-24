@@ -313,7 +313,7 @@ public class LegacyScheduleCalendar {
 			row.put("exception_note", exceptionNote.trim());
 			return row;
 		}
-		String name = shift.get("name") == null ? "" : String.valueOf(shift.get("name")).trim();
+		String name = LegacyValues.phpTrim(shift.get("name") == null ? "" : String.valueOf(shift.get("name")));
 		row.put("name", name.isEmpty() ? null : name);
 		row.put("start_time", text(shift.get("start_time")));
 		row.put("end_time", text(shift.get("end_time")));

@@ -84,8 +84,14 @@ public final class LegacyAttendancePunchDateTimeParser {
 	private static final Pattern MERIDIEM_TAIL =
 			Pattern.compile("\\s+(AM|PM)\\s*$", Pattern.CASE_INSENSITIVE);
 
-	/** {@code preg_replace('/\s+[A-Za-z0-9]{2,8}$/u', '', ...)} -- the device suffix. */
-	private static final Pattern DEVICE_SUFFIX = Pattern.compile("\\s+[A-Za-z0-9]{2,8}$");
+	/**
+	 * {@code preg_replace('/\s+[A-Za-z0-9]{2,8}$/u', '', ...)} -- the device
+	 * suffix. PHP's {@code /u} modifier makes {@code \s} match Unicode
+	 * whitespace (a non-breaking space included), not just ASCII -- so this
+	 * needs {@link Pattern#UNICODE_CHARACTER_CLASS} to match it.
+	 */
+	private static final Pattern DEVICE_SUFFIX =
+			Pattern.compile("\\s+[A-Za-z0-9]{2,8}$", Pattern.UNICODE_CHARACTER_CLASS);
 
 	/** {@code preg_match('/^\d{1,2}\.\d{1,2}\.\d{2,4}\b/', $raw)}. */
 	private static final Pattern DOTTED_DATE_PREFIX =

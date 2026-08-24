@@ -444,9 +444,9 @@ public final class LegacyPhpStrtotime {
 			int hour = digits(four, 1);
 			int minute = digits(four, 2);
 			if (hour <= 24 && minute <= 59) {
-				return hour == 24
-						? today.plusDays(1).atStartOfDay()
-						: today.atTime(LocalTime.of(hour, minute));
+				// Hour 24 rolls into tomorrow, but the minute rides along with it:
+				// "2401" is tomorrow 00:01, not tomorrow's midnight.
+				return today.atStartOfDay().plusMinutes((long) hour * 60L + minute);
 			}
 			// Not a time, so it is a year: 1990 is 19:90 to nobody. Measured:
 			// the year branch keeps the reference TIME, not midnight, so

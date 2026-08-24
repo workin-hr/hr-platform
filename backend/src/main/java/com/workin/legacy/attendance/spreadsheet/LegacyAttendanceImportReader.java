@@ -1,5 +1,6 @@
 package com.workin.legacy.attendance.spreadsheet;
 
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -415,12 +416,26 @@ public final class LegacyAttendanceImportReader {
 	 * strings, byte-wise otherwise.
 	 */
 	static int phpCompare(String left, String right) {
+		String leftTrimmed = LegacyValues.phpTrim(left);
+		String rightTrimmed = LegacyValues.phpTrim(right);
+		if (isIntegerString(leftTrimmed) && isIntegerString(rightTrimmed)) {
+			return toBigInteger(leftTrimmed).compareTo(toBigInteger(rightTrimmed));
+		}
 		Double leftNumber = numeric(left);
 		Double rightNumber = numeric(right);
 		if (leftNumber != null && rightNumber != null) {
 			return Double.compare(leftNumber, rightNumber);
 		}
 		return left.compareTo(right);
+	}
+
+	/** No decimal point, no exponent -- the case a {@code double} cannot compare exactly past 2^53. */
+	private static boolean isIntegerString(String trimmed) {
+		return trimmed.matches("^[+-]?\\d+$");
+	}
+
+	private static BigInteger toBigInteger(String trimmed) {
+		return new BigInteger(trimmed.startsWith("+") ? trimmed.substring(1) : trimmed);
 	}
 
 	private static Double numeric(String value) {

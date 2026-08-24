@@ -9,6 +9,8 @@ import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import com.workin.legacy.LegacyValues;
+
 /**
  * D-091's bounded, read-only {@code company_settings} reader, and the pure
  * rest-day test that consumes it.
@@ -127,7 +129,7 @@ public class LegacyWeeklyOffDays {
 			if (raw == null) {
 				continue;
 			}
-			String trimmed = raw.trim();
+			String trimmed = LegacyValues.phpTrim(raw);
 			String lowered = trimmed.toLowerCase(Locale.ROOT);
 			if (lowered.isEmpty()) {
 				continue;
