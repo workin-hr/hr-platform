@@ -115,9 +115,12 @@ public class LegacyAttendanceImportService {
 	 * <p>The failure mapping is the import's minus the rollback --
 	 * {@code catch (RuntimeException)}, an {@code attendance_excel_} message
 	 * used as the key, anything else answered as {@code invalid_file_type} with
-	 * the message in {@code data}. A {@link com.workin.legacy.LegacyPdoException}
-	 * cannot arise here: no statement this path runs can fail the way an INSERT
-	 * can, and if one did it would be a genuine Java failure, not a mapped 400.
+	 * the message in {@code data}. The catch is the full
+	 * {@link RuntimeException} category, not just
+	 * {@link LegacyAttendanceImportException}, because a dropped connection
+	 * mid-query surfaces as a {@code DataAccessException} here and PHP's
+	 * {@code PDOException} is itself a {@code RuntimeException} -- both map the
+	 * same way as a parser failure.
 	 */
 	public Map<String, Object> analyze(
 			LegacyRequestContext context, MultipartFile file, String weeklyRestLabel) {
@@ -139,7 +142,10 @@ public class LegacyAttendanceImportService {
 
 		try {
 			return analyzer.analyze(content, context.companyId(), clock.now(), weeklyRestLabel);
-		} catch (LegacyAttendanceImportException ex) {
+		} catch (RuntimeException ex) {
+			// `catch (RuntimeException $e)` in PHP, which PDOException is an
+			// instance of -- so a DataAccessException from a dropped connection
+			// maps here too, not just LegacyAttendanceImportException.
 			String key = ex.getMessage();
 			if (key != null && key.startsWith("attendance_excel_")) {
 				throw new LegacyApiException(400, key);
@@ -282,10 +288,11 @@ public class LegacyAttendanceImportService {
 		try {
 			autoCommit = autoCommitOf(connection);
 		} catch (RuntimeException ex) {
-			close(connection, true);
+			close(connection, true, true);
 			throw ex;
 		}
 
+		boolean rollbackFailed = false;
 		try {
 			try {
 				connection.setAutoCommit(false);
@@ -330,9 +337,17 @@ public class LegacyAttendanceImportService {
 			// its rollBack() either, so this masks the original exception and
 			// becomes an unexpected failure -- deliberately, since a parser 400
 			// must not survive a transaction that would not roll back.
+			//
+			// The connection is still in the setAutoCommit(false) transaction
+			// close() would otherwise restore autoCommit into: per the JDBC
+			// contract, flipping autoCommit false -> true implicitly commits
+			// whatever is pending. That would silently commit an import this
+			// endpoint is about to answer as a 500, so close() must not touch
+			// autoCommit on this path at all.
+			rollbackFailed = true;
 			throw new IllegalStateException("rollBack", ex);
 		} finally {
-			close(connection, autoCommit);
+			close(connection, autoCommit, !rollbackFailed);
 		}
 	}
 
@@ -362,14 +377,21 @@ public class LegacyAttendanceImportService {
 		}
 	}
 
-	private static void close(Connection connection, boolean autoCommit) {
+	/**
+	 * {@code restoreAutoCommit} is false only after a failed rollback: the
+	 * transaction is still open, and setting autoCommit would implicitly
+	 * commit it, so that call is skipped and the connection is just closed.
+	 */
+	private static void close(Connection connection, boolean autoCommit, boolean restoreAutoCommit) {
 		if (connection == null) {
 			return;
 		}
-		try {
-			connection.setAutoCommit(autoCommit);
-		} catch (SQLException ignored) { // NOPMD - restoring pool state, never the request's outcome
-			// Nothing to do: the connection is about to go back to the pool.
+		if (restoreAutoCommit) {
+			try {
+				connection.setAutoCommit(autoCommit);
+			} catch (SQLException ignored) { // NOPMD - restoring pool state, never the request's outcome
+				// Nothing to do: the connection is about to go back to the pool.
+			}
 		}
 		try {
 			connection.close();

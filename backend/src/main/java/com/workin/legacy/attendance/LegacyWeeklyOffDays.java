@@ -154,9 +154,21 @@ public class LegacyWeeklyOffDays {
 		return value.matches("^[+-]?(\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?$");
 	}
 
-	/** PHP's {@code (int)} cast of an already-numeric string: truncate toward zero. */
+	/**
+	 * PHP's {@code (int)} cast of an already-numeric string: truncate toward
+	 * zero, except that a value which overflows a double -- {@code "1e9999"}
+	 * parses to {@link Double#POSITIVE_INFINITY} -- casts to {@code 0}, not
+	 * {@link Integer#MAX_VALUE}. PHP documents NaN and both infinities as
+	 * always zero on an {@code (int)} cast; Java's narrowing conversion
+	 * clamps them to {@code Integer.MAX_VALUE}/{@code MIN_VALUE} instead, so
+	 * that case is special-cased here.
+	 */
 	private static int phpIntCast(String value) {
-		return (int) Double.parseDouble(value);
+		double parsed = Double.parseDouble(value);
+		if (Double.isNaN(parsed) || Double.isInfinite(parsed)) {
+			return 0;
+		}
+		return (int) parsed;
 	}
 
 	/** The keys this reader will answer for -- exactly one, by construction (D-091). */

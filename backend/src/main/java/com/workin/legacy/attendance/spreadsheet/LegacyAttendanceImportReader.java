@@ -64,9 +64,11 @@ public final class LegacyAttendanceImportReader {
 
 	private static final byte[] BOM = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
 
-	private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+	// uuuu, not yyyy: year-of-era prints year 0000 as "0001" (era BCE year 1),
+	// where PHP's explicit formats and the proleptic-year field both keep it 0.
+	private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("uuuu-MM-dd");
 
-	private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+	private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss");
 
 	/** {@code attendance_import_employee_code_column_aliases()} ({@code xlsx_parser.php:395}). */
 	static final List<String> EMPLOYEE_CODE_ALIASES = List.of(
@@ -407,8 +409,9 @@ public final class LegacyAttendanceImportReader {
 		if (value.isEmpty()) {
 			return "";
 		}
-		// preg_replace('/\s+/u', ' ', $code): ASCII whitespace runs become one space.
-		return value.replaceAll("\\s+", " ");
+		// preg_replace('/\s+/u', ' ', $code): the /u modifier makes \s match
+		// Unicode whitespace (a non-breaking space included), hence (?U).
+		return value.replaceAll("(?U)\\s+", " ");
 	}
 
 	/**

@@ -306,11 +306,11 @@ public class LegacyScheduleCalendar {
 	 */
 	public static Map<String, Object> rowFromShift(Map<String, Object> shift, String exceptionNote) {
 		Map<String, Object> row = new LinkedHashMap<>();
-		if (exceptionNote != null && !exceptionNote.trim().isEmpty()) {
+		if (exceptionNote != null && !LegacyValues.phpTrim(exceptionNote).isEmpty()) {
 			row.put("name", null);
 			row.put("start_time", null);
 			row.put("end_time", null);
-			row.put("exception_note", exceptionNote.trim());
+			row.put("exception_note", LegacyValues.phpTrim(exceptionNote));
 			return row;
 		}
 		String name = LegacyValues.phpTrim(shift.get("name") == null ? "" : String.valueOf(shift.get("name")));

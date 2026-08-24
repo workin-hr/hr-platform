@@ -101,7 +101,7 @@ public class LegacyAttendanceLocation {
 
 		double distance = haversineMeters(latitude, longitude,
 				toDouble(branch.get("latitude")), toDouble(branch.get("longitude")));
-		int radius = radiusMeters(branch);
+		long radius = radiusMeters(branch);
 		if (distance > radius) {
 			throw outOfRange(distance, radius);
 		}
@@ -134,11 +134,11 @@ public class LegacyAttendanceLocation {
 		}
 
 		Double nearestDistance = null;
-		int nearestRadius = DEFAULT_RADIUS_METERS;
+		long nearestRadius = DEFAULT_RADIUS_METERS;
 		for (Map<String, Object> branch : branches) {
 			double distance = haversineMeters(latitude, longitude,
 					toDouble(branch.get("latitude")), toDouble(branch.get("longitude")));
-			int radius = radiusMeters(branch);
+			long radius = radiusMeters(branch);
 			if (distance <= radius) {
 				return;
 			}
@@ -270,10 +270,15 @@ public class LegacyAttendanceLocation {
 		return id > 0 ? id : null;
 	}
 
-	/** {@code branch_attendance_radius_meters()}: a non-positive radius becomes 200. */
-	public static int radiusMeters(Map<String, Object> branch) {
+	/**
+	 * {@code branch_attendance_radius_meters()}: a non-positive radius becomes
+	 * 200. Kept at 64-bit width: {@code radius_meters} is an unsigned database
+	 * column, so a value above {@link Integer#MAX_VALUE} is legitimate and
+	 * must not wrap negative and fall back to the default.
+	 */
+	public static long radiusMeters(Map<String, Object> branch) {
 		Object raw = branch == null ? null : branch.get("radius_meters");
-		int radius = raw == null ? DEFAULT_RADIUS_METERS : (int) LegacyValues.toPhpLong(raw);
+		long radius = raw == null ? DEFAULT_RADIUS_METERS : LegacyValues.toPhpLong(raw);
 		return radius > 0 ? radius : DEFAULT_RADIUS_METERS;
 	}
 
@@ -297,7 +302,7 @@ public class LegacyAttendanceLocation {
 	}
 
 	/** {@code fail_out_of_attendance_range()}: 400, with the distance rounded to whole metres. */
-	private static LegacyApiException outOfRange(double distanceMeters, int radiusMeters) {
+	private static LegacyApiException outOfRange(double distanceMeters, long radiusMeters) {
 		return new LegacyApiException(400, "out_of_range", null, Map.of(
 				"dist", String.valueOf((long) Math.round(distanceMeters)),
 				"radius", String.valueOf(radiusMeters)));
