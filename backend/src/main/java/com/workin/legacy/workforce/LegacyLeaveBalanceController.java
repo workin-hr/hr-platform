@@ -1,6 +1,8 @@
 package com.workin.legacy.workforce;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.HttpHeaders;
@@ -109,7 +111,9 @@ public class LegacyLeaveBalanceController {
 		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
 		int year = query.value("year") == null
 				? clock.today().getYear() : (int) LegacyValues.toPhpLong(query.value("year"));
-		if (year < 2000 || year > 2100) throw new LegacyApiException(400, "invalid_input");
+		if (year < 2000 || year > 2100) {
+			throw new LegacyApiException(400, "invalid_input");
+		}
 		try {
 			byte[] body = spreadsheets.template(context.companyId(), year, messages.resolveLocale(request));
 			return ResponseEntity.ok()
@@ -127,7 +131,9 @@ public class LegacyLeaveBalanceController {
 		requireMethod(request, "POST");
 		LegacyRequestContext context = companyRole();
 		Part file = part(request, "file");
-		if (file == null) throw new LegacyApiException(400, "no_file_uploaded");
+		if (file == null) {
+			throw new LegacyApiException(400, "no_file_uploaded");
+		}
 		int year = formOrQueryYear(request);
 		try {
 			Map<String, Object> data = spreadsheets.analyze(
@@ -151,8 +157,21 @@ public class LegacyLeaveBalanceController {
 				|| LegacyValues.isPhpEmpty(rows)) {
 			throw new LegacyApiException(400, "field_required", null, Map.of("field", "rows"));
 		}
+
+		// import_bulk.php first filters non-array rows and unwraps an optional
+		// nested payload into a fresh, zero-based payload list. The importer's
+		// row_index is therefore relative to this filtered list, not the raw JSON.
+		List<Object> payloads = new ArrayList<>();
+		for (Object raw : LegacyValues.phpArrayValues(rows)) {
+			if (!(raw instanceof Map<?, ?> row)) {
+				continue;
+			}
+			Object nested = row.get("payload");
+			payloads.add(nested instanceof Map<?, ?> ? nested : row);
+		}
+
 		Map<String, Object> result = spreadsheets.importRows(
-				context.companyId(), rows, messages.resolveLocale(request));
+				context.companyId(), payloads, messages.resolveLocale(request));
 		int inserted = ((Number) result.get("inserted")).intValue();
 		int updated = ((Number) result.get("updated")).intValue();
 		boolean failed = !((java.util.List<?>) result.get("failed")).isEmpty();
@@ -200,7 +219,9 @@ public class LegacyLeaveBalanceController {
 	}
 
 	private static void requireMethod(HttpServletRequest request, String expected) {
-		if (!expected.equals(request.getMethod())) throw new LegacyApiException(405, "invalid_method");
+		if (!expected.equals(request.getMethod())) {
+			throw new LegacyApiException(405, "invalid_method");
+		}
 	}
 
 	private String message(HttpServletRequest request, String key) {
