@@ -150,8 +150,7 @@ public class LegacyLeaveBalanceService {
 		Long own = context.role() == LegacyEmployee.Role.EMPLOYEE ? context.employeeId() : null;
 		Long manager = context.role() == LegacyEmployee.Role.MANAGER ? context.employeeId() : null;
 		Long employeeFilter = null;
-		if (listFilters && own == null && manager == null
-				&& !LegacyValues.isPhpEmpty(query.value("employee_id"))) {
+		if (listFilters && own == null && !LegacyValues.isPhpEmpty(query.value("employee_id"))) {
 			employeeFilter = LegacyValues.toPhpLong(query.value("employee_id"));
 		}
 		int yearFrom = (int) LegacyValues.toPhpLong(query.value("year_from"));
