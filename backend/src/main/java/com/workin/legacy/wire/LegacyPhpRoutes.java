@@ -63,7 +63,16 @@ public final class LegacyPhpRoutes {
 		"/apis/api/company_official_holidays/**",
 		"/apis/api/attendance/**",
 		"/apis/api/schedules/**",
-		"/apis/api/requests/**",
+		// Six of seven -- exact routes, not a "/apis/api/requests/**" wildcard:
+		// approve.php has no controller yet (D-100), and a wildcard here would
+		// permitAll() it past Spring Security into a 404 from DispatcherServlet
+		// instead of falling through to .anyRequest().authenticated()'s 401.
+		"/apis/api/requests/list.php",
+		"/apis/api/requests/one.php",
+		"/apis/api/requests/create.php",
+		"/apis/api/requests/update.php",
+		"/apis/api/requests/delete.php",
+		"/apis/api/requests/reject.php",
 	};
 
 	private LegacyPhpRoutes() {

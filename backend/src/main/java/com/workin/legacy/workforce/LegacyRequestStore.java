@@ -212,10 +212,15 @@ public class LegacyRequestStore {
 		});
 	}
 
-	/** {@code approve.php}/{@code reject.php}: status, reply, decided_at = NOW(). */
-	public void updateStatus(long id, String status, String reply) {
+	/**
+	 * {@code approve.php}/{@code reject.php}: status, reply, decided_at = NOW().
+	 * {@code approverId} is a deliberate addition over legacy -- see
+	 * {@link LegacyRequestService#reject}.
+	 */
+	public void updateStatus(long id, String status, String reply, Long approverId) {
 		jdbcTemplate.update(
-				"UPDATE requests SET status = ?, reply = ?, decided_at = NOW() WHERE id = ?", status, reply, id);
+				"UPDATE requests SET status = ?, reply = ?, approver_id = ?, decided_at = NOW() WHERE id = ?",
+				status, reply, approverId, id);
 	}
 
 	public void deleteOwnedByEmployee(long id, long employeeId) {

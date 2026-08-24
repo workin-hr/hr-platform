@@ -86,6 +86,7 @@ class LegacyRequestEndToEndTest {
 	private static final long REQUEST_PENDING_1B = 207202L;
 	private static final long REQUEST_APPROVED_1A = 207203L;
 	private static final long REQUEST_PENDING_2 = 207204L;
+	private static final long REQUEST_PENDING_1A_MARCH = 207205L;
 
 	@Autowired
 	private TestRestTemplate restTemplate;
@@ -138,6 +139,23 @@ class LegacyRequestEndToEndTest {
 
 		assertThat(idsOf(body)).contains(REQUEST_PENDING_1A, REQUEST_APPROVED_1A);
 		assertThat(idsOf(body)).doesNotContain(REQUEST_PENDING_1B);
+	}
+
+	@Test
+	void listDateRangeFilterUsesTheLegacyFromToWireKeysNotDateFromDateTo() {
+		Map<String, Object> body = get(LIST + "?limit=100&from=2026-02-01&to=2026-04-01", ADMIN_1, 200);
+
+		assertThat(idsOf(body)).containsExactly(REQUEST_PENDING_1A_MARCH);
+	}
+
+	@Test
+	void listIgnoresTheNonLegacyDateFromDateToAliasesEntirely() {
+		Map<String, Object> body = get(
+				LIST + "?limit=100&date_from=2026-02-01&date_to=2026-04-01", ADMIN_1, 200);
+
+		// The aliases are not read at all, so the list stays unbounded rather
+		// than filtering (or erroring) on them.
+		assertThat(idsOf(body)).contains(REQUEST_PENDING_1A, REQUEST_PENDING_1A_MARCH);
 	}
 
 	@Test
@@ -338,6 +356,31 @@ class LegacyRequestEndToEndTest {
 		assertThat(status(response)).isEqualTo(400);
 	}
 
+	@Test
+	void updateRejectsAnotherCompanysRequestTypeUnlikeLegacy() {
+		long id = insertRequest(TYPE_1, EMPLOYEE_1A, "pending");
+
+		ResponseEntity<Map<String, Object>> response = send(UPDATE + "?id=" + id, HttpMethod.PUT, EMPLOYEE_1A, """
+				{"request_type_id": %d}
+				""".formatted(TYPE_2));
+
+		assertThat(status(response)).isEqualTo(400);
+		assertThat(queryOne("SELECT request_type_id FROM requests WHERE id = " + id).get("request_type_id"))
+				.isEqualTo(TYPE_1);
+	}
+
+	@Test
+	void updateAcceptsAnOwnCompanyRequestType() {
+		long id = insertRequest(TYPE_1, EMPLOYEE_1A, "pending");
+		long otherOwnType = insertRequestTypeForCompany1();
+
+		ResponseEntity<Map<String, Object>> response = send(UPDATE + "?id=" + id, HttpMethod.PUT, EMPLOYEE_1A, """
+				{"request_type_id": %d}
+				""".formatted(otherOwnType));
+
+		assertThat(status(response)).isEqualTo(200);
+	}
+
 	// ------------------------------------------------------------------
 	// delete.php
 	// ------------------------------------------------------------------
@@ -374,10 +417,12 @@ class LegacyRequestEndToEndTest {
 
 		assertThat(status(response)).isEqualTo(200);
 		Map<String, Object> row = queryOne(
-				"SELECT status, reply, decided_at FROM requests WHERE id = " + id);
+				"SELECT status, reply, decided_at, approver_id FROM requests WHERE id = " + id);
 		assertThat(row.get("status")).isEqualTo("rejected");
 		assertThat(row.get("reply")).isEqualTo("not this time");
 		assertThat(row.get("decided_at")).isNotNull();
+		// Unlike legacy, which never writes this column -- see D-100.
+		assertThat(number(row.get("approver_id"))).isEqualTo(HR_1);
 	}
 
 	@Test
@@ -519,6 +564,19 @@ class LegacyRequestEndToEndTest {
 		}
 	}
 
+	private static long insertRequestTypeForCompany1() {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute("INSERT INTO request_types (company_id, name, is_active, created_at) VALUES ("
+					+ COMPANY_1 + ", 'Scratch Type', 1, '2025-02-01 08:00:00')", Statement.RETURN_GENERATED_KEYS);
+			try (ResultSet keys = st.getGeneratedKeys()) {
+				keys.next();
+				return keys.getLong(1);
+			}
+		} catch (Exception ex) {
+			throw new IllegalStateException(ex);
+		}
+	}
+
 	private static int count(String sql) {
 		try (Connection connection = connect(); Statement st = connection.createStatement();
 				ResultSet rs = st.executeQuery(sql)) {
@@ -588,7 +646,9 @@ class LegacyRequestEndToEndTest {
 					+ " (207203, " + EMPLOYEE_1A + ", " + TYPE_1 + ", '2026-01-01', '2026-01-02', 'approved',"
 					+ "  '2025-06-03 09:00:00'),"
 					+ " (207204, " + EMPLOYEE_2 + ", " + TYPE_2 + ", '2026-01-01', '2026-01-02', 'pending',"
-					+ "  '2025-06-04 09:00:00')");
+					+ "  '2025-06-04 09:00:00'),"
+					+ " (207205, " + EMPLOYEE_1A + ", " + TYPE_1 + ", '2026-03-01', '2026-03-02', 'pending',"
+					+ "  '2025-06-05 09:00:00')");
 		}
 	}
 

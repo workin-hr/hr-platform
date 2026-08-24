@@ -107,8 +107,11 @@ public class LegacyRequestService {
 			typeId = LegacyValues.toPhpLong(typeIdParam);
 		}
 
-		String dateFrom = nonEmptyQueryValue(query, "date_from");
-		String dateTo = nonEmptyQueryValue(query, "date_to");
+		// Request::DATE_FROM / DATE_TO (request.php:26-27) are the wire keys
+		// "from"/"to", not "date_from"/"date_to" -- D-080, already the shape
+		// LegacyOfficialHolidayService's own date filter uses.
+		String dateFrom = nonEmptyQueryValue(query, "from");
+		String dateTo = nonEmptyQueryValue(query, "to");
 		String search = LegacyPagination.searchQueryParam(query);
 		LegacyPagination.Params pagination = LegacyPagination.params(query);
 
@@ -188,6 +191,15 @@ public class LegacyRequestService {
 	 * answers {@code nothing_to_update}, never {@code not_found} or
 	 * {@code already_decided}, exactly as {@code request_types/update.php}'s
 	 * own D-088 note already established for this ordering.
+	 *
+	 * <p>Unlike legacy, a supplied {@code request_type_id} is validated against
+	 * the caller's own company before the write, the same check {@link #create}
+	 * already applies. PHP's {@code update.php} skips this entirely -- the FK
+	 * only proves the type exists somewhere, not that it belongs to this
+	 * tenant -- so an unvalidated port would let an employee point their
+	 * request at another company's type, which then leaks that company's type
+	 * name back through this same response and {@code reject.php}'s. A
+	 * deliberate, security-motivated narrowing, not a preserved measurement.
 	 */
 	public Map<String, Object> update(LegacyRequestContext context, long id, Map<String, Object> rawBody) {
 		Map<String, Object> body = new LinkedHashMap<>(rawBody == null ? Map.of() : rawBody);
@@ -218,6 +230,13 @@ public class LegacyRequestService {
 			throw new LegacyApiException(400, "already_decided");
 		}
 
+		if (body.containsKey("request_type_id")) {
+			long requestTypeId = LegacyValues.toPhpLong(body.get("request_type_id"));
+			if (requestTypeStore.byIdForCompany(context.companyId(), requestTypeId) == null) {
+				throw new LegacyApiException(400, "not_found");
+			}
+		}
+
 		store.updateFields(id, context.employeeId(), columns, values);
 		return store.byIdWithTypeAndEmployeeName(id);
 	}
@@ -238,6 +257,15 @@ public class LegacyRequestService {
 	 * {@code requests/reject.php}. Unlike {@code request_approve()}, the reply
 	 * is stored exactly as received -- an empty string stays an empty string,
 	 * never normalised to {@code NULL} the way {@code approve} treats one.
+	 *
+	 * <p>Unlike legacy, {@code approver_id} is written here. Neither
+	 * {@code approve.php} nor {@code reject.php} ever populates that column in
+	 * PHP -- it is passed into {@code request_approve()} for the notification
+	 * only -- but nothing in legacy reads it either, so leaving it null carries
+	 * no compatibility benefit and only loses the deciding employee for every
+	 * later reader (`one.php`/`list.php`'s own response, and any ETL/report
+	 * this wave's own specification already flags {@code approver_id} mapping
+	 * as needing resolved). A deliberate correction, not a preserved bug.
 	 */
 	public void reject(LegacyRequestContext context, String locale, long id, String reply) {
 		Map<String, Object> request = store.byIdForCompanyWithType(id, context.companyId());
@@ -248,9 +276,9 @@ public class LegacyRequestService {
 			throw new LegacyApiException(400, "already_decided");
 		}
 
-		store.updateStatus(id, "rejected", reply);
-
 		Long approverEmployeeId = context.employeeId() == 0L ? null : context.employeeId();
+		store.updateStatus(id, "rejected", reply, approverEmployeeId);
+
 		String title = messages.translate(locale, "request_rejected", null);
 		String body = reply != null && !LegacyValues.phpTrim(reply).isEmpty()
 				? reply
