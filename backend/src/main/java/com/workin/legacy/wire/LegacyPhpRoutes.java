@@ -74,6 +74,7 @@ public final class LegacyPhpRoutes {
 		"/apis/api/requests/reject.php",
 		"/apis/api/leave_balances/**",
 		"/apis/api/salary_contracts/**",
+		"/apis/api/advances/**",
 	};
 
 	private LegacyPhpRoutes() {
