@@ -1,7 +1,6 @@
 package com.workin.legacy.workforce;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -51,8 +50,8 @@ public class LegacyLeaveBalanceSpreadsheetService {
 	}
 
 	public byte[] template(long companyId, int year, String locale) {
-		boolean ar = "ar".equals(locale);
-		List<String> headers = COLUMNS.stream().map(c -> ar ? c.labelAr() : c.labelEn()).toList();
+		boolean arabic = "ar".equals(locale);
+		List<String> headers = COLUMNS.stream().map(c -> arabic ? c.labelAr() : c.labelEn()).toList();
 		List<List<String>> data = new ArrayList<>();
 		for (Map<String, Object> employee : store.templateEmployees(companyId, year)) {
 			Object remaining = employee.get("remaining_days");
@@ -63,7 +62,7 @@ public class LegacyLeaveBalanceSpreadsheetService {
 					remaining == null ? "" : text(remaining)));
 		}
 		return LegacyXlsxWriter.build(
-				headers, data, ar ? "رصيد الإجازات" : "Leave balances",
+				headers, data, arabic ? "رصيد الإجازات" : "Leave balances",
 				List.of(), List.of(), 1, Map.of());
 	}
 
@@ -87,12 +86,16 @@ public class LegacyLeaveBalanceSpreadsheetService {
 				errors.add("employee_code_duplicate_in_file");
 			}
 			boolean ok = errors.isEmpty();
-			if (ok) valid++; else invalid++;
+			if (ok) {
+				valid++;
+			} else {
+				invalid++;
+			}
 			Map<String, Object> row = new LinkedHashMap<>();
 			row.put("row_index", index + 1);
 			row.put("status", ok ? "valid" : "invalid");
 			row.put("errors", errors);
-			row.put("error_messages", errors.stream().map(e -> errorMessage(e, locale)).toList());
+			row.put("error_messages", errors.stream().map(error -> errorMessage(error, locale)).toList());
 			Map<String, Object> data = new LinkedHashMap<>();
 			data.put("employee_code", code);
 			data.put("employee_name", LegacyValues.phpTrim(text(raw.get("employee_name"))));
@@ -120,7 +123,9 @@ public class LegacyLeaveBalanceSpreadsheetService {
 		int index = 0;
 		for (Object raw : rows) {
 			index++;
-			if (!(raw instanceof Map<?, ?> source)) continue;
+			if (!(raw instanceof Map<?, ?> source)) {
+				continue;
+			}
 			Map<String, Object> row = stringMap(source);
 			Object nested = row.get("payload");
 			Map<String, Object> payload = nested instanceof Map<?, ?> map ? stringMap(map) : row;
@@ -128,13 +133,12 @@ public class LegacyLeaveBalanceSpreadsheetService {
 			int year = (int) LegacyValues.toPhpLong(payload.get("year"));
 			double remaining = payload.containsKey("remaining_days")
 					? LegacyValues.toPhpDecimal(payload.get("remaining_days")).doubleValue() : -1.0d;
-			String code = text(payload.get("employee_code"));
 			if (employeeId <= 0 || year < 2000 || remaining < 0) {
 				failed.add(failure(index, "invalid_payload", payload, locale));
 				continue;
 			}
-			String key = employeeId + "|" + year;
-			if (!seen.add(key)) {
+			String duplicateKey = employeeId + "|" + year;
+			if (!seen.add(duplicateKey)) {
 				failed.add(failure(index, "employee_code_duplicate_in_file", payload, locale));
 				continue;
 			}
@@ -175,7 +179,9 @@ public class LegacyLeaveBalanceSpreadsheetService {
 		} else {
 			throw new IllegalArgumentException("Unsupported file type. Use .xlsx or .csv");
 		}
-		if (matrix.isEmpty()) return List.of();
+		if (matrix.isEmpty()) {
+			return List.of();
+		}
 		List<String> header = matrix.getFirst();
 		List<String> keys = header.stream().map(this::normalizeHeader).toList();
 		List<Map<String, Object>> rows = new ArrayList<>();
@@ -186,9 +192,13 @@ public class LegacyLeaveBalanceSpreadsheetService {
 			for (int column = 0; column < keys.size(); column++) {
 				String value = column < source.size() ? source.get(column) : null;
 				row.put(keys.get(column), value);
-				if (value != null && !LegacyValues.phpTrim(value).isEmpty()) any = true;
+				if (value != null && !LegacyValues.phpTrim(value).isEmpty()) {
+					any = true;
+				}
 			}
-			if (any) rows.add(row);
+			if (any) {
+				rows.add(row);
+			}
 		}
 		return rows;
 	}
@@ -196,10 +206,14 @@ public class LegacyLeaveBalanceSpreadsheetService {
 	private Parsed parse(Map<String, Object> row, long companyId, int defaultYear) {
 		List<String> errors = new ArrayList<>();
 		String code = normalizeEmployeeCode(text(row.get("employee_code")));
-		if (code.isEmpty()) errors.add("employee_code_required");
+		if (code.isEmpty()) {
+			errors.add("employee_code_required");
+		}
 		String yearRaw = LegacyValues.phpTrim(text(row.get("year")));
 		int year = yearRaw.isEmpty() ? defaultYear : (int) LegacyValues.toPhpLong(yearRaw);
-		if (year < 2000 || year > 2100) errors.add("year_invalid");
+		if (year < 2000 || year > 2100) {
+			errors.add("year_invalid");
+		}
 		String remainingRaw = LegacyValues.phpTrim(text(row.get("remaining_days")));
 		Double remaining = null;
 		if (remainingRaw.isEmpty()) {
@@ -208,11 +222,17 @@ public class LegacyLeaveBalanceSpreadsheetService {
 			errors.add("remaining_days_invalid");
 		} else {
 			remaining = Double.parseDouble(remainingRaw);
-			if (remaining < 0) errors.add("remaining_days_negative");
+			if (remaining < 0) {
+				errors.add("remaining_days_negative");
+			}
 		}
 		Long employeeId = code.isEmpty() ? null : store.employeeIdByCode(companyId, code);
-		if (!code.isEmpty() && employeeId == null) errors.add("employee_not_found");
-		if (!errors.isEmpty()) return new Parsed(errors, null);
+		if (!code.isEmpty() && employeeId == null) {
+			errors.add("employee_not_found");
+		}
+		if (!errors.isEmpty()) {
+			return new Parsed(errors, null);
+		}
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("employee_id", employeeId);
 		payload.put("employee_code", code);
@@ -223,37 +243,49 @@ public class LegacyLeaveBalanceSpreadsheetService {
 	}
 
 	private String normalizeHeader(String header) {
-		String value = LegacyValues.phpTrim(header == null ? "" : header)
+		String key = foldHeader(header);
+		for (Column column : COLUMNS) {
+			if (key.equals(column.key())) {
+				return column.key();
+			}
+			List<String> aliases = new ArrayList<>();
+			aliases.add(column.labelAr());
+			aliases.add(column.labelEn());
+			aliases.addAll(column.aliases());
+			for (String alias : aliases) {
+				String aliasKey = foldHeader(alias);
+				if (!aliasKey.isEmpty() && (key.equals(aliasKey) || key.startsWith(aliasKey + "_"))) {
+					return column.key();
+				}
+			}
+		}
+		return key;
+	}
+
+	/** Literal Java port of {@code leave_balance_excel_normalize_header_key()}'s fold closure. */
+	private static String foldHeader(String raw) {
+		String value = LegacyValues.phpTrim(raw == null ? "" : raw)
 				.replace("\r\n", "\n").replace('\r', '\n');
 		int newline = value.indexOf('\n');
-		if (newline >= 0) value = LegacyValues.phpTrim(value.substring(0, newline));
-		value = value.replace('_', ' ').replace('-', ' ')
+		if (newline >= 0) {
+			value = LegacyValues.phpTrim(value.substring(0, newline));
+		}
+		value = value
+				.replaceFirst("(?iu)[_\\s]+مثال\\s*:.*$", "")
+				.replaceFirst("(?iu)[_\\s]+example\\s*:.*$", "")
+				.replace('_', ' ').replace('-', ' ')
+				.replaceFirst("(?u)\\s*[—–].*$", "")
 				.replaceAll("(?iu)\\s*\\(اختياري\\)\\s*", " ")
 				.replaceAll("(?iu)\\s*\\(اجباري\\)\\s*", " ")
 				.replaceAll("(?iu)\\s*\\(optional[^)]*\\)\\s*", " ")
 				.replaceAll("(?iu)\\s*\\(required[^)]*\\)\\s*", " ")
-				.replaceAll("\\*+", " ").replaceAll("\\s+", " ").trim().toLowerCase(Locale.ROOT)
-				.replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا').replace('ى', 'ي').replace('ة', 'ه')
-				.replaceAll("\\s+", "_").replaceAll("_+$", "");
-		for (Column column : COLUMNS) {
-			if (value.equals(column.key())) return column.key();
-			List<String> aliases = new ArrayList<>();
-			aliases.add(column.labelAr()); aliases.add(column.labelEn()); aliases.addAll(column.aliases());
-			for (String alias : aliases) {
-				String folded = simpleFold(alias);
-				if (!folded.isEmpty() && (value.equals(folded) || value.startsWith(folded + "_"))) return column.key();
-			}
-		}
-		return value;
-	}
-
-	private String simpleFold(String value) {
-		String first = value.replace("\r\n", "\n").replace('\r', '\n');
-		int newline = first.indexOf('\n');
-		if (newline >= 0) first = first.substring(0, newline);
-		return LegacyValues.phpTrim(first).replace('_', ' ').replace('-', ' ').replaceAll("\\s+", " ").trim()
-				.toLowerCase(Locale.ROOT).replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
-				.replace('ى', 'ي').replace('ة', 'ه').replaceAll("\\s+", "_").replaceAll("_+$", "");
+				.replaceAll("\\*+", " ")
+				.replaceAll("(?u)\\s+", " ");
+		value = LegacyValues.phpTrim(value).toLowerCase(Locale.ROOT)
+				.replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
+				.replace('ى', 'ي').replace('ة', 'ه')
+				.replaceAll("(?u)\\s+", "_");
+		return value.replaceFirst("_+$", "");
 	}
 
 	private static String normalizeEmployeeCode(String raw) {
@@ -270,43 +302,62 @@ public class LegacyLeaveBalanceSpreadsheetService {
 	}
 
 	private static String errorMessage(String error, String locale) {
-		boolean ar = "ar".equals(locale);
+		boolean arabic = "ar".equals(locale);
 		return switch (error) {
-			case "employee_code_required" -> ar ? "كود الموظف مطلوب" : "Employee code is required";
-			case "employee_not_found" -> ar ? "الموظف غير موجود" : "Employee not found";
-			case "year_invalid" -> ar ? "السنة غير صحيحة" : "Invalid year";
-			case "remaining_days_required" -> ar ? "الأيام المتبقية مطلوبة" : "Remaining days are required";
-			case "remaining_days_invalid" -> ar ? "الأيام المتبقية غير صحيحة" : "Invalid remaining days";
-			case "remaining_days_negative" -> ar ? "الأيام المتبقية لا يمكن أن تكون سالبة" : "Remaining days cannot be negative";
-			case "employee_code_duplicate_in_file" -> ar ? "كود مكرر في الملف" : "Duplicate employee code in file";
-			case "invalid_payload" -> ar ? "بيانات الصف غير صالحة" : "Invalid row payload";
+			case "employee_code_required" -> arabic ? "كود الموظف مطلوب" : "Employee code is required";
+			case "employee_not_found" -> arabic ? "الموظف غير موجود" : "Employee not found";
+			case "year_invalid" -> arabic ? "السنة غير صحيحة" : "Invalid year";
+			case "remaining_days_required" -> arabic ? "الأيام المتبقية مطلوبة" : "Remaining days are required";
+			case "remaining_days_invalid" -> arabic ? "الأيام المتبقية غير صحيحة" : "Invalid remaining days";
+			case "remaining_days_negative" -> arabic ? "الأيام المتبقية لا يمكن أن تكون سالبة" : "Remaining days cannot be negative";
+			case "employee_code_duplicate_in_file" -> arabic ? "كود مكرر في الملف" : "Duplicate employee code in file";
+			case "invalid_payload" -> arabic ? "بيانات الصف غير صالحة" : "Invalid row payload";
 			default -> error;
 		};
 	}
 
 	private static Map<String, Object> stringMap(Map<?, ?> source) {
 		Map<String, Object> result = new LinkedHashMap<>();
-		source.forEach((k, v) -> result.put(String.valueOf(k), v));
+		source.forEach((key, value) -> result.put(String.valueOf(key), value));
 		return result;
 	}
 
-	private static String text(Object value) { return value == null ? "" : String.valueOf(value); }
-	private static long number(Object value) { return LegacyValues.toPhpLong(value); }
-	private static double decimal(Object value) { return LegacyValues.toPhpDecimal(value).doubleValue(); }
+	private static String text(Object value) {
+		return value == null ? "" : String.valueOf(value);
+	}
+
+	private static long number(Object value) {
+		return LegacyValues.toPhpLong(value);
+	}
+
+	private static double decimal(Object value) {
+		return LegacyValues.toPhpDecimal(value).doubleValue();
+	}
+
 	private static int phpInt(Object raw, int fallback) {
 		String value = LegacyValues.phpTrim(text(raw));
 		return value.isEmpty() ? fallback : (int) LegacyValues.toPhpLong(value);
 	}
+
 	private static boolean isNumeric(String value) {
-		try { new BigDecimal(value); return true; } catch (NumberFormatException ex) { return false; }
+		try {
+			new BigDecimal(value);
+			return true;
+		} catch (NumberFormatException ex) {
+			return false;
+		}
 	}
 
-	private record Parsed(List<String> errors, Map<String, Object> payload) { }
+	private record Parsed(List<String> errors, Map<String, Object> payload) {
+	}
+
 	private record Column(String key, boolean required, String labelAr, String labelEn, List<String> aliases) {
 		Map<String, Object> wire() {
 			Map<String, Object> result = new LinkedHashMap<>();
-			result.put("key", key); result.put("required", required);
-			result.put("label_ar", labelAr); result.put("label_en", labelEn);
+			result.put("key", key);
+			result.put("required", required);
+			result.put("label_ar", labelAr);
+			result.put("label_en", labelEn);
 			return result;
 		}
 	}
