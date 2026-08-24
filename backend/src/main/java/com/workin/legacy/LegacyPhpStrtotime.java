@@ -253,14 +253,13 @@ public final class LegacyPhpStrtotime {
 
 		Matcher iso = ISO.matcher(value);
 		if (iso.matches()) {
-			LocalDate date = roll(digits(iso, 1), digits(iso, 2), digits(iso, 3), timeIsValid(iso));
-			return date == null ? null : date.atTime(timeOf(iso));
+			LocalDate date = roll(digits(iso, 1), digits(iso, 2), digits(iso, 3), true);
+			return atIsoClock(date, iso);
 		}
 		Matcher isoSlashes = ISO_SLASHES.matcher(value);
 		if (isoSlashes.matches()) {
-			LocalDate date = roll(digits(isoSlashes, 1), digits(isoSlashes, 2), digits(isoSlashes, 3),
-					timeIsValid(isoSlashes));
-			return date == null ? null : date.atTime(timeOf(isoSlashes));
+			LocalDate date = roll(digits(isoSlashes, 1), digits(isoSlashes, 2), digits(isoSlashes, 3), true);
+			return atIsoClock(date, isoSlashes);
 		}
 		Matcher eightDigits = EIGHT_DIGITS.matcher(value);
 		if (eightDigits.matches()) {
@@ -332,21 +331,30 @@ public final class LegacyPhpStrtotime {
 	}
 
 	/**
-	 * The {@code H:i[:s]} tail of an ISO match, or midnight when it is absent.
-	 *
-	 * <p>Only safe to call once {@link #roll} has returned non-null: it is
-	 * {@code roll}'s {@code timeIsValid} argument that rejects an out-of-range
-	 * clock such as {@code 25:00:00}, and building a {@link LocalTime} from one
-	 * throws before that rejection can be observed.
+	 * The {@code H:i[:s]} tail of an ISO match, applied with the same rolling
+	 * clock PHP uses: hour 24 rolls into the next day and second 60 rolls into
+	 * the next minute, exactly as {@link #clockSeconds}'s no-meridiem branch
+	 * does for the bare {@code CLOCK} grammar -- measured against
+	 * {@code generate_employee_schedule.php}, which accepts {@code 24:01} and
+	 * starts the following day rather than rejecting the value. This pattern
+	 * carries no meridiem group, so {@link #clockSeconds} itself cannot be
+	 * reused here.
 	 */
-	private static LocalTime timeOf(Matcher matcher) {
+	private static LocalDateTime atIsoClock(LocalDate date, Matcher matcher) {
+		if (date == null) {
+			return null;
+		}
 		if (matcher.group(4) == null) {
-			return LocalTime.MIDNIGHT;
+			return date.atStartOfDay();
 		}
 		int hour = Integer.parseInt(matcher.group(4));
 		int minute = Integer.parseInt(matcher.group(5));
-		int second = matcher.group(6) == null ? 0 : Integer.parseInt(matcher.group(6));
-		return LocalTime.of(hour, minute, second);
+		String secondText = matcher.group(6);
+		int second = secondText == null ? 0 : Integer.parseInt(secondText);
+		if (minute > 59 || second > 60 || hour > 24) {
+			return null;
+		}
+		return date.atStartOfDay().plusSeconds((long) hour * 3600L + (long) minute * 60L + second);
 	}
 
 	/**
@@ -476,17 +484,6 @@ public final class LegacyPhpStrtotime {
 			return null;
 		}
 		return LocalDate.of(year, 1, 1).plusMonths(month - 1L).plusDays(day - 1L);
-	}
-
-	/** An out-of-range clock time makes the whole value unparseable in PHP. */
-	private static boolean timeIsValid(Matcher matcher) {
-		if (matcher.group(4) == null) {
-			return true;
-		}
-		int hour = Integer.parseInt(matcher.group(4));
-		int minute = Integer.parseInt(matcher.group(5));
-		int second = matcher.group(6) == null ? 0 : Integer.parseInt(matcher.group(6));
-		return hour < 24 && minute < 60 && second < 60;
 	}
 
 	/** Case-insensitive, but the whole word has to be a month name PHP knows. */
