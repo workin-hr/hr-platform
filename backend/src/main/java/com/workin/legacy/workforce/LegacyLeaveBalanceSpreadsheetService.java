@@ -63,7 +63,7 @@ public class LegacyLeaveBalanceSpreadsheetService {
 		}
 		return LegacyXlsxWriter.build(
 				headers, data, arabic ? "رصيد الإجازات" : "Leave balances",
-				List.of(), List.of(), 1, Map.of());
+				List.of(), List.of(), 1, Map.of(), arabic);
 	}
 
 	public Map<String, Object> analyze(byte[] bytes, long companyId, int requestedYear, String locale) {
