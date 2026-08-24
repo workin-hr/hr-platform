@@ -116,9 +116,9 @@ public class LegacyRequestApprovalService {
 					connection.rollback();
 				} catch (Throwable rollbackFailure) { // PHP rollback failure masks the original too
 					rollbackFailure.addSuppressed(failure);
-					throw rollbackFailure;
+					throwUnchecked(rollbackFailure);
 				}
-				throw failure;
+				throwUnchecked(failure);
 			} finally {
 				try {
 					connection.setAutoCommit(previousAutoCommit);
@@ -186,6 +186,16 @@ public class LegacyRequestApprovalService {
 		}
 		long result = LegacyValues.toPhpLong(value);
 		return result > 0 ? result : null;
+	}
+
+	private static void throwUnchecked(Throwable failure) {
+		if (failure instanceof RuntimeException runtime) {
+			throw runtime;
+		}
+		if (failure instanceof Error error) {
+			throw error;
+		}
+		throw new IllegalStateException("Legacy request approval failed", failure);
 	}
 
 	private record DateSpan(LocalDate start, LocalDate end, int days, int year) {
