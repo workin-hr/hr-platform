@@ -74,9 +74,17 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/leave_balances/template_excel.php",
 			"/apis/api/leave_balances/update.php");
 
+	private static final List<String> WAVE_128_SALARY_CONTRACT_ROUTES = List.of(
+			"/apis/api/salary_contracts/create.php",
+			"/apis/api/salary_contracts/delete.php",
+			"/apis/api/salary_contracts/list.php",
+			"/apis/api/salary_contracts/one.php",
+			"/apis/api/salary_contracts/update.php");
+
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 				WAVE_124_ROUTES, WAVE_125_ROUTES, WAVE_126_ROUTES,
-				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES)
+				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES,
+				WAVE_128_SALARY_CONTRACT_ROUTES)
 			.flatMap(List::stream).sorted().toList();
 
 	@Autowired
@@ -109,7 +117,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(WAVE_126_ROUTES).hasSize(13);
 		assertThat(WAVE_127_REQUEST_ROUTES).hasSize(7);
 		assertThat(WAVE_127_LEAVE_BALANCE_ROUTES).hasSize(10);
-		assertThat(EXPECTED_ROUTES).hasSize(62).doesNotHaveDuplicates();
+		assertThat(WAVE_128_SALARY_CONTRACT_ROUTES).hasSize(5);
+		assertThat(EXPECTED_ROUTES).hasSize(67).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -136,7 +145,8 @@ class LegacyPhpRouteInventoryTest {
 				"/apis/api/requests/list.php", "/apis/api/requests/one.php",
 				"/apis/api/requests/create.php", "/apis/api/requests/update.php",
 				"/apis/api/requests/delete.php", "/apis/api/requests/approve.php",
-				"/apis/api/requests/reject.php", "/apis/api/leave_balances/**");
+				"/apis/api/requests/reject.php", "/apis/api/leave_balances/**",
+				"/apis/api/salary_contracts/**");
 		for (String entry : entries) {
 			if (entry.endsWith("/**")) {
 				String prefix = entry.substring(0, entry.length() - 2);
