@@ -127,7 +127,7 @@ public class LegacyLeaveBalanceController {
 		requireMethod(request, "POST");
 		LegacyRequestContext context = companyRole();
 		Part file = part(request, "file");
-		if (file == null || file.getSize() == 0) throw new LegacyApiException(400, "no_file_uploaded");
+		if (file == null) throw new LegacyApiException(400, "no_file_uploaded");
 		int year = formOrQueryYear(request);
 		try {
 			Map<String, Object> data = spreadsheets.analyze(
