@@ -185,6 +185,19 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/schedules/employee_monthly_schedule.php",
 			"/apis/api/schedules/generate_employee_schedule.php");
 
+	/**
+	 * Wave 12.7, slice 1: six of the module's seven endpoints.
+	 * {@code approve.php} is not here -- see {@code LegacyRequestService}'s
+	 * class javadoc for why its transaction shape is a separate slice.
+	 */
+	private static final List<String> WAVE_127_REQUEST_ROUTES = List.of(
+			"/apis/api/requests/create.php",
+			"/apis/api/requests/delete.php",
+			"/apis/api/requests/list.php",
+			"/apis/api/requests/one.php",
+			"/apis/api/requests/reject.php",
+			"/apis/api/requests/update.php");
+
 	/** Every route the application is expected to map. */
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 					WAVE_124_ROUTES,
@@ -194,7 +207,8 @@ class LegacyPhpRouteInventoryTest {
 					WAVE_126_ATTENDANCE_1B_ROUTES,
 					WAVE_126_SCHEDULES_2_ROUTES,
 					WAVE_126_ATTENDANCE_3_ROUTES,
-					WAVE_126_PRE_127_ROUTES)
+					WAVE_126_PRE_127_ROUTES,
+					WAVE_127_REQUEST_ROUTES)
 			.flatMap(List::stream)
 			.sorted()
 			.toList();
@@ -375,33 +389,58 @@ class LegacyPhpRouteInventoryTest {
 						+ WAVE_126_ATTENDANCE_1B_ROUTES.size()
 						+ WAVE_126_SCHEDULES_2_ROUTES.size()
 						+ WAVE_126_ATTENDANCE_3_ROUTES.size()
-						+ WAVE_126_PRE_127_ROUTES.size());
+						+ WAVE_126_PRE_127_ROUTES.size()
+						+ WAVE_127_REQUEST_ROUTES.size());
+	}
+
+	@Test
+	void theWave127SliceIsSixOfTheModulesSevenEndpoints() {
+		assertThat(WAVE_127_REQUEST_ROUTES).hasSize(6);
+		assertThat(WAVE_127_REQUEST_ROUTES)
+				.allSatisfy(route -> assertThat(route).startsWith("/apis/api/requests/"));
+		assertThat(WAVE_127_REQUEST_ROUTES).doesNotContain("/apis/api/requests/approve.php");
 	}
 
 	@Test
 	void everyGuardedPrefixCoversAMappedRouteAndNoMore() {
-		// LegacyPhpRoutes permits these prefixes past Spring's authorization
-		// decision, so a prefix listed there with nothing behind it would be an
-		// unauthenticated hole waiting for a future route.
-		List<String> prefixes = List.of(com.workin.legacy.wire.LegacyPhpRoutes.CONTROLLER_GUARDED);
-		assertThat(prefixes).containsExactly(
+		// LegacyPhpRoutes permits these entries past Spring's authorization
+		// decision, so a wildcard prefix with nothing behind it -- or an exact
+		// route that never got mapped -- would be an unauthenticated hole (or,
+		// for requests, a wildcard would wrongly permitAll() the unmapped
+		// approve.php into a 404 instead of .anyRequest().authenticated()'s 401).
+		List<String> entries = List.of(com.workin.legacy.wire.LegacyPhpRoutes.CONTROLLER_GUARDED);
+		assertThat(entries).containsExactly(
 				"/apis/api/employees/**", "/apis/api/hr_employees/**", "/apis/api/shifts/**",
 				"/apis/api/request_types/**", "/apis/api/company_official_holidays/**",
-				"/apis/api/attendance/**", "/apis/api/schedules/**");
+				"/apis/api/attendance/**", "/apis/api/schedules/**",
+				"/apis/api/requests/list.php", "/apis/api/requests/one.php",
+				"/apis/api/requests/create.php", "/apis/api/requests/update.php",
+				"/apis/api/requests/delete.php", "/apis/api/requests/reject.php");
 
-		for (String prefix : prefixes) {
-			String base = prefix.substring(0, prefix.length() - "**".length());
-			assertThat(EXPECTED_ROUTES.stream().filter(route -> route.startsWith(base)).toList())
-					.as("routes behind %s", prefix)
-					.isNotEmpty();
+		for (String entry : entries) {
+			if (entry.endsWith("/**")) {
+				String base = entry.substring(0, entry.length() - "**".length());
+				assertThat(EXPECTED_ROUTES.stream().filter(route -> route.startsWith(base)).toList())
+						.as("routes behind %s", entry)
+						.isNotEmpty();
+			} else {
+				assertThat(EXPECTED_ROUTES).as("exact guarded route %s is mapped", entry).contains(entry);
+			}
 		}
-		// And every route sits behind one of the permitted prefixes.
+		// And every route sits behind one of the permitted entries.
 		for (String route : EXPECTED_ROUTES) {
-			assertThat(prefixes.stream()
-					.anyMatch(prefix -> route.startsWith(prefix.substring(0, prefix.length() - 2))))
-					.as("%s is behind a guarded prefix", route)
+			assertThat(entries.stream().anyMatch(entry -> entry.endsWith("/**")
+					? route.startsWith(entry.substring(0, entry.length() - 2))
+					: entry.equals(route)))
+					.as("%s is behind a guarded entry", route)
 					.isTrue();
 		}
+	}
+
+	@Test
+	void requestsApproveIsDeliberatelyNotGuardedAndFallsThroughToAuthenticated() {
+		assertThat(List.of(com.workin.legacy.wire.LegacyPhpRoutes.CONTROLLER_GUARDED))
+				.doesNotContain("/apis/api/requests/**", "/apis/api/requests/approve.php");
 	}
 
 }

@@ -205,6 +205,26 @@ public class LegacyExceptionTypeService {
 				: null;
 	}
 
+	/**
+	 * {@code exception_type_resolve_for_company()}
+	 * ({@code helpers/exception_types_helper.php:20-45}), which
+	 * {@code requests/approve.php}'s attendance-exception side effect uses.
+	 *
+	 * <p>Unlike {@link #validateIdForCompany}, a rejected id does not become
+	 * null: it falls back to the company's own lowest-id active exception
+	 * type, and only a company with <b>no</b> active exception type at all
+	 * answers 0 -- which the caller then treats as "add no exception".
+	 */
+	public long resolveForCompany(long companyId, Long exceptionTypeId) {
+		if (exceptionTypeId != null && exceptionTypeId > 0
+				&& legacyExceptionTypeRepository.existsByIdAndCompanyIdAndIsActive(exceptionTypeId, companyId, 1)) {
+			return exceptionTypeId;
+		}
+		return legacyExceptionTypeRepository.findFirstByCompanyIdAndIsActiveOrderByIdAsc(companyId, 1)
+				.map(LegacyExceptionType::getId)
+				.orElse(0L);
+	}
+
 	private LegacyExceptionType findOwnedOrNotFound(long companyId, long id) {
 		Optional<LegacyExceptionType> row = legacyExceptionTypeRepository.findByIdAndCompanyId(id, companyId);
 		return row.orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "not_found"));
