@@ -158,9 +158,9 @@ public class LegacyLeaveBalanceController {
 			throw new LegacyApiException(400, "field_required", null, Map.of("field", "rows"));
 		}
 
-		// import_bulk.php first filters non-array rows and unwraps an optional
-		// nested payload into a fresh, zero-based payload list. The importer's
-		// row_index is therefore relative to this filtered list, not the raw JSON.
+		// PHP's controller first drops non-array entries and unwraps optional
+		// nested payload maps into a fresh zero-based list. Import row_index
+		// therefore refers to this filtered list, not the raw JSON array.
 		List<Object> payloads = new ArrayList<>();
 		for (Object raw : LegacyValues.phpArrayValues(rows)) {
 			if (!(raw instanceof Map<?, ?> row)) {
