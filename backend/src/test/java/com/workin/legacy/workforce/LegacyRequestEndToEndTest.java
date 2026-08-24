@@ -381,6 +381,19 @@ class LegacyRequestEndToEndTest {
 		assertThat(status(response)).isEqualTo(200);
 	}
 
+	@Test
+	void updatePersistsTheValidatedTypeIdNotTheRawFractionalInput() {
+		long id = insertRequest(TYPE_1, EMPLOYEE_1A, "pending");
+
+		ResponseEntity<Map<String, Object>> response = send(UPDATE + "?id=" + id, HttpMethod.PUT, EMPLOYEE_1A, """
+				{"request_type_id": "%d.9"}
+				""".formatted(TYPE_1));
+
+		assertThat(status(response)).isEqualTo(200);
+		assertThat(number(queryOne("SELECT request_type_id FROM requests WHERE id = " + id).get("request_type_id")))
+				.isEqualTo(TYPE_1);
+	}
+
 	// ------------------------------------------------------------------
 	// delete.php
 	// ------------------------------------------------------------------

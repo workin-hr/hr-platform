@@ -235,6 +235,12 @@ public class LegacyRequestService {
 			if (requestTypeStore.byIdForCompany(context.companyId(), requestTypeId) == null) {
 				throw new LegacyApiException(400, "not_found");
 			}
+			// The value collected into `values` above is still the raw body
+			// value (e.g. a fractional "207101.9"), not what was just checked.
+			// MariaDB's non-strict mode would truncate/round that independently
+			// at write time, possibly landing on a different, unvalidated id --
+			// so the validated long, not the raw input, is what gets persisted.
+			values.set(columns.indexOf("request_type_id"), requestTypeId);
 		}
 
 		store.updateFields(id, context.employeeId(), columns, values);
