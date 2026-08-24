@@ -19,8 +19,7 @@ import com.workin.legacy.wire.LegacyMessages;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * {@code /apis/api/requests/*.php} (Wave 12.7, slice 1). {@code approve.php}
- * is not mapped here -- see {@link LegacyRequestService}'s class javadoc.
+ * {@code /apis/api/requests/*.php} (Wave 12.7): all seven endpoints.
  *
  * <h2>Two authority levels</h2>
  * <ul>
@@ -29,8 +28,9 @@ import jakarta.servlet.http.HttpServletRequest;
  * <li>{@code create}, {@code update}, {@code delete} -- EMPLOYEE only; a
  *     request is submitted, edited and cancelled by the employee who owns
  *     it, never by a company role.</li>
- * <li>{@code reject} -- COMPANY_ADMIN, HR or MANAGER, with no permission
- *     gate beyond the role check.</li>
+ * <li>{@code reject} and {@code approve} -- COMPANY_ADMIN, HR or MANAGER,
+ *     with no permission gate beyond the role check. Identical guards, same
+ *     as legacy.</li>
  * </ul>
  */
 @RestController
@@ -106,6 +106,20 @@ public class LegacyRequestController {
 		Map<String, Object> body = LegacyJsonBody.read(request);
 		String reply = body.get("reply") == null ? "" : LegacyValues.toPhpString(body.get("reply"));
 		requestService.reject(context, messages.resolveLocale(request), id, reply);
+		return LegacyApiResponse.ok(message(request, "decision_recorded"), null);
+	}
+
+	/** {@code approve.php}: {@code ok(DECISION_RECORDED)} -- no {@code data} key. Same guard as {@code reject}. */
+	@RequestMapping("/approve.php")
+	public LegacyApiResponse approve(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = requestGuard.requireAuth(
+				LegacyEmployee.Role.COMPANY_ADMIN, LegacyEmployee.Role.HR, LegacyEmployee.Role.MANAGER);
+		requestGuard.requireCompanyActive(context.companyId());
+		long id = requiredId(request);
+		Map<String, Object> body = LegacyJsonBody.read(request);
+		String reply = body.get("reply") == null ? "" : LegacyValues.toPhpString(body.get("reply"));
+		requestService.approve(context, messages.resolveLocale(request), id, reply);
 		return LegacyApiResponse.ok(message(request, "decision_recorded"), null);
 	}
 

@@ -33,18 +33,22 @@ import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
 
 /**
- * Wave 12.7 slice 1: six of {@code requests}' seven endpoints --
- * {@code approve.php} is a separate slice, see
- * {@link LegacyRequestService}'s class javadoc.
+ * Wave 12.7: all seven of {@code requests}' endpoints.
  *
  * <p>Weighted towards the measured asymmetries a clean-room port would miss:
  * {@code one.php}'s explicit 404/403 against every other endpoint's default
- * 400 for the identical "not found"/"already decided" conditions; the
- * whitelist-before-lookup ordering that answers {@code nothing_to_update}
- * for an empty body even against a foreign id; {@code reject.php} storing an
- * empty-string reply verbatim rather than normalising it to {@code NULL};
- * and {@code create.php}'s type check accepting a deactivated
- * {@code request_type}.
+ * 400 for the identical "not found"/"already decided" conditions (
+ * {@code approve.php}'s own 404/409 included); the whitelist-before-lookup
+ * ordering that answers {@code nothing_to_update} for an empty body even
+ * against a foreign id; {@code reject.php} storing an empty-string reply
+ * verbatim rather than normalising it to {@code NULL} the way
+ * {@code approve.php} does; {@code create.php}'s type check accepting a
+ * deactivated {@code request_type}; and {@code approve}'s side effects --
+ * the leave-balance deduction (both the create-new-row and the
+ * increment-existing-row paths), the insufficient-balance 422, and the
+ * attendance-exception inserts (both the fresh-insert and the
+ * skip-if-already-present paths, and the fallback-to-company-default
+ * exception type when the request type names none).
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -59,6 +63,7 @@ class LegacyRequestEndToEndTest {
 	private static final String UPDATE = "/apis/api/requests/update.php";
 	private static final String DELETE = "/apis/api/requests/delete.php";
 	private static final String REJECT = "/apis/api/requests/reject.php";
+	private static final String APPROVE = "/apis/api/requests/approve.php";
 
 	private static final long COMPANY_1 = 20701L;
 	private static final long COMPANY_2 = 20702L;
@@ -78,9 +83,23 @@ class LegacyRequestEndToEndTest {
 	private static final long EMPLOYEE_2 = 207022L;
 	private static final long ADMIN_SUSPENDED = 207031L;
 
+	// Dedicated to individual approve.php side-effect tests, never shared --
+	// each mutates company-wide or employee-scoped state (leave_balance,
+	// attendance) that a shared employee would carry across tests.
+	private static final long EMPLOYEE_APPROVE_ACCRUAL = 207017L;
+	private static final long EMPLOYEE_APPROVE_INSUFFICIENT = 207018L;
+	private static final long EMPLOYEE_APPROVE_EXCEPTION_NAMED = 207019L;
+	private static final long EMPLOYEE_APPROVE_EXCEPTION_SKIP = 207020L;
+
 	private static final long TYPE_1 = 207101L;
 	private static final long TYPE_1_INACTIVE = 207102L;
 	private static final long TYPE_2 = 207103L;
+	private static final long TYPE_DEDUCT_BALANCE = 207104L;
+	private static final long TYPE_ATTENDANCE_EXCEPTION_NO_TYPE = 207105L;
+	private static final long TYPE_ATTENDANCE_EXCEPTION_WITH_TYPE = 207106L;
+
+	private static final long EXCEPTION_TYPE_DEFAULT = 207301L;
+	private static final long EXCEPTION_TYPE_NAMED = 207302L;
 
 	private static final long REQUEST_PENDING_1A = 207201L;
 	private static final long REQUEST_PENDING_1B = 207202L;
@@ -162,7 +181,12 @@ class LegacyRequestEndToEndTest {
 	void statusFilterNarrowsTheCompanyList() {
 		Map<String, Object> body = get(LIST + "?limit=100&status=approved", ADMIN_1, 200);
 
-		assertThat(idsOf(body)).containsExactly(REQUEST_APPROVED_1A);
+		// contains, not containsExactly: the approve.php tests below also turn
+		// pending requests approved company-wide, so this can only assert that
+		// the filter includes the fixture row and excludes non-approved ones,
+		// not that it is the company's only approved row.
+		assertThat(idsOf(body)).contains(REQUEST_APPROVED_1A);
+		assertThat(idsOf(body)).doesNotContain(REQUEST_PENDING_1A, REQUEST_PENDING_1B);
 	}
 
 	@Test
@@ -492,6 +516,174 @@ class LegacyRequestEndToEndTest {
 	}
 
 	// ------------------------------------------------------------------
+	// approve.php
+	// ------------------------------------------------------------------
+
+	@Test
+	void hrCanApproveAPendingRequestWithAReply() {
+		long id = insertRequest(TYPE_1, EMPLOYEE_1A, "pending");
+
+		ResponseEntity<Map<String, Object>> response = send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, """
+				{"reply": "enjoy"}
+				""");
+
+		assertThat(status(response)).isEqualTo(200);
+		Map<String, Object> row = queryOne(
+				"SELECT status, reply, decided_at, approver_id FROM requests WHERE id = " + id);
+		assertThat(row.get("status")).isEqualTo("approved");
+		assertThat(row.get("reply")).isEqualTo("enjoy");
+		assertThat(row.get("decided_at")).isNotNull();
+		assertThat(number(row.get("approver_id"))).isEqualTo(HR_1);
+	}
+
+	@Test
+	void approveNormalisesAnEmptyReplyToNullUnlikeReject() {
+		long id = insertRequest(TYPE_1, EMPLOYEE_1A, "pending");
+
+		send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, "{}");
+
+		assertThat(queryOne("SELECT reply FROM requests WHERE id = " + id).get("reply")).isNull();
+	}
+
+	@Test
+	void approveOfAForeignCompanysRequestIsAnExplicitFourOhFour() {
+		ResponseEntity<Map<String, Object>> response =
+				send(APPROVE + "?id=" + REQUEST_PENDING_2, HttpMethod.POST, ADMIN_1, "{}");
+		assertThat(status(response)).isEqualTo(404);
+	}
+
+	@Test
+	void approveOfAnAlreadyDecidedRequestIsAnExplicitFourHundredNine() {
+		ResponseEntity<Map<String, Object>> response =
+				send(APPROVE + "?id=" + REQUEST_APPROVED_1A, HttpMethod.POST, ADMIN_1, "{}");
+		assertThat(status(response)).isEqualTo(409);
+	}
+
+	@Test
+	void anEmployeeCannotApprove() {
+		long id = insertRequest(TYPE_1, EMPLOYEE_1A, "pending");
+		ResponseEntity<Map<String, Object>> response = send(APPROVE + "?id=" + id, HttpMethod.POST, EMPLOYEE_1A, "{}");
+		assertThat(status(response)).isEqualTo(403);
+	}
+
+	@Test
+	void managerCanApproveARequestInTheirBranch() {
+		long id = insertRequest(TYPE_1, EMPLOYEE_1A, "pending");
+		send(APPROVE + "?id=" + id, HttpMethod.POST, MANAGER_1A, "{}");
+		assertThat(queryOne("SELECT status FROM requests WHERE id = " + id).get("status")).isEqualTo("approved");
+	}
+
+	@Test
+	void approveWithDeductBalanceCreatesALeaveBalanceRowUsingTheDefaultAccrual() {
+		long id = insertRequest(TYPE_DEDUCT_BALANCE, EMPLOYEE_1A, "pending");
+
+		ResponseEntity<Map<String, Object>> response = send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, "{}");
+
+		assertThat(status(response)).isEqualTo(200);
+		Map<String, Object> balance = queryOne(
+				"SELECT total_days, used_days FROM leave_balance WHERE employee_id = " + EMPLOYEE_1A
+						+ " AND year = 2026");
+		assertThat(((Number) balance.get("total_days")).doubleValue()).isEqualTo(21.0);
+		assertThat(((Number) balance.get("used_days")).doubleValue()).isEqualTo(2.0);
+	}
+
+	@Test
+	void approveWithDeductBalanceUsesTheConfiguredMonthlyAccrual() {
+		monthlyLeaveAccrual(COMPANY_1, "15");
+		long id = insertRequest(TYPE_DEDUCT_BALANCE, EMPLOYEE_APPROVE_ACCRUAL, "pending");
+
+		send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, "{}");
+
+		Map<String, Object> balance = queryOne(
+				"SELECT total_days FROM leave_balance WHERE employee_id = " + EMPLOYEE_APPROVE_ACCRUAL + " AND year = 2026");
+		assertThat(((Number) balance.get("total_days")).doubleValue()).isEqualTo(15.0);
+	}
+
+	@Test
+	void approveWithDeductBalanceIncrementsAnExistingLeaveBalanceRow() {
+		execute("INSERT INTO leave_balance (employee_id, year, total_days, used_days) VALUES ("
+				+ EMPLOYEE_1A_TWIN + ", 2026, 21.0, 5.0)");
+		long id = insertRequest(TYPE_DEDUCT_BALANCE, EMPLOYEE_1A_TWIN, "pending");
+
+		send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, "{}");
+
+		Map<String, Object> balance = queryOne(
+				"SELECT used_days FROM leave_balance WHERE employee_id = " + EMPLOYEE_1A_TWIN + " AND year = 2026");
+		assertThat(((Number) balance.get("used_days")).doubleValue()).isEqualTo(7.0);
+	}
+
+	@Test
+	void approveFailsWithInsufficientBalanceAndCommitsNothing() {
+		execute("INSERT INTO leave_balance (employee_id, year, total_days, used_days) VALUES ("
+				+ EMPLOYEE_APPROVE_INSUFFICIENT + ", 2026, 1.0, 0.5)");
+		long id = insertRequest(TYPE_DEDUCT_BALANCE, EMPLOYEE_APPROVE_INSUFFICIENT, "pending");
+
+		ResponseEntity<Map<String, Object>> response = send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, "{}");
+
+		assertThat(status(response)).isEqualTo(422);
+		assertThat(queryOne("SELECT status FROM requests WHERE id = " + id).get("status")).isEqualTo("pending");
+		assertThat(((Number) queryOne(
+				"SELECT used_days FROM leave_balance WHERE employee_id = " + EMPLOYEE_APPROVE_INSUFFICIENT + " AND year = 2026")
+				.get("used_days")).doubleValue()).isEqualTo(0.5);
+	}
+
+	@Test
+	void approveWithAttendanceExceptionInsertsRowsForEachDayUsingTheNamedType() {
+		long id = insertRequest(TYPE_ATTENDANCE_EXCEPTION_WITH_TYPE, EMPLOYEE_APPROVE_EXCEPTION_NAMED, "pending");
+
+		send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, "{}");
+
+		List<Map<String, Object>> rows = query(
+				"SELECT DATE(check_in) AS d, exception_type_id FROM attendance WHERE employee_id = " + EMPLOYEE_APPROVE_EXCEPTION_NAMED
+						+ " ORDER BY check_in");
+		assertThat(rows).hasSize(2);
+		assertThat(number(rows.get(0).get("exception_type_id"))).isEqualTo(EXCEPTION_TYPE_NAMED);
+		assertThat(number(rows.get(1).get("exception_type_id"))).isEqualTo(EXCEPTION_TYPE_NAMED);
+	}
+
+	@Test
+	void approveWithAttendanceExceptionFallsBackToTheCompanysLowestIdActiveType() {
+		long id = insertRequest(TYPE_ATTENDANCE_EXCEPTION_NO_TYPE, EMPLOYEE_1A_TWIN, "pending");
+
+		send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, "{}");
+
+		List<Map<String, Object>> rows = query(
+				"SELECT exception_type_id FROM attendance WHERE employee_id = " + EMPLOYEE_1A_TWIN);
+		assertThat(rows).allSatisfy(
+				row -> assertThat(number(row.get("exception_type_id"))).isEqualTo(EXCEPTION_TYPE_DEFAULT));
+	}
+
+	@Test
+	void approveSkipsADayThatAlreadyHasAttendance() {
+		execute("INSERT INTO attendance (employee_id, check_in, method) VALUES ("
+				+ EMPLOYEE_APPROVE_EXCEPTION_SKIP + ", '2026-01-01 09:00:00', 'app')");
+		long id = insertRequest(TYPE_ATTENDANCE_EXCEPTION_WITH_TYPE, EMPLOYEE_APPROVE_EXCEPTION_SKIP, "pending");
+
+		send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, "{}");
+
+		// The pre-existing 2026-01-01 row is untouched (no exception_type_id),
+		// and only 2026-01-02 gets a new inserted row.
+		assertThat(count("SELECT COUNT(*) FROM attendance WHERE employee_id = " + EMPLOYEE_APPROVE_EXCEPTION_SKIP)).isEqualTo(2);
+		assertThat(count("SELECT COUNT(*) FROM attendance WHERE employee_id = " + EMPLOYEE_APPROVE_EXCEPTION_SKIP
+				+ " AND exception_type_id IS NOT NULL")).isEqualTo(1);
+	}
+
+	@Test
+	void approveNotifiesTheRequestingEmployee() {
+		long id = insertRequest(TYPE_1, EMPLOYEE_1A, "pending");
+		int before = count(
+				"SELECT COUNT(*) FROM notifications WHERE to_employee_id = " + EMPLOYEE_1A
+						+ " AND reference_type = 'request' AND reference_id = " + id);
+
+		send(APPROVE + "?id=" + id, HttpMethod.POST, HR_1, "{}");
+
+		assertThat(count(
+				"SELECT COUNT(*) FROM notifications WHERE to_employee_id = " + EMPLOYEE_1A
+						+ " AND reference_type = 'request' AND reference_id = " + id))
+				.isEqualTo(before + 1);
+	}
+
+	// ------------------------------------------------------------------
 	// Helpers
 	// ------------------------------------------------------------------
 
@@ -601,19 +793,44 @@ class LegacyRequestEndToEndTest {
 	}
 
 	private static Map<String, Object> queryOne(String sql) {
+		List<Map<String, Object>> rows = query(sql);
+		return rows.isEmpty() ? null : rows.get(0);
+	}
+
+	private static List<Map<String, Object>> query(String sql) {
 		try (Connection connection = connect(); Statement st = connection.createStatement();
 				ResultSet rs = st.executeQuery(sql)) {
-			if (!rs.next()) {
-				return null;
+			List<Map<String, Object>> rows = new ArrayList<>();
+			while (rs.next()) {
+				Map<String, Object> row = new LinkedHashMap<>();
+				for (int column = 1; column <= rs.getMetaData().getColumnCount(); column++) {
+					row.put(rs.getMetaData().getColumnLabel(column), rs.getObject(column));
+				}
+				rows.add(row);
 			}
-			Map<String, Object> row = new LinkedHashMap<>();
-			for (int column = 1; column <= rs.getMetaData().getColumnCount(); column++) {
-				row.put(rs.getMetaData().getColumnLabel(column), rs.getObject(column));
-			}
-			return row;
+			return rows;
 		} catch (Exception ex) {
 			throw new IllegalStateException(ex);
 		}
+	}
+
+	private static void execute(String sql) {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute(sql);
+		} catch (Exception ex) {
+			throw new IllegalStateException(ex);
+		}
+	}
+
+	private static void monthlyLeaveAccrual(long companyId, String value) {
+		execute("INSERT INTO setting_definitions (id, setting_key, is_multi) VALUES"
+				+ " (800, 'monthly_leave_accrual', 1)");
+		execute("INSERT INTO company_settings (id, company_id, setting_definition_id) VALUES"
+				+ " (800, " + companyId + ", 800)");
+		execute("INSERT INTO setting_allowed_values (id, setting_definition_id, value, sort_order) VALUES"
+				+ " (800, 800, '" + value + "', 0)");
+		execute("INSERT INTO company_setting_values (company_setting_id, setting_allowed_value_id) VALUES"
+				+ " (800, 800)");
 	}
 
 	private static void seed() throws Exception {
@@ -638,16 +855,36 @@ class LegacyRequestEndToEndTest {
 			employee(st, EMPLOYEE_1A, COMPANY_1, BRANCH_1A, "employee", "+201000207014", "Employee A");
 			employee(st, EMPLOYEE_1A_TWIN, COMPANY_1, BRANCH_1A, "employee", "+201000207015", "Employee A Twin");
 			employee(st, EMPLOYEE_1B, COMPANY_1, BRANCH_1B, "employee", "+201000207016", "Employee B");
+			employee(st, EMPLOYEE_APPROVE_ACCRUAL, COMPANY_1, BRANCH_1A, "employee",
+					"+201000207017", "Approve Accrual");
+			employee(st, EMPLOYEE_APPROVE_INSUFFICIENT, COMPANY_1, BRANCH_1A, "employee",
+					"+201000207018", "Approve Insufficient");
+			employee(st, EMPLOYEE_APPROVE_EXCEPTION_NAMED, COMPANY_1, BRANCH_1A, "employee",
+					"+201000207019", "Approve Exception Named");
+			employee(st, EMPLOYEE_APPROVE_EXCEPTION_SKIP, COMPANY_1, BRANCH_1A, "employee",
+					"+201000207020", "Approve Exception Skip");
 			employee(st, ADMIN_2, COMPANY_2, BRANCH_2, "company_admin", "+201000207021", "Admin Two");
 			employee(st, EMPLOYEE_2, COMPANY_2, BRANCH_2, "employee", "+201000207022", "Employee Two");
 			employee(st, ADMIN_SUSPENDED, COMPANY_SUSPENDED, BRANCH_2, "company_admin",
 					"+201000207031", "Admin Suspended");
 
 			st.execute("""
-					INSERT INTO request_types (id, company_id, name, is_active, created_at) VALUES
-					  (207101, 20701, 'Vacation', 1, '2025-02-01 08:00:00'),
-					  (207102, 20701, 'Deactivated Type', 0, '2025-02-01 08:00:00'),
-					  (207103, 20702, 'Other Company Type', 1, '2025-02-01 08:00:00')
+					INSERT INTO request_types (
+						id, company_id, name, is_active, deduct_balance, add_attendance_exception,
+						exception_type_id, created_at
+					) VALUES
+					  (207101, 20701, 'Vacation', 1, 0, 0, NULL, '2025-02-01 08:00:00'),
+					  (207102, 20701, 'Deactivated Type', 0, 0, 0, NULL, '2025-02-01 08:00:00'),
+					  (207103, 20702, 'Other Company Type', 1, 0, 0, NULL, '2025-02-01 08:00:00'),
+					  (207104, 20701, 'Deducts Balance', 1, 1, 0, NULL, '2025-02-01 08:00:00'),
+					  (207105, 20701, 'Adds Exception, No Type', 1, 0, 1, NULL, '2025-02-01 08:00:00'),
+					  (207106, 20701, 'Adds Exception, Named Type', 1, 0, 1, 207302, '2025-02-01 08:00:00')
+					""");
+
+			st.execute("""
+					INSERT INTO exception_types (id, company_id, name, is_active, created_at) VALUES
+					  (207301, 20701, 'Default Exception', 1, '2025-02-01 08:00:00'),
+					  (207302, 20701, 'Named Exception', 1, '2025-02-01 08:00:00')
 					""");
 
 			st.execute("INSERT INTO requests (id, employee_id, request_type_id, from_date, to_date, status,"

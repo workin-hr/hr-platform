@@ -1,16 +1,26 @@
 package com.workin.legacy.workforce;
 
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.sql.DataSource;
+
 import org.springframework.stereotype.Service;
 
+import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyPagination;
+import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.attendance.LegacyExceptionTypeService;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.employees.LegacyEmployeeStore;
@@ -19,20 +29,7 @@ import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyMessages;
 
 /**
- * {@code hr-legacy/apis/api/requests/*.php} (Wave 12.7, slice 1).
- *
- * <h2>{@code approve.php} is a separate slice</h2>
- * <p>{@code request_approve()} ({@code request_actions_helper.php:201-249})
- * writes {@code requests}, {@code leave_balance} and {@code attendance} and
- * sends a notification, all inside one PDO transaction. Porting that
- * atomically needs the same explicit-{@code Connection}-sharing shape
- * {@link com.workin.legacy.attendance.spreadsheet.LegacyAttendanceImportService}
- * uses across stores, which this slice does not yet build. The other six
- * endpoints -- {@code list}, {@code one}, {@code create}, {@code update},
- * {@code delete}, {@code reject} -- touch only {@code requests} itself (or,
- * for {@code reject}, {@code requests} plus one notification insert that
- * legacy does not require to share the request's transaction), so they carry
- * no such dependency and are delivered here.
+ * {@code hr-legacy/apis/api/requests/*.php} (Wave 12.7).
  *
  * <h2>{@code not_found}/{@code already_decided} are not one status code</h2>
  * <p>Measured, not normalised: {@code one.php} and {@code request_approve()}
@@ -43,6 +40,22 @@ import com.workin.legacy.wire.LegacyMessages;
  * failures, which defaults to 400. Five endpoints, three different codes for
  * "not found" depending on which one answers -- reproduced exactly rather
  * than unified.
+ *
+ * <h2>{@code approve}'s transaction</h2>
+ * <p>{@code request_approve()} ({@code request_actions_helper.php:201-249})
+ * writes {@code requests}, {@code leave_balance} and {@code attendance} all
+ * inside one PDO transaction, sharing PHP's single global connection with the
+ * pre-transaction fetch and balance check that precede it. {@link #approve}
+ * reproduces the whole thing on <b>one</b> explicit {@link
+ * java.sql.Connection}, borrowed for the entire call and passed into a single
+ * {@link LegacyRequestApprovalStore} -- the same shape
+ * {@link com.workin.legacy.attendance.spreadsheet.LegacyAttendanceImportService}
+ * uses, just started earlier: PHP never re-reads {@code $request} once
+ * fetched, so neither does this. Only the notification moves off that
+ * connection, sent after it closes on the ordinary pooled {@link
+ * LegacyNotifications} -- {@code LegacyAttendanceImportService}'s own "(7) the
+ * notification, after the commit" precedent, safe here because nothing reads
+ * the notification back.
  */
 @Service
 public class LegacyRequestService {
@@ -52,17 +65,25 @@ public class LegacyRequestService {
 	private final LegacyRequestStore store;
 	private final LegacyRequestTypeStore requestTypeStore;
 	private final LegacyEmployeeStore employeeStore;
+	private final LegacyExceptionTypeService exceptionTypes;
 	private final LegacyNotifications notifications;
 	private final LegacyMessages messages;
+	private final LegacyClock clock;
+	private final DataSource dataSource;
 
 	public LegacyRequestService(
 			LegacyRequestStore store, LegacyRequestTypeStore requestTypeStore,
-			LegacyEmployeeStore employeeStore, LegacyNotifications notifications, LegacyMessages messages) {
+			LegacyEmployeeStore employeeStore, LegacyExceptionTypeService exceptionTypes,
+			LegacyNotifications notifications, LegacyMessages messages, LegacyClock clock,
+			DataSource legacyDataSource) {
 		this.store = store;
 		this.requestTypeStore = requestTypeStore;
 		this.employeeStore = employeeStore;
+		this.exceptionTypes = exceptionTypes;
 		this.notifications = notifications;
 		this.messages = messages;
+		this.clock = clock;
+		this.dataSource = legacyDataSource;
 	}
 
 	/** A page plus its {@code pagination_meta()}. */
@@ -294,6 +315,223 @@ public class LegacyRequestService {
 		notifications.toEmployee(
 				context.companyId(), LegacyValues.toPhpLong(request.get("employee_id")), approverEmployeeId,
 				"request_rejected", title, body, "request", id);
+	}
+
+	/**
+	 * {@code requests/approve.php} -> {@code request_approve()}
+	 * ({@code request_actions_helper.php:201-249}).
+	 *
+	 * <p>PHP fetches {@code $request} exactly <b>once</b>, on its single PDO
+	 * instance, and reuses that same in-memory row for the balance check, the
+	 * transaction and the notification -- it is never re-read, so a status
+	 * change racing between the pre-check and the transaction is not defended
+	 * against there and is not defended against here either. One connection is
+	 * opened for the whole call: the fetch and the balance check run on it in
+	 * autocommit mode (matching PHP running them <em>above</em>
+	 * {@code beginTransaction()}), then it flips to manual-commit only for the
+	 * {@code requests} update and the side effects. A failed rollback skips the
+	 * {@code autoCommit} restore in {@code close()}, the same reason
+	 * {@code LegacyAttendanceImportService} does -- flipping it on a connection
+	 * whose transaction never rolled back would implicitly commit it. The
+	 * notification runs after the connection is closed, on the ordinary pooled
+	 * {@link LegacyNotifications} -- {@code LegacyAttendanceImportService}'s own
+	 * "(7) the notification, after the commit" precedent.
+	 */
+	public void approve(LegacyRequestContext context, String locale, long id, String reply) {
+		String normalizedReply = reply != null && !reply.isEmpty() ? reply : null;
+		Long approverEmployeeId = context.employeeId() == 0L ? null : context.employeeId();
+
+		Connection connection = open();
+		boolean autoCommit;
+		try {
+			autoCommit = autoCommitOf(connection);
+		} catch (RuntimeException ex) {
+			close(connection, true, true);
+			throw ex;
+		}
+
+		LegacyRequestApprovalStore approvalStore = new LegacyRequestApprovalStore(connection);
+		Map<String, Object> request = null;
+		boolean rollbackFailed = false;
+		try {
+			request = approvalStore.forApproval(id, context.companyId());
+			if (request == null) {
+				throw new LegacyApiException(404, "not_found");
+			}
+			if (!"pending".equals(request.get("status"))) {
+				throw new LegacyApiException(409, "already_decided");
+			}
+
+			long employeeId = LegacyValues.toPhpLong(request.get("employee_id"));
+			String fromDate = LegacyValues.toPhpString(request.get("from_date"));
+			String toDate = LegacyValues.toPhpString(request.get("to_date"));
+			int days = inclusiveDayCount(fromDate, toDate, clock.now());
+			int year = yearOf(fromDate, clock.now());
+
+			if (!LegacyValues.isPhpEmpty(request.get("deduct_balance"))
+					&& insufficientLeaveBalance(approvalStore, employeeId, days, year)) {
+				throw new LegacyApiException(422, "insufficient_leave_balance");
+			}
+
+			try {
+				connection.setAutoCommit(false);
+			} catch (SQLException ex) {
+				throw new IllegalStateException("beginTransaction", ex);
+			}
+
+			try {
+				approvalStore.updateStatus(id, "approved", normalizedReply, approverEmployeeId);
+				applyApprovalSideEffects(approvalStore, employeeId, fromDate, toDate, days, year,
+						request, context.companyId());
+				connection.commit();
+			} catch (RuntimeException ex) {
+				connection.rollback();
+				throw ex;
+			}
+		} catch (SQLException ex) {
+			rollbackFailed = true;
+			throw new IllegalStateException("rollBack", ex);
+		} finally {
+			close(connection, autoCommit, !rollbackFailed);
+		}
+
+		String title = messages.translate(locale, "request_approved", null);
+		String body = normalizedReply != null
+				? normalizedReply
+				: messages.translate(locale, "request_approved_msg",
+						Map.of("type", LegacyValues.toPhpString(request.get("request_type_name"))));
+		notifications.toEmployee(
+				context.companyId(), LegacyValues.toPhpLong(request.get("employee_id")), approverEmployeeId,
+				"request_approved", title, body, "request", id);
+	}
+
+	/**
+	 * {@code request_apply_approval_side_effects()}
+	 * ({@code request_actions_helper.php:176-199}). {@code employeeId}/
+	 * {@code fromDate}/{@code toDate}/{@code days}/{@code year} are the same
+	 * values {@link #approve} already computed for the balance pre-check --
+	 * PHP recomputes {@code $days}/{@code $year} here too (a second
+	 * {@code strtotime()} pair on the same strings), which is harmless since
+	 * they are pure functions of already-validated input; reusing them here
+	 * instead just avoids the redundant computation.
+	 */
+	private void applyApprovalSideEffects(
+			LegacyRequestApprovalStore approvalStore, long employeeId, String fromDate, String toDate,
+			int days, int year, Map<String, Object> request, long companyId) {
+		if (employeeId <= 0 || fromDate.isEmpty() || toDate.isEmpty()) {
+			return;
+		}
+
+		if (!LegacyValues.isPhpEmpty(request.get("deduct_balance"))) {
+			applyLeaveDeduction(approvalStore, employeeId, companyId, days, year);
+		}
+		if (!LegacyValues.isPhpEmpty(request.get("add_attendance_exception"))) {
+			Long suppliedExceptionTypeId = LegacyValues.isPhpEmpty(request.get("exception_type_id"))
+					? null : LegacyValues.toPhpLong(request.get("exception_type_id"));
+			applyAttendanceExceptions(approvalStore, employeeId, fromDate, toDate, suppliedExceptionTypeId, companyId);
+		}
+	}
+
+	/** {@code request_apply_leave_deduction()} ({@code request_actions_helper.php:90-121}). */
+	private void applyLeaveDeduction(
+			LegacyRequestApprovalStore approvalStore, long employeeId, long companyId, int days, int year) {
+		if (approvalStore.leaveBalanceExists(employeeId, year)) {
+			approvalStore.incrementUsedDays(employeeId, year, days);
+			return;
+		}
+		double defaultLeaveDays = approvalStore.monthlyLeaveAccrualDefault(companyId);
+		approvalStore.insertLeaveBalance(employeeId, year, defaultLeaveDays, days);
+	}
+
+	/** {@code request_apply_attendance_exceptions()} ({@code request_actions_helper.php:130-174}). */
+	private void applyAttendanceExceptions(
+			LegacyRequestApprovalStore approvalStore, long employeeId, String fromDate, String toDate,
+			Long suppliedExceptionTypeId, long companyId) {
+		long exceptionTypeId = exceptionTypes.resolveForCompany(companyId, suppliedExceptionTypeId);
+		if (exceptionTypeId <= 0) {
+			return;
+		}
+		LocalDate start = LocalDate.parse(fromDate);
+		LocalDate end = LocalDate.parse(toDate);
+		if (end.isBefore(start)) {
+			return;
+		}
+		for (LocalDate day = start; !day.isAfter(end); day = day.plusDays(1)) {
+			String date = day.toString();
+			if (approvalStore.attendanceExistsForDay(employeeId, date)) {
+				continue;
+			}
+			approvalStore.insertAttendanceException(employeeId, date, exceptionTypeId);
+		}
+	}
+
+	/** {@code request_insufficient_leave_balance()} ({@code request_actions_helper.php:74-88}). */
+	private static boolean insufficientLeaveBalance(
+			LegacyRequestApprovalStore approvalStore, long employeeId, int days, int year) {
+		if (!approvalStore.leaveBalanceExists(employeeId, year)) {
+			return false;
+		}
+		LegacyRequestApprovalStore.LeaveBalanceRow row = approvalStore.leaveBalance(employeeId, year);
+		double available = row == null ? 0.0 : Math.max(0.0, row.totalDays() - row.usedDays());
+		return available < days;
+	}
+
+	/**
+	 * {@code request_inclusive_day_count()} ({@code request_actions_helper.php:28-37}):
+	 * 1 when either bound fails to parse, or when {@code to} precedes {@code from}.
+	 */
+	private static int inclusiveDayCount(String fromDate, String toDate, LocalDateTime reference) {
+		LocalDateTime from = LegacyPhpStrtotime.dateTimeOf(fromDate, reference);
+		LocalDateTime to = LegacyPhpStrtotime.dateTimeOf(toDate, reference);
+		if (from == null || to == null) {
+			return 1;
+		}
+		long deltaSeconds = Duration.between(from, to).getSeconds();
+		if (deltaSeconds < 0) {
+			return 1;
+		}
+		return (int) (deltaSeconds / 86400) + 1;
+	}
+
+	/** {@code (int) date('Y', strtotime($from_date))} -- 1970 on an unparseable value, matching PHP's coercion. */
+	private static int yearOf(String date, LocalDateTime reference) {
+		LocalDateTime parsed = LegacyPhpStrtotime.dateTimeOf(date, reference);
+		return parsed == null ? 1970 : parsed.getYear();
+	}
+
+	private Connection open() {
+		try {
+			return dataSource.getConnection();
+		} catch (SQLException ex) {
+			throw new IllegalStateException("getDB", ex);
+		}
+	}
+
+	private static boolean autoCommitOf(Connection connection) {
+		try {
+			return connection.getAutoCommit();
+		} catch (SQLException ex) {
+			throw new IllegalStateException("getAutoCommit", ex);
+		}
+	}
+
+	/** {@code restoreAutoCommit} false only after a failed rollback -- see the class javadoc. */
+	private static void close(Connection connection, boolean autoCommit, boolean restoreAutoCommit) {
+		if (connection == null) {
+			return;
+		}
+		if (restoreAutoCommit) {
+			try {
+				connection.setAutoCommit(autoCommit);
+			} catch (SQLException ignored) { // NOPMD - restoring pool state, never the request's outcome
+				// Nothing to do: the connection is about to go back to the pool.
+			}
+		}
+		try {
+			connection.close();
+		} catch (SQLException ignored) { // NOPMD - same
+			// Same.
+		}
 	}
 
 	/** {@code required($data, [$fields])} -- missing, null and "" fail; "0" passes. */
