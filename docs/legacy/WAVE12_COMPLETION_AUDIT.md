@@ -16,9 +16,21 @@ That is 44 newly delivered routes before the compatibility retrofit. With the 62
 
 ## Execution state
 
-- `salary_contracts`: production controller/service/store implemented on this branch; exact route/test inventory still needs to be closed before marking the slice complete.
-- Remaining modules: not yet marked implemented.
+- `salary_contracts`: **implemented and slice-reviewed** — all 5 routes have production controller/service/store code, exact route-guard registration, bidirectional inventory coverage, focused service regression tests, and automatic coverage by the global mapped-route unauthenticated guard-order E2E. The inventory is now 67 delivered routes. Hosted CI execution is still blocked by runner provisioning, so this means implementation/review complete, not CI-green.
+- `advances`: source behavior discovery complete; implementation is the next unfinished Wave 12.8 slice.
+- Deferred attendance, `penalties`, Wave 12.9, Wave 12.10 and Wave 12.R remain pending.
+
+### Salary-contract adversarial review notes
+
+- Preserved PHP method → auth role list → active-company guard order.
+- Reads permit `company_admin`, `hr`, `manager`; writes permit only `company_admin`, `hr`.
+- `daily` mode zeros `basic_salary`, transport/food/risk allowances and incentives, while preserving `daily_wage` and deductions.
+- Invalid update salary modes fall back to `monthly`; create treats every non-`daily` value as `monthly`.
+- `daily_wage` update uses `array_key_exists` semantics so explicit null/empty clears it.
+- Employee existence and contract ownership remain company-derived through `employees.company_id`.
+- Post-write re-read remains id-only, matching PHP rather than adding a new scoped read.
+- Self-review removed an accidental diff expansion: the existing security rationale in `LegacyPhpRoutes` was restored and the slice now adds only the required route entry.
 
 ## CI infrastructure blocker
 
-GitHub-hosted runner provisioning is currently failing before the first job step for this private organization/repository. A temporary `ubuntu-latest` echo-only diagnostic reproduced `steps=null`, excluding application code, Gradle and runner-image selection. Code/test review must not treat that infrastructure failure as a test failure, but Wave 12 cannot be called CI-validated until the organization Actions entitlement/provisioning issue is restored.
+GitHub-hosted runner provisioning is currently failing before the first job step for this private organization/repository. The latest `Backend Validate` on this branch again completed with an empty step list and no runner assignment, matching the earlier temporary `ubuntu-latest` echo-only diagnostic. This excludes application code, Gradle and runner-image execution from that failure. Code/test review must not treat the infrastructure failure as a test failure, but Wave 12 cannot be called CI-validated until the organization Actions entitlement/provisioning issue is restored.
