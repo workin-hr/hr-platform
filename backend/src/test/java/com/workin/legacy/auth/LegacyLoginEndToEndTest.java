@@ -31,6 +31,7 @@ import com.workin.backend.BackendApplication;
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @ActiveProfiles("phase1-mysql")
+@SuppressWarnings({"rawtypes", "unchecked"})
 class LegacyLoginEndToEndTest {
 
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
@@ -108,11 +109,11 @@ class LegacyLoginEndToEndTest {
 		assertThat(response.getStatusCode().value()).isEqualTo(200);
 		assertThat(response.getBody().get("success")).isEqualTo(true);
 
-		Map<?, ?> data = (Map<?, ?>) response.getBody().get("data");
+		Map data = (Map) response.getBody().get("data");
 		assertThat(data.keySet()).containsExactlyInAnyOrder("token", "employee");
 		assertThat(data).doesNotContainKey("refresh_token");
 
-		Map<?, ?> employee = (Map<?, ?>) data.get("employee");
+		Map employee = (Map) data.get("employee");
 		assertThat(employee).doesNotContainKeys("password_hash", "token_version");
 		assertThat(((Number) employee.get("id")).longValue()).isEqualTo(90011L);
 		assertThat(((Number) employee.get("company_id")).longValue()).isEqualTo(9001L);
@@ -194,7 +195,7 @@ class LegacyLoginEndToEndTest {
 
 	private static String token(ResponseEntity<Map> response) {
 		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		Map<?, ?> data = (Map<?, ?>) response.getBody().get("data");
+		Map data = (Map) response.getBody().get("data");
 		return (String) data.get("token");
 	}
 
