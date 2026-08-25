@@ -23,9 +23,16 @@ That is 44 newly delivered routes before the compatibility retrofit. With the 62
 - `payroll_batches`: **implemented (10/10)** across two slices -- D-104 (CRUD + `fiscal_period.php`, no calculation engine) then D-105 (`calculate`, `finalize`, `reopen`, `stats`, the transactional side effects and the calculation engine itself).
 - `payslips`: **implemented (5/6)** — D-106. `list.php`, `one.php`, `create.php`, `update.php`, `delete.php` are mapped, including the full `payroll_enrich_payslip_row()` live-recompute path. `export.php` is deliberately deferred (binary XLSX response, same class of exclusion as `attendance/export.php`).
 - `company`: **implemented (3/3)** — `update.php`, `upload_logo.php`, `upload_commercial_reg.php` (Wave 12.10, D-102).
-- Delivered bidirectional route inventory is now **103**.
+- `attendance_exception_types`: **implemented (5/5)**, retrofitted off `/api/legacy/**` (D-107) -- Wave 12.R slice 1 of 5. First proof that "retrofit" means route + envelope + fresh PHP-fidelity re-verification, not a routing-only change: this slice fixed a `{field}`-placeholder substitution gap, a `String.trim()`-vs-PHP-`trim()` charlist mismatch, and discovered `exception_types.created_at`/`updated_at` are the schema's rare `timestamp` columns (not `datetime`), which round-trip through the session's `time_zone` and must be read fresh via `LegacyJdbcValues.rowMapper()` rather than through a JPA entity's `Instant` fields.
+- Delivered bidirectional route inventory is now **108**.
 - Remaining deferred (deliberately, not pending): `attendance/overall_report.php`, `attendance/export.php`, `payslips/export.php`.
-- Wave 12.R (compatibility retrofit/route-coverage audit) remains pending -- the only genuinely open scope from this document's original list.
+- Wave 12.R (compatibility retrofit/route-coverage audit): **1 of 5 module slices done** (`attendance_exception_types`, D-107). Remaining: `branches` (6 routes, D-071's coercion probe attached), `departments` (5), `job_titles` (5), `auth/login_employee` (1) -- 17 endpoints.
+
+### `attendance_exception_types` retrofit notes (Wave 12.R slice 1, D-107)
+
+- `LegacyExceptionType`/`LegacyExceptionTypeRepository` (JPA against `legacyDataSource`, the real MariaDB schema) were already architecturally correct and are unchanged -- the D-074 drift this wave corrects is route/envelope surface, not datasource.
+- `com.workin.backend.i18n.ApiException` (no replace-map support) is replaced with `com.workin.legacy.wire.LegacyApiException` throughout the service, fixing a latent bug where `field_required`'s `{field}` placeholder could never substitute through `LegacyWireExceptionHandler.handlePlatform()`'s hardcoded `null` replace map.
+- `update.php`'s `is_active` binds PHP's raw JSON-decoded value with no cast (`whitelist_update_fields()`); this slice applies `create.php`'s own `(int)`-cast-then-truthy rule as a disclosed approximation, the same open-measurement shape D-071 already flagged for `branches`.
 
 ### Attendance-list adversarial review notes
 

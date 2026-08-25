@@ -134,11 +134,25 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/payslips/update.php",
 			"/apis/api/payslips/delete.php");
 
+	/**
+	 * Wave 12.R, D-107: the D-074 retrofit of Wave 12.1's five
+	 * {@code attendance_exception_types} routes off {@code /api/legacy/**}
+	 * onto their literal {@code /apis/api/**} paths with the PHP envelope.
+	 * First of five Wave 12.R module slices (22 endpoints total).
+	 */
+	private static final List<String> WAVE_12R_EXCEPTION_TYPE_ROUTES = List.of(
+			"/apis/api/attendance_exception_types/list.php",
+			"/apis/api/attendance_exception_types/one.php",
+			"/apis/api/attendance_exception_types/create.php",
+			"/apis/api/attendance_exception_types/update.php",
+			"/apis/api/attendance_exception_types/delete.php");
+
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 				WAVE_124_ROUTES, WAVE_125_ROUTES, WAVE_126_ROUTES,
 				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES, WAVE_1264B_ROUTES,
 				WAVE_128_SALARY_CONTRACT_ROUTES, WAVE_128_ADVANCE_ROUTES, WAVE_128_PENALTY_ROUTES,
-				WAVE_1210_COMPANY_ROUTES, WAVE_129_BATCH_ROUTES, WAVE_129_PAYSLIP_ROUTES)
+				WAVE_1210_COMPANY_ROUTES, WAVE_129_BATCH_ROUTES, WAVE_129_PAYSLIP_ROUTES,
+				WAVE_12R_EXCEPTION_TYPE_ROUTES)
 			.flatMap(List::stream).sorted().toList();
 
 	@Autowired
@@ -178,7 +192,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(WAVE_1210_COMPANY_ROUTES).hasSize(3);
 		assertThat(WAVE_129_BATCH_ROUTES).hasSize(10);
 		assertThat(WAVE_129_PAYSLIP_ROUTES).hasSize(5);
-		assertThat(EXPECTED_ROUTES).hasSize(103).doesNotHaveDuplicates();
+		assertThat(WAVE_12R_EXCEPTION_TYPE_ROUTES).hasSize(5);
+		assertThat(EXPECTED_ROUTES).hasSize(108).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -244,6 +259,18 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
+	void theWave12rExceptionTypeSliceIsAllFiveRoutesRetrofittedFromApiLegacy() {
+		assertThat(WAVE_12R_EXCEPTION_TYPE_ROUTES).hasSize(5).doesNotHaveDuplicates();
+		assertThat(WAVE_12R_EXCEPTION_TYPE_ROUTES)
+				.allSatisfy(route -> assertThat(route).startsWith("/apis/api/attendance_exception_types/"));
+		List<String> mapped = handlerMapping.getHandlerMethods().keySet().stream()
+				.flatMap(info -> info.getPatternValues().stream())
+				.filter(pattern -> pattern.startsWith("/api/legacy/attendance_exception_types"))
+				.toList();
+		assertThat(mapped).as("D-107: no /api/legacy/** route remains for this retrofitted module").isEmpty();
+	}
+
+	@Test
 	void everyGuardedEntryCoversMappedRoutesAndEveryRouteIsGuarded() {
 		List<String> entries = List.of(com.workin.legacy.wire.LegacyPhpRoutes.CONTROLLER_GUARDED);
 		assertThat(entries).containsExactly(
@@ -256,7 +283,8 @@ class LegacyPhpRouteInventoryTest {
 				"/apis/api/requests/reject.php", "/apis/api/leave_balances/**",
 				"/apis/api/salary_contracts/**", "/apis/api/advances/**", "/apis/api/penalties/**",
 				"/apis/api/company/**",
-				"/apis/api/payroll_batches/**", "/apis/api/payslips/**");
+				"/apis/api/payroll_batches/**", "/apis/api/payslips/**",
+				"/apis/api/attendance_exception_types/**");
 		for (String entry : entries) {
 			if (entry.endsWith("/**")) {
 				String prefix = entry.substring(0, entry.length() - 2);

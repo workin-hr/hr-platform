@@ -40,20 +40,21 @@ import com.workin.backend.i18n.ApiException;
  * Pre-existing in this package: {@code LegacyCompany}/{@code LegacyCompanyRepository},
  * used only by {@code com.workin.legacy.auth} and raising nothing this advice
  * would intercept, so adding the package carries no Wave-12.1-style risk.</li>
+ * <li>{@code com.workin.legacy.attendance} -- Wave 12.R, D-107. Formerly
+ * excluded because {@code LegacyExceptionTypeController} served the merged
+ * {@code /api/legacy/**} surface and raised {@code ApiException} expecting
+ * {@code ApiErrorBody} there; that controller now maps literal
+ * {@code /apis/api/attendance_exception_types/*.php} routes and belongs
+ * under this envelope like every other retrofitted D-074 module. The
+ * {@code attendance.records} entry below is therefore now redundant (its
+ * parent package is listed) but is kept explicit rather than removed, since
+ * nothing requires collapsing it and an explicit list is easier to audit.</li>
  * </ul>
- *
- * <p>The {@code attendance.records} entry is a <b>subpackage</b>, and
- * deliberately so. Wave 12.1's {@code LegacyExceptionTypeController} sits in
- * the parent {@code com.workin.legacy.attendance}, serves the merged
- * {@code /api/legacy/**} surface and raises {@code ApiException} -- which this
- * advice also handles. Listing the parent would therefore capture it and
- * render D-074's PHP envelope where its clients expect
- * {@code ApiErrorBody}, silently changing a Wave 12.1 contract. Naming only
- * the subpackage keeps the two surfaces apart.
  */
 @RestControllerAdvice(basePackages = {
 	"com.workin.legacy.employees",
 	"com.workin.legacy.workforce",
+	"com.workin.legacy.attendance",
 	"com.workin.legacy.attendance.records",
 	"com.workin.legacy.schedules",
 	"com.workin.legacy.payroll",

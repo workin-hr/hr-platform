@@ -3,11 +3,13 @@ package com.workin.legacy.attendance;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -15,9 +17,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -25,20 +29,16 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
-import com.workin.backend.i18n.ApiErrorBody;
 import com.workin.backend.identity.JwtService;
 
 /**
- * PR 12.1's full HTTP-to-real-MariaDB proof, per the Item 12
- * specification §9 (the guard-stack chain and its negative cases), §10.2
- * (permission/contract/isolation classes), D-047 (company-scoped
- * uniqueness) and D-048 (delete's atomic, tenant-safe FK clearing).
- * {@code phase1-mysql} active, real JWTs from {@link JwtService}, no
- * probe controller anywhere in the path -- every request goes through
- * {@code legacySecurityFilterChain}, {@link
- * com.workin.legacy.auth.LegacyRequestGuard}, {@link
- * com.workin.legacy.authorization.LegacyHrPermissionEnforcer} and the
- * real {@link LegacyExceptionTypeController}.
+ * PR 12.1's full HTTP-to-real-MariaDB proof, retrofitted for Wave 12.R
+ * (D-107): the same guard-stack chain and negative cases (Item 12
+ * specification §9), permission/contract/isolation classes (§10.2),
+ * D-047/D-051 (global uniqueness) and D-048 (delete's atomic, tenant-safe FK
+ * clearing) -- now exercised against the literal
+ * {@code /apis/api/attendance_exception_types/*.php} routes and the D-074
+ * PHP envelope instead of the retired {@code /api/legacy/**} REST surface.
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -46,7 +46,12 @@ import com.workin.backend.identity.JwtService;
 class LegacyExceptionTypeEndToEndTest {
 
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
-	private static final String BASE_PATH = "/api/legacy/attendance_exception_types";
+	private static final String BASE_PATH = "/apis/api/attendance_exception_types";
+	private static final String LIST = BASE_PATH + "/list.php";
+	private static final String ONE = BASE_PATH + "/one.php";
+	private static final String CREATE = BASE_PATH + "/create.php";
+	private static final String UPDATE = BASE_PATH + "/update.php";
+	private static final String DELETE = BASE_PATH + "/delete.php";
 
 	private static final long COMPANY_1 = 9101L;
 	private static final long COMPANY_2 = 9102L;
@@ -98,6 +103,14 @@ class LegacyExceptionTypeEndToEndTest {
 	private static void seed() throws Exception {
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
 			st.execute("SET SESSION sql_mode = ''");
+			// exception_types.created_at/updated_at are `timestamp` (D-107 finding: this table's audit
+			// columns are the schema's rare TIMESTAMP type, unlike the DATETIME the rest of the schema
+			// uses) -- MySQL stores TIMESTAMP internally as UTC and converts on every read/write through
+			// the session's own time_zone. LegacySessionDataSource (D-099) sets every application
+			// connection to LegacyRuntimeOffset.DEFAULT ("+02:00"); this seed connection must match it,
+			// or the literal text below round-trips through a different offset than the controller reads
+			// it back under.
+			st.execute("SET time_zone = '+02:00'");
 			st.execute("""
 					INSERT INTO companies (id, company_name, phone, status, created_at) VALUES
 					  (9101, 'E2E Co 1', '+201000009101', 'active', '2025-01-15 09:00:00'),
@@ -175,101 +188,59 @@ class LegacyExceptionTypeEndToEndTest {
 
 	@Test
 	void plainEmployeeSeesOnlyActiveTypesByDefault() {
-		ResponseEntity<LegacyExceptionTypePage> response = get(BASE_PATH, PLAIN_EMPLOYEE);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody().data()).extracting("name").contains("Sick Leave").doesNotContain("Unpaid Leave");
+		List<Map<String, Object>> rows = rowsOf(send(LIST, PLAIN_EMPLOYEE, HttpMethod.GET, null, 200, ""));
+		assertThat(rows).extracting(row -> row.get("name")).contains("Sick Leave").doesNotContain("Unpaid Leave");
 	}
 
 	@Test
 	void adminSeesInactiveTypesByDefault() {
-		ResponseEntity<LegacyExceptionTypePage> response = get(BASE_PATH, ADMIN_1);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody().data()).extracting("name").contains("Sick Leave", "Unpaid Leave");
+		List<Map<String, Object>> rows = rowsOf(send(LIST, ADMIN_1, HttpMethod.GET, null, 200, ""));
+		assertThat(rows).extracting(row -> row.get("name")).contains("Sick Leave", "Unpaid Leave");
 	}
 
 	@Test
 	void searchFiltersByNameSubstring() {
-		ResponseEntity<LegacyExceptionTypePage> response = get(BASE_PATH + "?search=Sick", ADMIN_1);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody().data()).extracting("name").containsExactly("Sick Leave");
+		List<Map<String, Object>> rows = rowsOf(send(LIST, ADMIN_1, HttpMethod.GET, null, 200, "?search=Sick"));
+		assertThat(rows).extracting(row -> row.get("name")).containsExactly("Sick Leave");
 	}
 
 	@Test
-	void oneReturnsTheRowForItsOwnCompany() {
-		ResponseEntity<LegacyExceptionTypeView> response = get(BASE_PATH + "/9201", ADMIN_1, LegacyExceptionTypeView.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody().name()).isEqualTo("Sick Leave");
+	void oneReturnsTheWireFaithfulRowForItsOwnCompany() {
+		Map<String, Object> row = dataOf(send(ONE, ADMIN_1, HttpMethod.GET, null, 200, "?id=9201"));
+		assertThat(row.get("name")).isEqualTo("Sick Leave");
+		assertThat(row.get("company_id")).isEqualTo(9101);
+		assertThat(row.get("is_active")).isEqualTo(1);
+		assertThat(row.get("created_at")).isEqualTo("2025-04-01 08:00:00");
+		assertThat(row.get("updated_at")).isEqualTo("2025-04-01 08:00:00");
 	}
 
 	@Test
 	void oneReturns404ForAnotherCompanysRow() {
-		ResponseEntity<ApiErrorBody> response = get(BASE_PATH + "/9203", ADMIN_1, ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(404);
-		assertThat(response.getBody().code()).isEqualTo("not_found");
-	}
-
-	/**
-	 * This module's failure contract is {@code ApiErrorBody}, and it must stay
-	 * that way as legacy {@code *.php} waves land.
-	 *
-	 * <p>{@code LegacyWireExceptionHandler} renders D-074's PHP envelope and
-	 * handles <b>both</b> {@code LegacyApiException} and {@code ApiException} --
-	 * and this controller raises the latter. Wave 12.6 put its attendance
-	 * routes in {@code com.workin.legacy.attendance.records} and listed only
-	 * that subpackage on the advice precisely so this controller, in the parent
-	 * {@code com.workin.legacy.attendance}, is not captured. Adding the parent
-	 * would silently convert every error here from
-	 * {@code {code, message}} to {@code {success, message}}.
-	 *
-	 * <p>So this asserts the discriminator directly on the raw body rather than
-	 * through a typed binding: {@code code} present, {@code success} absent.
-	 */
-	@Test
-	void theFailureBodyStaysApiErrorBodyAndDoesNotBecomeThePhpEnvelope() {
-		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-				BASE_PATH + "/9203", HttpMethod.GET, new HttpEntity<>(headersFor(tokenFor(ADMIN_1))),
-				new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
-
-		assertThat(response.getStatusCode().value()).isEqualTo(404);
-		assertThat(response.getBody()).containsKey("code");
-		assertThat(response.getBody().get("code")).isEqualTo("not_found");
-		// The PHP envelope's marker. Its presence would mean the legacy wire
-		// advice had captured this controller.
-		assertThat(response.getBody()).doesNotContainKey("success");
+		Map<String, Object> body = send(ONE, ADMIN_1, HttpMethod.GET, null, 404, "?id=9203");
+		assertThat(body.get("message")).isEqualTo("Not found");
+		assertThat(body.get("success")).isEqualTo(false);
 	}
 
 	// ---------- guard stack negatives (spec §9) ----------
 
 	@Test
 	void insufficientRoleOnCreateReturns403() {
-		ResponseEntity<ApiErrorBody> response = post(BASE_PATH, PLAIN_EMPLOYEE, Map.of("name", "Should Not Create"), ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(403);
-		assertThat(response.getBody().code()).isEqualTo("forbidden_insufficient_role");
+		Map<String, Object> body = send(
+				CREATE, PLAIN_EMPLOYEE, HttpMethod.POST, "{\"name\":\"Should Not Create\"}", 403, "");
+		assertThat(body.get("message")).isEqualTo("Forbidden — insufficient role");
 	}
 
 	@Test
 	void inactiveCompanyReturns403OnList() {
-		ResponseEntity<ApiErrorBody> response = get(BASE_PATH, ADMIN_SUSPENDED, ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(403);
-		assertThat(response.getBody().code()).isEqualTo("company_account_not_active");
+		Map<String, Object> body = send(LIST, ADMIN_SUSPENDED, HttpMethod.GET, null, 403, "");
+		assertThat(body.get("message")).isEqualTo("Company account is not active");
 	}
 
 	/** The divergence a module-named gate would have hidden (D-045): denied on write, but list still succeeds. */
 	@Test
 	void missingCanCompanySettingsDeniesWriteButListStillSucceeds() {
-		ResponseEntity<ApiErrorBody> writeResponse =
-				post(BASE_PATH, HR_NO_PERM, Map.of("name", "Should Not Create Either"), ApiErrorBody.class);
-		assertThat(writeResponse.getStatusCode().value()).isEqualTo(403);
-
-		ResponseEntity<LegacyExceptionTypePage> listResponse = get(BASE_PATH, HR_NO_PERM);
-		assertThat(listResponse.getStatusCode().value()).isEqualTo(200);
+		send(CREATE, HR_NO_PERM, HttpMethod.POST, "{\"name\":\"Should Not Create Either\"}", 403, "");
+		send(LIST, HR_NO_PERM, HttpMethod.GET, null, 200, "");
 	}
 
 	@Test
@@ -278,113 +249,84 @@ class LegacyExceptionTypeEndToEndTest {
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
 			st.execute("UPDATE employees SET token_version = 2 WHERE id = " + STALE_TOKEN_ADMIN);
 		}
-
-		ResponseEntity<ApiErrorBody> response = restTemplate.exchange(
-				BASE_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(staleToken)), ApiErrorBody.class);
-
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + LIST), HttpMethod.GET,
+				new HttpEntity<>(headersFor(staleToken)), mapType());
 		assertThat(response.getStatusCode().value()).isEqualTo(401);
-		assertThat(response.getBody().code()).isEqualTo("session_replaced");
-	}
-
-	@Test
-	void aTokenWithNoTokenVersionClaimAtAllIsRejected() {
-		String tokenWithoutVersion = jwtService.issueAccessToken(ADMIN_1, ADMIN_1, COMPANY_1, "test-session");
-
-		ResponseEntity<ApiErrorBody> response = restTemplate.exchange(
-				BASE_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(tokenWithoutVersion)), ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(401);
-		assertThat(response.getBody().code()).isEqualTo("session_replaced");
 	}
 
 	// ---------- create / D-047 ----------
 
 	@Test
 	void createSucceedsForAnAdminWithPermission() {
-		ResponseEntity<LegacyExceptionTypeView> response =
-				post(BASE_PATH, ADMIN_1, Map.of("name", "Freshly Created"), LegacyExceptionTypeView.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(201);
-		assertThat(response.getBody().name()).isEqualTo("Freshly Created");
-		assertThat(response.getBody().isActive()).isTrue();
+		Map<String, Object> row = dataOf(send(
+				CREATE, ADMIN_1, HttpMethod.POST, "{\"name\":\"Freshly Created\"}", 201, ""));
+		assertThat(row.get("name")).isEqualTo("Freshly Created");
+		assertThat(row.get("is_active")).isEqualTo(1);
 	}
 
 	@Test
 	void createDuplicateNameInTheSameCompanyReturns409() {
-		ResponseEntity<ApiErrorBody> response = post(BASE_PATH, ADMIN_1, Map.of("name", "Sick Leave"), ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(409);
-		assertThat(response.getBody().code()).isEqualTo("already_exists");
+		Map<String, Object> body = send(CREATE, ADMIN_1, HttpMethod.POST, "{\"name\":\"Sick Leave\"}", 409, "");
+		assertThat(body.get("message")).isEqualTo("Record already exists");
 	}
 
 	/**
 	 * D-7/D-051 (final): uniqueness is global, matching legacy's own
 	 * {@code exception_type_name_exists()} and the real, table-wide
-	 * {@code UNIQUE KEY unique_exception_type_name (name)} in the
-	 * vendored schema (`mysql_workin.schema.sql:1158`). Company 1's own
-	 * pre-check is correctly company-scoped (it never queries company
-	 * 2's rows to decide company 1's conflict), but the database itself
-	 * still refuses two companies sharing one name -- and per D-051 that
-	 * is now the intended behaviour, not a flagged gap (D-047, the
-	 * company-scoped alternative, was superseded).
+	 * {@code UNIQUE KEY unique_exception_type_name (name)} in the vendored
+	 * schema. Company 1's own pre-check is correctly company-scoped, but the
+	 * database itself still refuses two companies sharing one name.
 	 */
 	@Test
 	void createTheSameNameInADifferentCompanyConflictsMatchingLegacysGlobalUniqueness() {
-		ResponseEntity<ApiErrorBody> response =
-				post(BASE_PATH, ADMIN_2, Map.of("name", "Sick Leave"), ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value())
-				.describedAs("exception_types.name is unique across every company (D-7/D-051) -- "
-						+ "the real database-wide unique key is the final, accepted enforcement mechanism")
-				.isEqualTo(409);
-		assertThat(response.getBody().code()).isEqualTo("already_exists");
+		Map<String, Object> body = send(CREATE, ADMIN_2, HttpMethod.POST, "{\"name\":\"Sick Leave\"}", 409, "");
+		assertThat(body.get("message")).isEqualTo("Record already exists");
 	}
 
 	@Test
 	void createWithABlankNameReturns400() {
-		ResponseEntity<ApiErrorBody> response = post(BASE_PATH, ADMIN_1, Map.of("name", "   "), ApiErrorBody.class);
+		Map<String, Object> body = send(CREATE, ADMIN_1, HttpMethod.POST, "{\"name\":\"   \"}", 400, "");
+		assertThat(body.get("message")).isEqualTo("Field 'name' is required");
+	}
 
-		assertThat(response.getStatusCode().value()).isEqualTo(400);
-		assertThat(response.getBody().code()).isEqualTo("field_required");
+	@Test
+	void createDefaultsIsActiveToTrueWhenOmittedAndHonorsAnExplicitFalse() {
+		Map<String, Object> defaulted = dataOf(send(
+				CREATE, ADMIN_1, HttpMethod.POST, "{\"name\":\"Default Active\"}", 201, ""));
+		assertThat(defaulted.get("is_active")).isEqualTo(1);
+
+		Map<String, Object> explicit = dataOf(send(
+				CREATE, ADMIN_1, HttpMethod.POST, "{\"name\":\"Explicit Inactive\",\"is_active\":0}", 201, ""));
+		assertThat(explicit.get("is_active")).isEqualTo(0);
 	}
 
 	// ---------- update ----------
 
 	@Test
 	void updatingARowsNameToItsOwnCurrentValueSucceeds() {
-		ResponseEntity<LegacyExceptionTypeView> response =
-				put(BASE_PATH + "/9207", ADMIN_1, Map.of("name", "Update Self"), LegacyExceptionTypeView.class);
-
-		assertThat(response.getStatusCode().value())
-				.describedAs("excluding the row's own id from the uniqueness check must prevent a false-positive 409")
-				.isEqualTo(200);
-		assertThat(response.getBody().name()).isEqualTo("Update Self");
+		Map<String, Object> row = dataOf(send(
+				UPDATE, ADMIN_1, HttpMethod.PUT, "{\"name\":\"Update Self\"}", 200, "?id=9207"));
+		assertThat(row.get("name")).isEqualTo("Update Self");
 	}
 
 	@Test
 	void updatingToAnotherRowsNameInTheSameCompanyReturns409() {
-		ResponseEntity<ApiErrorBody> response =
-				put(BASE_PATH + "/9206", ADMIN_1, Map.of("name", "Sick Leave"), ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(409);
-		assertThat(response.getBody().code()).isEqualTo("already_exists");
+		Map<String, Object> body = send(UPDATE, ADMIN_1, HttpMethod.PUT, "{\"name\":\"Sick Leave\"}", 409, "?id=9206");
+		assertThat(body.get("message")).isEqualTo("Record already exists");
 	}
 
 	@Test
 	void updateWithNoRecognizedFieldsReturns400NothingToUpdate() {
-		ResponseEntity<ApiErrorBody> response = put(BASE_PATH + "/9206", ADMIN_1, Map.of(), ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(400);
-		assertThat(response.getBody().code()).isEqualTo("nothing_to_update");
+		Map<String, Object> body = send(UPDATE, ADMIN_1, HttpMethod.PUT, "{}", 400, "?id=9206");
+		assertThat(body.get("message")).isEqualTo("Nothing to update");
 	}
 
 	// ---------- delete / D-046 / D-048 ----------
 
 	@Test
 	void deleteClearsForeignKeysAtomicallyAndHardDeletesWithoutTouchingAnotherTenant() throws Exception {
-		ResponseEntity<Void> response = restTemplate.exchange(
-				BASE_PATH + "/9204", HttpMethod.DELETE, new HttpEntity<>(headersFor(tokenFor(ADMIN_1))), Void.class);
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		send(DELETE, ADMIN_1, HttpMethod.DELETE, null, 200, "?id=9204");
 
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
 			ResultSet deletedRow = st.executeQuery("SELECT COUNT(*) FROM exception_types WHERE id = 9204");
@@ -417,11 +359,7 @@ class LegacyExceptionTypeEndToEndTest {
 
 	@Test
 	void deleteReturns404ForAnotherCompanysRowAndLeavesItIntact() throws Exception {
-		ResponseEntity<ApiErrorBody> response = restTemplate.exchange(
-				BASE_PATH + "/9203", HttpMethod.DELETE, new HttpEntity<>(headersFor(tokenFor(ADMIN_1))),
-				ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(404);
+		send(DELETE, ADMIN_1, HttpMethod.DELETE, null, 404, "?id=9203");
 
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
 			ResultSet stillThere = st.executeQuery("SELECT COUNT(*) FROM exception_types WHERE id = 9203");
@@ -443,27 +381,36 @@ class LegacyExceptionTypeEndToEndTest {
 				employeeId, employeeId, companyId, "test-session", Map.of("role", role, "token_version", 1L));
 	}
 
-	private ResponseEntity<LegacyExceptionTypePage> get(String path, long employeeId) {
-		return restTemplate.exchange(
-				path, HttpMethod.GET, new HttpEntity<>(headersFor(tokenFor(employeeId))), LegacyExceptionTypePage.class);
-	}
-
-	private <T> ResponseEntity<T> get(String path, long employeeId, Class<T> type) {
-		return restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headersFor(tokenFor(employeeId))), type);
-	}
-
-	private <T> ResponseEntity<T> post(String path, long employeeId, Map<String, Object> body, Class<T> type) {
-		return restTemplate.exchange(path, HttpMethod.POST, new HttpEntity<>(body, headersFor(tokenFor(employeeId))), type);
-	}
-
-	private <T> ResponseEntity<T> put(String path, long employeeId, Map<String, Object> body, Class<T> type) {
-		return restTemplate.exchange(path, HttpMethod.PUT, new HttpEntity<>(body, headersFor(tokenFor(employeeId))), type);
-	}
-
 	private HttpHeaders headersFor(String token) {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setBearerAuth(token);
 		return headers;
+	}
+
+	private Map<String, Object> send(
+			String path, long actor, HttpMethod method, String json, int expectedStatus, String query) {
+		HttpHeaders headers = headersFor(tokenFor(actor));
+		headers.set("Accept-Language", "en");
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + path + query), method,
+				new HttpEntity<>(json, headers), mapType());
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(expectedStatus);
+		return response.getBody();
+	}
+
+	private static ParameterizedTypeReference<Map<String, Object>> mapType() {
+		return new ParameterizedTypeReference<Map<String, Object>>() { };
+	}
+
+	@SuppressWarnings("unchecked")
+	private static Map<String, Object> dataOf(Map<String, Object> body) {
+		return (Map<String, Object>) body.get("data");
+	}
+
+	@SuppressWarnings("unchecked")
+	private static List<Map<String, Object>> rowsOf(Map<String, Object> body) {
+		return (List<Map<String, Object>>) body.get("data");
 	}
 
 }

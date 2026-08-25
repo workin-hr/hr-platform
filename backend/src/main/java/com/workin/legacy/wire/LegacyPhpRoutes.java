@@ -79,6 +79,7 @@ public final class LegacyPhpRoutes {
 		"/apis/api/company/**",
 		"/apis/api/payroll_batches/**",
 		"/apis/api/payslips/**",
+		"/apis/api/attendance_exception_types/**",
 	};
 
 	private LegacyPhpRoutes() {
