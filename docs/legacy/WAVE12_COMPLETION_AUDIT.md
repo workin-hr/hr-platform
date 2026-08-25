@@ -16,9 +16,10 @@ That is 44 newly delivered routes before the compatibility retrofit. With the 62
 
 ## Execution state
 
-- `salary_contracts`: **implemented and slice-reviewed** — all 5 routes have production controller/service/store code, exact route-guard registration, bidirectional inventory coverage, focused service regression tests, and automatic coverage by the global mapped-route unauthenticated guard-order E2E. The inventory is now 67 delivered routes. Hosted CI execution is still blocked by runner provisioning, so this means implementation/review complete, not CI-green.
-- `advances`: source behavior discovery complete; implementation is the next unfinished Wave 12.8 slice.
-- Deferred attendance, `penalties`, Wave 12.9, Wave 12.10 and Wave 12.R remain pending.
+- `salary_contracts`: **implemented and slice-reviewed (5/5)** — production controller/service/store, route guard, inventory and focused regressions are present.
+- `advances`: **implemented and adversarially slice-reviewed (8/8)** — all frozen routes (`create`, `list`, `one`, `update`, `approve`, `reject`, `pay`, `delete`) are mapped; focused tests lock role/ownership behavior, null-coalescing, deduction normalization, overpayment, pending-only edits and the legacy id-only action quirks. The delivered-route inventory is now **75**.
+- `penalties`: next unfinished Wave 12.8 slice (0/7).
+- Deferred attendance, Wave 12.9, Wave 12.10 and Wave 12.R remain pending.
 
 ### Salary-contract adversarial review notes
 
@@ -29,8 +30,19 @@ That is 44 newly delivered routes before the compatibility retrofit. With the 62
 - `daily_wage` update uses `array_key_exists` semantics so explicit null/empty clears it.
 - Employee existence and contract ownership remain company-derived through `employees.company_id`.
 - Post-write re-read remains id-only, matching PHP rather than adding a new scoped read.
-- Self-review removed an accidental diff expansion: the existing security rationale in `LegacyPhpRoutes` was restored and the slice now adds only the required route entry.
+
+### Advance adversarial review notes
+
+- Preserved method → auth role list → active-company ordering for all eight routes.
+- `list`, `one` and the `update` preflight retain company scoping; `approve`, `reject`, `pay` and `delete` deliberately retain the frozen source's id-only lookup/write behavior rather than adding new tenant filtering.
+- Employee create ignores caller-supplied `employee_id`/`status`, uses the authenticated employee and forces `pending`; admin/HR create keeps PHP's unvalidated initial status behavior.
+- Employee update can only alter amount/reason and resets `remaining` to the chosen amount, exactly as PHP does.
+- PHP `??` semantics are preserved on update: an explicit JSON null for amount/reason/status falls back to the stored value. Adversarial review found and fixed an initial `containsKey` implementation that would have written null instead.
+- `array_key_exists` semantics remain distinct for deduction payroll year/month and installments JSON, so explicit null/empty clears those values.
+- Invalid deduction mode/type values normalize to the same legacy defaults.
+- Missing rows after id-only approve/reject post-write re-read remain unexpected failures rather than being modernized to 404.
+- JDBC row mapping uses `LegacyJdbcValues.read(..., sqlType)` so DECIMAL and temporal values keep PDO-compatible wire representation. Compile-focused review found and fixed the initial missing SQL-type argument.
 
 ## CI infrastructure blocker
 
-GitHub-hosted runner provisioning is currently failing before the first job step for this private organization/repository. The latest `Backend Validate` on this branch again completed with an empty step list and no runner assignment, matching the earlier temporary `ubuntu-latest` echo-only diagnostic. This excludes application code, Gradle and runner-image execution from that failure. Code/test review must not treat the infrastructure failure as a test failure, but Wave 12 cannot be called CI-validated until the organization Actions entitlement/provisioning issue is restored.
+GitHub-hosted runner provisioning is still failing before the first job step for this private organization/repository. On head `0aaab1bc901fd0ba7d24e9c2bf96216e308de3f0`, `Backend Validate` completed with `steps=[]`, `runner_id=0` and no runner name. That is an organization Actions provisioning/entitlement failure, not an application test result. The newer advance-store review fix has the same organization-level validation dependency; no affected head may be called CI-green until a runner is actually assigned and executes steps.
