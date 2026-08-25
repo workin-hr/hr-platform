@@ -113,6 +113,7 @@ public class LegacyAttendanceStatsService {
 		int skippedRest = 0;
 		long totalDuration = 0;
 		long overtime = 0;
+		Map<String, LegacyWeeklyRestCredit.Flags> flags = flags(byDate);
 
 		for (LocalDate day = start; !day.isAfter(end); day = day.plusDays(1)) {
 			String date = day.toString();
@@ -138,7 +139,6 @@ public class LegacyAttendanceStatsService {
 				continue;
 			}
 			if (expected.restDay()) {
-				Map<String, LegacyWeeklyRestCredit.Flags> flags = flags(byDate);
 				String credit = weeklyRestCredit.status(companyId, employeeId, date, flags, holidays, today);
 				if (LegacyWeeklyRestCredit.EARNED.equals(credit)) {
 					leave++;
@@ -195,7 +195,7 @@ public class LegacyAttendanceStatsService {
 				Long.class, params.toArray());
 		Long holidayCount = jdbcTemplate.queryForObject(HOLIDAY_COUNT, Long.class, companyId, dateFrom, dateTo);
 
-		int totalDays = YearMonth.from(LocalDate.parse(dateFrom)).lengthOfMonth();
+		int totalDays = phpCalendarDaysInMonth(dateFrom, clock.today());
 		long holidays = holidayCount == null ? 0 : holidayCount;
 		long presentDays = present == null ? 0 : present;
 		long effectivePresent = Math.min(totalDays, presentDays + holidays);
@@ -216,6 +216,15 @@ public class LegacyAttendanceStatsService {
 		}
 		int diff = actual - expected;
 		return diff >= 15 ? diff : 0;
+	}
+
+	static int phpCalendarDaysInMonth(String from, LocalDate today) {
+		String[] parts = from.split("-", -1);
+		int year = (int) LegacyValues.toPhpLong(parts.length > 0 ? parts[0] : String.valueOf(today.getYear()));
+		int month = parts.length > 1
+				? (int) LegacyValues.toPhpLong(parts[1])
+				: today.getMonthValue();
+		return YearMonth.of(year, month).lengthOfMonth();
 	}
 
 	private boolean employeeExists(long employeeId, long companyId) {
@@ -245,8 +254,11 @@ public class LegacyAttendanceStatsService {
 		return parsed.withDayOfMonth(1).toString();
 	}
 
-	private static String lastDayOfPhpMonth(String value) {
-		LocalDate parsed = LocalDate.parse(value);
+	private String lastDayOfPhpMonth(String value) {
+		LocalDate parsed = com.workin.legacy.LegacyPhpStrtotime.dateOf(value, clock.today());
+		if (parsed == null) {
+			parsed = LocalDate.of(1970, 1, 1);
+		}
 		return YearMonth.from(parsed).atEndOfMonth().toString();
 	}
 
