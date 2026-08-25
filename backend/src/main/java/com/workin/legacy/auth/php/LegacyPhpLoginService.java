@@ -10,7 +10,6 @@ import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.legacy.LegacyJdbcValues;
 import com.workin.legacy.LegacyValues;
@@ -59,7 +58,12 @@ public class LegacyPhpLoginService {
 		this.jwtService = jwtService;
 	}
 
-	@Transactional
+	/**
+	 * Intentionally not transactional. Frozen PHP runs these PDO statements in
+	 * autocommit mode, so the token-version bump and push-token deletion are
+	 * durable before the later read/response work. Wrapping this in a Java
+	 * transaction would change failure semantics during the compatibility phase.
+	 */
 	public LoginResult login(String phone, String password) {
 		List<Map<String, Object>> rows = jdbcTemplate.query(LOGIN_ROWS, LegacyJdbcValues.rowMapper(), phone);
 		List<LegacyLoginCandidate> candidates = new ArrayList<>(rows.size());
