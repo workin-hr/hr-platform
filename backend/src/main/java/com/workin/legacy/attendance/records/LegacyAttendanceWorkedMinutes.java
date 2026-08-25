@@ -84,7 +84,10 @@ public class LegacyAttendanceWorkedMinutes {
 
 	static int displayDuration(boolean hasIn, boolean hasOut, long rawDurationMinutes, int expectedMinutes) {
 		if (hasIn && hasOut) {
-			return Math.max(0, Math.toIntExact(Math.min(Integer.MAX_VALUE, rawDurationMinutes)));
+			if (rawDurationMinutes <= 0) {
+				return 0;
+			}
+			return (int) Math.min(Integer.MAX_VALUE, rawDurationMinutes);
 		}
 		if (hasIn ^ hasOut) {
 			return Math.max(0, expectedMinutes - INCOMPLETE_PUNCH_DEDUCTION_MINUTES);
