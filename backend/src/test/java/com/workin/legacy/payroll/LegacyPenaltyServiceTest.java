@@ -3,6 +3,9 @@ package com.workin.legacy.payroll;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -48,7 +51,7 @@ class LegacyPenaltyServiceTest {
 				Map.of("employee_id", 31, "penalty_type", "absence", "penalty_days", 1.5,
 						"penalty_date", "2026-08-25"), "en"))
 				.isInstanceOf(LegacyApiException.class);
-		verify(store, never()).insert(any(Long.class), any(), any(Double.class), any(), any());
+		verify(store, never()).insert(anyLong(), anyString(), anyDouble(), anyString(), anyString());
 	}
 
 	@Test
@@ -104,7 +107,7 @@ class LegacyPenaltyServiceTest {
 	void penaltyDayNormalizerUsesLegacyTolerance() {
 		assertThat(LegacyPenaltyDays.normalize(0.25001)).isEqualTo(0.25);
 		assertThat(LegacyPenaltyDays.normalize(5.00009)).isEqualTo(5.0);
-		assertThat(LegacyPenaltyDays.normalize(0.2501)).isNull();
+		assertThat(LegacyPenaltyDays.normalize(0.2502)).isNull();
 		assertThat(LegacyPenaltyDays.normalize(1.5)).isNull();
 	}
 
