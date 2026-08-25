@@ -18,6 +18,7 @@ import org.springframework.stereotype.Repository;
 import com.workin.legacy.LegacyJdbcValues;
 import com.workin.legacy.LegacyPagination;
 
+/** JDBC port of the frozen legacy {@code penalties} SQL. */
 @Repository
 public class LegacyPenaltyStore {
 	private static final RowMapper<Map<String, Object>> ROW = LegacyPenaltyStore::row;
@@ -49,8 +50,29 @@ public class LegacyPenaltyStore {
 		return id == null ? 0L : id.longValue();
 	}
 
-	public Map<String, Object> withEmployee(long id) {
+	/** create/update select p.*, employee_name, company_id -- no employee_code. */
+	public Map<String, Object> publicMutationRow(long id) {
+		return single("SELECT p.*, TRIM(CONCAT(COALESCE(e.first_name,''),' ',COALESCE(e.last_name,''))) AS employee_name, e.company_id FROM penalties p JOIN employees e ON e.id=p.employee_id WHERE p.id=?", id);
+	}
+
+	/** one.php alone adds employee_code. */
+	public Map<String, Object> oneRow(long id) {
 		return single("SELECT p.*, TRIM(CONCAT(COALESCE(e.first_name,''),' ',COALESCE(e.last_name,''))) AS employee_name, e.employee_code, e.company_id FROM penalties p JOIN employees e ON e.id=p.employee_id WHERE p.id=?", id);
+	}
+
+	/** update/delete preflight selects p.* plus company_id only. */
+	public Map<String, Object> mutableState(long id) {
+		return single("SELECT p.*, e.company_id FROM penalties p JOIN employees e ON e.id=p.employee_id WHERE p.id=?", id);
+	}
+
+	public void insertEmployeeNotification(long companyId, long toEmployeeId, Long fromEmployeeId,
+			String title, String body, long penaltyId) {
+		jdbc.update("""
+				INSERT INTO notifications
+				(company_id, recipient_kind, from_employee_id, to_employee_id, title, body,
+				 notification_type, reference_type, reference_id)
+				VALUES (?, 'employee', ?, ?, ?, ?, 'penalty_issued', 'penalty', ?)
+				""", companyId, fromEmployeeId, toEmployeeId, title, body, penaltyId);
 	}
 
 	public void updateFields(long id, Map<String, Object> values) {
@@ -112,7 +134,7 @@ public class LegacyPenaltyStore {
 	}
 
 	public boolean managerCanAccess(long managerId, long targetId, long companyId) {
-		Long count = jdbc.queryForObject("SELECT COUNT(*) FROM employees m JOIN employees t ON t.id=? WHERE m.id=? AND m.company_id=? AND t.company_id=? AND m.branch_id=t.branch_id", Long.class, targetId, managerId, companyId, companyId);
+		Long count = jdbc.queryForObject("SELECT COUNT(*) FROM employees ep INNER JOIN employees mgr ON mgr.id=? AND mgr.company_id=? AND ep.company_id=mgr.company_id AND ep.branch_id=mgr.branch_id WHERE ep.id=?", Long.class, managerId, companyId, targetId);
 		return count != null && count > 0;
 	}
 
