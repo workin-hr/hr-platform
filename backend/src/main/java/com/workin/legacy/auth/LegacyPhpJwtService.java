@@ -57,6 +57,15 @@ public class LegacyPhpJwtService {
 		return encode(payload);
 	}
 
+	/** Mirrors login_desktop.php/login_company.php company-admin jwtEncode(). */
+	public String issueCompanyToken(long companyId, String role) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("type", "company");
+		payload.put("company_id", companyId);
+		payload.put("role", role);
+		return encode(payload);
+	}
+
 	/**
 	 * Mirrors jwtDecode(): signature plus optional exp are the only token-level
 	 * checks PHP performs. Required auth fields are interpreted later by the
