@@ -101,13 +101,15 @@ public class LegacyPenaltyController {
 			List<List<String>> values = new ArrayList<>();
 			for (Map<String, Object> row : rows) {
 				List<String> one = new ArrayList<>();
-				for (Object value : row.values()) one.add(value == null ? "" : LegacyValues.toPhpString(value));
+				for (Object value : row.values()) {
+					one.add(value == null ? "" : LegacyValues.toPhpString(value));
+				}
 				values.add(one);
 			}
 			byte[] bytes;
 			try {
 				bytes = LegacyXlsxWriter.build(REPORT_HEADERS, values, "Report", List.of(), List.of(), 1, Map.of());
-			} catch (RuntimeException ex) {
+			} catch (Throwable ex) { // PHP catches Throwable around xlsx_build_bytes().
 				throw new LegacyApiException(500, "file_save_failed", ex.getMessage());
 			}
 			String filename = "penalties_report_" + clock.todayAsString() + ".xlsx";
@@ -155,7 +157,9 @@ public class LegacyPenaltyController {
 	}
 
 	private static void requireMethod(HttpServletRequest request, String expected) {
-		if (!expected.equals(request.getMethod())) throw new LegacyApiException(405, "invalid_method");
+		if (!expected.equals(request.getMethod())) {
+			throw new LegacyApiException(405, "invalid_method");
+		}
 	}
 
 	private String message(HttpServletRequest request, String key) {
