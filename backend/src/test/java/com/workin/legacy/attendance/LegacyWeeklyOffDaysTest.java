@@ -91,7 +91,7 @@ class LegacyWeeklyOffDaysTest {
 	/** D-091's bound is structural: the reader answers for one key only. */
 	@Test
 	void theReaderIsBoundToTheOneAdmittedSettingKey() {
-		assertThat(LegacyWeeklyOffDays.admittedKeys()).containsExactly("WEEKLY_OFF_DAYS");
+		assertThat(LegacyWeeklyOffDays.admittedKeys()).containsExactly("weekly_off_days");
 	}
 
 }
