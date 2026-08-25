@@ -80,10 +80,16 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/advances/one.php", "/apis/api/advances/pay.php",
 			"/apis/api/advances/reject.php", "/apis/api/advances/update.php");
 
+	private static final List<String> WAVE_128_PENALTY_ROUTES = List.of(
+			"/apis/api/penalties/create.php", "/apis/api/penalties/delete.php",
+			"/apis/api/penalties/list.php", "/apis/api/penalties/one.php",
+			"/apis/api/penalties/report.php", "/apis/api/penalties/stats.php",
+			"/apis/api/penalties/update.php");
+
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 				WAVE_124_ROUTES, WAVE_125_ROUTES, WAVE_126_ROUTES,
 				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES,
-				WAVE_128_SALARY_CONTRACT_ROUTES, WAVE_128_ADVANCE_ROUTES)
+				WAVE_128_SALARY_CONTRACT_ROUTES, WAVE_128_ADVANCE_ROUTES, WAVE_128_PENALTY_ROUTES)
 			.flatMap(List::stream).sorted().toList();
 
 	@Autowired
@@ -118,13 +124,20 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(WAVE_127_LEAVE_BALANCE_ROUTES).hasSize(10);
 		assertThat(WAVE_128_SALARY_CONTRACT_ROUTES).hasSize(5);
 		assertThat(WAVE_128_ADVANCE_ROUTES).hasSize(8);
-		assertThat(EXPECTED_ROUTES).hasSize(75).doesNotHaveDuplicates();
+		assertThat(WAVE_128_PENALTY_ROUTES).hasSize(7);
+		assertThat(EXPECTED_ROUTES).hasSize(82).doesNotHaveDuplicates();
 	}
 
 	@Test
 	void wave127IsCompleteAtSeventeenEndpoints() {
 		assertThat(Stream.concat(WAVE_127_REQUEST_ROUTES.stream(), WAVE_127_LEAVE_BALANCE_ROUTES.stream()).toList())
 				.hasSize(17).doesNotHaveDuplicates();
+	}
+
+	@Test
+	void wave128FinanceFoundationIsCompleteAtTwentyEndpoints() {
+		assertThat(Stream.of(WAVE_128_SALARY_CONTRACT_ROUTES, WAVE_128_ADVANCE_ROUTES, WAVE_128_PENALTY_ROUTES)
+				.flatMap(List::stream).toList()).hasSize(20).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -146,7 +159,7 @@ class LegacyPhpRouteInventoryTest {
 				"/apis/api/requests/create.php", "/apis/api/requests/update.php",
 				"/apis/api/requests/delete.php", "/apis/api/requests/approve.php",
 				"/apis/api/requests/reject.php", "/apis/api/leave_balances/**",
-				"/apis/api/salary_contracts/**", "/apis/api/advances/**");
+				"/apis/api/salary_contracts/**", "/apis/api/advances/**", "/apis/api/penalties/**");
 		for (String entry : entries) {
 			if (entry.endsWith("/**")) {
 				String prefix = entry.substring(0, entry.length() - 2);
