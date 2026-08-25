@@ -61,23 +61,22 @@ public class SecurityConfig {
 
 	/**
 	 * Phase-1 compatibility chain. Literal /apis/** requests authenticate with
-	 * the exact JWT format produced by frozen PHP, not the new-platform token
-	 * format. This is required for a backend-only cutover: already logged-in
-	 * mobile/desktop clients must continue working without re-login or code
-	 * changes.
+	 * the exact JWT format produced by frozen PHP. The JwtService dependency is
+	 * retained only for the temporary /api/legacy/** regression aliases that
+	 * predate the literal-route retrofit; it is not the client contract.
 	 *
-	 * <p>Employee tokens are still re-derived against the employee row before a
-	 * tenant scope is established. Company tokens have no employee/membership
-	 * claim in PHP; PHP trusts their signed company_id directly, so Phase 1 does
-	 * the same and leaves company-active checks at the same controller guard
-	 * points as the source application.
+	 * <p>PHP employee tokens are re-derived against the employee row. Any signed
+	 * PHP non-employee token (the frozen desktop/company login emits type=company)
+	 * has no employee membership claim; PHP trusts its signed company_id, so the
+	 * compatibility chain does the same. Company-active checks remain at the same
+	 * controller guard points as the frozen source.
 	 */
 	@Bean
 	@Order(2)
 	@Profile("phase1-mysql")
 	public SecurityFilterChain legacySecurityFilterChain(
-			HttpSecurity http, LegacyPhpJwtService legacyPhpJwtService, TenantScope tenantScope,
-			LegacyTenantContextService legacyTenantContextService,
+			HttpSecurity http, LegacyPhpJwtService legacyPhpJwtService, JwtService jwtService,
+			TenantScope tenantScope, LegacyTenantContextService legacyTenantContextService,
 			ApiSecurityErrorHandler apiSecurityErrorHandler) throws Exception {
 		Function<HttpServletRequest, Optional<Long>> resolver = request -> {
 			if (!(SecurityContextHolder.getContext().getAuthentication() != null
@@ -85,10 +84,14 @@ public class SecurityConfig {
 							instanceof AuthenticatedPrincipal principal)) {
 				return Optional.empty();
 			}
-			if ("company".equals(principal.legacyAuthType())) {
+
+			// PHP's requireEmployeeSessionValid() is employee-type-specific.
+			// Other signed PHP auth types use their company_id directly.
+			if (principal.legacyAuthType() != null && !"employee".equals(principal.legacyAuthType())) {
 				return principal.claimedCompanyId() != null && principal.claimedCompanyId() > 0
 						? Optional.of(principal.claimedCompanyId()) : Optional.empty();
 			}
+
 			try {
 				return Optional.of(legacyTenantContextService.validate(
 						principal.identityId(), principal.claimedMembershipId(), principal.claimedCompanyId()));
@@ -96,6 +99,10 @@ public class SecurityConfig {
 				return Optional.empty();
 			}
 		};
+
+		LegacyPhpJwtAuthenticationFilter legacyJwtFilter =
+				new LegacyPhpJwtAuthenticationFilter(legacyPhpJwtService, jwtService);
+
 		http
 			.securityMatcher("/api/legacy/**", "/apis/**")
 			.csrf(csrf -> csrf.disable())
@@ -106,12 +113,11 @@ public class SecurityConfig {
 			.authorizeHttpRequests(authorize -> authorize
 				.requestMatchers("/error").permitAll()
 				.requestMatchers("/api/legacy/auth/login_employee").permitAll()
-				// PHP checks method/body before auth on the D-074 literal routes;
+				// PHP checks method/body before auth on D-074 literal routes;
 				// controllers therefore own requireAuth() in the same order.
 				.requestMatchers(LegacyPhpRoutes.CONTROLLER_GUARDED).permitAll()
 				.anyRequest().authenticated())
-			.addFilterBefore(
-					new LegacyPhpJwtAuthenticationFilter(legacyPhpJwtService), UsernamePasswordAuthenticationFilter.class)
+			.addFilterBefore(legacyJwtFilter, UsernamePasswordAuthenticationFilter.class)
 			.addFilterAfter(new TenantScopeFilter(tenantScope, resolver), LegacyPhpJwtAuthenticationFilter.class);
 		return http.build();
 	}
