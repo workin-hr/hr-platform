@@ -36,6 +36,10 @@ import com.workin.backend.i18n.ApiException;
  * <li>{@code com.workin.legacy.schedules} -- Wave 12.6</li>
  * <li>{@code com.workin.legacy.payroll} -- Wave 12 completion
  * ({@code advances}, {@code penalties}, {@code salary_contracts})</li>
+ * <li>{@code com.workin.legacy.companies} -- Wave 12.10 ({@code company}).
+ * Pre-existing in this package: {@code LegacyCompany}/{@code LegacyCompanyRepository},
+ * used only by {@code com.workin.legacy.auth} and raising nothing this advice
+ * would intercept, so adding the package carries no Wave-12.1-style risk.</li>
  * </ul>
  *
  * <p>The {@code attendance.records} entry is a <b>subpackage</b>, and
@@ -53,6 +57,7 @@ import com.workin.backend.i18n.ApiException;
 	"com.workin.legacy.attendance.records",
 	"com.workin.legacy.schedules",
 	"com.workin.legacy.payroll",
+	"com.workin.legacy.companies",
 })
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class LegacyWireExceptionHandler {
