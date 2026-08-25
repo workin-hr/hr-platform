@@ -63,28 +63,27 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/requests/update.php");
 
 	private static final List<String> WAVE_127_LEAVE_BALANCE_ROUTES = List.of(
-			"/apis/api/leave_balances/analyze_excel.php",
-			"/apis/api/leave_balances/create.php",
-			"/apis/api/leave_balances/delete.php",
-			"/apis/api/leave_balances/generate.php",
-			"/apis/api/leave_balances/import_bulk.php",
-			"/apis/api/leave_balances/list.php",
-			"/apis/api/leave_balances/one.php",
-			"/apis/api/leave_balances/stats.php",
-			"/apis/api/leave_balances/template_excel.php",
-			"/apis/api/leave_balances/update.php");
+			"/apis/api/leave_balances/analyze_excel.php", "/apis/api/leave_balances/create.php",
+			"/apis/api/leave_balances/delete.php", "/apis/api/leave_balances/generate.php",
+			"/apis/api/leave_balances/import_bulk.php", "/apis/api/leave_balances/list.php",
+			"/apis/api/leave_balances/one.php", "/apis/api/leave_balances/stats.php",
+			"/apis/api/leave_balances/template_excel.php", "/apis/api/leave_balances/update.php");
 
 	private static final List<String> WAVE_128_SALARY_CONTRACT_ROUTES = List.of(
-			"/apis/api/salary_contracts/create.php",
-			"/apis/api/salary_contracts/delete.php",
-			"/apis/api/salary_contracts/list.php",
-			"/apis/api/salary_contracts/one.php",
+			"/apis/api/salary_contracts/create.php", "/apis/api/salary_contracts/delete.php",
+			"/apis/api/salary_contracts/list.php", "/apis/api/salary_contracts/one.php",
 			"/apis/api/salary_contracts/update.php");
+
+	private static final List<String> WAVE_128_ADVANCE_ROUTES = List.of(
+			"/apis/api/advances/approve.php", "/apis/api/advances/create.php",
+			"/apis/api/advances/delete.php", "/apis/api/advances/list.php",
+			"/apis/api/advances/one.php", "/apis/api/advances/pay.php",
+			"/apis/api/advances/reject.php", "/apis/api/advances/update.php");
 
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 				WAVE_124_ROUTES, WAVE_125_ROUTES, WAVE_126_ROUTES,
 				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES,
-				WAVE_128_SALARY_CONTRACT_ROUTES)
+				WAVE_128_SALARY_CONTRACT_ROUTES, WAVE_128_ADVANCE_ROUTES)
 			.flatMap(List::stream).sorted().toList();
 
 	@Autowired
@@ -118,7 +117,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(WAVE_127_REQUEST_ROUTES).hasSize(7);
 		assertThat(WAVE_127_LEAVE_BALANCE_ROUTES).hasSize(10);
 		assertThat(WAVE_128_SALARY_CONTRACT_ROUTES).hasSize(5);
-		assertThat(EXPECTED_ROUTES).hasSize(67).doesNotHaveDuplicates();
+		assertThat(WAVE_128_ADVANCE_ROUTES).hasSize(8);
+		assertThat(EXPECTED_ROUTES).hasSize(75).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -146,7 +146,7 @@ class LegacyPhpRouteInventoryTest {
 				"/apis/api/requests/create.php", "/apis/api/requests/update.php",
 				"/apis/api/requests/delete.php", "/apis/api/requests/approve.php",
 				"/apis/api/requests/reject.php", "/apis/api/leave_balances/**",
-				"/apis/api/salary_contracts/**");
+				"/apis/api/salary_contracts/**", "/apis/api/advances/**");
 		for (String entry : entries) {
 			if (entry.endsWith("/**")) {
 				String prefix = entry.substring(0, entry.length() - 2);
