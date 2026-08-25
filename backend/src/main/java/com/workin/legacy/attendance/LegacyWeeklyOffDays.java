@@ -36,8 +36,14 @@ import com.workin.legacy.LegacyValues;
 @Component
 public class LegacyWeeklyOffDays {
 
-	/** {@code CompanySettingEnum::WEEKLY_OFF_DAYS->value}. */
-	private static final String SETTING_KEY = "WEEKLY_OFF_DAYS";
+	/**
+	 * {@code CompanySettingEnum::WEEKLY_OFF_DAYS->value} ({@code config/enums.php:119}).
+	 * The enum's backing string is lower snake_case, not its case name --
+	 * {@code setting_definitions.setting_key} is written and read as
+	 * {@code 'weekly_off_days'} everywhere in legacy (the dashboard's own
+	 * settings admin included), never the upper-case case name.
+	 */
+	private static final String SETTING_KEY = "weekly_off_days";
 
 	/**
 	 * {@code company_setting_selected_values()} ({@code functions.php:892-910}).

@@ -686,7 +686,7 @@ class LegacyScheduleMonthEndToEndTest {
 
 	private static void weeklyOffDays(String... values) {
 		execute("INSERT INTO setting_definitions (id, setting_key, is_multi) VALUES"
-				+ " (930, 'WEEKLY_OFF_DAYS', 1)");
+				+ " (930, 'weekly_off_days', 1)");
 		execute("INSERT INTO company_settings (id, company_id, setting_definition_id) VALUES"
 				+ " (930, " + COMPANY_1 + ", 930)");
 		int id = 930;
