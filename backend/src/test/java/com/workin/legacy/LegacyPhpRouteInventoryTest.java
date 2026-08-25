@@ -108,16 +108,16 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/company/upload_logo.php",
 			"/apis/api/company/upload_commercial_reg.php");
 
-	/**
-	 * Six of {@code payroll_batches}' ten routes -- CRUD plus fiscal period
-	 * resolution. {@code calculate.php}, {@code finalize.php}, {@code reopen.php}
-	 * and {@code stats.php} need the calculation engine and are a later slice.
-	 */
+	/** All ten {@code payroll_batches} routes: CRUD, fiscal period, and the calculation engine. */
 	private static final List<String> WAVE_129_BATCH_ROUTES = List.of(
 			"/apis/api/payroll_batches/list.php",
 			"/apis/api/payroll_batches/one.php",
 			"/apis/api/payroll_batches/create.php",
 			"/apis/api/payroll_batches/update.php",
+			"/apis/api/payroll_batches/calculate.php",
+			"/apis/api/payroll_batches/finalize.php",
+			"/apis/api/payroll_batches/reopen.php",
+			"/apis/api/payroll_batches/stats.php",
 			"/apis/api/payroll_batches/delete.php",
 			"/apis/api/payroll_batches/fiscal_period.php");
 
@@ -163,8 +163,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(WAVE_128_ADVANCE_ROUTES).hasSize(8);
 		assertThat(WAVE_128_PENALTY_ROUTES).hasSize(7);
 		assertThat(WAVE_1210_COMPANY_ROUTES).hasSize(3);
-		assertThat(WAVE_129_BATCH_ROUTES).hasSize(6);
-		assertThat(EXPECTED_ROUTES).hasSize(94).doesNotHaveDuplicates();
+		assertThat(WAVE_129_BATCH_ROUTES).hasSize(10);
+		assertThat(EXPECTED_ROUTES).hasSize(98).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -215,13 +215,10 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void theWave129SliceIsSixOfTheModulesTenEndpoints() {
-		assertThat(WAVE_129_BATCH_ROUTES).hasSize(6);
+	void theWave129SliceIsAllTenPayrollBatchesEndpoints() {
+		assertThat(WAVE_129_BATCH_ROUTES).hasSize(10).doesNotHaveDuplicates();
 		assertThat(WAVE_129_BATCH_ROUTES)
 				.allSatisfy(route -> assertThat(route).startsWith("/apis/api/payroll_batches/"));
-		assertThat(WAVE_129_BATCH_ROUTES).doesNotContain(
-				"/apis/api/payroll_batches/calculate.php", "/apis/api/payroll_batches/finalize.php",
-				"/apis/api/payroll_batches/reopen.php", "/apis/api/payroll_batches/stats.php");
 	}
 
 	@Test
@@ -237,9 +234,7 @@ class LegacyPhpRouteInventoryTest {
 				"/apis/api/requests/reject.php", "/apis/api/leave_balances/**",
 				"/apis/api/salary_contracts/**", "/apis/api/advances/**", "/apis/api/penalties/**",
 				"/apis/api/company/**",
-				"/apis/api/payroll_batches/list.php", "/apis/api/payroll_batches/one.php",
-				"/apis/api/payroll_batches/create.php", "/apis/api/payroll_batches/update.php",
-				"/apis/api/payroll_batches/delete.php", "/apis/api/payroll_batches/fiscal_period.php");
+				"/apis/api/payroll_batches/**");
 		for (String entry : entries) {
 			if (entry.endsWith("/**")) {
 				String prefix = entry.substring(0, entry.length() - 2);

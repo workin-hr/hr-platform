@@ -77,12 +77,7 @@ public final class LegacyPhpRoutes {
 		"/apis/api/advances/**",
 		"/apis/api/penalties/**",
 		"/apis/api/company/**",
-		"/apis/api/payroll_batches/list.php",
-		"/apis/api/payroll_batches/one.php",
-		"/apis/api/payroll_batches/create.php",
-		"/apis/api/payroll_batches/update.php",
-		"/apis/api/payroll_batches/delete.php",
-		"/apis/api/payroll_batches/fiscal_period.php",
+		"/apis/api/payroll_batches/**",
 	};
 
 	private LegacyPhpRoutes() {

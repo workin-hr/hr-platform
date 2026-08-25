@@ -18,7 +18,7 @@ import com.workin.legacy.wire.LegacyMessages;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-/** Frozen PHP-compatible {@code /apis/api/payroll_batches/*.php} (Wave 12.9 slice 1). */
+/** Frozen PHP-compatible {@code /apis/api/payroll_batches/*.php} (Wave 12.9). */
 @RestController
 @RequestMapping("/apis/api/payroll_batches")
 public class LegacyPayrollBatchController {
@@ -83,6 +83,52 @@ public class LegacyPayrollBatchController {
 		int year = (int) intOrZero(query.value("year"));
 		int month = (int) intOrZero(query.value("month"));
 		return LegacyApiResponse.ok(message(request, "success"), service.fiscalPeriod(context.companyId(), year, month));
+	}
+
+	/**
+	 * {@code calculate.php}'s {@code ok($message, $data, 200, [Response::COUNT => (string) $count])}:
+	 * the count fills the message's {@code {count}} placeholder ({@code $replace},
+	 * PHP's 4th positional argument) -- it is not a separate {@code meta} field.
+	 */
+	@RequestMapping("/calculate.php")
+	public LegacyApiResponse calculate(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = role();
+		LegacyPayrollBatchService.CalculationResult result = service.calculate(
+				context.companyId(), requiredId(request), weeklyRestLabel(request));
+		String locale = messages.resolveLocale(request);
+		String text = messages.translate(
+				locale, "payroll_calculated", Map.of("count", String.valueOf(result.calculatedCount())));
+		return LegacyApiResponse.ok(text, result.row());
+	}
+
+	@RequestMapping("/finalize.php")
+	public LegacyApiResponse finalize(HttpServletRequest request) {
+		requireMethod(request, "PUT");
+		LegacyRequestContext context = role();
+		return LegacyApiResponse.ok(
+				message(request, "payroll_finalized"), service.finalize(context.companyId(), requiredId(request)));
+	}
+
+	@RequestMapping("/reopen.php")
+	public LegacyApiResponse reopen(HttpServletRequest request) {
+		requireMethod(request, "PUT");
+		LegacyRequestContext context = role();
+		return LegacyApiResponse.ok(
+				message(request, "batch_reopened"), service.reopen(context.companyId(), requiredId(request)));
+	}
+
+	@RequestMapping("/stats.php")
+	public LegacyApiResponse stats(HttpServletRequest request) {
+		requireMethod(request, "GET");
+		LegacyRequestContext context = role();
+		return LegacyApiResponse.ok(
+				message(request, "success"), service.stats(context.companyId(), requiredId(request)));
+	}
+
+	/** {@code t('schedule_weekly_rest')}, the request's locale, matching every other calendar-consuming controller. */
+	private String weeklyRestLabel(HttpServletRequest request) {
+		return messages.translate(messages.resolveLocale(request), "schedule_weekly_rest", null);
 	}
 
 	private LegacyRequestContext role() {

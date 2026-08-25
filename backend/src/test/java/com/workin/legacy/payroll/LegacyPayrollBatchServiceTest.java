@@ -14,6 +14,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.attendance.LegacyWeeklyOffDays;
 import com.workin.legacy.wire.LegacyApiException;
@@ -22,9 +23,16 @@ class LegacyPayrollBatchServiceTest {
 
 	private final LegacyPayrollBatchStore store = mock(LegacyPayrollBatchStore.class);
 	private final LegacyPayrollFiscalSettings fiscalSettings = mock(LegacyPayrollFiscalSettings.class);
+	private final LegacyPayrollOvertimeSettings overtimeSettings = mock(LegacyPayrollOvertimeSettings.class);
+	private final LegacyPayrollAttendanceFigures attendanceFigures = mock(LegacyPayrollAttendanceFigures.class);
+	private final LegacyPayrollCalculationService calculationService = new LegacyPayrollCalculationService();
+	private final LegacyPayrollAdvanceDeductions advanceDeductions = new LegacyPayrollAdvanceDeductions();
 	private final LegacyWeeklyOffDays weeklyOffDays = mock(LegacyWeeklyOffDays.class);
-	private final LegacyPayrollBatchService service =
-			new LegacyPayrollBatchService(store, fiscalSettings, weeklyOffDays);
+	private final LegacyClock clock = mock(LegacyClock.class);
+	private final javax.sql.DataSource legacyDataSource = mock(javax.sql.DataSource.class);
+	private final LegacyPayrollBatchService service = new LegacyPayrollBatchService(
+			store, fiscalSettings, overtimeSettings, attendanceFigures, calculationService, advanceDeductions,
+			weeklyOffDays, clock, legacyDataSource);
 
 	@Test
 	void oneThrowsBatchNotFoundWhenTheStoreReturnsNothing() {
@@ -147,5 +155,74 @@ class LegacyPayrollBatchServiceTest {
 
 		assertThat(page.rows()).hasSize(1);
 		assertThat(page.meta()).containsEntry("total", 1L);
+	}
+
+	@Test
+	void calculateRefusesAnAlreadyFinalizedBatchBeforeTouchingTheTransaction() {
+		when(store.scoped(91L, 9L)).thenReturn(Map.of("id", 91L, "status", "finalized"));
+		assertThatThrownBy(() -> service.calculate(9L, 91L, "Weekly rest"))
+				.isInstanceOf(LegacyApiException.class)
+				.satisfies(ex -> assertThat(((LegacyApiException) ex).getMessageKey()).isEqualTo("batch_already_finalized"));
+		org.mockito.Mockito.verifyNoInteractions(legacyDataSource);
+	}
+
+	@Test
+	void calculateThrowsBatchNotFoundForAForeignOrMissingId() {
+		when(store.scoped(91L, 9L)).thenReturn(null);
+		assertThatThrownBy(() -> service.calculate(9L, 91L, "Weekly rest"))
+				.isInstanceOf(LegacyApiException.class)
+				.satisfies(ex -> assertThat(((LegacyApiException) ex).getMessageKey()).isEqualTo("batch_not_found"));
+	}
+
+	@Test
+	void finalizeRefusesAnAlreadyFinalizedBatchBeforeOpeningAConnection() {
+		when(store.scoped(91L, 9L)).thenReturn(Map.of("id", 91L, "status", "finalized"));
+		assertThatThrownBy(() -> service.finalize(9L, 91L))
+				.isInstanceOf(LegacyApiException.class)
+				.satisfies(ex -> assertThat(((LegacyApiException) ex).getMessageKey()).isEqualTo("batch_already_finalized"));
+		org.mockito.Mockito.verifyNoInteractions(legacyDataSource);
+	}
+
+	@Test
+	void reopenRefusesADraftBatch() {
+		when(store.scoped(91L, 9L)).thenReturn(Map.of("id", 91L, "status", "draft"));
+		assertThatThrownBy(() -> service.reopen(9L, 91L))
+				.isInstanceOf(LegacyApiException.class)
+				.satisfies(ex -> assertThat(((LegacyApiException) ex).getMessageKey()).isEqualTo("batch_not_finalized"));
+		org.mockito.Mockito.verifyNoInteractions(legacyDataSource);
+	}
+
+	@Test
+	void statsThrowsBatchNotFoundForAForeignOrMissingId() {
+		when(store.scoped(91L, 9L)).thenReturn(null);
+		assertThatThrownBy(() -> service.stats(9L, 91L))
+				.isInstanceOf(LegacyApiException.class)
+				.satisfies(ex -> assertThat(((LegacyApiException) ex).getMessageKey()).isEqualTo("batch_not_found"));
+	}
+
+	@Test
+	void statsMapsTheAggregateRowIntoTheResponseShape() {
+		Map<String, Object> batch = new LinkedHashMap<>();
+		batch.put("id", 91L);
+		batch.put("status", "finalized");
+		batch.put("period_from", "2026-04-01");
+		batch.put("period_to", "2026-04-30");
+		batch.put("month", 4);
+		batch.put("year", 2026);
+		when(store.scoped(91L, 9L)).thenReturn(batch);
+
+		Map<String, Object> aggregate = new LinkedHashMap<>();
+		aggregate.put("total_employees", 3L);
+		aggregate.put("total_basic_salary", new java.math.BigDecimal("18000.00"));
+		aggregate.put("total_net_salary", new java.math.BigDecimal("17000.00"));
+		aggregate.put("avg_net_salary", new java.math.BigDecimal("5666.666"));
+		when(store.statsForBatch(91L)).thenReturn(aggregate);
+
+		Map<String, Object> result = service.stats(9L, 91L);
+
+		assertThat(result.get("total_employees")).isEqualTo(3);
+		assertThat(result.get("total_basic_salary")).isEqualTo(new java.math.BigDecimal("18000.00"));
+		assertThat(result.get("avg_net_salary")).isEqualTo(new java.math.BigDecimal("5666.67"));
+		assertThat(result.get("period_from")).isEqualTo("2026-04-01");
 	}
 }

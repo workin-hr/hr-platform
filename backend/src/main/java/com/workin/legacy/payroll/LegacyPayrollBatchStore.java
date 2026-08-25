@@ -109,6 +109,126 @@ public class LegacyPayrollBatchStore {
 		jdbc.update("DELETE FROM payroll_batches WHERE id=?", batchId);
 	}
 
+	// ------------------------------------------------------------------
+	// calculate.php / finalize.php / reopen.php
+	// ------------------------------------------------------------------
+
+	/** {@code payroll_calculate_batch()}'s employee roster: active employees only. */
+	public List<Long> activeEmployeeIds(long companyId) {
+		return jdbc.queryForList("SELECT id FROM employees WHERE company_id=? AND is_active=1", Long.class, companyId);
+	}
+
+	/** {@code payroll_calculate_batch()}'s contract lookup: the latest contract effective on or before {@code periodTo}. */
+	public Map<String, Object> effectiveContract(long employeeId, String periodTo) {
+		return single(jdbc.query(
+				"SELECT * FROM salary_contracts WHERE employee_id=? AND effective_from<=? "
+						+ "ORDER BY effective_from DESC LIMIT 1",
+				this::row, employeeId, periodTo));
+	}
+
+	/** {@code payroll_compute_employee_payslip()}'s unapplied-penalty-days sum. */
+	public java.math.BigDecimal unappliedPenaltyDays(long employeeId, String periodFrom, String periodTo) {
+		java.math.BigDecimal sum = jdbc.queryForObject(
+				"SELECT COALESCE(SUM(penalty_days), 0) FROM penalties "
+						+ "WHERE employee_id=? AND penalty_date BETWEEN ? AND ? AND applied_to_payroll=0",
+				java.math.BigDecimal.class, employeeId, periodFrom, periodTo);
+		return sum == null ? java.math.BigDecimal.ZERO : sum;
+	}
+
+	/** Approved advances for one employee -- read by both the compute step and finalize/reopen side effects. */
+	public List<Map<String, Object>> approvedAdvances(long employeeId) {
+		return jdbc.query("SELECT * FROM advances WHERE employee_id=? AND status='approved'", this::row, employeeId);
+	}
+
+	public void deletePayslipsForBatch(long batchId) {
+		jdbc.update("DELETE FROM payslips WHERE batch_id=?", batchId);
+	}
+
+	/** {@code payroll_calculate_batch()}'s INSERT -- the delete-then-insert-fresh pattern makes the upsert branch it also carries unreachable, so a plain insert is faithful. */
+	public void insertPayslip(long batchId, long employeeId, LegacyPayrollCalculationService.PayslipComputation p) {
+		jdbc.update("""
+				INSERT INTO payslips (
+				  batch_id, employee_id, days_present, days_absent, days_leave, overtime_hours,
+				  basic_salary, allowances, overtime_pay, penalties_total, advance_deduction,
+				  other_deductions, net_salary, food_allowance, risk_allowance, insurance_deduction,
+				  tax_deduction, advances_deduction, fund_deduction, transport_allowance, incentives,
+				  gross_salary, total_entitlements, total_deductions
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				""",
+				batchId, employeeId, p.daysPresent(), 0, 0, p.overtimeHours(),
+				p.basicSalary(), p.allowances(), p.overtimePay(), p.penaltiesTotal(), p.advanceDeduction(),
+				p.otherDeductions(), p.netSalary(), p.foodAllowance(), p.riskAllowance(), java.math.BigDecimal.ZERO,
+				java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, p.transportAllowance(),
+				p.incentives(), p.grossSalary(), p.totalEntitlements(), p.totalDeductions());
+	}
+
+	public void updateAdvanceRemaining(long advanceId, java.math.BigDecimal newRemaining) {
+		jdbc.update("UPDATE advances SET remaining=? WHERE id=?", newRemaining, advanceId);
+	}
+
+	public void addAdvanceRemaining(long advanceId, java.math.BigDecimal delta) {
+		jdbc.update("UPDATE advances SET remaining = remaining + ? WHERE id=?", delta, advanceId);
+	}
+
+	public java.math.BigDecimal advanceRemaining(long advanceId) {
+		return jdbc.queryForObject("SELECT remaining FROM advances WHERE id=?", java.math.BigDecimal.class, advanceId);
+	}
+
+	public List<Map<String, Object>> payslipsForBatch(long batchId) {
+		return jdbc.query("SELECT * FROM payslips WHERE batch_id=?", this::row, batchId);
+	}
+
+	/**
+	 * {@code stats.php}'s aggregate query ({@code payroll_calculation.php}'s
+	 * {@code sql_payslip_total_entitlements()}/{@code sql_payslip_total_deductions()}
+	 * expressions, inlined verbatim).
+	 */
+	public Map<String, Object> statsForBatch(long batchId) {
+		String entitlements = """
+				COALESCE(NULLIF(ps.total_entitlements, 0), ROUND(
+				  COALESCE(ps.basic_salary,0) + COALESCE(ps.transport_allowance,0) + COALESCE(ps.food_allowance,0)
+				  + COALESCE(ps.risk_allowance,0) + COALESCE(ps.incentives,0) + COALESCE(ps.allowances,0)
+				  + COALESCE(ps.overtime_pay,0), 2))""";
+		String deductions = """
+				COALESCE(NULLIF(ps.total_deductions, 0), ROUND(
+				  COALESCE(ps.insurance_deduction,0) + COALESCE(ps.tax_deduction,0) + COALESCE(ps.advances_deduction,0)
+				  + COALESCE(ps.fund_deduction,0) + COALESCE(ps.penalties_total,0) + COALESCE(ps.advance_deduction,0)
+				  + COALESCE(ps.other_deductions,0), 2))""";
+		String net = "GREATEST(0, ROUND(" + entitlements + " - (" + deductions + "), 2))";
+		String sql = "SELECT COUNT(*) AS total_employees, "
+				+ "SUM(ps.basic_salary) AS total_basic_salary, SUM(ps.allowances) AS total_allowances, "
+				+ "SUM(ps.overtime_pay) AS total_overtime_pay, SUM(" + entitlements + ") AS total_entitlements, "
+				+ "SUM(" + deductions + ") AS total_deductions, SUM(ps.penalties_total) AS total_penalties, "
+				+ "SUM(ps.advance_deduction) AS total_advance_deductions, "
+				+ "SUM(ps.other_deductions) AS total_other_deductions, SUM(" + net + ") AS total_net_salary, "
+				+ "AVG(" + net + ") AS avg_net_salary, MAX(" + net + ") AS max_net_salary, "
+				+ "MIN(" + net + ") AS min_net_salary, SUM(ps.days_present) AS total_days_present, "
+				+ "SUM(ps.days_absent) AS total_days_absent, SUM(ps.days_leave) AS total_days_leave, "
+				+ "SUM(ps.overtime_hours) AS total_overtime_hours "
+				+ "FROM payslips ps WHERE ps.batch_id=?";
+		return single(jdbc.query(sql, this::row, batchId));
+	}
+
+	/** {@code payroll_finalize_batch_side_effects()}'s penalty-marking UPDATE. */
+	public void markPenaltiesAppliedForBatch(long batchId, String periodFrom, String periodTo) {
+		jdbc.update("""
+				UPDATE penalties p
+				INNER JOIN payslips ps ON ps.employee_id = p.employee_id
+				SET p.applied_to_payroll = 1
+				WHERE ps.batch_id = ? AND p.penalty_date BETWEEN ? AND ? AND p.applied_to_payroll = 0
+				""", batchId, periodFrom, periodTo);
+	}
+
+	/** {@code payroll_reopen_batch_side_effects()}'s inverse. */
+	public void unmarkPenaltiesAppliedForBatch(long batchId, String periodFrom, String periodTo) {
+		jdbc.update("""
+				UPDATE penalties p
+				INNER JOIN payslips ps ON ps.employee_id = p.employee_id
+				SET p.applied_to_payroll = 0
+				WHERE ps.batch_id = ? AND p.penalty_date BETWEEN ? AND ? AND p.applied_to_payroll = 1
+				""", batchId, periodFrom, periodTo);
+	}
+
 	public long countForList(long companyId, String status, Integer year, String search) {
 		Filter filter = new Filter(companyId, status, year, search);
 		return jdbc.queryForObject("SELECT COUNT(*) FROM payroll_batches b WHERE " + filter.whereSql(),
