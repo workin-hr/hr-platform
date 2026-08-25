@@ -108,11 +108,24 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/company/upload_logo.php",
 			"/apis/api/company/upload_commercial_reg.php");
 
+	/**
+	 * Six of {@code payroll_batches}' ten routes -- CRUD plus fiscal period
+	 * resolution. {@code calculate.php}, {@code finalize.php}, {@code reopen.php}
+	 * and {@code stats.php} need the calculation engine and are a later slice.
+	 */
+	private static final List<String> WAVE_129_BATCH_ROUTES = List.of(
+			"/apis/api/payroll_batches/list.php",
+			"/apis/api/payroll_batches/one.php",
+			"/apis/api/payroll_batches/create.php",
+			"/apis/api/payroll_batches/update.php",
+			"/apis/api/payroll_batches/delete.php",
+			"/apis/api/payroll_batches/fiscal_period.php");
+
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 				WAVE_124_ROUTES, WAVE_125_ROUTES, WAVE_126_ROUTES,
 				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES, WAVE_1264B_ROUTES,
 				WAVE_128_SALARY_CONTRACT_ROUTES, WAVE_128_ADVANCE_ROUTES, WAVE_128_PENALTY_ROUTES,
-				WAVE_1210_COMPANY_ROUTES)
+				WAVE_1210_COMPANY_ROUTES, WAVE_129_BATCH_ROUTES)
 			.flatMap(List::stream).sorted().toList();
 
 	@Autowired
@@ -150,7 +163,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(WAVE_128_ADVANCE_ROUTES).hasSize(8);
 		assertThat(WAVE_128_PENALTY_ROUTES).hasSize(7);
 		assertThat(WAVE_1210_COMPANY_ROUTES).hasSize(3);
-		assertThat(EXPECTED_ROUTES).hasSize(88).doesNotHaveDuplicates();
+		assertThat(WAVE_129_BATCH_ROUTES).hasSize(6);
+		assertThat(EXPECTED_ROUTES).hasSize(94).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -201,6 +215,16 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
+	void theWave129SliceIsSixOfTheModulesTenEndpoints() {
+		assertThat(WAVE_129_BATCH_ROUTES).hasSize(6);
+		assertThat(WAVE_129_BATCH_ROUTES)
+				.allSatisfy(route -> assertThat(route).startsWith("/apis/api/payroll_batches/"));
+		assertThat(WAVE_129_BATCH_ROUTES).doesNotContain(
+				"/apis/api/payroll_batches/calculate.php", "/apis/api/payroll_batches/finalize.php",
+				"/apis/api/payroll_batches/reopen.php", "/apis/api/payroll_batches/stats.php");
+	}
+
+	@Test
 	void everyGuardedEntryCoversMappedRoutesAndEveryRouteIsGuarded() {
 		List<String> entries = List.of(com.workin.legacy.wire.LegacyPhpRoutes.CONTROLLER_GUARDED);
 		assertThat(entries).containsExactly(
@@ -212,7 +236,10 @@ class LegacyPhpRouteInventoryTest {
 				"/apis/api/requests/delete.php", "/apis/api/requests/approve.php",
 				"/apis/api/requests/reject.php", "/apis/api/leave_balances/**",
 				"/apis/api/salary_contracts/**", "/apis/api/advances/**", "/apis/api/penalties/**",
-				"/apis/api/company/**");
+				"/apis/api/company/**",
+				"/apis/api/payroll_batches/list.php", "/apis/api/payroll_batches/one.php",
+				"/apis/api/payroll_batches/create.php", "/apis/api/payroll_batches/update.php",
+				"/apis/api/payroll_batches/delete.php", "/apis/api/payroll_batches/fiscal_period.php");
 		for (String entry : entries) {
 			if (entry.endsWith("/**")) {
 				String prefix = entry.substring(0, entry.length() - 2);
