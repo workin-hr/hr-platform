@@ -25,7 +25,6 @@ import org.testcontainers.containers.MariaDBContainer;
 import com.workin.backend.BackendApplication;
 import com.workin.backend.i18n.ApiErrorBody;
 import com.workin.backend.identity.JwtService;
-import com.workin.legacy.attendance.LegacyExceptionTypePage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -273,12 +272,14 @@ class LegacyLoginEndToEndTest {
 
 		assertThat(firstToken).isNotEqualTo(secondToken);
 
-		ResponseEntity<ApiErrorBody> rejectedResponse = listExceptionTypesWith(firstToken, ApiErrorBody.class);
+		// D-107: attendance_exception_types is now a D-074-retrofitted module, so requireAuth()'s
+		// ApiException renders through LegacyWireExceptionHandler's PHP envelope, not ApiErrorBody.
+		ResponseEntity<java.util.Map> rejectedResponse = listExceptionTypesWith(firstToken, java.util.Map.class);
 		assertThat(rejectedResponse.getStatusCode().value()).isEqualTo(401);
-		assertThat(rejectedResponse.getBody().code()).isEqualTo("session_replaced");
+		assertThat(rejectedResponse.getBody().get("message"))
+				.isEqualTo("Signed in from another device. Your session here was ended.");
 
-		ResponseEntity<LegacyExceptionTypePage> acceptedResponse =
-				listExceptionTypesWith(secondToken, LegacyExceptionTypePage.class);
+		ResponseEntity<java.util.Map> acceptedResponse = listExceptionTypesWith(secondToken, java.util.Map.class);
 		assertThat(acceptedResponse.getStatusCode().value()).isEqualTo(200);
 	}
 
@@ -291,11 +292,13 @@ class LegacyLoginEndToEndTest {
 		return response.getBody().accessToken();
 	}
 
+	// Wave 12.R (D-107) re-point: attendance_exception_types moved off /api/legacy/** onto its
+	// literal /apis/api/attendance_exception_types/*.php route with the D-074 envelope.
 	private <T> ResponseEntity<T> listExceptionTypesWith(String token, Class<T> type) {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setBearerAuth(token);
 		return restTemplate.exchange(
-				"/api/legacy/attendance_exception_types", HttpMethod.GET, new HttpEntity<>(headers), type);
+				"/apis/api/attendance_exception_types/list.php", HttpMethod.GET, new HttpEntity<>(headers), type);
 	}
 
 	private static long readTokenVersion(long employeeId) throws Exception {

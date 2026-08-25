@@ -147,12 +147,25 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/attendance_exception_types/update.php",
 			"/apis/api/attendance_exception_types/delete.php");
 
+	/**
+	 * Wave 12.R, D-108: the D-074 retrofit of Wave 12.3a's six {@code branches}
+	 * routes off {@code /api/legacy/**} onto their literal {@code /apis/api/**}
+	 * paths with the PHP envelope. Second of five Wave 12.R module slices.
+	 */
+	private static final List<String> WAVE_12R_BRANCH_ROUTES = List.of(
+			"/apis/api/branches/list.php",
+			"/apis/api/branches/one.php",
+			"/apis/api/branches/create.php",
+			"/apis/api/branches/update.php",
+			"/apis/api/branches/delete.php",
+			"/apis/api/branches/generate_qr.php");
+
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 				WAVE_124_ROUTES, WAVE_125_ROUTES, WAVE_126_ROUTES,
 				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES, WAVE_1264B_ROUTES,
 				WAVE_128_SALARY_CONTRACT_ROUTES, WAVE_128_ADVANCE_ROUTES, WAVE_128_PENALTY_ROUTES,
 				WAVE_1210_COMPANY_ROUTES, WAVE_129_BATCH_ROUTES, WAVE_129_PAYSLIP_ROUTES,
-				WAVE_12R_EXCEPTION_TYPE_ROUTES)
+				WAVE_12R_EXCEPTION_TYPE_ROUTES, WAVE_12R_BRANCH_ROUTES)
 			.flatMap(List::stream).sorted().toList();
 
 	@Autowired
@@ -193,7 +206,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(WAVE_129_BATCH_ROUTES).hasSize(10);
 		assertThat(WAVE_129_PAYSLIP_ROUTES).hasSize(5);
 		assertThat(WAVE_12R_EXCEPTION_TYPE_ROUTES).hasSize(5);
-		assertThat(EXPECTED_ROUTES).hasSize(108).doesNotHaveDuplicates();
+		assertThat(WAVE_12R_BRANCH_ROUTES).hasSize(6);
+		assertThat(EXPECTED_ROUTES).hasSize(114).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -271,6 +285,18 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
+	void theWave12rBranchSliceIsAllSixRoutesRetrofittedFromApiLegacy() {
+		assertThat(WAVE_12R_BRANCH_ROUTES).hasSize(6).doesNotHaveDuplicates();
+		assertThat(WAVE_12R_BRANCH_ROUTES)
+				.allSatisfy(route -> assertThat(route).startsWith("/apis/api/branches/"));
+		List<String> mapped = handlerMapping.getHandlerMethods().keySet().stream()
+				.flatMap(info -> info.getPatternValues().stream())
+				.filter(pattern -> pattern.startsWith("/api/legacy/branches"))
+				.toList();
+		assertThat(mapped).as("D-108: no /api/legacy/** route remains for this retrofitted module").isEmpty();
+	}
+
+	@Test
 	void everyGuardedEntryCoversMappedRoutesAndEveryRouteIsGuarded() {
 		List<String> entries = List.of(com.workin.legacy.wire.LegacyPhpRoutes.CONTROLLER_GUARDED);
 		assertThat(entries).containsExactly(
@@ -284,7 +310,7 @@ class LegacyPhpRouteInventoryTest {
 				"/apis/api/salary_contracts/**", "/apis/api/advances/**", "/apis/api/penalties/**",
 				"/apis/api/company/**",
 				"/apis/api/payroll_batches/**", "/apis/api/payslips/**",
-				"/apis/api/attendance_exception_types/**");
+				"/apis/api/attendance_exception_types/**", "/apis/api/branches/**");
 		for (String entry : entries) {
 			if (entry.endsWith("/**")) {
 				String prefix = entry.substring(0, entry.length() - 2);

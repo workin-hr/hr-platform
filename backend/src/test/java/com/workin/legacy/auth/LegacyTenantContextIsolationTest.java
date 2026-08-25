@@ -26,9 +26,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
-import com.workin.backend.i18n.ApiErrorBody;
 import com.workin.backend.identity.JwtService;
-import com.workin.legacy.attendance.LegacyExceptionTypePage;
 
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -66,7 +64,9 @@ class LegacyTenantContextIsolationTest {
 
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
 	private static final String JWT_SECRET = "test-only-secret-not-used-in-production-000000000000";
-	private static final String EXCEPTION_TYPES_PATH = "/api/legacy/attendance_exception_types";
+	// Wave 12.R (D-107) re-point: attendance_exception_types moved off /api/legacy/** onto its
+	// literal /apis/api/attendance_exception_types/*.php routes with the D-074 envelope.
+	private static final String EXCEPTION_TYPES_PATH = "/apis/api/attendance_exception_types/list.php";
 
 	private static final long COMPANY_A = 9201L;
 	private static final long COMPANY_B = 9202L;
@@ -166,13 +166,16 @@ class LegacyTenantContextIsolationTest {
 	void aTokenClaimingAnotherCompanysTenancyIsRejected() {
 		String forgedToken = employeeToken(EMPLOYEE_A, EMPLOYEE_A, COMPANY_B, 1L);
 
-		ResponseEntity<ApiErrorBody> response = restTemplate.exchange(
-				EXCEPTION_TYPES_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(forgedToken)), ApiErrorBody.class);
+		ResponseEntity<Map> response = restTemplate.exchange(
+				EXCEPTION_TYPES_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(forgedToken)), Map.class);
 
 		assertThat(response.getStatusCode().value())
 				.describedAs("the forged tenant claim must not be trusted -- denied before the query runs")
 				.isEqualTo(401);
-		assertThat(response.getBody().code()).isEqualTo("unauthorized_invalid_token");
+		// D-107: attendance_exception_types is now a D-074-retrofitted module, so requireAuth()'s
+		// ApiException renders through LegacyWireExceptionHandler's PHP envelope ({success,message}),
+		// not the platform's {code,message} ApiErrorBody -- the message text is the wire contract now.
+		assertThat(response.getBody().get("message")).isEqualTo("Unauthorized — invalid or expired token");
 	}
 
 	/** The independent guard clause: {@code sub} is employee A, but {@code membership_id} claims employee B's row. */
@@ -180,11 +183,11 @@ class LegacyTenantContextIsolationTest {
 	void aTokenClaimingSomeoneElsesEmployeeRowAsItsOwnMembershipIsRejected() {
 		String forgedToken = employeeToken(EMPLOYEE_A, EMPLOYEE_B, COMPANY_B, 1);
 
-		ResponseEntity<ApiErrorBody> response = restTemplate.exchange(
-				EXCEPTION_TYPES_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(forgedToken)), ApiErrorBody.class);
+		ResponseEntity<Map> response = restTemplate.exchange(
+				EXCEPTION_TYPES_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(forgedToken)), Map.class);
 
 		assertThat(response.getStatusCode().value()).isEqualTo(401);
-		assertThat(response.getBody().code()).isEqualTo("unauthorized_invalid_token");
+		assertThat(response.getBody().get("message")).isEqualTo("Unauthorized — invalid or expired token");
 	}
 
 	/**
@@ -215,15 +218,17 @@ class LegacyTenantContextIsolationTest {
 	 * token_version} claim reads exactly its own company's data.
 	 */
 	@Test
+	@SuppressWarnings("unchecked")
 	void aGenuineTokenReadsOnlyItsOwnCompanysData() {
 		String honestToken = employeeToken(EMPLOYEE_A, EMPLOYEE_A, COMPANY_A, 1L);
 
-		ResponseEntity<LegacyExceptionTypePage> response = restTemplate.exchange(
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
 				EXCEPTION_TYPES_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(honestToken)),
-				LegacyExceptionTypePage.class);
+				new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
 
 		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody().data()).extracting("name").containsExactly("Sick Leave A");
+		java.util.List<Map<String, Object>> rows = (java.util.List<Map<String, Object>>) response.getBody().get("data");
+		assertThat(rows).extracting(row -> row.get("name")).containsExactly("Sick Leave A");
 	}
 
 	private String employeeToken(long identityId, long membershipId, long companyId, long tokenVersion) {

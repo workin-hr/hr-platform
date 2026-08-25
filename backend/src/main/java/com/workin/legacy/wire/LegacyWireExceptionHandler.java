@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.workin.backend.i18n.ApiException;
+import com.workin.legacy.organization.LegacyBranchController;
 
 /**
  * Renders the PHP envelope for the endpoints that serve legacy's own routes
@@ -50,16 +51,32 @@ import com.workin.backend.i18n.ApiException;
  * parent package is listed) but is kept explicit rather than removed, since
  * nothing requires collapsing it and an explicit list is easier to audit.</li>
  * </ul>
+ *
+ * <h2>{@code assignableTypes}, not {@code basePackages}, for {@code LegacyBranchController}</h2>
+ * <p>Wave 12.R, D-108: {@code branches} lives in {@code com.workin.legacy.organization}
+ * alongside {@code LegacyDepartmentController}/{@code LegacyJobTitleController}, both still
+ * unretrofitted and still on {@code /api/legacy/**} expecting {@code ApiErrorBody} -- listing
+ * the whole package would repeat the exact Wave-12.1 mistake this class's history already
+ * avoided once (see the {@code attendance.records}-not-{@code attendance} choice above,
+ * before D-107 made the parent package safe). {@code assignableTypes} targets the one retrofitted
+ * class precisely; Spring combines it with {@code basePackages} by logical OR (a bean matching
+ * either selector is covered), so neither sibling controller is affected. Each of
+ * {@code departments}/{@code job_titles}'s own retrofit slices should add its controller here
+ * the same way, then fold into a {@code basePackages} entry once the whole package is retrofitted.
  */
-@RestControllerAdvice(basePackages = {
-	"com.workin.legacy.employees",
-	"com.workin.legacy.workforce",
-	"com.workin.legacy.attendance",
-	"com.workin.legacy.attendance.records",
-	"com.workin.legacy.schedules",
-	"com.workin.legacy.payroll",
-	"com.workin.legacy.companies",
-})
+@RestControllerAdvice(
+		basePackages = {
+			"com.workin.legacy.employees",
+			"com.workin.legacy.workforce",
+			"com.workin.legacy.attendance",
+			"com.workin.legacy.attendance.records",
+			"com.workin.legacy.schedules",
+			"com.workin.legacy.payroll",
+			"com.workin.legacy.companies",
+		},
+		assignableTypes = {
+			LegacyBranchController.class,
+		})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class LegacyWireExceptionHandler {
 

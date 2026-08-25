@@ -80,6 +80,7 @@ public final class LegacyPhpRoutes {
 		"/apis/api/payroll_batches/**",
 		"/apis/api/payslips/**",
 		"/apis/api/attendance_exception_types/**",
+		"/apis/api/branches/**",
 	};
 
 	private LegacyPhpRoutes() {
