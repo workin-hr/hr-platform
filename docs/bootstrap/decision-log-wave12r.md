@@ -21,3 +21,13 @@ A retrofit may delete a transitional `/api/legacy/**` route that unrelated tests
 The D-107 regression reproduced under the CI runner environment and was fixed by repointing the shared tests to the literal PHP route and asserting the D-074 envelope rather than the old `ApiErrorBody` shape. The rule applies especially strongly to `auth/login_employee`, which is reused as test setup by other modules.
 
 Evidence: CI run 32880837978, the affected `LegacyHrPermissionEnforcerEndToEndTest`, `LegacyLoginEndToEndTest`, and `LegacyTenantContextIsolationTest`, plus the corrected full-suite run recorded on PR #120.
+
+## D-110: Final Wave 12.R public-route boundary
+
+**Status:** Implemented on PR #120, pending full CI validation.
+
+The remaining public compatibility surface is implemented as five literal `departments` routes, five literal `job_titles` routes, and `auth/login_employee.php`. The organization adapters reuse the already-reviewed Wave 12.3 business services and own only PHP wire concerns: method order, original query/body coercion, snake-case fields, envelope rendering, and fresh lexical database rows. The employee-login adapter reuses `LegacyLoginService` so the accepted short-lived access-token plus rotating-refresh-token security model remains intact while restoring the legacy route, required-field behavior, `login_successful` envelope, token field, and employee payload.
+
+The bidirectional `/apis/**` inventory is raised from 114 to 125 routes. The three binary/report endpoints remain deliberately excluded: `attendance/overall_report.php`, `attendance/export.php`, and `payslips/export.php`.
+
+The transitional `/api/legacy/**` aliases are retained only until the replacement routes pass the complete regression suite; alias retirement is the final closure action for Wave 12.R and is not considered complete merely because the new routes compile.
