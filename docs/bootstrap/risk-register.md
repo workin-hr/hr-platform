@@ -128,10 +128,10 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Mitigation | Wire per-artifact validators (e.g. `validate-adr.sh`) into the master validator (`scripts/validate_phase0.py`) rather than leaving them unreferenced; run every validator locally before commit |
 | Trigger | A structural validator and its target template diverge without CI catching it |
 | Contingency | Fix the drifted template or validator immediately; treat the gap as a P1 audit finding, not a P2/P3 |
-| Status | Mitigated for ADRs (see P1-1 in `docs/bootstrap/audit-remediation.md`); open in general as a recurring risk for any future template/validator pair |
+| Status | Mitigated for ADRs (see P1-1 in `docs/bootstrap/audit-remediation.md`); open in general as a recurring risk for any future template/validator pair. A second, code-level instance of the same pattern was found and fixed 2026-08-25: `LegacyPhpRoutes.CONTROLLER_GUARDED` (`backend/src/main/java/com/workin/legacy/wire/LegacyPhpRoutes.java`) added `/apis/api/advances/**`, `/apis/api/penalties/**` and `/apis/api/salary_contracts/**` (all `com.workin.legacy.payroll`) on PR #120, but the paired `LegacyWireExceptionHandler.basePackages` list was not updated to match -- exactly the failure mode the handler's own javadoc warns about. `LegacyApiException` thrown from that package had no handler in scope and fell through to a raw, unenveloped 500 instead of PHP's 401/405 denial. Caught by `LegacyEmployeeReadEndToEndTest.noMappedPhpRouteAnswersAnUnauthenticatedRequest()` (which enumerates every mapped `/apis/**` route), not by any static parity check between the two lists -- the two are still not mechanically linked, so a future wave can reintroduce the same drift. Fixed by adding `com.workin.legacy.payroll` to `basePackages`; full suite green afterward, zero regressions. |
 | Target Date | Ongoing |
-| Evidence | `docs/bootstrap/audit-remediation.md` (P1-1) |
-| Last Reviewed | 2026-08-02 |
+| Evidence | `docs/bootstrap/audit-remediation.md` (P1-1); `backend/src/main/java/com/workin/legacy/wire/LegacyWireExceptionHandler.java` commit `f45dfc8` on `phase1/wave-12-complete` (PR #120), `gh run view` on the `Backend Validate` `test` job for the pre-fix failure (`LegacyEmployeeReadEndToEndTest > noMappedPhpRouteAnswersAnUnauthenticatedRequest() FAILED: /apis/api/advances/approve.php answered 500 to an unauthenticated GET`). |
+| Last Reviewed | 2026-08-25 |
 
 ## R-008: Human Approval Process Remains Unexercised
 
