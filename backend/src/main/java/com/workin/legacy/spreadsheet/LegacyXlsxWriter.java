@@ -34,6 +34,16 @@ public final class LegacyXlsxWriter {
 	}
 
 	/**
+	 * Existing callers use the legacy writer's default left-to-right worksheet.
+	 */
+	public static byte[] build(
+			List<String> headers, List<List<String>> dataRows, String sheetName,
+			List<List<String>> prefixRows, List<String> merges, int headerStyleRows,
+			Map<Integer, Map<Integer, Integer>> cellStyles) {
+		return build(headers, dataRows, sheetName, prefixRows, merges, headerStyleRows, cellStyles, false);
+	}
+
+	/**
 	 * @param headers the header row, written after any prefix rows
 	 * @param dataRows body rows, may be empty
 	 * @param sheetName the worksheet name, sanitised the way PHP sanitises it
@@ -41,17 +51,19 @@ public final class LegacyXlsxWriter {
 	 * @param merges Excel merge references such as {@code S1:W1}
 	 * @param headerStyleRows how many leading rows take the header band style
 	 * @param cellStyles {@code [rowIndex][columnIndex] -> styleId} overrides
+	 * @param rightToLeft whether the worksheet view carries PHP's rightToLeft flag
 	 */
 	public static byte[] build(
 			List<String> headers, List<List<String>> dataRows, String sheetName,
 			List<List<String>> prefixRows, List<String> merges, int headerStyleRows,
-			Map<Integer, Map<Integer, Integer>> cellStyles) {
+			Map<Integer, Map<Integer, Integer>> cellStyles, boolean rightToLeft) {
 		List<List<String>> allRows = new ArrayList<>(prefixRows);
 		allRows.add(headers);
 		allRows.addAll(dataRows);
 
 		int freezeTopRows = Math.max(1, headerStyleRows);
-		String sheetXml = sheetXml(allRows, merges, Math.max(1, headerStyleRows), cellStyles, freezeTopRows);
+		String sheetXml = sheetXml(
+				allRows, merges, Math.max(1, headerStyleRows), cellStyles, rightToLeft, freezeTopRows);
 		String safeName = sheetName.replaceAll("[\\\\/*?:\\[\\]]+", "");
 		if (safeName.isEmpty()) {
 			safeName = "Sheet1";
@@ -72,8 +84,6 @@ public final class LegacyXlsxWriter {
 		try (ZipOutputStream zip = new ZipOutputStream(bytes, StandardCharsets.UTF_8)) {
 			for (Map.Entry<String, String> part : parts.entrySet()) {
 				ZipEntry entry = new ZipEntry(part.getKey());
-				// A fixed timestamp keeps the output reproducible; the archive
-				// metadata is not part of the contract either way.
 				entry.setTime(0L);
 				zip.putNextEntry(entry);
 				zip.write(part.getValue().getBytes(StandardCharsets.UTF_8));
@@ -88,7 +98,7 @@ public final class LegacyXlsxWriter {
 	/** {@code xlsx_sheet_xml()}, statement for statement. */
 	private static String sheetXml(
 			List<List<String>> rows, List<String> merges, int headerStyleRows,
-			Map<Integer, Map<Integer, Integer>> cellStyles, int freezeTopRows) {
+			Map<Integer, Map<Integer, Integer>> cellStyles, boolean rightToLeft, int freezeTopRows) {
 		StringBuilder sheetRows = new StringBuilder();
 		for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
 			List<String> row = rows.get(rowIndex);
@@ -125,10 +135,15 @@ public final class LegacyXlsxWriter {
 		}
 
 		String sheetViews = "";
-		if (freezeTopRows > 0) {
-			sheetViews = "<sheetViews><sheetView workbookViewId=\"0\"><pane ySplit=\"" + freezeTopRows
-					+ "\" topLeftCell=\"A" + (freezeTopRows + 1)
-					+ "\" activePane=\"bottomLeft\" state=\"frozen\"/></sheetView></sheetViews>";
+		if (rightToLeft || freezeTopRows > 0) {
+			String rtl = rightToLeft ? " rightToLeft=\"1\"" : "";
+			String pane = "";
+			if (freezeTopRows > 0) {
+				pane = "<pane ySplit=\"" + freezeTopRows + "\" topLeftCell=\"A" + (freezeTopRows + 1)
+						+ "\" activePane=\"bottomLeft\" state=\"frozen\"/>";
+			}
+			sheetViews = "<sheetViews><sheetView workbookViewId=\"0\"" + rtl + ">"
+					+ pane + "</sheetView></sheetViews>";
 		}
 
 		return XML_DECLARATION
@@ -277,6 +292,5 @@ public final class LegacyXlsxWriter {
 			+ "</cellXfs>"
 			+ "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>"
 			+ "</styleSheet>";
-
 
 }
