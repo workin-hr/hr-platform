@@ -62,7 +62,8 @@ public class LegacyAdvanceStore {
 			ps.setObject(i, values.get("status"));
 			return ps;
 		}, key);
-		return key.getKey().longValue();
+		Number id = key.getKey();
+		return id == null ? 0L : id.longValue();
 	}
 
 	/** create/update/action re-reads are intentionally id-only in PHP. */
@@ -149,7 +150,7 @@ public class LegacyAdvanceStore {
 		ResultSetMetaData meta = rs.getMetaData();
 		Map<String, Object> result = new LinkedHashMap<>();
 		for (int i = 1; i <= meta.getColumnCount(); i++) {
-			result.put(meta.getColumnLabel(i), LegacyJdbcValues.read(rs, i));
+			result.put(meta.getColumnLabel(i), LegacyJdbcValues.read(rs, i, meta.getColumnType(i)));
 		}
 		return result;
 	}
