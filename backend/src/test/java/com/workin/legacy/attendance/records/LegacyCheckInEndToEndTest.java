@@ -779,7 +779,7 @@ class LegacyCheckInEndToEndTest {
 
 	private static void weeklyOffDays(long companyId, String... days) {
 		execute("INSERT INTO setting_definitions (id, setting_key, is_multi) VALUES"
-				+ " (900, 'WEEKLY_OFF_DAYS', 1)");
+				+ " (900, 'weekly_off_days', 1)");
 		execute("INSERT INTO company_settings (id, company_id, setting_definition_id) VALUES"
 				+ " (900, " + companyId + ", 900)");
 		int id = 900;
