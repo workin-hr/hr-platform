@@ -130,6 +130,17 @@ class LegacyLoginEndToEndTest {
 	}
 
 	@Test
+	void frozenPhpCompanyAdminTokenAuthenticatesAProtectedMigratedRoute() {
+		String companyToken = jwtService.issueCompanyToken(9001L, "company_admin");
+		LegacyPhpJwtService.DecodedToken decoded = jwtService.decode(companyToken);
+		assertThat(decoded.payload().keySet()).isEqualTo(Set.of("type", "company_id", "role", "exp"));
+
+		ResponseEntity<Map> response = listExceptionTypesWith(companyToken);
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		assertThat(response.getBody().get("success")).isEqualTo(true);
+	}
+
+	@Test
 	void unknownPhoneAndWrongPasswordPreservePhp401Outcomes() {
 		ResponseEntity<Map> unknown = login("+201199999999", KNOWN_PASSWORD);
 		assertThat(unknown.getStatusCode().value()).isEqualTo(401);
