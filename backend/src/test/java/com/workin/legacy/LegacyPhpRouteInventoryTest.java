@@ -121,11 +121,24 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/payroll_batches/delete.php",
 			"/apis/api/payroll_batches/fiscal_period.php");
 
+	/**
+	 * Five of {@code payslips}' six routes -- {@code export.php} streams a binary
+	 * XLSX response ({@code api_xlsx_export_send()}) and stays unmapped for the
+	 * same reason {@code attendance/export.php} does (see
+	 * {@link #theTwoPayrollReportEndpointsStayUnmapped()}): D-106.
+	 */
+	private static final List<String> WAVE_129_PAYSLIP_ROUTES = List.of(
+			"/apis/api/payslips/list.php",
+			"/apis/api/payslips/one.php",
+			"/apis/api/payslips/create.php",
+			"/apis/api/payslips/update.php",
+			"/apis/api/payslips/delete.php");
+
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 				WAVE_124_ROUTES, WAVE_125_ROUTES, WAVE_126_ROUTES,
 				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES, WAVE_1264B_ROUTES,
 				WAVE_128_SALARY_CONTRACT_ROUTES, WAVE_128_ADVANCE_ROUTES, WAVE_128_PENALTY_ROUTES,
-				WAVE_1210_COMPANY_ROUTES, WAVE_129_BATCH_ROUTES)
+				WAVE_1210_COMPANY_ROUTES, WAVE_129_BATCH_ROUTES, WAVE_129_PAYSLIP_ROUTES)
 			.flatMap(List::stream).sorted().toList();
 
 	@Autowired
@@ -164,7 +177,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(WAVE_128_PENALTY_ROUTES).hasSize(7);
 		assertThat(WAVE_1210_COMPANY_ROUTES).hasSize(3);
 		assertThat(WAVE_129_BATCH_ROUTES).hasSize(10);
-		assertThat(EXPECTED_ROUTES).hasSize(98).doesNotHaveDuplicates();
+		assertThat(WAVE_129_PAYSLIP_ROUTES).hasSize(5);
+		assertThat(EXPECTED_ROUTES).hasSize(103).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -222,6 +236,14 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
+	void theWave129PayslipSliceIsFiveEndpointsWithExportDeferred() {
+		assertThat(WAVE_129_PAYSLIP_ROUTES).hasSize(5).doesNotHaveDuplicates();
+		assertThat(WAVE_129_PAYSLIP_ROUTES)
+				.allSatisfy(route -> assertThat(route).startsWith("/apis/api/payslips/"));
+		assertThat(EXPECTED_ROUTES).doesNotContain("/apis/api/payslips/export.php");
+	}
+
+	@Test
 	void everyGuardedEntryCoversMappedRoutesAndEveryRouteIsGuarded() {
 		List<String> entries = List.of(com.workin.legacy.wire.LegacyPhpRoutes.CONTROLLER_GUARDED);
 		assertThat(entries).containsExactly(
@@ -234,7 +256,7 @@ class LegacyPhpRouteInventoryTest {
 				"/apis/api/requests/reject.php", "/apis/api/leave_balances/**",
 				"/apis/api/salary_contracts/**", "/apis/api/advances/**", "/apis/api/penalties/**",
 				"/apis/api/company/**",
-				"/apis/api/payroll_batches/**");
+				"/apis/api/payroll_batches/**", "/apis/api/payslips/**");
 		for (String entry : entries) {
 			if (entry.endsWith("/**")) {
 				String prefix = entry.substring(0, entry.length() - 2);

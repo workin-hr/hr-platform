@@ -72,6 +72,19 @@ public class LegacyPayrollAttendanceFigures {
 			SELECT DISTINCT DATE(check_in) AS d FROM attendance
 			WHERE employee_id = ? AND DATE(check_in) BETWEEN ? AND ?""";
 
+	/** {@code attendance_present_details_for_period()}'s own query, verbatim. */
+	private static final String PRESENT_DETAILS = """
+			SELECT
+			  DATE(a.check_in) AS present_date,
+			  MAX(a.exception_type_id) AS exception_type_id,
+			  MAX(et.name) AS exception_name,
+			  MAX(CASE WHEN a.check_out IS NOT NULL OR (a.exception_type_id IS NULL) THEN 1 ELSE 0 END) AS has_punch
+			FROM attendance AS a
+			LEFT JOIN exception_types AS et ON et.id = a.exception_type_id
+			WHERE a.employee_id = ? AND DATE(a.check_in) BETWEEN ? AND ?
+			GROUP BY DATE(a.check_in)
+			ORDER BY present_date ASC""";
+
 	/**
 	 * {@code payroll_employee_work_hours_per_day()} ({@code payroll_calculation.php:743-757}):
 	 * employee override, then job title, then 8h -- {@code NULLIF(x, 0)} at
@@ -258,10 +271,12 @@ public class LegacyPayrollAttendanceFigures {
 				weeklyRestCredit.attendanceFlagsInRange(companyId, employeeId, periodFrom, rangeTo);
 		Map<String, String> holidayByDate = calendar.holidaysByDate(companyId, lookbackFrom, rangeTo);
 
-		int voidWeeklyRestDays = weeklyRestCountByStatus(
-				companyId, employeeId, periodFrom, rangeTo, LegacyWeeklyRestCredit.VOID, attFlags, holidayByDate, asOf);
-		int earnedWeeklyRestDays = weeklyRestCountByStatus(
-				companyId, employeeId, periodFrom, rangeTo, LegacyWeeklyRestCredit.EARNED, attFlags, holidayByDate, asOf);
+		int voidWeeklyRestDays = weeklyRestDatesByStatus(
+				companyId, employeeId, periodFrom, rangeTo, LegacyWeeklyRestCredit.VOID, attFlags, holidayByDate, asOf)
+				.size();
+		int earnedWeeklyRestDays = weeklyRestDatesByStatus(
+				companyId, employeeId, periodFrom, rangeTo, LegacyWeeklyRestCredit.EARNED, attFlags, holidayByDate, asOf)
+				.size();
 
 		int daysAbsent = workdayAbsent + Math.max(0, voidWeeklyRestDays);
 
@@ -271,21 +286,21 @@ public class LegacyPayrollAttendanceFigures {
 	}
 
 	/**
-	 * {@code weekly_rest_count_by_status_in_range()}/{@code weekly_rest_dates_by_status_in_range()}
-	 * ({@code weekly_rest_credit_helper.php:225-294}): the shift is resolved
-	 * <b>fresh for every date</b> here -- deliberately unlike
-	 * {@link #periodWorkingDays}, see the class javadoc.
+	 * {@code weekly_rest_dates_by_status_in_range()} ({@code weekly_rest_credit_helper.php:225-260}):
+	 * the shift is resolved <b>fresh for every date</b> here -- deliberately
+	 * unlike {@link #periodWorkingDays}, see the class javadoc.
+	 * {@code weekly_rest_count_by_status_in_range()} is just this list's size.
 	 */
-	private int weeklyRestCountByStatus(
+	private List<String> weeklyRestDatesByStatus(
 			long companyId, long employeeId, String from, String to, String status,
 			Map<String, LegacyWeeklyRestCredit.AttendanceFlag> attendanceByDate,
 			Map<String, String> holidayByDate, String asOf) {
 		LocalDate start = LocalDate.parse(from);
 		LocalDate end = LocalDate.parse(to);
 		if (end.isBefore(start)) {
-			return 0;
+			return List.of();
 		}
-		int count = 0;
+		List<String> dates = new java.util.ArrayList<>();
 		for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
 			String dateStr = d.toString();
 			if (dateStr.compareTo(asOf) > 0) {
@@ -301,10 +316,10 @@ public class LegacyPayrollAttendanceFigures {
 			String creditStatus = weeklyRestCredit.creditStatus(
 					companyId, employeeId, dateStr, attendanceByDate, holidayByDate, asOf);
 			if (creditStatus.equals(status)) {
-				count++;
+				dates.add(dateStr);
 			}
 		}
-		return count;
+		return dates;
 	}
 
 	/** {@code payroll_employee_work_hours_per_day()} ({@code payroll_calculation.php:743-757}). */
@@ -329,25 +344,87 @@ public class LegacyPayrollAttendanceFigures {
 	 * {@link #officialHolidaysWorkingDaysInRange}'s scope).
 	 */
 	private int officialHolidaysWorkingCreditForEmployee(long companyId, long employeeId, String from, String to) {
+		return officialHolidaysWorkingCreditDetails(companyId, employeeId, from, to, "").size();
+	}
+
+	/**
+	 * {@code official_holidays_working_credit_details_for_employee()}
+	 * ({@code official_holidays_helper.php:159-207}): one {@code official_holiday}
+	 * detail row per uncovered holiday date, labelled with the holiday's own
+	 * name or, when blank, the {@code fallbackLabel} ({@code t('csv_official_holiday_days')}).
+	 */
+	private List<Map<String, Object>> officialHolidaysWorkingCreditDetails(
+			long companyId, long employeeId, String from, String to, String fallbackLabel) {
 		Map<String, String> holidayByDate = calendar.holidaysByDate(companyId, from, to);
 		if (holidayByDate.isEmpty()) {
-			return 0;
+			return List.of();
 		}
 		List<String> presentDates = jdbcTemplate.queryForList(PRESENT_DATES, String.class, employeeId, from, to);
 		java.util.Set<String> presentSet = new java.util.HashSet<>(presentDates);
 		List<String> rest = weeklyOffDays.forCompany(companyId);
 
-		int credit = 0;
-		for (String date : holidayByDate.keySet()) {
+		List<Map<String, Object>> details = new java.util.ArrayList<>();
+		for (Map.Entry<String, String> entry : holidayByDate.entrySet()) {
+			String date = entry.getKey();
 			if (presentSet.contains(date)) {
 				continue;
 			}
 			if (isWeeklyRestDayNoArabic(dayOfWeek(LocalDate.parse(date)), rest)) {
 				continue;
 			}
-			credit++;
+			String label = LegacyValues.phpTrim(entry.getValue());
+			details.add(Map.of(
+					"date", date, "day_type", "official_holiday", "label", label.isEmpty() ? fallbackLabel : label));
 		}
-		return credit;
+		return details;
+	}
+
+	/** {@code attendance_present_details_for_period()} ({@code attendance_calendar_helper.php:484-532}). */
+	private List<Map<String, Object>> attendancePresentDetails(
+			long employeeId, String from, String to, String presentLabel) {
+		return jdbcTemplate.query(PRESENT_DETAILS, (rs, rowNum) -> {
+			String exceptionName = LegacyValues.phpTrim(rs.getString("exception_name"));
+			long exceptionId = rs.getLong("exception_type_id");
+			if (exceptionId > 0 && !exceptionName.isEmpty()) {
+				return Map.of("date", rs.getString("present_date"), "day_type", "exception", "label", exceptionName);
+			}
+			return Map.<String, Object>of(
+					"date", rs.getString("present_date"), "day_type", "attendance", "label", presentLabel);
+		}, employeeId, from, to);
+	}
+
+	/**
+	 * {@code payroll_payslip_present_details()} ({@code payroll_calculation.php:382-437}):
+	 * the day-by-day "present days" hover breakdown -- real punches/exceptions,
+	 * earned weekly rest, and (once the employee clears the minimum-coverage
+	 * threshold) credited official holidays, sorted by date.
+	 */
+	public List<Map<String, Object>> presentDetails(
+			long companyId, long employeeId, String periodFrom, String periodTo, int punchPresent, String asOf,
+			String weeklyRestLabel, String officialHolidayFallbackLabel) {
+		boolean inProgress = asOf.compareTo(periodTo) < 0;
+		String rangeTo = inProgress ? asOf : periodTo;
+
+		List<Map<String, Object>> details =
+				new java.util.ArrayList<>(attendancePresentDetails(employeeId, periodFrom, rangeTo, weeklyRestLabel));
+
+		Map<String, LegacyWeeklyRestCredit.AttendanceFlag> attFlags =
+				weeklyRestCredit.attendanceFlagsInRange(companyId, employeeId, periodFrom, rangeTo);
+		String lookbackFrom = LocalDate.parse(periodFrom).minusDays(7).toString();
+		Map<String, String> holidayByDate = calendar.holidaysByDate(companyId, lookbackFrom, rangeTo);
+
+		for (String date : weeklyRestDatesByStatus(
+				companyId, employeeId, periodFrom, rangeTo, LegacyWeeklyRestCredit.EARNED, attFlags, holidayByDate, asOf)) {
+			details.add(Map.of("date", date, "day_type", "weekly_rest", "label", weeklyRestLabel));
+		}
+
+		if (punchPresent >= MIN_COVERED_WORKDAYS) {
+			details.addAll(officialHolidaysWorkingCreditDetails(
+					companyId, employeeId, periodFrom, rangeTo, officialHolidayFallbackLabel));
+		}
+
+		details.sort(java.util.Comparator.comparing(row -> (String) row.get("date")));
+		return details;
 	}
 
 	/**
