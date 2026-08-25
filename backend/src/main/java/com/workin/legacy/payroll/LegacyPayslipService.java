@@ -415,7 +415,7 @@ public class LegacyPayslipService {
 	}
 
 	/** {@code payroll_attendance_salary_base()} ({@code payroll_calculation.php:261-275}). */
-	private BigDecimal attendanceSalaryBase(
+	static BigDecimal attendanceSalaryBase(
 			BigDecimal gross, BigDecimal dayRate, String periodFrom, String periodTo, String asOf) {
 		if (asOf.compareTo(periodTo) >= 0) {
 			return round(gross);
@@ -425,7 +425,7 @@ public class LegacyPayslipService {
 	}
 
 	/** {@code payroll_elapsed_calendar_days()} ({@code payroll_calculation.php:234-255}). */
-	private static int elapsedCalendarDays(String periodFrom, String periodTo, String asOf) {
+	static int elapsedCalendarDays(String periodFrom, String periodTo, String asOf) {
 		if (periodFrom.isEmpty() || periodTo.isEmpty()) {
 			return 0;
 		}

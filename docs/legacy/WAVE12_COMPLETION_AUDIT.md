@@ -12,17 +12,20 @@ Authoritative source: frozen `workin-hr/hr-legacy` API tree at `d113204c8a2cf83b
 - Wave 12.10: 3 routes — `company/update`, `company/upload_logo`, `company/upload_commercial_reg`.
 - Wave 12.R: retrofit already-implemented routes that are not yet exact legacy-path/envelope compatible, then run bidirectional route coverage.
 
-That is 44 newly delivered routes before the compatibility retrofit. With the 62 routes delivered through Wave 12.7, the route inventory should reach 106 before Wave 12.R changes compatibility classification.
+That is 44 newly delivered routes before the compatibility retrofit. With the 62 routes delivered through Wave 12.7, the route inventory would reach 106 if every scoped route shipped -- but `attendance/overall_report.php`, `attendance/export.php` and `payslips/export.php` are each deliberately deferred (D-101, D-106) as binary/report responses outside a wave's JSON-route slice, so the inventory settles at **103** once Wave 12.9 and 12.10 are both in, before Wave 12.R changes compatibility classification.
 
 ## Execution state
 
 - `salary_contracts`: **implemented and slice-reviewed (5/5)** — production controller/service/store, route guard, inventory and focused regressions are present.
 - `advances`: **implemented and adversarially slice-reviewed (8/8)** — all frozen routes (`create`, `list`, `one`, `update`, `approve`, `reject`, `pay`, `delete`) are mapped; focused tests lock role/ownership behavior, null-coalescing, deduction normalization, overpayment, pending-only edits and the legacy id-only action quirks.
 - `penalties`: **implemented and adversarially slice-reviewed (7/7)** — CRUD/list/stat/report routes, notification persistence, quarter-day normalization, manager branch scope, historical salary-contract penalty valuation and the legacy `format=csv` → styled XLSX download are present. Wave 12.8 is complete at **20/20** routes.
-- Deferred attendance: `stats.php` and `list.php` are now mapped. `list.php` ports both the regular paginated query and `fill_days=1` calendar expansion, including employee/company scoping, search/date filters, active accepted roster filtering, numeric employee-code ordering, incomplete/timed-request worked-minute calculation, rest/holiday rows, weekly-rest credit state, synthetic rows and cap-at-today behavior.
-- Delivered bidirectional route inventory is now **84**.
-- Remaining deferred attendance endpoints: `employee_monthly_attendance.php`, `overall_report.php`, `export.php`.
-- Wave 12.9, Wave 12.10 and Wave 12.R remain pending.
+- Deferred attendance: `stats.php`, `list.php` and `employee_monthly_attendance.php` are mapped (Wave 12.6.4b). `list.php` ports both the regular paginated query and `fill_days=1` calendar expansion, including employee/company scoping, search/date filters, active accepted roster filtering, numeric employee-code ordering, incomplete/timed-request worked-minute calculation, rest/holiday rows, weekly-rest credit state, synthetic rows and cap-at-today behavior. `overall_report.php` and `export.php` remain deliberately deferred (binary/report responses, D-101).
+- `payroll_batches`: **implemented (10/10)** across two slices -- D-104 (CRUD + `fiscal_period.php`, no calculation engine) then D-105 (`calculate`, `finalize`, `reopen`, `stats`, the transactional side effects and the calculation engine itself).
+- `payslips`: **implemented (5/6)** — D-106. `list.php`, `one.php`, `create.php`, `update.php`, `delete.php` are mapped, including the full `payroll_enrich_payslip_row()` live-recompute path. `export.php` is deliberately deferred (binary XLSX response, same class of exclusion as `attendance/export.php`).
+- `company`: **implemented (3/3)** — `update.php`, `upload_logo.php`, `upload_commercial_reg.php` (Wave 12.10, D-102).
+- Delivered bidirectional route inventory is now **103**.
+- Remaining deferred (deliberately, not pending): `attendance/overall_report.php`, `attendance/export.php`, `payslips/export.php`.
+- Wave 12.R (compatibility retrofit/route-coverage audit) remains pending -- the only genuinely open scope from this document's original list.
 
 ### Attendance-list adversarial review notes
 
@@ -68,6 +71,8 @@ That is 44 newly delivered routes before the compatibility retrofit. With the 62
 - Stats value penalties against the salary contract effective on each penalty date, use the fixed 30-day divisor and PHP-style two-decimal rounding, then sum the rounded per-row amount.
 - `report.php?format=csv` intentionally returns XLSX, not CSV, keeps the frozen nine-header/seven-row-value mismatch, the `Report` sheet, no-cache/content-length headers and the configured legacy date in the filename.
 
-## CI infrastructure blocker
+## CI infrastructure blocker (resolved)
 
-GitHub-hosted runner provisioning is still failing before the first job step for this private organization/repository. On head `5c6ce7acea9f9c513db3f08fa4f28014529524a1`, `Backend Validate` run #278 completed as failure, but its only job again has `steps=null`; no build or test command ran. That is not an application test result. No affected head may be called CI-green until a runner is actually assigned and executes steps.
+GitHub-hosted runner provisioning previously failed before the first job step for this private organization/repository. On head `5c6ce7acea9f9c513db3f08fa4f28014529524a1`, `Backend Validate` run #278 completed as failure with its only job showing `steps=null`; no build or test command ran, so that was never an application test result.
+
+Root cause: org-level GitHub Actions billing on the private `workin-hr` org blocked runner assignment entirely, not a workflow or code defect. Resolved by making `hr-platform` public (the user's explicit choice, R-009), which runs on GitHub's free public-repo Actions minutes with no billing dependency. Runners have been assigned and executing real build/test steps since. A separate, unrelated blocker -- the Codex cloud-review quota on the connected ChatGPT/OpenAI account -- is still open and requires the user to act at `chatgpt.com/codex/cloud/settings/usage`; it affects only the optional AI code-review step, not `test`/`validate`.

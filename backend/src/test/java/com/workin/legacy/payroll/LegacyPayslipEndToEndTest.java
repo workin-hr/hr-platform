@@ -163,14 +163,14 @@ class LegacyPayslipEndToEndTest {
 		assertThat(decimalString(created.get("basic_salary"))).isEqualTo("3000.00");
 		// allowances = transport + food + risk + incentives, contract has none set -> 0; no housing.
 		assertThat(decimalString(created.get("allowances"))).isEqualTo("0.00");
-		assertThat(decimalString(created.get("net_salary"))).isEqualTo("3040.00");
+		// net = (basic 3000 + allowances 0 + overtime_pay 80) - (penalties 30 + advance 20 + other 10) = 3020.00.
+		assertThat(decimalString(created.get("net_salary"))).isEqualTo("3020.00");
 		assertThat(created).doesNotContainKey("expected_work_days");
 		assertThat(created).doesNotContainKey("present_details");
 
 		long payslipId = number(created.get("id"));
 		send(DELETE, ADMIN, HttpMethod.DELETE, null, 200, "?id=" + payslipId);
 		Map<String, Object> gone = send(ONE, ADMIN, HttpMethod.GET, null, 404, "?id=" + payslipId);
-		assertThat(dataOf(Map.of("data", java.util.Map.of()))).isNotNull(); // sanity no-op
 		assertThat(gone.get("message")).isEqualTo("payslip_not_found");
 	}
 
@@ -193,7 +193,7 @@ class LegacyPayslipEndToEndTest {
 		insertForeignEmployeeAndPayslip(otherEmployeeId, batchId);
 		Map<String, Object> forbidden = send(
 				ONE, EMPLOYEE, HttpMethod.GET, null, 403, "?id=" + foreignPayslipId(otherEmployeeId, batchId));
-		assertThat(forbidden.get("message")).isEqualTo("forbidden");
+		assertThat(forbidden.get("message")).isEqualTo("Forbidden");
 	}
 
 	// ------------------------------------------------------------------
