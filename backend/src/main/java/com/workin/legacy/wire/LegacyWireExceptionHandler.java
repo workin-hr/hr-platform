@@ -30,13 +30,17 @@ import com.workin.backend.i18n.ApiException;
  *
  * <ul>
  * <li>{@code com.workin.legacy.employees} -- Wave 12.4</li>
- * <li>{@code com.workin.legacy.workforce} -- Wave 12.5</li>
+ * <li>{@code com.workin.legacy.workforce} -- Wave 12.5, and Wave 12.7's
+ * {@code requests}/{@code leave_balances} (same package)</li>
  * <li>{@code com.workin.legacy.attendance.records} -- Wave 12.6</li>
+ * <li>{@code com.workin.legacy.schedules} -- Wave 12.6</li>
+ * <li>{@code com.workin.legacy.payroll} -- Wave 12 completion
+ * ({@code advances}, {@code penalties}, {@code salary_contracts})</li>
  * </ul>
  *
- * <p>The last entry is a <b>subpackage</b>, and deliberately so. Wave 12.1's
- * {@code LegacyExceptionTypeController} sits in the parent
- * {@code com.workin.legacy.attendance}, serves the merged
+ * <p>The {@code attendance.records} entry is a <b>subpackage</b>, and
+ * deliberately so. Wave 12.1's {@code LegacyExceptionTypeController} sits in
+ * the parent {@code com.workin.legacy.attendance}, serves the merged
  * {@code /api/legacy/**} surface and raises {@code ApiException} -- which this
  * advice also handles. Listing the parent would therefore capture it and
  * render D-074's PHP envelope where its clients expect
@@ -48,6 +52,7 @@ import com.workin.backend.i18n.ApiException;
 	"com.workin.legacy.workforce",
 	"com.workin.legacy.attendance.records",
 	"com.workin.legacy.schedules",
+	"com.workin.legacy.payroll",
 })
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class LegacyWireExceptionHandler {
@@ -113,12 +118,11 @@ public class LegacyWireExceptionHandler {
 	 * rollback semantics require it -- rolling back and rendering are different
 	 * jobs.
 	 *
-	 * <p>This fallback covers exactly the packages this advice lists -- today
-	 * {@code com.workin.legacy.employees}, {@code com.workin.legacy.workforce}
-	 * and {@code com.workin.legacy.attendance.records} -- and D-084 authorizes
-	 * a later legacy-route wave to inherit it by adding
-	 * its package to that list rather than by defining a second envelope.
-	 * {@code /api/legacy/**} and the PostgreSQL surface remain untouched.
+	 * <p>This fallback covers exactly the packages this advice lists (see the
+	 * class-level list above) -- and D-084 authorizes a later legacy-route
+	 * wave to inherit it by adding its package to that list rather than by
+	 * defining a second envelope. {@code /api/legacy/**} and the PostgreSQL
+	 * surface remain untouched.
 	 */
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<LegacyApiResponse> handleUnexpected(Exception ex, HttpServletRequest request) {
