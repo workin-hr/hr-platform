@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyJdbcValues;
+import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.attendance.calendar.LegacyAttendanceCalendar;
@@ -83,8 +84,8 @@ public class LegacyAttendanceStatsService {
 
 	private Map<String, Object> employeePeriodStats(long companyId, long employeeId, String from, String to,
 			String weeklyRestLabel) {
-		LocalDate start = LocalDate.parse(from);
-		LocalDate end = LocalDate.parse(to);
+		LocalDate start = dateTimeConstructorDate(from);
+		LocalDate end = dateTimeConstructorDate(to);
 		Map<String, DayState> byDate = new LinkedHashMap<>();
 		for (Map<String, Object> row : jdbcTemplate.query(EMPLOYEE_ROWS, LegacyJdbcValues.rowMapper(), employeeId, from, to)) {
 			Object rawIn = row.get("check_in");
@@ -159,7 +160,7 @@ public class LegacyAttendanceStatsService {
 			}
 		}
 		Map<String, Object> result = new LinkedHashMap<>();
-		result.put("total_days_in_month", YearMonth.from(start).lengthOfMonth());
+		result.put("total_days_in_month", phpCalendarDaysInMonth(from, clock.today()));
 		result.put("present_days", present);
 		result.put("leave_days", leave);
 		result.put("official_holiday_days", officialHolidays);
@@ -227,6 +228,16 @@ public class LegacyAttendanceStatsService {
 		return YearMonth.of(year, month).lengthOfMonth();
 	}
 
+	private LocalDate dateTimeConstructorDate(String value) {
+		LocalDate parsed = LegacyPhpStrtotime.dateOf(value, clock.today());
+		if (parsed == null) {
+			// new DateTimeImmutable($value) throws; this must escape the keyed API path
+			// and be rendered by the legacy unexpected-exception handler.
+			throw new IllegalArgumentException("invalid legacy DateTimeImmutable input");
+		}
+		return parsed;
+	}
+
 	private boolean employeeExists(long employeeId, long companyId) {
 		return !jdbcTemplate.queryForList(EMPLOYEE_EXISTS, employeeId, companyId).isEmpty();
 	}
@@ -247,7 +258,7 @@ public class LegacyAttendanceStatsService {
 	}
 
 	private String firstDayOfPhpMonth(String value) {
-		LocalDate parsed = com.workin.legacy.LegacyPhpStrtotime.dateOf(value, clock.today());
+		LocalDate parsed = LegacyPhpStrtotime.dateOf(value, clock.today());
 		if (parsed == null) {
 			parsed = LocalDate.of(1970, 1, 1);
 		}
@@ -255,7 +266,7 @@ public class LegacyAttendanceStatsService {
 	}
 
 	private String lastDayOfPhpMonth(String value) {
-		LocalDate parsed = com.workin.legacy.LegacyPhpStrtotime.dateOf(value, clock.today());
+		LocalDate parsed = LegacyPhpStrtotime.dateOf(value, clock.today());
 		if (parsed == null) {
 			parsed = LocalDate.of(1970, 1, 1);
 		}
