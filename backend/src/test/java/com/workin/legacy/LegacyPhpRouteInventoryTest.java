@@ -45,7 +45,7 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/company_official_holidays/list.php", "/apis/api/company_official_holidays/one.php",
 			"/apis/api/company_official_holidays/update.php");
 
-	/** Fifteen of eighteen Wave-12.6 routes; three reporting/export routes remain deferred. */
+	/** Thirteen of eighteen Wave-12.6 routes; the request-dependent five stay after Wave 12.7. */
 	private static final List<String> WAVE_126_ROUTES = List.of(
 			"/apis/api/attendance/delete.php", "/apis/api/attendance/delete_range.php",
 			"/apis/api/attendance/one.php", "/apis/api/attendance/create.php",
@@ -53,7 +53,6 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/schedules/assign_employee_schedule.php",
 			"/apis/api/attendance/check_in.php", "/apis/api/attendance/check_in_qr.php",
 			"/apis/api/attendance/check_out.php", "/apis/api/attendance/analyze_excel.php",
-			"/apis/api/attendance/list.php", "/apis/api/attendance/stats.php",
 			"/apis/api/schedules/employee_monthly_schedule.php",
 			"/apis/api/schedules/generate_employee_schedule.php");
 
@@ -64,11 +63,28 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/requests/update.php");
 
 	private static final List<String> WAVE_127_LEAVE_BALANCE_ROUTES = List.of(
-			"/apis/api/leave_balances/analyze_excel.php", "/apis/api/leave_balances/create.php",
-			"/apis/api/leave_balances/delete.php", "/apis/api/leave_balances/generate.php",
-			"/apis/api/leave_balances/import_bulk.php", "/apis/api/leave_balances/list.php",
-			"/apis/api/leave_balances/one.php", "/apis/api/leave_balances/stats.php",
-			"/apis/api/leave_balances/template_excel.php", "/apis/api/leave_balances/update.php");
+			"/apis/api/leave_balances/analyze_excel.php",
+			"/apis/api/leave_balances/create.php",
+			"/apis/api/leave_balances/delete.php",
+			"/apis/api/leave_balances/generate.php",
+			"/apis/api/leave_balances/import_bulk.php",
+			"/apis/api/leave_balances/list.php",
+			"/apis/api/leave_balances/one.php",
+			"/apis/api/leave_balances/stats.php",
+			"/apis/api/leave_balances/template_excel.php",
+			"/apis/api/leave_balances/update.php");
+
+	/**
+	 * Wave 12.6.4b: the three endpoints Wave 12.7 slice 1 unblocked --
+	 * {@code list.php}, {@code stats.php} and
+	 * {@code employee_monthly_attendance.php} all reach
+	 * {@code attendance_row_worked_minutes()} and through it the
+	 * {@code requests} table, which now exists.
+	 */
+	private static final List<String> WAVE_1264B_ROUTES = List.of(
+			"/apis/api/attendance/list.php",
+			"/apis/api/attendance/stats.php",
+			"/apis/api/attendance/employee_monthly_attendance.php");
 
 	private static final List<String> WAVE_128_SALARY_CONTRACT_ROUTES = List.of(
 			"/apis/api/salary_contracts/create.php", "/apis/api/salary_contracts/delete.php",
@@ -89,7 +105,7 @@ class LegacyPhpRouteInventoryTest {
 
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 				WAVE_124_ROUTES, WAVE_125_ROUTES, WAVE_126_ROUTES,
-				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES,
+				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES, WAVE_1264B_ROUTES,
 				WAVE_128_SALARY_CONTRACT_ROUTES, WAVE_128_ADVANCE_ROUTES, WAVE_128_PENALTY_ROUTES)
 			.flatMap(List::stream).sorted().toList();
 
@@ -120,13 +136,14 @@ class LegacyPhpRouteInventoryTest {
 	void deliveredWaveCountsStayExactAndNonOverlapping() {
 		assertThat(WAVE_124_ROUTES).hasSize(17);
 		assertThat(WAVE_125_ROUTES).hasSize(15);
-		assertThat(WAVE_126_ROUTES).hasSize(15);
+		assertThat(WAVE_126_ROUTES).hasSize(13);
 		assertThat(WAVE_127_REQUEST_ROUTES).hasSize(7);
 		assertThat(WAVE_127_LEAVE_BALANCE_ROUTES).hasSize(10);
+		assertThat(WAVE_1264B_ROUTES).hasSize(3);
 		assertThat(WAVE_128_SALARY_CONTRACT_ROUTES).hasSize(5);
 		assertThat(WAVE_128_ADVANCE_ROUTES).hasSize(8);
 		assertThat(WAVE_128_PENALTY_ROUTES).hasSize(7);
-		assertThat(EXPECTED_ROUTES).hasSize(84).doesNotHaveDuplicates();
+		assertThat(EXPECTED_ROUTES).hasSize(85).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -136,16 +153,35 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
+	void theWave1264bSliceIsItsThreeEndpoints() {
+		assertThat(WAVE_1264B_ROUTES).hasSize(3);
+		assertThat(WAVE_1264B_ROUTES)
+				.containsExactlyInAnyOrder(
+						"/apis/api/attendance/list.php", "/apis/api/attendance/stats.php",
+						"/apis/api/attendance/employee_monthly_attendance.php");
+	}
+
+	@Test
 	void wave128FinanceFoundationIsCompleteAtTwentyEndpoints() {
 		assertThat(Stream.of(WAVE_128_SALARY_CONTRACT_ROUTES, WAVE_128_ADVANCE_ROUTES, WAVE_128_PENALTY_ROUTES)
 				.flatMap(List::stream).toList()).hasSize(20).doesNotHaveDuplicates();
 	}
 
+	/**
+	 * The two payroll-report endpoints Wave 12.7 and Wave 12.6.4b do not
+	 * unblock, asserted absent.
+	 *
+	 * <p>{@code overall_report.php} and {@code export.php} reach
+	 * {@code attendance_row_worked_minutes()} through the payroll helpers, not
+	 * directly, and still carry the broader D-091 payroll boundary that
+	 * {@code list}, {@code stats} and {@code employee_monthly_attendance} do
+	 * not.
+	 */
 	@Test
-	void threeDeferredWave126EndpointsStayUnmappedUntilTheirOwnSlices() {
+	void theTwoPayrollReportEndpointsStayUnmapped() {
 		assertThat(EXPECTED_ROUTES).doesNotContain(
-				"/apis/api/attendance/employee_monthly_attendance.php",
-				"/apis/api/attendance/overall_report.php", "/apis/api/attendance/export.php");
+				"/apis/api/attendance/overall_report.php",
+				"/apis/api/attendance/export.php");
 	}
 
 	@Test
