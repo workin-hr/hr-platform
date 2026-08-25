@@ -34,9 +34,9 @@ public class LegacyRequestGuard {
 	}
 
 	/**
-	 * PHP requireAuth($allowed_roles): validate employee token_version only for
-	 * type=employee, then optionally validate role. Company tokens deliberately
-	 * have no employee id/token_version and skip the employee-session check.
+	 * PHP requireAuth($allowed_roles): validate token_version only when
+	 * type=employee, then optionally validate role. Other signed PHP auth types
+	 * deliberately skip the employee-session check exactly as the source does.
 	 */
 	@Transactional
 	public LegacyRequestContext requireAuth(LegacyEmployee.Role... allowedRoles) {
@@ -51,7 +51,7 @@ public class LegacyRequestGuard {
 			throw new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized_invalid_token");
 		}
 
-		long employeeId = "company".equals(principal.legacyAuthType())
+		long employeeId = principal.legacyAuthType() != null && !"employee".equals(principal.legacyAuthType())
 				? 0L : (principal.identityId() == null ? 0L : principal.identityId());
 		return new LegacyRequestContext(employeeId, tenantScope.current(), role);
 	}
@@ -68,7 +68,7 @@ public class LegacyRequestGuard {
 
 	/** PHP requireEmployeeSessionValid(): only type=employee participates. */
 	private void requireSessionValid(AuthenticatedPrincipal principal) {
-		if ("company".equals(principal.legacyAuthType())) {
+		if (principal.legacyAuthType() != null && !"employee".equals(principal.legacyAuthType())) {
 			return;
 		}
 		if (principal.identityId() == null || principal.identityId() <= 0) {
