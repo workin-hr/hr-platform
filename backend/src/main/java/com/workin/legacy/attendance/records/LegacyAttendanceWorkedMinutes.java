@@ -95,7 +95,8 @@ public class LegacyAttendanceWorkedMinutes {
 		return 0;
 	}
 
-	static boolean isExceptionOnly(String checkIn, String checkOut, Object exceptionTypeId) {
+	/** Shared by weekly-rest and calendar parity helpers. */
+	public static boolean isExceptionOnly(String checkIn, String checkOut, Object exceptionTypeId) {
 		if (exceptionTypeId == null || LegacyValues.toPhpLong(exceptionTypeId) <= 0 || nonBlank(checkOut) || !nonBlank(checkIn)) {
 			return false;
 		}
