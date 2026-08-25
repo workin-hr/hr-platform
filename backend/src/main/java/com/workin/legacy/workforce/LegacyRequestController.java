@@ -19,36 +19,39 @@ import com.workin.legacy.wire.LegacyMessages;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * {@code /apis/api/requests/*.php} (Wave 12.7, slice 1). {@code approve.php}
- * is not mapped here -- see {@link LegacyRequestService}'s class javadoc.
+ * {@code /apis/api/requests/*.php} (Wave 12.7).
  *
- * <h2>Two authority levels</h2>
+ * <h2>Authority levels</h2>
  * <ul>
- * <li>{@code list} and {@code one} -- a bare {@code requireAuth()}: any
- *     authenticated role reads them, scoped inside the service by role.</li>
- * <li>{@code create}, {@code update}, {@code delete} -- EMPLOYEE only; a
- *     request is submitted, edited and cancelled by the employee who owns
- *     it, never by a company role.</li>
- * <li>{@code reject} -- COMPANY_ADMIN, HR or MANAGER, with no permission
- *     gate beyond the role check.</li>
+ * <li>{@code list} and {@code one} -- a bare {@code requireAuth()}.</li>
+ * <li>{@code create}, {@code update}, {@code delete} -- EMPLOYEE only.</li>
+ * <li>{@code approve}, {@code reject} -- COMPANY_ADMIN, HR or MANAGER,
+ *     with no {@code hr_permissions} gate.</li>
  * </ul>
+ *
+ * <p>{@code approve} delegates to the D-100 connection-scoped transaction;
+ * the other six endpoints keep the original Wave-12.7 slice-1 service shape.
  */
 @RestController
 @RequestMapping("/apis/api/requests")
 public class LegacyRequestController {
 
 	private final LegacyRequestService requestService;
+	private final LegacyRequestApprovalService approvalService;
 	private final LegacyRequestGuard requestGuard;
 	private final LegacyMessages messages;
 
 	public LegacyRequestController(
-			LegacyRequestService requestService, LegacyRequestGuard requestGuard, LegacyMessages messages) {
+			LegacyRequestService requestService,
+			LegacyRequestApprovalService approvalService,
+			LegacyRequestGuard requestGuard,
+			LegacyMessages messages) {
 		this.requestService = requestService;
+		this.approvalService = approvalService;
 		this.requestGuard = requestGuard;
 		this.messages = messages;
 	}
 
-	/** {@code list.php}: {@code ok(OK, $requests, 200, [], pagination_meta(...))}. */
 	@RequestMapping("/list.php")
 	public LegacyApiResponse list(HttpServletRequest request) {
 		requireMethod(request, "GET");
@@ -58,7 +61,6 @@ public class LegacyRequestController {
 		return LegacyApiResponse.ok(message(request, "ok"), page.rows(), page.meta());
 	}
 
-	/** {@code one.php}: {@code ok(OK, $request)}. */
 	@RequestMapping("/one.php")
 	public LegacyApiResponse one(HttpServletRequest request) {
 		requireMethod(request, "GET");
@@ -66,7 +68,6 @@ public class LegacyRequestController {
 		return LegacyApiResponse.ok(message(request, "ok"), requestService.one(context, requiredId(request)));
 	}
 
-	/** {@code create.php}: {@code ok(OK, public_row($inserted_row), 201)}. */
 	@RequestMapping("/create.php")
 	public ResponseEntity<LegacyApiResponse> create(HttpServletRequest request) {
 		requireMethod(request, "POST");
@@ -76,7 +77,6 @@ public class LegacyRequestController {
 		return ResponseEntity.status(201).body(LegacyApiResponse.ok(message(request, "ok"), row));
 	}
 
-	/** {@code update.php}: {@code ok(OK, public_row($updated_row))}. */
 	@RequestMapping("/update.php")
 	public LegacyApiResponse update(HttpServletRequest request) {
 		requireMethod(request, "PUT");
@@ -86,7 +86,6 @@ public class LegacyRequestController {
 		return LegacyApiResponse.ok(message(request, "ok"), row);
 	}
 
-	/** {@code delete.php}: {@code ok(OK)} -- no {@code data} key. */
 	@RequestMapping("/delete.php")
 	public LegacyApiResponse delete(HttpServletRequest request) {
 		requireMethod(request, "DELETE");
@@ -95,13 +94,23 @@ public class LegacyRequestController {
 		return LegacyApiResponse.ok(message(request, "ok"), null);
 	}
 
-	/** {@code reject.php}: {@code ok(DECISION_RECORDED)} -- no {@code data} key. */
+	@RequestMapping("/approve.php")
+	public LegacyApiResponse approve(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = decisionRole();
+		long id = requiredId(request);
+		Map<String, Object> body = LegacyJsonBody.read(request);
+		String reply = body.get("reply") == null ? "" : LegacyValues.toPhpString(body.get("reply"));
+		Long approverId = context.employeeId() > 0 ? context.employeeId() : null;
+		approvalService.approve(
+				id, context.companyId(), approverId, reply, messages.resolveLocale(request));
+		return LegacyApiResponse.ok(message(request, "decision_recorded"), null);
+	}
+
 	@RequestMapping("/reject.php")
 	public LegacyApiResponse reject(HttpServletRequest request) {
 		requireMethod(request, "POST");
-		LegacyRequestContext context = requestGuard.requireAuth(
-				LegacyEmployee.Role.COMPANY_ADMIN, LegacyEmployee.Role.HR, LegacyEmployee.Role.MANAGER);
-		requestGuard.requireCompanyActive(context.companyId());
+		LegacyRequestContext context = decisionRole();
 		long id = requiredId(request);
 		Map<String, Object> body = LegacyJsonBody.read(request);
 		String reply = body.get("reply") == null ? "" : LegacyValues.toPhpString(body.get("reply"));
@@ -115,21 +124,25 @@ public class LegacyRequestController {
 		}
 	}
 
-	/** {@code requireAuth();} with no role list -- every authenticated role passes. */
 	private LegacyRequestContext anyRole() {
 		LegacyRequestContext context = requestGuard.requireAuth();
 		requestGuard.requireCompanyActive(context.companyId());
 		return context;
 	}
 
-	/** {@code requireAuth([UserRoleEnum::EMPLOYEE]);}. */
 	private LegacyRequestContext employeeOnly() {
 		LegacyRequestContext context = requestGuard.requireAuth(LegacyEmployee.Role.EMPLOYEE);
 		requestGuard.requireCompanyActive(context.companyId());
 		return context;
 	}
 
-	/** {@code required($_GET, [Request::ID]); $id = (int) $_GET[Request::ID];}. */
+	private LegacyRequestContext decisionRole() {
+		LegacyRequestContext context = requestGuard.requireAuth(
+				LegacyEmployee.Role.COMPANY_ADMIN, LegacyEmployee.Role.HR, LegacyEmployee.Role.MANAGER);
+		requestGuard.requireCompanyActive(context.companyId());
+		return context;
+	}
+
 	private static long requiredId(HttpServletRequest request) {
 		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
 		Object id = query.value("id");
@@ -142,5 +155,4 @@ public class LegacyRequestController {
 	private String message(HttpServletRequest request, String key) {
 		return messages.translate(messages.resolveLocale(request), key, null);
 	}
-
 }
