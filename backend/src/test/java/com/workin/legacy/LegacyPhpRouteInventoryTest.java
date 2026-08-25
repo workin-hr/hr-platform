@@ -74,9 +74,21 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/leave_balances/template_excel.php",
 			"/apis/api/leave_balances/update.php");
 
+	/**
+	 * Wave 12.6.4b: the three endpoints Wave 12.7 slice 1 unblocked --
+	 * {@code list.php}, {@code stats.php} and
+	 * {@code employee_monthly_attendance.php} all reach
+	 * {@code attendance_row_worked_minutes()} and through it the
+	 * {@code requests} table, which now exists.
+	 */
+	private static final List<String> WAVE_1264B_ROUTES = List.of(
+			"/apis/api/attendance/list.php",
+			"/apis/api/attendance/stats.php",
+			"/apis/api/attendance/employee_monthly_attendance.php");
+
 	private static final List<String> EXPECTED_ROUTES = Stream.of(
 				WAVE_124_ROUTES, WAVE_125_ROUTES, WAVE_126_ROUTES,
-				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES)
+				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES, WAVE_1264B_ROUTES)
 			.flatMap(List::stream).sorted().toList();
 
 	@Autowired
@@ -109,7 +121,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(WAVE_126_ROUTES).hasSize(13);
 		assertThat(WAVE_127_REQUEST_ROUTES).hasSize(7);
 		assertThat(WAVE_127_LEAVE_BALANCE_ROUTES).hasSize(10);
-		assertThat(EXPECTED_ROUTES).hasSize(62).doesNotHaveDuplicates();
+		assertThat(WAVE_1264B_ROUTES).hasSize(3);
+		assertThat(EXPECTED_ROUTES).hasSize(65).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -119,11 +132,29 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void theFiveRequestDependentWave126EndpointsStayUnmappedUntilTheirOwnSlice() {
+	void theWave1264bSliceIsItsThreeEndpoints() {
+		assertThat(WAVE_1264B_ROUTES).hasSize(3);
+		assertThat(WAVE_1264B_ROUTES)
+				.containsExactlyInAnyOrder(
+						"/apis/api/attendance/list.php", "/apis/api/attendance/stats.php",
+						"/apis/api/attendance/employee_monthly_attendance.php");
+	}
+
+	/**
+	 * The two payroll-report endpoints Wave 12.7 and Wave 12.6.4b do not
+	 * unblock, asserted absent.
+	 *
+	 * <p>{@code overall_report.php} and {@code export.php} reach
+	 * {@code attendance_row_worked_minutes()} through the payroll helpers, not
+	 * directly, and still carry the broader D-091 payroll boundary that
+	 * {@code list}, {@code stats} and {@code employee_monthly_attendance} do
+	 * not.
+	 */
+	@Test
+	void theTwoPayrollReportEndpointsStayUnmapped() {
 		assertThat(EXPECTED_ROUTES).doesNotContain(
-				"/apis/api/attendance/list.php", "/apis/api/attendance/stats.php",
-				"/apis/api/attendance/employee_monthly_attendance.php",
-				"/apis/api/attendance/overall_report.php", "/apis/api/attendance/export.php");
+				"/apis/api/attendance/overall_report.php",
+				"/apis/api/attendance/export.php");
 	}
 
 	@Test
