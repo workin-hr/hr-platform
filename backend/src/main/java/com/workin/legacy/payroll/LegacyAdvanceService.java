@@ -58,7 +58,7 @@ public class LegacyAdvanceService {
 
 		Map<String, Object> values = new LinkedHashMap<>();
 		values.put("employee_id", employeeId);
-		values.put("amount", body.get("amount")); // PDO/MariaDB owns decimal coercion.
+		values.put("amount", body.get("amount"));
 		values.put("reason", body.get("reason"));
 		values.put("deduction_mode", INSTALLMENTS.equals(body.get("deduction_mode")) ? INSTALLMENTS : SINGLE_PAYROLL_MONTH);
 		values.put("deduction_type", MULTIPLE_MONTHS.equals(body.get("deduction_type")) ? MULTIPLE_MONTHS : SINGLE_MONTH);
@@ -70,7 +70,6 @@ public class LegacyAdvanceService {
 		values.put("deduction_payroll_month", optionalInt(body, "deduction_payroll_month"));
 		values.put("deduction_installments_json", createJson(body.get("deduction_installments_json")));
 		values.put("status", status);
-
 		long id = store.insert(values);
 		return requirePublicRow(store.withEmployee(id));
 	}
@@ -81,7 +80,6 @@ public class LegacyAdvanceService {
 		List<Object> args = new ArrayList<>();
 		predicates.add("a.employee_id IN (SELECT id FROM employees WHERE company_id=?)");
 		args.add(context.companyId());
-
 		if (context.role() == LegacyEmployee.Role.EMPLOYEE) {
 			predicates.add("a.employee_id=?");
 			args.add(context.employeeId());
@@ -89,7 +87,6 @@ public class LegacyAdvanceService {
 			predicates.add("a.employee_id=?");
 			args.add(LegacyValues.toPhpLong(query.value("employee_id")));
 		}
-
 		if (!LegacyValues.isPhpEmpty(query.value("status"))) {
 			String status = LegacyValues.toPhpString(query.value("status"));
 			if (!STATUSES.contains(status)) {
@@ -98,7 +95,6 @@ public class LegacyAdvanceService {
 			predicates.add("a.status=?");
 			args.add(status);
 		}
-
 		String search = LegacyPagination.searchQueryParam(query);
 		if (search != null) {
 			predicates.add("(TRIM(CONCAT(COALESCE(e.first_name,''),' ',COALESCE(e.last_name,''))) LIKE ? OR e.employee_code LIKE ?)");
@@ -113,7 +109,6 @@ public class LegacyAdvanceService {
 			predicates.add("a.request_date <= ?");
 			args.add(LegacyValues.toPhpString(query.value("to")));
 		}
-
 		long total = store.count(predicates, args);
 		return new Page(store.list(predicates, args, page), LegacyPagination.meta(total, page));
 	}
@@ -142,21 +137,21 @@ public class LegacyAdvanceService {
 			if (!PENDING.equals(existing.get("status"))) {
 				throw new LegacyApiException(400, "cannot_edit_non_pending_advance");
 			}
-			Object amount = body.containsKey("amount") ? body.get("amount") : existing.get("amount");
-			Object reason = body.containsKey("reason") ? body.get("reason") : existing.get("reason");
+			Object amount = phpCoalesce(body, existing, "amount");
+			Object reason = phpCoalesce(body, existing, "reason");
 			store.updateEmployee(id, amount, reason);
 		} else {
 			Map<String, Object> values = new LinkedHashMap<>();
-			values.put("amount", body.containsKey("amount") ? body.get("amount") : existing.get("amount"));
-			values.put("remaining", body.containsKey("remaining") ? body.get("remaining") : existing.get("remaining"));
-			values.put("reason", body.containsKey("reason") ? body.get("reason") : existing.get("reason"));
-			values.put("status", body.containsKey("status") ? body.get("status") : existing.get("status"));
-			values.put("rejection_reason", body.containsKey("rejection_reason") ? body.get("rejection_reason") : existing.get("rejection_reason"));
+			values.put("amount", phpCoalesce(body, existing, "amount"));
+			values.put("remaining", phpCoalesce(body, existing, "remaining"));
+			values.put("reason", phpCoalesce(body, existing, "reason"));
+			values.put("status", phpCoalesce(body, existing, "status"));
+			values.put("rejection_reason", phpCoalesce(body, existing, "rejection_reason"));
 
-			Object modeRaw = body.containsKey("deduction_mode") ? body.get("deduction_mode") : existing.get("deduction_mode");
+			Object modeRaw = phpCoalesce(body, existing, "deduction_mode");
 			String mode = modeRaw == null ? SINGLE_PAYROLL_MONTH : LegacyValues.toPhpString(modeRaw);
 			values.put("deduction_mode", INSTALLMENTS.equals(mode) || SINGLE_PAYROLL_MONTH.equals(mode) ? mode : SINGLE_PAYROLL_MONTH);
-			Object typeRaw = body.containsKey("deduction_type") ? body.get("deduction_type") : existing.get("deduction_type");
+			Object typeRaw = phpCoalesce(body, existing, "deduction_type");
 			values.put("deduction_type", MULTIPLE_MONTHS.equals(typeRaw) ? MULTIPLE_MONTHS : SINGLE_MONTH);
 			values.put("deduction_month_count", phpIsset(body, "deduction_month_count")
 					? LegacyValues.toPhpLong(body.get("deduction_month_count")) : defaultValue(existing.get("deduction_month_count"), 1L));
@@ -211,6 +206,11 @@ public class LegacyAdvanceService {
 		store.delete(id);
 	}
 
+	private static Object phpCoalesce(Map<String, Object> body, Map<String, Object> existing, String key) {
+		Object supplied = body.get(key);
+		return supplied != null ? supplied : existing.get(key);
+	}
+
 	private static Object optionalInt(Map<String, Object> body, String key) {
 		Object raw = body.get(key);
 		return raw != null && !"".equals(raw) ? LegacyValues.toPhpLong(raw) : null;
@@ -244,7 +244,7 @@ public class LegacyAdvanceService {
 		try {
 			return JSON.writeValueAsString(raw);
 		} catch (JacksonException ex) {
-			return null; // json_encode() failure is assigned as false/null-ish and PDO stores NULL-like text state.
+			return null;
 		}
 	}
 
