@@ -45,7 +45,7 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/company_official_holidays/list.php", "/apis/api/company_official_holidays/one.php",
 			"/apis/api/company_official_holidays/update.php");
 
-	/** Fourteen of eighteen Wave-12.6 routes; four reporting/export routes remain deferred. */
+	/** Fifteen of eighteen Wave-12.6 routes; three reporting/export routes remain deferred. */
 	private static final List<String> WAVE_126_ROUTES = List.of(
 			"/apis/api/attendance/delete.php", "/apis/api/attendance/delete_range.php",
 			"/apis/api/attendance/one.php", "/apis/api/attendance/create.php",
@@ -53,7 +53,7 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/schedules/assign_employee_schedule.php",
 			"/apis/api/attendance/check_in.php", "/apis/api/attendance/check_in_qr.php",
 			"/apis/api/attendance/check_out.php", "/apis/api/attendance/analyze_excel.php",
-			"/apis/api/attendance/stats.php",
+			"/apis/api/attendance/list.php", "/apis/api/attendance/stats.php",
 			"/apis/api/schedules/employee_monthly_schedule.php",
 			"/apis/api/schedules/generate_employee_schedule.php");
 
@@ -120,13 +120,13 @@ class LegacyPhpRouteInventoryTest {
 	void deliveredWaveCountsStayExactAndNonOverlapping() {
 		assertThat(WAVE_124_ROUTES).hasSize(17);
 		assertThat(WAVE_125_ROUTES).hasSize(15);
-		assertThat(WAVE_126_ROUTES).hasSize(14);
+		assertThat(WAVE_126_ROUTES).hasSize(15);
 		assertThat(WAVE_127_REQUEST_ROUTES).hasSize(7);
 		assertThat(WAVE_127_LEAVE_BALANCE_ROUTES).hasSize(10);
 		assertThat(WAVE_128_SALARY_CONTRACT_ROUTES).hasSize(5);
 		assertThat(WAVE_128_ADVANCE_ROUTES).hasSize(8);
 		assertThat(WAVE_128_PENALTY_ROUTES).hasSize(7);
-		assertThat(EXPECTED_ROUTES).hasSize(83).doesNotHaveDuplicates();
+		assertThat(EXPECTED_ROUTES).hasSize(84).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -142,9 +142,8 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void fourDeferredWave126EndpointsStayUnmappedUntilTheirOwnSlices() {
+	void threeDeferredWave126EndpointsStayUnmappedUntilTheirOwnSlices() {
 		assertThat(EXPECTED_ROUTES).doesNotContain(
-				"/apis/api/attendance/list.php",
 				"/apis/api/attendance/employee_monthly_attendance.php",
 				"/apis/api/attendance/overall_report.php", "/apis/api/attendance/export.php");
 	}
