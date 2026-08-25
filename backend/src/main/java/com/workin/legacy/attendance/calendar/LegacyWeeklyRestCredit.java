@@ -72,7 +72,10 @@ public class LegacyWeeklyRestCredit {
 			Flags day = attendanceByDate.get(date);
 			boolean worked = day != null && day.hasPunch();
 			boolean exception = day != null && day.exceptionOnly();
-			if (worked || exception || isOnApprovedLeave(employeeId, date)) {
+			// PHP evaluates this SELECT before the final OR expression. Keep the
+			// statement ordering even when a punch/exception already covers the day.
+			boolean onLeave = isOnApprovedLeave(employeeId, date);
+			if (worked || exception || onLeave) {
 				covered++;
 			}
 		}
