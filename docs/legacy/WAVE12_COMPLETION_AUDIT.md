@@ -18,8 +18,22 @@ That is 44 newly delivered routes before the compatibility retrofit. With the 62
 
 - `salary_contracts`: **implemented and slice-reviewed (5/5)** — production controller/service/store, route guard, inventory and focused regressions are present.
 - `advances`: **implemented and adversarially slice-reviewed (8/8)** — all frozen routes (`create`, `list`, `one`, `update`, `approve`, `reject`, `pay`, `delete`) are mapped; focused tests lock role/ownership behavior, null-coalescing, deduction normalization, overpayment, pending-only edits and the legacy id-only action quirks.
-- `penalties`: **implemented and adversarially slice-reviewed (7/7)** — CRUD/list/stat/report routes, notification persistence, quarter-day normalization, manager branch scope, historical salary-contract penalty valuation and the legacy `format=csv` → styled XLSX download are present. The delivered-route inventory is now **82**, completing Wave 12.8 at **20/20** routes.
-- Deferred attendance, Wave 12.9, Wave 12.10 and Wave 12.R remain pending.
+- `penalties`: **implemented and adversarially slice-reviewed (7/7)** — CRUD/list/stat/report routes, notification persistence, quarter-day normalization, manager branch scope, historical salary-contract penalty valuation and the legacy `format=csv` → styled XLSX download are present. Wave 12.8 is complete at **20/20** routes.
+- Deferred attendance: `stats.php` and `list.php` are now mapped. `list.php` ports both the regular paginated query and `fill_days=1` calendar expansion, including employee/company scoping, search/date filters, active accepted roster filtering, numeric employee-code ordering, incomplete/timed-request worked-minute calculation, rest/holiday rows, weekly-rest credit state, synthetic rows and cap-at-today behavior.
+- Delivered bidirectional route inventory is now **84**.
+- Remaining deferred attendance endpoints: `employee_monthly_attendance.php`, `overall_report.php`, `export.php`.
+- Wave 12.9, Wave 12.10 and Wave 12.R remain pending.
+
+### Attendance-list adversarial review notes
+
+- Preserved method → bare `requireAuth()` → active-company order. PHP computes an Admin/HR boolean but does not use it to gate the route, so Java does not add a role restriction.
+- `fill_days` is true only when the parameter is present and neither empty-string nor the literal `0`; its path deliberately bypasses normal page/limit input and reports meta as page 1 with limit `max(1,total)`.
+- If either `from` or `to` cannot be parsed in the fill-days branch, both dates fall back to the current month, matching the frozen source. Reversed normalized ranges fail `invalid_input`.
+- Fill-days employee enumeration is company-scoped, forces EMPLOYEE users to their authenticated employee id, applies optional employee/branch/department filters only for non-employees, preserves numeric-code-only search, excludes pending join requests, requires active employees and keeps the frozen numeric-first employee-code ordering.
+- Calendar expansion keeps the last attendance row for a date after ascending `check_in` order, looks back seven days for holiday/rest-credit context, caps future dates at today, and preserves earned/void/pending weekly-rest state.
+- Exception-only attendance rows null their punches and expected duration while timed approved requests may still contribute worked minutes. Missing ordinary days can likewise gain timed-request duration; only zero-duration missing rows are flagged `is_missing=true`.
+- Regular list preserves the frozen latest-shift subqueries without an `effective_from <= attendance_date` predicate and then overrides raw `TIMESTAMPDIFF` with the shared worked-minute helper.
+- Synthetic IDs use the legacy stable negative formula after employee metadata is merged.
 
 ### Salary-contract adversarial review notes
 
@@ -37,11 +51,11 @@ That is 44 newly delivered routes before the compatibility retrofit. With the 62
 - `list`, `one` and the `update` preflight retain company scoping; `approve`, `reject`, `pay` and `delete` deliberately retain the frozen source's id-only lookup/write behavior rather than adding new tenant filtering.
 - Employee create ignores caller-supplied `employee_id`/`status`, uses the authenticated employee and forces `pending`; admin/HR create keeps PHP's unvalidated initial status behavior.
 - Employee update can only alter amount/reason and resets `remaining` to the chosen amount, exactly as PHP does.
-- PHP `??` semantics are preserved on update: an explicit JSON null for amount/reason/status falls back to the stored value. Adversarial review found and fixed an initial `containsKey` implementation that would have written null instead.
+- PHP `??` semantics are preserved on update: an explicit JSON null for amount/reason/status falls back to the stored value.
 - `array_key_exists` semantics remain distinct for deduction payroll year/month and installments JSON, so explicit null/empty clears those values.
 - Invalid deduction mode/type values normalize to the same legacy defaults.
 - Missing rows after id-only approve/reject post-write re-read remain unexpected failures rather than being modernized to 404.
-- JDBC row mapping uses `LegacyJdbcValues.read(..., sqlType)` so DECIMAL and temporal values keep PDO-compatible wire representation. Compile-focused review found and fixed the initial missing SQL-type argument.
+- JDBC row mapping uses `LegacyJdbcValues.read(..., sqlType)` so DECIMAL and temporal values keep PDO-compatible wire representation.
 
 ### Penalty adversarial review notes
 
@@ -50,11 +64,10 @@ That is 44 newly delivered routes before the compatibility retrofit. With the 62
 - Employee list access remains own-row only; company roles use company scope, and Manager adds the legacy same-branch subquery. `one.php` deliberately performs an id-only read before ownership/company/branch rejection.
 - `update.php` and `delete.php` preserve the unusual default **400** `not_found` response from `fail(LangKey::NOT_FOUND)` rather than modernizing it to 404, and already-applied penalties remain immutable with 403.
 - Dynamic update fields preserve the frozen whitelist order and `array_key_exists` behavior, including explicit null values.
-- Adversarial review found and fixed a response-shape defect before closure: create/update re-reads do not include `employee_code`, while `one.php` does. Distinct store projections now preserve those exact shapes.
-- Create persists the `penalty_issued` employee notification after the penalty re-read, with the same company/to/from/reference fields and localized date body. The frozen helper treats push delivery as best-effort and swallows push failures; database notification persistence is the authoritative side effect reproduced here.
+- Create persists the `penalty_issued` employee notification after the penalty re-read, with the same company/to/from/reference fields and localized date body.
 - Stats value penalties against the salary contract effective on each penalty date, use the fixed 30-day divisor and PHP-style two-decimal rounding, then sum the rounded per-row amount.
-- `report.php?format=csv` intentionally returns XLSX, not CSV, keeps the frozen nine-header/seven-row-value mismatch, the `Report` sheet, no-cache/content-length headers and the configured legacy date in the filename. Existing hand-written OOXML writer is reused; regression coverage inspects the workbook structure.
+- `report.php?format=csv` intentionally returns XLSX, not CSV, keeps the frozen nine-header/seven-row-value mismatch, the `Report` sheet, no-cache/content-length headers and the configured legacy date in the filename.
 
 ## CI infrastructure blocker
 
-GitHub-hosted runner provisioning is still failing before the first job step for this private organization/repository. On head `ca3826428dfbd207b83a07bbb7bd47bd737c1eae`, `Backend Validate` completed with a job whose `steps` field is null (no runner-executed step). That is an organization Actions provisioning/entitlement failure, not an application test result. No affected head may be called CI-green until a runner is actually assigned and executes steps.
+GitHub-hosted runner provisioning is still failing before the first job step for this private organization/repository. On head `5c6ce7acea9f9c513db3f08fa4f28014529524a1`, `Backend Validate` run #278 completed as failure, but its only job again has `steps=null`; no build or test command ran. That is not an application test result. No affected head may be called CI-green until a runner is actually assigned and executes steps.
