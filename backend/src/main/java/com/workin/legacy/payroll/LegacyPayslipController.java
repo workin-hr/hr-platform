@@ -58,7 +58,7 @@ public class LegacyPayslipController {
 		LegacyRequestContext context = readerRole();
 		Map<String, Object> row = service.one(
 				context.companyId(), context.role(), context.employeeId(), requiredId(request),
-				weeklyRestLabel(request), officialHolidayFallbackLabel(request));
+				presentLabel(request), weeklyRestLabel(request), officialHolidayFallbackLabel(request));
 		return LegacyApiResponse.ok(message(request, "payslip"), row);
 	}
 
@@ -70,7 +70,7 @@ public class LegacyPayslipController {
 		LegacyPayslipService.Page page = service.list(
 				context.companyId(), context.role(), context.employeeId(),
 				LegacyQueryParameters.parse(request.getQueryString()),
-				weeklyRestLabel(request), officialHolidayFallbackLabel(request));
+				presentLabel(request), weeklyRestLabel(request), officialHolidayFallbackLabel(request));
 		return LegacyApiResponse.ok(message(request, "payslips"), page.rows(), page.meta());
 	}
 
@@ -81,8 +81,12 @@ public class LegacyPayslipController {
 		LegacyRequestContext context = writerRole();
 		Map<String, Object> row = service.update(
 				context.companyId(), requiredId(request), LegacyJsonBody.read(request),
-				weeklyRestLabel(request), officialHolidayFallbackLabel(request));
+				presentLabel(request), weeklyRestLabel(request), officialHolidayFallbackLabel(request));
 		return LegacyApiResponse.ok(message(request, "payslip_updated"), row);
+	}
+
+	private String presentLabel(HttpServletRequest request) {
+		return messages.translate(messages.resolveLocale(request), "csv_attendance_present_day", null);
 	}
 
 	private String weeklyRestLabel(HttpServletRequest request) {

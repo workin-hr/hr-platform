@@ -57,7 +57,9 @@ public class LegacyPayrollCalculationService {
 			BigDecimal foodAllowance, BigDecimal riskAllowance, BigDecimal transportAllowance,
 			BigDecimal incentives, BigDecimal penaltiesTotal, BigDecimal advanceDeduction,
 			BigDecimal otherDeductions, BigDecimal grossSalary, BigDecimal totalEntitlements,
-			BigDecimal totalDeductions, BigDecimal netSalary, int daysPresent) {
+			BigDecimal totalDeductions, BigDecimal netSalary, int daysPresent,
+			int daysAbsent, int daysLeave, BigDecimal insuranceDeduction, BigDecimal taxDeduction,
+			BigDecimal advancesDeduction, BigDecimal fundDeduction) {
 	}
 
 	public PayslipComputation compute(
@@ -132,7 +134,13 @@ public class LegacyPayrollCalculationService {
 				totalEntitlements,
 				totalDeductions,
 				netSalary,
-				daysPresent);
+				daysPresent,
+				Math.max(0, attendance.daysAbsent()),
+				Math.max(0, attendance.daysLeave()),
+				insurance,
+				tax,
+				contractAdvances,
+				fund);
 	}
 
 	private static BigDecimal round(BigDecimal value) {

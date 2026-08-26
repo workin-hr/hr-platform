@@ -401,12 +401,12 @@ public class LegacyPayrollAttendanceFigures {
 	 */
 	public List<Map<String, Object>> presentDetails(
 			long companyId, long employeeId, String periodFrom, String periodTo, int punchPresent, String asOf,
-			String weeklyRestLabel, String officialHolidayFallbackLabel) {
+			String presentLabel, String weeklyRestLabel, String officialHolidayFallbackLabel) {
 		boolean inProgress = asOf.compareTo(periodTo) < 0;
 		String rangeTo = inProgress ? asOf : periodTo;
 
 		List<Map<String, Object>> details =
-				new java.util.ArrayList<>(attendancePresentDetails(employeeId, periodFrom, rangeTo, weeklyRestLabel));
+				new java.util.ArrayList<>(attendancePresentDetails(employeeId, periodFrom, rangeTo, presentLabel));
 
 		Map<String, LegacyWeeklyRestCredit.AttendanceFlag> attFlags =
 				weeklyRestCredit.attendanceFlagsInRange(companyId, employeeId, periodFrom, rangeTo);

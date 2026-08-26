@@ -307,7 +307,13 @@ public class LegacyPayrollBatchService {
 		String[] bounds = fiscalSettings.fiscalPeriodBounds(companyId, year, month);
 
 		inTransaction(txStore -> {
-			txStore.finalizeBatch(batchId, FINALIZED, bounds[0], bounds[1]);
+			int changed = txStore.finalizeBatchIfNotAlready(batchId, FINALIZED, bounds[0], bounds[1]);
+			if (changed == 0) {
+				// Lost the race to a concurrent finalize call for this same batch since the
+				// pre-transaction read above: someone else already finalized it. Abort rather
+				// than apply the side effects a second time -- see finalizeBatchIfNotAlready's note.
+				throw new LegacyApiException(400, "batch_already_finalized");
+			}
 			applyAdvancePaymentsAndMarkPenalties(txStore, batchId, bounds[0], bounds[1], year, month);
 		});
 
@@ -365,8 +371,13 @@ public class LegacyPayrollBatchService {
 		String periodTo = LegacyValues.toPhpString(batch.get("period_to"));
 
 		inTransaction(txStore -> {
+			int changed = txStore.updateStatusIfCurrently(batchId, FINALIZED, DRAFT);
+			if (changed == 0) {
+				// Lost the race to a concurrent reopen (or finalize) call for this same batch
+				// since the pre-transaction read above -- see updateStatusIfCurrently's note.
+				throw new LegacyApiException(400, "batch_not_finalized");
+			}
 			restoreAdvancesAndUnmarkPenalties(txStore, batchId, periodFrom, periodTo, year, month);
-			txStore.updateStatus(batchId, DRAFT);
 		});
 
 		Map<String, Object> row = store.withStats(batchId, companyId);

@@ -8,7 +8,13 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,6 +63,7 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 	private static final long COMPANY_1 = 21401L;
 	private static final long ADMIN_1 = 214011L;
 	private static final long EMPLOYEE_1 = 214012L;
+	private static final long EMPLOYEE_2 = 214013L;
 	private static final long BRANCH_1 = 21411L;
 
 	@Autowired
@@ -90,6 +97,14 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 	 * hand-verifiable net salary: gross 3000.00, day rate 100.00 (still the
 	 * fixed 30-day divisor, not the 5-day period length), zero absence
 	 * cost, zero overtime -> net salary 3000.00, days_present 5.
+	 *
+	 * <p>{@link #EMPLOYEE_2} is the non-vacuous counterpart in the same
+	 * batch: one absent day and non-zero fixed contract deductions, so this
+	 * test fails if {@code insertPayslip} ever again drops {@code
+	 * days_absent}/{@code days_leave}/{@code insurance_deduction}/{@code
+	 * tax_deduction}/{@code advances_deduction}/{@code fund_deduction} on
+	 * the floor -- {@link #EMPLOYEE_1} alone has all six at zero and would
+	 * pass either way.
 	 */
 	@Test
 	void calculateProducesTheHandVerifiedPayslipForACompletePresentPeriod() throws Exception {
@@ -98,7 +113,7 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 		long batchId = number(createBody.get("id"));
 
 		Map<String, Object> calcBody = send(CALCULATE, ADMIN_1, HttpMethod.POST, null, 200, "?id=" + batchId);
-		assertThat(calcBody.get("message")).isEqualTo("Payroll calculated for 1 employees");
+		assertThat(calcBody.get("message")).isEqualTo("Payroll calculated for 2 employees");
 		assertThat(calcBody).doesNotContainKey("meta");
 
 		// calculate.php's response is the batch row plus payslip aggregates
@@ -106,10 +121,11 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 		Map<String, Object> batchRow = dataOf(calcBody);
 		assertThat(batchRow.get("period_from")).isEqualTo("2020-01-01");
 		assertThat(batchRow.get("period_to")).isEqualTo("2020-01-05");
-		assertThat(number(batchRow.get("employees_count"))).isEqualTo(1L);
-		assertThat(decimalString(batchRow.get("total_net_salary"))).isEqualTo("3000.00");
+		assertThat(number(batchRow.get("employees_count"))).isEqualTo(2L);
+		// 3000.00 (employee 1, complete attendance) + 2715.00 (employee 2, see below).
+		assertThat(decimalString(batchRow.get("total_net_salary"))).isEqualTo("5715.00");
 
-		Map<String, Object> payslip = queryPayslip(batchId);
+		Map<String, Object> payslip = queryPayslip(batchId, EMPLOYEE_1);
 		assertThat(decimalString(payslip.get("basic_salary"))).isEqualTo("3000.00");
 		assertThat(decimalString(payslip.get("gross_salary"))).isEqualTo("3000.00");
 		assertThat(decimalString(payslip.get("total_entitlements"))).isEqualTo("3000.00");
@@ -119,9 +135,24 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 		assertThat(number(payslip.get("days_absent"))).isEqualTo(0L);
 		assertThat(decimalString(payslip.get("overtime_pay"))).isEqualTo("0.00");
 
+		// Employee 2: gross 3000.00, day rate 100.00, 1 absent day (4/5
+		// attendance rows) -> absence cost 100.00, total_entitlements 2900.00.
+		// Fixed contract deductions 100+50+25+10=185.00 -> net 2715.00.
+		Map<String, Object> payslip2 = queryPayslip(batchId, EMPLOYEE_2);
+		assertThat(number(payslip2.get("days_present"))).isEqualTo(4L);
+		assertThat(number(payslip2.get("days_absent"))).isEqualTo(1L);
+		assertThat(number(payslip2.get("days_leave"))).isEqualTo(0L);
+		assertThat(decimalString(payslip2.get("total_entitlements"))).isEqualTo("2900.00");
+		assertThat(decimalString(payslip2.get("insurance_deduction"))).isEqualTo("100.00");
+		assertThat(decimalString(payslip2.get("tax_deduction"))).isEqualTo("50.00");
+		assertThat(decimalString(payslip2.get("advances_deduction"))).isEqualTo("25.00");
+		assertThat(decimalString(payslip2.get("fund_deduction"))).isEqualTo("10.00");
+		assertThat(decimalString(payslip2.get("total_deductions"))).isEqualTo("185.00");
+		assertThat(decimalString(payslip2.get("net_salary"))).isEqualTo("2715.00");
+
 		Map<String, Object> stats = dataOf(send(STATS, ADMIN_1, HttpMethod.GET, null, 200, "?id=" + batchId));
-		assertThat(number(stats.get("total_employees"))).isEqualTo(1L);
-		assertThat(decimalString(stats.get("total_net_salary"))).isEqualTo("3000.00");
+		assertThat(number(stats.get("total_employees"))).isEqualTo(2L);
+		assertThat(decimalString(stats.get("total_net_salary"))).isEqualTo("5715.00");
 	}
 
 	/**
@@ -157,6 +188,88 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 		assertThat(appliedToPayroll()).isFalse();
 	}
 
+	/**
+	 * {@code finalize.php}'s status check ({@code store.scoped(...)}) runs on
+	 * the pooled, autocommit connection; the write it guards runs moments
+	 * later on a separate, freshly-opened single connection ({@code
+	 * inTransaction}). Two real concurrent requests for the same batch, both
+	 * released at the same instant, probe whether that gap is wide enough for
+	 * both to observe {@code status=draft} and both proceed to apply the
+	 * side effects. The advance is seeded with a remaining balance well above
+	 * one deduction (1000.00 vs a 200.00 deduction) specifically so a second,
+	 * genuinely-applied deduction is distinguishable from a single one in the
+	 * final balance -- 600.00 rather than 800.00 -- rather than only checking
+	 * whether both HTTP calls returned 200.
+	 */
+	@Test
+	void concurrentFinalizeCallsForTheSameBatchApplyTheAdvanceDeductionAtMostOnce() throws Exception {
+		seedConcurrentFinalizeFixture();
+		Map<String, Object> createBody = dataOf(send(CREATE, ADMIN_1, HttpMethod.POST,
+				"{\"month\":6,\"year\":2020}", 201));
+		long batchId = number(createBody.get("id"));
+		send(CALCULATE, ADMIN_1, HttpMethod.POST, null, 200, "?id=" + batchId);
+
+		assertThat(decimalString(queryScalar("SELECT remaining FROM advances WHERE id=2140102")))
+				.isEqualTo("1000.00");
+
+		CyclicBarrier barrier = new CyclicBarrier(2);
+		ExecutorService pool = Executors.newFixedThreadPool(2);
+		try {
+			List<Future<ResponseEntity<Map<String, Object>>>> results = pool.invokeAll(List.of(
+					() -> finalizeRacing(barrier, batchId), () -> finalizeRacing(barrier, batchId)));
+			long succeeded = 0;
+			long rejectedAsAlreadyFinalized = 0;
+			for (Future<ResponseEntity<Map<String, Object>>> result : results) {
+				ResponseEntity<Map<String, Object>> response = result.get(30, TimeUnit.SECONDS);
+				if (response.getStatusCode().value() == 200) {
+					succeeded++;
+				} else if (response.getStatusCode().value() == 400) {
+					rejectedAsAlreadyFinalized++;
+				}
+			}
+			assertThat(succeeded + rejectedAsAlreadyFinalized)
+					.as("every concurrent call must resolve to one of the two expected outcomes")
+					.isEqualTo(2);
+			assertThat(succeeded)
+					.as("exactly one of two concurrent finalize calls for the same batch must win -- "
+							+ "the other must see batch_already_finalized, not silently re-apply the side effects")
+					.isEqualTo(1);
+			assertThat(decimalString(queryScalar("SELECT remaining FROM advances WHERE id=2140102")))
+					.as("the advance deduction must be applied exactly once")
+					.isEqualTo("800.00");
+		} finally {
+			pool.shutdownNow();
+		}
+	}
+
+	private ResponseEntity<Map<String, Object>> finalizeRacing(CyclicBarrier barrier, long batchId) throws Exception {
+		barrier.await(10, TimeUnit.SECONDS);
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(tokenFor(ADMIN_1));
+		headers.set("Accept-Language", "en");
+		return restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + FINALIZE + "?id=" + batchId), HttpMethod.PUT,
+				new HttpEntity<>(headers), mapType());
+	}
+
+	private static void seedConcurrentFinalizeFixture() throws Exception {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			for (int day = 1; day <= 5; day++) {
+				String date = String.format("2020-06-%02d", day);
+				st.execute("INSERT INTO attendance (employee_id, check_in, check_out, method, created_at) VALUES ("
+						+ EMPLOYEE_1 + ", '" + date + " 09:00:00', '" + date + " 17:00:00', 'app',"
+						+ " '" + date + " 09:00:00')");
+				st.execute("INSERT INTO attendance (employee_id, check_in, check_out, method, created_at) VALUES ("
+						+ EMPLOYEE_2 + ", '" + date + " 09:00:00', '" + date + " 17:00:00', 'app',"
+						+ " '" + date + " 09:00:00')");
+			}
+			st.execute("INSERT INTO advances (id, employee_id, amount, remaining, deduction_mode,"
+					+ " deduction_payroll_year, deduction_payroll_month, status, request_date, created_at) VALUES"
+					+ " (2140102, " + EMPLOYEE_1 + ", 200.00, 1000.00, 'single_payroll_month',"
+					+ " 2020, 6, 'approved', '2020-05-20', '2020-05-20 08:00:00')");
+		}
+	}
+
 	/** {@code tinyint(1)} reads back as a JDBC {@code Boolean} via {@code getObject()}, not 0/1. */
 	private boolean appliedToPayroll() throws Exception {
 		Object raw = queryScalar("SELECT applied_to_payroll FROM penalties WHERE id=2140100");
@@ -172,12 +285,12 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 		}
 	}
 
-	private Map<String, Object> queryPayslip(long batchId) throws Exception {
+	private Map<String, Object> queryPayslip(long batchId, long employeeId) throws Exception {
 		try (Connection connection = connect();
 				Statement st = connection.createStatement();
 				java.sql.ResultSet rs = st.executeQuery(
-						"SELECT * FROM payslips WHERE batch_id=" + batchId + " AND employee_id=" + EMPLOYEE_1)) {
-			assertThat(rs.next()).as("payslip row for employee %s in batch %s", EMPLOYEE_1, batchId).isTrue();
+						"SELECT * FROM payslips WHERE batch_id=" + batchId + " AND employee_id=" + employeeId)) {
+			assertThat(rs.next()).as("payslip row for employee %s in batch %s", employeeId, batchId).isTrue();
 			Map<String, Object> row = new java.util.LinkedHashMap<>();
 			java.sql.ResultSetMetaData meta = rs.getMetaData();
 			for (int i = 1; i <= meta.getColumnCount(); i++) {
@@ -249,6 +362,10 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 					+ " last_name, phone, role, is_active, created_at) VALUES (" + EMPLOYEE_1 + ", " + COMPANY_1
 					+ ", " + BRANCH_1 + ", " + EMPLOYEE_1 + ", 'Emp', 'One', '+201000214012', 'employee',"
 					+ " 1, '2019-04-01 08:00:00')");
+			st.execute("INSERT INTO employees (id, company_id, branch_id, employee_code, first_name,"
+					+ " last_name, phone, role, is_active, created_at) VALUES (" + EMPLOYEE_2 + ", " + COMPANY_1
+					+ ", " + BRANCH_1 + ", " + EMPLOYEE_2 + ", 'Emp', 'Two', '+201000214013', 'employee',"
+					+ " 1, '2019-04-01 08:00:00')");
 
 			// A narrow five-day fiscal period: month_start_day=1, month_end_day=5.
 			st.execute("INSERT INTO setting_definitions (id, setting_key, is_multi) VALUES"
@@ -263,6 +380,13 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 			st.execute("INSERT INTO salary_contracts (id, employee_id, salary_mode, basic_salary,"
 					+ " effective_from, created_at) VALUES (2140100, " + EMPLOYEE_1
 					+ ", 'monthly', 3000.00, '2019-06-01', '2019-06-01 08:00:00')");
+			// Non-zero fixed deductions and (via 4/5 January attendance rows below)
+			// one absent day -- the non-vacuous counterpart to employee 1's all-zeros
+			// contract; see the test's javadoc.
+			st.execute("INSERT INTO salary_contracts (id, employee_id, salary_mode, basic_salary,"
+					+ " insurance_deduction, tax_deduction, advances_deduction, fund_deduction,"
+					+ " effective_from, created_at) VALUES (2140101, " + EMPLOYEE_2
+					+ ", 'monthly', 3000.00, 100.00, 50.00, 25.00, 10.00, '2019-06-01', '2019-06-01 08:00:00')");
 
 			for (int day = 1; day <= 5; day++) {
 				String date = String.format("2020-01-%02d", day);
@@ -270,12 +394,24 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 						+ EMPLOYEE_1 + ", '" + date + " 09:00:00', '" + date + " 17:00:00', 'app',"
 						+ " '" + date + " 09:00:00')");
 			}
+			// Employee 2 is present for only 4 of the 5 January days (day 5 is a
+			// genuine absence, not a weekly-off/holiday), and for all 5 February
+			// days so the second test's employee-1-scoped assertions are undisturbed.
+			for (int day = 1; day <= 4; day++) {
+				String date = String.format("2020-01-%02d", day);
+				st.execute("INSERT INTO attendance (employee_id, check_in, check_out, method, created_at) VALUES ("
+						+ EMPLOYEE_2 + ", '" + date + " 09:00:00', '" + date + " 17:00:00', 'app',"
+						+ " '" + date + " 09:00:00')");
+			}
 			// February attendance for the finalize/reopen scenario -- same
-			// employee, a different batch month.
+			// employees, a different batch month.
 			for (int day = 1; day <= 5; day++) {
 				String date = String.format("2020-02-%02d", day);
 				st.execute("INSERT INTO attendance (employee_id, check_in, check_out, method, created_at) VALUES ("
 						+ EMPLOYEE_1 + ", '" + date + " 09:00:00', '" + date + " 17:00:00', 'app',"
+						+ " '" + date + " 09:00:00')");
+				st.execute("INSERT INTO attendance (employee_id, check_in, check_out, method, created_at) VALUES ("
+						+ EMPLOYEE_2 + ", '" + date + " 09:00:00', '" + date + " 17:00:00', 'app',"
 						+ " '" + date + " 09:00:00')");
 			}
 			st.execute("INSERT INTO advances (id, employee_id, amount, remaining, deduction_mode,"

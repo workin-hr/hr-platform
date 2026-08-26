@@ -114,7 +114,17 @@ class LegacyPayslipEndToEndTest {
 		assertThat(number(one.get("earned_weekly_rest_days"))).isEqualTo(0L);
 		assertThat(number(one.get("void_weekly_rest_days"))).isEqualTo(0L);
 		assertThat(one.get("present_details")).isInstanceOf(java.util.List.class);
-		assertThat((java.util.List<?>) one.get("present_details")).hasSize(5);
+		@SuppressWarnings("unchecked")
+		java.util.List<Map<String, Object>> presentDetails = (java.util.List<Map<String, Object>>) one.get("present_details");
+		assertThat(presentDetails).hasSize(5);
+		// Regression: attendancePresentDetails() previously labeled every real
+		// worked-day row with the weekly-rest label instead of the dedicated
+		// "present" label (csv_attendance_present_day / "Attendance") --
+		// wire-visible text divergence on every payslip read.
+		for (Map<String, Object> detail : presentDetails) {
+			assertThat(detail.get("day_type")).isEqualTo("attendance");
+			assertThat(detail.get("label")).isEqualTo("Attendance");
+		}
 
 		Map<String, Object> listBody = send(LIST, ADMIN, HttpMethod.GET, null, 200, "?batch_id=" + batchId);
 		java.util.List<Map<String, Object>> rows = rowsOf(listBody);
@@ -142,6 +152,31 @@ class LegacyPayslipEndToEndTest {
 		Map<String, Object> stored = queryPayslip(payslipId);
 		assertThat(decimalString(stored.get("other_deductions"))).isEqualTo("50.00");
 		assertThat(decimalString(stored.get("net_salary"))).isEqualTo("2950.00");
+	}
+
+	/**
+	 * Regression: {@code update.php} previously used {@code containsKey}
+	 * instead of PHP's {@code ??} null-coalescing, so a body with an explicit
+	 * JSON {@code null} for a money field (a client serializing an unset
+	 * optional field, not a hostile one) zeroed and persisted it instead of
+	 * preserving the stored value. Basic salary going to zero also zeros
+	 * gross/day-rate/net -- verify the whole chain survives.
+	 */
+	@Test
+	void updatePreservesStoredValuesWhenTheBodyExplicitlyNullsThem() throws Exception {
+		long batchId = createAndCalculate(6, "2020-06");
+		long payslipId = payslipId(batchId);
+
+		Map<String, Object> updated = dataOf(send(
+				UPDATE, ADMIN, HttpMethod.PUT,
+				"{\"basic_salary\":null,\"other_deductions\":null}", 200, "?id=" + payslipId));
+		assertThat(decimalString(updated.get("basic_salary"))).isEqualTo("3000.00");
+		assertThat(decimalString(updated.get("gross_salary"))).isEqualTo("3000.00");
+		assertThat(decimalString(updated.get("net_salary"))).isEqualTo("3000.00");
+
+		Map<String, Object> stored = queryPayslip(payslipId);
+		assertThat(decimalString(stored.get("basic_salary"))).isEqualTo("3000.00");
+		assertThat(decimalString(stored.get("net_salary"))).isEqualTo("3000.00");
 	}
 
 	/**

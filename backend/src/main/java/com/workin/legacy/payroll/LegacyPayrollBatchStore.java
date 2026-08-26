@@ -97,10 +97,48 @@ public class LegacyPayrollBatchStore {
 		jdbc.update("UPDATE payroll_batches SET status=? WHERE id=?", status, batchId);
 	}
 
+	/**
+	 * Atomic compare-and-set counterpart to {@link #updateStatus}: only
+	 * transitions when the row's status still equals {@code expectedCurrentStatus}
+	 * at write time. Closes the race between {@code reopen.php}'s pre-transaction
+	 * status read (on the pooled connection) and this write (on a separately
+	 * opened single connection moments later): two concurrent {@code reopen}
+	 * calls for the same batch cannot both return 0 rows changed to the loser
+	 * and both apply the reversal side effects, because the second UPDATE's
+	 * {@code WHERE} clause is evaluated against a row InnoDB has already locked
+	 * for the first, and by the time it can proceed the first has already
+	 * committed the new status.
+	 *
+	 * @return the number of rows changed -- 0 means someone else already
+	 *         changed the status; the caller must abort rather than apply
+	 *         the reversal side effects
+	 */
+	public int updateStatusIfCurrently(long batchId, String expectedCurrentStatus, String newStatus) {
+		return jdbc.update(
+				"UPDATE payroll_batches SET status=? WHERE id=? AND status=?", newStatus, batchId, expectedCurrentStatus);
+	}
+
 	/** {@code finalize.php} also rewrites the fiscal period at the same time as the status. */
 	public void finalizeBatch(long batchId, String status, String periodFrom, String periodTo) {
 		jdbc.update("UPDATE payroll_batches SET status=?, period_from=?, period_to=? WHERE id=?",
 				status, periodFrom, periodTo, batchId);
+	}
+
+	/**
+	 * Atomic compare-and-set counterpart to {@link #finalizeBatch}, same
+	 * reasoning as {@link #updateStatusIfCurrently} -- see that method's note.
+	 * Guards on not-already-{@code finalizedStatus} rather than on a specific
+	 * "from" status, matching {@code finalize()}'s own pre-check, which
+	 * accepts any non-finalized status.
+	 *
+	 * @return the number of rows changed -- 0 means someone else already
+	 *         finalized this batch; the caller must abort rather than apply
+	 *         the finalize side effects
+	 */
+	public int finalizeBatchIfNotAlready(long batchId, String finalizedStatus, String periodFrom, String periodTo) {
+		return jdbc.update(
+				"UPDATE payroll_batches SET status=?, period_from=?, period_to=? WHERE id=? AND status<>?",
+				finalizedStatus, periodFrom, periodTo, batchId, finalizedStatus);
 	}
 
 	/** {@code delete.php}: payslips first, batch second -- no FK cascade in this schema. */
@@ -155,10 +193,10 @@ public class LegacyPayrollBatchStore {
 				  gross_salary, total_entitlements, total_deductions
 				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				""",
-				batchId, employeeId, p.daysPresent(), 0, 0, p.overtimeHours(),
+				batchId, employeeId, p.daysPresent(), p.daysAbsent(), p.daysLeave(), p.overtimeHours(),
 				p.basicSalary(), p.allowances(), p.overtimePay(), p.penaltiesTotal(), p.advanceDeduction(),
-				p.otherDeductions(), p.netSalary(), p.foodAllowance(), p.riskAllowance(), java.math.BigDecimal.ZERO,
-				java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, p.transportAllowance(),
+				p.otherDeductions(), p.netSalary(), p.foodAllowance(), p.riskAllowance(), p.insuranceDeduction(),
+				p.taxDeduction(), p.advancesDeduction(), p.fundDeduction(), p.transportAllowance(),
 				p.incentives(), p.grossSalary(), p.totalEntitlements(), p.totalDeductions());
 	}
 

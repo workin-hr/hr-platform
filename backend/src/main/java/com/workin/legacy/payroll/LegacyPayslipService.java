@@ -119,7 +119,7 @@ public class LegacyPayslipService {
 
 	public Map<String, Object> one(
 			long companyId, LegacyEmployee.Role role, long authenticatedEmployeeId, long payslipId,
-			String weeklyRestLabel, String officialHolidayFallbackLabel) {
+			String presentLabel, String weeklyRestLabel, String officialHolidayFallbackLabel) {
 		Map<String, Object> payslip = store.one(payslipId, companyId);
 		if (payslip == null) {
 			throw new LegacyApiException(404, "payslip_not_found");
@@ -128,7 +128,7 @@ public class LegacyPayslipService {
 				&& LegacyValues.toPhpLong(payslip.get("employee_id")) != authenticatedEmployeeId) {
 			throw new LegacyApiException(403, "forbidden");
 		}
-		return enrich(payslip, companyId, weeklyRestLabel, officialHolidayFallbackLabel);
+		return enrich(payslip, companyId, presentLabel, weeklyRestLabel, officialHolidayFallbackLabel);
 	}
 
 	// ------------------------------------------------------------------
@@ -140,7 +140,7 @@ public class LegacyPayslipService {
 
 	public Page list(
 			long companyId, LegacyEmployee.Role role, long authenticatedEmployeeId, LegacyQueryParameters query,
-			String weeklyRestLabel, String officialHolidayFallbackLabel) {
+			String presentLabel, String weeklyRestLabel, String officialHolidayFallbackLabel) {
 		LegacyPagination.Params page = LegacyPagination.params(query);
 
 		Long batchId = positiveLongOrNull(query.value("batch_id"));
@@ -161,7 +161,7 @@ public class LegacyPayslipService {
 		long total = store.countForList(filter);
 		List<Map<String, Object>> rows = store.list(filter, page);
 		List<Map<String, Object>> enriched = rows.stream()
-				.map(row -> enrich(row, companyId, weeklyRestLabel, officialHolidayFallbackLabel))
+				.map(row -> enrich(row, companyId, presentLabel, weeklyRestLabel, officialHolidayFallbackLabel))
 				.toList();
 		return new Page(enriched, LegacyPagination.meta(total, page));
 	}
@@ -181,7 +181,7 @@ public class LegacyPayslipService {
 
 	public Map<String, Object> update(
 			long companyId, long payslipId, Map<String, Object> body,
-			String weeklyRestLabel, String officialHolidayFallbackLabel) {
+			String presentLabel, String weeklyRestLabel, String officialHolidayFallbackLabel) {
 		Map<String, Object> payslip = store.withBatchStatus(payslipId, companyId);
 		if (payslip == null) {
 			throw new LegacyApiException(404, "payslip_not_found");
@@ -200,8 +200,13 @@ public class LegacyPayslipService {
 		BigDecimal overtimeHours = bodyDecimalOr(body, "overtime_hours", payslip.get("overtime_hours"));
 
 		BigDecimal basicSalary = bodyDecimalOr(body, "basic_salary", payslip.get("basic_salary"));
-		Object housingRaw = body.containsKey("allowances") ? body.get("allowances")
-				: body.containsKey("housing_allowance") ? body.get("housing_allowance") : payslip.get("allowances");
+		Object housingRaw = body.get("allowances");
+		if (housingRaw == null) {
+			housingRaw = body.get("housing_allowance");
+		}
+		if (housingRaw == null) {
+			housingRaw = payslip.get("allowances");
+		}
 		BigDecimal housing = housingRaw == null ? BigDecimal.ZERO : LegacyValues.toPhpDecimal(housingRaw);
 		BigDecimal transport = bodyDecimalOr(body, "transport_allowance", payslip.get("transport_allowance"));
 		BigDecimal food = bodyDecimalOr(body, "food_allowance", payslip.get("food_allowance"));
@@ -289,7 +294,7 @@ public class LegacyPayslipService {
 		}
 		row.put("period_from", periodFrom);
 		row.put("period_to", periodTo);
-		return enrich(row, companyId, weeklyRestLabel, officialHolidayFallbackLabel);
+		return enrich(row, companyId, presentLabel, weeklyRestLabel, officialHolidayFallbackLabel);
 	}
 
 	// ------------------------------------------------------------------
@@ -297,7 +302,8 @@ public class LegacyPayslipService {
 	// ------------------------------------------------------------------
 
 	private Map<String, Object> enrich(
-			Map<String, Object> source, long companyId, String weeklyRestLabel, String officialHolidayFallbackLabel) {
+			Map<String, Object> source, long companyId, String presentLabel, String weeklyRestLabel,
+			String officialHolidayFallbackLabel) {
 		Map<String, Object> row = new LinkedHashMap<>(source);
 
 		String periodFrom = LegacyValues.toPhpString(firstNonNull(row.get("period_from")));
@@ -383,7 +389,7 @@ public class LegacyPayslipService {
 		row.put("days_present", creditedWorkDays);
 		row.put("present_details", attendanceFigures.presentDetails(
 				companyId, employeeId, periodFrom, periodTo, punchPresent, asOf,
-				weeklyRestLabel, officialHolidayFallbackLabel));
+				presentLabel, weeklyRestLabel, officialHolidayFallbackLabel));
 		row.put("contract_basic_salary", round(contractBasic));
 		row.put("daily_basic_rate", dayRate);
 		row.put("absence_cost", absenceCost);
@@ -466,13 +472,28 @@ public class LegacyPayslipService {
 		return value == null ? BigDecimal.ZERO : LegacyValues.toPhpDecimal(value);
 	}
 
+	/**
+	 * PHP {@code $body[key] ?? $fallback} -- null-coalescing, not {@code
+	 * containsKey}: an explicit JSON {@code null} falls through to {@code
+	 * fallback} the same as an absent key. Regression: this previously used
+	 * {@code containsKey}, so an explicit {@code null} in the request body
+	 * silently zeroed the stored money field instead of preserving it (see
+	 * {@code LegacyAdvanceService.phpCoalesce}, which already got this right
+	 * for the equivalent case).
+	 */
 	private static long bodyLongOr(Map<String, Object> body, String key, Object fallback) {
-		Object value = body.containsKey(key) ? body.get(key) : fallback;
+		Object value = body.get(key);
+		if (value == null) {
+			value = fallback;
+		}
 		return value == null ? 0 : LegacyValues.toPhpLong(value);
 	}
 
 	private static BigDecimal bodyDecimalOr(Map<String, Object> body, String key, Object fallback) {
-		Object value = body.containsKey(key) ? body.get(key) : fallback;
+		Object value = body.get(key);
+		if (value == null) {
+			value = fallback;
+		}
 		return value == null ? BigDecimal.ZERO : LegacyValues.toPhpDecimal(value);
 	}
 

@@ -53,6 +53,8 @@ class LegacyPayrollCalculationServiceTest {
 		// day rate 200.00 x 2 absent days = 400.00 off the 6000.00 gross.
 		assertThat(result.totalEntitlements()).isEqualByComparingTo("5600.00");
 		assertThat(result.netSalary()).isEqualByComparingTo("5600.00");
+		assertThat(result.daysAbsent()).isEqualTo(2);
+		assertThat(result.daysLeave()).isEqualTo(0);
 	}
 
 	@Test
@@ -148,5 +150,13 @@ class LegacyPayrollCalculationServiceTest {
 		assertThat(result.penaltiesTotal()).isEqualByComparingTo("200.00");
 		assertThat(result.totalDeductions()).isEqualByComparingTo("885.00");
 		assertThat(result.netSalary()).isEqualByComparingTo("5115.00");
+
+		// Regression: insertPayslip() persists these four alongside totalDeductions -- previously
+		// hard-coded to zero in the store, silently zeroing the payslip breakdown while
+		// totalDeductions (used by stats.php) stayed correct. Pin each contributor individually.
+		assertThat(result.insuranceDeduction()).isEqualByComparingTo("100.00");
+		assertThat(result.taxDeduction()).isEqualByComparingTo("50.00");
+		assertThat(result.advancesDeduction()).isEqualByComparingTo("25.00");
+		assertThat(result.fundDeduction()).isEqualByComparingTo("10.00");
 	}
 }
