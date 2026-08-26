@@ -1,6 +1,7 @@
 package com.workin.legacy.attendance.calendar;
 
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -8,8 +9,10 @@ import java.util.Map;
 
 import javax.sql.DataSource;
 
+import org.springframework.context.annotation.ScopedProxyMode;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.annotation.RequestScope;
 
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.attendance.LegacyWeeklyOffDays;
@@ -47,8 +50,17 @@ import com.workin.legacy.workforce.LegacyShiftTimes;
  * stored zero is skipped rather than believed. Reproduced as the same single
  * statement rather than as three Java branches, because the zero-skipping is
  * the part that is easy to get wrong.
+ *
+ * <h2>Request-scoped, one query per employee/date per request</h2>
+ * <p>{@link #shiftForEmployeeOnDate} is read once per day of the pay period,
+ * per payslip, over one HTTP request in {@code payslips/list.php}'s
+ * enrichment loop -- and nothing writes {@code employee_shift_assignments}
+ * mid-request. Request-scoped with {@link ScopedProxyMode#TARGET_CLASS}, the
+ * same reasoning and the same mechanism as {@link LegacyWeeklyOffDays} (see
+ * that class's javadoc) and {@link com.workin.legacy.LegacyClock}.
  */
 @Component
+@RequestScope(proxyMode = ScopedProxyMode.TARGET_CLASS)
 public class LegacyAttendanceCalendar {
 
 	/**
@@ -102,6 +114,7 @@ public class LegacyAttendanceCalendar {
 
 	private final JdbcTemplate jdbcTemplate;
 	private final LegacyWeeklyOffDays weeklyOffDays;
+	private final Map<String, Map<String, Object>> shiftCache = new HashMap<>();
 
 	public LegacyAttendanceCalendar(DataSource legacyDataSource, LegacyWeeklyOffDays weeklyOffDays) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
@@ -160,11 +173,25 @@ public class LegacyAttendanceCalendar {
 				null);
 	}
 
-	/** {@code schedule_shift_for_employee_on_date()}, or null when none is effective yet. */
+	/**
+	 * {@code schedule_shift_for_employee_on_date()}, or null when none is
+	 * effective yet.
+	 *
+	 * <p>Memoized per (employee, date) for the lifetime of this
+	 * request-scoped bean, including the no-shift-assigned case -- see the
+	 * class javadoc. {@code containsKey} rather than {@code computeIfAbsent}
+	 * because the cached value is legitimately {@code null}.
+	 */
 	public Map<String, Object> shiftForEmployeeOnDate(long employeeId, String date) {
+		String key = employeeId + "|" + date;
+		if (shiftCache.containsKey(key)) {
+			return shiftCache.get(key);
+		}
 		List<Map<String, Object>> rows = jdbcTemplate.query(
 				SHIFT_ON_DATE, com.workin.legacy.LegacyJdbcValues.rowMapper(), employeeId, date);
-		return rows.isEmpty() ? null : rows.get(0);
+		Map<String, Object> shift = rows.isEmpty() ? null : rows.get(0);
+		shiftCache.put(key, shift);
+		return shift;
 	}
 
 	/**
