@@ -73,6 +73,84 @@ class LegacyPayrollAdvanceDeductionsTest {
 		assertThat(deductions.plannedForBatch(advance, 2026, 2)).isEqualByComparingTo("0"); // before the window
 	}
 
+	/**
+	 * Malformed {@code deduction_installments_json} must never throw --
+	 * {@code plannedForBatch} silently falls through to the per-month
+	 * schedule instead, exactly like a config a client never sent one at
+	 * all. Each case below pairs the malformed JSON with a real per-month
+	 * fallback so the assertion proves "fell through", not just "returned
+	 * zero" (which a thrown-and-swallowed exception could also produce).
+	 */
+	@Test
+	void invalidJsonSyntaxFallsThroughToThePerMonthSchedule() {
+		Map<String, Object> advance = advance(Map.of(
+				"deduction_mode", "installments",
+				"deduction_installments_json", "{not valid json",
+				"deduction_amount_per_month", "50.00",
+				"deduction_payroll_year", 2026, "deduction_payroll_month", 4,
+				"deduction_month_count", 1));
+
+		assertThat(deductions.plannedForBatch(advance, 2026, 4)).isEqualByComparingTo("50.00");
+	}
+
+	@Test
+	void anEmptyInstallmentsArrayFallsThroughToThePerMonthSchedule() {
+		Map<String, Object> advance = advance(Map.of(
+				"deduction_mode", "installments",
+				"deduction_installments_json", "[]",
+				"deduction_amount_per_month", "50.00",
+				"deduction_payroll_year", 2026, "deduction_payroll_month", 4,
+				"deduction_month_count", 1));
+
+		assertThat(deductions.plannedForBatch(advance, 2026, 4)).isEqualByComparingTo("50.00");
+	}
+
+	@Test
+	void aJsonObjectInsteadOfAnArrayFallsThroughToThePerMonthSchedule() {
+		Map<String, Object> advance = advance(Map.of(
+				"deduction_mode", "installments",
+				"deduction_installments_json", "{\"year\":2026,\"month\":4,\"amount\":100}",
+				"deduction_amount_per_month", "50.00",
+				"deduction_payroll_year", 2026, "deduction_payroll_month", 4,
+				"deduction_month_count", 1));
+
+		assertThat(deductions.plannedForBatch(advance, 2026, 4)).isEqualByComparingTo("50.00");
+	}
+
+	@Test
+	void nonObjectArrayItemsAreSkippedRatherThanThrowing() {
+		Map<String, Object> advance = advance(Map.of(
+				"deduction_mode", "installments",
+				"deduction_installments_json", "[1, \"x\", null, {\"year\":2026,\"month\":4,\"amount\":100}]"));
+
+		assertThat(deductions.plannedForBatch(advance, 2026, 4)).isEqualByComparingTo("100");
+	}
+
+	@Test
+	void anInstallmentEntryMissingTheAmountFieldIsTreatedAsZeroAndSkipped() {
+		Map<String, Object> advance = advance(Map.of(
+				"deduction_mode", "installments",
+				"deduction_installments_json", "[{\"year\":2026,\"month\":4}]",
+				"deduction_amount_per_month", "50.00",
+				"deduction_payroll_year", 2026, "deduction_payroll_month", 4,
+				"deduction_month_count", 1));
+
+		assertThat(deductions.plannedForBatch(advance, 2026, 4)).isEqualByComparingTo("50.00");
+	}
+
+	@Test
+	void nonNumericInstallmentFieldsAreTreatedAsZeroRatherThanThrowing() {
+		Map<String, Object> advance = advance(Map.of(
+				"deduction_mode", "installments",
+				"deduction_installments_json",
+				"[{\"year\":\"not-a-year\",\"month\":\"not-a-month\",\"amount\":\"not-a-number\"}]",
+				"deduction_amount_per_month", "50.00",
+				"deduction_payroll_year", 2026, "deduction_payroll_month", 4,
+				"deduction_month_count", 1));
+
+		assertThat(deductions.plannedForBatch(advance, 2026, 4)).isEqualByComparingTo("50.00");
+	}
+
 	@Test
 	void itemsForBatchCapsTheDeductionAtTheRemainingBalance() {
 		Map<String, Object> advance = advance(Map.of(
