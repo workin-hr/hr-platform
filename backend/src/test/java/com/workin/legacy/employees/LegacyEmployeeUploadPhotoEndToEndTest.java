@@ -201,15 +201,30 @@ class LegacyEmployeeUploadPhotoEndToEndTest {
 	}
 
 	@Test
-	void theExtensionComesFromTheClientNotFromTheDetectedType() throws Exception {
-		// pathinfo($_FILES[...]['name'], PATHINFO_EXTENSION): a PNG uploaded as
-		// .jpg is stored as .jpg, and the case is lowered.
+	void theExtensionComesFromTheDetectedTypeNotFromTheClientFilename() throws Exception {
+		// Regression: frozen PHP's pathinfo($_FILES[...]['name'], PATHINFO_EXTENSION)
+		// trusts the client-supplied filename, so a file whose bytes are sniffed
+		// as one type but named with another extension (or an executable one,
+		// e.g. "shell.php" holding PNG bytes) is stored under the client's
+		// chosen extension on the same webroot /uploads is served from -- a
+		// real upload-based RCE/XSS path, not reproduced. A PNG uploaded as
+		// "MISNAMED.JPG" is stored as .png, matching its detected content.
 		ResponseEntity<Map<String, Object>> response = upload(
 				UPLOAD + "?id=" + STAFF, ADMIN, "photo", "MISNAMED.JPG", pngBytes());
 		assertThat(response.getStatusCode().value()).isEqualTo(200);
 		@SuppressWarnings("unchecked")
 		Map<String, Object> employee = (Map<String, Object>) response.getBody().get("data");
-		assertThat((String) employee.get("photo_url")).endsWith(".jpg");
+		assertThat((String) employee.get("photo_url")).endsWith(".png");
+	}
+
+	@Test
+	void anExecutableExtensionOnTheClientFilenameIsIgnored() throws Exception {
+		ResponseEntity<Map<String, Object>> response = upload(
+				UPLOAD + "?id=" + STAFF, ADMIN, "photo", "shell.php", pngBytes());
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		@SuppressWarnings("unchecked")
+		Map<String, Object> employee = (Map<String, Object>) response.getBody().get("data");
+		assertThat((String) employee.get("photo_url")).endsWith(".png").doesNotContain(".php");
 	}
 
 	@Test

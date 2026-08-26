@@ -68,24 +68,25 @@ public class LegacyAdvanceController {
 	@RequestMapping("/approve.php")
 	public LegacyApiResponse approve(HttpServletRequest request) {
 		requireMethod(request, "PUT");
-		administrativeRole();
-		return LegacyApiResponse.ok(message(request, "approve_advance"), service.approve(requiredId(request)));
+		LegacyRequestContext context = administrativeRole();
+		return LegacyApiResponse.ok(message(request, "approve_advance"), service.approve(context, requiredId(request)));
 	}
 
 	@RequestMapping("/reject.php")
 	public LegacyApiResponse reject(HttpServletRequest request) {
 		requireMethod(request, "PUT");
-		administrativeRole();
+		LegacyRequestContext context = administrativeRole();
 		long id = requiredId(request);
-		return LegacyApiResponse.ok(message(request, "reject_advance"), service.reject(id, LegacyJsonBody.read(request)));
+		return LegacyApiResponse.ok(message(request, "reject_advance"),
+				service.reject(context, id, LegacyJsonBody.read(request)));
 	}
 
 	@RequestMapping("/pay.php")
 	public LegacyApiResponse pay(HttpServletRequest request) {
 		requireMethod(request, "PUT");
-		administrativeRole();
+		LegacyRequestContext context = administrativeRole();
 		long id = requiredId(request);
-		return LegacyApiResponse.ok(message(request, "success"), service.pay(id, LegacyJsonBody.read(request)));
+		return LegacyApiResponse.ok(message(request, "success"), service.pay(context, id, LegacyJsonBody.read(request)));
 	}
 
 	@RequestMapping("/delete.php")

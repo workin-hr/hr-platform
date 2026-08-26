@@ -24,14 +24,19 @@ import com.workin.backend.security.AuthenticatedPrincipal;
  * not close it, so this class enforces nothing on its own; it is only
  * ever as protective as the call sites that use it.
  *
- * <h2>What is not ported</h2>
- * <p>{@code hr_session_has_permission()}'s company-type-JWT bypass
- * (a company-level session always passes, no {@code hr_permissions} row
- * involved) has no Phase 1 equivalent yet: {@code LegacyLoginController}
- * is the only issuer of a legacy token today, and it only ever issues an
- * employee-scoped one (D-042). This class implements the employee
- * branch only. Revisit if/when a company-type legacy token exists in
- * Phase 1.
+ * <h2>Company-type bypass</h2>
+ * <p>{@code hr_session_has_permission()} (({@code hr_permissions.php:143-153}):
+ * a {@code type=company} session is always allowed, unconditionally, no
+ * {@code hr_permissions} lookup at all. Checked first and returns before any
+ * lookup: {@link AuthenticatedPrincipal#identityId()} for a non-employee
+ * token carries the <em>company</em> id, not an employee id (see {@code
+ * LegacyPhpJwtAuthenticationFilter#setPhpAuthentication}), so the lookup
+ * below must never be handed one -- passing a company id to {@code
+ * findByEmployeeId} either denies a company session PHP would allow, or,
+ * where a company id numerically collides with an unrelated employee id,
+ * grants that employee's unrelated permission flags. This was unreachable
+ * before company-type legacy tokens existed in Phase 1 (D-042); it is
+ * reachable now that {@code LegacyLoginPhpController} issues them.
  *
  * <h2>Trust boundary</h2>
  * <p>The employee id checked is always {@link AuthenticatedPrincipal#identityId()}
@@ -80,6 +85,9 @@ public class LegacyHrPermissionEnforcer {
 				&& SecurityContextHolder.getContext().getAuthentication().getPrincipal()
 						instanceof AuthenticatedPrincipal principal)) {
 			return false;
+		}
+		if ("company".equals(principal.legacyAuthType())) {
+			return true;
 		}
 		return legacyHrPermissionsRepository.findByEmployeeId(principal.identityId())
 				.map(row -> row.has(key))

@@ -63,6 +63,9 @@ class LegacyHrPermissionEnforcerEndToEndTest {
 	@Autowired
 	private JwtService jwtService;
 
+	@Autowired
+	private LegacyPhpJwtService legacyPhpJwtService;
+
 	static {
 		MARIADB.start();
 		try {
@@ -181,6 +184,32 @@ class LegacyHrPermissionEnforcerEndToEndTest {
 				new HttpEntity<>(Map.of("name", "Denied Path Type"), headersFor(token)), String.class);
 
 		assertThat(response.getStatusCode().value()).isEqualTo(403);
+	}
+
+	/**
+	 * Regression for {@code hr_session_has_permission()}'s company-type
+	 * bypass ({@code hr_permissions.php:143-153}): a {@code type=company}
+	 * session is always allowed, no {@code hr_permissions} lookup at all --
+	 * unlike either employee fixture above, both of which go through the
+	 * lookup. Company 9401 has no {@code hr_permissions} row referencing
+	 * its own id at all, so this also proves the enforcer isn't accidentally
+	 * looking one up under the company id (see the class javadoc's
+	 * "Company-type bypass" note on {@code identityId} carrying a company
+	 * id, not an employee id, for this token type).
+	 */
+	@Test
+	@SuppressWarnings("unchecked")
+	void aCompanyTypeTokenBypassesTheHrPermissionsLookupEntirely() {
+		String token = legacyPhpJwtService.issueCompanyToken(COMPANY, "company_admin");
+		HttpHeaders headers = headersFor(token);
+		headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				CREATE_PATH, org.springframework.http.HttpMethod.POST,
+				new HttpEntity<>(Map.of("name", "Company Session Path Type"), headers),
+				new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
+
+		assertThat(response.getStatusCode().value()).isEqualTo(201);
 	}
 
 	private String employeeToken(long employeeId) {

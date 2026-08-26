@@ -55,6 +55,12 @@ public class LegacyAdvanceService {
 		if (employeeId == 0L) {
 			throw new LegacyApiException(400, "invalid_employee");
 		}
+		// Frozen PHP create.php takes employee_id from the body with no company
+		// cross-check for Company Admin/HR callers -- a real cross-tenant write,
+		// not reproduced here; see LegacyAdvanceStore.employeeCompanyId's note.
+		if (store.employeeCompanyId(employeeId) != context.companyId()) {
+			throw new LegacyApiException(403, "forbidden_insufficient_role");
+		}
 
 		Map<String, Object> values = new LinkedHashMap<>();
 		values.put("employee_id", employeeId);
@@ -165,20 +171,26 @@ public class LegacyAdvanceService {
 		return requirePublicRow(store.withEmployee(id));
 	}
 
-	public Map<String, Object> approve(long id) {
+	public Map<String, Object> approve(LegacyRequestContext context, long id) {
+		if (store.scoped(context.companyId(), id) == null) {
+			throw new LegacyApiException(404, "not_found");
+		}
 		store.approve(id);
 		return requirePublicRow(store.withEmployee(id));
 	}
 
-	public Map<String, Object> reject(long id, Map<String, Object> body) {
+	public Map<String, Object> reject(LegacyRequestContext context, long id, Map<String, Object> body) {
 		required(body, "rejection_reason");
+		if (store.scoped(context.companyId(), id) == null) {
+			throw new LegacyApiException(404, "not_found");
+		}
 		store.reject(id, body.get("rejection_reason"));
 		return requirePublicRow(store.withEmployee(id));
 	}
 
-	public Map<String, Object> pay(long id, Map<String, Object> body) {
+	public Map<String, Object> pay(LegacyRequestContext context, long id, Map<String, Object> body) {
 		required(body, "amount");
-		Map<String, Object> state = store.paymentState(id);
+		Map<String, Object> state = store.scopedPaymentState(context.companyId(), id);
 		if (state == null) {
 			throw new LegacyApiException(404, "not_found");
 		}
@@ -192,7 +204,7 @@ public class LegacyAdvanceService {
 	}
 
 	public void delete(LegacyRequestContext context, long id) {
-		Map<String, Object> row = store.deleteState(id);
+		Map<String, Object> row = store.scopedDeleteState(context.companyId(), id);
 		if (row == null) {
 			throw new LegacyApiException(404, "not_found");
 		}

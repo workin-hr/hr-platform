@@ -81,12 +81,42 @@ public class LegacyAdvanceStore {
 		return single("SELECT a.* FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=? AND e.company_id=?", id, companyId);
 	}
 
-	/** pay.php deliberately ignores company ownership. */
+	/**
+	 * The frozen PHP {@code advances} endpoints ({@code approve.php}, {@code
+	 * reject.php}, {@code pay.php}, {@code delete.php}, and {@code create.php}
+	 * for non-employee callers) genuinely have no company scoping at all --
+	 * verified against the frozen source, not inferred. That is a real
+	 * cross-tenant authorization bypass on a money-handling resource, not a
+	 * PHP quirk worth preserving: per the same reasoning already applied in
+	 * this codebase to {@code branches/update.php} (D-060, refused to
+	 * reproduce a cross-tenant read) and the exception-type slice (D-095,
+	 * fails closed on a foreign reference), company scoping is added here
+	 * rather than ported faithfully. No legitimate client ever references
+	 * another company's advance id, so this changes nothing for real traffic.
+	 */
+	public long employeeCompanyId(long employeeId) {
+		List<Long> rows = jdbc.query("SELECT company_id FROM employees WHERE id=?", (rs, n) -> rs.getLong(1), employeeId);
+		return rows.isEmpty() ? 0L : rows.getFirst();
+	}
+
+	/** Company-scoped counterpart to {@link #paymentState(long)}; see that method's note. */
+	public Map<String, Object> scopedPaymentState(long companyId, long id) {
+		return single("SELECT a.amount, a.remaining FROM advances a JOIN employees e ON e.id=a.employee_id"
+				+ " WHERE a.id=? AND e.company_id=?", id, companyId);
+	}
+
+	/** Company-scoped counterpart to {@link #deleteState(long)}; see that method's note. */
+	public Map<String, Object> scopedDeleteState(long companyId, long id) {
+		return single("SELECT a.employee_id, a.status FROM advances a JOIN employees e ON e.id=a.employee_id"
+				+ " WHERE a.id=? AND e.company_id=?", id, companyId);
+	}
+
+	/** pay.php deliberately ignores company ownership in frozen PHP; see {@link #employeeCompanyId(long)}'s note. */
 	public Map<String, Object> paymentState(long id) {
 		return single("SELECT amount, remaining FROM advances WHERE id=?", id);
 	}
 
-	/** delete.php deliberately ignores company ownership. */
+	/** delete.php deliberately ignores company ownership in frozen PHP; see {@link #employeeCompanyId(long)}'s note. */
 	public Map<String, Object> deleteState(long id) {
 		return single("SELECT employee_id, status FROM advances WHERE id=?", id);
 	}

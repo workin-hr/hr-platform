@@ -29,6 +29,7 @@ class LegacyAdvanceServiceTest {
 	@Test
 	void employeeCreateUsesAuthenticatedEmployeeAndForcesPendingStatus() {
 		LegacyRequestContext employee = context(31L, LegacyEmployee.Role.EMPLOYEE);
+		when(store.employeeCompanyId(31L)).thenReturn(17L);
 		when(store.insert(org.mockito.ArgumentMatchers.anyMap())).thenReturn(81L);
 		when(store.withEmployee(81L)).thenReturn(Map.of("id", 81L));
 
@@ -47,6 +48,7 @@ class LegacyAdvanceServiceTest {
 
 	@Test
 	void adminCreatePreservesUnvalidatedStatusAndNormalizesDeductionControls() {
+		when(store.employeeCompanyId(77L)).thenReturn(17L);
 		when(store.insert(org.mockito.ArgumentMatchers.anyMap())).thenReturn(82L);
 		when(store.withEmployee(82L)).thenReturn(Map.of("id", 82L));
 		Map<String, Object> body = new LinkedHashMap<>();
@@ -72,6 +74,23 @@ class LegacyAdvanceServiceTest {
 				.containsEntry("deduction_payroll_month", null);
 	}
 
+	/**
+	 * Regression for a real cross-tenant write: frozen PHP {@code create.php}
+	 * takes {@code employee_id} straight from the body with no company
+	 * cross-check for Company Admin/HR callers, so any admin could insert an
+	 * advance against another tenant's employee. Not reproduced -- see
+	 * {@code LegacyAdvanceStore.employeeCompanyId}'s note.
+	 */
+	@Test
+	void adminCreateRejectsAnEmployeeIdBelongingToAnotherCompany() {
+		when(store.employeeCompanyId(999L)).thenReturn(41L); // a different company than the caller's 17L.
+
+		assertThatThrownBy(() -> service.create(
+				context(0L, LegacyEmployee.Role.HR), Map.of("amount", 500, "employee_id", 999)))
+				.isInstanceOf(LegacyApiException.class);
+		verify(store, never()).insert(org.mockito.ArgumentMatchers.anyMap());
+	}
+
 	@Test
 	void employeeOneChecksOwnershipOnlyAfterCompanyScopedLookup() {
 		when(store.scopedWithEmployee(17L, 90L)).thenReturn(Map.of("id", 90L, "employee_id", 44L));
@@ -81,22 +100,51 @@ class LegacyAdvanceServiceTest {
 		verify(store).scopedWithEmployee(17L, 90L);
 	}
 
+	/**
+	 * Regression for a real cross-tenant IDOR: frozen PHP {@code approve.php}
+	 * writes {@code WHERE id=?} with no company scoping at all, so any
+	 * Company Admin/HR of any tenant could approve any other tenant's
+	 * advance. Not reproduced -- see {@code LegacyAdvanceStore
+	 * .employeeCompanyId}'s note. The caller's context companyId is 17L
+	 * (see {@link #context}); a foreign advance (not visible under that
+	 * scope) must 404 before any write.
+	 */
 	@Test
-	void approveKeepsLegacyIdOnlyWriteAndNullRereadBecomesUnexpectedFailure() {
-		when(store.withEmployee(91L)).thenReturn(null);
+	void approveIsCompanyScopedAndRejectsAForeignAdvanceId() {
+		when(store.scoped(17L, 91L)).thenReturn(null);
 
-		assertThatThrownBy(() -> service.approve(91L)).isInstanceOf(IllegalStateException.class);
-		verify(store).approve(91L);
-		verify(store).withEmployee(91L);
+		assertThatThrownBy(() -> service.approve(context(0L, LegacyEmployee.Role.COMPANY_ADMIN), 91L))
+				.isInstanceOf(LegacyApiException.class);
+		verify(store, never()).approve(91L);
 	}
 
 	@Test
-	void payUsesIdOnlyStateAndRejectsOverpaymentBeforeWrite() {
-		when(store.paymentState(92L)).thenReturn(Map.of("amount", new BigDecimal("100.00"), "remaining", new BigDecimal("40.00")));
+	void approveWritesOnceScopeConfirmedEvenIfTheReReadRaces() {
+		when(store.scoped(17L, 91L)).thenReturn(Map.of("id", 91L));
+		when(store.withEmployee(91L)).thenReturn(null);
 
-		assertThatThrownBy(() -> service.pay(92L, Map.of("amount", "40.01")))
+		assertThatThrownBy(() -> service.approve(context(0L, LegacyEmployee.Role.COMPANY_ADMIN), 91L))
+				.isInstanceOf(IllegalStateException.class);
+		verify(store).approve(91L);
+	}
+
+	/** Same IDOR class as {@code approve.php}; see that test's note. */
+	@Test
+	void payIsCompanyScopedAndRejectsAForeignAdvanceId() {
+		when(store.scopedPaymentState(17L, 92L)).thenReturn(null);
+
+		assertThatThrownBy(() -> service.pay(context(0L, LegacyEmployee.Role.COMPANY_ADMIN), 92L, Map.of("amount", "40.01")))
 				.isInstanceOf(LegacyApiException.class);
-		verify(store).paymentState(92L);
+		verify(store, never()).pay(eq(92L), org.mockito.ArgumentMatchers.any());
+	}
+
+	@Test
+	void payRejectsOverpaymentBeforeWriteOnceScopeConfirmed() {
+		when(store.scopedPaymentState(17L, 92L))
+				.thenReturn(Map.of("amount", new BigDecimal("100.00"), "remaining", new BigDecimal("40.00")));
+
+		assertThatThrownBy(() -> service.pay(context(0L, LegacyEmployee.Role.COMPANY_ADMIN), 92L, Map.of("amount", "40.01")))
+				.isInstanceOf(LegacyApiException.class);
 		verify(store, never()).pay(eq(92L), org.mockito.ArgumentMatchers.any());
 	}
 
@@ -160,13 +208,22 @@ class LegacyAdvanceServiceTest {
 	}
 
 	@Test
-	void adminDeleteRetainsLegacyIdOnlyLookupRatherThanAddingCompanyScope() {
-		when(store.deleteState(95L)).thenReturn(Map.of("employee_id", 999L, "status", "pending"));
+	void adminDeleteSucceedsForAnAdvanceWithinTheCallersCompany() {
+		when(store.scopedDeleteState(17L, 95L)).thenReturn(Map.of("employee_id", 999L, "status", "pending"));
 
 		service.delete(context(0L, LegacyEmployee.Role.COMPANY_ADMIN), 95L);
 
-		verify(store).deleteState(95L);
 		verify(store).delete(95L);
+	}
+
+	/** Same IDOR class as {@code approve.php}; see that test's note. */
+	@Test
+	void adminDeleteIsCompanyScopedAndRejectsAForeignAdvanceId() {
+		when(store.scopedDeleteState(17L, 95L)).thenReturn(null);
+
+		assertThatThrownBy(() -> service.delete(context(0L, LegacyEmployee.Role.COMPANY_ADMIN), 95L))
+				.isInstanceOf(LegacyApiException.class);
+		verify(store, never()).delete(95L);
 	}
 
 	private static LegacyRequestContext context(long employeeId, LegacyEmployee.Role role) {

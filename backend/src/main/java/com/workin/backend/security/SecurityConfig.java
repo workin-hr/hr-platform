@@ -112,6 +112,13 @@ public class SecurityConfig {
 				.accessDeniedHandler(apiSecurityErrorHandler))
 			.authorizeHttpRequests(authorize -> authorize
 				.requestMatchers("/error").permitAll()
+				// Not dangling: LegacyLoginController no longer exists in src/main
+				// (moved to src/test as a D-074 regression-harness shim -- see the
+				// PR description), but that test-scoped controller is
+				// component-scanned and hit directly by
+				// LegacyLoginServiceRollbackTest over real HTTP during the test
+				// run, so this permitAll must stay for tests to exercise it; a
+				// login endpoint is unauthenticated by definition in production too.
 				.requestMatchers("/api/legacy/auth/login_employee").permitAll()
 				// PHP checks method/body before auth on D-074 literal routes;
 				// controllers therefore own requireAuth() in the same order.
