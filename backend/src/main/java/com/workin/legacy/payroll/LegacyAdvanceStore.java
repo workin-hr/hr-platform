@@ -129,7 +129,7 @@ public class LegacyAdvanceStore {
 	 *
 	 * @return rows changed; zero means the row ceased to be pending before the write
 	 */
-	public int updateEmployeeIfPending(long id, Object amount, Object reason) {
+	public int updateEmployee(long id, Object amount, Object reason) {
 		return jdbc.update(
 				"UPDATE advances SET amount=?, remaining=?, reason=? WHERE id=? AND status='pending'",
 				amount, amount, reason, id);
