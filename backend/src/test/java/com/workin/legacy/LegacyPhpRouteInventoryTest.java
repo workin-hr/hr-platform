@@ -141,12 +141,15 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	/**
-	 * Both endpoints terminate in a streaming helper declared {@code : never}
+	 * Open, not excluded. Both terminate in a streaming helper declared {@code : never}
 	 * ({@code data_export_attendance_csv}, {@code api_xlsx_export_send}) instead of returning
-	 * PHP's {@code ok()} JSON envelope, so there is no D-074 wire contract to reproduce.
+	 * PHP's {@code ok()} JSON envelope, which makes them substantial work -- but D-101 records
+	 * them as "blocked" and D-106 records {@code payslips/export.php} as "open", and neither is
+	 * an owner disposition removing them from the Phase-1 obligation. Legacy serves both to real
+	 * clients today. Delete this assertion -- do not amend it -- when they are delivered.
 	 */
 	@Test
-	void intentionallyExcludedBinaryExportsStayUnmapped() {
+	void theTwoBinaryExportEndpointsAreStillUnmapped() {
 		assertThat(EXPECTED_ROUTES).doesNotContain(
 				"/apis/api/attendance/export.php",
 				"/apis/api/payslips/export.php");

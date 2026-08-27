@@ -6,16 +6,15 @@ Authoritative source: frozen `workin-hr/hr-legacy` commit `d113204c8a2cf83b997c5
 
 ## Completion result
 
-Wave 12 is complete for its agreed Phase 1 JSON/API scope **except for one endpoint**:
-`attendance/overall_report.php`, which this audit originally misclassified as a binary
-exclusion and which is in fact an unimplemented JSON route. See "Correction --
-`overall_report.php` is a JSON endpoint" below.
+Wave 12 is complete for its agreed Phase 1 JSON/API scope, with **three endpoints still
+open** rather than excluded -- see "Correction -- three open endpoints, not three
+exclusions" below.
 
 - Wave 12.8: **20/20** — `salary_contracts` 5, `advances` 8, `penalties` 7.
-- Wave 12.9: `payroll_batches` **10/10** and `payslips` **5/6**. `payslips/export.php` is deliberately excluded because it is a binary XLSX response.
+- Wave 12.9: `payroll_batches` **10/10** and `payslips` **5/6**. `payslips/export.php` is a binary XLSX response and remains **open** per D-106's own follow-up, not excluded.
 - Wave 12.10: **3/3** — `company/update.php`, `company/upload_logo.php`, `company/upload_commercial_reg.php`.
 - Deferred attendance JSON work: `list.php`, `stats.php`, and `employee_monthly_attendance.php` are implemented.
-  `export.php` remains a deliberate binary exclusion. **`overall_report.php` is not** -- see the correction below.
+  `overall_report.php` and `export.php` both remain **open** -- see the correction below.
 - Wave 12.R compatibility retrofit: **5/5 module slices complete**.
   - `attendance_exception_types`: 5/5 — D-107.
   - `branches`: 6/6 — D-108.
@@ -25,20 +24,19 @@ exclusion and which is in fact an unimplemented JSON route. See "Correction --
 
 The delivered client-facing inventory is **125 literal `/apis/**` routes**.
 
-The two frozen endpoints deliberately outside this completion boundary are:
+The three frozen endpoints still outstanding after Wave 12 are:
 
+- `/apis/api/attendance/overall_report.php`
 - `/apis/api/attendance/export.php`
 - `/apis/api/payslips/export.php`
 
-Both terminate in a streaming helper declared `: never` (`data_export_attendance_csv`,
-`api_xlsx_export_send`) rather than returning the `ok()` JSON envelope. They are exclusions by
-recorded scope, not missing JSON-route implementation.
+## Correction -- three open endpoints, not three exclusions
 
-## Correction -- `overall_report.php` is a JSON endpoint
+This audit as first written called all three "exclusions by recorded scope, not missing
+JSON-route implementation". Both halves of that sentence are wrong, in two different ways, and
+the errors are corrected here rather than left in place.
 
-This audit as first written listed `/apis/api/attendance/overall_report.php` alongside those two
-as a third "binary/report exclusion". That is factually wrong, and the error is corrected here
-rather than left in place.
+### `overall_report.php` is a JSON endpoint, not a binary one
 
 `apis/api/attendance/overall_report.php` at frozen `d113204` builds `$report` through
 `overall_attendance_report_build()`, strips the internal `_period_from`/`_period_to` keys, and
@@ -52,24 +50,40 @@ ok(LangKey::OK, $report, 200);
 uses. The file contains no streaming path, no `: never` helper, and no binary response of any
 kind. It is an ordinary JSON read endpoint.
 
-Why the two were conflated: they were blocked *together*, on the broad Wave-12.6 J.2 payroll
-boundary (completion plan section 4.5), because both reach the same six DB-backed payroll
-functions. That shared blocker is real. It is not the same thing as `export.php`'s binary-response
-rationale, and applying one file's rationale to the other collapsed "blocked" into "excluded".
+Why it was conflated with `export.php`: they were blocked *together*, on the broad Wave-12.6 J.2
+payroll boundary, because both reach the same six DB-backed payroll functions. That shared
+blocker is real. It is not the same thing as `export.php`'s binary-response rationale, and
+applying one file's rationale to the other collapsed "blocked" into "excluded".
 
-Consequences:
+### None of the three is excluded -- they are open
 
-- Item 12 is **not** closed. One live JSON endpoint remains owed, and Wave 12.6.6 is
-  correspondingly incomplete at 1 of 2 rather than closed by exclusion.
-- The completion plan's endpoint ledger is corrected accordingly -- see C9 in section 6 there.
-- `LegacyPhpRouteInventoryTest.intentionallyDeferredBinaryReportsStayUnmapped` encoded the same
-  misclassification in its name and its assertion set. It is split into
-  `intentionallyExcludedBinaryExportsStayUnmapped` (the two genuine exclusions) and
-  `theUnimplementedOverallReportEndpointIsStillUnmapped`, whose javadoc records that the
-  assertion is to be **deleted**, not amended, when the endpoint is delivered.
+`attendance/export.php` and `payslips/export.php` genuinely are binary: both terminate in a
+streaming helper declared `: never` (`data_export_attendance_csv`, `api_xlsx_export_send`). That
+is a true statement about how much work they are. It is **not** a decision that Phase 1 need not
+serve them, and the owning decisions say so in their own words:
+
+- **D-101 Follow-up**: "`overall_report.php` and `export.php` remain **blocked** on the broader
+  D-09x payroll boundary and are not part of this slice."
+- **D-106 Follow-up**: "`payslips/export.php` (XLSX) **remains open**, to be picked up alongside
+  or after Wave 12.R depending on whether binary-export support is prioritized before the
+  retrofit audit."
+
+Blocked and open are wave-scheduling states. Only an owner decision can turn one into an
+exclusion, and none has been recorded. Legacy serves all three to real clients today.
+
+### Consequences
+
+- Item 12 is **not** closed. Three live endpoints remain owed, and Wave 12.6.6 stands at 0 of 2.
+- The completion plan's ledger keeps its **198** live total and its **one**-row exclusion list
+  (`time/now.php`, O-3); only the bucket distribution changes. See C9 in section 6 there.
+- `LegacyPhpRouteInventoryTest.intentionallyDeferredBinaryReportsStayUnmapped` encoded the
+  misclassification in its name and assertion set. It is split into
+  `theTwoBinaryExportEndpointsAreStillUnmapped` and
+  `theUnimplementedOverallReportEndpointIsStillUnmapped`, whose javadocs record that both
+  assertions are to be **deleted**, not amended, when the endpoints are delivered.
 
 Broad J.2 was recorded as "answerable only after Wave 12.7". Wave 12.7 has now landed, so the
-question this endpoint waits on is open for decision rather than blocked.
+question `overall_report.php` waits on is open for decision rather than blocked.
 
 ## Phase 1 compatibility invariant
 
