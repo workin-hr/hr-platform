@@ -22,9 +22,11 @@ import com.workin.legacy.attendance.calendar.LegacyAttendanceCalendar;
 
 /**
  * Regression for the N+1 query pattern {@code payslips/list.php}'s
- * enrichment loop drives through {@link LegacyWeeklyOffDays#forCompany} and
- * {@link LegacyAttendanceCalendar#shiftForEmployeeOnDate} -- both now
- * request-scoped and memoized (see each class's javadoc). PHP ran one
+ * enrichment loop drives through {@link LegacyWeeklyOffDays#forCompany},
+ * {@link LegacyAttendanceCalendar#shiftForEmployeeOnDate}, and {@link
+ * LegacyAttendanceCalendar#holidaysByDate} -- all three now request-scoped
+ * and memoized (see each class's javadoc; the third was added after a PR
+ * #120 review found it missing from the first two's fix). PHP ran one
  * process per request against a short-lived connection; this holds a
  * pooled connection and a servlet thread for the whole enrichment loop, so
  * a handful of concurrent {@code list.php} calls without this cache could
@@ -99,6 +101,42 @@ class LegacyAttendanceQueryCachingTest extends AbstractLegacyMySqlTest {
 		assertThat(calendar.shiftForEmployeeOnDate(EMPLOYEE, dateTwo)).containsEntry("name", "Cache Shift");
 		assertThat(calendar.shiftForEmployeeOnDate(EMPLOYEE, dateTwo)).containsEntry("name", "Cache Shift");
 		assertThat(calendar.shiftForEmployeeOnDate(EMPLOYEE, dateOne)).containsEntry("name", "Cache Shift");
+	}
+
+	/**
+	 * The gap Codex's PR #120 review found after D-113 shipped: {@code holidaysByDate} was not
+	 * memoized, so {@code expectedForDay}'s single-day {@code (companyId, date, date)} call --
+	 * reached once per day per payslip in {@code payslips/list.php}'s enrichment loop, same as
+	 * the other two caches -- ran a fresh query per call even when the exact same range repeats
+	 * across employees on one page.
+	 */
+	@Test
+	void holidaysByDateIsMemoizedPerCompanyAndRangeNotJustPerCompany() throws Exception {
+		// Budget of 2: two distinct (company, from, to) keys below.
+		LegacyAttendanceCalendar calendar = new LegacyAttendanceCalendar(
+				new FailAfterNConnectionsDataSource(dataSource, 2), new LegacyWeeklyOffDays(dataSource));
+
+		Map<String, String> first = calendar.holidaysByDate(COMPANY_A, "2025-06-15", "2025-06-15");
+		assertThat(first).containsEntry("2025-06-15", "Cache Holiday");
+		// Repeated calls for the SAME (company, from, to): cached, no new connection.
+		assertThat(calendar.holidaysByDate(COMPANY_A, "2025-06-15", "2025-06-15"))
+				.containsEntry("2025-06-15", "Cache Holiday");
+		assertThat(calendar.holidaysByDate(COMPANY_A, "2025-06-15", "2025-06-15"))
+				.containsEntry("2025-06-15", "Cache Holiday");
+
+		// A different range is a genuine cache miss -- consumes the second and last allowed connection.
+		assertThat(calendar.holidaysByDate(COMPANY_A, "2025-07-01", "2025-07-01")).isEmpty();
+		assertThat(calendar.holidaysByDate(COMPANY_A, "2025-07-01", "2025-07-01")).isEmpty();
+		// The first range's entry must still be cached after a different key was queried in between.
+		assertThat(calendar.holidaysByDate(COMPANY_A, "2025-06-15", "2025-06-15"))
+				.containsEntry("2025-06-15", "Cache Holiday");
+
+		// A third distinct key would need a third connection, which the budget refuses.
+		LegacyAttendanceCalendar exhausted = new LegacyAttendanceCalendar(
+				new FailAfterNConnectionsDataSource(dataSource, 1), new LegacyWeeklyOffDays(dataSource));
+		exhausted.holidaysByDate(COMPANY_A, "2025-06-15", "2025-06-15");
+		assertThatThrownBy(() -> exhausted.holidaysByDate(COMPANY_B, "2025-06-15", "2025-06-15"))
+				.isInstanceOf(RuntimeException.class);
 	}
 
 	@Test
@@ -191,6 +229,10 @@ class LegacyAttendanceQueryCachingTest extends AbstractLegacyMySqlTest {
 			st.execute("""
 					INSERT INTO company_setting_values (company_setting_id, setting_allowed_value_id) VALUES
 					  (20951, 20953), (20952, 20954)
+					""");
+			st.execute("""
+					INSERT INTO company_official_holidays (id, company_id, name, holiday_date, created_at)
+					VALUES (20961, 20901, 'Cache Holiday', '2025-06-15', '2025-01-01 08:00:00')
 					""");
 		}
 	}

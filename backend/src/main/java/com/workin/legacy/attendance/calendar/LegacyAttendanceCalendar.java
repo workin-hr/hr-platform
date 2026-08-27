@@ -115,6 +115,7 @@ public class LegacyAttendanceCalendar {
 	private final JdbcTemplate jdbcTemplate;
 	private final LegacyWeeklyOffDays weeklyOffDays;
 	private final Map<String, Map<String, Object>> shiftCache = new HashMap<>();
+	private final Map<String, Map<String, String>> holidayCache = new HashMap<>();
 
 	public LegacyAttendanceCalendar(DataSource legacyDataSource, LegacyWeeklyOffDays weeklyOffDays) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
@@ -200,10 +201,27 @@ public class LegacyAttendanceCalendar {
 	 * <p>Later rows overwrite earlier ones for the same date, so two holidays
 	 * on one day leave the last by {@code holiday_date ASC} ordering -- PHP
 	 * builds the map the same way and has the same behaviour.
+	 *
+	 * <p>Memoized per (company, from, to) for the lifetime of this
+	 * request-scoped bean -- the same reasoning as {@link
+	 * #shiftForEmployeeOnDate}: nothing writes {@code
+	 * company_official_holidays} mid-request. {@link #expectedForDay} calls
+	 * this once per date with the single-day range {@code (date, date)}, and
+	 * {@code payslips/list.php}'s enrichment loop calls {@code
+	 * expectedForDay}-adjacent paths once per day per payslip on the page --
+	 * all for the same company and (mostly) the same pay period, so the exact
+	 * {@code (companyId, from, to)} key recurs heavily across employees on one
+	 * request. Unmemoized, this was hundreds of identical queries for one
+	 * {@code list.php} page (PR #120 review).
 	 */
 	public Map<String, String> holidaysByDate(long companyId, String from, String to) {
 		if (companyId <= 0 || from == null || from.isEmpty() || to == null || to.isEmpty()) {
 			return Map.of();
+		}
+		String key = companyId + "|" + from + "|" + to;
+		Map<String, String> cached = holidayCache.get(key);
+		if (cached != null) {
+			return cached;
 		}
 		Map<String, String> map = new LinkedHashMap<>();
 		jdbcTemplate.query(HOLIDAYS_IN_RANGE, rs -> {
@@ -213,6 +231,7 @@ public class LegacyAttendanceCalendar {
 				map.put(date, name == null ? "" : name);
 			}
 		}, companyId, from, to);
+		holidayCache.put(key, map);
 		return map;
 	}
 

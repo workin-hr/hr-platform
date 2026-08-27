@@ -13,14 +13,13 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.workin.backend.i18n.ApiException;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.employees.LegacyEmployeeRepository;
+import com.workin.legacy.wire.LegacyApiException;
 
 /** Wave 12.3b's five legacy department endpoints, including their owned junction-row lifecycle. */
 @Service
@@ -80,11 +79,11 @@ public class LegacyDepartmentService {
 	public LegacyDepartmentView one(long companyId, long id) {
 		LegacyDepartment department = departmentRepository.findByIdAndCompanyId(id, companyId)
 				.filter(LegacyDepartment::active)
-				.orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "forbidden"));
+				.orElseThrow(() -> new LegacyApiException(404, "forbidden"));
 		Map<Long, List<Long>> links = linksByDepartment(List.of(id));
 		ViewContext views = viewContext(companyId, List.of(department), links, false);
 		if (views.branchesByDepartment().getOrDefault(id, List.of()).isEmpty()) {
-			throw new ApiException(HttpStatus.NOT_FOUND, "forbidden");
+			throw new LegacyApiException(404, "forbidden");
 		}
 		return toView(department, true, views);
 	}
@@ -94,15 +93,16 @@ public class LegacyDepartmentService {
 	public LegacyDepartmentView create(long companyId, Map<String, Object> body) {
 		// required(body, [NAME, BRANCH_IDS]) runs both isset()/empty-string checks before
 		// normalize_id_list ever sees branch_ids: a missing/null/"" branch_ids is field_required,
-		// distinct from a present-but-empty-after-normalization set (invalid_branch_ids).
+		// distinct from a present-but-empty-after-normalization set (invalid_branch_ids). Checked
+		// in that order, naming the first missing field -- required()'s own replace-map behavior.
 		Object rawName = value(body, "name", "name");
-		requireField(rawName);
+		requireField(rawName, "name");
 		Object rawBranchIds = value(body, "branchIds", "branch_ids");
-		requireField(rawBranchIds);
+		requireField(rawBranchIds, "branch_ids");
 
 		Set<Long> branchIds = normalizePositiveIds(LegacyValues.phpArrayValues(rawBranchIds));
 		if (branchIds.isEmpty()) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_branch_ids");
+			throw new LegacyApiException(400, "invalid_branch_ids");
 		}
 		validateActiveBranchesForCreate(companyId, branchIds);
 
@@ -126,7 +126,14 @@ public class LegacyDepartmentService {
 			// deliberately surfaces as an unmapped error instead of being caught below.
 			return mutationView(companyId, department).orElseThrow();
 		} catch (DataAccessException | PersistenceException ex) {
-			throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "field_required", ex);
+			// PHP's fail(LangKey::FIELD_REQUIRED, 500, $e->getMessage()) puts the raw DB exception
+			// text in the wire response's data field. Not reproduced (CWE-209 information
+			// disclosure): D-111 permits deviation to prevent a concrete vulnerability, and this
+			// codebase already rejects exception-detail leakage as policy (D-084's global fallback).
+			// The exception is preserved as the cause for logging, not sent to the client.
+			LegacyApiException failure = new LegacyApiException(500, "field_required");
+			failure.initCause(ex);
+			throw failure;
 		}
 	}
 
@@ -159,7 +166,7 @@ public class LegacyDepartmentService {
 				Set<Long> branchIds = normalizePositiveIds(
 						LegacyValues.phpArrayValues(value(body, "branchIds", "branch_ids")));
 				if (branchIds.isEmpty() || !allActiveBranchesBelongTo(companyId, branchIds)) {
-					throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_branch_ids");
+					throw new LegacyApiException(400, "invalid_branch_ids");
 				}
 				replaceBranchSet(companyId, id, branchIds);
 			}
@@ -172,7 +179,10 @@ public class LegacyDepartmentService {
 		} catch (DataAccessException | PersistenceException ex) {
 			// update.php catches every database failure in its transaction, rolls back,
 			// and reports invalid_branch_ids even when the failed statement was the row update.
-			throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_branch_ids", ex);
+			// No message leak here either way: PHP's own catch passes no third fail() argument.
+			LegacyApiException failure = new LegacyApiException(400, "invalid_branch_ids");
+			failure.initCause(ex);
+			throw failure;
 		}
 		return mutationView(companyId, department);
 	}
@@ -265,7 +275,7 @@ public class LegacyDepartmentService {
 		for (Long branchId : branchIds) {
 			LegacyBranch branch = branchRepository.findByIdAndCompanyId(branchId, companyId).orElse(null);
 			if (branch == null || !branch.active()) {
-				throw new ApiException(HttpStatus.NOT_FOUND, "branch_not_found");
+				throw new LegacyApiException(404, "branch_not_found");
 			}
 		}
 	}
@@ -277,13 +287,13 @@ public class LegacyDepartmentService {
 
 	private void validateManager(long companyId, Long managerId) {
 		if (managerId != null && employeeRepository.findByIdAndCompanyId(managerId, companyId).isEmpty()) {
-			throw new ApiException(HttpStatus.NOT_FOUND, "employee_not_found");
+			throw new LegacyApiException(404, "employee_not_found");
 		}
 	}
 
 	private LegacyDepartment findOwned(long companyId, long id) {
 		return departmentRepository.findByIdAndCompanyId(id, companyId)
-				.orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "department_not_found"));
+				.orElseThrow(() -> new LegacyApiException(404, "department_not_found"));
 	}
 
 	private static boolean matchesBranchFilter(List<Long> linked, Long branchId, Set<Long> branchIds) {
@@ -316,11 +326,12 @@ public class LegacyDepartmentService {
 	/**
 	 * {@code required()}: PHP {@code isset()} is false for both a missing key and an explicit JSON
 	 * {@code null}; only the exact empty string additionally fails. {@code 0}, {@code false}, and
-	 * {@code []} are not required-field failures in PHP and must not become one here.
+	 * {@code []} are not required-field failures in PHP and must not become one here. {@code field}
+	 * is {@code required()}'s own {@code [Response::FIELD => $field]} replace value.
 	 */
-	private static void requireField(Object raw) {
+	private static void requireField(Object raw, String field) {
 		if (raw == null || "".equals(raw)) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", field));
 		}
 	}
 
