@@ -10,8 +10,10 @@ import java.util.Map;
 
 import javax.sql.DataSource;
 
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyPagination;
@@ -37,6 +39,7 @@ public class LegacyPayrollBatchService {
 	private final LegacyWeeklyOffDays weeklyOffDays;
 	private final LegacyClock clock;
 	private final DataSource legacyDataSource;
+	private final TransactionTemplate transactionTemplate;
 
 	public LegacyPayrollBatchService(
 			LegacyPayrollBatchStore store, LegacyPayrollFiscalSettings fiscalSettings,
@@ -49,6 +52,7 @@ public class LegacyPayrollBatchService {
 		this.attendanceFigures = attendanceFigures;
 		this.calculationService = calculationService;
 		this.legacyDataSource = legacyDataSource;
+		this.transactionTemplate = new TransactionTemplate(new DataSourceTransactionManager(legacyDataSource));
 		this.advanceDeductions = advanceDeductions;
 		this.weeklyOffDays = weeklyOffDays;
 		this.clock = clock;
@@ -93,22 +97,40 @@ public class LegacyPayrollBatchService {
 		return row;
 	}
 
+	/**
+	 * {@code update.php}: the draft check, current period read, fiscal-bound resolution, and
+	 * write are serialized against calculate/delete/finalize/reopen with the same batch-row
+	 * {@code FOR UPDATE} lock. The Spring transaction manager is deliberate here: both the
+	 * store and {@link LegacyPayrollFiscalSettings} use {@code JdbcTemplate} over the same
+	 * legacy {@link DataSource}, so they reuse the transaction-bound connection instead of
+	 * holding one connection while asking the pool for another.
+	 */
 	public Map<String, Object> update(long companyId, long batchId, Map<String, Object> body) {
-		Map<String, Object> batch = store.scoped(batchId, companyId);
-		if (batch == null) {
+		Map<String, Object> precheck = store.scoped(batchId, companyId);
+		if (precheck == null) {
 			throw new LegacyApiException(404, "batch_not_found");
 		}
-		if (FINALIZED.equals(batch.get("status"))) {
+		if (FINALIZED.equals(precheck.get("status"))) {
 			throw new LegacyApiException(400, "batch_already_finalized");
 		}
 
-		int month = body.get("month") != null
-				? (int) LegacyValues.toPhpLong(body.get("month")) : ((Number) batch.get("month")).intValue();
-		int year = body.get("year") != null
-				? (int) LegacyValues.toPhpLong(body.get("year")) : (int) LegacyValues.toPhpLong(batch.get("year"));
-		String[] bounds = fiscalSettings.fiscalPeriodBounds(companyId, year, month);
+		transactionTemplate.executeWithoutResult(ignored -> {
+			Map<String, Object> batch = store.scopedForUpdate(batchId, companyId);
+			if (batch == null) {
+				throw new LegacyApiException(404, "batch_not_found");
+			}
+			if (FINALIZED.equals(batch.get("status"))) {
+				throw new LegacyApiException(400, "batch_already_finalized");
+			}
 
-		store.updatePeriod(batchId, month, year, bounds[0], bounds[1]);
+			int month = body.get("month") != null
+					? (int) LegacyValues.toPhpLong(body.get("month")) : ((Number) batch.get("month")).intValue();
+			int year = body.get("year") != null
+					? (int) LegacyValues.toPhpLong(body.get("year")) : (int) LegacyValues.toPhpLong(batch.get("year"));
+			String[] bounds = fiscalSettings.fiscalPeriodBounds(companyId, year, month);
+			store.updatePeriod(batchId, month, year, bounds[0], bounds[1]);
+		});
+
 		Map<String, Object> row = store.withStats(batchId, companyId);
 		if (row == null) {
 			throw new LegacyApiException(404, "batch_not_found");
@@ -356,37 +378,43 @@ public class LegacyPayrollBatchService {
 	}
 
 	/**
-	 * {@code finalize.php}: apply advance payments, mark penalties applied,
-	 * transactionally. The batch fetch and status checks precede {@code
-	 * beginTransaction} in PHP but use the same connection the writes later
-	 * use; here, since the checks read via the pooled {@link #store} rather
-	 * than the not-yet-open single connection, they simply run first on
-	 * their own (pooled) connection -- equivalent for a fetch-then-write
-	 * sequence where nothing else can finalize the same batch concurrently
-	 * through this single-instance flow, matching {@code
-	 * LegacyRequestApprovalService.approve()}'s own precedent (D-100).
+	 * {@code finalize.php}: the fast pooled precheck preserves the legacy error path for an
+	 * already-finalized/missing batch, but the authoritative status, month/year, fiscal bounds,
+	 * status transition, and payroll side effects are repeated under the batch-row lock in one
+	 * Spring-managed transaction. This closes update/finalize's stale-period race: if update wins
+	 * the row lock, finalize re-reads its new month/year; if finalize wins, update re-checks the
+	 * finalized status after acquiring the same lock and aborts.
+	 *
+	 * <p>The Spring transaction manager also binds the legacy DataSource connection so
+	 * {@link LegacyPayrollFiscalSettings}'s JdbcTemplate reuses the locked connection rather than
+	 * acquiring a second pooled connection while the first is held.
 	 */
 	public Map<String, Object> finalize(long companyId, long batchId) {
-		Map<String, Object> batch = store.scoped(batchId, companyId);
-		if (batch == null) {
+		Map<String, Object> precheck = store.scoped(batchId, companyId);
+		if (precheck == null) {
 			throw new LegacyApiException(404, "batch_not_found");
 		}
-		if (FINALIZED.equals(batch.get("status"))) {
+		if (FINALIZED.equals(precheck.get("status"))) {
 			throw new LegacyApiException(400, "batch_already_finalized");
 		}
-		int year = (int) LegacyValues.toPhpLong(batch.get("year"));
-		int month = ((Number) batch.get("month")).intValue();
-		String[] bounds = fiscalSettings.fiscalPeriodBounds(companyId, year, month);
 
-		inTransaction(txStore -> {
-			int changed = txStore.finalizeBatchIfNotAlready(batchId, FINALIZED, bounds[0], bounds[1]);
-			if (changed == 0) {
-				// Lost the race to a concurrent finalize call for this same batch since the
-				// pre-transaction read above: someone else already finalized it. Abort rather
-				// than apply the side effects a second time -- see finalizeBatchIfNotAlready's note.
+		transactionTemplate.executeWithoutResult(ignored -> {
+			Map<String, Object> batch = store.scopedForUpdate(batchId, companyId);
+			if (batch == null) {
+				throw new LegacyApiException(404, "batch_not_found");
+			}
+			if (FINALIZED.equals(batch.get("status"))) {
 				throw new LegacyApiException(400, "batch_already_finalized");
 			}
-			applyAdvancePaymentsAndMarkPenalties(txStore, batchId, bounds[0], bounds[1], year, month);
+
+			int year = (int) LegacyValues.toPhpLong(batch.get("year"));
+			int month = ((Number) batch.get("month")).intValue();
+			String[] bounds = fiscalSettings.fiscalPeriodBounds(companyId, year, month);
+			int changed = store.finalizeBatchIfNotAlready(batchId, FINALIZED, bounds[0], bounds[1]);
+			if (changed == 0) {
+				throw new LegacyApiException(400, "batch_already_finalized");
+			}
+			applyAdvancePaymentsAndMarkPenalties(store, batchId, bounds[0], bounds[1], year, month);
 		});
 
 		Map<String, Object> row = store.withStats(batchId, companyId);
