@@ -45,6 +45,10 @@ import com.workin.backend.identity.JwtService;
  * same way {@code LegacyPayrollBatchCalculateEndToEndTest}'s D-114 test proves the finalize
  * race is closed -- two threads released by a shared barrier, then the actual outcome checked
  * against the real column, not just the HTTP status codes.
+ *
+ * <p>It also covers {@code advances/update.php}, whose employee-edit guard depends on the same
+ * real-database row-count semantics that no mock can reproduce -- see
+ * {@link #employeeEditResubmittingStoredValuesSucceedsInsteadOfLookingLikeALostRace()}.
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -54,6 +58,7 @@ class LegacyAdvancePayEndToEndTest {
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
 
 	private static final String PAY = "/apis/api/advances/pay.php";
+	private static final String UPDATE = "/apis/api/advances/update.php";
 
 	private static final long COMPANY_1 = 21501L;
 	private static final long ADMIN_1 = 215011L;
@@ -61,6 +66,7 @@ class LegacyAdvancePayEndToEndTest {
 	private static final long BRANCH_1 = 21511L;
 	private static final long ADVANCE_1 = 2150100L;
 	private static final long ADVANCE_2 = 2150101L;
+	private static final long ADVANCE_3 = 2150102L;
 
 	@Autowired
 	private TestRestTemplate restTemplate;
@@ -125,6 +131,48 @@ class LegacyAdvancePayEndToEndTest {
 		assertThat(body.get("success")).isEqualTo(false);
 		assertThat(decimalString(queryScalar("SELECT remaining FROM advances WHERE id=" + ADVANCE_2)))
 				.isEqualTo("1000.00");
+	}
+
+	/**
+	 * {@link LegacyAdvanceStore#updateEmployee} folds {@code AND status='pending'} into the write
+	 * and {@link LegacyAdvanceService} reads a zero affected-row count as "an approval won the
+	 * race". That inference holds only while the connection reports rows *matched* by the WHERE
+	 * clause rather than rows actually *changed* -- MariaDB returns changed rows unless
+	 * CLIENT_FOUND_ROWS is in effect, which Connector/J controls via {@code useAffectedRows}.
+	 *
+	 * <p>An edit that resubmits the stored values changes no columns, so under changed-row
+	 * semantics the guard would misread a perfectly legal no-op edit as a lost race and return
+	 * {@code 400 cannot_edit_non_pending_advance}. The mock-based service tests cannot observe
+	 * this: they stub the row count that is exactly what is in question here. This pins the real
+	 * driver/server behavior the four PR #120 concurrency guards depend on.
+	 */
+	@Test
+	void employeeEditResubmittingStoredValuesSucceedsInsteadOfLookingLikeALostRace() throws Exception {
+		assertThat(queryScalar("SELECT status FROM advances WHERE id=" + ADVANCE_3).toString())
+				.isEqualTo("pending");
+
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(employeeToken());
+		headers.set("Accept-Language", "en");
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + UPDATE + "?id=" + ADVANCE_3), HttpMethod.PUT,
+				new HttpEntity<>("{\"amount\":\"1000.00\",\"reason\":null}", headers), mapType());
+
+		assertThat(response.getStatusCode().value())
+				.as("a no-op edit of a still-pending advance must succeed; 400 here means the "
+						+ "connection reports changed rows instead of matched rows: %s", response.getBody())
+				.isEqualTo(200);
+		assertThat(decimalString(queryScalar("SELECT amount FROM advances WHERE id=" + ADVANCE_3)))
+				.isEqualTo("1000.00");
+		assertThat(queryScalar("SELECT status FROM advances WHERE id=" + ADVANCE_3).toString())
+				.as("the edit must not disturb the pending status")
+				.isEqualTo("pending");
+	}
+
+	private String employeeToken() {
+		return jwtService.issueAccessToken(EMPLOYEE_1, EMPLOYEE_1, COMPANY_1, "test-session",
+				Map.of("role", "employee", "token_version", 1L));
 	}
 
 	private ResponseEntity<Map<String, Object>> payRacing(CyclicBarrier barrier) throws Exception {
@@ -193,7 +241,9 @@ class LegacyAdvancePayEndToEndTest {
 					+ " (" + ADVANCE_1 + ", " + EMPLOYEE_1 + ", 1000.00, 1000.00, 'single_payroll_month',"
 					+ " 'approved', '2020-05-20', '2020-05-20 08:00:00'),"
 					+ " (" + ADVANCE_2 + ", " + EMPLOYEE_1 + ", 1000.00, 1000.00, 'single_payroll_month',"
-					+ " 'approved', '2020-05-20', '2020-05-20 08:00:00')");
+					+ " 'approved', '2020-05-20', '2020-05-20 08:00:00'),"
+					+ " (" + ADVANCE_3 + ", " + EMPLOYEE_1 + ", 1000.00, 1000.00, 'single_payroll_month',"
+					+ " 'pending', '2020-05-20', '2020-05-20 08:00:00')");
 		}
 	}
 

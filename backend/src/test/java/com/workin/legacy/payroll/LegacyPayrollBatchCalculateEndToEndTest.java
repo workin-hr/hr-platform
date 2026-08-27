@@ -62,12 +62,14 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 	private static final String REOPEN = "/apis/api/payroll_batches/reopen.php";
 	private static final String STATS = "/apis/api/payroll_batches/stats.php";
 	private static final String DELETE = "/apis/api/payroll_batches/delete.php";
+	private static final String PENALTY_UPDATE = "/apis/api/penalties/update.php";
 
 	private static final long COMPANY_1 = 21401L;
 	private static final long ADMIN_1 = 214011L;
 	private static final long EMPLOYEE_1 = 214012L;
 	private static final long EMPLOYEE_2 = 214013L;
 	private static final long BRANCH_1 = 21411L;
+	private static final long PENALTY_UNAPPLIED = 2140101L;
 
 	@Autowired
 	private TestRestTemplate restTemplate;
@@ -467,6 +469,35 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 		}
 	}
 
+	/**
+	 * {@link LegacyPenaltyStore#updateFields} folds {@code AND applied_to_payroll=0} into the
+	 * write and {@link LegacyPenaltyService} reads a zero affected-row count as "finalization
+	 * marked this penalty applied after the preflight read". As with the advance guard proved by
+	 * {@code LegacyAdvancePayEndToEndTest}, that inference is only sound while the connection
+	 * reports rows *matched* by the WHERE clause rather than rows actually *changed*.
+	 *
+	 * <p>An edit resubmitting the stored penalty_type/penalty_days/penalty_date changes no
+	 * columns, so under changed-row semantics this legal edit of an unapplied penalty would be
+	 * misread as a lost finalization race and rejected with {@code 403 forbidden}.
+	 * {@code LegacyPenaltyServiceTest} stubs the very row count in question and so cannot catch
+	 * that; this pins the real driver/server behavior for the penalty path.
+	 */
+	@Test
+	void penaltyEditResubmittingStoredValuesSucceedsInsteadOfLookingLikeALostRace() throws Exception {
+		assertThat(appliedToPayroll(PENALTY_UNAPPLIED)).isFalse();
+
+		send(PENALTY_UPDATE, ADMIN_1, HttpMethod.PUT,
+				"{\"penalty_type\":\"late\",\"penalty_days\":1.0,\"penalty_date\":\"2020-11-20\"}",
+				200, "?id=" + PENALTY_UNAPPLIED);
+
+		assertThat(appliedToPayroll(PENALTY_UNAPPLIED))
+				.as("a no-op edit must not disturb the applied flag")
+				.isFalse();
+		assertThat(decimalString(queryScalar(
+				"SELECT penalty_days FROM penalties WHERE id=" + PENALTY_UNAPPLIED)))
+				.isEqualTo("1.00");
+	}
+
 	private ResponseEntity<Map<String, Object>> finalizeRacing(CyclicBarrier barrier, long batchId) throws Exception {
 		barrier.await(10, TimeUnit.SECONDS);
 		HttpHeaders headers = new HttpHeaders();
@@ -497,7 +528,11 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 
 	/** {@code tinyint(1)} reads back as a JDBC {@code Boolean} via {@code getObject()}, not 0/1. */
 	private boolean appliedToPayroll() throws Exception {
-		Object raw = queryScalar("SELECT applied_to_payroll FROM penalties WHERE id=2140100");
+		return appliedToPayroll(2140100L);
+	}
+
+	private boolean appliedToPayroll(long penaltyId) throws Exception {
+		Object raw = queryScalar("SELECT applied_to_payroll FROM penalties WHERE id=" + penaltyId);
 		return raw instanceof Boolean bool ? bool : ((Number) raw).intValue() != 0;
 	}
 
@@ -657,6 +692,11 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 			st.execute("INSERT INTO penalties (id, employee_id, penalty_type, penalty_days, penalty_date,"
 					+ " applied_to_payroll, created_at) VALUES (2140100, " + EMPLOYEE_1
 					+ ", 'late', 1.0, '2020-02-03', 0, '2020-02-03 08:00:00')");
+			// Isolated from every batch in this class: no November 2020 batch exists and the
+			// fiscal period is days 1-5, so no finalize test can flip this row's applied flag.
+			st.execute("INSERT INTO penalties (id, employee_id, penalty_type, penalty_days, penalty_date,"
+					+ " applied_to_payroll, created_at) VALUES (" + PENALTY_UNAPPLIED + ", " + EMPLOYEE_2
+					+ ", 'late', 1.0, '2020-11-20', 0, '2020-11-20 08:00:00')");
 		}
 	}
 
