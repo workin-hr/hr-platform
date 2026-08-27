@@ -5,6 +5,10 @@ description: Use when requirements, assumptions, or acceptance criteria need cla
 
 # Clarify Requirements
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when repository work is blocked by ambiguity, conflicting assumptions, or missing acceptance criteria.

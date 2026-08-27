@@ -1,11 +1,15 @@
 package com.workin.legacy.auth;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,92 +27,27 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
-import com.workin.backend.i18n.ApiErrorBody;
 import com.workin.backend.identity.JwtService;
-import com.workin.legacy.attendance.LegacyExceptionTypePage;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-/**
- * The proof ADR-0013 / D-043 exists for: a real Spring Boot context,
- * booted with {@code phase1-mysql} active, against real MariaDB, over
- * real HTTP -- not the hand-wired {@code EntityManagerFactory} pattern
- * every legacy-side test before this one used, because there was no
- * live Spring context to boot into
- * ({@code LegacyEmployeeAdapterTest}'s own javadoc named this as
- * deferred work).
- *
- * <p>Covers punch-list item #9's login-controller contract end to end:
- * a successful login issues real tokens; representative
- * {@link LegacyLoginOutcome} failures (401 twice, 403) produce their
- * documented status. <b>Not covered: 409 {@code MULTIPLE_ACCOUNTS_SAME_PHONE}.</b>
- * The vendored schema's own {@code ADD UNIQUE KEY `phone` (`phone`)}
- * (`mysql_workin.schema.sql:1120`) makes two {@code employees} rows
- * sharing one phone value impossible to seed against real MariaDB --
- * confirmed empirically, not assumed: the attempt raises
- * {@code SQLIntegrityConstraintViolationException}. This does not mean
- * the outcome is wrong or unreachable in production (a constraint added
- * after historical duplicates existed would not retroactively remove
- * them), only that it cannot be honestly exercised against a freshly
- * seeded fixture here. {@code LegacyLoginResolverTest} already covers
- * this outcome at the pure decision-function level, which does not need
- * the database at all.
- *
- * <p><b>Also not covered, for a stronger reason: an employee referencing
- * a nonexistent {@code company_id}.</b> A code review flagged
- * {@code LegacyLoginController.toCandidate()}'s original unchecked
- * {@code IllegalStateException} on a missing company as a potential
- * unhandled-500 risk and proposed testing it by seeding a dangling
- * reference. Attempting that seed here failed with
- * {@code SQLIntegrityConstraintViolationException}:
- * {@code employees} carries a real, enforced foreign key,
- * {@code fk_employee_company FOREIGN KEY (company_id) REFERENCES companies (id) ON DELETE CASCADE}
- * (`mysql_workin.schema.sql:1622-1624`) -- added via a later
- * {@code ALTER TABLE}, the same pattern as the phone unique key above,
- * which is why an earlier grep restricted to the {@code CREATE TABLE}
- * block missed it. The scenario is therefore not merely hard to seed
- * but structurally impossible against this schema: MariaDB refuses the
- * insert, and {@code ON DELETE CASCADE} means even a later-deleted
- * company takes its employees with it rather than orphaning them.
- * {@code toCandidate()} was still hardened to skip-and-log rather than
- * throw -- defensive depth against a defect class this schema happens
- * to rule out today, not a fix for a reachable production bug -- and
- * {@link LegacyLoginControllerTest} proves that defensive behaviour
- * with a mocked repository, where no such constraint applies.
- *
- * <p>It deliberately does <b>not</b> attempt a
- * subsequent authenticated request through {@code legacySecurityFilterChain}
- * against a protected resource -- no protected legacy business endpoint
- * exists yet (that is punch-list items #11-13), so there is nothing
- * genuine to call. {@code TenantScopeFilter}/{@code JwtAuthenticationFilter}/
- * {@code LegacyTenantContextService} composing correctly is proven at
- * the unit/component level already
- * ({@code TenantBindingEndToEndTest}, {@code LegacyTenantContextServiceTest});
- * asserting it again here against a manufactured endpoint would be a
- * lesser proof dressed up as the real one.
- *
- * <p>Item #10 (the forged-claim isolation attack) is the next step that
- * actually needs an authenticated call site to attack, and remains its
- * own follow-on.
- */
-// classes = BackendApplication.class is required, not stylistic: this
-// test lives under com.workin.legacy.auth, a sibling of com.workin.backend
-// rather than a descendant, so @SpringBootTest's default upward package
-// search never finds BackendApplication on its own.
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @ActiveProfiles("phase1-mysql")
+@SuppressWarnings({"rawtypes", "unchecked"})
 class LegacyLoginEndToEndTest {
 
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
 	private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 	private static final String KNOWN_PASSWORD = "Secret123!";
+	private static final String LOGIN = "/apis/api/auth/login_employee.php";
 
 	@Autowired
 	private TestRestTemplate restTemplate;
 
 	@Autowired
-	private JwtService jwtService;
+	private LegacyPhpJwtService jwtService;
+
+	@Autowired
+	private JwtService transitionalJwtService;
 
 	static {
 		MARIADB.start();
@@ -140,7 +79,6 @@ class LegacyLoginEndToEndTest {
 		}
 	}
 
-	/** Companies/employees for each {@link LegacyLoginOutcome} this test asserts. */
 	private static void seed() throws Exception {
 		String hash = PASSWORD_ENCODER.encode(KNOWN_PASSWORD);
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
@@ -169,6 +107,137 @@ class LegacyLoginEndToEndTest {
 		}
 	}
 
+	@Test
+	void successfulLoginIsWireCompatibleWithFrozenPhp() throws Exception {
+		ResponseEntity<Map> response = login("+201100090011", KNOWN_PASSWORD);
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		assertThat(response.getBody().get("success")).isEqualTo(true);
+
+		Map data = (Map) response.getBody().get("data");
+		assertThat(data.keySet()).containsExactlyInAnyOrder("token", "employee");
+		assertThat(data).doesNotContainKey("refresh_token");
+
+		Map employee = (Map) data.get("employee");
+		assertThat(employee).doesNotContainKeys("password_hash", "token_version");
+		assertThat(((Number) employee.get("id")).longValue()).isEqualTo(90011L);
+		assertThat(((Number) employee.get("company_id")).longValue()).isEqualTo(9001L);
+
+		String rawToken = (String) data.get("token");
+		LegacyPhpJwtService.DecodedToken decoded = jwtService.decode(rawToken);
+		assertThat(decoded).isNotNull();
+		assertThat(decoded.type()).isEqualTo("employee");
+		assertThat(decoded.employeeId()).isEqualTo(90011L);
+		assertThat(decoded.companyId()).isEqualTo(9001L);
+		assertThat(decoded.role()).isEqualTo("employee");
+		assertThat(decoded.tokenVersion()).isEqualTo(readTokenVersion(90011L));
+		assertThat(decoded.payload().keySet()).isEqualTo(
+				Set.of("type", "employee_id", "company_id", "role", "token_version", "exp"));
+	}
+
+	@Test
+	void frozenPhpCompanyAdminTokenAuthenticatesAProtectedMigratedRoute() {
+		String companyToken = jwtService.issueCompanyToken(9001L, "company_admin");
+		LegacyPhpJwtService.DecodedToken decoded = jwtService.decode(companyToken);
+		assertThat(decoded.payload().keySet()).isEqualTo(Set.of("type", "company_id", "role", "exp"));
+
+		ResponseEntity<Map> response = listExceptionTypesWith(companyToken);
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		assertThat(response.getBody().get("success")).isEqualTo(true);
+	}
+
+	/**
+	 * {@code decode()} had no shape check before this fix, so a transitional Java token --
+	 * signed with the same {@code app.jwt.secret} HS256 key {@code issueEmployeeToken()}/
+	 * {@code issueCompanyToken()} use, but shaped completely differently ({@code sub}/{@code
+	 * membership_id}/{@code tenant_id}/{@code token_version}, no {@code type}) -- passed
+	 * signature and {@code exp} verification and decoded to a non-null {@link
+	 * LegacyPhpJwtService.DecodedToken} with every field empty or zero. {@link
+	 * LegacyPhpJwtAuthenticationFilter} took that as a PHP-authenticated principal
+	 * (identity/company id 0, type {@code ""}) instead of falling through to {@code
+	 * setTransitionalAuthentication()} for the real transitional principal (PR #120 review).
+	 */
+	@Test
+	void aTransitionalJavaTokenDoesNotDecodeAsAZeroIdentityPhpToken() {
+		String transitionalToken = transitionalJwtService.issueAccessToken(
+				90011L, 90011L, 9001L, "test-session", Map.of("role", "company_admin", "token_version", 1L));
+
+		assertThat(jwtService.decode(transitionalToken)).isNull();
+	}
+
+	@Test
+	void unknownPhoneAndWrongPasswordPreservePhp401Outcomes() {
+		ResponseEntity<Map> unknown = login("+201199999999", KNOWN_PASSWORD);
+		assertThat(unknown.getStatusCode().value()).isEqualTo(401);
+		assertThat(unknown.getBody().get("success")).isEqualTo(false);
+
+		ResponseEntity<Map> wrong = login("+201100090011", "not the password");
+		assertThat(wrong.getStatusCode().value()).isEqualTo(401);
+		assertThat(wrong.getBody().get("success")).isEqualTo(false);
+	}
+
+	@Test
+	void suspendedCompanyPreservesPhp403Outcome() {
+		ResponseEntity<Map> response = login("+201100090041", KNOWN_PASSWORD);
+		assertThat(response.getStatusCode().value()).isEqualTo(403);
+		assertThat(response.getBody().get("success")).isEqualTo(false);
+	}
+
+	@Test
+	void wrongMethodIsRejectedBeforeAuthenticationExactlyLikePhp() {
+		ResponseEntity<Map> response = restTemplate.exchange(LOGIN, HttpMethod.GET, HttpEntity.EMPTY, Map.class);
+		assertThat(response.getStatusCode().value()).isEqualTo(405);
+		assertThat(response.getBody().get("success")).isEqualTo(false);
+	}
+
+	@Test
+	void missingPasswordUsesPhpFieldRequiredEnvelope() {
+		ResponseEntity<Map> response = restTemplate.postForEntity(
+				LOGIN, Map.of("phone", "+201100090011"), Map.class);
+		assertThat(response.getStatusCode().value()).isEqualTo(400);
+		assertThat(response.getBody().get("success")).isEqualTo(false);
+		assertThat(String.valueOf(response.getBody().get("message"))).contains("password");
+	}
+
+	@Test
+	void secondLoginInvalidatesFirstTokenAndNewPhpTokenAuthenticatesProtectedRoute() {
+		String firstToken = token(login("+201100090011", KNOWN_PASSWORD));
+		String secondToken = token(login("+201100090011", KNOWN_PASSWORD));
+		assertThat(firstToken).isNotEqualTo(secondToken);
+
+		ResponseEntity<Map> rejected = listExceptionTypesWith(firstToken);
+		assertThat(rejected.getStatusCode().value()).isEqualTo(401);
+		assertThat(rejected.getBody().get("success")).isEqualTo(false);
+
+		ResponseEntity<Map> accepted = listExceptionTypesWith(secondToken);
+		assertThat(accepted.getStatusCode().value()).isEqualTo(200);
+	}
+
+	private ResponseEntity<Map> login(String phone, String password) {
+		return restTemplate.postForEntity(LOGIN, Map.of("phone", phone, "password", password), Map.class);
+	}
+
+	private static String token(ResponseEntity<Map> response) {
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		Map data = (Map) response.getBody().get("data");
+		return (String) data.get("token");
+	}
+
+	private ResponseEntity<Map> listExceptionTypesWith(String token) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(token);
+		return restTemplate.exchange(
+				"/apis/api/attendance_exception_types/list.php", HttpMethod.GET,
+				new HttpEntity<>(headers), Map.class);
+	}
+
+	private static long readTokenVersion(long employeeId) throws Exception {
+		try (Connection connection = connect(); Statement st = connection.createStatement();
+				ResultSet rs = st.executeQuery("SELECT token_version FROM employees WHERE id = " + employeeId)) {
+			rs.next();
+			return rs.getLong(1);
+		}
+	}
+
 	private static Connection connect() throws Exception {
 		return DriverManager.getConnection(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
 	}
@@ -181,129 +250,4 @@ class LegacyLoginEndToEndTest {
 			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
 		}
 	}
-
-	@Test
-	void asuccessfulLoginReturns200WithRealTokens() {
-		ResponseEntity<LegacyAuthResponse> response = restTemplate.postForEntity(
-				"/api/legacy/auth/login_employee",
-				new LegacyLoginRequest("+201100090011", KNOWN_PASSWORD),
-				LegacyAuthResponse.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		LegacyAuthResponse body = response.getBody();
-		assertThat(body.accessToken()).isNotBlank();
-		assertThat(body.refreshToken()).isNotBlank();
-		assertThat(body.employeeId()).isEqualTo(90011L);
-		assertThat(body.companyId()).isEqualTo(9001L);
-	}
-
-	@Test
-	void anUnknownPhoneReturns401UserNotFound() {
-		ResponseEntity<ApiErrorBody> response = restTemplate.postForEntity(
-				"/api/legacy/auth/login_employee",
-				new LegacyLoginRequest("+201199999999", KNOWN_PASSWORD),
-				ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(401);
-		assertThat(response.getBody().code()).isEqualTo("user_not_found");
-	}
-
-	@Test
-	void awrongPasswordReturns401IncorrectPassword() {
-		ResponseEntity<ApiErrorBody> response = restTemplate.postForEntity(
-				"/api/legacy/auth/login_employee",
-				new LegacyLoginRequest("+201100090011", "not the password"),
-				ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(401);
-		assertThat(response.getBody().code()).isEqualTo("incorrect_password");
-	}
-
-	@Test
-	void anEmployeeOfASuspendedCompanyReturns403CompanyAccountNotActive() {
-		ResponseEntity<ApiErrorBody> response = restTemplate.postForEntity(
-				"/api/legacy/auth/login_employee",
-				new LegacyLoginRequest("+201100090041", KNOWN_PASSWORD),
-				ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(403);
-		assertThat(response.getBody().code()).isEqualTo("company_account_not_active");
-	}
-
-	/**
-	 * D-049 Follow-up (c)'s atomicity proof, part 1: the token_version
-	 * embedded in the issued access token (the claim P-7 checks on every
-	 * later request) is not just "a" version -- it is the exact value
-	 * {@link LegacyLoginService}'s bump left in {@code employees} at the
-	 * end of the same transaction, read directly from the database
-	 * rather than assumed equal.
-	 */
-	@Test
-	void successfulLoginIssuesTheBumpedTokenVersionMatchingTheDatabase() throws Exception {
-		ResponseEntity<LegacyAuthResponse> response = restTemplate.postForEntity(
-				"/api/legacy/auth/login_employee",
-				new LegacyLoginRequest("+201100090011", KNOWN_PASSWORD),
-				LegacyAuthResponse.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		long claimedVersion = jwtService.parseAndValidate(response.getBody().accessToken())
-				.get("token_version", Number.class).longValue();
-		long databaseVersion = readTokenVersion(90011L);
-
-		assertThat(claimedVersion)
-				.describedAs("the token's token_version claim must be the exact value the login "
-						+ "transaction's bump left in employees.token_version, not an earlier or assumed one")
-				.isEqualTo(databaseVersion);
-	}
-
-	/**
-	 * D-049 Follow-up (c)'s atomicity proof, part 2: two real logins
-	 * against the same employee, over real HTTP, through the real
-	 * {@code legacySecurityFilterChain} -- not a fabricated stale claim
-	 * (that guarantee is already proven at the claim level by {@code
-	 * LegacyExceptionTypeEndToEndTest.aStaleTokenVersionIsRejectedAsSessionReplaced}).
-	 * This proves the same guarantee end to end: logging in a second time
-	 * genuinely invalidates the first session's token, and the second
-	 * token genuinely works.
-	 */
-	@Test
-	void thePreviousTokenIsRejectedAndTheNewTokenIsAcceptedAfterASecondLogin() {
-		String firstToken = login90011();
-		String secondToken = login90011();
-
-		assertThat(firstToken).isNotEqualTo(secondToken);
-
-		ResponseEntity<ApiErrorBody> rejectedResponse = listExceptionTypesWith(firstToken, ApiErrorBody.class);
-		assertThat(rejectedResponse.getStatusCode().value()).isEqualTo(401);
-		assertThat(rejectedResponse.getBody().code()).isEqualTo("session_replaced");
-
-		ResponseEntity<LegacyExceptionTypePage> acceptedResponse =
-				listExceptionTypesWith(secondToken, LegacyExceptionTypePage.class);
-		assertThat(acceptedResponse.getStatusCode().value()).isEqualTo(200);
-	}
-
-	private String login90011() {
-		ResponseEntity<LegacyAuthResponse> response = restTemplate.postForEntity(
-				"/api/legacy/auth/login_employee",
-				new LegacyLoginRequest("+201100090011", KNOWN_PASSWORD),
-				LegacyAuthResponse.class);
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		return response.getBody().accessToken();
-	}
-
-	private <T> ResponseEntity<T> listExceptionTypesWith(String token, Class<T> type) {
-		HttpHeaders headers = new HttpHeaders();
-		headers.setBearerAuth(token);
-		return restTemplate.exchange(
-				"/api/legacy/attendance_exception_types", HttpMethod.GET, new HttpEntity<>(headers), type);
-	}
-
-	private static long readTokenVersion(long employeeId) throws Exception {
-		try (Connection connection = connect(); Statement st = connection.createStatement();
-				ResultSet rs = st.executeQuery("SELECT token_version FROM employees WHERE id = " + employeeId)) {
-			rs.next();
-			return rs.getLong(1);
-		}
-	}
-
 }

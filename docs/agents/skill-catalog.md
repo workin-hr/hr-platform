@@ -4,7 +4,7 @@ Shared procedural skills live under `.agents/skills/` and are intended for Codex
 
 ## Repository-Authored Skills
 
-These 14 skills follow this repository's own procedure schema (see
+These 15 skills follow this repository's own procedure schema (see
 `SKILL_SECTIONS` in `scripts/validate_phase0.py`) and are validated against it.
 
 - bootstrap-repository
@@ -21,6 +21,7 @@ These 14 skills follow this repository's own procedure schema (see
 - review-bootstrap
 - validate-bootstrap
 - prepare-pr-evidence
+- propagate-change
 
 ## Vendor-Provided (Spec Kit)
 
@@ -45,7 +46,11 @@ This list is checked against `.agents/skills/*/SKILL.md` on every build
 skill directory not named somewhere on this page fails validation, so this
 catalog cannot silently drift from what actually exists on disk.
 
-## Why The 14 Repository-Authored Skills Are Not Also Under `.claude/skills/`
+Every repository-authored skill inherits the root `AGENTS.md` contract through
+its mandatory `Canonical Instructions` section. `propagate-change` applies
+that contract's synchronized-artifact check before handoff.
+
+## Why The 15 Repository-Authored Skills Are Not Also Under `.claude/skills/`
 
 Considered and declined for now (see `docs/bootstrap/decision-log.md`
 D-010), not an oversight. The `speckit-*` skills exist in both
@@ -55,7 +60,7 @@ otherwise identical) so they are directly invocable as `/speckit-*` — see
 `scripts/validate_phase0.py`'s `validate_skill_files` for how those two
 copies are validated differently from the schema below.
 
-Doing the same for these 14 would mean maintaining two copies of every
+Doing the same for these 15 would mean maintaining two copies of every
 skill body with no automated content-parity check between them — a real
 drift risk, worse than the catalog-listing gap this file's own history
 just fixed, since content can drift silently in ways a name-presence check

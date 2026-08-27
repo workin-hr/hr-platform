@@ -51,6 +51,55 @@ def make_root() -> Path:
 
 
 # ---------------------------------------------------------------------------
+# validate_instruction_source_of_truth (INS-1)
+# ---------------------------------------------------------------------------
+
+
+def write_instruction_entrypoints(root: Path, claude_imports_agents: bool) -> None:
+    (root / "AGENTS.md").write_text(
+        "# Repository Engineering Instructions\n\n"
+        "## Canonical Source Of Truth\n\nCanonical.\n\n"
+        "## Mandatory Change Propagation\n\nPropagate.\n",
+        encoding="utf-8",
+    )
+    claude = "# Claude Repository Entry Point\n"
+    if claude_imports_agents:
+        claude += "\n@AGENTS.md\n"
+    (root / "CLAUDE.md").write_text(claude, encoding="utf-8")
+
+
+def test_claude_without_agents_import_fails() -> None:
+    root = make_root()
+    try:
+        write_instruction_entrypoints(root, claude_imports_agents=False)
+        failures: list[str] = []
+        v.validate_instruction_source_of_truth(failures, root=root)
+        check(
+            any("@AGENTS.md" in failure for failure in failures),
+            f"CLAUDE.md without the canonical AGENTS.md import fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_canonical_agents_import_passes() -> None:
+    root = make_root()
+    try:
+        write_instruction_entrypoints(root, claude_imports_agents=True)
+        failures: list[str] = []
+        v.validate_instruction_source_of_truth(failures, root=root)
+        check(failures == [], f"canonical AGENTS.md plus Claude import passes (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_real_repository_instruction_source_still_passes() -> None:
+    failures: list[str] = []
+    v.validate_instruction_source_of_truth(failures)
+    check(failures == [], f"the real repository instruction source still passes (failures={failures})")
+
+
+# ---------------------------------------------------------------------------
 # scripts/verify-bootstrap.sh skipped-tool summary (CI-2)
 # ---------------------------------------------------------------------------
 
@@ -1213,6 +1262,9 @@ def test_product_code_inside_spike_is_excluded() -> None:
 
 
 def main() -> int:
+    test_claude_without_agents_import_fails()
+    test_canonical_agents_import_passes()
+    test_real_repository_instruction_source_still_passes()
     test_no_nightly_tier_named_is_inert()
     test_nightly_tier_named_without_schedule_workflow_fails()
     test_nightly_tier_named_with_schedule_workflow_passes()

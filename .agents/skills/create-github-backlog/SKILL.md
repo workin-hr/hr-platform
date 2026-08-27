@@ -5,6 +5,10 @@ description: Use when defining backlog taxonomy, epics, issue forms, labels, and
 
 # Create GitHub Backlog
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when defining backlog structure, epics, issue types, workflow states, labels, or project setup instructions.

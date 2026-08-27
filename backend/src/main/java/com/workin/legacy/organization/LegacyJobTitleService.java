@@ -13,12 +13,11 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.workin.backend.i18n.ApiException;
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.wire.LegacyApiException;
 
 /** Wave 12.3c's five job-title endpoints, ported from {@code hr-legacy/apis/api/job_titles/*.php}. */
 @Service
@@ -65,35 +64,51 @@ public class LegacyJobTitleService {
 	public LegacyJobTitleView one(long companyId, long id) {
 		LegacyJobTitle row = jobTitleRepository.findByIdAndCompanyId(id, companyId)
 				.filter(LegacyJobTitle::active)
-				.orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "job_title_not_found"));
+				.orElseThrow(() -> new LegacyApiException(404, "job_title_not_found"));
 		Map<Long, List<Long>> links = linksByDepartment(
 				row.getDepartmentId() == null ? List.of() : List.of(row.getDepartmentId()));
 		return views(companyId, List.of(row), links).getFirst();
 	}
 
-	/** Create requires department_id despite the nullable legacy column, and requires positive work hours. */
+	/**
+	 * Create requires department_id despite the nullable legacy column, and requires positive
+	 * work hours.
+	 *
+	 * <p>{@code required($body, [NAME, DEPARTMENT_ID, WORK_HOURS])}: checked in that order,
+	 * failing on the first missing/empty-string field with {@code field_required} naming it
+	 * (PHP's {@code required()} helper itself supplies the {@code {field}} replace value). The
+	 * later blank-name check deliberately carries <b>no</b> replace map -- verified against the
+	 * frozen source, not an oversight here: {@code if ($name === '') fail(LangKey::FIELD_REQUIRED, 400);}
+	 * passes no fourth argument, so a client sees the literal, unsubstituted {@code {field}}
+	 * placeholder for that specific path. The work-hours-not-positive check, by contrast, does
+	 * carry {@code field=work_hours} in PHP.
+	 */
 	@Transactional
 	public LegacyJobTitleView create(long companyId, Map<String, Object> body) {
 		Object rawName = value(body, "name", "name");
 		Object rawDepartmentId = value(body, "departmentId", "department_id");
 		Object rawWorkHours = value(body, "workHours", "work_hours");
-		if (rawName == null || "".equals(rawName)
-				|| rawDepartmentId == null || "".equals(rawDepartmentId)
-				|| rawWorkHours == null || "".equals(rawWorkHours)) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
+		if (rawName == null || "".equals(rawName)) {
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "name"));
+		}
+		if (rawDepartmentId == null || "".equals(rawDepartmentId)) {
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "department_id"));
+		}
+		if (rawWorkHours == null || "".equals(rawWorkHours)) {
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "work_hours"));
 		}
 
 		String name = LegacyValues.toPhpString(rawName).trim();
 		if (name.isEmpty()) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
+			throw new LegacyApiException(400, "field_required");
 		}
 		long departmentId = LegacyValues.toPhpLong(rawDepartmentId);
 		if (departmentId <= 0 || !activeDepartmentBelongsTo(companyId, departmentId)) {
-			throw new ApiException(HttpStatus.NOT_FOUND, "department_not_found");
+			throw new LegacyApiException(404, "department_not_found");
 		}
 		BigDecimal workHours = LegacyValues.toPhpDecimal(rawWorkHours);
 		if (workHours.compareTo(BigDecimal.ZERO) <= 0) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "work_hours"));
 		}
 
 		try {
@@ -103,7 +118,9 @@ public class LegacyJobTitleService {
 			entityManager.refresh(row);
 			return view(companyId, row);
 		} catch (DataAccessException | PersistenceException ex) {
-			throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "job_title_not_found", ex);
+			LegacyApiException failure = new LegacyApiException(500, "job_title_not_found");
+			failure.initCause(ex);
+			throw failure;
 		}
 	}
 
@@ -116,7 +133,7 @@ public class LegacyJobTitleService {
 	public LegacyJobTitleView update(long companyId, long id, Map<String, Object> body) {
 		LegacyJobTitle row = findOwned(companyId, id);
 		if (body.isEmpty()) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "nothing_to_update");
+			throw new LegacyApiException(400, "nothing_to_update");
 		}
 
 		boolean touched = false;
@@ -128,11 +145,11 @@ public class LegacyJobTitleService {
 		if (contains(body, "workHours", "work_hours")) {
 			Object raw = value(body, "workHours", "work_hours");
 			if (raw == null || "".equals(raw)) {
-				throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
+				throw new LegacyApiException(400, "field_required", null, Map.of("field", "work_hours"));
 			}
 			BigDecimal workHours = LegacyValues.toPhpDecimal(raw);
 			if (workHours.compareTo(BigDecimal.ZERO) <= 0) {
-				throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
+				throw new LegacyApiException(400, "field_required", null, Map.of("field", "work_hours"));
 			}
 			row.setWorkHours(workHours);
 			touched = true;
@@ -141,13 +158,13 @@ public class LegacyJobTitleService {
 			Object raw = value(body, "departmentId", "department_id");
 			long departmentId = raw == null || "".equals(raw) ? 0L : LegacyValues.toPhpLong(raw);
 			if (departmentId <= 0 || !activeDepartmentBelongsTo(companyId, departmentId)) {
-				throw new ApiException(HttpStatus.NOT_FOUND, "department_not_found");
+				throw new LegacyApiException(404, "department_not_found");
 			}
 			row.setDepartmentId(departmentId);
 			touched = true;
 		}
 		if (!touched) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "nothing_to_update");
+			throw new LegacyApiException(400, "nothing_to_update");
 		}
 
 		jobTitleRepository.save(row);
@@ -215,7 +232,7 @@ public class LegacyJobTitleService {
 
 	private LegacyJobTitle findOwned(long companyId, long id) {
 		return jobTitleRepository.findByIdAndCompanyId(id, companyId)
-				.orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "job_title_not_found"));
+				.orElseThrow(() -> new LegacyApiException(404, "job_title_not_found"));
 	}
 
 	private static boolean contains(Map<String, Object> body, String camel, String snake) {

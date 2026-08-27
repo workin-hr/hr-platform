@@ -153,6 +153,26 @@ public class LegacyBranch {
 		this.isActive = LegacyValues.fromBoolean(active);
 	}
 
+	/**
+	 * {@code branches/update.php} binds the raw {@code is_active} value directly (no cast)
+	 * into its {@code UPDATE}, so a numeric value other than {@code 0}/{@code 1} (e.g. {@code
+	 * 2}) is stored verbatim by MariaDB's own non-strict {@code TINYINT} coercion in frozen
+	 * PHP -- not collapsed through a boolean first, the way {@link #setActive} does (PR #120
+	 * review). Storing the raw value here matches that at the column level.
+	 *
+	 * <p><b>Disclosed, partial fix, D-071-shaped:</b> {@link LegacyBranchView#isActive} and
+	 * every other branch response field are typed {@code boolean}, computed via {@link
+	 * #active()}'s strict {@code == 1} check -- so {@code update.php}'s own immediate
+	 * response (PHP's {@code public_row()} echoes the DB driver's raw column value with no
+	 * transformation at all) still reports a coerced {@code false} for a stored {@code 2},
+	 * not the literal PHP value. Widening every branch response field to a raw passthrough
+	 * type was judged disproportionate to a case no legitimate client (a boolean-semantic UI
+	 * toggle, not free-form input) actually produces; this closes the DB-storage half only.
+	 */
+	public void setActiveRaw(Integer raw) {
+		this.isActive = raw;
+	}
+
 	public void setQrCode(String qrCode) {
 		this.qrCode = qrCode;
 	}

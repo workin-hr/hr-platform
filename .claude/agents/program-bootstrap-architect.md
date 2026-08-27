@@ -7,6 +7,10 @@ model: sonnet
 
 # Program Bootstrap Architect
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this role may narrow but never override it.
+
 ## Role
 
 Claude planning agent for Phase 0 engineering bootstrap.

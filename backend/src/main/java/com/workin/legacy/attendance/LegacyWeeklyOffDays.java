@@ -1,13 +1,17 @@
 package com.workin.legacy.attendance;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 import javax.sql.DataSource;
 
+import org.springframework.context.annotation.ScopedProxyMode;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.annotation.RequestScope;
 
 import com.workin.legacy.LegacyValues;
 
@@ -32,8 +36,22 @@ import com.workin.legacy.LegacyValues;
  * {@code payroll_calculation} stays blocked. It is ported here, beside its only
  * caller's data source, rather than dragging the whole helper file across a
  * wave boundary.
+ *
+ * <h2>Request-scoped, one query per company per request</h2>
+ * <p>{@link #forCompany} is read many times over one HTTP request --
+ * {@code payslips/list.php}'s enrichment loop calls it, directly and via
+ * {@link com.workin.legacy.attendance.calendar.LegacyAttendanceCalendar#isWeeklyRestDay},
+ * once or more per day of the pay period, per payslip on the page -- and
+ * nothing writes {@code weekly_off_days} mid-request, the same invariant
+ * {@link com.workin.legacy.LegacyClock} already relies on for the same
+ * reason. Request-scoped with {@link ScopedProxyMode#TARGET_CLASS} so the
+ * existing singleton-scoped callers keep an ordinary field reference --
+ * Spring transparently routes each call to the current request's instance --
+ * while the query itself runs at most once per company per request instead
+ * of once per day per payslip.
  */
 @Component
+@RequestScope(proxyMode = ScopedProxyMode.TARGET_CLASS)
 public class LegacyWeeklyOffDays {
 
 	/**
@@ -86,6 +104,7 @@ public class LegacyWeeklyOffDays {
 			java.util.Map.entry("السبت", 6));
 
 	private final JdbcTemplate jdbcTemplate;
+	private final Map<Long, List<String>> cache = new HashMap<>();
 
 	public LegacyWeeklyOffDays(DataSource legacyDataSource) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
@@ -99,17 +118,21 @@ public class LegacyWeeklyOffDays {
 	 * query rather than by it, so a blank allowed value occupies a sort position
 	 * and then disappears -- measured, and the reason the filter is not folded
 	 * into the SQL.
+	 *
+	 * <p>Memoized per company for the lifetime of this request-scoped bean --
+	 * see the class javadoc.
 	 */
 	public List<String> forCompany(long companyId) {
 		if (companyId <= 0) {
 			return List.of();
 		}
-		List<String> values = jdbcTemplate.queryForList(
-				SELECTED_VALUES, String.class, companyId, SETTING_KEY);
-		return values.stream()
-				.map(value -> value == null ? "" : value)
-				.filter(value -> !value.isEmpty())
-				.toList();
+		return cache.computeIfAbsent(companyId, id -> {
+			List<String> values = jdbcTemplate.queryForList(SELECTED_VALUES, String.class, id, SETTING_KEY);
+			return values.stream()
+					.map(value -> value == null ? "" : value)
+					.filter(value -> !value.isEmpty())
+					.toList();
+		});
 	}
 
 	/**

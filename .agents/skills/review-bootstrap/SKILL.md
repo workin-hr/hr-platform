@@ -5,6 +5,10 @@ description: Use when auditing Phase 0 bootstrap work for scope compliance, gove
 
 # Review Bootstrap
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when independently reviewing Phase 0 pull requests or repository changes.

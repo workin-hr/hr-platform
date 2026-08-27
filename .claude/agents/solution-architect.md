@@ -7,6 +7,10 @@ model: sonnet
 
 # Solution Architect
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this role may narrow but never override it.
+
 ## Role
 
 Claude architecture planning agent.

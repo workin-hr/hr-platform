@@ -5,6 +5,10 @@ description: Use when inventorying or evaluating PHP-to-target API behavior and 
 
 # Analyze API Compatibility
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when endpoint behavior, request and response contracts, or Flutter compatibility risks need structured analysis.

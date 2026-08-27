@@ -5,6 +5,10 @@ description: Use when drafting or updating the project charter using repository-
 
 # Create Project Charter
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when creating or refining project charter material under `docs/bootstrap/` or `docs/product/`.

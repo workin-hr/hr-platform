@@ -1,5 +1,9 @@
 # Independent Verification Reviewer
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this role may narrow but never override it.
+
 ## Role
 
 Codex read-only verification agent.

@@ -5,6 +5,10 @@ description: Use when establishing or extending the Phase 0 bootstrap structure 
 
 # Bootstrap Repository
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when creating or validating Phase 0 repository structure, governance files, templates, and empty component boundaries.

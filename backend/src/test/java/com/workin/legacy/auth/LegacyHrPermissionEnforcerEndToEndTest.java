@@ -24,7 +24,6 @@ import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
-import com.workin.legacy.attendance.LegacyExceptionTypeView;
 
 /**
  * Proves {@code LegacyHrPermissionEnforcer} (punch-list item #11, D-044)
@@ -34,11 +33,17 @@ import com.workin.legacy.attendance.LegacyExceptionTypeView;
  * <p>Re-pointed for PR 12.1 (D-045's Follow-up): the deleted {@code
  * LegacyIsolationProbeController} gated an invented {@code
  * CAN_EMPLOYEES} check no legacy endpoint actually enforces. {@code
- * POST /api/legacy/attendance_exception_types} gates on {@code
+ * POST attendance_exception_types/create.php} gates on {@code
  * can_company_settings} for real -- legacy's own {@code create.php}
  * calls {@code require_company_settings_access()}
  * (D-046/hr-legacy evidence) -- so this now proves the enforcer against
  * evidence-backed behaviour instead.
+ *
+ * <p>Re-pointed again for Wave 12.R (D-107): {@code
+ * attendance_exception_types} moved off {@code /api/legacy/**} onto its
+ * literal {@code /apis/api/attendance_exception_types/*.php} routes with
+ * the D-074 envelope -- this still uses that module as its "any real
+ * guarded business endpoint" example, just at the new address and shape.
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -46,7 +51,7 @@ import com.workin.legacy.attendance.LegacyExceptionTypeView;
 class LegacyHrPermissionEnforcerEndToEndTest {
 
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
-	private static final String CREATE_PATH = "/api/legacy/attendance_exception_types";
+	private static final String CREATE_PATH = "/apis/api/attendance_exception_types/create.php";
 
 	private static final long COMPANY = 9401L;
 	private static final long EMPLOYEE_WITH_PERMISSION = 94011L;
@@ -57,6 +62,9 @@ class LegacyHrPermissionEnforcerEndToEndTest {
 
 	@Autowired
 	private JwtService jwtService;
+
+	@Autowired
+	private LegacyPhpJwtService legacyPhpJwtService;
 
 	static {
 		MARIADB.start();
@@ -145,16 +153,20 @@ class LegacyHrPermissionEnforcerEndToEndTest {
 	}
 
 	@Test
+	@SuppressWarnings("unchecked")
 	void anEmployeeWithTheGrantedPermissionCreates201() {
 		String token = employeeToken(EMPLOYEE_WITH_PERMISSION);
+		HttpHeaders headers = headersFor(token);
+		headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
 
-		ResponseEntity<LegacyExceptionTypeView> response = restTemplate.exchange(
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
 				CREATE_PATH, org.springframework.http.HttpMethod.POST,
-				new HttpEntity<>(Map.of("name", "Granted Path Type"), headersFor(token)),
-				LegacyExceptionTypeView.class);
+				new HttpEntity<>(Map.of("name", "Granted Path Type"), headers),
+				new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
 
 		assertThat(response.getStatusCode().value()).isEqualTo(201);
-		assertThat(response.getBody().name()).isEqualTo("Granted Path Type");
+		Map<String, Object> data = (Map<String, Object>) response.getBody().get("data");
+		assertThat(data.get("name")).isEqualTo("Granted Path Type");
 	}
 
 	/**
@@ -172,6 +184,32 @@ class LegacyHrPermissionEnforcerEndToEndTest {
 				new HttpEntity<>(Map.of("name", "Denied Path Type"), headersFor(token)), String.class);
 
 		assertThat(response.getStatusCode().value()).isEqualTo(403);
+	}
+
+	/**
+	 * Regression for {@code hr_session_has_permission()}'s company-type
+	 * bypass ({@code hr_permissions.php:143-153}): a {@code type=company}
+	 * session is always allowed, no {@code hr_permissions} lookup at all --
+	 * unlike either employee fixture above, both of which go through the
+	 * lookup. Company 9401 has no {@code hr_permissions} row referencing
+	 * its own id at all, so this also proves the enforcer isn't accidentally
+	 * looking one up under the company id (see the class javadoc's
+	 * "Company-type bypass" note on {@code identityId} carrying a company
+	 * id, not an employee id, for this token type).
+	 */
+	@Test
+	@SuppressWarnings("unchecked")
+	void aCompanyTypeTokenBypassesTheHrPermissionsLookupEntirely() {
+		String token = legacyPhpJwtService.issueCompanyToken(COMPANY, "company_admin");
+		HttpHeaders headers = headersFor(token);
+		headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				CREATE_PATH, org.springframework.http.HttpMethod.POST,
+				new HttpEntity<>(Map.of("name", "Company Session Path Type"), headers),
+				new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
+
+		assertThat(response.getStatusCode().value()).isEqualTo(201);
 	}
 
 	private String employeeToken(long employeeId) {

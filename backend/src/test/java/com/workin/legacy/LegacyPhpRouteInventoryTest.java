@@ -3,7 +3,6 @@ package com.workin.legacy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
-import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +15,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
+import com.workin.legacy.wire.LegacyPhpRoutes;
 
 /** Bidirectional literal inventory for every delivered {@code /apis/**} route. */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.MOCK)
@@ -24,7 +24,37 @@ class LegacyPhpRouteInventoryTest {
 
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
 
-	private static final List<String> WAVE_124_ROUTES = List.of(
+	private static final List<String> EXPECTED_ROUTES = List.of(
+			"/apis/api/advances/approve.php", "/apis/api/advances/create.php",
+			"/apis/api/advances/delete.php", "/apis/api/advances/list.php",
+			"/apis/api/advances/one.php", "/apis/api/advances/pay.php",
+			"/apis/api/advances/reject.php", "/apis/api/advances/update.php",
+			"/apis/api/attendance/analyze_excel.php", "/apis/api/attendance/check_in.php",
+			"/apis/api/attendance/check_in_qr.php", "/apis/api/attendance/check_out.php",
+			"/apis/api/attendance/create.php", "/apis/api/attendance/delete.php",
+			"/apis/api/attendance/delete_range.php", "/apis/api/attendance/employee_monthly_attendance.php",
+			"/apis/api/attendance/import_excel.php", "/apis/api/attendance/list.php",
+			"/apis/api/attendance/one.php", "/apis/api/attendance/stats.php",
+			"/apis/api/attendance/update.php",
+			"/apis/api/attendance_exception_types/create.php",
+			"/apis/api/attendance_exception_types/delete.php",
+			"/apis/api/attendance_exception_types/list.php",
+			"/apis/api/attendance_exception_types/one.php",
+			"/apis/api/attendance_exception_types/update.php",
+			"/apis/api/auth/login_employee.php",
+			"/apis/api/branches/create.php", "/apis/api/branches/delete.php",
+			"/apis/api/branches/generate_qr.php", "/apis/api/branches/list.php",
+			"/apis/api/branches/one.php", "/apis/api/branches/update.php",
+			"/apis/api/company/update.php", "/apis/api/company/upload_commercial_reg.php",
+			"/apis/api/company/upload_logo.php",
+			"/apis/api/company_official_holidays/create.php",
+			"/apis/api/company_official_holidays/delete.php",
+			"/apis/api/company_official_holidays/list.php",
+			"/apis/api/company_official_holidays/one.php",
+			"/apis/api/company_official_holidays/update.php",
+			"/apis/api/departments/create.php", "/apis/api/departments/delete.php",
+			"/apis/api/departments/list.php", "/apis/api/departments/one.php",
+			"/apis/api/departments/update.php",
 			"/apis/api/employees/analyze_excel.php", "/apis/api/employees/create.php",
 			"/apis/api/employees/deactivate.php", "/apis/api/employees/delete.php",
 			"/apis/api/employees/delete_preview.php", "/apis/api/employees/import_bulk.php",
@@ -33,63 +63,43 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/employees/stats.php", "/apis/api/employees/template_excel.php",
 			"/apis/api/employees/update.php", "/apis/api/employees/upload_photo.php",
 			"/apis/api/hr_employees/create.php", "/apis/api/hr_employees/list.php",
-			"/apis/api/hr_employees/update_permissions.php");
-
-	private static final List<String> WAVE_125_ROUTES = List.of(
-			"/apis/api/shifts/create.php", "/apis/api/shifts/delete.php", "/apis/api/shifts/list.php",
-			"/apis/api/shifts/one.php", "/apis/api/shifts/update.php",
+			"/apis/api/hr_employees/update_permissions.php",
+			"/apis/api/job_titles/create.php", "/apis/api/job_titles/delete.php",
+			"/apis/api/job_titles/list.php", "/apis/api/job_titles/one.php",
+			"/apis/api/job_titles/update.php",
+			"/apis/api/leave_balances/analyze_excel.php", "/apis/api/leave_balances/create.php",
+			"/apis/api/leave_balances/delete.php", "/apis/api/leave_balances/generate.php",
+			"/apis/api/leave_balances/import_bulk.php", "/apis/api/leave_balances/list.php",
+			"/apis/api/leave_balances/one.php", "/apis/api/leave_balances/stats.php",
+			"/apis/api/leave_balances/template_excel.php", "/apis/api/leave_balances/update.php",
+			"/apis/api/payroll_batches/calculate.php", "/apis/api/payroll_batches/create.php",
+			"/apis/api/payroll_batches/delete.php", "/apis/api/payroll_batches/finalize.php",
+			"/apis/api/payroll_batches/fiscal_period.php", "/apis/api/payroll_batches/list.php",
+			"/apis/api/payroll_batches/one.php", "/apis/api/payroll_batches/reopen.php",
+			"/apis/api/payroll_batches/stats.php", "/apis/api/payroll_batches/update.php",
+			"/apis/api/payslips/create.php", "/apis/api/payslips/delete.php",
+			"/apis/api/payslips/list.php", "/apis/api/payslips/one.php",
+			"/apis/api/payslips/update.php",
+			"/apis/api/penalties/create.php", "/apis/api/penalties/delete.php",
+			"/apis/api/penalties/list.php", "/apis/api/penalties/one.php",
+			"/apis/api/penalties/report.php", "/apis/api/penalties/stats.php",
+			"/apis/api/penalties/update.php",
 			"/apis/api/request_types/create.php", "/apis/api/request_types/delete.php",
 			"/apis/api/request_types/list.php", "/apis/api/request_types/one.php",
 			"/apis/api/request_types/update.php",
-			"/apis/api/company_official_holidays/create.php", "/apis/api/company_official_holidays/delete.php",
-			"/apis/api/company_official_holidays/list.php", "/apis/api/company_official_holidays/one.php",
-			"/apis/api/company_official_holidays/update.php");
-
-	/** Thirteen of eighteen Wave-12.6 routes; the request-dependent five stay after Wave 12.7. */
-	private static final List<String> WAVE_126_ROUTES = List.of(
-			"/apis/api/attendance/delete.php", "/apis/api/attendance/delete_range.php",
-			"/apis/api/attendance/one.php", "/apis/api/attendance/create.php",
-			"/apis/api/attendance/update.php", "/apis/api/attendance/import_excel.php",
+			"/apis/api/requests/approve.php", "/apis/api/requests/create.php",
+			"/apis/api/requests/delete.php", "/apis/api/requests/list.php",
+			"/apis/api/requests/one.php", "/apis/api/requests/reject.php",
+			"/apis/api/requests/update.php",
+			"/apis/api/salary_contracts/create.php", "/apis/api/salary_contracts/delete.php",
+			"/apis/api/salary_contracts/list.php", "/apis/api/salary_contracts/one.php",
+			"/apis/api/salary_contracts/update.php",
 			"/apis/api/schedules/assign_employee_schedule.php",
-			"/apis/api/attendance/check_in.php", "/apis/api/attendance/check_in_qr.php",
-			"/apis/api/attendance/check_out.php", "/apis/api/attendance/analyze_excel.php",
 			"/apis/api/schedules/employee_monthly_schedule.php",
-			"/apis/api/schedules/generate_employee_schedule.php");
-
-	private static final List<String> WAVE_127_REQUEST_ROUTES = List.of(
-			"/apis/api/requests/create.php", "/apis/api/requests/delete.php",
-			"/apis/api/requests/list.php", "/apis/api/requests/one.php",
-			"/apis/api/requests/approve.php", "/apis/api/requests/reject.php",
-			"/apis/api/requests/update.php");
-
-	private static final List<String> WAVE_127_LEAVE_BALANCE_ROUTES = List.of(
-			"/apis/api/leave_balances/analyze_excel.php",
-			"/apis/api/leave_balances/create.php",
-			"/apis/api/leave_balances/delete.php",
-			"/apis/api/leave_balances/generate.php",
-			"/apis/api/leave_balances/import_bulk.php",
-			"/apis/api/leave_balances/list.php",
-			"/apis/api/leave_balances/one.php",
-			"/apis/api/leave_balances/stats.php",
-			"/apis/api/leave_balances/template_excel.php",
-			"/apis/api/leave_balances/update.php");
-
-	/**
-	 * Wave 12.6.4b: the three endpoints Wave 12.7 slice 1 unblocked --
-	 * {@code list.php}, {@code stats.php} and
-	 * {@code employee_monthly_attendance.php} all reach
-	 * {@code attendance_row_worked_minutes()} and through it the
-	 * {@code requests} table, which now exists.
-	 */
-	private static final List<String> WAVE_1264B_ROUTES = List.of(
-			"/apis/api/attendance/list.php",
-			"/apis/api/attendance/stats.php",
-			"/apis/api/attendance/employee_monthly_attendance.php");
-
-	private static final List<String> EXPECTED_ROUTES = Stream.of(
-				WAVE_124_ROUTES, WAVE_125_ROUTES, WAVE_126_ROUTES,
-				WAVE_127_REQUEST_ROUTES, WAVE_127_LEAVE_BALANCE_ROUTES, WAVE_1264B_ROUTES)
-			.flatMap(List::stream).sorted().toList();
+			"/apis/api/schedules/generate_employee_schedule.php",
+			"/apis/api/shifts/create.php", "/apis/api/shifts/delete.php",
+			"/apis/api/shifts/list.php", "/apis/api/shifts/one.php",
+			"/apis/api/shifts/update.php");
 
 	@Autowired
 	@Qualifier("requestMappingHandlerMapping")
@@ -111,71 +121,36 @@ class LegacyPhpRouteInventoryTest {
 				.flatMap(info -> info.getPatternValues().stream())
 				.filter(pattern -> pattern.startsWith("/apis/"))
 				.distinct().sorted().toList();
-		assertThat(mapped).containsExactlyElementsOf(EXPECTED_ROUTES);
+		assertThat(mapped).containsExactlyElementsOf(EXPECTED_ROUTES.stream().sorted().toList());
 	}
 
 	@Test
-	void deliveredWaveCountsStayExactAndNonOverlapping() {
-		assertThat(WAVE_124_ROUTES).hasSize(17);
-		assertThat(WAVE_125_ROUTES).hasSize(15);
-		assertThat(WAVE_126_ROUTES).hasSize(13);
-		assertThat(WAVE_127_REQUEST_ROUTES).hasSize(7);
-		assertThat(WAVE_127_LEAVE_BALANCE_ROUTES).hasSize(10);
-		assertThat(WAVE_1264B_ROUTES).hasSize(3);
-		assertThat(EXPECTED_ROUTES).hasSize(65).doesNotHaveDuplicates();
+	void deliveredRouteCountIsNowOneHundredTwentyFive() {
+		assertThat(EXPECTED_ROUTES).hasSize(125).doesNotHaveDuplicates();
 	}
 
 	@Test
-	void wave127IsCompleteAtSeventeenEndpoints() {
-		assertThat(Stream.concat(WAVE_127_REQUEST_ROUTES.stream(), WAVE_127_LEAVE_BALANCE_ROUTES.stream()).toList())
-				.hasSize(17).doesNotHaveDuplicates();
+	void finalWave12rRoutesAreInTheInventory() {
+		assertThat(EXPECTED_ROUTES).contains(
+				"/apis/api/departments/list.php", "/apis/api/departments/one.php",
+				"/apis/api/departments/create.php", "/apis/api/departments/update.php",
+				"/apis/api/departments/delete.php",
+				"/apis/api/job_titles/list.php", "/apis/api/job_titles/one.php",
+				"/apis/api/job_titles/create.php", "/apis/api/job_titles/update.php",
+				"/apis/api/job_titles/delete.php", "/apis/api/auth/login_employee.php");
 	}
 
 	@Test
-	void theWave1264bSliceIsItsThreeEndpoints() {
-		assertThat(WAVE_1264B_ROUTES).hasSize(3);
-		assertThat(WAVE_1264B_ROUTES)
-				.containsExactlyInAnyOrder(
-						"/apis/api/attendance/list.php", "/apis/api/attendance/stats.php",
-						"/apis/api/attendance/employee_monthly_attendance.php");
-	}
-
-	/**
-	 * The two payroll-report endpoints Wave 12.7 and Wave 12.6.4b do not
-	 * unblock, asserted absent.
-	 *
-	 * <p>{@code overall_report.php} and {@code export.php} reach
-	 * {@code attendance_row_worked_minutes()} through the payroll helpers, not
-	 * directly, and still carry the broader D-091 payroll boundary that
-	 * {@code list}, {@code stats} and {@code employee_monthly_attendance} do
-	 * not.
-	 */
-	@Test
-	void theTwoPayrollReportEndpointsStayUnmapped() {
+	void intentionallyDeferredBinaryReportsStayUnmapped() {
 		assertThat(EXPECTED_ROUTES).doesNotContain(
 				"/apis/api/attendance/overall_report.php",
-				"/apis/api/attendance/export.php");
+				"/apis/api/attendance/export.php",
+				"/apis/api/payslips/export.php");
 	}
 
 	@Test
-	void everyGuardedEntryCoversMappedRoutesAndEveryRouteIsGuarded() {
-		List<String> entries = List.of(com.workin.legacy.wire.LegacyPhpRoutes.CONTROLLER_GUARDED);
-		assertThat(entries).containsExactly(
-				"/apis/api/employees/**", "/apis/api/hr_employees/**", "/apis/api/shifts/**",
-				"/apis/api/request_types/**", "/apis/api/company_official_holidays/**",
-				"/apis/api/attendance/**", "/apis/api/schedules/**",
-				"/apis/api/requests/list.php", "/apis/api/requests/one.php",
-				"/apis/api/requests/create.php", "/apis/api/requests/update.php",
-				"/apis/api/requests/delete.php", "/apis/api/requests/approve.php",
-				"/apis/api/requests/reject.php", "/apis/api/leave_balances/**");
-		for (String entry : entries) {
-			if (entry.endsWith("/**")) {
-				String prefix = entry.substring(0, entry.length() - 2);
-				assertThat(EXPECTED_ROUTES).anyMatch(route -> route.startsWith(prefix));
-			} else {
-				assertThat(EXPECTED_ROUTES).contains(entry);
-			}
-		}
+	void everyDeliveredRouteIsCoveredByTheSecurityBoundary() {
+		List<String> entries = List.of(LegacyPhpRoutes.CONTROLLER_GUARDED);
 		for (String route : EXPECTED_ROUTES) {
 			assertThat(entries).anyMatch(entry -> entry.endsWith("/**")
 					? route.startsWith(entry.substring(0, entry.length() - 2)) : route.equals(entry));

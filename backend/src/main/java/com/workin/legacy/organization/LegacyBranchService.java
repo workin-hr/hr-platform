@@ -16,12 +16,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.workin.backend.i18n.ApiException;
+import com.workin.legacy.LegacyValues;
 import com.workin.legacy.employees.LegacyEmployeeRepository;
+import com.workin.legacy.wire.LegacyApiException;
 
 /**
  * Wave 12.3a's six endpoints, ported behaviour-for-behaviour from {@code
@@ -83,19 +83,25 @@ public class LegacyBranchService {
 	public LegacyBranchView one(long companyId, long id) {
 		LegacyBranch branch = legacyBranchRepository.findByIdAndCompanyId(id, companyId)
 				.filter(LegacyBranch::active)
-				.orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "forbidden"));
+				.orElseThrow(() -> new LegacyApiException(404, "forbidden"));
 		return LegacyBranchView.of(branch);
 	}
 
-	/** {@code create.php}. Caller has already run the role/company-active gates (D-057: no permission gate exists). */
+	/**
+	 * {@code create.php}. Caller has already run the role/company-active gates (D-057: no
+	 * permission gate exists). {@code required($body, [Column::NAME])}: missing or the exact
+	 * empty string fails; any other JSON type reaches the {@code varchar} column as PHP's own
+	 * cast would.
+	 */
 	@Transactional
 	public LegacyBranchView create(long companyId, Map<String, Object> body) {
-		String name = (String) body.get("name");
-		if (name == null || name.isEmpty()) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
+		Object rawName = body.get("name");
+		if (rawName == null || "".equals(rawName)) {
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "name"));
 		}
-		String address = (String) body.get("address");
-		Integer radiusMeters = toInteger(body.get("radiusMeters"));
+		String name = LegacyValues.toPhpString(rawName);
+		String address = body.get("address") == null ? null : LegacyValues.toPhpString(body.get("address"));
+		Integer radiusMeters = toInteger(body.get("radius_meters"));
 
 		LegacyBranchLocationResolver.Coordinates coords = resolveLocation(body);
 		LegacyBranch branch = new LegacyBranch(
@@ -140,30 +146,30 @@ public class LegacyBranchService {
 	 * {@code null} is therefore indistinguishable from omitting it
 	 * entirely: the existing value is left untouched, silently, for
 	 * every one of {@code name}/{@code address}/{@code latitude}/{@code
-	 * longitude}/{@code radiusMeters}/{@code isActive}. Also unlike Wave
+	 * longitude}/{@code radius_meters}/{@code is_active}. Also unlike Wave
 	 * 12.1: legacy's branch update does <b>not</b> throw when nothing is
 	 * touched -- an empty update is a silent no-op, 200, unchanged row.
 	 */
 	@Transactional
 	public LegacyBranchView update(long companyId, long id, Map<String, Object> body) {
 		LegacyBranch branch = legacyBranchRepository.findByIdAndCompanyId(id, companyId)
-				.orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "branch_not_found"));
+				.orElseThrow(() -> new LegacyApiException(404, "branch_not_found"));
 
 		if (isSet(body, "name")) {
-			branch.setName((String) body.get("name"));
+			branch.setName(LegacyValues.toPhpString(body.get("name")));
 		}
 		if (isSet(body, "address")) {
-			branch.setAddress((String) body.get("address"));
+			branch.setAddress(LegacyValues.toPhpString(body.get("address")));
 		}
-		if (isSet(body, "radiusMeters")) {
-			branch.setRadiusMeters(toInteger(body.get("radiusMeters")));
+		if (isSet(body, "radius_meters")) {
+			branch.setRadiusMeters(toInteger(body.get("radius_meters")));
 		}
-		if (isSet(body, "isActive")) {
-			branch.setActive(toBoolean(body.get("isActive")));
+		if (isSet(body, "is_active")) {
+			branch.setActiveRaw(toInteger(body.get("is_active")));
 		}
 
 		boolean hasLocationInput = body.containsKey("latitude") || body.containsKey("longitude")
-				|| (body.get("locationLink") != null && !String.valueOf(body.get("locationLink")).trim().isEmpty());
+				|| (body.get("location_link") != null && !String.valueOf(body.get("location_link")).trim().isEmpty());
 		if (hasLocationInput) {
 			LegacyBranchLocationResolver.Coordinates coords = resolveLocation(body);
 			// A resolved-but-null pair (isset()-false on both sides in PHP) leaves lat/lng untouched, same as an omitted field.
@@ -197,11 +203,11 @@ public class LegacyBranchService {
 	@Transactional
 	public void delete(long companyId, long id) {
 		legacyBranchRepository.findByIdAndCompanyId(id, companyId)
-				.orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "branch_not_found"));
+				.orElseThrow(() -> new LegacyApiException(404, "branch_not_found"));
 
 		long assignedEmployees = legacyEmployeeRepository.countByBranchIdAndCompanyId(id, companyId);
 		if (assignedEmployees > 0) {
-			throw new ApiException(HttpStatus.CONFLICT, "branch_has_employees_cannot_delete");
+			throw new LegacyApiException(409, "branch_has_employees_cannot_delete");
 		}
 
 		try {
@@ -212,7 +218,9 @@ public class LegacyBranchService {
 			entityManager.flush();
 		} catch (DataIntegrityViolationException ex) {
 			// Race-condition fallback only (D-056): an employee assigned between the pre-check above and this write.
-			throw new ApiException(HttpStatus.CONFLICT, "branch_has_employees_cannot_delete", ex);
+			LegacyApiException conflict = new LegacyApiException(409, "branch_has_employees_cannot_delete");
+			conflict.initCause(ex);
+			throw conflict;
 		}
 	}
 
@@ -227,15 +235,15 @@ public class LegacyBranchService {
 	 */
 	@Transactional
 	public LegacyBranchView generateQr(long companyId, long id, Map<String, Object> body) {
-		Object expiresAtRaw = body.get("expiresAt");
+		Object expiresAtRaw = body.get("expires_at");
 		if (expiresAtRaw == null || String.valueOf(expiresAtRaw).isEmpty()) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "expires_at"));
 		}
 		Instant expiresAt = parseExpiresAt(String.valueOf(expiresAtRaw));
 
 		LegacyBranch branch = legacyBranchRepository.findByIdAndCompanyId(id, companyId)
 				.filter(LegacyBranch::active)
-				.orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "forbidden"));
+				.orElseThrow(() -> new LegacyApiException(400, "forbidden"));
 
 		branch.setQrCode(randomQrCode());
 		branch.setExpiresAt(expiresAt);
@@ -245,7 +253,7 @@ public class LegacyBranchService {
 	}
 
 	private void applyQrIfExpiresGiven(LegacyBranch branch, Map<String, Object> body) {
-		Object expiresAtRaw = body.get("expiresAt");
+		Object expiresAtRaw = body.get("expires_at");
 		if (expiresAtRaw == null || String.valueOf(expiresAtRaw).isEmpty()) {
 			return;
 		}
@@ -289,7 +297,9 @@ public class LegacyBranchService {
 		try {
 			return java.time.LocalDate.parse(raw).atStartOfDay(ZoneOffset.UTC).toInstant();
 		} catch (DateTimeParseException ex) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "invalid_date", ex);
+			LegacyApiException invalidDate = new LegacyApiException(400, "invalid_date");
+			invalidDate.initCause(ex);
+			throw invalidDate;
 		}
 	}
 
@@ -300,22 +310,24 @@ public class LegacyBranchService {
 		boolean lngPresent = lngRaw != null && !String.valueOf(lngRaw).isEmpty();
 
 		if (latPresent && lngPresent) {
-			double lat = Double.parseDouble(String.valueOf(latRaw));
-			double lng = Double.parseDouble(String.valueOf(lngRaw));
+			// PHP: (float) $lat / (float) $lng -- never throws; LegacyValues.toPhpDecimal mirrors that
+			// numeric-prefix cast rather than Double.parseDouble's all-or-nothing NumberFormatException.
+			double lat = LegacyValues.toPhpDecimal(latRaw).doubleValue();
+			double lng = LegacyValues.toPhpDecimal(lngRaw).doubleValue();
 			LegacyBranchLocationResolver.Coordinates pair = LegacyBranchLocationResolver.validPair(lat, lng);
 			if (pair == null) {
-				throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "invalid_branch_location");
+				throw new LegacyApiException(422, "invalid_branch_location");
 			}
 			return pair;
 		}
 
-		String link = body.get("locationLink") == null ? "" : String.valueOf(body.get("locationLink")).trim();
+		String link = body.get("location_link") == null ? "" : String.valueOf(body.get("location_link")).trim();
 		if (link.isEmpty()) {
 			return null;
 		}
 		LegacyBranchLocationResolver.Coordinates parsed = LegacyBranchLocationResolver.parseLink(link);
 		if (parsed == null) {
-			throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "invalid_branch_location");
+			throw new LegacyApiException(422, "invalid_branch_location");
 		}
 		return parsed;
 	}
@@ -324,6 +336,17 @@ public class LegacyBranchService {
 		return body.containsKey(key) && body.get(key) != null;
 	}
 
+	/**
+	 * PHP performs no cast at all here (D-071): {@code $body[Column::RADIUS_METERS] ?? 200}
+	 * binds the raw JSON-decoded value straight into the parameterized query, leaving
+	 * MariaDB's own non-strict coercion to decide the stored {@code int(10) UNSIGNED} value --
+	 * the exact shape D-071 already flagged as an open, unmeasured driver-coercion question.
+	 * Java's typed {@code Integer} setter cannot bind an arbitrary raw value the way PDO does,
+	 * so this is a disclosed approximation, not the measured fix D-071 calls for: numbers pass
+	 * through unchanged, and a numeric-prefixed string parses via {@link LegacyValues#toPhpLong}
+	 * (never throwing) rather than {@link Integer#parseInt} crashing the request with a 500 on
+	 * a non-numeric string PHP/MariaDB would instead have silently coerced.
+	 */
 	private static Integer toInteger(Object raw) {
 		if (raw == null) {
 			return null;
@@ -331,14 +354,7 @@ public class LegacyBranchService {
 		if (raw instanceof Number number) {
 			return number.intValue();
 		}
-		return Integer.parseInt(String.valueOf(raw));
-	}
-
-	private static boolean toBoolean(Object raw) {
-		if (raw instanceof Boolean bool) {
-			return bool;
-		}
-		return "1".equals(String.valueOf(raw)) || "true".equalsIgnoreCase(String.valueOf(raw));
+		return (int) LegacyValues.toPhpLong(raw);
 	}
 
 }

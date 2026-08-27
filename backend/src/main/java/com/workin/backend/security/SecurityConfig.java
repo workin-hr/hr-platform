@@ -23,6 +23,8 @@ import com.workin.backend.platformadmin.PlatformAdminJwtService;
 import com.workin.backend.tenancy.NoTenantScopeException;
 import com.workin.backend.tenancy.TenantScope;
 import com.workin.backend.tenancy.TenantScopeFilter;
+import com.workin.legacy.auth.LegacyPhpJwtAuthenticationFilter;
+import com.workin.legacy.auth.LegacyPhpJwtService;
 import com.workin.legacy.auth.LegacyTenantContextService;
 import com.workin.legacy.wire.LegacyPhpRoutes;
 
@@ -35,25 +37,6 @@ public class SecurityConfig {
 		return new BCryptPasswordEncoder();
 	}
 
-	/**
-	 * Evaluated before {@link #tenantSecurityFilterChain} (lower
-	 * {@code @Order} wins) and matched only to
-	 * {@code /api/platform-admin/**} -- a request under that path is
-	 * fully handled here and never reaches the tenant chain's
-	 * {@link JwtAuthenticationFilter} at all, and a tenant-identity
-	 * token is never even parsed against it. This is what makes the
-	 * platform/tenant domain separation
-	 * (docs/architecture/authorization-model.md §8) structural rather
-	 * than a runtime check.
-	 *
-	 * <p>{@code @Profile("!phase1-mysql")}: not pulled into the legacy
-	 * profile merely because the current PostgreSQL application has it
-	 * (ADR-0013 amendment 4) -- {@link PlatformAdminJwtService} lives in
-	 * the profile-excluded {@code platformadmin} package, and no
-	 * discovery has shown a legacy PHP platform-admin contract Phase 1
-	 * must reproduce. Frozen with the new-platform model until that
-	 * changes.
-	 */
 	@Bean
 	@Order(1)
 	@Profile("!phase1-mysql")
@@ -68,9 +51,6 @@ public class SecurityConfig {
 				.authenticationEntryPoint(apiSecurityErrorHandler)
 				.accessDeniedHandler(apiSecurityErrorHandler))
 			.authorizeHttpRequests(authorize -> authorize
-				// Refresh and logout authenticate by refresh-token
-				// possession -- the access token may already be expired
-				// when they are called.
 				.requestMatchers("/api/platform-admin/login", "/api/platform-admin/refresh",
 						"/api/platform-admin/logout").permitAll()
 				.anyRequest().authenticated())
@@ -80,40 +60,23 @@ public class SecurityConfig {
 	}
 
 	/**
-	 * The {@code phase1-mysql} chain (ADR-0013 Decision §7 / punch-list
-	 * item #9): matched only to {@code /api/legacy/**}, so a legacy
-	 * request never reaches {@link #tenantSecurityFilterChain} and a
-	 * PostgreSQL-identity token is never parsed against it, the same
-	 * structural separation the platform-admin chain already
-	 * established.
+	 * Phase-1 compatibility chain. Literal /apis/** requests authenticate with
+	 * the exact JWT format produced by frozen PHP. The JwtService dependency is
+	 * retained only for the temporary /api/legacy/** regression aliases that
+	 * predate the literal-route retrofit; it is not the client contract.
 	 *
-	 * <p>{@link JwtAuthenticationFilter} is reused unchanged -- the JWT
-	 * shape is identical for a legacy identity (D-042: {@code identityId}
-	 * and {@code membershipId} both carry the legacy employee id,
-	 * {@code companyId} the resolved company). What differs is what
-	 * happens to those claims next: {@link TenantScopeFilter}'s resolver
-	 * here re-derives and cross-checks them via
-	 * {@link LegacyTenantContextService#validate} rather than trusting
-	 * them, per {@code TenantScopeFilter}'s own contract that the
-	 * resolver -- not the filter -- is responsible for that trust
-	 * boundary. A resolver that just read the claim and entered it
-	 * directly would satisfy the type signature while reintroducing the
-	 * exact trust bug {@code TenantContextIsolationTest} exists to catch
-	 * on the PostgreSQL side (punch-list item #10, not yet built).
-	 *
-	 * <p>A mismatch or missing authentication resolves to
-	 * {@code Optional.empty()}, never a thrown exception from the
-	 * resolver itself -- {@code TenantScopeFilter} then simply does not
-	 * establish scope, and any tenant-scoped read downstream fails
-	 * closed via {@code TenantScope.current()} instead. The filter never
-	 * needs to reject a request on this account.
+	 * <p>PHP employee tokens are re-derived against the employee row. Any signed
+	 * PHP non-employee token (the frozen desktop/company login emits type=company)
+	 * has no employee membership claim; PHP trusts its signed company_id, so the
+	 * compatibility chain does the same. Company-active checks remain at the same
+	 * controller guard points as the frozen source.
 	 */
 	@Bean
 	@Order(2)
 	@Profile("phase1-mysql")
 	public SecurityFilterChain legacySecurityFilterChain(
-			HttpSecurity http, JwtService jwtService, TenantScope tenantScope,
-			LegacyTenantContextService legacyTenantContextService,
+			HttpSecurity http, LegacyPhpJwtService legacyPhpJwtService, JwtService jwtService,
+			TenantScope tenantScope, LegacyTenantContextService legacyTenantContextService,
 			ApiSecurityErrorHandler apiSecurityErrorHandler) throws Exception {
 		Function<HttpServletRequest, Optional<Long>> resolver = request -> {
 			if (!(SecurityContextHolder.getContext().getAuthentication() != null
@@ -121,17 +84,26 @@ public class SecurityConfig {
 							instanceof AuthenticatedPrincipal principal)) {
 				return Optional.empty();
 			}
+
+			// PHP's requireEmployeeSessionValid() is employee-type-specific.
+			// Other signed PHP auth types use their company_id directly.
+			if (principal.legacyAuthType() != null && !"employee".equals(principal.legacyAuthType())) {
+				return principal.claimedCompanyId() != null && principal.claimedCompanyId() > 0
+						? Optional.of(principal.claimedCompanyId()) : Optional.empty();
+			}
+
 			try {
 				return Optional.of(legacyTenantContextService.validate(
 						principal.identityId(), principal.claimedMembershipId(), principal.claimedCompanyId()));
-			} catch (NoTenantScopeException ex) {
+			} catch (NoTenantScopeException | NullPointerException ex) {
 				return Optional.empty();
 			}
 		};
+
+		LegacyPhpJwtAuthenticationFilter legacyJwtFilter =
+				new LegacyPhpJwtAuthenticationFilter(legacyPhpJwtService, jwtService);
+
 		http
-			// "/apis/**" is legacy's own URL surface (D-021/ADR-0003), which
-			// D-074 makes authoritative for Wave 12.4 onwards; "/api/legacy/**"
-			// stays matched for the modules merged before that decision.
 			.securityMatcher("/api/legacy/**", "/apis/**")
 			.csrf(csrf -> csrf.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -140,20 +112,20 @@ public class SecurityConfig {
 				.accessDeniedHandler(apiSecurityErrorHandler))
 			.authorizeHttpRequests(authorize -> authorize
 				.requestMatchers("/error").permitAll()
+				// Not dangling: LegacyLoginController no longer exists in src/main
+				// (moved to src/test as a D-074 regression-harness shim -- see the
+				// PR description), but that test-scoped controller is
+				// component-scanned and hit directly by
+				// LegacyLoginServiceRollbackTest over real HTTP during the test
+				// run, so this permitAll must stay for tests to exercise it; a
+				// login endpoint is unauthenticated by definition in production too.
 				.requestMatchers("/api/legacy/auth/login_employee").permitAll()
-				// Legacy checks the HTTP method before authenticating, so a
-				// wrong-method request with no token is a 405 in PHP, not a
-				// 401. Ending these routes at .authenticated() would reorder
-				// that and answer in the platform error body instead of the
-				// PHP envelope (D-074). LegacyPhpRoutes documents the
-				// convention and the coverage test that keeps it honest: the
-				// listed prefixes authenticate inside the controller, via
-				// LegacyRequestGuard, exactly where PHP does. Everything else
-				// under /apis/** still falls through to .authenticated().
+				// PHP checks method/body before auth on D-074 literal routes;
+				// controllers therefore own requireAuth() in the same order.
 				.requestMatchers(LegacyPhpRoutes.CONTROLLER_GUARDED).permitAll()
 				.anyRequest().authenticated())
-			.addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class)
-			.addFilterAfter(new TenantScopeFilter(tenantScope, resolver), JwtAuthenticationFilter.class);
+			.addFilterBefore(legacyJwtFilter, UsernamePasswordAuthenticationFilter.class)
+			.addFilterAfter(new TenantScopeFilter(tenantScope, resolver), LegacyPhpJwtAuthenticationFilter.class);
 		return http.build();
 	}
 
@@ -166,23 +138,14 @@ public class SecurityConfig {
 		http
 			.csrf(csrf -> csrf.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-			// Issue #70: without these, an expired token is answered by
-			// Spring Boot's default error JSON instead of {code, message}.
 			.exceptionHandling(exceptions -> exceptions
 				.authenticationEntryPoint(apiSecurityErrorHandler)
 				.accessDeniedHandler(apiSecurityErrorHandler))
 			.authorizeHttpRequests(authorize -> authorize
-				// A ResponseStatusException (e.g. 409/401 thrown from a
-				// controller) triggers an internal servlet ERROR
-				// dispatch to /error, which re-enters this same filter
-				// chain -- without this, that re-entry falls through to
-				// .anyRequest().authenticated() and masks the real
-				// status code behind a generic 403.
 				.requestMatchers("/error").permitAll()
 				.requestMatchers("/api/auth/**", "/actuator/health").permitAll()
 				.anyRequest().authenticated())
 			.addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
 		return http.build();
 	}
-
 }

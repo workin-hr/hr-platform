@@ -5,6 +5,10 @@ description: Use when creating or updating Claude or Codex agent definitions wit
 
 # Create Agent Definition
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when adding or updating agent definitions under `.claude/agents/` or `.codex/agents/`.

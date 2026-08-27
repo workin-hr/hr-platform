@@ -936,7 +936,7 @@ def main() -> int:
         message = (
             "Blocked by scripts/git_guard.py: "
             + reason
-            + ". Per AGENTS.md, CLAUDE.md, and docs/agents/operating-model.md, "
+            + ". Per the canonical AGENTS.md contract, "
             "destructive or history-mutating Git operations are not permitted "
             "for any agent in this repository — only a human may perform them, "
             "through the reviewed pull-request workflow."

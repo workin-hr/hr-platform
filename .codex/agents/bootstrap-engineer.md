@@ -1,5 +1,9 @@
 # Codex Bootstrap Engineer
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this role may narrow but never override it.
+
 ## Role
 
 Codex implementation agent for Phase 0 engineering bootstrap.

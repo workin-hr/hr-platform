@@ -16,11 +16,10 @@
 # relevant [profiles.*] block below into your own ~/.codex/config.toml, then
 # invoke with `codex --profile <name>` (or pass the two flags directly).
 #
-# Policy intent that Codex itself cannot enforce (no self-merge, no
-# self-approval, independent review required, human merge required, repo
-# scope limited to bootstrap files) is documented once, in
-# docs/agents/operating-model.md and docs/agents/responsibility-matrix.md —
-# not duplicated here as fake configuration.
+# Policy intent that Codex itself cannot enforce is canonical in AGENTS.md.
+# docs/agents/operating-model.md and docs/agents/responsibility-matrix.md
+# describe that contract; this file does not duplicate it as fake
+# configuration.
 
 [profiles.hr-platform-bootstrap-engineer]
 # For .codex/agents/bootstrap-engineer.md. Confirmed valid values via

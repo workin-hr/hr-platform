@@ -10,12 +10,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.workin.backend.i18n.ApiException;
+import com.workin.legacy.LegacyValues;
 import com.workin.legacy.employees.LegacyEmployee;
+import com.workin.legacy.wire.LegacyApiException;
 
 /**
  * Wave 12.1's five endpoints, ported behaviour-for-behaviour from {@code
@@ -107,44 +107,60 @@ public class LegacyExceptionTypeService {
 		return LegacyExceptionTypeView.of(findOwnedOrNotFound(companyId, id));
 	}
 
-	/** {@code create.php}. Caller has already run the role/company-active/permission gates. */
+	/**
+	 * {@code create.php}. Caller has already run the role/company-active/permission gates.
+	 * {@code rawIsActive}: PHP's {@code (int) ($body[IS_ACTIVE] ?? 1)} -- absent or
+	 * {@code null} defaults true; any other value is PHP-int-cast then compared to zero
+	 * ({@link LegacyValues#toPhpLong}), not a narrow boolean/string-literal match.
+	 */
 	@Transactional
-	public LegacyExceptionTypeView create(long companyId, String name, Boolean isActive) {
+	public LegacyExceptionTypeView create(long companyId, String name, Object rawIsActive) {
 		String trimmedName = requireNonBlankName(name);
 		if (legacyExceptionTypeRepository.existsByCompanyIdAndName(companyId, trimmedName)) {
-			throw new ApiException(HttpStatus.CONFLICT, "already_exists");
+			throw new LegacyApiException(409, "already_exists");
 		}
-		LegacyExceptionType created = saveOrConflict(new LegacyExceptionType(companyId, trimmedName, isActive == null || isActive));
+		boolean isActive = rawIsActive == null || LegacyValues.toPhpLong(rawIsActive) != 0;
+		LegacyExceptionType created = saveOrConflict(new LegacyExceptionType(companyId, trimmedName, isActive));
 		return LegacyExceptionTypeView.of(created);
 	}
 
 	/**
-	 * {@code update.php}. {@code body} is the raw request map so
-	 * presence (not value) decides which fields are touched, exactly
-	 * {@code whitelist_update_fields}'s {@code array_key_exists} shape --
-	 * a typed DTO cannot distinguish "field omitted" from "field sent as
-	 * null" without the same trick.
+	 * {@code update.php}. {@code body} is the raw request map, keyed by the wire's own
+	 * snake_case field names, so presence (not value) decides which fields are touched --
+	 * exactly {@code whitelist_update_fields}'s {@code array_key_exists} shape, which a
+	 * typed DTO cannot distinguish ("field omitted" vs. "field sent as null") without the
+	 * same trick.
+	 *
+	 * <p>PHP binds {@code is_active}'s raw JSON-decoded value straight into the {@code
+	 * UPDATE} with no cast at all (unlike {@code create.php}'s explicit {@code (int)}),
+	 * leaving MariaDB's own non-strict coercion to decide the stored value -- the same
+	 * shape D-071 found for {@code branches}' {@code radius_meters}/{@code latitude}/
+	 * {@code longitude}. Reproducing that exactly needs the same kind of driver-coercion
+	 * measurement D-071 called for and D-096 already performed for read paths; absent that
+	 * measurement here, this applies the same PHP-int-cast-then-truthy rule {@code
+	 * create.php} uses, which is not a proven behavioral match for every input (e.g. a
+	 * non-numeric string), only the disclosed, low-stakes simplification this module's
+	 * decision-log entry records for a flag field with no other business-logic dependency.
 	 */
 	@Transactional
 	public LegacyExceptionTypeView update(long companyId, long id, Map<String, Object> body) {
 		LegacyExceptionType exceptionType = findOwnedOrNotFound(companyId, id);
 
 		boolean touchesName = body.containsKey("name");
-		boolean touchesIsActive = body.containsKey("isActive");
+		boolean touchesIsActive = body.containsKey("is_active");
 		if (!touchesName && !touchesIsActive) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "nothing_to_update");
+			throw new LegacyApiException(400, "nothing_to_update");
 		}
 
 		if (touchesName) {
-			String trimmedName = requireNonBlankName((String) body.get("name"));
+			String trimmedName = requireNonBlankName(body.get("name"));
 			if (legacyExceptionTypeRepository.existsByCompanyIdAndNameAndIdNot(companyId, trimmedName, id)) {
-				throw new ApiException(HttpStatus.CONFLICT, "already_exists");
+				throw new LegacyApiException(409, "already_exists");
 			}
 			exceptionType.setName(trimmedName);
 		}
 		if (touchesIsActive) {
-			Object raw = body.get("isActive");
-			exceptionType.setActive(Boolean.TRUE.equals(raw) || "1".equals(String.valueOf(raw)) || Integer.valueOf(1).equals(raw));
+			exceptionType.setActive(LegacyValues.toPhpLong(body.get("is_active")) != 0);
 		}
 		return LegacyExceptionTypeView.of(saveOrConflict(exceptionType));
 	}
@@ -163,7 +179,9 @@ public class LegacyExceptionTypeService {
 			entityManager.flush();
 			return saved;
 		} catch (DataIntegrityViolationException ex) {
-			throw new ApiException(HttpStatus.CONFLICT, "already_exists", ex);
+			LegacyApiException conflict = new LegacyApiException(409, "already_exists");
+			conflict.initCause(ex);
+			throw conflict;
 		}
 	}
 
@@ -227,13 +245,14 @@ public class LegacyExceptionTypeService {
 
 	private LegacyExceptionType findOwnedOrNotFound(long companyId, long id) {
 		Optional<LegacyExceptionType> row = legacyExceptionTypeRepository.findByIdAndCompanyId(id, companyId);
-		return row.orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "not_found"));
+		return row.orElseThrow(() -> new LegacyApiException(404, "not_found"));
 	}
 
-	private static String requireNonBlankName(String rawName) {
-		String trimmed = rawName == null ? "" : rawName.trim();
+	/** {@code trim((string) $body[Request::NAME]) === ''}: PHP's own string cast and charlist, not Java's. */
+	private static String requireNonBlankName(Object rawName) {
+		String trimmed = LegacyValues.phpTrim(LegacyValues.toPhpString(rawName));
 		if (trimmed.isEmpty()) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "field_required");
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "name"));
 		}
 		return trimmed;
 	}

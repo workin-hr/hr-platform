@@ -3,12 +3,13 @@ package com.workin.legacy.organization;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -16,9 +17,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -26,17 +29,15 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
-import com.workin.backend.i18n.ApiErrorBody;
 import com.workin.backend.identity.JwtService;
 
 /**
- * PR 12.3a's full HTTP-to-real-MariaDB proof, mirroring {@code
- * LegacyExceptionTypeEndToEndTest}'s structure: real JWTs, {@code
- * phase1-mysql} active, every request through the real {@link
- * LegacyBranchController}. Covers D-056 (delete pre-check), D-057
- * (verified no-permission-gate negative, and the role gate applying to
- * reads too, unlike Wave 12.1), and the approved D-060 update-ownership
- * divergence documented on {@link LegacyBranchService#update}.
+ * PR 12.3a's full HTTP-to-real-MariaDB proof, retrofitted for Wave 12.R
+ * (D-108): the same guard-stack, D-056 (delete pre-check), D-057
+ * (no-permission-gate, role gate applying to reads too) and D-060
+ * (update-ownership divergence) coverage, now exercised against the literal
+ * {@code /apis/api/branches/*.php} routes and the D-074 PHP envelope instead
+ * of the retired {@code /api/legacy/branches} REST surface.
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -44,7 +45,13 @@ import com.workin.backend.identity.JwtService;
 class LegacyBranchEndToEndTest {
 
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
-	private static final String BASE_PATH = "/api/legacy/branches";
+	private static final String BASE_PATH = "/apis/api/branches";
+	private static final String LIST = BASE_PATH + "/list.php";
+	private static final String ONE = BASE_PATH + "/one.php";
+	private static final String CREATE = BASE_PATH + "/create.php";
+	private static final String UPDATE = BASE_PATH + "/update.php";
+	private static final String DELETE = BASE_PATH + "/delete.php";
+	private static final String GENERATE_QR = BASE_PATH + "/generate_qr.php";
 
 	private static final long COMPANY_1 = 8801L;
 	private static final long COMPANY_2 = 8802L;
@@ -97,6 +104,9 @@ class LegacyBranchEndToEndTest {
 	private static void seed() throws Exception {
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
 			st.execute("SET SESSION sql_mode = ''");
+			// branches.created_at is `timestamp` (same D-107 finding as exception_types): match
+			// LegacySessionDataSource's LegacyRuntimeOffset.DEFAULT so seeded literals round-trip.
+			st.execute("SET time_zone = '+02:00'");
 			st.execute("""
 					INSERT INTO companies (id, company_name, phone, status, created_at) VALUES
 					  (8801, 'Branch E2E Co 1', '+201000008801', 'active', '2025-01-15 09:00:00'),
@@ -172,25 +182,19 @@ class LegacyBranchEndToEndTest {
 
 	@Test
 	void plainEmployeeIsDeniedOnListDespiteAuthenticAuthentication() {
-		ResponseEntity<ApiErrorBody> response = get(BASE_PATH, PLAIN_EMPLOYEE_1, ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(403);
-		assertThat(response.getBody().code()).isEqualTo("forbidden_insufficient_role");
+		Map<String, Object> body = send(LIST, PLAIN_EMPLOYEE_1, HttpMethod.GET, null, 403, "");
+		assertThat(body.get("message")).isEqualTo("Forbidden — insufficient role");
 	}
 
 	@Test
 	void managerCanListBranches() {
-		ResponseEntity<LegacyBranchPage> response = get(BASE_PATH, MANAGER_1, LegacyBranchPage.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		send(LIST, MANAGER_1, HttpMethod.GET, null, 200, "");
 	}
 
 	@Test
 	void inactiveCompanyReturns403OnList() {
-		ResponseEntity<ApiErrorBody> response = get(BASE_PATH, ADMIN_SUSPENDED, ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(403);
-		assertThat(response.getBody().code()).isEqualTo("company_account_not_active");
+		Map<String, Object> body = send(LIST, ADMIN_SUSPENDED, HttpMethod.GET, null, 403, "");
+		assertThat(body.get("message")).isEqualTo("Company account is not active");
 	}
 
 	@Test
@@ -201,153 +205,125 @@ class LegacyBranchEndToEndTest {
 		String token = jwtService.issueAccessToken(
 				STALE_TOKEN_ADMIN, STALE_TOKEN_ADMIN, COMPANY_1, "test-session",
 				Map.of("role", "company_admin", "token_version", 1L));
-		ResponseEntity<ApiErrorBody> response = restTemplate.exchange(
-				BASE_PATH, HttpMethod.GET, new HttpEntity<>(headersFor(token)), ApiErrorBody.class);
-
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + LIST), HttpMethod.GET,
+				new HttpEntity<>(headersFor(token)), mapType());
 		assertThat(response.getStatusCode().value()).isEqualTo(401);
-		assertThat(response.getBody().code()).isEqualTo("session_replaced");
 	}
 
 	/** D-057: no hr_permissions row exists for ADMIN_1 at all -- every write must still succeed. */
 	@Test
 	void adminWithNoHrPermissionsRowSucceedsOnWrites() {
-		ResponseEntity<LegacyBranchView> response = post(
-				BASE_PATH, ADMIN_1, Map.of("name", "No Permission Row Needed"), LegacyBranchView.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(201);
+		send(CREATE, ADMIN_1, HttpMethod.POST, "{\"name\":\"No Permission Row Needed\"}", 201, "");
 	}
 
 	// ---------- list / one ----------
 
 	@Test
 	void listOnlyShowsActiveBranches() {
-		ResponseEntity<LegacyBranchPage> response = get(BASE_PATH, ADMIN_1, LegacyBranchPage.class);
-
-		assertThat(response.getBody().data()).extracting(LegacyBranchListItem::name).doesNotContain("Inactive Branch");
+		List<Map<String, Object>> rows = rowsOf(send(LIST, ADMIN_1, HttpMethod.GET, null, 200, ""));
+		assertThat(rows).extracting(row -> row.get("name")).doesNotContain("Inactive Branch");
 	}
 
 	@Test
 	void searchFiltersByNameOrAddress() {
-		ResponseEntity<LegacyBranchPage> response = get(BASE_PATH + "?search=Downtown", ADMIN_1, LegacyBranchPage.class);
-
-		assertThat(response.getBody().data()).extracting(LegacyBranchListItem::name).containsExactly("Search Target Alpha");
+		List<Map<String, Object>> rows = rowsOf(send(LIST, ADMIN_1, HttpMethod.GET, null, 200, "?search=Downtown"));
+		assertThat(rows).extracting(row -> row.get("name")).containsExactly("Search Target Alpha");
 	}
 
 	@Test
-	void oneReturnsTheBranchForItsOwnCompany() {
-		ResponseEntity<LegacyBranchView> response = get(BASE_PATH + "/8901", ADMIN_1, LegacyBranchView.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody().name()).isEqualTo("HQ One");
+	void oneReturnsTheWireFaithfulBranchForItsOwnCompany() {
+		Map<String, Object> row = dataOf(send(ONE, ADMIN_1, HttpMethod.GET, null, 200, "?id=8901"));
+		assertThat(row.get("name")).isEqualTo("HQ One");
+		assertThat(row.get("created_at")).isEqualTo("2025-03-01 10:00:00");
 	}
 
 	/** Legacy's own (unusual) pairing: message key "forbidden", HTTP 404. */
 	@Test
-	void oneReturns404WithForbiddenKeyForAnotherCompanysRow() {
-		ResponseEntity<ApiErrorBody> response = get(BASE_PATH + "/8904", ADMIN_1, ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(404);
-		assertThat(response.getBody().code()).isEqualTo("forbidden");
+	void oneReturns404WithForbiddenMessageForAnotherCompanysRow() {
+		Map<String, Object> body = send(ONE, ADMIN_1, HttpMethod.GET, null, 404, "?id=8904");
+		assertThat(body.get("message")).isEqualTo("Forbidden");
 	}
 
 	@Test
 	void oneReturns404ForAnInactiveBranchEvenWithinTheSameCompany() {
-		ResponseEntity<ApiErrorBody> response = get(BASE_PATH + "/8903", ADMIN_1, ApiErrorBody.class);
+		Map<String, Object> body = send(ONE, ADMIN_1, HttpMethod.GET, null, 404, "?id=8903");
+		assertThat(body.get("message")).isEqualTo("Forbidden");
+	}
 
-		assertThat(response.getStatusCode().value()).isEqualTo(404);
-		assertThat(response.getBody().code()).isEqualTo("forbidden");
+	@Test
+	void oneWithNoIdReturns400IdRequired() {
+		Map<String, Object> body = send(ONE, ADMIN_1, HttpMethod.GET, null, 400, "");
+		assertThat(body.get("message")).isEqualTo("id required");
 	}
 
 	// ---------- create ----------
 
 	@Test
 	void createWithoutNameReturns400() {
-		ResponseEntity<ApiErrorBody> response = post(BASE_PATH, ADMIN_1, Map.of(), ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(400);
-		assertThat(response.getBody().code()).isEqualTo("field_required");
+		Map<String, Object> body = send(CREATE, ADMIN_1, HttpMethod.POST, "{}", 400, "");
+		assertThat(body.get("message")).isEqualTo("Field 'name' is required");
 	}
 
 	@Test
 	void createWithValidCoordinatesSucceeds() {
-		Map<String, Object> body = new HashMap<>();
-		body.put("name", "Valid Coords Branch");
-		body.put("latitude", 30.0444);
-		body.put("longitude", 31.2357);
-		ResponseEntity<LegacyBranchView> response = post(BASE_PATH, ADMIN_1, body, LegacyBranchView.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(201);
-		assertThat(response.getBody().latitude()).isNotNull();
+		Map<String, Object> row = dataOf(send(
+				CREATE, ADMIN_1, HttpMethod.POST,
+				"{\"name\":\"Valid Coords Branch\",\"latitude\":30.0444,\"longitude\":31.2357}", 201, ""));
+		assertThat(row.get("latitude")).isNotNull();
 	}
 
 	@Test
 	void createWithNearZeroZeroCoordinatesReturns422() {
-		Map<String, Object> body = new HashMap<>();
-		body.put("name", "Bad Coords Branch");
-		body.put("latitude", 0.0000001);
-		body.put("longitude", 0.0000001);
-		ResponseEntity<ApiErrorBody> response = post(BASE_PATH, ADMIN_1, body, ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(422);
-		assertThat(response.getBody().code()).isEqualTo("invalid_branch_location");
+		Map<String, Object> body = send(
+				CREATE, ADMIN_1, HttpMethod.POST,
+				"{\"name\":\"Bad Coords Branch\",\"latitude\":0.0000001,\"longitude\":0.0000001}", 422, "");
+		assertThat(body.get("message")).isEqualTo(
+				"Invalid location link or coordinates. Use a full Google Maps link or valid latitude and longitude.");
 	}
 
 	/** The zoom-level/latitude mixup: lng looks like an integer zoom level (1-21), lat looks like a real latitude (20-70 abs). */
 	@Test
 	void createWithZoomLevelMixupCoordinatesReturns422() {
-		Map<String, Object> body = new HashMap<>();
-		body.put("name", "Zoom Mixup Branch");
-		body.put("latitude", 30.5);
-		body.put("longitude", 15.0);
-		ResponseEntity<ApiErrorBody> response = post(BASE_PATH, ADMIN_1, body, ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(422);
-		assertThat(response.getBody().code()).isEqualTo("invalid_branch_location");
+		Map<String, Object> body = send(
+				CREATE, ADMIN_1, HttpMethod.POST,
+				"{\"name\":\"Zoom Mixup Branch\",\"latitude\":30.5,\"longitude\":15.0}", 422, "");
+		assertThat(String.valueOf(body.get("message"))).contains("Invalid location link");
 	}
 
 	@Test
 	void createWithAGoogleMapsAtCoordinateLinkParsesTheLocation() {
-		Map<String, Object> body = new HashMap<>();
-		body.put("name", "Link Parsed Branch");
-		body.put("locationLink", "https://www.google.com/maps/@30.0444200,31.2357100,15z");
-		ResponseEntity<LegacyBranchView> response = post(BASE_PATH, ADMIN_1, body, LegacyBranchView.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(201);
-		assertThat(response.getBody().latitude()).isEqualByComparingTo(java.math.BigDecimal.valueOf(30.04442));
+		Map<String, Object> row = dataOf(send(
+				CREATE, ADMIN_1, HttpMethod.POST,
+				"{\"name\":\"Link Parsed Branch\","
+						+ "\"location_link\":\"https://www.google.com/maps/@30.0444200,31.2357100,15z\"}",
+				201, ""));
+		assertThat(new java.math.BigDecimal(row.get("latitude").toString()))
+				.isEqualByComparingTo(java.math.BigDecimal.valueOf(30.04442));
 	}
 
 	@Test
 	void createWithNoLocationAtAllSucceedsWithNullCoordinates() {
-		ResponseEntity<LegacyBranchView> response = post(BASE_PATH, ADMIN_1, Map.of("name", "No Location Branch"), LegacyBranchView.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(201);
-		assertThat(response.getBody().latitude()).isNull();
-		assertThat(response.getBody().longitude()).isNull();
-		assertThat(response.getBody().radiusMeters()).isEqualTo(200);
+		Map<String, Object> row = dataOf(send(CREATE, ADMIN_1, HttpMethod.POST, "{\"name\":\"No Location Branch\"}", 201, ""));
+		assertThat(row.get("latitude")).isNull();
+		assertThat(row.get("longitude")).isNull();
+		assertThat(row.get("radius_meters")).isEqualTo(200);
 	}
 
 	@Test
 	void createWithRadiusMetersZeroPreservesZeroNotTheDefault() {
-		Map<String, Object> body = new HashMap<>();
-		body.put("name", "Zero Radius Create");
-		body.put("radiusMeters", 0);
-		ResponseEntity<LegacyBranchView> response = post(BASE_PATH, ADMIN_1, body, LegacyBranchView.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(201);
-		assertThat(response.getBody().radiusMeters()).isEqualTo(0);
+		Map<String, Object> row = dataOf(send(
+				CREATE, ADMIN_1, HttpMethod.POST, "{\"name\":\"Zero Radius Create\",\"radius_meters\":0}", 201, ""));
+		assertThat(row.get("radius_meters")).isEqualTo(0);
 	}
 
 	// ---------- update ----------
 
 	@Test
 	void updateOnlyTouchesFieldsSentAndNonNull() {
-		Map<String, Object> body = new HashMap<>();
-		body.put("radiusMeters", 500);
-		ResponseEntity<LegacyBranchView> response = put(BASE_PATH + "/8907", ADMIN_1, body, LegacyBranchView.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody().radiusMeters()).isEqualTo(500);
-		assertThat(response.getBody().address()).isEqualTo("Original Address");
+		Map<String, Object> row = dataOf(send(UPDATE, ADMIN_1, HttpMethod.PUT, "{\"radius_meters\":500}", 200, "?id=8907"));
+		assertThat(row.get("radius_meters")).isEqualTo(500);
+		assertThat(row.get("address")).isEqualTo("Original Address");
 	}
 
 	/**
@@ -358,20 +334,14 @@ class LegacyBranchEndToEndTest {
 	 */
 	@Test
 	void updateWithAnExplicitNullFieldDoesNotClearTheExistingValue() {
-		Map<String, Object> body = new HashMap<>();
-		body.put("address", null);
-		ResponseEntity<LegacyBranchView> response = put(BASE_PATH + "/8907", ADMIN_1, body, LegacyBranchView.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody().address()).isEqualTo("Original Address");
+		Map<String, Object> row = dataOf(send(UPDATE, ADMIN_1, HttpMethod.PUT, "{\"address\":null}", 200, "?id=8907"));
+		assertThat(row.get("address")).isEqualTo("Original Address");
 	}
 
 	@Test
 	void updateWithNoFieldsAtAllIsASilentNoOpNot400() {
-		ResponseEntity<LegacyBranchView> response = put(BASE_PATH + "/8907", ADMIN_1, Map.of(), LegacyBranchView.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody().address()).isEqualTo("Original Address");
+		Map<String, Object> row = dataOf(send(UPDATE, ADMIN_1, HttpMethod.PUT, "{}", 200, "?id=8907"));
+		assertThat(row.get("address")).isEqualTo("Original Address");
 	}
 
 	/**
@@ -383,30 +353,24 @@ class LegacyBranchEndToEndTest {
 	 */
 	@Test
 	void updateOfAnotherCompanysBranchReturns404NotTheOtherCompanysData() {
-		ResponseEntity<ApiErrorBody> response = put(BASE_PATH + "/8904", ADMIN_1, Map.of("name", "Hijacked"), ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(404);
-		assertThat(response.getBody().code()).isEqualTo("branch_not_found");
+		Map<String, Object> body = send(UPDATE, ADMIN_1, HttpMethod.PUT, "{\"name\":\"Hijacked\"}", 404, "?id=8904");
+		assertThat(body.get("message")).isEqualTo("Branch not found");
 	}
 
 	/** D-060: missing and cross-tenant ids deliberately share one non-enumerating 404 contract. */
 	@Test
 	void updateOfMissingBranchReturnsTheSame404AsAnotherTenantsBranch() {
-		ResponseEntity<ApiErrorBody> response = put(
-				BASE_PATH + "/899999", ADMIN_1, Map.of("name", "Missing"), ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(404);
-		assertThat(response.getBody().code()).isEqualTo("branch_not_found");
+		Map<String, Object> body = send(UPDATE, ADMIN_1, HttpMethod.PUT, "{\"name\":\"Missing\"}", 404, "?id=899999");
+		assertThat(body.get("message")).isEqualTo("Branch not found");
 	}
 
 	// ---------- delete (D-056) ----------
 
 	@Test
 	void deleteWithAssignedEmployeesReturns409BeforeAttemptingTheDelete() throws Exception {
-		ResponseEntity<ApiErrorBody> response = delete(BASE_PATH + "/8906", ADMIN_1, ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(409);
-		assertThat(response.getBody().code()).isEqualTo("branch_has_employees_cannot_delete");
+		Map<String, Object> body = send(DELETE, ADMIN_1, HttpMethod.DELETE, null, 409, "?id=8906");
+		assertThat(body.get("message")).isEqualTo(
+				"Cannot delete this branch because it has employees assigned. Remove or reassign employees first.");
 		assertThat(branchExists(8906L)).describedAs("the pre-check must short-circuit before any delete").isTrue();
 	}
 
@@ -414,18 +378,15 @@ class LegacyBranchEndToEndTest {
 	void deleteWithNoAssignedEmployeesSucceedsAndClearsDepartmentBranchesAtomically() throws Exception {
 		assertThat(departmentBranchLinkCount(8905L)).isEqualTo(1);
 
-		ResponseEntity<Void> response = delete(BASE_PATH + "/8905", ADMIN_1, Void.class);
+		send(DELETE, ADMIN_1, HttpMethod.DELETE, null, 200, "?id=8905");
 
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
 		assertThat(branchExists(8905L)).isFalse();
 		assertThat(departmentBranchLinkCount(8905L)).isEqualTo(0);
 	}
 
 	@Test
 	void deleteOfAnotherCompanysBranchReturns404AndLeavesItIntact() throws Exception {
-		ResponseEntity<ApiErrorBody> response = delete(BASE_PATH + "/8904", ADMIN_1, ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(404);
+		send(DELETE, ADMIN_1, HttpMethod.DELETE, null, 404, "?id=8904");
 		assertThat(branchExists(8904L)).isTrue();
 	}
 
@@ -433,30 +394,24 @@ class LegacyBranchEndToEndTest {
 
 	@Test
 	void generateQrSucceedsAndSetsQrCodeAndExpiresAt() {
-		ResponseEntity<LegacyBranchView> response = post(
-				BASE_PATH + "/8901/qr", ADMIN_1, Map.of("expiresAt", "2026-12-31T00:00:00Z"), LegacyBranchView.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(200);
-		assertThat(response.getBody().qrCode()).isNotBlank();
-		assertThat(response.getBody().expiresAt()).isNotNull();
+		Map<String, Object> row = dataOf(send(
+				GENERATE_QR, ADMIN_1, HttpMethod.POST, "{\"expires_at\":\"2026-12-31T00:00:00Z\"}", 200, "?id=8901"));
+		assertThat(row.get("qr_code")).isNotNull();
+		assertThat(row.get("expires_at")).isNotNull();
 	}
 
 	@Test
 	void generateQrWithoutExpiresAtReturns400() {
-		ResponseEntity<ApiErrorBody> response = post(BASE_PATH + "/8901/qr", ADMIN_1, Map.of(), ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(400);
-		assertThat(response.getBody().code()).isEqualTo("field_required");
+		Map<String, Object> body = send(GENERATE_QR, ADMIN_1, HttpMethod.POST, "{}", 400, "?id=8901");
+		assertThat(body.get("message")).isEqualTo("Field 'expires_at' is required");
 	}
 
 	/** Legacy's own {@code fail(LangKey::FORBIDDEN)} omits the status arg -- default 400, not 403/404. */
 	@Test
-	void generateQrForAnotherCompanysBranchReturns400WithForbiddenKey() {
-		ResponseEntity<ApiErrorBody> response = post(
-				BASE_PATH + "/8904/qr", ADMIN_1, Map.of("expiresAt", "2026-12-31T00:00:00Z"), ApiErrorBody.class);
-
-		assertThat(response.getStatusCode().value()).isEqualTo(400);
-		assertThat(response.getBody().code()).isEqualTo("forbidden");
+	void generateQrForAnotherCompanysBranchReturns400WithForbiddenMessage() {
+		Map<String, Object> body = send(
+				GENERATE_QR, ADMIN_1, HttpMethod.POST, "{\"expires_at\":\"2026-12-31T00:00:00Z\"}", 400, "?id=8904");
+		assertThat(body.get("message")).isEqualTo("Forbidden");
 	}
 
 	// ---------- helpers ----------
@@ -473,26 +428,36 @@ class LegacyBranchEndToEndTest {
 				employeeId, employeeId, companyId, "test-session", Map.of("role", role, "token_version", 1L));
 	}
 
-	private <T> ResponseEntity<T> get(String path, long employeeId, Class<T> type) {
-		return restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headersFor(tokenFor(employeeId))), type);
-	}
-
-	private <T> ResponseEntity<T> post(String path, long employeeId, Map<String, Object> body, Class<T> type) {
-		return restTemplate.exchange(path, HttpMethod.POST, new HttpEntity<>(body, headersFor(tokenFor(employeeId))), type);
-	}
-
-	private <T> ResponseEntity<T> put(String path, long employeeId, Map<String, Object> body, Class<T> type) {
-		return restTemplate.exchange(path, HttpMethod.PUT, new HttpEntity<>(body, headersFor(tokenFor(employeeId))), type);
-	}
-
-	private <T> ResponseEntity<T> delete(String path, long employeeId, Class<T> type) {
-		return restTemplate.exchange(path, HttpMethod.DELETE, new HttpEntity<>(headersFor(tokenFor(employeeId))), type);
-	}
-
 	private HttpHeaders headersFor(String token) {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setBearerAuth(token);
 		return headers;
+	}
+
+	private Map<String, Object> send(
+			String path, long actor, HttpMethod method, String json, int expectedStatus, String query) {
+		HttpHeaders headers = headersFor(tokenFor(actor));
+		headers.set("Accept-Language", "en");
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + path + query), method,
+				new HttpEntity<>(json, headers), mapType());
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(expectedStatus);
+		return response.getBody();
+	}
+
+	private static ParameterizedTypeReference<Map<String, Object>> mapType() {
+		return new ParameterizedTypeReference<Map<String, Object>>() { };
+	}
+
+	@SuppressWarnings("unchecked")
+	private static Map<String, Object> dataOf(Map<String, Object> body) {
+		return (Map<String, Object>) body.get("data");
+	}
+
+	@SuppressWarnings("unchecked")
+	private static List<Map<String, Object>> rowsOf(Map<String, Object> body) {
+		return (List<Map<String, Object>>) body.get("data");
 	}
 
 }

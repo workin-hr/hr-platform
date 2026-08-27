@@ -5,6 +5,10 @@ description: Use when assembling pull-request evidence, validation output, assum
 
 # Prepare PR Evidence
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when a branch is ready for review and the PR description or evidence package needs to be assembled.

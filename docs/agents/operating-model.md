@@ -1,5 +1,14 @@
 # Agent Operating Model
 
+## Instruction Authority
+
+Repository-root `AGENTS.md` is the single canonical policy and workflow
+source. This document explains the operating model but cannot override it.
+`CLAUDE.md` imports `AGENTS.md`; all agent definitions and repository-authored
+skills must declare that they inherit it. Policy changes begin in `AGENTS.md`
+and propagate to enforcement, catalogs, definitions, and validation in the
+same branch.
+
 ## Roles
 
 - Humans own final product, architecture, security, and production decisions.
@@ -13,6 +22,8 @@
 - implementers cannot approve their own work
 - no agent can merge its own pull request
 - no agent may access production data or unrestricted credentials
+- every change must complete `AGENTS.md`'s Mandatory Change Propagation check
+  before handoff
 
 ## Workflow
 
@@ -65,7 +76,7 @@ strength. Do not read any of them as stronger than they are — see
    product-specific) credential/key patterns (`*credentials*`, `*secret*`,
    `*.key`, `id_rsa*`, `id_ed25519*`, `*.p12`, `*.pfx`, `*.keystore`,
    `*.jks`) added ahead of discovery evidence landing under `evidence/`,
-   per CLAUDE.md's boundary against storing production credentials or
+   per `AGENTS.md`'s boundary against storing production credentials or
    customer-sensitive data. Each pattern must cover both Read and Edit —
    Read-only coverage would still leave the file overwritable —
    regression-tested in `scripts/test_validate_phase0.py`.

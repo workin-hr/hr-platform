@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,16 +17,24 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.workin.backend.i18n.ApiErrorBody;
 import com.workin.backend.i18n.ApiException;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.auth.LegacyRequestGuard;
 import com.workin.legacy.employees.LegacyEmployee;
+import com.workin.legacy.wire.LegacyApiException;
 
 /**
- * {@code /api/legacy/job_titles/**} (Wave 12.3c). All five endpoints role-gate reads and writes,
- * require an active company, and deliberately carry no {@code hr_permissions} gate (D-057).
+ * Test-only Wave 12.3c REST alias retained solely for pre-D-074 regression coverage.
+ *
+ * <p>{@link LegacyJobTitleService} is shared with the production {@code .php} controller and
+ * throws {@link LegacyApiException} (the PHP-envelope exception type, D-107/D-108's fix for the
+ * shared service's {@code {field}}-placeholder fidelity). This alias predates that envelope and
+ * its own regression suite asserts the platform {@link ApiErrorBody} shape, so it translates
+ * locally rather than either reverting the service's exception type or silently changing this
+ * suite's contract.
  */
 @RestController
 @RequestMapping("/api/legacy/job_titles")
@@ -83,15 +92,15 @@ public class LegacyJobTitleController {
 		return context;
 	}
 
-	/**
-	 * {@code one.php}/{@code update.php}/{@code delete.php}: {@code $id = (int)($_GET['id'] ?? 0);
-	 * if (!$id) fail(ID_REQUIRED);}. Only exact zero is falsy in PHP; a negative id stays truthy and
-	 * falls through unchanged to the normal (not-found) lookup, so this must not become {@code id <= 0}.
-	 */
 	private static void requireId(long id) {
 		if (id == 0) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "id_required");
 		}
 	}
 
+	@ExceptionHandler(LegacyApiException.class)
+	public ResponseEntity<ApiErrorBody> handleLegacy(LegacyApiException ex) {
+		return ResponseEntity.status(ex.getStatus())
+				.body(new ApiErrorBody(ex.getMessageKey(), ex.getMessageKey()));
+	}
 }

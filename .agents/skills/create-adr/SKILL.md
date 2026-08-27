@@ -5,6 +5,10 @@ description: Use when creating or updating an architecture decision record with 
 
 # Create ADR
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when a decision materially affects architecture, governance, migration, testing, compatibility, or security boundaries.

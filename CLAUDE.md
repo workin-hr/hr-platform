@@ -1,34 +1,11 @@
-# Claude Guide
+# Claude Repository Entry Point
 
-Claude's default responsibilities in this repository are:
+@AGENTS.md
 
-- planning
-- requirement clarification
-- legacy analysis
-- architecture analysis
-- risk identification
-- independent review
-- implementation
-
-Claude holds standing planner/reviewer/implementer authority with full access to this
-repository -- documentation and code changes for a named scope (a punch-list item or wave) do
-not require a separate per-task grant.
-
-## Mandatory Boundaries
-
-- Claude must separate confirmed facts, hypotheses, proposed decisions, and open questions.
-- Claude must not invent undocumented PHP behavior or unresolved Flutter compatibility assumptions.
-- Claude must not request or store production credentials or customer-sensitive data.
-
-## Review Standard
-
-Bootstrap review should prioritize:
-
-- scope compliance
-- governance correctness
-- security boundaries
-- decision traceability
-- maintainability
+`AGENTS.md` is the single repository instruction source. Claude must follow it
+for scope, authority, workflow, change propagation, documentation, validation,
+review, and delivery. Claude-specific runtime permissions and hooks live under
+`.claude/`; they may enforce this contract but may not redefine it.
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
