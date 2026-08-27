@@ -74,16 +74,9 @@ class LegacyAdvanceServiceTest {
 				.containsEntry("deduction_payroll_month", null);
 	}
 
-	/**
-	 * Regression for a real cross-tenant write: frozen PHP {@code create.php}
-	 * takes {@code employee_id} straight from the body with no company
-	 * cross-check for Company Admin/HR callers, so any admin could insert an
-	 * advance against another tenant's employee. Not reproduced -- see
-	 * {@code LegacyAdvanceStore.employeeCompanyId}'s note.
-	 */
 	@Test
 	void adminCreateRejectsAnEmployeeIdBelongingToAnotherCompany() {
-		when(store.employeeCompanyId(999L)).thenReturn(41L); // a different company than the caller's 17L.
+		when(store.employeeCompanyId(999L)).thenReturn(41L);
 
 		assertThatThrownBy(() -> service.create(
 				context(0L, LegacyEmployee.Role.HR), Map.of("amount", 500, "employee_id", 999)))
@@ -100,15 +93,6 @@ class LegacyAdvanceServiceTest {
 		verify(store).scopedWithEmployee(17L, 90L);
 	}
 
-	/**
-	 * Regression for a real cross-tenant IDOR: frozen PHP {@code approve.php}
-	 * writes {@code WHERE id=?} with no company scoping at all, so any
-	 * Company Admin/HR of any tenant could approve any other tenant's
-	 * advance. Not reproduced -- see {@code LegacyAdvanceStore
-	 * .employeeCompanyId}'s note. The caller's context companyId is 17L
-	 * (see {@link #context}); a foreign advance (not visible under that
-	 * scope) must 404 before any write.
-	 */
 	@Test
 	void approveIsCompanyScopedAndRejectsAForeignAdvanceId() {
 		when(store.scoped(17L, 91L)).thenReturn(null);
@@ -128,7 +112,6 @@ class LegacyAdvanceServiceTest {
 		verify(store).approve(91L);
 	}
 
-	/** Same IDOR class as {@code approve.php}; see that test's note. */
 	@Test
 	void payIsCompanyScopedAndRejectsAForeignAdvanceId() {
 		when(store.scopedPaymentState(17L, 92L)).thenReturn(null);
@@ -138,14 +121,6 @@ class LegacyAdvanceServiceTest {
 		verify(store, never()).payIfSufficientBalance(eq(92L), org.mockito.ArgumentMatchers.any());
 	}
 
-	/**
-	 * The overpayment threshold itself now lives in {@link LegacyAdvanceStore
-	 * #payIfSufficientBalance}'s atomic SQL {@code WHERE remaining >= ?} predicate (PR #120
-	 * review, closing a lost-update race between two concurrent payments), not in Java
-	 * arithmetic here -- {@code LegacyAdvancePayEndToEndTest} proves that atomicity against a
-	 * real database. This test covers what remains the service's own job: reject when the
-	 * store reports 0 rows changed, whatever the reason.
-	 */
 	@Test
 	void payRejectsWhenTheAtomicUpdateAffectsNoRows() {
 		when(store.scopedPaymentState(17L, 92L))
@@ -166,11 +141,30 @@ class LegacyAdvanceServiceTest {
 		existing.put("remaining", new BigDecimal("125.00"));
 		existing.put("reason", "old");
 		when(store.scoped(17L, 93L)).thenReturn(existing);
+		when(store.updateEmployee(93L, new BigDecimal("600.00"), "old")).thenReturn(1);
 		when(store.withEmployee(93L)).thenReturn(Map.of("id", 93L));
 
 		service.update(context(31L, LegacyEmployee.Role.EMPLOYEE), 93L, Map.of("amount", new BigDecimal("600.00")));
 
 		verify(store).updateEmployee(93L, new BigDecimal("600.00"), "old");
+	}
+
+	@Test
+	void employeeUpdateRejectsWhenApprovalWinsAfterThePendingPreflight() {
+		Map<String, Object> existing = new LinkedHashMap<>();
+		existing.put("employee_id", 31L);
+		existing.put("status", "pending");
+		existing.put("amount", new BigDecimal("500.00"));
+		existing.put("reason", "old");
+		when(store.scoped(17L, 93L)).thenReturn(existing);
+		when(store.updateEmployee(93L, new BigDecimal("600.00"), "old")).thenReturn(0);
+
+		assertThatThrownBy(() -> service.update(
+				context(31L, LegacyEmployee.Role.EMPLOYEE), 93L, Map.of("amount", new BigDecimal("600.00"))))
+				.isInstanceOf(LegacyApiException.class)
+				.satisfies(ex -> assertThat(((LegacyApiException) ex).getMessageKey())
+						.isEqualTo("cannot_edit_non_pending_advance"));
+		verify(store, never()).withEmployee(93L);
 	}
 
 	@Test
@@ -225,7 +219,6 @@ class LegacyAdvanceServiceTest {
 		verify(store).delete(95L);
 	}
 
-	/** Same IDOR class as {@code approve.php}; see that test's note. */
 	@Test
 	void adminDeleteIsCompanyScopedAndRejectsAForeignAdvanceId() {
 		when(store.scopedDeleteState(17L, 95L)).thenReturn(null);
