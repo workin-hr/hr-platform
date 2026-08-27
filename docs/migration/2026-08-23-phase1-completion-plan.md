@@ -176,7 +176,10 @@ the other side: the six DB-backed payroll functions those two endpoints need
 "additionally read Wave 12.7's `requests` table". So 12.6.6 cannot precede the
 wave that owns the table it reads.
 
-**12.6.6 also waits for broad J.2.** §J.2 is explicitly *partially* resolved:
+**12.6.6 also waited for broad J.2 — no longer.** §4.5 is now closed by
+evidence (2026-08-27): every payroll function that boundary named is already in
+`main`. The original constraint is preserved below as the reason the ordering was
+set, not as a live blocker. §J.2 was explicitly *partially* resolved:
 `payroll_is_weekly_rest_day` may be extracted, and "the broader subset — the six
 DB-backed functions `overall_report` and `export` need, two of which reach
 `company_settings` and the holiday helper D-090 excluded ... **remains
@@ -540,14 +543,40 @@ as a blocker on 12.6.3, 12.6.4 and 12.6.5, meaning the reader's behaviour must
 be measured against real EAV rows before those slices proceed. Not a cutover
 item; it gates three slices and nothing else.
 
-### 4.5 Broad Wave-12.6 J.2 payroll boundary — **[wave: 12.6.6]**
+### 4.5 Broad Wave-12.6 J.2 payroll boundary — **[closed]**
 
-Partially resolved: `payroll_is_weekly_rest_day` may be extracted. The broad
-subset — six DB-backed functions, two reaching `company_settings` and the
-holiday helper D-090 excluded, all reading Wave 12.7's `requests` — remains
-blocked, and §J.2 says the final decision is "deliberately **not** recorded
-yet". It gates 12.6.6 only, and cannot honestly be settled before Wave 12.7
-lands, because the answer depends on what 12.7 makes available.
+**Closed 2026-08-27 by evidence, not by decision** —
+`2026-08-27-broad-j2-settlement-discovery.md`.
+
+This section previously read: partially resolved, with the broad subset "blocked"
+and the final decision "deliberately **not** recorded yet", answerable only once
+Wave 12.7 landed. Wave 12.7 landed, and so did 12.8 and 12.9.
+
+Measured at `hr-platform@e112ebc`, **all seven payroll functions §G.2 enumerated
+are already in `main`**. They were never pulled forward into Wave 12.6 — they
+landed in their own waves as part of the payroll engine (D-105), which is exactly
+the ownership principle J.2 was protecting. The question "may Wave 12.6 pull these
+forward?" is moot: there is nothing left to pull.
+
+Two specifics worth keeping, because both are narrower than the original phrasing:
+
+- **The `company_settings` reach is D-091's existing key.**
+  `official_holidays_working_days_in_range()` reads exactly
+  `CompanySettingEnum::WEEKLY_OFF_DAYS` — the same single key D-091 authorized a
+  bounded reader for and D-103 fixed the case defect on. Not a new dependency, not
+  a second key, not a step toward Item 13's settings endpoints.
+- **The `requests` dependency closed with Wave 12.7**, and `request_types` with
+  12.5. Both consuming functions are ported against them.
+
+What remains for `overall_report.php` is four unported calendar helpers
+(`attendance_exception_details_for_period`, `attendance_absent_details_for_period`,
+`attendance_void_weekly_rest_absent_details_for_period`,
+`attendance_period_work_minutes` — 221 lines of PHP total) plus the report builder.
+A normal slice, not a boundary decision.
+
+This closes the *dependency* question only. Whether the endpoint is delivered,
+excluded or deferred is C9's disposition and remains owed from the owner (§8.1).
+`attendance/export.php` is untouched by this — its constraint was never J.2.
 
 ### 4.6 Flutter token refresh / `hr-platform#18` — **[cutover]**, with a dependency
 
@@ -826,14 +855,22 @@ Not decisions — evidence and sequencing owed by the waves that own them.
 - **D-071 numeric-coercion probe** (§4.2) — attached to Wave 12.R.
 - **D-091 reader evidence** (§4.4) — gates 12.6.3/4/5.
 - **D-083 settlement** (§4.3) — now gates 12.6.3.
-- **Broad J.2** (§4.5) — gates 12.6.6. Recorded as "answerable only after Wave 12.7";
-  **Wave 12.7 has now landed**, so it is open for decision rather than blocked.
+- **Broad J.2** (§4.5) — **evidence complete 2026-08-27, blocker gone.** See
+  `2026-08-27-broad-j2-settlement-discovery.md`. All seven payroll functions §G.2
+  enumerated are already in `main`, delivered by Waves 12.8/12.9 in their own waves
+  rather than pulled forward; the `company_settings` reach turned out to be D-091's
+  existing single `WEEKLY_OFF_DAYS` key, and the `requests` dependency closed with
+  Wave 12.7. No decision is required to unblock `overall_report.php` on dependency
+  grounds. What remains for that endpoint is four unported calendar helpers
+  (221 lines) plus the report builder — a normal slice, not a boundary decision.
 - **The three open Item-12 endpoints** (C9, §6) — **what stands between the
   repository and Item 12's closure.** Each needs a disposition no agent may pick:
   deliver it, or formally exclude it under a numbered decision that names it.
-  - `attendance/overall_report.php` — a JSON endpoint. Delivering it requires broad
-    J.2 settled first (same six DB-backed payroll functions). Excluding it requires a
-    rationale that is *not* the binary-response one, since that rationale is false.
+  - `attendance/overall_report.php` — a JSON endpoint. **No longer dependency-blocked**:
+    broad J.2's evidence is complete and every payroll function it named is already in
+    `main` (see above). Delivering it is a normal Wave 12.6.6 slice. Excluding it
+    requires a rationale that is *not* the binary-response one, since that rationale is
+    false.
   - `attendance/export.php` and `payslips/export.php` — genuinely binary streaming
     responses, which makes them substantial work but does not by itself exclude them.
     D-101 and D-106 record them as blocked/open, not excluded, and legacy serves both
