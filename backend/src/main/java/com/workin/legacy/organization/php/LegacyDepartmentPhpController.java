@@ -54,6 +54,12 @@ public class LegacyDepartmentPhpController {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 	}
 
+	/**
+	 * The list is intentionally unpaginated for PHP compatibility, so lexical wire-row reads are
+	 * batched by company rather than re-fetching each department by id. The service still owns
+	 * filtering and joins; this adapter performs one additional company-scoped raw-row query to
+	 * preserve MariaDB's timestamp/number wire representation without an N+1 round-trip pattern.
+	 */
 	@RequestMapping("/list.php")
 	public LegacyApiResponse list(HttpServletRequest request) {
 		requireMethod(request, "GET");
@@ -62,9 +68,10 @@ public class LegacyDepartmentPhpController {
 		Object rawBranchId = query.value("branch_id");
 		String rawBranchIds = LegacyValues.phpTrim(LegacyValues.toPhpString(query.value("branch_ids")));
 		List<String> branchIds = rawBranchIds.isEmpty() ? List.of() : Arrays.asList(rawBranchIds.split(","));
-		List<Map<String, Object>> rows = service.list(
-				context.companyId(), LegacyValues.toPhpLong(rawBranchId), branchIds)
-				.stream().map(view -> wireRow(view, true)).toList();
+		List<LegacyDepartmentView> views = service.list(
+				context.companyId(), LegacyValues.toPhpLong(rawBranchId), branchIds);
+		Map<Long, Map<String, Object>> wireRowsById = wireRowsByCompany(context.companyId());
+		List<Map<String, Object>> rows = views.stream().map(view -> wireRow(view, wireRowsById)).toList();
 		return LegacyApiResponse.ok(message(request, "departments"), rows);
 	}
 
@@ -123,10 +130,33 @@ public class LegacyDepartmentPhpController {
 				: "SELECT id, manager_id, name, is_active, created_at FROM departments WHERE id=?";
 		Map<String, Object> row = new LinkedHashMap<>(
 				jdbcTemplate.queryForObject(select, LegacyJdbcValues.rowMapper(), view.id()));
+		return enrichWireRow(row, view);
+	}
+
+	private Map<String, Object> wireRow(
+			LegacyDepartmentView view, Map<Long, Map<String, Object>> wireRowsById) {
+		Map<String, Object> raw = wireRowsById.get(view.id());
+		if (raw == null) {
+			throw new IllegalStateException("legacy department wire row missing for id " + view.id());
+		}
+		return enrichWireRow(new LinkedHashMap<>(raw), view);
+	}
+
+	private static Map<String, Object> enrichWireRow(Map<String, Object> row, LegacyDepartmentView view) {
 		row.put("branch_ids", view.branchIds());
 		row.put("branch_names", view.branchNames());
 		row.put("manager_name", view.managerName());
 		return row;
+	}
+
+	private Map<Long, Map<String, Object>> wireRowsByCompany(long companyId) {
+		Map<Long, Map<String, Object>> byId = new LinkedHashMap<>();
+		for (Map<String, Object> row : jdbcTemplate.query(
+				"SELECT id, company_id, manager_id, name, is_active, created_at FROM departments WHERE company_id=?",
+				LegacyJdbcValues.rowMapper(), companyId)) {
+			byId.put(LegacyValues.toPhpLong(row.get("id")), row);
+		}
+		return byId;
 	}
 
 	private static long requiredId(HttpServletRequest request) {
