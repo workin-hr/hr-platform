@@ -122,8 +122,17 @@ public class LegacyAdvanceStore {
 		return single("SELECT employee_id, status FROM advances WHERE id=?", id);
 	}
 
-	public void updateEmployee(long id, Object amount, Object reason) {
-		jdbc.update("UPDATE advances SET amount=?, remaining=?, reason=? WHERE id=?", amount, amount, reason, id);
+	/**
+	 * Employee-owned edits are legal only while the advance is still pending. Folding the status
+	 * predicate into the write prevents a stale preflight read from rewriting amount/remaining
+	 * after an administrator concurrently approves the advance (PR #120 review).
+	 *
+	 * @return rows changed; zero means the row ceased to be pending before the write
+	 */
+	public int updateEmployeeIfPending(long id, Object amount, Object reason) {
+		return jdbc.update(
+				"UPDATE advances SET amount=?, remaining=?, reason=? WHERE id=? AND status='pending'",
+				amount, amount, reason, id);
 	}
 
 	public void updateAdministrative(long id, Map<String, Object> values) {
