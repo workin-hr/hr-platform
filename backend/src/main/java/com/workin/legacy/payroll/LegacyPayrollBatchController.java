@@ -24,12 +24,15 @@ import jakarta.servlet.http.HttpServletRequest;
 public class LegacyPayrollBatchController {
 
 	private final LegacyPayrollBatchService service;
+	private final LegacyPayrollBatchCreateCoordinator creates;
 	private final LegacyRequestGuard guard;
 	private final LegacyMessages messages;
 
 	public LegacyPayrollBatchController(
-			LegacyPayrollBatchService service, LegacyRequestGuard guard, LegacyMessages messages) {
+			LegacyPayrollBatchService service, LegacyPayrollBatchCreateCoordinator creates,
+			LegacyRequestGuard guard, LegacyMessages messages) {
 		this.service = service;
+		this.creates = creates;
 		this.guard = guard;
 		this.messages = messages;
 	}
@@ -54,7 +57,7 @@ public class LegacyPayrollBatchController {
 	public ResponseEntity<LegacyApiResponse> create(HttpServletRequest request) {
 		requireMethod(request, "POST");
 		LegacyRequestContext context = role();
-		Map<String, Object> row = service.create(context.companyId(), LegacyJsonBody.read(request));
+		Map<String, Object> row = creates.create(context.companyId(), LegacyJsonBody.read(request));
 		return ResponseEntity.status(201).body(LegacyApiResponse.ok(message(request, "payroll_batch_created"), row));
 	}
 
