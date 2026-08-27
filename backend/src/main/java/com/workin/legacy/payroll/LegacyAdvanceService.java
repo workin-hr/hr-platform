@@ -145,7 +145,11 @@ public class LegacyAdvanceService {
 			}
 			Object amount = phpCoalesce(body, existing, "amount");
 			Object reason = phpCoalesce(body, existing, "reason");
-			store.updateEmployee(id, amount, reason);
+			if (store.updateEmployee(id, amount, reason) == 0) {
+				// Approval/rejection won the race after the preflight read. The conditional
+				// SQL write changed nothing, so report the same error as a normal non-pending edit.
+				throw new LegacyApiException(400, "cannot_edit_non_pending_advance");
+			}
 		} else {
 			Map<String, Object> values = new LinkedHashMap<>();
 			values.put("amount", phpCoalesce(body, existing, "amount"));
