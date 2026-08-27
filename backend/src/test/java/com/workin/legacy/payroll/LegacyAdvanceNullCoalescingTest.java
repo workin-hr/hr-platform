@@ -26,6 +26,7 @@ class LegacyAdvanceNullCoalescingTest {
 		existing.put("amount", new BigDecimal("500.00"));
 		existing.put("reason", "stored");
 		when(store.scoped(17L, 96L)).thenReturn(existing);
+		when(store.updateEmployee(96L, new BigDecimal("500.00"), "stored")).thenReturn(1);
 		when(store.withEmployee(96L)).thenReturn(Map.of("id", 96L));
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("amount", null);
