@@ -130,14 +130,22 @@ public class LegacyPenaltyService {
 		}
 		Map<String, Object> row = store.mutableState(id);
 		validateMutable(companyId, row);
-		store.updateFields(id, values);
+		if (store.updateFields(id, values) == 0) {
+			// Batch finalization marked the penalty applied after the preflight read. The
+			// conditional SQL write changed nothing; expose the same immutability error.
+			throw new LegacyApiException(403, "forbidden");
+		}
 		return requireRow(store.publicMutationRow(id));
 	}
 
 	public void delete(long companyId, long id) {
 		Map<String, Object> row = store.mutableState(id);
 		validateMutable(companyId, row);
-		store.deleteById(id);
+		if (store.deleteById(id) == 0) {
+			// Same finalization race as update(): once applied, the row must survive because
+			// the finalized payslip already accounts for its deduction.
+			throw new LegacyApiException(403, "forbidden");
+		}
 	}
 
 	public Map<String, Object> stats(LegacyRequestContext context, LegacyQueryParameters query) {
