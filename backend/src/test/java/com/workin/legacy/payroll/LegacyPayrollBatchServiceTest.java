@@ -8,6 +8,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -90,19 +92,34 @@ class LegacyPayrollBatchServiceTest {
 	}
 
 	@Test
-	void updateWithNoBodyFieldsKeepsTheBatchsExistingMonthAndYear() {
+	void updateWithNoBodyFieldsKeepsTheLockedBatchsExistingMonthAndYear() throws Exception {
+		transactionalConnection();
 		Map<String, Object> batch = new LinkedHashMap<>();
 		batch.put("id", 91L);
 		batch.put("status", "draft");
 		batch.put("month", 3);
 		batch.put("year", 2026);
 		when(store.scoped(91L, 9L)).thenReturn(batch);
+		when(store.scopedForUpdate(91L, 9L)).thenReturn(batch);
 		when(fiscalSettings.fiscalPeriodBounds(9L, 2026, 3)).thenReturn(new String[] {"2026-03-01", "2026-03-31"});
 		when(store.withStats(91L, 9L)).thenReturn(Map.of("id", 91L));
 
 		service.update(9L, 91L, Map.of());
 
 		verify(store).updatePeriod(91L, 3, 2026, "2026-03-01", "2026-03-31");
+	}
+
+	@Test
+	void updateRechecksFinalizedStateAfterTakingTheLifecycleLock() throws Exception {
+		transactionalConnection();
+		when(store.scoped(91L, 9L)).thenReturn(Map.of("id", 91L, "status", "draft", "month", 3, "year", 2026));
+		when(store.scopedForUpdate(91L, 9L)).thenReturn(Map.of("id", 91L, "status", "finalized", "month", 3, "year", 2026));
+
+		assertThatThrownBy(() -> service.update(9L, 91L, Map.of("month", 4)))
+				.isInstanceOf(LegacyApiException.class)
+				.satisfies(ex -> assertThat(((LegacyApiException) ex).getMessageKey()).isEqualTo("batch_already_finalized"));
+		verify(store, never()).updatePeriod(eq(91L), eq(4), eq(2026), org.mockito.ArgumentMatchers.anyString(),
+				org.mockito.ArgumentMatchers.anyString());
 	}
 
 	// delete()'s status check and deletion now run inside the same locked transaction as
@@ -170,6 +187,27 @@ class LegacyPayrollBatchServiceTest {
 	}
 
 	@Test
+	void finalizeUsesThePeriodVisibleAfterTakingTheLifecycleLock() throws Exception {
+		transactionalConnection();
+		when(store.scoped(91L, 9L)).thenReturn(Map.of(
+				"id", 91L, "status", "draft", "month", 3, "year", 2026,
+				"period_from", "2026-03-01", "period_to", "2026-03-31"));
+		when(store.scopedForUpdate(91L, 9L)).thenReturn(Map.of(
+				"id", 91L, "status", "draft", "month", 4, "year", 2026,
+				"period_from", "2026-04-01", "period_to", "2026-04-30"));
+		when(fiscalSettings.fiscalPeriodBounds(9L, 2026, 4)).thenReturn(new String[] {"2026-04-01", "2026-04-30"});
+		when(store.finalizeBatchIfNotAlready(91L, "finalized", "2026-04-01", "2026-04-30")).thenReturn(1);
+		when(store.payslipsForBatch(91L)).thenReturn(List.of());
+		when(store.withStats(91L, 9L)).thenReturn(Map.of("id", 91L, "status", "finalized", "month", 4, "year", 2026));
+
+		Map<String, Object> result = service.finalize(9L, 91L);
+
+		assertThat(result).containsEntry("status", "finalized").containsEntry("month", 4);
+		verify(store).finalizeBatchIfNotAlready(91L, "finalized", "2026-04-01", "2026-04-30");
+		verify(store).markPenaltiesAppliedForBatch(91L, "2026-04-01", "2026-04-30");
+	}
+
+	@Test
 	void reopenRefusesADraftBatch() {
 		when(store.scoped(91L, 9L)).thenReturn(Map.of("id", 91L, "status", "draft"));
 		assertThatThrownBy(() -> service.reopen(9L, 91L))
@@ -210,5 +248,12 @@ class LegacyPayrollBatchServiceTest {
 		assertThat(result.get("total_basic_salary")).isEqualTo(new java.math.BigDecimal("18000.00"));
 		assertThat(result.get("avg_net_salary")).isEqualTo(new java.math.BigDecimal("5666.67"));
 		assertThat(result.get("period_from")).isEqualTo("2026-04-01");
+	}
+
+	private Connection transactionalConnection() throws SQLException {
+		Connection connection = mock(Connection.class);
+		when(connection.getAutoCommit()).thenReturn(true);
+		when(legacyDataSource.getConnection()).thenReturn(connection);
+		return connection;
 	}
 }
