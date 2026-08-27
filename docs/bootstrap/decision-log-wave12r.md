@@ -26,7 +26,9 @@ Evidence: D-107 regression history, shared auth tests, department/job-title end-
 
 The final public compatibility surface adds five literal `departments` routes, five literal `job_titles` routes, and `auth/login_employee.php`. The organization adapters reuse the already-reviewed Wave 12.3 business services and own PHP wire concerns: method order, query/body coercion, snake-case fields, envelope rendering, and fresh lexical database rows.
 
-The bidirectional `/apis/**` inventory is **125 routes**. The three deliberate binary/report exclusions remain `attendance/overall_report.php`, `attendance/export.php`, and `payslips/export.php`.
+The bidirectional `/apis/**` inventory is **125 routes**. The deliberate binary exclusions remain `attendance/export.php` and `payslips/export.php`.
+
+**Corrected 2026-08-27 (C9, completion plan section 6).** This entry as first written also listed `attendance/overall_report.php` as a binary/report exclusion. It is not one: the file ends at `ok(LangKey::OK, $report, 200)` and returns the ordinary D-074 JSON envelope. It is an unimplemented live endpoint, not an exclusion, and its disposition is owed from the owner. D-110's route boundary for the retrofit itself is unaffected -- `overall_report.php` was never in Wave 12.R's 22.
 
 The earlier draft of this decision incorrectly allowed the new-platform refresh-token design to remain on the Phase-1 employee-login route. D-111 supersedes that detail: the frozen PHP login and token behavior is authoritative for Phase 1.
 

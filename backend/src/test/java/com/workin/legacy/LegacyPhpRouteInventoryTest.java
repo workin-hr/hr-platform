@@ -140,12 +140,28 @@ class LegacyPhpRouteInventoryTest {
 				"/apis/api/job_titles/delete.php", "/apis/api/auth/login_employee.php");
 	}
 
+	/**
+	 * Both endpoints terminate in a streaming helper declared {@code : never}
+	 * ({@code data_export_attendance_csv}, {@code api_xlsx_export_send}) instead of returning
+	 * PHP's {@code ok()} JSON envelope, so there is no D-074 wire contract to reproduce.
+	 */
 	@Test
-	void intentionallyDeferredBinaryReportsStayUnmapped() {
+	void intentionallyExcludedBinaryExportsStayUnmapped() {
 		assertThat(EXPECTED_ROUTES).doesNotContain(
-				"/apis/api/attendance/overall_report.php",
 				"/apis/api/attendance/export.php",
 				"/apis/api/payslips/export.php");
+	}
+
+	/**
+	 * Not an exclusion. {@code attendance/overall_report.php} ends at
+	 * {@code ok(LangKey::OK, $report, 200)} and is an ordinary JSON read endpoint; it was
+	 * misclassified as binary because it shares export.php's broad J.2 payroll blocker. It is
+	 * unmapped because it is unimplemented, and this assertion must be deleted -- not amended --
+	 * when Wave 12.6.6 delivers it. See C9 in the Phase 1 completion plan.
+	 */
+	@Test
+	void theUnimplementedOverallReportEndpointIsStillUnmapped() {
+		assertThat(EXPECTED_ROUTES).doesNotContain("/apis/api/attendance/overall_report.php");
 	}
 
 	@Test

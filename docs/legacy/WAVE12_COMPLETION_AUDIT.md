@@ -6,12 +6,16 @@ Authoritative source: frozen `workin-hr/hr-legacy` commit `d113204c8a2cf83b997c5
 
 ## Completion result
 
-Wave 12 is complete for its agreed Phase 1 JSON/API scope.
+Wave 12 is complete for its agreed Phase 1 JSON/API scope **except for one endpoint**:
+`attendance/overall_report.php`, which this audit originally misclassified as a binary
+exclusion and which is in fact an unimplemented JSON route. See "Correction --
+`overall_report.php` is a JSON endpoint" below.
 
 - Wave 12.8: **20/20** — `salary_contracts` 5, `advances` 8, `penalties` 7.
 - Wave 12.9: `payroll_batches` **10/10** and `payslips` **5/6**. `payslips/export.php` is deliberately excluded because it is a binary XLSX response.
 - Wave 12.10: **3/3** — `company/update.php`, `company/upload_logo.php`, `company/upload_commercial_reg.php`.
-- Deferred attendance JSON work: `list.php`, `stats.php`, and `employee_monthly_attendance.php` are implemented. `overall_report.php` and `export.php` remain deliberate binary/report exclusions.
+- Deferred attendance JSON work: `list.php`, `stats.php`, and `employee_monthly_attendance.php` are implemented.
+  `export.php` remains a deliberate binary exclusion. **`overall_report.php` is not** -- see the correction below.
 - Wave 12.R compatibility retrofit: **5/5 module slices complete**.
   - `attendance_exception_types`: 5/5 — D-107.
   - `branches`: 6/6 — D-108.
@@ -21,13 +25,51 @@ Wave 12 is complete for its agreed Phase 1 JSON/API scope.
 
 The delivered client-facing inventory is **125 literal `/apis/**` routes**.
 
-The only three frozen endpoints deliberately outside this completion boundary are:
+The two frozen endpoints deliberately outside this completion boundary are:
 
-- `/apis/api/attendance/overall_report.php`
 - `/apis/api/attendance/export.php`
 - `/apis/api/payslips/export.php`
 
-They are exclusions by recorded scope, not missing JSON-route implementation.
+Both terminate in a streaming helper declared `: never` (`data_export_attendance_csv`,
+`api_xlsx_export_send`) rather than returning the `ok()` JSON envelope. They are exclusions by
+recorded scope, not missing JSON-route implementation.
+
+## Correction -- `overall_report.php` is a JSON endpoint
+
+This audit as first written listed `/apis/api/attendance/overall_report.php` alongside those two
+as a third "binary/report exclusion". That is factually wrong, and the error is corrected here
+rather than left in place.
+
+`apis/api/attendance/overall_report.php` at frozen `d113204` builds `$report` through
+`overall_attendance_report_build()`, strips the internal `_period_from`/`_period_to` keys, and
+ends at:
+
+```php
+ok(LangKey::OK, $report, 200);
+```
+
+`ok()` (`apis/helpers/functions.php:380`) is the same D-074 envelope helper every delivered route
+uses. The file contains no streaming path, no `: never` helper, and no binary response of any
+kind. It is an ordinary JSON read endpoint.
+
+Why the two were conflated: they were blocked *together*, on the broad Wave-12.6 J.2 payroll
+boundary (completion plan section 4.5), because both reach the same six DB-backed payroll
+functions. That shared blocker is real. It is not the same thing as `export.php`'s binary-response
+rationale, and applying one file's rationale to the other collapsed "blocked" into "excluded".
+
+Consequences:
+
+- Item 12 is **not** closed. One live JSON endpoint remains owed, and Wave 12.6.6 is
+  correspondingly incomplete at 1 of 2 rather than closed by exclusion.
+- The completion plan's endpoint ledger is corrected accordingly -- see C9 in section 6 there.
+- `LegacyPhpRouteInventoryTest.intentionallyDeferredBinaryReportsStayUnmapped` encoded the same
+  misclassification in its name and its assertion set. It is split into
+  `intentionallyExcludedBinaryExportsStayUnmapped` (the two genuine exclusions) and
+  `theUnimplementedOverallReportEndpointIsStillUnmapped`, whose javadoc records that the
+  assertion is to be **deleted**, not amended, when the endpoint is delivered.
+
+Broad J.2 was recorded as "answerable only after Wave 12.7". Wave 12.7 has now landed, so the
+question this endpoint waits on is open for decision rather than blocked.
 
 ## Phase 1 compatibility invariant
 
