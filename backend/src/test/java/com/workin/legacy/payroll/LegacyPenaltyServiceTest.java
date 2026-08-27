@@ -89,6 +89,7 @@ class LegacyPenaltyServiceTest {
 	@Test
 	void updatePreservesWhitelistOrderAndExplicitNullReason() {
 		when(store.mutableState(93L)).thenReturn(Map.of("company_id", 17L, "applied_to_payroll", 0L));
+		when(store.updateFields(eq(93L), any())).thenReturn(1);
 		when(store.publicMutationRow(93L)).thenReturn(Map.of("id", 93L));
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("reason", null);
@@ -101,6 +102,31 @@ class LegacyPenaltyServiceTest {
 		verify(store).updateFields(eq(93L), values.capture());
 		assertThat(values.getValue().keySet()).containsExactly("penalty_days", "reason");
 		assertThat(values.getValue()).containsEntry("penalty_days", 2.0).containsEntry("reason", null);
+	}
+
+	@Test
+	void updateRejectsWhenFinalizationAppliesPenaltyAfterPreflight() {
+		when(store.mutableState(94L)).thenReturn(Map.of("company_id", 17L, "applied_to_payroll", 0L));
+		when(store.updateFields(eq(94L), any())).thenReturn(0);
+
+		assertThatThrownBy(() -> service.update(17L, 94L, Map.of("reason", "late edit")))
+				.isInstanceOfSatisfying(LegacyApiException.class, ex -> {
+					assertThat(ex.getStatus()).isEqualTo(403);
+					assertThat(ex.getMessageKey()).isEqualTo("forbidden");
+				});
+		verify(store, never()).publicMutationRow(94L);
+	}
+
+	@Test
+	void deleteRejectsWhenFinalizationAppliesPenaltyAfterPreflight() {
+		when(store.mutableState(95L)).thenReturn(Map.of("company_id", 17L, "applied_to_payroll", 0L));
+		when(store.deleteById(95L)).thenReturn(0);
+
+		assertThatThrownBy(() -> service.delete(17L, 95L))
+				.isInstanceOfSatisfying(LegacyApiException.class, ex -> {
+					assertThat(ex.getStatus()).isEqualTo(403);
+					assertThat(ex.getMessageKey()).isEqualTo("forbidden");
+				});
 	}
 
 	@Test
