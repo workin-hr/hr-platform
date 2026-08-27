@@ -179,3 +179,51 @@ February, commits, and then asserts both the February batch period and February
 attendance-derived payslip. It failed before the fix (`month` returned `1` in
 the initial January reproduction, then the unique-period fixture was moved to
 September for whole-class isolation) and passes after the optimistic retry.
+
+## D-119: The legacy row-count contract is enforced at startup, not only documented
+
+**Status:** Accepted 2026-08-27.
+
+D-113/D-114's advance and penalty guards fold their qualifying predicate into
+the write itself -- `AND status='pending'` in `LegacyAdvanceStore.updateEmployee`,
+`AND applied_to_payroll=0` in `LegacyPenaltyStore.updateFields`/`deleteById` --
+and resolve a lost race from an affected-row count of zero. That inference is
+only sound while the connection reports rows *matched* by the `WHERE` clause
+rather than rows actually *changed*, i.e. while `CLIENT_FOUND_ROWS` is in
+effect. MariaDB Connector/J controls this with `useAffectedRows`.
+
+The dependency was recorded in `docs/legacy/PR120_REVIEW_REMEDIATION.md` but
+nothing enforced it. A deployment that added `useAffectedRows=true` to
+`LEGACY_DB_JDBC_URL` would make every edit resubmitting already-stored values
+change no rows, and the guards would reject those legal edits with
+`400 cannot_edit_non_pending_advance` or `403 forbidden`. Nothing in the build
+or the runtime would have objected; the first signal would have been users
+unable to edit their own pending advances.
+
+`LegacyRowCountStartupCheck` closes that vector by failing closed: under the
+`phase1-mysql` profile it inspects `app.legacy-db.jdbc-url` and refuses to
+start when the option is enabled. This deliberately converts a silent
+data-correctness regression into a boot failure, on the same
+`ApplicationRunner` pattern as `JwtSecretStartupCheck` and
+`SuperuserStartupCheck`. Rollback is removing the option from the URL, which is
+the same action the error message names.
+
+Scope is the deployment-configuration vector only. A change in the *driver's*
+default is already caught by
+`LegacyAdvancePayEndToEndTest#employeeEditResubmittingStoredValuesSucceedsInsteadOfLookingLikeALostRace`
+and
+`LegacyPayrollBatchCalculateEndToEndTest#penaltyEditResubmittingStoredValuesSucceedsInsteadOfLookingLikeALostRace`,
+which exercise the semantics against real MariaDB on every build. A runtime
+probe was considered and rejected: proving the semantics live requires a write,
+and the least invasive form (a temporary table) would make startup depend on
+`CREATE TEMPORARY TABLES` privilege, trading a documented configuration risk for
+an undocumented privilege one.
+
+Evidence: `LegacyRowCountStartupCheckTest` (16 cases) covers the enabling forms
+(`true`/`TRUE`/`1`/`yes`/valueless/mixed-case key/among other parameters), the
+non-enabling forms (`false`/`0`/empty/absent), near-miss keys that merely
+contain the option name, and the unset URL the default profile leaves empty.
+Wiring was verified by falsification rather than assumed: appending
+`?useAffectedRows=true` to `LegacyAdvancePayEndToEndTest`'s container URL now
+fails context startup with this check's message, where before the same patch
+booted and produced the `400` at request time.
