@@ -1,5 +1,6 @@
 package com.workin.legacy.payroll;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
@@ -79,10 +80,26 @@ public class LegacyPayslipController {
 	public LegacyApiResponse update(HttpServletRequest request) {
 		requireMethod(request, "PUT");
 		LegacyRequestContext context = writerRole();
+		Map<String, Object> body = phpUpdateBody(LegacyJsonBody.read(request));
 		Map<String, Object> row = service.update(
-				context.companyId(), requiredId(request), LegacyJsonBody.read(request),
+				context.companyId(), requiredId(request), body,
 				presentLabel(request), weeklyRestLabel(request), officialHolidayFallbackLabel(request));
 		return LegacyApiResponse.ok(message(request, "payslip_updated"), row);
+	}
+
+	/**
+	 * PHP's {@code $body['penalty_days'] ?? payroll_unapplied_penalty_days(...)} treats an explicit
+	 * JSON {@code null} exactly like an omitted key. {@link LegacyPayslipService#update} uses
+	 * key-presence to distinguish an explicit override, so normalize only this null-coalesced
+	 * compatibility field at the literal PHP adapter boundary before the service sees it.
+	 */
+	static Map<String, Object> phpUpdateBody(Map<String, Object> body) {
+		if (!body.containsKey("penalty_days") || body.get("penalty_days") != null) {
+			return body;
+		}
+		Map<String, Object> normalized = new LinkedHashMap<>(body);
+		normalized.remove("penalty_days");
+		return normalized;
 	}
 
 	private String presentLabel(HttpServletRequest request) {
