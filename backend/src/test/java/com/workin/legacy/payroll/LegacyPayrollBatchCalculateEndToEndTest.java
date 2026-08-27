@@ -61,6 +61,7 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 	private static final String FINALIZE = "/apis/api/payroll_batches/finalize.php";
 	private static final String REOPEN = "/apis/api/payroll_batches/reopen.php";
 	private static final String STATS = "/apis/api/payroll_batches/stats.php";
+	private static final String DELETE = "/apis/api/payroll_batches/delete.php";
 
 	private static final long COMPANY_1 = 21401L;
 	private static final long ADMIN_1 = 214011L;
@@ -266,6 +267,91 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 
 		Map<String, Object> body = send(CALCULATE, ADMIN_1, HttpMethod.POST, null, 400, "?id=" + batchId);
 		assertThat(body.get("message")).isEqualTo("Batch already finalized");
+	}
+
+	/**
+	 * {@code delete.php}'s status check and deletion are now atomic under the same batch-row
+	 * lock {@code calculate()}/{@code finalize()}/{@code reopen()} use (PR #120 review) --
+	 * real-database replacement for the mocked-store unit tests that premise made obsolete.
+	 */
+	@Test
+	void deleteRemovesADraftBatchAndItsPayslips() throws Exception {
+		Map<String, Object> createBody = dataOf(send(CREATE, ADMIN_1, HttpMethod.POST,
+				"{\"month\":5,\"year\":2020}", 201));
+		long batchId = number(createBody.get("id"));
+		send(CALCULATE, ADMIN_1, HttpMethod.POST, null, 200, "?id=" + batchId);
+
+		send(DELETE, ADMIN_1, HttpMethod.DELETE, null, 200, "?id=" + batchId);
+
+		assertThat(queryScalar("SELECT COUNT(*) FROM payroll_batches WHERE id=" + batchId)).isEqualTo(0L);
+		assertThat(queryScalar("SELECT COUNT(*) FROM payslips WHERE batch_id=" + batchId)).isEqualTo(0L);
+	}
+
+	/** Same lock, already-finalized branch: the batch and its payslips must survive untouched. */
+	@Test
+	void deleteRefusesAnAlreadyFinalizedBatchAndLeavesItIntact() throws Exception {
+		Map<String, Object> createBody = dataOf(send(CREATE, ADMIN_1, HttpMethod.POST,
+				"{\"month\":7,\"year\":2020}", 201));
+		long batchId = number(createBody.get("id"));
+		send(CALCULATE, ADMIN_1, HttpMethod.POST, null, 200, "?id=" + batchId);
+		send(FINALIZE, ADMIN_1, HttpMethod.PUT, null, 200, "?id=" + batchId);
+
+		Map<String, Object> body = send(DELETE, ADMIN_1, HttpMethod.DELETE, null, 400, "?id=" + batchId);
+		assertThat(body.get("message")).isEqualTo("Batch already finalized");
+
+		assertThat(queryScalar("SELECT COUNT(*) FROM payroll_batches WHERE id=" + batchId)).isEqualTo(1L);
+		assertThat(queryScalar("SELECT COUNT(*) FROM payslips WHERE batch_id=" + batchId)).isNotEqualTo(0L);
+	}
+
+	/**
+	 * PR #120 review (P1): {@code delete.php} previously read the batch status via the pooled,
+	 * unlocked {@code store} and then deleted unconditionally, racing a concurrent {@code
+	 * finalize.php} for the same batch -- finalize could commit its status transition and
+	 * advance/penalty side effects a moment after delete's read, and delete would then remove
+	 * the finalized batch and its payslips anyway. {@code delete()} now takes the same {@code
+	 * SELECT ... FOR UPDATE} lock {@code calculate()} does; proven the same way, by holding
+	 * that lock externally and asserting a concurrent {@code delete()} call blocks until it is
+	 * released.
+	 */
+	@Test
+	void deleteBlocksOnTheSameRowLockCalculateFinalizeAndReopenAlreadyUse() throws Exception {
+		Map<String, Object> createBody = dataOf(send(CREATE, ADMIN_1, HttpMethod.POST,
+				"{\"month\":8,\"year\":2020}", 201));
+		long batchId = number(createBody.get("id"));
+
+		try (Connection lockHolder = connect()) {
+			lockHolder.setAutoCommit(false);
+			try (Statement st = lockHolder.createStatement();
+					java.sql.ResultSet rs = st.executeQuery(
+							"SELECT * FROM payroll_batches WHERE id=" + batchId + " FOR UPDATE")) {
+				assertThat(rs.next()).as("lock-holder must see the freshly created batch row").isTrue();
+			}
+
+			ExecutorService pool = Executors.newSingleThreadExecutor();
+			try {
+				Future<ResponseEntity<Map<String, Object>>> deleteCall = pool.submit(() -> {
+					HttpHeaders headers = new HttpHeaders();
+					headers.setBearerAuth(tokenFor(ADMIN_1));
+					headers.set("Accept-Language", "en");
+					return restTemplate.exchange(
+							URI.create(restTemplate.getRootUri() + DELETE + "?id=" + batchId), HttpMethod.DELETE,
+							new HttpEntity<>(headers), mapType());
+				});
+
+				assertThatThrownBy(() -> deleteCall.get(1500, TimeUnit.MILLISECONDS))
+						.as("delete() must block on the externally held row lock, not proceed past it")
+						.isInstanceOf(TimeoutException.class);
+
+				lockHolder.commit();
+
+				ResponseEntity<Map<String, Object>> response = deleteCall.get(30, TimeUnit.SECONDS);
+				assertThat(response.getStatusCode().value())
+						.as("delete() must succeed once the external lock is released")
+						.isEqualTo(200);
+			} finally {
+				pool.shutdownNow();
+			}
+		}
 	}
 
 	/**

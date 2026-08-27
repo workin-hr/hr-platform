@@ -165,7 +165,7 @@ public class LegacyBranchService {
 			branch.setRadiusMeters(toInteger(body.get("radius_meters")));
 		}
 		if (isSet(body, "is_active")) {
-			branch.setActive(toBoolean(body.get("is_active")));
+			branch.setActiveRaw(toInteger(body.get("is_active")));
 		}
 
 		boolean hasLocationInput = body.containsKey("latitude") || body.containsKey("longitude")
@@ -355,14 +355,6 @@ public class LegacyBranchService {
 			return number.intValue();
 		}
 		return (int) LegacyValues.toPhpLong(raw);
-	}
-
-	/** Same open D-071 shape as {@link #toInteger}, applied to {@code is_active}. */
-	private static boolean toBoolean(Object raw) {
-		if (raw instanceof Boolean bool) {
-			return bool;
-		}
-		return "1".equals(String.valueOf(raw)) || "true".equalsIgnoreCase(String.valueOf(raw));
 	}
 
 }

@@ -135,17 +135,26 @@ class LegacyAdvanceServiceTest {
 
 		assertThatThrownBy(() -> service.pay(context(0L, LegacyEmployee.Role.COMPANY_ADMIN), 92L, Map.of("amount", "40.01")))
 				.isInstanceOf(LegacyApiException.class);
-		verify(store, never()).pay(eq(92L), org.mockito.ArgumentMatchers.any());
+		verify(store, never()).payIfSufficientBalance(eq(92L), org.mockito.ArgumentMatchers.any());
 	}
 
+	/**
+	 * The overpayment threshold itself now lives in {@link LegacyAdvanceStore
+	 * #payIfSufficientBalance}'s atomic SQL {@code WHERE remaining >= ?} predicate (PR #120
+	 * review, closing a lost-update race between two concurrent payments), not in Java
+	 * arithmetic here -- {@code LegacyAdvancePayEndToEndTest} proves that atomicity against a
+	 * real database. This test covers what remains the service's own job: reject when the
+	 * store reports 0 rows changed, whatever the reason.
+	 */
 	@Test
-	void payRejectsOverpaymentBeforeWriteOnceScopeConfirmed() {
+	void payRejectsWhenTheAtomicUpdateAffectsNoRows() {
 		when(store.scopedPaymentState(17L, 92L))
 				.thenReturn(Map.of("amount", new BigDecimal("100.00"), "remaining", new BigDecimal("40.00")));
+		when(store.payIfSufficientBalance(eq(92L), org.mockito.ArgumentMatchers.any())).thenReturn(0);
 
 		assertThatThrownBy(() -> service.pay(context(0L, LegacyEmployee.Role.COMPANY_ADMIN), 92L, Map.of("amount", "40.01")))
 				.isInstanceOf(LegacyApiException.class);
-		verify(store, never()).pay(eq(92L), org.mockito.ArgumentMatchers.any());
+		verify(store, never()).withEmployee(92L);
 	}
 
 	@Test

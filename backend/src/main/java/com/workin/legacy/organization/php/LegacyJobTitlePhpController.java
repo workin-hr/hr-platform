@@ -47,16 +47,27 @@ public class LegacyJobTitlePhpController {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 	}
 
+	/**
+	 * PR #120 review (P2): {@code wireRow(LegacyJobTitleView)} re-fetches its row with one
+	 * {@code SELECT * FROM job_titles WHERE id=?} per call -- necessary for wire-faithful
+	 * {@code created_at} formatting (the same TIMESTAMP-vs-DATETIME fresh-read pattern {@link
+	 * LegacyJdbcValues#rowMapper()} exists for elsewhere), but calling it once per row here
+	 * turned an unpaginated list into one extra round trip per job title. {@link
+	 * #wireRowsByCompany} fetches every one of the company's job-title wire rows in a single
+	 * query instead; {@code one.php}/{@code create.php}/{@code update.php} still fetch a
+	 * single row each via {@link #wireRow(LegacyJobTitleView)}, unaffected.
+	 */
 	@RequestMapping("/list.php")
 	public LegacyApiResponse list(HttpServletRequest request) {
 		requireMethod(request, "GET");
 		LegacyRequestContext context = guard();
 		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
-		List<Map<String, Object>> rows = service.list(
+		List<LegacyJobTitleView> views = service.list(
 				context.companyId(),
 				LegacyValues.toPhpLong(query.value("branch_id")),
-				LegacyValues.toPhpLong(query.value("department_id")))
-				.stream().map(this::wireRow).toList();
+				LegacyValues.toPhpLong(query.value("department_id")));
+		Map<Long, Map<String, Object>> wireRowsById = wireRowsByCompany(context.companyId());
+		List<Map<String, Object>> rows = views.stream().map(view -> wireRow(view, wireRowsById)).toList();
 		return LegacyApiResponse.ok(message(request, "job_titles"), rows);
 	}
 
@@ -113,6 +124,22 @@ public class LegacyJobTitlePhpController {
 		row.put("department_name", view.departmentName());
 		row.put("branches_summary", view.branchesSummary());
 		return row;
+	}
+
+	private Map<String, Object> wireRow(LegacyJobTitleView view, Map<Long, Map<String, Object>> wireRowsById) {
+		Map<String, Object> row = new LinkedHashMap<>(wireRowsById.get(view.id()));
+		row.put("department_name", view.departmentName());
+		row.put("branches_summary", view.branchesSummary());
+		return row;
+	}
+
+	private Map<Long, Map<String, Object>> wireRowsByCompany(long companyId) {
+		Map<Long, Map<String, Object>> byId = new LinkedHashMap<>();
+		for (Map<String, Object> row
+				: jdbcTemplate.query("SELECT * FROM job_titles WHERE company_id=?", LegacyJdbcValues.rowMapper(), companyId)) {
+			byId.put(LegacyValues.toPhpLong(row.get("id")), row);
+		}
+		return byId;
 	}
 
 	private static long requiredId(HttpServletRequest request) {

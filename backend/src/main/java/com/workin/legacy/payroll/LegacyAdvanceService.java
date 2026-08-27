@@ -188,18 +188,22 @@ public class LegacyAdvanceService {
 		return requirePublicRow(store.withEmployee(id));
 	}
 
+	/**
+	 * {@code pay.php}: the balance check and the write are now one atomic statement
+	 * ({@link LegacyAdvanceStore#payIfSufficientBalance}, PR #120 review) rather than a
+	 * read-then-compute-then-write across two separate connections/statements, closing a
+	 * lost-update race between two concurrent payments against the same advance -- see that
+	 * method's javadoc.
+	 */
 	public Map<String, Object> pay(LegacyRequestContext context, long id, Map<String, Object> body) {
 		required(body, "amount");
-		Map<String, Object> state = store.scopedPaymentState(context.companyId(), id);
-		if (state == null) {
+		if (store.scopedPaymentState(context.companyId(), id) == null) {
 			throw new LegacyApiException(404, "not_found");
 		}
 		BigDecimal payment = LegacyValues.toPhpDecimal(body.get("amount"));
-		BigDecimal remaining = LegacyValues.toPhpDecimal(state.get("remaining")).subtract(payment);
-		if (remaining.signum() < 0) {
+		if (store.payIfSufficientBalance(id, payment) == 0) {
 			throw new LegacyApiException(400, "payment_exceeds_remaining");
 		}
-		store.pay(id, remaining);
 		return requirePublicRow(store.withEmployee(id));
 	}
 

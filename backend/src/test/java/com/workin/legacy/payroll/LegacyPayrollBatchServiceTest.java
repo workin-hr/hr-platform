@@ -105,19 +105,12 @@ class LegacyPayrollBatchServiceTest {
 		verify(store).updatePeriod(91L, 3, 2026, "2026-03-01", "2026-03-31");
 	}
 
-	@Test
-	void deleteRefusesAFinalizedBatchAndNeverTouchesPayslips() {
-		when(store.scoped(91L, 9L)).thenReturn(Map.of("id", 91L, "status", "finalized"));
-		assertThatThrownBy(() -> service.delete(9L, 91L)).isInstanceOf(LegacyApiException.class);
-		verify(store, never()).deleteWithPayslips(91L);
-	}
-
-	@Test
-	void deleteOfADraftBatchCascadesToPayslips() {
-		when(store.scoped(91L, 9L)).thenReturn(Map.of("id", 91L, "status", "draft"));
-		service.delete(9L, 91L);
-		verify(store).deleteWithPayslips(91L);
-	}
+	// delete()'s status check and deletion now run inside the same locked transaction as
+	// calculate()'s (PR #120 review -- see LegacyPayrollBatchStore#scopedForUpdate's javadoc),
+	// through a real LegacyPayrollBatchStore built around its own connection rather than the
+	// pooled, mocked `store` field this class stubs everywhere else -- unreachable with a
+	// mocked store/DataSource the same way calculate()'s equivalent tests were. See
+	// LegacyPayrollBatchCalculateEndToEndTest for the real-database replacement coverage.
 
 	@Test
 	void fiscalPeriodRejectsAYearBeforeTwoThousand() {

@@ -1,5 +1,6 @@
 package com.workin.legacy.payroll;
 
+import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -146,8 +147,24 @@ public class LegacyAdvanceStore {
 		jdbc.update("UPDATE advances SET status=?, rejection_reason=? WHERE id=?", "rejected", reason, id);
 	}
 
-	public void pay(long id, Object remaining) {
-		jdbc.update("UPDATE advances SET remaining=? WHERE id=?", remaining, id);
+	/**
+	 * Atomic conditional decrement (PR #120 review): {@code pay.php} previously read {@code
+	 * remaining}, computed the new balance in application code, and wrote it back with an
+	 * unconditional {@code UPDATE} -- two genuinely concurrent payments against the same
+	 * advance could both read the same stale {@code remaining}, both pass the overpayment
+	 * check against that stale value, and the second {@code UPDATE} would silently clobber
+	 * the first's result, losing one payment. {@code remaining = remaining - ?} computes the
+	 * new balance from the row's own live value at write time under InnoDB's row lock, and
+	 * {@code AND remaining >= ?} folds the overpayment check into the same atomic statement:
+	 * 0 rows changed means a concurrent payment already reduced the balance below what this
+	 * payment needs, exactly the condition {@code pay()} must reject as {@code
+	 * payment_exceeds_remaining}.
+	 *
+	 * @return the number of rows updated -- 0 means the payment must be rejected
+	 */
+	public int payIfSufficientBalance(long id, BigDecimal amount) {
+		return jdbc.update("UPDATE advances SET remaining = remaining - ? WHERE id=? AND remaining >= ?",
+				amount, id, amount);
 	}
 
 	public void delete(long id) {

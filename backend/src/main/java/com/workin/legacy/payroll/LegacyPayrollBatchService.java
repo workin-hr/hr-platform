@@ -116,15 +116,26 @@ public class LegacyPayrollBatchService {
 		return row;
 	}
 
+	/**
+	 * {@code delete.php}: the same {@code SELECT ... FOR UPDATE} lock {@code calculate()} takes
+	 * (PR #120 review) -- delete.php previously read the status via the pooled, unlocked {@code
+	 * store} and then deleted unconditionally, racing a concurrent {@code finalize.php} for the
+	 * same batch: finalize could commit its status transition and advance/penalty side effects
+	 * a moment after delete's read, and delete would then remove the finalized batch and its
+	 * payslips anyway, leaving advances reduced and penalties marked applied with no batch left
+	 * to account for or reopen them.
+	 */
 	public void delete(long companyId, long batchId) {
-		Map<String, Object> batch = store.scoped(batchId, companyId);
-		if (batch == null) {
-			throw new LegacyApiException(404, "batch_not_found");
-		}
-		if (FINALIZED.equals(batch.get("status"))) {
-			throw new LegacyApiException(400, "batch_already_finalized");
-		}
-		store.deleteWithPayslips(batchId);
+		inTransaction(txStore -> {
+			Map<String, Object> batch = txStore.scopedForUpdate(batchId, companyId);
+			if (batch == null) {
+				throw new LegacyApiException(404, "batch_not_found");
+			}
+			if (FINALIZED.equals(batch.get("status"))) {
+				throw new LegacyApiException(400, "batch_already_finalized");
+			}
+			txStore.deleteWithPayslips(batchId);
+		});
 	}
 
 	/** {@code fiscal_period.php}: bounds plus the company-wide (no employee override) working-day count. */
@@ -172,16 +183,44 @@ public class LegacyPayrollBatchService {
 	/**
 	 * {@code calculate.php}. @return the batch row plus the recalculated-employee count.
 	 *
-	 * <p>Runs inside the same single-connection transaction shape {@code finalize()}/{@code
-	 * reopen()} already use, taking a {@code FOR UPDATE} lock on the batch row as its first
-	 * statement (PR #120 review: previously read the status and then deleted/reinserted every
-	 * payslip entirely outside any transaction or lock, racing a concurrent {@code
-	 * finalize.php}/{@code reopen.php} for the same batch -- finalize could apply advance/penalty
-	 * side effects to an empty, partial, or stale payslip set. {@code
-	 * LegacyPayrollBatchStore#scopedForUpdate}'s own javadoc explains why only this side needed
-	 * to change: finalize/reopen's existing CAS {@code UPDATE} already takes the same row lock.
+	 * <p>The status re-check, payslip delete, and payslip insert are atomic under the same
+	 * {@code FOR UPDATE} lock on the batch row {@code finalize()}/{@code reopen()} already use
+	 * (PR #120 review: previously read the status and then deleted/reinserted every payslip
+	 * entirely outside any transaction or lock, racing a concurrent {@code finalize.php}/{@code
+	 * reopen.php} for the same batch -- finalize could apply advance/penalty side effects to an
+	 * empty, partial, or stale payslip set). {@code LegacyPayrollBatchStore#scopedForUpdate}'s
+	 * own javadoc explains why only this side needed to change: finalize/reopen's existing CAS
+	 * {@code UPDATE} already takes the same row lock.
+	 *
+	 * <p>The actual per-employee payslip computation runs {@link #computeBatch} <b>before</b>
+	 * this lock is taken, on the pooled connection, not inside {@link #inTransaction}: a second
+	 * PR #120 review round found that computing it inside the lock meant every concurrent {@code
+	 * calculate()} call held one pooled connection ({@code inTransaction}'s own) while its
+	 * {@code fiscalSettings}/{@code overtimeSettings}/{@code attendanceFigures} calls each asked
+	 * the same pool for another, unregistered one -- with attendance figures doing this once per
+	 * active employee. Under the default ten-connection pool, a handful of simultaneous
+	 * calculations (a realistic month-end payroll rush, not a pathological case) could each wait
+	 * out the connection-acquisition timeout and roll back. Computing first and writing second
+	 * means the lock is held only for the fast delete-then-insert, not the slow fan-out.
+	 *
+	 * <p>This does trade away one guarantee: the payslip values were computed against the
+	 * fiscal period read moments earlier, not the one the lock re-reads. A concurrent {@code
+	 * update.php} changing this same batch's month/year in that exact window is possible but
+	 * narrow, and {@code calculate.php} is idempotent by design (a second call reproduces the
+	 * same rows, not additive ones) -- re-running it corrects a stale period the same way
+	 * re-running it already corrects stale attendance. This is a disclosed, bounded trade-off,
+	 * not a silent one: it does not affect the finalize/reopen race this method exists to close.
 	 */
 	public CalculationResult calculate(long companyId, long batchId, String weeklyRestLabel) {
+		Map<String, Object> precheck = store.scoped(batchId, companyId);
+		if (precheck == null) {
+			throw new LegacyApiException(404, "batch_not_found");
+		}
+		if (FINALIZED.equals(precheck.get("status"))) {
+			throw new LegacyApiException(400, "batch_already_finalized");
+		}
+		BatchComputation computation = computeBatch(companyId, precheck, weeklyRestLabel);
+
 		java.util.concurrent.atomic.AtomicInteger calculatedCount = new java.util.concurrent.atomic.AtomicInteger();
 		inTransaction(txStore -> {
 			Map<String, Object> batch = txStore.scopedForUpdate(batchId, companyId);
@@ -191,7 +230,13 @@ public class LegacyPayrollBatchService {
 			if (FINALIZED.equals(batch.get("status"))) {
 				throw new LegacyApiException(400, "batch_already_finalized");
 			}
-			calculatedCount.set(calculateBatch(txStore, companyId, batchId, batch, weeklyRestLabel));
+			txStore.updatePeriod(batchId, computation.month(), computation.year(),
+					computation.periodFrom(), computation.periodTo());
+			txStore.deletePayslipsForBatch(batchId);
+			for (EmployeePayslip payslip : computation.payslips()) {
+				txStore.insertPayslip(batchId, payslip.employeeId(), payslip.computation());
+			}
+			calculatedCount.set(computation.payslips().size());
 		});
 
 		Map<String, Object> row = store.withStats(batchId, companyId);
@@ -204,40 +249,40 @@ public class LegacyPayrollBatchService {
 	public record CalculationResult(Map<String, Object> row, int calculatedCount) {
 	}
 
+	private record BatchComputation(
+			int year, int month, String periodFrom, String periodTo, List<EmployeePayslip> payslips) {
+	}
+
+	private record EmployeePayslip(long employeeId, LegacyPayrollCalculationService.PayslipComputation computation) {
+	}
+
 	/**
-	 * {@code payroll_calculate_batch()} ({@code payroll_calculation.php:1283-1431}):
-	 * refresh the fiscal period, delete and recompute every active
-	 * employee's payslip. Idempotent by design -- a second call for the
-	 * same batch reproduces the same rows, not additive ones.
+	 * {@code payroll_calculate_batch()} ({@code payroll_calculation.php:1283-1431}): resolve the
+	 * fiscal period and recompute every active employee's payslip, entirely via the pooled
+	 * connection (see {@link #calculate}'s javadoc for why this runs before the lock).
 	 */
-	private int calculateBatch(
-			LegacyPayrollBatchStore txStore, long companyId, long batchId, Map<String, Object> batch,
-			String weeklyRestLabel) {
+	private BatchComputation computeBatch(long companyId, Map<String, Object> batch, String weeklyRestLabel) {
 		int year = (int) LegacyValues.toPhpLong(batch.get("year"));
 		int month = ((Number) batch.get("month")).intValue();
 		String[] bounds = fiscalSettings.fiscalPeriodBounds(companyId, year, month);
-		txStore.updatePeriod(batchId, month, year, bounds[0], bounds[1]);
-
-		double overtimeMultiplier = overtimeSettings.overtimeMultiplier(companyId);
-		boolean paysOvertime = overtimeSettings.companyPaysOvertime(companyId);
 		String periodFrom = bounds[0];
 		String periodTo = bounds[1];
 
-		txStore.deletePayslipsForBatch(batchId);
+		double overtimeMultiplier = overtimeSettings.overtimeMultiplier(companyId);
+		boolean paysOvertime = overtimeSettings.companyPaysOvertime(companyId);
 
-		int calculated = 0;
-		for (long employeeId : txStore.activeEmployeeIds(companyId)) {
-			Map<String, Object> contract = txStore.effectiveContract(employeeId, periodTo);
+		List<EmployeePayslip> payslips = new java.util.ArrayList<>();
+		for (long employeeId : store.activeEmployeeIds(companyId)) {
+			Map<String, Object> contract = store.effectiveContract(employeeId, periodTo);
 			if (contract == null) {
 				continue;
 			}
 			LegacyPayrollCalculationService.PayslipComputation computed = computeEmployeePayslip(
 					companyId, employeeId, contract, periodFrom, periodTo, year, month,
 					overtimeMultiplier, paysOvertime, weeklyRestLabel);
-			txStore.insertPayslip(batchId, employeeId, computed);
-			calculated++;
+			payslips.add(new EmployeePayslip(employeeId, computed));
 		}
-		return calculated;
+		return new BatchComputation(year, month, periodFrom, periodTo, payslips);
 	}
 
 	/** {@code payroll_compute_employee_payslip()} ({@code payroll_calculation.php:1101-1276}). */
@@ -339,7 +384,21 @@ public class LegacyPayrollBatchService {
 		return row;
 	}
 
-	/** {@code payroll_finalize_batch_side_effects()} ({@code payroll_calculation.php:1021-1059}). */
+	/**
+	 * {@code payroll_finalize_batch_side_effects()} ({@code payroll_calculation.php:1021-1059}).
+	 *
+	 * <p><b>Known, disclosed drift (PR #120 review, D-117):</b> this reads {@code advances}/{@code
+	 * penalties} live at finalize time, not a snapshot from {@code calculate()}. An advance
+	 * approved/edited, or a penalty created, between {@code calculate.php} and {@code
+	 * finalize.php} can therefore be deducted/marked here without ever having appeared in the
+	 * payslip HR reviewed. This is byte-exact frozen PHP behavior (verified against {@code
+	 * payroll_finalize_batch_side_effects()} directly), and recomputing the batch here instead
+	 * would risk silently overwriting a manual payslip edit made via {@code payslips/update.php}
+	 * in that same window (that endpoint explicitly allows editing a payslip up until
+	 * finalization) -- a different, worse correctness problem than the one being traded away.
+	 * Deliberately left unchanged; see D-117 for the full analysis and the alternatives
+	 * considered.
+	 */
 	private void applyAdvancePaymentsAndMarkPenalties(
 			LegacyPayrollBatchStore txStore, long batchId, String periodFrom, String periodTo, int year, int month) {
 		for (Map<String, Object> payslip : txStore.payslipsForBatch(batchId)) {
