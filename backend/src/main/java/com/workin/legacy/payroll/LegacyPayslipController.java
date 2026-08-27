@@ -25,11 +25,15 @@ import jakarta.servlet.http.HttpServletRequest;
 public class LegacyPayslipController {
 
 	private final LegacyPayslipService service;
+	private final LegacyPayslipWriteCoordinator writes;
 	private final LegacyRequestGuard guard;
 	private final LegacyMessages messages;
 
-	public LegacyPayslipController(LegacyPayslipService service, LegacyRequestGuard guard, LegacyMessages messages) {
+	public LegacyPayslipController(
+			LegacyPayslipService service, LegacyPayslipWriteCoordinator writes,
+			LegacyRequestGuard guard, LegacyMessages messages) {
 		this.service = service;
+		this.writes = writes;
 		this.guard = guard;
 		this.messages = messages;
 	}
@@ -39,7 +43,7 @@ public class LegacyPayslipController {
 	public ResponseEntity<LegacyApiResponse> create(HttpServletRequest request) {
 		requireMethod(request, "POST");
 		LegacyRequestContext context = writerRole();
-		Map<String, Object> row = service.create(context.companyId(), LegacyJsonBody.read(request));
+		Map<String, Object> row = writes.create(context.companyId(), LegacyJsonBody.read(request));
 		return ResponseEntity.status(201).body(LegacyApiResponse.ok(message(request, "payslip_created"), row));
 	}
 
@@ -48,7 +52,7 @@ public class LegacyPayslipController {
 	public LegacyApiResponse delete(HttpServletRequest request) {
 		requireMethod(request, "DELETE");
 		LegacyRequestContext context = writerRole();
-		service.delete(context.companyId(), requiredId(request));
+		writes.delete(context.companyId(), requiredId(request));
 		return LegacyApiResponse.ok(message(request, "payslip_deleted"), null);
 	}
 
@@ -81,7 +85,7 @@ public class LegacyPayslipController {
 		requireMethod(request, "PUT");
 		LegacyRequestContext context = writerRole();
 		Map<String, Object> body = phpUpdateBody(LegacyJsonBody.read(request));
-		Map<String, Object> row = service.update(
+		Map<String, Object> row = writes.update(
 				context.companyId(), requiredId(request), body,
 				presentLabel(request), weeklyRestLabel(request), officialHolidayFallbackLabel(request));
 		return LegacyApiResponse.ok(message(request, "payslip_updated"), row);
