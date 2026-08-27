@@ -75,16 +75,23 @@ public class LegacyPenaltyStore {
 				""", companyId, fromEmployeeId, toEmployeeId, title, body, penaltyId);
 	}
 
-	public void updateFields(long id, Map<String, Object> values) {
+	/**
+	 * The applied-state predicate belongs to the mutation itself, not only the earlier read.
+	 * Finalization can mark a row applied between the service preflight and this statement; a
+	 * zero affected-row count therefore means the write lost that race and must be rejected.
+	 */
+	public int updateFields(long id, Map<String, Object> values) {
 		List<String> fields = new ArrayList<>();
 		List<Object> args = new ArrayList<>();
 		append(values, fields, args, "penalty_type");
 		append(values, fields, args, "penalty_days");
 		append(values, fields, args, "reason");
 		append(values, fields, args, "penalty_date");
-		if (fields.isEmpty()) return;
+		if (fields.isEmpty()) return 0;
 		args.add(id);
-		jdbc.update("UPDATE penalties SET " + String.join(", ", fields) + " WHERE id=?", args.toArray());
+		return jdbc.update(
+				"UPDATE penalties SET " + String.join(", ", fields) + " WHERE id=? AND applied_to_payroll=0",
+				args.toArray());
 	}
 
 	private static void append(Map<String, Object> values, List<String> fields, List<Object> args, String key) {
@@ -94,8 +101,9 @@ public class LegacyPenaltyStore {
 		}
 	}
 
-	public void deleteById(long id) {
-		jdbc.update("DELETE FROM penalties WHERE id=?", id);
+	/** Same atomic applied-state guard as {@link #updateFields(long, Map)}. */
+	public int deleteById(long id) {
+		return jdbc.update("DELETE FROM penalties WHERE id=? AND applied_to_payroll=0", id);
 	}
 
 	public long count(List<String> predicates, List<Object> args) {
