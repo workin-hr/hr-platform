@@ -71,13 +71,32 @@ This satisfies D-109 without deleting or weakening historical regression coverag
 - payroll batch calculation/finalize/reopen preserve the distinct legacy helper behavior and transactional payroll side effects.
 - payroll calculation performs its expensive read fan-out outside the locked transaction, then retries if a concurrent batch-period update committed before its row lock; this preserves pool capacity without overwriting the newer period (D-117/D-118).
 - payslip create, update, and enrichment remain three distinct calculations rather than being incorrectly unified.
+- concurrent write races closed in the final review round: employee advance edits lose to a
+  concurrent approval, penalty mutations lose to batch finalization, payslip mutations are
+  serialized with the batch lifecycle, and payroll-batch creation is serialized per company so
+  one period cannot be inserted twice. Each folds its qualifying predicate into the write or
+  takes the existing lifecycle lock, and resolves to an error code the endpoint could already
+  return -- see `PR120_REVIEW_REMEDIATION.md`.
 - the live `weekly_off_days` key-case defect was fixed separately under D-103 and merged to `main`.
 
-## Validation gate
+## Validation outcome
 
-Wave 12 may be presented for human review only when both required GitHub workflows are green on the final PR head:
+Wave 12 merged to `main` on 2026-08-27 as squash commit `4caff98` (PR #120), and this section now
+records what happened rather than the gate that preceded it.
 
-- `Backend Validate`, including `./gradlew clean test compilePhase2TestJava`;
-- `Phase 0 Bootstrap Validate`, including structural, ADR, markdown, YAML, shell, action, secret, and local-link checks.
+Both required workflows were green on the final PR head `60dbfc6`:
 
-The PR must remain unmerged until human review. A green CI result proves the branch validation gate; it does not authorize an agent merge.
+- `Backend Validate` (run `33068895642`), including `./gradlew clean test compilePhase2TestJava`;
+- `Phase 0 Bootstrap Validate` (run `33068895631`), including structural, ADR, markdown, YAML,
+  shell, action, secret, and local-link checks.
+
+Both were re-run green on the merge commit itself (`33070076202` and `33070076163`), reporting
+151 classes and 1837 tests with no failures. That re-run matters independently of the branch
+result: the squash combined this work with `b507f55` for the first time, a tree no branch build
+had exercised.
+
+The merge proceeded on the repository owner's own approval. The separate independent review that
+`AGENTS.md`'s workflow places before human merge, and that
+`PR120_REVIEW_REMEDIATION.md` lists under required validation, was not exercised as a distinct
+gate. This is recorded as a factual deviation, not a retrospective objection: a green CI result
+proves the branch validation gate and does not by itself constitute that review.
