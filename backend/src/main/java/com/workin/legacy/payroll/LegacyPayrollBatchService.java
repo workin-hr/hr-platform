@@ -169,23 +169,36 @@ public class LegacyPayrollBatchService {
 	// calculate.php / finalize.php / reopen.php / stats.php
 	// ------------------------------------------------------------------
 
-	/** {@code calculate.php}. @return the batch row plus the recalculated-employee count. */
+	/**
+	 * {@code calculate.php}. @return the batch row plus the recalculated-employee count.
+	 *
+	 * <p>Runs inside the same single-connection transaction shape {@code finalize()}/{@code
+	 * reopen()} already use, taking a {@code FOR UPDATE} lock on the batch row as its first
+	 * statement (PR #120 review: previously read the status and then deleted/reinserted every
+	 * payslip entirely outside any transaction or lock, racing a concurrent {@code
+	 * finalize.php}/{@code reopen.php} for the same batch -- finalize could apply advance/penalty
+	 * side effects to an empty, partial, or stale payslip set. {@code
+	 * LegacyPayrollBatchStore#scopedForUpdate}'s own javadoc explains why only this side needed
+	 * to change: finalize/reopen's existing CAS {@code UPDATE} already takes the same row lock.
+	 */
 	public CalculationResult calculate(long companyId, long batchId, String weeklyRestLabel) {
-		Map<String, Object> batch = store.scoped(batchId, companyId);
-		if (batch == null) {
-			throw new LegacyApiException(404, "batch_not_found");
-		}
-		if (FINALIZED.equals(batch.get("status"))) {
-			throw new LegacyApiException(400, "batch_already_finalized");
-		}
-
-		int calculatedCount = calculateBatch(companyId, batchId, batch, weeklyRestLabel);
+		java.util.concurrent.atomic.AtomicInteger calculatedCount = new java.util.concurrent.atomic.AtomicInteger();
+		inTransaction(txStore -> {
+			Map<String, Object> batch = txStore.scopedForUpdate(batchId, companyId);
+			if (batch == null) {
+				throw new LegacyApiException(404, "batch_not_found");
+			}
+			if (FINALIZED.equals(batch.get("status"))) {
+				throw new LegacyApiException(400, "batch_already_finalized");
+			}
+			calculatedCount.set(calculateBatch(txStore, companyId, batchId, batch, weeklyRestLabel));
+		});
 
 		Map<String, Object> row = store.withStats(batchId, companyId);
 		if (row == null) {
 			throw new LegacyApiException(404, "batch_not_found");
 		}
-		return new CalculationResult(row, calculatedCount);
+		return new CalculationResult(row, calculatedCount.get());
 	}
 
 	public record CalculationResult(Map<String, Object> row, int calculatedCount) {
@@ -197,29 +210,31 @@ public class LegacyPayrollBatchService {
 	 * employee's payslip. Idempotent by design -- a second call for the
 	 * same batch reproduces the same rows, not additive ones.
 	 */
-	private int calculateBatch(long companyId, long batchId, Map<String, Object> batch, String weeklyRestLabel) {
+	private int calculateBatch(
+			LegacyPayrollBatchStore txStore, long companyId, long batchId, Map<String, Object> batch,
+			String weeklyRestLabel) {
 		int year = (int) LegacyValues.toPhpLong(batch.get("year"));
 		int month = ((Number) batch.get("month")).intValue();
 		String[] bounds = fiscalSettings.fiscalPeriodBounds(companyId, year, month);
-		store.updatePeriod(batchId, month, year, bounds[0], bounds[1]);
+		txStore.updatePeriod(batchId, month, year, bounds[0], bounds[1]);
 
 		double overtimeMultiplier = overtimeSettings.overtimeMultiplier(companyId);
 		boolean paysOvertime = overtimeSettings.companyPaysOvertime(companyId);
 		String periodFrom = bounds[0];
 		String periodTo = bounds[1];
 
-		store.deletePayslipsForBatch(batchId);
+		txStore.deletePayslipsForBatch(batchId);
 
 		int calculated = 0;
-		for (long employeeId : store.activeEmployeeIds(companyId)) {
-			Map<String, Object> contract = store.effectiveContract(employeeId, periodTo);
+		for (long employeeId : txStore.activeEmployeeIds(companyId)) {
+			Map<String, Object> contract = txStore.effectiveContract(employeeId, periodTo);
 			if (contract == null) {
 				continue;
 			}
 			LegacyPayrollCalculationService.PayslipComputation computed = computeEmployeePayslip(
 					companyId, employeeId, contract, periodFrom, periodTo, year, month,
 					overtimeMultiplier, paysOvertime, weeklyRestLabel);
-			store.insertPayslip(batchId, employeeId, computed);
+			txStore.insertPayslip(batchId, employeeId, computed);
 			calculated++;
 		}
 		return calculated;

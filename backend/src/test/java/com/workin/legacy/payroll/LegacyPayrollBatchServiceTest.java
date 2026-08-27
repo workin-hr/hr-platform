@@ -157,22 +157,15 @@ class LegacyPayrollBatchServiceTest {
 		assertThat(page.meta()).containsEntry("total", 1L);
 	}
 
-	@Test
-	void calculateRefusesAnAlreadyFinalizedBatchBeforeTouchingTheTransaction() {
-		when(store.scoped(91L, 9L)).thenReturn(Map.of("id", 91L, "status", "finalized"));
-		assertThatThrownBy(() -> service.calculate(9L, 91L, "Weekly rest"))
-				.isInstanceOf(LegacyApiException.class)
-				.satisfies(ex -> assertThat(((LegacyApiException) ex).getMessageKey()).isEqualTo("batch_already_finalized"));
-		org.mockito.Mockito.verifyNoInteractions(legacyDataSource);
-	}
-
-	@Test
-	void calculateThrowsBatchNotFoundForAForeignOrMissingId() {
-		when(store.scoped(91L, 9L)).thenReturn(null);
-		assertThatThrownBy(() -> service.calculate(9L, 91L, "Weekly rest"))
-				.isInstanceOf(LegacyApiException.class)
-				.satisfies(ex -> assertThat(((LegacyApiException) ex).getMessageKey()).isEqualTo("batch_not_found"));
-	}
+	// calculate()'s batch_not_found/batch_already_finalized checks now run inside the same
+	// locked transaction as the recalculation itself (PR #120 review -- see
+	// LegacyPayrollBatchStore#scopedForUpdate's javadoc), reading through a real
+	// LegacyPayrollBatchStore the method builds around its own connection rather than the
+	// pooled, mocked `store` field this class stubs everywhere else. That is no longer
+	// reachable with a mocked store/DataSource; see
+	// LegacyPayrollBatchCalculateEndToEndTest#calculateReturns404ForAForeignOrMissingBatchId
+	// and #calculateRefusesAnAlreadyFinalizedBatch for the equivalent coverage against a real
+	// database.
 
 	@Test
 	void finalizeRefusesAnAlreadyFinalizedBatchBeforeOpeningAConnection() {

@@ -47,9 +47,19 @@ public class LegacyFileUploads {
 
 	/**
 	 * @param file the multipart part named by the endpoint -- {@code null} when
-	 *        it is absent or arrived with an upload error, which is PHP's
+	 *        it is absent or arrived with no file chosen, which is PHP's
 	 *        {@code !isset($_FILES[...]) || error !== UPLOAD_ERR_OK} returning
-	 *        null rather than failing
+	 *        null rather than failing. PHP's {@code error} check has nothing to
+	 *        do with size: a part that genuinely carries a filename but zero
+	 *        bytes has {@code error === UPLOAD_ERR_OK} in PHP too, so it falls
+	 *        through to {@code mime_content_type()} and fails allowlist
+	 *        validation like any other unrecognized type -- it is the {@code
+	 *        filename} being empty (the browser's "no file chosen" submission
+	 *        shape, PHP's {@code UPLOAD_ERR_NO_FILE}) that means "nothing was
+	 *        uploaded," not the byte count (PR #120 review: {@code
+	 *        MultipartFile#isEmpty()} conflates the two, silently returning
+	 *        {@code null} instead of {@code invalid_file_type} for a genuinely
+	 *        empty upload).
 	 * @param subdirectory {@code UploadSubdir}'s value, e.g. {@code photos}
 	 * @return the stored URL, or {@code null} when there was nothing to store
 	 * @throws LegacyApiException 400 {@code invalid_file_type} for a MIME type
@@ -57,7 +67,7 @@ public class LegacyFileUploads {
 	 *         directory cannot be created or the file cannot be moved
 	 */
 	public String store(MultipartFile file, String subdirectory) {
-		if (file == null || file.isEmpty()) {
+		if (file == null || file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()) {
 			return null;
 		}
 		String mimeType = detectMimeType(file);

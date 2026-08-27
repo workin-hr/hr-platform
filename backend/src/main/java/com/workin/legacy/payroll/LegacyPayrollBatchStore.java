@@ -60,6 +60,23 @@ public class LegacyPayrollBatchStore {
 				"SELECT * FROM payroll_batches WHERE id=? AND company_id=?", this::row, batchId, companyId));
 	}
 
+	/**
+	 * {@code scoped}, but taking an InnoDB row lock for the caller's transaction -- only
+	 * meaningful called through a scoped, manual-commit {@code Store} instance (see {@code
+	 * LegacyPayrollBatchService#inTransaction}), never through the pooled autocommit instance.
+	 * {@code calculate.php} (PR #120 review) previously read and acted on this row with no
+	 * lock at all, racing a concurrent {@code finalize.php}/{@code reopen.php} call for the
+	 * same batch: {@code finalizeBatchIfNotAlready}/{@code updateStatusIfCurrently}'s own
+	 * {@code UPDATE} already takes this same row's lock when it runs, so having {@code
+	 * calculate.php} hold it for its own read-then-recompute-then-write is enough to
+	 * serialize the two against each other without changing finalize/reopen at all.
+	 */
+	public Map<String, Object> scopedForUpdate(long batchId, long companyId) {
+		return single(jdbc.query(
+				"SELECT * FROM payroll_batches WHERE id=? AND company_id=? FOR UPDATE",
+				this::row, batchId, companyId));
+	}
+
 	/** {@code create.php}'s pre-insert uniqueness check. */
 	public boolean existsForPeriod(long companyId, int month, int year) {
 		Long count = jdbc.queryForObject(

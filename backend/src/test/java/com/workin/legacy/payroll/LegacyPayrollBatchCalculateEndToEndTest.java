@@ -1,6 +1,7 @@
 package com.workin.legacy.payroll;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.InputStream;
 import java.net.URI;
@@ -15,6 +16,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -239,6 +241,84 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 					.isEqualTo("800.00");
 		} finally {
 			pool.shutdownNow();
+		}
+	}
+
+	/**
+	 * {@code calculate()}'s not-found check now runs inside its own locked transaction
+	 * (PR #120 review), not against the pooled store beforehand -- this is the real-database
+	 * replacement for the mocked-store unit test that premise made obsolete.
+	 */
+	@Test
+	void calculateReturns404ForAForeignOrMissingBatchId() {
+		Map<String, Object> body = send(CALCULATE, ADMIN_1, HttpMethod.POST, null, 404, "?id=999999999");
+		assertThat(body.get("message")).isEqualTo("Batch not found");
+	}
+
+	/** Same as above, for the already-finalized branch of the same locked check. */
+	@Test
+	void calculateRefusesAnAlreadyFinalizedBatch() throws Exception {
+		Map<String, Object> createBody = dataOf(send(CREATE, ADMIN_1, HttpMethod.POST,
+				"{\"month\":4,\"year\":2020}", 201));
+		long batchId = number(createBody.get("id"));
+		send(CALCULATE, ADMIN_1, HttpMethod.POST, null, 200, "?id=" + batchId);
+		send(FINALIZE, ADMIN_1, HttpMethod.PUT, null, 200, "?id=" + batchId);
+
+		Map<String, Object> body = send(CALCULATE, ADMIN_1, HttpMethod.POST, null, 400, "?id=" + batchId);
+		assertThat(body.get("message")).isEqualTo("Batch already finalized");
+	}
+
+	/**
+	 * PR #120 review (P1): {@code calculate.php} previously read the batch status then
+	 * deleted/reinserted every payslip entirely outside any transaction or lock, so it could
+	 * run concurrently with {@code finalize.php}/{@code reopen.php} for the same batch and
+	 * corrupt their side effects (an advance/penalty deduction applied against a transiently
+	 * empty or stale payslip set). The fix ({@code LegacyPayrollBatchStore#scopedForUpdate})
+	 * makes {@code calculate()} take the very same {@code SELECT ... FOR UPDATE} row lock
+	 * {@code finalize.php}/{@code reopen.php}'s existing CAS {@code UPDATE} already takes --
+	 * so a lock held externally on the batch row must block a concurrent {@code calculate()}
+	 * call until released, exactly as it already blocks {@code finalize.php}. This proves the
+	 * lock is real and actually taken, rather than racing two HTTP calls against each other
+	 * and hoping to observe a particular interleaving.
+	 */
+	@Test
+	void calculateBlocksOnTheSameRowLockFinalizeAndReopenAlreadyUse() throws Exception {
+		Map<String, Object> createBody = dataOf(send(CREATE, ADMIN_1, HttpMethod.POST,
+				"{\"month\":3,\"year\":2020}", 201));
+		long batchId = number(createBody.get("id"));
+
+		try (Connection lockHolder = connect()) {
+			lockHolder.setAutoCommit(false);
+			try (Statement st = lockHolder.createStatement();
+					java.sql.ResultSet rs = st.executeQuery(
+							"SELECT * FROM payroll_batches WHERE id=" + batchId + " FOR UPDATE")) {
+				assertThat(rs.next()).as("lock-holder must see the freshly created batch row").isTrue();
+			}
+
+			ExecutorService pool = Executors.newSingleThreadExecutor();
+			try {
+				Future<ResponseEntity<Map<String, Object>>> calculateCall = pool.submit(() -> {
+					HttpHeaders headers = new HttpHeaders();
+					headers.setBearerAuth(tokenFor(ADMIN_1));
+					headers.set("Accept-Language", "en");
+					return restTemplate.exchange(
+							URI.create(restTemplate.getRootUri() + CALCULATE + "?id=" + batchId), HttpMethod.POST,
+							new HttpEntity<>(headers), mapType());
+				});
+
+				assertThatThrownBy(() -> calculateCall.get(1500, TimeUnit.MILLISECONDS))
+						.as("calculate() must block on the externally held row lock, not proceed past it")
+						.isInstanceOf(TimeoutException.class);
+
+				lockHolder.commit();
+
+				ResponseEntity<Map<String, Object>> response = calculateCall.get(30, TimeUnit.SECONDS);
+				assertThat(response.getStatusCode().value())
+						.as("calculate() must succeed once the external lock is released")
+						.isEqualTo(200);
+			} finally {
+				pool.shutdownNow();
+			}
 		}
 	}
 

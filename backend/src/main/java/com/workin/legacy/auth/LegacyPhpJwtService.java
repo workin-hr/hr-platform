@@ -84,6 +84,17 @@ public class LegacyPhpJwtService {
 			}
 
 			String type = string(json, "type");
+			if (type == null) {
+				// Both issueEmployeeToken() and issueCompanyToken() always set "type"; a transitional
+				// Java token (sub/membership_id/tenant_id/token_version, no "type") is signed with the
+				// same app.jwt.secret HS256 key, so the signature check above alone cannot tell the two
+				// apart. Without this shape check, decode() returned a non-null DecodedToken with every
+				// field empty/zero for a transitional token, and the filter took the PHP-authentication
+				// branch instead of falling through to setTransitionalAuthentication() -- silently
+				// authenticating the caller as identity/company 0 instead of the real transitional
+				// principal (PR #120 review).
+				return null;
+			}
 			Long employeeId = number(json, "employee_id");
 			Long companyId = number(json, "company_id");
 			String role = string(json, "role");

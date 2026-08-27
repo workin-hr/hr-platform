@@ -75,14 +75,19 @@ public class LegacyCompanyController {
 
 	/**
 	 * {@code require_company_settings_access()} ({@code hr_permissions.php:159-164}):
-	 * {@code requireAuth} + {@code requireCompanyActive}, then, since every
-	 * legacy token Phase 1 issues is employee-typed (D-042 -- no company-type
-	 * token exists yet, {@link LegacyHrPermissionEnforcer}'s own boundary),
-	 * {@code can_company_settings} is checked unconditionally -- for
-	 * {@code company_admin} as much as {@code hr}, exactly as PHP's own
-	 * {@code type === 'employee'} branch does once that branch is the only
-	 * reachable one. Denial is legacy's {@code forbidden} key in the PHP
-	 * envelope, not the platform's {@code error.forbidden}.
+	 * {@code requireAuth} + {@code requireCompanyActive}, then {@code
+	 * can_company_settings} is checked only for an employee-typed session --
+	 * PHP's own {@code if ($auth[TYPE] === 'employee')} guard. {@link
+	 * LegacyHrPermissionEnforcer#has}'s own "Company-type bypass" already returns
+	 * {@code true} unconditionally for a company-typed session before ever
+	 * reaching the {@code hr_permissions} lookup (fixed in 10880fc, alongside
+	 * D-111's company-token support), so calling it here unconditionally --
+	 * with no employee/company branch of its own -- already matches PHP for
+	 * both session types; an earlier revision of this comment assumed no
+	 * company-type token existed yet (D-042) and is stale now that D-111 added
+	 * one. Denial (employee sessions only, in practice) is legacy's {@code
+	 * forbidden} key in the PHP envelope, not the platform's {@code
+	 * error.forbidden}.
 	 */
 	private long companySettingsRole() {
 		LegacyRequestContext context = writeRole();

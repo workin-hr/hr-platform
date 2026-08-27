@@ -27,6 +27,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
+import com.workin.backend.identity.JwtService;
 
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
@@ -44,6 +45,9 @@ class LegacyLoginEndToEndTest {
 
 	@Autowired
 	private LegacyPhpJwtService jwtService;
+
+	@Autowired
+	private JwtService transitionalJwtService;
 
 	static {
 		MARIADB.start();
@@ -139,6 +143,25 @@ class LegacyLoginEndToEndTest {
 		ResponseEntity<Map> response = listExceptionTypesWith(companyToken);
 		assertThat(response.getStatusCode().value()).isEqualTo(200);
 		assertThat(response.getBody().get("success")).isEqualTo(true);
+	}
+
+	/**
+	 * {@code decode()} had no shape check before this fix, so a transitional Java token --
+	 * signed with the same {@code app.jwt.secret} HS256 key {@code issueEmployeeToken()}/
+	 * {@code issueCompanyToken()} use, but shaped completely differently ({@code sub}/{@code
+	 * membership_id}/{@code tenant_id}/{@code token_version}, no {@code type}) -- passed
+	 * signature and {@code exp} verification and decoded to a non-null {@link
+	 * LegacyPhpJwtService.DecodedToken} with every field empty or zero. {@link
+	 * LegacyPhpJwtAuthenticationFilter} took that as a PHP-authenticated principal
+	 * (identity/company id 0, type {@code ""}) instead of falling through to {@code
+	 * setTransitionalAuthentication()} for the real transitional principal (PR #120 review).
+	 */
+	@Test
+	void aTransitionalJavaTokenDoesNotDecodeAsAZeroIdentityPhpToken() {
+		String transitionalToken = transitionalJwtService.issueAccessToken(
+				90011L, 90011L, 9001L, "test-session", Map.of("role", "company_admin", "token_version", 1L));
+
+		assertThat(jwtService.decode(transitionalToken)).isNull();
 	}
 
 	@Test
