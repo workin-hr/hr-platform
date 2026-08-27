@@ -100,6 +100,7 @@ REQUIRED_DIRS = [
 ]
 
 AGENT_SECTIONS = [
+    "## Canonical Instructions",
     "## Role",
     "## Purpose",
     "## Trigger Conditions",
@@ -118,6 +119,7 @@ AGENT_SECTIONS = [
 ]
 
 SKILL_SECTIONS = [
+    "## Canonical Instructions",
     "## Description And Trigger",
     "## Inputs",
     "## Preconditions",
@@ -213,6 +215,30 @@ def validate_required_paths(failures: list[str]) -> None:
             fail(f"Missing required directory: {rel}", failures)
 
 
+def validate_instruction_source_of_truth(failures: list[str], root: Path | None = None) -> None:
+    """Keep repository policy canonical in AGENTS.md and make Claude import it.
+
+    Agent/skill section checks below ensure specialized repository-authored
+    procedures explicitly inherit this contract rather than becoming silent,
+    competing policy sources.
+    """
+    root = root if root is not None else ROOT
+    agents = root / "AGENTS.md"
+    claude = root / "CLAUDE.md"
+    if not agents.is_file() or not claude.is_file():
+        return  # validate_required_paths owns missing-file reporting
+
+    agents_text = agents.read_text(encoding="utf-8")
+    if "## Canonical Source Of Truth" not in agents_text:
+        fail("AGENTS.md does not declare the Canonical Source Of Truth", failures)
+    if "## Mandatory Change Propagation" not in agents_text:
+        fail("AGENTS.md does not define Mandatory Change Propagation", failures)
+
+    claude_lines = {line.strip() for line in claude.read_text(encoding="utf-8").splitlines()}
+    if "@AGENTS.md" not in claude_lines:
+        fail("CLAUDE.md must import the canonical repository instructions with @AGENTS.md", failures)
+
+
 def load_submodule_paths(root: Path) -> list[tuple[str, ...]]:
     gitmodules = root / ".gitmodules"
     if not gitmodules.is_file():
@@ -260,30 +286,31 @@ def validate_forbidden_files(failures: list[str], root: Path | None = None) -> N
             fail(f"Forbidden file suffix present: {rel}", failures)
 
 
-def validate_agent_files(failures: list[str]) -> None:
-    for base in (ROOT / ".claude/agents", ROOT / ".codex/agents"):
+def validate_agent_files(failures: list[str], root: Path | None = None) -> None:
+    root = root if root is not None else ROOT
+    for base in (root / ".claude/agents", root / ".codex/agents"):
         for path in sorted(base.glob("*.md")):
             text = path.read_text(encoding="utf-8")
             for section in AGENT_SECTIONS:
                 if section not in text:
-                    fail(f"Agent file missing section {section}: {path.relative_to(ROOT)}", failures)
+                    fail(f"Agent file missing section {section}: {path.relative_to(root)}", failures)
             if "## Approval Authority\n\nMay not approve work." not in text:
-                fail(f"Agent approval boundary not explicit: {path.relative_to(ROOT)}", failures)
+                fail(f"Agent approval boundary not explicit: {path.relative_to(root)}", failures)
             if "Read-only" in text and "## File Modification\n\nNo." not in text and "## File Modification\n\nNo by default." not in text:
-                fail(f"Read-only agent file modification boundary unclear: {path.relative_to(ROOT)}", failures)
+                fail(f"Read-only agent file modification boundary unclear: {path.relative_to(root)}", failures)
             if base.name == "agents" and base.parent.name == ".claude":
                 # Claude Code only treats a file under .claude/agents/ as a
                 # real, technically tool-scoped subagent if it starts with
                 # YAML frontmatter declaring name/description/tools. Without
                 # this, the file is inert prose, not an enforced boundary.
                 if not text.startswith("---\n"):
-                    fail(f"Claude agent file missing YAML frontmatter (not a real subagent): {path.relative_to(ROOT)}", failures)
+                    fail(f"Claude agent file missing YAML frontmatter (not a real subagent): {path.relative_to(root)}", failures)
                 else:
                     frontmatter_end = text.find("\n---", 4)
                     frontmatter = text[:frontmatter_end] if frontmatter_end != -1 else text
                     for key in ("name:", "description:", "tools:"):
                         if key not in frontmatter:
-                            fail(f"Claude agent frontmatter missing '{key}': {path.relative_to(ROOT)}", failures)
+                            fail(f"Claude agent frontmatter missing '{key}': {path.relative_to(root)}", failures)
 
 
 def validate_claude_settings(failures: list[str], root: Path | None = None) -> None:
@@ -400,13 +427,14 @@ def validate_skill_files(failures: list[str]) -> None:
         "review-bootstrap",
         "validate-bootstrap",
         "prepare-pr-evidence",
+        "propagate-change",
     }
     # Vendor-provided Spec Kit skills (installed by `specify init` /
     # `specify integration install`) use their own upstream schema
     # (name/description/argument-hint/metadata frontmatter, freeform `##`
     # sections) and are not authored by this repository. They are validated
     # only for basic frontmatter presence, never against SKILL_SECTIONS,
-    # which is this repository's own procedure schema for its 14 authored
+    # which is this repository's own procedure schema for its 15 authored
     # governance skills.
     found_skills = set()
     for base in (ROOT / ".agents/skills", ROOT / ".claude/skills"):
@@ -1124,6 +1152,7 @@ def main() -> int:
 
     failures: list[str] = []
     validate_required_paths(failures)
+    validate_instruction_source_of_truth(failures)
     validate_forbidden_files(failures)
     validate_agent_files(failures)
     validate_agent_matrix_consistency(failures)

@@ -104,9 +104,12 @@ content.
   not against this repository's custom skill-procedure schema (see
   `docs/agents/skill-catalog.md` for the distinction between vendor-provided
   Spec Kit skills and this repository's own authored governance skills).
-- A short marker block appended to `CLAUDE.md` and `AGENTS.md` (between
+- A short marker block in canonical `AGENTS.md` (between
   `<!-- SPECKIT START -->` / `<!-- SPECKIT END -->`), which Spec Kit itself
-  manages. All pre-existing content in both files was preserved verbatim.
+  manages. The initial install also appended the marker to `CLAUDE.md`;
+  `CLAUDE.md` is now intentionally a thin `@AGENTS.md` importer so repository
+  policy cannot drift between tool entrypoints. Claude-facing Spec Kit skills
+  remain directly discoverable under `.claude/skills/`.
 
 ## What was not installed
 

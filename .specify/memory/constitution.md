@@ -1,7 +1,10 @@
 # hr-platform Constitution
 
-This is the canonical Spec Kit constitution for this repository (installed by
-`specify init`, `specify-cli` 0.8.15). It carries forward, unchanged in
+This is the canonical constitution for Spec Kit principles in this repository
+(installed by `specify init`, `specify-cli` 0.8.15). Repository-wide
+instruction precedence, authority, workflow, and change propagation remain
+canonical only in root `AGENTS.md`; this file is subordinate to that contract
+and must not redefine it. It carries forward, unchanged in
 substance, the 15 principles originally adopted during Phase 0 bootstrap. It
 supersedes the pre-installation copy formerly kept at the non-standard path
 `.specify/constitution.md`, which has been removed to avoid two sources of

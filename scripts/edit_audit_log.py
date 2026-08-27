@@ -9,7 +9,7 @@ technically stops a top-level Claude Code session from calling Edit or
 Write, unlike the six `.claude/agents/*.md` subagents, which are tool-scoped
 for real (layer 1). This hook does not change that: it never blocks the
 underlying call. It only strengthens decision traceability (the review
-standard named in CLAUDE.md) with a cheap, local, append-only record of
+standard named in the canonical AGENTS.md) with a cheap, local, append-only record of
 what file-modifying tool touched what path and when, independent of `git
 diff` — useful when a change needs to be reconstructed or questioned later.
 

@@ -5,6 +5,10 @@ description: Use when producing or updating a layered test strategy covering cor
 
 # Create Test Strategy
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when defining or refining repository-level testing strategy documents.

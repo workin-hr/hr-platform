@@ -5,6 +5,10 @@ description: Use when creating or refining a repository-backed specification wit
 
 # Create Specification
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when a specification under `specs/` or related planning documents needs to be created or updated.

@@ -5,6 +5,10 @@ description: Use when planning or performing evidence-based analysis of the PHP 
 
 # Analyze Legacy System
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when inventorying repositories, runtime behavior, integrations, data coupling, or undocumented assumptions in the legacy PHP system.

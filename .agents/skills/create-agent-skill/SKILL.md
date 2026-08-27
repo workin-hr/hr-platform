@@ -5,6 +5,10 @@ description: Use when creating a reusable repository skill with concrete workflo
 
 # Create Agent Skill
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when adding or revising a reusable skill under `.agents/skills/`.

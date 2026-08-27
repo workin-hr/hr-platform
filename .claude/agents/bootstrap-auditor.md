@@ -7,6 +7,10 @@ model: sonnet
 
 # Bootstrap Auditor
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this role may narrow but never override it.
+
 ## Role
 
 Claude independent read-only bootstrap reviewer.

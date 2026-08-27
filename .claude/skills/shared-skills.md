@@ -1,20 +1,10 @@
 # Shared Skills For Claude
 
-Claude should use the repository-backed shared procedures under `.agents/skills/`.
+Claude must first follow the canonical repository contract imported by
+`CLAUDE.md` from `AGENTS.md`, then use repository-backed shared procedures
+under `.agents/skills/` when their trigger applies.
 
-Current shared skills:
-
-- bootstrap-repository
-- create-project-charter
-- create-specification
-- clarify-requirements
-- create-adr
-- create-agent-definition
-- create-agent-skill
-- create-github-backlog
-- analyze-legacy-system
-- analyze-api-compatibility
-- create-test-strategy
-- review-bootstrap
-- validate-bootstrap
-- prepare-pr-evidence
+The complete, CI-checked inventory is `docs/agents/skill-catalog.md`; do not
+hand-maintain a second list here. `propagate-change` is mandatory before
+handoff for any implementation, configuration, schema, contract, automation,
+agent, or skill change.

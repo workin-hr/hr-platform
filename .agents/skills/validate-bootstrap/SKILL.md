@@ -5,6 +5,10 @@ description: Use when running deterministic checks for required Phase 0 files, f
 
 # Validate Bootstrap
 
+## Canonical Instructions
+
+Read and follow repository-root `AGENTS.md`; this skill narrows that contract and never overrides it.
+
 ## Description And Trigger
 
 Use when validating repository readiness before review or merge.
