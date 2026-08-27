@@ -203,47 +203,54 @@ public class LegacyPayrollBatchService {
 	 * out the connection-acquisition timeout and roll back. Computing first and writing second
 	 * means the lock is held only for the fast delete-then-insert, not the slow fan-out.
 	 *
-	 * <p>This does trade away one guarantee: the payslip values were computed against the
-	 * fiscal period read moments earlier, not the one the lock re-reads. A concurrent {@code
-	 * update.php} changing this same batch's month/year in that exact window is possible but
-	 * narrow, and {@code calculate.php} is idempotent by design (a second call reproduces the
-	 * same rows, not additive ones) -- re-running it corrects a stale period the same way
-	 * re-running it already corrects stale attendance. This is a disclosed, bounded trade-off,
-	 * not a silent one: it does not affect the finalize/reopen race this method exists to close.
+	 * <p>Because the computation precedes the lock, {@code update.php} may commit a new
+	 * month/year between the precheck and the locked write. The locked section compares the
+	 * current row with the period used by the computation and, when they differ, performs no
+	 * write and retries from the newly committed period. This prevents a stale calculation from
+	 * silently overwriting the concurrent update while keeping the slow fan-out outside the
+	 * transaction.
 	 */
 	public CalculationResult calculate(long companyId, long batchId, String weeklyRestLabel) {
-		Map<String, Object> precheck = store.scoped(batchId, companyId);
-		if (precheck == null) {
-			throw new LegacyApiException(404, "batch_not_found");
-		}
-		if (FINALIZED.equals(precheck.get("status"))) {
-			throw new LegacyApiException(400, "batch_already_finalized");
-		}
-		BatchComputation computation = computeBatch(companyId, precheck, weeklyRestLabel);
-
-		java.util.concurrent.atomic.AtomicInteger calculatedCount = new java.util.concurrent.atomic.AtomicInteger();
-		inTransaction(txStore -> {
-			Map<String, Object> batch = txStore.scopedForUpdate(batchId, companyId);
-			if (batch == null) {
+		while (true) {
+			Map<String, Object> precheck = store.scoped(batchId, companyId);
+			if (precheck == null) {
 				throw new LegacyApiException(404, "batch_not_found");
 			}
-			if (FINALIZED.equals(batch.get("status"))) {
+			if (FINALIZED.equals(precheck.get("status"))) {
 				throw new LegacyApiException(400, "batch_already_finalized");
 			}
-			txStore.updatePeriod(batchId, computation.month(), computation.year(),
-					computation.periodFrom(), computation.periodTo());
-			txStore.deletePayslipsForBatch(batchId);
-			for (EmployeePayslip payslip : computation.payslips()) {
-				txStore.insertPayslip(batchId, payslip.employeeId(), payslip.computation());
-			}
-			calculatedCount.set(computation.payslips().size());
-		});
+			BatchComputation computation = computeBatch(companyId, precheck, weeklyRestLabel);
 
-		Map<String, Object> row = store.withStats(batchId, companyId);
-		if (row == null) {
-			throw new LegacyApiException(404, "batch_not_found");
+			java.util.concurrent.atomic.AtomicBoolean periodChanged = new java.util.concurrent.atomic.AtomicBoolean();
+			inTransaction(txStore -> {
+				Map<String, Object> batch = txStore.scopedForUpdate(batchId, companyId);
+				if (batch == null) {
+					throw new LegacyApiException(404, "batch_not_found");
+				}
+				if (FINALIZED.equals(batch.get("status"))) {
+					throw new LegacyApiException(400, "batch_already_finalized");
+				}
+				if (!samePeriod(batch, computation)) {
+					periodChanged.set(true);
+					return;
+				}
+				txStore.updatePeriod(batchId, computation.month(), computation.year(),
+						computation.periodFrom(), computation.periodTo());
+				txStore.deletePayslipsForBatch(batchId);
+				for (EmployeePayslip payslip : computation.payslips()) {
+					txStore.insertPayslip(batchId, payslip.employeeId(), payslip.computation());
+				}
+			});
+			if (periodChanged.get()) {
+				continue;
+			}
+
+			Map<String, Object> row = store.withStats(batchId, companyId);
+			if (row == null) {
+				throw new LegacyApiException(404, "batch_not_found");
+			}
+			return new CalculationResult(row, computation.payslips().size());
 		}
-		return new CalculationResult(row, calculatedCount.get());
 	}
 
 	public record CalculationResult(Map<String, Object> row, int calculatedCount) {
@@ -254,6 +261,11 @@ public class LegacyPayrollBatchService {
 	}
 
 	private record EmployeePayslip(long employeeId, LegacyPayrollCalculationService.PayslipComputation computation) {
+	}
+
+	private static boolean samePeriod(Map<String, Object> batch, BatchComputation computation) {
+		return LegacyValues.toPhpLong(batch.get("year")) == computation.year()
+				&& LegacyValues.toPhpLong(batch.get("month")) == computation.month();
 	}
 
 	/**

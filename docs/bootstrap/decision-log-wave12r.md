@@ -151,3 +151,31 @@ This round covered a finding missed out of the very first Codex pass (never acti
 **Deliberately unchanged, user-confirmed -- advance-deduction/penalty-marking drift between `calculate.php` and `finalize.php`.** Two related P1 findings: `finalize.php` re-derives advance-deduction items and the penalty-applied sweep from *live* `advances`/`penalties` rows at finalize time, not from a snapshot of what `calculate.php` actually stored on the payslip. An advance approved/edited, or a penalty created, in the window between the two calls can therefore be deducted/marked without ever having appeared in the payslip HR reviewed. Verified byte-exact against frozen PHP's `payroll_finalize_batch_side_effects()` (`payroll_calculation.php:1021-1059`) -- same live re-read, same range-wide `UPDATE ... SET applied_to_payroll=1`. Three remedies were considered and put to the user: (1) leave as documented PHP parity; (2) have `finalize()` recompute the batch atomically before applying side effects -- rejected, since `payslips/update.php` explicitly allows HR to manually edit a payslip's stored values up until finalization (verified: `update.php` rejects only once `batch_status === 'finalized'`), so a silent recompute would overwrite those edits, trading one correctness bug for a different, worse one; (3) snapshot itemized deduction/penalty items at calculate time -- most correct, but needs a schema change (new table or JSON column) disproportionate to this review round. User chose (1): documented in code (`LegacyPayrollBatchService.applyAdvancePaymentsAndMarkPenalties`'s own javadoc) and here, not changed.
 
 Evidence: `hr-legacy/apis/api/payroll_batches/{delete,finalize}.php`, `apis/api/advances/pay.php`, `apis/api/branches/update.php`, `apis/helpers/payroll_calculation.php` (`payroll_enrich_payslip_row`, `payroll_finalize_batch_side_effects`), all re-read in full. New/extended tests: `LegacyPayrollBatchCalculateEndToEndTest#deleteRemovesADraftBatchAndItsPayslips`, `#deleteRefusesAnAlreadyFinalizedBatchAndLeavesItIntact`, `#deleteBlocksOnTheSameRowLockCalculateFinalizeAndReopenAlreadyUse` (same externally-held-lock proof technique as the calculate() lock test); `LegacyAdvancePayEndToEndTest` (new file, 2 tests: a `CyclicBarrier`-synchronized two-thread concurrent-payment test proving both 60.00 payments against a 1000.00 balance land as 880.00 not 940.00, and an overpayment-rejection test). `LegacyPayrollBatchServiceTest`/`LegacyAdvanceServiceTest` updated for the `delete()`/`pay()` restructuring the same way D-116 updated `calculate()`'s tests. Full backend suite green locally under `TZ=UTC` (1822 tests).
+
+## D-118: Calculate retries when a concurrent batch-period update wins before the row lock
+
+**Status:** Accepted 2026-08-27.
+
+Moving `calculate.php`'s expensive attendance/settings fan-out before its
+transaction in D-117 closed a connection-pool exhaustion path, but introduced
+a lost-update window. `calculate()` read and computed month/year before taking
+the batch-row lock, then unconditionally wrote that stale period after acquiring
+the lock. If `update.php` committed a new period while calculate waited, the
+calculation silently restored the old month/year and inserted payslips for it.
+The D-117 statement that a later calculate call would self-heal was incorrect:
+the concurrent update itself had already been overwritten.
+
+The fix preserves D-117's pool-safety boundary. Computation remains outside the
+transaction. Once the existing `SELECT ... FOR UPDATE` lock is acquired,
+calculate compares the live month/year with the period used for the computed
+payslips. A mismatch performs no writes, releases the transaction, and retries
+from the newly committed period. An update that begins after this comparison
+linearizes after calculate and retains legacy's existing behavior that changing
+a period does not itself recalculate payslips.
+
+Evidence: `LegacyPayrollBatchCalculateEndToEndTest#calculateRetriesWhenTheBatchPeriodChangesBeforeItsRowLock`
+holds the row lock, starts a September calculation, changes the locked row to
+February, commits, and then asserts both the February batch period and February
+attendance-derived payslip. It failed before the fix (`month` returned `1` in
+the initial January reproduction, then the unique-period fixture was moved to
+September for whole-class isolation) and passes after the optimistic retry.

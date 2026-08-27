@@ -69,6 +69,7 @@ This satisfies D-109 without deleting or weakening historical regression coverag
 - `branches` preserves PHP snake-case inputs and route/query conventions, including the previously audited numeric-coercion caveats.
 - attendance list/stats preserve the frozen guard order, date/coercion rules, weekly-rest behavior, timed requests, synthetic rows, and legacy shift-resolution behavior.
 - payroll batch calculation/finalize/reopen preserve the distinct legacy helper behavior and transactional payroll side effects.
+- payroll calculation performs its expensive read fan-out outside the locked transaction, then retries if a concurrent batch-period update committed before its row lock; this preserves pool capacity without overwriting the newer period (D-117/D-118).
 - payslip create, update, and enrichment remain three distinct calculations rather than being incorrectly unified.
 - the live `weekly_off_days` key-case defect was fixed separately under D-103 and merged to `main`.
 

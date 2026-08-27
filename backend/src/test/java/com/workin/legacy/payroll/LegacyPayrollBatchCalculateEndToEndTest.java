@@ -408,6 +408,65 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 		}
 	}
 
+	/**
+	 * The expensive calculation happens before the batch-row lock so concurrent payroll runs
+	 * do not exhaust the connection pool. If {@code update.php} changes the period after that
+	 * precheck but before the lock is acquired, calculate must retry from the newly committed
+	 * period rather than overwrite the update with its stale month/year and stale payslips.
+	 */
+	@Test
+	void calculateRetriesWhenTheBatchPeriodChangesBeforeItsRowLock() throws Exception {
+		Map<String, Object> createBody = dataOf(send(CREATE, ADMIN_1, HttpMethod.POST,
+				"{\"month\":9,\"year\":2021}", 201));
+		long batchId = number(createBody.get("id"));
+
+		try (Connection lockHolder = connect()) {
+			lockHolder.setAutoCommit(false);
+			try (Statement st = lockHolder.createStatement();
+					java.sql.ResultSet rs = st.executeQuery(
+							"SELECT * FROM payroll_batches WHERE id=" + batchId + " FOR UPDATE")) {
+				assertThat(rs.next()).as("lock-holder must see the freshly created batch row").isTrue();
+			}
+
+			ExecutorService pool = Executors.newSingleThreadExecutor();
+			try {
+				Future<ResponseEntity<Map<String, Object>>> calculateCall = pool.submit(() -> {
+					HttpHeaders headers = new HttpHeaders();
+					headers.setBearerAuth(tokenFor(ADMIN_1));
+					headers.set("Accept-Language", "en");
+					return restTemplate.exchange(
+							URI.create(restTemplate.getRootUri() + CALCULATE + "?id=" + batchId), HttpMethod.POST,
+							new HttpEntity<>(headers), mapType());
+				});
+
+				assertThatThrownBy(() -> calculateCall.get(1500, TimeUnit.MILLISECONDS))
+						.as("calculate() must finish its September precomputation and block on the held row lock")
+						.isInstanceOf(TimeoutException.class);
+
+				try (Statement st = lockHolder.createStatement()) {
+					st.executeUpdate("UPDATE payroll_batches SET month=2, year=2021, "
+							+ "period_from='2021-02-01', period_to='2021-02-05' WHERE id=" + batchId);
+				}
+				lockHolder.commit();
+
+				ResponseEntity<Map<String, Object>> response = calculateCall.get(30, TimeUnit.SECONDS);
+				assertThat(response.getStatusCode().value()).isEqualTo(200);
+
+				Map<String, Object> batch = dataOf(response.getBody());
+				assertThat(number(batch.get("month"))).isEqualTo(2L);
+				assertThat(String.valueOf(batch.get("year"))).isEqualTo("2021");
+				assertThat(batch.get("period_from")).isEqualTo("2021-02-01");
+				assertThat(batch.get("period_to")).isEqualTo("2021-02-05");
+
+				Map<String, Object> employee2 = queryPayslip(batchId, EMPLOYEE_2);
+				assertThat(number(employee2.get("days_present"))).isEqualTo(5L);
+				assertThat(number(employee2.get("days_absent"))).isEqualTo(0L);
+			} finally {
+				pool.shutdownNow();
+			}
+		}
+	}
+
 	private ResponseEntity<Map<String, Object>> finalizeRacing(CyclicBarrier barrier, long batchId) throws Exception {
 		barrier.await(10, TimeUnit.SECONDS);
 		HttpHeaders headers = new HttpHeaders();
@@ -573,6 +632,17 @@ class LegacyPayrollBatchCalculateEndToEndTest {
 			// employees, a different batch month.
 			for (int day = 1; day <= 5; day++) {
 				String date = String.format("2020-02-%02d", day);
+				st.execute("INSERT INTO attendance (employee_id, check_in, check_out, method, created_at) VALUES ("
+						+ EMPLOYEE_1 + ", '" + date + " 09:00:00', '" + date + " 17:00:00', 'app',"
+						+ " '" + date + " 09:00:00')");
+				st.execute("INSERT INTO attendance (employee_id, check_in, check_out, method, created_at) VALUES ("
+						+ EMPLOYEE_2 + ", '" + date + " 09:00:00', '" + date + " 17:00:00', 'app',"
+						+ " '" + date + " 09:00:00')");
+			}
+			// Isolated February 2021 attendance for the period-update concurrency
+			// regression. No other test in this class creates a 2021 batch.
+			for (int day = 1; day <= 5; day++) {
+				String date = String.format("2021-02-%02d", day);
 				st.execute("INSERT INTO attendance (employee_id, check_in, check_out, method, created_at) VALUES ("
 						+ EMPLOYEE_1 + ", '" + date + " 09:00:00', '" + date + " 17:00:00', 'app',"
 						+ " '" + date + " 09:00:00')");
