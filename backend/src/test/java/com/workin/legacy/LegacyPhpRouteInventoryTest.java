@@ -85,6 +85,7 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/payroll_batches/one.php", "/apis/api/payroll_batches/reopen.php",
 			"/apis/api/payroll_batches/stats.php", "/apis/api/payroll_batches/update.php",
 			"/apis/api/payslips/create.php", "/apis/api/payslips/delete.php",
+			"/apis/api/payslips/export.php",
 			"/apis/api/payslips/list.php", "/apis/api/payslips/one.php",
 			"/apis/api/payslips/update.php",
 			"/apis/api/penalties/create.php", "/apis/api/penalties/delete.php",
@@ -132,8 +133,8 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void deliveredRouteCountIsNowOneHundredTwentySeven() {
-		assertThat(EXPECTED_ROUTES).hasSize(127).doesNotHaveDuplicates();
+	void deliveredRouteCountIsNowOneHundredTwentyEight() {
+		assertThat(EXPECTED_ROUTES).hasSize(128).doesNotHaveDuplicates();
 	}
 
 	/**
@@ -168,7 +169,9 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/leave_balances/template_excel.php",
 			// api_xlsx_export_send(), via data_export_attendance_csv() or
 			// data_export_fingerprints_sheet() -- Wave 12.6.6d.
-			"/apis/api/attendance/export.php");
+			"/apis/api/attendance/export.php",
+			// api_xlsx_export_send(), via data_export_payslips_csv() -- Wave 12.9.
+			"/apis/api/payslips/export.php");
 
 	/**
 	 * {@code penalties/report.php} picks its wire contract from {@code format}:
@@ -205,11 +208,11 @@ class LegacyPhpRouteInventoryTest {
 
 	@Test
 	void theResponseShapePartitionMatchesTheCompletionPlan() {
-		assertThat(DOWNLOAD_ONLY_ROUTES).hasSize(3).doesNotHaveDuplicates();
+		assertThat(DOWNLOAD_ONLY_ROUTES).hasSize(4).doesNotHaveDuplicates();
 		assertThat(CONDITIONAL_ROUTES).hasSize(1);
 		assertThat(EXPECTED_ROUTES).containsAll(DOWNLOAD_ONLY_ROUTES).containsAll(CONDITIONAL_ROUTES);
 		assertThat(EXPECTED_ROUTES.size() - DOWNLOAD_ONLY_ROUTES.size() - CONDITIONAL_ROUTES.size())
-				.as("envelope-only routes, per the completion plan's 123/3/1 partition")
+				.as("envelope-only routes, per the completion plan's 123/4/1 partition")
 				.isEqualTo(123);
 	}
 
@@ -225,35 +228,21 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	/**
-	 * {@code attendance/export.php} was delivered by Wave 12.6.6d and has left
-	 * this assertion, exactly as its predecessor's javadoc required -- deleted
-	 * from the list, not inverted. Only {@code payslips/export.php} remains,
-	 * owed by Wave 12.9.
+	 * Nothing is unmapped any more. Wave 12.9 delivered {@code payslips/export.php}
+	 * on 2026-08-28, the last of C9's three, so the unmapped-route assertions are
+	 * gone rather than inverted -- each was deleted by the wave that delivered its
+	 * endpoint, exactly as its javadoc required.
 	 *
-	 * <p>It emits an XLSX workbook through the {@code : never} terminator
-	 * {@code api_xlsx_export_send()} ({@code xlsx_writer.php:318}) despite its
-	 * {@code _csv}-named row builder. Per D-085 the port owes the same
-	 * reader-observable workbook, not the same archive bytes. Delete this
-	 * assertion -- do not amend it -- when Wave 12.9 delivers the last one.
+	 * <p>What replaces them is the statement that matters for gate G2: every one
+	 * of the 199 physical endpoint files is either mapped, owed by Item 13, or
+	 * excluded by a decision that names it.
 	 */
 	@Test
-	void theLastBinaryExportEndpointIsStillUnmapped() {
-		assertThat(EXPECTED_ROUTES).contains("/apis/api/attendance/export.php");
-		assertThat(EXPECTED_ROUTES).doesNotContain("/apis/api/payslips/export.php");
-	}
-
-	/**
-	 * Deleted by Wave 12.6.6c, exactly as its predecessor's javadoc required:
-	 * {@code attendance/overall_report.php} is delivered and is now inside
-	 * {@link #EXPECTED_ROUTES}, so the assertion that it stays unmapped is gone
-	 * rather than inverted. Only {@code attendance/export.php} and
-	 * {@code payslips/export.php} remain.
-	 */
-	@Test
-	void theRemainingUnmappedRoutesAreOnlyTheTwoExports() {
+	void allThreeOfC9sOnceUnmappedEndpointsAreNowDelivered() {
 		assertThat(EXPECTED_ROUTES).contains(
-				"/apis/api/attendance/overall_report.php", "/apis/api/attendance/export.php");
-		assertThat(EXPECTED_ROUTES).doesNotContain("/apis/api/payslips/export.php");
+				"/apis/api/attendance/overall_report.php",
+				"/apis/api/attendance/export.php",
+				"/apis/api/payslips/export.php");
 	}
 
 	@Test

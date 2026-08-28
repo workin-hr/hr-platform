@@ -300,6 +300,36 @@ public class LegacyPayslipService {
 	// payroll_enrich_payslip_row() (payroll_calculation.php:511-651)
 	// ------------------------------------------------------------------
 
+	/**
+	 * {@code data_export_payslips_csv()}'s rows: the export query, then
+	 * {@code payroll_enrich_payslip_rows()} -- which is a bare loop over the
+	 * same {@code payroll_enrich_payslip_row()} {@code list.php} already uses,
+	 * so it reuses {@link #enrich} rather than porting a second enrichment.
+	 *
+	 * <p>The date pair is validated here, before the query, because both of its
+	 * failures are the caller's: an inverted range and a half-supplied range are
+	 * each {@code invalid_date}, and supplying neither is valid.
+	 */
+	public List<Map<String, Object>> exportRows(
+			LegacyPayslipStore.ExportFilter filter, String presentLabel, String weeklyRestLabel,
+			String officialHolidayFallbackLabel) {
+		boolean hasFrom = filter.from() != null && !filter.from().isEmpty();
+		boolean hasTo = filter.to() != null && !filter.to().isEmpty();
+		if (hasFrom && hasTo) {
+			if (filter.from().compareTo(filter.to()) > 0) {
+				throw new LegacyApiException(400, "invalid_date");
+			}
+		} else if (hasFrom || hasTo) {
+			// One bound without the other is refused rather than defaulted.
+			throw new LegacyApiException(400, "invalid_date");
+		}
+
+		return store.exportRows(filter).stream()
+				.map(row -> enrich(row, filter.companyId(), presentLabel, weeklyRestLabel,
+						officialHolidayFallbackLabel))
+				.toList();
+	}
+
 	private Map<String, Object> enrich(
 			Map<String, Object> source, long companyId, String presentLabel, String weeklyRestLabel,
 			String officialHolidayFallbackLabel) {

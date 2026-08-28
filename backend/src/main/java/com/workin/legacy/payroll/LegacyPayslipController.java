@@ -1,18 +1,23 @@
 package com.workin.legacy.payroll;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyJsonBody;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.auth.LegacyRequestGuard;
 import com.workin.legacy.employees.LegacyEmployee;
+import com.workin.legacy.spreadsheet.LegacyXlsxWriter;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyApiResponse;
 import com.workin.legacy.wire.LegacyMessages;
@@ -28,14 +33,16 @@ public class LegacyPayslipController {
 	private final LegacyPayslipWriteCoordinator writes;
 	private final LegacyRequestGuard guard;
 	private final LegacyMessages messages;
+	private final LegacyClock clock;
 
 	public LegacyPayslipController(
 			LegacyPayslipService service, LegacyPayslipWriteCoordinator writes,
-			LegacyRequestGuard guard, LegacyMessages messages) {
+			LegacyRequestGuard guard, LegacyMessages messages, LegacyClock clock) {
 		this.service = service;
 		this.writes = writes;
 		this.guard = guard;
 		this.messages = messages;
+		this.clock = clock;
 	}
 
 	/** {@code create.php}: Company Admin, HR only. */
@@ -77,6 +84,97 @@ public class LegacyPayslipController {
 				LegacyQueryParameters.parse(request.getQueryString()),
 				presentLabel(request), weeklyRestLabel(request), officialHolidayFallbackLabel(request));
 		return LegacyApiResponse.ok(message(request, "payslips"), page.rows(), page.meta());
+	}
+
+	/**
+	 * {@code export.php}: the payslip rows as an XLSX workbook, same role list as
+	 * {@code list.php} -- an EMPLOYEE is served their own payslips only.
+	 *
+	 * <p>Its filename encodes the filter that produced it: the batch when one was
+	 * given, the period when both dates were, and today's date otherwise. Per
+	 * D-085 the port owes the same reader-observable workbook, not the same
+	 * archive bytes.
+	 */
+	@RequestMapping("/export.php")
+	public ResponseEntity<byte[]> export(HttpServletRequest request) {
+		requireMethod(request, "GET");
+		LegacyRequestContext context = readerRole();
+		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
+		String locale = messages.resolveLocale(request);
+
+		String from = LegacyValues.toPhpString(query.value("from")).trim();
+		String to = LegacyValues.toPhpString(query.value("to")).trim();
+		Long batchId = positiveOrNull(LegacyValues.toPhpLong(query.value("batch_id")));
+
+		LegacyPayslipStore.ExportFilter filter = new LegacyPayslipStore.ExportFilter(
+				context.companyId(),
+				context.role() == LegacyEmployee.Role.EMPLOYEE ? context.employeeId() : null,
+				positiveOrNull(LegacyValues.toPhpLong(query.value("employee_id"))),
+				positiveOrNull(LegacyValues.toPhpLong(query.value("branch_id"))),
+				positiveOrNull(LegacyValues.toPhpLong(query.value("department_id"))),
+				batchId,
+				positiveOrNullLong(LegacyValues.toPhpLong(query.value("month"))),
+				positiveOrNullLong(LegacyValues.toPhpLong(query.value("year"))),
+				from.isEmpty() ? null : from,
+				to.isEmpty() ? null : to,
+				searchOrNull(LegacyValues.toPhpString(query.value("search"))));
+
+		List<Map<String, Object>> rows = service.exportRows(filter,
+				presentLabel(request), weeklyRestLabel(request), officialHolidayFallbackLabel(request));
+
+		List<String> headers = LegacyPayslipExportSheet.HEADER_KEYS.stream()
+				.map(key -> messages.translate(locale, key, null)).toList();
+		List<List<String>> body = new java.util.ArrayList<>();
+		int serial = 0;
+		for (Map<String, Object> row : rows) {
+			body.add(LegacyPayslipExportSheet.row(row, ++serial));
+		}
+
+		byte[] bytes;
+		try {
+			bytes = LegacyXlsxWriter.build(headers, body, "Payslips", List.of(), List.of(), 1, Map.of());
+		} catch (Throwable ex) { // PHP catches Throwable around xlsx_build_bytes().
+			throw new LegacyApiException(500, "file_save_failed", ex.getMessage());
+		}
+
+		// Sanitized because `from`/`to` are raw query parameters and this value
+		// lands in Content-Disposition -- see LegacyXlsxWriter#sanitizeFilename.
+		String filename = LegacyXlsxWriter.sanitizeFilename(
+				LegacyPayslipExportSheet.filename(batchId, from, to, clock.todayAsString()));
+		return ResponseEntity.ok()
+				.contentType(MediaType.parseMediaType(
+						"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+				.contentLength(bytes.length)
+				.body(bytes);
+	}
+
+	private static Long positiveOrNull(long value) {
+		return value > 0 ? value : null;
+	}
+
+	/**
+	 * {@code month}/{@code year} stay 64-bit to the SQL bind.
+	 *
+	 * <p>Narrowing to {@code int} wraps: {@code month=4294967302} becomes 6 and
+	 * would export June, where PHP's 64-bit integer stays 4294967302 and matches
+	 * no batch at all.
+	 */
+	private static Long positiveOrNullLong(long value) {
+		return value > 0 ? value : null;
+	}
+
+	/**
+	 * {@code search_query_param()}: {@code trim()} then null when empty.
+	 *
+	 * <p>{@link LegacyValues#phpTrim}, not {@link String#trim} -- Java trims every
+	 * character at or below U+0020, PHP trims only {@code " \t\n\r\0\x0B"}. A
+	 * form feed would become null here and export every in-scope payslip, where
+	 * PHP keeps it and applies a {@code LIKE} that ordinarily matches nothing.
+	 */
+	private static String searchOrNull(String value) {
+		String trimmed = LegacyValues.phpTrim(value);
+		return trimmed.isEmpty() ? null : trimmed;
 	}
 
 	/** {@code update.php}: Company Admin, HR only. */

@@ -43,6 +43,92 @@ public class LegacyPayslipStore {
 			LEFT JOIN departments dep ON dep.id = e.department_id
 			LEFT JOIN job_titles jt ON jt.id = e.job_title_id""";
 
+	/**
+	 * {@code payslips/export.php}'s filter set
+	 * ({@code data_export_helper.php:462-525}).
+	 *
+	 * <p>Not {@link Filter}: the export has no pagination, no
+	 * {@code new_employees_this_month}, and adds a {@code from}/{@code to}
+	 * <b>period-overlap</b> pair the listing does not have. Its ordering is the
+	 * listing's, not the overall report's.
+	 */
+	public record ExportFilter(
+			long companyId, Long selfEmployeeId, Long employeeId, Long branchId, Long departmentId,
+			Long batchId, Long month, Long year, String from, String to, String search) {
+	}
+
+	/**
+	 * {@code data_export_payslips_csv()}'s query: {@link #LIST_SELECT} with the
+	 * export's own filters, its own ordering, and no {@code LIMIT}.
+	 *
+	 * <p>The {@code from}/{@code to} pair is an <b>overlap</b> test, not
+	 * containment -- {@code period_to >= from AND period_from <= to} -- so a
+	 * batch straddling either bound is included. Supplying only one of the two
+	 * is rejected by the caller before this runs.
+	 */
+	public List<Map<String, Object>> exportRows(ExportFilter filter) {
+		List<Object> binds = new ArrayList<>();
+		StringBuilder where = new StringBuilder("b.company_id = ?");
+		binds.add(filter.companyId());
+
+		if (filter.selfEmployeeId() != null) {
+			where.append(" AND p.employee_id = ?");
+			binds.add(filter.selfEmployeeId());
+		} else {
+			if (filter.employeeId() != null) {
+				where.append(" AND p.employee_id = ?");
+				binds.add(filter.employeeId());
+			}
+			if (filter.branchId() != null) {
+				where.append(" AND e.branch_id = ?");
+				binds.add(filter.branchId());
+			}
+			if (filter.departmentId() != null) {
+				where.append(" AND e.department_id = ?");
+				binds.add(filter.departmentId());
+			}
+		}
+		if (filter.batchId() != null) {
+			where.append(" AND p.batch_id = ?");
+			binds.add(filter.batchId());
+		}
+		if (filter.month() != null) {
+			where.append(" AND b.month = ?");
+			binds.add(filter.month());
+		}
+		if (filter.year() != null) {
+			where.append(" AND b.year = ?");
+			binds.add(filter.year());
+		}
+		if (filter.from() != null && filter.to() != null) {
+			where.append(" AND b.period_to >= ? AND b.period_from <= ?");
+			binds.add(filter.from());
+			binds.add(filter.to());
+		}
+		if (filter.search() != null) {
+			where.append(" AND (TRIM(CONCAT(COALESCE(e.first_name,''), ' ', COALESCE(e.last_name,'')))"
+					+ " LIKE ? OR e.employee_code LIKE ?)");
+			String like = "%" + filter.search() + "%";
+			binds.add(like);
+			binds.add(like);
+		}
+
+		String sql = LIST_SELECT + """
+
+				WHERE %s
+				ORDER BY
+				  CASE WHEN e.employee_code REGEXP '^[0-9]+$'
+				    THEN CAST(e.employee_code AS UNSIGNED) ELSE NULL END ASC,
+				  e.employee_code ASC,
+				  p.id ASC
+				""".formatted(where);
+
+		// LegacyJdbcValues.rowMapper(), not queryForList: every other read here
+		// goes through it so DATE and TIMESTAMP columns arrive as the lexical
+		// strings PHP hands its callers, rather than as java.sql.Date.
+		return jdbc.query(sql, LegacyJdbcValues.rowMapper(), binds.toArray());
+	}
+
 	private static final String ONE_SELECT = """
 			SELECT p.id, p.batch_id, p.employee_id, p.days_present, p.days_absent, p.days_leave,
 			  p.overtime_hours, p.basic_salary, p.allowances, p.overtime_pay, p.penalties_total,

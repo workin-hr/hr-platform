@@ -6,18 +6,21 @@ Authoritative source: frozen `workin-hr/hr-legacy` commit `d113204c8a2cf83b997c5
 
 ## Completion result
 
-**Wave 12 is not complete.** Every wave slice below is delivered except one endpoint:
-`payslips/export.php` remains unimplemented and is in Phase-1 scope -- see "Correction
--- three open endpoints, not three exclusions" below, of which two have since shipped.
-Wave 12's gate is therefore not passed, and Item 12 does not close, until it does.
+**Wave 12 is complete as of 2026-08-28.** Every slice below is delivered, and the three
+endpoints this audit had to correct from "excluded" to "open" were all **delivered rather
+than excluded**, exactly as O-8/D-120 dispositioned -- see "Correction -- three open
+endpoints, not three exclusions" below. `ITEM12_REMAINING` is empty.
 
-What is complete is most of the slice list: Waves 12.1 through 12.10 and the 12.R retrofit have
-each delivered everything assigned to them except **Wave 12.9** (15 of 16, once
-`payslips/export.php` stopped being counted as excluded). **Wave 12.6.6 closed on 2026-08-28**,
-delivering `attendance/overall_report.php` and `attendance/export.php`.
+This is the wave gate, not gate G2: G2 covers all 198 live endpoints, and Item 13's 70
+remain.
+
+Waves 12.1 through 12.10 and the 12.R retrofit have each delivered everything assigned to
+them. The last two to close, both on 2026-08-28: **Wave 12.6.6** with
+`attendance/overall_report.php` and `attendance/export.php`, and **Wave 12.9** with
+`payslips/export.php`, taking it to 16 of 16.
 
 - Wave 12.8: **20/20** — `salary_contracts` 5, `advances` 8, `penalties` 7.
-- Wave 12.9: **15/16, not complete** -- `payroll_batches` **10/10** and `payslips` **5/6**. `payslips/export.php` is a binary XLSX response and remains **unimplemented** -- open per D-106's own follow-up, never excluded, and dispositioned as delivered by D-120. It is owned by this wave, which closes when `payslips` reaches 6 of 6 (completion plan §1.6).
+- Wave 12.9: **16/16** -- `payroll_batches` **10/10** and `payslips` **6/6**. `payslips/export.php` is a binary XLSX response, delivered 2026-08-28: open per D-106's own follow-up, never excluded, and dispositioned as delivered by D-120.
 - Wave 12.10: **3/3** — `company/update.php`, `company/upload_logo.php`, `company/upload_commercial_reg.php`.
 - Deferred attendance JSON work: `list.php`, `stats.php`, and `employee_monthly_attendance.php` are implemented.
   `overall_report.php` and `export.php` were **delivered 2026-08-28** by Wave 12.6.6a-d, closing that wave at 18/18.
@@ -28,14 +31,17 @@ delivering `attendance/overall_report.php` and `attendance/export.php`.
   - `job_titles`: 5/5 — D-110.
   - `auth/login_employee.php`: 1/1 — D-110/D-111.
 
-The delivered client-facing inventory is **127 literal `/apis/**` routes**, after Wave 12.6.6
-added the two attendance endpoints on 2026-08-28.
+The delivered client-facing inventory is **128 literal `/apis/**` routes**, after Wave 12.6.6's
+two attendance endpoints and Wave 12.9's `payslips/export.php` landed on 2026-08-28.
 
 The three frozen endpoints outstanding when this audit was written were:
 
 - ~~`/apis/api/attendance/overall_report.php`~~ -- delivered 2026-08-28 (Wave 12.6.6c)
 - ~~`/apis/api/attendance/export.php`~~ -- delivered 2026-08-28 (Wave 12.6.6d)
-- `/apis/api/payslips/export.php` -- **still outstanding**, owed by Wave 12.9
+- ~~`/apis/api/payslips/export.php`~~ -- delivered 2026-08-28 (Wave 12.9)
+
+**All three shipped.** None was excluded, which is what C9 argued for and what O-8/D-120
+decided.
 
 ## Correction -- three open endpoints, not three exclusions
 
