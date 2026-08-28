@@ -322,18 +322,38 @@ def validate_agent_files(failures: list[str], root: Path | None = None) -> None:
 INDEPENDENT_REVIEWER = "chatgpt-codex-connector[bot]"
 
 
+# The matrix cell is written `` `chatgpt-codex-connector[bot]` (pull-request
+# review) `` -- backticks plus a human annotation. Both are stripped and the
+# remainder compared exactly, so a row for a *different* identity that merely
+# contains the name (`impersonator-chatgpt-codex-connector[bot]`, or a renamed
+# successor) cannot satisfy the check.
+REVIEWER_ROW_ANNOTATION_RE = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def _names_reviewer(agent_name: str) -> bool:
+    stripped = REVIEWER_ROW_ANNOTATION_RE.sub("", agent_name.strip()).strip()
+    return stripped.strip("`").strip() == INDEPENDENT_REVIEWER
+
+
 def _agents_section(text: str, heading: str) -> str | None:
-    """The body of one `## ` section, up to the next `## ` heading.
+    """The body of one `## ` section, up to the next heading of any level.
+
+    The heading must match a whole line: a plain substring search accepts
+    `### Mandatory Workflow` as `## Mandatory Workflow` (the match simply
+    starts at the second `#`), which would let a demoted heading silently
+    satisfy a check that claims to require the section.
 
     Returns None when the heading is absent, so a caller can tell "the
     section says the wrong thing" apart from "somebody deleted the section".
     """
-    start = text.find(heading)
-    if start == -1:
+    match = re.search(rf"^{re.escape(heading)}\s*$", text, re.MULTILINE)
+    if match is None:
         return None
-    body_start = start + len(heading)
-    end = text.find("\n## ", body_start)
-    return text[body_start:] if end == -1 else text[body_start:end]
+    body_start = match.end()
+    # Any following heading ends the section -- including a deeper one, so a
+    # subsection cannot be read as part of this section's own body.
+    nxt = re.search(r"^#{1,6} ", text[body_start:], re.MULTILINE)
+    return text[body_start:] if nxt is None else text[body_start:body_start + nxt.start()]
 
 
 def validate_independent_reviewer_declaration(failures: list[str], root: Path | None = None) -> None:
@@ -365,10 +385,27 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
             failures,
         )
     else:
-        if "ndependent review" not in workflow:
+        review_at = workflow.lower().find("independent review")
+        merge_at = workflow.lower().find("human merge")
+        if review_at == -1:
             fail(
                 "AGENTS.md's Mandatory Workflow no longer contains an independent-review "
                 "step before human merge (D-121)",
+                failures,
+            )
+        elif merge_at == -1:
+            fail(
+                "AGENTS.md's Mandatory Workflow no longer ends in a human-merge step, so the "
+                "independent review it names gates nothing (D-121)",
+                failures,
+            )
+        elif review_at > merge_at:
+            # Presence is not the property that matters: a workflow reading
+            # "Human merge -> Independent review" would satisfy a contains
+            # check while describing review that cannot gate anything.
+            fail(
+                "AGENTS.md's Mandatory Workflow places its independent-review step after "
+                "human merge; review must precede merge or it gates nothing (D-121)",
                 failures,
             )
         # Deliberately scoped to the section, not the whole file: a mention of
@@ -388,7 +425,7 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
     rows = [
         (may_modify, may_pr, may_approve)
         for agent_name, _primary_mode, may_modify, may_pr, may_approve in MATRIX_ROW_RE.findall(matrix_text)
-        if INDEPENDENT_REVIEWER in agent_name
+        if _names_reviewer(agent_name)
     ]
     if not rows:
         fail(

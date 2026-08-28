@@ -844,23 +844,36 @@ end-to-end tests, with **G6** as the floor that guarantees none reaches cutover
 with zero measured evidence. Do not cite the inventory as proof of anything but
 the URL surface.
 
-The response contract is per-endpoint, not repository-wide (D-120). **Three
-terminators, not one**, and two of the three are already delivered:
+The response contract is per-endpoint, not repository-wide (D-120). The 125
+delivered routes split **122 / 2 / 1**, and one endpoint's shape depends on a
+query parameter:
 
-| PHP terminates in | Live today | Java answers |
-|---|---|---|
-| `ok()` / `fail()` (`apis/helpers/functions.php`) | 123 of the 125 | D-074's JSON envelope — and `attendance/overall_report.php` when it ships |
-| `stream_employee_template_xlsx()` / `leave_balance_excel_stream_template()` — write to an output stream and `exit` | **2 of the 125**: `employees/template_excel.php`, `leave_balances/template_excel.php` | the same reader-observable file, `Content-Type`, `attachment` disposition and filename. **Already delivered** — `LegacyEmployeeController.templateExcel` writes the bytes itself instead of a `LegacyApiResponse`, and `LegacyLeaveBalanceController.template` returns `ResponseEntity<byte[]>` |
-| `api_xlsx_export_send()` (`xlsx_writer.php:318`) — reached by `data_export_attendance_csv()` and `data_export_payslips_csv()` | 0 — both owed | the same **reader-observable workbook** (sheet name, rows, cell values, merges, styles, widths, freeze), `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `attachment` disposition and the same sanitized `.xlsx` filename — with `Content-Length` matching **Java's own body** |
+| Shape | Live today | PHP terminates in | Java answers |
+|---|---|---|---|
+| **Envelope only** | **122** of the 125 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — and `attendance/overall_report.php` when it ships |
+| **Download only** | **2**: `employees/template_excel.php`, `leave_balances/template_excel.php` | `stream_employee_template_xlsx()` / `leave_balance_excel_stream_template()` — write to output and `exit` | the same reader-observable file, `Content-Type`, `attachment` disposition and filename. **Delivered** — `LegacyEmployeeController.templateExcel` writes the bytes itself, `LegacyLeaveBalanceController.template` returns `ResponseEntity<byte[]>` |
+| **Conditional** | **1**: `penalties/report.php` | `?format=csv` → the file's **own local** `streamCSV()` (`penalties/report.php:24`), which `exit`s; anything else falls through to `ok()` | both shapes from one handler. **Delivered** — `LegacyPenaltyController.report` returns `ResponseEntity<?>`: the workbook on the `csv` branch, `LegacyApiResponse.ok` otherwise |
+| **Owed** | 0 of the 125 | `api_xlsx_export_send()` (`xlsx_writer.php:318`), reached by `data_export_attendance_csv()` and `data_export_payslips_csv()` | the same **reader-observable workbook** (sheet name, rows, cell values, merges, styles, widths, freeze), `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `attachment` disposition and the same sanitized `.xlsx` filename — with `Content-Length` matching **Java's own body** |
 
-**Every download route keeps the envelope on its failure path.** All three
-terminators call `fail()` when generation throws — a 500 with the JSON envelope —
-and the delivered pair keeps its auth and validation guards answering in the
-envelope too. Only the success path is a file.
+**`penalties/report.php`'s `format` parameter selects the wire contract**, so its
+evidence has to cover both branches — an envelope response and a workbook
+download from the same URL. Two traps in it are already handled and must stay
+handled: the local `streamCSV()` **shadows** the global one in
+`functions.php:398`, which really does emit `text/csv`; and it rewrites the
+`.csv` filename it is handed to `.xlsx`, so the response is a workbook named
+`.xlsx` despite every name in the call path saying CSV.
 
-**The binary shape is not new territory.** Two of these routes shipped in Waves
-12.4 and 12.7 and are inside `LegacyPhpRouteInventoryTest`'s 125. The three owed
+**Every download path keeps the envelope on its failure path.** Each terminator
+calls `fail()` when generation throws — a 500 with the JSON envelope — and the
+delivered routes keep their auth and validation guards answering in the envelope
+too. Only the success path is a file.
+
+**The binary shape is not new territory.** Three of these routes shipped in Waves
+12.4, 12.7 and 12.8 and are inside `LegacyPhpRouteInventoryTest`'s 125. The owed
 endpoints extend an established pattern rather than introducing one.
+
+This enumeration is exhaustive as measured: the three are the only handlers under
+`com.workin.legacy` whose success path is not a `LegacyApiResponse`.
 
 **Not byte-for-byte, and deliberately so.** D-085 already settled this for the
 one XLSX generator Phase 1 has shipped: "ZIP timestamps, compression metadata

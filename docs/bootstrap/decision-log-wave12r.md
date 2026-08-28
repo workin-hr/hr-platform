@@ -337,12 +337,26 @@ Claude agent's matrix row to its real `tools:` frontmatter -- silently skips it.
 independent-review step, if it does not name the reviewer **within the section**
 (a mention elsewhere in the file does not staff the gate), if the responsibility
 matrix carries no row for that name, or if the row is widened from read-only.
-It also evaluates **every** matrix row naming the reviewer rather than the first,
-and treats more than one such row as a failure in itself, so a permissive
-duplicate cannot hide behind a read-only row. Eight fixture cases in
-`scripts/test_validate_phase0.py` cover it, including wholesale removal of the
-section, an out-of-section mention, the widening case, the duplicate-row case,
-and a sanity check against the real repository.
+It matches the heading as a **whole line** (so `### Mandatory Workflow` does not
+satisfy a level-two-heading requirement), checks that the independent-review step **precedes**
+the human-merge step rather than merely appearing somewhere, matches the matrix
+row by **exact identity** once its backticks and human annotation are stripped
+(so `impersonator-chatgpt-codex-connector[bot]` is a different agent, not this
+one), evaluates **every** matching row rather than the first, and treats more than
+one such row as a failure in its own right. Eleven fixture cases in
+`scripts/test_validate_phase0.py` cover it — wholesale removal of the section, a
+demoted heading, review placed after merge, an out-of-section mention, a look-alike
+identity, the widening case, the duplicate-row case, and a sanity check against the
+real repository.
+
+**The mechanical gate this needs is not a required approving review.** This
+reviewer cannot approve, so a human approval satisfies that count while a round is
+still in flight — which is how PR #126 merged ten seconds after its final round
+posted (R-008's second realization). `required_conversation_resolution` is the
+setting that blocks it, because unaddressed findings are unresolved threads;
+`scripts/check-branch-protection.sh` now requires it, so the protection applied
+whenever D-013's deferral is revisited is verified against the failure that
+actually occurred.
 
 **Propagated into the executable procedure, not just the policy.** Step 5 of the
 Human Approval And Merge Sequence in `docs/bootstrap/manual-setup-checklist.md`

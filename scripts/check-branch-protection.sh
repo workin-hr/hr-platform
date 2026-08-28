@@ -98,6 +98,18 @@ if [ "$allow_force_pushes" != "false" ]; then
   failures=$((failures + 1))
 fi
 
+# A required approving review does NOT gate on the named independent reviewer
+# (D-121): that reviewer is read-only and cannot approve, so a human approval
+# satisfies the count while a review round is still in flight -- which is how
+# PR #126 merged ten seconds after its round posted (R-008, third instance).
+# required_conversation_resolution is the setting that actually blocks that
+# merge, because unaddressed findings are unresolved threads.
+conversation_resolution="$(echo "$PROTECTION_JSON" | jq -r '.required_conversation_resolution.enabled // false')"
+if [ "$conversation_resolution" != "true" ]; then
+  echo "FAIL: required_conversation_resolution.enabled is $conversation_resolution (need true, so a merge cannot outrun unresolved review findings -- see R-008)"
+  failures=$((failures + 1))
+fi
+
 contexts="$(echo "$PROTECTION_JSON" | jq -r '(.required_status_checks.contexts // []) | join(",")')"
 if ! echo ",$contexts," | grep -q ",$REQUIRED_JOB_NAME,"; then
   echo "FAIL: required_status_checks.contexts ($contexts) does not include '$REQUIRED_JOB_NAME' (the job id in $(basename "$WORKFLOW_FILE"))"
@@ -110,4 +122,4 @@ if [ "$failures" -gt 0 ]; then
   exit 1
 fi
 
-echo "Branch protection on main meets all requirements (required review >= 1, enforce_admins, no force pushes, required check '$REQUIRED_JOB_NAME')."
+echo "Branch protection on main meets all requirements (required review >= 1, enforce_admins, no force pushes, conversation resolution, required check '$REQUIRED_JOB_NAME')."

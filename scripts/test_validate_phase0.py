@@ -454,6 +454,7 @@ GOOD_PROTECTION_JSON = {
     "required_pull_request_reviews": {"required_approving_review_count": 1},
     "enforce_admins": {"enabled": True},
     "allow_force_pushes": {"enabled": False},
+    "required_conversation_resolution": {"enabled": True},
     "required_status_checks": {"contexts": ["validate"]},
 }
 
@@ -490,6 +491,7 @@ def test_branch_protection_reports_every_failing_field() -> None:
         "required_pull_request_reviews": {"required_approving_review_count": 0},
         "enforce_admins": {"enabled": False},
         "allow_force_pushes": {"enabled": True},
+        "required_conversation_resolution": {"enabled": False},
         "required_status_checks": {"contexts": ["something-else"]},
     }
     proc = run_check_branch_protection(bad)
@@ -498,8 +500,23 @@ def test_branch_protection_reports_every_failing_field() -> None:
         and "required_approving_review_count is 0" in proc.stdout
         and "enforce_admins.enabled is false" in proc.stdout
         and "allow_force_pushes.enabled is true" in proc.stdout
+        and "required_conversation_resolution.enabled is false" in proc.stdout
         and "does not include 'validate'" in proc.stdout,
-        f"branch protection missing every requirement fails, naming all 4 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+        f"branch protection missing every requirement fails, naming all 5 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_without_conversation_resolution_fails() -> None:
+    """A required approving review does not gate on the named independent
+    reviewer, which cannot approve -- unresolved-thread blocking is what
+    actually stops a merge outrunning a review round (R-008, PR #126)."""
+    bad = dict(GOOD_PROTECTION_JSON)
+    bad["required_conversation_resolution"] = {"enabled": False}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "required_conversation_resolution.enabled is false" in proc.stdout,
+        f"branch protection with every other field set but conversation resolution off fails "
+        f"(exit={proc.returncode}, stdout={proc.stdout!r})",
     )
 
 
@@ -1031,12 +1048,19 @@ def write_reviewer_declaration(
     *,
     workflow_section: bool = True,
     reviewer_outside_section: bool = False,
+    demoted_heading: bool = False,
+    reversed_order: bool = False,
 ) -> None:
     body = "# Repository Engineering Instructions\n\n"
     if workflow_section:
+        steps = (
+            "`Issue -> ... -> Human merge -> Independent review`"
+            if reversed_order
+            else "`Issue -> ... -> Independent review -> Human merge`"
+        )
         body += (
-            "## Mandatory Workflow\n\n"
-            "`Issue -> ... -> Independent review -> Human merge`\n\n"
+            f"{'###' if demoted_heading else '##'} Mandatory Workflow\n\n"
+            f"{steps}\n\n"
             + (
                 f"Independent review is performed by `{v.INDEPENDENT_REVIEWER}` (D-121).\n"
                 if agents_names_reviewer
@@ -1109,6 +1133,58 @@ def test_reviewer_named_only_outside_the_workflow_fails() -> None:
         check(
             any("does not name" in f for f in failures),
             f"a reviewer named outside the Mandatory Workflow section fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_demoted_workflow_heading_fails() -> None:
+    """`### Mandatory Workflow` must not satisfy a check that requires `## `:
+    a plain substring search matches it starting at the second '#'."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], demoted_heading=True,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("no longer defines" in f for f in failures),
+            f"a demoted '### Mandatory Workflow' heading fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_after_merge_fails() -> None:
+    """Presence is not the property that matters — review must precede merge."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], reversed_order=True,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("after" in f and "human merge" in f for f in failures),
+            f"a workflow reviewing after merge fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_lookalike_reviewer_row_does_not_satisfy_the_check() -> None:
+    """A row whose identity merely contains the reviewer name is a different
+    agent, and must not stand in for the named reviewer's own row."""
+    root = make_root()
+    try:
+        lookalike = f"| `impersonator-{v.INDEPENDENT_REVIEWER}` (pull-request review) | Read-only review | No | No | No |\n"
+        write_reviewer_declaration(root, agents_names_reviewer=True, matrix_rows=[lookalike])
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("has no row for" in f for f in failures),
+            f"a look-alike matrix identity does not satisfy the check (failures={failures})",
         )
     finally:
         shutil.rmtree(root)
@@ -1430,6 +1506,7 @@ def main() -> int:
     test_real_repository_has_nightly_workflow()
     test_branch_protection_all_requirements_met_passes()
     test_branch_protection_reports_every_failing_field()
+    test_branch_protection_without_conversation_resolution_fails()
     test_branch_protection_job_id_is_read_from_workflow_file()
     test_essential_runtime_path_dirs_finds_real_git()
     test_essential_runtime_path_dirs_finds_git_in_nonstandard_location()
@@ -1471,6 +1548,9 @@ def main() -> int:
     test_reviewer_named_and_declared_read_only_passes()
     test_workflow_without_named_reviewer_fails()
     test_workflow_section_deleted_fails()
+    test_demoted_workflow_heading_fails()
+    test_review_after_merge_fails()
+    test_lookalike_reviewer_row_does_not_satisfy_the_check()
     test_reviewer_named_only_outside_the_workflow_fails()
     test_reviewer_missing_from_matrix_fails()
     test_reviewer_row_widened_fails()
