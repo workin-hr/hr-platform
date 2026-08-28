@@ -584,3 +584,60 @@ rather than kept — it is slow, environment-sensitive, and its value was the
 number, not a standing assertion. The standing assertion is the regression above.
 `com.workin.legacy.attendance.*` and `LegacyPhpRouteInventoryTest` green after
 the change.
+
+## D-125: Branch protection is applied to `main`, superseding D-013's deferral
+
+**Status:** Accepted 2026-08-29. Supersedes **D-013**.
+
+D-013 deferred branch-protection enforcement for a specific, checked reason:
+`workin-hr` is a GitHub Free organization **and `hr-platform` was private**, and
+GitHub Free does not offer branch protection on private repositories. Its
+follow-up said to revisit "if the organization's plan changes ... or if GitHub
+changes free-plan branch-protection availability".
+
+**Neither happened; a third route did.** `hr-platform` is now a **public**
+repository, and GitHub Free has always supported branch protection on public
+repositories. D-013's premise was the repository's visibility as much as the
+plan, and that half is no longer true. The organization remains on Free and was
+not upgraded — the constraint D-013 was protecting against is untouched.
+
+### What is applied
+
+| Setting | Value | Why |
+|---|---|---|
+| `required_status_checks.contexts` | `validate`, `test`, `independent-review` | The first two are the checks R-009 names as required; the third is D-121's gate |
+| `required_status_checks.strict` | `true` | A branch must be current with `main` before merging |
+| `required_pull_request_reviews.required_approving_review_count` | `1` | Step 6's human approval, kept **separate** from step 5's independent review |
+| `dismiss_stale_reviews` | `true` | An approval does not survive a new push |
+| `required_conversation_resolution` | `true` | Step 7 — no thread left open at merge |
+| `enforce_admins` | `true` | The owner is not exempt; R-008's realizations were all owner merges |
+| `allow_force_pushes` / `allow_deletions` | `false` | Both already forbidden by policy, now mechanically |
+
+Verified with the repository's own `scripts/check-branch-protection.sh`, which
+had been "built and regression-tested but pending" since D-013 and now passes
+against the live configuration for the first time.
+
+### The human approval and the independent review are two requirements, not one
+
+`required_approving_review_count: 1` is satisfied only by a human: the named
+independent reviewer is read-only (D-121) and posts `COMMENTED`, never
+`APPROVED` — measured across all fourteen of its reviews on PRs #126-#129. The
+`independent-review` context is what carries step 5. Neither substitutes for the
+other, which is exactly the confusion D-123 had to leave an open field for.
+
+### What this does and does not close
+
+**Closes** R-008's central gap: review and merge governance is no longer purely
+conventional. All three of that risk's realizations were merges that procedure
+alone did not stop; `enforce_admins: true` means the same sequence would now be
+blocked rather than regretted.
+
+**Does not close** step 7's substance. `required_conversation_resolution` proves
+no thread is open, never that a finding was addressed — resolution is a state a
+human can set without acting. The qualifying-answer check remains owed and is
+recorded in R-008.
+
+Evidence: `gh api repos/workin-hr/hr-platform/branches/main/protection` returned
+`404 Branch not protected` immediately before this change and the full
+configuration above immediately after; `bash scripts/check-branch-protection.sh`
+passes.
