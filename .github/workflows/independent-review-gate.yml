@@ -1,0 +1,260 @@
+name: Independent Review Gate
+
+# D-121 makes `chatgpt-codex-connector[bot]` the independent reviewer whose
+# round discharges AGENTS.md's mandatory workflow. This workflow publishes a
+# commit status named `independent-review` saying whether that round has
+# happened on the pull request's current head SHA.
+#
+# Why this exists rather than relying on branch protection's existing knobs
+# (R-008, and the PR #126 race it records):
+#   - a required *approving* review does not help: this reviewer is read-only
+#     and cannot approve, so a human approval satisfies that count while a
+#     round is still in flight;
+#   - `required_conversation_resolution` is necessary but not sufficient: it
+#     blocks a merge while threads are open, and reports nothing at all when
+#     the bot has not posted yet, or when fixes were pushed and the previous
+#     head's threads were resolved. Both leave the *final* head unreviewed.
+#     Note what it does NOT prove: resolution is a state a human can set
+#     without changing a line or answering, so it shows no thread is open --
+#     never that a finding was addressed. That remains step 7's human
+#     obligation (R-008).
+#
+# The status is keyed on the commit, not the pull request, so it is computed
+# across every open pull request pointing at that commit -- see the loop below.
+#
+# Why a commit status rather than this job's own check conclusion: the gate has
+# to be re-evaluated when a review arrives, which is a different event from the
+# push that created the original check run. Publishing an explicit status
+# against `pull_request.head.sha` makes both events converge on one context on
+# the right commit, instead of depending on how two workflow runs of the same
+# name supersede each other. The job therefore succeeds whenever it managed to
+# publish; `independent-review` is the signal, not this job.
+#
+# The status is advisory until a human adds `independent-review` to `main`'s
+# required contexts, which cannot happen while branch protection is Deferred
+# under D-013 — see docs/bootstrap/risk-register.md R-008 and
+# scripts/check-branch-protection.sh, which requires the context once applied.
+# A green status is evidence for the merge sequence's step 5. It says a round
+# happened, not that its findings were addressed; that is step 7, and nothing in
+# this repository verifies it mechanically.
+#
+# Fork limitation, disclosed rather than worked around: `GITHUB_TOKEN` is
+# read-only for pull requests from forks, so the status cannot be published for
+# those. Every pull request in this repository is opened from a branch on the
+# repository itself.
+
+# `pull_request_target`, not `pull_request` -- the owner's decision, D-122.
+#
+# A `pull_request` run executes the workflow file *from the pull request* while
+# holding `statuses: write`. A revision could keep the reviewer and context
+# literals `validate_phase0.py` binds, replace the counting logic with an
+# unconditional success, and turn this status green before the named reviewer had
+# seen that very change. That is a bypass the moment the status gates a merge.
+# `pull_request_target` runs the base branch's copy, which is the trusted one.
+#
+# The standing hazard of this trigger is privileged credentials running
+# pull-request code. **This job runs none.** It has no `actions/checkout`, no step
+# that reads the head tree, and no use of `github.event.pull_request.title`,
+# `.body`, `.head.ref` or any other attacker-controlled string -- it passes only a
+# number and a SHA to the GitHub API. `validate_workflow_safety()` permits the
+# trigger here on exactly that premise and fails the moment a checkout appears,
+# so the exception cannot quietly become a general one.
+#
+# `pull_request_review` already runs the default branch's copy and needed no
+# change.
+#
+# BOOTSTRAP CONDITION -- expected, and self-resolving at merge. This trigger
+# resolves the workflow from the **base** branch, so it fires only once this file
+# exists there. Until the pull request introducing it merges to `main`, no
+# push/synchronize run happens at all and the status is maintained solely by
+# review events. That fails safe rather than open: a freshly pushed head simply
+# has *no* status, which leaves a required check unsatisfied, instead of carrying
+# a stale green from an earlier head. Verify after the first merge that a push
+# produces a run.
+on:
+  pull_request_target:
+    # `closed` is here because the status is shared across every open pull
+    # request at a commit: when an unreviewed sibling closes, the set shrinks
+    # and the survivor may now satisfy the gate. Without a recompute, the last
+    # shared `failure` would stick until somebody manufactured another event.
+    # `edited` is here for the base change alone -- see the job's guard.
+    types: [opened, synchronize, reopened, ready_for_review, closed, edited]
+  # A submitted review is what flips the status green; a dismissed one takes it
+  # back, which is why dismissed reviews are also excluded from the count.
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  # Keyed on the commit, not the pull request: two events racing on the same
+  # head must not both publish, and a new push has its own group.
+  group: independent-review-gate-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish-status:
+    name: publish independent-review status
+    runs-on: ubuntu-24.04
+    # `edited` fires for a title or body edit too. Only a base change matters
+    # here, and GitHub sets `changes.base` only for that.
+    if: github.event_name != 'pull_request_target' || github.event.action != 'edited'
+      || github.event.changes.base != null
+    steps:
+      - name: Publish whether the named reviewer has reviewed this head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BASE_CHANGED: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited'
+            && github.event.changes.base != null }}
+          # The standing status carries this prefix while a retarget is
+          # unanswered, so a later run can tell "invalidated" from "never green".
+          RETARGET_MARKER: "Base branch changed -- a new review round is required"
+          # D-121 owns this value. scripts/validate_phase0.py binds it to
+          # AGENTS.md and the responsibility matrix, so it cannot drift here
+          # on its own.
+          REVIEWER: "chatgpt-codex-connector[bot]"
+        run: |
+          set -euo pipefail
+
+          # A retarget changes the reviewed diff while the head SHA stays put, so
+          # a review matching on commit_id alone would still look valid for a
+          # diff the reviewer never saw. Fail outright and require a new round.
+          # Recorded in the status description, not just acted on once: a later
+          # review event would otherwise take the normal path, match the
+          # pre-retarget review on the unchanged head SHA, and republish success.
+          # Every run reads the standing status first and refuses to clear a
+          # retarget marker that no newer round has answered.
+          if [ "$BASE_CHANGED" != "true" ]; then
+            standing="$(
+              gh api "repos/$REPO/commits/$HEAD_SHA/status" \
+                --jq "[.statuses[] | select(.context == \"independent-review\")]
+                      | sort_by(.updated_at) | last | .description // \"\"" 2>/dev/null || true
+            )"
+            case "$standing" in
+              "$RETARGET_MARKER"*)
+                newest_round="$(
+                  gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+                    --jq '.[] | select(.user.login == env.REVIEWER and .commit_id == env.HEAD_SHA
+                            and .state != "DISMISSED") | .submitted_at' \
+                    | tail -n 1
+                )"
+                marked_at="${standing##*@ }"
+                if [ -z "$newest_round" ] || [ "$newest_round" \< "$marked_at" ]; then
+                  echo "A base change is still outstanding on this head (marked $marked_at)"
+                  echo "and $REVIEWER has submitted no round since. Leaving the gate red."
+                  exit 0
+                fi
+                ;;
+            esac
+          fi
+
+          if [ "$BASE_CHANGED" = "true" ]; then
+            echo "FAIL: the pull request was retargeted to a different base."
+            echo "      The head SHA is unchanged, but the diff is not, so the"
+            echo "      previous round no longer covers what would be merged."
+            echo
+            echo "Comment '@codex review' to request a round against the new base."
+            gh api -X POST "repos/$REPO/statuses/$HEAD_SHA" \
+              -f state="failure" \
+              -f context="independent-review" \
+              -f description="$RETARGET_MARKER @ $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              -f target_url="$RUN_URL" \
+              --jq '.context + " = " + .state'
+            exit 0
+          fi
+
+          echo "Triggered by pull request #$PR, head $HEAD_SHA"
+          echo "Required independent reviewer: $REVIEWER"
+
+          # A commit status is keyed on the SHA alone -- it carries no pull
+          # request identity, and every open pull request pointing at this
+          # commit sees the same context. Publishing "reviewed" on the strength
+          # of one pull request's round would hand a green gate to a sibling
+          # pull request whose own diff (different base, therefore different
+          # changes) the reviewer never saw. The status is repo-wide, so its
+          # meaning is repo-wide: green only when EVERY open pull request at
+          # this SHA has its own round on this SHA.
+          open_prs="$(
+            gh api "repos/$REPO/commits/$HEAD_SHA/pulls" --paginate \
+              --jq '.[] | select(.state == "open" and .head.sha == env.HEAD_SHA) | .number' \
+              | sort -u
+          )"
+          if [ -z "$open_prs" ]; then
+            open_prs="$PR"
+          fi
+          echo "Open pull requests at this commit: $(echo "$open_prs" | tr '\n' ' ')"
+
+          unreviewed=""
+          for pr in $open_prs; do
+            # Counted by lines, not by a per-page `length`: `--paginate` emits a
+            # separate JSON array per page, so `--jq '... | length'` returns one
+            # count per page -- "0\n0" past 100 reviews. `[ "0\n0" -eq 0 ]` is
+            # an error rather than a false, and an erroring `if` condition falls
+            # through to the success path, which would report a green gate on an
+            # unreviewed head. One line per match, counted, has no page boundary
+            # to trip over. (`--slurp` would also work but is not in every `gh`.)
+            count="$(
+              gh api "repos/$REPO/pulls/$pr/reviews" --paginate \
+                --jq '.[] | select(.user.login == env.REVIEWER and .commit_id == env.HEAD_SHA
+                        and .state != "DISMISSED") | .commit_id' \
+                | wc -l | tr -d '[:space:]'
+            )"
+            echo "  #$pr: $count review(s) from $REVIEWER on this head"
+            if [ "$count" -eq 0 ]; then
+              unreviewed="$unreviewed #$pr"
+            fi
+          done
+
+          if [ -n "$unreviewed" ]; then
+            latest="$(
+              gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+                --jq '.[] | select(.user.login == env.REVIEWER and .state != "DISMISSED")
+                        | .commit_id[0:7]' \
+                | tail -n 1
+            )"
+            latest="${latest:-none}"
+            state="failure"
+            # GitHub caps a commit-status description at 140 characters and
+            # rejects the call above it. Enough unreviewed siblings would push
+            # the full list past that, the POST would fail, and an earlier
+            # success on this SHA would stay as the required context -- the
+            # failure path silently not failing. The log keeps the full list.
+            description="No review from $REVIEWER on this head for:${unreviewed}"
+            if [ "${#description}" -gt 140 ]; then
+              count="$(printf '%s' "$unreviewed" | wc -w | tr -d '[:space:]')"
+              description="No review from $REVIEWER on this head for $count pull request(s) -- see the run log"
+            fi
+            echo
+            echo "FAIL: $REVIEWER has not reviewed $HEAD_SHA for:${unreviewed}"
+            echo "      Most recent round on #$PR from that reviewer: $latest"
+            echo
+            echo "AGENTS.md's mandatory workflow places an independent review before human"
+            echo "merge, and D-121 requires the round to cover the final head — commits"
+            echo "pushed after a round are unreviewed until review is re-requested."
+            echo
+            echo "Comment '@codex review' on each pull request listed above; this status turns"
+            echo "green when every one of them has a round on this commit. If the reviewer's"
+            echo "quota is exhausted (risk R-009) the gate is unavailable, not waived: the"
+            echo "merge waits."
+          else
+            state="success"
+            description="$REVIEWER reviewed this head on every open PR at this commit"
+            echo
+            echo "OK: every open pull request at this commit has a round from $REVIEWER."
+            echo "This proves a round happened. It does not prove its findings were addressed —"
+            echo "that is the merge sequence's step 7."
+          fi
+
+          gh api -X POST "repos/$REPO/statuses/$HEAD_SHA" \
+            -f state="$state" \
+            -f context="independent-review" \
+            -f description="$description" \
+            -f target_url="$RUN_URL" \
+            --jq '.context + " = " + .state'

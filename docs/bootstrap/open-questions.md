@@ -75,10 +75,11 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
   are delivered.** None is excluded and none is deferred, so gate G2's live
   denominator stays at 198 and the exclusion ledger stays one row long
   (`time/now.php`, O-3). The governing rule is that Java reproduces what PHP
-  does per endpoint — D-074's JSON envelope where PHP calls `ok()`, and the same
-  streamed bytes, headers and filename where PHP terminates in a `: never`
-  helper — which makes binary-response support a Phase-1 implementation
-  obligation rather than a reason to defer.
+  does per endpoint — D-074's JSON envelope where PHP calls `ok()`, and where PHP
+  terminates in a download helper the same reader-observable workbook, headers
+  and filename rather than the same archive bytes (D-085) — which makes
+  binary-response support a Phase-1 implementation obligation rather than a
+  reason to defer.
 - ~~Does the broad Wave-12.6 J.2 payroll boundary still block Wave 12.6.6?~~
   **Resolved 2026-08-27 by evidence, not decision**
   (`docs/migration/2026-08-27-broad-j2-settlement-discovery.md`): every payroll

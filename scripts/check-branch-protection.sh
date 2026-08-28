@@ -21,9 +21,31 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKFLOW_FILE="${PHASE0_WORKFLOW_FILE:-$SCRIPT_DIR/../.github/workflows/phase0-validate.yml}"
+INDEPENDENT_REVIEW_WORKFLOW="${INDEPENDENT_REVIEW_WORKFLOW_FILE:-$SCRIPT_DIR/../.github/workflows/independent-review-gate.yml}"
 
 if [ ! -f "$WORKFLOW_FILE" ]; then
   echo "Error: workflow file not found: $WORKFLOW_FILE" >&2
+  exit 1
+fi
+
+if [ ! -f "$INDEPENDENT_REVIEW_WORKFLOW" ]; then
+  echo "Error: independent-review workflow not found: $INDEPENDENT_REVIEW_WORKFLOW" >&2
+  exit 1
+fi
+
+# Read the status context out of the workflow that publishes it, rather than
+# hardcoding a second copy that could drift from it (D-121).
+# Comments are dropped first -- inline ones too, not just whole lines: a
+# commented-out example naming the context must not stand in for the argument
+# the workflow actually passes. `sed` removes ` #...` to end of line, which is
+# coarse but can only make this stricter, never laxer.
+INDEPENDENT_REVIEW_CONTEXT="$(
+  sed -e 's/^[[:space:]]*#.*$//' -e 's/[[:space:]]#[^"]*$//' "$INDEPENDENT_REVIEW_WORKFLOW" \
+    | sed -n 's/.*-f context="\([^"]*\)".*/\1/p' | head -n 1
+)"
+
+if [ -z "$INDEPENDENT_REVIEW_CONTEXT" ]; then
+  echo "Error: could not read the published status context from $INDEPENDENT_REVIEW_WORKFLOW" >&2
   exit 1
 fi
 
@@ -98,9 +120,31 @@ if [ "$allow_force_pushes" != "false" ]; then
   failures=$((failures + 1))
 fi
 
+# A required approving review does NOT gate on the named independent reviewer
+# (D-121): that reviewer is read-only and cannot approve, so a human approval
+# satisfies the count while a review round is still in flight -- which is how
+# PR #126 merged ten seconds after its round posted (R-008, third instance).
+# required_conversation_resolution is the setting that actually blocks that
+# merge, because unaddressed findings are unresolved threads.
+conversation_resolution="$(echo "$PROTECTION_JSON" | jq -r '.required_conversation_resolution.enabled // false')"
+if [ "$conversation_resolution" != "true" ]; then
+  echo "FAIL: required_conversation_resolution.enabled is $conversation_resolution (need true, so a merge cannot outrun unresolved review findings -- see R-008)"
+  failures=$((failures + 1))
+fi
+
 contexts="$(echo "$PROTECTION_JSON" | jq -r '(.required_status_checks.contexts // []) | join(",")')"
 if ! echo ",$contexts," | grep -q ",$REQUIRED_JOB_NAME,"; then
   echo "FAIL: required_status_checks.contexts ($contexts) does not include '$REQUIRED_JOB_NAME' (the job id in $(basename "$WORKFLOW_FILE"))"
+  failures=$((failures + 1))
+fi
+
+# Conversation resolution alone does not prove a round happened on the final
+# head: it reports nothing when the reviewer has not posted yet, and nothing
+# after fixes are pushed and the previous head's threads were resolved. The
+# independent-review status covers exactly that gap (D-121), so protection is
+# not complete without both.
+if ! echo ",$contexts," | grep -q ",$INDEPENDENT_REVIEW_CONTEXT,"; then
+  echo "FAIL: required_status_checks.contexts ($contexts) does not include '$INDEPENDENT_REVIEW_CONTEXT' (published by $(basename "$INDEPENDENT_REVIEW_WORKFLOW"); proves the named reviewer covered the final head -- see D-121)"
   failures=$((failures + 1))
 fi
 
@@ -110,4 +154,4 @@ if [ "$failures" -gt 0 ]; then
   exit 1
 fi
 
-echo "Branch protection on main meets all requirements (required review >= 1, enforce_admins, no force pushes, required check '$REQUIRED_JOB_NAME')."
+echo "Branch protection on main meets all requirements (required review >= 1, enforce_admins, no force pushes, conversation resolution, required checks '$REQUIRED_JOB_NAME' and '$INDEPENDENT_REVIEW_CONTEXT')."

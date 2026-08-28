@@ -321,6 +321,89 @@ def validate_agent_files(failures: list[str], root: Path | None = None) -> None:
 # in prose and could be edited out of either document with nothing failing.
 INDEPENDENT_REVIEWER = "chatgpt-codex-connector[bot]"
 
+# The executable half of D-121. Named here so the workflow, the branch-protection
+# checker and this validator cannot drift into three different opinions about
+# which reviewer and which status context the gate uses.
+REVIEW_GATE_WORKFLOW = ".github/workflows/independent-review-gate.yml"
+REVIEW_GATE_CONTEXT = "independent-review"
+
+# The single line the gate actually runs on. Bound by value, not by presence
+# anywhere in the file -- the workflow's comments name the reviewer too.
+REVIEW_GATE_REVIEWER_RE = re.compile(r'^\s*REVIEWER:\s*"([^"]*)"\s*$', re.MULTILINE)
+
+# The `-f context="..."` arguments the workflow actually passes to `gh api`.
+REVIEW_GATE_CONTEXT_RE = re.compile(r'-f\s+context="([^"]*)"')
+
+
+def _without_comments(text: str) -> str:
+    """The workflow with its `#` comments dropped, inline ones included.
+
+    Whole-line stripping alone was not enough: `echo noop # -f context="..."`
+    left a decoy on a line the filter kept, which is exactly the shape this
+    binding exists to reject.
+
+    A `#` inside a quoted string is not a comment, so quotes are tracked while
+    scanning. The result is only ever searched for `-f context=`, never
+    executed, so approximating shell quoting this far is sufficient -- and
+    erring toward *keeping* text can only make the check stricter, never
+    laxer.
+    """
+    out = []
+    for line in text.splitlines():
+        quote = None
+        cut = len(line)
+        for index, char in enumerate(line):
+            if quote:
+                if char == quote:
+                    quote = None
+            elif char in "\"'":
+                quote = char
+            elif char == "#" and (index == 0 or line[index - 1] in " \t"):
+                cut = index
+                break
+        out.append(line[:cut])
+    return "\n".join(out)
+
+
+# The matrix cell is written `` `chatgpt-codex-connector[bot]` (pull-request
+# review) `` -- backticks plus a human annotation. Both are stripped and the
+# remainder compared exactly, so a row for a *different* identity that merely
+# contains the name (`impersonator-chatgpt-codex-connector[bot]`, or a renamed
+# successor) cannot satisfy the check.
+REVIEWER_ROW_ANNOTATION_RE = re.compile(r"\s*\([^)]*\)\s*$")
+
+# The same exact-identity rule for prose: the name must not be glued to a
+# preceding identifier character, so `impersonator-chatgpt-codex-connector[bot]`
+# is a different agent rather than a match. `[bot]` makes a trailing boundary
+# unnecessary -- nothing can extend the name to the right.
+REVIEWER_IN_PROSE_RE = re.compile(rf"(?<![\w-]){re.escape(INDEPENDENT_REVIEWER)}")
+
+
+def _names_reviewer(agent_name: str) -> bool:
+    stripped = REVIEWER_ROW_ANNOTATION_RE.sub("", agent_name.strip()).strip()
+    return stripped.strip("`").strip() == INDEPENDENT_REVIEWER
+
+
+def _agents_section(text: str, heading: str) -> str | None:
+    """The body of one `## ` section, up to the next heading of any level.
+
+    The heading must match a whole line: a plain substring search accepts
+    `### Mandatory Workflow` as `## Mandatory Workflow` (the match simply
+    starts at the second `#`), which would let a demoted heading silently
+    satisfy a check that claims to require the section.
+
+    Returns None when the heading is absent, so a caller can tell "the
+    section says the wrong thing" apart from "somebody deleted the section".
+    """
+    match = re.search(rf"^{re.escape(heading)}\s*$", text, re.MULTILINE)
+    if match is None:
+        return None
+    body_start = match.end()
+    # Any following heading ends the section -- including a deeper one, so a
+    # subsection cannot be read as part of this section's own body.
+    nxt = re.search(r"^#{1,6} ", text[body_start:], re.MULTILINE)
+    return text[body_start:] if nxt is None else text[body_start:body_start + nxt.start()]
+
 
 def validate_independent_reviewer_declaration(failures: list[str], root: Path | None = None) -> None:
     """Bind AGENTS.md's named independent reviewer to its matrix row.
@@ -339,17 +422,83 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
         return  # already reported by validate_required_paths
 
     agents_text = agents.read_text(encoding="utf-8")
-    if "## Mandatory Workflow" in agents_text and INDEPENDENT_REVIEWER not in agents_text:
+    workflow = _agents_section(agents_text, "## Mandatory Workflow")
+    if workflow is None:
+        # Deleting the heading must not be a way to delete the gate. The
+        # workflow is AGENTS.md's own mandatory contract; its absence is a
+        # failure in itself, not a reason to skip the reviewer check.
         fail(
-            f"AGENTS.md defines a Mandatory Workflow with an independent-review step but "
-            f"does not name {INDEPENDENT_REVIEWER!r} as the reviewer that discharges it (D-121)",
+            "AGENTS.md no longer defines a '## Mandatory Workflow' section — the "
+            "Issue -> ... -> Independent review -> Human merge contract every agent "
+            "and human is bound by (D-121 depends on it)",
+            failures,
+        )
+    else:
+        review_at = workflow.lower().find("independent review")
+        merge_at = workflow.lower().find("human merge")
+        if review_at == -1:
+            fail(
+                "AGENTS.md's Mandatory Workflow no longer contains an independent-review "
+                "step before human merge (D-121)",
+                failures,
+            )
+        elif merge_at == -1:
+            fail(
+                "AGENTS.md's Mandatory Workflow no longer ends in a human-merge step, so the "
+                "independent review it names gates nothing (D-121)",
+                failures,
+            )
+        elif review_at > merge_at:
+            # Presence is not the property that matters: a workflow reading
+            # "Human merge -> Independent review" would satisfy a contains
+            # check while describing review that cannot gate anything.
+            fail(
+                "AGENTS.md's Mandatory Workflow places its independent-review step after "
+                "human merge; review must precede merge or it gates nothing (D-121)",
+                failures,
+            )
+        # Scoped to the section, not the whole file (a mention elsewhere in
+        # AGENTS.md does not staff this gate), and matched as a whole
+        # identifier, so a look-alike such as
+        # `impersonator-chatgpt-codex-connector[bot]` names a different agent
+        # rather than this one.
+        if not REVIEWER_IN_PROSE_RE.search(workflow):
+            fail(
+                f"AGENTS.md's Mandatory Workflow does not name {INDEPENDENT_REVIEWER!r} as "
+                f"the reviewer that discharges its independent-review step (D-121); a mention "
+                "elsewhere in the file, or of a different identity containing this name, does "
+                "not count",
+                failures,
+            )
+
+    matrix_text = matrix_path.read_text(encoding="utf-8")
+    # Every matching row is checked, and more than one is itself a failure: a
+    # read-only row followed by a permissive duplicate would otherwise leave a
+    # contradictory grant in the matrix with validation green.
+    rows = [
+        (may_modify, may_pr, may_approve)
+        for agent_name, _primary_mode, may_modify, may_pr, may_approve in MATRIX_ROW_RE.findall(matrix_text)
+        if _names_reviewer(agent_name)
+    ]
+    if not rows:
+        fail(
+            f"docs/agents/responsibility-matrix.md has no row for {INDEPENDENT_REVIEWER!r}, the "
+            "independent reviewer AGENTS.md's Mandatory Workflow depends on (D-121)",
+            failures,
+        )
+        return
+
+    if len(rows) > 1:
+        fail(
+            f"docs/agents/responsibility-matrix.md declares {INDEPENDENT_REVIEWER!r} in "
+            f"{len(rows)} rows; exactly one is allowed, so a permissive duplicate cannot hide "
+            "behind a read-only row (D-121)",
             failures,
         )
 
-    matrix_text = matrix_path.read_text(encoding="utf-8")
-    for agent_name, _primary_mode, may_modify, may_pr, may_approve in MATRIX_ROW_RE.findall(matrix_text):
-        if INDEPENDENT_REVIEWER not in agent_name:
-            continue
+    _validate_review_gate_workflow(root, failures)
+
+    for may_modify, may_pr, may_approve in rows:
         widened = [
             label
             for label, value in (
@@ -365,13 +514,79 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
                 f"every permission (D-121 makes it a read-only reviewer); widened: {', '.join(widened)}",
                 failures,
             )
+
+
+def _validate_review_gate_workflow(root: Path, failures: list[str]) -> None:
+    """The mechanical half of D-121: the workflow that publishes the gate.
+
+    `validate_independent_reviewer_declaration()` binds AGENTS.md to the
+    responsibility matrix, but the workflow carries its own copy of the
+    reviewer login. Without this, changing that copy to another login -- or
+    deleting the workflow -- leaves Phase 0 validation green while the
+    executable gate no longer enforces the named reviewer.
+    """
+    workflow = root / REVIEW_GATE_WORKFLOW
+    if not workflow.is_file():
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} is missing; it publishes the '{REVIEW_GATE_CONTEXT}' status "
+            f"that proves {INDEPENDENT_REVIEWER!r} covered a pull request's final head (D-121), "
+            "and scripts/check-branch-protection.sh requires that context",
+            failures,
+        )
         return
 
-    fail(
-        f"docs/agents/responsibility-matrix.md has no row for {INDEPENDENT_REVIEWER!r}, the "
-        "independent reviewer AGENTS.md's Mandatory Workflow depends on (D-121)",
-        failures,
-    )
+    text = workflow.read_text(encoding="utf-8")
+    # The `REVIEWER:` assignment specifically, not the file. Searching the whole
+    # text is vacuous here: this workflow's own header comments name the
+    # reviewer several times, so changing only the assignment -- the one line
+    # the gate actually runs on -- would leave a whole-file search satisfied
+    # while the executable check queried a different account.
+    assignment = REVIEW_GATE_REVIEWER_RE.search(text)
+    if assignment is None:
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} has no `REVIEWER: \"...\"` assignment; the executable gate "
+            f"must declare the reviewer it queries so it can be bound to {INDEPENDENT_REVIEWER!r} "
+            "(D-121)",
+            failures,
+        )
+    elif assignment.group(1) != INDEPENDENT_REVIEWER:
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} runs its gate against {assignment.group(1)!r}, but AGENTS.md "
+            f"and the responsibility matrix declare {INDEPENDENT_REVIEWER!r} (D-121); the "
+            "executable gate and the declared reviewer have diverged",
+            failures,
+        )
+    # The published context, parsed from the `-f context="..."` arguments the
+    # workflow actually runs -- comment lines excluded. A whole-file substring
+    # check has the same vacuity the reviewer binding had before it was fixed:
+    # changing the live POST while leaving the name in a comment would pass.
+    live = _without_comments(text)
+
+    # This job holds `statuses: write` and must never read the pull request's
+    # tree: it computes the gate from API calls on event-payload values alone.
+    # A checkout added here would let pull-request content run with the very
+    # credential that publishes the gate.
+    if "actions/checkout" in live:
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} holds `statuses: write` and must not check out the "
+            "pull request's tree; the gate is computed from API calls alone (D-121)",
+            failures,
+        )
+
+    published = REVIEW_GATE_CONTEXT_RE.findall(live)
+    if not published:
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} publishes no status context; it must publish "
+            f"'{REVIEW_GATE_CONTEXT}', which scripts/check-branch-protection.sh requires (D-121)",
+            failures,
+        )
+    elif any(context != REVIEW_GATE_CONTEXT for context in published):
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} publishes {sorted(set(published))}, but "
+            f"scripts/check-branch-protection.sh requires '{REVIEW_GATE_CONTEXT}' (D-121); "
+            "every status this workflow publishes must use that context",
+            failures,
+        )
 
 
 def validate_claude_settings(failures: list[str], root: Path | None = None) -> None:
@@ -1100,18 +1315,40 @@ def validate_links(failures: list[str]) -> None:
                 fail(f"Broken relative link in {path.relative_to(ROOT)}: {target}", failures)
 
 
-def validate_workflow_safety(failures: list[str]) -> None:
-    workflows_dir = ROOT / ".github/workflows"
+def validate_workflow_safety(failures: list[str], root: Path | None = None) -> None:
+    root = root if root is not None else ROOT
+    workflows_dir = root / ".github/workflows"
     if not workflows_dir.is_dir():
         return
     for path in sorted(workflows_dir.glob("*.yml")):
         text = path.read_text(encoding="utf-8")
+        relative = path.relative_to(root).as_posix()
         if "pull_request_target" in text:
-            fail(
-                f"{path.relative_to(ROOT)} uses pull_request_target, which runs with "
-                "privileged credentials against untrusted PR code and is forbidden here",
-                failures,
-            )
+            # The ban stands for every workflow but one, and even there it is
+            # conditional (D-122). The hazard is privileged credentials running
+            # *pull-request code*; the review gate runs none, because it never
+            # checks out or reads the head tree -- it computes the gate from API
+            # calls on event-payload values. The trigger is the point: on
+            # `pull_request` the run executes the workflow file from the pull
+            # request, so a revision could publish the gate green before anyone
+            # reviewed it.
+            #
+            # The exception is therefore allowed only while that premise holds.
+            # Add a checkout and this fails, exactly as it would for any other
+            # workflow.
+            if relative != REVIEW_GATE_WORKFLOW:
+                fail(
+                    f"{relative} uses pull_request_target, which runs with "
+                    "privileged credentials against untrusted PR code and is forbidden here",
+                    failures,
+                )
+            elif "actions/checkout" in _without_comments(text):
+                fail(
+                    f"{relative} uses pull_request_target AND checks out the pull request's "
+                    "tree. D-122 permits the trigger there only because the job reads no "
+                    "pull-request content; a checkout withdraws that premise",
+                    failures,
+                )
         if not re.search(r"^permissions:\s*$", text, re.MULTILINE):
             fail(
                 f"{path.relative_to(ROOT)} does not declare an explicit top-level "
