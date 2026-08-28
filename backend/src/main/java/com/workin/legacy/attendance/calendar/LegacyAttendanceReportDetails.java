@@ -235,9 +235,19 @@ public class LegacyAttendanceReportDetails {
 	 *
 	 * <p>Three legacy behaviours the loop preserves exactly. Rows are ordered by
 	 * {@code check_in} and the <b>first</b> row for a date wins -- later punches
-	 * on the same day are skipped entirely, not summed. An exception-only row
-	 * contributes nothing and does not consume its date's slot for expected
-	 * minutes. And expected minutes are counted for any <em>punched</em> day,
+	 * on the same day are skipped entirely, not summed.
+	 *
+	 * <p><b>The date is reserved before the exception-only check, deliberately.</b>
+	 * PHP sets {@code $seen[$date_key] = true} and only then tests
+	 * {@code attendance_is_exception_only_row()}
+	 * ({@code attendance_calendar_helper.php:888-900}), so a midnight marker
+	 * followed by a real punch on the same date consumes the slot and the punch
+	 * is skipped -- understating that day's minutes. That is legacy's behaviour,
+	 * not a porting slip: moving the reservation after the check would read
+	 * better and would diverge. D-058 forbids the silent fix; changing it needs
+	 * its own numbered decision.
+	 *
+	 * <p>Expected minutes are counted for any <em>punched</em> day,
 	 * including a single-punch day with no check-out, which is why the guard is
 	 * on {@code checkIn != "" || checkOut != null || worked > 0} rather than on
 	 * worked minutes alone.

@@ -160,6 +160,10 @@ public class LegacyAttendanceExportService {
 
 		for (LegacyOverallReportStore.EmployeeRow employee
 				: reportStore.fingerprintEmployees(scopeFor(companyId, selfEmployeeId, managerEmployeeId, filters))) {
+			// capAtToday = true, exactly as PHP passes it
+			// (`data_export_helper.php:268`). A default export before month-end
+			// therefore stops at today even though the filename names the whole
+			// month -- legacy's behaviour, and changing it here would diverge.
 			for (Map<String, Object> day : rangeCalendar.buildEmployeeRangeCalendar(
 					companyId, employee.id(), from, to, true, weeklyRestLabel, today)) {
 				rowNumber++;

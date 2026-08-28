@@ -92,7 +92,15 @@ public class LegacyOverallReportService {
 			int month = filters.month() > 0 ? filters.month() : Integer.parseInt(clock.todayAsString().substring(5, 7));
 			int year = filters.year() > 0 ? filters.year() : Integer.parseInt(clock.todayAsString().substring(0, 4));
 			from = "%04d-%02d-01".formatted(year, month);
-			to = LocalDate.parse(from).withDayOfMonth(LocalDate.parse(from).lengthOfMonth()).toString();
+			// Through the legacy date path, not LocalDate.parse: an out-of-range
+			// month such as `13` builds "2026-13-01", which PHP's strtotime
+			// rejects into fail(INVALID_DATE, 400). Parsing it directly would
+			// throw before that translation and surface as a 500.
+			LocalDate monthStart = LegacyPhpStrtotime.dateOf(from, LocalDate.parse(clock.todayAsString()));
+			if (monthStart == null) {
+				throw new LegacyApiException(400, "invalid_date");
+			}
+			to = monthStart.withDayOfMonth(monthStart.lengthOfMonth()).toString();
 		}
 
 		String periodFrom = phpDate(from);
