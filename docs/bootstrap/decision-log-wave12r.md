@@ -485,6 +485,59 @@ Raised by independent review on PR #127 as "Publish the gate from trusted workfl
 code", declined there as an owner decision rather than taken unilaterally, and
 accepted by the owner the same day.
 
+## D-123: Merge record for the four pull requests that completed Item 12
+
+**Status:** Accepted 2026-08-28.
+
+Step 9 of the Human Approval And Merge Sequence
+(`docs/bootstrap/manual-setup-checklist.md`) requires each merge to `main` to be
+recorded with its pull-request URL, the approving human's identity, the merge
+commit SHA, and a link to the validation evidence. Four merges had landed without
+that record; this entry supplies it, following D-014's precedent.
+
+| PR | Merge commit | Merged (UTC) | Merged by | Approving human |
+|---|---|---|---|---|
+| [#126](https://github.com/workin-hr/hr-platform/pull/126) | `2f67c47` | 2026-08-28T06:49:26Z | `karimtismail` | **pending — see below** |
+| [#127](https://github.com/workin-hr/hr-platform/pull/127) | `b5f4820` | 2026-08-28T19:58:01Z | `karimtismail` | **pending** |
+| [#128](https://github.com/workin-hr/hr-platform/pull/128) | `d4be20e` | 2026-08-28T20:15:43Z | `karimtismail` | **pending** |
+| [#129](https://github.com/workin-hr/hr-platform/pull/129) | `a4825a3` | 2026-08-28T20:33:22Z | `karimtismail` | **pending** |
+
+**The approver field is deliberately not filled in.** Step 9 asks for the
+approving human, which is step 6's actor, and step 6 is not the same act as step
+8's merge. GitHub records **zero `APPROVED` reviews** on all four pull requests —
+every review on them is `COMMENTED`, including all fourteen from
+`chatgpt-codex-connector[bot]`, which is read-only by D-121 and cannot approve.
+`karimtismail` is recorded as the **merger**, because that is what GitHub shows;
+recording the same account as the approver would be an inference, and a
+governance record is the wrong place to infer. The field stays open until a human
+states who performed step 6, or until the merges are acknowledged as having been
+made without a separate recorded approval.
+
+**This is R-008's territory, and it is recorded rather than smoothed over.** That
+risk already carries two realized instances. Whether these four are a third
+depends on the answer above: a merge by the repository owner who had read the work
+is a different thing from a merge with no approval step at all, and the register
+should not guess between them. What is certain is that the *evidence* for step 6
+is missing, which is exactly the gap R-008 exists to make visible.
+
+**Validation evidence, measured on the final merge commit `a4825a3`:**
+
+- `./gradlew check` — **BUILD SUCCESSFUL**, 13m01s
+- **160 test classes, 1930 tests, 0 failures, 0 errors, 0 skipped** (G7's format)
+- `python3 scripts/validate_phase0.py` — passed
+- `python3 scripts/test_validate_phase0.py` — 80/80
+- `npx markdownlint-cli2` — clean
+
+For the trend G7 asks to be recorded: the baseline at `85bb216` was 117 classes /
+1415 tests, PR #120's merge 151 / 1837, and this commit 160 / 1930. Waves 12.6.6
+and 12.9 therefore added 9 classes and 93 tests, all green — the run was made
+specifically to rule out a cross-wave interaction, since three branches merged
+within forty minutes and each had touched `LegacyPhpRouteInventoryTest`.
+
+**What these four merges delivered.** `ITEM12_REMAINING` is empty:
+`FINAL_COMPATIBLE` stands at 128 and Item 12's endpoint obligation is met. This
+is not G2 — that gate covers all 198 live endpoints and Item 13's 70 remain.
+
 ## D-124: The overall report's two dead columns are dropped, on a measurement
 
 **Status:** Accepted 2026-08-29.
