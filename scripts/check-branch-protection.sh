@@ -21,9 +21,26 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKFLOW_FILE="${PHASE0_WORKFLOW_FILE:-$SCRIPT_DIR/../.github/workflows/phase0-validate.yml}"
+INDEPENDENT_REVIEW_WORKFLOW="${INDEPENDENT_REVIEW_WORKFLOW_FILE:-$SCRIPT_DIR/../.github/workflows/independent-review-gate.yml}"
 
 if [ ! -f "$WORKFLOW_FILE" ]; then
   echo "Error: workflow file not found: $WORKFLOW_FILE" >&2
+  exit 1
+fi
+
+if [ ! -f "$INDEPENDENT_REVIEW_WORKFLOW" ]; then
+  echo "Error: independent-review workflow not found: $INDEPENDENT_REVIEW_WORKFLOW" >&2
+  exit 1
+fi
+
+# Read the status context out of the workflow that publishes it, rather than
+# hardcoding a second copy that could drift from it (D-121).
+INDEPENDENT_REVIEW_CONTEXT="$(
+  sed -n 's/.*-f context="\([^"]*\)".*/\1/p' "$INDEPENDENT_REVIEW_WORKFLOW" | head -n 1
+)"
+
+if [ -z "$INDEPENDENT_REVIEW_CONTEXT" ]; then
+  echo "Error: could not read the published status context from $INDEPENDENT_REVIEW_WORKFLOW" >&2
   exit 1
 fi
 
@@ -116,10 +133,20 @@ if ! echo ",$contexts," | grep -q ",$REQUIRED_JOB_NAME,"; then
   failures=$((failures + 1))
 fi
 
+# Conversation resolution alone does not prove a round happened on the final
+# head: it reports nothing when the reviewer has not posted yet, and nothing
+# after fixes are pushed and the previous head's threads were resolved. The
+# independent-review status covers exactly that gap (D-121), so protection is
+# not complete without both.
+if ! echo ",$contexts," | grep -q ",$INDEPENDENT_REVIEW_CONTEXT,"; then
+  echo "FAIL: required_status_checks.contexts ($contexts) does not include '$INDEPENDENT_REVIEW_CONTEXT' (published by $(basename "$INDEPENDENT_REVIEW_WORKFLOW"); proves the named reviewer covered the final head -- see D-121)"
+  failures=$((failures + 1))
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo
   echo "$failures branch-protection requirement(s) not met for main."
   exit 1
 fi
 
-echo "Branch protection on main meets all requirements (required review >= 1, enforce_admins, no force pushes, conversation resolution, required check '$REQUIRED_JOB_NAME')."
+echo "Branch protection on main meets all requirements (required review >= 1, enforce_admins, no force pushes, conversation resolution, required checks '$REQUIRED_JOB_NAME' and '$INDEPENDENT_REVIEW_CONTEXT')."

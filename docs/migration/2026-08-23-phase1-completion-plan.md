@@ -883,6 +883,15 @@ the same inventory. Adding a download route, or converting one back to the
 envelope, fails those tests instead of staling this table, which it has already
 done twice.
 
+Those two are **type-level**, so they cannot see `penalties/report.php` losing its
+`format=csv` branch while still declaring `ResponseEntity<?>`.
+`LegacyPenaltyReportBranchesEndToEndTest` covers that at the request level: it
+asserts the default branch answers the JSON envelope with no disposition, and that
+`?format=csv` answers the workbook content type, an `attachment` disposition whose
+filename ends `.xlsx` rather than `.csv`, and a body beginning with ZIP's `PK`
+magic — so the two legacy traps above are pinned by assertion rather than
+description.
+
 **Not byte-for-byte, and deliberately so.** D-085 already settled this for the
 one XLSX generator Phase 1 has shipped: "ZIP timestamps, compression metadata
 and entry CRC representation are archive incidentals, not compatibility

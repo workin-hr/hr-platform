@@ -455,7 +455,7 @@ GOOD_PROTECTION_JSON = {
     "enforce_admins": {"enabled": True},
     "allow_force_pushes": {"enabled": False},
     "required_conversation_resolution": {"enabled": True},
-    "required_status_checks": {"contexts": ["validate"]},
+    "required_status_checks": {"contexts": ["validate", "independent-review"]},
 }
 
 
@@ -501,8 +501,22 @@ def test_branch_protection_reports_every_failing_field() -> None:
         and "enforce_admins.enabled is false" in proc.stdout
         and "allow_force_pushes.enabled is true" in proc.stdout
         and "required_conversation_resolution.enabled is false" in proc.stdout
-        and "does not include 'validate'" in proc.stdout,
-        f"branch protection missing every requirement fails, naming all 5 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+        and "does not include 'validate'" in proc.stdout
+        and "does not include 'independent-review'" in proc.stdout,
+        f"branch protection missing every requirement fails, naming all 6 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_without_the_independent_review_context_fails() -> None:
+    """Conversation resolution cannot prove a round happened on the final head,
+    so protection carrying only the validation context is incomplete (D-121)."""
+    bad = dict(GOOD_PROTECTION_JSON)
+    bad["required_status_checks"] = {"contexts": ["validate"]}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "does not include 'independent-review'" in proc.stdout,
+        f"branch protection without the independent-review context fails "
+        f"(exit={proc.returncode}, stdout={proc.stdout!r})",
     )
 
 
@@ -525,7 +539,11 @@ def test_branch_protection_job_id_is_read_from_workflow_file() -> None:
     workflow file, so the two cannot silently diverge."""
     fake_workflow = "name: Fake\non:\n  push:\njobs:\n  totally-different-job-name:\n    runs-on: ubuntu-latest\n"
     protection = dict(GOOD_PROTECTION_JSON)
-    protection["required_status_checks"] = {"contexts": ["totally-different-job-name"]}
+    # The independent-review context is required independently of this one and
+    # is read from its own workflow, so it stays in the fixture.
+    protection["required_status_checks"] = {
+        "contexts": ["totally-different-job-name", "independent-review"],
+    }
     proc = run_check_branch_protection(protection, workflow_text=fake_workflow)
     check(
         proc.returncode == 0 and "totally-different-job-name" in proc.stdout,
@@ -1051,6 +1069,7 @@ def write_reviewer_declaration(
     demoted_heading: bool = False,
     reversed_order: bool = False,
     lookalike_in_workflow: bool = False,
+    gate_workflow: str | None = "",
 ) -> None:
     body = "# Repository Engineering Instructions\n\n"
     if workflow_section:
@@ -1075,6 +1094,21 @@ def write_reviewer_declaration(
         body += f"\nSomething unrelated mentions `{v.INDEPENDENT_REVIEWER}` here.\n"
     (root / "AGENTS.md").write_text(body, encoding="utf-8")
     write_matrix(root, matrix_rows)
+
+    # `gate_workflow=None` omits the file entirely; "" writes the canonical
+    # one; any other string is written verbatim, for drift cases.
+    if gate_workflow is not None:
+        gate = root / v.REVIEW_GATE_WORKFLOW
+        gate.parent.mkdir(parents=True, exist_ok=True)
+        gate.write_text(
+            gate_workflow
+            or (
+                "name: Independent Review Gate\n"
+                f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
+                f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
+            ),
+            encoding="utf-8",
+        )
 
 
 REVIEWER_ROW = f"| `{v.INDEPENDENT_REVIEWER}` (pull-request review) | Read-only review | No | No | No |\n"
@@ -1266,6 +1300,69 @@ def test_duplicate_reviewer_rows_fail() -> None:
         check(
             any("May Modify Files" in f for f in failures),
             f"the permissive duplicate row is still checked, not skipped (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_missing_review_gate_workflow_fails() -> None:
+    """Deleting the workflow deletes the executable half of the gate."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=None,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("is missing" in f for f in failures),
+            f"a deleted independent-review workflow fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_gate_workflow_naming_a_different_reviewer_fails() -> None:
+    """The workflow carries its own copy of the login; it must not drift from
+    the one AGENTS.md declares."""
+    root = make_root()
+    try:
+        drifted = (
+            "name: Independent Review Gate\n"
+            '          REVIEWER: "some-other-bot"\n'
+            f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=drifted,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("have diverged" in f for f in failures),
+            f"a workflow naming a different reviewer fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_gate_workflow_dropping_the_status_context_fails() -> None:
+    """check-branch-protection.sh requires that context; publishing a
+    different one would make the required check permanently pending."""
+    root = make_root()
+    try:
+        renamed = (
+            "name: Independent Review Gate\n"
+            f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
+            '            -f context="something-else" \\\n'
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=renamed,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("no longer publishes" in f for f in failures),
+            f"a workflow publishing a different status context fails (failures={failures})",
         )
     finally:
         shutil.rmtree(root)
@@ -1530,6 +1627,7 @@ def main() -> int:
     test_branch_protection_all_requirements_met_passes()
     test_branch_protection_reports_every_failing_field()
     test_branch_protection_without_conversation_resolution_fails()
+    test_branch_protection_without_the_independent_review_context_fails()
     test_branch_protection_job_id_is_read_from_workflow_file()
     test_essential_runtime_path_dirs_finds_real_git()
     test_essential_runtime_path_dirs_finds_git_in_nonstandard_location()
@@ -1579,6 +1677,9 @@ def main() -> int:
     test_reviewer_missing_from_matrix_fails()
     test_reviewer_row_widened_fails()
     test_duplicate_reviewer_rows_fail()
+    test_missing_review_gate_workflow_fails()
+    test_review_gate_workflow_naming_a_different_reviewer_fails()
+    test_review_gate_workflow_dropping_the_status_context_fails()
     test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()

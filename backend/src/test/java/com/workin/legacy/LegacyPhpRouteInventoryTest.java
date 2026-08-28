@@ -143,6 +143,13 @@ class LegacyPhpRouteInventoryTest {
 	 * converted back to the envelope, fails here instead of silently staling a
 	 * completion-gate measurement.
 	 *
+	 * <p><b>Type-level only.</b> This catches a <em>new</em> non-envelope route,
+	 * or one converted back to the envelope. It cannot catch
+	 * {@code penalties/report.php} losing its {@code format=csv} download branch
+	 * while still declaring {@code ResponseEntity<?>};
+	 * {@code LegacyPenaltyReportBranchesEndToEndTest} exercises both of that
+	 * route's responses to cover exactly that.
+	 *
 	 * <p>The rule reads the declared return type: a handler answers with
 	 * D-074's envelope iff it returns {@link LegacyApiResponse} or
 	 * {@code ResponseEntity<LegacyApiResponse>} -- the latter being how a

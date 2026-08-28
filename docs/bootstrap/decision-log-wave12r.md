@@ -361,6 +361,15 @@ Two signals are required, because each is blind where the other sees:
 | `required_conversation_resolution` | every finding was fixed or answered | a head with **no** round yet, and a head whose predecessor's threads were resolved before the new commits |
 | `independent-review` status check (`.github/workflows/independent-review-gate.yml`) | the named reviewer submitted a round for **this head SHA** | whether that round's findings were addressed |
 
+The check publishes an explicit **commit status** against `pull_request.head.sha`
+rather than relying on its own job conclusion, so the push event and the
+review-submitted event converge on one context on the right commit instead of
+depending on how two workflow runs of the same name supersede one another. Its
+three moving parts are bound together rather than left to drift:
+`scripts/check-branch-protection.sh` reads the required context out of the
+workflow that publishes it, and `validate_phase0.py` fails if the workflow is
+deleted, names a different reviewer, or stops publishing that context.
+
 `scripts/check-branch-protection.sh` requires conversation resolution, so the
 protection applied whenever D-013's deferral is revisited is verified against the
 failure that occurred. The status check is **advisory until a human adds it to

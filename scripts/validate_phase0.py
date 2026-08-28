@@ -321,6 +321,12 @@ def validate_agent_files(failures: list[str], root: Path | None = None) -> None:
 # in prose and could be edited out of either document with nothing failing.
 INDEPENDENT_REVIEWER = "chatgpt-codex-connector[bot]"
 
+# The executable half of D-121. Named here so the workflow, the branch-protection
+# checker and this validator cannot drift into three different opinions about
+# which reviewer and which status context the gate uses.
+REVIEW_GATE_WORKFLOW = ".github/workflows/independent-review-gate.yml"
+REVIEW_GATE_CONTEXT = "independent-review"
+
 
 # The matrix cell is written `` `chatgpt-codex-connector[bot]` (pull-request
 # review) `` -- backticks plus a human annotation. Both are stripped and the
@@ -453,6 +459,8 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
             failures,
         )
 
+    _validate_review_gate_workflow(root, failures)
+
     for may_modify, may_pr, may_approve in rows:
         widened = [
             label
@@ -469,6 +477,40 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
                 f"every permission (D-121 makes it a read-only reviewer); widened: {', '.join(widened)}",
                 failures,
             )
+
+
+def _validate_review_gate_workflow(root: Path, failures: list[str]) -> None:
+    """The mechanical half of D-121: the workflow that publishes the gate.
+
+    `validate_independent_reviewer_declaration()` binds AGENTS.md to the
+    responsibility matrix, but the workflow carries its own copy of the
+    reviewer login. Without this, changing that copy to another login -- or
+    deleting the workflow -- leaves Phase 0 validation green while the
+    executable gate no longer enforces the named reviewer.
+    """
+    workflow = root / REVIEW_GATE_WORKFLOW
+    if not workflow.is_file():
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} is missing; it publishes the '{REVIEW_GATE_CONTEXT}' status "
+            f"that proves {INDEPENDENT_REVIEWER!r} covered a pull request's final head (D-121), "
+            "and scripts/check-branch-protection.sh requires that context",
+            failures,
+        )
+        return
+
+    text = workflow.read_text(encoding="utf-8")
+    if not REVIEWER_IN_PROSE_RE.search(text):
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} does not name {INDEPENDENT_REVIEWER!r}, so the executable "
+            "gate and AGENTS.md's declared reviewer have diverged (D-121)",
+            failures,
+        )
+    if f'context="{REVIEW_GATE_CONTEXT}"' not in text:
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} no longer publishes the '{REVIEW_GATE_CONTEXT}' status "
+            "context that scripts/check-branch-protection.sh requires (D-121)",
+            failures,
+        )
 
 
 def validate_claude_settings(failures: list[str], root: Path | None = None) -> None:
