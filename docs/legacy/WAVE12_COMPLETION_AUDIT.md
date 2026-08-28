@@ -6,12 +6,16 @@ Authoritative source: frozen `workin-hr/hr-legacy` commit `d113204c8a2cf83b997c5
 
 ## Completion result
 
-Wave 12 is complete for its agreed Phase 1 JSON/API scope, with **three endpoints still
-open** rather than excluded -- see "Correction -- three open endpoints, not three
-exclusions" below.
+**Wave 12 is not complete.** Every wave slice below is delivered, but **three frozen
+endpoints remain unimplemented** and all three are in Phase-1 scope -- see "Correction
+-- three open endpoints, not three exclusions" below. Wave 12's gate is therefore not
+passed, and Item 12 does not close, until they ship.
+
+What is complete is the slice list: Waves 12.1 through 12.10 and the 12.R retrofit have
+each delivered everything assigned to them except Wave 12.6.6, which stands at 0 of 2.
 
 - Wave 12.8: **20/20** — `salary_contracts` 5, `advances` 8, `penalties` 7.
-- Wave 12.9: `payroll_batches` **10/10** and `payslips` **5/6**. `payslips/export.php` is a binary XLSX response and remains **open** per D-106's own follow-up, not excluded.
+- Wave 12.9: `payroll_batches` **10/10** and `payslips` **5/6**. `payslips/export.php` is a binary XLSX response and remains **unimplemented** -- open per D-106's own follow-up, never excluded, and dispositioned as delivered by D-119.
 - Wave 12.10: **3/3** — `company/update.php`, `company/upload_logo.php`, `company/upload_commercial_reg.php`.
 - Deferred attendance JSON work: `list.php`, `stats.php`, and `employee_monthly_attendance.php` are implemented.
   `overall_report.php` and `export.php` both remain **open** -- see the correction below.
@@ -57,10 +61,12 @@ applying one file's rationale to the other collapsed "blocked" into "excluded".
 
 ### None of the three is excluded -- they are open
 
-`attendance/export.php` and `payslips/export.php` genuinely are binary: both terminate in a
-streaming helper declared `: never` (`data_export_attendance_csv`, `api_xlsx_export_send`). That
-is a true statement about how much work they are. It is **not** a decision that Phase 1 need not
-serve them, and the owning decisions say so in their own words:
+`attendance/export.php` and `payslips/export.php` genuinely are binary: both end in the
+`: never` terminator `api_xlsx_export_send()` (`xlsx_writer.php:318`) and emit an XLSX workbook,
+reached through the `_csv`-named row builders `data_export_attendance_csv()` and
+`data_export_payslips_csv()`. Neither produces CSV, and there is one binary mechanism between
+them rather than two. That is a true statement about how much work they are. It is **not** a
+decision that Phase 1 need not serve them, and the owning decisions say so in their own words:
 
 - **D-101 Follow-up**: "`overall_report.php` and `export.php` remain **blocked** on the broader
   D-09x payroll boundary and are not part of this slice."
@@ -69,21 +75,39 @@ serve them, and the owning decisions say so in their own words:
   retrofit audit."
 
 Blocked and open are wave-scheduling states. Only an owner decision can turn one into an
-exclusion, and none has been recorded. Legacy serves all three to real clients today.
+exclusion. The owner decision that names these three -- O-8/D-119, 2026-08-28 -- goes the other
+way and delivers all of them, so none was ever excluded and none is now. Legacy serves all three
+to real clients today.
 
 ### Consequences
 
 - Item 12 is **not** closed. Three live endpoints remain owed, and Wave 12.6.6 stands at 0 of 2.
 - The completion plan's ledger keeps its **198** live total and its **one**-row exclusion list
   (`time/now.php`, O-3); only the bucket distribution changes. See C9 in section 6 there.
+- **The disposition is recorded (2026-08-28, O-8/D-119): all three are delivered.** None is
+  excluded and none is deferred, so the live total does not move and the exclusion list stays
+  one row long. The two exports ship as binary responses matching PHP's bytes, headers and
+  filename; only `overall_report.php` answers D-074's JSON envelope, because that is what its
+  PHP file does.
 - `LegacyPhpRouteInventoryTest.intentionallyDeferredBinaryReportsStayUnmapped` encoded the
   misclassification in its name and assertion set. It is split into
   `theTwoBinaryExportEndpointsAreStillUnmapped` and
   `theUnimplementedOverallReportEndpointIsStillUnmapped`, whose javadocs record that both
   assertions are to be **deleted**, not amended, when the endpoints are delivered.
 
-Broad J.2 was recorded as "answerable only after Wave 12.7". Wave 12.7 has now landed, so the
-question `overall_report.php` waits on is open for decision rather than blocked.
+Broad J.2 was recorded as "answerable only after Wave 12.7". Wave 12.7 landed, and so did
+12.8 and 12.9. **The question is settled by evidence, not owed as a decision**: every payroll
+function that boundary named is already in `main`, ported by the payroll engine in its own
+waves. `attendance/overall_report.php` and `attendance/export.php` are both unblocked on
+dependency grounds -- §G.2 of the Wave 12.6 discovery names both, and both are released by the
+same evidence. `payslips/export.php` was never J.2-constrained. Nobody should wait on a J.2
+decision to sequence any of the three. See
+`docs/migration/2026-08-27-broad-j2-settlement-discovery.md`.
+
+What was separately owed -- deliver, formally exclude, or defer -- was decided on 2026-08-28
+as **O-8/D-119: all three are delivered**, with Java reproducing PHP's response contract per
+endpoint. The two exports are delivered as the binary responses PHP serves; that shape is the
+specification, not a reason to defer.
 
 ## Phase 1 compatibility invariant
 
@@ -156,3 +180,10 @@ The merge proceeded on the repository owner's own approval. The separate indepen
 `PR120_REVIEW_REMEDIATION.md` lists under required validation, was not exercised as a distinct
 gate. This is recorded as a factual deviation, not a retrospective objection: a green CI result
 proves the branch validation gate and does not by itself constitute that review.
+
+That deviation is the review-governance risk `docs/bootstrap/risk-register.md` **R-008** exists
+to track, and it is recorded there as R-008's second evidenced instance rather than left only in
+this audit. Its cause was structural: the workflow required an independent review but named
+nobody to perform it. **D-120 (2026-08-28) names one** -- `chatgpt-codex-connector[bot]`, whose
+review of the whole pull request discharges the gate, and whose externally-billed quota (R-009)
+blocks merging while it is exhausted rather than being waived.

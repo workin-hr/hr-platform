@@ -141,12 +141,15 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	/**
-	 * Open, not excluded. Both terminate in a streaming helper declared {@code : never}
-	 * ({@code data_export_attendance_csv}, {@code api_xlsx_export_send}) instead of returning
-	 * PHP's {@code ok()} JSON envelope, which makes them substantial work -- but D-101 records
-	 * them as "blocked" and D-106 records {@code payslips/export.php} as "open", and neither is
-	 * an owner disposition removing them from the Phase-1 obligation. Legacy serves both to real
-	 * clients today. Delete this assertion -- do not amend it -- when they are delivered.
+	 * Unimplemented, not excluded. Both emit an XLSX workbook through the same
+	 * {@code : never} terminator {@code api_xlsx_export_send()}
+	 * ({@code xlsx_writer.php:318}) instead of returning PHP's {@code ok()} JSON envelope,
+	 * which makes them substantial work; the {@code _csv}-named row builders that reach it
+	 * do not produce CSV. D-119 dispositions them as <b>delivered</b>: Java writes the same
+	 * bytes, content type, disposition and filename PHP does, because wrapping either in
+	 * the envelope would be a client-visible divergence D-111 forbids. Legacy serves both
+	 * to real clients today. Delete this assertion -- do not amend it -- when they are
+	 * delivered.
 	 */
 	@Test
 	void theTwoBinaryExportEndpointsAreStillUnmapped() {
@@ -158,9 +161,11 @@ class LegacyPhpRouteInventoryTest {
 	/**
 	 * Not an exclusion. {@code attendance/overall_report.php} ends at
 	 * {@code ok(LangKey::OK, $report, 200)} and is an ordinary JSON read endpoint; it was
-	 * misclassified as binary because it shares export.php's broad J.2 payroll blocker. It is
-	 * unmapped because it is unimplemented, and this assertion must be deleted -- not amended --
-	 * when Wave 12.6.6 delivers it. See C9 in the Phase 1 completion plan.
+	 * misclassified as binary because it shares export.php's broad J.2 payroll blocker --
+	 * which is itself closed, so neither endpoint is dependency-blocked any more. It is
+	 * unmapped because it is unimplemented, and D-119 dispositions it as delivered, so this
+	 * assertion must be deleted -- not amended -- when Wave 12.6.6 delivers it. See C9 in the
+	 * Phase 1 completion plan.
 	 */
 	@Test
 	void theUnimplementedOverallReportEndpointIsStillUnmapped() {

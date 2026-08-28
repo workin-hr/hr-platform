@@ -28,7 +28,7 @@ The final public compatibility surface adds five literal `departments` routes, f
 
 The bidirectional `/apis/**` inventory is **125 routes**. `attendance/overall_report.php`, `attendance/export.php` and `payslips/export.php` are unmapped.
 
-**Corrected 2026-08-27 (C9, completion plan section 6).** This entry as first written called those three "deliberate binary/report exclusions". Two corrections. First, `attendance/overall_report.php` is not binary at all: it ends at `ok(LangKey::OK, $report, 200)` and returns the ordinary D-074 JSON envelope. Second, none of the three is excluded -- D-101 records its two as "blocked" and D-106 records `payslips/export.php` as "open", and neither is an owner disposition removing an endpoint from the Phase-1 obligation. All three are unimplemented live endpoints whose disposition is owed from the owner. D-110's route boundary for the retrofit itself is unaffected -- none of the three was ever in Wave 12.R's 22.
+**Corrected 2026-08-27 (C9, completion plan section 6).** This entry as first written called those three "deliberate binary/report exclusions". Two corrections. First, `attendance/overall_report.php` is not binary at all: it ends at `ok(LangKey::OK, $report, 200)` and returns the ordinary D-074 JSON envelope. Second, none of the three is excluded -- D-101 records its two as "blocked" and D-106 records `payslips/export.php` as "open", and neither is an owner disposition removing an endpoint from the Phase-1 obligation. All three are unimplemented live endpoints. **Their disposition was recorded 2026-08-28 as D-119: all three are delivered**, with Java reproducing PHP's response contract per endpoint. D-110's route boundary for the retrofit itself is unaffected -- none of the three was ever in Wave 12.R's 22.
 
 The earlier draft of this decision incorrectly allowed the new-platform refresh-token design to remain on the Phase-1 employee-login route. D-111 supersedes that detail: the frozen PHP login and token behavior is authoritative for Phase 1.
 
@@ -181,3 +181,91 @@ February, commits, and then asserts both the February batch period and February
 attendance-derived payslip. It failed before the fix (`month` returned `1` in
 the initial January reproduction, then the unique-period fixture was moved to
 September for whole-class isolation) and passes after the optimistic retry.
+
+## D-119: All three remaining Item-12 endpoints are delivered -- Java reproduces PHP's response contract, binary included
+
+**Status:** Accepted 2026-08-28.
+
+C9 recorded that three live endpoints stood between the repository and Item 12's
+closure, and that the disposition -- deliver, formally exclude, or defer -- was
+the owner's to make. The owner's disposition is **deliver all three**:
+
+- `/apis/api/attendance/overall_report.php`
+- `/apis/api/attendance/export.php`
+- `/apis/api/payslips/export.php`
+
+None is excluded and none is deferred out of Phase 1. The exclusion bucket keeps
+its single row (`time/now.php`, O-3) and the live obligation stays at 198.
+
+The governing rule the owner stated is that **Java does what PHP does**. Applied
+to these three, that means the response contract is taken from each endpoint's
+own PHP file rather than from a repository-wide default:
+
+- `overall_report.php` terminates in `ok(LangKey::OK, $report, 200)`, so Java
+  answers D-074's JSON envelope, as every delivered route already does.
+- `attendance/export.php` and `payslips/export.php` both emit an **XLSX
+  workbook**, despite their `_csv`-named row builders: `data_export_attendance_csv()`
+  and `data_export_payslips_csv()` each end in the single terminator
+  `api_xlsx_export_send()` (`xlsx_writer.php:318`), declared `: never`. Java writes
+  the same bytes with the same content type
+  (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), attachment
+  disposition, sanitized `.xlsx` filename and `Content-Length`, and reproduces that
+  helper's own `fail()`-with-500 path when the workbook cannot be built. Wrapping
+  either in a JSON envelope would be a client-visible divergence, which D-111's
+  zero-client-change invariant forbids. There is one binary mechanism to port, not
+  two.
+
+This makes binary-response support a Phase-1 implementation obligation rather
+than a reason to defer. It does not create a new decision about *how* the report
+is computed: broad J.2's dependency question closed on its own evidence
+(`docs/migration/2026-08-27-broad-j2-settlement-discovery.md`), so both
+attendance endpoints are unblocked and what remains for them is ordinary slice
+work.
+
+Impact: §5 G2 loses its "or formally excluded" branch and closes only at
+`FINAL_COMPATIBLE = 198`; §5 G3 is restated per-endpoint rather than
+envelope-for-everything; `LegacyPhpRouteInventoryTest`'s two unmapped-route
+assertions are to be deleted, not amended, when the endpoints ship.
+
+Evidence: frozen `hr-legacy@d113204` -- `apis/api/attendance/overall_report.php`,
+`apis/api/attendance/export.php`, `apis/api/payslips/export.php`, and the two
+`: never` helpers in `apis/helpers/`. Recorded in
+`docs/migration/2026-08-23-phase1-completion-plan.md` (§1.2, §3.2, §5 G2/G3, §6
+C9, §8 O-8, §8.1), `docs/legacy/WAVE12_COMPLETION_AUDIT.md`, and
+`docs/bootstrap/open-questions.md`.
+
+## D-120: Codex is the independent reviewer of record, and its quota is a gate on merging
+
+**Status:** Accepted 2026-08-28.
+
+`AGENTS.md`'s workflow places an independent review between automated
+verification and human merge but never named who performs it. PR #120 merged
+without that gate being exercised as a distinct step, because no named reviewer
+existed to exercise it.
+
+**`chatgpt-codex-connector[bot]` is that reviewer.** Its review of a pull request
+satisfies the independent-review gate, under two conditions the owner set:
+
+1. **It reviews everything in the pull request** -- the whole diff, not a sample
+   and not only the newest commit. A review round that only covers an
+   intermediate head does not discharge the gate for commits pushed after it;
+   re-request review (`@codex review`) so the final head is the reviewed one.
+2. **Its quota is part of the gate.** Codex review is billed on an account
+   outside this repository (R-009). When that quota is exhausted, the gate is
+   **not** satisfied -- it is unavailable. Merging past it is not permitted
+   because a check is missing; the merge waits, exactly as the R-009 contingency
+   already says.
+
+This does not relax anything else in the workflow. Codex is a review agent and
+is read-only; a green CI run still proves branch validation only and never
+constitutes the review; and the human owner still performs the merge. Findings
+are addressed or answered on the thread before merge -- a P1 or P2 left with no
+reply and no fix means the gate has been read, not passed.
+
+Impact: R-008's mitigation gains a named reviewer and R-009's impact widens from
+"unreviewable" to "unmergeable" while Codex quota is out.
+
+Evidence: `AGENTS.md` mandatory workflow; PR #120's merge record in
+`docs/legacy/WAVE12_COMPLETION_AUDIT.md`; PR #126's four Codex review rounds,
+whose findings drove this change and which showed the per-head reviewing
+behavior condition 1 addresses.

@@ -55,7 +55,8 @@ push delivery (O-1, §4.8).
 Wave 12.6 legacy-route inventory stood at **13 of 18** when this section was
 written. **As of 2026-08-27 it is 16 of 18**: Wave 12.7 landed and 12.6.4b
 delivered its three. The two remaining are Wave 12.6.6's `overall_report` and
-`export`, both still open — see §1.2 and C9 (§6).
+`export`. **Both are to be delivered** — the owner's C9 disposition, recorded
+2026-08-28 as **D-119** and **O-8** (§8) — see §1.2 and C9 (§6).
 
 ### 1.2 Wave 12.6's remaining twelve endpoints
 
@@ -65,13 +66,19 @@ delivered its three. The two remaining are Wave 12.6.6's `overall_report` and
 | 12.6.3 | `attendance/check_in`, `check_in_qr`, `check_out` | 3 | complete |
 | 12.6.4a | `attendance/analyze_excel` | 1 | complete |
 | 12.6.5 | `schedules/employee_monthly_schedule`, `generate_employee_schedule` | 2 | complete |
-| **12.6.4b** | `attendance/list`, `stats`, `employee_monthly_attendance` | 3 | **after Wave 12.7 — §1.5** |
-| 12.6.6 | `attendance/overall_report`, `export` | 2 | **0 of 2, both open.** `export` is a binary streaming response, open per D-101; `overall_report` is a JSON endpoint misclassified as binary and is owed — C9, §6 |
+| 12.6.4b | `attendance/list`, `stats`, `employee_monthly_attendance` | 3 | complete — delivered 2026-08-27 after Wave 12.7 (§1.5) |
+| **12.6.6** | `attendance/overall_report`, `export` | 2 | **0 of 2, both to be delivered (D-119).** `export` streams a binary response, so Java streams the same bytes PHP does; `overall_report` is a JSON endpoint misclassified as binary — C9, §6 |
 
-**16 of 18 delivered.** Wave 12.6.6's two are both outstanding: 16 + 2 = 18,
-with nothing in this wave excluded — C9, §6.
+**16 of 18 delivered.** Wave 12.6.6's two are both outstanding and both in
+scope: 16 + 2 = 18, with nothing in this wave excluded — C9, §6, D-119.
 
 ### 1.5 Ordering correction — three more endpoints depend on Wave 12.7
+
+**Status 2026-08-27: discharged.** Wave 12.7 landed and 12.6.4b delivered its
+three endpoints. The section is kept because it records why the order was set,
+and because its closure trace is still the evidence for `attendance/list`,
+`stats` and `employee_monthly_attendance` reading `requests`. Of the five
+endpoints it names, three are delivered and Wave 12.6.6's two remain — §1.2.
 
 **Recorded 2026-08-23, from a closure trace taken before implementing Wave
 12.6.4.** This is a dependency correction, not a scope reduction: all five
@@ -120,8 +127,10 @@ The operational order is therefore:
 12.6.6  overall_report / export
 ```
 
-Wave 12.6 moves 13/18 → 18/18 once Wave 12.7 supplies the request boundary,
-subject only to a genuinely new dependency in those five closures.
+That was expected to move Wave 12.6 from 13/18 to 18/18 once Wave 12.7 supplied
+the request boundary. It moved it to **16/18**: 12.6.4b's three landed and no new
+dependency appeared in their closures, while 12.6.6's two remain open on their
+own work rather than on the `requests` boundary.
 
 ### 1.3 The remaining order, and why each step sits where it does
 
@@ -141,7 +150,7 @@ None is introduced here for tidiness.
    v
 12.7    requests + leave_balances
    |
-   |  gate: broad J.2 resolution (12.6.6 only)
+   |  gate: broad J.2 resolution (12.6.6 only) — closed 2026-08-27, §4.5
    v
 12.6.4b list / stats / employee_monthly_attendance   (§1.5)
 12.6.6  overall_report / export
@@ -165,8 +174,9 @@ the narrow `payroll_is_weekly_rest_day` extraction landed alongside D-099,
 D-083 was closed by D-099 itself, and D-092/D-093 are implemented and pinned in
 `LegacyCheckInEndToEndTest`.
 
-**What remains in Wave 12.6 is the five request-dependent endpoints**, for the
-reason §1.5 records.
+**What remains in Wave 12.6 is Wave 12.6.6's two endpoints.** §1.5's five
+request-dependent endpoints are three delivered plus these two; the `requests`
+boundary they waited on is closed, and both are to be delivered under D-119.
 
 **12.7 precedes 12.6.6.** This is the one place where the wave numbers do not
 run in order, and it is forced by evidence, not preference. Wave 12.6 discovery
@@ -387,7 +397,7 @@ table; only the distribution across buckets has moved.
 |---|---|---|
 | `FINAL_COMPATIBLE` | **125** | Every delivered route, on its literal `/apis/api/**` URL with the D-074 envelope. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(125)`). Waves 12.4 through 12.10 plus the Wave 12.R retrofit. |
 | `IMPLEMENTED_BUT_REQUIRES_D074_RETROFIT` | **0** | Closed by Wave 12.R (D-107/D-108/D-110/D-111). No `/api/legacy/**` business route remains mapped. |
-| `ITEM12_REMAINING` | **3** | `attendance/overall_report.php`, `attendance/export.php`, `payslips/export.php`. All three are **open, not excluded** — see below. |
+| `ITEM12_REMAINING` | **3** | `attendance/overall_report.php`, `attendance/export.php`, `payslips/export.php`. All three are **to be delivered, not excluded** — D-119/O-8, and see below. |
 | `ITEM13_REMAINING` | **70** | §2.2's 71 less `auth/login_employee`, delivered by Wave 12.R. |
 | **Live total** | **198** | 125 + 0 + 3 + 70 |
 | `EXPLICITLY_EXCLUDED_WITH_DECISION` | **1** | `apis/api/time/now.php` (O-3, §2.3). Outside the live total. |
@@ -396,8 +406,10 @@ table; only the distribution across buckets has moved.
 **Why the three sit in `ITEM12_REMAINING` and not in the exclusion bucket.**
 That bucket is named `EXPLICITLY_EXCLUDED_WITH_DECISION`, and the qualifier is
 load-bearing: `time/now.php` is in it because **O-3 is a recorded owner
-disposition that names it**. No equivalent disposition exists for these three.
-The owning decisions say the opposite, in their own words:
+disposition that names it**. The owner disposition that names these three —
+**O-8/D-119, accepted 2026-08-28** — puts them the other way: all three are
+delivered. Before it existed, the owning decisions already said the opposite of
+exclusion, in their own words:
 
 - **D-101 Follow-up**: "`overall_report.php` and `export.php` remain **blocked**
   on the broader D-09x payroll boundary and are not part of this slice."
@@ -410,14 +422,30 @@ Phase-1 obligation, and only an owner decision can make one. Recording them as
 excluded would let G2 close at a reduced total without either implementing two
 frozen client routes or obtaining that decision — which is the same
 deferred-read-as-excluded error C9 exists to correct, repeated one bucket over.
+**That decision has now been made and it is not an exclusion** (D-119): the
+three move to `FINAL_COMPATIBLE` by being implemented, and the live total of 198
+is reached with the exclusion list still one row long.
 
 **The binary-response observation stands, and is not a disposition.**
-`attendance/export.php` and `payslips/export.php` do terminate in streaming
-helpers declared `: never` (`data_export_attendance_csv`,
-`api_xlsx_export_send`) rather than returning the `ok()` JSON envelope. That is
-a true and useful statement about how much work they are and what shape the
-work takes — it is **not** a decision that Phase 1 need not serve them. Legacy
-serves both to real clients today.
+`attendance/export.php` and `payslips/export.php` do terminate in helpers
+declared `: never` rather than returning the `ok()` JSON envelope. That is a true
+and useful statement about how much work they are and what shape the work takes —
+it is **not** a decision that Phase 1 need not serve them. Legacy serves both to
+real clients today.
+
+**Both emit XLSX through one mechanism**, despite the `_csv` names:
+`data_export_attendance_csv()` and `data_export_payslips_csv()` are row builders
+that both end in `api_xlsx_export_send()` (`xlsx_writer.php:318`), which writes
+`Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+an `attachment` disposition with a sanitized `.xlsx` filename, `Content-Length`,
+and the bytes. Neither endpoint produces CSV. There is one binary mechanism to
+port, not two — and `api_xlsx_export_send` itself falls back to `fail()`'s JSON
+envelope with a 500 when the workbook cannot be built, so even these endpoints
+have a JSON error path.
+
+Under D-119 that shape is now the **specification**, not an obstacle: Java
+streams what PHP streams, with the same content type, disposition, filename and
+status. Binary-response support is a Phase-1 implementation obligation.
 
 ### 3.3 Three notes on bucket boundaries
 
@@ -449,8 +477,10 @@ Wave 12.R is not to be split into 21 + 1 unless new evidence requires it.
 **`analyze_excel.php` appears three times in the corpus and must not be
 conflated.** `employees/analyze_excel.php` is delivered (Wave 12.4,
 `FINAL_COMPATIBLE`); `attendance/analyze_excel.php` is Wave 12.6.4a and is
-now delivered too; `leave_balances/analyze_excel.php` is Wave 12.7 and stays
-unmapped.
+now delivered too; `leave_balances/analyze_excel.php` is Wave 12.7 and is
+**also delivered** — it is inside `LegacyPhpRouteInventoryTest`'s 125-route
+assertion. All three are mapped; the three-way name collision is the reason to
+keep them distinct, not a difference in status.
 
 **The PHP dashboard's 92 page files are not in any bucket** and are not part of
 the 198 (O-5, §4.9).
@@ -568,15 +598,30 @@ Two specifics worth keeping, because both are narrower than the original phrasin
 - **The `requests` dependency closed with Wave 12.7**, and `request_types` with
   12.5. Both consuming functions are ported against them.
 
-What remains for `overall_report.php` is four unported calendar helpers
+What remains for `overall_report.php` is **five unported helpers — 244 lines of
+PHP** — plus the report builder: four in `attendance_calendar_helper.php`
 (`attendance_exception_details_for_period`, `attendance_absent_details_for_period`,
 `attendance_void_weekly_rest_absent_details_for_period`,
-`attendance_period_work_minutes` — 221 lines of PHP total) plus the report builder.
-A normal slice, not a boundary decision.
+`attendance_period_work_minutes`, 221 lines) and
+`official_holidays_credit_days_for_employee`
+(`official_holidays_helper.php:129–151`, 23 lines), which an earlier revision
+wrongly recorded as ported. A normal slice, not a boundary decision. Most of the
+ported helpers it reuses are `private` to `LegacyPayrollAttendanceFigures`, so the
+slice starts with an extraction pass — settlement discovery §2.1.
 
-This closes the *dependency* question only. Whether the endpoint is delivered,
-excluded or deferred is C9's disposition and remains owed from the owner (§8.1).
-`attendance/export.php` is untouched by this — its constraint was never J.2.
+`attendance/export.php` is released by exactly the same evidence. §G.2 records all
+six non-extracted payroll functions as reached by "`overall_report`, `export`",
+and §K assigned both to slice 12.6.6 blocked on J.2; an earlier revision wrongly
+said its constraint was never J.2. It reaches them the same way `overall_report`
+does — through `overall_attendance_report_build()`, which
+`data_export_attendance_csv()` calls as its first statement
+(`data_export_helper.php:321`). Its workbook response was always additional to the
+boundary rather than instead of it. `payslips/export.php` genuinely was never
+J.2-constrained.
+
+This closes the *dependency* question only. Whether the endpoints are delivered,
+excluded or deferred was C9's disposition, **decided 2026-08-28 as O-8/D-119:
+all three are delivered** (§8.1).
 
 ### 4.6 Flutter token refresh / `hr-platform#18` — **[cutover]**, with a dependency
 
@@ -709,25 +754,40 @@ would contradict O-3, which removed `time/now.php` from the live obligation
 precisely because the router cannot expose it — implementing it would add a
 route legacy does not serve.
 
-**Note added 2026-08-27 (C9).** An earlier revision of this correction restated
-G2 as 196 / 196 by moving `attendance/export.php` and `payslips/export.php`
-into the exclusion bucket, and claimed the 198 figure was "arithmetically
-unreachable". **Both were wrong and are retracted.** 198 is reachable; it
-requires three currently-open endpoints to be delivered or formally excluded by
-a decision that names them. Neither D-101 nor D-106 is such a decision — both
-describe those endpoints as blocked or open (§3.2). The gate number is
-unchanged; what C9 changes is the count of endpoints still standing between the
-repository and it, which is **three**, not zero:
+**Note added 2026-08-27 (C9), completed 2026-08-28 (D-119).** An earlier
+revision of this correction restated G2 as 196 / 196 by moving
+`attendance/export.php` and `payslips/export.php` into the exclusion bucket, and
+claimed the 198 figure was "arithmetically unreachable". **Both were wrong and
+are retracted.** 198 is reachable, and under **D-119 it is reachable in exactly
+one way: by delivering all three of the endpoints below.** The owner's
+disposition excludes none of them, so the live denominator does not move and
+this gate has no second arithmetic. Any future exclusion would require its own
+numbered decision and would have to recompute both the live total and the
+exclusion ledger before this gate could be read again.
+
+Three endpoints stand between the repository and G2:
 
 - `attendance/overall_report.php` — a JSON endpoint, misclassified as binary;
 - `attendance/export.php` — binary streaming response, open per D-101;
 - `payslips/export.php` — binary streaming response, open per D-106.
 
 **G3 — Exact PHP URL and wire contract.** Every live endpoint answers on its
-literal `/apis/api/{module}/{action}.php` URL with D-074's envelope. Enforced
-mechanically by `LegacyPhpRouteInventoryTest`'s bidirectional assertion, at 125
-routes today and at 198 when G2 closes. **Wave 12.R is complete and no
-`/api/legacy/**` business route remains mapped.**
+literal `/apis/api/{module}/{action}.php` URL with **the response contract its
+own PHP file emits**. Enforced mechanically by `LegacyPhpRouteInventoryTest`'s
+bidirectional assertion, at 125 routes today and at 198 when G2 closes. **Wave
+12.R is complete and no `/api/legacy/**` business route remains mapped.**
+
+The contract is per-endpoint, not repository-wide (D-119):
+
+| PHP terminates in | Java answers |
+|---|---|
+| `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — every one of the 125 delivered routes, and `attendance/overall_report.php` when it ships |
+| `api_xlsx_export_send()` (`xlsx_writer.php:318`) — both exports reach it, through `data_export_attendance_csv()` and `data_export_payslips_csv()` | the same workbook bytes, `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `attachment` disposition, sanitized `.xlsx` filename and `Content-Length` PHP emits — and `fail()`'s JSON envelope with 500 on a build failure, which is what PHP does |
+
+Requiring the JSON envelope of the two exports would make the gate
+unsatisfiable: an export cannot both stream a workbook to its frozen clients and
+answer in an envelope. D-111's zero-client-change invariant decides which one
+wins.
 
 **G4 — Approved divergence ledger.** Every behavioural difference from PHP is a
 numbered decision. No endpoint diverges without one. Published as a single list,
@@ -814,7 +874,7 @@ rewritten; this section is the correction of record.
 | **C6** | The punch list's Item-12 wave table shows 12.5 as "Discovery/specification only" and 12.6 as "Not started"; its "Next, in order" section still describes 12.4 as "in discovery". | Corrected in `2026-08-17-phase1-punch-list.md` to point at this document and to state the current wave status. History and decision references are unchanged. |
 | **C7** | `hr-platform#22`'s "Phase 1 cross-cutting exit requirement" / "cutover blocker" classification contradicts the client-side evidence that push works on neither side today. | Resolved by **O-1**: FCM delivery is not a Phase-1 completion requirement (§4.8). D-082/D-089 and the Wave 12.5/12.6 discovery text are historical and are not rewritten; §4.8 is the current classification. |
 | **C8** | `assets` and `administrative_decisions` have no row in `three-frontend-api-usage-matrix.md` — 10 endpoints with no recorded client consumer. | **Discovery evidence debt, not an implementation blocker.** Both are covered in the endpoint inventory's Reference/Lookup section, so the surface is read; only consumer attribution is missing. It becomes a blocker **only if** an endpoint contract in Wave 13.4 turns out to depend on which client calls it. |
-| **C9** | `attendance/overall_report.php` is recorded as a "binary/report exclusion" in `docs/legacy/WAVE12_COMPLETION_AUDIT.md`, in D-110's route note, and in `LegacyPhpRouteInventoryTest`'s assertion name. It is not binary. | **Verified against frozen `hr-legacy@d113204`.** The file ends at `ok(LangKey::OK, $report, 200)` — the same D-074 envelope helper (`apis/helpers/functions.php:380`) every delivered route uses. It has no streaming path and calls no `: never` helper, unlike `attendance/export.php` (`data_export_attendance_csv`) and `payslips/export.php` (`api_xlsx_export_send`), both of which genuinely are binary. The two were blocked *together* on the broad J.2 payroll boundary (§4.5) and `export.php`'s rationale was applied to both. **Consequence: Item 12 is not closed** — Wave 12.6.6 stands at 0 of 2 and three live endpoints remain owed. **All three are open, not excluded**: D-101 calls its two "blocked", D-106 calls `payslips/export.php` "open", and neither is an owner disposition removing them from the Phase-1 obligation. The live total stays **198** and the exclusion bucket stays at **1** (`time/now.php`, O-3); only the bucket distribution changes (§3.2). **Disposition owed from the owner** — see §8.1. |
+| **C9** | `attendance/overall_report.php` is recorded as a "binary/report exclusion" in `docs/legacy/WAVE12_COMPLETION_AUDIT.md`, in D-110's route note, and in `LegacyPhpRouteInventoryTest`'s assertion name. It is not binary. | **Verified against frozen `hr-legacy@d113204`.** The file ends at `ok(LangKey::OK, $report, 200)` — the same D-074 envelope helper (`apis/helpers/functions.php:380`) every delivered route uses. It has no streaming path and calls no `: never` helper, unlike `attendance/export.php` and `payslips/export.php`, both of which genuinely are binary — each through a `_csv`-named row builder (`data_export_attendance_csv`, `data_export_payslips_csv`) that ends in the single XLSX terminator `api_xlsx_export_send`. The two were blocked *together* on the broad J.2 payroll boundary (§4.5) and `export.php`'s rationale was applied to both. **Consequence: Item 12 is not closed** — Wave 12.6.6 stands at 0 of 2 and three live endpoints remain owed. **All three are open, not excluded**: D-101 calls its two "blocked", D-106 calls `payslips/export.php` "open", and neither is an owner disposition removing them from the Phase-1 obligation. The live total stays **198** and the exclusion bucket stays at **1** (`time/now.php`, O-3); only the bucket distribution changes (§3.2). **Dispositioned 2026-08-28 — O-8/D-119: all three are delivered.** None is excluded, none is deferred, and the two exports are delivered as the binary responses PHP serves. |
 
 ---
 
@@ -836,7 +896,7 @@ exactly as written.
 
 ---
 
-## 8. Owner dispositions (accepted 2026-08-23)
+## 8. Owner dispositions (O-1..O-7 accepted 2026-08-23; O-8 accepted 2026-08-28)
 
 | # | Disposition | Applied in |
 |---|---|---|
@@ -847,6 +907,7 @@ exactly as written.
 | **O-5** | Phase-1 completion covers the legacy REST API backend (`apis/`, allow-listed modules), **not** the 92-page PHP dashboard, which remains a legacy consumer/operator surface against the same MariaDB. Its pages are not counted in the ledger; its risks stay visible separately. | §4.9, §3.3, §5 G1/G13 |
 | **O-6** | The D-074 retrospective correction becomes its own explicit engineering wave and closure boundary — **Wave 12.R**, 22 endpoints including `auth/login_employee` — rather than being distributed through unrelated module waves. The engineering order is fixed: **remaining Item 12 → Wave 12.R → Item 13**, so no endpoint is ever owned by both 12.R and an Item-13 wave. Owning `auth/login_employee` does not make `auth` an Item-12 module. Not to be split into 21 + 1 unless new evidence requires it. | §1.3, §3.3, §4.1, §3.2 |
 | **O-7** | **G6 accepted**: every live response-bearing legacy endpoint must carry at least one measured differential assertion against authoritative PHP + MariaDB behaviour. A percentage threshold is rejected. G6 is a minimum floor; endpoint-specific high-risk branches still require deeper matrices. | §5 G6 |
+| **O-8** | **The three open Item-12 endpoints are delivered — the C9 disposition, accepted 2026-08-28 as D-119.** `attendance/overall_report.php`, `attendance/export.php` and `payslips/export.php` are all implemented; none is formally excluded and none is deferred out of Phase 1. The governing rule is that Java reproduces what PHP does per endpoint: the JSON envelope where PHP calls `ok()`, and the same streamed bytes, headers and filename where PHP terminates in a `: never` helper. Binary-response support becomes a Phase-1 implementation obligation. The live total stays 198 and the exclusion bucket stays at one row. | §1.1, §1.2, §3.2, §5 G2/G3, §6 C9, §8.1 |
 
 ### 8.1 What remains genuinely open
 
@@ -860,25 +921,32 @@ Not decisions — evidence and sequencing owed by the waves that own them.
   enumerated are already in `main`, delivered by Waves 12.8/12.9 in their own waves
   rather than pulled forward; the `company_settings` reach turned out to be D-091's
   existing single `WEEKLY_OFF_DAYS` key, and the `requests` dependency closed with
-  Wave 12.7. No decision is required to unblock `overall_report.php` on dependency
-  grounds. What remains for that endpoint is four unported calendar helpers
-  (221 lines) plus the report builder — a normal slice, not a boundary decision.
-- **The three open Item-12 endpoints** (C9, §6) — **what stands between the
-  repository and Item 12's closure.** Each needs a disposition no agent may pick:
-  deliver it, or formally exclude it under a numbered decision that names it.
-  - `attendance/overall_report.php` — a JSON endpoint. **No longer dependency-blocked**:
-    broad J.2's evidence is complete and every payroll function it named is already in
-    `main` (see above). Delivering it is a normal Wave 12.6.6 slice. Excluding it
-    requires a rationale that is *not* the binary-response one, since that rationale is
-    false.
-  - `attendance/export.php` and `payslips/export.php` — genuinely binary streaming
-    responses, which makes them substantial work but does not by itself exclude them.
-    D-101 and D-106 record them as blocked/open, not excluded, and legacy serves both
-    to real clients today. Excluding them is a live option — it just has to be
-    *decided* rather than inherited from a wave-scheduling note.
+  Wave 12.7. No decision is required to unblock `overall_report.php` **or
+  `attendance/export.php`** on dependency grounds — §G.2 names both, and the same
+  evidence releases both. What remains for `overall_report.php` is five unported
+  helpers (244 lines) plus the report builder — a normal slice, not a boundary
+  decision.
+- **The three open Item-12 endpoints** (C9, §6) — **decided 2026-08-28, O-8/D-119:
+  all three are delivered.** This is no longer a disposition owed; it is
+  implementation work owed, and it is still what stands between the repository and
+  Item 12's closure. What each now needs:
+  - `attendance/overall_report.php` — a JSON endpoint answering D-074's envelope.
+    **Not dependency-blocked**: broad J.2's evidence is complete and every payroll
+    function it named is already in `main` (see above). A normal Wave 12.6.6 slice —
+    five unported helpers and the report builder, scoped in
+    `2026-08-27-broad-j2-settlement-discovery.md` §2.
+  - `attendance/export.php` — same J.2 position as `overall_report` and equally
+    unblocked. It calls `overall_attendance_report_build()` itself, so it shares
+    almost all of that endpoint's work; what remains beyond it is the workbook
+    response and the `type=fingerprints|details|days` second sheet.
+  - `payslips/export.php` — never J.2-constrained; what remains is its own row
+    build and the workbook response.
+  - Both exports are delivered **as binary responses**, matching PHP's bytes,
+    headers and filename (D-119, §5 G3). The binary shape is the specification, not
+    a reason to defer.
 
-  Until each is resolved, G2 cannot close and Item 12 cannot honestly be called
-  complete.
+  Until all three are delivered, G2 cannot close and Item 12 cannot honestly be
+  called complete.
 - **C3's re-read pass** over the six under-documented modules — owed before
   Waves 12.10 and 13.4.
 - **C8's consumer attribution** for `assets` and `administrative_decisions` —

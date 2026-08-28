@@ -7,7 +7,14 @@ nothing. It answers a question that two accepted documents deliberately left
 open, and hands the owner the evidence needed to record a decision.
 
 It does **not** record that decision. Recording it is the owner's, under
-`AGENTS.md`'s "No agent may silently resolve unclear requirements".
+`AGENTS.md`'s "No agent may silently resolve unclear requirements". **The owner
+recorded it on 2026-08-28 as O-8/D-119** — all three remaining Item-12 endpoints
+are delivered — see §3.
+
+**Revised 2026-08-28**, in the same branch, after independent review: §2's helper
+inventory carried two misidentified ports and §3 wrongly placed
+`attendance/export.php` outside J.2's reach. Both are corrected in place, in §2.1
+and §3, against the same two trees measured below.
 
 ### The question this answers
 
@@ -127,25 +134,29 @@ per-employee detail helpers. These are **not** payroll functions and were never
 part of the J.2 question; they simply had no reason to be ported before, because
 no delivered endpoint needed them.
 
+This inventory covers `attendance/export.php` too: it calls the same builder as
+its first statement (§3). What it does **not** cover is that endpoint's own
+workbook response and second sheet.
+
 `overall_attendance_report_build()`
 (`apis/helpers/overall_attendance_report_helper.php`, 379 lines) has a
-fifteen-function call closure. Eleven are already ported:
+fifteen-function call closure. **Ten are ported; five are not.**
 
-| Helper | Ported? | Where |
-|---|---|---|
-| `payroll_approved_leave_days` | yes | `LegacyPayrollAttendanceFigures` |
-| `payroll_calculation_as_of_date` | yes | inlined |
-| `payroll_employee_work_hours_per_day` | yes | `LegacyPayrollAttendanceFigures` |
-| `payroll_expected_work_days_until` | yes | `LegacyPayrollAttendanceFigures` |
-| `payroll_period_in_progress` | yes | inlined |
-| `official_holidays_by_date_in_range` | yes | `LegacyAttendanceCalendar.holidaysByDate` |
-| `official_holidays_credit_days_for_employee` | yes | `officialHolidaysWorkingCreditForEmployee` |
-| `weekly_rest_attendance_flags_in_range` | yes | `LegacyWeeklyRestCredit.attendanceFlagsInRange` |
-| `weekly_rest_earned_days_in_range` | yes | `weeklyRestDatesByStatus(..., EARNED).size()` |
-| `weekly_rest_void_days_in_range` | yes | `weeklyRestDatesByStatus(..., VOID).size()` |
-| `attendance_present_details_for_period` | yes | `LegacyPayrollAttendanceFigures.presentDetails` |
+| Helper | Ported? | Where | Reusable as-is? |
+|---|---|---|---|
+| `payroll_approved_leave_days` | yes | `LegacyPayrollAttendanceFigures.approvedLeaveDays:333` | **private** |
+| `payroll_calculation_as_of_date` | yes | inlined `asOf` (`LegacyPayslipService:235,325`) | no method exists |
+| `payroll_employee_work_hours_per_day` | yes | `LegacyPayrollAttendanceFigures.employeeWorkHoursPerDay:326` | public |
+| `payroll_expected_work_days_until` | yes | `LegacyPayrollAttendanceFigures.expectedWorkDaysUntil:206` | public |
+| `payroll_period_in_progress` | yes | inlined `inProgress` (`LegacyPayslipService:326`) | no method exists |
+| `official_holidays_by_date_in_range` | yes | `LegacyAttendanceCalendar.holidaysByDate:217` | public |
+| `official_holidays_credit_days_for_employee` | **no** | — | see §2.1 |
+| `weekly_rest_attendance_flags_in_range` | yes | `LegacyWeeklyRestCredit.attendanceFlagsInRange:180` | public |
+| `weekly_rest_earned_days_in_range` | yes | `weeklyRestDatesByStatus(..., EARNED).size():294` | **private** |
+| `weekly_rest_void_days_in_range` | yes | `weeklyRestDatesByStatus(..., VOID).size():294` | **private** |
+| `attendance_present_details_for_period` | yes | `LegacyPayrollAttendanceFigures.attendancePresentDetails:383` — **not** `presentDetails`, see §2.1 | **private** |
 
-**Four are not ported**, all in `apis/helpers/attendance_calendar_helper.php`:
+**Five are not ported.** Four are in `apis/helpers/attendance_calendar_helper.php`:
 
 | Helper | Lines | Size |
 |---|---|---|
@@ -154,36 +165,107 @@ fifteen-function call closure. Eleven are already ported:
 | `attendance_void_weekly_rest_absent_details_for_period` | 610–667 | 58 |
 | `attendance_period_work_minutes` | 859–928 | 70 |
 
-They are the same shape as `attendance_present_details_for_period`, which is
-already ported and can serve as the pattern.
+The fifth is `official_holidays_credit_days_for_employee`
+(`apis/helpers/official_holidays_helper.php:129–151`, 23 lines).
 
-### 2.1 Honest scope statement
+The four calendar helpers are the same shape as
+`attendance_present_details_for_period`, which is already ported and can serve
+as the pattern.
 
-Wave 12.6.6's `overall_report.php` is **one JSON endpoint, four unported
-calendar helpers (221 lines of PHP), and the report builder**. It is a real
-slice of work. It is not the cross-cutting payroll-boundary decision that §J.2
-described, because that boundary closed on its own while other waves shipped.
+### 2.1 Correction — two rows an earlier revision of this document got wrong
+
+Recorded in full because following the earlier table would have produced wrong
+numbers in a delivered endpoint, not merely a bookkeeping error.
+
+**`official_holidays_credit_days_for_employee` is not ported.** The earlier
+table credited it to `officialHolidaysWorkingCreditForEmployee`. That Java
+method's own javadoc
+(`LegacyPayrollAttendanceFigures:340`) names a *different* PHP function —
+`official_holidays_working_credit_for_employee()`
+(`official_holidays_helper.php:211`) — which the Wave 12.6 discovery §G.3
+explicitly lists as **not** in the 12.6 closure. The two functions do not agree:
+
+| | `..._credit_days_for_employee` (:129) | `..._working_credit_for_employee` (:211) |
+|---|---|---|
+| Shape | one `COUNT(*)` with a `NOT EXISTS` attendance check | counts the rows of `..._working_credit_details_for_employee` |
+| Weekly-rest days | **counted** | filtered out via `official_holidays_is_weekly_rest_day` |
+| Reads `company_settings` | no | yes (`WEEKLY_OFF_DAYS`) |
+
+Substituting the second for the first would drop every holiday that falls on a
+weekly rest day, under-reporting the report's holiday credit. It has to be
+written.
+
+**`attendance_present_details_for_period` is ported, but not as
+`presentDetails`.** The exact port is the **private**
+`attendancePresentDetails()` (`:383`). The public `presentDetails()` (`:402`)
+implements `payroll_payslip_present_details()`
+(`payroll_calculation.php:382-437`), which is that list **plus** earned
+weekly-rest rows and, above a coverage threshold, credited-holiday rows. The
+report fetches its weekly-rest and holiday figures separately
+(`weekly_rest_earned_days_in_range`,
+`official_holidays_credit_days_for_employee`), so calling `presentDetails()`
+where PHP calls the calendar helper would both add rows the report never asked
+for and double-count the ones it did.
+
+**A visibility note that follows from the corrected table.** Four of the ten
+ported helpers are `private` to `LegacyPayrollAttendanceFigures` and two more
+exist only as inlined expressions. The slice's first task is deciding where the
+shared surface lives — widening visibility in place, or extracting the reusable
+figures — not writing the report builder.
+
+### 2.2 Honest scope statement
+
+Wave 12.6.6's `overall_report.php` is **one JSON endpoint, five unported helpers
+(244 lines of PHP), the report builder, and an extraction pass over the ported
+helpers that are currently private**. It is a real slice of work. It is not the
+cross-cutting payroll-boundary decision that §J.2 described, because that
+boundary closed on its own while other waves shipped.
 
 ---
 
 ## 3. What this does and does not settle
 
-**Settles (evidence, not decision):** broad J.2's blocker is gone. Every
-function it named is in `main`; the settings reach is D-091's existing single
-key; the `requests` dependency is closed. No new decision is required to
-*unblock* `overall_report.php`, and specifically no new `company_settings`
-authorization is needed.
+**Settles (evidence, not decision):** broad J.2's blocker is gone, **for both
+endpoints it constrained**. Every function it named is in `main`; the settings
+reach is D-091's existing single key; the `requests` dependency is closed. No new
+decision is required to *unblock* `attendance/overall_report.php` or
+`attendance/export.php`, and specifically no new `company_settings`
+authorization is needed for either.
 
-**Does not settle:** whether `overall_report.php` is delivered, formally
-excluded, or deferred. That is the C9 disposition recorded as owed in
-`2026-08-23-phase1-completion-plan.md` §8.1, and it stays with the owner. This
-document only removes "we cannot decide yet, the dependency question is
-unresolved" from the list of reasons to wait.
+`attendance/export.php` is unblocked on exactly the same evidence, and an
+earlier revision of this document was wrong to say otherwise. The Wave 12.6
+discovery §G.2 records all six non-extracted payroll functions as reached by
+"`overall_report`, `export`" — both — and §K assigned both to slice 12.6.6
+blocked on J.2. It reaches them through the very builder §2 inventories:
+`data_export_attendance_csv()`'s first statement is
+`overall_attendance_report_build($company_id, $auth, $filters)`
+(`data_export_helper.php:321`). §2's helper inventory therefore scopes both
+endpoints, not one.
 
-**Unaffected:** `attendance/export.php` and `payslips/export.php`. Their
-constraint was never J.2 — it is that both terminate in a streaming helper
-declared `: never` rather than returning the `ok()` JSON envelope. This document
-says nothing about them, and their disposition remains separately owed.
+**Does not settle:** the rest of `export.php`'s own work — the workbook response
+and the `type=fingerprints|details|days` second sheet
+(`data_export_fingerprints_sheet`) — which was always additional to J.2, never a
+substitute for it, and has not been traced in this pass.
+
+**Unaffected:** `payslips/export.php`. Its constraint was never J.2 — it is a
+Wave 12.9 endpoint whose only outstanding concern is its own row build and the
+workbook response.
+
+**A naming trap worth recording.** Neither export produces CSV. Both
+`data_export_attendance_csv()` and `data_export_payslips_csv()` are row builders
+that end in `api_xlsx_export_send()` (`xlsx_writer.php:318`), the single `: never`
+XLSX terminator, which writes
+`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, an
+`attachment` disposition with a sanitized `.xlsx` filename, `Content-Length` and
+the bytes — and falls back to `fail()`'s JSON envelope with a 500 when the
+workbook cannot be built. There is one binary mechanism to port, not two.
+
+**Superseded by the owner's decision:** this document was written while whether
+`overall_report.php` would be delivered, formally excluded, or deferred was
+still owed. It was decided on **2026-08-28 — O-8/D-119: all three remaining
+Item-12 endpoints are delivered**, with Java reproducing PHP's response contract
+per endpoint, binary responses included. The evidence above is what made that
+decision answerable on dependency grounds; it did not make it.
 
 ---
 
