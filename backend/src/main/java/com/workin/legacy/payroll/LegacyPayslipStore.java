@@ -54,7 +54,7 @@ public class LegacyPayslipStore {
 	 */
 	public record ExportFilter(
 			long companyId, Long selfEmployeeId, Long employeeId, Long branchId, Long departmentId,
-			Long batchId, Integer month, Integer year, String from, String to, String search) {
+			Long batchId, Long month, Long year, String from, String to, String search) {
 	}
 
 	/**

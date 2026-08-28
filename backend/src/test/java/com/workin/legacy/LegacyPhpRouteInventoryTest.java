@@ -161,19 +161,6 @@ class LegacyPhpRouteInventoryTest {
 				"/apis/api/payslips/export.php");
 	}
 
-	/**
-	 * Deleted by Wave 12.6.6c, exactly as its predecessor's javadoc required:
-	 * {@code attendance/overall_report.php} is delivered and is now inside
-	 * {@link #EXPECTED_ROUTES}, so the assertion that it stays unmapped is gone
-	 * rather than inverted. Only {@code attendance/export.php} and
-	 * {@code payslips/export.php} remain.
-	 */
-	@Test
-	void theRemainingUnmappedRoutesAreOnlyTheTwoExports() {
-		assertThat(EXPECTED_ROUTES).contains(
-				"/apis/api/attendance/overall_report.php", "/apis/api/attendance/export.php");
-	}
-
 	@Test
 	void everyDeliveredRouteIsCoveredByTheSecurityBoundary() {
 		List<String> entries = List.of(LegacyPhpRoutes.CONTROLLER_GUARDED);

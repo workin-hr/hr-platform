@@ -235,7 +235,7 @@ misclassify this value.
 | `delete.php` | DELETE | Draft-batch-only (checked via a join to the parent batch's status, not a stored flag on the payslip itself). |
 | `list.php` | GET | Paginated; filters on batch/employee/month/year/branch/department/search, plus a `new_employees_this_month` flag that joins on `employees.hire_date` falling inside the batch's period. Employee-role callers are silently scoped to self. |
 | `one.php` | GET | Explicit 403 (not silent scoping) when an employee requests a payslip that isn't theirs. |
-| `export.php` | GET | CSV export via `data_export_payslips_csv()`; same filter set as `list.php`, SQL-level employee scoping for the employee role. |
+| `export.php` | GET | **Delivered 2026-08-28 (Wave 12.9).** **XLSX, not CSV** — `data_export_payslips_csv()` is a row builder that ends in `api_xlsx_export_send()`, so the response is `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` as an `attachment`. Thirty-one columns; SQL-level employee scoping for the employee role. Filters are `list.php`'s **less** `new_employees_this_month` and **plus** a `from`/`to` batch-period *overlap* pair (`period_to >= from AND period_from <= to`) whose two bounds must both be supplied or neither — one alone is `invalid_date`. Filename is `payslips_{batch_N\|from_to\|today}.xlsx`, with a complete date range taking precedence over a batch. Two column traps: `csv_medical_insurance` carries `advances_deduction`, and `advance_deduction`/`advances_deduction` are distinct columns. |
 
 ## Advances (`apis/api/advances/`, 8 endpoints)
 

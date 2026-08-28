@@ -191,6 +191,35 @@ class LegacyPayslipExportEndToEndTest {
 				.matches("[A-Za-z0-9._-]+");
 	}
 
+	/**
+	 * `month`/`year` stay 64-bit to the SQL bind. Narrowing to `int` wraps --
+	 * `4294967302` becomes 6 -- so a caller could export June by asking for a
+	 * month PHP would have matched against no batch at all.
+	 */
+	@Test
+	void anOutOfRangeMonthDoesNotWrapIntoARealMonth() {
+		String june = sheetXml(get(ADMIN, "company_admin", "?month=6").getBody());
+		assertThat(june).as("the fixture batch is month 6").contains("Pay A");
+
+		String wrapped = sheetXml(get(ADMIN, "company_admin", "?month=4294967302").getBody());
+		assertThat(wrapped)
+				.as("4294967302 truncates to 6 in 32 bits; it must not select June's batch")
+				.doesNotContain("Pay A");
+	}
+
+	/**
+	 * `search_query_param()` uses PHP's `trim()`, which leaves a form feed in
+	 * place. Java's `String.trim()` would strip it, turning the filter into null
+	 * and exporting everything in scope rather than nothing.
+	 */
+	@Test
+	void aFormFeedSearchFiltersRatherThanMatchingEverything() {
+		String filtered = sheetXml(get(ADMIN, "company_admin", "?search=%0C").getBody());
+		assertThat(filtered)
+				.as("a form-feed search is a LIKE that matches no employee")
+				.doesNotContain("Pay A", "Pay B");
+	}
+
 	@Test
 	void aNonGetMethodIsRefused() {
 		ResponseEntity<byte[]> response = restTemplate.exchange(

@@ -263,15 +263,14 @@ builder (`overall_attendance_report_build()`, whose docblock says so and which
 | 12.6.6c | `LegacyOverallReportStore` + `LegacyOverallReportService` + the `overall_report.php` handler. |
 | 12.6.6d | `attendance/export.php` — the workbook response, the per-sheet config gate, and the `type=fingerprints\|details\|days` sheet with its own employee query. |
 
-**`payslips/export.php` had no owner, and now does.** §1.2's 12.6.6 covers only
-the two attendance endpoints, and Wave 12.9 was recorded complete on a
-`payslips` count of 5 of 6 that treated the sixth as excluded. With C9 retracting
-that exclusion, **Wave 12.9 is 15 of 16 and is not complete**: `payroll_batches`
-10/10 plus `payslips` 5/6. The endpoint returns to the wave that owns its module
+**`payslips/export.php` had no owner, was given one, and shipped.** §1.2's 12.6.6
+covers only the two attendance endpoints, and Wave 12.9 had been recorded complete
+on a `payslips` count of 5 of 6 that treated the sixth as excluded. With C9
+retracting that exclusion the endpoint returned to the wave that owns its module
 rather than being bolted onto an attendance slice — the same ownership principle
-that kept the payroll functions out of Wave 12.6 (§4.5). Wave 12.9 closes when
-`payslips` reaches 6 of 6. This assigns an owner to work the owner already
-dispositioned; it decides nothing about scope.
+that kept the payroll functions out of Wave 12.6 (§4.5) — and was **delivered
+2026-08-28**. **Wave 12.9 is 16 of 16**: `payroll_batches` 10/10 plus `payslips`
+6/6.
 
 **The O-6 order was overtaken by events, and the deviation is recorded here.**
 O-6 fixed the engineering order as **remaining Item 12 → Wave 12.R → Item 13**
@@ -1007,32 +1006,21 @@ Not decisions — evidence and sequencing owed by the waves that own them.
   existing single `WEEKLY_OFF_DAYS` key, and the `requests` dependency closed with
   Wave 12.7. No decision is required to unblock `overall_report.php` **or
   `attendance/export.php`** on dependency grounds — §G.2 names both, and the same
-  evidence releases both. What remains for `overall_report.php` is five unported
+  evidence releases both. What remained for `overall_report.php` was five unported
   helpers (244 lines) plus the report builder — a normal slice, not a boundary
-  decision.
-- **The three open Item-12 endpoints** (C9, §6) — **decided 2026-08-28, O-8/D-120:
-  all three are delivered.** This is no longer a disposition owed; it is
-  implementation work owed, and it is still what stands between the repository and
-  Item 12's closure. What each now needs:
-  - `attendance/overall_report.php` — a JSON endpoint answering D-074's envelope.
-    **Not dependency-blocked**: broad J.2's evidence is complete and every payroll
-    function it named is already in `main` (see above). A normal Wave 12.6.6 slice —
-    five unported helpers and the report builder, scoped in
-    `2026-08-27-broad-j2-settlement-discovery.md` §2.
-  - `attendance/export.php` — same J.2 position as `overall_report` and equally
-    unblocked. It calls `overall_attendance_report_build()` itself, so it shares
-    almost all of that endpoint's work; what remains beyond it is the workbook
-    response and the `type=fingerprints|details|days` second sheet.
-  - `payslips/export.php` — never J.2-constrained; what remains is its own row
-    build and the workbook response. Owned by **Wave 12.9**, which is therefore
-    15 of 16 rather than complete (§1.6).
-  - Both exports are delivered **as binary responses**, matching PHP's
-    reader-observable workbook, headers and filename — not its archive bytes,
-    per D-085 (D-120, §5 G3). The binary shape is the specification, not a
-    reason to defer.
+  decision, and delivered as Wave 12.6.6b–c on 2026-08-28.
+- **The three Item-12 endpoints** (C9, §6) — **delivered 2026-08-28.** Nothing
+  is owed here any more: O-8/D-120 dispositioned all three for delivery rather
+  than exclusion, and Waves 12.6.6a–d and 12.9 shipped them.
+  `attendance/overall_report.php` answers D-074's envelope;
+  `attendance/export.php` and `payslips/export.php` answer the workbook their PHP
+  emits, matching its reader-observable content, headers and filename rather than
+  its archive bytes (D-085, §5 G3). `ITEM12_REMAINING` is empty and
+  `FINAL_COMPATIBLE` stands at 128 (§3.2).
 
-  Until all three are delivered, G2 cannot close and Item 12 cannot honestly be
-  called complete.
+  **G2 is not closed by that.** Its numerator is; the gate covers all 198 live
+  endpoints and Item 13's 70 remain, with G3, G6 and G7 reading on their own
+  terms.
 - **C3's re-read pass** over the six under-documented modules — owed before
   Waves 12.10 and 13.4.
 - **C8's consumer attribution** for `assets` and `administrative_decisions` —

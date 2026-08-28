@@ -113,11 +113,11 @@ public class LegacyPayslipController {
 				positiveOrNull(LegacyValues.toPhpLong(query.value("branch_id"))),
 				positiveOrNull(LegacyValues.toPhpLong(query.value("department_id"))),
 				batchId,
-				positiveIntOrNull(LegacyValues.toPhpLong(query.value("month"))),
-				positiveIntOrNull(LegacyValues.toPhpLong(query.value("year"))),
+				positiveOrNullLong(LegacyValues.toPhpLong(query.value("month"))),
+				positiveOrNullLong(LegacyValues.toPhpLong(query.value("year"))),
 				from.isEmpty() ? null : from,
 				to.isEmpty() ? null : to,
-				blankToNull(LegacyValues.toPhpString(query.value("search"))));
+				searchOrNull(LegacyValues.toPhpString(query.value("search"))));
 
 		List<Map<String, Object>> rows = service.exportRows(filter,
 				presentLabel(request), weeklyRestLabel(request), officialHolidayFallbackLabel(request));
@@ -153,12 +153,27 @@ public class LegacyPayslipController {
 		return value > 0 ? value : null;
 	}
 
-	private static Integer positiveIntOrNull(long value) {
-		return value > 0 ? (int) value : null;
+	/**
+	 * {@code month}/{@code year} stay 64-bit to the SQL bind.
+	 *
+	 * <p>Narrowing to {@code int} wraps: {@code month=4294967302} becomes 6 and
+	 * would export June, where PHP's 64-bit integer stays 4294967302 and matches
+	 * no batch at all.
+	 */
+	private static Long positiveOrNullLong(long value) {
+		return value > 0 ? value : null;
 	}
 
-	private static String blankToNull(String value) {
-		String trimmed = value == null ? "" : value.trim();
+	/**
+	 * {@code search_query_param()}: {@code trim()} then null when empty.
+	 *
+	 * <p>{@link LegacyValues#phpTrim}, not {@link String#trim} -- Java trims every
+	 * character at or below U+0020, PHP trims only {@code " \t\n\r\0\x0B"}. A
+	 * form feed would become null here and export every in-scope payslip, where
+	 * PHP keeps it and applies a {@code LIKE} that ordinarily matches nothing.
+	 */
+	private static String searchOrNull(String value) {
+		String trimmed = LegacyValues.phpTrim(value);
 		return trimmed.isEmpty() ? null : trimmed;
 	}
 
