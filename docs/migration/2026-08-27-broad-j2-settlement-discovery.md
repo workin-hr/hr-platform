@@ -258,7 +258,9 @@ XLSX terminator, which writes
 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, an
 `attachment` disposition with a sanitized `.xlsx` filename, `Content-Length` and
 the bytes — and falls back to `fail()`'s JSON envelope with a 500 when the
-workbook cannot be built. There is one binary mechanism to port, not two.
+workbook cannot be built. There is one binary mechanism to port, not two, and
+per D-085 the port owes the same reader-observable workbook rather than the same
+archive bytes.
 
 **Superseded by the owner's decision:** this document was written while whether
 `overall_report.php` would be delivered, formally excluded, or deferred was

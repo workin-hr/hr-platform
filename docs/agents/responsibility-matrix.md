@@ -22,3 +22,10 @@ definitions, enforcement configuration, and validation tests together.
 discharges the independent-review gate; it does not approve or merge, and the
 human owner still performs the merge. When its externally-billed quota is
 exhausted (R-009) the gate is unavailable, not waived.
+
+That row is enforced by `validate_independent_reviewer_declaration()` in
+`scripts/validate_phase0.py`, not left as prose: the row must exist under the
+name `AGENTS.md` uses and must declare `No` for every permission.
+`validate_agent_matrix_consistency()` cannot cover it, because that check binds a
+row to a `.claude/agents` file's `tools:` frontmatter and this reviewer is an
+external GitHub App with no such file.

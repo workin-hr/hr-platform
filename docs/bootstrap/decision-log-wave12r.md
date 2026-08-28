@@ -254,14 +254,22 @@ own PHP file rather than from a repository-wide default:
 - `attendance/export.php` and `payslips/export.php` both emit an **XLSX
   workbook**, despite their `_csv`-named row builders: `data_export_attendance_csv()`
   and `data_export_payslips_csv()` each end in the single terminator
-  `api_xlsx_export_send()` (`xlsx_writer.php:318`), declared `: never`. Java writes
-  the same bytes with the same content type
+  `api_xlsx_export_send()` (`xlsx_writer.php:318`), declared `: never`. Java emits
+  the same **reader-observable workbook** -- sheet name, rows, cell values, merges,
+  styles, widths, freeze -- with the same content type
   (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), attachment
-  disposition, sanitized `.xlsx` filename and `Content-Length`, and reproduces that
-  helper's own `fail()`-with-500 path when the workbook cannot be built. Wrapping
-  either in a JSON envelope would be a client-visible divergence, which D-111's
-  zero-client-change invariant forbids. There is one binary mechanism to port, not
-  two.
+  disposition and sanitized `.xlsx` filename, a `Content-Length` matching its own
+  body, and that helper's `fail()`-with-500 path when the workbook cannot be built.
+  Wrapping either in a JSON envelope would be a client-visible divergence, which
+  D-111's zero-client-change invariant forbids. There is one binary mechanism to
+  port, not two.
+
+  **Parity is semantic, not byte-for-byte.** D-085 settled this for the one XLSX
+  generator Phase 1 has shipped: "ZIP timestamps, compression metadata and entry
+  CRC representation are archive incidentals, not compatibility requirements, and
+  no binary invariant is promised." `LegacyXlsxWriter`'s javadoc records the same.
+  A byte-equality requirement would be unsatisfiable against `java.util.zip` and
+  would gate on something no client can observe.
 
 This makes binary-response support a Phase-1 implementation obligation rather
 than a reason to defer. It does not create a new decision about *how* the report
@@ -270,10 +278,21 @@ is computed: broad J.2's dependency question closed on its own evidence
 attendance endpoints are unblocked and what remains for them is ordinary slice
 work.
 
+This decision **selects delivery; it does not implement anything.** All three
+endpoints remain in `ITEM12_REMAINING` and unmapped. Completion plan §1.6 assigns
+each an owning slice: Wave 12.6.6 for the two attendance endpoints, **Wave 12.9**
+for `payslips/export.php` -- which makes that wave 15 of 16 rather than complete,
+since it was only ever "complete" on a count that treated its sixth endpoint as
+excluded.
+
 Impact: §5 G2 loses its "or formally excluded" branch and closes only at
 `FINAL_COMPATIBLE = 198`; §5 G3 is restated per-endpoint rather than
-envelope-for-everything; `LegacyPhpRouteInventoryTest`'s two unmapped-route
-assertions are to be deleted, not amended, when the endpoints ship.
+envelope-for-everything, and scoped to reader-observable parity rather than
+archive bytes; `LegacyPhpRouteInventoryTest`'s two unmapped-route assertions are
+to be deleted, not amended, when the endpoints ship. O-6's engineering order was
+overtaken by events -- Wave 12.R landed before this remaining Item-12 work -- and
+that deviation is recorded in §1.6 with both of O-6's invariants shown to still
+hold.
 
 Evidence: frozen `hr-legacy@d113204` -- `apis/api/attendance/overall_report.php`,
 `apis/api/attendance/export.php`, `apis/api/payslips/export.php`, and the two
@@ -309,6 +328,15 @@ is read-only; a green CI run still proves branch validation only and never
 constitutes the review; and the human owner still performs the merge. Findings
 are addressed or answered on the thread before merge -- a P1 or P2 left with no
 reply and no fix means the gate has been read, not passed.
+
+**Enforced, not only declared.** The reviewer is an external GitHub App, so it has
+no `.claude/agents` file and `validate_agent_matrix_consistency()` -- which binds a
+Claude agent's matrix row to its real `tools:` frontmatter -- silently skips it.
+`validate_independent_reviewer_declaration()` closes that gap instead: it fails if
+`AGENTS.md` gates merges on an independent review without naming the reviewer, if
+the responsibility matrix carries no row for that name, or if the row is widened
+from read-only. Five fixture cases in `scripts/test_validate_phase0.py` cover it,
+including the widening case and a sanity check against the real repository.
 
 Impact: R-008's mitigation gains a named reviewer and R-009's impact widens from
 "unreviewable" to "unmergeable" while Codex quota is out.

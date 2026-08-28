@@ -204,7 +204,11 @@ and `penalties` for the same aggregation reason.
 hub-table gap (F-5). Isolated at the end so it never blocks the mechanical
 waves." Its scope is now larger — see §1.4.
 
-**12.R closes Item 12, and the order is fixed.** The approved engineering order
+**12.R closes Item 12, and the order is fixed.** *(Overtaken by events —
+§1.6 records the deviation. Wave 12.R merged with PR #120 while the three owed
+endpoints were still believed excluded, so it landed before the remaining
+Item-12 work. O-6's two invariants still hold; what survives is that Item 13
+does not begin until Item 12 is complete.)* The approved engineering order
 is **remaining Item 12 implementation → Wave 12.R → Item 13**, with no
 conditional branch and no parallel path. It touches only already-merged modules,
 so it has no data dependency on any wave; it is placed at the end of Item 12 so
@@ -235,6 +239,56 @@ covers both:
 
 These are **not** the `profile` module. That is nine Item-13 endpoints — see
 §2.4, which exists because the two names collide.
+
+### 1.6 The three owed endpoints — who owns each, and where they sit in the order
+
+**Added 2026-08-28, applying O-8/D-120.** The disposition selects delivery for
+all three. Delivery needs an owning slice and a place in the order, and two gaps
+in this document had to be closed for that to be true.
+
+| Endpoint | Owning slice | Status of that slice |
+|---|---|---|
+| `attendance/overall_report.php` | **Wave 12.6.6** | 0 of 2 — §1.2 |
+| `attendance/export.php` | **Wave 12.6.6** | 0 of 2 — §1.2 |
+| `payslips/export.php` | **Wave 12.9** | **15 of 16**, not complete — see below |
+
+**`payslips/export.php` had no owner, and now does.** §1.2's 12.6.6 covers only
+the two attendance endpoints, and Wave 12.9 was recorded complete on a
+`payslips` count of 5 of 6 that treated the sixth as excluded. With C9 retracting
+that exclusion, **Wave 12.9 is 15 of 16 and is not complete**: `payroll_batches`
+10/10 plus `payslips` 5/6. The endpoint returns to the wave that owns its module
+rather than being bolted onto an attendance slice — the same ownership principle
+that kept the payroll functions out of Wave 12.6 (§4.5). Wave 12.9 closes when
+`payslips` reaches 6 of 6. This assigns an owner to work the owner already
+dispositioned; it decides nothing about scope.
+
+**The O-6 order was overtaken by events, and the deviation is recorded here.**
+O-6 fixed the engineering order as **remaining Item 12 → Wave 12.R → Item 13**
+(§1.3). Wave 12.R merged with PR #120 while these three endpoints were still
+believed excluded, so 12.R in fact landed *before* the remaining Item-12 work,
+and that half of the order can no longer be executed as written.
+
+Recorded as a factual deviation, not a re-decision, because **both invariants
+O-6 existed to protect still hold**:
+
+- *Item 12's delivered surface is D-074 compliant before Item 13 begins.* The
+  three are built on their literal `/apis/**` URLs with the correct response
+  contract from the first commit, so they never enter the retrofit's problem
+  class and there is nothing for a later 12.R to correct.
+- *No endpoint is owned by both 12.R and an Item-13 wave.* None of the three was
+  ever among 12.R's 22 (D-110's own route note says so).
+
+**What survives from O-6 is its real constraint: Item 13 does not begin until
+Item 12 is complete**, which now means until Waves 12.6.6 and 12.9 close. The
+operational order for what remains is therefore:
+
+```text
+12.6.6  overall_report / export        ─┐
+12.9    payslips/export.php            ─┴─→  G2 closes  →  Item 13
+```
+
+The two are independent — different modules, different helper closures — so
+nothing forces one before the other.
 
 ---
 
@@ -397,7 +451,7 @@ table; only the distribution across buckets has moved.
 |---|---|---|
 | `FINAL_COMPATIBLE` | **125** | Every delivered route, on its literal `/apis/api/**` URL with the D-074 envelope. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(125)`). Waves 12.4 through 12.10 plus the Wave 12.R retrofit. |
 | `IMPLEMENTED_BUT_REQUIRES_D074_RETROFIT` | **0** | Closed by Wave 12.R (D-107/D-108/D-110/D-111). No `/api/legacy/**` business route remains mapped. |
-| `ITEM12_REMAINING` | **3** | `attendance/overall_report.php`, `attendance/export.php`, `payslips/export.php`. All three are **to be delivered, not excluded** — D-120/O-8, and see below. |
+| `ITEM12_REMAINING` | **3** | `attendance/overall_report.php`, `attendance/export.php`, `payslips/export.php`. All three are **to be delivered, not excluded** — D-120/O-8, and see below. Owning slices: Wave 12.6.6 for the first two, Wave 12.9 for the third (§1.6). |
 | `ITEM13_REMAINING` | **70** | §2.2's 71 less `auth/login_employee`, delivered by Wave 12.R. |
 | **Live total** | **198** | 125 + 0 + 3 + 70 |
 | `EXPLICITLY_EXCLUDED_WITH_DECISION` | **1** | `apis/api/time/now.php` (O-3, §2.3). Outside the live total. |
@@ -443,9 +497,11 @@ port, not two — and `api_xlsx_export_send` itself falls back to `fail()`'s JSO
 envelope with a 500 when the workbook cannot be built, so even these endpoints
 have a JSON error path.
 
-Under D-120 that shape is now the **specification**, not an obstacle: Java
-streams what PHP streams, with the same content type, disposition, filename and
-status. Binary-response support is a Phase-1 implementation obligation.
+Under D-120 that shape is now the **specification**, not an obstacle: Java emits
+the same reader-observable workbook with the same content type, disposition,
+filename and status — not the same archive bytes, which D-085 already ruled out
+as a compatibility requirement (§5 G3). Binary-response support is a Phase-1
+implementation obligation.
 
 ### 3.3 Three notes on bucket boundaries
 
@@ -773,21 +829,37 @@ Three endpoints stand between the repository and G2:
 
 **G3 — Exact PHP URL and wire contract.** Every live endpoint answers on its
 literal `/apis/api/{module}/{action}.php` URL with **the response contract its
-own PHP file emits**. Enforced mechanically by `LegacyPhpRouteInventoryTest`'s
-bidirectional assertion, at 125 routes today and at 198 when G2 closes. **Wave
-12.R is complete and no `/api/legacy/**` business route remains mapped.**
+own PHP file emits**. **Wave 12.R is complete and no `/api/legacy/**` business
+route remains mapped.**
 
-The contract is per-endpoint, not repository-wide (D-120):
+**What enforces what.** `LegacyPhpRouteInventoryTest`'s bidirectional assertion
+is a **URL-surface** check and nothing more: it compares the set of mapped
+patterns against `EXPECTED_ROUTES`, at 125 routes today and 198 when G2 closes.
+It never exercises a method, a guard order, a status code, an envelope, a header
+or a body, so a route with an incompatible wire implementation still satisfies
+it. The wire contract itself is carried by each endpoint's own contract and
+end-to-end tests, with **G6** as the floor that guarantees none reaches cutover
+with zero measured evidence. Do not cite the inventory as proof of anything but
+the URL surface.
+
+The response contract is per-endpoint, not repository-wide (D-120):
 
 | PHP terminates in | Java answers |
 |---|---|
 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — every one of the 125 delivered routes, and `attendance/overall_report.php` when it ships |
-| `api_xlsx_export_send()` (`xlsx_writer.php:318`) — both exports reach it, through `data_export_attendance_csv()` and `data_export_payslips_csv()` | the same workbook bytes, `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `attachment` disposition, sanitized `.xlsx` filename and `Content-Length` PHP emits — and `fail()`'s JSON envelope with 500 on a build failure, which is what PHP does |
+| `api_xlsx_export_send()` (`xlsx_writer.php:318`) — both exports reach it, through `data_export_attendance_csv()` and `data_export_payslips_csv()` | the same **reader-observable workbook** (sheet name, rows, cell values, merges, styles, widths, freeze), `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `attachment` disposition and the same sanitized `.xlsx` filename — with `Content-Length` matching **Java's own body** — plus `fail()`'s JSON envelope with 500 on a build failure, which is what PHP does |
 
-Requiring the JSON envelope of the two exports would make the gate
-unsatisfiable: an export cannot both stream a workbook to its frozen clients and
-answer in an envelope. D-111's zero-client-change invariant decides which one
-wins.
+**Not byte-for-byte, and deliberately so.** D-085 already settled this for the
+one XLSX generator Phase 1 has shipped: "ZIP timestamps, compression metadata
+and entry CRC representation are archive incidentals, not compatibility
+requirements, and no binary invariant is promised"
+(`LegacyXlsxWriter`'s javadoc records the same). A byte-equality gate would be
+unsatisfiable against `java.util.zip` and would gate on something no client can
+observe. Parity is defined on what a spreadsheet reader and an HTTP client see.
+
+Requiring the JSON envelope of the two exports would make the gate unsatisfiable
+the other way: an export cannot both stream a workbook to its frozen clients and
+answer in an envelope. D-111's zero-client-change invariant decides which wins.
 
 **G4 — Approved divergence ledger.** Every behavioural difference from PHP is a
 numbered decision. No endpoint diverges without one. Published as a single list,
@@ -907,7 +979,7 @@ exactly as written.
 | **O-5** | Phase-1 completion covers the legacy REST API backend (`apis/`, allow-listed modules), **not** the 92-page PHP dashboard, which remains a legacy consumer/operator surface against the same MariaDB. Its pages are not counted in the ledger; its risks stay visible separately. | §4.9, §3.3, §5 G1/G13 |
 | **O-6** | The D-074 retrospective correction becomes its own explicit engineering wave and closure boundary — **Wave 12.R**, 22 endpoints including `auth/login_employee` — rather than being distributed through unrelated module waves. The engineering order is fixed: **remaining Item 12 → Wave 12.R → Item 13**, so no endpoint is ever owned by both 12.R and an Item-13 wave. Owning `auth/login_employee` does not make `auth` an Item-12 module. Not to be split into 21 + 1 unless new evidence requires it. | §1.3, §3.3, §4.1, §3.2 |
 | **O-7** | **G6 accepted**: every live response-bearing legacy endpoint must carry at least one measured differential assertion against authoritative PHP + MariaDB behaviour. A percentage threshold is rejected. G6 is a minimum floor; endpoint-specific high-risk branches still require deeper matrices. | §5 G6 |
-| **O-8** | **The three open Item-12 endpoints are delivered — the C9 disposition, accepted 2026-08-28 as D-120.** `attendance/overall_report.php`, `attendance/export.php` and `payslips/export.php` are all implemented; none is formally excluded and none is deferred out of Phase 1. The governing rule is that Java reproduces what PHP does per endpoint: the JSON envelope where PHP calls `ok()`, and the same streamed bytes, headers and filename where PHP terminates in a `: never` helper. Binary-response support becomes a Phase-1 implementation obligation. The live total stays 198 and the exclusion bucket stays at one row. | §1.1, §1.2, §3.2, §5 G2/G3, §6 C9, §8.1 |
+| **O-8** | **The three open Item-12 endpoints are to be delivered — the C9 disposition, accepted 2026-08-28 as D-120.** The disposition selects delivery for `attendance/overall_report.php`, `attendance/export.php` and `payslips/export.php`: none is formally excluded and none is deferred out of Phase 1. **It does not implement them.** All three remain in `ITEM12_REMAINING` and unmapped in `LegacyPhpRouteInventoryTest`; the work is owed, and §1.2/§1.6 name the slices that owe it. The governing rule is that Java reproduces what PHP does per endpoint: the JSON envelope where PHP calls `ok()`, and the same streamed bytes, headers and filename where PHP terminates in a `: never` helper. Binary-response support becomes a Phase-1 implementation obligation. The live total stays 198 and the exclusion bucket stays at one row. | §1.1, §1.2, §3.2, §5 G2/G3, §6 C9, §8.1 |
 
 ### 8.1 What remains genuinely open
 
@@ -940,10 +1012,12 @@ Not decisions — evidence and sequencing owed by the waves that own them.
     almost all of that endpoint's work; what remains beyond it is the workbook
     response and the `type=fingerprints|details|days` second sheet.
   - `payslips/export.php` — never J.2-constrained; what remains is its own row
-    build and the workbook response.
-  - Both exports are delivered **as binary responses**, matching PHP's bytes,
-    headers and filename (D-120, §5 G3). The binary shape is the specification, not
-    a reason to defer.
+    build and the workbook response. Owned by **Wave 12.9**, which is therefore
+    15 of 16 rather than complete (§1.6).
+  - Both exports are delivered **as binary responses**, matching PHP's
+    reader-observable workbook, headers and filename — not its archive bytes,
+    per D-085 (D-120, §5 G3). The binary shape is the specification, not a
+    reason to defer.
 
   Until all three are delivered, G2 cannot close and Item 12 cannot honestly be
   called complete.

@@ -313,6 +313,67 @@ def validate_agent_files(failures: list[str], root: Path | None = None) -> None:
                             fail(f"Claude agent frontmatter missing '{key}': {path.relative_to(root)}", failures)
 
 
+# The independent reviewer AGENTS.md's Mandatory Workflow names (D-121). It is
+# an external GitHub App, so there is no `.claude/agents` file to bind its
+# permissions to the way validate_agent_matrix_consistency() binds a Claude
+# agent's `tools:` frontmatter -- and that function silently skips matrix rows
+# with no such file. Without the check below, the reviewer role would live only
+# in prose and could be edited out of either document with nothing failing.
+INDEPENDENT_REVIEWER = "chatgpt-codex-connector[bot]"
+
+
+def validate_independent_reviewer_declaration(failures: list[str], root: Path | None = None) -> None:
+    """Bind AGENTS.md's named independent reviewer to its matrix row.
+
+    D-121 makes one named reviewer the authority that discharges the
+    independent-review gate. Both halves of that must stay present and must
+    stay read-only: AGENTS.md has to name the reviewer inside the workflow it
+    gates, and docs/agents/responsibility-matrix.md has to carry a row for the
+    same name declaring no file modification, no pull request and no approval.
+    Neither can be removed or quietly widened without this failing.
+    """
+    root = root if root is not None else ROOT
+    agents = root / "AGENTS.md"
+    matrix_path = root / "docs/agents/responsibility-matrix.md"
+    if not agents.is_file() or not matrix_path.is_file():
+        return  # already reported by validate_required_paths
+
+    agents_text = agents.read_text(encoding="utf-8")
+    if "## Mandatory Workflow" in agents_text and INDEPENDENT_REVIEWER not in agents_text:
+        fail(
+            f"AGENTS.md defines a Mandatory Workflow with an independent-review step but "
+            f"does not name {INDEPENDENT_REVIEWER!r} as the reviewer that discharges it (D-121)",
+            failures,
+        )
+
+    matrix_text = matrix_path.read_text(encoding="utf-8")
+    for agent_name, _primary_mode, may_modify, may_pr, may_approve in MATRIX_ROW_RE.findall(matrix_text):
+        if INDEPENDENT_REVIEWER not in agent_name:
+            continue
+        widened = [
+            label
+            for label, value in (
+                ("May Modify Files", may_modify),
+                ("May Open PR", may_pr),
+                ("May Approve Work", may_approve),
+            )
+            if value.strip() != "No"
+        ]
+        if widened:
+            fail(
+                f"responsibility-matrix.md's {INDEPENDENT_REVIEWER!r} row must declare 'No' for "
+                f"every permission (D-121 makes it a read-only reviewer); widened: {', '.join(widened)}",
+                failures,
+            )
+        return
+
+    fail(
+        f"docs/agents/responsibility-matrix.md has no row for {INDEPENDENT_REVIEWER!r}, the "
+        "independent reviewer AGENTS.md's Mandatory Workflow depends on (D-121)",
+        failures,
+    )
+
+
 def validate_claude_settings(failures: list[str], root: Path | None = None) -> None:
     root = root if root is not None else ROOT
     path = root / ".claude/settings.json"
@@ -1156,6 +1217,7 @@ def main() -> int:
     validate_forbidden_files(failures)
     validate_agent_files(failures)
     validate_agent_matrix_consistency(failures)
+    validate_independent_reviewer_declaration(failures)
     validate_claude_settings(failures)
     validate_skill_files(failures)
     validate_nightly_workflow_exists_if_promised(failures)

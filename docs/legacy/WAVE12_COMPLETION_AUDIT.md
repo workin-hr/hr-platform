@@ -11,11 +11,12 @@ endpoints remain unimplemented** and all three are in Phase-1 scope -- see "Corr
 -- three open endpoints, not three exclusions" below. Wave 12's gate is therefore not
 passed, and Item 12 does not close, until they ship.
 
-What is complete is the slice list: Waves 12.1 through 12.10 and the 12.R retrofit have
-each delivered everything assigned to them except Wave 12.6.6, which stands at 0 of 2.
+What is complete is most of the slice list: Waves 12.1 through 12.10 and the 12.R retrofit have
+each delivered everything assigned to them except **Wave 12.6.6** (0 of 2) and **Wave 12.9**
+(15 of 16, once `payslips/export.php` stopped being counted as excluded).
 
 - Wave 12.8: **20/20** — `salary_contracts` 5, `advances` 8, `penalties` 7.
-- Wave 12.9: `payroll_batches` **10/10** and `payslips` **5/6**. `payslips/export.php` is a binary XLSX response and remains **unimplemented** -- open per D-106's own follow-up, never excluded, and dispositioned as delivered by D-120.
+- Wave 12.9: **15/16, not complete** -- `payroll_batches` **10/10** and `payslips` **5/6**. `payslips/export.php` is a binary XLSX response and remains **unimplemented** -- open per D-106's own follow-up, never excluded, and dispositioned as delivered by D-120. It is owned by this wave, which closes when `payslips` reaches 6 of 6 (completion plan §1.6).
 - Wave 12.10: **3/3** — `company/update.php`, `company/upload_logo.php`, `company/upload_commercial_reg.php`.
 - Deferred attendance JSON work: `list.php`, `stats.php`, and `employee_monthly_attendance.php` are implemented.
   `overall_report.php` and `export.php` both remain **open** -- see the correction below.
@@ -55,8 +56,10 @@ uses. The file contains no streaming path, no `: never` helper, and no binary re
 kind. It is an ordinary JSON read endpoint.
 
 Why it was conflated with `export.php`: they were blocked *together*, on the broad Wave-12.6 J.2
-payroll boundary, because both reach the same six DB-backed payroll functions. That shared
-blocker is real. It is not the same thing as `export.php`'s binary-response rationale, and
+payroll boundary, because both reach the same payroll functions. That shared blocker is real.
+(Not "six DB-backed" -- §J.2's phrase is not a usable count and should not be quoted as one.
+§G.2 lists **seven** reachable functions: one separately extracted under D-091, four DB-backed,
+and two pure date arithmetic. The settlement discovery's §1.4 records why.) It is not the same thing as `export.php`'s binary-response rationale, and
 applying one file's rationale to the other collapsed "blocked" into "excluded".
 
 ### None of the three is excluded -- they are open
@@ -86,9 +89,11 @@ to real clients today.
   (`time/now.php`, O-3); only the bucket distribution changes. See C9 in section 6 there.
 - **The disposition is recorded (2026-08-28, O-8/D-120): all three are delivered.** None is
   excluded and none is deferred, so the live total does not move and the exclusion list stays
-  one row long. The two exports ship as binary responses matching PHP's bytes, headers and
-  filename; only `overall_report.php` answers D-074's JSON envelope, because that is what its
-  PHP file does.
+  one row long. The two exports ship as binary responses matching PHP's **reader-observable
+  workbook**, headers and filename -- not its archive bytes, which D-085 already ruled out as a
+  compatibility requirement. Only `overall_report.php` answers D-074's JSON envelope, because
+  that is what its PHP file does. The disposition selects delivery; **it does not implement
+  anything**, and all three are still unmapped.
 - `LegacyPhpRouteInventoryTest.intentionallyDeferredBinaryReportsStayUnmapped` encoded the
   misclassification in its name and assertion set. It is split into
   `theTwoBinaryExportEndpointsAreStillUnmapped` and

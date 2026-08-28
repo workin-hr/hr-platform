@@ -145,9 +145,10 @@ class LegacyPhpRouteInventoryTest {
 	 * {@code : never} terminator {@code api_xlsx_export_send()}
 	 * ({@code xlsx_writer.php:318}) instead of returning PHP's {@code ok()} JSON envelope,
 	 * which makes them substantial work; the {@code _csv}-named row builders that reach it
-	 * do not produce CSV. D-120 dispositions them as <b>delivered</b>: Java writes the same
-	 * bytes, content type, disposition and filename PHP does, because wrapping either in
-	 * the envelope would be a client-visible divergence D-111 forbids. Legacy serves both
+	 * do not produce CSV. D-120 dispositions them as <b>delivered</b>: Java emits the same
+	 * reader-observable workbook, content type, disposition and filename PHP does -- not
+	 * the same archive bytes, which D-085 rules out -- because wrapping either in the
+	 * envelope would be a client-visible divergence D-111 forbids. Legacy serves both
 	 * to real clients today. Delete this assertion -- do not amend it -- when they are
 	 * delivered.
 	 */
