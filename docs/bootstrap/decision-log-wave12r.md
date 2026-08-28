@@ -337,7 +337,11 @@ Claude agent's matrix row to its real `tools:` frontmatter -- silently skips it.
 independent-review step, if it does not name the reviewer **within the section**
 (a mention elsewhere in the file does not staff the gate), if the responsibility
 matrix carries no row for that name, or if the row is widened from read-only.
-It matches the heading as a **whole line** (so `### Mandatory Workflow` does not
+It parses the workflow's live `-f context=` arguments with comment lines removed,
+rather than searching the file, so a commented-out example naming the required
+context cannot stand in for the argument the job actually passes --
+`check-branch-protection.sh` strips comments before its own read for the same
+reason. It matches the heading as a **whole line** (so `### Mandatory Workflow` does not
 satisfy a level-two-heading requirement), checks that the independent-review step **precedes**
 the human-merge step rather than merely appearing somewhere, matches the matrix
 row by **exact identity** once its backticks and human annotation are stripped
@@ -358,8 +362,16 @@ Two signals are required, because each is blind where the other sees:
 
 | Signal | Proves | Blind to |
 |---|---|---|
-| `required_conversation_resolution` | every finding was fixed or answered | a head with **no** round yet, and a head whose predecessor's threads were resolved before the new commits |
+| `required_conversation_resolution` | no thread is left open | **whether anything was actually addressed** -- resolution is a state a human can set without acting; also a head with **no** round yet, and a head whose predecessor's threads were resolved before the new commits |
 | `independent-review` status check (`.github/workflows/independent-review-gate.yml`) | the named reviewer submitted a round for **this head SHA** | whether that round's findings were addressed |
+
+Three ways the gate could go green over an unreviewed diff, each closed: a
+**dismissed** review is excluded from the count rather than counted by login and
+SHA alone; a **retarget** changes the diff while the head SHA stays, so a base
+change publishes `failure` outright and demands a fresh round; and because the
+status is shared across every open pull request at a commit, the workflow also
+runs on **close**, so a survivor is not left blocked by a departed sibling's
+`failure`.
 
 The check publishes an explicit **commit status** against `pull_request.head.sha`
 rather than relying on its own job conclusion, so the push event and the

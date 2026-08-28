@@ -35,8 +35,11 @@ fi
 
 # Read the status context out of the workflow that publishes it, rather than
 # hardcoding a second copy that could drift from it (D-121).
+# Comment lines are dropped first: a commented-out example naming the context
+# must not stand in for the argument the workflow actually passes.
 INDEPENDENT_REVIEW_CONTEXT="$(
-  sed -n 's/.*-f context="\([^"]*\)".*/\1/p' "$INDEPENDENT_REVIEW_WORKFLOW" | head -n 1
+  grep -v '^[[:space:]]*#' "$INDEPENDENT_REVIEW_WORKFLOW" \
+    | sed -n 's/.*-f context="\([^"]*\)".*/\1/p' | head -n 1
 )"
 
 if [ -z "$INDEPENDENT_REVIEW_CONTEXT" ]; then

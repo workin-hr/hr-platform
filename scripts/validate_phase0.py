@@ -331,6 +331,19 @@ REVIEW_GATE_CONTEXT = "independent-review"
 # anywhere in the file -- the workflow's comments name the reviewer too.
 REVIEW_GATE_REVIEWER_RE = re.compile(r'^\s*REVIEWER:\s*"([^"]*)"\s*$', re.MULTILINE)
 
+# The `-f context="..."` arguments the workflow actually passes to `gh api`.
+REVIEW_GATE_CONTEXT_RE = re.compile(r'-f\s+context="([^"]*)"')
+
+
+def _without_comments(text: str) -> str:
+    """The workflow with its `#` comment lines dropped.
+
+    Crude by design: it only removes whole-line comments, which is all that is
+    needed to stop a commented-out example standing in for the live argument.
+    A `#` inside a shell string stays, and no check here depends on it.
+    """
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
 
 # The matrix cell is written `` `chatgpt-codex-connector[bot]` (pull-request
 # review) `` -- backticks plus a human annotation. Both are stripped and the
@@ -523,10 +536,22 @@ def _validate_review_gate_workflow(root: Path, failures: list[str]) -> None:
             "executable gate and the declared reviewer have diverged",
             failures,
         )
-    if f'context="{REVIEW_GATE_CONTEXT}"' not in text:
+    # The published context, parsed from the `-f context="..."` arguments the
+    # workflow actually runs -- comment lines excluded. A whole-file substring
+    # check has the same vacuity the reviewer binding had before it was fixed:
+    # changing the live POST while leaving the name in a comment would pass.
+    published = REVIEW_GATE_CONTEXT_RE.findall(_without_comments(text))
+    if not published:
         fail(
-            f"{REVIEW_GATE_WORKFLOW} no longer publishes the '{REVIEW_GATE_CONTEXT}' status "
-            "context that scripts/check-branch-protection.sh requires (D-121)",
+            f"{REVIEW_GATE_WORKFLOW} publishes no status context; it must publish "
+            f"'{REVIEW_GATE_CONTEXT}', which scripts/check-branch-protection.sh requires (D-121)",
+            failures,
+        )
+    elif any(context != REVIEW_GATE_CONTEXT for context in published):
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} publishes {sorted(set(published))}, but "
+            f"scripts/check-branch-protection.sh requires '{REVIEW_GATE_CONTEXT}' (D-121); "
+            "every status this workflow publishes must use that context",
             failures,
         )
 

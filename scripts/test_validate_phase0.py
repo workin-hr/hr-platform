@@ -1389,8 +1389,35 @@ def test_review_gate_workflow_dropping_the_status_context_fails() -> None:
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
         check(
-            any("no longer publishes" in f for f in failures),
+            any("requires 'independent-review'" in f for f in failures),
             f"a workflow publishing a different status context fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_gate_workflow_with_a_decoy_context_comment_fails() -> None:
+    """The live `-f context=` argument is what counts. A commented-out example
+    naming the required context must not stand in for it -- the same vacuity
+    the reviewer binding had before it was parsed by value."""
+    root = make_root()
+    try:
+        decoy = (
+            "name: Independent Review Gate\n"
+            f"# D-121 names `{v.INDEPENDENT_REVIEWER}` as the reviewer.\n"
+            f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
+            f'          #   -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
+            '            -f context="some-other-context" \\\n'
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=decoy,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("some-other-context" in f for f in failures),
+            f"a decoy comment does not rescue a workflow publishing another context "
+            f"(failures={failures})",
         )
     finally:
         shutil.rmtree(root)
@@ -1709,6 +1736,7 @@ def main() -> int:
     test_review_gate_workflow_naming_a_different_reviewer_fails()
     test_review_gate_workflow_without_a_reviewer_assignment_fails()
     test_review_gate_workflow_dropping_the_status_context_fails()
+    test_review_gate_workflow_with_a_decoy_context_comment_fails()
     test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()
