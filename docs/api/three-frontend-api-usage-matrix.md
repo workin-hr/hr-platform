@@ -81,6 +81,39 @@ existing one. Confirmed in `docs/legacy/existing-php-module-inventory.md`
 | Dashboard-only: `setting_templates`, `activities` | Yes — no API equivalent | No | No | Session | Dashboard: HR-role/company-admin | No existing API contract | New capability decision for any future web admin — nothing to port a contract for | New (if built) |
 | Orphaned: `set_employee_attendance_method` | No | Client declares the endpoint constant but never calls it (dead reference) | No | N/A | N/A | No live contract — client-declared, server-nonexistent | See F-05 — confirm abandoned vs. planned before deciding whether the new backend needs this at all | No |
 
+## `assets` And `administrative_decisions` Consumers (Added 2026-08-29, C8)
+
+These two modules had no row in the tables above — the gap the completion
+plan's C8 recorded as "10 endpoints with no recorded client consumer". The
+bounded C3/C8 pass
+(`docs/migration/2026-08-29-c3-c8-bounded-discovery.md`) established that the
+consumers exist and were simply never written down.
+
+| Endpoint | Desktop | Mobile | Evidence |
+|---|---|---|---|
+| `assets/list` | yes | yes | `api_constants.dart:190`; desktop `features/_/assets/`, mobile profile screens |
+| `assets/one` | yes | — | `api_constants.dart` |
+| `assets/create` | yes | — | `api_constants.dart:192` |
+| `assets/update` | yes | — | `api_constants.dart` |
+| `assets/delete` | yes | — | `api_constants.dart` |
+| `administrative_decisions/list` | yes | yes | `api_constants.dart:120` |
+| `administrative_decisions/create` | yes | — | `api_constants.dart:121` |
+| `administrative_decisions/update` | yes | — | `api_constants.dart` |
+| `administrative_decisions/delete` | yes | — | `api_constants.dart` |
+| `administrative_decisions/one` | **none declared** | **none declared** | — |
+
+`administrative_decisions/one` is **not** treated as dead surface on this
+evidence. Absence from two clients is not proof of no consumer, and C4 records
+what happens when reachability is inferred from one artifact's silence.
+
+**`assets` is gated client-side only.** The desktop sidebar carries
+`hrPermission: HrPermissionFlag.assets`, while the endpoint inventory records
+`assets` among the modules where the `hr_permissions` matrix is **not** enforced
+server-side. Any authenticated user in the company can call `assets/create`,
+`assets/update` and `assets/delete` directly regardless of the flag. A faithful
+Phase-1 port reproduces that (D-058) and must do so as a recorded decision, not
+by accident.
+
 ## Capability And Ownership Matrix (Added 2026-08-04)
 
 **Reframes the module list above by who owns each capability, not just
