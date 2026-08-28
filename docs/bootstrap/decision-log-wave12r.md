@@ -484,3 +484,50 @@ enforces it; `scripts/test_validate_phase0.py` covers all four boundary cases.
 Raised by independent review on PR #127 as "Publish the gate from trusted workflow
 code", declined there as an owner decision rather than taken unilaterally, and
 accepted by the owner the same day.
+
+## D-124: The overall report's two dead columns are dropped, on a measurement
+
+**Status:** Accepted 2026-08-29.
+
+`overall_attendance_report_build()`'s employee query aggregates
+`total_duration_minutes` and `total_expected_minutes`, the second through a
+correlated per-row lookup of the employee's shift. **The builder reads neither.**
+Its loop uses only `present_days` and `exception_days`; the row's own duration
+comes from `attendance_period_work_minutes()`, and its expected minutes never
+leave that helper. Wave 12.6.6c ported them faithfully anyway, because dropping
+them is an optimisation rather than a fidelity fix and D-058 puts the burden of
+proof on the change, not on the port.
+
+**The burden is discharged by measurement.** Against real MariaDB on the vendored
+legacy schema, 60 employees x 60 days = 3,600 attendance rows, best-of-7 after
+three warm-ups, two independent runs:
+
+| | run 1 | run 2 |
+|---|---|---|
+| with the dead columns | 11.6 ms | 9.2 ms |
+| without them | 3.2 ms | 3.0 ms |
+
+Roughly **three times faster**, and the shape of the saving is the correlated
+subquery: one shift lookup per attendance row, discarded immediately. Production
+volumes are larger than this fixture, so the absolute saving grows with the
+period and the headcount, which is exactly the direction that matters for a
+report run over a month of a full company.
+
+**Nothing client-visible changes**, which is the other half of the test the owner
+set. No response field was fed by either column: `total_duration_minutes` on the
+row comes from the helper, `overtime_minutes` from that helper's two figures, and
+the two aggregates the loop does read — `present_days` and `exception_days` —
+are untouched. `theDurationAndOvertimeFieldsSurviveTheDroppedColumns` pins that
+as a property rather than an argument: employee A punches three full 8-hour days,
+so a row whose duration had come from the dropped column would read zero.
+
+**This is a deliberate divergence from the frozen tree and is recorded as one**
+(G4). Java issues a narrower query than PHP does. It is not observable through
+the API, the response shape, the row ordering, or the row count — only in the SQL
+the endpoint emits.
+
+Evidence: the benchmark harness was written, run, recorded here, and deleted
+rather than kept — it is slow, environment-sensitive, and its value was the
+number, not a standing assertion. The standing assertion is the regression above.
+`com.workin.legacy.attendance.*` and `LegacyPhpRouteInventoryTest` green after
+the change.

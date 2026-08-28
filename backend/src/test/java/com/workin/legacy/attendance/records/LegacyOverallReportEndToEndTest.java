@@ -226,6 +226,39 @@ class LegacyOverallReportEndToEndTest {
 	 * first and surface as a 500 -- a caller-supplied value turning into a
 	 * server error.
 	 */
+	/**
+	 * D-124's regression. The employee query used to aggregate
+	 * {@code total_duration_minutes} and {@code total_expected_minutes}, the
+	 * second through a correlated per-row shift lookup, and the builder read
+	 * neither -- the row's duration comes from
+	 * {@code attendance_period_work_minutes()} and its overtime from that
+	 * helper's two figures. Dropping them was measured, not assumed, but the
+	 * property that makes it safe is asserted here rather than argued:
+	 * <b>every field those columns could plausibly have fed still carries a
+	 * real, attendance-derived value.</b>
+	 *
+	 * <p>Employee A punched three full 8h days inside the period, so a row whose
+	 * duration came from the dropped column rather than the helper would show
+	 * zero here -- the failure this pins.
+	 */
+	@Test
+	void theDurationAndOvertimeFieldsSurviveTheDroppedColumns() {
+		Map<String, Object> row = rowFor(
+				ok(ADMIN, "company_admin", "?from=" + FROM + "&to=" + TO + "&employee_id=" + EMPLOYEE_A),
+				EMPLOYEE_A);
+
+		assertThat((Integer) row.get("total_duration_minutes"))
+				.as("three 8h days, from attendance_period_work_minutes() -- not from the query")
+				.isEqualTo(3 * 480);
+		assertThat(row).containsKey("overtime_minutes");
+		assertThat((Integer) row.get("exception_days"))
+				.as("still read from the query's own surviving aggregate")
+				.isZero();
+		assertThat((Integer) row.get("present_days"))
+				.as("the other surviving aggregate, and the coverage gate depends on it")
+				.isEqualTo(3);
+	}
+
 	@Test
 	void anOutOfRangeMonthIsAnInvalidDateNotAServerError() {
 		assertThat(call(HttpMethod.GET, ADMIN, "company_admin", "?month=13&year=2026")
