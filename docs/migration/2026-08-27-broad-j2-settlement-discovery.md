@@ -8,7 +8,7 @@ open, and hands the owner the evidence needed to record a decision.
 
 It does **not** record that decision. Recording it is the owner's, under
 `AGENTS.md`'s "No agent may silently resolve unclear requirements". **The owner
-recorded it on 2026-08-28 as O-8/D-119** — all three remaining Item-12 endpoints
+recorded it on 2026-08-28 as O-8/D-120** — all three remaining Item-12 endpoints
 are delivered — see §3.
 
 **Revised 2026-08-28**, in the same branch, after independent review: §2's helper
@@ -262,7 +262,7 @@ workbook cannot be built. There is one binary mechanism to port, not two.
 
 **Superseded by the owner's decision:** this document was written while whether
 `overall_report.php` would be delivered, formally excluded, or deferred was
-still owed. It was decided on **2026-08-28 — O-8/D-119: all three remaining
+still owed. It was decided on **2026-08-28 — O-8/D-120: all three remaining
 Item-12 endpoints are delivered**, with Java reproducing PHP's response contract
 per endpoint, binary responses included. The evidence above is what made that
 decision answerable on dependency grounds; it did not make it.

@@ -45,7 +45,7 @@ inherit this contract.
 
 `Issue -> Specification -> Clarification -> Architecture and test impact -> Human approval -> Isolated implementation branch -> Automated verification -> Independent review -> Human merge`
 
-**Independent review is performed by `chatgpt-codex-connector[bot]` (D-120).**
+**Independent review is performed by `chatgpt-codex-connector[bot]` (D-121).**
 It reviews the whole pull request, not a sample, and the round must cover the
 final head — commits pushed after a review round are unreviewed until review is
 re-requested. Its findings are fixed, or answered on the thread with a reason,

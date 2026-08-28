@@ -71,7 +71,7 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 
 - ~~Are `attendance/overall_report.php`, `attendance/export.php` and
   `payslips/export.php` delivered, formally excluded under a numbered decision,
-  or deferred to a later item?~~ **Resolved 2026-08-28 (O-8/D-119): all three
+  or deferred to a later item?~~ **Resolved 2026-08-28 (O-8/D-120): all three
   are delivered.** None is excluded and none is deferred, so gate G2's live
   denominator stays at 198 and the exclusion ledger stays one row long
   (`time/now.php`, O-3). The governing rule is that Java reproduces what PHP
@@ -86,7 +86,7 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
   their own waves. Both `attendance/overall_report.php` and
   `attendance/export.php` are unblocked on dependency grounds.
 - Who performs the independent review the mandatory workflow places before human
-  merge? **Resolved 2026-08-28 (D-120)**: `chatgpt-codex-connector[bot]`,
+  merge? **Resolved 2026-08-28 (D-121)**: `chatgpt-codex-connector[bot]`,
   reviewing the whole pull request. Its externally-billed quota (R-009) makes
   the gate *unavailable* when exhausted, never waived.
 

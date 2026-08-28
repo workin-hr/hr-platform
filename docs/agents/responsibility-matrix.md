@@ -18,7 +18,7 @@ definitions, enforcement configuration, and validation tests together.
 | `chatgpt-codex-connector[bot]` (pull-request review) | Read-only review | No | No | No |
 
 `chatgpt-codex-connector[bot]` is the named independent reviewer for
-`AGENTS.md`'s mandatory workflow (D-120). Its review of the whole pull request
+`AGENTS.md`'s mandatory workflow (D-121). Its review of the whole pull request
 discharges the independent-review gate; it does not approve or merge, and the
 human owner still performs the merge. When its externally-billed quota is
 exhausted (R-009) the gate is unavailable, not waived.

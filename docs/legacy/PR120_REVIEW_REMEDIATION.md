@@ -91,10 +91,14 @@ Connector/J controls this with the `useAffectedRows` connection option.
 `LEGACY_DB_JDBC_URL` must therefore not enable `useAffectedRows`. If it were enabled, an
 otherwise legal edit that submits values identical to the stored row would change no rows, and
 the guard would misread that no-op as a lost race -- returning
-`400 cannot_edit_non_pending_advance` or `403 forbidden` for a request that should succeed. An
-operator would see those two codes rising on `advances/update.php` and `penalties/update.php`
-immediately after a connection-string change, with no corresponding approval or finalization
-traffic.
+`400 cannot_edit_non_pending_advance` or `403 forbidden` for a request that should succeed.
+
+This is enforced rather than left to documentation: `LegacyRowCountStartupCheck` (D-119) inspects
+the URL under the `phase1-mysql` profile and refuses to start when the option is enabled, so the
+misconfiguration surfaces as a boot failure naming the offending option instead of as sporadic
+rejections in production. An operator who somehow bypassed that check would see those two codes
+rising on `advances/update.php` and `penalties/update.php` immediately after a connection-string
+change, with no corresponding approval or finalization traffic.
 
 Mock-based tests cannot observe this, because the row count they stub is the very thing in
 question. Both affected paths are therefore pinned against real MariaDB by an edit that resubmits
