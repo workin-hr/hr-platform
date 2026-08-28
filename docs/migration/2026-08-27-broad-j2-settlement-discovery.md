@@ -275,7 +275,9 @@ decision answerable on dependency grounds; it did not make it.
 
 - The open question: `2026-08-22-wave-12.6-attendance-discovery.md` §J.2, §G.2, §G.3
 - The timing constraint now met: `2026-08-23-phase1-completion-plan.md` §4.5
-- The disposition still owed: same document, §8.1 and §6 C9
+- The disposition, **accepted 2026-08-28 as O-8/D-120** — all three endpoints
+  are delivered: same document, §8.1 and §6 C9. The implementation is owed, not
+  the decision; §1.6 there names the owning slice for each endpoint.
 - The bounded settings reader: **D-091**; its case-sensitivity fix **D-103**
 - The payroll engine that ported the seven: **D-105** (Wave 12.9), **D-104**
 - The wire contract every delivered route answers on: **D-074**

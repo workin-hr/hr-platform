@@ -454,7 +454,8 @@ GOOD_PROTECTION_JSON = {
     "required_pull_request_reviews": {"required_approving_review_count": 1},
     "enforce_admins": {"enabled": True},
     "allow_force_pushes": {"enabled": False},
-    "required_status_checks": {"contexts": ["validate"]},
+    "required_conversation_resolution": {"enabled": True},
+    "required_status_checks": {"contexts": ["validate", "independent-review"]},
 }
 
 
@@ -490,6 +491,7 @@ def test_branch_protection_reports_every_failing_field() -> None:
         "required_pull_request_reviews": {"required_approving_review_count": 0},
         "enforce_admins": {"enabled": False},
         "allow_force_pushes": {"enabled": True},
+        "required_conversation_resolution": {"enabled": False},
         "required_status_checks": {"contexts": ["something-else"]},
     }
     proc = run_check_branch_protection(bad)
@@ -498,8 +500,37 @@ def test_branch_protection_reports_every_failing_field() -> None:
         and "required_approving_review_count is 0" in proc.stdout
         and "enforce_admins.enabled is false" in proc.stdout
         and "allow_force_pushes.enabled is true" in proc.stdout
-        and "does not include 'validate'" in proc.stdout,
-        f"branch protection missing every requirement fails, naming all 4 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+        and "required_conversation_resolution.enabled is false" in proc.stdout
+        and "does not include 'validate'" in proc.stdout
+        and "does not include 'independent-review'" in proc.stdout,
+        f"branch protection missing every requirement fails, naming all 6 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_without_the_independent_review_context_fails() -> None:
+    """Conversation resolution cannot prove a round happened on the final head,
+    so protection carrying only the validation context is incomplete (D-121)."""
+    bad = dict(GOOD_PROTECTION_JSON)
+    bad["required_status_checks"] = {"contexts": ["validate"]}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "does not include 'independent-review'" in proc.stdout,
+        f"branch protection without the independent-review context fails "
+        f"(exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_without_conversation_resolution_fails() -> None:
+    """A required approving review does not gate on the named independent
+    reviewer, which cannot approve -- unresolved-thread blocking is what
+    actually stops a merge outrunning a review round (R-008, PR #126)."""
+    bad = dict(GOOD_PROTECTION_JSON)
+    bad["required_conversation_resolution"] = {"enabled": False}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "required_conversation_resolution.enabled is false" in proc.stdout,
+        f"branch protection with every other field set but conversation resolution off fails "
+        f"(exit={proc.returncode}, stdout={proc.stdout!r})",
     )
 
 
@@ -508,7 +539,11 @@ def test_branch_protection_job_id_is_read_from_workflow_file() -> None:
     workflow file, so the two cannot silently diverge."""
     fake_workflow = "name: Fake\non:\n  push:\njobs:\n  totally-different-job-name:\n    runs-on: ubuntu-latest\n"
     protection = dict(GOOD_PROTECTION_JSON)
-    protection["required_status_checks"] = {"contexts": ["totally-different-job-name"]}
+    # The independent-review context is required independently of this one and
+    # is read from its own workflow, so it stays in the fixture.
+    protection["required_status_checks"] = {
+        "contexts": ["totally-different-job-name", "independent-review"],
+    }
     proc = run_check_branch_protection(protection, workflow_text=fake_workflow)
     check(
         proc.returncode == 0 and "totally-different-job-name" in proc.stdout,
@@ -1020,23 +1055,135 @@ def test_real_repository_agent_matrix_still_passes() -> None:
 
 
 # ---------------------------------------------------------------------------
+# validate_workflow_safety (WF-1) -- D-122's narrow, conditional exception
+# ---------------------------------------------------------------------------
+
+
+def write_workflow(root: Path, name: str, body: str) -> None:
+    directory = root / ".github/workflows"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_text(body, encoding="utf-8")
+
+
+PRIVILEGED = "pull_request" + "_target"
+
+
+def test_any_other_workflow_using_the_privileged_trigger_still_fails() -> None:
+    """The ban is unchanged for every workflow but the review gate."""
+    root = make_root()
+    try:
+        write_workflow(root, "something-else.yml",
+                       f"name: X\non:\n  {PRIVILEGED}:\npermissions:\n  contents: read\n")
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(
+            any("forbidden here" in f for f in failures),
+            f"an unrelated workflow using the privileged trigger still fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_the_review_gate_may_use_the_privileged_trigger_without_a_checkout() -> None:
+    root = make_root()
+    try:
+        write_workflow(root, Path(v.REVIEW_GATE_WORKFLOW).name,
+                       f"name: Gate\non:\n  {PRIVILEGED}:\npermissions:\n  statuses: write\n")
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(failures == [], f"the review gate may use the trigger with no checkout (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_the_review_gate_using_the_privileged_trigger_with_a_checkout_fails() -> None:
+    """The exception is conditional: a checkout withdraws its whole premise."""
+    root = make_root()
+    try:
+        write_workflow(root, Path(v.REVIEW_GATE_WORKFLOW).name,
+                       f"name: Gate\non:\n  {PRIVILEGED}:\npermissions:\n  statuses: write\n"
+                       "jobs:\n  x:\n    steps:\n      - uses: actions/checkout@v4\n")
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(
+            any("withdraws that premise" in f for f in failures),
+            f"the review gate with a checkout fails despite the exception (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_a_checkout_named_only_in_a_comment_does_not_trip_the_exception() -> None:
+    """The gate's own header explains that it has no checkout; saying so must
+    not read as having one."""
+    root = make_root()
+    try:
+        write_workflow(root, Path(v.REVIEW_GATE_WORKFLOW).name,
+                       "# This job has no actions/checkout and never reads the head tree.\n"
+                       f"name: Gate\non:\n  {PRIVILEGED}:\npermissions:\n  statuses: write\n")
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(failures == [], f"a commented mention is not a checkout (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+# ---------------------------------------------------------------------------
 # validate_independent_reviewer_declaration (REV-1)
 # ---------------------------------------------------------------------------
 
 
-def write_reviewer_declaration(root: Path, agents_names_reviewer: bool, matrix_rows: list[str]) -> None:
-    (root / "AGENTS.md").write_text(
-        "# Repository Engineering Instructions\n\n"
-        "## Mandatory Workflow\n\n"
-        "`Issue -> ... -> Independent review -> Human merge`\n\n"
-        + (
-            f"Independent review is performed by `{v.INDEPENDENT_REVIEWER}` (D-121).\n"
-            if agents_names_reviewer
-            else "Independent review is performed by somebody.\n"
-        ),
-        encoding="utf-8",
-    )
+def write_reviewer_declaration(
+    root: Path,
+    agents_names_reviewer: bool,
+    matrix_rows: list[str],
+    *,
+    workflow_section: bool = True,
+    reviewer_outside_section: bool = False,
+    demoted_heading: bool = False,
+    reversed_order: bool = False,
+    lookalike_in_workflow: bool = False,
+    gate_workflow: str | None = "",
+) -> None:
+    body = "# Repository Engineering Instructions\n\n"
+    if workflow_section:
+        steps = (
+            "`Issue -> ... -> Human merge -> Independent review`"
+            if reversed_order
+            else "`Issue -> ... -> Independent review -> Human merge`"
+        )
+        body += (
+            f"{'###' if demoted_heading else '##'} Mandatory Workflow\n\n"
+            f"{steps}\n\n"
+            + (
+                f"Independent review is performed by `impersonator-{v.INDEPENDENT_REVIEWER}` (D-121).\n"
+                if lookalike_in_workflow
+                else f"Independent review is performed by `{v.INDEPENDENT_REVIEWER}` (D-121).\n"
+                if agents_names_reviewer
+                else "Independent review is performed by somebody.\n"
+            )
+        )
+    body += "\n## Global Rules\n\nRules.\n"
+    if reviewer_outside_section:
+        body += f"\nSomething unrelated mentions `{v.INDEPENDENT_REVIEWER}` here.\n"
+    (root / "AGENTS.md").write_text(body, encoding="utf-8")
     write_matrix(root, matrix_rows)
+
+    # `gate_workflow=None` omits the file entirely; "" writes the canonical
+    # one; any other string is written verbatim, for drift cases.
+    if gate_workflow is not None:
+        gate = root / v.REVIEW_GATE_WORKFLOW
+        gate.parent.mkdir(parents=True, exist_ok=True)
+        gate.write_text(
+            gate_workflow
+            or (
+                "name: Independent Review Gate\n"
+                f"# D-121 names `{v.INDEPENDENT_REVIEWER}` as the reviewer.\n"
+                f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
+                f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
+            ),
+            encoding="utf-8",
+        )
 
 
 REVIEWER_ROW = f"| `{v.INDEPENDENT_REVIEWER}` (pull-request review) | Read-only review | No | No | No |\n"
@@ -1063,6 +1210,113 @@ def test_workflow_without_named_reviewer_fails() -> None:
         check(
             any("does not name" in f for f in failures),
             f"a Mandatory Workflow that names no reviewer fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_workflow_section_deleted_fails() -> None:
+    """Deleting the heading must not be a way to delete the gate."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], workflow_section=False,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("no longer defines" in f for f in failures),
+            f"AGENTS.md with its Mandatory Workflow section removed fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_reviewer_named_only_outside_the_workflow_fails() -> None:
+    """A mention elsewhere in AGENTS.md does not staff the gate."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=False, matrix_rows=[REVIEWER_ROW],
+            reviewer_outside_section=True,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("does not name" in f for f in failures),
+            f"a reviewer named outside the Mandatory Workflow section fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_demoted_workflow_heading_fails() -> None:
+    """`### Mandatory Workflow` must not satisfy a check that requires `## `:
+    a plain substring search matches it starting at the second '#'."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], demoted_heading=True,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("no longer defines" in f for f in failures),
+            f"a demoted '### Mandatory Workflow' heading fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_after_merge_fails() -> None:
+    """Presence is not the property that matters — review must precede merge."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], reversed_order=True,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("after" in f and "human merge" in f for f in failures),
+            f"a workflow reviewing after merge fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_lookalike_reviewer_row_does_not_satisfy_the_check() -> None:
+    """A row whose identity merely contains the reviewer name is a different
+    agent, and must not stand in for the named reviewer's own row."""
+    root = make_root()
+    try:
+        lookalike = f"| `impersonator-{v.INDEPENDENT_REVIEWER}` (pull-request review) | Read-only review | No | No | No |\n"
+        write_reviewer_declaration(root, agents_names_reviewer=True, matrix_rows=[lookalike])
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("has no row for" in f for f in failures),
+            f"a look-alike matrix identity does not satisfy the check (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_lookalike_reviewer_in_the_workflow_fails() -> None:
+    """The prose side needs the same exact-identity rule as the matrix row:
+    assigning review to `impersonator-...[bot]` must not pass merely because
+    the matrix still carries the real reviewer's row."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW],
+            lookalike_in_workflow=True,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("does not name" in f for f in failures),
+            f"a look-alike reviewer identity in the workflow fails (failures={failures})",
         )
     finally:
         shutil.rmtree(root)
@@ -1099,6 +1353,194 @@ def test_reviewer_row_widened_fails() -> None:
             any("May Approve Work" in f for f in failures),
             f"a reviewer row widened to grant approval fails (failures={failures})",
         )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_duplicate_reviewer_rows_fail() -> None:
+    """A read-only row must not shield a permissive duplicate: both the
+    duplication and the widened row are reported."""
+    root = make_root()
+    try:
+        permissive = f"| `{v.INDEPENDENT_REVIEWER}` (second entry) | Controlled implementation | Yes | Yes | Yes |\n"
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW, permissive],
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("2 rows" in f for f in failures),
+            f"two rows naming the reviewer fail as a duplicate (failures={failures})",
+        )
+        check(
+            any("May Modify Files" in f for f in failures),
+            f"the permissive duplicate row is still checked, not skipped (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_missing_review_gate_workflow_fails() -> None:
+    """Deleting the workflow deletes the executable half of the gate."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=None,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("is missing" in f for f in failures),
+            f"a deleted independent-review workflow fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_gate_workflow_naming_a_different_reviewer_fails() -> None:
+    """The workflow carries its own copy of the login; it must not drift from
+    the one AGENTS.md declares."""
+    root = make_root()
+    try:
+        # The header comment still names the real reviewer -- exactly the shape
+        # the live workflow has, and the reason a whole-file search was vacuous.
+        drifted = (
+            "name: Independent Review Gate\n"
+            f"# D-121 names `{v.INDEPENDENT_REVIEWER}` as the reviewer.\n"
+            '          REVIEWER: "some-other-bot"\n'
+            f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=drifted,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("have diverged" in f and "some-other-bot" in f for f in failures),
+            f"a workflow whose REVIEWER assignment names a different account fails, even though "
+            f"its comments still name the real one (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_gate_workflow_without_a_reviewer_assignment_fails() -> None:
+    """Deleting the assignment must not pass on the strength of the comments."""
+    root = make_root()
+    try:
+        no_assignment = (
+            "name: Independent Review Gate\n"
+            f"# D-121 names `{v.INDEPENDENT_REVIEWER}` as the reviewer.\n"
+            f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=no_assignment,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("has no `REVIEWER:" in f for f in failures),
+            f"a workflow with no REVIEWER assignment fails despite naming the reviewer in a "
+            f"comment (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_gate_workflow_dropping_the_status_context_fails() -> None:
+    """check-branch-protection.sh requires that context; publishing a
+    different one would make the required check permanently pending."""
+    root = make_root()
+    try:
+        renamed = (
+            "name: Independent Review Gate\n"
+            f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
+            '            -f context="something-else" \\\n'
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=renamed,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("requires 'independent-review'" in f for f in failures),
+            f"a workflow publishing a different status context fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_gate_workflow_with_a_decoy_context_comment_fails() -> None:
+    """The live `-f context=` argument is what counts. A commented-out example
+    naming the required context must not stand in for it -- the same vacuity
+    the reviewer binding had before it was parsed by value."""
+    root = make_root()
+    try:
+        decoy = (
+            "name: Independent Review Gate\n"
+            f"# D-121 names `{v.INDEPENDENT_REVIEWER}` as the reviewer.\n"
+            f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
+            f'          #   -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
+            '            -f context="some-other-context" \\\n'
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=decoy,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("some-other-context" in f for f in failures),
+            f"a decoy comment does not rescue a workflow publishing another context "
+            f"(failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_gate_workflow_with_an_inline_decoy_comment_fails() -> None:
+    """A decoy on a line the whole-line filter keeps: `echo noop # -f context=...`.
+    Stripping only whole-line comments left exactly this shape working."""
+    root = make_root()
+    try:
+        inline_decoy = (
+            "name: Independent Review Gate\n"
+            f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
+            f'          echo noop # -f context="{v.REVIEW_GATE_CONTEXT}"\n'
+            '            -f context="some-other-context" \\\n'
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW],
+            gate_workflow=inline_decoy,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("some-other-context" in f for f in failures),
+            f"an inline decoy comment does not rescue a workflow publishing another "
+            f"context (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_gate_workflow_keeps_a_hash_inside_a_quoted_string() -> None:
+    """A `#` inside quotes is not a comment. The real workflow has none today,
+    but a filter that cut on every `#` would silently truncate a live argument."""
+    root = make_root()
+    try:
+        quoted_hash = (
+            "name: Independent Review Gate\n"
+            f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
+            '            -f description="run #1 of the gate" \\\n'
+            f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW],
+            gate_workflow=quoted_hash,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(failures == [], f"a quoted '#' does not hide the live context (failures={failures})")
     finally:
         shutil.rmtree(root)
 
@@ -1361,6 +1803,8 @@ def main() -> int:
     test_real_repository_has_nightly_workflow()
     test_branch_protection_all_requirements_met_passes()
     test_branch_protection_reports_every_failing_field()
+    test_branch_protection_without_conversation_resolution_fails()
+    test_branch_protection_without_the_independent_review_context_fails()
     test_branch_protection_job_id_is_read_from_workflow_file()
     test_essential_runtime_path_dirs_finds_real_git()
     test_essential_runtime_path_dirs_finds_git_in_nonstandard_location()
@@ -1399,10 +1843,28 @@ def main() -> int:
     test_matrix_consistent_with_frontmatter_passes()
     test_matrix_codex_row_without_frontmatter_is_skipped()
     test_real_repository_agent_matrix_still_passes()
+    test_any_other_workflow_using_the_privileged_trigger_still_fails()
+    test_the_review_gate_may_use_the_privileged_trigger_without_a_checkout()
+    test_the_review_gate_using_the_privileged_trigger_with_a_checkout_fails()
+    test_a_checkout_named_only_in_a_comment_does_not_trip_the_exception()
     test_reviewer_named_and_declared_read_only_passes()
     test_workflow_without_named_reviewer_fails()
+    test_workflow_section_deleted_fails()
+    test_demoted_workflow_heading_fails()
+    test_review_after_merge_fails()
+    test_lookalike_reviewer_row_does_not_satisfy_the_check()
+    test_lookalike_reviewer_in_the_workflow_fails()
+    test_reviewer_named_only_outside_the_workflow_fails()
     test_reviewer_missing_from_matrix_fails()
     test_reviewer_row_widened_fails()
+    test_duplicate_reviewer_rows_fail()
+    test_missing_review_gate_workflow_fails()
+    test_review_gate_workflow_naming_a_different_reviewer_fails()
+    test_review_gate_workflow_without_a_reviewer_assignment_fails()
+    test_review_gate_workflow_dropping_the_status_context_fails()
+    test_review_gate_workflow_with_a_decoy_context_comment_fails()
+    test_review_gate_workflow_with_an_inline_decoy_comment_fails()
+    test_review_gate_workflow_keeps_a_hash_inside_a_quoted_string()
     test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()

@@ -332,11 +332,97 @@ reply and no fix means the gate has been read, not passed.
 **Enforced, not only declared.** The reviewer is an external GitHub App, so it has
 no `.claude/agents` file and `validate_agent_matrix_consistency()` -- which binds a
 Claude agent's matrix row to its real `tools:` frontmatter -- silently skips it.
-`validate_independent_reviewer_declaration()` closes that gap instead: it fails if
-`AGENTS.md` gates merges on an independent review without naming the reviewer, if
-the responsibility matrix carries no row for that name, or if the row is widened
-from read-only. Five fixture cases in `scripts/test_validate_phase0.py` cover it,
-including the widening case and a sanity check against the real repository.
+`validate_independent_reviewer_declaration()` closes that gap instead. It fails if
+`AGENTS.md` has no `## Mandatory Workflow` section at all, if that section has no
+independent-review step, if it does not name the reviewer **within the section**
+(a mention elsewhere in the file does not staff the gate), if the responsibility
+matrix carries no row for that name, or if the row is widened from read-only.
+It parses the workflow's live `-f context=` arguments with comment lines removed,
+rather than searching the file, so a commented-out example naming the required
+context cannot stand in for the argument the job actually passes --
+`check-branch-protection.sh` strips comments before its own read for the same
+reason. It matches the heading as a **whole line** (so `### Mandatory Workflow` does not
+satisfy a level-two-heading requirement), checks that the independent-review step **precedes**
+the human-merge step rather than merely appearing somewhere, matches the matrix
+row by **exact identity** once its backticks and human annotation are stripped
+(so `impersonator-chatgpt-codex-connector[bot]` is a different agent, not this
+one), evaluates **every** matching row rather than the first, and treats more than
+one such row as a failure in its own right. Eleven fixture cases in
+`scripts/test_validate_phase0.py` cover it — wholesale removal of the section, a
+demoted heading, review placed after merge, an out-of-section mention, a look-alike
+identity, the widening case, the duplicate-row case, and a sanity check against the
+real repository.
+
+**The mechanical gate this needs is not a required approving review**, and it is
+not one setting. This reviewer cannot approve, so a human approval satisfies that
+count while a round is still in flight — which is how PR #126 merged ten seconds
+after its final round posted (R-008's second realization).
+
+Two signals are required, because each is blind where the other sees:
+
+| Signal | Proves | Blind to |
+|---|---|---|
+| `required_conversation_resolution` | no thread is left open | **whether anything was actually addressed** -- resolution is a state a human can set without acting; also a head with **no** round yet, and a head whose predecessor's threads were resolved before the new commits |
+| `independent-review` status check (`.github/workflows/independent-review-gate.yml`) | the named reviewer submitted a round for **this head SHA** | whether that round's findings were addressed |
+
+**One way it still could, and why it is not yet closed.** The workflow triggers on
+`pull_request`, so the run executes the *pull request's* copy of the workflow while
+holding `statuses: write` — a revision could keep the literals the validator binds
+and publish success unconditionally. The remedy is the privileged `_target`
+variant, which runs the base branch's trusted copy and is safe here because this
+job has no `actions/checkout`; `validate_workflow_safety()` forbids that variant
+outright, and relaxing a standing security rule is not a change to make in passing.
+Recorded in R-008 with the consequence that matters: **the status must not become
+a required context until this is resolved**, which puts it alongside D-013's
+branch-protection decision rather than ahead of it. `validate_phase0.py` now fails
+if this workflow ever gains a checkout, since that is what would turn the
+limitation into an escalation.
+
+Three ways the gate could go green over an unreviewed diff, each closed: a
+**dismissed** review is excluded from the count rather than counted by login and
+SHA alone; a **retarget** changes the diff while the head SHA stays, so a base
+change publishes `failure` outright and demands a fresh round; and because the
+status is shared across every open pull request at a commit, the workflow also
+runs on **close**, so a survivor is not left blocked by a departed sibling's
+`failure`.
+
+The check publishes an explicit **commit status** against `pull_request.head.sha`
+rather than relying on its own job conclusion, so the push event and the
+review-submitted event converge on one context on the right commit instead of
+depending on how two workflow runs of the same name supersede one another. A
+commit status carries no pull-request identity, so it is computed across **every
+open pull request pointing at that commit** — otherwise one pull request's round
+would hand a sibling with a different base a green gate over a diff the reviewer
+never saw. Its three moving parts are bound together rather than left to drift:
+`scripts/check-branch-protection.sh` reads the required context out of the
+workflow that publishes it, and `validate_phase0.py` fails if the workflow is
+deleted, publishes a different context, or runs its gate against a different
+account — matched on the `REVIEWER:` assignment itself, since the workflow's own
+comments name the reviewer and a whole-file search would be satisfied by those.
+
+**What this does not enforce.** Neither signal proves a finding was *addressed*.
+Thread resolution is a state a human can set without acting, so both can be
+satisfied with every finding ignored. Step 7 of the merge sequence remains a human
+obligation; whether to build a qualifying-answer check is an open owner decision
+recorded in R-008.
+
+`scripts/check-branch-protection.sh` requires conversation resolution, so the
+protection applied whenever D-013's deferral is revisited is verified against the
+failure that occurred. The status check is **advisory until a human adds it to
+`main`'s required contexts** — which cannot happen while branch protection itself
+is Deferred, and is recorded as the outstanding owner step in R-008.
+
+Neither replaces reading the findings. A green `independent-review` proves a round
+happened, not that anyone acted on it.
+
+**Propagated into the executable procedure, not just the policy.** Step 5 of the
+Human Approval And Merge Sequence in `docs/bootstrap/manual-setup-checklist.md`
+previously offered the Claude `bootstrap-auditor` and/or the Codex
+`independent-verification-reviewer` as the independent audit. A pull request could
+satisfy every documented step there while skipping this gate — which is what
+happened at PR #120. Step 5 now names this reviewer and requires whole-PR coverage
+of the final head; the other two audits are explicitly supplementary. Step 7 now
+requires every finding to be fixed or answered on its thread before merge.
 
 Impact: R-008's mitigation gains a named reviewer and R-009's impact widens from
 "unreviewable" to "unmergeable" while Codex quota is out.
@@ -345,3 +431,56 @@ Evidence: `AGENTS.md` mandatory workflow; PR #120's merge record in
 `docs/legacy/WAVE12_COMPLETION_AUDIT.md`; PR #126's four Codex review rounds,
 whose findings drove this change and which showed the per-head reviewing
 behavior condition 1 addresses.
+
+## D-122: The review gate runs on the privileged trigger, under one condition
+
+**Status:** Accepted 2026-08-28.
+
+`validate_workflow_safety()` has banned `pull_request_target` outright since Phase
+0. The ban is right in general and was wrong for exactly one workflow.
+
+`.github/workflows/independent-review-gate.yml` holds `statuses: write` because it
+publishes the `independent-review` gate. On the ordinary `pull_request` trigger a
+run executes the workflow file **from the pull request**, so a revision could keep
+the reviewer and status-context literals `validate_phase0.py` binds, replace the
+counting logic with an unconditional success, and turn the gate green before the
+named reviewer had seen that very change. D-121's gate would then certify its own
+bypass.
+
+**The exception, and the premise it rests on.** The hazard the ban exists to stop
+is privileged credentials running *pull-request code*. This job runs none: it has
+no `actions/checkout`, reads no file from the head tree, and passes only a pull
+request number and a commit SHA to the GitHub API. Nothing attacker-controlled --
+no title, body, branch name or commit message -- reaches a shell.
+
+**It is conditional, not a carve-out.** `validate_workflow_safety()` permits the
+trigger for this one path and fails immediately if that file gains a checkout,
+with a message naming this decision. Every other workflow keeps the blanket ban.
+Four fixtures hold the boundary: an unrelated workflow using the trigger still
+fails; the gate passes without a checkout; the gate **fails** with one; and a
+checkout named in a comment is not a checkout -- the file's own header explains
+that it has none, and saying so must not read as having one.
+
+**What this unblocks.** R-008 recorded that `independent-review` must not become a
+required context while the gate ran pull-request-controlled code. That precondition
+is now cleared, so making it required is once more purely the branch-protection
+question D-013 defers -- one decision instead of two.
+
+**A bootstrap condition to expect, measured on PR #127.** The privileged trigger
+resolves the workflow from the **base** branch, so it fires only once this file
+exists there — while the pull request introducing it is still open, zero
+push/synchronize runs occur and the status is maintained by review events alone.
+It fails safe rather than open: a freshly pushed head has *no* status, leaving a
+required check unsatisfied, rather than inheriting a stale green from an earlier
+head. It resolves itself at merge, and the first push afterwards should be checked
+for a run.
+
+**What it does not change.** The gate still proves only that a round happened on
+the final head. Whether findings were addressed remains step 7's human obligation,
+with nothing in this repository verifying it mechanically (R-008).
+
+Evidence: the workflow's own header records the premise; `validate_workflow_safety()`
+enforces it; `scripts/test_validate_phase0.py` covers all four boundary cases.
+Raised by independent review on PR #127 as "Publish the gate from trusted workflow
+code", declined there as an owner decision rather than taken unilaterally, and
+accepted by the owner the same day.

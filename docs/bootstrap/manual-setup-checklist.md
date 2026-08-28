@@ -166,12 +166,34 @@ only after a human completed the underlying action first.
 4. Required status checks run (`.github/workflows/phase0-validate.yml` and
    any checks added by this remediation — see
    `docs/bootstrap/audit-remediation.md`).
-5. An independent, read-only audit is obtained (Claude `bootstrap-auditor`
-   and/or Codex `independent-verification-reviewer`; a prior such audit
-   returned `REQUEST CHANGES` and is what this remediation responds to).
+5. **The independent review required by `AGENTS.md`'s Mandatory Workflow is
+   obtained from `chatgpt-codex-connector[bot]` (D-121).** It must cover the
+   whole pull request and the **final head** — commits pushed after a review
+   round are unreviewed until review is re-requested (`@codex review`). This
+   is the gate; it is not optional and no other reviewer substitutes for it.
+   If its externally-billed quota is exhausted (R-009) the gate is
+   *unavailable*, not waived: the merge waits.
+   The `independent-review` status check
+   (`.github/workflows/independent-review-gate.yml`) reports whether that round
+   exists for the pull request's **current head SHA**, so this step no longer
+   depends on a human noticing that a round is in flight. It is advisory until
+   branch protection makes it required (D-013), and a green result proves the
+   round happened, not that its findings were addressed — that is step 7.
+   *Additional* read-only audits (Claude `bootstrap-auditor`, Codex
+   `independent-verification-reviewer`) remain available and are encouraged
+   for large or risky changes, but they supplement step 5 rather than satisfy
+   it. A prior such audit returned `REQUEST CHANGES` and is what this
+   remediation responds to.
 6. At least one human reviewer approves the pull request.
-7. Any remaining required findings from step 5 are resolved (re-run the
-   independent audit if findings required changes).
+7. Every finding from step 5 is fixed, or answered on its thread with a
+   reason, and the thread resolved. A P1 or P2 left with no reply and no fix
+   means the gate has been read, not passed. Re-request review if the fixes
+   changed the head.
+   **This step is not mechanically enforced.** Thread resolution is a state a
+   human can set without acting, so `required_conversation_resolution` and the
+   `independent-review` status can both be green with every finding ignored.
+   Whoever merges is asserting they read the findings — a green merge box is
+   not that assertion (R-008).
 8. A human merges the pull request. No agent merges it, and no agent
    approves its own or another agent's work.
 9. The human records, in `docs/bootstrap/decision-log.md`: the pull-request
@@ -185,3 +207,13 @@ This section must not be described as simply **Pending** (steps 2–10 are
 done and evidenced by D-014) or as fully **Completed** (step 1 is
 permanently Deferred by design under D-013, not merely outstanding) — the
 two-scope status above is the accurate description going forward.
+
+**Step 5 was rewritten on 2026-08-28 under D-121.** As first written it
+offered the Claude `bootstrap-auditor` and/or the Codex
+`independent-verification-reviewer` as the independent audit, neither of
+which is the reviewer `AGENTS.md`'s Mandatory Workflow now names. A pull
+request could therefore complete every documented step here while skipping
+that gate entirely — which is what happened at PR #120 (R-008's second
+evidenced instance). D-014's evidenced run predates the named reviewer and
+is not invalidated by this change; every run from 2026-08-28 onward follows
+step 5 as it now reads.
