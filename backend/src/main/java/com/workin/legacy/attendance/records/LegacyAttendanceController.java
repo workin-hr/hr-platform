@@ -446,23 +446,9 @@ public class LegacyAttendanceController {
 				.contentType(MediaType.parseMediaType(
 						"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
 				.header(HttpHeaders.CONTENT_DISPOSITION,
-						"attachment; filename=\"" + sanitizedFilename(sheet.filename()) + "\"")
+						"attachment; filename=\"" + LegacyXlsxWriter.sanitizeFilename(sheet.filename()) + "\"")
 				.contentLength(body.length)
 				.body(body);
-	}
-
-	/**
-	 * {@code api_xlsx_export_send()}'s own filename guard
-	 * ({@code xlsx_writer.php:325-328}): everything outside
-	 * {@code [A-Za-z0-9._-]} collapses to {@code _}, and a name not ending
-	 * {@code .xlsx} gains it.
-	 */
-	private static String sanitizedFilename(String filename) {
-		String safe = filename.replaceAll("[^a-zA-Z0-9._-]+", "_");
-		if (safe.isEmpty()) {
-			safe = "export.xlsx";
-		}
-		return safe.toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx") ? safe : safe + ".xlsx";
 	}
 
 	private List<String> translated(String locale, List<String> keys) {

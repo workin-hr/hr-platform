@@ -159,6 +159,38 @@ class LegacyPayslipExportEndToEndTest {
 		assertThat(sheet).contains("Pay A", "Pay B");
 	}
 
+	/**
+	 * The {@code from}/{@code to} pair reaches the filename, and the filename
+	 * reaches {@code Content-Disposition}. PHP sanitizes inside
+	 * {@code api_xlsx_export_send()} -- the terminator both exports share -- so a
+	 * port that skips it is both a header-injection vector and a parity defect.
+	 */
+	@Test
+	void aFilenameCannotCarryQuotesOrControlCharactersIntoTheHeader() {
+		ResponseEntity<byte[]> response = get(ADMIN, "company_admin",
+				"?from=2026-06-01%22;x=%22a&to=2026-06-30%0d%0aX-Injected:%201");
+		assertThat(response.getStatusCode().value())
+				.as("a hostile filename must not turn into a server error either")
+				.isEqualTo(200);
+		String disposition = response.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION);
+
+		assertThat(disposition).as("the header must still be well-formed").isNotNull();
+		assertThat(disposition.chars().filter(c -> c == '"').count())
+				.as("exactly the two quotes that delimit the filename -- four would mean the "
+						+ "attacker closed the value and appended a parameter of their own")
+				.isEqualTo(2);
+		assertThat(disposition).doesNotContain("\r", "\n");
+		assertThat(disposition).endsWith(".xlsx\"");
+
+		// The hostile text survives *as filename content*, which is the point:
+		// its quote, colon, semicolon and CRLF are collapsed to underscores, so
+		// it can no longer close the value or start a parameter or a header.
+		String value = disposition.substring(disposition.indexOf('"') + 1, disposition.length() - 1);
+		assertThat(value)
+				.as("every character is inside api_xlsx_export_send()'s own class")
+				.matches("[A-Za-z0-9._-]+");
+	}
+
 	@Test
 	void aNonGetMethodIsRefused() {
 		ResponseEntity<byte[]> response = restTemplate.exchange(

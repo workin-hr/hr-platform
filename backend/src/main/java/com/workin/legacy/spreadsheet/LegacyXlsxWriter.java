@@ -34,6 +34,34 @@ public final class LegacyXlsxWriter {
 	}
 
 	/**
+	 * {@code api_xlsx_export_send()}'s filename guard
+	 * ({@code xlsx_writer.php:325-328}):
+	 * {@code preg_replace('/[^a-zA-Z0-9._-]+/', '_', $filename) ?: 'export.xlsx'},
+	 * then {@code .xlsx} appended when the name does not already end in it.
+	 *
+	 * <p>It lives here rather than in either controller because it lives in the
+	 * <b>terminator</b> in PHP -- both {@code attendance/export.php} and
+	 * {@code payslips/export.php} reach it, so a port that applies it at only one
+	 * call site is a parity defect as well as a security one.
+	 *
+	 * <p>Security note: both endpoints build their filename from user-supplied
+	 * {@code from}/{@code to} query parameters and place it in
+	 * {@code Content-Disposition}. Without this collapse, a quote in either
+	 * parameter closes the {@code filename="..."} value and injects further
+	 * header parameters, and a CR/LF makes the container reject the response
+	 * outright. The character class permits neither.
+	 */
+	public static String sanitizeFilename(String filename) {
+		String safe = filename == null ? "" : filename.replaceAll("[^a-zA-Z0-9._-]+", "_");
+		if (safe.isEmpty()) {
+			// PHP's `?: 'export.xlsx'` -- preg_replace returning an empty string
+			// is falsy, so the default takes over.
+			return "export.xlsx";
+		}
+		return safe.toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx") ? safe : safe + ".xlsx";
+	}
+
+	/**
 	 * Existing callers use the legacy writer's default left-to-right worksheet.
 	 */
 	public static byte[] build(

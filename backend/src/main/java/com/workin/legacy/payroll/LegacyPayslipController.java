@@ -137,7 +137,10 @@ public class LegacyPayslipController {
 			throw new LegacyApiException(500, "file_save_failed", ex.getMessage());
 		}
 
-		String filename = LegacyPayslipExportSheet.filename(batchId, from, to, clock.todayAsString());
+		// Sanitized because `from`/`to` are raw query parameters and this value
+		// lands in Content-Disposition -- see LegacyXlsxWriter#sanitizeFilename.
+		String filename = LegacyXlsxWriter.sanitizeFilename(
+				LegacyPayslipExportSheet.filename(batchId, from, to, clock.todayAsString()));
 		return ResponseEntity.ok()
 				.contentType(MediaType.parseMediaType(
 						"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
