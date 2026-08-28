@@ -2,12 +2,16 @@ package com.workin.legacy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
 import java.util.List;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -15,6 +19,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
+import com.workin.legacy.wire.LegacyApiResponse;
 import com.workin.legacy.wire.LegacyPhpRoutes;
 
 /** Bidirectional literal inventory for every delivered {@code /apis/**} route. */
@@ -130,6 +135,85 @@ class LegacyPhpRouteInventoryTest {
 	@Test
 	void deliveredRouteCountIsNowOneHundredTwentyEight() {
 		assertThat(EXPECTED_ROUTES).hasSize(128).doesNotHaveDuplicates();
+	}
+
+	/**
+	 * The completion plan's §5 G3 partitions the delivered routes by response
+	 * shape -- 122 envelope-only, 2 download-only, 1 conditional -- and that
+	 * table has already been corrected twice for missing a live download route.
+	 * These two assertions are its drift test: the classification is derived
+	 * from the live handler mappings, so a new non-envelope handler, or one
+	 * converted back to the envelope, fails here instead of silently staling a
+	 * completion-gate measurement.
+	 *
+	 * <p><b>Type-level only.</b> This catches a <em>new</em> non-envelope route,
+	 * or one converted back to the envelope. It cannot catch
+	 * {@code penalties/report.php} losing its {@code format=csv} download branch
+	 * while still declaring {@code ResponseEntity<?>};
+	 * {@code LegacyPenaltyReportBranchesEndToEndTest} exercises both of that
+	 * route's responses to cover exactly that.
+	 *
+	 * <p>The rule reads the declared return type: a handler answers with
+	 * D-074's envelope iff it returns {@link LegacyApiResponse} or
+	 * {@code ResponseEntity<LegacyApiResponse>} -- the latter being how a
+	 * handler that needs a non-200 status still answers in the envelope.
+	 * Everything else ({@code void}, {@code ResponseEntity<byte[]>}, the
+	 * wildcard {@code ResponseEntity<?>}) has to be inventoried below with its
+	 * PHP terminator. The wildcard is not incidental: it is what lets
+	 * {@code penalties/report.php} return either shape from one handler.
+	 */
+	private static final List<String> DOWNLOAD_ONLY_ROUTES = List.of(
+			// stream_employee_template_xlsx() -- writes to output and exits.
+			"/apis/api/employees/template_excel.php",
+			// leave_balance_excel_stream_template() -- same shape.
+			"/apis/api/leave_balances/template_excel.php",
+			// api_xlsx_export_send(), via data_export_attendance_csv() or
+			// data_export_fingerprints_sheet() -- Wave 12.6.6d.
+			"/apis/api/attendance/export.php",
+			// api_xlsx_export_send(), via data_export_payslips_csv() -- Wave 12.9.
+			"/apis/api/payslips/export.php");
+
+	/**
+	 * {@code penalties/report.php} picks its wire contract from {@code format}:
+	 * {@code ?format=csv} reaches the file's own local {@code streamCSV()}
+	 * ({@code penalties/report.php:24}, which shadows the global one in
+	 * {@code functions.php:398} and rewrites the {@code .csv} name it is handed
+	 * to {@code .xlsx}); anything else falls through to {@code ok()}.
+	 */
+	private static final List<String> CONDITIONAL_ROUTES = List.of("/apis/api/penalties/report.php");
+
+	@Test
+	void everyRouteAnsweringOutsideTheD074EnvelopeIsInventoried() {
+		List<String> nonEnvelope = handlerMapping.getHandlerMethods().entrySet().stream()
+				.filter(entry -> !answersWithTheD074Envelope(entry.getValue().getMethod()))
+				.flatMap(entry -> entry.getKey().getPatternValues().stream())
+				.filter(pattern -> pattern.startsWith("/apis/"))
+				.distinct().sorted().toList();
+
+		assertThat(nonEnvelope).containsExactlyElementsOf(
+				Stream.concat(DOWNLOAD_ONLY_ROUTES.stream(), CONDITIONAL_ROUTES.stream()).sorted().toList());
+	}
+
+	private static boolean answersWithTheD074Envelope(Method method) {
+		Class<?> raw = method.getReturnType();
+		if (LegacyApiResponse.class.equals(raw)) {
+			return true;
+		}
+		if (!ResponseEntity.class.equals(raw)) {
+			return false;
+		}
+		return method.getGenericReturnType() instanceof ParameterizedType parameterized
+				&& LegacyApiResponse.class.equals(parameterized.getActualTypeArguments()[0]);
+	}
+
+	@Test
+	void theResponseShapePartitionMatchesTheCompletionPlan() {
+		assertThat(DOWNLOAD_ONLY_ROUTES).hasSize(4).doesNotHaveDuplicates();
+		assertThat(CONDITIONAL_ROUTES).hasSize(1);
+		assertThat(EXPECTED_ROUTES).containsAll(DOWNLOAD_ONLY_ROUTES).containsAll(CONDITIONAL_ROUTES);
+		assertThat(EXPECTED_ROUTES.size() - DOWNLOAD_ONLY_ROUTES.size() - CONDITIONAL_ROUTES.size())
+				.as("envelope-only routes, per the completion plan's 123/4/1 partition")
+				.isEqualTo(123);
 	}
 
 	@Test

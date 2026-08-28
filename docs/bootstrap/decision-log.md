@@ -1425,3 +1425,31 @@ unmerged PR.
 | Impact | `/apis/api/attendance_exception_types/**` is live and wildcarded in `CONTROLLER_GUARDED`; no `/api/legacy/attendance_exception_types` route remains mapped (asserted by `theWave12rExceptionTypeSliceIsAllFiveRoutesRetrofittedFromApiLegacy`, mirroring D-074/O-6's own closure condition). `com.workin.legacy.attendance` (the parent package) is added to `LegacyWireExceptionHandler`'s `basePackages`, now safe since the only controller that lived there and needed the old `ApiErrorBody` contract is retired; `com.workin.legacy.attendance.records` stays listed too, redundantly but harmlessly, rather than being collapsed. `LegacyExceptionTypeService.create()`/`update()` now key their `is_active` body field as `is_active` (snake_case, matching the wire contract) rather than the old REST controller's `isActive`; nothing else called those methods with the old key (checked: `LegacyRequestTypeService`/`LegacyAttendanceService` only ever call `validateIdForCompany()`/`resolveForCompany()`, unaffected). |
 | Follow-up | Four Wave 12.R module slices remain: `branches` (6 routes, D-071's coercion probe attached), `departments` (5), `job_titles` (5), `auth/login_employee` (1) -- 17 endpoints. The `update.php`/`is_active` and `branches`' D-071 coercion approximations both remain open measurement gaps, not yet probed against a real MariaDB the way D-096 probed zero-dates; a later session could run the same kind of connector experiment for both at once. |
 | Evidence | `hr-legacy/apis/api/attendance_exception_types/{list,one,create,update,delete}.php` (all five, read in full); `apis/helpers/security.php:118-128` (`whitelist_update_fields()`, confirming the no-cast raw bind); `apis/helpers/functions.php:617-623` (`required()`); `apis/helpers/hr_permissions.php:170-174` (`require_company_settings_access()`, confirmed to match `LegacyHrPermissionEnforcer.require(CAN_COMPANY_SETTINGS)`'s existing employee-branch-only implementation); `backend/src/main/resources/legacy/mysql_workin.schema.sql` (previously `mysql_workin.schema.sql:...`, `exception_types`'s `timestamp` columns, read to confirm the TIMESTAMP finding) -- test copy at `backend/src/test/resources/legacy/mysql_workin.schema.sql:516-523`. `LegacyExceptionTypeEndToEndTest` (15 tests, rewritten against the new routes and envelope, same fixture and guard/permission/isolation/uniqueness scenarios PR 12.1 established): guard-stack negatives (403 insufficient role, 403 inactive company, 401 stale token version, D-045's list-succeeds-but-write-denied split), D-047/D-051 global uniqueness (same-company and cross-company 409), D-048's atomic FK-clearing delete verified not to touch another tenant's rows, and the new `is_active` default/explicit-false create coverage. `LegacyPhpRouteInventoryTest` extended to 108 routes, `/apis/api/attendance_exception_types/**` now guarded, and a dedicated test asserts no `/api/legacy/attendance_exception_types` route remains mapped. `LegacyExceptionTypeTenancyTest`/`ExceptionTypeFlowTest` (pre-existing, lower-level, do not hit HTTP routes) re-run unaffected. Full suite green locally (`./gradlew clean test compilePhase2TestJava`). |
+
+---
+
+## Continued in `decision-log-wave12r.md`
+
+**D-108 onward live in [`decision-log-wave12r.md`](decision-log-wave12r.md)**,
+which this file's numbering runs into directly after D-107. That file is not a
+side note or an archive: it carries accepted decisions of the same authority as
+the entries above, and several of them govern repository-wide policy rather than
+one wave.
+
+Anyone reading this file for the current state of a decision must read that one
+too. The pointer exists because the continuation previously declared itself only
+from its own side, so a reader who started here saw the log end at D-107 with no
+indication that fourteen later decisions existed.
+
+Decisions there that are **not** Wave-12.R implementation detail, and that a
+reader of this file is most likely to be looking for:
+
+| Decision | What it governs |
+|---|---|
+| **D-111** | Phase 1 is a zero-client-change PHP-to-Java replacement — the compatibility invariant every Phase-1 endpoint is measured against. |
+| **D-119** | The legacy row-count contract is enforced at application startup, not only documented. |
+| **D-120** | The three remaining Item-12 endpoints are delivered rather than excluded, and Java reproduces PHP's response contract per endpoint. |
+| **D-121** | `chatgpt-codex-connector[bot]` is the independent reviewer of record for `AGENTS.md`'s mandatory workflow, and its quota is a gate on merging. |
+
+When the next continuation file is opened, add its pointer here in the same way
+rather than leaving it to declare itself.
