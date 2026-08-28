@@ -250,7 +250,7 @@ in this document had to be closed for that to be true.
 |---|---|---|
 | `attendance/overall_report.php` | **Wave 12.6.6c** | **delivered 2026-08-28** |
 | `attendance/export.php` | **Wave 12.6.6d** | **delivered 2026-08-28** |
-| `payslips/export.php` | **Wave 12.9** | owed; that wave is **15 of 16**, not complete — see below |
+| `payslips/export.php` | **Wave 12.9** | **delivered 2026-08-28**, closing that wave at 16 of 16 |
 
 **Wave 12.6.6 delivered in four slices**, because the two endpoints share one
 builder (`overall_attendance_report_build()`, whose docblock says so and which
@@ -293,11 +293,11 @@ O-6 existed to protect still hold**:
 Item 12 is complete**, which now means until Waves 12.6.6 and 12.9 close. The
 operational order for what remains is therefore:
 
-```text
-12.9    payslips/export.php   ─→  G2 closes  →  Item 13
-```
-
-**Wave 12.6.6 is closed.** One endpoint stands between the repository and G2.
+**Item 12 is delivered.** All three of C9's endpoints shipped on 2026-08-28, so
+`ITEM12_REMAINING` is empty and no endpoint stands between the repository and
+G2's *numerator*. What remains before G2 can be declared closed is Item 13's 70
+endpoints, and the other gates — G3's per-endpoint contract evidence, G6's
+differential floor, and G7's full suite — read on their own terms.
 
 The two are independent — different modules, different helper closures — so
 nothing forces one before the other.
@@ -461,11 +461,11 @@ table; only the distribution across buckets has moved.
 
 | Status | Endpoints | What it covers |
 |---|---|---|
-| `FINAL_COMPATIBLE` | **127** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(127)`). Waves 12.4 through 12.10, the Wave 12.R retrofit, and Wave 12.6.6's two attendance endpoints. |
+| `FINAL_COMPATIBLE` | **128** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(128)`). Waves 12.4 through 12.10, the Wave 12.R retrofit, Wave 12.6.6's two attendance endpoints, and Wave 12.9's `payslips/export.php`. |
 | `IMPLEMENTED_BUT_REQUIRES_D074_RETROFIT` | **0** | Closed by Wave 12.R (D-107/D-108/D-110/D-111). No `/api/legacy/**` business route remains mapped. |
-| `ITEM12_REMAINING` | **1** | `payslips/export.php` — **to be delivered, not excluded** (D-120/O-8), owned by Wave 12.9 (§1.6). Wave 12.6.6's two left this bucket on 2026-08-28. |
+| `ITEM12_REMAINING` | **0** | **Empty as of 2026-08-28.** All three of C9's endpoints were delivered rather than excluded, exactly as O-8/D-120 dispositioned. |
 | `ITEM13_REMAINING` | **70** | §2.2's 71 less `auth/login_employee`, delivered by Wave 12.R. |
-| **Live total** | **198** | 127 + 0 + 1 + 70 |
+| **Live total** | **198** | 128 + 0 + 0 + 70 |
 | `EXPLICITLY_EXCLUDED_WITH_DECISION` | **1** | `apis/api/time/now.php` (O-3, §2.3). Outside the live total. |
 | **Endpoint files** | **199** | 198 live + 1 excluded |
 
