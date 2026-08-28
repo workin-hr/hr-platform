@@ -231,8 +231,7 @@ public class LegacyPayslipService {
 
 		int voidWeeklyRestDays = 0;
 		if (!periodFrom.isEmpty() && !periodTo.isEmpty() && employeeId > 0) {
-			String today = clock.todayAsString();
-			String asOf = today.compareTo(periodTo) <= 0 ? today : periodTo;
+			String asOf = LegacyPayrollPeriod.asOfDate(clock.todayAsString(), periodTo);
 			LegacyPayrollAttendanceFigures.AttendanceDisplay display = attendanceFigures.attendanceDisplay(
 					companyId, employeeId, periodFrom, periodTo, (int) daysPresent, asOf);
 			voidWeeklyRestDays = display.voidWeeklyRestDays();
@@ -321,10 +320,9 @@ public class LegacyPayslipService {
 			return row;
 		}
 
-		String today = clock.todayAsString();
-		String asOf = today.compareTo(periodTo) <= 0 ? today : periodTo;
-		boolean inProgress = asOf.compareTo(periodTo) < 0;
-		String rangeTo = inProgress ? asOf : periodTo;
+		String asOf = LegacyPayrollPeriod.asOfDate(clock.todayAsString(), periodTo);
+		boolean inProgress = LegacyPayrollPeriod.inProgress(periodTo, asOf);
+		String rangeTo = LegacyPayrollPeriod.rangeEnd(periodTo, asOf);
 
 		LegacyPayrollAttendanceFigures.AttendanceSummary summary =
 				attendanceFigures.attendanceSummary(companyId, employeeId, periodFrom, rangeTo, weeklyRestLabel);

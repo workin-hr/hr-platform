@@ -291,7 +291,7 @@ public class LegacyPayrollAttendanceFigures {
 	 * unlike {@link #periodWorkingDays}, see the class javadoc.
 	 * {@code weekly_rest_count_by_status_in_range()} is just this list's size.
 	 */
-	private List<String> weeklyRestDatesByStatus(
+	public List<String> weeklyRestDatesByStatus(
 			long companyId, long employeeId, String from, String to, String status,
 			Map<String, LegacyWeeklyRestCredit.AttendanceFlag> attendanceByDate,
 			Map<String, String> holidayByDate, String asOf) {
@@ -330,7 +330,7 @@ public class LegacyPayrollAttendanceFigures {
 	}
 
 	/** {@code payroll_approved_leave_days()} ({@code payroll_calculation.php:758-776}). */
-	private int approvedLeaveDays(long employeeId, String from, String to) {
+	public int approvedLeaveDays(long employeeId, String from, String to) {
 		Long days = jdbcTemplate.queryForObject(
 				APPROVED_LEAVE_DAYS, Long.class, to, from, employeeId, to, from);
 		return days == null ? 0 : (int) Math.max(0, days);
@@ -379,8 +379,18 @@ public class LegacyPayrollAttendanceFigures {
 		return details;
 	}
 
-	/** {@code attendance_present_details_for_period()} ({@code attendance_calendar_helper.php:484-532}). */
-	private List<Map<String, Object>> attendancePresentDetails(
+	/**
+	 * {@code attendance_present_details_for_period()}
+	 * ({@code attendance_calendar_helper.php:484-532}).
+	 *
+	 * <p><b>Not {@link #presentDetails}.</b> That method implements
+	 * {@code payroll_payslip_present_details()} and appends earned weekly-rest
+	 * and credited-holiday rows on top of this list. The overall attendance
+	 * report (Wave 12.6.6) fetches those two figures separately, so it calls
+	 * this one -- calling {@code presentDetails} there would add rows the
+	 * report never asked for and double-count the ones it did.
+	 */
+	public List<Map<String, Object>> attendancePresentDetails(
 			long employeeId, String from, String to, String presentLabel) {
 		return jdbcTemplate.query(PRESENT_DETAILS, (rs, rowNum) -> {
 			String exceptionName = LegacyValues.phpTrim(rs.getString("exception_name"));
