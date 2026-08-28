@@ -872,8 +872,16 @@ too. Only the success path is a file.
 12.4, 12.7 and 12.8 and are inside `LegacyPhpRouteInventoryTest`'s 125. The owed
 endpoints extend an established pattern rather than introducing one.
 
-This enumeration is exhaustive as measured: the three are the only handlers under
-`com.workin.legacy` whose success path is not a `LegacyApiResponse`.
+This enumeration is exhaustive as measured, and **enforced rather than
+hand-maintained**: `LegacyPhpRouteInventoryTest`'s
+`everyRouteAnsweringOutsideTheD074EnvelopeIsInventoried` derives the
+classification from the live handler mappings — a route answers in the envelope
+iff its handler returns `LegacyApiResponse` or `ResponseEntity<LegacyApiResponse>`
+— and asserts the non-envelope set is exactly these three.
+`theResponseShapePartitionMatchesTheCompletionPlan` pins the 122/2/1 arithmetic to
+the same inventory. Adding a download route, or converting one back to the
+envelope, fails those tests instead of staling this table, which it has already
+done twice.
 
 **Not byte-for-byte, and deliberately so.** D-085 already settled this for the
 one XLSX generator Phase 1 has shipped: "ZIP timestamps, compression metadata

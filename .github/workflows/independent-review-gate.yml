@@ -1,0 +1,88 @@
+name: Independent Review Gate
+
+# D-121 makes `chatgpt-codex-connector[bot]` the independent reviewer whose
+# round discharges AGENTS.md's mandatory workflow. This job reports whether
+# that round has actually happened *on the pull request's current head*.
+#
+# Why this exists rather than relying on branch protection's existing knobs
+# (R-008, and the PR #126 race it records):
+#   - a required *approving* review does not help: this reviewer is read-only
+#     and cannot approve, so a human approval satisfies that count while a
+#     round is still in flight;
+#   - `required_conversation_resolution` is necessary but not sufficient: it
+#     blocks a merge while findings are open, and reports nothing at all when
+#     the bot has not posted yet, or when fixes were pushed and the previous
+#     head's threads were resolved. Both leave the *final* head unreviewed.
+#
+# This job closes that specific hole: it fails until a review exists for the
+# exact head SHA being merged.
+#
+# It is advisory until a human makes it a required status check on `main`
+# (branch protection is Deferred under D-013 — see docs/bootstrap/risk-register.md
+# R-008 and scripts/check-branch-protection.sh, which requires it once applied).
+# A green run here is evidence for the merge sequence's step 5, not a
+# substitute for reading the findings.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  # A completed review is the event that flips this job green.
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: independent-review-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  reviewed:
+    name: independent-review
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check the named reviewer has reviewed this head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Kept in one place; D-121 owns the value.
+          REVIEWER: "chatgpt-codex-connector[bot]"
+        run: |
+          set -euo pipefail
+
+          echo "Pull request #$PR, head $HEAD_SHA"
+          echo "Required independent reviewer: $REVIEWER"
+
+          reviews_on_head="$(
+            gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+              --jq "[.[] | select(.user.login == env.REVIEWER and .commit_id == env.HEAD_SHA)] | length"
+          )"
+
+          if [ "$reviews_on_head" -eq 0 ]; then
+            latest="$(
+              gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+                --jq "[.[] | select(.user.login == env.REVIEWER) | .commit_id[0:7]] | last // \"none\""
+            )"
+            echo
+            echo "FAIL: $REVIEWER has not reviewed $HEAD_SHA."
+            echo "      Most recent round from that reviewer: $latest"
+            echo
+            echo "AGENTS.md's mandatory workflow places an independent review before human"
+            echo "merge, and D-121 requires the round to cover the final head — commits"
+            echo "pushed after a round are unreviewed until review is re-requested."
+            echo
+            echo "Comment '@codex review' on the pull request, then re-run this job."
+            echo "If the reviewer's quota is exhausted (risk R-009) the gate is unavailable,"
+            echo "not waived: the merge waits."
+            exit 1
+          fi
+
+          echo
+          echo "OK: $REVIEWER submitted $reviews_on_head review(s) on this head."
+          echo "This proves a round happened. It does not prove its findings were addressed —"
+          echo "that is the merge sequence's step 7, and unresolved threads are what"
+          echo "required_conversation_resolution blocks on."

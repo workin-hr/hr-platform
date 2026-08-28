@@ -329,6 +329,12 @@ INDEPENDENT_REVIEWER = "chatgpt-codex-connector[bot]"
 # successor) cannot satisfy the check.
 REVIEWER_ROW_ANNOTATION_RE = re.compile(r"\s*\([^)]*\)\s*$")
 
+# The same exact-identity rule for prose: the name must not be glued to a
+# preceding identifier character, so `impersonator-chatgpt-codex-connector[bot]`
+# is a different agent rather than a match. `[bot]` makes a trailing boundary
+# unnecessary -- nothing can extend the name to the right.
+REVIEWER_IN_PROSE_RE = re.compile(rf"(?<![\w-]){re.escape(INDEPENDENT_REVIEWER)}")
+
 
 def _names_reviewer(agent_name: str) -> bool:
     stripped = REVIEWER_ROW_ANNOTATION_RE.sub("", agent_name.strip()).strip()
@@ -408,13 +414,17 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
                 "human merge; review must precede merge or it gates nothing (D-121)",
                 failures,
             )
-        # Deliberately scoped to the section, not the whole file: a mention of
-        # the reviewer somewhere else in AGENTS.md does not staff this gate.
-        if INDEPENDENT_REVIEWER not in workflow:
+        # Scoped to the section, not the whole file (a mention elsewhere in
+        # AGENTS.md does not staff this gate), and matched as a whole
+        # identifier, so a look-alike such as
+        # `impersonator-chatgpt-codex-connector[bot]` names a different agent
+        # rather than this one.
+        if not REVIEWER_IN_PROSE_RE.search(workflow):
             fail(
                 f"AGENTS.md's Mandatory Workflow does not name {INDEPENDENT_REVIEWER!r} as "
                 f"the reviewer that discharges its independent-review step (D-121); a mention "
-                "elsewhere in the file does not count",
+                "elsewhere in the file, or of a different identity containing this name, does "
+                "not count",
                 failures,
             )
 

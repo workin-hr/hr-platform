@@ -1050,6 +1050,7 @@ def write_reviewer_declaration(
     reviewer_outside_section: bool = False,
     demoted_heading: bool = False,
     reversed_order: bool = False,
+    lookalike_in_workflow: bool = False,
 ) -> None:
     body = "# Repository Engineering Instructions\n\n"
     if workflow_section:
@@ -1062,7 +1063,9 @@ def write_reviewer_declaration(
             f"{'###' if demoted_heading else '##'} Mandatory Workflow\n\n"
             f"{steps}\n\n"
             + (
-                f"Independent review is performed by `{v.INDEPENDENT_REVIEWER}` (D-121).\n"
+                f"Independent review is performed by `impersonator-{v.INDEPENDENT_REVIEWER}` (D-121).\n"
+                if lookalike_in_workflow
+                else f"Independent review is performed by `{v.INDEPENDENT_REVIEWER}` (D-121).\n"
                 if agents_names_reviewer
                 else "Independent review is performed by somebody.\n"
             )
@@ -1185,6 +1188,26 @@ def test_lookalike_reviewer_row_does_not_satisfy_the_check() -> None:
         check(
             any("has no row for" in f for f in failures),
             f"a look-alike matrix identity does not satisfy the check (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_lookalike_reviewer_in_the_workflow_fails() -> None:
+    """The prose side needs the same exact-identity rule as the matrix row:
+    assigning review to `impersonator-...[bot]` must not pass merely because
+    the matrix still carries the real reviewer's row."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW],
+            lookalike_in_workflow=True,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("does not name" in f for f in failures),
+            f"a look-alike reviewer identity in the workflow fails (failures={failures})",
         )
     finally:
         shutil.rmtree(root)
@@ -1551,6 +1574,7 @@ def main() -> int:
     test_demoted_workflow_heading_fails()
     test_review_after_merge_fails()
     test_lookalike_reviewer_row_does_not_satisfy_the_check()
+    test_lookalike_reviewer_in_the_workflow_fails()
     test_reviewer_named_only_outside_the_workflow_fails()
     test_reviewer_missing_from_matrix_fails()
     test_reviewer_row_widened_fails()

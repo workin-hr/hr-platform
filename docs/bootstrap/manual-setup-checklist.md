@@ -173,6 +173,12 @@ only after a human completed the underlying action first.
    is the gate; it is not optional and no other reviewer substitutes for it.
    If its externally-billed quota is exhausted (R-009) the gate is
    *unavailable*, not waived: the merge waits.
+   The `independent-review` status check
+   (`.github/workflows/independent-review-gate.yml`) reports whether that round
+   exists for the pull request's **current head SHA**, so this step no longer
+   depends on a human noticing that a round is in flight. It is advisory until
+   branch protection makes it required (D-013), and a green result proves the
+   round happened, not that its findings were addressed — that is step 7.
    *Additional* read-only audits (Claude `bootstrap-auditor`, Codex
    `independent-verification-reviewer`) remain available and are encouraged
    for large or risky changes, but they supplement step 5 rather than satisfy

@@ -349,14 +349,26 @@ demoted heading, review placed after merge, an out-of-section mention, a look-al
 identity, the widening case, the duplicate-row case, and a sanity check against the
 real repository.
 
-**The mechanical gate this needs is not a required approving review.** This
-reviewer cannot approve, so a human approval satisfies that count while a round is
-still in flight — which is how PR #126 merged ten seconds after its final round
-posted (R-008's second realization). `required_conversation_resolution` is the
-setting that blocks it, because unaddressed findings are unresolved threads;
-`scripts/check-branch-protection.sh` now requires it, so the protection applied
-whenever D-013's deferral is revisited is verified against the failure that
-actually occurred.
+**The mechanical gate this needs is not a required approving review**, and it is
+not one setting. This reviewer cannot approve, so a human approval satisfies that
+count while a round is still in flight — which is how PR #126 merged ten seconds
+after its final round posted (R-008's second realization).
+
+Two signals are required, because each is blind where the other sees:
+
+| Signal | Proves | Blind to |
+|---|---|---|
+| `required_conversation_resolution` | every finding was fixed or answered | a head with **no** round yet, and a head whose predecessor's threads were resolved before the new commits |
+| `independent-review` status check (`.github/workflows/independent-review-gate.yml`) | the named reviewer submitted a round for **this head SHA** | whether that round's findings were addressed |
+
+`scripts/check-branch-protection.sh` requires conversation resolution, so the
+protection applied whenever D-013's deferral is revisited is verified against the
+failure that occurred. The status check is **advisory until a human adds it to
+`main`'s required contexts** — which cannot happen while branch protection itself
+is Deferred, and is recorded as the outstanding owner step in R-008.
+
+Neither replaces reading the findings. A green `independent-review` proves a round
+happened, not that anyone acted on it.
 
 **Propagated into the executable procedure, not just the policy.** Step 5 of the
 Human Approval And Merge Sequence in `docs/bootstrap/manual-setup-checklist.md`
