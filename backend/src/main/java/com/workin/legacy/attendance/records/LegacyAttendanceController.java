@@ -1,5 +1,7 @@
 package com.workin.legacy.attendance.records;
 
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
@@ -55,18 +57,20 @@ public class LegacyAttendanceController {
 	private final LegacyAttendanceImportService importService;
 	private final LegacyCheckInService checkInService;
 	private final LegacyAttendanceReportService reportService;
+	private final LegacyOverallReportService overallReportService;
 	private final LegacyRequestGuard requestGuard;
 	private final LegacyMessages messages;
 
 	public LegacyAttendanceController(
 			LegacyAttendanceService attendanceService,
 			LegacyAttendanceImportService importService, LegacyCheckInService checkInService,
-			LegacyAttendanceReportService reportService,
+			LegacyAttendanceReportService reportService, LegacyOverallReportService overallReportService,
 			LegacyRequestGuard requestGuard, LegacyMessages messages) {
 		this.attendanceService = attendanceService;
 		this.importService = importService;
 		this.checkInService = checkInService;
 		this.reportService = reportService;
+		this.overallReportService = overallReportService;
 		this.requestGuard = requestGuard;
 		this.messages = messages;
 	}
@@ -326,6 +330,63 @@ public class LegacyAttendanceController {
 		payload.put(firstKey, first);
 		payload.put(secondKey, second);
 		return payload;
+	}
+
+	/**
+	 * `overall_report.php`: the per-employee summary for a date range.
+	 *
+	 * <p>Its role list is `[COMPANY_ADMIN, HR, MANAGER]` -- an EMPLOYEE is
+	 * refused here, so the builder's own employee branch is unreachable through
+	 * this endpoint. It is reachable through `export.php`, which authenticates
+	 * with a bare `requireAuth()`; the branch is live, just not from here.
+	 *
+	 * <p>The two `_period_*` keys the builder carries are internal and are
+	 * stripped before the envelope, exactly as PHP's `array_map` does.
+	 */
+	@RequestMapping("/overall_report.php")
+	public LegacyApiResponse overallReport(HttpServletRequest request) {
+		requireMethod(request, "GET");
+		LegacyRequestContext context = requestGuard.requireAuth(
+				LegacyEmployee.Role.COMPANY_ADMIN, LegacyEmployee.Role.HR, LegacyEmployee.Role.MANAGER);
+		requestGuard.requireCompanyActive(context.companyId());
+
+		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
+		String locale = messages.resolveLocale(request);
+
+		List<Map<String, Object>> report = overallReportService.build(
+				context.companyId(),
+				null,
+				context.role() == LegacyEmployee.Role.MANAGER ? context.employeeId() : null,
+				new LegacyOverallReportService.Filters(
+						LegacyValues.toPhpString(query.value("from")),
+						LegacyValues.toPhpString(query.value("to")),
+						(int) LegacyValues.toPhpLong(query.value("month")),
+						(int) LegacyValues.toPhpLong(query.value("year")),
+						LegacyValues.toPhpLong(query.value("employee_id")),
+						LegacyValues.toPhpLong(query.value("branch_id")),
+						LegacyValues.toPhpLong(query.value("department_id")),
+						LegacyValues.toPhpString(query.value("search"))),
+				reportLabels(locale));
+
+		List<Map<String, Object>> payload = report.stream().map(row -> {
+			Map<String, Object> copy = new LinkedHashMap<>(row);
+			copy.remove("_period_from");
+			copy.remove("_period_to");
+			return copy;
+		}).toList();
+
+		return LegacyApiResponse.ok(message(request, "ok"), payload);
+	}
+
+	private LegacyOverallReportService.Labels reportLabels(String locale) {
+		return new LegacyOverallReportService.Labels(
+				messages.translate(locale, "csv_official_holiday_days", null),
+				messages.translate(locale, "csv_days_leave", null),
+				messages.translate(locale, "csv_paid_rest_days", null),
+				messages.translate(locale, "csv_absent_day", null),
+				messages.translate(locale, "csv_attendance_present_day", null),
+				messages.translate(locale, "csv_void_weekly_rest_days", null),
+				messages.translate(locale, "schedule_weekly_rest", null));
 	}
 
 	private static void requireMethod(HttpServletRequest request, String expected) {

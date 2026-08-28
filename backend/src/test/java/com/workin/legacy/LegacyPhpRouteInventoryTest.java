@@ -34,7 +34,8 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/attendance/create.php", "/apis/api/attendance/delete.php",
 			"/apis/api/attendance/delete_range.php", "/apis/api/attendance/employee_monthly_attendance.php",
 			"/apis/api/attendance/import_excel.php", "/apis/api/attendance/list.php",
-			"/apis/api/attendance/one.php", "/apis/api/attendance/stats.php",
+			"/apis/api/attendance/one.php", "/apis/api/attendance/overall_report.php",
+			"/apis/api/attendance/stats.php",
 			"/apis/api/attendance/update.php",
 			"/apis/api/attendance_exception_types/create.php",
 			"/apis/api/attendance_exception_types/delete.php",
@@ -125,8 +126,8 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void deliveredRouteCountIsNowOneHundredTwentyFive() {
-		assertThat(EXPECTED_ROUTES).hasSize(125).doesNotHaveDuplicates();
+	void deliveredRouteCountIsNowOneHundredTwentySix() {
+		assertThat(EXPECTED_ROUTES).hasSize(126).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -160,17 +161,17 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	/**
-	 * Not an exclusion. {@code attendance/overall_report.php} ends at
-	 * {@code ok(LangKey::OK, $report, 200)} and is an ordinary JSON read endpoint; it was
-	 * misclassified as binary because it shares export.php's broad J.2 payroll blocker --
-	 * which is itself closed, so neither endpoint is dependency-blocked any more. It is
-	 * unmapped because it is unimplemented, and D-120 dispositions it as delivered, so this
-	 * assertion must be deleted -- not amended -- when Wave 12.6.6 delivers it. See C9 in the
-	 * Phase 1 completion plan.
+	 * Deleted by Wave 12.6.6c, exactly as its predecessor's javadoc required:
+	 * {@code attendance/overall_report.php} is delivered and is now inside
+	 * {@link #EXPECTED_ROUTES}, so the assertion that it stays unmapped is gone
+	 * rather than inverted. Only {@code attendance/export.php} and
+	 * {@code payslips/export.php} remain.
 	 */
 	@Test
-	void theUnimplementedOverallReportEndpointIsStillUnmapped() {
-		assertThat(EXPECTED_ROUTES).doesNotContain("/apis/api/attendance/overall_report.php");
+	void theRemainingUnmappedRoutesAreOnlyTheTwoExports() {
+		assertThat(EXPECTED_ROUTES).contains("/apis/api/attendance/overall_report.php");
+		assertThat(EXPECTED_ROUTES).doesNotContain(
+				"/apis/api/attendance/export.php", "/apis/api/payslips/export.php");
 	}
 
 	@Test

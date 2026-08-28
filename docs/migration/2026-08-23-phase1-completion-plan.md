@@ -67,7 +67,7 @@ delivered its three. The two remaining are Wave 12.6.6's `overall_report` and
 | 12.6.4a | `attendance/analyze_excel` | 1 | complete |
 | 12.6.5 | `schedules/employee_monthly_schedule`, `generate_employee_schedule` | 2 | complete |
 | 12.6.4b | `attendance/list`, `stats`, `employee_monthly_attendance` | 3 | complete — delivered 2026-08-27 after Wave 12.7 (§1.5) |
-| **12.6.6** | `attendance/overall_report`, `export` | 2 | **0 of 2, both to be delivered (D-120).** `export` streams a binary response, so Java streams the same bytes PHP does; `overall_report` is a JSON endpoint misclassified as binary — C9, §6 |
+| **12.6.6** | `attendance/overall_report`, `export` | 2 | **1 of 2.** `overall_report` delivered 2026-08-28 (12.6.6a-c); `export` owed. `export` streams a binary response, so Java streams the same bytes PHP does; `overall_report` is a JSON endpoint misclassified as binary — C9, §6 |
 
 **16 of 18 delivered.** Wave 12.6.6's two are both outstanding and both in
 scope: 16 + 2 = 18, with nothing in this wave excluded — C9, §6, D-120.
@@ -246,11 +246,22 @@ These are **not** the `profile` module. That is nine Item-13 endpoints — see
 all three. Delivery needs an owning slice and a place in the order, and two gaps
 in this document had to be closed for that to be true.
 
-| Endpoint | Owning slice | Status of that slice |
+| Endpoint | Owning slice | Status |
 |---|---|---|
-| `attendance/overall_report.php` | **Wave 12.6.6** | 0 of 2 — §1.2 |
-| `attendance/export.php` | **Wave 12.6.6** | 0 of 2 — §1.2 |
-| `payslips/export.php` | **Wave 12.9** | **15 of 16**, not complete — see below |
+| `attendance/overall_report.php` | **Wave 12.6.6c** | **delivered 2026-08-28** |
+| `attendance/export.php` | **Wave 12.6.6d** | owed |
+| `payslips/export.php` | **Wave 12.9** | owed; that wave is **15 of 16**, not complete — see below |
+
+**Wave 12.6.6 delivered in four slices**, because the two endpoints share one
+builder (`overall_attendance_report_build()`, whose docblock says so and which
+`data_export_attendance_csv()` calls as its first statement):
+
+| Slice | Content |
+|---|---|
+| 12.6.6a | `LegacyPayrollPeriod` for the `as_of`/`in_progress` clamp, and three `LegacyPayrollAttendanceFigures` helpers widened for reuse. No behaviour change. |
+| 12.6.6b | `LegacyAttendanceReportDetails` — the five helpers that had no Java port. |
+| 12.6.6c | `LegacyOverallReportStore` + `LegacyOverallReportService` + the `overall_report.php` handler. |
+| 12.6.6d | `attendance/export.php` — the workbook response and the `type=fingerprints\|details\|days` sheet. Owed. |
 
 **`payslips/export.php` had no owner, and now does.** §1.2's 12.6.6 covers only
 the two attendance endpoints, and Wave 12.9 was recorded complete on a
@@ -283,7 +294,7 @@ Item 12 is complete**, which now means until Waves 12.6.6 and 12.9 close. The
 operational order for what remains is therefore:
 
 ```text
-12.6.6  overall_report / export        ─┐
+12.6.6d attendance/export.php          ─┐
 12.9    payslips/export.php            ─┴─→  G2 closes  →  Item 13
 ```
 
@@ -449,11 +460,11 @@ table; only the distribution across buckets has moved.
 
 | Status | Endpoints | What it covers |
 |---|---|---|
-| `FINAL_COMPATIBLE` | **125** | Every delivered route, on its literal `/apis/api/**` URL with the D-074 envelope. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(125)`). Waves 12.4 through 12.10 plus the Wave 12.R retrofit. |
+| `FINAL_COMPATIBLE` | **126** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(126)`). Waves 12.4 through 12.10, the Wave 12.R retrofit, and `attendance/overall_report.php` from Wave 12.6.6c. |
 | `IMPLEMENTED_BUT_REQUIRES_D074_RETROFIT` | **0** | Closed by Wave 12.R (D-107/D-108/D-110/D-111). No `/api/legacy/**` business route remains mapped. |
-| `ITEM12_REMAINING` | **3** | `attendance/overall_report.php`, `attendance/export.php`, `payslips/export.php`. All three are **to be delivered, not excluded** — D-120/O-8, and see below. Owning slices: Wave 12.6.6 for the first two, Wave 12.9 for the third (§1.6). |
+| `ITEM12_REMAINING` | **2** | `attendance/export.php`, `payslips/export.php` — **to be delivered, not excluded** (D-120/O-8). `attendance/overall_report.php` left this bucket on 2026-08-28. Owning slices: Wave 12.6.6d and Wave 12.9 (§1.6). |
 | `ITEM13_REMAINING` | **70** | §2.2's 71 less `auth/login_employee`, delivered by Wave 12.R. |
-| **Live total** | **198** | 125 + 0 + 3 + 70 |
+| **Live total** | **198** | 126 + 0 + 2 + 70 |
 | `EXPLICITLY_EXCLUDED_WITH_DECISION` | **1** | `apis/api/time/now.php` (O-3, §2.3). Outside the live total. |
 | **Endpoint files** | **199** | 198 live + 1 excluded |
 
