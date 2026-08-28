@@ -118,6 +118,40 @@ class LegacyAttendanceExportEndToEndTest {
 		}
 	}
 
+	/**
+	 * Every style id a sheet references must exist in {@code styles.xml}.
+	 *
+	 * <p>The fingerprints sheet colours each row 2, 6 or 7, and the Java writer
+	 * declared only {@code cellXfs count="6"} -- ids 0-5 -- where PHP declares
+	 * eight. A cell pointing at a style the table does not declare is a workbook
+	 * a reader may repair or reject, and it renders none of the promised green
+	 * and red rows.
+	 */
+	@Test
+	void everyStyleTheFingerprintsSheetReferencesExistsInTheStyleTable() {
+		byte[] body = get(ADMIN, "company_admin", "?from=" + FROM + "&to=" + TO + "&type=fingerprints").getBody();
+
+		String styles = entry(body, "xl/styles.xml");
+		assertThat(styles).as("the workbook must carry a style table").isNotNull();
+		java.util.regex.Matcher declared = java.util.regex.Pattern
+				.compile("<cellXfs count=\"(\\d+)\"").matcher(styles);
+		assertThat(declared.find()).isTrue();
+		int styleCount = Integer.parseInt(declared.group(1));
+
+		String sheet = entry(body, "xl/worksheets/sheet1.xml");
+		assertThat(sheet).isNotNull();
+		java.util.regex.Matcher used = java.util.regex.Pattern.compile("s=\"(\\d+)\"").matcher(sheet);
+		java.util.Set<Integer> referenced = new java.util.LinkedHashSet<>();
+		while (used.find()) {
+			referenced.add(Integer.parseInt(used.group(1)));
+		}
+
+		assertThat(referenced).as("the sheet must actually style its rows").isNotEmpty();
+		assertThat(referenced).allSatisfy(id -> assertThat(id)
+				.as("style id %s must be inside the declared cellXfs range", id)
+				.isLessThan(styleCount));
+	}
+
 	@Test
 	void anUnknownTypeFallsThroughToTheOverallSheet() {
 		ResponseEntity<byte[]> response =
@@ -209,6 +243,20 @@ class LegacyAttendanceExportEndToEndTest {
 				.isEqualTo("PK");
 		assertThat(entryNames(body))
 				.contains("[Content_Types].xml", "xl/workbook.xml", "xl/worksheets/sheet1.xml");
+	}
+
+	/** One entry's text, or null when the workbook does not carry it. */
+	private static String entry(byte[] body, String name) {
+		try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(body))) {
+			for (ZipEntry entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+				if (name.equals(entry.getName())) {
+					return new String(zip.readAllBytes(), StandardCharsets.UTF_8);
+				}
+			}
+		} catch (Exception ex) {
+			throw new AssertionError("the response is not a readable ZIP container", ex);
+		}
+		return null;
 	}
 
 	private static List<String> entryNames(byte[] body) {

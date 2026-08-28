@@ -262,7 +262,7 @@ public final class LegacyXlsxWriter {
 			+ "<font><b/><color rgb=\"FFFFFFFF\"/><sz val=\"11\"/><name val=\"Calibri\"/></font>"
 			+ "<font><b/><color rgb=\"FF000000\"/><sz val=\"11\"/><name val=\"Calibri\"/></font>"
 			+ "</fonts>"
-			+ "<fills count=\"5\">"
+			+ "<fills count=\"7\">"
 			+ "<fill><patternFill patternType=\"none\"/></fill>"
 			+ "<fill><patternFill patternType=\"gray125\"/></fill>"
 			+ "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF1F4E78\"/>"
@@ -271,10 +271,17 @@ public final class LegacyXlsxWriter {
 			+ "<bgColor indexed=\"64\"/></patternFill></fill>"
 			+ "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFF8CBAD\"/>"
 			+ "<bgColor indexed=\"64\"/></patternFill></fill>"
+			// 5 light green and 6 light red, PHP's own body fills
+			// ({@code xlsx_writer.php:47-50}). Appended rather than inserted so
+			// fills 0-4 keep the indices the delivered template exports use.
+			+ "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFE9F5EA\"/>"
+			+ "<bgColor indexed=\"64\"/></patternFill></fill>"
+			+ "<fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFF9E3E4\"/>"
+			+ "<bgColor indexed=\"64\"/></patternFill></fill>"
 			+ "</fills>"
 			+ "<borders count=\"1\"><border><left/><right/><top/><bottom/><diagonal/></border></borders>"
 			+ "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>"
-			+ "<cellXfs count=\"6\">"
+			+ "<cellXfs count=\"8\">"
 			+ "<xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/>"
 			+ "<xf numFmtId=\"0\" fontId=\"1\" fillId=\"2\" borderId=\"0\" xfId=\"0\" applyFont=\"1\" "
 			+ "applyFill=\"1\" applyAlignment=\"1\"><alignment horizontal=\"center\" vertical=\"center\" "
@@ -288,6 +295,17 @@ public final class LegacyXlsxWriter {
 			+ "wrapText=\"1\"/></xf>"
 			+ "<xf numFmtId=\"0\" fontId=\"2\" fillId=\"4\" borderId=\"0\" xfId=\"0\" applyFont=\"1\" "
 			+ "applyFill=\"1\" applyAlignment=\"1\"><alignment horizontal=\"center\" vertical=\"center\" "
+			+ "wrapText=\"1\"/></xf>"
+			// 6 light-green body and 7 light-red body ({@code xlsx_writer.php:76-84}).
+			// The fingerprints sheet colours every complete day green and every
+			// missing one red, and referenced a style id the table did not
+			// declare until these were added -- a workbook a reader may repair
+			// or reject.
+			+ "<xf numFmtId=\"0\" fontId=\"0\" fillId=\"5\" borderId=\"0\" xfId=\"0\" applyFill=\"1\" "
+			+ "applyAlignment=\"1\"><alignment horizontal=\"center\" vertical=\"center\" "
+			+ "wrapText=\"1\"/></xf>"
+			+ "<xf numFmtId=\"0\" fontId=\"0\" fillId=\"6\" borderId=\"0\" xfId=\"0\" applyFill=\"1\" "
+			+ "applyAlignment=\"1\"><alignment horizontal=\"center\" vertical=\"center\" "
 			+ "wrapText=\"1\"/></xf>"
 			+ "</cellXfs>"
 			+ "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>"

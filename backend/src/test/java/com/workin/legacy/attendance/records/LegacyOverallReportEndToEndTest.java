@@ -220,6 +220,20 @@ class LegacyOverallReportEndToEndTest {
 		assertThat(response.getStatusCode().value()).isEqualTo(400);
 	}
 
+	/**
+	 * A month outside 1-12 builds an unparseable period, which PHP's `strtotime`
+	 * rejects into `fail(INVALID_DATE, 400)`. Parsing it directly would throw
+	 * first and surface as a 500 -- a caller-supplied value turning into a
+	 * server error.
+	 */
+	@Test
+	void anOutOfRangeMonthIsAnInvalidDateNotAServerError() {
+		assertThat(call(HttpMethod.GET, ADMIN, "company_admin", "?month=13&year=2026")
+				.getStatusCode().value()).isEqualTo(400);
+		assertThat(call(HttpMethod.GET, ADMIN, "company_admin", "?month=99&year=2026")
+				.getStatusCode().value()).isEqualTo(400);
+	}
+
 	@Test
 	void anEmptyBranchNameReachesTheClientAsNullNotAnEmptyString() {
 		Map<String, Object> row = rowFor(
