@@ -337,8 +337,11 @@ Claude agent's matrix row to its real `tools:` frontmatter -- silently skips it.
 independent-review step, if it does not name the reviewer **within the section**
 (a mention elsewhere in the file does not staff the gate), if the responsibility
 matrix carries no row for that name, or if the row is widened from read-only.
-Seven fixture cases in `scripts/test_validate_phase0.py` cover it, including
-wholesale removal of the section, an out-of-section mention, the widening case,
+It also evaluates **every** matrix row naming the reviewer rather than the first,
+and treats more than one such row as a failure in itself, so a permissive
+duplicate cannot hide behind a read-only row. Eight fixture cases in
+`scripts/test_validate_phase0.py` cover it, including wholesale removal of the
+section, an out-of-section mention, the widening case, the duplicate-row case,
 and a sanity check against the real repository.
 
 **Propagated into the executable procedure, not just the policy.** Step 5 of the

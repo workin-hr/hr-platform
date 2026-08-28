@@ -1149,6 +1149,29 @@ def test_reviewer_row_widened_fails() -> None:
         shutil.rmtree(root)
 
 
+def test_duplicate_reviewer_rows_fail() -> None:
+    """A read-only row must not shield a permissive duplicate: both the
+    duplication and the widened row are reported."""
+    root = make_root()
+    try:
+        permissive = f"| `{v.INDEPENDENT_REVIEWER}` (second entry) | Controlled implementation | Yes | Yes | Yes |\n"
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW, permissive],
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("2 rows" in f for f in failures),
+            f"two rows naming the reviewer fail as a duplicate (failures={failures})",
+        )
+        check(
+            any("May Modify Files" in f for f in failures),
+            f"the permissive duplicate row is still checked, not skipped (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_real_repository_reviewer_declaration_still_passes() -> None:
     failures: list[str] = []
     v.validate_independent_reviewer_declaration(failures)  # default root = real repo
@@ -1451,6 +1474,7 @@ def main() -> int:
     test_reviewer_named_only_outside_the_workflow_fails()
     test_reviewer_missing_from_matrix_fails()
     test_reviewer_row_widened_fails()
+    test_duplicate_reviewer_rows_fail()
     test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()

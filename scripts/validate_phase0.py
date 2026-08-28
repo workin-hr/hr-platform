@@ -382,9 +382,31 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
             )
 
     matrix_text = matrix_path.read_text(encoding="utf-8")
-    for agent_name, _primary_mode, may_modify, may_pr, may_approve in MATRIX_ROW_RE.findall(matrix_text):
-        if INDEPENDENT_REVIEWER not in agent_name:
-            continue
+    # Every matching row is checked, and more than one is itself a failure: a
+    # read-only row followed by a permissive duplicate would otherwise leave a
+    # contradictory grant in the matrix with validation green.
+    rows = [
+        (may_modify, may_pr, may_approve)
+        for agent_name, _primary_mode, may_modify, may_pr, may_approve in MATRIX_ROW_RE.findall(matrix_text)
+        if INDEPENDENT_REVIEWER in agent_name
+    ]
+    if not rows:
+        fail(
+            f"docs/agents/responsibility-matrix.md has no row for {INDEPENDENT_REVIEWER!r}, the "
+            "independent reviewer AGENTS.md's Mandatory Workflow depends on (D-121)",
+            failures,
+        )
+        return
+
+    if len(rows) > 1:
+        fail(
+            f"docs/agents/responsibility-matrix.md declares {INDEPENDENT_REVIEWER!r} in "
+            f"{len(rows)} rows; exactly one is allowed, so a permissive duplicate cannot hide "
+            "behind a read-only row (D-121)",
+            failures,
+        )
+
+    for may_modify, may_pr, may_approve in rows:
         widened = [
             label
             for label, value in (
@@ -400,13 +422,6 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
                 f"every permission (D-121 makes it a read-only reviewer); widened: {', '.join(widened)}",
                 failures,
             )
-        return
-
-    fail(
-        f"docs/agents/responsibility-matrix.md has no row for {INDEPENDENT_REVIEWER!r}, the "
-        "independent reviewer AGENTS.md's Mandatory Workflow depends on (D-121)",
-        failures,
-    )
 
 
 def validate_claude_settings(failures: list[str], root: Path | None = None) -> None:
