@@ -63,4 +63,32 @@ public final class LegacyRuntimeOffset {
 		return offset.getId();
 	}
 
+	/**
+	 * The same offset as the timezone <em>name</em>
+	 * {@code date_default_timezone_get()} would return.
+	 *
+	 * <p>{@code applyRuntimeTimezoneFromConfigs()} does not set an offset, it
+	 * sets a named zone: {@code date_default_timezone_set($offset === '+03:00'
+	 * ? 'Etc/GMT-3' : 'Etc/GMT-2')} ({@code functions.php:257}). PHP then
+	 * returns that exact string, so {@code configs/get.php}'s
+	 * {@code server_timezone} is {@code "Etc/GMT-3"} or {@code "Etc/GMT-2"} and
+	 * never {@code "+03:00"} or an IANA city zone.
+	 *
+	 * <p><b>The sign is inverted and that is not a typo.</b> POSIX-style
+	 * {@code Etc/GMT-N} zones count <em>west</em>-positive, so {@code Etc/GMT-3}
+	 * is UTC<b>+</b>3 and {@code Etc/GMT-2} is UTC<b>+</b>2 -- the same
+	 * direction as {@link #DAYLIGHT_SAVING} and {@link #DEFAULT} despite
+	 * reading like the opposite. Anyone "correcting" these to
+	 * {@code Etc/GMT+3} would move every client's clock six hours.
+	 *
+	 * <p>The {@code ?: 'UTC'} fallback in the PHP is unreachable and is
+	 * therefore not reproduced: {@code date_default_timezone_get()} always
+	 * returns a non-empty string, and {@code applyRuntimeTimezoneFromConfigs()}
+	 * has already run at include time in every request that can reach the
+	 * endpoint.
+	 */
+	public static String zoneId(ZoneOffset offset) {
+		return DAYLIGHT_SAVING.equals(offset) ? "Etc/GMT-3" : "Etc/GMT-2";
+	}
+
 }

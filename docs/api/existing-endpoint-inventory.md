@@ -558,6 +558,16 @@ selected-values side). `dashboard/stats.php` is the single dashboard
 summary-widget endpoint, `COMPANY_ADMIN`/`HR` only, not traced past its
 company-scoped call site in this pass.
 
+**`configs/get.php` is delivered (Item 13.0, 2026-08-29, D-126)** and remains
+unauthenticated, on its literal `/apis/api/configs/get.php` URL. It answers two
+shapes from one route: `?config_key=...` returns `{config_key, config_value}`
+— 200 with a null value for an unknown key, never a 404 — and no key returns
+every row plus `server_time` and `server_timezone`. An **empty** `config_key`
+is not a key and falls through to the all-rows branch. `time/now.php` in this
+same group stays excluded as unreachable dead surface (O-3); the two are easy
+to confuse because both look like clock endpoints, but only this one is
+routable, and it is where the authoritative clock actually reaches clients.
+
 ## Evidence
 
 Files cited individually per endpoint above, all from `workin-hr/hr-legacy`

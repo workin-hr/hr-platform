@@ -27,9 +27,28 @@ package com.workin.legacy.wire;
  * {@link com.workin.legacy.auth.LegacyRequestGuard#requireAuth} explicitly on
  * every protected path -- P-7 ({@code token_version}), P-8 (role) and P-9
  * (active company), plus the tenant re-derivation behind
- * {@code LegacyRequestContext#companyId()}. The public login path is the one
- * exception: its controller is intentionally unauthenticated and performs its
- * own PHP method/body validation before delegating to the login service.
+ * {@code LegacyRequestContext#companyId()}.
+ *
+ * <h2>Two entries are unauthenticated in legacy itself</h2>
+ * <p>{@code auth/login_employee.php} and {@code configs/get.php} are listed for
+ * a different reason from every other entry: their PHP calls no
+ * {@code requireAuth()} at all, so there is no guard order for the controller
+ * to reproduce -- the endpoint is public in legacy and must stay public here
+ * (D-111). Both perform their own PHP method validation first.
+ *
+ * <p><b>Read the two categories separately when adding an entry.</b> Everything
+ * else on this list is permitted because its controller enforces authentication
+ * itself; these two are permitted because legacy enforces none. A new route
+ * belongs in the first category unless its PHP genuinely has no
+ * {@code requireAuth()} call, and assuming the second because a controller
+ * happens to compile without one is how a real hole would get added. What makes
+ * {@code configs/get.php} safe to expose is that {@code configs} is a global
+ * operational table with no {@code company_id} column and no personal data --
+ * not that it appears in this array.
+ *
+ * <p>{@code LegacyEmployeeReadEndToEndTest#noMappedPhpRouteAnswersAnUnauthenticatedRequest}
+ * holds the line: every mapped route must answer an unauthenticated GET with
+ * 401 or 405 unless it is on that test's own closed list of public routes.
  *
  * <p>Anything under {@code /apis/**} that is <em>not</em> listed here keeps
  * falling through to {@code .anyRequest().authenticated()}, so an unported
@@ -65,6 +84,7 @@ public final class LegacyPhpRoutes {
 		"/apis/api/departments/**",
 		"/apis/api/job_titles/**",
 		"/apis/api/auth/login_employee.php",
+		"/apis/api/configs/get.php",
 	};
 
 	private LegacyPhpRoutes() {
