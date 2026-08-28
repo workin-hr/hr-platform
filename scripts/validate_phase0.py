@@ -1315,18 +1315,40 @@ def validate_links(failures: list[str]) -> None:
                 fail(f"Broken relative link in {path.relative_to(ROOT)}: {target}", failures)
 
 
-def validate_workflow_safety(failures: list[str]) -> None:
-    workflows_dir = ROOT / ".github/workflows"
+def validate_workflow_safety(failures: list[str], root: Path | None = None) -> None:
+    root = root if root is not None else ROOT
+    workflows_dir = root / ".github/workflows"
     if not workflows_dir.is_dir():
         return
     for path in sorted(workflows_dir.glob("*.yml")):
         text = path.read_text(encoding="utf-8")
+        relative = path.relative_to(root).as_posix()
         if "pull_request_target" in text:
-            fail(
-                f"{path.relative_to(ROOT)} uses pull_request_target, which runs with "
-                "privileged credentials against untrusted PR code and is forbidden here",
-                failures,
-            )
+            # The ban stands for every workflow but one, and even there it is
+            # conditional (D-122). The hazard is privileged credentials running
+            # *pull-request code*; the review gate runs none, because it never
+            # checks out or reads the head tree -- it computes the gate from API
+            # calls on event-payload values. The trigger is the point: on
+            # `pull_request` the run executes the workflow file from the pull
+            # request, so a revision could publish the gate green before anyone
+            # reviewed it.
+            #
+            # The exception is therefore allowed only while that premise holds.
+            # Add a checkout and this fails, exactly as it would for any other
+            # workflow.
+            if relative != REVIEW_GATE_WORKFLOW:
+                fail(
+                    f"{relative} uses pull_request_target, which runs with "
+                    "privileged credentials against untrusted PR code and is forbidden here",
+                    failures,
+                )
+            elif "actions/checkout" in _without_comments(text):
+                fail(
+                    f"{relative} uses pull_request_target AND checks out the pull request's "
+                    "tree. D-122 permits the trigger there only because the job reads no "
+                    "pull-request content; a checkout withdraws that premise",
+                    failures,
+                )
         if not re.search(r"^permissions:\s*$", text, re.MULTILINE):
             fail(
                 f"{path.relative_to(ROOT)} does not declare an explicit top-level "

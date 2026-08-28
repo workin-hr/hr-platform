@@ -43,29 +43,27 @@ name: Independent Review Gate
 # those. Every pull request in this repository is opened from a branch on the
 # repository itself.
 
-# KNOWN LIMITATION -- this trigger runs pull-request-controlled code.
+# `pull_request_target`, not `pull_request` -- the owner's decision, D-122.
 #
 # A `pull_request` run executes the workflow file *from the pull request* while
-# holding `statuses: write`. A revision could therefore keep the reviewer and
-# context literals `validate_phase0.py` binds, replace the counting logic with an
+# holding `statuses: write`. A revision could keep the reviewer and context
+# literals `validate_phase0.py` binds, replace the counting logic with an
 # unconditional success, and turn this status green before the named reviewer had
-# seen that very change. (`pull_request_review` runs the default branch's copy and
-# is not affected.)
+# seen that very change. That is a bypass the moment the status gates a merge.
+# `pull_request_target` runs the base branch's copy, which is the trusted one.
 #
-# The fix would be the privileged `_target` variant of this trigger, which runs
-# the base branch's trusted copy -- safe here because this job has no
-# `actions/checkout` and never reads the head tree. `validate_workflow_safety()`
-# forbids that variant outright (by name, so it is not even written here), and
-# relaxing a standing security rule to accommodate this workflow is an owner
-# decision, not one to take here. Recorded in R-008 with its consequence:
+# The standing hazard of this trigger is privileged credentials running
+# pull-request code. **This job runs none.** It has no `actions/checkout`, no step
+# that reads the head tree, and no use of `github.event.pull_request.title`,
+# `.body`, `.head.ref` or any other attacker-controlled string -- it passes only a
+# number and a SHA to the GitHub API. `validate_workflow_safety()` permits the
+# trigger here on exactly that premise and fails the moment a checkout appears,
+# so the exception cannot quietly become a general one.
 #
-#   **`independent-review` must not be made a REQUIRED context until this is
-#   resolved.** While it is advisory the escalation buys nothing -- a pull request
-#   turning its own advisory status green proves nothing to anybody. The exposure
-#   begins the moment it gates a merge, which is the same moment D-013's
-#   branch-protection deferral is revisited. The two decisions belong together.
+# `pull_request_review` already runs the default branch's copy and needed no
+# change.
 on:
-  pull_request:
+  pull_request_target:
     # `closed` is here because the status is shared across every open pull
     # request at a commit: when an unreviewed sibling closes, the set shrinks
     # and the survivor may now satisfy the gate. Without a recompute, the last
@@ -94,7 +92,7 @@ jobs:
     runs-on: ubuntu-24.04
     # `edited` fires for a title or body edit too. Only a base change matters
     # here, and GitHub sets `changes.base` only for that.
-    if: github.event_name != 'pull_request' || github.event.action != 'edited'
+    if: github.event_name != 'pull_request_target' || github.event.action != 'edited'
       || github.event.changes.base != null
     steps:
       - name: Publish whether the named reviewer has reviewed this head
@@ -104,11 +102,11 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          BASE_CHANGED: ${{ github.event_name == 'pull_request' && github.event.action == 'edited'
+          BASE_CHANGED: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited'
             && github.event.changes.base != null }}
           # The standing status carries this prefix while a retarget is
           # unanswered, so a later run can tell "invalidated" from "never green".
-          RETARGET_MARKER: "Base branch changed -- a new review round is required" 
+          RETARGET_MARKER: "Base branch changed -- a new review round is required"
           # D-121 owns this value. scripts/validate_phase0.py binds it to
           # AGENTS.md and the responsibility matrix, so it cannot drift here
           # on its own.

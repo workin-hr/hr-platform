@@ -1055,6 +1055,80 @@ def test_real_repository_agent_matrix_still_passes() -> None:
 
 
 # ---------------------------------------------------------------------------
+# validate_workflow_safety (WF-1) -- D-122's narrow, conditional exception
+# ---------------------------------------------------------------------------
+
+
+def write_workflow(root: Path, name: str, body: str) -> None:
+    directory = root / ".github/workflows"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_text(body, encoding="utf-8")
+
+
+PRIVILEGED = "pull_request" + "_target"
+
+
+def test_any_other_workflow_using_the_privileged_trigger_still_fails() -> None:
+    """The ban is unchanged for every workflow but the review gate."""
+    root = make_root()
+    try:
+        write_workflow(root, "something-else.yml",
+                       f"name: X\non:\n  {PRIVILEGED}:\npermissions:\n  contents: read\n")
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(
+            any("forbidden here" in f for f in failures),
+            f"an unrelated workflow using the privileged trigger still fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_the_review_gate_may_use_the_privileged_trigger_without_a_checkout() -> None:
+    root = make_root()
+    try:
+        write_workflow(root, Path(v.REVIEW_GATE_WORKFLOW).name,
+                       f"name: Gate\non:\n  {PRIVILEGED}:\npermissions:\n  statuses: write\n")
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(failures == [], f"the review gate may use the trigger with no checkout (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_the_review_gate_using_the_privileged_trigger_with_a_checkout_fails() -> None:
+    """The exception is conditional: a checkout withdraws its whole premise."""
+    root = make_root()
+    try:
+        write_workflow(root, Path(v.REVIEW_GATE_WORKFLOW).name,
+                       f"name: Gate\non:\n  {PRIVILEGED}:\npermissions:\n  statuses: write\n"
+                       "jobs:\n  x:\n    steps:\n      - uses: actions/checkout@v4\n")
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(
+            any("withdraws that premise" in f for f in failures),
+            f"the review gate with a checkout fails despite the exception (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_a_checkout_named_only_in_a_comment_does_not_trip_the_exception() -> None:
+    """The gate's own header explains that it has no checkout; saying so must
+    not read as having one."""
+    root = make_root()
+    try:
+        write_workflow(root, Path(v.REVIEW_GATE_WORKFLOW).name,
+                       "# This job has no actions/checkout and never reads the head tree.\n"
+                       f"name: Gate\non:\n  {PRIVILEGED}:\npermissions:\n  statuses: write\n")
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(failures == [], f"a commented mention is not a checkout (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+# ---------------------------------------------------------------------------
 # validate_independent_reviewer_declaration (REV-1)
 # ---------------------------------------------------------------------------
 
@@ -1769,6 +1843,10 @@ def main() -> int:
     test_matrix_consistent_with_frontmatter_passes()
     test_matrix_codex_row_without_frontmatter_is_skipped()
     test_real_repository_agent_matrix_still_passes()
+    test_any_other_workflow_using_the_privileged_trigger_still_fails()
+    test_the_review_gate_may_use_the_privileged_trigger_without_a_checkout()
+    test_the_review_gate_using_the_privileged_trigger_with_a_checkout_fails()
+    test_a_checkout_named_only_in_a_comment_does_not_trip_the_exception()
     test_reviewer_named_and_declared_read_only_passes()
     test_workflow_without_named_reviewer_fails()
     test_workflow_section_deleted_fails()

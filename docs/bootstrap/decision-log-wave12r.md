@@ -431,3 +431,47 @@ Evidence: `AGENTS.md` mandatory workflow; PR #120's merge record in
 `docs/legacy/WAVE12_COMPLETION_AUDIT.md`; PR #126's four Codex review rounds,
 whose findings drove this change and which showed the per-head reviewing
 behavior condition 1 addresses.
+
+## D-122: The review gate runs on the privileged trigger, under one condition
+
+**Status:** Accepted 2026-08-28.
+
+`validate_workflow_safety()` has banned `pull_request_target` outright since Phase
+0. The ban is right in general and was wrong for exactly one workflow.
+
+`.github/workflows/independent-review-gate.yml` holds `statuses: write` because it
+publishes the `independent-review` gate. On the ordinary `pull_request` trigger a
+run executes the workflow file **from the pull request**, so a revision could keep
+the reviewer and status-context literals `validate_phase0.py` binds, replace the
+counting logic with an unconditional success, and turn the gate green before the
+named reviewer had seen that very change. D-121's gate would then certify its own
+bypass.
+
+**The exception, and the premise it rests on.** The hazard the ban exists to stop
+is privileged credentials running *pull-request code*. This job runs none: it has
+no `actions/checkout`, reads no file from the head tree, and passes only a pull
+request number and a commit SHA to the GitHub API. Nothing attacker-controlled --
+no title, body, branch name or commit message -- reaches a shell.
+
+**It is conditional, not a carve-out.** `validate_workflow_safety()` permits the
+trigger for this one path and fails immediately if that file gains a checkout,
+with a message naming this decision. Every other workflow keeps the blanket ban.
+Four fixtures hold the boundary: an unrelated workflow using the trigger still
+fails; the gate passes without a checkout; the gate **fails** with one; and a
+checkout named in a comment is not a checkout -- the file's own header explains
+that it has none, and saying so must not read as having one.
+
+**What this unblocks.** R-008 recorded that `independent-review` must not become a
+required context while the gate ran pull-request-controlled code. That precondition
+is now cleared, so making it required is once more purely the branch-protection
+question D-013 defers -- one decision instead of two.
+
+**What it does not change.** The gate still proves only that a round happened on
+the final head. Whether findings were addressed remains step 7's human obligation,
+with nothing in this repository verifying it mechanically (R-008).
+
+Evidence: the workflow's own header records the premise; `validate_workflow_safety()`
+enforces it; `scripts/test_validate_phase0.py` covers all four boundary cases.
+Raised by independent review on PR #127 as "Publish the gate from trusted workflow
+code", declined there as an owner decision rather than taken unilaterally, and
+accepted by the owner the same day.
