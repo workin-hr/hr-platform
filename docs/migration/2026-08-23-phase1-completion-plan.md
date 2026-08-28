@@ -67,10 +67,10 @@ delivered its three. The two remaining are Wave 12.6.6's `overall_report` and
 | 12.6.4a | `attendance/analyze_excel` | 1 | complete |
 | 12.6.5 | `schedules/employee_monthly_schedule`, `generate_employee_schedule` | 2 | complete |
 | 12.6.4b | `attendance/list`, `stats`, `employee_monthly_attendance` | 3 | complete — delivered 2026-08-27 after Wave 12.7 (§1.5) |
-| **12.6.6** | `attendance/overall_report`, `export` | 2 | **0 of 2, both to be delivered (D-120).** `export` returns a workbook download, so Java owes the same reader-observable workbook and headers — **not** the same archive bytes, per D-085 (§5 G3); `overall_report` is a JSON endpoint misclassified as binary — C9, §6 |
+| 12.6.6 | `attendance/overall_report`, `export` | 2 | **complete** — both delivered 2026-08-28 (12.6.6a–d). `export` returns a workbook download, so Java owes the same reader-observable workbook and headers — **not** the same archive bytes, per D-085 (§5 G3); `overall_report` is a JSON endpoint misclassified as binary — C9, §6 |
 
-**16 of 18 delivered.** Wave 12.6.6's two are both outstanding and both in
-scope: 16 + 2 = 18, with nothing in this wave excluded — C9, §6, D-120.
+**18 of 18 delivered.** Wave 12.6.6 closed on 2026-08-28, with nothing in this
+wave excluded — C9, §6, D-120.
 
 ### 1.5 Ordering correction — three more endpoints depend on Wave 12.7
 
@@ -246,11 +246,22 @@ These are **not** the `profile` module. That is nine Item-13 endpoints — see
 all three. Delivery needs an owning slice and a place in the order, and two gaps
 in this document had to be closed for that to be true.
 
-| Endpoint | Owning slice | Status of that slice |
+| Endpoint | Owning slice | Status |
 |---|---|---|
-| `attendance/overall_report.php` | **Wave 12.6.6** | 0 of 2 — §1.2 |
-| `attendance/export.php` | **Wave 12.6.6** | 0 of 2 — §1.2 |
-| `payslips/export.php` | **Wave 12.9** | **15 of 16**, not complete — see below |
+| `attendance/overall_report.php` | **Wave 12.6.6c** | **delivered 2026-08-28** |
+| `attendance/export.php` | **Wave 12.6.6d** | **delivered 2026-08-28** |
+| `payslips/export.php` | **Wave 12.9** | owed; that wave is **15 of 16**, not complete — see below |
+
+**Wave 12.6.6 delivered in four slices**, because the two endpoints share one
+builder (`overall_attendance_report_build()`, whose docblock says so and which
+`data_export_attendance_csv()` calls as its first statement):
+
+| Slice | Content |
+|---|---|
+| 12.6.6a | `LegacyPayrollPeriod` for the `as_of`/`in_progress` clamp, and three `LegacyPayrollAttendanceFigures` helpers widened for reuse. No behaviour change. |
+| 12.6.6b | `LegacyAttendanceReportDetails` — the five helpers that had no Java port. |
+| 12.6.6c | `LegacyOverallReportStore` + `LegacyOverallReportService` + the `overall_report.php` handler. |
+| 12.6.6d | `attendance/export.php` — the workbook response, the per-sheet config gate, and the `type=fingerprints\|details\|days` sheet with its own employee query. |
 
 **`payslips/export.php` had no owner, and now does.** §1.2's 12.6.6 covers only
 the two attendance endpoints, and Wave 12.9 was recorded complete on a
@@ -283,9 +294,10 @@ Item 12 is complete**, which now means until Waves 12.6.6 and 12.9 close. The
 operational order for what remains is therefore:
 
 ```text
-12.6.6  overall_report / export        ─┐
-12.9    payslips/export.php            ─┴─→  G2 closes  →  Item 13
+12.9    payslips/export.php   ─→  G2 closes  →  Item 13
 ```
+
+**Wave 12.6.6 is closed.** One endpoint stands between the repository and G2.
 
 The two are independent — different modules, different helper closures — so
 nothing forces one before the other.
@@ -449,11 +461,11 @@ table; only the distribution across buckets has moved.
 
 | Status | Endpoints | What it covers |
 |---|---|---|
-| `FINAL_COMPATIBLE` | **125** | Every delivered route, on its literal `/apis/api/**` URL with the D-074 envelope. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(125)`). Waves 12.4 through 12.10 plus the Wave 12.R retrofit. |
+| `FINAL_COMPATIBLE` | **127** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(127)`). Waves 12.4 through 12.10, the Wave 12.R retrofit, and Wave 12.6.6's two attendance endpoints. |
 | `IMPLEMENTED_BUT_REQUIRES_D074_RETROFIT` | **0** | Closed by Wave 12.R (D-107/D-108/D-110/D-111). No `/api/legacy/**` business route remains mapped. |
-| `ITEM12_REMAINING` | **3** | `attendance/overall_report.php`, `attendance/export.php`, `payslips/export.php`. All three are **to be delivered, not excluded** — D-120/O-8, and see below. Owning slices: Wave 12.6.6 for the first two, Wave 12.9 for the third (§1.6). |
+| `ITEM12_REMAINING` | **1** | `payslips/export.php` — **to be delivered, not excluded** (D-120/O-8), owned by Wave 12.9 (§1.6). Wave 12.6.6's two left this bucket on 2026-08-28. |
 | `ITEM13_REMAINING` | **70** | §2.2's 71 less `auth/login_employee`, delivered by Wave 12.R. |
-| **Live total** | **198** | 125 + 0 + 3 + 70 |
+| **Live total** | **198** | 127 + 0 + 1 + 70 |
 | `EXPLICITLY_EXCLUDED_WITH_DECISION` | **1** | `apis/api/time/now.php` (O-3, §2.3). Outside the live total. |
 | **Endpoint files** | **199** | 198 live + 1 excluded |
 
@@ -845,15 +857,15 @@ with zero measured evidence. Do not cite the inventory as proof of anything but
 the URL surface.
 
 The response contract is per-endpoint, not repository-wide (D-120). The 125
-delivered routes split **122 / 2 / 1**, and one endpoint's shape depends on a
+delivered routes split **123 / 3 / 1**, and one endpoint's shape depends on a
 query parameter:
 
 | Shape | Live today | PHP terminates in | Java answers |
 |---|---|---|---|
-| **Envelope only** | **122** of the 125 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — and `attendance/overall_report.php` when it ships |
-| **Download only** | **2**: `employees/template_excel.php`, `leave_balances/template_excel.php` | `stream_employee_template_xlsx()` / `leave_balance_excel_stream_template()` — write to output and `exit` | the same reader-observable file, `Content-Type`, `attachment` disposition and filename. **Delivered** — `LegacyEmployeeController.templateExcel` writes the bytes itself, `LegacyLeaveBalanceController.template` returns `ResponseEntity<byte[]>` |
+| **Envelope only** | **123** of the 127 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — including `attendance/overall_report.php`, delivered by Wave 12.6.6c |
+| **Download only** | **3**: `employees/template_excel.php`, `leave_balances/template_excel.php`, `attendance/export.php` | `stream_employee_template_xlsx()` / `leave_balance_excel_stream_template()` — write to output and `exit`; `api_xlsx_export_send()` for the export | the same reader-observable file, `Content-Type`, `attachment` disposition and filename. **All delivered** — `LegacyEmployeeController.templateExcel` writes the bytes itself, `LegacyLeaveBalanceController.template` returns `ResponseEntity<byte[]>`, and `LegacyAttendanceController.export` returns the workbook for either sheet |
 | **Conditional** | **1**: `penalties/report.php` | `?format=csv` → the file's **own local** `streamCSV()` (`penalties/report.php:24`), which `exit`s; anything else falls through to `ok()` | both shapes from one handler. **Delivered** — `LegacyPenaltyController.report` returns `ResponseEntity<?>`: the workbook on the `csv` branch, `LegacyApiResponse.ok` otherwise |
-| **Owed** | 0 of the 125 | `api_xlsx_export_send()` (`xlsx_writer.php:318`), reached by `data_export_attendance_csv()` and `data_export_payslips_csv()` | the same **reader-observable workbook** (sheet name, rows, cell values, merges, styles, widths, freeze), `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `attachment` disposition and the same sanitized `.xlsx` filename — with `Content-Length` matching **Java's own body** |
+| **Owed** | 1: `payslips/export.php`, owned by Wave 12.9 | `api_xlsx_export_send()` (`xlsx_writer.php:318`), reached by `data_export_payslips_csv()` | the same **reader-observable workbook** (sheet name, rows, cell values, merges, styles, widths, freeze), `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `attachment` disposition and the same sanitized `.xlsx` filename — with `Content-Length` matching **Java's own body** |
 
 **`penalties/report.php`'s `format` parameter selects the wire contract**, so its
 evidence has to cover both branches — an envelope response and a workbook
@@ -878,7 +890,7 @@ hand-maintained**: `LegacyPhpRouteInventoryTest`'s
 classification from the live handler mappings — a route answers in the envelope
 iff its handler returns `LegacyApiResponse` or `ResponseEntity<LegacyApiResponse>`
 — and asserts the non-envelope set is exactly these three.
-`theResponseShapePartitionMatchesTheCompletionPlan` pins the 122/2/1 arithmetic to
+`theResponseShapePartitionMatchesTheCompletionPlan` pins the 123/3/1 arithmetic to
 the same inventory. Adding a download route, or converting one back to the
 envelope, fails those tests instead of staling this table, which it has already
 done twice.

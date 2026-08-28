@@ -324,10 +324,9 @@ public class LegacyPayrollBatchService {
 			long companyId, long employeeId, Map<String, Object> contract, String periodFrom, String periodTo,
 			int batchYear, int batchMonth, double overtimeMultiplier, boolean paysOvertime, String weeklyRestLabel) {
 
-		String today = clock.todayAsString();
-		String asOf = today.compareTo(periodTo) <= 0 ? today : periodTo;
-		boolean inProgress = asOf.compareTo(periodTo) < 0;
-		String rangeTo = inProgress ? asOf : periodTo;
+		String asOf = LegacyPayrollPeriod.asOfDate(clock.todayAsString(), periodTo);
+		boolean inProgress = LegacyPayrollPeriod.inProgress(periodTo, asOf);
+		String rangeTo = LegacyPayrollPeriod.rangeEnd(periodTo, asOf);
 
 		LegacyPayrollAttendanceFigures.AttendanceSummary summary =
 				attendanceFigures.attendanceSummary(companyId, employeeId, periodFrom, rangeTo, weeklyRestLabel);

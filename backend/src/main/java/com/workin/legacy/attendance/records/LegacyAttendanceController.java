@@ -1,7 +1,11 @@
 package com.workin.legacy.attendance.records;
 
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -15,6 +19,7 @@ import com.workin.legacy.attendance.spreadsheet.LegacyAttendanceImportService;
 import com.workin.legacy.auth.LegacyRequestContext;
 import com.workin.legacy.auth.LegacyRequestGuard;
 import com.workin.legacy.employees.LegacyEmployee;
+import com.workin.legacy.spreadsheet.LegacyXlsxWriter;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyApiResponse;
 import com.workin.legacy.wire.LegacyMessages;
@@ -55,18 +60,25 @@ public class LegacyAttendanceController {
 	private final LegacyAttendanceImportService importService;
 	private final LegacyCheckInService checkInService;
 	private final LegacyAttendanceReportService reportService;
+	private final LegacyOverallReportService overallReportService;
+	private final LegacyAttendanceExportService exportService;
+	private final LegacyExportSheetAvailability sheetAvailability;
 	private final LegacyRequestGuard requestGuard;
 	private final LegacyMessages messages;
 
 	public LegacyAttendanceController(
 			LegacyAttendanceService attendanceService,
 			LegacyAttendanceImportService importService, LegacyCheckInService checkInService,
-			LegacyAttendanceReportService reportService,
+			LegacyAttendanceReportService reportService, LegacyOverallReportService overallReportService,
+			LegacyAttendanceExportService exportService, LegacyExportSheetAvailability sheetAvailability,
 			LegacyRequestGuard requestGuard, LegacyMessages messages) {
 		this.attendanceService = attendanceService;
 		this.importService = importService;
 		this.checkInService = checkInService;
 		this.reportService = reportService;
+		this.overallReportService = overallReportService;
+		this.exportService = exportService;
+		this.sheetAvailability = sheetAvailability;
 		this.requestGuard = requestGuard;
 		this.messages = messages;
 	}
@@ -326,6 +338,158 @@ public class LegacyAttendanceController {
 		payload.put(firstKey, first);
 		payload.put(secondKey, second);
 		return payload;
+	}
+
+	/**
+	 * `overall_report.php`: the per-employee summary for a date range.
+	 *
+	 * <p>Its role list is `[COMPANY_ADMIN, HR, MANAGER]` -- an EMPLOYEE is
+	 * refused here, so the builder's own employee branch is unreachable through
+	 * this endpoint. It is reachable through `export.php`, which authenticates
+	 * with a bare `requireAuth()`; the branch is live, just not from here.
+	 *
+	 * <p>The two `_period_*` keys the builder carries are internal and are
+	 * stripped before the envelope, exactly as PHP's `array_map` does.
+	 */
+	@RequestMapping("/overall_report.php")
+	public LegacyApiResponse overallReport(HttpServletRequest request) {
+		requireMethod(request, "GET");
+		LegacyRequestContext context = requestGuard.requireAuth(
+				LegacyEmployee.Role.COMPANY_ADMIN, LegacyEmployee.Role.HR, LegacyEmployee.Role.MANAGER);
+		requestGuard.requireCompanyActive(context.companyId());
+
+		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
+		String locale = messages.resolveLocale(request);
+
+		List<Map<String, Object>> report = overallReportService.build(
+				context.companyId(),
+				null,
+				context.role() == LegacyEmployee.Role.MANAGER ? context.employeeId() : null,
+				new LegacyOverallReportService.Filters(
+						LegacyValues.toPhpString(query.value("from")),
+						LegacyValues.toPhpString(query.value("to")),
+						(int) LegacyValues.toPhpLong(query.value("month")),
+						(int) LegacyValues.toPhpLong(query.value("year")),
+						LegacyValues.toPhpLong(query.value("employee_id")),
+						LegacyValues.toPhpLong(query.value("branch_id")),
+						LegacyValues.toPhpLong(query.value("department_id")),
+						LegacyValues.toPhpString(query.value("search"))),
+				reportLabels(locale));
+
+		List<Map<String, Object>> payload = report.stream().map(row -> {
+			Map<String, Object> copy = new LinkedHashMap<>(row);
+			copy.remove("_period_from");
+			copy.remove("_period_to");
+			return copy;
+		}).toList();
+
+		return LegacyApiResponse.ok(message(request, "ok"), payload);
+	}
+
+	/**
+	 * `export.php`: the same report as a workbook, or the day-level fingerprints
+	 * sheet when `type` is one of `fingerprints|details|days`.
+	 *
+	 * <p>Its `requireAuth()` carries **no role list**, unlike `overall_report.php`
+	 * -- so an EMPLOYEE reaches it, and the builder's employee branch is live
+	 * here. The config gate runs after the branch is chosen, so a disabled
+	 * fingerprints sheet is a 403 rather than a fall back to the overall one.
+	 *
+	 * <p>Both sheets are XLSX despite the `_csv` helper names, and per D-085 the
+	 * port owes the same reader-observable workbook, not the same archive bytes.
+	 */
+	@RequestMapping("/export.php")
+	public ResponseEntity<byte[]> export(HttpServletRequest request) {
+		requireMethod(request, "GET");
+		LegacyRequestContext context = authenticated();
+
+		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
+		String locale = messages.resolveLocale(request);
+		boolean arabic = "ar".equalsIgnoreCase(locale);
+
+		String type = LegacyValues.toPhpString(query.value("type")).trim().toLowerCase(java.util.Locale.ROOT);
+		boolean fingerprints = "fingerprints".equals(type) || "details".equals(type) || "days".equals(type);
+
+		if (fingerprints ? !sheetAvailability.fingerprintsSheetEnabled()
+				: !sheetAvailability.overallSheetEnabled()) {
+			throw new LegacyApiException(403, "forbidden");
+		}
+
+		boolean isEmployee = context.role() == LegacyEmployee.Role.EMPLOYEE;
+		Long self = isEmployee ? context.employeeId() : null;
+		Long manager = context.role() == LegacyEmployee.Role.MANAGER ? context.employeeId() : null;
+		LegacyOverallReportService.Filters filters = exportFilters(query);
+
+		LegacyAttendanceExportService.Sheet sheet;
+		List<String> headers;
+		String sheetName;
+		if (fingerprints) {
+			sheet = exportService.fingerprintsSheet(context.companyId(), self, manager, filters,
+					messages.translate(locale, "schedule_weekly_rest", null), arabic);
+			headers = translated(locale, LegacyAttendanceExportFormat.FINGERPRINTS_HEADER_KEYS);
+			sheetName = arabic ? "شيت البصمات" : "Fingerprints Sheet";
+		} else {
+			sheet = exportService.overallSheet(context.companyId(), self, manager, filters, reportLabels(locale));
+			headers = translated(locale, LegacyAttendanceExportFormat.OVERALL_HEADER_KEYS);
+			sheetName = arabic ? "الشيت الإجمالي" : "Overall Sheet";
+		}
+
+		byte[] body;
+		try {
+			body = LegacyXlsxWriter.build(headers, sheet.rows(), sheetName, List.of(), List.of(), 1,
+					LegacyAttendanceExportFormat.rowCellStyles(sheet.rowStyles(), headers.size(), 1), arabic);
+		} catch (Throwable ex) { // PHP catches Throwable around xlsx_build_bytes().
+			throw new LegacyApiException(500, "file_save_failed", ex.getMessage());
+		}
+
+		return ResponseEntity.ok()
+				.contentType(MediaType.parseMediaType(
+						"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+				.header(HttpHeaders.CONTENT_DISPOSITION,
+						"attachment; filename=\"" + sanitizedFilename(sheet.filename()) + "\"")
+				.contentLength(body.length)
+				.body(body);
+	}
+
+	/**
+	 * {@code api_xlsx_export_send()}'s own filename guard
+	 * ({@code xlsx_writer.php:325-328}): everything outside
+	 * {@code [A-Za-z0-9._-]} collapses to {@code _}, and a name not ending
+	 * {@code .xlsx} gains it.
+	 */
+	private static String sanitizedFilename(String filename) {
+		String safe = filename.replaceAll("[^a-zA-Z0-9._-]+", "_");
+		if (safe.isEmpty()) {
+			safe = "export.xlsx";
+		}
+		return safe.toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx") ? safe : safe + ".xlsx";
+	}
+
+	private List<String> translated(String locale, List<String> keys) {
+		return keys.stream().map(key -> messages.translate(locale, key, null)).toList();
+	}
+
+	private static LegacyOverallReportService.Filters exportFilters(LegacyQueryParameters query) {
+		return new LegacyOverallReportService.Filters(
+				LegacyValues.toPhpString(query.value("from")),
+				LegacyValues.toPhpString(query.value("to")),
+				(int) LegacyValues.toPhpLong(query.value("month")),
+				(int) LegacyValues.toPhpLong(query.value("year")),
+				LegacyValues.toPhpLong(query.value("employee_id")),
+				LegacyValues.toPhpLong(query.value("branch_id")),
+				LegacyValues.toPhpLong(query.value("department_id")),
+				LegacyValues.toPhpString(query.value("search")));
+	}
+
+	private LegacyOverallReportService.Labels reportLabels(String locale) {
+		return new LegacyOverallReportService.Labels(
+				messages.translate(locale, "csv_official_holiday_days", null),
+				messages.translate(locale, "csv_days_leave", null),
+				messages.translate(locale, "csv_paid_rest_days", null),
+				messages.translate(locale, "csv_absent_day", null),
+				messages.translate(locale, "csv_attendance_present_day", null),
+				messages.translate(locale, "csv_void_weekly_rest_days", null),
+				messages.translate(locale, "schedule_weekly_rest", null));
 	}
 
 	private static void requireMethod(HttpServletRequest request, String expected) {

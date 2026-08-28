@@ -38,8 +38,10 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/attendance/check_in_qr.php", "/apis/api/attendance/check_out.php",
 			"/apis/api/attendance/create.php", "/apis/api/attendance/delete.php",
 			"/apis/api/attendance/delete_range.php", "/apis/api/attendance/employee_monthly_attendance.php",
+			"/apis/api/attendance/export.php",
 			"/apis/api/attendance/import_excel.php", "/apis/api/attendance/list.php",
-			"/apis/api/attendance/one.php", "/apis/api/attendance/stats.php",
+			"/apis/api/attendance/one.php", "/apis/api/attendance/overall_report.php",
+			"/apis/api/attendance/stats.php",
 			"/apis/api/attendance/update.php",
 			"/apis/api/attendance_exception_types/create.php",
 			"/apis/api/attendance_exception_types/delete.php",
@@ -130,8 +132,8 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void deliveredRouteCountIsNowOneHundredTwentyFive() {
-		assertThat(EXPECTED_ROUTES).hasSize(125).doesNotHaveDuplicates();
+	void deliveredRouteCountIsNowOneHundredTwentySeven() {
+		assertThat(EXPECTED_ROUTES).hasSize(127).doesNotHaveDuplicates();
 	}
 
 	/**
@@ -163,7 +165,10 @@ class LegacyPhpRouteInventoryTest {
 			// stream_employee_template_xlsx() -- writes to output and exits.
 			"/apis/api/employees/template_excel.php",
 			// leave_balance_excel_stream_template() -- same shape.
-			"/apis/api/leave_balances/template_excel.php");
+			"/apis/api/leave_balances/template_excel.php",
+			// api_xlsx_export_send(), via data_export_attendance_csv() or
+			// data_export_fingerprints_sheet() -- Wave 12.6.6d.
+			"/apis/api/attendance/export.php");
 
 	/**
 	 * {@code penalties/report.php} picks its wire contract from {@code format}:
@@ -200,12 +205,12 @@ class LegacyPhpRouteInventoryTest {
 
 	@Test
 	void theResponseShapePartitionMatchesTheCompletionPlan() {
-		assertThat(DOWNLOAD_ONLY_ROUTES).hasSize(2).doesNotHaveDuplicates();
+		assertThat(DOWNLOAD_ONLY_ROUTES).hasSize(3).doesNotHaveDuplicates();
 		assertThat(CONDITIONAL_ROUTES).hasSize(1);
 		assertThat(EXPECTED_ROUTES).containsAll(DOWNLOAD_ONLY_ROUTES).containsAll(CONDITIONAL_ROUTES);
 		assertThat(EXPECTED_ROUTES.size() - DOWNLOAD_ONLY_ROUTES.size() - CONDITIONAL_ROUTES.size())
-				.as("envelope-only routes, per the completion plan's 122/2/1 partition")
-				.isEqualTo(122);
+				.as("envelope-only routes, per the completion plan's 123/3/1 partition")
+				.isEqualTo(123);
 	}
 
 	@Test
@@ -220,36 +225,35 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	/**
-	 * Unimplemented, not excluded. Both emit an XLSX workbook through the same
-	 * {@code : never} terminator {@code api_xlsx_export_send()}
-	 * ({@code xlsx_writer.php:318}) instead of returning PHP's {@code ok()} JSON envelope,
-	 * which makes them substantial work; the {@code _csv}-named row builders that reach it
-	 * do not produce CSV. D-120 dispositions them as <b>delivered</b>: Java emits the same
-	 * reader-observable workbook, content type, disposition and filename PHP does -- not
-	 * the same archive bytes, which D-085 rules out -- because wrapping either in the
-	 * envelope would be a client-visible divergence D-111 forbids. Legacy serves both
-	 * to real clients today. Delete this assertion -- do not amend it -- when they are
-	 * delivered.
+	 * {@code attendance/export.php} was delivered by Wave 12.6.6d and has left
+	 * this assertion, exactly as its predecessor's javadoc required -- deleted
+	 * from the list, not inverted. Only {@code payslips/export.php} remains,
+	 * owed by Wave 12.9.
+	 *
+	 * <p>It emits an XLSX workbook through the {@code : never} terminator
+	 * {@code api_xlsx_export_send()} ({@code xlsx_writer.php:318}) despite its
+	 * {@code _csv}-named row builder. Per D-085 the port owes the same
+	 * reader-observable workbook, not the same archive bytes. Delete this
+	 * assertion -- do not amend it -- when Wave 12.9 delivers the last one.
 	 */
 	@Test
-	void theTwoBinaryExportEndpointsAreStillUnmapped() {
-		assertThat(EXPECTED_ROUTES).doesNotContain(
-				"/apis/api/attendance/export.php",
-				"/apis/api/payslips/export.php");
+	void theLastBinaryExportEndpointIsStillUnmapped() {
+		assertThat(EXPECTED_ROUTES).contains("/apis/api/attendance/export.php");
+		assertThat(EXPECTED_ROUTES).doesNotContain("/apis/api/payslips/export.php");
 	}
 
 	/**
-	 * Not an exclusion. {@code attendance/overall_report.php} ends at
-	 * {@code ok(LangKey::OK, $report, 200)} and is an ordinary JSON read endpoint; it was
-	 * misclassified as binary because it shares export.php's broad J.2 payroll blocker --
-	 * which is itself closed, so neither endpoint is dependency-blocked any more. It is
-	 * unmapped because it is unimplemented, and D-120 dispositions it as delivered, so this
-	 * assertion must be deleted -- not amended -- when Wave 12.6.6 delivers it. See C9 in the
-	 * Phase 1 completion plan.
+	 * Deleted by Wave 12.6.6c, exactly as its predecessor's javadoc required:
+	 * {@code attendance/overall_report.php} is delivered and is now inside
+	 * {@link #EXPECTED_ROUTES}, so the assertion that it stays unmapped is gone
+	 * rather than inverted. Only {@code attendance/export.php} and
+	 * {@code payslips/export.php} remain.
 	 */
 	@Test
-	void theUnimplementedOverallReportEndpointIsStillUnmapped() {
-		assertThat(EXPECTED_ROUTES).doesNotContain("/apis/api/attendance/overall_report.php");
+	void theRemainingUnmappedRoutesAreOnlyTheTwoExports() {
+		assertThat(EXPECTED_ROUTES).contains(
+				"/apis/api/attendance/overall_report.php", "/apis/api/attendance/export.php");
+		assertThat(EXPECTED_ROUTES).doesNotContain("/apis/api/payslips/export.php");
 	}
 
 	@Test
