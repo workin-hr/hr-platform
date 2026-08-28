@@ -27,6 +27,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
+import com.workin.legacy.LegacyRuntimeOffset;
 import com.workin.backend.identity.JwtService;
 
 /**
@@ -508,8 +509,39 @@ class LegacyEmployeeStatsAndTeamEndToEndTest {
 		}
 	}
 
+	/**
+	 * A fixture connection on the <b>same session timezone the application
+	 * uses</b>, rather than on the container's default.
+	 *
+	 * <p>Without the {@code SET time_zone}, three different clocks are in play
+	 * for one assertion: the fixture seeds {@code check_in} from the container's
+	 * {@code CURRENT_DATE} (UTC), the endpoint evaluates its
+	 * {@code DATE(check_in) = CURRENT_DATE} subselect on the legacy pool's
+	 * session, which {@link com.workin.legacy.LegacySessionDataSource} sets to
+	 * {@link LegacyRuntimeOffset#DEFAULT} (+02:00) on checkout (D-099), and the
+	 * expectation reads {@code CURRENT_DATE} back in UTC again.
+	 *
+	 * <p>Between <b>22:00 and 24:00 UTC every day</b> the +02:00 session has
+	 * already rolled over and UTC has not, so the seeded row lands on
+	 * "yesterday" as far as the endpoint is concerned, the subselect matches
+	 * nothing, and the test fails for two hours out of every twenty-four -- three
+	 * under the daylight-saving profile. That is not the D-083 gap the assertion
+	 * below is meant to expose; it is a <b>third</b> timezone leaking in through
+	 * the fixture's own connection, which nothing intended.
+	 *
+	 * <p>Aligning the fixture with the pool does not weaken the assertion. The
+	 * comparison is still against the <em>database's</em> {@code CURRENT_DATE}
+	 * rather than the application clock, which is the part that deliberately
+	 * leaves D-083 visible -- both sides now simply agree on which database
+	 * session they mean.
+	 */
 	private static Connection connect() throws Exception {
-		return DriverManager.getConnection(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+		Connection connection = DriverManager.getConnection(
+				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+		try (Statement st = connection.createStatement()) {
+			st.execute("SET time_zone = '" + LegacyRuntimeOffset.sqlLiteral(LegacyRuntimeOffset.DEFAULT) + "'");
+		}
+		return connection;
 	}
 
 	private static String readResource(String name) throws Exception {
