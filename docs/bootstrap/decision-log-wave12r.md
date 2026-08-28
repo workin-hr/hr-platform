@@ -365,6 +365,19 @@ Two signals are required, because each is blind where the other sees:
 | `required_conversation_resolution` | no thread is left open | **whether anything was actually addressed** -- resolution is a state a human can set without acting; also a head with **no** round yet, and a head whose predecessor's threads were resolved before the new commits |
 | `independent-review` status check (`.github/workflows/independent-review-gate.yml`) | the named reviewer submitted a round for **this head SHA** | whether that round's findings were addressed |
 
+**One way it still could, and why it is not yet closed.** The workflow triggers on
+`pull_request`, so the run executes the *pull request's* copy of the workflow while
+holding `statuses: write` — a revision could keep the literals the validator binds
+and publish success unconditionally. The remedy is the privileged `_target`
+variant, which runs the base branch's trusted copy and is safe here because this
+job has no `actions/checkout`; `validate_workflow_safety()` forbids that variant
+outright, and relaxing a standing security rule is not a change to make in passing.
+Recorded in R-008 with the consequence that matters: **the status must not become
+a required context until this is resolved**, which puts it alongside D-013's
+branch-protection decision rather than ahead of it. `validate_phase0.py` now fails
+if this workflow ever gains a checkout, since that is what would turn the
+limitation into an escalation.
+
 Three ways the gate could go green over an unreviewed diff, each closed: a
 **dismissed** review is excluded from the count rather than counted by login and
 SHA alone; a **retarget** changes the diff while the head SHA stays, so a base

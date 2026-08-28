@@ -336,13 +336,33 @@ REVIEW_GATE_CONTEXT_RE = re.compile(r'-f\s+context="([^"]*)"')
 
 
 def _without_comments(text: str) -> str:
-    """The workflow with its `#` comment lines dropped.
+    """The workflow with its `#` comments dropped, inline ones included.
 
-    Crude by design: it only removes whole-line comments, which is all that is
-    needed to stop a commented-out example standing in for the live argument.
-    A `#` inside a shell string stays, and no check here depends on it.
+    Whole-line stripping alone was not enough: `echo noop # -f context="..."`
+    left a decoy on a line the filter kept, which is exactly the shape this
+    binding exists to reject.
+
+    A `#` inside a quoted string is not a comment, so quotes are tracked while
+    scanning. The result is only ever searched for `-f context=`, never
+    executed, so approximating shell quoting this far is sufficient -- and
+    erring toward *keeping* text can only make the check stricter, never
+    laxer.
     """
-    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    out = []
+    for line in text.splitlines():
+        quote = None
+        cut = len(line)
+        for index, char in enumerate(line):
+            if quote:
+                if char == quote:
+                    quote = None
+            elif char in "\"'":
+                quote = char
+            elif char == "#" and (index == 0 or line[index - 1] in " \t"):
+                cut = index
+                break
+        out.append(line[:cut])
+    return "\n".join(out)
 
 
 # The matrix cell is written `` `chatgpt-codex-connector[bot]` (pull-request
@@ -540,7 +560,20 @@ def _validate_review_gate_workflow(root: Path, failures: list[str]) -> None:
     # workflow actually runs -- comment lines excluded. A whole-file substring
     # check has the same vacuity the reviewer binding had before it was fixed:
     # changing the live POST while leaving the name in a comment would pass.
-    published = REVIEW_GATE_CONTEXT_RE.findall(_without_comments(text))
+    live = _without_comments(text)
+
+    # This job holds `statuses: write` and must never read the pull request's
+    # tree: it computes the gate from API calls on event-payload values alone.
+    # A checkout added here would let pull-request content run with the very
+    # credential that publishes the gate.
+    if "actions/checkout" in live:
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} holds `statuses: write` and must not check out the "
+            "pull request's tree; the gate is computed from API calls alone (D-121)",
+            failures,
+        )
+
+    published = REVIEW_GATE_CONTEXT_RE.findall(live)
     if not published:
         fail(
             f"{REVIEW_GATE_WORKFLOW} publishes no status context; it must publish "

@@ -43,6 +43,27 @@ name: Independent Review Gate
 # those. Every pull request in this repository is opened from a branch on the
 # repository itself.
 
+# KNOWN LIMITATION -- this trigger runs pull-request-controlled code.
+#
+# A `pull_request` run executes the workflow file *from the pull request* while
+# holding `statuses: write`. A revision could therefore keep the reviewer and
+# context literals `validate_phase0.py` binds, replace the counting logic with an
+# unconditional success, and turn this status green before the named reviewer had
+# seen that very change. (`pull_request_review` runs the default branch's copy and
+# is not affected.)
+#
+# The fix would be the privileged `_target` variant of this trigger, which runs
+# the base branch's trusted copy -- safe here because this job has no
+# `actions/checkout` and never reads the head tree. `validate_workflow_safety()`
+# forbids that variant outright (by name, so it is not even written here), and
+# relaxing a standing security rule to accommodate this workflow is an owner
+# decision, not one to take here. Recorded in R-008 with its consequence:
+#
+#   **`independent-review` must not be made a REQUIRED context until this is
+#   resolved.** While it is advisory the escalation buys nothing -- a pull request
+#   turning its own advisory status green proves nothing to anybody. The exposure
+#   begins the moment it gates a merge, which is the same moment D-013's
+#   branch-protection deferral is revisited. The two decisions belong together.
 on:
   pull_request:
     # `closed` is here because the status is shared across every open pull
@@ -85,6 +106,9 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           BASE_CHANGED: ${{ github.event_name == 'pull_request' && github.event.action == 'edited'
             && github.event.changes.base != null }}
+          # The standing status carries this prefix while a retarget is
+          # unanswered, so a later run can tell "invalidated" from "never green".
+          RETARGET_MARKER: "Base branch changed -- a new review round is required" 
           # D-121 owns this value. scripts/validate_phase0.py binds it to
           # AGENTS.md and the responsibility matrix, so it cannot drift here
           # on its own.
@@ -95,6 +119,35 @@ jobs:
           # A retarget changes the reviewed diff while the head SHA stays put, so
           # a review matching on commit_id alone would still look valid for a
           # diff the reviewer never saw. Fail outright and require a new round.
+          # Recorded in the status description, not just acted on once: a later
+          # review event would otherwise take the normal path, match the
+          # pre-retarget review on the unchanged head SHA, and republish success.
+          # Every run reads the standing status first and refuses to clear a
+          # retarget marker that no newer round has answered.
+          if [ "$BASE_CHANGED" != "true" ]; then
+            standing="$(
+              gh api "repos/$REPO/commits/$HEAD_SHA/status" \
+                --jq "[.statuses[] | select(.context == \"independent-review\")]
+                      | sort_by(.updated_at) | last | .description // \"\"" 2>/dev/null || true
+            )"
+            case "$standing" in
+              "$RETARGET_MARKER"*)
+                newest_round="$(
+                  gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+                    --jq '.[] | select(.user.login == env.REVIEWER and .commit_id == env.HEAD_SHA
+                            and .state != "DISMISSED") | .submitted_at' \
+                    | tail -n 1
+                )"
+                marked_at="${standing##*@ }"
+                if [ -z "$newest_round" ] || [ "$newest_round" \< "$marked_at" ]; then
+                  echo "A base change is still outstanding on this head (marked $marked_at)"
+                  echo "and $REVIEWER has submitted no round since. Leaving the gate red."
+                  exit 0
+                fi
+                ;;
+            esac
+          fi
+
           if [ "$BASE_CHANGED" = "true" ]; then
             echo "FAIL: the pull request was retargeted to a different base."
             echo "      The head SHA is unchanged, but the diff is not, so the"
@@ -104,7 +157,7 @@ jobs:
             gh api -X POST "repos/$REPO/statuses/$HEAD_SHA" \
               -f state="failure" \
               -f context="independent-review" \
-              -f description="Base branch changed -- a new review round is required" \
+              -f description="$RETARGET_MARKER @ $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               -f target_url="$RUN_URL" \
               --jq '.context + " = " + .state'
             exit 0
@@ -161,7 +214,16 @@ jobs:
             )"
             latest="${latest:-none}"
             state="failure"
+            # GitHub caps a commit-status description at 140 characters and
+            # rejects the call above it. Enough unreviewed siblings would push
+            # the full list past that, the POST would fail, and an earlier
+            # success on this SHA would stay as the required context -- the
+            # failure path silently not failing. The log keeps the full list.
             description="No review from $REVIEWER on this head for:${unreviewed}"
+            if [ "${#description}" -gt 140 ]; then
+              count="$(printf '%s' "$unreviewed" | wc -w | tr -d '[:space:]')"
+              description="No review from $REVIEWER on this head for $count pull request(s) -- see the run log"
+            fi
             echo
             echo "FAIL: $REVIEWER has not reviewed $HEAD_SHA for:${unreviewed}"
             echo "      Most recent round on #$PR from that reviewer: $latest"

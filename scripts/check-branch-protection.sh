@@ -35,10 +35,12 @@ fi
 
 # Read the status context out of the workflow that publishes it, rather than
 # hardcoding a second copy that could drift from it (D-121).
-# Comment lines are dropped first: a commented-out example naming the context
-# must not stand in for the argument the workflow actually passes.
+# Comments are dropped first -- inline ones too, not just whole lines: a
+# commented-out example naming the context must not stand in for the argument
+# the workflow actually passes. `sed` removes ` #...` to end of line, which is
+# coarse but can only make this stricter, never laxer.
 INDEPENDENT_REVIEW_CONTEXT="$(
-  grep -v '^[[:space:]]*#' "$INDEPENDENT_REVIEW_WORKFLOW" \
+  sed -e 's/^[[:space:]]*#.*$//' -e 's/[[:space:]]#[^"]*$//' "$INDEPENDENT_REVIEW_WORKFLOW" \
     | sed -n 's/.*-f context="\([^"]*\)".*/\1/p' | head -n 1
 )"
 

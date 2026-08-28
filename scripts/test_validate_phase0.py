@@ -1423,6 +1423,54 @@ def test_review_gate_workflow_with_a_decoy_context_comment_fails() -> None:
         shutil.rmtree(root)
 
 
+def test_review_gate_workflow_with_an_inline_decoy_comment_fails() -> None:
+    """A decoy on a line the whole-line filter keeps: `echo noop # -f context=...`.
+    Stripping only whole-line comments left exactly this shape working."""
+    root = make_root()
+    try:
+        inline_decoy = (
+            "name: Independent Review Gate\n"
+            f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
+            f'          echo noop # -f context="{v.REVIEW_GATE_CONTEXT}"\n'
+            '            -f context="some-other-context" \\\n'
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW],
+            gate_workflow=inline_decoy,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("some-other-context" in f for f in failures),
+            f"an inline decoy comment does not rescue a workflow publishing another "
+            f"context (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_gate_workflow_keeps_a_hash_inside_a_quoted_string() -> None:
+    """A `#` inside quotes is not a comment. The real workflow has none today,
+    but a filter that cut on every `#` would silently truncate a live argument."""
+    root = make_root()
+    try:
+        quoted_hash = (
+            "name: Independent Review Gate\n"
+            f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
+            '            -f description="run #1 of the gate" \\\n'
+            f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW],
+            gate_workflow=quoted_hash,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(failures == [], f"a quoted '#' does not hide the live context (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
 def test_real_repository_reviewer_declaration_still_passes() -> None:
     failures: list[str] = []
     v.validate_independent_reviewer_declaration(failures)  # default root = real repo
@@ -1737,6 +1785,8 @@ def main() -> int:
     test_review_gate_workflow_without_a_reviewer_assignment_fails()
     test_review_gate_workflow_dropping_the_status_context_fails()
     test_review_gate_workflow_with_a_decoy_context_comment_fails()
+    test_review_gate_workflow_with_an_inline_decoy_comment_fails()
+    test_review_gate_workflow_keeps_a_hash_inside_a_quoted_string()
     test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()
