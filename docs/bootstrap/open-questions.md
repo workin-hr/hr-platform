@@ -64,6 +64,32 @@ neither is decided by that document:
   `RequestService` now reads `monthly_leave_accrual` via
   `CompanySettingsService.effective` with 21.0 as the unset fallback.
 
+## Phase 1 Completion
+
+Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
+§8.1 — the questions that gated Item 12's closure and the final exit gate.
+
+- ~~Are `attendance/overall_report.php`, `attendance/export.php` and
+  `payslips/export.php` delivered, formally excluded under a numbered decision,
+  or deferred to a later item?~~ **Resolved 2026-08-28 (O-8/D-120): all three
+  are delivered.** None is excluded and none is deferred, so gate G2's live
+  denominator stays at 198 and the exclusion ledger stays one row long
+  (`time/now.php`, O-3). The governing rule is that Java reproduces what PHP
+  does per endpoint — D-074's JSON envelope where PHP calls `ok()`, and the same
+  streamed bytes, headers and filename where PHP terminates in a `: never`
+  helper — which makes binary-response support a Phase-1 implementation
+  obligation rather than a reason to defer.
+- ~~Does the broad Wave-12.6 J.2 payroll boundary still block Wave 12.6.6?~~
+  **Resolved 2026-08-27 by evidence, not decision**
+  (`docs/migration/2026-08-27-broad-j2-settlement-discovery.md`): every payroll
+  function §G.2 named is already in `main`, delivered by Waves 12.8/12.9 in
+  their own waves. Both `attendance/overall_report.php` and
+  `attendance/export.php` are unblocked on dependency grounds.
+- Who performs the independent review the mandatory workflow places before human
+  merge? **Resolved 2026-08-28 (D-121)**: `chatgpt-codex-connector[bot]`,
+  reviewing the whole pull request. Its externally-billed quota (R-009) makes
+  the gate *unavailable* when exhausted, never waived.
+
 ## Tooling
 
 - Will `specify-cli` be installed during Phase 0 or deferred until human review approves it?

@@ -1020,6 +1020,96 @@ def test_real_repository_agent_matrix_still_passes() -> None:
 
 
 # ---------------------------------------------------------------------------
+# validate_independent_reviewer_declaration (REV-1)
+# ---------------------------------------------------------------------------
+
+
+def write_reviewer_declaration(root: Path, agents_names_reviewer: bool, matrix_rows: list[str]) -> None:
+    (root / "AGENTS.md").write_text(
+        "# Repository Engineering Instructions\n\n"
+        "## Mandatory Workflow\n\n"
+        "`Issue -> ... -> Independent review -> Human merge`\n\n"
+        + (
+            f"Independent review is performed by `{v.INDEPENDENT_REVIEWER}` (D-121).\n"
+            if agents_names_reviewer
+            else "Independent review is performed by somebody.\n"
+        ),
+        encoding="utf-8",
+    )
+    write_matrix(root, matrix_rows)
+
+
+REVIEWER_ROW = f"| `{v.INDEPENDENT_REVIEWER}` (pull-request review) | Read-only review | No | No | No |\n"
+
+
+def test_reviewer_named_and_declared_read_only_passes() -> None:
+    root = make_root()
+    try:
+        write_reviewer_declaration(root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW])
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(failures == [], f"a named, read-only reviewer declared on both sides passes (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_workflow_without_named_reviewer_fails() -> None:
+    """AGENTS.md may not gate merges on an independent review it does not staff."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(root, agents_names_reviewer=False, matrix_rows=[REVIEWER_ROW])
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("does not name" in f for f in failures),
+            f"a Mandatory Workflow that names no reviewer fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_reviewer_missing_from_matrix_fails() -> None:
+    """The gap validate_agent_matrix_consistency() cannot catch: the bot has no
+    .claude/agents file, so that function skips it and only this check binds it."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True,
+            matrix_rows=["| Bootstrap Auditor | Read-only review | No | No | No |\n"],
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("has no row for" in f for f in failures),
+            f"a reviewer named in AGENTS.md but absent from the matrix fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_reviewer_row_widened_fails() -> None:
+    """A read-only reviewer that acquires approval authority must not pass silently."""
+    root = make_root()
+    try:
+        widened = f"| `{v.INDEPENDENT_REVIEWER}` (pull-request review) | Read-only review | No | No | Yes |\n"
+        write_reviewer_declaration(root, agents_names_reviewer=True, matrix_rows=[widened])
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("May Approve Work" in f for f in failures),
+            f"a reviewer row widened to grant approval fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_real_repository_reviewer_declaration_still_passes() -> None:
+    failures: list[str] = []
+    v.validate_independent_reviewer_declaration(failures)  # default root = real repo
+    check(failures == [], f"the real repository's reviewer declaration passes (failures={failures})")
+
+
+# ---------------------------------------------------------------------------
 # validate_nightly_workflow_exists_if_promised (CI-1)
 # ---------------------------------------------------------------------------
 
@@ -1309,6 +1399,11 @@ def main() -> int:
     test_matrix_consistent_with_frontmatter_passes()
     test_matrix_codex_row_without_frontmatter_is_skipped()
     test_real_repository_agent_matrix_still_passes()
+    test_reviewer_named_and_declared_read_only_passes()
+    test_workflow_without_named_reviewer_fails()
+    test_reviewer_missing_from_matrix_fails()
+    test_reviewer_row_widened_fails()
+    test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()
     test_real_repository_skill_catalog_still_passes()

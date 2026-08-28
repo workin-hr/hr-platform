@@ -45,6 +45,14 @@ inherit this contract.
 
 `Issue -> Specification -> Clarification -> Architecture and test impact -> Human approval -> Isolated implementation branch -> Automated verification -> Independent review -> Human merge`
 
+**Independent review is performed by `chatgpt-codex-connector[bot]` (D-121).**
+It reviews the whole pull request, not a sample, and the round must cover the
+final head — commits pushed after a review round are unreviewed until review is
+re-requested. Its findings are fixed, or answered on the thread with a reason,
+before merge. A green CI run proves automated verification only and never
+substitutes for this gate. When Codex's externally-billed quota is exhausted
+(risk R-009) the gate is **unavailable**, not waived: the merge waits.
+
 ## Mandatory Change Propagation
 
 No implementation, configuration, schema, contract, automation, agent, or
