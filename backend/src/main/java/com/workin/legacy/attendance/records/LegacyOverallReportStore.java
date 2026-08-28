@@ -86,6 +86,79 @@ public class LegacyOverallReportStore {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 	}
 
+	/**
+	 * {@code data_export_fingerprints_sheet()}'s own employee query
+	 * ({@code data_export_helper.php:243-261}) -- <b>not</b> the report's.
+	 *
+	 * <p>Three rules differ from {@link #employees}, in the same endpoint file:
+	 * it orders with the {@code REGEXP '^[0-9]+$'} guard the attendance listing
+	 * uses rather than the report's bare cast; a purely numeric search matches
+	 * the employee <b>code only</b>, where the report always searches name or
+	 * code; and it filters {@code is_active = 1}, which the report does not. It
+	 * also has no attendance subquery, because the sheet builds each employee's
+	 * days from the range calendar instead.
+	 */
+	public List<EmployeeRow> fingerprintEmployees(Scope scope) {
+		List<Object> binds = new ArrayList<>();
+		StringBuilder where = new StringBuilder("e.company_id = ?");
+		binds.add(scope.companyId());
+
+		if (scope.selfEmployeeId() != null) {
+			where.append(" AND e.id = ?");
+			binds.add(scope.selfEmployeeId());
+		} else {
+			if (scope.filterEmployeeId() != null) {
+				where.append(" AND e.id = ?");
+				binds.add(scope.filterEmployeeId());
+			}
+			if (scope.branchId() != null) {
+				where.append(" AND e.branch_id = ?");
+				binds.add(scope.branchId());
+			}
+			if (scope.departmentId() != null) {
+				where.append(" AND e.department_id = ?");
+				binds.add(scope.departmentId());
+			}
+		}
+
+		if (scope.search() != null) {
+			String like = "%" + scope.search() + "%";
+			if (scope.search().matches("\\d+")) {
+				// A numeric search is a code lookup here; the report would still
+				// have matched a name containing those digits.
+				where.append(" AND e.employee_code LIKE ?");
+				binds.add(like);
+			} else {
+				where.append(" AND (").append(DISPLAY_NAME).append(" LIKE ? OR e.employee_code LIKE ?)");
+				binds.add(like);
+				binds.add(like);
+			}
+		}
+
+		where.append(" AND ").append(ROSTER_CLAUSE).append(" AND e.is_active = 1");
+
+		if (scope.managerEmployeeId() != null) {
+			where.append(" AND ").append(MANAGER_SCOPE);
+			binds.add(scope.managerEmployeeId());
+			binds.add(scope.companyId());
+		}
+
+		String sql = """
+				SELECT e.id, %s AS name, e.employee_code AS employee_code
+				FROM employees AS e
+				WHERE %s
+				ORDER BY
+				  CASE WHEN e.employee_code REGEXP '^[0-9]+$'
+				    THEN CAST(e.employee_code AS UNSIGNED) ELSE NULL END ASC,
+				  e.employee_code ASC,
+				  e.id ASC
+				""".formatted(DISPLAY_NAME, where);
+
+		return jdbcTemplate.query(sql, (rs, rowNum) -> new EmployeeRow(
+				rs.getLong("id"), rs.getString("name"), rs.getString("employee_code"),
+				null, null, null, null, 0, 0), binds.toArray());
+	}
+
 	public List<EmployeeRow> employees(Scope scope, String periodFrom, String rangeTo) {
 		List<Object> binds = new ArrayList<>();
 		// The subquery's range binds come first: it appears in the FROM clause,

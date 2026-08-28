@@ -33,6 +33,7 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/attendance/check_in_qr.php", "/apis/api/attendance/check_out.php",
 			"/apis/api/attendance/create.php", "/apis/api/attendance/delete.php",
 			"/apis/api/attendance/delete_range.php", "/apis/api/attendance/employee_monthly_attendance.php",
+			"/apis/api/attendance/export.php",
 			"/apis/api/attendance/import_excel.php", "/apis/api/attendance/list.php",
 			"/apis/api/attendance/one.php", "/apis/api/attendance/overall_report.php",
 			"/apis/api/attendance/stats.php",
@@ -126,8 +127,8 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void deliveredRouteCountIsNowOneHundredTwentySix() {
-		assertThat(EXPECTED_ROUTES).hasSize(126).doesNotHaveDuplicates();
+	void deliveredRouteCountIsNowOneHundredTwentySeven() {
+		assertThat(EXPECTED_ROUTES).hasSize(127).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -142,22 +143,21 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	/**
-	 * Unimplemented, not excluded. Both emit an XLSX workbook through the same
-	 * {@code : never} terminator {@code api_xlsx_export_send()}
-	 * ({@code xlsx_writer.php:318}) instead of returning PHP's {@code ok()} JSON envelope,
-	 * which makes them substantial work; the {@code _csv}-named row builders that reach it
-	 * do not produce CSV. D-120 dispositions them as <b>delivered</b>: Java emits the same
-	 * reader-observable workbook, content type, disposition and filename PHP does -- not
-	 * the same archive bytes, which D-085 rules out -- because wrapping either in the
-	 * envelope would be a client-visible divergence D-111 forbids. Legacy serves both
-	 * to real clients today. Delete this assertion -- do not amend it -- when they are
-	 * delivered.
+	 * {@code attendance/export.php} was delivered by Wave 12.6.6d and has left
+	 * this assertion, exactly as its predecessor's javadoc required -- deleted
+	 * from the list, not inverted. Only {@code payslips/export.php} remains,
+	 * owed by Wave 12.9.
+	 *
+	 * <p>It emits an XLSX workbook through the {@code : never} terminator
+	 * {@code api_xlsx_export_send()} ({@code xlsx_writer.php:318}) despite its
+	 * {@code _csv}-named row builder. Per D-085 the port owes the same
+	 * reader-observable workbook, not the same archive bytes. Delete this
+	 * assertion -- do not amend it -- when Wave 12.9 delivers the last one.
 	 */
 	@Test
-	void theTwoBinaryExportEndpointsAreStillUnmapped() {
-		assertThat(EXPECTED_ROUTES).doesNotContain(
-				"/apis/api/attendance/export.php",
-				"/apis/api/payslips/export.php");
+	void theLastBinaryExportEndpointIsStillUnmapped() {
+		assertThat(EXPECTED_ROUTES).contains("/apis/api/attendance/export.php");
+		assertThat(EXPECTED_ROUTES).doesNotContain("/apis/api/payslips/export.php");
 	}
 
 	/**
@@ -169,9 +169,9 @@ class LegacyPhpRouteInventoryTest {
 	 */
 	@Test
 	void theRemainingUnmappedRoutesAreOnlyTheTwoExports() {
-		assertThat(EXPECTED_ROUTES).contains("/apis/api/attendance/overall_report.php");
-		assertThat(EXPECTED_ROUTES).doesNotContain(
-				"/apis/api/attendance/export.php", "/apis/api/payslips/export.php");
+		assertThat(EXPECTED_ROUTES).contains(
+				"/apis/api/attendance/overall_report.php", "/apis/api/attendance/export.php");
+		assertThat(EXPECTED_ROUTES).doesNotContain("/apis/api/payslips/export.php");
 	}
 
 	@Test
