@@ -607,7 +607,7 @@ not upgraded — the constraint D-013 was protecting against is untouched.
 |---|---|---|
 | `required_status_checks.contexts` | `validate`, `independent-review` | Phase 0's check and D-121's gate -- exactly what `check-branch-protection.sh` requires |
 | `required_status_checks.strict` | `true` | A branch must be current with `main` before merging |
-| `required_pull_request_reviews.required_approving_review_count` | `1` | Step 6's human approval, kept **separate** from step 5's independent review |
+| `required_pull_request_reviews.required_approving_review_count` | `0` | Not a relaxation -- **`1` is unsatisfiable here**; see below |
 | `dismiss_stale_reviews` | `true` | An approval does not survive a new push |
 | `required_conversation_resolution` | `true` | Step 7 — no thread left open at merge |
 | `enforce_admins` | `true` | The owner is not exempt; R-008's realizations were all owner merges |
@@ -632,13 +632,56 @@ request may be a required context.** `Phase 0 Bootstrap Validate` qualifies (no
 its real protection is that it must pass when it *does* run, which is a review
 obligation rather than a branch-protection one.
 
+### The approving-review count is `0` because `1` cannot be satisfied
+
+The first configuration applied set the count to `1`, which is what step 6 asks
+for. It made every pull request in the repository unmergeable, including #132
+itself.
+
+**GitHub forbids a pull request's author from approving it.** `karimtismail` is
+the only human with write access to `hr-platform` and is therefore the author of
+every pull request in it. With `required_approving_review_count: 1` and
+`enforce_admins: true`, no pull request could be approved by anyone, ever --
+the setting blocked merges rather than requiring review of them.
+
+The count is `0` until a second maintainer holds write access. **Nothing real
+was given up**, because the requirement was never satisfiable in the first
+place: what is lost is a control that could not fire, not one that could.
+Everything that *can* be enforced still is -- `validate`, `independent-review`,
+conversation resolution, `enforce_admins`, and the force-push/deletion bans.
+Step 6's human approval keeps its full force as a procedural obligation in the
+mandatory workflow, exactly the standing it had before this decision.
+
+**The check now derives this rather than hardcoding it.**
+`scripts/check-branch-protection.sh` counts non-bot collaborators with push
+access and requires an approving review only when a peer approval is possible.
+It is bidirectional, which is what makes it worth having:
+
+| Write-access humans | Required count | Rejected as |
+|---|---|---|
+| 1 | `0` | `>= 1` — unsatisfiable, blocks every merge for ever |
+| >= 2 | `>= 1` | `0` — a possible peer approval was dropped |
+
+So the requirement **returns by itself** the day a second maintainer is added;
+it is not a deferral anyone has to remember. Bots are excluded from the count
+deliberately: `chatgpt-codex-connector[bot]` holds no approval right (D-121)
+and its review arrives through the `independent-review` context instead.
+
+This is the second configuration error in this decision, and it has the same
+shape as the `Backend Validate` one above: **a required control that cannot
+report is not a strong control, it is a broken one.** Both were caught by
+applying the setting and observing a real pull request, not by review of the
+intent.
+
 ### The human approval and the independent review are two requirements, not one
 
-`required_approving_review_count: 1` is satisfied only by a human: the named
-independent reviewer is read-only (D-121) and posts `COMMENTED`, never
-`APPROVED` — measured across all fourteen of its reviews on PRs #126-#129. The
-`independent-review` context is what carries step 5. Neither substitutes for the
-other, which is exactly the confusion D-123 had to leave an open field for.
+The approving-review count, whenever it is above zero, is satisfied only by a
+human: the named independent reviewer is read-only (D-121) and posts
+`COMMENTED`, never `APPROVED` — measured across all fourteen of its reviews on
+PRs #126-#129. The `independent-review` context is what carries step 5. Neither
+substitutes for the other, which is exactly the confusion D-123 had to leave an
+open field for. That separation is why setting the count to `0` does not hand
+step 6 to the bot: the bot could never have satisfied that count anyway.
 
 ### What this does and does not close
 
@@ -655,4 +698,8 @@ recorded in R-008.
 Evidence: `gh api repos/workin-hr/hr-platform/branches/main/protection` returned
 `404 Branch not protected` immediately before this change and the full
 configuration above immediately after; `bash scripts/check-branch-protection.sh`
-passes.
+passes against the live configuration, reporting `1` write-access human. The
+unsatisfiable state was observed directly: PR #132 sat at
+`mergeStateStatus=BLOCKED` with `reviewDecision=REVIEW_REQUIRED` and no
+reviewer able to clear it. `scripts/test_validate_phase0.py` covers both
+directions of the derived rule and is 83/83.

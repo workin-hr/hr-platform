@@ -113,9 +113,15 @@ branch-protection API and the Rulesets API returned
 that error is the route taken**: the repository is now public, where Free has
 always offered branch protection, and the organization was not upgraded.
 
-Applied on `main`: required contexts `validate`, `test` and `independent-review`;
-one approving human review with stale approvals dismissed on push; conversation
-resolution required; `enforce_admins` on; force-pushes and deletions forbidden.
+Applied on `main`: required contexts `validate` and `independent-review`;
+conversation resolution required; `enforce_admins` on; force-pushes and
+deletions forbidden. Stale approvals are dismissed on push. The approving-review
+count is `0`, not because approval was dropped but because GitHub forbids
+self-approval and only one human holds write access, which makes `1`
+unsatisfiable — step 6 below stays a human obligation, and the count returns
+automatically once a second maintainer exists (D-125). `test` is deliberately
+**not** a required context: `Backend Validate` is path-filtered to `backend/**`,
+so requiring it would deadlock every docs-only pull request.
 Verify with `bash scripts/check-branch-protection.sh`.
 
 The historical reasoning below is preserved because it explains why the checker
@@ -164,10 +170,12 @@ own statement that the work is "ready"; the evidence above was recorded
 only after a human completed the underlying action first.
 
 1. **Branch protection on `main` is applied** (D-125, 2026-08-29), superseding
-   D-013's deferral: `validate`, `test` and `independent-review` are required
-   contexts, one approving human review is required with stale approvals
-   dismissed on push, conversation resolution is required, `enforce_admins` is
-   on, and force-pushes and deletions are forbidden. Verify with
+   D-013's deferral: `validate` and `independent-review` are required
+   contexts, conversation resolution is required, `enforce_admins` is on, and
+   force-pushes and deletions are forbidden. Stale approvals are dismissed on
+   push, and the approving-review count is `0` only because a sole maintainer
+   cannot approve their own pull request — step 6 remains owed by a human.
+   Verify with
    `bash scripts/check-branch-protection.sh`. D-013 deferred this because
    `hr-platform` was private on a Free organization; the repository is now
    public, where Free has always offered protection.
