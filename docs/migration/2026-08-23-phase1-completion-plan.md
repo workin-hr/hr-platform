@@ -919,6 +919,13 @@ answer in an envelope. D-111's zero-client-change invariant decides which wins.
 numbered decision. No endpoint diverges without one. Published as a single list,
 not scattered across wave discoveries.
 
+One entry is not a *behavioural* difference but belongs in the same list because
+it is a deliberate departure from the frozen SQL: **D-124** drops the two columns
+`overall_attendance_report_build()`'s query computes and never reads, on a
+measured three-fold saving. It is invisible through the API — same fields, same
+values, same ordering, same row count — and visible only in the query the
+endpoint emits.
+
 **G5 — Cross-tenant and security review.** Every tenant-owned entity carries
 exactly one named policy and fails closed (`TenantFilterCoverageTest`,
 `DerivedTenancyPoliciesFailClosedTest`). Every module has a recorded
