@@ -585,7 +585,6 @@ number, not a standing assertion. The standing assertion is the regression above
 `com.workin.legacy.attendance.*` and `LegacyPhpRouteInventoryTest` green after
 the change.
 
-
 ## D-126: `configs/get.php` is ported as-is, unauthenticated, in Item 13.0
 
 **Status:** Accepted 2026-08-29. First endpoint delivered outside Item 12.
