@@ -332,11 +332,23 @@ reply and no fix means the gate has been read, not passed.
 **Enforced, not only declared.** The reviewer is an external GitHub App, so it has
 no `.claude/agents` file and `validate_agent_matrix_consistency()` -- which binds a
 Claude agent's matrix row to its real `tools:` frontmatter -- silently skips it.
-`validate_independent_reviewer_declaration()` closes that gap instead: it fails if
-`AGENTS.md` gates merges on an independent review without naming the reviewer, if
-the responsibility matrix carries no row for that name, or if the row is widened
-from read-only. Five fixture cases in `scripts/test_validate_phase0.py` cover it,
-including the widening case and a sanity check against the real repository.
+`validate_independent_reviewer_declaration()` closes that gap instead. It fails if
+`AGENTS.md` has no `## Mandatory Workflow` section at all, if that section has no
+independent-review step, if it does not name the reviewer **within the section**
+(a mention elsewhere in the file does not staff the gate), if the responsibility
+matrix carries no row for that name, or if the row is widened from read-only.
+Seven fixture cases in `scripts/test_validate_phase0.py` cover it, including
+wholesale removal of the section, an out-of-section mention, the widening case,
+and a sanity check against the real repository.
+
+**Propagated into the executable procedure, not just the policy.** Step 5 of the
+Human Approval And Merge Sequence in `docs/bootstrap/manual-setup-checklist.md`
+previously offered the Claude `bootstrap-auditor` and/or the Codex
+`independent-verification-reviewer` as the independent audit. A pull request could
+satisfy every documented step there while skipping this gate — which is what
+happened at PR #120. Step 5 now names this reviewer and requires whole-PR coverage
+of the final head; the other two audits are explicitly supplementary. Step 7 now
+requires every finding to be fixed or answered on its thread before merge.
 
 Impact: R-008's mitigation gains a named reviewer and R-009's impact widens from
 "unreviewable" to "unmergeable" while Codex quota is out.

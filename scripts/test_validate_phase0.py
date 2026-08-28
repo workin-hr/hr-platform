@@ -1024,18 +1024,29 @@ def test_real_repository_agent_matrix_still_passes() -> None:
 # ---------------------------------------------------------------------------
 
 
-def write_reviewer_declaration(root: Path, agents_names_reviewer: bool, matrix_rows: list[str]) -> None:
-    (root / "AGENTS.md").write_text(
-        "# Repository Engineering Instructions\n\n"
-        "## Mandatory Workflow\n\n"
-        "`Issue -> ... -> Independent review -> Human merge`\n\n"
-        + (
-            f"Independent review is performed by `{v.INDEPENDENT_REVIEWER}` (D-121).\n"
-            if agents_names_reviewer
-            else "Independent review is performed by somebody.\n"
-        ),
-        encoding="utf-8",
-    )
+def write_reviewer_declaration(
+    root: Path,
+    agents_names_reviewer: bool,
+    matrix_rows: list[str],
+    *,
+    workflow_section: bool = True,
+    reviewer_outside_section: bool = False,
+) -> None:
+    body = "# Repository Engineering Instructions\n\n"
+    if workflow_section:
+        body += (
+            "## Mandatory Workflow\n\n"
+            "`Issue -> ... -> Independent review -> Human merge`\n\n"
+            + (
+                f"Independent review is performed by `{v.INDEPENDENT_REVIEWER}` (D-121).\n"
+                if agents_names_reviewer
+                else "Independent review is performed by somebody.\n"
+            )
+        )
+    body += "\n## Global Rules\n\nRules.\n"
+    if reviewer_outside_section:
+        body += f"\nSomething unrelated mentions `{v.INDEPENDENT_REVIEWER}` here.\n"
+    (root / "AGENTS.md").write_text(body, encoding="utf-8")
     write_matrix(root, matrix_rows)
 
 
@@ -1063,6 +1074,41 @@ def test_workflow_without_named_reviewer_fails() -> None:
         check(
             any("does not name" in f for f in failures),
             f"a Mandatory Workflow that names no reviewer fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_workflow_section_deleted_fails() -> None:
+    """Deleting the heading must not be a way to delete the gate."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], workflow_section=False,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("no longer defines" in f for f in failures),
+            f"AGENTS.md with its Mandatory Workflow section removed fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_reviewer_named_only_outside_the_workflow_fails() -> None:
+    """A mention elsewhere in AGENTS.md does not staff the gate."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(
+            root, agents_names_reviewer=False, matrix_rows=[REVIEWER_ROW],
+            reviewer_outside_section=True,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("does not name" in f for f in failures),
+            f"a reviewer named outside the Mandatory Workflow section fails (failures={failures})",
         )
     finally:
         shutil.rmtree(root)
@@ -1401,6 +1447,8 @@ def main() -> int:
     test_real_repository_agent_matrix_still_passes()
     test_reviewer_named_and_declared_read_only_passes()
     test_workflow_without_named_reviewer_fails()
+    test_workflow_section_deleted_fails()
+    test_reviewer_named_only_outside_the_workflow_fails()
     test_reviewer_missing_from_matrix_fails()
     test_reviewer_row_widened_fails()
     test_real_repository_reviewer_declaration_still_passes()

@@ -322,6 +322,20 @@ def validate_agent_files(failures: list[str], root: Path | None = None) -> None:
 INDEPENDENT_REVIEWER = "chatgpt-codex-connector[bot]"
 
 
+def _agents_section(text: str, heading: str) -> str | None:
+    """The body of one `## ` section, up to the next `## ` heading.
+
+    Returns None when the heading is absent, so a caller can tell "the
+    section says the wrong thing" apart from "somebody deleted the section".
+    """
+    start = text.find(heading)
+    if start == -1:
+        return None
+    body_start = start + len(heading)
+    end = text.find("\n## ", body_start)
+    return text[body_start:] if end == -1 else text[body_start:end]
+
+
 def validate_independent_reviewer_declaration(failures: list[str], root: Path | None = None) -> None:
     """Bind AGENTS.md's named independent reviewer to its matrix row.
 
@@ -339,12 +353,33 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
         return  # already reported by validate_required_paths
 
     agents_text = agents.read_text(encoding="utf-8")
-    if "## Mandatory Workflow" in agents_text and INDEPENDENT_REVIEWER not in agents_text:
+    workflow = _agents_section(agents_text, "## Mandatory Workflow")
+    if workflow is None:
+        # Deleting the heading must not be a way to delete the gate. The
+        # workflow is AGENTS.md's own mandatory contract; its absence is a
+        # failure in itself, not a reason to skip the reviewer check.
         fail(
-            f"AGENTS.md defines a Mandatory Workflow with an independent-review step but "
-            f"does not name {INDEPENDENT_REVIEWER!r} as the reviewer that discharges it (D-121)",
+            "AGENTS.md no longer defines a '## Mandatory Workflow' section — the "
+            "Issue -> ... -> Independent review -> Human merge contract every agent "
+            "and human is bound by (D-121 depends on it)",
             failures,
         )
+    else:
+        if "ndependent review" not in workflow:
+            fail(
+                "AGENTS.md's Mandatory Workflow no longer contains an independent-review "
+                "step before human merge (D-121)",
+                failures,
+            )
+        # Deliberately scoped to the section, not the whole file: a mention of
+        # the reviewer somewhere else in AGENTS.md does not staff this gate.
+        if INDEPENDENT_REVIEWER not in workflow:
+            fail(
+                f"AGENTS.md's Mandatory Workflow does not name {INDEPENDENT_REVIEWER!r} as "
+                f"the reviewer that discharges its independent-review step (D-121); a mention "
+                "elsewhere in the file does not count",
+                failures,
+            )
 
     matrix_text = matrix_path.read_text(encoding="utf-8")
     for agent_name, _primary_mode, may_modify, may_pr, may_approve in MATRIX_ROW_RE.findall(matrix_text):

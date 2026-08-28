@@ -67,7 +67,7 @@ delivered its three. The two remaining are Wave 12.6.6's `overall_report` and
 | 12.6.4a | `attendance/analyze_excel` | 1 | complete |
 | 12.6.5 | `schedules/employee_monthly_schedule`, `generate_employee_schedule` | 2 | complete |
 | 12.6.4b | `attendance/list`, `stats`, `employee_monthly_attendance` | 3 | complete — delivered 2026-08-27 after Wave 12.7 (§1.5) |
-| **12.6.6** | `attendance/overall_report`, `export` | 2 | **0 of 2, both to be delivered (D-120).** `export` streams a binary response, so Java streams the same bytes PHP does; `overall_report` is a JSON endpoint misclassified as binary — C9, §6 |
+| **12.6.6** | `attendance/overall_report`, `export` | 2 | **0 of 2, both to be delivered (D-120).** `export` returns a workbook download, so Java owes the same reader-observable workbook and headers — **not** the same archive bytes, per D-085 (§5 G3); `overall_report` is a JSON endpoint misclassified as binary — C9, §6 |
 
 **16 of 18 delivered.** Wave 12.6.6's two are both outstanding and both in
 scope: 16 + 2 = 18, with nothing in this wave excluded — C9, §6, D-120.
@@ -487,7 +487,9 @@ and useful statement about how much work they are and what shape the work takes 
 it is **not** a decision that Phase 1 need not serve them. Legacy serves both to
 real clients today.
 
-**Both emit XLSX through one mechanism**, despite the `_csv` names:
+**The two exports emit XLSX through one shared mechanism**, despite the `_csv`
+names (the template downloads in §5 G3 are a different, already-delivered pair of
+streamers):
 `data_export_attendance_csv()` and `data_export_payslips_csv()` are row builders
 that both end in `api_xlsx_export_send()` (`xlsx_writer.php:318`), which writes
 `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
@@ -842,12 +844,23 @@ end-to-end tests, with **G6** as the floor that guarantees none reaches cutover
 with zero measured evidence. Do not cite the inventory as proof of anything but
 the URL surface.
 
-The response contract is per-endpoint, not repository-wide (D-120):
+The response contract is per-endpoint, not repository-wide (D-120). **Three
+terminators, not one**, and two of the three are already delivered:
 
-| PHP terminates in | Java answers |
-|---|---|
-| `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — every one of the 125 delivered routes, and `attendance/overall_report.php` when it ships |
-| `api_xlsx_export_send()` (`xlsx_writer.php:318`) — both exports reach it, through `data_export_attendance_csv()` and `data_export_payslips_csv()` | the same **reader-observable workbook** (sheet name, rows, cell values, merges, styles, widths, freeze), `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `attachment` disposition and the same sanitized `.xlsx` filename — with `Content-Length` matching **Java's own body** — plus `fail()`'s JSON envelope with 500 on a build failure, which is what PHP does |
+| PHP terminates in | Live today | Java answers |
+|---|---|---|
+| `ok()` / `fail()` (`apis/helpers/functions.php`) | 123 of the 125 | D-074's JSON envelope — and `attendance/overall_report.php` when it ships |
+| `stream_employee_template_xlsx()` / `leave_balance_excel_stream_template()` — write to an output stream and `exit` | **2 of the 125**: `employees/template_excel.php`, `leave_balances/template_excel.php` | the same reader-observable file, `Content-Type`, `attachment` disposition and filename. **Already delivered** — `LegacyEmployeeController.templateExcel` writes the bytes itself instead of a `LegacyApiResponse`, and `LegacyLeaveBalanceController.template` returns `ResponseEntity<byte[]>` |
+| `api_xlsx_export_send()` (`xlsx_writer.php:318`) — reached by `data_export_attendance_csv()` and `data_export_payslips_csv()` | 0 — both owed | the same **reader-observable workbook** (sheet name, rows, cell values, merges, styles, widths, freeze), `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `attachment` disposition and the same sanitized `.xlsx` filename — with `Content-Length` matching **Java's own body** |
+
+**Every download route keeps the envelope on its failure path.** All three
+terminators call `fail()` when generation throws — a 500 with the JSON envelope —
+and the delivered pair keeps its auth and validation guards answering in the
+envelope too. Only the success path is a file.
+
+**The binary shape is not new territory.** Two of these routes shipped in Waves
+12.4 and 12.7 and are inside `LegacyPhpRouteInventoryTest`'s 125. The three owed
+endpoints extend an established pattern rather than introducing one.
 
 **Not byte-for-byte, and deliberately so.** D-085 already settled this for the
 one XLSX generator Phase 1 has shipped: "ZIP timestamps, compression metadata
@@ -979,7 +992,7 @@ exactly as written.
 | **O-5** | Phase-1 completion covers the legacy REST API backend (`apis/`, allow-listed modules), **not** the 92-page PHP dashboard, which remains a legacy consumer/operator surface against the same MariaDB. Its pages are not counted in the ledger; its risks stay visible separately. | §4.9, §3.3, §5 G1/G13 |
 | **O-6** | The D-074 retrospective correction becomes its own explicit engineering wave and closure boundary — **Wave 12.R**, 22 endpoints including `auth/login_employee` — rather than being distributed through unrelated module waves. The engineering order is fixed: **remaining Item 12 → Wave 12.R → Item 13**, so no endpoint is ever owned by both 12.R and an Item-13 wave. Owning `auth/login_employee` does not make `auth` an Item-12 module. Not to be split into 21 + 1 unless new evidence requires it. | §1.3, §3.3, §4.1, §3.2 |
 | **O-7** | **G6 accepted**: every live response-bearing legacy endpoint must carry at least one measured differential assertion against authoritative PHP + MariaDB behaviour. A percentage threshold is rejected. G6 is a minimum floor; endpoint-specific high-risk branches still require deeper matrices. | §5 G6 |
-| **O-8** | **The three open Item-12 endpoints are to be delivered — the C9 disposition, accepted 2026-08-28 as D-120.** The disposition selects delivery for `attendance/overall_report.php`, `attendance/export.php` and `payslips/export.php`: none is formally excluded and none is deferred out of Phase 1. **It does not implement them.** All three remain in `ITEM12_REMAINING` and unmapped in `LegacyPhpRouteInventoryTest`; the work is owed, and §1.2/§1.6 name the slices that owe it. The governing rule is that Java reproduces what PHP does per endpoint: the JSON envelope where PHP calls `ok()`, and the same streamed bytes, headers and filename where PHP terminates in a `: never` helper. Binary-response support becomes a Phase-1 implementation obligation. The live total stays 198 and the exclusion bucket stays at one row. | §1.1, §1.2, §3.2, §5 G2/G3, §6 C9, §8.1 |
+| **O-8** | **The three open Item-12 endpoints are to be delivered — the C9 disposition, accepted 2026-08-28 as D-120.** The disposition selects delivery for `attendance/overall_report.php`, `attendance/export.php` and `payslips/export.php`: none is formally excluded and none is deferred out of Phase 1. **It does not implement them.** All three remain in `ITEM12_REMAINING` and unmapped in `LegacyPhpRouteInventoryTest`; the work is owed, and §1.2/§1.6 name the slices that owe it. The governing rule is that Java reproduces what PHP does per endpoint: the JSON envelope where PHP calls `ok()`, and — where PHP terminates in a download helper — the same reader-observable workbook, headers and filename, **not** the same archive bytes, which D-085 rules out as a compatibility requirement (§5 G3). Binary-response support becomes a Phase-1 implementation obligation. The live total stays 198 and the exclusion bucket stays at one row. | §1.1, §1.2, §3.2, §5 G2/G3, §6 C9, §8.1 |
 
 ### 8.1 What remains genuinely open
 
