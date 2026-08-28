@@ -466,6 +466,15 @@ required context while the gate ran pull-request-controlled code. That precondit
 is now cleared, so making it required is once more purely the branch-protection
 question D-013 defers -- one decision instead of two.
 
+**A bootstrap condition to expect, measured on PR #127.** The privileged trigger
+resolves the workflow from the **base** branch, so it fires only once this file
+exists there — while the pull request introducing it is still open, zero
+push/synchronize runs occur and the status is maintained by review events alone.
+It fails safe rather than open: a freshly pushed head has *no* status, leaving a
+required check unsatisfied, rather than inheriting a stale green from an earlier
+head. It resolves itself at merge, and the first push afterwards should be checked
+for a run.
+
 **What it does not change.** The gate still proves only that a round happened on
 the final head. Whether findings were addressed remains step 7's human obligation,
 with nothing in this repository verifying it mechanically (R-008).

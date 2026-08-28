@@ -62,6 +62,15 @@ name: Independent Review Gate
 #
 # `pull_request_review` already runs the default branch's copy and needed no
 # change.
+#
+# BOOTSTRAP CONDITION -- expected, and self-resolving at merge. This trigger
+# resolves the workflow from the **base** branch, so it fires only once this file
+# exists there. Until the pull request introducing it merges to `main`, no
+# push/synchronize run happens at all and the status is maintained solely by
+# review events. That fails safe rather than open: a freshly pushed head simply
+# has *no* status, which leaves a required check unsatisfied, instead of carrying
+# a stale green from an earlier head. Verify after the first merge that a push
+# produces a run.
 on:
   pull_request_target:
     # `closed` is here because the status is shared across every open pull
