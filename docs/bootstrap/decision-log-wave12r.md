@@ -605,7 +605,7 @@ not upgraded — the constraint D-013 was protecting against is untouched.
 
 | Setting | Value | Why |
 |---|---|---|
-| `required_status_checks.contexts` | `validate`, `test`, `independent-review` | The first two are the checks R-009 names as required; the third is D-121's gate |
+| `required_status_checks.contexts` | `validate`, `independent-review` | Phase 0's check and D-121's gate -- exactly what `check-branch-protection.sh` requires |
 | `required_status_checks.strict` | `true` | A branch must be current with `main` before merging |
 | `required_pull_request_reviews.required_approving_review_count` | `1` | Step 6's human approval, kept **separate** from step 5's independent review |
 | `dismiss_stale_reviews` | `true` | An approval does not survive a new push |
@@ -616,6 +616,21 @@ not upgraded — the constraint D-013 was protecting against is untouched.
 Verified with the repository's own `scripts/check-branch-protection.sh`, which
 had been "built and regression-tested but pending" since D-013 and now passes
 against the live configuration for the first time.
+
+**A required context must be one that always runs.** `Backend Validate`'s `test`
+job was in the first configuration applied, on the reasoning that R-009 names it
+a required check. That was wrong and was corrected within minutes: the workflow
+is **path-filtered** to `backend/**` and its own file, so on a docs-only pull
+request it never runs, and a required context that never reports blocks the merge
+for ever rather than failing. PR #132 -- docs and one workflow file -- deadlocked
+on it immediately.
+
+The rule this leaves: **only a check that runs unconditionally on every pull
+request may be a required context.** `Phase 0 Bootstrap Validate` qualifies (no
+`paths:` filter); `Independent Review Gate` qualifies (it runs on
+`pull_request_target` for every pull request); `Backend Validate` does not, and
+its real protection is that it must pass when it *does* run, which is a review
+obligation rather than a branch-protection one.
 
 ### The human approval and the independent review are two requirements, not one
 
