@@ -327,6 +327,10 @@ INDEPENDENT_REVIEWER = "chatgpt-codex-connector[bot]"
 REVIEW_GATE_WORKFLOW = ".github/workflows/independent-review-gate.yml"
 REVIEW_GATE_CONTEXT = "independent-review"
 
+# The single line the gate actually runs on. Bound by value, not by presence
+# anywhere in the file -- the workflow's comments name the reviewer too.
+REVIEW_GATE_REVIEWER_RE = re.compile(r'^\s*REVIEWER:\s*"([^"]*)"\s*$', re.MULTILINE)
+
 
 # The matrix cell is written `` `chatgpt-codex-connector[bot]` (pull-request
 # review) `` -- backticks plus a human annotation. Both are stripped and the
@@ -499,10 +503,24 @@ def _validate_review_gate_workflow(root: Path, failures: list[str]) -> None:
         return
 
     text = workflow.read_text(encoding="utf-8")
-    if not REVIEWER_IN_PROSE_RE.search(text):
+    # The `REVIEWER:` assignment specifically, not the file. Searching the whole
+    # text is vacuous here: this workflow's own header comments name the
+    # reviewer several times, so changing only the assignment -- the one line
+    # the gate actually runs on -- would leave a whole-file search satisfied
+    # while the executable check queried a different account.
+    assignment = REVIEW_GATE_REVIEWER_RE.search(text)
+    if assignment is None:
         fail(
-            f"{REVIEW_GATE_WORKFLOW} does not name {INDEPENDENT_REVIEWER!r}, so the executable "
-            "gate and AGENTS.md's declared reviewer have diverged (D-121)",
+            f"{REVIEW_GATE_WORKFLOW} has no `REVIEWER: \"...\"` assignment; the executable gate "
+            f"must declare the reviewer it queries so it can be bound to {INDEPENDENT_REVIEWER!r} "
+            "(D-121)",
+            failures,
+        )
+    elif assignment.group(1) != INDEPENDENT_REVIEWER:
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} runs its gate against {assignment.group(1)!r}, but AGENTS.md "
+            f"and the responsibility matrix declare {INDEPENDENT_REVIEWER!r} (D-121); the "
+            "executable gate and the declared reviewer have diverged",
             failures,
         )
     if f'context="{REVIEW_GATE_CONTEXT}"' not in text:

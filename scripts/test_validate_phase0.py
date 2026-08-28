@@ -1104,6 +1104,7 @@ def write_reviewer_declaration(
             gate_workflow
             or (
                 "name: Independent Review Gate\n"
+                f"# D-121 names `{v.INDEPENDENT_REVIEWER}` as the reviewer.\n"
                 f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
                 f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
             ),
@@ -1327,8 +1328,11 @@ def test_review_gate_workflow_naming_a_different_reviewer_fails() -> None:
     the one AGENTS.md declares."""
     root = make_root()
     try:
+        # The header comment still names the real reviewer -- exactly the shape
+        # the live workflow has, and the reason a whole-file search was vacuous.
         drifted = (
             "name: Independent Review Gate\n"
+            f"# D-121 names `{v.INDEPENDENT_REVIEWER}` as the reviewer.\n"
             '          REVIEWER: "some-other-bot"\n'
             f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
         )
@@ -1338,8 +1342,32 @@ def test_review_gate_workflow_naming_a_different_reviewer_fails() -> None:
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
         check(
-            any("have diverged" in f for f in failures),
-            f"a workflow naming a different reviewer fails (failures={failures})",
+            any("have diverged" in f and "some-other-bot" in f for f in failures),
+            f"a workflow whose REVIEWER assignment names a different account fails, even though "
+            f"its comments still name the real one (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_review_gate_workflow_without_a_reviewer_assignment_fails() -> None:
+    """Deleting the assignment must not pass on the strength of the comments."""
+    root = make_root()
+    try:
+        no_assignment = (
+            "name: Independent Review Gate\n"
+            f"# D-121 names `{v.INDEPENDENT_REVIEWER}` as the reviewer.\n"
+            f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=no_assignment,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("has no `REVIEWER:" in f for f in failures),
+            f"a workflow with no REVIEWER assignment fails despite naming the reviewer in a "
+            f"comment (failures={failures})",
         )
     finally:
         shutil.rmtree(root)
@@ -1679,6 +1707,7 @@ def main() -> int:
     test_duplicate_reviewer_rows_fail()
     test_missing_review_gate_workflow_fails()
     test_review_gate_workflow_naming_a_different_reviewer_fails()
+    test_review_gate_workflow_without_a_reviewer_assignment_fails()
     test_review_gate_workflow_dropping_the_status_context_fails()
     test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()

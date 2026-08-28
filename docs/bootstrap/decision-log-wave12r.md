@@ -364,11 +364,22 @@ Two signals are required, because each is blind where the other sees:
 The check publishes an explicit **commit status** against `pull_request.head.sha`
 rather than relying on its own job conclusion, so the push event and the
 review-submitted event converge on one context on the right commit instead of
-depending on how two workflow runs of the same name supersede one another. Its
-three moving parts are bound together rather than left to drift:
+depending on how two workflow runs of the same name supersede one another. A
+commit status carries no pull-request identity, so it is computed across **every
+open pull request pointing at that commit** — otherwise one pull request's round
+would hand a sibling with a different base a green gate over a diff the reviewer
+never saw. Its three moving parts are bound together rather than left to drift:
 `scripts/check-branch-protection.sh` reads the required context out of the
 workflow that publishes it, and `validate_phase0.py` fails if the workflow is
-deleted, names a different reviewer, or stops publishing that context.
+deleted, publishes a different context, or runs its gate against a different
+account — matched on the `REVIEWER:` assignment itself, since the workflow's own
+comments name the reviewer and a whole-file search would be satisfied by those.
+
+**What this does not enforce.** Neither signal proves a finding was *addressed*.
+Thread resolution is a state a human can set without acting, so both can be
+satisfied with every finding ignored. Step 7 of the merge sequence remains a human
+obligation; whether to build a qualifying-answer check is an open owner decision
+recorded in R-008.
 
 `scripts/check-branch-protection.sh` requires conversation resolution, so the
 protection applied whenever D-013's deferral is revisited is verified against the

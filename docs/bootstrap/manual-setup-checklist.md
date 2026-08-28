@@ -189,6 +189,11 @@ only after a human completed the underlying action first.
    reason, and the thread resolved. A P1 or P2 left with no reply and no fix
    means the gate has been read, not passed. Re-request review if the fixes
    changed the head.
+   **This step is not mechanically enforced.** Thread resolution is a state a
+   human can set without acting, so `required_conversation_resolution` and the
+   `independent-review` status can both be green with every finding ignored.
+   Whoever merges is asserting they read the findings — a green merge box is
+   not that assertion (R-008).
 8. A human merges the pull request. No agent merges it, and no agent
    approves its own or another agent's work.
 9. The human records, in `docs/bootstrap/decision-log.md`: the pull-request

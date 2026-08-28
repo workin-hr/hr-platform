@@ -15,6 +15,9 @@ name: Independent Review Gate
 #     the bot has not posted yet, or when fixes were pushed and the previous
 #     head's threads were resolved. Both leave the *final* head unreviewed.
 #
+# The status is keyed on the commit, not the pull request, so it is computed
+# across every open pull request pointing at that commit -- see the loop below.
+#
 # Why a commit status rather than this job's own check conclusion: the gate has
 # to be re-evaluated when a review arrives, which is a different event from the
 # push that created the original check run. Publishing an explicit status
@@ -73,24 +76,48 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Pull request #$PR, head $HEAD_SHA"
+          echo "Triggered by pull request #$PR, head $HEAD_SHA"
           echo "Required independent reviewer: $REVIEWER"
 
-          # Counted by lines, not by a per-page `length`: `--paginate` emits a
-          # separate JSON array per page, so `--jq '... | length'` returns one
-          # count per page -- "0\n0" on a pull request with more than 100
-          # reviews. `[ "0\n0" -eq 0 ]` is an error rather than a false, and an
-          # erroring `if` condition falls through to the success path, so that
-          # shape would report a green gate on an unreviewed head. Emitting one
-          # line per match and counting lines is immune to the page boundary.
-          # (`--slurp` would also work but is not in every `gh` version.)
-          reviews_on_head="$(
-            gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
-              --jq '.[] | select(.user.login == env.REVIEWER and .commit_id == env.HEAD_SHA) | .commit_id' \
-              | wc -l | tr -d '[:space:]'
+          # A commit status is keyed on the SHA alone -- it carries no pull
+          # request identity, and every open pull request pointing at this
+          # commit sees the same context. Publishing "reviewed" on the strength
+          # of one pull request's round would hand a green gate to a sibling
+          # pull request whose own diff (different base, therefore different
+          # changes) the reviewer never saw. The status is repo-wide, so its
+          # meaning is repo-wide: green only when EVERY open pull request at
+          # this SHA has its own round on this SHA.
+          open_prs="$(
+            gh api "repos/$REPO/commits/$HEAD_SHA/pulls" --paginate \
+              --jq '.[] | select(.state == "open" and .head.sha == env.HEAD_SHA) | .number' \
+              | sort -u
           )"
+          if [ -z "$open_prs" ]; then
+            open_prs="$PR"
+          fi
+          echo "Open pull requests at this commit: $(echo "$open_prs" | tr '\n' ' ')"
 
-          if [ "$reviews_on_head" -eq 0 ]; then
+          unreviewed=""
+          for pr in $open_prs; do
+            # Counted by lines, not by a per-page `length`: `--paginate` emits a
+            # separate JSON array per page, so `--jq '... | length'` returns one
+            # count per page -- "0\n0" past 100 reviews. `[ "0\n0" -eq 0 ]` is
+            # an error rather than a false, and an erroring `if` condition falls
+            # through to the success path, which would report a green gate on an
+            # unreviewed head. One line per match, counted, has no page boundary
+            # to trip over. (`--slurp` would also work but is not in every `gh`.)
+            count="$(
+              gh api "repos/$REPO/pulls/$pr/reviews" --paginate \
+                --jq '.[] | select(.user.login == env.REVIEWER and .commit_id == env.HEAD_SHA) | .commit_id' \
+                | wc -l | tr -d '[:space:]'
+            )"
+            echo "  #$pr: $count review(s) from $REVIEWER on this head"
+            if [ "$count" -eq 0 ]; then
+              unreviewed="$unreviewed #$pr"
+            fi
+          done
+
+          if [ -n "$unreviewed" ]; then
             latest="$(
               gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
                 --jq '.[] | select(.user.login == env.REVIEWER) | .commit_id[0:7]' \
@@ -98,26 +125,26 @@ jobs:
             )"
             latest="${latest:-none}"
             state="failure"
-            description="No review from $REVIEWER on this head (latest: $latest)"
+            description="No review from $REVIEWER on this head for:${unreviewed}"
             echo
-            echo "FAIL: $REVIEWER has not reviewed $HEAD_SHA."
-            echo "      Most recent round from that reviewer: $latest"
+            echo "FAIL: $REVIEWER has not reviewed $HEAD_SHA for:${unreviewed}"
+            echo "      Most recent round on #$PR from that reviewer: $latest"
             echo
             echo "AGENTS.md's mandatory workflow places an independent review before human"
             echo "merge, and D-121 requires the round to cover the final head — commits"
             echo "pushed after a round are unreviewed until review is re-requested."
             echo
-            echo "Comment '@codex review' on the pull request; this status turns green when"
-            echo "the round lands. If the reviewer's quota is exhausted (risk R-009) the gate"
-            echo "is unavailable, not waived: the merge waits."
+            echo "Comment '@codex review' on each pull request listed above; this status turns"
+            echo "green when every one of them has a round on this commit. If the reviewer's"
+            echo "quota is exhausted (risk R-009) the gate is unavailable, not waived: the"
+            echo "merge waits."
           else
             state="success"
-            description="$REVIEWER reviewed this head"
+            description="$REVIEWER reviewed this head on every open PR at this commit"
             echo
-            echo "OK: $REVIEWER submitted $reviews_on_head review(s) on this head."
+            echo "OK: every open pull request at this commit has a round from $REVIEWER."
             echo "This proves a round happened. It does not prove its findings were addressed —"
-            echo "that is the merge sequence's step 7, and unresolved threads are what"
-            echo "required_conversation_resolution blocks on."
+            echo "that is the merge sequence's step 7."
           fi
 
           gh api -X POST "repos/$REPO/statuses/$HEAD_SHA" \
