@@ -387,7 +387,12 @@ class LegacyEmployeeReadEndToEndTest {
 		// needs no exemption -- it is POST-only, so an unauthenticated GET
 		// still ends at the 405 this invariant demands -- and so does
 		// complaints/create.php, which is equally unauthenticated and equally
-		// POST-only, so it needs no entry here either.
+		// POST-only, so it needs no entry here either. Wave 13.1a's four OTP
+		// routes (auth/{verify_otp,resend_otp,forgot_password,reset_password})
+		// are the same case a fourth time over: unauthenticated in legacy, and
+		// POST-only, so an unauthenticated GET still ends at the 405. They are
+		// deliberately NOT added to the list below -- an entry there would
+		// exempt them from the invariant they actually satisfy.
 		//
 		// The assertion is "not a 401", not "a 200": app_content/one.php reached
 		// with no content_key answers 400 key_required, which is still the

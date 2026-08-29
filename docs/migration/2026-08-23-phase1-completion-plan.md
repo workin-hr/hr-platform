@@ -337,8 +337,8 @@ Endpoint counts from `hr-legacy@d113204`; "Java counterpart" measured against
 | Legacy module | Endpoints | Java counterpart? | Bucket | Dependencies | Client consumer(s) | Security findings | Item-13 wave |
 |---|---|---|---|---|---|---|---|
 | `configs` | 1 | none (the *table* is already read by `LegacyClock`) | Item 13 | none | desktop (`hr-platform#21`); also the runtime-timezone flag behind D-083 | unauthenticated | **13.0 — first, §2.3** |
-| `auth` | 14 | **partial** — `login_employee` only, at the drifted `/api/legacy/auth/login_employee` | Item 13 | `employees`, `companies`, OTP helper, refresh-token store | dashboard, desktop, mobile | `forgot_password`, `resend_otp`, `register_company` are unauthenticated OTP issuers; `complete_company_registration` is unauthenticated and accepts a caller-supplied id. The OTP rate limiter's per-IP cap degrades to a **platform-wide** 20-per-hour cap against the frozen schema (R-014) | 13.1 (plus `profile`'s two phone-change routes) |
-| `profile` | 9 | **7 delivered in Wave 13.2**; the two phone-change routes move to 13.1 | Item 13 | `employees`, `companies`, push tokens, and (for the two deferred routes) the OTP helper | mobile (primary), desktop (partial) | `delete_account` is destructive and self-service and has no rollback path; `register_push_token` is the client half of `hr-platform#22` — now a later workstream, not a gate (O-1) — and **cannot succeed against the frozen schema** (R-013) | 13.2 (7) + 13.1 (2) |
+| `auth` | 14 | **partial** — `login_employee` only, at the drifted `/api/legacy/auth/login_employee` | Item 13 | `employees`, `companies`, OTP helper, refresh-token store | dashboard, desktop, mobile | `forgot_password`, `resend_otp`, `register_company` are unauthenticated OTP issuers; `complete_company_registration` is unauthenticated and accepts a caller-supplied id. The OTP rate limiter's per-IP cap degrades to a **platform-wide** 20-per-hour cap against the frozen schema (R-014) | 13.1b (9) — its four OTP routes landed in **13.1a** |
+| `profile` | 9 | **7 delivered in Wave 13.2**; the two phone-change routes move to 13.1 | Item 13 | `employees`, `companies`, push tokens, and (for the two deferred routes) the OTP helper | mobile (primary), desktop (partial) | `delete_account` is destructive and self-service and has no rollback path; `register_push_token` is the client half of `hr-platform#22` — now a later workstream, not a gate (O-1) — and **cannot succeed against the frozen schema** (R-013) | 13.2 (7) + 13.1a (2) |
 | `notifications` | 6 | **delivered in Wave 13.2** on the seam `LegacyNotifications` + `LegacyPushDelivery` already provided (D-082) | Item 13 | `employees` | mobile, desktop (likely) | five of the six take a bare `requireAuth()` with no active-company gate; `delete.php?id=<non-numeric>` empties the caller's own inbox (D-133) | 13.2 |
 | `company_settings` | 6 | entity exists but is schema-incompatible (EAV vs five typed columns) | Item 13 (D-4) | `setting_definitions`, `setting_allowed_values` | dashboard, desktop | gated by `can_company_settings` in the 17-flag matrix | 13.3 |
 | `setting_definitions` | 1 | none | Item 13 (D-4) | none | platform administration | `COMPANY_ADMIN`/`HR` only | 13.3 |
@@ -462,10 +462,10 @@ table; only the distribution across buckets has moved.
 
 | Status | Endpoints | What it covers |
 |---|---|---|
-| `FINAL_COMPATIBLE` | **183** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(183)`). Waves 12.4 through 12.10, the Wave 12.R retrofit, Wave 12.6.6's two attendance endpoints, Wave 12.9's `payslips/export.php`, **Item 13.0's `configs/get.php`** — the first endpoint delivered outside Item 12 — **Item 13.5's five reference endpoints**, **Wave 13.3's eight settings endpoints**, **Wave 13.4a's ten records endpoints**, **Wave 13.4b's seven workforce-planning endpoints**, **Wave 13.4c's eleven people endpoints, which complete Item 13.4**, and **Wave 13.2's six `notifications` endpoints plus seven of the nine `profile` endpoints**. |
+| `FINAL_COMPATIBLE` | **189** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(189)`). Waves 12.4 through 12.10, the Wave 12.R retrofit, Wave 12.6.6's two attendance endpoints, Wave 12.9's `payslips/export.php`, **Item 13.0's `configs/get.php`** — the first endpoint delivered outside Item 12 — **Item 13.5's five reference endpoints**, **Wave 13.3's eight settings endpoints**, **Wave 13.4a's ten records endpoints**, **Wave 13.4b's seven workforce-planning endpoints**, **Wave 13.4c's eleven people endpoints, which complete Item 13.4**, **Wave 13.2's six `notifications` endpoints plus seven of the nine `profile` endpoints**, and **Wave 13.1a's four public OTP endpoints plus the two `profile` phone-change routes**. |
 | `IMPLEMENTED_BUT_REQUIRES_D074_RETROFIT` | **0** | Closed by Wave 12.R (D-107/D-108/D-110/D-111). No `/api/legacy/**` business route remains mapped. |
 | `ITEM12_REMAINING` | **0** | **Empty as of 2026-08-28.** All three of C9's endpoints were delivered rather than excluded, exactly as O-8/D-120 dispositioned. |
-| `ITEM13_REMAINING` | **15** | §2.2's 71 less `auth/login_employee` (Wave 12.R), `configs/get.php` (Item 13.0), Wave 13.5's five, Wave 13.3's eight, Wave 13.4a's ten, Wave 13.4b's seven, Wave 13.4c's eleven and Wave 13.2's thirteen. Only Wave 13.1 remains: the 13 `auth` endpoints plus the two `profile` phone-change routes Wave 13.2 deferred to it, because both are OTP flows sharing their entire helper set with `auth` (D-133). |
+| `ITEM13_REMAINING` | **9** | §2.2's 71 less `auth/login_employee` (Wave 12.R), `configs/get.php` (Item 13.0), Wave 13.5's five, Wave 13.3's eight, Wave 13.4a's ten, Wave 13.4b's seven, Wave 13.4c's eleven, Wave 13.2's thirteen and Wave 13.1a's six. Only **Wave 13.1b** remains: the nine account-lifecycle `auth` endpoints — `register_company`, `complete_company_registration`, `get_company_registration_options`, `register_employee`, `join_company`, `lookup_company`, `check_status`, `login_company` and `login_desktop` (D-134). |
 | **Live total** | **198** | 170 + 0 + 0 + 28 |
 | `EXPLICITLY_EXCLUDED_WITH_DECISION` | **1** | `apis/api/time/now.php` (O-3, §2.3). Outside the live total. |
 | **Endpoint files** | **199** | 198 live + 1 excluded |
@@ -891,7 +891,7 @@ hand-maintained**: `LegacyPhpRouteInventoryTest`'s
 classification from the live handler mappings — a route answers in the envelope
 iff its handler returns `LegacyApiResponse` or `ResponseEntity<LegacyApiResponse>`
 — and asserts the non-envelope set is exactly these three.
-`theResponseShapePartitionMatchesTheCompletionPlan` pins the 178/4/1 arithmetic to
+`theResponseShapePartitionMatchesTheCompletionPlan` pins the 184/4/1 arithmetic to
 the same inventory. Adding a download route, or converting one back to the
 envelope, fails those tests instead of staling this table, which it has already
 done twice.
@@ -1068,7 +1068,7 @@ Not decisions — evidence and sequencing owed by the waves that own them.
   `attendance/export.php` and `payslips/export.php` answer the workbook their PHP
   emits, matching its reader-observable content, headers and filename rather than
   its archive bytes (D-085, §5 G3). `ITEM12_REMAINING` is empty and
-  `FINAL_COMPATIBLE` stands at 183 (§3.2), after Item 13.0's `configs/get.php`,
+  `FINAL_COMPATIBLE` stands at 189 (§3.2), after Item 13.0's `configs/get.php`,
   Wave 13.5's five, Wave 13.3's eight, and Item 13.4's twenty-eight across waves
   13.4a, 13.4b and 13.4c.
 

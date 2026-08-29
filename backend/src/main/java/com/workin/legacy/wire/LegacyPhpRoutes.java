@@ -29,18 +29,31 @@ package com.workin.legacy.wire;
  * (active company), plus the tenant re-derivation behind
  * {@code LegacyRequestContext#companyId()}.
  *
- * <h2>Six entries are unauthenticated in legacy itself</h2>
+ * <h2>Ten entries are unauthenticated in legacy itself</h2>
  * <p>{@code auth/login_employee.php}, {@code configs/get.php},
  * {@code phone_countries/list.php}, {@code app_content/one.php},
- * {@code setting_allowed_values/list.php} and {@code complaints/create.php}
- * are listed for a different reason from every other entry: their PHP calls no
- * {@code requireAuth()} at all, so there is no guard order for the controller
- * to reproduce -- the endpoint is public in legacy and must stay public here
- * (D-111). Each performs its own PHP method validation first.
+ * {@code setting_allowed_values/list.php}, {@code complaints/create.php} and
+ * Wave 13.1a's four OTP routes -- {@code auth/verify_otp.php},
+ * {@code auth/resend_otp.php}, {@code auth/forgot_password.php} and
+ * {@code auth/reset_password.php} -- are listed for a different reason from
+ * every other entry: their PHP calls no {@code requireAuth()} at all, so there
+ * is no guard order for the controller to reproduce -- the endpoint is public
+ * in legacy and must stay public here (D-111). Each performs its own PHP
+ * method validation first.
  *
- * <p>Five of the six are safe to expose for the same kind of reason, which is
- * about the <em>data</em> rather than the routing: a login handler, global
- * operational configuration, the dial-code reference list, pre-login
+ * <p><b>The four OTP routes are the sharpest edge on this list.</b> Two of
+ * them ({@code resend_otp}, {@code forgot_password}) cause an outbound
+ * WhatsApp message to a caller-chosen number, and {@code reset_password}
+ * changes a password given only a phone and a four-digit code. What stands
+ * between them and abuse is the OTP rate limiter -- whose per-IP cap is
+ * currently a platform-wide cap (R-014) -- and the fact that the code is no
+ * longer returned in the response (PMR-05, {@code hr-legacy#4}). They are
+ * listed because legacy requires no authentication, not because exposing them
+ * is comfortable.
+ *
+ * <p>Five of the original six are safe to expose for the same kind of reason,
+ * which is about the <em>data</em> rather than the routing: a login handler,
+ * global operational configuration, the dial-code reference list, pre-login
  * marketing/legal copy, and the platform's allowed-value catalogue. None reads
  * company or personal data.
  *
@@ -107,6 +120,10 @@ public final class LegacyPhpRoutes {
 		"/apis/api/departments/**",
 		"/apis/api/job_titles/**",
 		"/apis/api/auth/login_employee.php",
+		"/apis/api/auth/verify_otp.php",
+		"/apis/api/auth/resend_otp.php",
+		"/apis/api/auth/forgot_password.php",
+		"/apis/api/auth/reset_password.php",
 		"/apis/api/configs/get.php",
 		"/apis/api/phone_countries/list.php",
 		"/apis/api/app_content/one.php",
@@ -128,6 +145,8 @@ public final class LegacyPhpRoutes {
 		"/apis/api/profile/change_password.php",
 		"/apis/api/profile/logout.php",
 		"/apis/api/profile/register_push_token.php",
+		"/apis/api/profile/request_phone_change.php",
+		"/apis/api/profile/confirm_phone_change.php",
 		"/apis/api/profile/delete_account_preview.php",
 		"/apis/api/profile/delete_account.php",
 	};

@@ -41,6 +41,8 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/advances/delete.php", "/apis/api/advances/list.php",
 			"/apis/api/advances/one.php", "/apis/api/advances/pay.php",
 			"/apis/api/advances/reject.php", "/apis/api/advances/update.php",
+			"/apis/api/auth/forgot_password.php", "/apis/api/auth/reset_password.php",
+			"/apis/api/auth/resend_otp.php", "/apis/api/auth/verify_otp.php",
 			"/apis/api/attendance/analyze_excel.php", "/apis/api/attendance/check_in.php",
 			"/apis/api/attendance/check_in_qr.php", "/apis/api/attendance/check_out.php",
 			"/apis/api/attendance/create.php", "/apis/api/attendance/delete.php",
@@ -137,6 +139,8 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/profile/delete_account.php", "/apis/api/profile/delete_account_preview.php",
 			"/apis/api/profile/employee.php", "/apis/api/profile/logout.php",
 			"/apis/api/profile/register_push_token.php",
+			"/apis/api/profile/request_phone_change.php",
+			"/apis/api/profile/confirm_phone_change.php",
 			"/apis/api/request_types/create.php", "/apis/api/request_types/delete.php",
 			"/apis/api/request_types/list.php", "/apis/api/request_types/one.php",
 			"/apis/api/request_types/update.php",
@@ -178,8 +182,8 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void deliveredRouteCountIsNowOneHundredEightyThree() {
-		assertThat(EXPECTED_ROUTES).hasSize(183).doesNotHaveDuplicates();
+	void deliveredRouteCountIsNowOneHundredEightyNine() {
+		assertThat(EXPECTED_ROUTES).hasSize(189).doesNotHaveDuplicates();
 	}
 
 	/**
@@ -257,8 +261,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(CONDITIONAL_ROUTES).hasSize(1);
 		assertThat(EXPECTED_ROUTES).containsAll(DOWNLOAD_ONLY_ROUTES).containsAll(CONDITIONAL_ROUTES);
 		assertThat(EXPECTED_ROUTES.size() - DOWNLOAD_ONLY_ROUTES.size() - CONDITIONAL_ROUTES.size())
-				.as("envelope-only routes, per the completion plan's 178/4/1 partition")
-				.isEqualTo(178);
+				.as("envelope-only routes, per the completion plan's 184/4/1 partition")
+				.isEqualTo(184);
 	}
 
 	@Test

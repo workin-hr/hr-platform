@@ -43,6 +43,7 @@ import com.workin.legacy.organization.LegacyBranchController;
 			"com.workin.legacy.profile",
 			"com.workin.legacy.organization.php",
 			"com.workin.legacy.auth.php",
+			"com.workin.legacy.auth.otp",
 		},
 		assignableTypes = {
 			LegacyBranchController.class,

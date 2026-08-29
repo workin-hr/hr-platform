@@ -1404,3 +1404,126 @@ exactly as PHP is.
 the 13 auth endpoints plus the two OTP-dependent `profile` phone-change routes.
 
 Evidence: `./gradlew check` — see the wave's PR body for the count.
+
+## D-134: Wave 13.1a delivers the OTP layer, the four public OTP routes, and the two `profile` phone-change routes
+
+**Status:** Accepted
+**Date:** 2026-08-29
+**Context:** D-128 deliberately scheduled Wave 13.1 last, calling it "the
+largest security surface in Item 13" and reserving it for a point where review
+is available. Wave 13.2 then deferred `profile/request_phone_change.php` and
+`profile/confirm_phone_change.php` into it, because both are OTP flows sharing
+their whole helper set with `auth` (D-133).
+
+### The split, and why it is not arbitrary
+
+13.1 is fifteen endpoints. **13.1a** is the six that are OTP flows end to end —
+`auth/{verify_otp,resend_otp,forgot_password,reset_password}` plus the two
+`profile` phone-change routes — together with the layer they all sit on:
+`otp_helper.php`, `whatsapp_helper.php`, and the two phone helpers Wave 12
+had not yet needed (`phone_sql_match_clause()`, `phones_are_equivalent()`).
+**13.1b** is the nine account-lifecycle endpoints: registration, joining, and
+the three logins.
+
+The line is the OTP layer. Everything in 13.1a either issues or verifies a
+code; nothing in 13.1b does except through the same layer, which is why the
+layer ships first and separately.
+
+### The OTP code does not reach the response, and that is not a new decision
+
+Legacy answers `ok(OTP_SENT, AppConfig::DEBUG ? [Response::OTP => $code] : [])`
+on `resend_otp`, `forgot_password` and `register_company`. The threat model
+records the consequence in full: with `DEBUG` on, anyone who knows a phone
+number reads the real code straight back and completes `reset_password.php` —
+a complete authentication bypass, not scoped to one tenant.
+
+That was **confirmed live on 2026-08-04 and the production value was changed to
+`false` on 2026-08-05** by the repository owner. PMR-05 and `hr-legacy#4`
+already record "no `DEBUG`-gated secret exception at all" as a mandatory
+requirement of this rewrite. So the false branch is the only branch here: the
+response carries PHP's empty array (`"data": []`, an array and not an object),
+and `theIssuedCodeIsNeverPutOnTheWire` asserts it by reading the code out of
+the *delivered message* rather than being handed it.
+
+Legacy's other `DEBUG` branch — `sendWhatsAppText()` returning **true** when
+WhatsApp is unconfigured, so an undelivered OTP counts as sent — is not ported
+for the same reason and a stronger one: it would let an unconfigured production
+issue codes nobody receives while reporting success.
+
+### R-014 is now asserted, not just described
+
+`otp_assert_can_send()`'s third check reads as a per-IP hourly cap. Against the
+frozen schema it is not one. `otp_count_recent_sends()` drops any predicate
+whose column is absent, and all three are: `otp_request_logs` does not exist,
+and `otp_codes` has neither `ip_address` nor `purpose`. Called as
+`otp_count_recent_sends(null, $ip, '', 3600)` — no phone argument either — what
+executes is:
+
+```sql
+SELECT COUNT(*) FROM otp_codes WHERE created_at > NOW() - INTERVAL 3600 SECOND
+```
+
+Every OTP the platform issued in the last hour. At twenty, **everyone** is
+refused, and the rows accumulate because `otp_clear_for_phone()` soft-invalidates
+by design. `thePerIpCapIsActuallyAPlatformWideCap` seeds twenty rows for twenty
+unrelated phones and shows a twenty-first, previously-unseen phone refused —
+then recovering when the global count drops. Ported as-is; the register entry
+was written before the code so the finding could not be lost inside the wave.
+
+The other degradation is harmless: the per-purpose cap collapses to a per-phone
+cap across all purposes, which is stricter than intended.
+
+### Preserved behaviours a reasonable person would have normalised
+
+- **`resend_otp.php`'s cooldown is 400, not 429.** `fail()` is called with no
+  status argument, so it takes the default. Every other cooldown in the system
+  is 429, including the one inside the limiter that checks the same 60-second
+  window immediately after. The local check always wins, so the observable
+  status is 400.
+- **`resend_otp.php` does not check that the phone belongs to anybody.** Any
+  number can be sent a WhatsApp message through it, once a minute.
+- **A pending employee can log in but cannot reset their password.**
+  `login_employee.php` lets a *single* pending account through;
+  `resolve_single_employee_auth_by_phone()` rejects any pending account with
+  `joined_company_wait_hr`. The two functions look alike and differ exactly
+  here, which is why `LegacyPhoneAuthResolver` is its own class rather than
+  `LegacyLoginResolver` with the password filter removed.
+- **`reset_password.php` has no minimum password length**, unlike
+  `profile/change_password.php`'s six. A one-character password is accepted.
+- **`reset_password.php`'s company branch updates every matching row**, not
+  one — two companies sharing a number both have their password replaced.
+- **`verify_otp.php`'s company update matches the phone exactly**, not through
+  `phone_sql_match_clause()` like everything around it. A company whose stored
+  phone carries a `+` or a space verifies successfully and is never marked
+  `otp_verified`, leaving it stuck at `login_company.php`'s verify-first branch.
+- **The two phone-change routes refuse a non-company session with 403** where
+  `delete_account_preview.php` refuses the same condition with 401. One module,
+  two statuses, both preserved.
+- **Confirming a phone change sets `otp_verified = 1`**, so a company that
+  never verified its original number becomes verified by changing it.
+- **The `X-Forwarded-For` family is trusted ahead of the socket address**, so a
+  caller chooses the IP the per-IP limit sees. Given R-014 that limit is not
+  per-IP anyway, but the trust order is ported and recorded rather than
+  quietly hardened.
+
+### The WhatsApp integration is real, and unconfigured means 503
+
+`LegacyWhatsAppSender` is a seam and `LegacyWhatsAppHttpSender` is the Whats360
+call behind it: 15-second timeout, primary-then-fallback instance ordering, and
+a fifteen-minute skip for an instance that answered "not connected". PHP keeps
+that skip map in a temp file because each request is a fresh process; a JVM
+shares memory, so it lives in the process. Same scope, different mechanism.
+
+Failures never throw — legacy logs and returns false, and the caller turns
+false into **503 `otp_delivery_failed`**. Throwing would turn a 503 into a 500.
+A deployment with no WhatsApp credentials therefore cannot issue an OTP at all,
+which is legacy's production behaviour and is asserted
+(`aFailedDeliveryIs503AndStillConsumedTheSlot`) — including the part that
+matters operationally: **the OTP row is written before the send**, so a failed
+delivery still puts the caller in cooldown for a code they never received.
+
+### Ledger after Wave 13.1a
+
+`FINAL_COMPATIBLE` 183 → **189**; `ITEM13_REMAINING` 15 → **9**; partition
+178/4/1 → **184/4/1**. Live total 198 unchanged. Remaining: Wave 13.1b's nine
+account-lifecycle endpoints.

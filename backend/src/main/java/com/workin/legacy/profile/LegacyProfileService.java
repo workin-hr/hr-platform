@@ -11,12 +11,17 @@ import org.springframework.stereotype.Service;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.attendance.location.LegacyAttendanceLocation;
 import com.workin.legacy.auth.LegacyRequestContext;
+import com.workin.legacy.auth.LegacyRequestGuard;
+import com.workin.legacy.auth.otp.LegacyOtpAuthStore;
+import com.workin.legacy.auth.otp.LegacyOtpService;
 import com.workin.legacy.authorization.LegacyHrPermissionRows;
 import com.workin.legacy.employees.LegacyEmployeeStore;
 import com.workin.legacy.notifications.LegacyNotifications;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyMessages;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 /** The {@code apis/api/profile/*.php} endpoints ported in Wave 13.2. */
 @Service
@@ -42,12 +47,18 @@ public class LegacyProfileService {
 	private final LegacyNotifications notifications;
 	private final PasswordEncoder passwordEncoder;
 	private final LegacyMessages messages;
+	private final LegacyPhoneNumbers phoneNumbers;
+	private final LegacyOtpService otpService;
+	private final LegacyOtpAuthStore otpAuthStore;
+	private final LegacyRequestGuard requestGuard;
 
 	public LegacyProfileService(
 			LegacyProfileStore store, LegacyEmployeeStore employeeStore,
 			LegacyHrPermissionRows permissionRows, LegacyAttendanceLocation attendanceLocation,
 			LegacyCompanyDelete companyDelete, LegacyNotifications notifications,
-			PasswordEncoder passwordEncoder, LegacyMessages messages) {
+			PasswordEncoder passwordEncoder, LegacyMessages messages,
+			LegacyPhoneNumbers phoneNumbers, LegacyOtpService otpService,
+			LegacyOtpAuthStore otpAuthStore, LegacyRequestGuard requestGuard) {
 		this.store = store;
 		this.employeeStore = employeeStore;
 		this.permissionRows = permissionRows;
@@ -56,6 +67,10 @@ public class LegacyProfileService {
 		this.notifications = notifications;
 		this.passwordEncoder = passwordEncoder;
 		this.messages = messages;
+		this.phoneNumbers = phoneNumbers;
+		this.otpService = otpService;
+		this.otpAuthStore = otpAuthStore;
+		this.requestGuard = requestGuard;
 	}
 
 	// ---------------- profile/employee.php ----------------
@@ -387,6 +402,108 @@ public class LegacyProfileService {
 		}
 
 		throw new LegacyApiException(401, "unauthorized");
+	}
+
+	// ---------------- profile/{request,confirm}_phone_change.php ----------------
+
+	/**
+	 * The five checks both phone-change routes share, in PHP's order.
+	 *
+	 * <p>Both files repeat this block verbatim, so it is written once here and
+	 * the order is preserved exactly: resolve the dial code, normalise the
+	 * number, reject an invalid one, reject one equivalent to the company's
+	 * current number, then reject one another company already holds.
+	 *
+	 * <p>The same-as-current test uses {@code phones_are_equivalent()} while
+	 * the uniqueness test uses {@code phone_sql_match_clause()} -- two
+	 * different mechanisms for the same question, both variant-aware, and both
+	 * kept because they disagree at the edges: an empty stored phone is
+	 * skipped by the first ({@code $currentPhone !== ''}) but would still be
+	 * compared by the second.
+	 *
+	 * @return the normalised phone and the resolved dial code
+	 */
+	private String[] validatedNewCompanyPhone(long companyId, Map<String, Object> body) {
+		required(body, "phone", "country_code");
+		String countryCode = phoneNumbers.resolveCode(
+				LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("country_code"))));
+		String phone = phoneNumbers.normalizeLocal(countryCode,
+				LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("phone"))));
+
+		if (phone.isEmpty() || !phoneNumbers.isValidLocal(countryCode, phone)) {
+			throw new LegacyApiException(400, "invalid_phone_number");
+		}
+
+		String current = LegacyValues.phpTrim(
+				LegacyValues.toPhpString(otpAuthStore.companyPhone(companyId)));
+		if (!current.isEmpty() && LegacyPhoneNumbers.areEquivalent(current, phone)) {
+			throw new LegacyApiException(400, "phone_same_as_current");
+		}
+
+		if (otpAuthStore.anotherCompanyHasPhone(phone, companyId)) {
+			throw new LegacyApiException(409, "phone_already_registered");
+		}
+		return new String[] { phone, countryCode };
+	}
+
+	/**
+	 * {@code profile/request_phone_change.php}.
+	 *
+	 * <p>Company sessions only, and the refusal is <b>403 {@code forbidden}</b>
+	 * -- not the 401 {@code delete_account_preview.php} uses for the same
+	 * condition. Two routes in one module disagreeing about the status for
+	 * "wrong session type" is legacy's, and both are preserved.
+	 *
+	 * <p>It checks {@code otp_has_recent_for_phone()} itself and answers
+	 * <b>429</b>, then {@code otp_issue_and_send_whatsapp()} checks the same
+	 * window again inside the limiter. The first check wins, so the status is
+	 * 429 either way here -- unlike {@code resend_otp.php}, where the
+	 * equivalent local check answers 400.
+	 */
+	public void requestPhoneChange(
+			HttpServletRequest request, LegacyRequestContext context, Map<String, Object> body, String locale) {
+		requireCompanySession(context);
+		requestGuard.requireCompanyActive(context.companyId());
+		String[] resolved = validatedNewCompanyPhone(context.companyId(), body);
+
+		if (otpService.hasRecentForPhone(resolved[0], 60)) {
+			throw new LegacyApiException(429, "please_wait_before_resending");
+		}
+		otpService.issueAndSendWhatsApp(
+				request, resolved[0], LegacyOtpService.SMS_OTP_VERIFY, resolved[1], 10, locale);
+	}
+
+	/**
+	 * {@code profile/confirm_phone_change.php}.
+	 *
+	 * <p>The same five checks, then the OTP, then the write. Note what the
+	 * write does beyond the phone: it sets {@code otp_verified = 1}, so a
+	 * company that had never verified its original number becomes verified by
+	 * changing it. And the OTP is cleared <b>after</b> the update, so a failure
+	 * between them would leave the code reusable against the new number.
+	 *
+	 * @return the whole company row, as {@code public_row($row)}
+	 */
+	public Map<String, Object> confirmPhoneChange(LegacyRequestContext context, Map<String, Object> body) {
+		requireCompanySession(context);
+		requestGuard.requireCompanyActive(context.companyId());
+		required(body, "otp");
+		String[] resolved = validatedNewCompanyPhone(context.companyId(), body);
+
+		if (otpService.verifyLatestForPhone(resolved[0], body.get("otp")) == null) {
+			throw new LegacyApiException(400, "invalid_expired_otp");
+		}
+
+		otpAuthStore.changeCompanyPhone(context.companyId(), resolved[0], resolved[1]);
+		otpService.clearForPhone(resolved[0]);
+		return com.workin.legacy.LegacyPublicRow.of(otpAuthStore.company(context.companyId()));
+	}
+
+	/** {@code if (($auth[TYPE] ?? '') !== COMPANY) fail(FORBIDDEN, 403);} */
+	private static void requireCompanySession(LegacyRequestContext context) {
+		if (!context.isCompanyAuth()) {
+			throw new LegacyApiException(403, "forbidden");
+		}
 	}
 
 	// ---------------- shared ----------------
