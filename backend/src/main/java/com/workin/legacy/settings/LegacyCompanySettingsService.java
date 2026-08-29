@@ -229,7 +229,11 @@ public class LegacyCompanySettingsService {
 		if (resolvedDefinition > 0 && store.definitionIsRequired(resolvedDefinition)) {
 			throw new LegacyApiException(400, "invalid_setting_key");
 		}
-		store.deleteCompanySetting(settingId, companyId);
+		long target = settingId;
+		persisting(() -> {
+			store.deleteCompanySetting(target, companyId);
+			return null;
+		});
 	}
 
 	// ---- shared helpers ----
@@ -331,7 +335,10 @@ public class LegacyCompanySettingsService {
 		if (id > 0) {
 			return id;
 		}
-		String key = settingKey == null ? "" : settingKey.trim();
+		// LegacyValues.phpTrim, not String.trim: PHP strips only " \t\n\r\0\x0B",
+		// so setting_key=%0C keeps its form feed, reaches the lookup, and answers
+		// not_found -- where a Java trim would empty it into field_required.
+		String key = settingKey == null ? "" : LegacyValues.phpTrim(settingKey);
 		if (key.isEmpty()) {
 			throw new LegacyApiException(400, "field_required", null,
 					Map.of("field", "setting_definition_id"));

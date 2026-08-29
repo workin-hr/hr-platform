@@ -3,6 +3,8 @@ package com.workin.legacy.settings;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import com.workin.legacy.LegacyValues;
+
 /**
  * {@code pick_label()} and {@code setting_definition_description_fields()}
  * ({@code helpers/i18n.php:57-81}).
@@ -33,7 +35,11 @@ public final class LegacySettingLabels {
 		String chosen = "ar".equals(locale)
 				? (labelAr != null ? labelAr : labelEn)
 				: (labelEn != null ? labelEn : labelAr);
-		if (chosen == null || chosen.trim().isEmpty()) {
+		// The emptiness test uses PHP's trim character set (" \t\n\r\0\x0B"),
+		// which is narrower than Java's -- a label of a single form feed is
+		// non-blank to PHP and is returned unchanged. The returned value is
+		// still the untrimmed original, because PHP returns $s, not trim($s).
+		if (chosen == null || LegacyValues.phpTrim(chosen).isEmpty()) {
 			return fallback;
 		}
 		return chosen;
