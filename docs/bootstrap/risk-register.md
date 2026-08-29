@@ -324,3 +324,20 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Status | Open — **not accepted**. Recorded during the Wave 13.1 review round; the endpoints ship in parity form and `#10` continues to block auth cutover. |
 | Evidence | `hr-legacy@d113204` `apis/helpers/otp_helper.php:239-261` (`otp_verify_latest_for_phone()` — four conditions, no attempt counter) and `:151-172` (`otp_assert_can_send()`, reached only from the issuance path). `apis/api/auth/verify_otp.php:36-39` — `if (!$is_password_reset) { otp_clear_for_phone($phone); }`, which is why a password-reset guess survives. Upstream: `hr-legacy#10`; matrix row `#10`. Raised by the independent review of PR #144 and confirmed against the source. |
 | Last Reviewed | 2026-08-29 |
+
+## R-019: `join_company.php` Validates A Dial Code And Then Discards It
+
+| Field | Value |
+|---|---|
+| Description | The endpoint resolves `country_code` from the body (or the configured default), **validates the submitted phone against it**, and then omits it from the INSERT. Nine columns are written — `company_id`, `branch_id`, `first_name`, `last_name`, `phone`, `password_hash`, `role`, `is_active`, `join_request_status` — and `country_code` is not among them, so a joined employee's row carries SQL NULL. The Java port reproduces this (D-058). |
+| Category | Correctness / Data completeness |
+| Probability | Certain for every join. Invisible for Egyptian numbers, because `+20` is the fallback everything else uses. |
+| Impact | Low but real, and it surfaces far from its cause. A non-Egyptian employee who joins and later uses `forgot_password.php` has no stored dial code, so `otp_resolve_country_code_for_phone()` falls back to `+20`, `phone_to_whatsapp_jid()` builds an Egyptian JID from a Saudi number, and the OTP is delivered nowhere. The user sees a password reset that silently never arrives, and the logs show a successful send. The row's own responses also lose the dial code the caller submitted. |
+| Severity | Low |
+| Owner | Repository owner. Upstream fix. |
+| Mitigation | None applied — adding the column in Java would make a joined employee's row differ between the two systems on a column other endpoints read. The regression `aNonEgyptianJoinerHasNoCountryCodeStored` pins the current behaviour so it is a known gap rather than an assumed one. |
+| Trigger | A non-Egyptian employee reporting that a password reset never arrives; any `employees` row with a non-`+20`-shaped phone and a NULL `country_code`. |
+| Contingency | One column in one INSERT: add `country_code` with the already-resolved `$country_code`. It is additive and needs no schema change (the column exists and is nullable). Worth landing with the other upstream auth fixes rather than alone, and worth a backfill decision for existing rows — which is a data question, since the correct value for an existing NULL can only be inferred from the phone's shape. |
+| Status | Open — not accepted, low priority. |
+| Evidence | `hr-legacy@d113204` `apis/api/auth/join_company.php:21-22` (resolve and validate) against `:79-99` (the nine-column INSERT). The same failure mode reached `forgot_password.php` as a **port** defect in the first Wave 13.1 review round and was fixed there (D-136); this one is legacy's and is not. Raised by the independent review of PR #144 and confirmed against the source. |
+| Last Reviewed | 2026-08-29 |

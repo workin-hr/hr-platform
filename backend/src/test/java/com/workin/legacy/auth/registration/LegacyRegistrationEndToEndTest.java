@@ -214,7 +214,7 @@ class LegacyRegistrationEndToEndTest {
 	// ---------------- register_company ----------------
 
 	@Test
-	@Order(5)
+	@Order(4)
 	@SuppressWarnings("unchecked")
 	void registeringACompanyCreatesAPendingUnverifiedRowAndSendsAnOtp() {
 		recorder().clear();
@@ -237,7 +237,7 @@ class LegacyRegistrationEndToEndTest {
 
 	/** A blank-after-trim name fails even though the raw body carries a value. */
 	@Test
-	@Order(6)
+	@Order(5)
 	void registerCompanyTrimsBeforeCheckingRequiredness() {
 		assertThat(post(REGISTER_COMPANY,
 				"{\"first_name\":\"   \",\"last_name\":\"X\",\"phone\":\"01000033098\",\"password\":\"p\"}")
@@ -246,7 +246,7 @@ class LegacyRegistrationEndToEndTest {
 
 	/** Its duplicate probe is an exact match, so a variant spelling is not caught. */
 	@Test
-	@Order(7)
+	@Order(6)
 	void registerCompanyDuplicateCheckIsExactSoAVariantSlipsThrough() {
 		assertThat(post(REGISTER_COMPANY, "{\"first_name\":\"A\",\"last_name\":\"B\",\"phone\":\""
 				+ ACTIVE_PHONE + "\",\"password\":\"p\"}").getStatusCode().value())
@@ -278,7 +278,7 @@ class LegacyRegistrationEndToEndTest {
 	 * branch and writes it. Ported as-is (D-058) and recorded as R-017.
 	 */
 	@Test
-	@Order(8)
+	@Order(7)
 	void registerEmployeeCannotSucceedAgainstTheFrozenSchema() throws Exception {
 		long before = employeeCount(ACTIVE_COMPANY);
 		assertThat(post(REGISTER_EMPLOYEE, "{\"phone\":\"01000033077\",\"password\":\"" + PASSWORD
@@ -290,7 +290,7 @@ class LegacyRegistrationEndToEndTest {
 
 	/** Its earlier guards still run, so a bad company code is a clean 404. */
 	@Test
-	@Order(9)
+	@Order(8)
 	void registerEmployeeStillValidatesBeforeItFails() {
 		assertThat(post(REGISTER_EMPLOYEE, "{\"phone\":\"01000033077\",\"password\":\"" + PASSWORD
 				+ "\",\"company_code\":\"" + SUSPENDED_PHONE + "\"}").getStatusCode().value())
@@ -307,7 +307,7 @@ class LegacyRegistrationEndToEndTest {
 	 * one, had it been able to insert at all.
 	 */
 	@Test
-	@Order(10)
+	@Order(9)
 	@SuppressWarnings("unchecked")
 	void joiningCreatesAPendingInactiveEmployeeOnTheFirstActiveBranch() {
 		ResponseEntity<Map<String, Object>> joined = post(JOIN,
@@ -327,7 +327,7 @@ class LegacyRegistrationEndToEndTest {
 
 	/** Joining notifies both the employee and the company. */
 	@Test
-	@Order(11)
+	@Order(10)
 	void joiningNotifiesBothSides() throws Exception {
 		assertThat(notificationTypes(ACTIVE_COMPANY))
 				.contains("join_request_submitted")
@@ -347,7 +347,7 @@ class LegacyRegistrationEndToEndTest {
 	 * that supplies only {@code name} is a 400 here, not a split.
 	 */
 	@Test
-	@Order(12)
+	@Order(11)
 	void theFullNameFallbackIsUnreachableBecauseFirstNameIsRequired() {
 		ResponseEntity<Map<String, Object>> response = post(JOIN,
 				"{\"name\":\"Ana Maria de Souza\",\"phone\":\"01000033079\","
@@ -359,6 +359,30 @@ class LegacyRegistrationEndToEndTest {
 				+ PASSWORD + "\",\"company_code\":\"" + CODE + "\"}").getStatusCode().value())
 				.as("required() rejects \"\" but NOT \"  \" -- it is isset+!==\"\", not a trim")
 				.isEqualTo(201);
+	}
+
+	/**
+	 * <b>R-019.</b> {@code join_company.php} resolves the dial code, validates
+	 * the phone against it, and then leaves it out of the INSERT -- nine
+	 * columns, and {@code country_code} is not one of them. So a non-Egyptian
+	 * joiner's row stores NULL, and a later {@code forgot_password.php} falls
+	 * back to {@code +20} and builds the wrong WhatsApp JID.
+	 *
+	 * <p>Legacy's defect, not the port's, so it is pinned rather than fixed:
+	 * writing the column here would make a joined employee's row differ between
+	 * the two systems on a column other endpoints read.
+	 */
+	@Test
+	@Order(12)
+	void aNonEgyptianJoinerHasNoCountryCodeStored() throws Exception {
+		ResponseEntity<Map<String, Object>> joined = post(JOIN,
+				"{\"first_name\":\"Saudi\",\"phone\":\"0512345678\",\"password\":\"" + PASSWORD
+						+ "\",\"company_code\":\"" + CODE + "\",\"country_code\":\"+966\"}");
+		assertThat(joined.getStatusCode().value()).as("%s", joined.getBody()).isEqualTo(201);
+
+		assertThat(storedCountryCode("0512345678"))
+				.as("validated against +966, then discarded")
+				.isNull();
 	}
 
 	/**
@@ -726,6 +750,10 @@ class LegacyRegistrationEndToEndTest {
 		return scalar("SELECT join_request_status FROM employees WHERE id = " + employeeId);
 	}
 
+	private static String storedCountryCode(String phone) {
+		return scalar("SELECT country_code FROM employees WHERE phone = '" + phone + "'");
+	}
+
 	private static long employeeCount(long companyId) {
 		return Long.parseLong(scalar("SELECT COUNT(*) FROM employees WHERE company_id = " + companyId));
 	}
@@ -760,6 +788,13 @@ class LegacyRegistrationEndToEndTest {
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
 			st.execute("SET SESSION sql_mode = ''");
 			st.execute("SET time_zone = '" + LegacyRuntimeOffset.DEFAULT + "'");
+			// phone_countries is empty in the frozen dump but seeded in production.
+			// Without a +966 row, phone_country_resolve_code() falls back to +20
+			// and the non-default-country case cannot be exercised at all.
+			st.execute("INSERT INTO phone_countries (id, country_code, name_ar, name_en, phone_length,"
+					+ " phone_prefixes, is_active, sort_order) VALUES"
+					+ " (33081, '+20', 'مصر', 'Egypt', 11, '[\"010\",\"011\",\"012\",\"015\"]', 1, 1),"
+					+ " (33082, '+966', 'السعودية', 'Saudi Arabia', 10, '[\"05\"]', 1, 2)");
 			st.execute("INSERT INTO company_activities (id, name) VALUES (33051, 'Software')");
 			st.execute("INSERT INTO company_titles (id, name) VALUES (33061, 'LLC')");
 			st.execute("INSERT INTO company_sizes (id, name, min_employees, max_employees) VALUES"

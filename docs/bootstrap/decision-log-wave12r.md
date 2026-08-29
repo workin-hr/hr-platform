@@ -1734,12 +1734,16 @@ routes — `auth/reset_password.php`, `profile/change_password.php` and
 `profile/logout.php` — rather than only the one the reviewer pointed at, because
 fixing one of three would have been arbitrary.
 
-It is **a no-op today**, and saying so matters: no production route issues a
-legacy refresh token, since the only issuer (`LegacyLoginService`) is reached
-solely by a test-only controller. Wiring it now means the day that changes, the
-revocation is already there. This is not a parity divergence — legacy has no
-refresh tokens at all — but the recorded token-model exception (D-042) applied
-consistently.
+It is **a no-op today**, and saying so matters. The first version of this
+paragraph gave the weaker reason — that the only issuer, `LegacyLoginService`,
+is reached solely by a test-only controller. **Corrected after the second review
+round:** it is a no-op *by design of the phase*. D-111 states that short-lived
+access tokens and rotating refresh tokens "are not permitted to alter the
+literal Phase-1 `/apis/**` contract", so no route on that surface issues a
+refresh token at all, and none is meant to. The calls are still worth having --
+they cost nothing and are correct the moment a route outside this surface issues
+one for these identities -- but the reason is the phase boundary, not an
+unmapped bean.
 
 ### F-27 was stale, and the fix was not to change the code
 
@@ -1850,3 +1854,79 @@ deliberately leaves a correct guess **active** for `reset_password.php` to
 consume. A successful brute force is therefore directly usable to set a password
 the attacker chooses. Recorded as **R-018**, Critical, with the ten-minute
 expiry noted as the only real limit.
+
+## D-138: Third review round — the first two findings declined, on the decision record
+
+**Status:** Accepted
+**Date:** 2026-08-29
+**Context:** The second round's fixes drew two more findings. Both were the
+first in this wave where the port was already right, and both are recorded here
+because *declining* a finding needs at least as much evidence as accepting one.
+
+### D-042 does not govern the `/apis/**` token model — D-111 supersedes it
+
+The finding read D-042 ("Phase 1 Keeps Legacy Login Semantics But Not Legacy's
+Token Model", Accepted 2026-08-16) as forbidding the 10-year PHP JWT these
+routes issue, and asked for short-lived access tokens plus refresh rotation.
+
+**D-111 (Accepted 2026-08-25) supersedes D-042 on exactly this point, and says
+so in the decision log itself:**
+
+> The earlier draft of this decision incorrectly allowed the new-platform
+> refresh-token design to remain on the Phase-1 employee-login route. **D-111
+> supersedes that detail**: the frozen PHP login and token behavior is
+> authoritative for Phase 1.
+
+D-111 then requires the opposite of the finding: Java must preserve the
+"authentication token shape"; `auth/login_employee.php` "does not add a refresh
+token"; the compatibility chain "also accepts the frozen company JWT used by
+desktop/company login" — a sentence written in anticipation of the very routes
+Wave 13.1b delivers; and short-lived access tokens with rotating refresh tokens
+"are not permitted to alter the literal Phase-1 `/apis/**` contract".
+
+So the port stands. The 10-year lifetime remains a recorded defect
+(`hr-legacy#7`) owned by the modernization phase, and
+`app.legacy-jwt.expiry-hours` is already a property, so the lifetime is an
+operational lever without a code change — though shortening it is client-visible
+and needs the decision D-111 deferred.
+
+**The finding did improve one thing.** It observed that the
+`revokeAllForEmployee()` calls added in D-136 "only touch a refresh-token store
+that they never populate". D-136 explained that as an accident of wiring; the
+better reason is the phase boundary — D-111 forbids issuing refresh tokens on
+this surface at all, so the calls are a no-op *by design* rather than by
+oversight. D-136 is corrected.
+
+### `join_company.php` really does discard the dial code — R-019
+
+The finding said the insert omits `country_code` and asked for it to be added.
+It is right that the column is omitted and right about the consequence. It is
+wrong that this is the port's doing: PHP's INSERT names nine columns and
+`country_code` is not among them, so legacy resolves the code, **validates the
+phone against it**, and then throws it away.
+
+Adding it in Java would make a joined employee's row differ between the two
+systems on a column other endpoints read. So the defect is recorded as **R-019**
+and pinned by `aNonEgyptianJoinerHasNoCountryCodeStored`, which asserts the NULL
+and was falsified by writing the column and watching it fail.
+
+The consequence is worth restating because it surfaces far from its cause: a
+non-Egyptian joiner has no stored dial code, so a later `forgot_password.php`
+falls back to `+20`, builds an Egyptian JID from a Saudi number, and the OTP
+goes nowhere — while the logs record a successful send. The *same* failure mode
+arrived in round one as a genuine port defect on a different route and was fixed
+there (D-136); this one is legacy's and is not.
+
+The fixture now seeds `phone_countries`, because the frozen dump ships it empty
+and without a `+966` row the non-default-country case silently resolves to `+20`
+and tests nothing.
+
+### On declining findings
+
+Two of fifteen findings across three rounds were declined, and both needed the
+decision log to settle rather than the code. That is the ratio one would hope
+for: the reviewer is reading the implementation without the full decision
+history, so a finding that contradicts an accepted decision is more likely to
+have found a *stale or ambiguous decision* than a wrong implementation — which
+is what happened with F-27, `#9` and `#10`, where the artifacts were the thing
+that changed.
