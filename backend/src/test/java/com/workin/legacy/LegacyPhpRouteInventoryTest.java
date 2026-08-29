@@ -32,6 +32,11 @@ class LegacyPhpRouteInventoryTest {
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
 
 	private static final List<String> EXPECTED_ROUTES = List.of(
+			"/apis/api/administrative_decisions/create.php",
+			"/apis/api/administrative_decisions/delete.php",
+			"/apis/api/administrative_decisions/list.php",
+			"/apis/api/administrative_decisions/one.php",
+			"/apis/api/administrative_decisions/update.php",
 			"/apis/api/advances/approve.php", "/apis/api/advances/create.php",
 			"/apis/api/advances/delete.php", "/apis/api/advances/list.php",
 			"/apis/api/advances/one.php", "/apis/api/advances/pay.php",
@@ -44,6 +49,9 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/attendance/import_excel.php", "/apis/api/attendance/list.php",
 			"/apis/api/attendance/one.php", "/apis/api/attendance/overall_report.php",
 			"/apis/api/attendance/stats.php",
+			"/apis/api/assets/create.php", "/apis/api/assets/delete.php",
+			"/apis/api/assets/list.php", "/apis/api/assets/one.php",
+			"/apis/api/assets/update.php",
 			"/apis/api/attendance/update.php",
 			"/apis/api/attendance_exception_types/create.php",
 			"/apis/api/attendance_exception_types/delete.php",
@@ -149,8 +157,8 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void deliveredRouteCountIsNowOneHundredFortyTwo() {
-		assertThat(EXPECTED_ROUTES).hasSize(142).doesNotHaveDuplicates();
+	void deliveredRouteCountIsNowOneHundredFiftyTwo() {
+		assertThat(EXPECTED_ROUTES).hasSize(152).doesNotHaveDuplicates();
 	}
 
 	/**
@@ -228,8 +236,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(CONDITIONAL_ROUTES).hasSize(1);
 		assertThat(EXPECTED_ROUTES).containsAll(DOWNLOAD_ONLY_ROUTES).containsAll(CONDITIONAL_ROUTES);
 		assertThat(EXPECTED_ROUTES.size() - DOWNLOAD_ONLY_ROUTES.size() - CONDITIONAL_ROUTES.size())
-				.as("envelope-only routes, per the completion plan's 137/4/1 partition")
-				.isEqualTo(137);
+				.as("envelope-only routes, per the completion plan's 147/4/1 partition")
+				.isEqualTo(147);
 	}
 
 	@Test

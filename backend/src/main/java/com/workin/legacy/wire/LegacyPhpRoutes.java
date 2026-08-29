@@ -108,6 +108,8 @@ public final class LegacyPhpRoutes {
 		"/apis/api/company_settings/**",
 		"/apis/api/setting_definitions/list.php",
 		"/apis/api/setting_allowed_values/list.php",
+		"/apis/api/assets/**",
+		"/apis/api/administrative_decisions/**",
 	};
 
 	private LegacyPhpRoutes() {
