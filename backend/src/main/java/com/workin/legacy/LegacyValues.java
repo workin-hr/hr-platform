@@ -180,22 +180,29 @@ public final class LegacyValues {
 	 * which is a <b>third</b> character set -- not {@link String#trim}'s and not
 	 * {@link #phpTrim}'s.
 	 *
-	 * <p>{@code php_filter_boolean()} skips
-	 * {@code ' '}, {@code \t}, {@code \n}, {@code \r}, {@code \v} and
-	 * {@code \f} from both ends. Compared with the two sets already in this
-	 * class:
+	 * <p>{@code filter_var} strips {@code ' '}, {@code \t}, {@code \n},
+	 * {@code \r} and {@code \v} from both ends -- and <b>neither form feed nor
+	 * NUL</b>. Compared with the two sets already in this class:
 	 *
 	 * <ul>
-	 * <li>it <b>does</b> strip form feed, which {@link #phpTrim} (PHP's
-	 *     {@code trim()}) does not;</li>
-	 * <li>it does <b>not</b> strip NUL, which both {@link #phpTrim} and Java's
-	 *     {@code String.trim()} do.</li>
+	 * <li>it does <b>not</b> strip NUL, which both {@link #phpTrim} (PHP's
+	 *     {@code trim()}) and Java's {@code String.trim()} do;</li>
+	 * <li>it does <b>not</b> strip form feed, which Java's {@code String.trim()}
+	 *     does -- {@code phpTrim} does not either, so those two agree here.</li>
 	 * </ul>
 	 *
-	 * <p>NUL is therefore the observable divergence: {@code "\0true"} is
-	 * unrecognised by PHP and false, while {@code String.trim()} would strip the
-	 * NUL and make it true. Using either of the other two helpers here would be
-	 * wrong in one direction or the other.
+	 * <p>Both are observable divergences from {@code String.trim()}:
+	 * {@code "\0true"} and {@code "\ftrue\f"} are each unrecognised by PHP and
+	 * therefore <b>false</b>, while {@code String.trim()} would strip the
+	 * padding and make both true.
+	 *
+	 * <p><b>Source of the character set.</b> Measured, not read: a PHP 8.5.7 CLI
+	 * probe of {@code filter_var(chr(12) . 'true' . chr(12), FILTER_VALIDATE_BOOLEAN)}
+	 * returns {@code false}, and the vertical-tab equivalent returns
+	 * {@code true}. An earlier revision of this helper claimed the opposite for
+	 * form feed on the strength of reading the extension's C source, which was
+	 * wrong; the probe is the evidence that settles it, and PHP is not
+	 * executable in this repository's environment to re-derive it.
 	 */
 	static String filterVarTrim(String value) {
 		if (value == null) {
@@ -213,7 +220,8 @@ public final class LegacyValues {
 	}
 
 	private static boolean isFilterVarSpace(char c) {
-		return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == 0x0B || c == '\f';
+		// No '\f' and no NUL -- see the measurement noted above.
+		return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == 0x0B;
 	}
 
 	/**

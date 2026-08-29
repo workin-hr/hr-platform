@@ -898,6 +898,9 @@ caller reads back its own row. Reverting to the two-call form fails both cases.
 `FINAL_COMPATIBLE` 134 → **142**; `ITEM13_REMAINING` 64 → **56**; partition
 129/4/1 → **137/4/1**. Live total 198 unchanged.
 
-Evidence: `./gradlew check` — **2000 tests, 0 failures**, 27 new. The
+Evidence: `./gradlew check` — **0 failures**. The test count is not restated
+here for the reason given under D-130: a figure that must be re-measured on
+every push cannot stay true in a durable record, and this one had already drifted
+across several review rounds. The
 transactional rollback was falsified by removing `@Transactional`, which is what
 exposed the item-shape bug above.

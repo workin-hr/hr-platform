@@ -112,48 +112,49 @@ class LegacyGeneratedKeysTest {
 	}
 
 	/**
-	 * The implementation this helper replaced, run against the same pool.
+	 * The implementation this helper replaced, shown failing <b>deterministically</b>.
 	 *
-	 * <p>{@code jdbcTemplate.update(...)} followed by
-	 * {@code queryForObject("SELECT LAST_INSERT_ID()")} borrows two connections.
-	 * The value is session-scoped, so the second returns whatever that
-	 * connection last inserted -- another thread's row, or {@code 0} on one that
-	 * has inserted nothing.
+	 * <p>An earlier version of this case raced twelve threads and asserted the
+	 * results were not all {@code ok}. That was unsound in the failing
+	 * direction: if the scheduler lets every worker reacquire the same
+	 * connection for its two adjacent calls -- legal and common -- all results
+	 * are {@code ok} and the assertion fails while
+	 * {@link LegacyGeneratedKeys} is perfectly correct. A test that can fail
+	 * for the absence of a race proves nothing about the presence of one.
 	 *
-	 * <p>Asserting that failure directly is what makes the fix's claim
-	 * measurable. Without it the suite would only show that the new code works,
-	 * never that the old code did not.
+	 * <p>A <b>single-connection pool</b> removes the scheduling entirely. Two
+	 * inserts run in sequence, each borrowing and returning the one connection;
+	 * a following {@code SELECT LAST_INSERT_ID()} borrows that same connection
+	 * and reports the <em>second</em> insert's id. No concurrency, no timing,
+	 * and exactly the misrouting the helper exists to prevent: a caller
+	 * receiving an id that describes somebody else's row.
 	 */
 	@Test
-	void theTwoCallFormMisroutesKeysUnderAPool() throws Exception {
-		int threads = 12;
-		ExecutorService pool = Executors.newFixedThreadPool(threads);
-		try {
-			List<Callable<String>> work = new ArrayList<>();
-			for (int i = 0; i < threads; i++) {
-				String tag = "two-call-" + i;
-				work.add(() -> {
-					jdbcTemplate.update("INSERT INTO keyed (tag) VALUES (?)", tag);
-					Long id = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-					if (id == null || id == 0L) {
-						return "lost";
-					}
-					String readBack = jdbcTemplate.queryForObject(
-							"SELECT tag FROM keyed WHERE id = ?", String.class, id);
-					return tag.equals(readBack) ? "ok" : "misrouted";
-				});
-			}
-			List<String> results = new ArrayList<>();
-			for (Future<String> future : pool.invokeAll(work)) {
-				results.add(future.get());
-			}
-			assertThat(results.stream().allMatch("ok"::equals))
-					.as("the two-call form must NOT be reliable -- if this ever comes back all-ok "
-							+ "the pool is not being shared and the comparison above proves nothing "
-							+ "(results: %s)", results)
-					.isFalse();
-		} finally {
-			pool.shutdownNow();
+	void theTwoCallFormReportsAnotherInsertsKey() throws Exception {
+		HikariConfig config = new HikariConfig();
+		config.setJdbcUrl(MARIADB.getJdbcUrl());
+		config.setUsername(MARIADB.getUsername());
+		config.setPassword(MARIADB.getPassword());
+		config.setMaximumPoolSize(1);
+		try (HikariDataSource single = new HikariDataSource(config)) {
+			JdbcTemplate shared = new JdbcTemplate(single);
+
+			shared.update("INSERT INTO keyed (tag) VALUES (?)", "first-caller");
+			shared.update("INSERT INTO keyed (tag) VALUES (?)", "second-caller");
+
+			Long reported = shared.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+			String describes = shared.queryForObject(
+					"SELECT tag FROM keyed WHERE id = ?", String.class, reported);
+
+			assertThat(describes)
+					.as("the second call reports the connection's last insert, not the caller's")
+					.isEqualTo("second-caller");
+
+			// And the helper, on the same pool, hands back the caller's own row.
+			long own = LegacyGeneratedKeys.insert(shared,
+					"INSERT INTO keyed (tag) VALUES (?)", "third-caller");
+			assertThat(shared.queryForObject("SELECT tag FROM keyed WHERE id = ?", String.class, own))
+					.isEqualTo("third-caller");
 		}
 	}
 }
