@@ -479,6 +479,33 @@ def run_check_dispositions(threads: list[dict], workflow_text: str | None = None
         )
 
 
+def test_dispositions_match_the_graphql_login_without_the_bot_suffix() -> None:
+    """The GraphQL API returns a bot login WITHOUT the `[bot]` suffix that the
+    workflow declares, the REST API returns and the UI shows. Comparing the two
+    literally never matches, and the check then reports "no findings" and passes
+    on every real pull request.
+
+    This case uses the **GraphQL** spelling on purpose. The other cases here use
+    the suffixed form, which is what the original fixtures assumed -- and why
+    they all passed while the script could not have worked against GitHub."""
+    proc = run_check_dispositions([
+        _thread("chatgpt-codex-connector", ("karimtismail", "Disposition: fixed"))])
+    check(
+        proc.returncode == 0 and "All 1 finding(s)" in proc.stdout,
+        f"a GraphQL-form bot login is recognised as the reviewer (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_an_unsuffixed_login_still_fails_without_a_disposition() -> None:
+    """The suffix-stripping must not make every thread pass: the same GraphQL
+    login with no reply is still an undisposed finding."""
+    proc = run_check_dispositions([_thread("chatgpt-codex-connector")])
+    check(
+        proc.returncode != 0 and "1 of 1" in proc.stdout,
+        f"stripping the suffix does not excuse a missing disposition (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
 def test_dispositions_every_finding_answered_passes() -> None:
     proc = run_check_dispositions([
         _thread(REVIEWER, ("karimtismail", "Disposition: fixed in abc1234")),
@@ -1942,6 +1969,8 @@ def main() -> int:
     test_nightly_tier_named_without_schedule_workflow_fails()
     test_nightly_tier_named_with_schedule_workflow_passes()
     test_real_repository_has_nightly_workflow()
+    test_dispositions_match_the_graphql_login_without_the_bot_suffix()
+    test_dispositions_an_unsuffixed_login_still_fails_without_a_disposition()
     test_dispositions_every_finding_answered_passes()
     test_dispositions_missing_one_fails_and_names_it()
     test_dispositions_resolution_alone_does_not_satisfy_step_seven()

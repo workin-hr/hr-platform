@@ -100,12 +100,24 @@ if ! echo "$THREADS_JSON" | jq -e . >/dev/null 2>&1; then
   exit 1
 fi
 
+# The GraphQL API returns a bot's login WITHOUT the `[bot]` suffix that the REST
+# API, the workflow declaration and the UI all show -- `chatgpt-codex-connector`
+# rather than `chatgpt-codex-connector[bot]`. Comparing the two literally never
+# matches, and this check would then report "no findings" on every real pull
+# request and pass. A check that always passes is worse than no check, so the
+# suffix is stripped from both sides before comparing.
+#
+# Found by running the script against a real pull request rather than by reading
+# it; the original regression fixtures used the suffixed form because that is
+# what the workflow declares, which is exactly the assumption that was wrong.
+REVIEWER_LOGIN="${REVIEWER%\[bot\]}"
+
 # A "finding" is a thread the reviewer opened. A thread someone else started is
 # a conversation, not a finding, and step 7 does not speak to it.
-findings="$(echo "$THREADS_JSON" | jq --arg reviewer "$REVIEWER" '
+findings="$(echo "$THREADS_JSON" | jq --arg reviewer "$REVIEWER_LOGIN" '
   [ .data.repository.pullRequest.reviewThreads.nodes[]
     | select((.comments.nodes | length) > 0)
-    | select(.comments.nodes[0].author.login == $reviewer) ]')"
+    | select((.comments.nodes[0].author.login | sub("\\[bot\\]$"; "")) == $reviewer) ]')"
 
 total="$(echo "$findings" | jq 'length')"
 
