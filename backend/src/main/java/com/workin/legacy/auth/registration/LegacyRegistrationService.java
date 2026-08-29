@@ -217,10 +217,14 @@ public class LegacyRegistrationService {
 		requireValue("phone", body == null ? null : body.get("phone"));
 		requireValue("password", body == null ? null : body.get("password"));
 
-		String countryCode = trimmed(body, "country_code");
-		if (countryCode.isEmpty() && (body == null || !body.containsKey("country_code"))) {
-			countryCode = DEFAULT_COUNTRY_CODE;
-		}
+		// trim((string) ($body[COUNTRY_CODE] ?? '+20')) -- `??` treats an
+		// explicit null exactly like an absent key, so {"country_code": null}
+		// registers with +20. Testing containsKey() instead, as an earlier
+		// draft did, left it as "" and rejected a valid Egyptian phone with
+		// invalid_phone_number.
+		String countryCode = body == null || body.get("country_code") == null
+				? DEFAULT_COUNTRY_CODE
+				: trimmed(body, "country_code");
 		String phone = LegacyPhoneNumbers.digitsOnly(
 				LegacyValues.phpTrim(LegacyValues.toPhpString(body.get("phone"))));
 		if (!phoneNumbers.isValidLocal(countryCode, phone)) {

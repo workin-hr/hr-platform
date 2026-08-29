@@ -2037,3 +2037,51 @@ question with the opposite answer. `bothUploadsRunBeforeEitherIsChecked` now
 pins it — asserting the 400 and that the file count rose by exactly one — and
 applying the requested change makes it fail, which is how the premise was
 settled rather than argued.
+
+## D-140: Fifth review round — two ordering and null-handling defects
+
+**Status:** Accepted
+**Date:** 2026-08-30
+
+**Multipart order was lost across normalized aliases.** `file()` grouped by raw
+name via `getMultiFileMap()`, took the last entry of each matching bucket, and
+let later buckets win — so for `logo=A, lo.go=B, logo=C` it chose C and then
+overwrote it with the earlier B. PHP normalizes each part as it parses and keeps
+the final one. `file()` now walks `getParts()` in arrival order and resolves the
+winner by raw name plus its ordinal within that name, which keeps wire order
+while still returning a `MultipartFile`.
+
+The fix that preceded it — normalizing the name at all — was correct and
+incomplete in a way that only shows with interleaved aliases, which is the kind
+of input nobody writes a test for unprompted.
+
+**`"country_code": null` was rejected where legacy defaults it.**
+`trim((string) ($body[COUNTRY_CODE] ?? '+20'))` treats an explicit null exactly
+like an absent key. The port tested `containsKey()`, so an explicit null left
+the code as `""` and `isValidLocal("", phone)` rejected a valid Egyptian number
+with `invalid_phone_number` — a registration legacy completes. The default now
+keys off the value being null, which is what `??` does, and
+`anExplicitlyNullCountryCodeTakesTheDefault` asserts both the 201 and the stored
+`+20`.
+
+Both were falsified by restoring the previous behaviour and confirming the new
+assertions fail.
+
+### The pattern across five rounds
+
+Twenty-three findings: nineteen fixed, four declined with evidence. The declined
+four all turned on something the reviewer could not see from the diff — a
+superseding decision (D-111), or PHP source whose ordering contradicts a
+reasonable reading. The nineteen cluster into three recognisable shapes:
+
+1. **a value quietly re-derived instead of carried** (the employee country code,
+   twice on different routes);
+2. **a standard-library call that does more than the PHP function it replaces**
+   (`getByName()` resolving names, `toUpperCase()` folding Unicode,
+   `String.format()` localizing digits, `getMultiFileMap()` losing order);
+3. **prose and code disagreeing**, in both directions — a javadoc that inverted
+   its own resolver, and a decision that contradicted itself two bullets apart.
+
+The third shape is the one worth carrying forward: neither instance would have
+been caught by reading only the code or only the documentation, and in both
+cases the *wrong* half was the confident, well-written one.

@@ -244,9 +244,27 @@ class LegacyRegistrationEndToEndTest {
 				.getStatusCode().value()).isEqualTo(400);
 	}
 
-	/** Its duplicate probe is an exact match, so a variant spelling is not caught. */
+	/**
+	 * {@code trim((string) ($body[COUNTRY_CODE] ?? '+20'))} -- {@code ??}
+	 * treats an explicit null exactly like an absent key, so a body carrying
+	 * {@code "country_code": null} registers with the {@code +20} default
+	 * rather than being rejected for an empty country.
+	 */
 	@Test
 	@Order(6)
+	void anExplicitlyNullCountryCodeTakesTheDefault() {
+		assertThat(post(REGISTER_COMPANY, "{\"first_name\":\"N\",\"last_name\":\"C\",\"phone\":"
+				+ "\"01000033097\",\"password\":\"" + PASSWORD + "\",\"country_code\":null}")
+				.getStatusCode().value())
+				.as("null is not an empty country -- ?? falls through to +20")
+				.isEqualTo(201);
+		assertThat(scalar("SELECT country_code FROM companies WHERE phone = '01000033097'"))
+				.isEqualTo("+20");
+	}
+
+	/** Its duplicate probe is an exact match, so a variant spelling is not caught. */
+	@Test
+	@Order(7)
 	void registerCompanyDuplicateCheckIsExactSoAVariantSlipsThrough() {
 		assertThat(post(REGISTER_COMPANY, "{\"first_name\":\"A\",\"last_name\":\"B\",\"phone\":\""
 				+ ACTIVE_PHONE + "\",\"password\":\"p\"}").getStatusCode().value())
@@ -278,7 +296,7 @@ class LegacyRegistrationEndToEndTest {
 	 * branch and writes it. Ported as-is (D-058) and recorded as R-017.
 	 */
 	@Test
-	@Order(7)
+	@Order(8)
 	void registerEmployeeCannotSucceedAgainstTheFrozenSchema() throws Exception {
 		long before = employeeCount(ACTIVE_COMPANY);
 		assertThat(post(REGISTER_EMPLOYEE, "{\"phone\":\"01000033077\",\"password\":\"" + PASSWORD
@@ -290,7 +308,7 @@ class LegacyRegistrationEndToEndTest {
 
 	/** Its earlier guards still run, so a bad company code is a clean 404. */
 	@Test
-	@Order(8)
+	@Order(9)
 	void registerEmployeeStillValidatesBeforeItFails() {
 		assertThat(post(REGISTER_EMPLOYEE, "{\"phone\":\"01000033077\",\"password\":\"" + PASSWORD
 				+ "\",\"company_code\":\"" + SUSPENDED_PHONE + "\"}").getStatusCode().value())
@@ -307,7 +325,7 @@ class LegacyRegistrationEndToEndTest {
 	 * one, had it been able to insert at all.
 	 */
 	@Test
-	@Order(9)
+	@Order(10)
 	@SuppressWarnings("unchecked")
 	void joiningCreatesAPendingInactiveEmployeeOnTheFirstActiveBranch() {
 		ResponseEntity<Map<String, Object>> joined = post(JOIN,
@@ -327,7 +345,7 @@ class LegacyRegistrationEndToEndTest {
 
 	/** Joining notifies both the employee and the company. */
 	@Test
-	@Order(10)
+	@Order(11)
 	void joiningNotifiesBothSides() throws Exception {
 		assertThat(notificationTypes(ACTIVE_COMPANY))
 				.contains("join_request_submitted")
@@ -347,7 +365,7 @@ class LegacyRegistrationEndToEndTest {
 	 * that supplies only {@code name} is a 400 here, not a split.
 	 */
 	@Test
-	@Order(11)
+	@Order(12)
 	void theFullNameFallbackIsUnreachableBecauseFirstNameIsRequired() {
 		ResponseEntity<Map<String, Object>> response = post(JOIN,
 				"{\"name\":\"Ana Maria de Souza\",\"phone\":\"01000033079\","
@@ -380,7 +398,7 @@ class LegacyRegistrationEndToEndTest {
 	 * the two systems on a column other endpoints read.
 	 */
 	@Test
-	@Order(12)
+	@Order(13)
 	void aNonEgyptianJoinerHasNoCountryCodeStored() throws Exception {
 		ResponseEntity<Map<String, Object>> joined = post(JOIN,
 				"{\"first_name\":\"Saudi\",\"phone\":\"0512345678\",\"password\":\"" + PASSWORD
@@ -405,7 +423,7 @@ class LegacyRegistrationEndToEndTest {
 	 * the word "phone" to choose between two messages.
 	 */
 	@Test
-	@Order(13)
+	@Order(14)
 	void aRejectedApplicantPassesTheProbeAndIsStoppedByTheUniqueIndex() throws Exception {
 		ResponseEntity<Map<String, Object>> pending = post(JOIN,
 				"{\"first_name\":\"Joiner\",\"phone\":\"01000033078\",\"password\":\""

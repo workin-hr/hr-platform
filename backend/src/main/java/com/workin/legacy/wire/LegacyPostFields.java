@@ -4,6 +4,7 @@ import java.io.InputStream;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -51,14 +52,36 @@ public final class LegacyPostFields {
 		if (!(request instanceof MultipartHttpServletRequest multipart)) {
 			return null;
 		}
-		MultipartFile matched = null;
-		for (Map.Entry<String, List<MultipartFile>> entry : multipart.getMultiFileMap().entrySet()) {
-			if (!normalizeFieldName(entry.getKey()).equals(name) || entry.getValue().isEmpty()) {
-				continue;
+		// Wire order, not map order. getMultiFileMap() groups by RAW name, so
+		// picking the last entry of each matching bucket and letting later
+		// buckets win reorders interleaved aliases: for `logo=A, lo.go=B,
+		// logo=C` it would choose C from the `logo` bucket and then overwrite it
+		// with the earlier B from `lo.go`. PHP normalizes each part as it parses
+		// and keeps the final one, which is C. So the parts are walked in the
+		// order they arrived, and the winner is located by its raw name plus its
+		// ordinal within that name.
+		String winningName = null;
+		int winningIndex = -1;
+		Map<String, Integer> seen = new HashMap<>();
+		try {
+			for (Part part : request.getParts()) {
+				if (part.getSubmittedFileName() == null) {
+					continue;
+				}
+				int index = seen.merge(part.getName(), 0, (existing, ignored) -> existing + 1);
+				if (normalizeFieldName(part.getName()).equals(name)) {
+					winningName = part.getName();
+					winningIndex = index;
+				}
 			}
-			matched = entry.getValue().get(entry.getValue().size() - 1);
+		} catch (Exception ex) {
+			return null;
 		}
-		return matched;
+		if (winningName == null) {
+			return null;
+		}
+		List<MultipartFile> files = multipart.getMultiFileMap().get(winningName);
+		return files == null || winningIndex >= files.size() ? null : files.get(winningIndex);
 	}
 
 	/**
