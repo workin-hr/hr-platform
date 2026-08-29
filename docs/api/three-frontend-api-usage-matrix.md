@@ -83,11 +83,21 @@ existing one. Confirmed in `docs/legacy/existing-php-module-inventory.md`
 
 ## `assets` And `administrative_decisions` Consumers (Added 2026-08-29, C8)
 
-These two modules had no row in the tables above — the gap the completion
-plan's C8 recorded as "10 endpoints with no recorded client consumer". The
-bounded C3/C8 pass
-(`docs/migration/2026-08-29-c3-c8-bounded-discovery.md`) established that the
-consumers exist and were simply never written down.
+These two modules **are** covered by the grouped reference row above, which
+records them at module granularity. What that row could not say — and what C8
+recorded as "10 endpoints with no recorded client consumer" — is *which
+endpoints* each client calls. The bounded C3/C8 pass
+(`docs/migration/2026-08-29-c3-c8-bounded-discovery.md`) established that per
+endpoint.
+
+**This table corrects the grouped row's Mobile column for these two modules.**
+That row reads Mobile = "No", which is right for the other six modules in it and
+wrong for these two: mobile has feature directories for both and declares
+`assets/list` and `administrative_decisions/list` in its own `api_constants.dart`.
+The grouped row's own caveat — "not individually re-verified per sub-module this
+pass" — is exactly the gap this closes. Where the two disagree for `assets` or
+`administrative_decisions`, **this table is authoritative**; the grouped row
+remains authoritative for the other six.
 
 | Endpoint | Desktop | Mobile | Evidence |
 |---|---|---|---|
@@ -106,13 +116,18 @@ consumers exist and were simply never written down.
 evidence. Absence from two clients is not proof of no consumer, and C4 records
 what happens when reachability is inferred from one artifact's silence.
 
-**`assets` is gated client-side only.** The desktop sidebar carries
-`hrPermission: HrPermissionFlag.assets`, while the endpoint inventory records
-`assets` among the modules where the `hr_permissions` matrix is **not** enforced
-server-side. Any authenticated user in the company can call `assets/create`,
-`assets/update` and `assets/delete` directly regardless of the flag. A faithful
-Phase-1 port reproduces that (D-058) and must do so as a recorded decision, not
-by accident.
+**`assets` enforces its permission flag client-side only.** The desktop sidebar
+carries `hrPermission: HrPermissionFlag.assets`, while the endpoint inventory
+records `assets` among the modules where the `hr_permissions` matrix is **not**
+enforced server-side — the gap already tracked as `hr-legacy#8` in the grouped
+row above.
+
+Precisely: the three write routes are `requireAuth([COMPANY_ADMIN, HR])`, so
+MANAGER and EMPLOYEE are refused. What is unenforced is the narrower flag — an
+**admin or HR user with `can_assets` unset** is hidden the screen by the client
+and served by the server. A privilege gap within an already-privileged role, not
+open access. A faithful Phase-1 port reproduces it (D-058) and must do so as a
+recorded decision, not by accident.
 
 ## Capability And Ownership Matrix (Added 2026-08-04)
 

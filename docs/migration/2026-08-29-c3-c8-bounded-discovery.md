@@ -56,16 +56,28 @@ SidebarItem(labelKey: StringsManager.assets, ..., hrPermission: HrPermissionFlag
 
 The endpoint inventory records `assets` as one of the modules where the
 `hr_permissions` matrix is **not enforced server-side** (unlike
-`administrative_decisions`, which enforces it on all five). So the flag hides
-the menu item while any authenticated user in the company can call
-`assets/create`, `assets/update` and `assets/delete` directly.
+`administrative_decisions`, which enforces it on all five).
 
-That is client-side-only authorization, and it is the reason this matters
-before 13.4 rather than during it: a Java port that reproduces the PHP
+**Stated precisely, because the obvious summary overstates it.** All three write
+routes are `requireAuth([COMPANY_ADMIN, HR])`, so MANAGER and EMPLOYEE sessions
+are refused with 403 exactly as they should be. What is missing is only the
+narrower feature flag: an **admin or HR user whose `can_assets` flag is unset**
+still passes, because nothing server-side reads that flag. The client hides the
+menu item from them; the server does not refuse the call.
+
+That is a privilege gap *within* an already-privileged role, not open access. An
+earlier revision of this document said "any authenticated user in the company",
+which would have licensed a port granting MANAGER and EMPLOYEE a mutation
+capability legacy does not give them — the opposite of faithful.
+
+That is client-side-only enforcement of the flag, and it is the reason this
+matters before 13.4 rather than during it: a Java port that reproduces the PHP
 faithfully **reproduces the gap**, which is correct under D-058 but must be a
 recorded decision rather than an accident. It is exactly the "recorded
-inconsistency" §2.2 already notes against `assets` — now with a demonstrated
-client that relies on it.
+inconsistency" §2.2 already notes against `assets`, and it is **already tracked
+upstream as `hr-legacy#8`**, which the frontend matrix's own module row cites.
+What this pass adds is the client evidence — a shipped screen that relies on the
+flag the server ignores — not the finding itself.
 
 ## C3 — the four endpoints the inventory heading does not account for
 
@@ -116,14 +128,16 @@ unreachable through the API by any role.
 
 Two consequences for 13.4, stated now rather than discovered mid-wave:
 
-1. It is a **third** entry for the public category in
-   `LegacyPhpRoutes` — after `auth/login_employee.php` and `configs/get.php`
-   (D-126) — and the first that **mutates**. The security-boundary reasoning
-   those two carry ("public because legacy enforces nothing") holds, but the
-   data argument does not transfer: this one accepts caller-supplied `name`,
-   `phone` and `message` from an anonymous source and persists them. Rate
-   limiting, spam and PII retention are live questions for it that do not arise
-   for a read-only config lookup.
+1. It needs an entry in `LegacyPhpRoutes`'s public category, and it is the
+   first such entry that **mutates**. At this commit that category holds only
+   `auth/login_employee.php` — the other public reference routes arrive with
+   Item 13.0 and Wave 13.5, which are separate pull requests, so this document
+   does not lean on them as precedent. The reasoning they carry ("public
+   because legacy enforces nothing") applies here too, but the *data* argument
+   does not transfer: this one accepts caller-supplied `name`, `phone` and
+   `message` from an anonymous source and persists them. Rate limiting, spam
+   and PII retention are live questions for it that do not arise for a
+   read-only lookup.
 2. The null-`company_id` row is a **contract ambiguity, not obviously a defect**.
    It may be intentional (a public "contact us" form whose rows are read by the
    dashboard or directly in the database) — the completion plan's C-series has
@@ -165,6 +179,6 @@ deliberately.
 | # | Owed | Blocking? |
 |---|---|---|
 | 1 | Owner answer: is an anonymous complaint meant to be readable, and through what? | Before 13.4 plans `complaints` |
-| 2 | Decision recording that `assets` reproduces client-only authorization | Before 13.4 delivers `assets` |
+| 2 | Decision recording that `assets` reproduces the unenforced `can_assets` flag (`hr-legacy#8`) | Before 13.4 delivers `assets` |
 | 3 | `three-frontend-api-usage-matrix.md` rows for `assets` and `administrative_decisions` | Discharged by this document's table; the matrix should cite it |
 | 4 | The inventory heading's arithmetic (16 → 20) | Corrected in this pass |
