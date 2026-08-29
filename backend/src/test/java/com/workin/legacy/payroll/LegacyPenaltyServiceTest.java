@@ -27,7 +27,12 @@ class LegacyPenaltyServiceTest {
 
 	private final LegacyPenaltyStore store = mock(LegacyPenaltyStore.class);
 	private final LegacyMessages messages = mock(LegacyMessages.class);
-	private final LegacyPenaltyService service = new LegacyPenaltyService(store, messages);
+	// A real LegacyPenaltyAmounts over the mocked store, not a mock of it: the
+	// money calculation is the part most worth exercising, and stubbing it would
+	// leave these tests asserting nothing about the figures they produce.
+	private final LegacyPenaltyAmounts penaltyAmounts = new LegacyPenaltyAmounts(store);
+	private final LegacyPenaltyService service =
+			new LegacyPenaltyService(store, penaltyAmounts, messages);
 
 	@Test
 	void createNormalizesQuarterDayAndPersistsNotificationAfterInsert() {

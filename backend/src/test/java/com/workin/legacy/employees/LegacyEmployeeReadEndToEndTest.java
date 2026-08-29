@@ -378,13 +378,22 @@ class LegacyEmployeeReadEndToEndTest {
 		//
 		// One route is exempt, and the exemption is a closed literal list
 		// rather than a predicate so that adding to it is a visible diff:
-		// configs/get.php has no requireAuth() in legacy at all (Item 13.0). A
-		// client must read the maintenance flag and the version gate before it
-		// can log in, so answering 401 there would break the endpoint's whole
-		// purpose and violate D-111. auth/login_employee.php is equally
-		// unauthenticated but needs no exemption -- it is POST-only, so an
-		// unauthenticated GET still ends at the 405 this invariant demands.
-		List<String> publicByDesign = List.of("/apis/api/configs/get.php");
+		// Three endpoints have no requireAuth() in legacy at all: configs/get.php
+		// (Item 13.0), and phone_countries/list.php plus app_content/one.php
+		// (Item 13.5). A client needs the maintenance flag, the version gate,
+		// the dial-code list and the pre-login copy *before* it can log in, so
+		// answering 401 on any of them would break the endpoint's purpose and
+		// violate D-111. auth/login_employee.php is equally unauthenticated but
+		// needs no exemption -- it is POST-only, so an unauthenticated GET
+		// still ends at the 405 this invariant demands.
+		//
+		// The assertion is "not a 401", not "a 200": app_content/one.php reached
+		// with no content_key answers 400 key_required, which is still the
+		// public contract working rather than an authentication wall.
+		List<String> publicByDesign = List.of(
+				"/apis/api/configs/get.php",
+				"/apis/api/phone_countries/list.php",
+				"/apis/api/app_content/one.php");
 
 		List<String> routes = handlerMapping.getHandlerMethods().keySet().stream()
 				.flatMap(info -> info.getPatternValues().stream())
@@ -400,11 +409,12 @@ class LegacyEmployeeReadEndToEndTest {
 					URI.create(restTemplate.getRootUri() + route), HttpMethod.GET, new HttpEntity<>(new HttpHeaders()),
 					new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
 			assertThat(response.getStatusCode().value())
-					.withFailMessage("%s is public by design and must serve an unauthenticated GET", route)
-					.isEqualTo(200);
-			assertThat(response.getBody().get("success"))
+					.withFailMessage("%s is public by design and must not answer 401 to an "
+							+ "unauthenticated GET (got %d)", route, response.getStatusCode().value())
+					.isNotIn(401, 403);
+			assertThat(response.getBody())
 					.withFailMessage("%s did not answer in the PHP envelope", route)
-					.isEqualTo(true);
+					.containsKey("success");
 		}
 
 		List<String> denied = new java.util.ArrayList<>();

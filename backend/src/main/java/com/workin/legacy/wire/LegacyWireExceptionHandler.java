@@ -33,6 +33,8 @@ import com.workin.legacy.organization.LegacyBranchController;
 			"com.workin.legacy.payroll",
 			"com.workin.legacy.companies",
 			"com.workin.legacy.configs",
+			"com.workin.legacy.reference",
+			"com.workin.legacy.dashboard",
 			"com.workin.legacy.organization.php",
 			"com.workin.legacy.auth.php",
 		},

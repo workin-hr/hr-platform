@@ -662,7 +662,7 @@ check from the live handler mappings and the annotation itself, and names the
 package to add when it fails. Item 13 adds seventeen more modules, so this is
 worth a drift test rather than a one-line fix.
 
-### Ledger
+### Ledger after Item 13.0
 
 `FINAL_COMPATIBLE` 128 → **129**; `ITEM13_REMAINING` 70 → **69**; the response-shape
 partition 123/4/1 → **124/4/1**. The live total of 198 is unchanged, as it must
@@ -676,3 +676,104 @@ caused by this change: it compares `checked_in_today` against the database's
 +02:00 profile and the JVM's local zone. That is the D-083 gap the test's own
 comment describes, realised as a time-of-day flake. Recorded here rather than
 fixed inside Item 13.0, and owed as its own issue.
+
+## D-128: Wave 13.5 delivers the five reference endpoints, and is taken before 13.1
+
+**Status:** Accepted 2026-08-29.
+
+### The ordering, and why it changed
+
+The completion plan sequences Item 13 as 13.0 → 13.1 (auth) → … → 13.5. Wave
+13.5 was taken second instead. The reason is the state of the review gate, not
+a change of view about value: **R-009 is realized** — the independent reviewer's
+quota is exhausted and the owner has decided not to add credits — so no wave
+merged tonight receives an independent review.
+
+13.1 is the wave where that matters most. It is thirteen endpoints covering OTP
+issuance, password reset and company registration, plus an outbound WhatsApp
+integration, and it is the largest security surface in Item 13. Delivering the
+five low-risk reference endpoints first banks progress, establishes the
+per-wave recipe (security boundary, exception-handler scope, route inventory,
+response-shape partition), and leaves the security-critical wave for a point
+where review is available. The plan's order is a recommendation about value;
+this is a judgement about risk under a degraded gate, and it is recorded rather
+than made silently.
+
+### What was delivered
+
+| Endpoint | Auth | Note |
+|---|---|---|
+| `phone_countries/list.php` | **none** | public by design — a client needs dial codes to render the login form |
+| `app_content/one.php` | **none** | public by design — pre-login marketing and legal copy |
+| `banners/list.php` | any role | no `requireCompanyActive()`: platform content, not company data |
+| `faqs/list.php` | any role | same |
+| `dashboard/stats.php` | COMPANY_ADMIN / HR | the only one reading company data, and the only one calling `requireCompanyActive()` |
+
+That takes `LegacyPhpRoutes`' public category from two entries to four. The
+class now states that all four are safe for a reason about the **data** — a
+login handler, global operational config, a dial-code list, pre-login copy —
+rather than about the routing, because that is the property a future addition
+has to satisfy.
+
+### Two locale rules in one wave, and both are correct
+
+`app_content/one.php` resolves through `app_locale()`, which looks for
+`\bar\b` in `Accept-Language` and returns **English** when it finds nothing.
+`phone_countries/list.php` bypasses that helper: `phone_countries_public_rows(null)`
+defaults `$lang` to the literal `'ar'` and tests `str_starts_with($lang, 'en')`.
+
+So a client sending no header gets **English copy and Arabic country names in
+the same session**, and `Accept-Language: ar,en;q=0.8` is Arabic under both
+rules but for different reasons. Asserted side by side in the regression,
+because either rule alone reads like a bug in the other's light and
+"harmonising" them would change what a real client renders on its first screen.
+
+### Preserved quirks
+
+- **An unrecognised `platform` widens rather than narrows.** `banners` and
+  `faqs` both apply an `if/elseif` with no `else`, so `?platform=web` returns
+  *everything*. A client sending a platform the server does not know receives
+  more rows, not fewer.
+- **A FAQ category with no matching items disappears** rather than arriving
+  empty, so the set of section headers differs per platform.
+- **`dashboard/stats.php` sums every contract row** for an active employee, not
+  the effective one, so contract history inflates the salary totals.
+- **Its map-valued keys are keyed by department *name* while the SQL groups by
+  *id*.** Two departments sharing a name collapse into one key and the last row
+  wins, silently. `workforce_planning_stats` is a list and does not collide,
+  which is why the same data appears twice in the payload under two different
+  collision behaviours.
+- **`{}` and `[]` are not interchangeable.** PHP casts the empty map-valued keys
+  with `(object)[]` precisely so the value's *type* does not change under a
+  client; the two list-valued keys carry no such cast and correctly stay `[]`.
+  The regression asserts the type of all eight map keys, not just their
+  emptiness.
+
+### `strtotime('-3 months')` is not `LocalDate.minusMonths(3)`
+
+PHP keeps the day-of-month and lets it **roll**: 31 May minus three months is
+31 February, which resolves to **3 March**. Java **clamps** to 28 February. The
+two disagree by up to three days, which moves the 90-day cohort window's start
+and changes who is counted in `new_employee_turnover_rate`. Reproduced by
+landing on the first of the target month and adding `day - 1` days, and pinned
+by a test that asserts both the correct value and what Java would have done.
+
+### One extraction
+
+`penalties_total_amount()` was inlined as a private method in
+`LegacyPenaltyService` while `penalties/stats.php` was its only caller.
+`dashboard/stats.php` is a second, so it is now `LegacyPenaltyAmounts`. Two
+copies of a money calculation that must agree is exactly the shape the
+change-propagation rule exists to prevent. The existing unit test now builds a
+**real** `LegacyPenaltyAmounts` over its mocked store rather than stubbing the
+arithmetic — mocking the collaborator under question would leave those tests
+asserting nothing about the figures they produce.
+
+### Ledger after Wave 13.5
+
+`FINAL_COMPATIBLE` 129 → **134**; `ITEM13_REMAINING` 69 → **64**; response-shape
+partition 124/4/1 → **129/4/1**. Live total 198 unchanged.
+
+Evidence: `./gradlew check` — **1973 tests, 0 failures**, 30 new. The turnover
+month-step and headcount floor were each falsified against a deliberately broken
+implementation.

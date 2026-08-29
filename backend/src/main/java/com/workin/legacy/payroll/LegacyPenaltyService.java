@@ -1,7 +1,5 @@
 package com.workin.legacy.payroll;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,10 +20,13 @@ import com.workin.legacy.wire.LegacyMessages;
 public class LegacyPenaltyService {
 
 	private final LegacyPenaltyStore store;
+	private final LegacyPenaltyAmounts penaltyAmounts;
 	private final LegacyMessages messages;
 
-	public LegacyPenaltyService(LegacyPenaltyStore store, LegacyMessages messages) {
+	public LegacyPenaltyService(
+			LegacyPenaltyStore store, LegacyPenaltyAmounts penaltyAmounts, LegacyMessages messages) {
 		this.store = store;
+		this.penaltyAmounts = penaltyAmounts;
 		this.messages = messages;
 	}
 
@@ -158,7 +159,7 @@ public class LegacyPenaltyService {
 		long total = store.count(where, bind);
 		double days = store.totalPenaltyDays(where, bind);
 		long applied = store.appliedCount(where, bind);
-		double amount = totalAmount(store.amountRows(where, bind));
+		double amount = penaltyAmounts.totalAmount(where, bind);
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("total_penalties", total);
 		result.put("total_penalty_days", days);
@@ -180,44 +181,6 @@ public class LegacyPenaltyService {
 			managerScope(context, where, bind);
 		}
 		return store.report(where, bind);
-	}
-
-	private double totalAmount(List<Map<String, Object>> rows) {
-		BigDecimal total = BigDecimal.ZERO;
-		for (Map<String, Object> row : rows) {
-			double days = LegacyValues.toPhpDecimal(row.get("penalty_days")).doubleValue();
-			long employeeId = LegacyValues.toPhpLong(row.get("employee_id"));
-			String date = LegacyValues.toPhpString(row.get("penalty_date"));
-			if (days <= 0 || employeeId <= 0 || date.isEmpty()) {
-				continue;
-			}
-			Map<String, Object> contract = store.salaryContractAt(employeeId, date);
-			if (contract == null) {
-				continue;
-			}
-			BigDecimal gross;
-			if ("daily".equals(contract.get("salary_mode"))) {
-				gross = money(contract.get("daily_wage")).multiply(BigDecimal.valueOf(30))
-						.add(money(contract.get("housing_allowance"))).add(money(contract.get("transport_allowance")))
-						.add(money(contract.get("food_allowance"))).add(money(contract.get("risk_allowance")))
-						.add(money(contract.get("incentives")));
-			} else {
-				gross = money(contract.get("basic_salary")).add(money(contract.get("housing_allowance")))
-						.add(money(contract.get("transport_allowance"))).add(money(contract.get("food_allowance")))
-						.add(money(contract.get("risk_allowance"))).add(money(contract.get("incentives")));
-			}
-			gross = gross.setScale(2, RoundingMode.HALF_UP);
-			if (gross.signum() <= 0) {
-				continue;
-			}
-			BigDecimal rate = gross.divide(BigDecimal.valueOf(30), 2, RoundingMode.HALF_UP);
-			total = total.add(rate.multiply(BigDecimal.valueOf(days)).setScale(2, RoundingMode.HALF_UP));
-		}
-		return total.setScale(2, RoundingMode.HALF_UP).doubleValue();
-	}
-
-	private static BigDecimal money(Object value) {
-		return value == null ? BigDecimal.ZERO : LegacyValues.toPhpDecimal(value);
 	}
 
 	private static void validateMutable(long companyId, Map<String, Object> row) {

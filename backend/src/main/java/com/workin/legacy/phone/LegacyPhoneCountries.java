@@ -59,15 +59,26 @@ public class LegacyPhoneCountries {
 	 * countries, same lengths, same prefixes, same order.
 	 */
 	private static final List<LegacyPhoneCountry> FALLBACK = List.of(
-			new LegacyPhoneCountry(1, "+20", 11, "[\"010\",\"011\",\"012\",\"015\"]", 1),
-			new LegacyPhoneCountry(2, "+966", 10, "[\"05\"]", 2),
-			new LegacyPhoneCountry(3, "+971", 10, "[\"050\",\"052\",\"054\",\"055\",\"056\",\"058\"]", 3),
-			new LegacyPhoneCountry(4, "+218", 10, "[\"091\",\"092\",\"093\",\"094\",\"095\",\"096\"]", 4));
+			new LegacyPhoneCountry(1, "+20", "مصر", "Egypt", "🇪🇬",
+					11, "[\"010\",\"011\",\"012\",\"015\"]", 1, 1),
+			new LegacyPhoneCountry(2, "+966", "المملكة العربية السعودية", "Saudi Arabia", "🇸🇦",
+					10, "[\"05\"]", 2, 1),
+			new LegacyPhoneCountry(3, "+971", "الإمارات العربية المتحدة", "United Arab Emirates", "🇦🇪",
+					10, "[\"050\",\"052\",\"054\",\"055\",\"056\",\"058\"]", 3, 1),
+			new LegacyPhoneCountry(4, "+218", "ليبيا", "Libya", "🇱🇾",
+					10, "[\"091\",\"092\",\"093\",\"094\",\"095\",\"096\"]", 4, 1));
 
 	private final JdbcTemplate jdbcTemplate;
 
 	/** PHP's {@code static $exists}: probed once per request, then reused within it. */
 	private Boolean tableExists;
+
+	private static final org.springframework.jdbc.core.RowMapper<LegacyPhoneCountry> ROW_MAPPER =
+			(rs, rowNumber) -> new LegacyPhoneCountry(
+					rs.getLong("id"), rs.getString("country_code"),
+					rs.getString("name_ar"), rs.getString("name_en"), rs.getString("flag_emoji"),
+					rs.getInt("phone_length"), rs.getString("phone_prefixes"),
+					rs.getInt("sort_order"), rs.getInt("is_active"));
 
 	public LegacyPhoneCountries(DataSource legacyDataSource) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
@@ -86,13 +97,11 @@ public class LegacyPhoneCountries {
 		}
 		return jdbcTemplate.query(
 				"""
-				SELECT id, country_code, phone_length, phone_prefixes, sort_order
+				SELECT id, country_code, name_ar, name_en, flag_emoji, phone_length, phone_prefixes, sort_order, is_active
 				FROM phone_countries
 				WHERE is_active = 1
 				ORDER BY sort_order ASC, id ASC""",
-				(rs, rowNumber) -> new LegacyPhoneCountry(
-						rs.getLong("id"), rs.getString("country_code"), rs.getInt("phone_length"),
-						rs.getString("phone_prefixes"), rs.getInt("sort_order")));
+				ROW_MAPPER);
 	}
 
 	/**
@@ -110,14 +119,11 @@ public class LegacyPhoneCountries {
 		}
 		List<LegacyPhoneCountry> rows = jdbcTemplate.query(
 				"""
-				SELECT id, country_code, phone_length, phone_prefixes, sort_order
+				SELECT id, country_code, name_ar, name_en, flag_emoji, phone_length, phone_prefixes, sort_order, is_active
 				FROM phone_countries
 				WHERE country_code = ? AND is_active = 1
 				LIMIT 1""",
-				(rs, rowNumber) -> new LegacyPhoneCountry(
-						rs.getLong("id"), rs.getString("country_code"), rs.getInt("phone_length"),
-						rs.getString("phone_prefixes"), rs.getInt("sort_order")),
-				code);
+				ROW_MAPPER, code);
 		return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
 	}
 
