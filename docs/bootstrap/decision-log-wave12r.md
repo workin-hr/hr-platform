@@ -1093,9 +1093,13 @@ Writing a defect down does not close it, and this one is open.
   or updated.
 - A negative `planned_count` is **floored to 0** by `max(0, (int) ...)` rather
   than rejected.
-- The department check in `create.php` is skipped when the id is 0, because the
-  schema defaults `department_id` to 0 and legacy reads that as "no department"
-  rather than as a foreign key.
+- The department check in `create.php` is guarded by `if ($section_id > 0)`, so
+  it is skipped for **0 and for any negative id alike** — an earlier revision of
+  this entry said only 0 bypassed it, which understated the guard. The schema
+  defaults `department_id` to 0 and legacy reads that as "no department" rather
+  than as a foreign key; a negative id simply never reaches a lookup and is
+  stored as supplied. The port matches the guard exactly, so tightening it to
+  `!= 0` would reject a create legacy accepts.
 - `job_title_belongs_to_company()` additionally requires `is_active = 1`, so an
   inactive job title is `job_title_not_found`.
 - The list's search matches the **job title's** name only, though the row also

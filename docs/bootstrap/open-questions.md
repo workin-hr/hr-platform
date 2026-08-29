@@ -126,8 +126,12 @@ rather than resolve it. What is owed is a decision on one point:
   the owner elects to wait (#141 holds until `hr-legacy#33` is fixed, and the
   regression is **inverted rather than deleted** in the same change).
 - **Tracked in:** D-131, `docs/security/threat-model.md`'s tenant ↔ tenant row.
-  Deliberately **not** in the risk register: registering it as an accepted
-  residual would presume the decision that is still open.
+  Registered as **R-012**, with `Status: Open — NOT accepted`. An earlier
+  revision left it out of the register entirely, reasoning that an entry would
+  presume the open decision. That was the wrong call: an entry can record a risk
+  as unresolved without claiming acceptance, and omitting a **confirmed
+  cross-tenant disclosure** hides it from exactly the security triage that
+  should see it.
 
 ## Anonymous Complaints (`complaints/create.php`, D-132)
 

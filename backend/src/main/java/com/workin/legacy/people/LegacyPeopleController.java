@@ -4,7 +4,6 @@ import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -74,14 +73,17 @@ public class LegacyPeopleController {
 	 * selects <em>whose</em> file the document is attached to.
 	 */
 	@RequestMapping("/apis/api/employee_docs/upload.php")
-	public ResponseEntity<LegacyApiResponse> docUpload(
-			HttpServletRequest request,
-			@RequestParam(value = "file", required = false) MultipartFile file) {
+	public ResponseEntity<LegacyApiResponse> docUpload(HttpServletRequest request) {
+		// The method check must run FIRST, as it does in PHP. Declaring the file
+		// as a @RequestParam MultipartFile would make Spring resolve -- and fail
+		// to convert -- a scalar `?file=x` during argument binding, answering
+		// before this line and turning what legacy calls invalid_method into
+		// something else entirely.
 		requireMethod(request, "POST");
 		LegacyRequestContext context = anyRole();
 		String employeeId = formField(request, "employee_id");
 		String docType = formField(request, "doc_type");
-		Map<String, Object> row = docService.upload(context, employeeId, docType, file);
+		Map<String, Object> row = docService.upload(context, employeeId, docType, uploadedFile(request));
 		return ResponseEntity.status(201)
 				.body(LegacyApiResponse.ok(message(request, "document_uploaded"), row));
 	}
@@ -115,6 +117,20 @@ public class LegacyPeopleController {
 	}
 
 	/**
+	 * The uploaded file, resolved <b>after</b> the method check.
+	 *
+	 * <p>Taken from the request rather than bound as a {@code @RequestParam} so
+	 * that a non-multipart request, or a scalar {@code ?file=x}, cannot fail
+	 * during argument resolution before {@code requireMethod} has run.
+	 */
+	private static MultipartFile uploadedFile(HttpServletRequest request) {
+		if (request instanceof org.springframework.web.multipart.MultipartHttpServletRequest multipart) {
+			return multipart.getFile("file");
+		}
+		return null;
+	}
+
+	/**
 	 * A {@code $_POST} field: the request <b>body</b> only, never the query
 	 * string.
 	 *
@@ -138,7 +154,11 @@ public class LegacyPeopleController {
 				.startsWith("multipart/form-data")) {
 			try {
 				jakarta.servlet.http.Part part = request.getPart(name);
-				if (part == null) {
+				// A part carrying a filename is a FILE. PHP puts those in $_FILES
+				// and never in $_POST, so reading its bytes as a form value would
+				// accept input legacy does not see -- and on this route that input
+				// selects whose record the document lands on.
+				if (part == null || part.getSubmittedFileName() != null) {
 					return null;
 				}
 				try (java.io.InputStream in = part.getInputStream()) {
@@ -149,22 +169,54 @@ public class LegacyPeopleController {
 			}
 		}
 
-		String[] merged = request.getParameterValues(name);
+		// PHP normalizes dots and spaces in external field names, so a body
+		// carrying `doc.type` or `doc type` populates $_POST['doc_type'] and the
+		// required-field guard passes. The servlet container does not, so the
+		// body is matched on the normalized name rather than the raw one.
+		String[] merged = null;
+		int fromQueryString = 0;
+		for (java.util.Map.Entry<String, String[]> entry : request.getParameterMap().entrySet()) {
+			if (!normalizePhpFieldName(entry.getKey()).equals(name)) {
+				continue;
+			}
+			merged = merged == null ? entry.getValue()
+					: concat(merged, entry.getValue());
+			fromQueryString += countInQueryString(request, entry.getKey());
+		}
 		if (merged == null) {
 			return null;
 		}
-		int fromQueryString = 0;
+		return merged.length <= fromQueryString ? null : merged[merged.length - 1];
+	}
+
+	/** {@code parse_str()}'s external-name normalization: dots and spaces become underscores. */
+	private static String normalizePhpFieldName(String name) {
+		return name.replace('.', '_').replace(' ', '_');
+	}
+
+	private static String[] concat(String[] first, String[] second) {
+		String[] out = java.util.Arrays.copyOf(first, first.length + second.length);
+		System.arraycopy(second, 0, out, first.length, second.length);
+		return out;
+	}
+
+	private static int countInQueryString(HttpServletRequest request, String rawName) {
 		String query = request.getQueryString();
-		if (query != null) {
-			for (String pair : query.split("&")) {
-				if (!pair.isEmpty()
-						&& java.net.URLDecoder.decode(pair.split("=", 2)[0],
-								java.nio.charset.StandardCharsets.UTF_8).equals(name)) {
-					fromQueryString++;
-				}
+		if (query == null) {
+			return 0;
+		}
+		int count = 0;
+		for (String pair : query.split("&")) {
+			if (pair.isEmpty()) {
+				continue;
+			}
+			String key = java.net.URLDecoder.decode(pair.split("=", 2)[0],
+					java.nio.charset.StandardCharsets.UTF_8);
+			if (key.equals(rawName)) {
+				count++;
 			}
 		}
-		return merged.length <= fromQueryString ? null : merged[merged.length - 1];
+		return count;
 	}
 
 	@RequestMapping("/apis/api/employee_docs/delete.php")

@@ -453,8 +453,69 @@ class LegacyPeopleEndToEndTest {
 				.isEqualTo(404);
 	}
 
+	/**
+	 * Three ways the {@code $_POST} contract can be got wrong, all asserted here.
+	 */
 	@Test
 	@Order(19)
+	@SuppressWarnings("unchecked")
+	void theFormReaderMatchesPhpsPostSemantics() {
+		// 1. PHP normalizes dots and spaces in external field names, so
+		//    `doc.type` populates $_POST['doc_type'] and the guard passes.
+		ResponseEntity<Map<String, Object>> dotted = postForm(DOC_UPDATE,
+				token(ADMIN, "company_admin"), "id=1&doc.type=via_dot");
+		assertThat(dotted.getStatusCode().value()).as("%s", dotted.getBody()).isEqualTo(200);
+		assertThat((Map<String, Object>) dotted.getBody().get("data"))
+				.containsEntry("doc_type", "via_dot");
+
+		// 2. A part carrying a filename is a FILE. PHP puts it in $_FILES and
+		//    never in $_POST, so it must not satisfy a required form field.
+		MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
+		form.add("employee_id", new ByteArrayResource(
+				String.valueOf(OTHER_STAFF).getBytes(StandardCharsets.UTF_8)) {
+			@Override
+			public String getFilename() {
+				return "sneaky.txt";
+			}
+		});
+		form.add("file", new ByteArrayResource(PNG_BYTES) {
+			@Override
+			public String getFilename() {
+				return "doc.png";
+			}
+		});
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(token(ADMIN, "company_admin"));
+		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+		ResponseEntity<Map<String, Object>> filePart = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + "/apis/api/employee_docs/upload.php"),
+				HttpMethod.POST, new HttpEntity<>(form, headers),
+				new ParameterizedTypeReference<Map<String, Object>>() { });
+		assertThat(filePart.getStatusCode().value()).isEqualTo(201);
+		assertThat(((Number) ((Map<String, Object>) filePart.getBody().get("data")).get("employee_id"))
+				.longValue())
+				.as("a filename-bearing part is $_FILES, not $_POST, so the caller's own id stands")
+				.isEqualTo(ADMIN);
+
+		// Restore for the ordered tests that follow.
+		postForm(DOC_UPDATE, token(ADMIN, "company_admin"), "id=1&doc_type=id_card");
+	}
+
+	/**
+	 * The method check runs before anything else, including argument
+	 * resolution -- a scalar {@code ?file=x} must not be converted to a
+	 * {@code MultipartFile} and fail ahead of it.
+	 */
+	@Test
+	@Order(20)
+	void aScalarFileParameterStillAnswersInvalidMethodOnAGet() {
+		assertThat(send("/apis/api/employee_docs/upload.php?file=x", HttpMethod.GET, null, null)
+				.getStatusCode().value())
+				.isEqualTo(405);
+	}
+
+	@Test
+	@Order(21)
 	void everyRouteChecksItsMethodFirst() {
 		assertThat(send(DOC_LIST, HttpMethod.POST, null, null).getStatusCode().value()).isEqualTo(405);
 		assertThat(send(COMPLAINT_CREATE, HttpMethod.GET, null, null).getStatusCode().value())

@@ -607,6 +607,11 @@ and every difference below is legacy's.
 | `administrative_decisions/update.php` | PUT | ADMIN, HR | `can_employees`. Absent fields keep their current value; a supplied-but-blank `title`/`body` is `field_required`. Boolean via exact `(int) === 1`, so `"true"` **deactivates**. |
 | `administrative_decisions/delete.php` | DELETE | ADMIN, HR | `can_employees`. `ok(OK, null)` — **no `data` key at all**, unlike the asset delete. |
 
+**All ten routes require an active company.** Every one goes through
+`requireCompanyActive()` after its role check, so a suspended company gets 403
+on the whole module — unlike `banners`/`faqs` in Wave 13.5, which serve platform
+content to a suspended company's staff.
+
 **Two boolean conventions in one wave.** `"is_active": "true"` deactivates a
 decision while `"is_returned": "true"` marks an asset returned. Any client
 sending string booleans must be checked against both.
