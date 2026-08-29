@@ -937,3 +937,80 @@ Evidence: `./gradlew check` — **2014 tests, 0 failures**, 14 new. The two
 module-disagreement regressions were falsified by harmonising the boolean rule
 and by dropping the employee row filter; each break was caught by the case
 written for it.
+
+## D-131: Wave 13.4b delivers `workforce_planning`, reproducing a cross-tenant disclosure and filing it upstream
+
+**Status:** Accepted 2026-08-29. Security-relevant; **not** closed by this entry.
+
+Seven routes, six handlers -- `summary.php` is literally
+`require __DIR__ . '/list.php'`, so the two URLs are one endpoint and are mapped
+as two paths on a single method rather than duplicated.
+
+### The finding
+
+Only one of the three write paths validates the foreign ids it stores:
+
+| Endpoint | Validates `branch_id` / `department_id` / `job_title_id`? |
+|---|---|
+| `create.php` | **yes** — three explicit ownership checks |
+| `save_target.php` | **no** |
+| `update.php` | **no** — all three sit in the `whitelist_update_fields()` allowlist |
+
+And the read path's three `LEFT JOIN`s match on id alone, with **no tenant
+predicate**. Together those mean a `company_admin` or `hr` user of company A can
+`POST save_target.php` with company B's `branch_id`, then `GET list.php` and
+read **company B's branch name** back. The same works for departments, job
+titles, and through `update.php`. Iterating ids enumerates a competitor's
+organizational structure.
+
+Only names leak, not employee or payroll data — but it is a cross-tenant read by
+an authenticated user of a different tenant, reachable in two ordinary API calls
+with no special conditions.
+
+### Why it is reproduced rather than fixed here
+
+Phase 1's contract is parity (D-058), the defect exists in production today, and
+the Java port does not make it worse. **Fixing it in the port alone would be a
+silent divergence** — the two systems would answer differently for the same
+request, which is exactly what the phase exists to prevent, and it would mask
+the problem rather than resolve it.
+
+So: reproduced exactly, **filed upstream as `hr-legacy` issue #33** with a
+proposed fix and a note that existing rows may already carry foreign ids, and
+recorded here. The port changes when legacy changes, in the same direction.
+
+### The regression asserts the vulnerable behaviour on purpose
+
+`saveTargetLeaksAnotherCompanysBranchNameThroughTheUntenantedJoin` performs the
+attack and asserts that the victim's branch name comes back. That is deliberate,
+it is commented as such in the test, and the comment instructs that the test be
+**inverted, not deleted**, once legacy is fixed — so the fix cannot land without
+someone consciously changing this assertion.
+
+**Nothing in this entry should be read as an endorsement of the behaviour.**
+Writing a defect down does not close it, and this one is open.
+
+### Other preserved behaviours in this module
+
+- `save_target.php` upserts on the `uq_workforce_target` unique key over
+  `(company_id, branch_id, department_id, job_title_id)` and answers
+  `{"saved": true}` — never the row — so a caller cannot tell whether it created
+  or updated.
+- A negative `planned_count` is **floored to 0** by `max(0, (int) ...)` rather
+  than rejected.
+- The department check in `create.php` is skipped when the id is 0, because the
+  schema defaults `department_id` to 0 and legacy reads that as "no department"
+  rather than as a foreign key.
+- `job_title_belongs_to_company()` additionally requires `is_active = 1`, so an
+  inactive job title is `job_title_not_found`.
+- The list's search matches the **job title's** name only, though the row also
+  carries the branch and department names.
+- `update.php`'s post-write re-read drops the `company_id` filter its own
+  `UPDATE` carried.
+
+### Ledger after Wave 13.4b
+
+`FINAL_COMPATIBLE` 152 → **159**; `ITEM13_REMAINING` 46 → **39**; partition
+147/4/1 → **154/4/1**. Live total 198 unchanged.
+
+Evidence: `./gradlew check` — **2024 tests, 0 failures**, 10 new.

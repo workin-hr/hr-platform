@@ -110,6 +110,7 @@ public final class LegacyPhpRoutes {
 		"/apis/api/setting_allowed_values/list.php",
 		"/apis/api/assets/**",
 		"/apis/api/administrative_decisions/**",
+		"/apis/api/workforce_planning/**",
 	};
 
 	private LegacyPhpRoutes() {
