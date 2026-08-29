@@ -9,7 +9,8 @@ endpoint-by-endpoint read, which those waves will do in their own right.
 
 Both entries were recorded in the completion plan's §7 as *discovery evidence
 debt* rather than implementation blockers. This pass discharges C8 outright and
-narrows C3 to a stated, four-endpoint gap with two findings attached.
+narrows C3 to a stated **four-module** remainder — twelve endpoints — with two
+findings attached to the two modules it did read.
 
 ## C8 — the two modules with "no confirmed consumer evidence"
 
@@ -79,7 +80,7 @@ upstream as `hr-legacy#8`**, which the frontend matrix's own module row cites.
 What this pass adds is the client evidence — a shipped screen that relies on the
 flag the server ignores — not the finding itself.
 
-## C3 — the four endpoints the inventory heading does not account for
+## C3 — the endpoints the inventory heading does not account for
 
 The heading reads *"Employee Docs, Company Join Requests, HR Employees,
 Complaints, Schedules, Company (16 endpoints)"* and its body opens *"All 16
@@ -95,10 +96,17 @@ endpoints across these 6 small modules read"*. The six modules hold **20**:
 | `company` | 3 | 3 |
 | **Total** | **20** | |
 
-The shortfall of four is arithmetic, but the *evidence* gap is larger and
-differently shaped than the number suggests: the two modules named zero times
-hold **eight** endpoints between them. Those eight are what this pass read, and
+The shortfall of four is arithmetic, and the *evidence* gap is both larger and
+differently shaped than that number suggests. The two modules named zero times
+hold **eight** endpoints between them, and those eight are what this pass read;
 both yielded a finding.
+
+**What remains owed is four modules, not four endpoints.**
+`company_join_requests`, `hr_employees`, `schedules` and `company` hold
+**twelve** endpoints between them and were not re-read — they were deprioritised
+because the section already names most of their endpoints individually, which is
+a weaker reason than having read them. Describing the remainder as "four" would
+under-scope that re-read by two thirds.
 
 ### Finding C3-a — `complaints/create.php` is a third public endpoint, and it writes
 
@@ -179,6 +187,6 @@ deliberately.
 | # | Owed | Blocking? |
 |---|---|---|
 | 1 | Owner answer: is an anonymous complaint meant to be readable, and through what? | Before 13.4 plans `complaints` |
-| 2 | Decision recording that `assets` reproduces the unenforced `can_assets` flag (`hr-legacy#8`) | Before 13.4 delivers `assets` |
+| 2 | ~~Decision recording that `assets` reproduces the unenforced `can_assets` flag~~ — **already decided.** D-044 binds Phase 1 to reproduce `hr-legacy#8`'s enforcement gap, and D-045 states that no `can_*` flag is enforced unless the endpoint's PHP enforces it, listing `can_assets` among the fifteen never used as a gate. What remains is endpoint-specific evidence under those decisions, not a new owner sign-off. | Not blocking |
 | 3 | `three-frontend-api-usage-matrix.md` rows for `assets` and `administrative_decisions` | Discharged by this document's table; the matrix should cite it |
 | 4 | The inventory heading's arithmetic (16 → 20) | Corrected in this pass |

@@ -112,6 +112,15 @@ remains authoritative for the other six.
 | `administrative_decisions/delete` | yes | — | `api_constants.dart` |
 | `administrative_decisions/one` | **none declared** | **none declared** | — |
 
+**Every `yes` above is a live call site, not just a declaration.** That
+distinction matters here because this matrix's own F-05 row records a constant
+the client declares and never calls, so a declaration alone would not settle
+C8. Each constant was traced into
+`data/data_source/remote/remote_data_source.dart` — desktop around lines
+1306–1445, mobile at 188 (`assets/list`) and 456
+(`administrative_decisions/list`) — and every one is passed as an `endPoint:`
+to a real request method.
+
 `administrative_decisions/one` is **not** treated as dead surface on this
 evidence. Absence from two clients is not proof of no consumer, and C4 records
 what happens when reachability is inferred from one artifact's silence.

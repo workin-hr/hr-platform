@@ -342,8 +342,8 @@ Endpoint counts from `hr-legacy@d113204`; "Java counterpart" measured against
 | `setting_definitions` | 1 | none | Item 13 (D-4) | none | platform administration | `COMPANY_ADMIN`/`HR` only | 13.3 |
 | `setting_allowed_values` | 1 | none | Item 13 (D-4) | none | shared read, all clients | unauthenticated | 13.3 |
 | `workforce_planning` | 7 | none | Item 13 | `employees`, `departments`, `job_titles` | dashboard page directory confirmed; desktop (headcount targets) | the recorded edit-hijack/bare-delete finding is on `dashboard/pages/workforce_planning/page.php` — the PHP dashboard, **not** this API module (§4.9) | 13.4 |
-| `assets` | 5 | none | Item 13 | `employees` | **no confirmed consumer evidence** — C8 | `hr_permissions` **not** enforced (recorded inconsistency) | 13.4 |
-| `administrative_decisions` | 5 | none | Item 13 | `employees` | **no confirmed consumer evidence** — C8 | `hr_permissions` enforced on all 5 | 13.4 |
+| `assets` | 5 | none | Item 13 | `employees` | desktop consumes all five, mobile consumes `list` — **C8 discharged 2026-08-29**, call sites traced in `three-frontend-api-usage-matrix.md` | `hr_permissions` **not** enforced (recorded inconsistency) | 13.4 |
+| `administrative_decisions` | 5 | none | Item 13 | `employees` | desktop consumes four (`list`, `create`, `update`, `delete`), mobile consumes `list`; **`one` is declared by neither** — **C8 discharged 2026-08-29**, call sites traced in `three-frontend-api-usage-matrix.md` | `hr_permissions` enforced on all 5 | 13.4 |
 | `employee_docs` | 4 | none | Item 13 | `employees`, upload slots | mobile (confirmed), dashboard/desktop likely | file upload surface | 13.4 |
 | `complaints` | 4 | none | Item 13 | `employees` | mobile (submit), dashboard (handling) | partly undocumented — C3 | 13.4 |
 | `company_join_requests` | 3 | none | Item 13 | `employees`, `companies` | dashboard | `accept`/`reject` confirmed correctly company-scoped | 13.4 |
