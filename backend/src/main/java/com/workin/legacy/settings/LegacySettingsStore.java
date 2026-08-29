@@ -205,11 +205,9 @@ public class LegacySettingsStore {
 	}
 
 	public long insertCompanySetting(long companyId, long definitionId) {
-		jdbcTemplate.update(
+		return com.workin.legacy.LegacyGeneratedKeys.insert(jdbcTemplate,
 				"INSERT INTO company_settings (company_id, setting_definition_id) VALUES (?, ?)",
 				companyId, definitionId);
-		Long id = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-		return id == null ? 0L : id;
 	}
 
 	public void touchCompanySetting(long companySettingId, long companyId) {

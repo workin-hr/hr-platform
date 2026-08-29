@@ -93,12 +93,10 @@ public class LegacyAssetStore {
 
 	public long insert(long companyId, long employeeId, String assetDate, String assetText,
 			String returnedAt, int isReturned) {
-		jdbcTemplate.update(
+		return com.workin.legacy.LegacyGeneratedKeys.insert(jdbcTemplate,
 				"INSERT INTO assets (company_id, employee_id, asset_date, asset_text, returned_at,"
 						+ " is_returned) VALUES (?, ?, ?, ?, ?, ?)",
 				companyId, employeeId, assetDate, assetText, returnedAt, isReturned);
-		Long id = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-		return id == null ? 0L : id;
 	}
 
 	public Map<String, Object> byId(long id) {
