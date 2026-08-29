@@ -131,10 +131,19 @@ public class LegacyReferenceController {
 						faqCatalog.grouped(platform(request), english)));
 	}
 
-	/** {@code strtolower(trim((string) ($_GET['platform'] ?? '')))}. */
+	/**
+	 * {@code strtolower(trim((string) ($_GET['platform'] ?? '')))}.
+	 *
+	 * <p>{@link LegacyValues#phpTrim}, not {@link String#trim}: PHP strips only
+	 * {@code " \t\n\r\0\x0B"}, while Java strips every character at or below
+	 * U+0020. So {@code ?platform=%1Cdesktop} keeps its leading control
+	 * character in legacy and matches neither branch -- returning <em>every</em>
+	 * row -- where Java would have trimmed it to {@code desktop} and filtered.
+	 */
 	private static String platform(HttpServletRequest request) {
 		Object raw = LegacyQueryParameters.parse(request.getQueryString()).value("platform");
-		return LegacyValues.toPhpString(raw == null ? "" : raw).trim().toLowerCase(Locale.ROOT);
+		return LegacyValues.mbStrToLower(
+				LegacyValues.phpTrim(LegacyValues.toPhpString(raw == null ? "" : raw)));
 	}
 
 	private static void requireGet(HttpServletRequest request) {
