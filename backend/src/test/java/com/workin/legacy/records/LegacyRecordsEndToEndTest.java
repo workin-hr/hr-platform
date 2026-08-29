@@ -269,8 +269,39 @@ class LegacyRecordsEndToEndTest {
 				.isEqualTo(404);
 	}
 
+	/**
+	 * {@code whitelist_update_fields()} binds the raw JSON value to a PDO
+	 * placeholder. A scalar goes through unchanged; an <b>array or object</b>
+	 * cannot be bound, so PHP converts it to the literal string {@code "Array"}
+	 * and that is what lands in the column.
+	 *
+	 * <p>Passing Jackson's {@code Map} straight to JDBC instead would produce a
+	 * driver-specific rendering or a database error — a different stored value
+	 * and a different response.
+	 */
 	@Test
 	@Order(10)
+	@SuppressWarnings("unchecked")
+	void anObjectShapedFieldIsStoredAsTheLiteralArrayJustAsPdoDoes() {
+		Map<String, Object> updated = (Map<String, Object>) data(send(ASSET_UPDATE + "?id=1",
+				HttpMethod.PUT, token(ADMIN, "company_admin"),
+				"{\"asset_text\":{\"x\":1}}"));
+
+		assertThat(updated).containsEntry("asset_text", "Array");
+
+		Map<String, Object> listShaped = (Map<String, Object>) data(send(ASSET_UPDATE + "?id=1",
+				HttpMethod.PUT, token(ADMIN, "company_admin"),
+				"{\"asset_text\":[\"a\",\"b\"]}"));
+		assertThat(listShaped).as("a JSON array converts the same way")
+				.containsEntry("asset_text", "Array");
+
+		// Restore, so the ordered tests after this one read the seeded value.
+		data(send(ASSET_UPDATE + "?id=1", HttpMethod.PUT, token(ADMIN, "company_admin"),
+				"{\"asset_text\":\"Laptop\"}"));
+	}
+
+	@Test
+	@Order(11)
 	void anUpdateWithNoWhitelistedFieldIsNothingToUpdate() {
 		assertThat(send(ASSET_UPDATE + "?id=1", HttpMethod.PUT, token(ADMIN, "company_admin"),
 				"{\"company_id\":999}").getStatusCode().value())
@@ -279,7 +310,7 @@ class LegacyRecordsEndToEndTest {
 	}
 
 	@Test
-	@Order(11)
+	@Order(12)
 	void anotherCompanysAssetIsNotFoundRatherThanForbidden() {
 		assertThat(send(ASSET_ONE + "?id=99", HttpMethod.GET, token(ADMIN, "company_admin"), null)
 				.getStatusCode().value()).isEqualTo(404);
@@ -290,7 +321,7 @@ class LegacyRecordsEndToEndTest {
 	// ---------------- decisions behaviour ----------------
 
 	@Test
-	@Order(12)
+	@Order(13)
 	@SuppressWarnings("unchecked")
 	void updatingADecisionKeepsUnsuppliedFieldsAndRejectsBlankedOnes() {
 		long id = createDecision("Original", "Original body");
@@ -308,7 +339,7 @@ class LegacyRecordsEndToEndTest {
 	}
 
 	@Test
-	@Order(13)
+	@Order(14)
 	void aMissingIdIsFieldRequiredWhileAZeroIdIsNotFound() {
 		assertThat(send(DEC_ONE, HttpMethod.GET, token(ADMIN, "company_admin"), null)
 				.getStatusCode().value()).isEqualTo(400);
@@ -321,7 +352,7 @@ class LegacyRecordsEndToEndTest {
 	}
 
 	@Test
-	@Order(14)
+	@Order(15)
 	void everyRouteChecksItsMethodFirst() {
 		assertThat(send(ASSET_LIST, HttpMethod.POST, null, null).getStatusCode().value()).isEqualTo(405);
 		assertThat(send(ASSET_CREATE, HttpMethod.GET, null, null).getStatusCode().value()).isEqualTo(405);

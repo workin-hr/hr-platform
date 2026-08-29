@@ -1070,14 +1070,25 @@ Writing a defect down does not close it, and this one is open.
 - `update.php`'s post-write re-read drops the `company_id` filter its own
   `UPDATE` carried.
 
-### Inventories corrected alongside this entry
+### Security and inventory artifacts corrected alongside this entry
 
-The API inventory and the frontend matrix both described `workforce_planning` as
-company-scoped without qualification, which the evidence above disproves. Both
-now state that the module's **name joins carry no tenant predicate** and that
-two of its three write paths accept unvalidated foreign ids, so later
-compatibility and security work does not proceed on a tenancy guarantee the code
-does not provide.
+Four documents described `workforce_planning` as company-scoped without
+qualification, which the evidence above disproves. All four now state that the
+module's **name joins carry no tenant predicate** and that two of its three
+write paths accept unvalidated foreign ids:
+
+- `docs/api/existing-endpoint-inventory.md` — the module section, whose own
+  caveat ("scoping depth not traced further in this pass") is where the gap
+  lived;
+- `docs/api/three-frontend-api-usage-matrix.md` — the client contract row;
+- `docs/legacy/existing-php-module-inventory.md` — which read "consistently
+  company-scoped";
+- `docs/security/threat-model.md` — a new **tenant ↔ tenant** row, because a
+  cross-tenant read belongs in the artifact security triage and cutover review
+  actually consult, not only in a decision log.
+
+The threat-model row records D-131 as **proposed**, so the model does not imply
+an acceptance that has not happened.
 
 ### Ledger after Wave 13.4b
 

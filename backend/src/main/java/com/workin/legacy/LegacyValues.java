@@ -104,6 +104,36 @@ public final class LegacyValues {
 	}
 
 	/**
+	 * A JSON-decoded value as PDO would bind it, for the whitelist-update paths
+	 * that pass caller input straight to a placeholder.
+	 *
+	 * <p>{@code whitelist_update_fields()} does no casting: it hands
+	 * {@code $data[$field]} to PDO as it came out of {@code json_decode()}. PDO
+	 * binds a scalar unchanged -- an int stays an int, a string a string, null a
+	 * NULL -- so the stored value is whatever MariaDB's own column coercion makes
+	 * of it.
+	 *
+	 * <p><b>An array or object is the one exception.</b> PHP cannot bind one, so
+	 * it converts to the string {@code "Array"} (with an {@code E_WARNING} that
+	 * D-068 treats as diagnostic), and that literal is what lands in the column.
+	 * Passing Jackson's {@code Map} or {@code List} to JDBC instead produces a
+	 * driver-specific rendering or an outright error -- a different stored value
+	 * and a different response.
+	 *
+	 * <p>So this narrows {@link #toPhpString}'s behaviour to the single case
+	 * where PHP actually converts, and leaves every scalar alone. Using
+	 * {@code toPhpString} for the whole value would stringify integers and
+	 * booleans that PHP binds in their own types.
+	 */
+	public static Object toPdoBindValue(Object raw) {
+		if (raw instanceof Collection<?> || raw instanceof Map<?, ?>
+				|| (raw != null && raw.getClass().isArray())) {
+			return "Array";
+		}
+		return raw;
+	}
+
+	/**
 	 * A JSON-decoded value converted like PHP's explicit {@code (string)} cast.
 	 *
 	 * <p>Null and false become the empty string, true becomes {@code "1"}, strings remain

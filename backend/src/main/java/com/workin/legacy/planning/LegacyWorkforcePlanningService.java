@@ -130,7 +130,9 @@ public class LegacyWorkforcePlanningService {
 		for (String field : List.of("branch_id", "department_id", "job_title_id", "planned_count")) {
 			if (body.containsKey(field)) {
 				assignments.add("`" + field + "`=?");
-				values.add(body.get(field));
+				// PDO binds a scalar unchanged and converts an array or object to
+				// the literal "Array"; only that second case needs coercing.
+				values.add(LegacyValues.toPdoBindValue(body.get(field)));
 			}
 		}
 		if (assignments.isEmpty()) {
