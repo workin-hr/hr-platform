@@ -95,3 +95,36 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 
 - Will `specify-cli` be installed during Phase 0 or deferred until human review approves it?
 - Will GitHub MCP be enabled read-only during discovery or deferred entirely?
+
+## Workforce Planning Cross-Tenant Disclosure (D-131 — blocks Wave 13.4b)
+
+**D-131 is `PROPOSED`, not accepted, and PR #141 must not merge on a green gate
+alone until this is answered.**
+
+`workforce_planning`'s `save_target.php` and `update.php` accept unvalidated
+foreign `branch_id`/`department_id`/`job_title_id`, and the three name joins in
+`list.php` carry no tenant predicate. A `company_admin` or `hr` user in any
+tenant can therefore write another company's id into their own planning row and
+read that company's **name** back — a cross-tenant read in two ordinary API
+calls. Filed upstream as `hr-legacy#33`; demonstrated by a regression that
+performs the attack.
+
+**The question is narrower than "should this merge".** The port is faithful and
+D-058 already makes parity the default: fixing it in Java alone would make the
+two systems answer differently for the same request and would mask the defect
+rather than resolve it. What is owed is a decision on one point:
+
+> Given that this particular defect crosses a **tenant boundary**, is parity
+> still the right default — or should Wave 13.4b wait for `hr-legacy#33` to land
+> and port the fix instead?
+
+- **Owner:** repository owner. Not an agent decision — AGENTS.md forbids an
+  agent silently making one of this kind, and an earlier revision of D-131
+  wrongly recorded it as accepted.
+- **Resolution trigger:** either the owner records parity as still correct (D-131
+  moves to Accepted, #141 merges, the regression keeps asserting the leak), or
+  the owner elects to wait (#141 holds until `hr-legacy#33` is fixed, and the
+  regression is **inverted rather than deleted** in the same change).
+- **Tracked in:** D-131, `docs/security/threat-model.md`'s tenant ↔ tenant row.
+  Deliberately **not** in the risk register: registering it as an accepted
+  residual would presume the decision that is still open.
