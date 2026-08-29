@@ -1,0 +1,514 @@
+package com.workin.legacy.settings;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.InputStream;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
+import java.util.List;
+import java.util.Map;
+
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.MariaDBContainer;
+
+import com.workin.backend.BackendApplication;
+import com.workin.backend.identity.JwtService;
+
+/**
+ * Wave 13.3's eight endpoints. Ordered, because the write tests build on each
+ * other exactly as a client would.
+ */
+@SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
+@ActiveProfiles("phase1-mysql")
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+class LegacySettingsEndToEndTest {
+
+	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+
+	private static final String LIST = "/apis/api/company_settings/list.php";
+	private static final String ONE = "/apis/api/company_settings/one.php";
+	private static final String OPTIONS = "/apis/api/company_settings/options.php";
+	private static final String CREATE = "/apis/api/company_settings/create.php";
+	private static final String UPDATE = "/apis/api/company_settings/update.php";
+	private static final String DELETE = "/apis/api/company_settings/delete.php";
+	private static final String DEFINITIONS = "/apis/api/setting_definitions/list.php";
+	private static final String ALLOWED = "/apis/api/setting_allowed_values/list.php";
+
+	private static final long COMPANY = 26001L;
+	private static final long ADMIN = 260011L;
+	private static final long NO_PERMISSION = 260012L;
+	private static final long BRANCH = 26011L;
+
+	/** Single-valued, not required. */
+	private static final long DEF_THEME = 1L;
+	/** Multi-valued, not required. */
+	private static final long DEF_MODULES = 2L;
+	/** Single-valued and required -- cannot be deleted. */
+	private static final long DEF_CURRENCY = 3L;
+
+	@Autowired
+	private TestRestTemplate restTemplate;
+
+	@Autowired
+	private JwtService jwtService;
+
+	static {
+		MARIADB.start();
+		try {
+			applySchema("legacy/mysql_workin.schema.sql");
+			applySchema("legacy/phase1_extensions.schema.sql");
+			seed();
+		} catch (Exception ex) {
+			throw new IllegalStateException("could not prepare the settings fixture", ex);
+		}
+	}
+
+	@DynamicPropertySource
+	static void registerProperties(DynamicPropertyRegistry registry) {
+		registry.add("app.jwt.secret", () -> "test-only-secret-not-used-in-production-000000000000");
+		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
+		registry.add("app.legacy-db.username", MARIADB::getUsername);
+		registry.add("app.legacy-db.password", MARIADB::getPassword);
+	}
+
+	// ---------------- authority ----------------
+
+	@Test
+	@Order(1)
+	void theAllowedValuesCatalogueIsPublicWhileTheDefinitionsCatalogueIsNot() {
+		assertThat(send(ALLOWED + "?setting_definition_id=" + DEF_THEME, HttpMethod.GET, null, null)
+				.getStatusCode().value())
+				.as("no requireAuth() in legacy at all")
+				.isEqualTo(200);
+		assertThat(send(DEFINITIONS, HttpMethod.GET, null, null).getStatusCode().value())
+				.as("the definitions that name those same values need a role")
+				.isEqualTo(401);
+	}
+
+	@Test
+	@Order(2)
+	void theCompanySettingsRoutesNeedTheCanCompanySettingsPermission() {
+		assertThat(send(LIST, HttpMethod.GET, token(NO_PERMISSION), null).getStatusCode().value())
+				.isEqualTo(403);
+		assertThat(send(LIST, HttpMethod.GET, token(ADMIN), null).getStatusCode().value())
+				.isEqualTo(200);
+	}
+
+	@Test
+	@Order(3)
+	void everyRouteChecksItsMethodBeforeAuthenticating() {
+		assertThat(send(LIST, HttpMethod.POST, null, null).getStatusCode().value()).isEqualTo(405);
+		assertThat(send(CREATE, HttpMethod.GET, null, null).getStatusCode().value()).isEqualTo(405);
+		assertThat(send(UPDATE, HttpMethod.POST, null, null).getStatusCode().value()).isEqualTo(405);
+		assertThat(send(DELETE, HttpMethod.GET, null, null).getStatusCode().value()).isEqualTo(405);
+	}
+
+	// ---------------- read shapes ----------------
+
+	@Test
+	@Order(4)
+	@SuppressWarnings("unchecked")
+	void listCarriesEveryDefinitionWithTheSeventeenKeyItemShape() {
+		List<Map<String, Object>> rows = (List<Map<String, Object>>) data(
+				send(LIST, HttpMethod.GET, token(ADMIN), null));
+
+		assertThat(rows).hasSize(3);
+		assertThat(rows.get(0).keySet()).containsExactly(
+				"setting_definition_id", "company_setting_id", "setting_key", "label",
+				"label_ar", "label_en", "description_ar", "description_en", "description",
+				"icon_data", "is_multi", "is_required", "sort_order", "options", "selected",
+				"updated_at");
+		// Nothing set yet: a zero id and a null timestamp side by side.
+		assertThat(rows.get(0)).containsEntry("company_setting_id", 0)
+				.containsEntry("updated_at", null);
+		assertThat((List<Object>) rows.get(0).get("selected")).isEmpty();
+		assertThat((List<Object>) rows.get(0).get("options")).hasSize(2);
+	}
+
+	/** The label falls back across languages before it reaches the setting key. */
+	@Test
+	@Order(5)
+	@SuppressWarnings("unchecked")
+	void labelsFallBackToTheOtherLanguageThenToTheKey() {
+		List<Map<String, Object>> arabic = (List<Map<String, Object>>) data(
+				send(LIST, HttpMethod.GET, token(ADMIN), null, "ar"));
+
+		Map<String, Object> theme = arabic.stream()
+				.filter(row -> "theme".equals(row.get("setting_key"))).findFirst().orElseThrow();
+		Map<String, Object> modules = arabic.stream()
+				.filter(row -> "modules".equals(row.get("setting_key"))).findFirst().orElseThrow();
+
+		assertThat(theme).containsEntry("label", "المظهر");
+		assertThat(modules)
+				.as("no Arabic label, so the English one is used before the key")
+				.containsEntry("label", "Modules");
+	}
+
+	@Test
+	@Order(6)
+	@SuppressWarnings("unchecked")
+	void optionsAnswersTwoShapesAndEchoesAnUnknownKeyRatherThanTruncating() {
+		Map<String, Object> single = (Map<String, Object>) data(
+				send(OPTIONS + "?setting_key=theme", HttpMethod.GET, token(ADMIN), null));
+		assertThat(single.keySet()).containsExactly("setting_key", "options");
+		assertThat((List<Object>) single.get("options")).hasSize(2);
+
+		Map<String, Object> unknown = (Map<String, Object>) data(
+				send(OPTIONS + "?setting_key=nope", HttpMethod.GET, token(ADMIN), null));
+		assertThat(unknown).containsEntry("setting_key", "nope");
+		assertThat((List<Object>) unknown.get("options"))
+				.as("an unknown key is an empty option list, not a 404")
+				.isEmpty();
+
+		Map<String, Object> all = (Map<String, Object>) data(
+				send(OPTIONS, HttpMethod.GET, token(ADMIN), null));
+		assertThat(all.keySet())
+				.as("the map form is ordered by setting_key, the only place definitions are "
+						+ "ordered alphabetically rather than by sort_order")
+				.containsExactly("currency", "modules", "theme");
+	}
+
+	// ---------------- writes ----------------
+
+	@Test
+	@Order(7)
+	@SuppressWarnings("unchecked")
+	void createStoresTheSelectionAndAnswersTwoZeroOne() {
+		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST, token(ADMIN),
+				"{\"setting_definition_id\":" + DEF_THEME + ",\"values\":[\"dark\"]}");
+
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(201);
+		Map<String, Object> item = (Map<String, Object>) response.getBody().get("data");
+		assertThat((List<Map<String, Object>>) item.get("selected"))
+				.extracting(row -> row.get("value")).containsExactly("dark");
+		assertThat(((Number) item.get("company_setting_id")).longValue()).isPositive();
+	}
+
+	@Test
+	@Order(8)
+	void creatingTheSameSettingTwiceIsAlreadyExistsRatherThanAnUpsert() {
+		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST, token(ADMIN),
+				"{\"setting_definition_id\":" + DEF_THEME + ",\"values\":[\"light\"]}");
+		assertThat(response.getStatusCode().value()).isEqualTo(400);
+	}
+
+	/**
+	 * A value outside the definition's allowed list is rejected with 400 -- not
+	 * the 500 the surrounding {@code catch (Throwable)} would produce, because
+	 * PHP's {@code fail()} exits rather than throwing. The already-inserted
+	 * parent row must not survive.
+	 */
+	@Test
+	@Order(9)
+	@SuppressWarnings("unchecked")
+	void aDisallowedValueIsFourHundredAndRollsBackTheParentRow() {
+		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST, token(ADMIN),
+				"{\"setting_definition_id\":" + DEF_MODULES + ",\"values\":[\"payroll\",\"nope\"]}");
+
+		assertThat(response.getStatusCode().value())
+				.as("a validation failure, not the catch block's 500")
+				.isEqualTo(400);
+
+		// Asserted against the table, not through list.php: the endpoint reports
+		// 0 for "no row" and for "row exists but has no values" alike, so it
+		// cannot tell a rollback from a partially-written setting.
+		assertThat(countRows("SELECT COUNT(*) FROM company_settings WHERE company_id=" + COMPANY
+				+ " AND setting_definition_id=" + DEF_MODULES))
+				.as("the company_settings row inserted before validation must be rolled back")
+				.isZero();
+		assertThat(countRows("SELECT COUNT(*) FROM company_setting_values"))
+				.as("and no child value may survive either")
+				.isEqualTo(1);
+	}
+
+	@Test
+	@Order(10)
+	void aSingleValuedDefinitionRejectsMoreThanOneValue() {
+		assertThat(send(CREATE, HttpMethod.POST, token(ADMIN),
+				"{\"setting_definition_id\":" + DEF_CURRENCY + ",\"values\":[\"egp\",\"usd\"]}")
+				.getStatusCode().value()).isEqualTo(400);
+	}
+
+	@Test
+	@Order(11)
+	void aRequiredDefinitionRejectsAnEmptyValueList() {
+		assertThat(send(CREATE, HttpMethod.POST, token(ADMIN),
+				"{\"setting_definition_id\":" + DEF_CURRENCY + ",\"values\":[]}")
+				.getStatusCode().value()).isEqualTo(400);
+	}
+
+	@Test
+	@Order(12)
+	void aMissingValuesKeyIsFieldRequired() {
+		assertThat(send(CREATE, HttpMethod.POST, token(ADMIN),
+				"{\"setting_definition_id\":" + DEF_MODULES + "}")
+				.getStatusCode().value()).isEqualTo(400);
+	}
+
+	@Test
+	@Order(13)
+	@SuppressWarnings("unchecked")
+	void updateUpsertsAndReplacesTheWholeSelection() {
+		Map<String, Object> item = (Map<String, Object>) data(send(UPDATE, HttpMethod.PUT, token(ADMIN),
+				"{\"setting_key\":\"modules\",\"values\":[\"payroll\",\"attendance\"]}"));
+
+		assertThat((List<Map<String, Object>>) item.get("selected"))
+				.extracting(row -> row.get("value"))
+				.containsExactly("attendance", "payroll");
+
+		Map<String, Object> replaced = (Map<String, Object>) data(send(UPDATE, HttpMethod.PUT,
+				token(ADMIN), "{\"setting_key\":\"modules\",\"values\":[\"payroll\"]}"));
+		assertThat((List<Map<String, Object>>) replaced.get("selected"))
+				.as("the previous selection is replaced wholesale, not merged")
+				.extracting(row -> row.get("value")).containsExactly("payroll");
+	}
+
+	/**
+	 * {@code update} with an empty list <b>deletes the whole setting</b>, while
+	 * {@code create} with an empty list would have inserted a row with no
+	 * values. The two endpoints reach opposite end states from the same input.
+	 */
+	@Test
+	@Order(14)
+	@SuppressWarnings("unchecked")
+	void updateWithAnEmptyListDeletesTheSettingEntirely() {
+		Map<String, Object> item = (Map<String, Object>) data(send(UPDATE, HttpMethod.PUT, token(ADMIN),
+				"{\"setting_key\":\"modules\",\"values\":[]}"));
+
+		assertThat(item).containsEntry("company_setting_id", 0);
+		assertThat((List<Object>) item.get("selected")).isEmpty();
+	}
+
+	/**
+	 * <b>{@code create} and {@code one} report different ids for the same
+	 * row.</b> A setting created with an empty value list has a real
+	 * {@code company_settings} row, and {@code create.php}'s
+	 * {@code build_company_setting_item()} looks that row up directly -- while
+	 * {@code one.php} derives the id from the selection join, which returns
+	 * nothing, and answers 0.
+	 *
+	 * <p>So a client creates a setting, gets an id back, re-reads it, and the
+	 * id is 0 without anything having been deleted. Legacy's, and pinned here
+	 * because a single shared item-builder would silently unify the two.
+	 */
+	@Test
+	@Order(15)
+	@SuppressWarnings("unchecked")
+	void createAndOneDisagreeAboutTheIdOfAValuelessSetting() {
+		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST,
+				token(ADMIN), "{\"setting_definition_id\":" + DEF_MODULES + ",\"values\":[]}");
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(201);
+		Map<String, Object> created = (Map<String, Object>) response.getBody().get("data");
+		long createdId = ((Number) created.get("company_setting_id")).longValue();
+		assertThat(createdId).as("create.php looks the parent row up directly").isPositive();
+
+		Map<String, Object> read = (Map<String, Object>) data(send(
+				ONE + "?setting_definition_id=" + DEF_MODULES, HttpMethod.GET, token(ADMIN), null));
+		assertThat(read).as("one.php derives it from the join, which has no rows")
+				.containsEntry("company_setting_id", 0)
+				.containsEntry("updated_at", null);
+
+		assertThat(countRows("SELECT COUNT(*) FROM company_settings WHERE id=" + createdId))
+				.as("the row is really there; only the reported id differs")
+				.isEqualTo(1);
+
+		// Leave the fixture as the later tests expect it.
+		data(send(UPDATE, HttpMethod.PUT, token(ADMIN),
+				"{\"setting_key\":\"modules\",\"values\":[]}"));
+	}
+
+	@Test
+	@Order(16)
+	void deletingARequiredSettingIsRejected() {
+		data(send(UPDATE, HttpMethod.PUT, token(ADMIN),
+				"{\"setting_definition_id\":" + DEF_CURRENCY + ",\"values\":[\"egp\"]}"));
+
+		assertThat(send(DELETE + "?setting_definition_id=" + DEF_CURRENCY, HttpMethod.DELETE,
+				token(ADMIN), null).getStatusCode().value())
+				.as("is_required = 1 blocks deletion")
+				.isEqualTo(400);
+	}
+
+	@Test
+	@Order(17)
+	void deletingASettingThatWasNeverSetIsOkRatherThanNotFound() {
+		assertThat(send(DELETE + "?setting_definition_id=" + DEF_MODULES, HttpMethod.DELETE,
+				token(ADMIN), null).getStatusCode().value())
+				.isEqualTo(200);
+	}
+
+	@Test
+	@Order(18)
+	void deletingWithNeitherIdentifierIsFieldRequired() {
+		assertThat(send(DELETE, HttpMethod.DELETE, token(ADMIN), null).getStatusCode().value())
+				.isEqualTo(400);
+	}
+
+	// ---------------- catalogue endpoints ----------------
+
+	@Test
+	@Order(19)
+	@SuppressWarnings("unchecked")
+	void definitionsListIsPaginatedAndCarriesLabelAndDescriptionKeys() {
+		ResponseEntity<Map<String, Object>> response =
+				send(DEFINITIONS, HttpMethod.GET, token(ADMIN), null);
+		List<Map<String, Object>> rows = (List<Map<String, Object>>) data(response);
+
+		assertThat(rows).hasSize(3);
+		assertThat(rows.get(0)).containsKeys("id", "setting_key", "label_ar", "label_en",
+				"label", "description", "description_ar", "description_en", "sort_order");
+		assertThat(response.getBody()).containsKey("meta");
+	}
+
+	@Test
+	@Order(20)
+	@SuppressWarnings("unchecked")
+	void definitionsSearchMatchesKeyAndBothLabels() {
+		assertThat((List<Map<String, Object>>) data(
+				send(DEFINITIONS + "?search=theme", HttpMethod.GET, token(ADMIN), null))).hasSize(1);
+		assertThat((List<Map<String, Object>>) data(
+				send(DEFINITIONS + "?search=Modules", HttpMethod.GET, token(ADMIN), null))).hasSize(1);
+		assertThat((List<Map<String, Object>>) data(
+				send(DEFINITIONS + "?search=%20", HttpMethod.GET, token(ADMIN), null)))
+				.as("a whitespace-only search filters nothing")
+				.hasSize(3);
+	}
+
+	@Test
+	@Order(21)
+	void allowedValuesRequiresItsDefinitionIdAndFourZeroFoursAnUnknownOne() {
+		assertThat(send(ALLOWED, HttpMethod.GET, null, null).getStatusCode().value())
+				.as("required() rejects a missing parameter")
+				.isEqualTo(400);
+		assertThat(send(ALLOWED + "?setting_definition_id=999", HttpMethod.GET, null, null)
+				.getStatusCode().value()).isEqualTo(404);
+		assertThat(send(ALLOWED + "?setting_definition_id=abc", HttpMethod.GET, null, null)
+				.getStatusCode().value())
+				.as("\"abc\" passes required() and casts to 0, which matches no definition")
+				.isEqualTo(404);
+	}
+
+	// ---------------- fixture ----------------
+
+	private static Object data(ResponseEntity<Map<String, Object>> response) {
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(200);
+		assertThat(response.getBody()).containsEntry("success", true);
+		return response.getBody().get("data");
+	}
+
+	private ResponseEntity<Map<String, Object>> send(
+			String path, HttpMethod method, String token, String body) {
+		return send(path, method, token, body, null);
+	}
+
+	private ResponseEntity<Map<String, Object>> send(
+			String path, HttpMethod method, String token, String body, String acceptLanguage) {
+		HttpHeaders headers = new HttpHeaders();
+		if (token != null) {
+			headers.setBearerAuth(token);
+		}
+		if (acceptLanguage != null) {
+			headers.set("Accept-Language", acceptLanguage);
+		}
+		if (body != null) {
+			headers.setContentType(MediaType.APPLICATION_JSON);
+		}
+		return restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + path), method,
+				new HttpEntity<>(body, headers), new ParameterizedTypeReference<Map<String, Object>>() { });
+	}
+
+	private String token(long employeeId) {
+		return jwtService.issueAccessToken(employeeId, employeeId, COMPANY, "test-session",
+				Map.of("role", "company_admin", "token_version", 1L));
+	}
+
+	private static void seed() throws Exception {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute("SET SESSION sql_mode = ''");
+			st.execute("INSERT INTO companies (id, company_name, phone, status, created_at) VALUES"
+					+ " (" + COMPANY + ", 'Settings Co', '+201000026001', 'active', '2019-01-15 09:00:00')");
+			st.execute("INSERT INTO branches (id, company_id, name, is_active, created_at) VALUES"
+					+ " (" + BRANCH + ", " + COMPANY + ", 'Main', 1, '2019-03-01 10:00:00')");
+			st.execute("INSERT INTO employees (id, company_id, branch_id, employee_code, first_name,"
+					+ " last_name, phone, role, is_active, created_at) VALUES"
+					+ " (" + ADMIN + ", " + COMPANY + ", " + BRANCH + ", '2601', 'A', 'One',"
+					+ " '+201000260011', 'company_admin', 1, '2019-04-01 08:00:00'),"
+					+ " (" + NO_PERMISSION + ", " + COMPANY + ", " + BRANCH + ", '2602', 'B', 'Two',"
+					+ " '+201000260012', 'company_admin', 1, '2019-04-01 08:00:00')");
+			// The permission matrix: ADMIN may manage settings, NO_PERMISSION may not.
+			st.execute("INSERT INTO hr_permissions (employee_id, can_company_settings) VALUES"
+					+ " (" + ADMIN + ", 1), (" + NO_PERMISSION + ", 0)");
+
+			st.execute("INSERT INTO setting_definitions (id, setting_key, label_ar, label_en,"
+					+ " description_ar, description_en, icon_data, is_multi, is_required, sort_order)"
+					+ " VALUES"
+					+ " (" + DEF_THEME + ", 'theme', 'المظهر', 'Theme', 'وصف', 'Desc', NULL, 0, 0, 1),"
+					+ " (" + DEF_MODULES + ", 'modules', NULL, 'Modules', NULL, NULL, NULL, 1, 0, 2),"
+					+ " (" + DEF_CURRENCY + ", 'currency', 'العملة', 'Currency', NULL, NULL, NULL, 0, 1, 3)");
+
+			st.execute("INSERT INTO setting_allowed_values (id, setting_definition_id, value,"
+					+ " label_ar, label_en, sort_order) VALUES"
+					+ " (1, " + DEF_THEME + ", 'dark', 'داكن', 'Dark', 1),"
+					+ " (2, " + DEF_THEME + ", 'light', 'فاتح', 'Light', 2),"
+					+ " (3, " + DEF_MODULES + ", 'attendance', NULL, 'Attendance', 1),"
+					+ " (4, " + DEF_MODULES + ", 'payroll', NULL, 'Payroll', 2),"
+					+ " (5, " + DEF_CURRENCY + ", 'egp', NULL, 'EGP', 1),"
+					+ " (6, " + DEF_CURRENCY + ", 'usd', NULL, 'USD', 2)");
+		}
+	}
+
+	private static long countRows(String sql) {
+		try (Connection connection = connect(); Statement st = connection.createStatement();
+				java.sql.ResultSet rs = st.executeQuery(sql)) {
+			rs.next();
+			return rs.getLong(1);
+		} catch (Exception ex) {
+			throw new IllegalStateException(ex);
+		}
+	}
+
+	private static void applySchema(String resourceName) throws Exception {
+		String schema = readResource(resourceName);
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			for (String statement : schema.split(";\\s*\\R")) {
+				if (!statement.isBlank()) {
+					st.execute(statement);
+				}
+			}
+		}
+	}
+
+	private static Connection connect() throws Exception {
+		return DriverManager.getConnection(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+	}
+
+	private static String readResource(String name) throws Exception {
+		try (InputStream in = LegacySettingsEndToEndTest.class.getClassLoader().getResourceAsStream(name)) {
+			if (in == null) {
+				throw new IllegalStateException("missing test resource: " + name);
+			}
+			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+		}
+	}
+}

@@ -460,11 +460,11 @@ table; only the distribution across buckets has moved.
 
 | Status | Endpoints | What it covers |
 |---|---|---|
-| `FINAL_COMPATIBLE` | **134** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(134)`). Waves 12.4 through 12.10, the Wave 12.R retrofit, Wave 12.6.6's two attendance endpoints, Wave 12.9's `payslips/export.php`, **Item 13.0's `configs/get.php`** — the first endpoint delivered outside Item 12 — and **Item 13.5's five reference endpoints**. |
+| `FINAL_COMPATIBLE` | **142** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(142)`). Waves 12.4 through 12.10, the Wave 12.R retrofit, Wave 12.6.6's two attendance endpoints, Wave 12.9's `payslips/export.php`, **Item 13.0's `configs/get.php`** — the first endpoint delivered outside Item 12 — **Item 13.5's five reference endpoints**, and **Wave 13.3's eight settings endpoints**. |
 | `IMPLEMENTED_BUT_REQUIRES_D074_RETROFIT` | **0** | Closed by Wave 12.R (D-107/D-108/D-110/D-111). No `/api/legacy/**` business route remains mapped. |
 | `ITEM12_REMAINING` | **0** | **Empty as of 2026-08-28.** All three of C9's endpoints were delivered rather than excluded, exactly as O-8/D-120 dispositioned. |
-| `ITEM13_REMAINING` | **64** | §2.2's 71 less `auth/login_employee` (Wave 12.R), `configs/get.php` (Item 13.0) and Wave 13.5's five. |
-| **Live total** | **198** | 134 + 0 + 0 + 64 |
+| `ITEM13_REMAINING` | **56** | §2.2's 71 less `auth/login_employee` (Wave 12.R), `configs/get.php` (Item 13.0), Wave 13.5's five and Wave 13.3's eight. |
+| **Live total** | **198** | 142 + 0 + 0 + 56 |
 | `EXPLICITLY_EXCLUDED_WITH_DECISION` | **1** | `apis/api/time/now.php` (O-3, §2.3). Outside the live total. |
 | **Endpoint files** | **199** | 198 live + 1 excluded |
 
@@ -855,13 +855,13 @@ end-to-end tests, with **G6** as the floor that guarantees none reaches cutover
 with zero measured evidence. Do not cite the inventory as proof of anything but
 the URL surface.
 
-The response contract is per-endpoint, not repository-wide (D-120). The 134
-delivered routes split **129 / 4 / 1**, and one endpoint's shape depends on a
+The response contract is per-endpoint, not repository-wide (D-120). The 142
+delivered routes split **137 / 4 / 1**, and one endpoint's shape depends on a
 query parameter:
 
 | Shape | Live today | PHP terminates in | Java answers |
 |---|---|---|---|
-| **Envelope only** | **129** of the 134 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — including `attendance/overall_report.php`, delivered by Wave 12.6.6c |
+| **Envelope only** | **137** of the 142 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — including `attendance/overall_report.php`, delivered by Wave 12.6.6c |
 | **Download only** | **4**: `employees/template_excel.php`, `leave_balances/template_excel.php`, `attendance/export.php`, `payslips/export.php` | `stream_employee_template_xlsx()` / `leave_balance_excel_stream_template()` — write to output and `exit`; `api_xlsx_export_send()` for the export | the same reader-observable file, `Content-Type`, `attachment` disposition and filename. **All delivered** — `LegacyEmployeeController.templateExcel` writes the bytes itself, `LegacyLeaveBalanceController.template` returns `ResponseEntity<byte[]>`, and `LegacyAttendanceController.export` returns the workbook for either sheet |
 | **Conditional** | **1**: `penalties/report.php` | `?format=csv` → the file's **own local** `streamCSV()` (`penalties/report.php:24`), which `exit`s; anything else falls through to `ok()` | both shapes from one handler. **Delivered** — `LegacyPenaltyController.report` returns `ResponseEntity<?>`: the workbook on the `csv` branch, `LegacyApiResponse.ok` otherwise |
 | **Owed** | **none** — Item 12's last endpoint shipped 2026-08-28 | — | — |
@@ -889,7 +889,7 @@ hand-maintained**: `LegacyPhpRouteInventoryTest`'s
 classification from the live handler mappings — a route answers in the envelope
 iff its handler returns `LegacyApiResponse` or `ResponseEntity<LegacyApiResponse>`
 — and asserts the non-envelope set is exactly these three.
-`theResponseShapePartitionMatchesTheCompletionPlan` pins the 129/4/1 arithmetic to
+`theResponseShapePartitionMatchesTheCompletionPlan` pins the 137/4/1 arithmetic to
 the same inventory. Adding a download route, or converting one back to the
 envelope, fails those tests instead of staling this table, which it has already
 done twice.
@@ -1066,8 +1066,8 @@ Not decisions — evidence and sequencing owed by the waves that own them.
   `attendance/export.php` and `payslips/export.php` answer the workbook their PHP
   emits, matching its reader-observable content, headers and filename rather than
   its archive bytes (D-085, §5 G3). `ITEM12_REMAINING` is empty and
-  `FINAL_COMPATIBLE` stands at 134 (§3.2), after Item 13.0's `configs/get.php` and
-  Wave 13.5's five reference endpoints.
+  `FINAL_COMPATIBLE` stands at 142 (§3.2), after Item 13.0's `configs/get.php`,
+  Wave 13.5's five reference endpoints and Wave 13.3's eight settings endpoints.
 
   **G2 is not closed by that.** Its numerator is; the gate covers all 198 live
   endpoints and Item 13's 70 remain, with G3, G6 and G7 reading on their own

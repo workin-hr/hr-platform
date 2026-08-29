@@ -29,19 +29,27 @@ package com.workin.legacy.wire;
  * (active company), plus the tenant re-derivation behind
  * {@code LegacyRequestContext#companyId()}.
  *
- * <h2>Four entries are unauthenticated in legacy itself</h2>
+ * <h2>Five entries are unauthenticated in legacy itself</h2>
  * <p>{@code auth/login_employee.php}, {@code configs/get.php},
- * {@code phone_countries/list.php} and {@code app_content/one.php} are listed
+ * {@code phone_countries/list.php}, {@code app_content/one.php} and
+ * {@code setting_allowed_values/list.php} are listed
  * for a different reason from every other entry: their PHP calls no
  * {@code requireAuth()} at all, so there is no guard order for the controller
  * to reproduce -- the endpoint is public in legacy and must stay public here
  * (D-111). Each performs its own PHP method validation first.
  *
- * <p>All four are safe to expose for the same kind of reason, which is about
+ * <p>All five are safe to expose for the same kind of reason, which is about
  * the <em>data</em> rather than the routing: a login handler, global
- * operational configuration, the dial-code reference list, and pre-login
- * marketing/legal copy. None reads company or personal data, and a client
- * legitimately needs the last three <b>before</b> it can authenticate.
+ * operational configuration, the dial-code reference list, pre-login
+ * marketing/legal copy, and the platform's allowed-value catalogue. None reads
+ * company or personal data.
+ *
+ * <p>{@code setting_allowed_values/list.php} is the odd one and the asymmetry
+ * is legacy's: the values catalogue is world-readable while
+ * {@code setting_definitions/list.php}, which names those same values, needs
+ * COMPANY_ADMIN or HR. Both tables are platform configuration with no
+ * {@code company_id}, so nothing tenant-scoped leaks either way -- but the
+ * inconsistency is preserved rather than harmonised (D-058).
  *
  * <p><b>Read the two categories separately when adding an entry.</b> Everything
  * else on this list is permitted because its controller enforces authentication
@@ -97,6 +105,9 @@ public final class LegacyPhpRoutes {
 		"/apis/api/banners/list.php",
 		"/apis/api/faqs/list.php",
 		"/apis/api/dashboard/stats.php",
+		"/apis/api/company_settings/**",
+		"/apis/api/setting_definitions/list.php",
+		"/apis/api/setting_allowed_values/list.php",
 	};
 
 	private LegacyPhpRoutes() {

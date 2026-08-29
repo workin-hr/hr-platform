@@ -393,7 +393,8 @@ class LegacyEmployeeReadEndToEndTest {
 		List<String> publicByDesign = List.of(
 				"/apis/api/configs/get.php",
 				"/apis/api/phone_countries/list.php",
-				"/apis/api/app_content/one.php");
+				"/apis/api/app_content/one.php",
+				"/apis/api/setting_allowed_values/list.php");
 
 		List<String> routes = handlerMapping.getHandlerMethods().keySet().stream()
 				.flatMap(info -> info.getPatternValues().stream())
