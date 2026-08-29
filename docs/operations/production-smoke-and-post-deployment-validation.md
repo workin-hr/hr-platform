@@ -98,10 +98,11 @@ The legacy auth and profile routes issue every OTP through the Whats360
 gateway. Its credentials are **not** in this repository and the properties
 default to empty, so an unconfigured deployment answers **503
 `otp_delivery_failed`** on every OTP-issuing route:
-`auth/resend_otp`, `auth/forgot_password`, `auth/register_company`,
-`auth/login_company`'s verify-first branch, and
+`auth/resend_otp`, `auth/forgot_password`, `auth/register_company`, the
+verify-first branch of **both** `auth/login_company` and
+`auth/login_desktop` (`login_as=company`), and
 `profile/request_phone_change`. Nobody can register, reset a password, or
-verify a phone.
+verify a phone — on mobile **or** desktop.
 
 ### Configuration
 

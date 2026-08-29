@@ -261,7 +261,7 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 
 | Field | Value |
 |---|---|
-| Description | Wave 13.1a ports `sendWhatsAppText()` faithfully, including its configuration gate: when the Whats360 token or instance id is absent or still the committed placeholder, `whatsapp_is_configured()` is false, the send returns false, and `otp_issue_and_send_whatsapp()` answers **503 `otp_delivery_failed`**. `hr-platform` currently has **no** `app.legacy-whatsapp.*` values configured — the properties default to empty, exactly as `hr-legacy`'s committed `constants.example.php` holds placeholders. So on the Java side today, every route that issues an OTP fails: `auth/resend_otp`, `auth/forgot_password`, `profile/request_phone_change`, and (once Wave 13.1b lands) `auth/register_company` and `auth/login_company`'s verify-first branch. |
+| Description | Wave 13.1a ports `sendWhatsAppText()` faithfully, including its configuration gate: when the Whats360 token or instance id is absent or still the committed placeholder, `whatsapp_is_configured()` is false, the send returns false, and `otp_issue_and_send_whatsapp()` answers **503 `otp_delivery_failed`**. `hr-platform` currently has **no** `app.legacy-whatsapp.*` values configured — the properties default to empty, exactly as `hr-legacy`'s committed `constants.example.php` holds placeholders. So on the Java side today, every route that issues an OTP fails: `auth/resend_otp`, `auth/forgot_password`, `profile/request_phone_change`, `auth/register_company`, and the verify-first branch of **both** `auth/login_company` and `auth/login_desktop` (`login_as=company`) — the desktop route was missing from the first version of this list, which mattered because desktop auth is a separate cutover check. |
 | Category | Cutover readiness / External integration |
 | Probability | Certain until the credentials are provisioned. This is a configuration gap, not a defect: the code is correct and the input is missing. |
 | Impact | High **at cutover**, nil before it. No company can register, no password can be reset, no phone can be verified or changed. It is the same class of gap as `hr-platform#22` (FCM push) with one important difference: push does not work in legacy either (F-08), whereas **WhatsApp OTP delivery does work in production today**, so this is a real capability that would be lost rather than one never built. |
@@ -341,3 +341,20 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Status | Open — not accepted, low priority. |
 | Evidence | `hr-legacy@d113204` `apis/api/auth/join_company.php:21-22` (resolve and validate) against `:79-99` (the nine-column INSERT). The same failure mode reached `forgot_password.php` as a **port** defect in the first Wave 13.1 review round and was fixed there (D-136); this one is legacy's and is not. Raised by the independent review of PR #144 and confirmed against the source. |
 | Last Reviewed | 2026-08-29 |
+
+## R-020: Interleaved Field-Name Aliases In A URL-Encoded Body Resolve To The Wrong Value
+
+| Field | Value |
+|---|---|
+| Description | PHP normalizes external field names as it parses, so `doc_type=A&doc.type=B&doc_type=C` populates `$_POST['doc_type']` three times in wire order and keeps the last, `C`. `LegacyPostFields.field()` reads `getParameterMap()`, which groups values by **raw** key: within a key the order is the wire order, but across keys it is lost, so the three are reassembled as `[A, C, B]` and the method returns `B`. |
+| Category | Correctness / Wire compatibility |
+| Probability | Very low. It needs a single request carrying **two different spellings of one field name** — `doc_type` and `doc.type`, or `doc type` — in one URL-encoded body. No client this repository has read does that, and the normalization exists to tolerate one spelling at a time rather than several at once. |
+| Impact | Low, and bounded to the two routes that read `$_POST`: `employee_docs/update.php` would update a document with the wrong `doc_type`, and `complete_company_registration.php` would take a wrong scalar. No tenant boundary is crossed and nothing is written that the caller did not supply — it is the wrong one of *their own* values. |
+| Severity | Low |
+| Owner | Repository owner. |
+| Mitigation | None, and the reason is structural rather than a judgement call: for a URL-encoded request the servlet container has already consumed the input stream to build the parameter map by the time a controller runs, so the raw body — the only record of the ordering — is gone. The method cannot recover it. The limit is documented at `LegacyPostFields.field()` so the next reader does not mistake it for an oversight. |
+| Trigger | Any client observed sending two spellings of one field name in one body; a support report of a document saved with the wrong type. |
+| Contingency | Capture the body upstream with a caching request wrapper (Spring's `ContentCachingRequestWrapper`, or a small filter) applied to the `$_POST`-reading routes, then parse the pairs in wire order and normalize each key as PHP does. That is a change to the request pipeline, not to this method, and it needs its own review — a wrapper that buffers request bodies has memory and streaming implications for the upload routes it would sit in front of, which is exactly why it was not bolted on at the end of a wave. |
+| Status | Open — documented limit, not accepted as correct. Deliberately not fixed under time pressure at the end of Wave 13.1. |
+| Evidence | `hr-legacy@d113204` `apis/helpers/functions.php` (`parse_str()` semantics) against `LegacyPostFields.field()`'s use of `getParameterMap()`. The **multipart** branch has no such limit — `getParts()` preserves arrival order, and both `field()` and `file()` resolve the true final duplicate there, fixed in the same review round (D-140). Raised by the independent review of PR #144. |
+| Last Reviewed | 2026-08-30 |

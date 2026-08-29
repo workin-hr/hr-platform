@@ -99,6 +99,28 @@ public final class LegacyPostFields {
 	 * string came from the body. The <b>last</b> such value is taken, because
 	 * PHP's {@code parse_str()} keeps the final duplicate.
 	 *
+	 * <h2>One known limit: interleaved aliases in a urlencoded body</h2>
+	 * <p>{@code getParameterMap()} groups values by <b>raw</b> key. Within one
+	 * key the order is the wire order, but <em>across</em> keys it is lost — so
+	 * a body of {@code doc_type=A&doc.type=B&doc_type=C}, whose three keys all
+	 * normalize to {@code doc_type}, is reassembled here as {@code [A, C, B]}
+	 * and yields {@code B}, where PHP normalizes each key as it parses and
+	 * keeps {@code C}.
+	 *
+	 * <p>This is <b>not</b> fixable from the servlet API at this point: for a
+	 * urlencoded request the container has already consumed the input stream to
+	 * build that map, so the raw body is gone and with it the only record of
+	 * the ordering. Recovering it needs the body captured upstream — a caching
+	 * request wrapper on these routes — which is a change to the request
+	 * pipeline rather than to this method, and is recorded as R-020 rather than
+	 * attempted here at the end of a wave.
+	 *
+	 * <p>The multipart branch above has no such limit: {@code getParts()}
+	 * preserves arrival order, so {@link #file} and this method's multipart
+	 * path both resolve the true final duplicate. The gap is urlencoded-only
+	 * and needs a client sending two different spellings of one field name in
+	 * one body.
+	 *
 	 * <p>A multipart request needs none of that: {@code getPart()} reads the
 	 * body directly and never sees the query string.
 	 */
