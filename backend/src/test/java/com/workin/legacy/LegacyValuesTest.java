@@ -260,19 +260,20 @@ class LegacyValuesTest {
 	 * {@code filter_var(..., FILTER_VALIDATE_BOOLEAN)} strips a <b>third</b>
 	 * whitespace set: not {@link String#trim}'s and not {@code phpTrim}'s.
 	 *
-	 * <p>{@code php_filter_boolean()} skips space, tab, newline, carriage
-	 * return, vertical tab and form feed. It <b>does</b> take form feed, which
-	 * PHP's own {@code trim()} does not -- and it does <b>not</b> take NUL,
-	 * which both {@code trim()} and Java's {@code String.trim()} do.
+	 * <p>It strips space, tab, newline, carriage return and vertical tab --
+	 * and <b>neither form feed nor NUL</b>, both of which Java's
+	 * {@code String.trim()} removes.
 	 *
-	 * <p>NUL is therefore the observable divergence, and the reason this needed
-	 * its own helper rather than either existing one.
+	 * <p>Measured against a PHP 8.5.7 CLI probe rather than read from the
+	 * extension source, which an earlier revision of this test got backwards
+	 * for form feed.
 	 */
 	@Test
 	void filterValidateBooleanUsesItsOwnWhitespaceSet() {
 		assertThat(LegacyValues.toPhpFilterBoolean("\ftrue\f"))
-				.as("form feed IS stripped by the filter, unlike PHP's trim()")
-				.isTrue();
+				.as("form feed is NOT stripped -- measured against a PHP 8.5.7 CLI probe, "
+						+ "which returns false; String.trim() would have stripped it and returned true")
+				.isFalse();
 		assertThat(LegacyValues.toPhpFilterBoolean("\u000Btrue")).isTrue();
 		assertThat(LegacyValues.toPhpFilterBoolean("  true\t")).isTrue();
 
