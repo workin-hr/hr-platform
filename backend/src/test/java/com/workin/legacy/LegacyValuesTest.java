@@ -255,4 +255,37 @@ class LegacyValuesTest {
 		assertThat(LegacyValues.fromEnum(null)).isNull();
 	}
 
+
+	/**
+	 * {@code filter_var(..., FILTER_VALIDATE_BOOLEAN)} strips a <b>third</b>
+	 * whitespace set: not {@link String#trim}'s and not {@code phpTrim}'s.
+	 *
+	 * <p>{@code php_filter_boolean()} skips space, tab, newline, carriage
+	 * return, vertical tab and form feed. It <b>does</b> take form feed, which
+	 * PHP's own {@code trim()} does not -- and it does <b>not</b> take NUL,
+	 * which both {@code trim()} and Java's {@code String.trim()} do.
+	 *
+	 * <p>NUL is therefore the observable divergence, and the reason this needed
+	 * its own helper rather than either existing one.
+	 */
+	@Test
+	void filterValidateBooleanUsesItsOwnWhitespaceSet() {
+		assertThat(LegacyValues.toPhpFilterBoolean("\ftrue\f"))
+				.as("form feed IS stripped by the filter, unlike PHP's trim()")
+				.isTrue();
+		assertThat(LegacyValues.toPhpFilterBoolean("\u000Btrue")).isTrue();
+		assertThat(LegacyValues.toPhpFilterBoolean("  true\t")).isTrue();
+
+		assertThat(LegacyValues.toPhpFilterBoolean("\0true"))
+				.as("NUL is NOT stripped, so the value is unrecognised and false -- "
+						+ "String.trim() would have stripped it and returned true")
+				.isFalse();
+		assertThat(LegacyValues.toPhpFilterBoolean("true\0")).isFalse();
+
+		assertThat(LegacyValues.toPhpFilterBoolean("yes")).isTrue();
+		assertThat(LegacyValues.toPhpFilterBoolean("on")).isTrue();
+		assertThat(LegacyValues.toPhpFilterBoolean("1")).isTrue();
+		assertThat(LegacyValues.toPhpFilterBoolean("no")).isFalse();
+		assertThat(LegacyValues.toPhpFilterBoolean("")).isFalse();
+	}
 }

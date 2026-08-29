@@ -1132,11 +1132,23 @@ Eleven endpoints: `employee_docs` (4), `complaints` (4) and
 
 Auth is optional — `if ($auth = getAuth())` attaches the employee and company
 when a token is present and leaves both null when it is not. That required a new
-`LegacyRequestGuard#optionalAuth()`, written so that **a token which is present
-is still fully validated**: PHP follows `getAuth()` with
-`requireEmployeeSessionValid()`, so a revoked or stale token is rejected rather
-than silently downgraded to anonymous. Optional authentication is not
-authentication you can bypass by sending a bad token.
+`LegacyRequestGuard#optionalAuth()`, and **the boundary is not where the obvious
+summary puts it.** An earlier revision of this entry said a present token is
+always validated. It is not:
+
+- `getAuth()` ends in `jwtDecode()`, which returns `null` for a **malformed
+  token, a bad signature, or an expired `exp`** (`functions.php:435-453`).
+  `if ($auth = getAuth())` is then false and the request proceeds
+  **anonymously**. An undecodable token is invisible on this route in legacy,
+  and the port matches.
+- What survives a successful decode *is* enforced: PHP follows `getAuth()` with
+  `requireEmployeeSessionValid()`, so a validly-signed token whose
+  `token_version` has been bumped is **refused with 401** rather than downgraded
+  to anonymous.
+
+So: a token that cannot be decoded is invisible; a token that decodes but has
+been revoked is refused. Stating it the other way round would have justified
+failing a request legacy accepts.
 
 **An anonymous complaint is written and then unreachable.** It is stored with
 `company_id = NULL`, and `list.php` filters `c.company_id = ?`, so no company's

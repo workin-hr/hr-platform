@@ -238,8 +238,48 @@ class LegacyPeopleEndToEndTest {
 		postForm(DOC_UPDATE, token(ADMIN, "company_admin"), "id=1&doc_type=id_card");
 	}
 
+	/**
+	 * The upload reads {@code employee_id} and {@code doc_type} from
+	 * {@code $_POST} — the multipart <b>body</b> — not the query string.
+	 *
+	 * <p>Not cosmetic on this route: {@code employee_id} selects <em>whose</em>
+	 * file the document is attached to, so honouring a query parameter legacy
+	 * ignores would let a caller aim an upload at a coworker's record while
+	 * sending only the file part.
+	 */
 	@Test
 	@Order(7)
+	void uploadReadsItsFieldsFromTheMultipartBodyAndNotTheQueryString() {
+		MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
+		form.add("file", new ByteArrayResource(PNG_BYTES) {
+			@Override
+			public String getFilename() {
+				return "aimed.png";
+			}
+		});
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(token(ADMIN, "company_admin"));
+		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + "/apis/api/employee_docs/upload.php"
+						+ "?employee_id=" + OTHER_STAFF + "&doc_type=from_query"),
+				HttpMethod.POST, new HttpEntity<>(form, headers),
+				new ParameterizedTypeReference<Map<String, Object>>() { });
+
+		// With no employee_id in the BODY, legacy falls back to the caller's own
+		// id -- it never sees the query parameter at all.
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(201);
+		@SuppressWarnings("unchecked")
+		Map<String, Object> row = (Map<String, Object>) response.getBody().get("data");
+		assertThat(((Number) row.get("employee_id")).longValue())
+				.as("the query parameter must not aim the upload at another employee")
+				.isEqualTo(ADMIN);
+		assertThat(row).as("nor supply the doc type").containsEntry("doc_type", "other");
+	}
+
+	@Test
+	@Order(8)
 	void aDocumentOfAnotherCompanysEmployeeIsNotFound() {
 		assertThat(send(DOC_DELETE + "?id=99", HttpMethod.DELETE, token(ADMIN, "company_admin"), null)
 				.getStatusCode().value()).isEqualTo(404);
@@ -252,7 +292,7 @@ class LegacyPeopleEndToEndTest {
 	 * {@code company_id}, and no company's list can then return it.
 	 */
 	@Test
-	@Order(8)
+	@Order(9)
 	@SuppressWarnings("unchecked")
 	void anAnonymousComplaintIsStoredAndThenUnreachableThroughTheApi() {
 		assertThat(send(COMPLAINT_CREATE, HttpMethod.POST, null,
@@ -274,7 +314,7 @@ class LegacyPeopleEndToEndTest {
 
 	/** An authenticated admin's own submission is tagged {@code company_support} and also hidden. */
 	@Test
-	@Order(9)
+	@Order(10)
 	@SuppressWarnings("unchecked")
 	void anAdminsOwnComplaintIsTaggedCompanySupportAndExcludedFromTheList() {
 		send(COMPLAINT_CREATE, HttpMethod.POST, token(ADMIN, "company_admin"),
@@ -289,7 +329,7 @@ class LegacyPeopleEndToEndTest {
 
 	/** The status filter is applied by default, and {@code all} is the escape hatch. */
 	@Test
-	@Order(10)
+	@Order(11)
 	@SuppressWarnings("unchecked")
 	void theComplaintsListFiltersToPendingUnlessAllIsAsked() {
 		List<Map<String, Object>> byDefault = (List<Map<String, Object>>) data(
@@ -307,7 +347,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(11)
+	@Order(12)
 	@SuppressWarnings("unchecked")
 	void updatingAComplaintAcceptsReplyStatusOrBothAndRejectsNeither() {
 		Map<String, Object> replied = (Map<String, Object>) data(send(COMPLAINT_UPDATE + "?id=1",
@@ -332,7 +372,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(12)
+	@Order(13)
 	void complaintsUseInvalidIdWhereTheRestOfTheWaveUsesFieldRequired() {
 		ResponseEntity<Map<String, Object>> response =
 				send(COMPLAINT_DELETE, HttpMethod.DELETE, token(ADMIN, "company_admin"), null);
@@ -345,7 +385,7 @@ class LegacyPeopleEndToEndTest {
 	// ---------------- company_join_requests ----------------
 
 	@Test
-	@Order(13)
+	@Order(14)
 	@SuppressWarnings("unchecked")
 	void theJoinRequestListDefaultsToPendingAndCarriesFiveColumns() {
 		List<Map<String, Object>> rows = (List<Map<String, Object>>) data(
@@ -363,7 +403,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(14)
+	@Order(15)
 	@SuppressWarnings("unchecked")
 	void acceptingFlipsTheStatusAndActivatesTheEmployee() {
 		Map<String, Object> accepted = (Map<String, Object>) data(send(
@@ -378,7 +418,7 @@ class LegacyPeopleEndToEndTest {
 
 	/** Accept has no pendingness check, so an already-accepted request succeeds again. */
 	@Test
-	@Order(15)
+	@Order(16)
 	void acceptingAnAlreadyAcceptedRequestSucceedsAndRenotifies() {
 		assertThat(send(JOIN_ACCEPT + "?id=" + ACCEPTED_JOIN, HttpMethod.POST,
 				token(ADMIN, "company_admin"), null).getStatusCode().value())
@@ -392,7 +432,7 @@ class LegacyPeopleEndToEndTest {
 	 * It is not the inverse of accept.
 	 */
 	@Test
-	@Order(16)
+	@Order(17)
 	void rejectingDeletesTheProvisionalEmployeeRowRatherThanMarkingIt() {
 		assertThat(send(JOIN_REJECT + "?id=" + BLANK_STATUS_JOIN, HttpMethod.POST,
 				token(ADMIN, "company_admin"), null).getStatusCode().value())
@@ -405,7 +445,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(17)
+	@Order(18)
 	void rejectingAnAcceptedRequestIsNotFound() {
 		assertThat(send(JOIN_REJECT + "?id=" + ACCEPTED_JOIN, HttpMethod.POST,
 				token(ADMIN, "company_admin"), null).getStatusCode().value())
@@ -414,7 +454,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(18)
+	@Order(19)
 	void everyRouteChecksItsMethodFirst() {
 		assertThat(send(DOC_LIST, HttpMethod.POST, null, null).getStatusCode().value()).isEqualTo(405);
 		assertThat(send(COMPLAINT_CREATE, HttpMethod.GET, null, null).getStatusCode().value())

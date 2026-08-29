@@ -207,8 +207,31 @@ class LegacySettingsEndToEndTest {
 				.containsEntry("label", "Modules");
 	}
 
+	/**
+	 * {@code is_array($raw_values)} is the branch, and a <b>scalar</b> takes the
+	 * else branch to be wrapped into a one-element list. So
+	 * {@code "values": "dark"} stores {@code dark} rather than normalizing to
+	 * nothing.
+	 */
 	@Test
 	@Order(8)
+	@SuppressWarnings("unchecked")
+	void aScalarValueIsWrappedIntoAOneElementListJustAsPhpDoes() {
+		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST, token(ADMIN),
+				"{\"setting_key\":\"theme\",\"values\":\"dark\"}");
+
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(201);
+		Map<String, Object> item = (Map<String, Object>) response.getBody().get("data");
+		assertThat((List<Map<String, Object>>) item.get("selected"))
+				.as("a bare string is one value, not zero")
+				.extracting(row -> row.get("value")).containsExactly("dark");
+
+		// Leave the fixture as the later ordered tests expect it.
+		send(DELETE + "?setting_definition_id=" + DEF_THEME, HttpMethod.DELETE, token(ADMIN), null);
+	}
+
+	@Test
+	@Order(9)
 	@SuppressWarnings("unchecked")
 	void optionsAnswersTwoShapesAndEchoesAnUnknownKeyRatherThanTruncating() {
 		Map<String, Object> single = (Map<String, Object>) data(
@@ -234,7 +257,7 @@ class LegacySettingsEndToEndTest {
 	// ---------------- writes ----------------
 
 	@Test
-	@Order(9)
+	@Order(10)
 	@SuppressWarnings("unchecked")
 	void createStoresTheSelectionAndAnswersTwoZeroOne() {
 		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST, token(ADMIN),
@@ -248,7 +271,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(10)
+	@Order(11)
 	void creatingTheSameSettingTwiceIsAlreadyExistsRatherThanAnUpsert() {
 		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST, token(ADMIN),
 				"{\"setting_definition_id\":" + DEF_THEME + ",\"values\":[\"light\"]}");
@@ -262,7 +285,7 @@ class LegacySettingsEndToEndTest {
 	 * parent row must not survive.
 	 */
 	@Test
-	@Order(11)
+	@Order(12)
 	@SuppressWarnings("unchecked")
 	void aDisallowedValueIsFourHundredAndRollsBackTheParentRow() {
 		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST, token(ADMIN),
@@ -285,7 +308,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(12)
+	@Order(13)
 	void aSingleValuedDefinitionRejectsMoreThanOneValue() {
 		assertThat(send(CREATE, HttpMethod.POST, token(ADMIN),
 				"{\"setting_definition_id\":" + DEF_CURRENCY + ",\"values\":[\"egp\",\"usd\"]}")
@@ -293,7 +316,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(13)
+	@Order(14)
 	void aRequiredDefinitionRejectsAnEmptyValueList() {
 		assertThat(send(CREATE, HttpMethod.POST, token(ADMIN),
 				"{\"setting_definition_id\":" + DEF_CURRENCY + ",\"values\":[]}")
@@ -301,7 +324,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(14)
+	@Order(15)
 	void aMissingValuesKeyIsFieldRequired() {
 		assertThat(send(CREATE, HttpMethod.POST, token(ADMIN),
 				"{\"setting_definition_id\":" + DEF_MODULES + "}")
@@ -309,7 +332,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(15)
+	@Order(16)
 	@SuppressWarnings("unchecked")
 	void updateUpsertsAndReplacesTheWholeSelection() {
 		Map<String, Object> item = (Map<String, Object>) data(send(UPDATE, HttpMethod.PUT, token(ADMIN),
@@ -332,7 +355,7 @@ class LegacySettingsEndToEndTest {
 	 * values. The two endpoints reach opposite end states from the same input.
 	 */
 	@Test
-	@Order(16)
+	@Order(17)
 	@SuppressWarnings("unchecked")
 	void updateWithAnEmptyListDeletesTheSettingEntirely() {
 		Map<String, Object> item = (Map<String, Object>) data(send(UPDATE, HttpMethod.PUT, token(ADMIN),
@@ -355,7 +378,7 @@ class LegacySettingsEndToEndTest {
 	 * because a single shared item-builder would silently unify the two.
 	 */
 	@Test
-	@Order(17)
+	@Order(18)
 	@SuppressWarnings("unchecked")
 	void createAndOneDisagreeAboutTheIdOfAValuelessSetting() {
 		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST,
@@ -381,7 +404,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(18)
+	@Order(19)
 	void deletingARequiredSettingIsRejected() {
 		data(send(UPDATE, HttpMethod.PUT, token(ADMIN),
 				"{\"setting_definition_id\":" + DEF_CURRENCY + ",\"values\":[\"egp\"]}"));
@@ -393,7 +416,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(19)
+	@Order(20)
 	void deletingASettingThatWasNeverSetIsOkRatherThanNotFound() {
 		assertThat(send(DELETE + "?setting_definition_id=" + DEF_MODULES, HttpMethod.DELETE,
 				token(ADMIN), null).getStatusCode().value())
@@ -401,7 +424,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(20)
+	@Order(21)
 	void deletingWithNeitherIdentifierIsFieldRequired() {
 		assertThat(send(DELETE, HttpMethod.DELETE, token(ADMIN), null).getStatusCode().value())
 				.isEqualTo(400);
@@ -410,7 +433,7 @@ class LegacySettingsEndToEndTest {
 	// ---------------- catalogue endpoints ----------------
 
 	@Test
-	@Order(21)
+	@Order(22)
 	@SuppressWarnings("unchecked")
 	void definitionsListIsPaginatedAndCarriesLabelAndDescriptionKeys() {
 		ResponseEntity<Map<String, Object>> response =
@@ -424,7 +447,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(22)
+	@Order(23)
 	@SuppressWarnings("unchecked")
 	void definitionsSearchMatchesKeyAndBothLabels() {
 		assertThat((List<Map<String, Object>>) data(
@@ -437,8 +460,42 @@ class LegacySettingsEndToEndTest {
 				.hasSize(3);
 	}
 
+	/**
+	 * A genuine persistence failure answers legacy's {@code error_with_message}
+	 * contract, not D-084's generic 500.
+	 *
+	 * <p>PHP wraps its writes in {@code catch (Throwable)}; validation failures
+	 * never reach it, because {@code fail()} exits first. So the catch is
+	 * reachable only by a real database error, and the only honest way to test
+	 * it is to cause one — here a {@code BEFORE DELETE} trigger that signals.
+	 */
 	@Test
-	@Order(23)
+	@Order(24)
+	void aRealDeleteFailureAnswersLegacysErrorWithMessageContract() {
+		data(send(UPDATE, HttpMethod.PUT, token(ADMIN),
+				"{\"setting_key\":\"theme\",\"values\":[\"dark\"]}"));
+		execute("CREATE TRIGGER settings_delete_boom BEFORE DELETE ON company_settings"
+				+ " FOR EACH ROW SIGNAL SQLSTATE '45000'"
+				+ " SET MESSAGE_TEXT = 'forced failure for the persistence-contract test'");
+		try {
+			ResponseEntity<Map<String, Object>> response = send(
+					DELETE + "?setting_definition_id=" + DEF_THEME, HttpMethod.DELETE, token(ADMIN), null);
+
+			assertThat(response.getStatusCode().value())
+					.as("PHP's catch answers 500 with its own keyed contract")
+					.isEqualTo(500);
+			assertThat(response.getBody()).containsEntry("success", false);
+			assertThat(response.getBody().get("message")).asString()
+					.as("the localized error_with_message text, not \"Internal server error\"")
+					.isNotEqualTo("Internal server error");
+		} finally {
+			execute("DROP TRIGGER IF EXISTS settings_delete_boom");
+			send(DELETE + "?setting_definition_id=" + DEF_THEME, HttpMethod.DELETE, token(ADMIN), null);
+		}
+	}
+
+	@Test
+	@Order(25)
 	void allowedValuesRequiresItsDefinitionIdAndFourZeroFoursAnUnknownOne() {
 		assertThat(send(ALLOWED, HttpMethod.GET, null, null).getStatusCode().value())
 				.as("required() rejects a missing parameter")
@@ -518,6 +575,14 @@ class LegacySettingsEndToEndTest {
 					+ " (4, " + DEF_MODULES + ", 'payroll', NULL, 'Payroll', 2),"
 					+ " (5, " + DEF_CURRENCY + ", 'egp', NULL, 'EGP', 1),"
 					+ " (6, " + DEF_CURRENCY + ", 'usd', NULL, 'USD', 2)");
+		}
+	}
+
+	private static void execute(String sql) {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute(sql);
+		} catch (Exception ex) {
+			throw new IllegalStateException("could not adjust the settings fixture", ex);
 		}
 	}
 

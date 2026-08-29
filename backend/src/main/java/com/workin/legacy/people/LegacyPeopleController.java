@@ -63,15 +63,24 @@ public class LegacyPeopleController {
 		return LegacyApiResponse.ok(message(request, "documents"), page.rows(), page.meta());
 	}
 
-	/** Multipart, and the only endpoint in this wave that is not JSON-bodied. */
+	/**
+	 * Multipart, and the only endpoint in this wave that is not JSON-bodied.
+	 *
+	 * <p>{@code employee_id} and {@code doc_type} come from {@code $_POST} --
+	 * the multipart <b>body</b> — not the query string. {@code @RequestParam}
+	 * merges the two, so {@code ?employee_id=<coworker>} on a request whose body
+	 * carries only the file part would have been honoured here and ignored by
+	 * legacy. That is not a cosmetic difference on this route: the employee id
+	 * selects <em>whose</em> file the document is attached to.
+	 */
 	@RequestMapping("/apis/api/employee_docs/upload.php")
 	public ResponseEntity<LegacyApiResponse> docUpload(
 			HttpServletRequest request,
-			@RequestParam(value = "employee_id", required = false) String employeeId,
-			@RequestParam(value = "doc_type", required = false) String docType,
 			@RequestParam(value = "file", required = false) MultipartFile file) {
 		requireMethod(request, "POST");
 		LegacyRequestContext context = anyRole();
+		String employeeId = formField(request, "employee_id");
+		String docType = formField(request, "doc_type");
 		Map<String, Object> row = docService.upload(context, employeeId, docType, file);
 		return ResponseEntity.status(201)
 				.body(LegacyApiResponse.ok(message(request, "document_uploaded"), row));
