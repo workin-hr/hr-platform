@@ -202,10 +202,18 @@ public class LegacyDashboardStore {
 	}
 
 	/**
-	 * Age brackets. A NULL {@code birth_date} is {@code unknown}; everything
-	 * from 50 upwards <b>and everything with a future birth date</b> falls into
-	 * {@code fifty_plus}, because that bracket is the {@code ELSE} arm and a
-	 * negative age matches none of the ranges above it.
+	 * Age brackets. A NULL {@code birth_date} is {@code unknown} and everything
+	 * from 50 upwards is {@code fifty_plus}.
+	 *
+	 * <p><b>A future {@code birth_date} lands in {@code under_20}</b>, not in
+	 * {@code fifty_plus}: {@code TIMESTAMPDIFF} returns a negative number and
+	 * the first arm tests {@code < 20}, which a negative satisfies. The
+	 * {@code BETWEEN} arms below it never see the value.
+	 *
+	 * <p>That is legacy's, and the predicate is copied rather than bounded to
+	 * {@code 0..19}. Bounding it would move every future-dated row from
+	 * {@code under_20} to {@code fifty_plus} and change the response for data
+	 * that exists in the wild -- a divergence, not a fix (D-058).
 	 */
 	public Map<String, Object> employeesByAgeBracket(long companyId) {
 		String bracket = """
