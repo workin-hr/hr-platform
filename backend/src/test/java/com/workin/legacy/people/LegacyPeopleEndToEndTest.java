@@ -89,6 +89,23 @@ class LegacyPeopleEndToEndTest {
 		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
 		registry.add("app.legacy-db.username", MARIADB::getUsername);
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
+		// LegacyFileUploads defaults to the relative path "uploads", which in a
+		// Gradle run resolves under backend/ and leaves randomly named files in
+		// the worktree. Point it at a temp directory so the suite writes nothing
+		// it does not clean up.
+		registry.add("app.legacy-uploads.path", () -> UPLOAD_DIR.toString());
+	}
+
+	private static final java.nio.file.Path UPLOAD_DIR = createUploadDir();
+
+	private static java.nio.file.Path createUploadDir() {
+		try {
+			java.nio.file.Path dir = java.nio.file.Files.createTempDirectory("legacy-uploads-test-");
+			dir.toFile().deleteOnExit();
+			return dir;
+		} catch (Exception ex) {
+			throw new IllegalStateException(ex);
+		}
 	}
 
 	// ---------------- employee_docs: the MANAGER asymmetry ----------------
@@ -172,8 +189,31 @@ class LegacyPeopleEndToEndTest {
 				.containsEntry("doc_type", "other");
 	}
 
+	/**
+	 * {@code ??} fires only on an <b>absent</b> key. An explicitly empty
+	 * {@code doc_type=} field exists, so PHP stores the empty string rather than
+	 * defaulting to {@code "other"} -- and an explicitly empty
+	 * {@code employee_id=} casts to 0 and fails the guard rather than falling
+	 * back to the caller's own id.
+	 */
 	@Test
 	@Order(5)
+	@SuppressWarnings("unchecked")
+	void anExplicitlyEmptyFieldIsNotTheSameAsAnAbsentOne() {
+		ResponseEntity<Map<String, Object>> emptyDocType = upload("", "blank.png", PNG_BYTES);
+		assertThat(emptyDocType.getStatusCode().value()).as("%s", emptyDocType.getBody()).isEqualTo(201);
+		assertThat((Map<String, Object>) emptyDocType.getBody().get("data"))
+				.as("an empty doc_type is stored as empty, not defaulted to other")
+				.containsEntry("doc_type", "");
+
+		assertThat(send(DOC_LIST + "?employee_id=", HttpMethod.GET, token(ADMIN, "company_admin"), null)
+				.getStatusCode().value())
+				.as("an explicit empty employee_id is employee_id_required, not a fallback to self")
+				.isEqualTo(400);
+	}
+
+	@Test
+	@Order(6)
 	void aDocumentOfAnotherCompanysEmployeeIsNotFound() {
 		assertThat(send(DOC_DELETE + "?id=99", HttpMethod.DELETE, token(ADMIN, "company_admin"), null)
 				.getStatusCode().value()).isEqualTo(404);
@@ -186,7 +226,7 @@ class LegacyPeopleEndToEndTest {
 	 * {@code company_id}, and no company's list can then return it.
 	 */
 	@Test
-	@Order(6)
+	@Order(7)
 	@SuppressWarnings("unchecked")
 	void anAnonymousComplaintIsStoredAndThenUnreachableThroughTheApi() {
 		assertThat(send(COMPLAINT_CREATE, HttpMethod.POST, null,
@@ -208,7 +248,7 @@ class LegacyPeopleEndToEndTest {
 
 	/** An authenticated admin's own submission is tagged {@code company_support} and also hidden. */
 	@Test
-	@Order(7)
+	@Order(8)
 	@SuppressWarnings("unchecked")
 	void anAdminsOwnComplaintIsTaggedCompanySupportAndExcludedFromTheList() {
 		send(COMPLAINT_CREATE, HttpMethod.POST, token(ADMIN, "company_admin"),
@@ -223,7 +263,7 @@ class LegacyPeopleEndToEndTest {
 
 	/** The status filter is applied by default, and {@code all} is the escape hatch. */
 	@Test
-	@Order(8)
+	@Order(9)
 	@SuppressWarnings("unchecked")
 	void theComplaintsListFiltersToPendingUnlessAllIsAsked() {
 		List<Map<String, Object>> byDefault = (List<Map<String, Object>>) data(
@@ -241,7 +281,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(9)
+	@Order(10)
 	@SuppressWarnings("unchecked")
 	void updatingAComplaintAcceptsReplyStatusOrBothAndRejectsNeither() {
 		Map<String, Object> replied = (Map<String, Object>) data(send(COMPLAINT_UPDATE + "?id=1",
@@ -266,7 +306,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(10)
+	@Order(11)
 	void complaintsUseInvalidIdWhereTheRestOfTheWaveUsesFieldRequired() {
 		ResponseEntity<Map<String, Object>> response =
 				send(COMPLAINT_DELETE, HttpMethod.DELETE, token(ADMIN, "company_admin"), null);
@@ -279,7 +319,7 @@ class LegacyPeopleEndToEndTest {
 	// ---------------- company_join_requests ----------------
 
 	@Test
-	@Order(11)
+	@Order(12)
 	@SuppressWarnings("unchecked")
 	void theJoinRequestListDefaultsToPendingAndCarriesFiveColumns() {
 		List<Map<String, Object>> rows = (List<Map<String, Object>>) data(
@@ -297,7 +337,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(12)
+	@Order(13)
 	@SuppressWarnings("unchecked")
 	void acceptingFlipsTheStatusAndActivatesTheEmployee() {
 		Map<String, Object> accepted = (Map<String, Object>) data(send(
@@ -312,7 +352,7 @@ class LegacyPeopleEndToEndTest {
 
 	/** Accept has no pendingness check, so an already-accepted request succeeds again. */
 	@Test
-	@Order(13)
+	@Order(14)
 	void acceptingAnAlreadyAcceptedRequestSucceedsAndRenotifies() {
 		assertThat(send(JOIN_ACCEPT + "?id=" + ACCEPTED_JOIN, HttpMethod.POST,
 				token(ADMIN, "company_admin"), null).getStatusCode().value())
@@ -326,7 +366,7 @@ class LegacyPeopleEndToEndTest {
 	 * It is not the inverse of accept.
 	 */
 	@Test
-	@Order(14)
+	@Order(15)
 	void rejectingDeletesTheProvisionalEmployeeRowRatherThanMarkingIt() {
 		assertThat(send(JOIN_REJECT + "?id=" + BLANK_STATUS_JOIN, HttpMethod.POST,
 				token(ADMIN, "company_admin"), null).getStatusCode().value())
@@ -339,7 +379,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(15)
+	@Order(16)
 	void rejectingAnAcceptedRequestIsNotFound() {
 		assertThat(send(JOIN_REJECT + "?id=" + ACCEPTED_JOIN, HttpMethod.POST,
 				token(ADMIN, "company_admin"), null).getStatusCode().value())
@@ -348,7 +388,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(16)
+	@Order(17)
 	void everyRouteChecksItsMethodFirst() {
 		assertThat(send(DOC_LIST, HttpMethod.POST, null, null).getStatusCode().value()).isEqualTo(405);
 		assertThat(send(COMPLAINT_CREATE, HttpMethod.GET, null, null).getStatusCode().value())

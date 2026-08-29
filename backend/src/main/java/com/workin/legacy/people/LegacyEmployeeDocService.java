@@ -88,8 +88,10 @@ public class LegacyEmployeeDocService {
 			throw new LegacyApiException(400, "no_file_uploaded");
 		}
 
-		long id = store.insertDoc(targetEmployeeId,
-				docType == null || docType.isEmpty() ? "other" : docType, url);
+		// `$_POST['doc_type'] ?? 'other'` -- the default applies only when the key
+		// is ABSENT. An explicitly empty `doc_type=` field exists, so PHP stores
+		// the empty string; treating "" as absent would silently write "other".
+		long id = store.insertDoc(targetEmployeeId, docType == null ? "other" : docType, url);
 		return store.docById(id);
 	}
 
@@ -97,8 +99,18 @@ public class LegacyEmployeeDocService {
 			LegacyRequestContext context, long docId, String docType) {
 		Map<String, Object> doc = ownedDocument(context, docId);
 		store.updateDoc(docId, docType);
+		// `public_row($updated ?? $row)`: a concurrent delete leaves the re-read
+		// empty and PHP renders the row it read *before* the update. The
+		// pre-update row here carries `owner_company_id`, an alias this port
+		// adds to tenant-check a table with no company of its own -- it is not a
+		// column of employee_docs and must not reach a response.
 		Map<String, Object> updated = store.docById(docId);
-		return updated == null ? doc : updated;
+		if (updated != null) {
+			return updated;
+		}
+		Map<String, Object> fallback = new java.util.LinkedHashMap<>(doc);
+		fallback.remove("owner_company_id");
+		return fallback;
 	}
 
 	public void delete(LegacyRequestContext context, long docId) {
@@ -116,7 +128,12 @@ public class LegacyEmployeeDocService {
 	 * their role.
 	 */
 	private long targetEmployee(LegacyRequestContext context, Object rawEmployeeId) {
-		long target = rawEmployeeId == null || "".equals(rawEmployeeId)
+		// `(int) ($_GET['employee_id'] ?? (int) ($auth['employee_id'] ?? 0))` --
+		// the fallback to self fires only when the key is ABSENT. An explicit
+		// `?employee_id=` is present, casts to 0, and fails the guard below, so
+		// it is `employee_id_required` rather than a silent fallback to the
+		// caller's own documents.
+		long target = rawEmployeeId == null
 				? context.employeeId()
 				: LegacyValues.toPhpLong(rawEmployeeId);
 		if (target <= 0) {
