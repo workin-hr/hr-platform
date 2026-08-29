@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.payroll.LegacyPenaltyAmounts;
+import com.workin.legacy.wire.LegacyPhpArrayJson;
 
 /**
  * {@code dashboard/stats.php} -- twenty response keys assembled from fourteen
@@ -82,7 +83,17 @@ public class LegacyDashboardService {
 		out.put("employees_by_gender", store.employeesByGender(companyId));
 		out.put("employees_by_age_bracket", store.employeesByAgeBracket(companyId));
 		out.put("new_employees_by_month", newEmployeesByMonth(companyId, today));
-		return out;
+
+		// Six of these maps are keyed by a caller-controlled *name*. PHP has one
+		// array type, so a department or branch named "0" becomes integer key 0
+		// and json_encode emits a JSON array instead of an object -- a change of
+		// type, which is exactly what the (object)[] casts guard against for the
+		// empty case. A Java Map always serialises as an object, so the rule is
+		// applied explicitly. See LegacyPhpArrayJson.
+		return LegacyPhpArrayJson.encodeValues(out,
+				"salaries_by_department", "employees_by_branch", "employees_by_department",
+				"daily_attendance_stats", "attendance_by_department_stats",
+				"penalties_by_department");
 	}
 
 	/**
