@@ -916,7 +916,7 @@ wave. And MANAGER can list decisions but not read one; an employee can list
 assets but not read one; an HR user without `can_employees` is refused the
 decisions list while an ordinary employee is served it.
 
-### The `assets` permission gap is an accepted risk, not an oversight
+### The `assets` permission gap was already decided — D-044 and D-045 govern it
 
 The bounded C3/C8 pass established that the desktop client hides the Assets
 screen behind `hrPermission: HrPermissionFlag.assets`, while the server enforces
@@ -934,11 +934,25 @@ mutation capability legacy does not give them.
 The gap itself is **already tracked upstream as `hr-legacy#8`**; what this wave
 adds is the client evidence and the decision to reproduce it.
 
-The port reproduces this (D-058: the burden of proof is on the change). **The
-owner accepted it explicitly on 2026-08-29** rather than having it reproduced
-silently. It is recorded here so that:
+**This is not a new acceptance, and an earlier revision of this entry wrongly
+presented it as one.** Two accepted decisions already bind it:
 
-- it is a decision with an owner, not an accident of faithfulness;
+- **D-044** — "Phase 1 also reproduces `hr-legacy#8`'s confirmed enforcement
+  gap … Enforcement is added explicitly, per legacy-side controller method,
+  matching exactly which endpoints legacy itself checks and which it doesn't."
+- **D-045** — "no `hr_permissions.can_*` flag is enforced on a legacy endpoint
+  unless that endpoint's PHP demonstrably enforces it", and it enumerates
+  `can_assets` among the fifteen flags **never read as a gate anywhere**.
+
+So the port's behaviour here follows from decisions already taken, and this
+wave owes **evidence**, not another owner sign-off. Treating it as a blocking
+decision would have stalled Wave 13.4 for a question that was answered before
+it started.
+
+What this entry adds is the endpoint-specific record, so that:
+
+- the behaviour is traceable to D-044/D-045 rather than looking like an
+  accident of faithfulness;
 - anyone later "hardening" the module knows they are changing a live contract
   and which client depends on the current one;
 - the eventual fix is a legacy change first, ported second — not a divergence
