@@ -88,9 +88,10 @@ public class LegacyDashboardService {
 	/**
 	 * Attendance percentage per department, {@code round($count / $total * 100, 2)}.
 	 *
-	 * <p>A department with no active employees is {@code 0} rather than absent
-	 * or null, because PHP's guard yields the integer {@code 0} and only the
-	 * computed branch is rounded to a float.
+	 * <p>A department with no active employees is present with a zero rather
+	 * than absent or null. {@code round()} is applied to the result of the
+	 * ternary, so <b>both</b> branches go through it -- the zero is not a
+	 * special case that skips the rounding.
 	 */
 	private Map<String, Object> attendanceShares(long companyId) {
 		Map<String, Object> out = new LinkedHashMap<>();
