@@ -355,10 +355,17 @@ class LegacyRegistrationEndToEndTest {
 		assertThat(response.getStatusCode().value()).isEqualTo(400);
 		assertThat(response.getBody().get("message").toString()).contains("first_name");
 
+		// required() rejects "" but NOT "  " -- it is isset() && !== '', not a
+		// trim. So a whitespace-only first_name passes the guard, and
+		// resolve_employee_name_from_body() then trims it to empty and reaches
+		// its "Pending-<phone>" fallback. The fallback is therefore REACHABLE
+		// through this endpoint, by exactly one input shape.
 		assertThat(post(JOIN, "{\"first_name\":\"  \",\"phone\":\"01000033079\",\"password\":\""
 				+ PASSWORD + "\",\"company_code\":\"" + CODE + "\"}").getStatusCode().value())
-				.as("required() rejects \"\" but NOT \"  \" -- it is isset+!==\"\", not a trim")
 				.isEqualTo(201);
+		assertThat(storedFirstName("01000033079"))
+				.as("the fallback name legacy invents, not an empty string")
+				.isEqualTo("Pending-01000033079");
 	}
 
 	/**
@@ -416,21 +423,63 @@ class LegacyRegistrationEndToEndTest {
 	}
 
 	/**
-	 * The same global uniqueness stops someone joining a second company --
-	 * refused by the explicit check rather than by the index, so the status is
-	 * the same 409 from a different line.
+	 * The <b>cross-company</b> uniqueness branch, which needs a phone that is
+	 * taken at a <em>different</em> company than the one being joined.
+	 *
+	 * <p>An earlier version used a phone belonging to the same company it was
+	 * joining, so {@code joinRequestAlreadyExists()} answered 400 and the 409
+	 * was never reached — the test asserted 400 while its name promised 409.
+	 * The reviewer caught it; the fixture now seeds the other company.
+	 *
+	 * <p><b>What this can and cannot pin.</b> It pins the outcome: a phone held
+	 * at another company cannot join, with 409
+	 * {@code phone_already_used_try_login}. It does <b>not</b> isolate
+	 * {@code employee_phone_exists_globally()} as the branch that produced it,
+	 * and cannot — disabling that check leaves the test green, because
+	 * {@code employees.phone} is <em>globally</em> UNIQUE, so the INSERT then
+	 * fails and the duplicate-entry catch answers with the same status and the
+	 * same message key. The explicit check and the index are redundant for this
+	 * case and indistinguishable from outside. Established by disabling the
+	 * check and watching the test pass, which is worth recording rather than
+	 * leaving as an assumption about coverage.
 	 */
 	@Test
-	@Order(14)
-	void aPhoneAlreadyUsedAtAnotherCompanyIs409() {
-		assertThat(post(JOIN, "{\"first_name\":\"X\",\"phone\":\"" + HR_PHONE + "\",\"password\":\""
-				+ PASSWORD + "\",\"company_code\":\"" + CODE + "\"}").getStatusCode().value())
-				.isEqualTo(400);
+	@Order(15)
+	void aPhoneAlreadyUsedAtAnotherCompanyIs409() throws Exception {
+		seedForeignEmployee("01000033055");
+		try {
+			ResponseEntity<Map<String, Object>> response = post(JOIN,
+					"{\"first_name\":\"X\",\"phone\":\"01000033055\",\"password\":\"" + PASSWORD
+							+ "\",\"company_code\":\"" + CODE + "\"}");
+			assertThat(response.getStatusCode().value())
+					.as("employee_phone_exists_globally() -- a different company, so the "
+							+ "company-scoped probe above it does not fire")
+					.isEqualTo(409);
+			assertThat(response.getBody().get("message").toString())
+					.as("phone_already_used_try_login, not phone_registered_in_company")
+					.contains("already registered");
+		} finally {
+			removeForeignEmployee();
+		}
+	}
+
+	/**
+	 * The company's <b>own</b> phone bypasses both global-uniqueness checks, so
+	 * an owner may create an employee account for themselves.
+	 */
+	@Test
+	@Order(16)
+	void theCompanysOwnPhoneBypassesTheGlobalUniquenessChecks() {
+		assertThat(post(JOIN, "{\"first_name\":\"Owner\",\"phone\":\"" + ACTIVE_PHONE
+				+ "\",\"password\":\"" + PASSWORD + "\",\"company_code\":\"" + CODE + "\"}")
+				.getStatusCode().value())
+				.as("phones_are_equivalent() with the company's own number skips both 409s")
+				.isEqualTo(201);
 	}
 
 	/** A company with no active branch cannot be joined. */
 	@Test
-	@Order(15)
+	@Order(17)
 	void acompanyWithNoActiveBranchCannotBeJoined() {
 		assertThat(post(JOIN, "{\"first_name\":\"X\",\"phone\":\"01000033076\",\"password\":\"" + PASSWORD
 				+ "\",\"company_code\":\"NOBRANCH1\"}").getStatusCode().value())
@@ -748,6 +797,23 @@ class LegacyRegistrationEndToEndTest {
 
 	private static String joinStatus(long employeeId) {
 		return scalar("SELECT join_request_status FROM employees WHERE id = " + employeeId);
+	}
+
+	private static String storedFirstName(String phone) {
+		return scalar("SELECT first_name FROM employees WHERE phone = '" + phone + "'");
+	}
+
+	/** An employee at a company other than the one being joined. */
+	private static void seedForeignEmployee(String phone) {
+		execute("INSERT INTO employees (id, company_id, branch_id, employee_code, first_name,"
+				+ " last_name, phone, country_code, password_hash, role, is_active, token_version,"
+				+ " join_request_status, created_at) VALUES (330055, " + PENDING_COMPANY + ", " + BRANCH
+				+ ", '330055', 'F', 'L', '" + phone + "', '+20', 'x', 'employee', 1, 1, 'accepted',"
+				+ " '2019-04-01 08:00:00')");
+	}
+
+	private static void removeForeignEmployee() {
+		execute("DELETE FROM employees WHERE id = 330055");
 	}
 
 	private static String storedCountryCode(String phone) {

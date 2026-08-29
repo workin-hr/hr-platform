@@ -4,6 +4,7 @@ import java.io.InputStream;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -34,12 +35,30 @@ public final class LegacyPostFields {
 	 * {@code @RequestParam} so that a non-multipart request, or a scalar
 	 * {@code ?file=x}, cannot fail during argument resolution before the
 	 * controller's own method check has run.
+	 *
+	 * <p>The name is matched after {@link #normalizeFieldName}, exactly as
+	 * {@link #field} does. PHP normalizes {@code $_FILES} keys as well as
+	 * {@code $_POST} ones, so a part named {@code commercial.reg} is
+	 * {@code $_FILES['commercial_reg']} there. An exact lookup -- which an
+	 * earlier draft used -- returned null for it, and on
+	 * {@code complete_company_registration.php} that means the logo is stored
+	 * and *then* the request is rejected for a missing commercial register.
+	 *
+	 * <p>The <b>last</b> matching part wins, as PHP's parser keeps the final
+	 * duplicate.
 	 */
 	public static MultipartFile file(HttpServletRequest request, String name) {
-		if (request instanceof MultipartHttpServletRequest multipart) {
-			return multipart.getFile(name);
+		if (!(request instanceof MultipartHttpServletRequest multipart)) {
+			return null;
 		}
-		return null;
+		MultipartFile matched = null;
+		for (Map.Entry<String, List<MultipartFile>> entry : multipart.getMultiFileMap().entrySet()) {
+			if (!normalizeFieldName(entry.getKey()).equals(name) || entry.getValue().isEmpty()) {
+				continue;
+			}
+			matched = entry.getValue().get(entry.getValue().size() - 1);
+		}
+		return matched;
 	}
 
 	/**

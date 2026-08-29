@@ -1633,10 +1633,17 @@ first.
   disk. Its three foreign-key checks share one `field_required` with **no field
   name**, so the client cannot tell which was wrong. And `first_name`/`last_name`
   are written only when non-empty, so step two cannot blank step one's names.
-- `resolve_employee_name_from_body()`'s `name`-splitting and `Pending-<phone>`
-  fallbacks are **unreachable from `join_company.php`**, because `first_name` is
-  `required()`. Pinned, because the helper is shared and a later caller could
-  reach them.
+- `resolve_employee_name_from_body()`'s `name`-splitting fallback is
+  **unreachable from `join_company.php`** — `first_name` is `required()`, and a
+  body supplying only `name` is a 400. **Corrected 2026-08-30 after review:**
+  the `Pending-<phone>` fallback is *not* unreachable, and the very next bullet
+  said why without the connection being made. `required()` is
+  `isset() && !== ''`, so `"first_name": "  "` **passes** it; `fromBody()` then
+  trims to empty and assigns `Pending-<phone>`. One input shape reaches it, and
+  the regression now asserts the stored name rather than only the 201 — the
+  earlier version submitted exactly that body and checked only the status,
+  which is how an invariant that the same decision contradicts two bullets
+  later survived being written down.
 - `required()` rejects `""` but not `"  "` — it is `isset() && !== ''`, not a
   trim. `register_company.php` is the exception and trims first, because it
   rebuilds the array it validates.
@@ -1930,3 +1937,80 @@ history, so a finding that contradicts an accepted decision is more likely to
 have found a *stale or ambiguous decision* than a wrong implementation — which
 is what happened with F-27, `#9` and `#10`, where the artifacts were the thing
 that changed.
+
+## D-139: Fourth review round — three defects, one corrected decision, one honest limit
+
+**Status:** Accepted
+**Date:** 2026-08-30
+**Context:** The third round's fixes drew five more findings. Four were valid;
+the fifth re-raised a finding already declined with evidence, having read a
+different thread's "Fixed" as covering it.
+
+### Two half-done fixes from the previous round
+
+**`file()` never got the treatment `field()` did.** Round three normalized
+dot-and-space field names on the `$_POST` lookup and left `$_FILES` on an exact
+`getFile(name)`. PHP normalizes both, so a part named `commercial.reg` is
+`$_FILES['commercial_reg']` there and was null here — and on
+`complete_company_registration.php` that means the logo is stored and *then*
+the request is rejected for a missing commercial register. An orphaned file and
+a misleading error, from a fix that stopped one method short. Both lookups now
+follow the same rule, which is the entire point of them living in one class.
+
+**`required()` ran in the wrong order.** `confirm_phone_change.php` checks all
+three fields in a single call — `[PHONE, COUNTRY_CODE, OTP]` — before any
+validation, so a body missing both the phone and the code is told about the
+**phone**. The port checked `otp` first and reported `otp` for that body, which
+sends a compatibility client down the wrong recovery flow.
+
+### A decision that contradicted itself two bullets apart
+
+D-137 stated that `resolve_employee_name_from_body()`'s fallbacks are
+unreachable from `join_company.php`. Only the **splitting** one is. The
+`Pending-<phone>` fallback is reachable, and **the very next bullet of the same
+decision said why**: `required()` is `isset() && !== ''` rather than a trim, so
+`"first_name": "  "` passes the guard and is then trimmed to empty by the
+resolver.
+
+The regression submitted exactly that body and asserted only the 201 — so the
+test that should have caught the false invariant was what let it stand.
+Corrected in three places: the decision, the helper's javadoc, and the test,
+which now asserts the stored `Pending-01000033079` and was falsified by
+disabling the fallback.
+
+This is the second documentation defect this wave (D-136 was the first, in the
+opposite direction). Both were confident prose next to code that disagreed with
+it, and neither would have been caught by a reader looking only at the code or
+only at the docs.
+
+### A test that promised more than it delivered — and still does, now honestly
+
+The cross-company duplicate test used a phone belonging to the same company it
+was joining, so the company-scoped probe answered 400 and the 409 branch was
+never reached: it asserted 400 under a name promising 409. The fixture now
+seeds another company and the test asserts 409.
+
+**Falsifying it produced a better result than the fix.** Disabling
+`employee_phone_exists_globally()` left the test green, because
+`employees.phone` is *globally* UNIQUE — the INSERT then fails and the
+duplicate-entry catch answers with the same status and the same message key.
+The explicit check and the index are redundant for this case and
+indistinguishable over HTTP.
+
+So the test pins the outcome, which is the contract, and cannot pin the branch.
+It now says that, rather than leaving a reader to assume coverage it does not
+have. A companion test covers the branch that *is* distinguishable: the
+company's own phone bypasses both global checks.
+
+### The re-raised finding
+
+The fifth asked again for `join_company.php` to persist `country_code`, reading
+another thread's "Fixed" as having covered it. That "Fixed" was round one's
+`forgot_password.php` defect, where the port genuinely discarded a value PHP
+carries. This route is the opposite: PHP's INSERT names nine columns and
+`country_code` is not among them. Declined again with the column list, and
+R-019 already records the legacy defect with a regression.
+
+The fixture gained a `phone_countries` seed in the process — the frozen dump
+ships that table empty, so without a `+966` row the non-default-country case
+resolved to `+20` and the regression tested nothing.

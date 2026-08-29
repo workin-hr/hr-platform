@@ -488,7 +488,10 @@ public class LegacyProfileService {
 	/**
 	 * {@code profile/confirm_phone_change.php}.
 	 *
-	 * <p>The same five checks, then the OTP, then the write. Note what the
+	 * <p>{@code required($body, [PHONE, COUNTRY_CODE, OTP])} is a single call
+	 * over three fields and runs before any of them is validated, so its order
+	 * decides which missing field a half-empty body is told about. Then the
+	 * same five checks, then the OTP, then the write. Note what the
 	 * write does beyond the phone: it sets {@code otp_verified = 1}, so a
 	 * company that had never verified its original number becomes verified by
 	 * changing it. And the OTP is cleared <b>after</b> the update, so a failure
@@ -499,7 +502,12 @@ public class LegacyProfileService {
 	public Map<String, Object> confirmPhoneChange(LegacyRequestContext context, Map<String, Object> body) {
 		requireCompanySession(context);
 		requestGuard.requireCompanyActive(context.companyId());
-		required(body, "otp");
+		// One required() call over three fields, in PHP's order -- phone,
+		// country_code, otp -- so a body missing both the phone and the code
+		// reports the *phone*. Checking `otp` first, as an earlier draft did,
+		// reported `otp` for that body and sent a compatibility client down the
+		// wrong recovery flow.
+		required(body, "phone", "country_code", "otp");
 		String[] resolved = validatedNewCompanyPhone(context.companyId(), body);
 
 		if (otpService.verifyLatestForPhone(resolved[0], body.get("otp")) == null) {

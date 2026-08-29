@@ -52,6 +52,17 @@ public final class LegacyEmployeeName {
 	 * fall back to splitting {@code name}. The third gives an unnamed applicant
 	 * the literal first name {@code "Pending-<phone>"}, which is why a join
 	 * request always has something to display.
+	 *
+	 * <h2>Which of these {@code join_company.php} can actually reach</h2>
+	 * <p>That endpoint calls {@code required($body, [FIRST_NAME, ...])} first,
+	 * so a body supplying only {@code name} never gets here — the
+	 * <b>splitting</b> fallback is unreachable from it. The
+	 * {@code Pending-<phone>} fallback <b>is</b> reachable, by exactly one
+	 * input shape: {@code required()} is {@code isset() && !== ''} rather than
+	 * a trim, so {@code "first_name": "  "} passes the guard and is trimmed to
+	 * empty here. {@code aFullNameFallback...} asserts the stored name for that
+	 * body, because the distinction is one bullet wide and was documented
+	 * wrongly once already.
 	 */
 	public static Name fromBody(Map<String, Object> body, String phoneFallback) {
 		String first = trimmed(body, "first_name");
