@@ -74,9 +74,10 @@ else
     echo "Usage: $0 <pull-request-number>" >&2
     exit 2
   fi
-  # shellcheck disable=SC2016 -- $owner/$repo/$pr below are GraphQL variables
-  # bound by the -F flags, not shell expansions. They must reach the server
-  # literally, so the single quotes are the point.
+  # The $owner, $repo and $pr inside the single-quoted query below are GraphQL
+  # variables bound by the -F flags, not shell expansions. They must reach the
+  # server literally, so the single quotes are the point and SC2016 is noise.
+  # shellcheck disable=SC2016
   THREADS_JSON="$(gh api graphql -F pr="$PR_NUMBER" -F owner=:owner -F repo=:repo -f query='
     query($owner: String!, $repo: String!, $pr: Int!) {
       repository(owner: $owner, name: $repo) {
