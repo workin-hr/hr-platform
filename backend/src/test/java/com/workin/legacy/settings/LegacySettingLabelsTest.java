@@ -45,6 +45,21 @@ class LegacySettingLabelsTest {
 				.isEqualTo("English");
 	}
 
+	/**
+	 * The emptiness test uses PHP's trim set, which is narrower than Java's. A
+	 * form feed (0x0C) survives {@code trim()} in PHP, so a label consisting of
+	 * one is <b>non-blank</b> and is returned unchanged -- where Java's
+	 * {@code String.trim()} would have emptied it into the fallback.
+	 */
+	@Test
+	void aFormFeedOnlyLabelIsNonBlankToPhpAndIsReturned() {
+		assertThat(LegacySettingLabels.pick("ar", "\f", "English", "the_key"))
+				.isEqualTo("\f");
+		assertThat("\f".trim())
+				.as("and this is what Java's trim would have done instead")
+				.isEmpty();
+	}
+
 	/** A chosen label is returned untrimmed -- only the emptiness test trims. */
 	@Test
 	void aChosenLabelKeepsItsSurroundingWhitespace() {

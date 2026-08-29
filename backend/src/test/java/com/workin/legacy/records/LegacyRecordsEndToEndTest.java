@@ -295,6 +295,26 @@ class LegacyRecordsEndToEndTest {
 		assertThat(listShaped).as("a JSON array converts the same way")
 				.containsEntry("asset_text", "Array");
 
+		// PDO binds with PARAM_STR, so PHP's own string conversion applies:
+		// false is "", true is "1", and a number keeps its digits. Measured
+		// against a real MariaDB PDO probe on the sibling `name` path.
+		assertThat((Map<String, Object>) data(send(ASSET_UPDATE + "?id=1", HttpMethod.PUT,
+				token(ADMIN, "company_admin"), "{\"asset_text\":false}")))
+				.as("false persists as the empty string, not 0")
+				.containsEntry("asset_text", "");
+		assertThat((Map<String, Object>) data(send(ASSET_UPDATE + "?id=1", HttpMethod.PUT,
+				token(ADMIN, "company_admin"), "{\"asset_text\":true}")))
+				.containsEntry("asset_text", "1");
+		assertThat((Map<String, Object>) data(send(ASSET_UPDATE + "?id=1", HttpMethod.PUT,
+				token(ADMIN, "company_admin"), "{\"asset_text\":42}")))
+				.containsEntry("asset_text", "42");
+
+		// null is the exception: PDO binds PARAM_NULL rather than converting,
+		// so a nullable column really goes NULL instead of empty string.
+		assertThat((Map<String, Object>) data(send(ASSET_UPDATE + "?id=1", HttpMethod.PUT,
+				token(ADMIN, "company_admin"), "{\"returned_at\":null}")))
+				.containsEntry("returned_at", null);
+
 		// Restore, so the ordered tests after this one read the seeded value.
 		data(send(ASSET_UPDATE + "?id=1", HttpMethod.PUT, token(ADMIN, "company_admin"),
 				"{\"asset_text\":\"Laptop\"}"));

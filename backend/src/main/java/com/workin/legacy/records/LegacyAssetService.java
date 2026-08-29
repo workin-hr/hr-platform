@@ -20,10 +20,20 @@ import com.workin.legacy.wire.LegacyApiException;
  * <p>Deliberate on legacy's part or not, it is the module's recorded
  * inconsistency (completion plan §2.2), and the bounded C3/C8 pass found a
  * client that relies on it: the desktop sidebar hides Assets behind
- * {@code HrPermissionFlag.assets} while the server enforces nothing, so any
- * authenticated user in the company can call {@code create}, {@code update} and
- * {@code delete} directly. The port reproduces that under D-058 and D-130
- * records it as an accepted risk rather than leaving it to be rediscovered.
+ * {@code HrPermissionFlag.assets} while the server enforces nothing.
+ *
+ * <p><b>Scope, precisely.</b> The three write routes are
+ * {@code requireAuth([COMPANY_ADMIN, HR])}, so MANAGER and EMPLOYEE sessions
+ * are refused with 403. What is unenforced is only the narrower flag: an
+ * <b>admin or HR user whose {@code can_assets} is unset</b> is hidden the
+ * screen by the client and served by the server. A privilege gap <em>within</em>
+ * an already-privileged role, not open access -- and the difference matters,
+ * because code written against the wider claim would grant MANAGER and EMPLOYEE
+ * a mutation capability legacy does not give them.
+ *
+ * <p>The port reproduces this under D-058; D-130 records the decision and
+ * R-010 the residual risk, and the underlying legacy gap is tracked upstream as
+ * {@code hr-legacy#8}.
  *
  * <h2>{@code list} admits EMPLOYEE; {@code one} does not</h2>
  * <p>An employee may page their own custody records but cannot fetch one by id
@@ -158,6 +168,10 @@ public class LegacyAssetService {
 				assignments.add("`" + field + "`=?");
 				// PDO binds a scalar unchanged and converts an array/object to the
 				// literal "Array"; only that second case needs coercing here.
+				// is_returned is normalized by PHP itself before the whitelist runs
+				// (`filter_var(..., FILTER_VALIDATE_BOOLEAN) ? 1 : 0`), so the
+				// value PDO binds is already an int. Every other field is handed
+				// over untouched and takes PDO's own string conversion.
 				values.add("is_returned".equals(field)
 						? (LegacyValues.toPhpFilterBoolean(body.get(field)) ? 1 : 0)
 						: LegacyValues.toPdoBindValue(body.get(field)));
