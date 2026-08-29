@@ -8,6 +8,7 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 
 import com.workin.legacy.LegacyPagination;
+import com.workin.legacy.LegacyPublicRow;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.employees.LegacyEmployeeStore;
@@ -112,7 +113,9 @@ public class LegacyJoinRequestService {
 				"employee_join_accepted",
 				message(locale, "notif_employee_join_accepted_title"),
 				message(locale, "notif_employee_join_accepted_body"));
-		return updated;
+		// public_row($updated): this row came from SELECT * over employees, so
+		// it carries password_hash and token_version until they are stripped.
+		return LegacyPublicRow.of(updated);
 	}
 
 	/**
@@ -136,7 +139,8 @@ public class LegacyJoinRequestService {
 				"employee", id);
 
 		store.deleteEmployee(id, companyId);
-		return pending;
+		// public_row($deleted) -- the snapshot is a full employee row too.
+		return LegacyPublicRow.of(pending);
 	}
 
 	/** {@code join_request_is_pending()}. */

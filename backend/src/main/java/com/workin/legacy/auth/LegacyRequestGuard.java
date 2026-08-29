@@ -64,11 +64,25 @@ public class LegacyRequestGuard {
 	 * anonymous submissions and attaches the employee and company only when a
 	 * caller happens to be signed in.
 	 *
-	 * <p><b>A token that is present is still fully validated.</b> PHP follows
-	 * {@code getAuth()} with {@code requireEmployeeSessionValid($auth)}, so a
-	 * revoked or stale token is rejected rather than silently treated as
-	 * anonymous -- which is the difference between "optional auth" and "auth
-	 * you can bypass by sending a bad token".
+	 * <h2>Where the boundary actually is</h2>
+	 * <p>PHP's {@code getAuth()} ends in {@code jwtDecode()}, which returns
+	 * {@code null} for a malformed token, a bad signature, or an expired
+	 * {@code exp} ({@code functions.php:435-453}). {@code if ($auth = getAuth())}
+	 * is then false and the request proceeds <b>anonymously</b>. So an
+	 * unusable token is not an error on this route in legacy, and it is not one
+	 * here either -- the filter clears the context and this method returns
+	 * null, which is the same outcome.
+	 *
+	 * <p>What <em>is</em> still enforced is the check that runs <b>after</b> a
+	 * successful decode: PHP follows {@code getAuth()} with
+	 * {@code requireEmployeeSessionValid($auth)}, so a validly-signed token
+	 * whose {@code token_version} has been bumped is <b>rejected with 401</b>
+	 * rather than downgraded to anonymous. {@link #requireSessionValid} is
+	 * called below for exactly that reason.
+	 *
+	 * <p>The distinction matters and is easy to state backwards: a token that
+	 * cannot be decoded is invisible, while a token that decodes but has been
+	 * revoked is refused.
 	 */
 	public LegacyRequestContext optionalAuth() {
 		if (SecurityContextHolder.getContext().getAuthentication() == null

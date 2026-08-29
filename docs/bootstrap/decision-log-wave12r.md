@@ -1116,9 +1116,13 @@ which is tagged `source = 'company_support'` while the list filters
 Whether that is a defect or a deliberate inbox read outside the API is the open
 question C3-a raised. **It is not filed upstream on this evidence** — unlike
 hr-legacy #31, #32 and #33, where the code contradicts itself on its own terms.
-The owner's decision was to port as-is and ask later, and the questions the
-route does raise — rate limiting, spam, PII retention on an anonymous public
-write — are recorded here rather than answered. `LegacyPhpRoutes` now says
+The owner's decision was to port as-is and ask later. The questions the route
+does raise — rate limiting, spam, PII retention on an anonymous public write —
+are recorded in their **owning registers**, not only here:
+`docs/bootstrap/open-questions.md` holds the questions themselves and
+**R-011** holds the exposure, with an owner, a trigger and a contingency. A
+decision log entry that leaves questions open without registering them makes
+the authoritative open-question and risk views silently incomplete. `LegacyPhpRoutes` now says
 explicitly that the data argument covering the other five public routes does
 **not** cover this one.
 

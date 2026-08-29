@@ -185,3 +185,20 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Status | Open — accepted residual, non-blocking for Phase 1. Recorded rather than mitigated. |
 | Evidence | `hr-legacy@d113204` `apis/api/assets/*.php` — no `require_hr_permission()` call in any of the five files; `requireAuth([COMPANY_ADMIN, HR])` on `create`/`update`/`delete`. Client: `workin_desktop/lib/presentation/layouts/main/controllers/main_desktop_provider.dart:82`. Discovery: `docs/migration/2026-08-29-c3-c8-bounded-discovery.md`. Decision: D-130. Upstream: `hr-legacy#8`. |
 | Last Reviewed | 2026-08-29 |
+
+## R-011: An Unauthenticated, Unthrottled Public Write Accepts And Stores PII
+
+| Field | Value |
+|---|---|
+| Description | `complaints/create.php` accepts a complaint with **no authentication**, stores the caller-supplied `name`, `phone` and `message`, and applies **no rate limit, throttle or spam control** of any kind. When no token is present the row is written with `company_id = NULL` and `employee_id = NULL`. The Phase-1 Java port reproduces this faithfully (D-058, D-132). |
+| Category | Security / Abuse / Data protection |
+| Probability | Moderate. It requires only that someone find the route; it is reachable from the public internet with a single POST and no credential. |
+| Impact | Moderate. Three distinct exposures, none of them catastrophic on its own: **(1) unbounded writes** — no cooldown or cap, unlike the OTP endpoints which have both, so the table is an open write target; **(2) unowned PII** — a name and phone number with no `company_id`, so no tenant-scoped deletion or subject-access path reaches it; **(3) invisibility** — `list.php` filters `company_id = ?`, so anonymous rows are unreadable through the API and accumulate unnoticed. No existing data is exposed and no tenant boundary is crossed. |
+| Severity | Moderate |
+| Owner | Repository owner. Ported as-is by explicit decision on 2026-08-29 (D-132); the open questions are recorded in `docs/bootstrap/open-questions.md`. |
+| Mitigation | **None applied in Phase 1, deliberately.** Adding a rate limit or a retention rule in Java alone would diverge from legacy, which is what this phase exists to prevent. The change belongs in legacy first and the port second. What is applied is visibility: the route is called out explicitly in `LegacyPhpRoutes` as the only public entry that mutates, so it cannot be mistaken for the read-only public routes beside it. |
+| Trigger | Growth in `complaints` rows with `company_id IS NULL`; any abuse report naming the endpoint; or a data-protection request that cannot be satisfied because a row has no owning tenant. |
+| Contingency | Rate limiting has an existing pattern to copy — `otp_assert_can_send()`'s per-phone cooldown and per-phone/per-IP hourly caps. Retention needs a decision first (see open questions), since deleting rows nothing can currently read is a product question, not a technical one. Change legacy first in both cases. |
+| Status | Open — accepted residual, non-blocking for Phase 1. Recorded rather than mitigated. |
+| Evidence | `hr-legacy@d113204` `apis/api/complaints/create.php:21` — `if ($auth = getAuth())`, optional rather than required; no `otp_assert_can_send()` or equivalent anywhere in the file. `apis/api/complaints/list.php:16` — `c.company_id = ?`. Schema: `complaints.company_id` is nullable. Regression: `anAnonymousComplaintIsStoredAndThenUnreachableThroughTheApi` asserts both halves. Decision: D-132. |
+| Last Reviewed | 2026-08-29 |

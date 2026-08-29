@@ -20,12 +20,15 @@ import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MariaDBContainer;
@@ -129,8 +132,48 @@ class LegacyPeopleEndToEndTest {
 				.containsExactly("id", "doc_type", "file_url", "uploaded_at");
 	}
 
+	/**
+	 * {@code employee_docs/upload.php} is multipart, and the only route in this
+	 * wave that is. It was mapped and counted toward the delivered total before
+	 * anything exercised it -- so a mismatch in the field names, the 201, the
+	 * stored row or the {@code doc_type} default could not have failed the
+	 * build. This closes that.
+	 */
 	@Test
 	@Order(3)
+	@SuppressWarnings("unchecked")
+	void uploadingADocumentStoresTheRowAndAnswersTwoZeroOne() {
+		ResponseEntity<Map<String, Object>> response = upload(
+				"passport", "passport.pdf", "%PDF-1.4 fake".getBytes(StandardCharsets.UTF_8));
+
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(201);
+		Map<String, Object> row = (Map<String, Object>) response.getBody().get("data");
+		assertThat(row).containsEntry("doc_type", "passport");
+		assertThat(((Number) row.get("employee_id")).longValue()).isEqualTo(STAFF);
+		assertThat((String) row.get("file_url")).endsWith(".pdf");
+
+		assertThat(countRows("SELECT COUNT(*) FROM employee_docs WHERE employee_id=" + STAFF
+				+ " AND doc_type='passport'"))
+				.as("the row is really persisted, not just echoed back")
+				.isEqualTo(1);
+	}
+
+	/** {@code $_POST['doc_type'] ?? 'other'} -- absent means the literal "other". */
+	@Test
+	@Order(4)
+	@SuppressWarnings("unchecked")
+	void anUploadWithNoDocTypeDefaultsToOther() {
+		// A real PNG signature: uploadFile() sniffs the content type rather than
+		// trusting the extension, so arbitrary bytes named .png are rejected.
+		ResponseEntity<Map<String, Object>> response = upload(null, "scan.png", PNG_BYTES);
+
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(201);
+		assertThat((Map<String, Object>) response.getBody().get("data"))
+				.containsEntry("doc_type", "other");
+	}
+
+	@Test
+	@Order(5)
 	void aDocumentOfAnotherCompanysEmployeeIsNotFound() {
 		assertThat(send(DOC_DELETE + "?id=99", HttpMethod.DELETE, token(ADMIN, "company_admin"), null)
 				.getStatusCode().value()).isEqualTo(404);
@@ -143,7 +186,7 @@ class LegacyPeopleEndToEndTest {
 	 * {@code company_id}, and no company's list can then return it.
 	 */
 	@Test
-	@Order(4)
+	@Order(6)
 	@SuppressWarnings("unchecked")
 	void anAnonymousComplaintIsStoredAndThenUnreachableThroughTheApi() {
 		assertThat(send(COMPLAINT_CREATE, HttpMethod.POST, null,
@@ -165,7 +208,7 @@ class LegacyPeopleEndToEndTest {
 
 	/** An authenticated admin's own submission is tagged {@code company_support} and also hidden. */
 	@Test
-	@Order(5)
+	@Order(7)
 	@SuppressWarnings("unchecked")
 	void anAdminsOwnComplaintIsTaggedCompanySupportAndExcludedFromTheList() {
 		send(COMPLAINT_CREATE, HttpMethod.POST, token(ADMIN, "company_admin"),
@@ -180,7 +223,7 @@ class LegacyPeopleEndToEndTest {
 
 	/** The status filter is applied by default, and {@code all} is the escape hatch. */
 	@Test
-	@Order(6)
+	@Order(8)
 	@SuppressWarnings("unchecked")
 	void theComplaintsListFiltersToPendingUnlessAllIsAsked() {
 		List<Map<String, Object>> byDefault = (List<Map<String, Object>>) data(
@@ -198,7 +241,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(7)
+	@Order(9)
 	@SuppressWarnings("unchecked")
 	void updatingAComplaintAcceptsReplyStatusOrBothAndRejectsNeither() {
 		Map<String, Object> replied = (Map<String, Object>) data(send(COMPLAINT_UPDATE + "?id=1",
@@ -223,7 +266,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(8)
+	@Order(10)
 	void complaintsUseInvalidIdWhereTheRestOfTheWaveUsesFieldRequired() {
 		ResponseEntity<Map<String, Object>> response =
 				send(COMPLAINT_DELETE, HttpMethod.DELETE, token(ADMIN, "company_admin"), null);
@@ -236,7 +279,7 @@ class LegacyPeopleEndToEndTest {
 	// ---------------- company_join_requests ----------------
 
 	@Test
-	@Order(9)
+	@Order(11)
 	@SuppressWarnings("unchecked")
 	void theJoinRequestListDefaultsToPendingAndCarriesFiveColumns() {
 		List<Map<String, Object>> rows = (List<Map<String, Object>>) data(
@@ -254,7 +297,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(10)
+	@Order(12)
 	@SuppressWarnings("unchecked")
 	void acceptingFlipsTheStatusAndActivatesTheEmployee() {
 		Map<String, Object> accepted = (Map<String, Object>) data(send(
@@ -269,7 +312,7 @@ class LegacyPeopleEndToEndTest {
 
 	/** Accept has no pendingness check, so an already-accepted request succeeds again. */
 	@Test
-	@Order(11)
+	@Order(13)
 	void acceptingAnAlreadyAcceptedRequestSucceedsAndRenotifies() {
 		assertThat(send(JOIN_ACCEPT + "?id=" + ACCEPTED_JOIN, HttpMethod.POST,
 				token(ADMIN, "company_admin"), null).getStatusCode().value())
@@ -283,7 +326,7 @@ class LegacyPeopleEndToEndTest {
 	 * It is not the inverse of accept.
 	 */
 	@Test
-	@Order(12)
+	@Order(14)
 	void rejectingDeletesTheProvisionalEmployeeRowRatherThanMarkingIt() {
 		assertThat(send(JOIN_REJECT + "?id=" + BLANK_STATUS_JOIN, HttpMethod.POST,
 				token(ADMIN, "company_admin"), null).getStatusCode().value())
@@ -296,7 +339,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(13)
+	@Order(15)
 	void rejectingAnAcceptedRequestIsNotFound() {
 		assertThat(send(JOIN_REJECT + "?id=" + ACCEPTED_JOIN, HttpMethod.POST,
 				token(ADMIN, "company_admin"), null).getStatusCode().value())
@@ -305,7 +348,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(14)
+	@Order(16)
 	void everyRouteChecksItsMethodFirst() {
 		assertThat(send(DOC_LIST, HttpMethod.POST, null, null).getStatusCode().value()).isEqualTo(405);
 		assertThat(send(COMPLAINT_CREATE, HttpMethod.GET, null, null).getStatusCode().value())
@@ -339,6 +382,33 @@ class LegacyPeopleEndToEndTest {
 	private String token(long employeeId, String role) {
 		return jwtService.issueAccessToken(employeeId, employeeId, COMPANY, "test-session",
 				Map.of("role", role, "token_version", 1L));
+	}
+
+	/** The eight-byte PNG signature, enough for a content-type sniff to accept. */
+	private static final byte[] PNG_BYTES = {
+		(byte) 0x89, 'P', 'N', 'G', '\r', '\n', (byte) 0x1a, '\n',
+		0, 0, 0, 13, 'I', 'H', 'D', 'R',
+	};
+
+	private ResponseEntity<Map<String, Object>> upload(String docType, String filename, byte[] body) {
+		MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
+		form.add("employee_id", String.valueOf(STAFF));
+		if (docType != null) {
+			form.add("doc_type", docType);
+		}
+		form.add("file", new ByteArrayResource(body) {
+			@Override
+			public String getFilename() {
+				return filename;
+			}
+		});
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(token(ADMIN, "company_admin"));
+		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+		return restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + "/apis/api/employee_docs/upload.php"),
+				HttpMethod.POST, new HttpEntity<>(form, headers),
+				new ParameterizedTypeReference<Map<String, Object>>() { });
 	}
 
 	private static long countRows(String sql) {

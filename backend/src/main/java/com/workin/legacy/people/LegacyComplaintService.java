@@ -64,7 +64,13 @@ public class LegacyComplaintService {
 		Long companyId = null;
 		String source = EMPLOYEE_SOURCE;
 		if (context != null) {
-			employeeId = context.employeeId();
+			// A company-type token carries no employee identity and
+			// LegacyRequestContext reports 0 for it. complaints.employee_id is a
+			// foreign key to employees.id, so storing 0 would fail the
+			// constraint outright -- PHP stores NULL, because
+			// `isset($auth[EMPLOYEE_ID]) ? (int) ... : null` never produces a
+			// zero for a token that has no employee id at all.
+			employeeId = context.employeeId() > 0 ? context.employeeId() : null;
 			companyId = context.companyId();
 			// An admin or HR submitting through the same endpoint is tagged
 			// differently, which is what later separates support tickets from
