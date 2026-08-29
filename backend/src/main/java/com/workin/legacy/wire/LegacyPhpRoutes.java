@@ -29,20 +29,28 @@ package com.workin.legacy.wire;
  * (active company), plus the tenant re-derivation behind
  * {@code LegacyRequestContext#companyId()}.
  *
- * <h2>Five entries are unauthenticated in legacy itself</h2>
+ * <h2>Six entries are unauthenticated in legacy itself</h2>
  * <p>{@code auth/login_employee.php}, {@code configs/get.php},
- * {@code phone_countries/list.php}, {@code app_content/one.php} and
- * {@code setting_allowed_values/list.php} are listed
- * for a different reason from every other entry: their PHP calls no
+ * {@code phone_countries/list.php}, {@code app_content/one.php},
+ * {@code setting_allowed_values/list.php} and {@code complaints/create.php}
+ * are listed for a different reason from every other entry: their PHP calls no
  * {@code requireAuth()} at all, so there is no guard order for the controller
  * to reproduce -- the endpoint is public in legacy and must stay public here
  * (D-111). Each performs its own PHP method validation first.
  *
- * <p>All five are safe to expose for the same kind of reason, which is about
- * the <em>data</em> rather than the routing: a login handler, global
+ * <p>Five of the six are safe to expose for the same kind of reason, which is
+ * about the <em>data</em> rather than the routing: a login handler, global
  * operational configuration, the dial-code reference list, pre-login
  * marketing/legal copy, and the platform's allowed-value catalogue. None reads
  * company or personal data.
+ *
+ * <p><b>{@code complaints/create.php} is the exception, and that argument does
+ * not cover it.</b> It is the only public entry that <em>writes</em>: it
+ * persists a caller-supplied name, phone and message from an anonymous source.
+ * Rate limiting, spam and PII retention are live questions for it that do not
+ * arise for the other five, and they are recorded in D-132 rather than
+ * answered. It is listed because legacy requires no authentication, not because
+ * exposing a write is comfortable.
  *
  * <p>{@code setting_allowed_values/list.php} is the odd one and the asymmetry
  * is legacy's: the values catalogue is world-readable while
@@ -111,6 +119,9 @@ public final class LegacyPhpRoutes {
 		"/apis/api/assets/**",
 		"/apis/api/administrative_decisions/**",
 		"/apis/api/workforce_planning/**",
+		"/apis/api/employee_docs/**",
+		"/apis/api/complaints/**",
+		"/apis/api/company_join_requests/**",
 	};
 
 	private LegacyPhpRoutes() {

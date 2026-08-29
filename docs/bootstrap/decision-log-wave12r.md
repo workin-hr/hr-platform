@@ -1014,3 +1014,97 @@ Writing a defect down does not close it, and this one is open.
 147/4/1 → **154/4/1**. Live total 198 unchanged.
 
 Evidence: `./gradlew check` — **2024 tests, 0 failures**, 10 new.
+
+## D-132: Wave 13.4c completes Item 13.4, and ports the public complaints write as-is
+
+**Status:** Accepted 2026-08-29. Owner-approved disposition of the C3/C8 pass's
+`complaints` finding. Completes Item 13.4 (28 endpoints across 13.4a–c).
+
+Eleven endpoints: `employee_docs` (4), `complaints` (4) and
+`company_join_requests` (3).
+
+### `complaints/create.php` is the sixth public route and the first that writes
+
+Auth is optional — `if ($auth = getAuth())` attaches the employee and company
+when a token is present and leaves both null when it is not. That required a new
+`LegacyRequestGuard#optionalAuth()`, written so that **a token which is present
+is still fully validated**: PHP follows `getAuth()` with
+`requireEmployeeSessionValid()`, so a revoked or stale token is rejected rather
+than silently downgraded to anonymous. Optional authentication is not
+authentication you can bypass by sending a bad token.
+
+**An anonymous complaint is written and then unreachable.** It is stored with
+`company_id = NULL`, and `list.php` filters `c.company_id = ?`, so no company's
+list can return it and there is no other read path. The regression asserts both
+halves: the row exists in the table, and it is absent from the list.
+
+The same structural exclusion hits an authenticated **admin's** own submission,
+which is tagged `source = 'company_support'` while the list filters
+`source = 'employee'`. Two different reasons, same outcome: written, invisible.
+
+Whether that is a defect or a deliberate inbox read outside the API is the open
+question C3-a raised. **It is not filed upstream on this evidence** — unlike
+hr-legacy #31, #32 and #33, where the code contradicts itself on its own terms.
+The owner's decision was to port as-is and ask later, and the questions the
+route does raise — rate limiting, spam, PII retention on an anonymous public
+write — are recorded here rather than answered. `LegacyPhpRoutes` now says
+explicitly that the data argument covering the other five public routes does
+**not** cover this one.
+
+### `employee_docs` grants MANAGER a role it does not honour
+
+All four endpoints authenticate `[COMPANY_ADMIN, HR, MANAGER, EMPLOYEE]`, and
+then the scope checks split those roles two different ways:
+
+| Endpoint | Check | MANAGER |
+|---|---|---|
+| `list`, `upload` | `role === EMPLOYEE` | **passes** — may act for any employee in the company |
+| `update`, `delete` | `role not in [ADMIN, HR]` | **blocked** — own documents only |
+
+So a manager can upload a document to another employee's file and then cannot
+update or delete it. Found by the bounded C3/C8 pass (finding C3-b), pinned by a
+regression, because a port that tidied the two checks into one shape would
+change behaviour for exactly the role that sits between them.
+
+`employee_docs` has **no `company_id`** of its own, so every path reaches a row
+only after its owning employee's company has been checked. That ordering is
+enforced in the service and stated in the store, because losing it would make
+the table globally readable.
+
+### Two definitions of "pending" in one module
+
+`company_join_requests/list.php` matches the literal string `'pending'`, while
+`reject.php`'s `join_request_is_pending()` treats an **empty** status as pending
+too. A provisional row with a blank status is therefore **invisible to the list
+and still rejectable through the endpoint beside it**. Asserted, because it
+reads like a fixture bug until you check both helpers.
+
+**Rejection deletes the employee row** so the phone number becomes reusable;
+acceptance only flips two columns. The two are not inverse operations and a
+rejection is not recoverable. `reject.php` also notifies *before* deleting,
+which is the only order that works.
+
+**Accept has no pendingness check**, so accepting an already-accepted request
+succeeds and re-notifies; only `reject` checks.
+
+### Smaller preserved behaviours across the three modules
+
+- `complaints` guards its id with `(int) (... ?? 0)` and a `<= 0` test answering
+  `invalid_id` — not the `required()` / `field_required` pair the rest of the
+  wave uses.
+- `complaints/update.php` reads `reply` with `array_key_exists` (so an empty
+  string **clears** the column) and `status` with `!empty` (so an empty status is
+  silently ignored, making it indistinguishable from supplying nothing).
+- The complaints list filters to `pending` **by default**; `?status=all` is the
+  escape hatch, and an unrecognised status is *wider* than the default.
+- `employee_docs/update.php` is **POST**, not PUT, unlike the rest of Item 13.
+- `doc_type` defaults to the literal `"other"` and is neither trimmed nor
+  validated against any list.
+
+### Ledger after Wave 13.4c
+
+`FINAL_COMPATIBLE` 159 → **170**; `ITEM13_REMAINING` 39 → **28**; partition
+154/4/1 → **165/4/1**. Live total 198 unchanged. **Item 13.4 is complete**; only
+Waves 13.1 (auth, 13) and 13.2 (profile 9 + notifications 6) remain.
+
+Evidence: `./gradlew check` — **2038 tests, 0 failures**, 14 new.

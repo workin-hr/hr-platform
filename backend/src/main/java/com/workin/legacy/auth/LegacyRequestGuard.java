@@ -56,6 +56,37 @@ public class LegacyRequestGuard {
 		return new LegacyRequestContext(employeeId, tenantScope.current(), role);
 	}
 
+	/**
+	 * {@code if ($auth = getAuth())} -- an <b>optional</b> authentication.
+	 *
+	 * <p>Returns null when the request carries no usable token, instead of
+	 * answering 401. Only {@code complaints/create.php} needs this: it accepts
+	 * anonymous submissions and attaches the employee and company only when a
+	 * caller happens to be signed in.
+	 *
+	 * <p><b>A token that is present is still fully validated.</b> PHP follows
+	 * {@code getAuth()} with {@code requireEmployeeSessionValid($auth)}, so a
+	 * revoked or stale token is rejected rather than silently treated as
+	 * anonymous -- which is the difference between "optional auth" and "auth
+	 * you can bypass by sending a bad token".
+	 */
+	public LegacyRequestContext optionalAuth() {
+		if (SecurityContextHolder.getContext().getAuthentication() == null
+				|| !(SecurityContextHolder.getContext().getAuthentication().getPrincipal()
+						instanceof AuthenticatedPrincipal principal)) {
+			return null;
+		}
+		requireSessionValid(principal);
+		if (!tenantScope.isEstablished()) {
+			return null;
+		}
+		long employeeId = principal.legacyAuthType() != null
+				&& !"employee".equals(principal.legacyAuthType())
+				? 0L : (principal.identityId() == null ? 0L : principal.identityId());
+		return new LegacyRequestContext(employeeId, tenantScope.current(),
+				parseRole(principal.claimedRole()));
+	}
+
 	/** PHP requireCompanyActive($company_id). */
 	public void requireCompanyActive(long companyId) {
 		String status = legacyCompanyRepository.findById(companyId)
