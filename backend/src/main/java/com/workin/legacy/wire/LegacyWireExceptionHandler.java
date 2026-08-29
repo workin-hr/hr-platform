@@ -39,6 +39,8 @@ import com.workin.legacy.organization.LegacyBranchController;
 			"com.workin.legacy.records",
 			"com.workin.legacy.planning",
 			"com.workin.legacy.people",
+			"com.workin.legacy.notifications",
+			"com.workin.legacy.profile",
 			"com.workin.legacy.organization.php",
 			"com.workin.legacy.auth.php",
 		},

@@ -117,6 +117,9 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/leave_balances/import_bulk.php", "/apis/api/leave_balances/list.php",
 			"/apis/api/leave_balances/one.php", "/apis/api/leave_balances/stats.php",
 			"/apis/api/leave_balances/template_excel.php", "/apis/api/leave_balances/update.php",
+			"/apis/api/notifications/delete.php", "/apis/api/notifications/list.php",
+			"/apis/api/notifications/mark_read.php", "/apis/api/notifications/one.php",
+			"/apis/api/notifications/send.php", "/apis/api/notifications/unread_count.php",
 			"/apis/api/payroll_batches/calculate.php", "/apis/api/payroll_batches/create.php",
 			"/apis/api/payroll_batches/delete.php", "/apis/api/payroll_batches/finalize.php",
 			"/apis/api/payroll_batches/fiscal_period.php", "/apis/api/payroll_batches/list.php",
@@ -130,6 +133,10 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/penalties/list.php", "/apis/api/penalties/one.php",
 			"/apis/api/penalties/report.php", "/apis/api/penalties/stats.php",
 			"/apis/api/penalties/update.php",
+			"/apis/api/profile/change_password.php", "/apis/api/profile/company.php",
+			"/apis/api/profile/delete_account.php", "/apis/api/profile/delete_account_preview.php",
+			"/apis/api/profile/employee.php", "/apis/api/profile/logout.php",
+			"/apis/api/profile/register_push_token.php",
 			"/apis/api/request_types/create.php", "/apis/api/request_types/delete.php",
 			"/apis/api/request_types/list.php", "/apis/api/request_types/one.php",
 			"/apis/api/request_types/update.php",
@@ -171,8 +178,8 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void deliveredRouteCountIsNowOneHundredSeventy() {
-		assertThat(EXPECTED_ROUTES).hasSize(170).doesNotHaveDuplicates();
+	void deliveredRouteCountIsNowOneHundredEightyThree() {
+		assertThat(EXPECTED_ROUTES).hasSize(183).doesNotHaveDuplicates();
 	}
 
 	/**
@@ -250,8 +257,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(CONDITIONAL_ROUTES).hasSize(1);
 		assertThat(EXPECTED_ROUTES).containsAll(DOWNLOAD_ONLY_ROUTES).containsAll(CONDITIONAL_ROUTES);
 		assertThat(EXPECTED_ROUTES.size() - DOWNLOAD_ONLY_ROUTES.size() - CONDITIONAL_ROUTES.size())
-				.as("envelope-only routes, per the completion plan's 165/4/1 partition")
-				.isEqualTo(165);
+				.as("envelope-only routes, per the completion plan's 178/4/1 partition")
+				.isEqualTo(178);
 	}
 
 	@Test

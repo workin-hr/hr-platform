@@ -159,3 +159,36 @@ what that decision deliberately left open.
 These are recorded here rather than answered because Phase 1's contract is
 parity and none of them changes the port. They become live at the point someone
 decides the legacy contract should change.
+
+## Push Token Registration (`profile/register_push_token.php`, R-013)
+
+Wave 13.2 ported this route and it **cannot succeed**. The endpoint inserts
+into `push_tokens (employee_id, company_id, token, platform)` with
+`ON DUPLICATE KEY UPDATE`, and the frozen table has neither a `company_id`
+column nor any unique key. Every call is a database error, and the port
+reproduces that (D-058) rather than repairing the statement.
+
+Nothing depends on it today — push does not work end to end (F-08), mobile's
+call is commented out, the ETL drops the table — so this is recorded, not
+fixed. Three questions have to be answered before it can be:
+
+1. **Has production drifted from the dump?** The dump is the frozen evidence
+   and it says the column does not exist. If production has it, the dump is
+   stale for this table and the ETL inventory needs re-checking too. Answering
+   this needs one read-only `SHOW CREATE TABLE push_tokens` against production,
+   which requires explicit per-task authorization and has not been requested.
+2. **Is a company-owned push token intended?** The endpoint clearly means one:
+   it selects the owner column by auth type and leaves the other NULL. But
+   `sendPushToEmployee()` only ever looks tokens up by `employee_id`, so a
+   company-owned row would be written and never read. Either the write is
+   wrong or the read is incomplete — the code does not say which.
+3. **What is the upsert key?** `ON DUPLICATE KEY UPDATE` needs a unique key
+   that does not exist. `UNIQUE(token)` means one device belongs to one
+   account and re-registering moves it; `UNIQUE(employee_id, token)` means one
+   device may serve several accounts. Those are different products, and the
+   `logout.php` delete (`token = ? AND employee_id = ?`) reads as though the
+   second were intended.
+
+These belong with `hr-platform#22`, which owns push delivery, rather than being
+answered separately: fixing the table without the delivery half would leave the
+same dead route with a different failure mode.

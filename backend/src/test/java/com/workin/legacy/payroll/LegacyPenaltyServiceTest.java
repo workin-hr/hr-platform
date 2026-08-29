@@ -143,6 +143,6 @@ class LegacyPenaltyServiceTest {
 	}
 
 	private static LegacyRequestContext context(long employeeId, LegacyEmployee.Role role) {
-		return new LegacyRequestContext(employeeId, 17L, role);
+		return new LegacyRequestContext(employeeId, 17L, role, "employee");
 	}
 }
