@@ -102,12 +102,28 @@ public class LegacyRegistrationController {
 						postTrimmed(request, "main_branch_address"),
 						postLong(request, "company_title_id"),
 						postLong(request, "company_activity_id"),
-						postLong(request, "company_size_id"),
-						fileUploads.store(LegacyPostFields.file(request, "logo"), "logos"),
-						fileUploads.store(LegacyPostFields.file(request, "commercial_reg"), "commercial"));
+						postLong(request, "company_size_id"));
+
+		// Suppliers, not values: uploadFile() writes to disk, and PHP does not
+		// reach it until every gate above has passed. Java evaluates arguments
+		// eagerly, so passing the stored URLs here would store both files for a
+		// request that is about to be rejected.
+		LegacyRegistrationService.UploadedFiles uploads =
+				new LegacyRegistrationService.UploadedFiles() {
+					@Override
+					public String logoUrl() {
+						return fileUploads.store(LegacyPostFields.file(request, "logo"), "logos");
+					}
+
+					@Override
+					public String commercialRegUrl() {
+						return fileUploads.store(
+								LegacyPostFields.file(request, "commercial_reg"), "commercial");
+					}
+				};
 
 		Map<String, Object> data =
-				service.completeRegistration(input, messages.resolveLocale(request));
+				service.completeRegistration(input, uploads, messages.resolveLocale(request));
 
 		// R-016: the token is minted from the caller-supplied company_id.
 		Map<String, Object> payload = new LinkedHashMap<>(data);

@@ -1772,3 +1772,81 @@ port defects were both in the same shape of code — a value quietly re-derived
 instead of carried, and a standard-library call that does more than the PHP
 function it replaces — which is the shape a second reader catches and an author
 does not.
+
+## D-137: Second review round on Wave 13.1 — four more defects, and the "complete" ambiguity
+
+**Status:** Accepted
+**Date:** 2026-08-29
+**Context:** The 13.1b push drew a second round of six findings. Four were
+defects in the port; two were the same artifact-conflict shape as D-136's F-27
+finding, and together they exposed a real ambiguity in how this repository's
+ledger is read.
+
+### Four defects, three of them locale- or platform-shaped
+
+**Uploads ran before every gate.** `complete_company_registration.php` reaches
+`uploadFile()` only after the scalar checks, the company lookup and both state
+gates. The port passed the stored URLs as **constructor arguments**, and Java
+evaluates arguments eagerly — so a public request naming `company_id=0` wrote
+both files to disk and then returned 400. That is a divergence from the order
+this class's own javadoc documents, *and* a cheap way for an unauthenticated
+caller to accumulate orphaned files. Fixed by passing an `UploadedFiles`
+supplier invoked in PHP's position. The regression asserts the **file count**,
+not just the status: four rejections above the uploads, and not one byte
+written.
+
+Note the shape: for the second time in this wave, the code contradicted a
+comment that described the correct behaviour. The comment was right and the
+code was wrong; in D-136's case it was the reverse. Both were caught by a
+reader comparing the two.
+
+**`toUpperCase()` is not `strtoupper()`.** `company_code_normalize()` is
+byte-wise and touches only `a-z`. Java's applies Unicode folding, and some
+foldings lengthen the string: `"abcß1"` becomes `"ABCSS1"` in Java and stays
+`"abcß1"` in PHP. So Java would turn input PHP **rejects** into a valid code
+that might match a real company's. Replaced with ASCII-only folding.
+
+**`String.format("%04d")` is locale-dependent.** Under a default locale with
+non-ASCII digits — `ar_EG` among them, which is not a hypothetical for this
+product — it renders 7 as `٠٠٠٧`. That value would be stored and delivered, and
+a client submitting the ordinary `0007` could never verify it. Every OTP in the
+system would silently stop working on a host configured that way. `Locale.ROOT`
+now, with a comment saying why it is load-bearing.
+
+**Multipart field names skipped PHP's normalization.** `LegacyPostFields`
+normalized dots and spaces on the urlencoded branch and used an exact
+`getPart(name)` on the multipart one — so a part named `company.name`, which
+PHP sees as `$_POST['company_name']`, was invisible. Both branches now iterate
+and match on the normalized name.
+
+### The ambiguity worth fixing once
+
+Two P1s said, in effect: *the matrix declares this module's cutover blocked, and
+you are marking it complete.* Both were right about the conflict and neither was
+right that the port should change.
+
+`#9` (the onboarding endpoint's guessable `company_id`) and `#10` (no rate
+limiting on OTP verification) are **legacy defects the ports faithfully
+reproduce**. Fixing either in Java alone would make the two systems answer
+differently for the same request — the divergence Phase 1 exists to prevent.
+
+The real problem was that `FINAL_COMPATIBLE` was being read as "cutover-ready",
+and nothing said otherwise. The completion plan now states plainly that it
+counts endpoints reproducing the frozen PHP and **nothing more**, lists the four
+rows that remain cutover blockers over delivered endpoints (`#8`, `#9`, `#10`,
+`F-27`), and says a parity port neither satisfies nor waives any of them. Rows
+`#9` and `#10` carry the same statement from their side.
+
+Two reviewers reaching the same wrong conclusion from the same document is a
+documentation defect, not two reviewer errors.
+
+### R-018
+
+`#10`'s defect is now characterised precisely enough to be actionable, and it is
+more serious than "no rate limiting" conveys: the issuance limiter guards only
+issuance, so an unauthenticated caller can submit all 10,000 four-digit values
+against an active code — and `verify_otp.php` with `purpose=password_reset`
+deliberately leaves a correct guess **active** for `reset_password.php` to
+consume. A successful brute force is therefore directly usable to set a password
+the attacker chooses. Recorded as **R-018**, Critical, with the ten-minute
+expiry noted as the only real limit.

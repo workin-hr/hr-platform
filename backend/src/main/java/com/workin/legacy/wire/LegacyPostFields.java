@@ -64,14 +64,29 @@ public final class LegacyPostFields {
 		String contentType = request.getContentType();
 		if (contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("multipart/form-data")) {
 			try {
-				Part part = request.getPart(name);
-				// A part carrying a filename is a FILE. PHP puts those in $_FILES
-				// and never in $_POST, so reading its bytes as a form value would
-				// accept input legacy does not see.
-				if (part == null || part.getSubmittedFileName() != null) {
+				// getPart(name) is an exact-name lookup, which would skip PHP's
+				// external-variable normalization -- a part named `company.name`
+				// is $_POST['company_name'] in PHP and would be invisible here.
+				// The parts are iterated and matched on the normalized name
+				// instead, exactly as the urlencoded branch below does. PHP keeps
+				// the last duplicate, so the last match wins.
+				Part matched = null;
+				for (Part part : request.getParts()) {
+					if (!normalizeFieldName(part.getName()).equals(name)) {
+						continue;
+					}
+					// A part carrying a filename is a FILE. PHP puts those in
+					// $_FILES and never in $_POST, so reading its bytes as a form
+					// value would accept input legacy does not see.
+					if (part.getSubmittedFileName() != null) {
+						continue;
+					}
+					matched = part;
+				}
+				if (matched == null) {
 					return null;
 				}
-				try (InputStream in = part.getInputStream()) {
+				try (InputStream in = matched.getInputStream()) {
 					return new String(in.readAllBytes(), StandardCharsets.UTF_8);
 				}
 			} catch (Exception ex) {

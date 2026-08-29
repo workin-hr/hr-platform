@@ -248,11 +248,31 @@ public class LegacyRegistrationService {
 
 	// ---------------- complete_company_registration.php ----------------
 
-	/** The multipart inputs {@code complete_company_registration.php} reads from {@code $_POST}. */
+	/** The scalar {@code $_POST} inputs of {@code complete_company_registration.php}. */
 	public record CompleteRegistrationInput(
 			long companyId, String companyCode, String companyName, String firstName, String lastName,
-			String mainBranchAddress, long companyTitleId, long companyActivityId, long companySizeId,
-			String logoUrl, String commercialRegUrl) {
+			String mainBranchAddress, long companyTitleId, long companyActivityId, long companySizeId) {
+	}
+
+	/**
+	 * The two {@code uploadFile()} calls, deferred.
+	 *
+	 * <p>They must not run until the scalar checks, the company lookup and both
+	 * state gates have passed, because {@code uploadFile()} <b>writes to
+	 * disk</b> and PHP reaches it only at that point in the file. Passing the
+	 * stored URLs in as constructor arguments -- which is what an earlier draft
+	 * did -- inverts that: Java evaluates arguments before the call, so a public
+	 * request naming {@code company_id=0} would permanently store both files and
+	 * then return 400. That is a divergence from the ported order and a cheap way
+	 * for an unauthenticated caller to accumulate orphaned files, so the calls
+	 * are passed as suppliers and invoked in PHP's position.
+	 */
+	public interface UploadedFiles {
+		/** {@code uploadFile(LOGO, LOGOS)}; null when nothing was uploaded. */
+		String logoUrl();
+
+		/** {@code uploadFile('commercial_reg', COMMERCIAL)}; null when nothing was uploaded. */
+		String commercialRegUrl();
 	}
 
 	/**
@@ -269,11 +289,16 @@ public class LegacyRegistrationService {
 	 * <p>The validation order is fully observable and preserved: the six
 	 * required scalars first (each naming its own field), then the optional
 	 * code's shape and uniqueness, then the company row, then the two state
-	 * gates, then <b>the uploads</b>, and only then the three foreign keys. So
-	 * a request with a bad {@code company_title_id} still uploads both files
-	 * before being rejected, leaving them on disk.
+	 * gates, then <b>the uploads</b>, and only then the three foreign keys.
+	 *
+	 * <p>Two consequences of that order, both legacy's. A request rejected by
+	 * any gate <em>above</em> the uploads writes no file at all -- which is why
+	 * {@link UploadedFiles} is a supplier rather than a value. And a request
+	 * with a bad {@code company_title_id} is rejected <em>below</em> them, so it
+	 * does store both files and leave them orphaned.
 	 */
-	public Map<String, Object> completeRegistration(CompleteRegistrationInput input, String locale) {
+	public Map<String, Object> completeRegistration(
+			CompleteRegistrationInput input, UploadedFiles uploads, String locale) {
 		if (input.companyId() <= 0) {
 			throw fieldRequired("company_id");
 		}
@@ -313,10 +338,14 @@ public class LegacyRegistrationService {
 			throw new LegacyApiException(400, "nothing_to_update");
 		}
 
-		if (input.logoUrl() == null) {
+		// Only now are the files written -- PHP's own position for these two
+		// calls, after every gate above.
+		String logoUrl = uploads.logoUrl();
+		String commercialRegUrl = uploads.commercialRegUrl();
+		if (logoUrl == null) {
 			throw new LegacyApiException(400, "no_file_uploaded");
 		}
-		if (input.commercialRegUrl() == null) {
+		if (commercialRegUrl == null) {
 			throw fieldRequired("commercial_reg");
 		}
 
@@ -345,8 +374,8 @@ public class LegacyRegistrationService {
 		assign(assignments, binds, "company_title_id", input.companyTitleId());
 		assign(assignments, binds, "company_activity_id", input.companyActivityId());
 		assign(assignments, binds, "company_size_id", input.companySizeId());
-		assign(assignments, binds, "logo_url", input.logoUrl());
-		assign(assignments, binds, "commercial_reg_url", input.commercialRegUrl());
+		assign(assignments, binds, "logo_url", logoUrl);
+		assign(assignments, binds, "commercial_reg_url", commercialRegUrl);
 		assign(assignments, binds, "profile_completed", 1);
 
 		store.completeRegistration(assignments, binds, input.companyId());

@@ -1,6 +1,5 @@
 package com.workin.legacy.auth.registration;
 
-import java.util.Locale;
 import java.util.regex.Pattern;
 
 import com.workin.legacy.LegacyValues;
@@ -23,10 +22,25 @@ public final class LegacyCompanyCode {
 	private LegacyCompanyCode() {
 	}
 
-	/** {@code company_code_normalize()}. */
+	/**
+	 * {@code company_code_normalize()}: {@code strtoupper(trim($code))}.
+	 *
+	 * <p>{@code strtoupper()} is <b>byte-wise</b> and touches only {@code a-z}.
+	 * {@link String#toUpperCase} is not: it applies Unicode case folding, and
+	 * some of those foldings <em>lengthen</em> the string. {@code "abcß1"}
+	 * upper-cases to {@code "ABCSS1"} in Java and stays {@code "abcß1"} in PHP
+	 * -- so Java would turn input PHP rejects into a valid code that may match
+	 * a real company's, while PHP simply fails validation. Folding only the
+	 * ASCII range is the faithful and the safe choice at once.
+	 */
 	public static String normalize(Object code) {
-		return LegacyValues.phpTrim(code == null ? "" : LegacyValues.toPhpString(code))
-				.toUpperCase(Locale.ROOT);
+		String trimmed = LegacyValues.phpTrim(code == null ? "" : LegacyValues.toPhpString(code));
+		StringBuilder out = new StringBuilder(trimmed.length());
+		for (int i = 0; i < trimmed.length(); i++) {
+			char c = trimmed.charAt(i);
+			out.append(c >= 'a' && c <= 'z' ? (char) (c - 32) : c);
+		}
+		return out.toString();
 	}
 
 	/**

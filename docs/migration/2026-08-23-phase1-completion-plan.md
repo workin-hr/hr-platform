@@ -460,6 +460,21 @@ after C9 (§6) corrected `attendance/overall_report.php`'s classification. The
 live total and the one-row exclusion list are **unchanged** from the original
 table; only the distribution across buckets has moved.
 
+**What `FINAL_COMPATIBLE` counts, and what it does not.** It counts endpoints
+whose Java implementation faithfully reproduces the frozen PHP — nothing more.
+It is **not** a statement that a module is ready to cut over. Several delivered
+endpoints reproduce legacy defects that remain explicit cutover blockers in
+`docs/migration/consolidated-task-matrix.md`: `#9` (the onboarding endpoint's
+guessable `company_id`, R-016), `#10` (no rate limiting on OTP verification,
+R-018), `#8` (the `hr_permissions` gap, R-010), and `F-27` (password minimums).
+A parity port neither satisfies nor waives any of them — closing them requires
+the upstream change and its port, because a Java-only fix would make the two
+systems answer differently for the same request, which is the divergence Phase 1
+exists to prevent.
+
+Two independent-review findings on Wave 13.1 read "complete" as "cutover-ready",
+which is why this paragraph is here rather than implied.
+
 | Status | Endpoints | What it covers |
 |---|---|---|
 | `FINAL_COMPATIBLE` | **198** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(198)`). Waves 12.4 through 12.10, the Wave 12.R retrofit, Wave 12.6.6's two attendance endpoints, Wave 12.9's `payslips/export.php`, **Item 13.0's `configs/get.php`** — the first endpoint delivered outside Item 12 — **Item 13.5's five reference endpoints**, **Wave 13.3's eight settings endpoints**, **Wave 13.4a's ten records endpoints**, **Wave 13.4b's seven workforce-planning endpoints**, **Wave 13.4c's eleven people endpoints, which complete Item 13.4**, **Wave 13.2's six `notifications` endpoints plus seven of the nine `profile` endpoints**, **Wave 13.1a's four public OTP endpoints plus the two `profile` phone-change routes**, and **Wave 13.1b's nine account-lifecycle `auth` endpoints, which complete Item 13**. |

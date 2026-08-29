@@ -566,10 +566,24 @@ class LegacyRegistrationEndToEndTest {
 				.isEqualTo(1);
 	}
 
-	/** Its two state gates, and the fact that they run after the scalar checks. */
+	/**
+	 * Its two state gates, the fact that they run after the scalar checks --
+	 * and that <b>nothing is written to disk</b> until all of them pass.
+	 *
+	 * <p>PHP reaches {@code uploadFile()} only after the company row and both
+	 * state gates, so a request rejected above them stores no file. Java
+	 * evaluates arguments eagerly, so an earlier draft that passed the stored
+	 * URLs as constructor arguments wrote both files for every one of these
+	 * four rejections -- a divergence from the ported order, and a way for an
+	 * unauthenticated caller to accumulate orphaned files. The file count is
+	 * asserted, not just the status.
+	 */
 	@Test
 	@Order(21)
-	void completeRegistrationChecksItsScalarsBeforeTheCompany() {
+	void completeRegistrationChecksItsScalarsBeforeTheCompanyAndWritesNoFileUntilTheyPass()
+			throws Exception {
+		long before = uploadedFileCount();
+
 		assertThat(completeRegistration(0L, "").getStatusCode().value())
 				.as("company_id is checked first, before the row is even fetched")
 				.isEqualTo(400);
@@ -580,6 +594,10 @@ class LegacyRegistrationEndToEndTest {
 		assertThat(completeRegistration(ACTIVE_COMPANY, "").getStatusCode().value())
 				.as("profile_completed = 1 already")
 				.isEqualTo(400);
+
+		assertThat(uploadedFileCount())
+				.as("four rejections above the uploads, and not one byte written")
+				.isEqualTo(before);
 	}
 
 	/** An optional code must still be valid and unique when supplied. */
@@ -617,6 +635,16 @@ class LegacyRegistrationEndToEndTest {
 				URI.create(restTemplate.getRootUri() + "/apis/api/auth/complete_company_registration.php"),
 				HttpMethod.POST, new HttpEntity<>(form, headers),
 				new ParameterizedTypeReference<Map<String, Object>>() { });
+	}
+
+	/** Every file under the temp upload root, both subdirectories included. */
+	private static long uploadedFileCount() throws Exception {
+		if (!java.nio.file.Files.exists(UPLOAD_DIR)) {
+			return 0;
+		}
+		try (var paths = java.nio.file.Files.walk(UPLOAD_DIR)) {
+			return paths.filter(java.nio.file.Files::isRegularFile).count();
+		}
 	}
 
 	/** A real PNG signature -- the uploader sniffs bytes, not the declared type. */

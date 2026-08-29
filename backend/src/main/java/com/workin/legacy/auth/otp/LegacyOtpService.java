@@ -1,6 +1,7 @@
 package com.workin.legacy.auth.otp;
 
 import java.security.SecureRandom;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 
@@ -70,7 +71,12 @@ public class LegacyOtpService {
 	 * rate limiter is for.
 	 */
 	static String generateCode() {
-		return String.format("%04d", RANDOM.nextInt(10000));
+		// Locale.ROOT is load-bearing, not decoration: under a default locale
+		// with non-ASCII digits (ar_EG among them) String.format would render
+		// 7 as "٠٠٠٧". That value would be stored and delivered, and a client
+		// submitting the ordinary "0007" could never verify it. PHP's integer
+		// conversion and str_pad always produce ASCII.
+		return String.format(Locale.ROOT, "%04d", RANDOM.nextInt(10000));
 	}
 
 	/**
