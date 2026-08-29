@@ -782,8 +782,8 @@ implementation.
 
 **Status:** Accepted 2026-08-29. Continues D-128's risk-last ordering.
 
-Eight endpoints over the EAV settings model: the five `company_settings`
-routes, plus `setting_definitions/list.php` and
+Eight endpoints over the EAV settings model: the six `company_settings`
+routes -- `list`, `one`, `options`, `create`, `update`, `delete` -- plus `setting_definitions/list.php` and
 `setting_allowed_values/list.php`. D-4 had flagged `company_settings` as
 schema-incompatible with the existing Phase-2 entity (EAV against five typed
 columns); this wave ports the **legacy** shape, which is the EAV one, and does
@@ -793,7 +793,7 @@ not touch that entity.
 
 | Endpoint(s) | Requires |
 |---|---|
-| the five `company_settings` routes | COMPANY_ADMIN/HR **+** `can_company_settings` **+** active company |
+| the six `company_settings` routes | COMPANY_ADMIN/HR **+** `can_company_settings` **+** active company |
 | `setting_definitions/list.php` | COMPANY_ADMIN/HR only — no permission gate, no company-active check |
 | `setting_allowed_values/list.php` | **nothing** |
 
@@ -855,6 +855,34 @@ back on it and the wire handler renders the carried status.
 - **`pick_label` crosses languages before it reaches the fallback**, and null
   and blank are different inputs: a *null* `label_ar` skips to `label_en`, while
   a *blank* one is chosen, trims to empty, and lands on the setting key.
+
+### Two defects the review found in this wave's port
+
+Both were caught by Codex on #139 and are worth recording, because neither is
+visible in a single-threaded test.
+
+**The permission refusal sent a message key instead of a message.**
+`LegacyHrPermissionEnforcer` threw the platform's `ApiException` with
+`error.forbidden`. `LegacyMessages` loads only `legacy/lang/*.properties`, which
+defines `forbidden` and has no `error.` namespace at all, and its lookup falls
+back to returning the key unchanged — so clients received the literal string
+`"error.forbidden"` where PHP's `fail(LangKey::FORBIDDEN, 403)` sends
+`"Forbidden"`. **This affected every already-delivered legacy endpoint that
+gates on a permission**, not only this wave's, so the fix is at the enforcer.
+
+**`SELECT LAST_INSERT_ID()` is not a port of `PDO::lastInsertId()`.** PHP holds
+one connection per request; a `JdbcTemplate` borrows one per call. The insert
+and the id read could therefore run on *different* pooled connections, and
+`LAST_INSERT_ID()` is session-scoped — so under concurrency the second call
+returns another request's id, or `0` on a connection that has inserted nothing.
+The caller then re-reads "its" row by that id, which is how a lost id becomes a
+response carrying **another tenant's** row.
+
+It is invisible single-threaded and invisible inside a transaction, which pins
+one connection — which is exactly why it survives review. `LegacyGeneratedKeys`
+now asks JDBC for the key the insert statement itself generated, so there is no
+second round trip to misroute, and a twelve-thread regression asserts every
+caller reads back its own row. Reverting to the two-call form fails both cases.
 
 ### Ledger after Wave 13.3
 

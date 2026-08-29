@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Properties;
 
-import com.workin.backend.i18n.ApiException;
+import com.workin.legacy.wire.LegacyApiException;
 import com.workin.backend.security.AuthenticatedPrincipal;
 import com.workin.legacy.AbstractLegacyMySqlTest;
 import com.zaxxer.hikari.HikariDataSource;
@@ -135,13 +135,28 @@ class LegacyHrPermissionEnforcerTest extends AbstractLegacyMySqlTest {
 		assertThatCode(() -> require(LegacyHrPermissionKey.CAN_DASHBOARD)).doesNotThrowAnyException();
 	}
 
+	/**
+	 * The refusal carries <b>legacy's</b> {@code forbidden} key, not the
+	 * platform's {@code error.forbidden}.
+	 *
+	 * <p>The distinction is on the wire, not internal:
+	 * {@code LegacyMessages} loads only {@code legacy/lang/*.properties}, which
+	 * defines {@code forbidden} and has no {@code error.} namespace, and its
+	 * lookup falls back to returning the key unchanged. Throwing the platform
+	 * exception here therefore sent clients the literal string
+	 * {@code "error.forbidden"} where PHP's {@code fail(LangKey::FORBIDDEN, 403)}
+	 * sends {@code "Forbidden"} -- on every legacy endpoint that gates on a
+	 * permission.
+	 */
 	@Test
-	void anEmployeeWithTheFlagUnsetIsForbidden() {
+	void anEmployeeWithTheFlagUnsetIsForbiddenWithLegacysMessageKey() {
 		authenticateAs(10011L);
 		assertThatThrownBy(() -> require(LegacyHrPermissionKey.CAN_PAYROLL))
-				.isInstanceOf(ApiException.class)
-				.extracting(ex -> ((ApiException) ex).getStatus())
-				.isEqualTo(HttpStatus.FORBIDDEN);
+				.isInstanceOf(LegacyApiException.class)
+				.satisfies(ex -> {
+					assertThat(((LegacyApiException) ex).getStatus()).isEqualTo(403);
+					assertThat(((LegacyApiException) ex).getMessageKey()).isEqualTo("forbidden");
+				});
 	}
 
 	/**
@@ -152,14 +167,14 @@ class LegacyHrPermissionEnforcerTest extends AbstractLegacyMySqlTest {
 	void anEmployeeWithNoHrPermissionsRowAtAllIsDeniedByDefault() {
 		authenticateAs(10012L);
 		assertThatThrownBy(() -> require(LegacyHrPermissionKey.CAN_DASHBOARD))
-				.isInstanceOf(ApiException.class);
+				.isInstanceOf(LegacyApiException.class);
 	}
 
 	@Test
 	void noAuthenticatedPrincipalAtAllIsDeniedByDefault() {
 		assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
 		assertThatThrownBy(() -> require(LegacyHrPermissionKey.CAN_DASHBOARD))
-				.isInstanceOf(ApiException.class);
+				.isInstanceOf(LegacyApiException.class);
 	}
 
 }

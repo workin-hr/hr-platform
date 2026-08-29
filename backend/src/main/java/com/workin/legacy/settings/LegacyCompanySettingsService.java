@@ -1,6 +1,7 @@
 package com.workin.legacy.settings;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -125,7 +126,13 @@ public class LegacyCompanySettingsService {
 		return out;
 	}
 
-	/** {@code create.php} -- 201, and {@code already_exists} rather than an upsert. */
+	/**
+	 * {@code create.php} -- 201, and {@code already_exists} rather than an upsert.
+	 *
+	 * <p>Wrapped by {@link #persisting} so a genuine persistence failure -- two
+	 * concurrent creates racing on the unique key, say -- answers legacy's
+	 * {@code error_with_message} rather than D-084's generic 500.
+	 */
 	@Transactional(transactionManager = "legacyTransactionManager")
 	public Map<String, Object> create(
 			long companyId, Long definitionId, String settingKey, Object rawValues, String locale) {
@@ -140,9 +147,11 @@ public class LegacyCompanySettingsService {
 			throw new LegacyApiException(400, "already_exists");
 		}
 
-		long companySettingId = store.insertCompanySetting(companyId, definition.id());
-		writeValues(definition.id(), companySettingId, values);
-		return itemWithParentLookup(companyId, definition, locale);
+		return persisting(() -> {
+			long companySettingId = store.insertCompanySetting(companyId, definition.id());
+			writeValues(definition.id(), companySettingId, values);
+			return itemWithParentLookup(companyId, definition, locale);
+		});
 	}
 
 	/**
@@ -163,27 +172,32 @@ public class LegacyCompanySettingsService {
 			throw new LegacyApiException(404, "not_found");
 		}
 		List<String> values = normalizeValues(rawValues, definition);
-		long companySettingId = store.companySettingId(companyId, definition.id());
 
 		if (values.isEmpty()) {
-			if (companySettingId > 0) {
-				store.deleteCompanySetting(companySettingId, companyId);
-			}
-			return itemWithParentLookup(companyId, definition, locale);
+			return persisting(() -> {
+				long existing = store.companySettingId(companyId, definition.id());
+				if (existing > 0) {
+					store.deleteCompanySetting(existing, companyId);
+				}
+				return itemWithParentLookup(companyId, definition, locale);
+			});
 		}
 
 		Map<String, Long> allowed = requireAllowed(definition.id(), values);
 
-		if (companySettingId <= 0) {
-			companySettingId = store.insertCompanySetting(companyId, definition.id());
-		} else {
-			store.touchCompanySetting(companySettingId, companyId);
-		}
-		store.deleteCompanySettingValues(companySettingId);
-		for (String value : values) {
-			store.insertCompanySettingValue(companySettingId, allowed.get(value));
-		}
-		return itemWithParentLookup(companyId, definition, locale);
+		return persisting(() -> {
+			long target = store.companySettingId(companyId, definition.id());
+			if (target <= 0) {
+				target = store.insertCompanySetting(companyId, definition.id());
+			} else {
+				store.touchCompanySetting(target, companyId);
+			}
+			store.deleteCompanySettingValues(target);
+			for (String value : values) {
+				store.insertCompanySettingValue(target, allowed.get(value));
+			}
+			return itemWithParentLookup(companyId, definition, locale);
+		});
 	}
 
 	/**
@@ -282,6 +296,35 @@ public class LegacyCompanySettingsService {
 				locale, definition, companySettingId, updatedAt, options, selected);
 	}
 
+	/**
+	 * PHP's {@code catch (Throwable $e) { rollBack(); fail(ERROR_WITH_MESSAGE, 500, ...) }}.
+	 *
+	 * <p>A {@link LegacyApiException} passes straight through, because
+	 * {@code fail()} ends in {@code exit} and so never reaches that catch -- a
+	 * rejected value stays the 400 the validation raised. Anything else is a
+	 * genuine persistence failure, and legacy answers those with its own keyed
+	 * contract carrying the exception text rather than a generic 500.
+	 *
+	 * <p>The wrapper still throws, so Spring rolls the transaction back exactly
+	 * as PDO's shutdown rollback does.
+	 *
+	 * <p>It does put an exception message on the wire. That is legacy's
+	 * behaviour ({@code ['message' => $e->getMessage()]}) and is reproduced
+	 * rather than sanitised, because a client parsing that field today would
+	 * otherwise watch it vanish. A Phase-1 parity obligation, not a pattern to
+	 * copy into new code.
+	 */
+	private <T> T persisting(java.util.function.Supplier<T> work) {
+		try {
+			return work.get();
+		} catch (LegacyApiException ex) {
+			throw ex;
+		} catch (RuntimeException ex) {
+			throw new LegacyApiException(500, "error_with_message", null,
+					Map.of("message", String.valueOf(ex.getMessage())));
+		}
+	}
+
 	/** The id wins over the key whenever it is positive. */
 	private long resolveDefinition(Long definitionId, String settingKey) {
 		long id = definitionId == null ? 0L : definitionId;
@@ -311,15 +354,22 @@ public class LegacyCompanySettingsService {
 			throw new LegacyApiException(400, "field_required", null, Map.of("field", "values"));
 		}
 		LinkedHashSet<String> values = new LinkedHashSet<>();
-		if (rawValues instanceof List<?> list) {
-			for (Object entry : list) {
-				String text = LegacyValues.toPhpString(entry).trim();
+		// `is_array($raw_values)` is true for a JSON *object* as well as an
+		// array, because json_decode(..., true) produces an associative array
+		// for both. So {"a":"dark"} iterates to ["dark"], where treating only a
+		// List as array-like would stringify the map to "Array" and reject it.
+		// LegacyValues.phpArrayValues() is the repository's existing answer to
+		// exactly this.
+		Collection<?> asArray = LegacyValues.phpArrayValues(rawValues);
+		if (asArray != null) {
+			for (Object entry : asArray) {
+				String text = LegacyValues.phpTrim(LegacyValues.toPhpString(entry));
 				if (!text.isEmpty()) {
 					values.add(text);
 				}
 			}
 		} else {
-			String text = LegacyValues.toPhpString(rawValues).trim();
+			String text = LegacyValues.phpTrim(LegacyValues.toPhpString(rawValues));
 			if (!text.isEmpty()) {
 				values.add(text);
 			}

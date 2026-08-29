@@ -1,6 +1,8 @@
 package com.workin.legacy.authorization;
 
 import org.springframework.http.HttpStatus;
+
+import com.workin.legacy.wire.LegacyApiException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
@@ -58,14 +60,25 @@ public class LegacyHrPermissionEnforcer {
 	}
 
 	/**
-	 * @throws ApiException 403 ({@link MessageKeys#ERROR_FORBIDDEN}) if
-	 *         the authenticated employee lacks {@code key}, has no
-	 *         {@code hr_permissions} row, or there is no authenticated
-	 *         legacy principal at all
+	 * {@code require_hr_permission($auth, $key)}, which ends in
+	 * {@code fail(LangKey::FORBIDDEN, 403)}.
+	 *
+	 * <p><b>The message key is legacy's {@code forbidden}, not the platform's
+	 * {@code error.forbidden}.</b> The two are not interchangeable on a legacy
+	 * route: {@code LegacyMessages} loads only {@code legacy/lang/*.properties},
+	 * which defines {@code forbidden} and has no {@code error.} namespace at
+	 * all, and its lookup falls back to returning the key itself. Throwing the
+	 * platform exception here therefore sent clients the literal string
+	 * {@code "error.forbidden"} where PHP sends {@code "Forbidden"} -- on every
+	 * legacy endpoint that gates on a permission, not only the newest ones.
+	 *
+	 * @throws LegacyApiException 403 {@code forbidden} if the authenticated
+	 *         employee lacks {@code key}, has no {@code hr_permissions} row, or
+	 *         there is no authenticated legacy principal at all
 	 */
 	public void require(LegacyHrPermissionKey key) {
 		if (!hasPermission(key)) {
-			throw new ApiException(HttpStatus.FORBIDDEN, MessageKeys.ERROR_FORBIDDEN);
+			throw new LegacyApiException(403, "forbidden");
 		}
 	}
 
