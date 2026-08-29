@@ -14,7 +14,8 @@ import java.util.concurrent.Future;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import org.testcontainers.containers.MariaDBContainer;
 
 /**
@@ -23,8 +24,12 @@ import org.testcontainers.containers.MariaDBContainer;
  * <p>The concurrency case is the point. {@code SELECT LAST_INSERT_ID()} issued
  * as a second {@link JdbcTemplate} call borrows a second connection, and the
  * value is session-scoped -- so under load it returns another inserter's id or
- * zero. This test runs both approaches side by side against a real pool so the
- * difference is measured rather than argued.
+ * zero.
+ *
+ * <p>Both approaches run against the <b>same real Hikari pool</b>, so the
+ * difference is measured rather than argued: the helper's case asserts every
+ * caller reads back its own row, and the two-call case asserts that the old
+ * implementation does not.
  */
 class LegacyGeneratedKeysTest {
 
@@ -34,9 +39,19 @@ class LegacyGeneratedKeysTest {
 
 	static {
 		MARIADB.start();
-		DriverManagerDataSource dataSource = new DriverManagerDataSource(
-				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-		jdbcTemplate = new JdbcTemplate(dataSource);
+		// A REAL pool, deliberately. DriverManagerDataSource opens a fresh
+		// connection per operation, so the old two-call form would always meet a
+		// virgin session and return 0 -- the failure would show, but for the
+		// wrong reason, and it would not demonstrate the misrouting that happens
+		// in production. A small Hikari pool makes connections genuinely
+		// reusable, so a second statement can land on one another thread just
+		// inserted through.
+		HikariConfig config = new HikariConfig();
+		config.setJdbcUrl(MARIADB.getJdbcUrl());
+		config.setUsername(MARIADB.getUsername());
+		config.setPassword(MARIADB.getPassword());
+		config.setMaximumPoolSize(4);
+		jdbcTemplate = new JdbcTemplate(new HikariDataSource(config));
 		try (Connection connection = DriverManager.getConnection(
 				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
 				Statement st = connection.createStatement()) {
@@ -91,6 +106,52 @@ class LegacyGeneratedKeysTest {
 				results.add(future.get());
 			}
 			assertThat(results).as("every caller must read back its own row").containsOnly("ok");
+		} finally {
+			pool.shutdownNow();
+		}
+	}
+
+	/**
+	 * The implementation this helper replaced, run against the same pool.
+	 *
+	 * <p>{@code jdbcTemplate.update(...)} followed by
+	 * {@code queryForObject("SELECT LAST_INSERT_ID()")} borrows two connections.
+	 * The value is session-scoped, so the second returns whatever that
+	 * connection last inserted -- another thread's row, or {@code 0} on one that
+	 * has inserted nothing.
+	 *
+	 * <p>Asserting that failure directly is what makes the fix's claim
+	 * measurable. Without it the suite would only show that the new code works,
+	 * never that the old code did not.
+	 */
+	@Test
+	void theTwoCallFormMisroutesKeysUnderAPool() throws Exception {
+		int threads = 12;
+		ExecutorService pool = Executors.newFixedThreadPool(threads);
+		try {
+			List<Callable<String>> work = new ArrayList<>();
+			for (int i = 0; i < threads; i++) {
+				String tag = "two-call-" + i;
+				work.add(() -> {
+					jdbcTemplate.update("INSERT INTO keyed (tag) VALUES (?)", tag);
+					Long id = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+					if (id == null || id == 0L) {
+						return "lost";
+					}
+					String readBack = jdbcTemplate.queryForObject(
+							"SELECT tag FROM keyed WHERE id = ?", String.class, id);
+					return tag.equals(readBack) ? "ok" : "misrouted";
+				});
+			}
+			List<String> results = new ArrayList<>();
+			for (Future<String> future : pool.invokeAll(work)) {
+				results.add(future.get());
+			}
+			assertThat(results.stream().allMatch("ok"::equals))
+					.as("the two-call form must NOT be reliable -- if this ever comes back all-ok "
+							+ "the pool is not being shared and the comparison above proves nothing "
+							+ "(results: %s)", results)
+					.isFalse();
 		} finally {
 			pool.shutdownNow();
 		}

@@ -545,6 +545,35 @@ create/delete/update, `company_official_holidays` all 5) but not others
 see the new threat-model entry for the full write-up; this inconsistency
 extends well beyond this module group to most of the API.
 
+### `company_settings`, `setting_definitions`, `setting_allowed_values` — Delivered Contracts (Wave 13.3, 2026-08-29, D-129)
+
+Eight endpoints over the EAV settings model, at **three different authority
+levels** — and the third is the surprise.
+
+| Endpoint | Method | Auth | Notes |
+|---|---|---|---|
+| `company_settings/list.php` | GET | ADMIN/HR **+ `can_company_settings`** + active company | Every definition with this company's selections attached. `company_setting_id`/`updated_at` come **only from the selection join**, so a row with no values reports `0`/null. |
+| `company_settings/one.php` | GET | same | Same shape, same join-derived id. |
+| `company_settings/options.php` | GET | same | Two shapes: `?setting_key=` returns `{setting_key, options}` and **echoes an unknown key** with an empty list rather than 404ing; without it, a map of every key ordered by `setting_key` — the only place definitions are not in `sort_order`. |
+| `company_settings/create.php` | POST | same | **201.** `already_exists` (400), not an upsert. `values` may be an array, a JSON **object**, or a **scalar** (wrapped into one element). Non-multi rejects >1; required rejects empty. |
+| `company_settings/update.php` | PUT | same | Upsert. **An empty `values` deletes the setting entirely** — the opposite end state from `create`. Identifier read body-first, then query string. Reports the parent id via a **separate lookup**, so it differs from `one.php` for a valueless row. |
+| `company_settings/delete.php` | DELETE | same | Deleting an unset setting is `ok`, not 404. A **required** definition cannot be deleted; when both identifiers are supplied, requiredness is checked against the **supplied** `setting_definition_id` while the delete uses the **supplied** `id`. |
+| `setting_definitions/list.php` | GET | ADMIN/HR only — **no permission gate, no company-active check** | Paginated `SELECT *` plus `label` and the three description keys. Search matches the key and both labels; a whitespace-only search filters nothing. |
+| `setting_allowed_values/list.php` | GET | **none — unauthenticated** | Requires `setting_definition_id` and 404s an unknown one. `"abc"` passes `required()`, casts to 0, and 404s. |
+
+**The allowed-value catalogue is world-readable while the definitions that name
+those values need an administrative role.** Both tables are platform
+configuration with no `company_id`, so nothing tenant-scoped leaks either way —
+the asymmetry is legacy's and is preserved.
+
+**A write failure answers `error_with_message` (500)**, not a generic error.
+Validation failures never reach that path, because PHP's `fail()` exits before
+the surrounding catch — a rejected value stays the 400 it raised.
+
+**`pick_label` crosses languages before the fallback**, and null is not blank: a
+*null* `label_ar` skips to `label_en`, while a *blank* one is chosen, trims
+empty, and lands on the setting key.
+
 ### `assets` And `administrative_decisions` — Delivered Contracts (Wave 13.4a, 2026-08-29, D-130)
 
 Ten live request/response contracts. The two modules agree on almost nothing,

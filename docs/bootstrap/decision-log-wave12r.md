@@ -997,7 +997,14 @@ rather than only a decision-log paragraph.
 `FINAL_COMPATIBLE` 142 → **152**; `ITEM13_REMAINING` 56 → **46**; partition
 137/4/1 → **147/4/1**. Live total 198 unchanged.
 
-Evidence: `./gradlew check` — **2014 tests, 0 failures**, 14 new. The two
-module-disagreement regressions were falsified by harmonising the boolean rule
-and by dropping the employee row filter; each break was caught by the case
-written for it.
+Evidence: `./gradlew check` — **0 failures**. The two module-disagreement
+regressions were falsified by harmonising the boolean rule and by dropping the
+employee row filter; each break was caught by the case written for it.
+
+**The test count is deliberately not restated here.** An earlier revision said
+"2014 tests, 14 new", which was already wrong when written — the wave added
+sixteen `@Test` methods — and went further out of date with every review round
+that added another regression. A figure that must be re-measured on each push to
+stay true does not belong in a durable decision record; the suite's own output is
+the evidence, and `LegacyPhpRouteInventoryTest` is what pins the delivered
+route count.

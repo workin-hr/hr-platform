@@ -199,8 +199,49 @@ public final class LegacyValues {
 		if (raw instanceof Number number) {
 			return number.doubleValue() == 1.0d;
 		}
-		String value = toPhpString(raw).trim().toLowerCase(java.util.Locale.ROOT);
+		String value = filterVarTrim(toPhpString(raw)).toLowerCase(java.util.Locale.ROOT);
 		return "1".equals(value) || "true".equals(value) || "on".equals(value) || "yes".equals(value);
+	}
+
+	/**
+	 * The whitespace {@code filter_var(..., FILTER_VALIDATE_BOOLEAN)} strips,
+	 * which is a <b>third</b> character set -- not {@link String#trim}'s and not
+	 * {@link #phpTrim}'s.
+	 *
+	 * <p>{@code php_filter_boolean()} skips
+	 * {@code ' '}, {@code \t}, {@code \n}, {@code \r}, {@code \v} and
+	 * {@code \f} from both ends. Compared with the two sets already in this
+	 * class:
+	 *
+	 * <ul>
+	 * <li>it <b>does</b> strip form feed, which {@link #phpTrim} (PHP's
+	 *     {@code trim()}) does not;</li>
+	 * <li>it does <b>not</b> strip NUL, which both {@link #phpTrim} and Java's
+	 *     {@code String.trim()} do.</li>
+	 * </ul>
+	 *
+	 * <p>NUL is therefore the observable divergence: {@code "\0true"} is
+	 * unrecognised by PHP and false, while {@code String.trim()} would strip the
+	 * NUL and make it true. Using either of the other two helpers here would be
+	 * wrong in one direction or the other.
+	 */
+	static String filterVarTrim(String value) {
+		if (value == null) {
+			return "";
+		}
+		int start = 0;
+		int end = value.length();
+		while (start < end && isFilterVarSpace(value.charAt(start))) {
+			start++;
+		}
+		while (end > start && isFilterVarSpace(value.charAt(end - 1))) {
+			end--;
+		}
+		return value.substring(start, end);
+	}
+
+	private static boolean isFilterVarSpace(char c) {
+		return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == 0x0B || c == '\f';
 	}
 
 	/**
