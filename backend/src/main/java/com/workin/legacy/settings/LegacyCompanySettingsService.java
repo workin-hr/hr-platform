@@ -229,7 +229,15 @@ public class LegacyCompanySettingsService {
 		if (resolvedDefinition > 0 && store.definitionIsRequired(resolvedDefinition)) {
 			throw new LegacyApiException(400, "invalid_setting_key");
 		}
-		store.deleteCompanySetting(settingId, companyId);
+		// Through persisting() like create and update: a real database failure
+		// here answers legacy's error_with_message contract rather than D-084's
+		// generic 500. The validation above is untouched -- fail() exits before
+		// PHP's catch, so a rejected value stays the 400 it raised.
+		long target = settingId;
+		persisting(() -> {
+			store.deleteCompanySetting(target, companyId);
+			return null;
+		});
 	}
 
 	// ---- shared helpers ----
@@ -331,7 +339,10 @@ public class LegacyCompanySettingsService {
 		if (id > 0) {
 			return id;
 		}
-		String key = settingKey == null ? "" : settingKey.trim();
+		// LegacyValues.phpTrim, not String.trim: PHP strips only " \t\n\r\0\x0B",
+		// so setting_key=%0C keeps its form feed, reaches the lookup, and answers
+		// not_found -- where a Java trim would empty it into field_required.
+		String key = settingKey == null ? "" : LegacyValues.phpTrim(settingKey);
 		if (key.isEmpty()) {
 			throw new LegacyApiException(400, "field_required", null,
 					Map.of("field", "setting_definition_id"));
@@ -360,9 +371,19 @@ public class LegacyCompanySettingsService {
 		// List as array-like would stringify the map to "Array" and reject it.
 		// LegacyValues.phpArrayValues() is the repository's existing answer to
 		// exactly this.
-		Collection<?> asArray = LegacyValues.phpArrayValues(rawValues);
-		if (asArray != null) {
-			for (Object entry : asArray) {
+		// `is_array($raw_values)` is the branch, and it is true for a JSON object
+		// as well as a JSON array because json_decode(..., true) produces an
+		// associative array for both. A SCALAR takes the else branch and is
+		// wrapped into a one-element list.
+		//
+		// The array-ness is tested directly rather than through
+		// phpArrayValues(), which returns an EMPTY collection for a scalar
+		// rather than null -- so a null check there is always false, the else
+		// branch is unreachable, and {"values":"dark"} silently normalizes to
+		// nothing instead of ["dark"].
+		if (rawValues instanceof Collection<?> || rawValues instanceof Map<?, ?>
+				|| rawValues.getClass().isArray()) {
+			for (Object entry : LegacyValues.phpArrayValues(rawValues)) {
 				String text = LegacyValues.phpTrim(LegacyValues.toPhpString(entry));
 				if (!text.isEmpty()) {
 					values.add(text);
