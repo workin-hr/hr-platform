@@ -156,9 +156,11 @@ public class LegacyAssetService {
 		for (String field : List.of("asset_date", "asset_text", "returned_at", "is_returned")) {
 			if (body.containsKey(field)) {
 				assignments.add("`" + field + "`=?");
+				// PDO binds a scalar unchanged and converts an array/object to the
+				// literal "Array"; only that second case needs coercing here.
 				values.add("is_returned".equals(field)
 						? (LegacyValues.toPhpFilterBoolean(body.get(field)) ? 1 : 0)
-						: body.get(field));
+						: LegacyValues.toPdoBindValue(body.get(field)));
 			}
 		}
 		if (assignments.isEmpty()) {
