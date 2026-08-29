@@ -20,9 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -50,6 +48,7 @@ import com.workin.legacy.auth.whatsapp.LegacyWhatsAppSender;
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
+@Import(RecordingWhatsAppConfiguration.class)
 @ActiveProfiles("phase1-mysql")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class LegacyOtpAuthEndToEndTest {
@@ -74,15 +73,6 @@ class LegacyOtpAuthEndToEndTest {
 	private static final String STAFF_PHONE = "01000310011";
 	private static final String PENDING_PHONE = "01000310012";
 	private static final String PASSWORD = "secret123";
-
-	@TestConfiguration
-	static class Senders {
-		@Bean
-		@Primary
-		LegacyWhatsAppSender recordingWhatsAppSender() {
-			return new RecordingWhatsAppSender();
-		}
-	}
 
 	@Autowired
 	private TestRestTemplate restTemplate;

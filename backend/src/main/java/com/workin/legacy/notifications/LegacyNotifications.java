@@ -153,6 +153,40 @@ public class LegacyNotifications {
 	}
 
 	/**
+	 * {@code notification_ensure_company_onboarding()}
+	 * ({@code helpers/notifications.php:234-251}), called at the end of
+	 * {@code complete_company_registration.php} and of
+	 * {@code login_desktop.php}'s company branch.
+	 *
+	 * <p>Idempotent by <b>query</b>, not by constraint: it looks for an
+	 * existing notification of each type and inserts only when there is none.
+	 * There is no unique index behind that, so two concurrent logins can both
+	 * see nothing and both insert -- legacy has the same race and it is
+	 * harmless (a duplicate welcome message), so it is reproduced rather than
+	 * closed with a constraint the schema does not have.
+	 *
+	 * @param titleAndBody the four already-translated strings, in order:
+	 *        welcome title, welcome body, pending title, pending body
+	 */
+	public void ensureCompanyOnboarding(long companyId, String... titleAndBody) {
+		if (!existsForCompany(companyId, "company_welcome")) {
+			toCompany(companyId, null, "company_welcome", titleAndBody[0], titleAndBody[1]);
+		}
+		if (!existsForCompany(companyId, "company_pending_review")) {
+			toCompany(companyId, null, "company_pending_review", titleAndBody[2], titleAndBody[3]);
+		}
+	}
+
+	/** {@code notification_exists_for_company()}. */
+	private boolean existsForCompany(long companyId, String type) {
+		Long count = jdbcTemplate.queryForObject("""
+				SELECT COUNT(*) FROM notifications
+				WHERE company_id = ? AND recipient_kind = 'company' AND notification_type = ?
+				LIMIT 1""", Long.class, companyId, type);
+		return count != null && count > 0;
+	}
+
+	/**
 	 * {@code notification_to_employee($company_id, $to, $type, $title, $body, $from)}.
 	 *
 	 * @param fromEmployeeId the acting employee; {@code notification_normalize_from()}

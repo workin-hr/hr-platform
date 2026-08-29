@@ -1527,3 +1527,139 @@ delivery still puts the caller in cooldown for a code they never received.
 `FINAL_COMPATIBLE` 183 → **189**; `ITEM13_REMAINING` 15 → **9**; partition
 178/4/1 → **184/4/1**. Live total 198 unchanged. Remaining: Wave 13.1b's nine
 account-lifecycle endpoints.
+
+## D-135: Wave 13.1b completes Item 13 — the nine account-lifecycle `auth` endpoints
+
+**Status:** Accepted
+**Date:** 2026-08-29
+**Context:** Wave 13.1a delivered the OTP layer and the six endpoints built on
+it. The nine that remained are registration, joining and the three logins.
+
+**With this wave `FINAL_COMPATIBLE` reaches 198 — the whole live endpoint
+surface. `ITEM13_REMAINING` is 0.**
+
+### Three ways to find a company by phone, all preserved
+
+`register_company.php`, `register_employee.php` and `login_company.php` match
+the `phone` column **exactly** against the submitted value.
+`join_company.php` and `forgot_password.php` match through
+`phone_sql_match_clause()`, which accepts every stored spelling. The
+consequence is asymmetric and real: a company stored as `+201012345678` can be
+joined and can reset its password, but **cannot log in** unless the client
+sends exactly that string — and a second registration under `01012345678` is
+not detected as a duplicate. Asserted in
+`registerCompanyDuplicateCheckIsExactSoAVariantSlipsThrough`.
+
+### Two endpoints that both mean "join", and only one works
+
+- `register_employee.php` keys off the company's **phone**, writes no
+  `join_request_status` (so the column default makes the employee immediately
+  `accepted`), and writes no `branch_id`.
+- `join_company.php` keys off the public **code**, resolves the company's first
+  active branch, and creates a `pending`, inactive row.
+
+The first **cannot succeed**: `branch_id` is `NOT NULL` with no default, takes
+an implicit `0` under `sql_mode=''`, and `fk_employee_branch` rejects it. Every
+call is a 500. Recorded as **R-017** and asserted. This was found by running
+the port, not by reading it — the first test run returned the constraint
+violation, and the test now pins it.
+
+### R-016: `complete_company_registration.php` hands out a company-admin session
+
+The endpoint is unauthenticated — `grep -c 'requireAuth\|requireCompanyActive\|getAuth'`
+over the file returns **0** — takes `company_id` straight from `$_POST`, and
+returns `jwtEncode([type => company, company_id => <caller-supplied>, role =>
+company_admin])`. Its only gates are that the row exists, `otp_verified = 1`
+and `profile_completed ≠ 1`.
+
+**The threat model rated this Medium on the explicit reasoning that it "does
+not grant login access to the hijacked company".** The token block four lines
+from the end of the file shows that it does. The row was corrected to Critical
+with that evidence, and **R-016** records it. The regression is the proof, not
+a description: it presents no credential, names a company it does not own, and
+then uses the returned token successfully against `profile/company.php`.
+
+Ported in parity form because that is Phase 1's contract. Recording it in three
+places is what makes shipping it a visible decision rather than a silent one.
+
+### The `ALTER TABLE` in `register_company.php` is deliberately not ported
+
+PHP wraps its insert in an `ensureColumn()` helper that runs
+`ALTER TABLE companies ADD COLUMN ...` **at request time, from a public
+unauthenticated endpoint**, and only errors if the column is still missing
+afterwards.
+
+Every column it guards exists in `hr-legacy@d113204`, so all seven gates take
+their early return and the DDL never executes. The branch is unreachable
+against the frozen schema, and running schema migrations from an anonymous HTTP
+request is a line this repository's production standards do not cross. The
+observable half **is** reproduced: the columns are still required and their
+absence would still be an error rather than a silent skip. This is the wave's
+one deliberate divergence and it is recorded here rather than left implicit.
+
+### The two logins disagree in three places
+
+`login_company.php` and `login_desktop.php`'s company branch are almost
+identical and differ exactly here:
+
+| Condition | `login_company.php` | `login_desktop.php` |
+|---|---|---|
+| Unknown phone | 401 `invalid_phone_password` | 401 `company_not_registered` |
+| Wrong password | 401 `invalid_phone_password` | 401 `incorrect_password` |
+| Profile incomplete | 403 `complete_company_profile_first` | **200** with the company and no token |
+| On success | no onboarding notifications | writes the two onboarding notifications |
+
+So desktop tells an anonymous caller whether a phone is registered and mobile
+does not. All four differences are preserved and asserted.
+
+`login_desktop.php`'s HR branch is **HR only** and says so in SQL — `role =
+'hr' AND is_active = 1` — so a company admin with the same phone is
+`user_not_found` 401 there even though `login_employee.php` would admit them.
+It orders `e.id ASC`, oldest first, where every other login path orders newest
+first.
+
+### Smaller preserved behaviours across the nine
+
+- A `pending` company **can** log in; only a status that is neither pending nor
+  active reaches `company_pending_admin`.
+- `check_status.php` answers **200 for all four outcomes** — it routes the
+  client's next screen, it does not guard — and matches the phone exactly, so a
+  differently-formatted number is "not found".
+- `lookup_company.php` falls back to the legacy id only when the code is
+  **empty**; a supplied-but-invalid code is `company_code_invalid` and never
+  falls back. With neither, the error names `company_code`.
+- `complete_company_registration.php` uploads **both files before** validating
+  the three foreign keys, so a bad `company_title_id` still leaves two files on
+  disk. Its three foreign-key checks share one `field_required` with **no field
+  name**, so the client cannot tell which was wrong. And `first_name`/`last_name`
+  are written only when non-empty, so step two cannot blank step one's names.
+- `resolve_employee_name_from_body()`'s `name`-splitting and `Pending-<phone>`
+  fallbacks are **unreachable from `join_company.php`**, because `first_name` is
+  `required()`. Pinned, because the helper is shared and a later caller could
+  reach them.
+- `required()` rejects `""` but not `"  "` — it is `isset() && !== ''`, not a
+  trim. `register_company.php` is the exception and trims first, because it
+  rebuilds the array it validates.
+- `join_company.php`'s duplicate probe is company-scoped and treats `rejected`
+  as absent, so a rejected applicant passes it — and is then stopped by the
+  **global** `UNIQUE KEY phone` on `employees`. That is what the `try/catch`
+  around the INSERT is for, and why the answer is 409 rather than the probe's
+  400. Reproduced including PHP's inspection of the driver message for the word
+  "phone" to choose between two message keys.
+- A caller whose phone **is the company's own** bypasses both global-uniqueness
+  checks, so an owner may create an employee account for themselves.
+- `notification_ensure_company_onboarding()` is idempotent by **query**, not by
+  constraint, so two concurrent logins can both insert. Harmless and preserved.
+
+### Shared rather than copied
+
+`LegacyPeopleController`'s private `$_POST`/`$_FILES` helpers moved to
+`LegacyPostFields`, because `complete_company_registration.php` needs the
+identical rules and PHP has one `$_POST`, not two. A second copy would be free
+to drift while each module's own tests agreed with its own copy.
+
+### Ledger after Wave 13.1b
+
+`FINAL_COMPATIBLE` 189 → **198**; `ITEM13_REMAINING` 9 → **0**; partition
+184/4/1 → **193/4/1**. **Item 13 is complete and every live legacy endpoint is
+delivered.**

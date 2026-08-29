@@ -16,6 +16,7 @@ import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyApiResponse;
 import com.workin.legacy.wire.LegacyMessages;
+import com.workin.legacy.wire.LegacyPostFields;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -124,10 +125,7 @@ public class LegacyPeopleController {
 	 * during argument resolution before {@code requireMethod} has run.
 	 */
 	private static MultipartFile uploadedFile(HttpServletRequest request) {
-		if (request instanceof org.springframework.web.multipart.MultipartHttpServletRequest multipart) {
-			return multipart.getFile("file");
-		}
-		return null;
+		return LegacyPostFields.file(request, "file");
 	}
 
 	/**
@@ -149,74 +147,7 @@ public class LegacyPeopleController {
 	 * body directly and never sees the query string.
 	 */
 	private static String formField(HttpServletRequest request, String name) {
-		String contentType = request.getContentType();
-		if (contentType != null && contentType.toLowerCase(java.util.Locale.ROOT)
-				.startsWith("multipart/form-data")) {
-			try {
-				jakarta.servlet.http.Part part = request.getPart(name);
-				// A part carrying a filename is a FILE. PHP puts those in $_FILES
-				// and never in $_POST, so reading its bytes as a form value would
-				// accept input legacy does not see -- and on this route that input
-				// selects whose record the document lands on.
-				if (part == null || part.getSubmittedFileName() != null) {
-					return null;
-				}
-				try (java.io.InputStream in = part.getInputStream()) {
-					return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-				}
-			} catch (Exception ex) {
-				return null;
-			}
-		}
-
-		// PHP normalizes dots and spaces in external field names, so a body
-		// carrying `doc.type` or `doc type` populates $_POST['doc_type'] and the
-		// required-field guard passes. The servlet container does not, so the
-		// body is matched on the normalized name rather than the raw one.
-		String[] merged = null;
-		int fromQueryString = 0;
-		for (java.util.Map.Entry<String, String[]> entry : request.getParameterMap().entrySet()) {
-			if (!normalizePhpFieldName(entry.getKey()).equals(name)) {
-				continue;
-			}
-			merged = merged == null ? entry.getValue()
-					: concat(merged, entry.getValue());
-			fromQueryString += countInQueryString(request, entry.getKey());
-		}
-		if (merged == null) {
-			return null;
-		}
-		return merged.length <= fromQueryString ? null : merged[merged.length - 1];
-	}
-
-	/** {@code parse_str()}'s external-name normalization: dots and spaces become underscores. */
-	private static String normalizePhpFieldName(String name) {
-		return name.replace('.', '_').replace(' ', '_');
-	}
-
-	private static String[] concat(String[] first, String[] second) {
-		String[] out = java.util.Arrays.copyOf(first, first.length + second.length);
-		System.arraycopy(second, 0, out, first.length, second.length);
-		return out;
-	}
-
-	private static int countInQueryString(HttpServletRequest request, String rawName) {
-		String query = request.getQueryString();
-		if (query == null) {
-			return 0;
-		}
-		int count = 0;
-		for (String pair : query.split("&")) {
-			if (pair.isEmpty()) {
-				continue;
-			}
-			String key = java.net.URLDecoder.decode(pair.split("=", 2)[0],
-					java.nio.charset.StandardCharsets.UTF_8);
-			if (key.equals(rawName)) {
-				count++;
-			}
-		}
-		return count;
+		return LegacyPostFields.field(request, name);
 	}
 
 	@RequestMapping("/apis/api/employee_docs/delete.php")

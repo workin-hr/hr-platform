@@ -41,6 +41,11 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/advances/delete.php", "/apis/api/advances/list.php",
 			"/apis/api/advances/one.php", "/apis/api/advances/pay.php",
 			"/apis/api/advances/reject.php", "/apis/api/advances/update.php",
+			"/apis/api/auth/check_status.php", "/apis/api/auth/complete_company_registration.php",
+			"/apis/api/auth/get_company_registration_options.php", "/apis/api/auth/join_company.php",
+			"/apis/api/auth/login_company.php", "/apis/api/auth/login_desktop.php",
+			"/apis/api/auth/lookup_company.php", "/apis/api/auth/register_company.php",
+			"/apis/api/auth/register_employee.php",
 			"/apis/api/auth/forgot_password.php", "/apis/api/auth/reset_password.php",
 			"/apis/api/auth/resend_otp.php", "/apis/api/auth/verify_otp.php",
 			"/apis/api/attendance/analyze_excel.php", "/apis/api/attendance/check_in.php",
@@ -182,8 +187,8 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void deliveredRouteCountIsNowOneHundredEightyNine() {
-		assertThat(EXPECTED_ROUTES).hasSize(189).doesNotHaveDuplicates();
+	void deliveredRouteCountIsNowOneHundredNinetyEight() {
+		assertThat(EXPECTED_ROUTES).hasSize(198).doesNotHaveDuplicates();
 	}
 
 	/**
@@ -261,8 +266,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(CONDITIONAL_ROUTES).hasSize(1);
 		assertThat(EXPECTED_ROUTES).containsAll(DOWNLOAD_ONLY_ROUTES).containsAll(CONDITIONAL_ROUTES);
 		assertThat(EXPECTED_ROUTES.size() - DOWNLOAD_ONLY_ROUTES.size() - CONDITIONAL_ROUTES.size())
-				.as("envelope-only routes, per the completion plan's 184/4/1 partition")
-				.isEqualTo(184);
+				.as("envelope-only routes, per the completion plan's 193/4/1 partition")
+				.isEqualTo(193);
 	}
 
 	@Test
