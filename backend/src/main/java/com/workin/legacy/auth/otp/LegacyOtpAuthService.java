@@ -217,13 +217,20 @@ public class LegacyOtpAuthService {
 			}
 			// ADR-0005: "Logout and password change/reset revoke the relevant
 			// session(s) -- closing the gap where hr-legacy password resets
-			// never invalidate existing sessions." Legacy has no refresh tokens
-			// at all, so this is not a parity divergence but the recorded
-			// token-model exception (D-042) applied consistently. It is a no-op
-			// today because no production route issues a legacy refresh token
-			// yet -- the only issuer, LegacyLoginService, is reached solely by a
-			// test-only controller -- and it is wired now so that the day that
-			// changes, the reset already revokes.
+			// never invalidate existing sessions."
+			//
+			// This is a no-op on this surface *by design*, not by accident of
+			// wiring: D-111 states that short-lived access tokens and rotating
+			// refresh tokens "are not permitted to alter the literal Phase-1
+			// /apis/** contract", so no route here issues a refresh token and
+			// none is meant to. (An earlier comment cited D-042 and called the
+			// issuer "test-only"; D-111 supersedes D-042 on the token model,
+			// and that reasoning is retracted -- see D-138.)
+			//
+			// The call stays because it costs nothing and is correct the moment
+			// a route *outside* this surface issues a refresh token for these
+			// identities. It must not be read as evidence that revocation is
+			// currently covering anything.
 			List<Long> affected = store.employeeIdsByPhoneInCompany(phone, companyId);
 			store.updateEmployeePasswordByPhone(phone, companyId, hash);
 			for (Long employeeId : affected) {

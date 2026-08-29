@@ -258,9 +258,10 @@ public class LegacyProfileService {
 			store.updateCompanyPassword(id, encoded);
 		} else {
 			store.updateEmployeePassword(id, encoded);
-			// ADR-0005, same rule as auth/reset_password.php. Legacy revokes
-			// nothing here, so this is the recorded token-model exception
-			// (D-042) applied consistently rather than a parity divergence.
+			// ADR-0005, same rule as auth/reset_password.php -- and a no-op on
+			// this surface by design: D-111 forbids refresh tokens on the
+			// literal Phase-1 /apis/** contract, so nothing here issues one.
+			// See LegacyOtpAuthService#resetPassword and D-138.
 			refreshTokens.revokeAllForEmployee(id);
 		}
 	}
@@ -314,8 +315,8 @@ public class LegacyProfileService {
 
 		store.deletePushTokensForEmployee(context.employeeId());
 		// ADR-0005: logout revokes the session. Legacy's own "logout" bumps
-		// nothing -- it deactivates the account instead -- so this closes the
-		// same gap the reset does.
+		// nothing -- it deactivates the account instead. A no-op on this
+		// surface for the same D-111 reason as the two password paths.
 		refreshTokens.revokeAllForEmployee(context.employeeId());
 	}
 
