@@ -563,7 +563,7 @@ unauthenticated, on its literal `/apis/api/configs/get.php` URL. It answers two
 shapes from one route: `?config_key=...` returns `{config_key, config_value}`
 — 200 with a null value for an unknown key, never a 404 — and no key returns
 every row plus `server_time` and `server_timezone`. An **empty** `config_key`
-is not a key and falls through to the all-rows branch. **Wave 13.5 delivers the other four of this group's five routable endpoints
+is not a key and falls through to the all-rows branch. **Wave 13.5 delivers five of this group's endpoints
 (2026-08-29, D-128)**: `phone_countries/list.php` and `app_content/one.php`
 stay unauthenticated, `banners/list.php` and `faqs/list.php` take any
 authenticated role with no company-active check, and `dashboard/stats.php` is
