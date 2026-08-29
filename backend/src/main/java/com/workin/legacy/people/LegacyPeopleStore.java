@@ -83,11 +83,9 @@ public class LegacyPeopleStore {
 	}
 
 	public long insertDoc(long employeeId, String docType, String fileUrl) {
-		jdbcTemplate.update(
+		return com.workin.legacy.LegacyGeneratedKeys.insert(jdbcTemplate,
 				"INSERT INTO employee_docs (employee_id, doc_type, file_url) VALUES (?, ?, ?)",
 				employeeId, docType, fileUrl);
-		Long id = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-		return id == null ? 0L : id;
 	}
 
 	public Map<String, Object> docById(long id) {
@@ -109,12 +107,10 @@ public class LegacyPeopleStore {
 	public long insertComplaint(
 			Long employeeId, Long companyId, String source, String name, String email,
 			String phone, String message) {
-		jdbcTemplate.update(
+		return com.workin.legacy.LegacyGeneratedKeys.insert(jdbcTemplate,
 				"INSERT INTO complaints (employee_id, company_id, source, name, email, phone, message)"
 						+ " VALUES (?, ?, ?, ?, ?, ?, ?)",
 				employeeId, companyId, source, name, email, phone, message);
-		Long id = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-		return id == null ? 0L : id;
 	}
 
 	/** The count joins {@code employees} too, because the search matches its display name. */
