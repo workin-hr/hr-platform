@@ -2014,3 +2014,26 @@ R-019 already records the legacy defect with a regression.
 The fixture gained a `phone_countries` seed in the process — the frozen dump
 ships that table empty, so without a `+966` row the non-default-country case
 resolved to `+20` and the regression tested nothing.
+
+### A sixth finding, declined on an inverted premise
+
+A later finding asked for the logo to be checked *between* the two uploads,
+stating that "the ported PHP ordering aborts after the failed logo upload
+before attempting the second upload". It does not: both `uploadFile()` calls
+are unconditional statements and both `if (!$url)` checks come after them
+(`complete_company_registration.php:68-76`). Legacy therefore does store the
+commercial register before discovering the logo is missing, and the port
+matches.
+
+The orphan the finding describes is real and is legacy's. Making the change
+would have made the port write one fewer file than legacy for that input, on an
+endpoint where the file count is observable on disk.
+
+It is worth separating from the round-three finding it resembles, which was
+correct and was fixed. There the uploads ran before the **scalar and state
+gates**, which PHP reaches first, so a `company_id=0` request wrote two files
+where legacy writes none. The sequence *between* the two uploads is a different
+question with the opposite answer. `bothUploadsRunBeforeEitherIsChecked` now
+pins it — asserting the 400 and that the file count rose by exactly one — and
+applying the requested change makes it fail, which is how the premise was
+settled rather than argued.

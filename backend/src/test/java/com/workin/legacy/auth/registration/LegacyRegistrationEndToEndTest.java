@@ -673,9 +673,35 @@ class LegacyRegistrationEndToEndTest {
 				.isEqualTo(before);
 	}
 
+	/**
+	 * <b>Both</b> uploads run before <b>either</b> is checked, so a request
+	 * that passes every gate above them and supplies only the commercial
+	 * register stores that file and then answers {@code no_file_uploaded} for
+	 * the missing logo.
+	 *
+	 * <p>That is PHP's own sequence — two `uploadFile()` statements, then two
+	 * `if (!$url)` checks — and it is the reason a review finding asking to
+	 * check the logo *between* them was declined: it would have made the port
+	 * store one fewer file than legacy for this input. The orphan is real and
+	 * legacy's; this test is what keeps the ordering from being "tidied" on the
+	 * strength of that reasoning a second time.
+	 */
+	@Test
+	@Order(23)
+	void bothUploadsRunBeforeEitherIsChecked() throws Exception {
+		long before = uploadedFileCount();
+		ResponseEntity<Map<String, Object>> response =
+				completeRegistrationWithoutLogo(SECOND_MID_ONBOARDING);
+		assertThat(response.getStatusCode().value()).isEqualTo(400);
+		assertThat(response.getBody().get("message").toString()).contains("file");
+		assertThat(uploadedFileCount())
+				.as("the commercial register was stored before the logo check ran")
+				.isEqualTo(before + 1);
+	}
+
 	/** An optional code must still be valid and unique when supplied. */
 	@Test
-	@Order(22)
+	@Order(24)
 	void completeRegistrationValidatesAnOptionalCode() {
 		assertThat(completeRegistration(SECOND_MID_ONBOARDING, "ab").getStatusCode().value())
 				.as("too short")
@@ -687,7 +713,31 @@ class LegacyRegistrationEndToEndTest {
 				.isEqualTo(201);
 	}
 
+	/** The same request with no {@code logo} part at all. */
+	private ResponseEntity<Map<String, Object>> completeRegistrationWithoutLogo(long companyId) {
+		org.springframework.util.MultiValueMap<String, Object> form = completeRegistrationForm(companyId, "");
+		form.remove("logo");
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+		return restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + "/apis/api/auth/complete_company_registration.php"),
+				HttpMethod.POST, new HttpEntity<>(form, headers),
+				new ParameterizedTypeReference<Map<String, Object>>() { });
+	}
+
 	private ResponseEntity<Map<String, Object>> completeRegistration(long companyId, String code) {
+		org.springframework.util.MultiValueMap<String, Object> form =
+				completeRegistrationForm(companyId, code);
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+		return restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + "/apis/api/auth/complete_company_registration.php"),
+				HttpMethod.POST, new HttpEntity<>(form, headers),
+				new ParameterizedTypeReference<Map<String, Object>>() { });
+	}
+
+	private org.springframework.util.MultiValueMap<String, Object> completeRegistrationForm(
+			long companyId, String code) {
 		org.springframework.util.MultiValueMap<String, Object> form =
 				new org.springframework.util.LinkedMultiValueMap<>();
 		form.add("company_id", String.valueOf(companyId));
@@ -701,13 +751,7 @@ class LegacyRegistrationEndToEndTest {
 		}
 		form.add("logo", pngPart("logo.png"));
 		form.add("commercial_reg", pngPart("reg.png"));
-
-		HttpHeaders headers = new HttpHeaders();
-		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-		return restTemplate.exchange(
-				URI.create(restTemplate.getRootUri() + "/apis/api/auth/complete_company_registration.php"),
-				HttpMethod.POST, new HttpEntity<>(form, headers),
-				new ParameterizedTypeReference<Map<String, Object>>() { });
+		return form;
 	}
 
 	/** Every file under the temp upload root, both subdirectories included. */
