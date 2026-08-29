@@ -981,7 +981,28 @@ written for it.
 
 ## D-131: Wave 13.4b delivers `workforce_planning`, reproducing a cross-tenant disclosure and filing it upstream
 
-**Status:** Accepted 2026-08-29. Security-relevant; **not** closed by this entry.
+**Status: PROPOSED — owner approval required before merge.** Security-relevant;
+**not** closed by this entry.
+
+<!-- markdownlint-disable-next-line MD036 -->
+**This entry was written and implemented in the same change, by the same
+author, and no human has approved it.** An earlier revision marked it
+"Accepted", which it was not: filing an upstream issue is not approval, and
+AGENTS.md is explicit that no agent may silently make a decision of this kind.
+The distinction matters more here than anywhere else in Item 13, because what is
+being decided is whether to knowingly ship a reproduction of a **cross-tenant
+information disclosure**.
+
+**What approval means here, precisely.** The port is faithful and the default
+governing it is D-058 — Phase 1 reproduces legacy, and diverging in Java alone
+would make the two systems answer differently for the same request. The question
+put to the owner is narrower: *given that this specific defect crosses a tenant
+boundary, is parity still the right default, or should Wave 13.4b wait for
+`hr-legacy#33` to land first?* Either answer is defensible; neither is the
+agent's to pick.
+
+Until that is recorded, this entry stands as a proposal and the pull request
+should not merge on a green gate alone.
 
 Seven routes, six handlers -- `summary.php` is literally
 `require __DIR__ . '/list.php'`, so the two URLs are one endpoint and are mapped
@@ -1048,6 +1069,15 @@ Writing a defect down does not close it, and this one is open.
   carries the branch and department names.
 - `update.php`'s post-write re-read drops the `company_id` filter its own
   `UPDATE` carried.
+
+### Inventories corrected alongside this entry
+
+The API inventory and the frontend matrix both described `workforce_planning` as
+company-scoped without qualification, which the evidence above disproves. Both
+now state that the module's **name joins carry no tenant predicate** and that
+two of its three write paths accept unvalidated foreign ids, so later
+compatibility and security work does not proceed on a tenancy guarantee the code
+does not provide.
 
 ### Ledger after Wave 13.4b
 

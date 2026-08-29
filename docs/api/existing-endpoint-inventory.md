@@ -496,10 +496,25 @@ for row-level self-scoping in this pass.
 
 Headcount-target CRUD per (company, branch, department, job_title), plus
 `save_target.php` (upsert) and `summary.php` (a backward-compatible alias
-that simply `require`s `list.php`). All 7 endpoints consistently
-company-scoped; `COMPANY_ADMIN`/`HR` for mutations,
-`list.php`/`one.php` additionally allow `MANAGER` (scoping depth not
-traced further in this pass).
+that simply `require`s `list.php`). `COMPANY_ADMIN`/`HR` for mutations,
+`list.php`/`one.php` additionally allow `MANAGER`.
+
+**Corrected 2026-08-29 (D-131) — "consistently company-scoped" was wrong.**
+Every row is filtered on `wt.company_id`, but that is not the whole tenancy
+story, and the earlier summary'"'"'s own caveat ("scoping depth not traced further
+in this pass") is where the gap was:
+
+- `create.php` validates that `branch_id`, `department_id` and `job_title_id`
+  belong to the caller's company. **`save_target.php` and `update.php` validate
+  none of them** and store whatever integer is supplied against the caller's own
+  `company_id`.
+- The three `LEFT JOIN`s that supply `branch_name`, `department_name` and
+  `job_title_name` match on **id alone, with no tenant predicate**.
+
+Together those let a `COMPANY_ADMIN`/`HR` user write another company's id into
+their own row and read that company's **name** back out. Tracked upstream as
+`hr-legacy#33`; do not treat this module as tenant-safe on the strength of its
+`company_id` filter.
 
 ## Branches, Company Settings, Notifications (`apis/api/{branches,company_settings,notifications}/`, 18 endpoints)
 

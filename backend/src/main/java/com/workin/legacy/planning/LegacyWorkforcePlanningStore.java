@@ -112,12 +112,10 @@ public class LegacyWorkforcePlanningStore {
 	}
 
 	public long insert(long companyId, long branchId, long departmentId, long jobTitleId, long planned) {
-		jdbcTemplate.update(
+		return com.workin.legacy.LegacyGeneratedKeys.insert(jdbcTemplate,
 				"INSERT INTO workforce_planning (company_id, branch_id, department_id, job_title_id,"
 						+ " planned_count) VALUES (?, ?, ?, ?, ?)",
 				companyId, branchId, departmentId, jobTitleId, planned);
-		Long id = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-		return id == null ? 0L : id;
 	}
 
 	/**
