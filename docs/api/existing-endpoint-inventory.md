@@ -496,10 +496,25 @@ for row-level self-scoping in this pass.
 
 Headcount-target CRUD per (company, branch, department, job_title), plus
 `save_target.php` (upsert) and `summary.php` (a backward-compatible alias
-that simply `require`s `list.php`). All 7 endpoints consistently
-company-scoped; `COMPANY_ADMIN`/`HR` for mutations,
-`list.php`/`one.php` additionally allow `MANAGER` (scoping depth not
-traced further in this pass).
+that simply `require`s `list.php`). `COMPANY_ADMIN`/`HR` for mutations,
+`list.php`/`one.php` additionally allow `MANAGER`.
+
+**Corrected 2026-08-29 (D-131) — "consistently company-scoped" was wrong.**
+Every row is filtered on `wt.company_id`, but that is not the whole tenancy
+story, and the earlier summary'"'"'s own caveat ("scoping depth not traced further
+in this pass") is where the gap was:
+
+- `create.php` validates that `branch_id`, `department_id` and `job_title_id`
+  belong to the caller's company. **`save_target.php` and `update.php` validate
+  none of them** and store whatever integer is supplied against the caller's own
+  `company_id`.
+- The three `LEFT JOIN`s that supply `branch_name`, `department_name` and
+  `job_title_name` match on **id alone, with no tenant predicate**.
+
+Together those let a `COMPANY_ADMIN`/`HR` user write another company's id into
+their own row and read that company's **name** back out. Tracked upstream as
+`hr-legacy#33`; do not treat this module as tenant-safe on the strength of its
+`company_id` filter.
 
 ## Branches, Company Settings, Notifications (`apis/api/{branches,company_settings,notifications}/`, 18 endpoints)
 
@@ -544,6 +559,31 @@ create/delete/update, `company_official_holidays` all 5) but not others
 (`job_titles`, `departments`, `shifts`, `request_types`, `assets`)** —
 see the new threat-model entry for the full write-up; this inconsistency
 extends well beyond this module group to most of the API.
+
+### `assets` And `administrative_decisions` — Delivered Contracts (Wave 13.4a, 2026-08-29, D-130)
+
+Ten live request/response contracts. The two modules agree on almost nothing,
+and every difference below is legacy's.
+
+| Endpoint | Method | Roles | Notes |
+|---|---|---|---|
+| `assets/list.php` | GET | ADMIN, HR, MANAGER, **EMPLOYEE** | EMPLOYEE is pinned to their own rows. Filters: `employee_id` (`!empty`, so `0` is ignored), `is_returned` (`isset`, so `0` *does* filter), `search` (name/code/asset text), `date_from`, `date_to`. Paginated. Row carries `photo_url`. |
+| `assets/one.php` | GET | ADMIN, HR, MANAGER | **No EMPLOYEE.** Row omits `photo_url`. 404 for another company's id. |
+| `assets/create.php` | POST | ADMIN, HR | **201.** Requires `employee_id`, `asset_date`, `asset_text`. A foreign `employee_id` is `employee_not_found` (404). An explicit `is_returned:false` beats the `returned_at` inference. |
+| `assets/update.php` | PUT | ADMIN, HR | Whitelist: `asset_date`, `asset_text`, `returned_at`, `is_returned` only. No whitelisted field → `nothing_to_update` (400). Boolean via `filter_var(FILTER_VALIDATE_BOOLEAN)`. |
+| `assets/delete.php` | DELETE | ADMIN, HR | Body is `{"deleted": true}`. |
+| `administrative_decisions/list.php` | GET | any authenticated | Hand-written checks: EMPLOYEE passes with **no** permission and sees `is_active=1` only; ADMIN and MANAGER pass; HR needs `can_employees`. Search over title/body. Paginated. |
+| `administrative_decisions/one.php` | GET | ADMIN, HR | **`can_employees` required.** A non-positive id 404s before any query. |
+| `administrative_decisions/create.php` | POST | ADMIN, HR | **201**, `can_employees`. Requires non-blank `title` and `body`. Can answer `data: {}` if the re-read comes back empty. |
+| `administrative_decisions/update.php` | PUT | ADMIN, HR | `can_employees`. Absent fields keep their current value; a supplied-but-blank `title`/`body` is `field_required`. Boolean via exact `(int) === 1`, so `"true"` **deactivates**. |
+| `administrative_decisions/delete.php` | DELETE | ADMIN, HR | `can_employees`. `ok(OK, null)` — **no `data` key at all**, unlike the asset delete. |
+
+**Two boolean conventions in one wave.** `"is_active": "true"` deactivates a
+decision while `"is_returned": "true"` marks an asset returned. Any client
+sending string booleans must be checked against both.
+
+**`assets` enforces no `hr_permissions` check** on any route — see R-010 and
+`hr-legacy#8`.
 
 ## Reference/Content Modules (9 endpoints: `app_content`, `banners`, `faqs`, `configs`, `phone_countries`, `setting_allowed_values`, `setting_definitions`, `time`, `dashboard` — 1 each)
 

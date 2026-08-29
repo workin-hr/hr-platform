@@ -57,12 +57,10 @@ public class LegacyAdministrativeDecisionStore {
 	}
 
 	public long insert(long companyId, String title, String body) {
-		jdbcTemplate.update(
+		return com.workin.legacy.LegacyGeneratedKeys.insert(jdbcTemplate,
 				"INSERT INTO administrative_decisions (company_id, title, body, is_active)"
 						+ " VALUES (?, ?, ?, 1)",
 				companyId, title, body);
-		Long id = jdbcTemplate.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-		return id == null ? 0L : id;
 	}
 
 	public void update(long companyId, long id, String title, String body, int isActive) {

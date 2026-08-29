@@ -782,8 +782,8 @@ implementation.
 
 **Status:** Accepted 2026-08-29. Continues D-128's risk-last ordering.
 
-Eight endpoints over the EAV settings model: the five `company_settings`
-routes, plus `setting_definitions/list.php` and
+Eight endpoints over the EAV settings model: the six `company_settings`
+routes -- `list`, `one`, `options`, `create`, `update`, `delete` -- plus `setting_definitions/list.php` and
 `setting_allowed_values/list.php`. D-4 had flagged `company_settings` as
 schema-incompatible with the existing Phase-2 entity (EAV against five typed
 columns); this wave ports the **legacy** shape, which is the EAV one, and does
@@ -793,7 +793,7 @@ not touch that entity.
 
 | Endpoint(s) | Requires |
 |---|---|
-| the five `company_settings` routes | COMPANY_ADMIN/HR **+** `can_company_settings` **+** active company |
+| the six `company_settings` routes | COMPANY_ADMIN/HR **+** `can_company_settings` **+** active company |
 | `setting_definitions/list.php` | COMPANY_ADMIN/HR only — no permission gate, no company-active check |
 | `setting_allowed_values/list.php` | **nothing** |
 
@@ -856,6 +856,34 @@ back on it and the wire handler renders the carried status.
   and blank are different inputs: a *null* `label_ar` skips to `label_en`, while
   a *blank* one is chosen, trims to empty, and lands on the setting key.
 
+### Two defects the review found in this wave's port
+
+Both were caught by Codex on #139 and are worth recording, because neither is
+visible in a single-threaded test.
+
+**The permission refusal sent a message key instead of a message.**
+`LegacyHrPermissionEnforcer` threw the platform's `ApiException` with
+`error.forbidden`. `LegacyMessages` loads only `legacy/lang/*.properties`, which
+defines `forbidden` and has no `error.` namespace at all, and its lookup falls
+back to returning the key unchanged — so clients received the literal string
+`"error.forbidden"` where PHP's `fail(LangKey::FORBIDDEN, 403)` sends
+`"Forbidden"`. **This affected every already-delivered legacy endpoint that
+gates on a permission**, not only this wave's, so the fix is at the enforcer.
+
+**`SELECT LAST_INSERT_ID()` is not a port of `PDO::lastInsertId()`.** PHP holds
+one connection per request; a `JdbcTemplate` borrows one per call. The insert
+and the id read could therefore run on *different* pooled connections, and
+`LAST_INSERT_ID()` is session-scoped — so under concurrency the second call
+returns another request's id, or `0` on a connection that has inserted nothing.
+The caller then re-reads "its" row by that id, which is how a lost id becomes a
+response carrying **another tenant's** row.
+
+It is invisible single-threaded and invisible inside a transaction, which pins
+one connection — which is exactly why it survives review. `LegacyGeneratedKeys`
+now asks JDBC for the key the insert statement itself generated, so there is no
+second round trip to misroute, and a twelve-thread regression asserts every
+caller reads back its own row. Reverting to the two-call form fails both cases.
+
 ### Ledger after Wave 13.3
 
 `FINAL_COMPATIBLE` 134 → **142**; `ITEM13_REMAINING` 64 → **56**; partition
@@ -892,9 +920,19 @@ decisions list while an ordinary employee is served it.
 
 The bounded C3/C8 pass established that the desktop client hides the Assets
 screen behind `hrPermission: HrPermissionFlag.assets`, while the server enforces
-**no** `hr_permissions` check on any of the five routes. So any authenticated
-user in the company can call `assets/create`, `assets/update` and
-`assets/delete` directly, regardless of the flag their UI respects.
+**no** `hr_permissions` check on any of the five routes.
+
+**Scope, stated precisely — an earlier revision of this entry overstated it.**
+The three write routes are `requireAuth([COMPANY_ADMIN, HR])`, so MANAGER and
+EMPLOYEE sessions are refused with 403. What is unenforced is only the narrower
+flag: an **admin or HR user whose `can_assets` is unset** is hidden the screen by
+the client and served by the server. That is a privilege gap *within* an
+already-privileged role, not open access — and the difference matters, because a
+port written against the wider claim would have granted MANAGER and EMPLOYEE a
+mutation capability legacy does not give them.
+
+The gap itself is **already tracked upstream as `hr-legacy#8`**; what this wave
+adds is the client evidence and the decision to reproduce it.
 
 The port reproduces this (D-058: the burden of proof is on the change). **The
 owner accepted it explicitly on 2026-08-29** rather than having it reproduced
@@ -906,10 +944,13 @@ silently. It is recorded here so that:
 - the eventual fix is a legacy change first, ported second — not a divergence
   introduced in the Java.
 
-Custody records are not payroll or personal data, and the exposure is bounded
-to a single tenant, which is why this is acceptable as a Phase-1 residual rather
-than a blocker. It is **not** closed, and it does not become closed by being
-written down.
+Custody records are not payroll or personal data, the exposure is bounded to a
+single tenant, and it is reachable only by roles already trusted with the rest
+of that tenant's HR data — which together are why this is acceptable as a
+Phase-1 residual rather than a blocker. It is **not** closed, and it does not
+become closed by being written down. It is registered as **R-010** so that a
+risk-based release review has an owner, a trigger and a contingency for it
+rather than only a decision-log paragraph.
 
 ### Smaller preserved behaviours
 
@@ -940,7 +981,28 @@ written for it.
 
 ## D-131: Wave 13.4b delivers `workforce_planning`, reproducing a cross-tenant disclosure and filing it upstream
 
-**Status:** Accepted 2026-08-29. Security-relevant; **not** closed by this entry.
+**Status: PROPOSED — owner approval required before merge.** Security-relevant;
+**not** closed by this entry.
+
+<!-- markdownlint-disable-next-line MD036 -->
+**This entry was written and implemented in the same change, by the same
+author, and no human has approved it.** An earlier revision marked it
+"Accepted", which it was not: filing an upstream issue is not approval, and
+AGENTS.md is explicit that no agent may silently make a decision of this kind.
+The distinction matters more here than anywhere else in Item 13, because what is
+being decided is whether to knowingly ship a reproduction of a **cross-tenant
+information disclosure**.
+
+**What approval means here, precisely.** The port is faithful and the default
+governing it is D-058 — Phase 1 reproduces legacy, and diverging in Java alone
+would make the two systems answer differently for the same request. The question
+put to the owner is narrower: *given that this specific defect crosses a tenant
+boundary, is parity still the right default, or should Wave 13.4b wait for
+`hr-legacy#33` to land first?* Either answer is defensible; neither is the
+agent's to pick.
+
+Until that is recorded, this entry stands as a proposal and the pull request
+should not merge on a green gate alone.
 
 Seven routes, six handlers -- `summary.php` is literally
 `require __DIR__ . '/list.php'`, so the two URLs are one endpoint and are mapped
@@ -1007,6 +1069,15 @@ Writing a defect down does not close it, and this one is open.
   carries the branch and department names.
 - `update.php`'s post-write re-read drops the `company_id` filter its own
   `UPDATE` carried.
+
+### Inventories corrected alongside this entry
+
+The API inventory and the frontend matrix both described `workforce_planning` as
+company-scoped without qualification, which the evidence above disproves. Both
+now state that the module's **name joins carry no tenant predicate** and that
+two of its three write paths accept unvalidated foreign ids, so later
+compatibility and security work does not proceed on a tenancy guarantee the code
+does not provide.
 
 ### Ledger after Wave 13.4b
 
