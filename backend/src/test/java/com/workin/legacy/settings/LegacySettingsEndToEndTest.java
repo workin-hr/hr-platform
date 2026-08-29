@@ -114,8 +114,51 @@ class LegacySettingsEndToEndTest {
 				.isEqualTo(200);
 	}
 
+	/**
+	 * The permission refusal must carry legacy's {@code forbidden} message, not
+	 * the platform's {@code error.forbidden} key. {@code LegacyMessages} loads
+	 * only {@code legacy/lang/*.properties}, which has no {@code error.}
+	 * namespace, and its lookup falls back to returning the key -- so throwing
+	 * the platform exception put the literal string on the wire.
+	 */
 	@Test
 	@Order(3)
+	void thePermissionRefusalCarriesLegacysForbiddenMessageNotThePlatformKey() {
+		ResponseEntity<Map<String, Object>> response =
+				send(LIST, HttpMethod.GET, token(NO_PERMISSION), null);
+
+		assertThat(response.getStatusCode().value()).isEqualTo(403);
+		assertThat(response.getBody()).containsEntry("message", "Forbidden");
+		assertThat(response.getBody().get("message")).asString()
+				.as("never the raw key")
+				.doesNotContain("error.");
+	}
+
+	/**
+	 * {@code json_decode(..., true)} turns a JSON <em>object</em> into an
+	 * associative array, so {@code is_array()} is true and PHP iterates its
+	 * values. Treating only a JSON array as array-like would stringify the map
+	 * to {@code "Array"} and reject a value legacy accepts.
+	 */
+	@Test
+	@Order(4)
+	@SuppressWarnings("unchecked")
+	void aJsonObjectOfValuesIsTreatedAsAnArrayJustAsPhpDoes() {
+		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST, token(ADMIN),
+				"{\"setting_key\":\"theme\",\"values\":{\"any_key\":\"light\"}}");
+
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(201);
+		Map<String, Object> item = (Map<String, Object>) response.getBody().get("data");
+		assertThat((List<Map<String, Object>>) item.get("selected"))
+				.extracting(row -> row.get("value")).containsExactly("light");
+
+		// Leave the fixture as the later ordered tests expect it.
+		send(DELETE + "?setting_key=theme&setting_definition_id=" + DEF_THEME, HttpMethod.DELETE,
+				token(ADMIN), null);
+	}
+
+	@Test
+	@Order(5)
 	void everyRouteChecksItsMethodBeforeAuthenticating() {
 		assertThat(send(LIST, HttpMethod.POST, null, null).getStatusCode().value()).isEqualTo(405);
 		assertThat(send(CREATE, HttpMethod.GET, null, null).getStatusCode().value()).isEqualTo(405);
@@ -126,7 +169,7 @@ class LegacySettingsEndToEndTest {
 	// ---------------- read shapes ----------------
 
 	@Test
-	@Order(4)
+	@Order(6)
 	@SuppressWarnings("unchecked")
 	void listCarriesEveryDefinitionWithTheSeventeenKeyItemShape() {
 		List<Map<String, Object>> rows = (List<Map<String, Object>>) data(
@@ -147,7 +190,7 @@ class LegacySettingsEndToEndTest {
 
 	/** The label falls back across languages before it reaches the setting key. */
 	@Test
-	@Order(5)
+	@Order(7)
 	@SuppressWarnings("unchecked")
 	void labelsFallBackToTheOtherLanguageThenToTheKey() {
 		List<Map<String, Object>> arabic = (List<Map<String, Object>>) data(
@@ -165,7 +208,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(6)
+	@Order(8)
 	@SuppressWarnings("unchecked")
 	void optionsAnswersTwoShapesAndEchoesAnUnknownKeyRatherThanTruncating() {
 		Map<String, Object> single = (Map<String, Object>) data(
@@ -191,7 +234,7 @@ class LegacySettingsEndToEndTest {
 	// ---------------- writes ----------------
 
 	@Test
-	@Order(7)
+	@Order(9)
 	@SuppressWarnings("unchecked")
 	void createStoresTheSelectionAndAnswersTwoZeroOne() {
 		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST, token(ADMIN),
@@ -205,7 +248,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(8)
+	@Order(10)
 	void creatingTheSameSettingTwiceIsAlreadyExistsRatherThanAnUpsert() {
 		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST, token(ADMIN),
 				"{\"setting_definition_id\":" + DEF_THEME + ",\"values\":[\"light\"]}");
@@ -219,7 +262,7 @@ class LegacySettingsEndToEndTest {
 	 * parent row must not survive.
 	 */
 	@Test
-	@Order(9)
+	@Order(11)
 	@SuppressWarnings("unchecked")
 	void aDisallowedValueIsFourHundredAndRollsBackTheParentRow() {
 		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST, token(ADMIN),
@@ -242,7 +285,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(10)
+	@Order(12)
 	void aSingleValuedDefinitionRejectsMoreThanOneValue() {
 		assertThat(send(CREATE, HttpMethod.POST, token(ADMIN),
 				"{\"setting_definition_id\":" + DEF_CURRENCY + ",\"values\":[\"egp\",\"usd\"]}")
@@ -250,7 +293,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(11)
+	@Order(13)
 	void aRequiredDefinitionRejectsAnEmptyValueList() {
 		assertThat(send(CREATE, HttpMethod.POST, token(ADMIN),
 				"{\"setting_definition_id\":" + DEF_CURRENCY + ",\"values\":[]}")
@@ -258,7 +301,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(12)
+	@Order(14)
 	void aMissingValuesKeyIsFieldRequired() {
 		assertThat(send(CREATE, HttpMethod.POST, token(ADMIN),
 				"{\"setting_definition_id\":" + DEF_MODULES + "}")
@@ -266,7 +309,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(13)
+	@Order(15)
 	@SuppressWarnings("unchecked")
 	void updateUpsertsAndReplacesTheWholeSelection() {
 		Map<String, Object> item = (Map<String, Object>) data(send(UPDATE, HttpMethod.PUT, token(ADMIN),
@@ -289,7 +332,7 @@ class LegacySettingsEndToEndTest {
 	 * values. The two endpoints reach opposite end states from the same input.
 	 */
 	@Test
-	@Order(14)
+	@Order(16)
 	@SuppressWarnings("unchecked")
 	void updateWithAnEmptyListDeletesTheSettingEntirely() {
 		Map<String, Object> item = (Map<String, Object>) data(send(UPDATE, HttpMethod.PUT, token(ADMIN),
@@ -312,7 +355,7 @@ class LegacySettingsEndToEndTest {
 	 * because a single shared item-builder would silently unify the two.
 	 */
 	@Test
-	@Order(15)
+	@Order(17)
 	@SuppressWarnings("unchecked")
 	void createAndOneDisagreeAboutTheIdOfAValuelessSetting() {
 		ResponseEntity<Map<String, Object>> response = send(CREATE, HttpMethod.POST,
@@ -338,7 +381,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(16)
+	@Order(18)
 	void deletingARequiredSettingIsRejected() {
 		data(send(UPDATE, HttpMethod.PUT, token(ADMIN),
 				"{\"setting_definition_id\":" + DEF_CURRENCY + ",\"values\":[\"egp\"]}"));
@@ -350,7 +393,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(17)
+	@Order(19)
 	void deletingASettingThatWasNeverSetIsOkRatherThanNotFound() {
 		assertThat(send(DELETE + "?setting_definition_id=" + DEF_MODULES, HttpMethod.DELETE,
 				token(ADMIN), null).getStatusCode().value())
@@ -358,7 +401,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(18)
+	@Order(20)
 	void deletingWithNeitherIdentifierIsFieldRequired() {
 		assertThat(send(DELETE, HttpMethod.DELETE, token(ADMIN), null).getStatusCode().value())
 				.isEqualTo(400);
@@ -367,7 +410,7 @@ class LegacySettingsEndToEndTest {
 	// ---------------- catalogue endpoints ----------------
 
 	@Test
-	@Order(19)
+	@Order(21)
 	@SuppressWarnings("unchecked")
 	void definitionsListIsPaginatedAndCarriesLabelAndDescriptionKeys() {
 		ResponseEntity<Map<String, Object>> response =
@@ -381,7 +424,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(20)
+	@Order(22)
 	@SuppressWarnings("unchecked")
 	void definitionsSearchMatchesKeyAndBothLabels() {
 		assertThat((List<Map<String, Object>>) data(
@@ -395,7 +438,7 @@ class LegacySettingsEndToEndTest {
 	}
 
 	@Test
-	@Order(21)
+	@Order(23)
 	void allowedValuesRequiresItsDefinitionIdAndFourZeroFoursAnUnknownOne() {
 		assertThat(send(ALLOWED, HttpMethod.GET, null, null).getStatusCode().value())
 				.as("required() rejects a missing parameter")

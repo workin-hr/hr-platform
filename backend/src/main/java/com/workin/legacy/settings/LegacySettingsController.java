@@ -95,7 +95,8 @@ public class LegacySettingsController {
 		Object raw = query.value("setting_key");
 		// `!empty($_GET['setting_key'])` -- so "0" is treated as absent and the
 		// endpoint answers the whole map instead of that one key.
-		String settingKey = LegacyValues.isPhpEmpty(raw) ? null : LegacyValues.toPhpString(raw).trim();
+		String settingKey = LegacyValues.isPhpEmpty(raw)
+				? null : LegacyValues.phpTrim(LegacyValues.toPhpString(raw));
 		return LegacyApiResponse.ok(message(request, "ok"),
 				settingsService.options(settingKey, locale(request)));
 	}
@@ -169,7 +170,7 @@ public class LegacySettingsController {
 		String search = null;
 		Object rawSearch = query.value("search");
 		if (!LegacyValues.isPhpEmpty(rawSearch)) {
-			String trimmed = LegacyValues.toPhpString(rawSearch).trim();
+			String trimmed = LegacyValues.phpTrim(LegacyValues.toPhpString(rawSearch));
 			search = trimmed.isEmpty() ? null : trimmed;
 		}
 
@@ -259,7 +260,7 @@ public class LegacySettingsController {
 	}
 
 	private static String text(Object raw) {
-		return raw == null ? null : LegacyValues.toPhpString(raw).trim();
+		return raw == null ? null : LegacyValues.phpTrim(LegacyValues.toPhpString(raw));
 	}
 
 	private String locale(HttpServletRequest request) {
