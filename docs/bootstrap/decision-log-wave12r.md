@@ -1663,3 +1663,112 @@ to drift while each module's own tests agreed with its own copy.
 `FINAL_COMPATIBLE` 189 → **198**; `ITEM13_REMAINING` 9 → **0**; partition
 184/4/1 → **193/4/1**. **Item 13 is complete and every live legacy endpoint is
 delivered.**
+
+## D-136: Review dispositions for Wave 13.1 — what the independent gate caught
+
+**Status:** Accepted
+**Date:** 2026-08-29
+**Context:** `chatgpt-codex-connector[bot]` reviewed PR #144 and raised seven
+findings. D-128 had deferred this wave specifically so that review would be
+available for it; this is what that bought.
+
+Two were defects in the port, two were latent gaps the port made reachable, one
+was an error in **this repository's own documentation**, one was an artifact
+desync, and one was a deployment gap. None was rejected.
+
+### The two real port defects
+
+**The employee country code was being discarded.**
+`forgot_password.php`'s no-`company_id` branch carries
+`COUNTRY_CODE => $employee[COUNTRY_CODE] ?? null` out of
+`resolve_single_employee_auth_by_phone()` and into the WhatsApp send. The port
+passed null and let `otp_resolve_country_code_for_phone()` re-derive it — and
+that helper matches the phone column **exactly**, so a number the
+variant-aware account query found (`+966 50…`) is not found again, delivery
+falls back to `+20`, and the JID is wrong. Fixed by reading the row's own
+`country_code` alongside its phone;
+`theResolvedEmployeesCountryCodeIsUsedForDelivery` asserts it and was falsified
+before being trusted.
+
+**`InetAddress.getByName()` resolved hostnames.** `otp_client_ip()` ports
+`filter_var(..., FILTER_VALIDATE_IP)`, which never resolves names. The port
+screened characters and then called `getByName()`, so a hostname made only of
+hex letters and dots — `bad.cafe` — passed the screen and triggered a
+**blocking DNS lookup of a name an unauthenticated caller chose**, on the
+request thread, through `X-Forwarded-For`. Two problems in one: a divergence
+from PHP and anonymous-input-driven outbound resolution. Replaced with a
+literal-only IPv4/IPv6 parser, with `LegacyClientAddressTest` covering both
+families and the motivating case.
+
+### One error in our own documentation
+
+The reviewer read `LegacyPhoneAuthResolver`'s javadoc — *"a set containing one
+pending row reports pending regardless of what the other rows say"* — and
+correctly flagged that the code does not do that. **The code was right and the
+comment was wrong**: PHP's entire rejection block sits inside
+`if ($login_ready === [])`, so a phone owning both a ready and a pending
+account resolves to the ready one. The javadoc is corrected, says plainly that
+an earlier draft stated it backwards, and
+`aPhoneOwningBothAReadyAndAPendingAccountResolvesToTheReadyOne` now pins the
+real behaviour so the wrong version cannot come back through a comment.
+
+Worth recording because the failure mode is instructive: a confident,
+well-written comment that inverts its code is harder to catch than absent
+documentation, and it nearly became the specification.
+
+### Two latent gaps the port made reachable
+
+**A credential could reach the logs.** The Whats360 token travels in the
+request URL — legacy's own shape — and several failures embed that URL in their
+exception message; the port logged `ex.toString()`. Now only the exception's
+class name is logged. AGENTS.md's "never print, log, commit, or otherwise
+expose production credentials" is unambiguous, and this was one malformed
+`api-base` away from writing the token to disk.
+
+**Password reset did not revoke refresh sessions.** ADR-0005 states that
+"logout and password change/reset revoke the relevant session(s) — closing the
+gap where `hr-legacy` password resets never invalidate existing sessions", and
+`#7`'s row names this wiring as remaining. `revokeAllForEmployee()` existed and
+was called from **nowhere**. Now wired into all three legacy credential-changing
+routes — `auth/reset_password.php`, `profile/change_password.php` and
+`profile/logout.php` — rather than only the one the reviewer pointed at, because
+fixing one of three would have been arbitrary.
+
+It is **a no-op today**, and saying so matters: no production route issues a
+legacy refresh token, since the only issuer (`LegacyLoginService`) is reached
+solely by a test-only controller. Wiring it now means the day that changes, the
+revocation is already there. This is not a parity divergence — legacy has no
+refresh tokens at all — but the recorded token-model exception (D-042) applied
+consistently.
+
+### F-27 was stale, and the fix was not to change the code
+
+F-27 says the reset-password and change-password endpoints "don't exist in the
+rewrite yet" and blocks until they enforce a minimum length. They now exist —
+as **Phase-1 parity ports**, which deliberately reproduce legacy's rules (no
+minimum on reset, six characters on change). Enforcing a minimum in the ports
+would make the two systems accept different passwords for the same request,
+which is exactly the divergence Phase 1 exists to prevent.
+
+So the row is synchronized rather than satisfied: the requirement attaches to
+the **native** endpoints that replace these at cutover, and the row now says so
+explicitly instead of leaving a delivered route sitting under a trigger
+condition that had already fired.
+
+### The deployment gap
+
+R-015 recorded that no WhatsApp credentials are configured, but the properties
+appeared nowhere in `application.properties` and nothing told an operator what
+to do. Now: declared with their environment mappings and a comment saying why
+they are empty, plus a runbook section covering configuration, four pre-cutover
+validation steps, a symptom-to-log-line table, and a warning that R-014's
+platform-wide cap will start refusing unrelated callers during a high-volume
+smoke test on this path.
+
+### What this says about the gate
+
+Every one of the seven was actionable and none needed arguing down. The two
+port defects were both in the same shape of code — a value quietly re-derived
+instead of carried, and a standard-library call that does more than the PHP
+function it replaces — which is the shape a second reader catches and an author
+does not.

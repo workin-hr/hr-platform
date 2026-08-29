@@ -1,7 +1,7 @@
 package com.workin.legacy.auth.otp;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.List;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -70,26 +70,97 @@ public final class LegacyClientAddress {
 	}
 
 	/**
-	 * {@code filter_var($raw, FILTER_VALIDATE_IP)}.
+	 * {@code filter_var($raw, FILTER_VALIDATE_IP)} -- a <b>literal</b> parser,
+	 * with no name resolution of any kind.
 	 *
-	 * <p>{@link InetAddress#getByName} would resolve a hostname, which
-	 * {@code FILTER_VALIDATE_IP} never does, so the input is screened first:
-	 * it must contain only characters that can appear in a literal address.
+	 * <p>{@code InetAddress.getByName()} is deliberately not used. It resolves
+	 * hostnames, which {@code FILTER_VALIDATE_IP} never does, and a
+	 * hex-and-dots hostname like {@code bad.cafe} passes any character screen --
+	 * so an <b>unauthenticated</b> OTP caller could put one in
+	 * {@code X-Forwarded-For} and make the server perform a blocking DNS lookup
+	 * of a name they chose, on the request thread. Two problems in one: a
+	 * divergence from PHP, and outbound resolution driven by anonymous input.
+	 *
+	 * <p>So both families are parsed by hand: dotted-quad IPv4 with no leading
+	 * zeros beyond a bare {@code "0"}, and IPv6 including the {@code ::}
+	 * compression and the IPv4-mapped tail form.
 	 */
 	private static boolean isIpAddress(String raw) {
-		for (int i = 0; i < raw.length(); i++) {
-			char c = raw.charAt(i);
-			boolean allowed = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
-					|| c == '.' || c == ':';
-			if (!allowed) {
+		return raw.indexOf(':') >= 0 ? isIpv6(raw) : isIpv4(raw);
+	}
+
+	private static boolean isIpv4(String raw) {
+		String[] parts = raw.split("\\.", -1);
+		if (parts.length != 4) {
+			return false;
+		}
+		for (String part : parts) {
+			if (part.isEmpty() || part.length() > 3) {
+				return false;
+			}
+			for (int i = 0; i < part.length(); i++) {
+				if (part.charAt(i) < '0' || part.charAt(i) > '9') {
+					return false;
+				}
+			}
+			// "01" is not a valid dotted-quad octet for FILTER_VALIDATE_IP.
+			if (part.length() > 1 && part.charAt(0) == '0') {
+				return false;
+			}
+			if (Integer.parseInt(part) > 255) {
 				return false;
 			}
 		}
-		try {
-			InetAddress.getByName(raw);
-			return true;
-		} catch (UnknownHostException ex) {
+		return true;
+	}
+
+	/**
+	 * Groups of 1-4 hex digits separated by colons: exactly eight, or fewer
+	 * with one {@code ::} standing in for the rest. The final group may be a
+	 * dotted-quad IPv4 literal, which counts as two.
+	 */
+	private static boolean isIpv6(String raw) {
+		int compression = raw.indexOf("::");
+		if (compression >= 0 && raw.indexOf("::", compression + 1) >= 0) {
 			return false;
 		}
+		String head = compression < 0 ? raw : raw.substring(0, compression);
+		String tail = compression < 0 ? "" : raw.substring(compression + 2);
+		if (compression < 0 && (raw.startsWith(":") || raw.endsWith(":"))) {
+			return false;
+		}
+
+		List<String> groups = new ArrayList<>();
+		for (String half : List.of(head, tail)) {
+			if (!half.isEmpty()) {
+				groups.addAll(List.of(half.split(":", -1)));
+			}
+		}
+
+		int counted = 0;
+		for (int i = 0; i < groups.size(); i++) {
+			String group = groups.get(i);
+			if (group.indexOf('.') >= 0) {
+				// Only the very last group may be an IPv4 literal.
+				if (i != groups.size() - 1 || !isIpv4(group)) {
+					return false;
+				}
+				counted += 2;
+				continue;
+			}
+			if (group.isEmpty() || group.length() > 4) {
+				return false;
+			}
+			for (int c = 0; c < group.length(); c++) {
+				char ch = group.charAt(c);
+				boolean hex = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')
+						|| (ch >= 'A' && ch <= 'F');
+				if (!hex) {
+					return false;
+				}
+			}
+			counted++;
+		}
+		return compression < 0 ? counted == 8 : counted < 8;
 	}
 }

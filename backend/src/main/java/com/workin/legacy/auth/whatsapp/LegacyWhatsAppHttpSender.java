@@ -73,6 +73,7 @@ public class LegacyWhatsAppHttpSender implements LegacyWhatsAppSender {
 	private static final String TOKEN_PLACEHOLDER = "YOUR_WHATSAPP_TOKEN_HERE";
 	private static final String INSTANCE_PLACEHOLDER = "YOUR_WHATSAPP_INSTANCE_ID";
 
+	/** Never logged: it is a credential, and it travels in the request URL. */
 	private final HttpClient httpClient;
 	private final Map<String, Instant> skipUntil = new ConcurrentHashMap<>();
 	private final String apiBase;
@@ -185,7 +186,15 @@ public class LegacyWhatsAppHttpSender implements LegacyWhatsAppSender {
 			return new Attempt(false, false, false);
 		} catch (Exception ex) {
 			// curl_exec() === false -- logged, never surfaced to the client.
-			LOG.error("WhatsApp transport error (instance={}): {}", instance, ex.toString());
+			//
+			// The exception's *message* is deliberately not logged. The request
+			// URL carries the API token as a query parameter (legacy's own
+			// shape), and several failures here embed that URL in their message
+			// -- URI.create() on a malformed api-base is the clearest, but a
+			// driver or proxy failure can do it too. Logging the class name
+			// alone keeps the credential out of the log while still saying what
+			// kind of failure occurred.
+			LOG.error("WhatsApp transport error (instance={}): {}", instance, ex.getClass().getName());
 			return new Attempt(false, false, false);
 		}
 	}

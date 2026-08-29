@@ -1,6 +1,7 @@
 package com.workin.legacy.auth.otp;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.auth.LegacyLoginCandidate;
 import com.workin.legacy.auth.LegacyPhoneAuthResolver;
+import com.workin.legacy.auth.LegacyRefreshTokenService;
 import com.workin.legacy.wire.LegacyApiException;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -40,12 +42,15 @@ public class LegacyOtpAuthService {
 	private final LegacyOtpService otp;
 	private final LegacyOtpAuthStore store;
 	private final PasswordEncoder passwordEncoder;
+	private final LegacyRefreshTokenService refreshTokens;
 
 	public LegacyOtpAuthService(
-			LegacyOtpService otp, LegacyOtpAuthStore store, PasswordEncoder passwordEncoder) {
+			LegacyOtpService otp, LegacyOtpAuthStore store, PasswordEncoder passwordEncoder,
+			LegacyRefreshTokenService refreshTokens) {
 		this.otp = otp;
 		this.store = store;
 		this.passwordEncoder = passwordEncoder;
+		this.refreshTokens = refreshTokens;
 	}
 
 	/**
@@ -147,9 +152,13 @@ public class LegacyOtpAuthService {
 				LegacyLoginCandidate candidate = LegacyPhoneAuthResolver.resolve(
 						store.employeeAuthCandidatesByPhone(phone));
 				found = true;
-				String stored = store.employeePhone(candidate.employeeId());
-				phone = LegacyOtpService.normalizePhone(stored == null ? phone : stored);
-				countryCode = null;
+				Map<String, Object> contact = store.employeeContact(candidate.employeeId());
+				if (contact != null) {
+					Object stored = contact.get("phone");
+					phone = LegacyOtpService.normalizePhone(stored == null ? phone : stored);
+					// PHP keeps the row's country code rather than re-deriving it.
+					countryCode = LegacyValues.toPhpString(contact.get("country_code"));
+				}
 			}
 		} else {
 			throw new LegacyApiException(400, "invalid_input");
@@ -202,10 +211,24 @@ public class LegacyOtpAuthService {
 				LegacyLoginCandidate candidate = LegacyPhoneAuthResolver.resolve(
 						store.employeeAuthCandidatesByPhone(phone));
 				companyId = candidate.companyId();
-				String stored = store.employeePhone(candidate.employeeId());
+				Map<String, Object> contact = store.employeeContact(candidate.employeeId());
+				Object stored = contact == null ? null : contact.get("phone");
 				phone = LegacyOtpService.normalizePhone(stored == null ? phone : stored);
 			}
+			// ADR-0005: "Logout and password change/reset revoke the relevant
+			// session(s) -- closing the gap where hr-legacy password resets
+			// never invalidate existing sessions." Legacy has no refresh tokens
+			// at all, so this is not a parity divergence but the recorded
+			// token-model exception (D-042) applied consistently. It is a no-op
+			// today because no production route issues a legacy refresh token
+			// yet -- the only issuer, LegacyLoginService, is reached solely by a
+			// test-only controller -- and it is wired now so that the day that
+			// changes, the reset already revokes.
+			List<Long> affected = store.employeeIdsByPhoneInCompany(phone, companyId);
 			store.updateEmployeePasswordByPhone(phone, companyId, hash);
+			for (Long employeeId : affected) {
+				refreshTokens.revokeAllForEmployee(employeeId);
+			}
 		} else {
 			throw new LegacyApiException(400, "invalid_input");
 		}

@@ -87,11 +87,24 @@ public class LegacyOtpAuthStore {
 		return candidates;
 	}
 
-	/** The phone as stored on one employee row, so the OTP keys off the stored spelling. */
-	public String employeePhone(long employeeId) {
-		List<String> values = jdbcTemplate.queryForList(
-				"SELECT phone FROM employees WHERE id = ?", String.class, employeeId);
-		return values.isEmpty() ? null : values.get(0);
+	/**
+	 * The phone and country code as stored on one employee row.
+	 *
+	 * <p>Both are needed, and the country code is the easy one to drop:
+	 * {@code forgot_password.php} carries
+	 * {@code COUNTRY_CODE => $employee[COUNTRY_CODE] ?? null} out of
+	 * {@code resolve_single_employee_auth_by_phone()} and into the WhatsApp
+	 * send. Falling back to {@code otp_resolve_country_code_for_phone()}
+	 * instead is <b>not</b> equivalent: that helper matches the phone column
+	 * <em>exactly</em>, so a number the variant-aware account query found --
+	 * {@code +966 50...}, say -- is not found again, and delivery silently
+	 * defaults to {@code +20} and builds the wrong WhatsApp JID.
+	 */
+	public Map<String, Object> employeeContact(long employeeId) {
+		List<Map<String, Object>> rows = jdbcTemplate.query(
+				"SELECT phone, country_code FROM employees WHERE id = ?",
+				LegacyJdbcValues.rowMapper(), employeeId);
+		return rows.isEmpty() ? null : rows.get(0);
 	}
 
 	/**
@@ -116,6 +129,23 @@ public class LegacyOtpAuthStore {
 		binds.addAll(match.binds());
 		jdbcTemplate.update(
 				"UPDATE companies SET password_hash = ? WHERE " + match.sql(), binds.toArray());
+	}
+
+	/**
+	 * The ids {@link #updateEmployeePasswordByPhone} is about to touch.
+	 *
+	 * <p>Read <b>before</b> the update, and by the same predicate, so the set
+	 * revoked is exactly the set whose credential changed -- ADR-0005 requires
+	 * a password reset to revoke the relevant sessions, and revoking by a
+	 * different predicate than the one that wrote would be a guess.
+	 */
+	public List<Long> employeeIdsByPhoneInCompany(String phone, long companyId) {
+		LegacyPhoneNumbers.MatchClause match = LegacyPhoneNumbers.sqlMatchClause("phone", phone);
+		List<Object> binds = new ArrayList<>(match.binds());
+		binds.add(companyId);
+		return jdbcTemplate.queryForList(
+				"SELECT id FROM employees WHERE " + match.sql() + " AND company_id = ?",
+				Long.class, binds.toArray());
 	}
 
 	/** {@code reset_password.php}'s employee branch, scoped by company. */

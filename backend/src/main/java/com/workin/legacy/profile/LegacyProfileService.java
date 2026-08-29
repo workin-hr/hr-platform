@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.attendance.location.LegacyAttendanceLocation;
 import com.workin.legacy.auth.LegacyRequestContext;
+import com.workin.legacy.auth.LegacyRefreshTokenService;
 import com.workin.legacy.auth.LegacyRequestGuard;
 import com.workin.legacy.auth.otp.LegacyOtpAuthStore;
 import com.workin.legacy.auth.otp.LegacyOtpService;
@@ -51,6 +52,7 @@ public class LegacyProfileService {
 	private final LegacyOtpService otpService;
 	private final LegacyOtpAuthStore otpAuthStore;
 	private final LegacyRequestGuard requestGuard;
+	private final LegacyRefreshTokenService refreshTokens;
 
 	public LegacyProfileService(
 			LegacyProfileStore store, LegacyEmployeeStore employeeStore,
@@ -58,7 +60,8 @@ public class LegacyProfileService {
 			LegacyCompanyDelete companyDelete, LegacyNotifications notifications,
 			PasswordEncoder passwordEncoder, LegacyMessages messages,
 			LegacyPhoneNumbers phoneNumbers, LegacyOtpService otpService,
-			LegacyOtpAuthStore otpAuthStore, LegacyRequestGuard requestGuard) {
+			LegacyOtpAuthStore otpAuthStore, LegacyRequestGuard requestGuard,
+			LegacyRefreshTokenService refreshTokens) {
 		this.store = store;
 		this.employeeStore = employeeStore;
 		this.permissionRows = permissionRows;
@@ -71,6 +74,7 @@ public class LegacyProfileService {
 		this.otpService = otpService;
 		this.otpAuthStore = otpAuthStore;
 		this.requestGuard = requestGuard;
+		this.refreshTokens = refreshTokens;
 	}
 
 	// ---------------- profile/employee.php ----------------
@@ -254,6 +258,10 @@ public class LegacyProfileService {
 			store.updateCompanyPassword(id, encoded);
 		} else {
 			store.updateEmployeePassword(id, encoded);
+			// ADR-0005, same rule as auth/reset_password.php. Legacy revokes
+			// nothing here, so this is the recorded token-model exception
+			// (D-042) applied consistently rather than a parity divergence.
+			refreshTokens.revokeAllForEmployee(id);
 		}
 	}
 
@@ -305,6 +313,10 @@ public class LegacyProfileService {
 		}
 
 		store.deletePushTokensForEmployee(context.employeeId());
+		// ADR-0005: logout revokes the session. Legacy's own "logout" bumps
+		// nothing -- it deactivates the account instead -- so this closes the
+		// same gap the reset does.
+		refreshTokens.revokeAllForEmployee(context.employeeId());
 	}
 
 	private static String leaverName(Map<String, Object> employee, long employeeId) {

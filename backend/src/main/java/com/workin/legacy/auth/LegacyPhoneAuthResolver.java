@@ -23,11 +23,20 @@ import com.workin.legacy.wire.LegacyApiException;
  * {@code multiple_accounts_same_phone} here even if the caller only knows the
  * password to one of them.
  *
- * <h2>The order of the three rejections is observable</h2>
- * <p>Pending first, then company-not-active, then employee-not-active, then a
- * catch-all. A row that is both accepted-at-an-inactive-company and
- * deactivated reports the <em>company</em> reason, and a set containing one
- * pending row reports pending regardless of what the other rows say.
+ * <h2>The rejections run only when there is no ready account at all</h2>
+ * <p>The whole rejection block sits inside {@code if ($login_ready === [])}.
+ * So a phone owning <b>both</b> a login-ready account and a pending one is
+ * <em>not</em> rejected: the ready account is selected and the pending row is
+ * ignored. That is easy to state backwards, and an earlier draft of this
+ * javadoc did state it backwards -- "a pending row reports pending regardless
+ * of what the other rows say" is wrong, and
+ * {@code aPhoneOwningBothAReadyAndAPendingAccountResolvesToTheReadyOne} exists
+ * to keep it wrong in the tests too if anyone reintroduces it.
+ *
+ * <p>Within the block the order <em>is</em> observable: pending, then
+ * company-not-active, then employee-not-active, then a catch-all. A row that is
+ * both accepted-at-an-inactive-company and deactivated reports the
+ * <em>company</em> reason.
  *
  * <p>PHP reads the status as {@code ($r[JOIN_REQUEST_STATUS] ?? 'accepted')},
  * defaulting a NULL column to accepted. {@code employees.join_request_status}

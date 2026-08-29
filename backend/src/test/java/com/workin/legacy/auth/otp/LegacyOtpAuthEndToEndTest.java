@@ -324,11 +324,64 @@ class LegacyOtpAuthEndToEndTest {
 		assertThat(response.getBody().get("message").toString()).contains("join request is under review");
 	}
 
+	/**
+	 * The mixed-row case, because the resolver's rejection block runs
+	 * <b>only</b> when no login-ready account exists. A phone owning both a
+	 * ready account and a pending one resolves to the ready one -- the pending
+	 * row is ignored, not reported.
+	 *
+	 * <p>Added after a review pointed at an earlier javadoc here that claimed
+	 * the opposite. The code was right and the comment was wrong; this test
+	 * makes the code's behaviour the thing that has to change if anyone
+	 * "fixes" it to match the old comment.
+	 */
+	@Test
+	@Order(11)
+	void aPhoneOwningBothAReadyAndAPendingAccountResolvesToTheReadyOne() throws Exception {
+		recorder().clear();
+		clearOtps();
+		addPendingDuplicateOf(STAFF_PHONE);
+		try {
+			ResponseEntity<Map<String, Object>> response =
+					post(FORGOT, null, "{\"phone\":\"" + STAFF_PHONE + "\",\"type\":\"employee\"}");
+			assertThat(response.getStatusCode().value())
+					.as("the ready account wins; the pending row does not veto it")
+					.isEqualTo(200);
+			assertThat(recorder().last()).isNotNull();
+		} finally {
+			removeDuplicate();
+		}
+	}
+
+	/**
+	 * The country code travels with the resolved employee rather than being
+	 * re-derived. {@code otp_resolve_country_code_for_phone()} matches the
+	 * phone column <b>exactly</b>, so a stored number the variant-aware account
+	 * query found would not be found again and delivery would silently fall
+	 * back to {@code +20} -- building the wrong WhatsApp JID for a non-Egyptian
+	 * number.
+	 */
+	@Test
+	@Order(12)
+	void theResolvedEmployeesCountryCodeIsUsedForDelivery() throws Exception {
+		recorder().clear();
+		clearOtps();
+		setCountryCode(STAFF, "+966");
+		try {
+			post(FORGOT, null, "{\"phone\":\"" + STAFF_PHONE + "\",\"type\":\"employee\"}");
+			assertThat(recorder().last().countryCode())
+					.as("the row's own code, not the +20 default")
+					.isEqualTo("+966");
+		} finally {
+			setCountryCode(STAFF, "+20");
+		}
+	}
+
 	// ---------------- reset_password ----------------
 
 	/** The full flow, and the new password really replaces the old one. */
 	@Test
-	@Order(12)
+	@Order(13)
 	void theFullResetFlowChangesThePassword() throws Exception {
 		recorder().clear();
 		clearOtps();
@@ -349,7 +402,7 @@ class LegacyOtpAuthEndToEndTest {
 	 * accepts a one-character password.
 	 */
 	@Test
-	@Order(13)
+	@Order(14)
 	void resetPasswordHasNoMinimumLength() throws Exception {
 		recorder().clear();
 		clearOtps();
@@ -364,7 +417,7 @@ class LegacyOtpAuthEndToEndTest {
 
 	/** The OTP is checked before the type, so a nonsense type still reports the code. */
 	@Test
-	@Order(14)
+	@Order(15)
 	void resetChecksTheCodeBeforeTheType() throws Exception {
 		clearOtps();
 		assertThat(post(RESET, null, "{\"phone\":\"" + STAFF_PHONE
@@ -376,7 +429,7 @@ class LegacyOtpAuthEndToEndTest {
 
 	/** Company sessions only, and it refuses with 403 -- not the preview's 401. */
 	@Test
-	@Order(15)
+	@Order(16)
 	void thePhoneChangeRoutesAreCompanySessionsOnlyAndRefuseWith403() {
 		assertThat(post(REQUEST_CHANGE, null, "{\"phone\":\"01000031099\",\"country_code\":\"+20\"}",
 				employeeToken()).getStatusCode().value()).isEqualTo(403);
@@ -387,7 +440,7 @@ class LegacyOtpAuthEndToEndTest {
 
 	/** The current number and another company's number are both refused, differently. */
 	@Test
-	@Order(16)
+	@Order(17)
 	void thePhoneChangeRefusesTheCurrentNumberAndOneAlreadyTaken() throws Exception {
 		clearOtps();
 		ResponseEntity<Map<String, Object>> same = post(REQUEST_CHANGE, null,
@@ -402,7 +455,7 @@ class LegacyOtpAuthEndToEndTest {
 
 	/** The full change, which also flips {@code otp_verified} on. */
 	@Test
-	@Order(17)
+	@Order(18)
 	void confirmingAPhoneChangeAlsoMarksTheCompanyVerified() throws Exception {
 		recorder().clear();
 		clearOtps();
@@ -435,7 +488,7 @@ class LegacyOtpAuthEndToEndTest {
 	// ---------------- method guards ----------------
 
 	@Test
-	@Order(18)
+	@Order(19)
 	void everyRouteChecksItsMethodBeforeAnythingElse() {
 		for (String route : List.of(VERIFY_OTP, RESEND_OTP, FORGOT, RESET)) {
 			assertThat(send(route, HttpMethod.GET, null, null).getStatusCode().value())
@@ -448,7 +501,7 @@ class LegacyOtpAuthEndToEndTest {
 	}
 
 	@Test
-	@Order(19)
+	@Order(20)
 	void everyRouteRequiresItsFields() {
 		assertThat(post(VERIFY_OTP, null, "{}").getStatusCode().value()).isEqualTo(400);
 		assertThat(post(RESEND_OTP, null, "{}").getStatusCode().value()).isEqualTo(400);
@@ -530,6 +583,32 @@ class LegacyOtpAuthEndToEndTest {
 
 	private static void setOtpVerified(long companyId, int value) {
 		execute("UPDATE companies SET otp_verified = " + value + " WHERE id = " + companyId);
+	}
+
+	private static void setCountryCode(long employeeId, String code) {
+		execute("UPDATE employees SET country_code = '" + code + "' WHERE id = " + employeeId);
+	}
+
+	/** A second, pending account at another company owning an equivalent number. */
+	private static void addPendingDuplicateOf(String phone) {
+		execute("INSERT INTO companies (id, company_name, phone, password_hash, status, otp_verified,"
+				+ " created_at) VALUES (31009, 'Second Co', '01000031009', 'x', 'active', 1,"
+				+ " '2019-01-15 09:00:00')");
+		execute("INSERT INTO branches (id, company_id, name, is_active, created_at) VALUES"
+				+ " (31019, 31009, 'Main', 1, '2019-03-01 10:00:00')");
+		// The UNIQUE KEY on employees.phone forbids the identical string, so the
+		// duplicate uses an equivalent *variant* -- which is exactly what
+		// phone_sql_match_clause() is for and what makes this the mixed case.
+		execute("INSERT INTO employees (id, company_id, branch_id, employee_code, first_name, last_name,"
+				+ " phone, country_code, password_hash, role, is_active, token_version,"
+				+ " join_request_status, created_at) VALUES (310099, 31009, 31019, '310099', 'P', 'Q', '"
+				+ phone.substring(1) + "', '+20', 'x', 'employee', 0, 1, 'pending', '2019-04-01 08:00:00')");
+	}
+
+	private static void removeDuplicate() {
+		execute("DELETE FROM employees WHERE id = 310099");
+		execute("DELETE FROM branches WHERE id = 31019");
+		execute("DELETE FROM companies WHERE id = 31009");
 	}
 
 	private static void restorePhone(long companyId, String phone) {
