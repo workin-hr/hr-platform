@@ -124,8 +124,8 @@ class LegacyPeopleEndToEndTest {
 				DOC_LIST + "?employee_id=" + STAFF, HttpMethod.GET, token(MANAGER, "manager"), null));
 		assertThat(rows).as("the list check only excludes EMPLOYEE, so a manager passes").hasSize(1);
 
-		assertThat(send(DOC_UPDATE + "?id=1&doc_type=changed", HttpMethod.POST,
-				token(MANAGER, "manager"), null).getStatusCode().value())
+		assertThat(postForm(DOC_UPDATE, token(MANAGER, "manager"), "id=1&doc_type=changed")
+				.getStatusCode().value())
 				.as("the update check excludes everyone who is not ADMIN or HR")
 				.isEqualTo(403);
 		assertThat(send(DOC_DELETE + "?id=1", HttpMethod.DELETE, token(MANAGER, "manager"), null)
@@ -212,8 +212,34 @@ class LegacyPeopleEndToEndTest {
 				.isEqualTo(400);
 	}
 
+	/**
+	 * {@code required($_POST, [ID, DOC_TYPE])} reads the request <b>body</b>.
+	 * A query-string-only POST is {@code field_required} in legacy, while
+	 * Spring's {@code @RequestParam} would have merged the query string with
+	 * the form and accepted it -- making the port strictly more permissive than
+	 * the endpoint it reproduces.
+	 */
 	@Test
 	@Order(6)
+	@SuppressWarnings("unchecked")
+	void updateReadsItsFieldsFromTheFormBodyAndNotTheQueryString() {
+		assertThat(send(DOC_UPDATE + "?id=1&doc_type=from_query", HttpMethod.POST,
+				token(ADMIN, "company_admin"), null).getStatusCode().value())
+				.as("query parameters are not $_POST")
+				.isEqualTo(400);
+
+		ResponseEntity<Map<String, Object>> viaForm =
+				postForm(DOC_UPDATE, token(ADMIN, "company_admin"), "id=1&doc_type=from_body");
+		assertThat(viaForm.getStatusCode().value()).as("%s", viaForm.getBody()).isEqualTo(200);
+		assertThat((Map<String, Object>) viaForm.getBody().get("data"))
+				.containsEntry("doc_type", "from_body");
+
+		// Restore for the ordered tests that follow.
+		postForm(DOC_UPDATE, token(ADMIN, "company_admin"), "id=1&doc_type=id_card");
+	}
+
+	@Test
+	@Order(7)
 	void aDocumentOfAnotherCompanysEmployeeIsNotFound() {
 		assertThat(send(DOC_DELETE + "?id=99", HttpMethod.DELETE, token(ADMIN, "company_admin"), null)
 				.getStatusCode().value()).isEqualTo(404);
@@ -226,7 +252,7 @@ class LegacyPeopleEndToEndTest {
 	 * {@code company_id}, and no company's list can then return it.
 	 */
 	@Test
-	@Order(7)
+	@Order(8)
 	@SuppressWarnings("unchecked")
 	void anAnonymousComplaintIsStoredAndThenUnreachableThroughTheApi() {
 		assertThat(send(COMPLAINT_CREATE, HttpMethod.POST, null,
@@ -248,7 +274,7 @@ class LegacyPeopleEndToEndTest {
 
 	/** An authenticated admin's own submission is tagged {@code company_support} and also hidden. */
 	@Test
-	@Order(8)
+	@Order(9)
 	@SuppressWarnings("unchecked")
 	void anAdminsOwnComplaintIsTaggedCompanySupportAndExcludedFromTheList() {
 		send(COMPLAINT_CREATE, HttpMethod.POST, token(ADMIN, "company_admin"),
@@ -263,7 +289,7 @@ class LegacyPeopleEndToEndTest {
 
 	/** The status filter is applied by default, and {@code all} is the escape hatch. */
 	@Test
-	@Order(9)
+	@Order(10)
 	@SuppressWarnings("unchecked")
 	void theComplaintsListFiltersToPendingUnlessAllIsAsked() {
 		List<Map<String, Object>> byDefault = (List<Map<String, Object>>) data(
@@ -281,7 +307,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(10)
+	@Order(11)
 	@SuppressWarnings("unchecked")
 	void updatingAComplaintAcceptsReplyStatusOrBothAndRejectsNeither() {
 		Map<String, Object> replied = (Map<String, Object>) data(send(COMPLAINT_UPDATE + "?id=1",
@@ -306,7 +332,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(11)
+	@Order(12)
 	void complaintsUseInvalidIdWhereTheRestOfTheWaveUsesFieldRequired() {
 		ResponseEntity<Map<String, Object>> response =
 				send(COMPLAINT_DELETE, HttpMethod.DELETE, token(ADMIN, "company_admin"), null);
@@ -319,7 +345,7 @@ class LegacyPeopleEndToEndTest {
 	// ---------------- company_join_requests ----------------
 
 	@Test
-	@Order(12)
+	@Order(13)
 	@SuppressWarnings("unchecked")
 	void theJoinRequestListDefaultsToPendingAndCarriesFiveColumns() {
 		List<Map<String, Object>> rows = (List<Map<String, Object>>) data(
@@ -337,7 +363,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(13)
+	@Order(14)
 	@SuppressWarnings("unchecked")
 	void acceptingFlipsTheStatusAndActivatesTheEmployee() {
 		Map<String, Object> accepted = (Map<String, Object>) data(send(
@@ -352,7 +378,7 @@ class LegacyPeopleEndToEndTest {
 
 	/** Accept has no pendingness check, so an already-accepted request succeeds again. */
 	@Test
-	@Order(14)
+	@Order(15)
 	void acceptingAnAlreadyAcceptedRequestSucceedsAndRenotifies() {
 		assertThat(send(JOIN_ACCEPT + "?id=" + ACCEPTED_JOIN, HttpMethod.POST,
 				token(ADMIN, "company_admin"), null).getStatusCode().value())
@@ -366,7 +392,7 @@ class LegacyPeopleEndToEndTest {
 	 * It is not the inverse of accept.
 	 */
 	@Test
-	@Order(15)
+	@Order(16)
 	void rejectingDeletesTheProvisionalEmployeeRowRatherThanMarkingIt() {
 		assertThat(send(JOIN_REJECT + "?id=" + BLANK_STATUS_JOIN, HttpMethod.POST,
 				token(ADMIN, "company_admin"), null).getStatusCode().value())
@@ -379,7 +405,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(16)
+	@Order(17)
 	void rejectingAnAcceptedRequestIsNotFound() {
 		assertThat(send(JOIN_REJECT + "?id=" + ACCEPTED_JOIN, HttpMethod.POST,
 				token(ADMIN, "company_admin"), null).getStatusCode().value())
@@ -388,7 +414,7 @@ class LegacyPeopleEndToEndTest {
 	}
 
 	@Test
-	@Order(17)
+	@Order(18)
 	void everyRouteChecksItsMethodFirst() {
 		assertThat(send(DOC_LIST, HttpMethod.POST, null, null).getStatusCode().value()).isEqualTo(405);
 		assertThat(send(COMPLAINT_CREATE, HttpMethod.GET, null, null).getStatusCode().value())
@@ -429,6 +455,24 @@ class LegacyPeopleEndToEndTest {
 		(byte) 0x89, 'P', 'N', 'G', '\r', '\n', (byte) 0x1a, '\n',
 		0, 0, 0, 13, 'I', 'H', 'D', 'R',
 	};
+
+	/**
+	 * A form-encoded POST. {@code employee_docs/update.php} reads
+	 * {@code $_POST}, so its values must be in the <b>body</b> -- a query-string
+	 * request is {@code field_required} in legacy, and building the test with
+	 * query parameters would have locked in a port that is more permissive than
+	 * the endpoint it reproduces.
+	 */
+	private ResponseEntity<Map<String, Object>> postForm(String path, String token, String form) {
+		HttpHeaders headers = new HttpHeaders();
+		if (token != null) {
+			headers.setBearerAuth(token);
+		}
+		headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+		return restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + path), HttpMethod.POST,
+				new HttpEntity<>(form, headers), new ParameterizedTypeReference<Map<String, Object>>() { });
+	}
 
 	private ResponseEntity<Map<String, Object>> upload(String docType, String filename, byte[] body) {
 		MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();

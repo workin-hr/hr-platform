@@ -77,14 +77,24 @@ public class LegacyPeopleController {
 				.body(LegacyApiResponse.ok(message(request, "document_uploaded"), row));
 	}
 
-	/** POST, not PUT -- this module updates over POST while the rest of Item 13 uses PUT. */
+	/**
+	 * POST, not PUT -- this module updates over POST while the rest of Item 13
+	 * uses PUT.
+	 *
+	 * <p><b>Both values come from {@code $_POST}, not the query string.</b>
+	 * {@code required($_POST, [ID, DOC_TYPE])} reads the request <em>body</em>,
+	 * so {@code POST update.php?id=1&doc_type=x} with an empty body is
+	 * {@code field_required} in legacy. Spring's {@code @RequestParam} merges
+	 * query parameters with form fields and would have accepted it, so the form
+	 * body is read directly instead -- otherwise the port is strictly more
+	 * permissive than the endpoint it reproduces.
+	 */
 	@RequestMapping("/apis/api/employee_docs/update.php")
-	public LegacyApiResponse docUpdate(
-			HttpServletRequest request,
-			@RequestParam(value = "id", required = false) String id,
-			@RequestParam(value = "doc_type", required = false) String docType) {
+	public LegacyApiResponse docUpdate(HttpServletRequest request) {
 		requireMethod(request, "POST");
 		LegacyRequestContext context = anyRole();
+		String id = formField(request, "id");
+		String docType = formField(request, "doc_type");
 		if (id == null || id.isEmpty()) {
 			throw new LegacyApiException(400, "field_required", null, Map.of("field", "id"));
 		}
@@ -93,6 +103,59 @@ public class LegacyPeopleController {
 		}
 		return LegacyApiResponse.ok(message(request, "document_updated"),
 				docService.update(context, LegacyValues.toPhpLong(id), docType));
+	}
+
+	/**
+	 * A {@code $_POST} field: the request <b>body</b> only, never the query
+	 * string.
+	 *
+	 * <p>{@code request.getParameter()} merges the two, which is exactly the
+	 * behaviour being avoided, and the body cannot simply be re-read either --
+	 * for {@code application/x-www-form-urlencoded} the container has already
+	 * consumed the input stream to build the parameter map.
+	 *
+	 * <p>So the two sources are separated by position. The servlet spec has the
+	 * container present query-string values <em>before</em> body values for the
+	 * same name, so anything beyond the number of occurrences in the query
+	 * string came from the body. The <b>last</b> such value is taken, because
+	 * PHP's {@code parse_str()} keeps the final duplicate.
+	 *
+	 * <p>A multipart request needs none of that: {@code getPart()} reads the
+	 * body directly and never sees the query string.
+	 */
+	private static String formField(HttpServletRequest request, String name) {
+		String contentType = request.getContentType();
+		if (contentType != null && contentType.toLowerCase(java.util.Locale.ROOT)
+				.startsWith("multipart/form-data")) {
+			try {
+				jakarta.servlet.http.Part part = request.getPart(name);
+				if (part == null) {
+					return null;
+				}
+				try (java.io.InputStream in = part.getInputStream()) {
+					return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+				}
+			} catch (Exception ex) {
+				return null;
+			}
+		}
+
+		String[] merged = request.getParameterValues(name);
+		if (merged == null) {
+			return null;
+		}
+		int fromQueryString = 0;
+		String query = request.getQueryString();
+		if (query != null) {
+			for (String pair : query.split("&")) {
+				if (!pair.isEmpty()
+						&& java.net.URLDecoder.decode(pair.split("=", 2)[0],
+								java.nio.charset.StandardCharsets.UTF_8).equals(name)) {
+					fromQueryString++;
+				}
+			}
+		}
+		return merged.length <= fromQueryString ? null : merged[merged.length - 1];
 	}
 
 	@RequestMapping("/apis/api/employee_docs/delete.php")

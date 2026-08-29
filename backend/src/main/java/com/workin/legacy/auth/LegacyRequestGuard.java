@@ -83,7 +83,17 @@ public class LegacyRequestGuard {
 	 * <p>The distinction matters and is easy to state backwards: a token that
 	 * cannot be decoded is invisible, while a token that decodes but has been
 	 * revoked is refused.
+	 *
+	 * <p><b>{@code @Transactional} for the same reason {@link #requireAuth} is.</b>
+	 * The decode path reaches {@link #requireSessionValid}, which disables the
+	 * Hibernate tenant filters through the shared {@code EntityManager}; with
+	 * {@code spring.jpa.open-in-view=false} there is no persistence context
+	 * outside a transaction, so an <em>authenticated</em> submission would fail
+	 * before the insert while an anonymous one took the early return and
+	 * succeeded. Optional authentication still needs the boundary the mandatory
+	 * one has.
 	 */
+	@Transactional
 	public LegacyRequestContext optionalAuth() {
 		if (SecurityContextHolder.getContext().getAuthentication() == null
 				|| !(SecurityContextHolder.getContext().getAuthentication().getPrincipal()
