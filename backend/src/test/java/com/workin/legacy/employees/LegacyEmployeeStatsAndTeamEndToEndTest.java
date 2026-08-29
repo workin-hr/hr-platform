@@ -320,14 +320,16 @@ class LegacyEmployeeStatsAndTeamEndToEndTest {
 		// The subselect returns DATE(check_in), so it is a date string for the
 		// employee who checked in today and null for everybody else.
 		//
-		// It is compared against the *database's* CURRENT_DATE, not the
-		// application clock, and that is not a convenience: the two genuinely
-		// disagree here. LegacyClock resolves today under legacy's +02:00
-		// default while the database evaluates CURRENT_DATE on its own session
-		// timezone, so around midnight they name different days. That gap is
-		// D-083 exactly, it is open, and this endpoint does not close it --
-		// asserting against the application clock would have hidden it behind a
-		// flaky test instead.
+		// It is compared against the *database's* CURRENT_DATE rather than the
+		// application clock, because the subselect is evaluated by the database
+		// and it is the database's session calendar that decides the answer.
+		//
+		// The two agree by construction, which is D-099's whole point:
+		// LegacySessionDataSource issues SET time_zone on every checkout from
+		// the same LegacyRuntimeOffset the clock reads, so the application and
+		// the pool share one calendar. D-099 closes D-083; this assertion is
+		// not holding an open gap visible, it is checking that the alignment
+		// holds end to end.
 		assertThat(employee.get("checked_in_today")).isEqualTo(databaseCurrentDate());
 		assertThat(rowFor(get(MY_TEAM, MANAGER_MAIN, 200), STAFF_FEMALE).get("checked_in_today")).isNull();
 	}
@@ -513,27 +515,30 @@ class LegacyEmployeeStatsAndTeamEndToEndTest {
 	 * A fixture connection on the <b>same session timezone the application
 	 * uses</b>, rather than on the container's default.
 	 *
-	 * <p>Without the {@code SET time_zone}, three different clocks are in play
-	 * for one assertion: the fixture seeds {@code check_in} from the container's
-	 * {@code CURRENT_DATE} (UTC), the endpoint evaluates its
-	 * {@code DATE(check_in) = CURRENT_DATE} subselect on the legacy pool's
-	 * session, which {@link com.workin.legacy.LegacySessionDataSource} sets to
-	 * {@link LegacyRuntimeOffset#DEFAULT} (+02:00) on checkout (D-099), and the
-	 * expectation reads {@code CURRENT_DATE} back in UTC again.
+	 * <p>D-099 aligned the application and the legacy pool on one calendar:
+	 * {@link com.workin.legacy.LegacySessionDataSource} issues
+	 * {@code SET time_zone} on every checkout from the same
+	 * {@link LegacyRuntimeOffset}. <b>The fixture was never part of that
+	 * alignment.</b> It opens its own raw JDBC connection, so three clocks were
+	 * in play for one assertion: the seed wrote {@code check_in} from the
+	 * container's {@code CURRENT_DATE} (UTC), the endpoint evaluated its
+	 * {@code DATE(check_in) = CURRENT_DATE} subselect on the pool's +02:00
+	 * session, and the expectation read {@code CURRENT_DATE} back in UTC
+	 * again.
 	 *
 	 * <p>Between <b>22:00 and 24:00 UTC every day</b> the +02:00 session has
 	 * already rolled over and UTC has not, so the seeded row lands on
 	 * "yesterday" as far as the endpoint is concerned, the subselect matches
-	 * nothing, and the test fails for two hours out of every twenty-four -- three
-	 * under the daylight-saving profile. That is not the D-083 gap the assertion
-	 * below is meant to expose; it is a <b>third</b> timezone leaking in through
-	 * the fixture's own connection, which nothing intended.
+	 * nothing, and the test fails for two hours out of every twenty-four --
+	 * three under the daylight-saving profile.
 	 *
-	 * <p>Aligning the fixture with the pool does not weaken the assertion. The
-	 * comparison is still against the <em>database's</em> {@code CURRENT_DATE}
-	 * rather than the application clock, which is the part that deliberately
-	 * leaves D-083 visible -- both sides now simply agree on which database
-	 * session they mean.
+	 * <p>So the failure was never the endpoint disagreeing with itself. It was
+	 * the fixture standing outside D-099's alignment and introducing a third
+	 * calendar nothing intended. Joining the alignment does not weaken the
+	 * assertion: the comparison is still against the <em>database's</em>
+	 * {@code CURRENT_DATE} rather than the application clock, because the
+	 * database is what evaluates the subselect -- both sides now simply agree
+	 * on which session that is.
 	 */
 	private static Connection connect() throws Exception {
 		Connection connection = DriverManager.getConnection(
