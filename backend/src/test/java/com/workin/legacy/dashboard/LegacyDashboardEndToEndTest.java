@@ -208,6 +208,44 @@ class LegacyDashboardEndToEndTest {
 				.isBetween(0.0, 100.0);
 	}
 
+	/**
+	 * PHP has one array type, and {@code json_encode} emits a JSON <b>array</b>
+	 * when the keys are exactly {@code 0..n-1}. A department genuinely named
+	 * {@code "0"} therefore converts to integer key 0, and
+	 * {@code employees_by_department} arrives as an array rather than an object
+	 * -- a change of <em>type</em>, which is what the {@code (object)[]} casts
+	 * guard against for the empty case.
+	 *
+	 * <p>A Java {@code Map} always serialises as an object, so this only holds
+	 * because the rule is applied explicitly.
+	 */
+	@Test
+	@SuppressWarnings("unchecked")
+	void aDepartmentNamedZeroTurnsTheMapIntoAJsonArrayAsPhpDoes() {
+		execute("INSERT INTO companies (id, company_name, phone, status, created_at) VALUES"
+				+ " (25009, 'Zero Co', '+201000025009', 'active', '2019-01-15 09:00:00')");
+		execute("INSERT INTO branches (id, company_id, name, is_active, created_at) VALUES"
+				+ " (25099, 25009, 'B', 1, '2019-03-01 10:00:00')");
+		execute("INSERT INTO departments (id, company_id, name, created_at) VALUES"
+				+ " (25098, 25009, '0', '2019-03-01 10:00:00')");
+		execute("INSERT INTO employees (id, company_id, branch_id, department_id, employee_code,"
+				+ " first_name, last_name, phone, role, is_active, created_at) VALUES"
+				+ " (250099, 25009, 25099, 25098, '250099', 'F', 'L', '+201000250099',"
+				+ " 'company_admin', 1, '2019-04-01 08:00:00')");
+
+		Map<String, Object> stats = statsFor(250099L, 25009L);
+
+		assertThat(stats.get("employees_by_department"))
+				.as("the single key 0 forms a 0..n-1 sequence, so PHP emits an array")
+				.isInstanceOf(java.util.List.class);
+		assertThat((java.util.List<Object>) stats.get("employees_by_department"))
+				.containsExactly(1);
+
+		assertThat(stats.get("employees_by_branch"))
+				.as("the branch map is keyed B, so it stays an object")
+				.isInstanceOf(Map.class);
+	}
+
 	@Test
 	@SuppressWarnings("unchecked")
 	void workforcePlanningIsAListSoDuplicateDepartmentNamesSurvive() {
@@ -245,6 +283,29 @@ class LegacyDashboardEndToEndTest {
 	}
 
 	// ---------------- fixture ----------------
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> statsFor(long employeeId, long companyId) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(jwtService.issueAccessToken(employeeId, employeeId, companyId,
+				"test-session", Map.of("role", "company_admin", "token_version", 1L)));
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + STATS), HttpMethod.GET,
+				new HttpEntity<>(headers), new ParameterizedTypeReference<Map<String, Object>>() { });
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(200);
+		return (Map<String, Object>) response.getBody().get("data");
+	}
+
+	private static void execute(String sql) {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			// The seed relaxes sql_mode for the same reason: these fixtures omit
+			// NOT NULL columns the endpoints never read.
+			st.execute("SET SESSION sql_mode = ''");
+			st.execute(sql);
+		} catch (Exception ex) {
+			throw new IllegalStateException("could not extend the dashboard fixture", ex);
+		}
+	}
 
 	@SuppressWarnings("unchecked")
 	private Map<String, Object> stats(long actor) {

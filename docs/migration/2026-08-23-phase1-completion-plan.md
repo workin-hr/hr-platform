@@ -294,9 +294,11 @@ operational order for what remains is therefore:
 
 **Item 12 is delivered.** All three of C9's endpoints shipped on 2026-08-28, so
 `ITEM12_REMAINING` is empty and no endpoint stands between the repository and
-G2's *numerator*. What remains before G2 can be declared closed is Item 13's 70
-endpoints, and the other gates — G3's per-endpoint contract evidence, G6's
-differential floor, and G7's full suite — read on their own terms.
+G2's *numerator*. What remains before G2 can be declared closed is Item 13's
+outstanding endpoints — **counted once, in §3.2's `ITEM13_REMAINING`**, and not
+repeated here, because a second copy of that number drifts every time a wave
+lands. The other gates — G3's per-endpoint contract evidence, G6's differential
+floor, and G7's full suite — read on their own terms.
 
 The two are independent — different modules, different helper closures — so
 nothing forces one before the other.
@@ -1070,8 +1072,9 @@ Not decisions — evidence and sequencing owed by the waves that own them.
   Wave 13.5's five, Wave 13.3's eight and Wave 13.4a's ten.
 
   **G2 is not closed by that.** Its numerator is; the gate covers all 198 live
-  endpoints and Item 13's 70 remain, with G3, G6 and G7 reading on their own
-  terms.
+  endpoints and Item 13's remainder still stands — see §3.2's
+  `ITEM13_REMAINING` for the current figure, which is the only place it is
+  maintained. G3, G6 and G7 read on their own terms.
 - **C3's re-read pass** over the six under-documented modules — owed before
   Waves 12.10 and 13.4.
 - **C8's consumer attribution** for `assets` and `administrative_decisions` —

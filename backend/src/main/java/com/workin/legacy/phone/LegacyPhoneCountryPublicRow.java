@@ -2,8 +2,9 @@ package com.workin.legacy.phone;
 
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
+
+import com.workin.legacy.LegacyValues;
 
 /**
  * {@code phone_country_public_row()} ({@code phone_countries_helper.php:282-299})
@@ -59,17 +60,21 @@ public final class LegacyPhoneCountryPublicRow {
 
 	/** {@code phone_country_localized_name($row, null)}. */
 	static String localizedName(LegacyPhoneCountry row, String acceptLanguage) {
-		String language = (acceptLanguage == null ? "ar" : acceptLanguage).trim().toLowerCase(Locale.ROOT);
+		String language = LegacyValues.mbStrToLower(
+				LegacyValues.phpTrim(acceptLanguage == null ? "ar" : acceptLanguage));
 		boolean english = language.startsWith("en");
 
-		String chosen = text(english ? row.nameEn() : row.nameAr()).trim();
-		if (!chosen.isEmpty()) {
+		// `trim($s) ?: $fallback` -- the elvis tests FALSINESS, not emptiness, so
+		// a name of the literal "0" is skipped exactly as an empty one is. And
+		// PHP's trim() leaves control characters Java's String.trim() removes.
+		String chosen = LegacyValues.phpTrim(text(english ? row.nameEn() : row.nameAr()));
+		if (!chosen.isEmpty() && !"0".equals(chosen)) {
 			return chosen;
 		}
 		// `$row['name_ar'] ?? $row['name_en']` -- null-coalescing, so a
 		// present-but-empty name_ar shadows name_en entirely.
 		String fallback = row.nameAr() != null ? row.nameAr() : text(row.nameEn());
-		return fallback.trim();
+		return LegacyValues.phpTrim(fallback);
 	}
 
 	/**

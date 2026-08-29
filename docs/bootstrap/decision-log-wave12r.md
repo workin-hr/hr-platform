@@ -685,9 +685,18 @@ fixed inside Item 13.0, and owed as its own issue.
 
 The completion plan sequences Item 13 as 13.0 → 13.1 (auth) → … → 13.5. Wave
 13.5 was taken second instead. The reason is the state of the review gate, not
-a change of view about value: **R-009 is realized** — the independent reviewer's
-quota is exhausted and the owner has decided not to add credits — so no wave
-merged tonight receives an independent review.
+a change of view about value: **R-009 was realized while this wave was
+written** — the independent reviewer's quota was exhausted and the owner decided
+not to add credits, so at that point no wave had a reviewer.
+
+R-009's owning entry in `docs/bootstrap/risk-register.md` is updated in a
+**separate pull request** (the D-125 branch-protection one), because maintaining
+that entry is what that change exists to do. Until the two merge, this tree's
+copy of the register still reads "both quotas restored". The register is the
+authoritative record of the risk's state and this decision defers to it rather
+than duplicating it — the quota did in fact recover later the same night, which
+is precisely why that state belongs in one place instead of being asserted
+here.
 
 13.1 is the wave where that matters most. It is thirteen endpoints covering OTP
 issuance, password reset and company registration, plus an outbound WhatsApp
