@@ -920,9 +920,19 @@ decisions list while an ordinary employee is served it.
 
 The bounded C3/C8 pass established that the desktop client hides the Assets
 screen behind `hrPermission: HrPermissionFlag.assets`, while the server enforces
-**no** `hr_permissions` check on any of the five routes. So any authenticated
-user in the company can call `assets/create`, `assets/update` and
-`assets/delete` directly, regardless of the flag their UI respects.
+**no** `hr_permissions` check on any of the five routes.
+
+**Scope, stated precisely — an earlier revision of this entry overstated it.**
+The three write routes are `requireAuth([COMPANY_ADMIN, HR])`, so MANAGER and
+EMPLOYEE sessions are refused with 403. What is unenforced is only the narrower
+flag: an **admin or HR user whose `can_assets` is unset** is hidden the screen by
+the client and served by the server. That is a privilege gap *within* an
+already-privileged role, not open access — and the difference matters, because a
+port written against the wider claim would have granted MANAGER and EMPLOYEE a
+mutation capability legacy does not give them.
+
+The gap itself is **already tracked upstream as `hr-legacy#8`**; what this wave
+adds is the client evidence and the decision to reproduce it.
 
 The port reproduces this (D-058: the burden of proof is on the change). **The
 owner accepted it explicitly on 2026-08-29** rather than having it reproduced
@@ -934,10 +944,13 @@ silently. It is recorded here so that:
 - the eventual fix is a legacy change first, ported second — not a divergence
   introduced in the Java.
 
-Custody records are not payroll or personal data, and the exposure is bounded
-to a single tenant, which is why this is acceptable as a Phase-1 residual rather
-than a blocker. It is **not** closed, and it does not become closed by being
-written down.
+Custody records are not payroll or personal data, the exposure is bounded to a
+single tenant, and it is reachable only by roles already trusted with the rest
+of that tenant's HR data — which together are why this is acceptable as a
+Phase-1 residual rather than a blocker. It is **not** closed, and it does not
+become closed by being written down. It is registered as **R-010** so that a
+risk-based release review has an owner, a trigger and a contingency for it
+rather than only a decision-log paragraph.
 
 ### Smaller preserved behaviours
 
