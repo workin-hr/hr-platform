@@ -95,4 +95,26 @@ class LegacyPhpArrayJsonTest {
 	void anEmptyMapStaysAnObject() {
 		assertThat(LegacyPhpArrayJson.encode(new LinkedHashMap<>())).isInstanceOf(Map.class);
 	}
+
+	/**
+	 * A key above {@link Integer#MAX_VALUE} is still a canonical PHP integer, so
+	 * it has to fail the sequence test rather than blow up the encoder: these
+	 * keys are department and branch <em>names</em>, and nothing stops one being
+	 * named {@code 2147483648}.
+	 */
+	@Test
+	void aCanonicalKeyBeyondIntRangeStaysAnObjectInsteadOfThrowing() {
+		assertThat(LegacyPhpArrayJson.isCanonicalInteger("2147483648")).isTrue();
+		assertThat(LegacyPhpArrayJson.encode(map("2147483648"))).isInstanceOf(Map.class);
+		assertThat(LegacyPhpArrayJson.encode(map("0", "2147483648"))).isInstanceOf(Map.class);
+	}
+
+	/**
+	 * The same for a key past the 32-bit <em>unsigned</em> range, so the guard
+	 * is not read as covering only the one boundary above.
+	 */
+	@Test
+	void aFarOutOfRangeCanonicalKeyAlsoStaysAnObject() {
+		assertThat(LegacyPhpArrayJson.encode(map("4294967296"))).isInstanceOf(Map.class);
+	}
 }

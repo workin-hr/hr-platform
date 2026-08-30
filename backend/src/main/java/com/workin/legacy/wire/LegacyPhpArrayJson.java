@@ -60,9 +60,13 @@ public final class LegacyPhpArrayJson {
 			// close, so honouring the cast is the faithful choice here.
 			return map;
 		}
-		int expected = 0;
+		// `long`, not `int`: isCanonicalInteger() admits PHP's full signed
+		// 64-bit key range, so parsing back with Integer.parseInt() would throw
+		// on a key it had just accepted -- a department named `2147483648` is a
+		// legal map key here and would 500 instead of encoding.
+		long expected = 0;
 		for (String key : map.keySet()) {
-			if (!isCanonicalInteger(key) || Integer.parseInt(key) != expected) {
+			if (!isCanonicalInteger(key) || Long.parseLong(key) != expected) {
 				return map;
 			}
 			expected++;
