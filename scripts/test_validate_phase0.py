@@ -500,13 +500,23 @@ def run_check_dispositions_over_fake_gh(pages: list[dict]) -> subprocess.Complet
         tmpdir = Path(tmp)
         for index, page in enumerate(pages):
             (tmpdir / f"page{index}.json").write_text(json.dumps(page), encoding="utf-8")
-        # Each invocation consumes the next page, so the script's own loop
-        # ordering is what selects them -- the shim asserts nothing itself.
+        # Each invocation consumes the next page AND records its full argument
+        # list. Serving by call count alone would let a broken implementation
+        # pass: if the cursor were never advanced -- left at `null` every time
+        # -- this shim would still hand over page 1, then page 2, and the test
+        # would go green while live GitHub returned the first page forever.
+        # The recorded arguments are what the caller asserts on.
         (tmpdir / "gh").write_text(
             "#!/bin/sh\n"
             f'counter="{tmpdir}/counter"\n'
+            f'log="{tmpdir}/calls.log"\n'
             'n=0; [ -f "$counter" ] && n="$(cat "$counter")"\n'
             'echo $((n + 1)) > "$counter"\n'
+            # One line per invocation: the GraphQL document is multi-line, so
+            # logging "$*" raw would split a single call across many lines and
+            # make calls[1] a fragment of the first query rather than the
+            # second call.
+            '''printf "%s\\n" "$(printf "%s" "$*" | tr "\\n" " ")" >> "$log"\n'''
             f'cat "{tmpdir}/page$n.json"\n',
             encoding="utf-8")
         (tmpdir / "gh").chmod(0o755)
@@ -517,10 +527,13 @@ def run_check_dispositions_over_fake_gh(pages: list[dict]) -> subprocess.Complet
         # Quoted: the script reads REVIEWER from a `REVIEWER: "..."` assignment.
         workflow.write_text(f'env:\n  REVIEWER: "{REVIEWER}"\n', encoding="utf-8")
         env["INDEPENDENT_REVIEW_WORKFLOW_FILE"] = str(workflow)
-        return subprocess.run(
+        proc = subprocess.run(
             ["bash", str(CHECK_DISPOSITIONS_SCRIPT), "1"],
             capture_output=True, text=True, timeout=30, env=env,
         )
+        log = tmpdir / "calls.log"
+        proc.gh_calls = log.read_text(encoding="utf-8").splitlines() if log.is_file() else []  # type: ignore[attr-defined]
+        return proc
 
 
 def _thread_page(threads: list[dict], has_next: bool, cursor: str = "CUR") -> dict:
@@ -533,15 +546,27 @@ def test_dispositions_a_finding_on_the_second_thread_page_is_seen() -> None:
     """The failure that motivated pagination: an undispositioned finding past
     the first page of threads was invisible, so the check reported success on
     exactly the longest, most-reviewed pull requests."""
-    page_one = _thread_page([_thread(REVIEWER, ("karimtismail", "Disposition: fixed"))], True)
+    page_one = _thread_page(
+        [_thread(REVIEWER, ("karimtismail", "Disposition: fixed"))], True, cursor="CUR1")
     page_two = _thread_page(
+        [_thread(REVIEWER, ("karimtismail", "Disposition: fixed"),
+                 path="middle.java", line=2)], True, cursor="CUR2")
+    page_three = _thread_page(
         [_thread(REVIEWER, ("karimtismail", "no disposition here"),
-                 path="second/page.java", line=7)], False)
-    proc = run_check_dispositions_over_fake_gh([page_one, page_two])
+                 path="third/page.java", line=7)], False)
+    proc = run_check_dispositions_over_fake_gh([page_one, page_two, page_three])
+    calls = proc.gh_calls  # type: ignore[attr-defined]
     check(
-        proc.returncode != 0 and "second/page.java" in proc.stdout,
-        f"a finding on the second thread page is still required to be dispositioned "
-        f"(exit={proc.returncode}, stdout={proc.stdout!r}, stderr={proc.stderr!r})",
+        proc.returncode != 0
+        and "third/page.java" in proc.stdout
+        # Three pages, so advancement has to happen twice -- a single-step
+        # cursor bug survives a two-page fixture.
+        and len(calls) >= 3
+        and "cursor=CUR1" in calls[1]
+        and "cursor=CUR2" in calls[2],
+        f"a finding on the third thread page is found, and each request carries the "
+        f"previous page's endCursor (exit={proc.returncode}, calls={calls}, "
+        f"stdout={proc.stdout!r})",
     )
 
 
@@ -559,10 +584,17 @@ def test_dispositions_a_reply_on_the_second_comment_page_is_honoured() -> None:
         "pageInfo": {"hasNextPage": False, "endCursor": "C2"},
         "nodes": [{"author": {"login": "karimtismail"}, "body": "Disposition: fixed"}]}}}}
     proc = run_check_dispositions_over_fake_gh([page_one, comment_page])
+    calls = proc.gh_calls  # type: ignore[attr-defined]
     check(
-        proc.returncode == 0,
-        f"a disposition on a later comment page discharges the finding "
-        f"(exit={proc.returncode}, stdout={proc.stdout!r}, stderr={proc.stderr!r})",
+        proc.returncode == 0
+        and len(calls) >= 2
+        # The follow-up must ask for that thread, from where its first page
+        # stopped -- not re-request the same page.
+        and "cursor=C1" in calls[1]
+        and "THREAD_a.java_1" in calls[1],
+        f"a disposition on a later comment page discharges the finding, and the "
+        f"fetch carries the thread id and its comment cursor "
+        f"(exit={proc.returncode}, calls={calls}, stdout={proc.stdout!r})",
     )
 
 
