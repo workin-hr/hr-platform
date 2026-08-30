@@ -123,10 +123,17 @@ left at its committed placeholder counts as unconfigured.
 
 ### Pre-cutover validation
 
-1. **Confirm it is configured at all.** Start the service and grep the log for
-   `WhatsApp is not configured`. Its presence means every OTP route is already
-   failing; its absence is the only positive signal available before a real
-   send.
+1. **Confirm it is configured at all.** Start the service and read the startup
+   line from `LegacyWhatsAppHttpSender`: either
+   `WhatsApp OTP delivery is configured: N instance(s)` or
+   `WhatsApp is not configured at startup`. One of the two is always emitted, so
+   absence of the error means the check did not run — not that it passed.
+
+   > Until this line existed, this step said to grep for
+   > `WhatsApp is not configured`, which is logged only inside `sendText()`. An
+   > operator running the grep *before* making an OTP request always found
+   > nothing, including when every credential was empty, and read that as a
+   > pass. Do not go back to inferring configuration from an absent log line.
 2. **Send one real code.** `POST /apis/api/auth/resend_otp.php` with a phone
    the operator controls. Expect **200** and an actual WhatsApp message. A
    **503** means delivery failed — check the log for

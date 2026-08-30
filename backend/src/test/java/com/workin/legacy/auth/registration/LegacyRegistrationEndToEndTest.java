@@ -354,19 +354,28 @@ class LegacyRegistrationEndToEndTest {
 	}
 
 	/**
-	 * {@code resolve_employee_name_from_body()}'s two fallbacks -- splitting a
-	 * single {@code name} field, and inventing {@code Pending-<phone>} -- are
-	 * <b>unreachable from this endpoint</b>, because {@code required($body,
-	 * [FIRST_NAME, ...])} rejects an absent or empty {@code first_name} before
-	 * the resolver ever runs.
+	 * {@code resolve_employee_name_from_body()} has two fallbacks and they do
+	 * <b>not</b> behave the same way here.
 	 *
-	 * <p>Worth pinning rather than assuming: the helper is shared, its
-	 * fallbacks are real, and a future caller could reach them -- but a request
-	 * that supplies only {@code name} is a 400 here, not a split.
+	 * <ul>
+	 * <li><b>Splitting a single {@code name} field is unreachable.</b>
+	 *     {@code required($body, [FIRST_NAME, ...])} rejects an absent or empty
+	 *     {@code first_name} first, so a request supplying only {@code name} is
+	 *     a 400, never a split.</li>
+	 * <li><b>{@code Pending-<phone>} is reachable</b>, by exactly one input
+	 *     shape. {@code required()} is {@code isset() && !== ''}, not a trim, so
+	 *     a whitespace-only {@code first_name} passes the guard; the resolver
+	 *     then trims it to empty and invents the name.</li>
+	 * </ul>
+	 *
+	 * <p>An earlier revision of this comment called both unreachable, which the
+	 * assertions below already contradicted. Worth pinning rather than assuming:
+	 * the helper is shared, and the difference between the two fallbacks is a
+	 * guard that looks like it trims and does not.
 	 */
 	@Test
 	@Order(12)
-	void theFullNameFallbackIsUnreachableBecauseFirstNameIsRequired() {
+	void theFullNameFallbackIsUnreachableButThePendingNameFallbackIsNot() {
 		ResponseEntity<Map<String, Object>> response = post(JOIN,
 				"{\"name\":\"Ana Maria de Souza\",\"phone\":\"01000033079\","
 						+ "\"password\":\"" + PASSWORD + "\",\"company_code\":\"" + CODE + "\"}");

@@ -106,6 +106,26 @@ public class LegacyWhatsAppHttpSender implements LegacyWhatsAppSender {
 		return ids;
 	}
 
+	/**
+	 * Says once, at startup, whether OTP delivery can work at all.
+	 *
+	 * <p>Not a parity concern -- it emits no response and changes no wire
+	 * behaviour. It exists because the only other signal is inside
+	 * {@link #sendText}, which means an unconfigured gateway stays silent until
+	 * a real user's OTP fails. The production runbook's pre-cutover step used to
+	 * read "grep the log for `WhatsApp is not configured`", and before any send
+	 * that grep found nothing whether or not the credentials were present.
+	 */
+	@jakarta.annotation.PostConstruct
+	void reportConfigurationAtStartup() {
+		if (isConfigured()) {
+			LOG.info("WhatsApp OTP delivery is configured: {} instance(s)", instanceIds().size());
+		} else {
+			LOG.error("WhatsApp is not configured at startup; every OTP route will answer "
+					+ "otp_delivery_failed until a token and at least one instance id are set");
+		}
+	}
+
 	/** {@code whatsapp_is_configured()}. */
 	public boolean isConfigured() {
 		return !apiToken.isEmpty() && !TOKEN_PLACEHOLDER.equals(apiToken) && !instanceIds().isEmpty();

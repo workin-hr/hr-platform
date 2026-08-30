@@ -62,6 +62,30 @@ class LegacyClientAddressTest {
 		assertThat(clientIp("::ffff:999.0.113.7")).as("bad embedded IPv4").isEmpty();
 	}
 
+	/**
+	 * An IPv4 tail is only legal at the very end of the literal. When the
+	 * address ends in {@code ::} the tail after the compression is empty, so a
+	 * dotted group in the head is the last one <em>parsed</em> without being
+	 * last in the address. {@code inet_pton} -- and therefore
+	 * {@code filter_var(FILTER_VALIDATE_IP)} -- rejects every one of these.
+	 *
+	 * <p>It matters beyond validation: an accepted value is stored and
+	 * rate-limited as the client identity on deployments where the OTP IP
+	 * columns exist, so a malformed forwarding header would take the place of
+	 * the socket address it should have fallen through to.
+	 */
+	@Test
+	void anIpv4TailIsRejectedAnywhereButTheEndOfTheLiteral() {
+		assertThat(clientIp("1.2.3.4::")).as("dotted head, empty tail").isEmpty();
+		assertThat(clientIp("1:1.2.3.4::")).as("dotted group before the compression").isEmpty();
+		assertThat(clientIp("1.2.3.4::5")).as("dotted head with a non-empty tail").isEmpty();
+		assertThat(clientIp("::1.2.3.4:5")).as("dotted group followed by another").isEmpty();
+
+		assertThat(clientIp("::1.2.3.4")).as("still legal at the end").isEqualTo("::1.2.3.4");
+		assertThat(clientIp("1:2::3:1.2.3.4")).as("and after a compression")
+				.isEqualTo("1:2::3:1.2.3.4");
+	}
+
 	@Test
 	void theHeaderOrderIsCloudflareThenForwardedThenRealIpThenTheSocket() {
 		MockHttpServletRequest request = new MockHttpServletRequest();

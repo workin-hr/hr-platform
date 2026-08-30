@@ -141,8 +141,14 @@ public final class LegacyClientAddress {
 		for (int i = 0; i < groups.size(); i++) {
 			String group = groups.get(i);
 			if (group.indexOf('.') >= 0) {
-				// Only the very last group may be an IPv4 literal.
-				if (i != groups.size() - 1 || !isIpv4(group)) {
+				// Only the very last group may be an IPv4 literal -- and "last"
+				// means last in the RAW literal, not last in this flattened
+				// list. They differ whenever the address ends in `::`, which
+				// leaves an empty tail: `1.2.3.4::` and `1:1.2.3.4::` both put
+				// a dotted group at the end of `groups` while the literal
+				// itself ends in the compression. inet_pton rejects both, so
+				// filter_var(FILTER_VALIDATE_IP) does too.
+				if (i != groups.size() - 1 || !raw.endsWith(group) || !isIpv4(group)) {
 					return false;
 				}
 				counted += 2;
