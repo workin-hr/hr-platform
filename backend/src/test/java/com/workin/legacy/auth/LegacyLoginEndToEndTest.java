@@ -39,6 +39,7 @@ class LegacyLoginEndToEndTest {
 	private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 	private static final String KNOWN_PASSWORD = "Secret123!";
 	private static final String LOGIN = "/apis/api/auth/login_employee.php";
+	private static final String SECRET = "test-only-secret-not-used-in-production-000000000000";
 
 	@Autowired
 	private TestRestTemplate restTemplate;
@@ -62,7 +63,7 @@ class LegacyLoginEndToEndTest {
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {
-		registry.add("app.jwt.secret", () -> "test-only-secret-not-used-in-production-000000000000");
+		registry.add("app.jwt.secret", () -> SECRET);
 		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
 		registry.add("app.legacy-db.username", MARIADB::getUsername);
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
@@ -104,6 +105,14 @@ class LegacyLoginEndToEndTest {
 					  (90041, 9002, 9102, 'Suspended', 'Co', '+201100090041', 'employee', '%1$s',
 					   1, 1, 0, 'accepted', 1, '2025-04-01 08:00:00')
 					""".formatted(hash));
+			// One row per company, distinguishable by name. Without a row for the
+			// *other* company these tests cannot tell correct tenant re-derivation
+			// from none at all: an empty list is the same 200 either way.
+			st.execute("""
+					INSERT INTO exception_types (id, company_id, name, is_active, created_at) VALUES
+					  (9201, 9001, 'E2E Type Of Company 9001', 1, '2025-05-01 08:00:00'),
+					  (9202, 9002, 'E2E Type Of Company 9002', 1, '2025-05-01 08:00:00')
+					""");
 		}
 	}
 
@@ -212,6 +221,97 @@ class LegacyLoginEndToEndTest {
 		assertThat(accepted.getStatusCode().value()).isEqualTo(200);
 	}
 
+	/**
+	 * The rollback direction, over the real path rather than the codec.
+	 *
+	 * <p>{@code LegacyPhpJwtWireCompatibilityTest} proves the codec accepts a
+	 * PHP-minted token. That is not sufficient for G11's claim: a live request
+	 * also traverses {@code LegacyPhpJwtAuthenticationFilter}, tenant
+	 * re-derivation and {@code LegacyRequestGuard}'s token-version and role
+	 * checks. A regression in any of those would leave the codec test green
+	 * while every pre-cutover session broke.
+	 *
+	 * <p>The token here is encoded by {@link PhpJwtOracle}, never by the
+	 * production service, so this is a genuine PHP token as far as the
+	 * application can tell -- exactly what a user holds when the cutover
+	 * happens mid-session.
+	 */
+	@Test
+	void aPhpMintedEmployeeTokenAuthenticatesAProtectedRouteOverRealHttp() throws Exception {
+		String phpToken = PhpJwtOracle.encode(
+				PhpJwtOracle.employeePayload(
+						90011L, 9001L, "employee", readTokenVersion(90011L),
+						PhpJwtOracle.tenYearsFromNow()),
+				SECRET);
+
+		ResponseEntity<Map> response = listExceptionTypesWith(phpToken);
+		assertThat(response.getStatusCode().value())
+				.as("a session PHP issued before cutover must keep working after it")
+				.isEqualTo(200);
+		assertThat(response.getBody().get("success")).isEqualTo(true);
+		assertThat(namesIn(response))
+				.as("the company must be re-derived from the token, not guessed or dropped")
+				.containsExactly("E2E Type Of Company 9001");
+	}
+
+	@Test
+	void aPhpMintedCompanyTokenAuthenticatesAProtectedRouteOverRealHttp() {
+		String phpToken = PhpJwtOracle.encode(
+				PhpJwtOracle.companyPayload(9001L, "company_admin", PhpJwtOracle.tenYearsFromNow()),
+				SECRET);
+
+		ResponseEntity<Map> response = listExceptionTypesWith(phpToken);
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		assertThat(response.getBody().get("success")).isEqualTo(true);
+		assertThat(namesIn(response)).containsExactly("E2E Type Of Company 9001");
+	}
+
+	/**
+	 * The claim is not the tenant. Employee 90011 belongs to company 9001, so
+	 * every other test here has a token whose {@code company_id} claim happens
+	 * to agree with the database — which means none of them can tell tenant
+	 * re-derivation from simply trusting the claim.
+	 *
+	 * <p>This one forges the disagreement: a validly signed token for employee
+	 * 90011 asserting company 9002. If the guard trusted the claim it would
+	 * serve 9002's data; because {@code LegacyTenantContextService} re-derives
+	 * the company from {@code employee_id} and cross-checks it, the request is
+	 * refused instead.
+	 */
+	@Test
+	void aForgedCompanyClaimIsRefusedRatherThanTrusted() throws Exception {
+		String forged = PhpJwtOracle.encode(
+				PhpJwtOracle.employeePayload(
+						90011L, 9002L, "employee", readTokenVersion(90011L),
+						PhpJwtOracle.tenYearsFromNow()),
+				SECRET);
+
+		ResponseEntity<Map> response = listExceptionTypesWith(forged);
+		assertThat(response.getStatusCode().value())
+				.as("the company must come from the database, never from the token")
+				.isNotEqualTo(200);
+		assertThat(response.getBody().get("success")).isEqualTo(false);
+	}
+
+	/**
+	 * Falsifies the two tests above: if the guard were not actually engaged on
+	 * this route, they would pass for the wrong reason. A stale
+	 * {@code token_version} must still be rejected even though the signature is
+	 * valid, which is what makes their 200 evidence of anything.
+	 */
+	@Test
+	void aPhpMintedTokenWithAStaleTokenVersionIsStillRejected() throws Exception {
+		String stale = PhpJwtOracle.encode(
+				PhpJwtOracle.employeePayload(
+						90011L, 9001L, "employee", readTokenVersion(90011L) - 1,
+						PhpJwtOracle.tenYearsFromNow()),
+				SECRET);
+
+		ResponseEntity<Map> response = listExceptionTypesWith(stale);
+		assertThat(response.getStatusCode().value()).isEqualTo(401);
+		assertThat(response.getBody().get("success")).isEqualTo(false);
+	}
+
 	private ResponseEntity<Map> login(String phone, String password) {
 		return restTemplate.postForEntity(LOGIN, Map.of("phone", phone, "password", password), Map.class);
 	}
@@ -220,6 +320,14 @@ class LegacyLoginEndToEndTest {
 		assertThat(response.getStatusCode().value()).isEqualTo(200);
 		Map data = (Map) response.getBody().get("data");
 		return (String) data.get("token");
+	}
+
+	private static java.util.List<String> namesIn(ResponseEntity<Map> response) {
+		Object data = response.getBody().get("data");
+		java.util.List<Map> rows = data instanceof Map map
+				? (java.util.List<Map>) map.get("items")
+				: (java.util.List<Map>) data;
+		return rows.stream().map(row -> String.valueOf(row.get("name"))).toList();
 	}
 
 	private ResponseEntity<Map> listExceptionTypesWith(String token) {

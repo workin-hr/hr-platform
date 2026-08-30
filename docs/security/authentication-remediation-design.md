@@ -158,6 +158,17 @@ by product, not decided here):
 
 ## Backward-Compatible Migration Of Existing Users — Decided: Forced Re-Authentication
 
+> **Scope: the Phase-2 authentication cutover only. This section does not
+> describe Phase 1.** Added 2026-08-30. Everything below was decided on
+> 2026-08-04 for ADR-0005's *new* authentication model, before **D-111** settled
+> Phase 1 as zero-client-change. The Phase-1 port emits tokens byte-identical to
+> `jwtEncode()`'s and validates PHP's unchanged, so no Phase-1 session is
+> invalidated in either direction — provided both deployments carry the same
+> signing secret. See `docs/operations/release-cutover-and-rollback.md` for the
+> evidence and the two preconditions that verification depends on. Read the
+> forced-re-authentication design below as applying when the new auth backend
+> takes over, which is a later phase and a separate cutover.
+
 **Confirmed product decision, 2026-08-04**: existing `hr-legacy` JWTs
 (mobile and desktop) are **not** migrated or dual-validated against the
 new backend. This section previously compared three candidate
@@ -179,6 +190,8 @@ support-load spike in exchange for a materially simpler, lower-risk
 migration of the most security-sensitive subsystem in the codebase.
 
 ### Token Revocation / Cutover Behavior
+
+*Phase-2 auth cutover only — see the scope note above.*
 
 - At the moment the new backend takes over authentication, **every
   existing `hr-legacy`-issued JWT is treated as invalid** — not
@@ -242,6 +255,9 @@ refresh-token rotation governs session lifetime, not repeated forced
 logins.
 
 ### Rollback Implications
+
+*Phase-2 auth cutover only. Phase 1's rollback is transparent for the reason
+given in the scope note above; do not apply this section to it.*
 
 If the new auth backend needs to be rolled back after cutover, users who
 already re-authenticated against it hold **new-system credentials/tokens

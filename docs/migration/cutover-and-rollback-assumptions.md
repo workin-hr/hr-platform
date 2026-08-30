@@ -7,6 +7,15 @@ actually known, and mark everything else as an open question.
 
 ## Assumption: Forced Re-Authentication On Auth Cutover (Confirmed Decision, 2026-08-04)
 
+> **Scope: the Phase-2 authentication cutover only. This assumption does not
+> describe Phase 1.** Added 2026-08-30 per **D-143**. Under **D-111** Phase 1 is
+> zero-client-change: it emits tokens byte-identical to `jwtEncode()`'s and
+> validates PHP's unchanged, so no Phase-1 session is invalidated in either
+> direction, provided both deployments share a signing secret (**R-024**). The
+> Statement, Risk and Rollback bullets below all read as Phase-2 statements —
+> applying any of them to Phase 1 would plan a mass forced logout that Phase 1
+> does not cause. Evidence: `docs/operations/release-cutover-and-rollback.md`.
+
 - **Category**: Cutover window, data-freeze scope, communication.
 - **Confidence**: Evidenced — this is a confirmed product decision, not
   a hypothesis. See `docs/adr/ADR-0005-authentication-direction.md`
@@ -27,13 +36,26 @@ actually known, and mark everything else as an open question.
   silent failure, and by scheduling cutover communication in advance
   (see `docs/security/authentication-remediation-design.md` for the
   full remediation design this assumption feeds).
-- **Rollback Implication**: if the new auth backend needs to be rolled
-  back after cutover, users who already re-authenticated against it
-  hold **new-system credentials/tokens the old `hr-legacy` system does
-  not recognize** — rollback is not silently transparent to users who
-  already migrated. This needs an explicit rollback communication plan
-  (not designed here) if rollback is a real possibility for the
-  cutover window chosen, not assumed to be a clean no-op.
+- **Rollback Implication**: **superseded for Phase 1 as of 2026-08-30 —
+  see `docs/operations/release-cutover-and-rollback.md`.** This bullet
+  was written on 2026-08-04 for ADR-0005's *new* authentication design,
+  before D-111 settled Phase 1 as zero-client-change. Under D-111 the
+  Phase-1 port emits tokens byte-identical to `jwtEncode()`'s — same
+  header, same HS256 construction, same claims in the same order, same
+  ten-year expiry — so a session issued by either system authenticates
+  against the other, **provided both deployments carry the same signing
+  secret**. `LegacyPhpJwtWireCompatibilityTest` pins that in both
+  directions. Rollback is therefore expected to be transparent, not
+  disruptive, and the pre-cutover check that confirms it is recorded in
+  the operations document. The original text stands below for the
+  Phase-2 auth cutover, where it still applies:
+  > if the new auth backend needs to be rolled back after cutover, users
+  > who already re-authenticated against it hold new-system
+  > credentials/tokens the old `hr-legacy` system does not recognize —
+  > rollback is not silently transparent to users who already migrated.
+  > This needs an explicit rollback communication plan (not designed
+  > here) if rollback is a real possibility for the cutover window
+  > chosen, not assumed to be a clean no-op.
 - **Evidence**: Direct product-owner decision, this repository, this
   conversation, 2026-08-04.
 

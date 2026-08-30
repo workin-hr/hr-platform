@@ -14,7 +14,30 @@
 | Supersedes | None |
 | Superseded By | None |
 
-## Phase 1 Status (2026-08-16)
+## Phase 1 Status (2026-08-16) — **superseded for Phase 1 on 2026-08-30, see below**
+
+> **This whole section is superseded for Phase 1 by D-111 and D-143.** It was
+> written on 2026-08-16 and rests on **D-042**, which **D-111 later superseded on
+> the token model**. Its conclusions below — that the 10-year lifetime is "not
+> preserved", that Phase 1 is "a client-visible break", and that "the Flutter
+> clients must adopt refresh" — are the **opposite** of what Phase 1 now does.
+>
+> Under **D-111 (zero client change)** the Phase 1 port emits tokens
+> byte-identical to `jwtEncode()`'s and validates PHP's unchanged: same header,
+> same HS256 construction, same claims in the same order, same ten-year expiry.
+> No Flutter client changes, and no session is invalidated in either direction
+> across the cutover — conditional only on both deployments sharing a signing
+> secret. `LegacyPhpJwtWireCompatibilityTest` and `LegacyLoginEndToEndTest` pin
+> this at the codec and over real HTTP respectively.
+>
+> **D-143** records that scoping decision. The forced-re-authentication design in
+> `docs/security/authentication-remediation-design.md` and this section both
+> describe the **Phase-2 authentication cutover**, where they still apply
+> unchanged.
+>
+> The section is kept rather than deleted because it remains the record of how
+> the D-042-era conflict was reasoned, and because everything it says about
+> Phase 2 stands. **Do not apply it to Phase 1.**
 
 ADR-0011's strategy reset commits Phase 1 to **strict legacy API contract
 parity**, which on its face contradicts this ADR: legacy issues one 10-year JWT
@@ -46,6 +69,11 @@ tolerate what legacy produced, decline to keep producing it. **It is a
 client-visible break** — the Flutter clients must adopt refresh — and it is the
 one deliberate divergence from strict contract parity in Phase 1. Any further
 divergence needs its own decision rather than citing this precedent.
+
+> **Superseded for Phase 1 (D-111, 2026-08-30).** There is no client-visible
+> break in Phase 1 and the Flutter clients adopt nothing: they keep presenting
+> the same tokens to a backend that issues and accepts the same tokens. This
+> paragraph describes the Phase-2 cutover.
 
 The Open Questions below about refresh lifetime and simultaneous sessions remain
 open and are unaffected.

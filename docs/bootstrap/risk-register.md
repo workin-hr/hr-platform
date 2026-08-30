@@ -377,6 +377,60 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Evidence | `hr-legacy@d113204` `apis/helpers/otp_helper.php:43-46`; port at `LegacyClientAddress.clientIp()`; the inert-predicate mechanism in R-014. Related: `LegacyClientAddressTest#anIpv4TailIsRejectedAnywhereButTheEndOfTheLiteral`, which pins the validator that decides whether a supplied header is used at all. |
 | Last Reviewed | 2026-08-30 |
 
+## R-023: Phase 1 Cutover Has An Unprovisioned Schema Prerequisite On The Production Legacy Database
+
+| Field | Value |
+|---|---|
+| Description | Phase 1 adds exactly one table to the legacy MariaDB — `legacy_refresh_tokens` (`backend/src/test/resources/legacy/phase1_extensions.schema.sql`), authorised as a narrow exception by **D-043 amendment 3**. It does not exist in production legacy MySQL, and **nothing creates it**: Flyway owns no MariaDB location, `LegacyPersistenceConfig` sets `hibernate.hbm2ddl.auto` to `none`, and ADR-0013's Open Questions record that the provisioning mechanism for a real, non-test instance is undecided. Today the table exists only where a test container applies the extension schema out-of-band. |
+| Category | Migration / Cutover readiness / Production safety |
+| Probability | Certain — the table is required by code that ships in the cutover. Note the failure point is **not** first login: the parity login route (`LegacyPhpLoginService`) never touches the refresh-token repository and succeeds without the table. What breaks is every path calling `LegacyRefreshTokenService.revokeAllForEmployee()` — password change and logout (`LegacyProfileService`) and **`reset_password.php` in employee mode** (`LegacyOtpAuthService.resetPassword()`; **not** `verifyOtp()`, which never touches the table, and **not** its company branch, which stops at `updateCompanyPasswordByPhone()`) — so a missing table surfaces as scattered failures in live use rather than a clean startup error. **The reset path fails partially, not cleanly**: `resetPassword()` commits the new password via `updateEmployeePasswordByPhone()` *before* calling `revokeAllForEmployee()`, and `LegacyOtpAuthService` carries no `@Transactional`. A missing or unwritable table therefore leaves the password changed, the sessions un-revoked, and the caller told the operation failed. |
+| Impact | **Nothing fails at cutover time, which is what makes this dangerous.** Login succeeds without the table, so the cutover looks clean; the failures appear afterwards, scattered across password change, logout and **employee-mode `reset_password.php`** — the paths that call `revokeAllForEmployee()`. Two nearby routes do **not** reach it and will pass with the table absent: `verifyOtp()`, which never touches the repository, and a **company-mode** reset, whose branch stops at `updateCompanyPasswordByPhone()`. An operator watching the cutover for a clean startup and a successful login gets no signal at all. More importantly, provisioning is a **DDL statement against the production legacy database** executed by an undecided mechanism, which is precisely the class of action that needs a named owner, a rehearsal against a restored copy, and a stated lock duration rather than an ad hoc `CREATE TABLE` on the night. |
+| Severity | Medium. The change itself is trivial and additive; the risk is that it is treated as trivial and therefore performed without the controls a production schema change requires. |
+| Owner | Repository owner. |
+| Mitigation | Decide and approve the provisioning mechanism before the cutover window, per ADR-0013's Open Questions. Rehearse it against a restored copy of the production legacy database and record the mechanism, owner and lock duration in `docs/operations/release-cutover-and-rollback.md`, which now carries this as an explicit pre-cutover step. |
+| Trigger | Scheduling the Phase 1 cutover. |
+| Contingency | **Rollback does not need to reverse it.** The table is purely additive and no PHP code references it, so after a rollback it is simply orphaned — harmless in place, and leaving it preserves the option of rolling forward again without repeating the DDL. Dropping it is deliberately *not* part of the rollback procedure. |
+| Status | Open. Surfaced by independent review of PR #147 on 2026-08-30, which correctly rejected that PR's original claim that Phase 1 changes no tables. |
+| Target Date | Before the Phase 1 cutover window is scheduled. |
+| Evidence | `phase1_extensions.schema.sql`; `LegacyPersistenceConfig` (`hbm2ddl.auto=none`, "No Flyway ownership of any MariaDB schema"); ADR-0013 Open Questions; D-043 amendment 3; decision-log entries D-050/D-051 declining to widen the exception. |
+| Last Reviewed | 2026-08-30 |
+
+## R-024: A Signing-Secret Mismatch At Phase 1 Cutover Logs Out Every User, Twice
+
+| Field | Value |
+|---|---|
+| Description | Phase 1's zero-client-change property (**D-111**) depends on Java and PHP sharing one HS256 signing secret. `LegacyPhpJwtService` binds `app.jwt.secret`; PHP uses `AppConfig::JWT_SECRET`. Nothing verifies the two are byte-identical — `JwtSecretStartupCheck` rejects a known placeholder value and nothing more — and until PR #147 no document stated the requirement at all. |
+| Category | Security / Cutover readiness / Customer impact |
+| Probability | Unknown, and that is the point: it is a single configuration value that no check compares, so a mismatch would be discovered by users rather than by the release. |
+| Impact | If the secrets differ, **cutover invalidates every live PHP-issued session at once** — a mass forced logout of the entire active user base — and a **rollback invalidates every session Java issued since cutover, logging everyone out a second time**. This inverts the phase's central risk assumption: the rollback that is supposed to be cheap becomes the second-most disruptive event of the release. If they match, both transitions are transparent. |
+| Severity | High if it occurs; the exposure is one unverified config value and the verification is a single request. |
+| Owner | Repository owner. |
+| Mitigation | The pre-cutover token exchange recorded in `docs/operations/release-cutover-and-rollback.md`: mint a token in Java, present it to PHP on an authenticated endpoint, then reverse the direction. Rejection means the deployments disagree — stop the cutover. Wire compatibility either side of that secret is already pinned by `LegacyPhpJwtWireCompatibilityTest` (codec) and `LegacyLoginEndToEndTest` (real HTTP through the production filter chain), both building expectations from an independent reimplementation of `jwtEncode()`. |
+| Trigger | Any Phase 1 cutover; any rotation of either secret. |
+| Contingency | If a mismatch is found before cutover, align the configured value and re-run the exchange. If it is discovered *after* cutover, rolling back does not restore the logged-out sessions — the population is already forced to re-authenticate — so the decision becomes forward-fix versus rollback on other grounds, and a user communication is required either way. |
+| Status | Open. Recorded 2026-08-30 with PR #147; the secondary constraint below was surfaced by independent review of that PR. |
+| Target Date | Before the Phase 1 cutover window is scheduled. |
+| Evidence | `LegacyPhpJwtService` and `JwtService` both bind `app.jwt.secret`; `apis/helpers/functions.php:420-430`. **Secondary constraint:** `JwtService` is component-scanned into the `phase1-mysql` context and its constructor calls `Keys.hmacShaKeyFor()`, which rejects keys under 256 bits, whereas PHP's `hash_hmac` accepts any length — so a legacy secret shorter than 32 bytes would prevent Java from starting rather than merely mismatching. Checked: the legacy secret is 65 bytes, so this is satisfied today, but it constrains any future rotation. The value is not recorded in this repository. |
+| Last Reviewed | 2026-08-30 |
+
+## R-025: Phase 1's Rollback Target Has Never Been Shown To Be Restorable
+
+| Field | Value |
+|---|---|
+| Description | G11's rollback claim has two halves — "the database is unchanged" and **"PHP still runs"** — and only the first has been examined. Nothing verifies that the PHP artifact, its runtime configuration, or the traffic-routing path back to it is available and working at the moment a rollback is called. `release-cutover-and-rollback.md`'s own release/rollback procedure is still an unfilled template: there is no PHP deployment step, no routing reversal, no health check, and no post-rollback smoke evidence anywhere. |
+| Category | Cutover readiness / Production safety / Rollback |
+| Probability | Unknown, and untested — which is the finding. The legacy application is frozen at `d113204` and is expected to run, but "expected to" is exactly the standard G11 exists to replace. |
+| Impact | Session compatibility (**R-024**) is necessary for a transparent rollback and nowhere near sufficient. Every token check can pass while the rollback is impossible because there is nothing to roll back *to*. This is the failure mode where the release has no way out and discovers it only under pressure. |
+| Severity | High. Phase 1's entire risk posture rests on the rollback being cheap; an unrehearsed rollback is not known to be cheap or even available. |
+| Owner | Repository owner. |
+| Mitigation | An end-to-end rollback rehearsal on a non-production environment: route traffic back to PHP, confirm it serves, run the smoke checks against it. Recorded as pre-cutover step 4. Separately, fill in the release/rollback procedure the template is still waiting for — cutover steps, sequencing, triggers, owners. |
+| Trigger | Scheduling the Phase 1 cutover. |
+| Contingency | None available if it fails at cutover time, which is the point of rehearsing it beforehand. If the rehearsal shows PHP cannot be restored quickly, Phase 1's risk acceptance has to be revisited: the phase was approved on the strength of a cheap rollback that would not exist. |
+| Status | Open. Surfaced by independent review of PR #147 on 2026-08-30, which correctly observed that the PR substituted session compatibility for G11's whole claim. |
+| Target Date | Before the Phase 1 cutover window is scheduled. |
+| Evidence | `docs/operations/release-cutover-and-rollback.md` — Claim 2b, and the unfilled Cutover Step / Rollback Procedure / Owner / Evidence sections below it. Tracked separately from R-023 (schema prerequisite) and R-024 (signing secret) because the three fail independently. |
+| Last Reviewed | 2026-08-30 |
+
 ## R-026: A Deactivated Platform Administrator Kept Access Until Their Token Expired
 
 | Field | Value |
@@ -394,11 +448,6 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Target Date | Met. |
 | Evidence | `backend/src/main/java/com/workin/backend/security/PlatformAdminAuthenticationFilter.java`; `PlatformAdminAuthFlowTest`; F-26 in `docs/migration/consolidated-task-matrix.md`. **Note for a future reader:** admin *deletion* is not a reachable path — `platform_admin_audit_events` holds a NOT NULL FK to `platform_admins`, so an admin with any recorded action cannot be deleted. The filter's `orElse(false)` is the correct default for an authentication decision, not a guard against an observed case. |
 | Last Reviewed | 2026-08-30 |
-
-> **Numbering note.** R-023, R-024 and R-025 are proposed in PR #147 and are not
-> on `main` yet. R-026 is filed from the PR #148 review rather than renumbered,
-> so the branches do not collide; whichever merges last inherits a contiguous
-> register.
 
 ## R-027: Logout Does Not Invalidate The Live Access Token, On Either Surface
 

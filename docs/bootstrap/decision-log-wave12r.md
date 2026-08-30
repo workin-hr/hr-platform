@@ -2488,6 +2488,28 @@ change and `main`.
 If a defect is later found in this batch, this entry is the explanation for how
 it reached `main`, and the honest answer is that nobody independent looked.
 
+## D-143: Phase 1 is exempt from ADR-0005's forced re-authentication — sessions carry across the cutover in both directions
+
+| Field | Value |
+|---|---|
+| Decision | The forced-re-authentication design in `docs/security/authentication-remediation-design.md` and the matching assumption in `docs/migration/cutover-and-rollback-assumptions.md` are **scoped to the Phase-2 authentication cutover**. They do not describe Phase 1. Under **D-111** (zero client change) the Phase-1 port emits tokens byte-identical to `jwtEncode()`'s and accepts PHP's unchanged, so no session is invalidated in either direction — conditional on the two deployments sharing a signing secret (**R-024**). |
+| Reason | Both documents were written on 2026-08-04 for ADR-0005's *new* authentication model, before D-111 settled Phase 1 as zero-client-change. Left unscoped they state the opposite of Phase 1 reality, and they are the canonical artifacts a cutover review would consult. Overstating the rollback cost is not a harmless conservatism: G11 treats Phase 1's cheap rollback as the reason its risk profile is acceptable, and a reviewer reading "rollback is not silently transparent" would reasonably conclude the rollback is not worth attempting. |
+| Alternatives | (a) Rewrite the Phase-2 sections outright — rejected, they remain correct for the phase they were written for, and deleting them would lose a decided design. (b) Leave them and rely on readers inferring the phase — rejected, that is what produced the contradiction. Both documents are therefore annotated in place, with the original text preserved and marked as Phase-2-only. |
+| Impact | `docs/security/authentication-remediation-design.md` (scope note plus two section-level markers), `docs/migration/cutover-and-rollback-assumptions.md` (annotated earlier the same day), `docs/operations/release-cutover-and-rollback.md` (the evidence and the two preconditions). New risks **R-023**, **R-024** and **R-025** record the cutover prerequisites this exposed (R-025 was added after this row was first written, and is attributed in D-144). |
+| Evidence | `LegacyPhpJwtWireCompatibilityTest` pins the codec — header, algorithm, claim set and order, signature, and the bound default expiry through property binding. `LegacyLoginEndToEndTest` pins the real path: oracle-encoded employee and company tokens accepted over real HTTP against real MariaDB through the filter chain, tenant re-derivation and `LegacyRequestGuard`, with a stale-`token_version` token still rejected so the acceptances mean something. Both build expectations from `PhpJwtOracle`, an independent reimplementation of `jwtEncode()`, never from the production encoder. |
+| Status | Accepted 2026-08-30. |
+
+## D-144: G11's rollback claim is recorded as partly false rather than restated as true
+
+| Field | Value |
+|---|---|
+| Decision | The completion plan's G11 asserts *"the database is unchanged and PHP still runs."* The first half is **false as literally stated** — Phase 1 adds `legacy_refresh_tokens` to the legacy MariaDB (D-043 amendment 3). The operations document records the claim as false and preserves the conclusion by argument (the change is additive, no PHP code references the table, so rollback orphans it harmlessly and deliberately does not drop it) rather than by quietly restating the claim in narrower words. |
+| Reason | The gap between "no schema change" and "one additive table whose provisioning mechanism is undecided" is exactly where a cutover goes wrong. ADR-0013 leaves the provisioning of that table against a real MariaDB instance an open question, so the cutover has an unowned, unrehearsed DDL prerequisite against the production legacy database. Recording the claim as approximately true would have carried that prerequisite silently into the cutover window. |
+| Alternatives | Narrow the wording to "the legacy contract is unchanged" and move on — rejected. It is accurate but it disposes of the finding without surfacing the missing provisioning step, which is the part with operational consequences. |
+| Impact | `docs/operations/release-cutover-and-rollback.md` Claim 1 rewritten; provisioning added as pre-cutover step 1; **R-023** filed. G11 remains **open**, with three named blockers rather than a checkmark: **R-023** (the unprovisioned schema prerequisite), **R-024** (the signing secret both systems must share) and **R-025** (whether the PHP rollback target is restorable at all — the half of G11's claim this review found had never been examined). |
+| Evidence | Independent review of PR #147 (`chatgpt-codex-connector[bot]`, 2026-08-30) rejected the original claim and was correct on both sub-points: the extension table, and the fact that the draft cited `spring.jpa.hibernate.ddl-auto=validate` — a **PostgreSQL** setting — as MariaDB's protection. The real setting is `hibernate.hbm2ddl.auto=none` on the legacy `EntityManagerFactory`; stronger for the purpose, but the citation was wrong. |
+| Status | Accepted 2026-08-30. |
+
 ## D-145: Platform-admin authorization is re-derived per request, not cached in the token
 
 | Field | Value |
