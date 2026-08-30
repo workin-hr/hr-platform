@@ -73,13 +73,43 @@ run_tool() {
   return 0
 }
 
+# Git-ignored paths are not repository content -- the same boundary
+# scripts/validate_phase0.py applies, and for the same reason. Installing a
+# third-party agent skill (`npx skills add ...` writes to .agents/skills/)
+# drops that author's shell scripts under a glob this script expands, so
+# without the filter their ShellCheck conventions become this repository's
+# aggregate verification failure, on the machine that installed them and
+# nowhere else.
+#
+# Deliberately NOT applied to gitleaks below: narrowing a secret scan by
+# gitignore is backwards. A credential sitting in an ignored third-party
+# tree is exactly the one worth knowing about, and the scan is cheap.
+not_ignored() {
+  for candidate in "$@"; do
+    [ -e "$candidate" ] || continue
+    git check-ignore -q "$candidate" 2>/dev/null && continue
+    printf '%s\n' "$candidate"
+  done
+}
+
+# shellcheck disable=SC2046 # deliberate word splitting: one argument per path
+set -- $(not_ignored scripts/*.sh .agents/skills/*/scripts/*.sh)
+shell_scripts="$*"
+
+# lychee takes a glob rather than a config-level gitignore switch (unlike
+# markdownlint-cli2, which has "gitignore": true), so the same boundary is
+# applied by handing it an explicit file list.
+markdown_files="$(git ls-files '*.md' | tr '\n' ' ')"
+
 status=0
 run_tool markdownlint-cli2 "**/*.md" || status=1
 run_tool yamllint -s . || status=1
-run_tool shellcheck scripts/*.sh .agents/skills/*/scripts/*.sh || status=1
+# shellcheck disable=SC2086 # same
+run_tool shellcheck $shell_scripts || status=1
 run_tool actionlint || status=1
 run_tool gitleaks detect --no-git --source . --redact --exit-code 1 || status=1
-run_tool lychee "**/*.md" || status=1
+# shellcheck disable=SC2086 # deliberate word splitting: one argument per path
+run_tool lychee $markdown_files || status=1
 
 echo
 echo "=================================================================="

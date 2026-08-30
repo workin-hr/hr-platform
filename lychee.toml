@@ -3,6 +3,11 @@
 # .markdownlint-cli2.jsonc).
 exclude_path = [
   "\\.(agents|claude)/skills/speckit-.*/SKILL\\.md$",
+  # The Flutter submodules are another repository's content (ADR-0001).
+  # Third-party skills installed by `npx skills add ...` are excluded a
+  # different way -- verify-bootstrap.sh feeds lychee `git ls-files` rather
+  # than a filesystem glob, so untracked and ignored files never reach it.
+  "^\\./flutter-integration/workin_(desktop|mobile)/",
 ]
 offline = true
 no_progress = true
