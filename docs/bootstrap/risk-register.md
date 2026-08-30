@@ -358,3 +358,21 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Status | Open — documented limit, not accepted as correct. Deliberately not fixed under time pressure at the end of Wave 13.1. |
 | Evidence | `hr-legacy@d113204` `apis/helpers/functions.php` (`parse_str()` semantics) against `LegacyPostFields.field()`'s use of `getParameterMap()`. The **multipart** branch has no such limit — `getParts()` preserves arrival order, and both `field()` and `file()` resolve the true final duplicate there, fixed in the same review round (D-140). Raised by the independent review of PR #144. |
 | Last Reviewed | 2026-08-30 |
+
+## R-022: The OTP Client Identity Is Taken From Attacker-Controlled Headers
+
+| Field | Value |
+|---|---|
+| Description | `LegacyClientAddress.clientIp()` resolves the caller's address from `CF-Connecting-IP`, then `X-Forwarded-For`, then `X-Real-IP`, and only then the socket peer — with **no trusted-proxy check** on any of them. Any client can therefore choose the value the platform treats as its identity, simply by setting a header. This is a byte-faithful port of `apis/helpers/otp_helper.php:43-46`, which has the same four sources in the same order and the same absence of a proxy allowlist. |
+| Category | Security / Rate-limit evasion / Legacy parity |
+| Probability | Certain, in the sense that the header is trusted unconditionally. |
+| Impact | **Currently none, and the reason is R-014, not any control here.** The per-IP predicate in `otp_assert_can_send()` is dropped against `hr-legacy@d113204` because its backing columns are absent, so the resolved address is not used as a rate-limit key at all today — a spoofed header changes nothing. The exposure becomes real on any deployment whose `otp_*` tables have drifted to include those columns: there the attacker picks the bucket, so the per-IP cap is evaded by rotating a header value, and the address recorded against an OTP send is whatever the caller claimed. |
+| Severity | Low today; **Medium the moment the OTP IP columns exist**. It is listed separately from R-014 because they fail in opposite directions: R-014 is the cap being *too broad* (platform-wide), this is the key being *forgeable*. Fixing R-014 by adding the columns activates this one. |
+| Owner | Repository owner. Governed by **D-141**: the owner's standing direction is that the port reproduces legacy for any such issue. |
+| Mitigation | **None applied, deliberately.** Adding a trusted-proxy allowlist in Java alone would make the two systems answer differently for the same request, and would silently change which callers share a rate-limit bucket. The correct fix is infrastructure, not code: strip `CF-Connecting-IP`, `X-Forwarded-For` and `X-Real-IP` at the edge before they reach the application, so the header can only be set by the proxy that is entitled to set it. That is a deployment change and can be made without touching either system. |
+| Trigger | Any schema change adding the `otp_*` IP columns; any plan to rely on the per-IP cap; any deployment that exposes the application directly rather than behind a proxy that rewrites these headers. |
+| Contingency | Do the edge fix first, since it is the only one that does not diverge from legacy. If application-level validation is later wanted, change `hr-legacy` first and port it, as with every other finding in this register. |
+| Status | Open — recorded, not accepted. Surfaced by an automated security review on 2026-08-30 and confirmed against the legacy source rather than taken on trust. Filed because nothing else in the register said the client identity is caller-chosen; R-014 covers the cap's breadth and not the key's forgeability. |
+| Target Date | Before the OTP IP columns are added, whichever change introduces them. |
+| Evidence | `hr-legacy@d113204` `apis/helpers/otp_helper.php:43-46`; port at `LegacyClientAddress.clientIp()`; the inert-predicate mechanism in R-014. Related: `LegacyClientAddressTest#anIpv4TailIsRejectedAnywhereButTheEndOfTheLiteral`, which pins the validator that decides whether a supplied header is used at all. |
+| Last Reviewed | 2026-08-30 |
