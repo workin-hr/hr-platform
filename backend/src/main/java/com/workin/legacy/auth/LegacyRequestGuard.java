@@ -53,7 +53,7 @@ public class LegacyRequestGuard {
 
 		long employeeId = principal.legacyAuthType() != null && !"employee".equals(principal.legacyAuthType())
 				? 0L : (principal.identityId() == null ? 0L : principal.identityId());
-		return new LegacyRequestContext(employeeId, tenantScope.current(), role);
+		return new LegacyRequestContext(employeeId, tenantScope.current(), role, principal.legacyAuthType());
 	}
 
 	/**
@@ -108,7 +108,7 @@ public class LegacyRequestGuard {
 				&& !"employee".equals(principal.legacyAuthType())
 				? 0L : (principal.identityId() == null ? 0L : principal.identityId());
 		return new LegacyRequestContext(employeeId, tenantScope.current(),
-				parseRole(principal.claimedRole()));
+				parseRole(principal.claimedRole()), principal.legacyAuthType());
 	}
 
 	/** PHP requireCompanyActive($company_id). */

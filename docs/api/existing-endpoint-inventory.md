@@ -460,8 +460,9 @@ like a routine, low-risk action.
 | `delete_account.php` | DELETE | Password-confirmed. Company-admin path is a full transactional cascade hard-delete of the tenant (`company_cascade_delete()` — all employees, attendance, payroll, everything). Employee path deactivates only (same state as `logout.php`, but password-gated). |
 | `delete_account_preview.php` | GET | Dry-run counterpart to `delete_account.php`. |
 | `request_phone_change.php` / `confirm_phone_change.php` | POST | Company-admin only; OTP-gated phone change with global uniqueness check. Not subject to the DEBUG-disclosure finding (this pair doesn't return the OTP in the response). Uses the same unthrottled `otp_verify_latest_for_phone()` as the rest of the system. |
-| `register_push_token.php` | POST | Registers an FCM-style device token; not traced past the call site. |
-| `company.php` / `employee.php` | GET/GET+PUT | Self-profile fetch (and edit, for `employee.php`) for the authenticated caller. |
+| `register_push_token.php` | POST | Registers an FCM-style device token. **Traced in Wave 13.2 and it cannot succeed:** the INSERT names a `push_tokens.company_id` column that does not exist in the frozen schema, and the `ON DUPLICATE KEY UPDATE` has no unique key to fire on. Every call is a database error, for both session types. See R-013 and `docs/bootstrap/open-questions.md`. |
+| `company.php` | GET | `COMPANY_ADMIN`/`HR` only. Returns `{company}`, plus `{employee}` for an **employee-type** session whose row still exists in that company — a company-type session gets the company alone, and so does an employee-type session whose row has moved or gone (the key is omitted, not an error). Its employee projection **joins** `hr_permissions`, so `employee_row_attach_hr_permissions()` takes its row branch. |
+| `employee.php` | GET+PUT | Self-profile fetch and edit. **Authenticates before it checks the method**, unlike every other route in the module: an anonymous wrong-method request is 401 here and 405 next door. Admits all four roles, then rejects a company-type session with **401** (no employee id), not 403. PUT writes only `first_name`, `last_name`, `phone`, `country_code`, `address` and the password; an empty body and a body of unwritable keys are two *different* paths to `nothing_to_update`. A phone with no digits **clears** the phone and nulls `country_code` with it. A non-string password is silently ignored (`is_string()` guard). Its permission attach takes the **query** branch — this projection joins no permission columns. |
 
 ## Requests (`apis/api/requests/`, 7 endpoints)
 
@@ -520,7 +521,31 @@ their own row and read that company's **name** back out. Tracked upstream as
 
 All 18 endpoints read; no scoping gaps found — consistently company-scoped
 throughout, and (for `notifications`) ownership-checked per-recipient via
-a shared `notification_inbox_filter()` helper. `branches` and
+a shared `notification_inbox_filter()` helper.
+
+**Traced in full for Wave 13.2.** `notification_inbox_filter()` branches on the
+auth **type**, not on which id is non-zero, and both branches pin
+`recipient_kind` — so the company inbox and the employee inbox are **disjoint**
+even though every row carries the same `company_id`. The company branch also
+requires `company_id > 0`, so a company-type token with no company falls
+through to the employee test rather than matching an unscoped company inbox.
+
+Two behaviours in the module are worth stating because they read as bugs:
+
+- `one.php` is a **GET that writes** — reading a notification marks it read,
+  and the returned body carries the in-memory `is_read = 1` rather than a
+  re-read. It is also the only route whose `id` is `required()`.
+- `mark_read.php` and `delete.php` read the id as
+  `isset(...) ? (int) ... : null` and then test `if ($id)`, so **`?id=abc`
+  casts to 0 and takes the *all* branch**: that DELETE empties the caller's
+  whole inbox instead of answering 400. Bounded to the caller's own inbox.
+
+`send.php` is the only one of the six with a role list and a
+`requireCompanyActive()` gate; the other five take a bare `requireAuth()`, so a
+suspended company's users keep reading and clearing their inboxes. Its
+`!empty($body['to_all_company'])` is an **emptiness** test, so `"0"` falls
+through to the single-recipient path, and a truthy flag broadcasts without ever
+looking at `to_employee_id`. The broadcast does **not** exclude the sender. `branches` and
 `notifications/send.php` allow `MANAGER` with no branch restriction
 (same shape as the lower-severity findings already documented for
 `requests` approve/reject, not repeated here as a separate entry given

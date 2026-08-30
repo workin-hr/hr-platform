@@ -1487,6 +1487,167 @@ Waves 13.1 (auth, 13) and 13.2 (profile 9 + notifications 6) remain.
 
 Evidence: `./gradlew check` — **0 failures**, 14 new regressions. The suite-wide count is omitted for the reason given under the preceding entries: it is stale by the next commit.
 
+## D-133: Wave 13.2 delivers `notifications` (6) and seven of the nine `profile` endpoints
+
+**Status:** Accepted
+**Date:** 2026-08-29
+**Context:** Item 13's remaining 28 endpoints are Wave 13.1 (auth, 13) and Wave
+13.2 (profile 9 + notifications 6).
+
+### What is delivered
+
+All six `notifications/*.php` routes, and seven of the nine `profile/*.php`
+routes. `request_phone_change.php` and `confirm_phone_change.php` are **not**
+in this wave, and the reason is sequencing rather than scope reduction: both
+are OTP flows and their entire helper set —
+`otp_issue_and_send_whatsapp()`, `otp_verify_latest_for_phone()`,
+`otp_clear_for_phone()`, `otp_has_recent_for_phone()`, plus
+`phone_country_resolve_code()`, `phone_normalize_local()`,
+`phone_is_valid_local()`, `phones_are_equivalent()` and
+`phone_sql_match_clause()` — is shared with Wave 13.1's auth endpoints
+(`verify_otp.php`, `forgot_password.php`, `reset_password.php`,
+`complete_company_registration.php`). Porting that layer twice, once per wave,
+is how the two copies diverge. They ship with 13.1.
+
+### `notifications`: two inboxes that never overlap
+
+`notification_inbox_filter()` is the whole tenant boundary for the module and
+it branches on the **auth type**, not on which id happens to be non-zero. A
+`type=company` session reads `recipient_kind = 'company'` rows for its company;
+an employee session reads `recipient_kind = 'employee'` rows addressed to
+itself. Both filters pin the kind, so the two inboxes are disjoint even though
+every row carries the same `company_id` — a company admin does not see their
+employees' notifications and an employee does not see the company's.
+
+The company branch additionally requires `company_id > 0`, so a company-type
+token with no company falls **through** to the employee test rather than
+matching an unscoped company inbox. That fallthrough is why
+`LegacyRequestContext` gained an `authType` component in this wave instead of
+inferring the type from a zero employee id.
+
+### The falsy-id rule, ported deliberately
+
+`mark_read.php` and `delete.php` both read the id as
+`isset($_GET[ID]) ? (int) $_GET[ID] : null` and then test `if ($id)`. So
+`?id=abc` casts to `0`, which is falsy, and the request takes the **all**
+branch. `DELETE /apis/api/notifications/delete.php?id=abc` empties the caller's
+entire inbox instead of answering 400.
+
+This is ported as-is under D-058 and asserted in
+`anUnparseableIdDeletesTheWholeInbox`, so that a later reader who thinks it is
+a bug has to change a test that says it is intentional. It is bounded to the
+caller's own inbox — the ownership probe and the delete are both inbox-scoped —
+so it destroys the caller's data and nobody else's.
+
+`one.php` is the one route whose id is `required()`, and it is also a **GET
+that writes**: reading a notification marks it read, and the body returns the
+in-memory `is_read = 1` PHP assigns rather than a re-read.
+
+### `profile/employee.php` authenticates before it checks the method
+
+Every other route in the module — and in every module ported so far — checks
+`$_SERVER['REQUEST_METHOD']` first, which is why an anonymous request with the
+wrong method is a 405 rather than a 401. `profile/employee.php` does the
+opposite: `requireAuth()` runs at the top and the method dispatch follows. An
+anonymous `DELETE` to it is therefore **401**, and the same request to
+`profile/logout.php` next door is **405**. Reproduced in the controller and
+asserted in `employeeProfileAuthenticatesBeforeItChecksTheMethod`.
+
+Its role list admits all four roles, so what actually blocks a company-type
+session is the `if (!$employee_id)` below it — answering **401**, not 403.
+
+### The PUT's ordering, which is observable at three points
+
+1. An **empty body** is `nothing_to_update` *before* the employee is looked up,
+   so a nonexistent employee with an empty body gets 400 and not 404.
+2. The **phone block** runs before the allow-list is walked. `?phone` with no
+   digits normalises to null, which **clears** the phone and nulls
+   `country_code` with it — whether or not the body mentioned the country code.
+   The country-code check is an `elseif`, so it only fires when a phone
+   survived normalisation *and* the body carried the key; a phone supplied with
+   no country code at all is accepted here, unlike
+   `resolve_employee_phone_and_country_code()` elsewhere in legacy.
+3. A body of keys that are none of the five self-service columns reaches a
+   **second** `nothing_to_update` — it passed the first test by being non-empty
+   and produced no assignments.
+
+The password is guarded by three tests, `!empty && is_string && trim !== ''`,
+and the middle one is load-bearing: `{"password": 12345678}` is silently
+ignored rather than hashed, and when it is the only field the request ends as
+`nothing_to_update`.
+
+### `logout.php` is not a logout
+
+For an employee session it **deactivates the account**, notifies the company,
+and drops every push token the employee owns; re-joining needs the company code
+again. The notification fires only when the row was active *before* the update,
+so a repeated logout notifies once, and the name falls back display-name →
+phone → `#id`, each after a trim. None of it is transactional, so a failing
+notification leaves the account deactivated (D-089).
+
+The notification text renders in the **departing employee's** locale, because
+`t()` reads the current request's language and this is that request. The
+company reads its inbox later in whatever language the leaver's app was set to.
+That is true of every notification legacy writes, not a quirk of this route.
+
+### `register_push_token.php` is ported and cannot succeed — R-013
+
+The endpoint inserts into `push_tokens (employee_id, company_id, token,
+platform)`. The frozen table has **no `company_id` column** and **no unique
+key** for its `ON DUPLICATE KEY UPDATE` to fire on. Every call is a database
+error, for both session types, and the port reproduces that rather than
+repairing the statement.
+
+This is not speculation: `mysql_workin.schema.sql:802-808` defines the table
+and `:1247-1249` its only indexes. It corroborates F-08 (push never worked end
+to end), mobile's commented-out call, and the ETL decision to drop the table.
+Recorded as **R-013** with three questions in `docs/bootstrap/open-questions.md`
+— whether production drifted, whether a company-owned token is intended, and
+what the upsert key should be — and left for `hr-platform#22`, which owns push
+delivery, rather than answered here.
+
+### `delete_account.php` hard-deletes a tenant, with no rollback path
+
+The company branch runs `company_cascade_delete()`: one transaction, fifteen
+count queries for the pre-delete summary, then reference-breaking updates
+(`notifications.from_employee_id = NULL`, `departments.manager_id = NULL`)
+before the rows they point at go. There is **no soft delete and no archive**;
+recovery means a database backup. Several sub-deletes sit inside
+`catch (Throwable $ignored)` in legacy and do here too, so a partial cascade
+can commit — but the final `DELETE FROM companies` must affect exactly one row
+or the whole transaction rolls back. All of that is transcribed, not
+re-derived, because the order is what makes it work.
+
+### Two parity fixes to already-merged code
+
+- `LegacyPhpLoginService` carried its own `attachAttendanceLocationFlag()` that
+  tested the cross-branch flag as `toPhpLong(...) != 0`.
+  `employee_can_check_in_any_branch()` tests a **literal set**,
+  `true|1|'1'|'true'`, so a `can_check_in_any_branch` of `2` is false in PHP and
+  was true in the copy. Both callers now go through
+  `LegacyAttendanceLocation.attachBranchLocationConfiguredFlag()`, which was
+  already the faithful port. One helper, as PHP has one.
+- `LegacyNotifications.toCompany()` hard-coded `reference_type` and
+  `reference_id` to NULL because its only caller passed neither.
+  `notification_employee_left_company_to_company()` passes `'employee'` and the
+  departing employee's id, so an overload carrying them was added rather than a
+  second insert.
+
+`employee_row_attach_hr_permissions()` also needed its **query** branch for the
+first time: `profile/employee.php` joins no permission columns, so the helper
+looks them up. `LegacyHrEmployeeService`'s private copy only ever had the
+row branch, because its own module always joins. The shared
+`LegacyHrPermissionRows` carries both, keyed on `array_key_exists('can_branches')`
+exactly as PHP is.
+
+### Ledger after Wave 13.2
+
+`FINAL_COMPATIBLE` 170 → **183**; `ITEM13_REMAINING` 28 → **15**; partition
+165/4/1 → **178/4/1**. Live total 198 unchanged. Remaining: Wave 13.1, which is
+the 13 auth endpoints plus the two OTP-dependent `profile` phone-change routes.
+
+Evidence: `./gradlew check` — **0 failures**. The suite-wide count is omitted deliberately: it is stale by the next commit.
+
 ## D-141: The owner accepts parity on R-016 and R-012 — both ship reproducing legacy
 
 **Status:** Accepted 2026-08-30 by the repository owner. This is the owner

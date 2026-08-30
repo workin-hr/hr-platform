@@ -32,7 +32,7 @@ class LegacyAdvanceNullCoalescingTest {
 		body.put("amount", null);
 		body.put("reason", null);
 
-		service.update(new LegacyRequestContext(31L, 17L, LegacyEmployee.Role.EMPLOYEE), 96L, body);
+		service.update(new LegacyRequestContext(31L, 17L, LegacyEmployee.Role.EMPLOYEE, "employee"), 96L, body);
 
 		verify(store).updateEmployee(96L, new BigDecimal("500.00"), "stored");
 	}

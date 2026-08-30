@@ -605,7 +605,13 @@ employee path, which produces the **exact same** `is_active=0` outcome
 but requires re-entering the account password first — logout and
 "delete my account" currently have identical system effects, but only
 one of them is password-gated. Company-admin logout has no such side
-effect at all (push-token cleanup only) — this is employee-specific.
+effect at all — and, contrary to an earlier revision of this line, it does not
+perform push-token cleanup either. That branch is guarded by
+`$employee_id > 0` (`logout.php:21`), and a company session has no
+`employee_id` claim at all: all three company issuers (`login_company.php:61`,
+`login_desktop.php:153`, `complete_company_registration.php:176`) encode only
+`type`, `company_id` and `role`. So the guard is false for every company
+session and the whole endpoint is a no-op for them. This is employee-specific.
 
 **Where Observed:** `apis/api/profile/logout.php`, full file, lines
 31–68; contrasted with `apis/api/profile/delete_account.php` lines

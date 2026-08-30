@@ -101,7 +101,7 @@ public class LegacyNotifications {
 	 * this method has no {@code try/catch} around a delivery call and why
 	 * hr-platform#22 does not gate it.
 	 *
-	 * <p>{@code attendance/import_excel.php} is the caller, after the
+	 * <p>{@code attendance/import_excel.php} calls this form, after the
 	 * transaction has committed. A failure here therefore leaves the imported
 	 * attendance rows in place, exactly as PHP does.
 	 *
@@ -111,6 +111,23 @@ public class LegacyNotifications {
 	 */
 	public long toCompany(
 			long companyId, Long fromEmployeeId, String type, String title, String body) {
+		return toCompany(companyId, fromEmployeeId, type, title, body, null, null);
+	}
+
+	/**
+	 * The same call with {@code $reference_type} and {@code $reference_id}.
+	 *
+	 * <p>{@code notification_employee_left_company_to_company()}
+	 * ({@code helpers/notifications.php:253-267}) is the caller that needs
+	 * them, and it passes something easy to misread: the reference is
+	 * {@code 'employee'} plus the <em>departing employee's</em> id, which is
+	 * also what it passes as {@code $from_employee_id}. So the same id appears
+	 * in two columns of the row, deliberately -- the company's inbox entry both
+	 * comes from that employee and points at them.
+	 */
+	public long toCompany(
+			long companyId, Long fromEmployeeId, String type, String title, String body,
+			String referenceType, Long referenceId) {
 		KeyHolder keys = new GeneratedKeyHolder();
 		jdbcTemplate.update(connection -> {
 			PreparedStatement statement =
@@ -124,9 +141,12 @@ public class LegacyNotifications {
 			statement.setString(3, title);
 			statement.setString(4, body);
 			statement.setString(5, type);
-			// reference_type and reference_id: the caller passes neither.
-			statement.setNull(6, java.sql.Types.VARCHAR);
-			statement.setNull(7, java.sql.Types.INTEGER);
+			statement.setString(6, referenceType);
+			if (referenceId == null) {
+				statement.setNull(7, java.sql.Types.INTEGER);
+			} else {
+				statement.setLong(7, referenceId);
+			}
 			return statement;
 		}, keys);
 		return keys.getKey() == null ? 0L : keys.getKey().longValue();

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import com.workin.legacy.LegacyJdbcValues;
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.attendance.location.LegacyAttendanceLocation;
 import com.workin.legacy.auth.LegacyLoginCandidate;
 import com.workin.legacy.auth.LegacyLoginOutcome;
 import com.workin.legacy.auth.LegacyLoginResolution;
@@ -50,12 +51,15 @@ public class LegacyPhpLoginService {
 	private final JdbcTemplate jdbcTemplate;
 	private final PasswordEncoder passwordEncoder;
 	private final LegacyPhpJwtService jwtService;
+	private final LegacyAttendanceLocation attendanceLocation;
 
 	public LegacyPhpLoginService(
-			DataSource legacyDataSource, PasswordEncoder passwordEncoder, LegacyPhpJwtService jwtService) {
+			DataSource legacyDataSource, PasswordEncoder passwordEncoder, LegacyPhpJwtService jwtService,
+			LegacyAttendanceLocation attendanceLocation) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 		this.passwordEncoder = passwordEncoder;
 		this.jwtService = jwtService;
+		this.attendanceLocation = attendanceLocation;
 	}
 
 	/**
@@ -103,7 +107,7 @@ public class LegacyPhpLoginService {
 		String token = jwtService.issueEmployeeToken(
 				authenticated.employeeId(), authenticated.companyId(), authenticated.role(), version);
 
-		attachAttendanceLocationFlag(employee, authenticated.companyId());
+		attendanceLocation.attachBranchLocationConfiguredFlag(employee, authenticated.companyId());
 		employee.remove("password_hash");
 		employee.remove("token_version");
 		return new LoginResult(token, employee);
@@ -118,19 +122,6 @@ public class LegacyPhpLoginService {
 		}
 	}
 
-	private void attachAttendanceLocationFlag(Map<String, Object> employee, long companyId) {
-		if (LegacyValues.toPhpLong(employee.get("can_check_in_any_branch")) == 0) {
-			return;
-		}
-		Long configured = jdbcTemplate.queryForObject(
-				"""
-				SELECT COUNT(*) FROM branches
-				WHERE company_id = ? AND is_active = 1
-				  AND latitude IS NOT NULL AND longitude IS NOT NULL
-				""",
-				Long.class, companyId);
-		employee.put("branch_location_configured", configured != null && configured > 0 ? 1L : 0L);
-	}
 
 	public record LoginResult(String token, Map<String, Object> employee) {
 	}

@@ -122,6 +122,14 @@ public final class LegacyPhpRoutes {
 		"/apis/api/employee_docs/**",
 		"/apis/api/complaints/**",
 		"/apis/api/company_join_requests/**",
+		"/apis/api/notifications/**",
+		"/apis/api/profile/employee.php",
+		"/apis/api/profile/company.php",
+		"/apis/api/profile/change_password.php",
+		"/apis/api/profile/logout.php",
+		"/apis/api/profile/register_push_token.php",
+		"/apis/api/profile/delete_account_preview.php",
+		"/apis/api/profile/delete_account.php",
 	};
 
 	private LegacyPhpRoutes() {

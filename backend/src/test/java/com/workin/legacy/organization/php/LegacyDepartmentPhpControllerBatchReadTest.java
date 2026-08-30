@@ -43,7 +43,7 @@ class LegacyDepartmentPhpControllerBatchReadTest {
 
 		when(guard.requireAuth(
 				LegacyEmployee.Role.COMPANY_ADMIN, LegacyEmployee.Role.HR, LegacyEmployee.Role.MANAGER))
-				.thenReturn(new LegacyRequestContext(10L, 9L, LegacyEmployee.Role.HR));
+				.thenReturn(new LegacyRequestContext(10L, 9L, LegacyEmployee.Role.HR, "employee"));
 
 		LegacyDepartmentView first = new LegacyDepartmentView(
 				1L, 9L, null, "Engineering", true, Instant.parse("2026-01-01T00:00:00Z"),

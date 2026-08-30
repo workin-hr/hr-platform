@@ -119,6 +119,34 @@ public class LegacyAttendanceLocation {
 	 * position is accepted without any check: there is nothing to compare
 	 * against.
 	 */
+	/**
+	 * {@code employee_row_attach_attendance_location_flag(&$employee, $company_id)}
+	 * ({@code helpers/attendance_location_helper.php:59-64}).
+	 *
+	 * <p>It writes {@code branch_location_configured} <b>only</b> when
+	 * cross-branch attendance is on for this employee. When it is off the key is
+	 * left exactly as the endpoint's own projection produced it -- which for
+	 * {@code profile/employee.php} is the SQL expression over the employee's
+	 * assigned branch, and for the login response is nothing at all. So the
+	 * absence of a write is as much part of the contract as the write.
+	 *
+	 * <p>The truth test is {@link #canCheckInAnyBranch}, legacy's literal
+	 * {@code true|1|'1'|'true'} set, not general truthiness.
+	 *
+	 * @param employee mutated in place, as PHP's by-reference parameter is
+	 */
+	public void attachBranchLocationConfiguredFlag(Map<String, Object> employee, long companyId) {
+		if (!canCheckInAnyBranch(employee)) {
+			return;
+		}
+		Long configured = jdbcTemplate.queryForObject("""
+				SELECT COUNT(*) FROM branches
+				WHERE company_id = ? AND is_active = 1
+				  AND latitude IS NOT NULL AND longitude IS NOT NULL""",
+				Long.class, companyId);
+		employee.put("branch_location_configured", configured != null && configured > 0 ? 1L : 0L);
+	}
+
 	private void validateAgainstAnyBranch(
 			long companyId, double latitude, double longitude, boolean requireLocationConfigured) {
 		List<Map<String, Object>> branches = jdbcTemplate.query("""
