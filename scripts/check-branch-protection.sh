@@ -178,10 +178,37 @@ if ! echo ",$contexts," | grep -q ",$INDEPENDENT_REVIEW_CONTEXT,"; then
   failures=$((failures + 1))
 fi
 
+# The three settings below were required by D-125 from the start but were not
+# checked, while the success message claimed "all requirements". A payload with
+# non-strict checks, approvals surviving a new push, and deletion enabled
+# exited 0.
+
+# strict: a branch must be current with main before merging. Without it a PR
+# that passed against a stale base can merge into a main it never ran against.
+strict="$(echo "$PROTECTION_JSON" | jq -r '.required_status_checks.strict // false')"
+if [ "$strict" != "true" ]; then
+  echo "FAIL: required_status_checks.strict is $strict (need true, so a branch is current with main before merging -- D-125)"
+  failures=$((failures + 1))
+fi
+
+# dismiss_stale_reviews: an approval must not survive a new push. Without it,
+# approve-then-push lands unreviewed code under a green approval.
+dismiss_stale="$(echo "$PROTECTION_JSON" | jq -r '.required_pull_request_reviews.dismiss_stale_reviews // false')"
+if [ "$dismiss_stale" != "true" ]; then
+  echo "FAIL: required_pull_request_reviews.dismiss_stale_reviews is $dismiss_stale (need true, so an approval does not survive a new push -- D-125)"
+  failures=$((failures + 1))
+fi
+
+allow_deletions="$(echo "$PROTECTION_JSON" | jq -r '.allow_deletions.enabled // false')"
+if [ "$allow_deletions" != "false" ]; then
+  echo "FAIL: allow_deletions.enabled is $allow_deletions (need false -- D-125)"
+  failures=$((failures + 1))
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo
   echo "$failures branch-protection requirement(s) not met for main."
   exit 1
 fi
 
-echo "Branch protection on main meets all requirements (approving reviews satisfiable for $write_humans write-access human(s), enforce_admins, no force pushes, conversation resolution, required checks '$REQUIRED_JOB_NAME' and '$INDEPENDENT_REVIEW_CONTEXT')."
+echo "Branch protection on main meets all requirements (approving reviews satisfiable for $write_humans write-access human(s), enforce_admins, no force pushes, no deletions, conversation resolution, strict up-to-date checks, stale-review dismissal, required checks '$REQUIRED_JOB_NAME' and '$INDEPENDENT_REVIEW_CONTEXT')."

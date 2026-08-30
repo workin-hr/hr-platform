@@ -662,7 +662,7 @@ It is bidirectional, which is what makes it worth having:
 | 1 | `0` | `>= 1` — unsatisfiable, blocks every merge for ever |
 | >= 2 | `>= 1` | `0` — a possible peer approval was dropped |
 
-So the requirement **returns by itself** the day a second maintainer is added;
+So the requirement is **alerted, not applied**, the day a second maintainer is added: `check-branch-protection.sh` increments `failures` and exits nonzero, and nothing changes the repository setting. Until an operator runs the check *and* separately updates protection, merges remain possible without a required human approval. The check is a detector, not a remediation;
 it is not a deferral anyone has to remember. Bots are excluded from the count
 deliberately: `chatgpt-codex-connector[bot]` holds no approval right (D-121)
 and its review arrives through the `independent-review` context instead.

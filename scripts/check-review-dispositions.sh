@@ -78,21 +78,53 @@ else
   # variables bound by the -F flags, not shell expansions. They must reach the
   # server literally, so the single quotes are the point and SC2016 is noise.
   # shellcheck disable=SC2016
-  THREADS_JSON="$(gh api graphql -F pr="$PR_NUMBER" -F owner=:owner -F repo=:repo -f query='
-    query($owner: String!, $repo: String!, $pr: Int!) {
-      repository(owner: $owner, name: $repo) {
-        pullRequest(number: $pr) {
-          reviewThreads(first: 100) {
-            nodes {
-              isResolved
-              path
-              line
-              comments(first: 100) { nodes { author { login } body } }
+  # Paginated deliberately. A single `reviewThreads(first: 100)` page silently
+  # truncates on a pull request with more than 100 threads, and an
+  # undispositioned finding on thread 101 would then be invisible to the
+  # arithmetic below -- the check would report success precisely on the
+  # longest, most-reviewed pull requests, which are the ones it exists for.
+  # This is not hypothetical: PR #142 in this repository carried 31 reviews,
+  # and unpaginated REST queries against it produced two false "gate bypassed"
+  # alarms earlier in the same wave.
+  THREADS_JSON=""
+  cursor="null"
+  while :; do
+    # shellcheck disable=SC2016
+    page="$(gh api graphql -F pr="$PR_NUMBER" -F owner=:owner -F repo=:repo -F cursor="$cursor" -f query='
+      query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $pr) {
+            reviewThreads(first: 100, after: $cursor) {
+              pageInfo { hasNextPage endCursor }
+              nodes {
+                isResolved
+                path
+                line
+                comments(first: 100) { nodes { author { login } body } }
+              }
             }
           }
         }
-      }
-    }')"
+      }')"
+    if ! echo "$page" | jq -e . >/dev/null 2>&1; then
+      THREADS_JSON="$page"
+      break
+    fi
+    if [ -z "$THREADS_JSON" ]; then
+      THREADS_JSON="$page"
+    else
+      THREADS_JSON="$(jq -s '
+        .[0] as $acc | .[1] as $next
+        | $acc
+        | .data.repository.pullRequest.reviewThreads.nodes =
+            ($acc.data.repository.pullRequest.reviewThreads.nodes
+             + $next.data.repository.pullRequest.reviewThreads.nodes)' \
+        <(echo "$THREADS_JSON") <(echo "$page"))"
+    fi
+    has_next="$(echo "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage // false')"
+    [ "$has_next" = "true" ] || break
+    cursor="$(echo "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')"
+  done
 fi
 
 if ! echo "$THREADS_JSON" | jq -e . >/dev/null 2>&1; then
@@ -132,12 +164,12 @@ fi
 # discharge that finding.
 undisposed="$(echo "$findings" | jq -r --arg d "$DISPOSITIONS" '
   .[] | select(
-    ([ .comments.nodes[1:][] | select(.body | test("(?i)disposition:[[:space:]]*(" + $d + ")")) ] | length) == 0
+    ([ .comments.nodes[1:][] | select(.body | test("(?i)disposition:[[:space:]]*(" + $d + ")(?![-[:alnum:]_])")) ] | length) == 0
   ) | "  " + ((.path // "(no path)")) + ":" + ((.line // 0) | tostring)')"
 
 missing="$(echo "$findings" | jq -r --arg d "$DISPOSITIONS" '
   [ .[] | select(
-    ([ .comments.nodes[1:][] | select(.body | test("(?i)disposition:[[:space:]]*(" + $d + ")")) ] | length) == 0
+    ([ .comments.nodes[1:][] | select(.body | test("(?i)disposition:[[:space:]]*(" + $d + ")(?![-[:alnum:]_])")) ] | length) == 0
   ) ] | length')"
 
 if [ "$missing" -gt 0 ]; then

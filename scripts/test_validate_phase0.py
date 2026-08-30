@@ -583,6 +583,39 @@ def test_dispositions_an_invented_term_is_not_a_disposition() -> None:
     )
 
 
+def test_dispositions_a_term_beginning_with_an_allowed_value_is_rejected() -> None:
+    """The closed vocabulary must match whole terms, not prefixes.
+
+    `test_dispositions_an_invented_term_is_not_a_disposition` uses "wontfix",
+    which shares no prefix with any allowed value and so was rejected even by
+    the unanchored pattern. "fixed-later" and "supersededness" are the cases
+    that actually distinguish the two: both begin with a real disposition and
+    both silently passed before the pattern required a complete term."""
+    for invented in ("Disposition: fixed-later", "Disposition: supersededness"):
+        proc = run_check_dispositions([_thread(REVIEWER, ("karimtismail", invented))])
+        check(
+            proc.returncode != 0,
+            f"{invented!r} is not a disposition (exit={proc.returncode}, stdout={proc.stdout!r})",
+        )
+
+
+def test_dispositions_every_allowed_term_is_still_accepted() -> None:
+    """The anchor must not have narrowed the vocabulary it protects --
+    `accepted-risk` and `declined-with-evidence` both contain hyphens, which is
+    exactly what the lookahead excludes when it follows a match."""
+    for allowed in (
+        "Disposition: fixed",
+        "Disposition: declined-with-evidence",
+        "Disposition: accepted-risk",
+        "Disposition: superseded",
+    ):
+        proc = run_check_dispositions([_thread(REVIEWER, ("karimtismail", allowed))])
+        check(
+            proc.returncode == 0,
+            f"{allowed!r} is still accepted (exit={proc.returncode}, stdout={proc.stdout!r})",
+        )
+
+
 def test_dispositions_reviewer_comes_from_the_workflow_assignment_not_a_comment() -> None:
     """Same binding rule as check-branch-protection.sh, and the same bug this
     repository has already written twice: a login named only in a comment must
@@ -619,11 +652,18 @@ def test_dispositions_real_workflow_reviewer_is_readable() -> None:
 CHECK_BRANCH_PROTECTION_SCRIPT = REPO_ROOT / "scripts/check-branch-protection.sh"
 
 GOOD_PROTECTION_JSON = {
-    "required_pull_request_reviews": {"required_approving_review_count": 1},
+    "required_pull_request_reviews": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews": True,
+    },
     "enforce_admins": {"enabled": True},
     "allow_force_pushes": {"enabled": False},
+    "allow_deletions": {"enabled": False},
     "required_conversation_resolution": {"enabled": True},
-    "required_status_checks": {"contexts": ["validate", "independent-review"]},
+    "required_status_checks": {
+        "contexts": ["validate", "independent-review"],
+        "strict": True,
+    },
 }
 
 
@@ -665,7 +705,10 @@ def test_branch_protection_solo_maintainer_requires_zero_approvals() -> None:
     satisfiable value and the check must accept it rather than demand an
     approval nobody can give."""
     solo = {**GOOD_PROTECTION_JSON,
-            "required_pull_request_reviews": {"required_approving_review_count": 0}}
+            "required_pull_request_reviews": {
+                **GOOD_PROTECTION_JSON["required_pull_request_reviews"],
+                "required_approving_review_count": 0,
+            }}
     proc = run_check_branch_protection(solo, write_humans=1)
     check(
         proc.returncode == 0 and "procedural obligation" in proc.stdout,
@@ -698,11 +741,15 @@ def test_branch_protection_requires_approval_once_a_second_maintainer_exists() -
 
 def test_branch_protection_reports_every_failing_field() -> None:
     bad = {
-        "required_pull_request_reviews": {"required_approving_review_count": 0},
+        "required_pull_request_reviews": {
+            "required_approving_review_count": 0,
+            "dismiss_stale_reviews": False,
+        },
         "enforce_admins": {"enabled": False},
         "allow_force_pushes": {"enabled": True},
+        "allow_deletions": {"enabled": True},
         "required_conversation_resolution": {"enabled": False},
-        "required_status_checks": {"contexts": ["something-else"]},
+        "required_status_checks": {"contexts": ["something-else"], "strict": False},
     }
     proc = run_check_branch_protection(bad)
     check(
@@ -710,10 +757,49 @@ def test_branch_protection_reports_every_failing_field() -> None:
         and "required_approving_review_count is 0" in proc.stdout
         and "enforce_admins.enabled is false" in proc.stdout
         and "allow_force_pushes.enabled is true" in proc.stdout
+        and "allow_deletions.enabled is true" in proc.stdout
         and "required_conversation_resolution.enabled is false" in proc.stdout
+        and "required_status_checks.strict is false" in proc.stdout
+        and "dismiss_stale_reviews is false" in proc.stdout
         and "does not include 'validate'" in proc.stdout
         and "does not include 'independent-review'" in proc.stdout,
-        f"branch protection missing every requirement fails, naming all 6 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+        f"branch protection missing every requirement fails, naming all 9 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_without_strict_status_checks_fails() -> None:
+    """D-125 requires `strict`. Without it a pull request that went green
+    against a stale base can merge into a main it never ran against."""
+    bad = {**GOOD_PROTECTION_JSON}
+    bad["required_status_checks"] = {**bad["required_status_checks"], "strict": False}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "required_status_checks.strict is false" in proc.stdout,
+        f"non-strict status checks fail (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_without_stale_review_dismissal_fails() -> None:
+    """D-125 requires `dismiss_stale_reviews`. Without it, approve-then-push
+    lands unreviewed code under a green approval."""
+    bad = {**GOOD_PROTECTION_JSON}
+    bad["required_pull_request_reviews"] = {
+        **bad["required_pull_request_reviews"],
+        "dismiss_stale_reviews": False,
+    }
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "dismiss_stale_reviews is false" in proc.stdout,
+        f"approvals surviving a new push fail (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_with_deletions_allowed_fails() -> None:
+    bad = {**GOOD_PROTECTION_JSON, "allow_deletions": {"enabled": True}}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "allow_deletions.enabled is true" in proc.stdout,
+        f"branch deletion enabled fails (exit={proc.returncode}, stdout={proc.stdout!r})",
     )
 
 
@@ -752,6 +838,7 @@ def test_branch_protection_job_id_is_read_from_workflow_file() -> None:
     # The independent-review context is required independently of this one and
     # is read from its own workflow, so it stays in the fixture.
     protection["required_status_checks"] = {
+        **GOOD_PROTECTION_JSON["required_status_checks"],
         "contexts": ["totally-different-job-name", "independent-review"],
     }
     proc = run_check_branch_protection(protection, workflow_text=fake_workflow)
@@ -2020,6 +2107,8 @@ def main() -> int:
     test_dispositions_threads_opened_by_humans_are_not_findings()
     test_dispositions_all_four_vocabulary_terms_are_accepted()
     test_dispositions_an_invented_term_is_not_a_disposition()
+    test_dispositions_a_term_beginning_with_an_allowed_value_is_rejected()
+    test_dispositions_every_allowed_term_is_still_accepted()
     test_dispositions_reviewer_comes_from_the_workflow_assignment_not_a_comment()
     test_dispositions_real_workflow_reviewer_is_readable()
     test_branch_protection_all_requirements_met_passes()
@@ -2027,6 +2116,9 @@ def main() -> int:
     test_branch_protection_rejects_unsatisfiable_approval_requirement()
     test_branch_protection_requires_approval_once_a_second_maintainer_exists()
     test_branch_protection_reports_every_failing_field()
+    test_branch_protection_without_strict_status_checks_fails()
+    test_branch_protection_without_stale_review_dismissal_fails()
+    test_branch_protection_with_deletions_allowed_fails()
     test_branch_protection_without_conversation_resolution_fails()
     test_branch_protection_without_the_independent_review_context_fails()
     test_branch_protection_job_id_is_read_from_workflow_file()
