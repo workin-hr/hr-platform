@@ -5,8 +5,21 @@
   // "fixing" them would just drift from upstream on every reinstall/upgrade.
   "ignores": [
     ".agents/skills/speckit-*/SKILL.md",
-    ".claude/skills/speckit-*/SKILL.md"
+    ".claude/skills/speckit-*/SKILL.md",
+    // The Flutter submodules are another repository's content -- this one
+    // carries only a pinned commit reference (ADR-0001), and no plain clone
+    // or CI job populates them. Anyone who runs `git submodule update
+    // --init` to work on the integration would otherwise see this
+    // repository's verification fail on their README conventions.
+    "flutter-integration/workin_desktop/**",
+    "flutter-integration/workin_mobile/**"
   ],
+  // Git-ignored files are not repository content. Installing third-party
+  // agent skills drops their authors' Markdown into .agents/skills/, and
+  // linting it would make this repository's verification fail on the
+  // machine that installed them and nowhere else. Same boundary as
+  // scripts/validate_phase0.py.
+  "gitignore": true,
   // MD013 (line-length) and MD060 (table-column-style) are pure formatting
   // preferences, not correctness issues. This repository's prose is written
   // one-sentence/paragraph-per-line without hard-wrapping, and its tables
