@@ -627,12 +627,18 @@ GOOD_PROTECTION_JSON = {
 }
 
 
-def run_check_branch_protection(protection: dict, workflow_text: str | None = None) -> subprocess.CompletedProcess:
+def run_check_branch_protection(
+    protection: dict, workflow_text: str | None = None, write_humans: int = 2
+) -> subprocess.CompletedProcess:
+    """`write_humans` defaults to 2 -- the multi-maintainer case, where an
+    approving review is possible and therefore required. The solo case is
+    exercised explicitly by the tests that care about it."""
     with tempfile.TemporaryDirectory(prefix="branch-protection-test-") as tmp:
         json_file = Path(tmp) / "protection.json"
         json_file.write_text(json.dumps(protection), encoding="utf-8")
         env = dict(os.environ)
         env["BRANCH_PROTECTION_JSON_FILE"] = str(json_file)
+        env["BRANCH_PROTECTION_WRITE_HUMANS"] = str(write_humans)
         if workflow_text is not None:
             workflow_file = Path(tmp) / "workflow.yml"
             workflow_file.write_text(workflow_text, encoding="utf-8")
@@ -651,6 +657,42 @@ def test_branch_protection_all_requirements_met_passes() -> None:
     check(
         proc.returncode == 0 and "meets all requirements" in proc.stdout,
         f"branch protection meeting every requirement passes (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_solo_maintainer_requires_zero_approvals() -> None:
+    """The live configuration: one write-access human, so `0` is the only
+    satisfiable value and the check must accept it rather than demand an
+    approval nobody can give."""
+    solo = {**GOOD_PROTECTION_JSON,
+            "required_pull_request_reviews": {"required_approving_review_count": 0}}
+    proc = run_check_branch_protection(solo, write_humans=1)
+    check(
+        proc.returncode == 0 and "procedural obligation" in proc.stdout,
+        f"a solo maintainer passes with 0 required approvals (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_rejects_unsatisfiable_approval_requirement() -> None:
+    """The deadlock this check exists to catch: requiring an approving review
+    where the only write-access human is every pull request's author. GitHub
+    forbids self-approval, so nothing could ever merge."""
+    proc = run_check_branch_protection(GOOD_PROTECTION_JSON, write_humans=1)
+    check(
+        proc.returncode != 0 and "could ever be merged" in proc.stdout,
+        f"one maintainer plus a required approval is rejected as unsatisfiable (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_requires_approval_once_a_second_maintainer_exists() -> None:
+    """The requirement returns by itself: with two humans a peer approval is
+    possible, so dropping the count is no longer excused."""
+    solo = {**GOOD_PROTECTION_JSON,
+            "required_pull_request_reviews": {"required_approving_review_count": 0}}
+    proc = run_check_branch_protection(solo, write_humans=2)
+    check(
+        proc.returncode != 0 and "a peer approval is possible" in proc.stdout,
+        f"two maintainers with 0 required approvals is rejected (exit={proc.returncode}, stdout={proc.stdout!r})",
     )
 
 
@@ -1981,6 +2023,9 @@ def main() -> int:
     test_dispositions_reviewer_comes_from_the_workflow_assignment_not_a_comment()
     test_dispositions_real_workflow_reviewer_is_readable()
     test_branch_protection_all_requirements_met_passes()
+    test_branch_protection_solo_maintainer_requires_zero_approvals()
+    test_branch_protection_rejects_unsatisfiable_approval_requirement()
+    test_branch_protection_requires_approval_once_a_second_maintainer_exists()
     test_branch_protection_reports_every_failing_field()
     test_branch_protection_without_conversation_resolution_fails()
     test_branch_protection_without_the_independent_review_context_fails()

@@ -585,6 +585,125 @@ number, not a standing assertion. The standing assertion is the regression above
 `com.workin.legacy.attendance.*` and `LegacyPhpRouteInventoryTest` green after
 the change.
 
+## D-125: Branch protection is applied to `main`, superseding D-013's deferral
+
+**Status:** Accepted 2026-08-29. Supersedes **D-013**.
+
+D-013 deferred branch-protection enforcement for a specific, checked reason:
+`workin-hr` is a GitHub Free organization **and `hr-platform` was private**, and
+GitHub Free does not offer branch protection on private repositories. Its
+follow-up said to revisit "if the organization's plan changes ... or if GitHub
+changes free-plan branch-protection availability".
+
+**Neither happened; a third route did.** `hr-platform` is now a **public**
+repository, and GitHub Free has always supported branch protection on public
+repositories. D-013's premise was the repository's visibility as much as the
+plan, and that half is no longer true. The organization remains on Free and was
+not upgraded — the constraint D-013 was protecting against is untouched.
+
+### What is applied
+
+| Setting | Value | Why |
+|---|---|---|
+| `required_status_checks.contexts` | `validate`, `independent-review` | Phase 0's check and D-121's gate -- exactly what `check-branch-protection.sh` requires |
+| `required_status_checks.strict` | `true` | A branch must be current with `main` before merging |
+| `required_pull_request_reviews.required_approving_review_count` | `0` | Not a relaxation -- **`1` is unsatisfiable here**; see below |
+| `dismiss_stale_reviews` | `true` | An approval does not survive a new push |
+| `required_conversation_resolution` | `true` | Step 7 — no thread left open at merge |
+| `enforce_admins` | `true` | The owner is not exempt; R-008's realizations were all owner merges |
+| `allow_force_pushes` / `allow_deletions` | `false` | Both already forbidden by policy, now mechanically |
+
+Verified with the repository's own `scripts/check-branch-protection.sh`, which
+had been "built and regression-tested but pending" since D-013 and now passes
+against the live configuration for the first time.
+
+**A required context must be one that always runs.** `Backend Validate`'s `test`
+job was in the first configuration applied, on the reasoning that R-009 names it
+a required check. That was wrong and was corrected within minutes: the workflow
+is **path-filtered** to `backend/**` and its own file, so on a docs-only pull
+request it never runs, and a required context that never reports blocks the merge
+for ever rather than failing. PR #132 -- docs and one workflow file -- deadlocked
+on it immediately.
+
+The rule this leaves: **only a check that runs unconditionally on every pull
+request may be a required context.** `Phase 0 Bootstrap Validate` qualifies (no
+`paths:` filter); `Independent Review Gate` qualifies (it runs on
+`pull_request_target` for every pull request); `Backend Validate` does not, and
+its real protection is that it must pass when it *does* run, which is a review
+obligation rather than a branch-protection one.
+
+### The approving-review count is `0` because `1` cannot be satisfied
+
+The first configuration applied set the count to `1`, which is what step 6 asks
+for. It made every pull request in the repository unmergeable, including #132
+itself.
+
+**GitHub forbids a pull request's author from approving it.** `karimtismail` is
+the only human with write access to `hr-platform` and is therefore the author of
+every pull request in it. With `required_approving_review_count: 1` and
+`enforce_admins: true`, no pull request could be approved by anyone, ever --
+the setting blocked merges rather than requiring review of them.
+
+The count is `0` until a second maintainer holds write access. **Nothing real
+was given up**, because the requirement was never satisfiable in the first
+place: what is lost is a control that could not fire, not one that could.
+Everything that *can* be enforced still is -- `validate`, `independent-review`,
+conversation resolution, `enforce_admins`, and the force-push/deletion bans.
+Step 6's human approval keeps its full force as a procedural obligation in the
+mandatory workflow, exactly the standing it had before this decision.
+
+**The check now derives this rather than hardcoding it.**
+`scripts/check-branch-protection.sh` counts non-bot collaborators with push
+access and requires an approving review only when a peer approval is possible.
+It is bidirectional, which is what makes it worth having:
+
+| Write-access humans | Required count | Rejected as |
+|---|---|---|
+| 1 | `0` | `>= 1` — unsatisfiable, blocks every merge for ever |
+| >= 2 | `>= 1` | `0` — a possible peer approval was dropped |
+
+So the requirement **returns by itself** the day a second maintainer is added;
+it is not a deferral anyone has to remember. Bots are excluded from the count
+deliberately: `chatgpt-codex-connector[bot]` holds no approval right (D-121)
+and its review arrives through the `independent-review` context instead.
+
+This is the second configuration error in this decision, and it has the same
+shape as the `Backend Validate` one above: **a required control that cannot
+report is not a strong control, it is a broken one.** Both were caught by
+applying the setting and observing a real pull request, not by review of the
+intent.
+
+### The human approval and the independent review are two requirements, not one
+
+The approving-review count, whenever it is above zero, is satisfied only by a
+human: the named independent reviewer is read-only (D-121) and posts
+`COMMENTED`, never `APPROVED` — measured across all fourteen of its reviews on
+PRs #126-#129. The `independent-review` context is what carries step 5. Neither
+substitutes for the other, which is exactly the confusion D-123 had to leave an
+open field for. That separation is why setting the count to `0` does not hand
+step 6 to the bot: the bot could never have satisfied that count anyway.
+
+### What this does and does not close
+
+**Closes** R-008's central gap: review and merge governance is no longer purely
+conventional. All three of that risk's realizations were merges that procedure
+alone did not stop; `enforce_admins: true` means the same sequence would now be
+blocked rather than regretted.
+
+**Does not close** step 7's substance. `required_conversation_resolution` proves
+no thread is open, never that a finding was addressed — resolution is a state a
+human can set without acting. The qualifying-answer check remains owed and is
+recorded in R-008.
+
+Evidence: `gh api repos/workin-hr/hr-platform/branches/main/protection` returned
+`404 Branch not protected` immediately before this change and the full
+configuration above immediately after; `bash scripts/check-branch-protection.sh`
+passes against the live configuration, reporting `1` write-access human. The
+unsatisfiable state was observed directly: PR #132 sat at
+`mergeStateStatus=BLOCKED` with `reviewDecision=REVIEW_REQUIRED` and no
+reviewer able to clear it. `scripts/test_validate_phase0.py` covers both
+directions of the derived rule and is 83/83.
+
 ## D-127: Step 7 gets a disposition check, and an explicit limit
 
 **Status:** Accepted 2026-08-29. Partially closes the gap **R-008** records.

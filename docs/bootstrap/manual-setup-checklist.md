@@ -105,11 +105,27 @@ Apply the label set defined in `.github/labels.yml`.
 
 ## Branch Protection And Rulesets
 
-**Status: Deferred, not merely pending — see `docs/bootstrap/decision-log.md`
-D-013.** `workin-hr` is a GitHub Free organization and `hr-platform` is
-private; both the classic branch-protection API and the Rulesets API
-return `403: Upgrade to GitHub Pro or make this repository public` on this
-repo. The repository owner has explicitly decided neither an organization
+**Status: Applied 2026-08-29 — see D-125 in
+`docs/bootstrap/decision-log-wave12r.md`, superseding D-013.** The deferral held
+while `hr-platform` was private on a Free organization, when both the classic
+branch-protection API and the Rulesets API returned
+`403: Upgrade to GitHub Pro or make this repository public`. **The second half of
+that error is the route taken**: the repository is now public, where Free has
+always offered branch protection, and the organization was not upgraded.
+
+Applied on `main`: required contexts `validate` and `independent-review`;
+conversation resolution required; `enforce_admins` on; force-pushes and
+deletions forbidden. Stale approvals are dismissed on push. The approving-review
+count is `0`, not because approval was dropped but because GitHub forbids
+self-approval and only one human holds write access, which makes `1`
+unsatisfiable — step 6 below stays a human obligation, and the count returns
+automatically once a second maintainer exists (D-125). `test` is deliberately
+**not** a required context: `Backend Validate` is path-filtered to `backend/**`,
+so requiring it would deadlock every docs-only pull request.
+Verify with `bash scripts/check-branch-protection.sh`.
+
+The historical reasoning below is preserved because it explains why the checker
+existed unused for so long. The repository owner has explicitly decided neither an organization
 plan upgrade nor making the repository public is in scope. The rules below
 remain the target configuration if this is ever revisited; none of them
 are currently applied or applicable.
@@ -145,20 +161,24 @@ Completed status.**
   direct review-and-merge authority under D-013's accepted mitigation, not
   through a dedicated audit-agent run or a recorded GitHub `Approve`
   review — see D-014's Reason field for that distinction.
-- **Mechanical branch-protection enforcement (step 1): Deferred**, not
-  completed and not attempted — an accepted plan limitation, not an
-  outstanding gap. See D-013 in `docs/bootstrap/decision-log.md`.
+- **Mechanical branch-protection enforcement (step 1): applied 2026-08-29**
+  under D-125, once the repository became public and D-013's premise lapsed.
+  `scripts/check-branch-protection.sh` passes against the live configuration.
 
 No step in this section may be marked complete by an agent based on its
 own statement that the work is "ready"; the evidence above was recorded
 only after a human completed the underlying action first.
 
-1. Branch protection on `main` is Deferred, not applied — see "Branch
-   Protection And Rulesets" above and D-013 in
-   `docs/bootstrap/decision-log.md`. This step cannot be completed as
-   originally written under the accepted GitHub Free plan limitation; the
-   temporary mitigation in R-008 (`docs/bootstrap/risk-register.md`)
-   substitutes for it.
+1. **Branch protection on `main` is applied** (D-125, 2026-08-29), superseding
+   D-013's deferral: `validate` and `independent-review` are required
+   contexts, conversation resolution is required, `enforce_admins` is on, and
+   force-pushes and deletions are forbidden. Stale approvals are dismissed on
+   push, and the approving-review count is `0` only because a sole maintainer
+   cannot approve their own pull request — step 6 remains owed by a human.
+   Verify with
+   `bash scripts/check-branch-protection.sh`. D-013 deferred this because
+   `hr-platform` was private on a Free organization; the repository is now
+   public, where Free has always offered protection.
 2. A human (or an agent, on the existing `bootstrap/engineering-foundation`
    branch, with no force push) pushes the branch to `origin`.
 3. A human opens a real GitHub pull request from
@@ -211,10 +231,11 @@ only after a human completed the underlying action first.
     `bash scripts/verify-bootstrap.sh` against `main` post-merge to confirm
     Phase 0 validation still passes after merge.
 
-This section must not be described as simply **Pending** (steps 2–10 are
-done and evidenced by D-014) or as fully **Completed** (step 1 is
-permanently Deferred by design under D-013, not merely outstanding) — the
-two-scope status above is the accurate description going forward.
+This section was for a long time neither Pending nor Completed: steps 2–10 were
+done and evidenced by D-014 while step 1 was Deferred by design. **As of
+2026-08-29 (D-125) step 1 is applied too**, so the sequence is mechanically
+enforced end to end — with the one honest exception recorded in R-008, that
+step 7 proves no thread is left open and not that any finding was addressed.
 
 **Step 5 was rewritten on 2026-08-28 under D-121.** As first written it
 offered the Claude `bootstrap-auditor` and/or the Codex
