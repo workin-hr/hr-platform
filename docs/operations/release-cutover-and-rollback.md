@@ -201,15 +201,38 @@ send their employer a departure notice. Use this instead, in order:
    columns, the `token_hash` unique key, the status check constraint, both
    indexes. This is the only step that touches production, and it mutates
    nothing.
-2. **On the restored copy used for the provisioning rehearsal, not production:**
-   exercise one write path end to end — an OTP verify or a password change — and
-   confirm it succeeds rather than erroring on a missing table. The restored copy
-   is where destructive checks belong; that is what it is for.
-3. **Only if a production write-path confirmation is judged necessary:** use a
+2. **Confirm the runtime principal's grants on the production table.**
+   `SHOW CREATE TABLE` proves the table exists; it does not prove the
+   application can write to it. An operator account can read the definition
+   while the account the application actually connects as (`app.legacy-db.username`)
+   holds no `INSERT`/`UPDATE`/`DELETE` on it — newly provisioned tables do not
+   inherit grants. Verify privileges for the **runtime** principal, not the one
+   running the check: `SHOW GRANTS FOR CURRENT_USER()` on an application
+   connection, or the equivalent `information_schema` lookup.
+3. **On the restored copy used for the provisioning rehearsal, not production:**
+   exercise one write path end to end — **`reset_password.php`** — and confirm it
+   succeeds rather than erroring. The restored copy is where destructive checks
+   belong; that is what it is for.
+
+   > **Not OTP verify.** `LegacyOtpAuthService.verifyOtp()` never touches the
+   > refresh-token repository; only `resetPassword()` does. An OTP-verify check
+   > would pass without exercising the table at all — the same false-confidence
+   > trap as using login.
+   >
+   > **And this path fails badly.** `resetPassword()` calls
+   > `updateEmployeePasswordByPhone()` and *only then*
+   > `revokeAllForEmployee()`, and `LegacyOtpAuthService` carries **no
+   > `@Transactional` anywhere**. If the table is missing or unwritable, the
+   > password change has already been committed when the request errors: the
+   > user's password is changed, their sessions are not revoked, and they are
+   > told the operation failed. Partial write, no rollback.
+
+4. **Only if a production write-path confirmation is judged necessary:** use a
    named disposable canary employee in a non-customer company, created for this
    purpose, and record its identity and cleanup here. Never a real employee, and
-   never an account belonging to a customer company — step 2 covers the same
-   ground without the exposure.
+   never an account belonging to a customer company — step 3 covers the same
+   ground without the exposure. Note that step 2 is **not** optional and does not
+   substitute for this: grants and write-path behaviour are different questions.
 
 **2. Exchange a token in both directions**, against a route that genuinely
 requires authentication.
