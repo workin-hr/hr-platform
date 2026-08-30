@@ -907,8 +907,12 @@ exposed the item-shape bug above.
 
 ## D-130: Wave 13.4a delivers `assets` and `administrative_decisions`, and records the client-only authorization on `assets`
 
-**Status:** Accepted 2026-08-29. Owner-approved disposition of the C3/C8 pass's
-`assets` finding.
+**Status:** Accepted 2026-08-29. The endpoint-specific evidence record for the
+C3/C8 pass's `assets` finding, filed **under** D-044 and D-045 rather than as a
+new risk acceptance. An earlier revision of this line called it an
+"owner-approved disposition", which contradicted the body below: the behaviour
+was already governed by those two decisions, so no additional owner sign-off was
+owed and none was taken. Nothing here re-opens or re-grants that acceptance.
 
 Ten endpoints across two modules that agree on almost nothing. Each difference
 below is legacy's, is separately observable, and would be erased by the shared
@@ -1061,6 +1065,49 @@ organizational structure.
 Only names leak, not employee or payroll data — but it is a cross-tenant read by
 an authenticated user of a different tenant, reachable in two ordinary API calls
 with no special conditions.
+
+### The same defect is on a second surface, already delivered in Wave 13.5
+
+`apis/api/dashboard/stats.php:91-99` runs the same unscoped join:
+
+```sql
+FROM workforce_planning wt
+JOIN departments s ON s.id = wt.department_id
+WHERE wt.company_id = ?
+```
+
+`workforce_planning.department_id` carries no foreign key
+(`mysql_workin.schema.sql:939-948`; the table's only indexes are its primary key
+and `uq_workforce_target`), so a row this company owns may reference another
+company's department. `stats.php` then returns that department's **name** and,
+through the correlated subquery, its **active headcount** — one field more than
+the 13.4b path leaks. It needs no write of its own: a single authenticated `GET`
+is enough once such a row exists, and `save_target.php` is how it gets there.
+
+**This changes what the decision buys.** Holding Wave 13.4b was the obvious way
+to keep the disclosure out of the cutover; it no longer is. `stats.php` is
+delivered in **Wave 13.5 (PR #138)**, which sits *below* 13.4b in the stack, so
+every option that merges 13.5 ships the leak whatever happens to 13.4b:
+
+| Option | 13.4b's `list.php` leak | `stats.php` leak |
+|---|---|---|
+| Merge the stack | ships | ships |
+| Hold 13.4b only | held | **ships** |
+| Hold from 13.5 up | held | held — but this holds Waves 13.5, 13.3, 13.4a and everything stacked above them, which is all of Item 13 |
+
+So the question is no longer "ship 13.4b or wait". It is: accept the disclosure
+across both surfaces for Phase 1, or hold **Item 13 as a whole** for
+`hr-legacy#33`. The third option — fix it in Java only — remains the one this
+entry argues against, and doing it on `stats.php` alone would be worse than
+either, because the two surfaces would then disagree with each other as well as
+with PHP.
+
+`hr-legacy#33` must be updated to name `dashboard/stats.php` alongside the
+`workforce_planning` routes; the upstream fix has to cover both, or the port
+cannot follow it.
+
+This surface was missed when D-131 was first written. It was found by review on
+PR #138, not by the wave that introduced it.
 
 ### Why it is reproduced rather than fixed here
 

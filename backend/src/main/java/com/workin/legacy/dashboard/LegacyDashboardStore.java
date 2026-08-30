@@ -104,9 +104,18 @@ public class LegacyDashboardStore {
 	 * names survive here where they collide everywhere else in this response.
 	 *
 	 * <p>The department join is unscoped by company -- only
-	 * {@code wt.company_id} is filtered -- which is safe today because
-	 * {@code workforce_planning} rows are themselves company-scoped, but it
-	 * means the department name is read without re-checking its tenant.
+	 * {@code wt.company_id} is filtered. An earlier revision of this comment
+	 * called that safe because {@code workforce_planning} rows are themselves
+	 * company-scoped; <b>that reasoning is wrong</b> and is retracted. Scoping
+	 * the row does not scope the join: {@code workforce_planning.department_id}
+	 * carries no foreign key in {@code hr-legacy@d113204}, so a row owned by
+	 * this company may point at another company's department, and then both the
+	 * name and the {@code actual} subquery's headcount are read from that
+	 * tenant.
+	 *
+	 * <p>It is reproduced rather than fixed because
+	 * {@code apis/api/dashboard/stats.php:91-99} is character-for-character this
+	 * query (D-058). The disclosure is legacy's, and it is real.
 	 */
 	public List<Map<String, Object>> workforcePlanning(long companyId) {
 		return jdbcTemplate.query("""
