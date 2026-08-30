@@ -968,3 +968,121 @@ partition 124/4/1 → **129/4/1**. Live total 198 unchanged.
 Evidence: `./gradlew check` — **1973 tests, 0 failures**, 30 new. The turnover
 month-step and headcount floor were each falsified against a deliberately broken
 implementation.
+
+## D-129: Wave 13.3 delivers the eight settings endpoints
+
+**Status:** Accepted 2026-08-29. Continues D-128's risk-last ordering.
+
+Eight endpoints over the EAV settings model: the six `company_settings`
+routes -- `list`, `one`, `options`, `create`, `update`, `delete` -- plus `setting_definitions/list.php` and
+`setting_allowed_values/list.php`. D-4 had flagged `company_settings` as
+schema-incompatible with the existing Phase-2 entity (EAV against five typed
+columns); this wave ports the **legacy** shape, which is the EAV one, and does
+not touch that entity.
+
+### Three authority levels, and the odd one is real
+
+| Endpoint(s) | Requires |
+|---|---|
+| the six `company_settings` routes | COMPANY_ADMIN/HR **+** `can_company_settings` **+** active company |
+| `setting_definitions/list.php` | COMPANY_ADMIN/HR only — no permission gate, no company-active check |
+| `setting_allowed_values/list.php` | **nothing** |
+
+The allowed-value catalogue is world-readable while the definitions that
+*name* those same values need an administrative role. Both tables are platform
+configuration with no `company_id`, so nothing tenant-scoped leaks either way,
+but the asymmetry is preserved rather than harmonised. That takes
+`LegacyPhpRoutes`' public category from four entries to five.
+
+### The bug this wave's falsification found in the port
+
+The first implementation used one shared item-builder for `one.php`,
+`create.php` and `update.php`. **That was wrong, and legacy is inconsistent
+here in a way that is externally visible.**
+
+- `list.php` and `one.php` derive `company_setting_id` and `updated_at`
+  **only from the selection join**.
+- `create.php` and `update.php` use `build_company_setting_item()`, which runs
+  its own `SELECT id, updated_at FROM company_settings`.
+
+A `company_settings` row can exist with **no** values — `create` with an empty
+value list produces exactly that — and then the join returns nothing. So a
+client creates a setting, receives a real id, re-reads it through `one.php`,
+and gets `company_setting_id: 0` with a null timestamp, **without anything
+having been deleted**. Two shapes, separately observable, and unifying them
+would change a live response.
+
+It was found by falsifying the rollback regression, not by reading the code:
+the original assertion went through `list.php`, which reports `0` for "no row"
+and for "row with no values" alike and therefore could not tell a rollback from
+a partial write. Re-pointing it at the table made it fail correctly — and made
+the two shapes' disagreement visible.
+
+### A validation failure is a 400, not the catch block's 500
+
+PHP wraps its writes in `try { beginTransaction(); … } catch (Throwable) {
+rollBack(); fail(ERROR_WITH_MESSAGE, 500) }`, and it would be easy to read that
+as "any rejected value is a 500". It is not: `fail()` ends in `exit`, so it
+never reaches the catch, the client sees the 400 the validation raised, and PDO
+rolls the open transaction back at shutdown. Reproduced by letting
+`LegacyApiException` propagate out of the `@Transactional` method — Spring rolls
+back on it and the wire handler renders the carried status.
+
+### Other preserved behaviours
+
+- **`create` and `update` reach opposite end states from an empty value list.**
+  `create` inserts a parent row with no values; `update` deletes the setting
+  entirely.
+- **`create` is not an upsert** — a second create is `already_exists`.
+- **A required definition cannot be deleted**, and the check runs on the
+  definition resolved from *either* identifier.
+- **Deleting a setting that was never set is `ok`**, not 404.
+- **The id beats the key** whenever it is positive, so a request carrying both
+  a valid id and a contradictory key silently uses the id. `update.php` alone
+  also falls back from body to query string.
+- **`options.php` echoes an unknown `setting_key`** with an empty option list
+  rather than 404ing, and its map form orders definitions by `setting_key` —
+  the only place in the module that is not `sort_order` order.
+- **`pick_label` crosses languages before it reaches the fallback**, and null
+  and blank are different inputs: a *null* `label_ar` skips to `label_en`, while
+  a *blank* one is chosen, trims to empty, and lands on the setting key.
+
+### Two defects the review found in this wave's port
+
+Both were caught by Codex on #139 and are worth recording, because neither is
+visible in a single-threaded test.
+
+**The permission refusal sent a message key instead of a message.**
+`LegacyHrPermissionEnforcer` threw the platform's `ApiException` with
+`error.forbidden`. `LegacyMessages` loads only `legacy/lang/*.properties`, which
+defines `forbidden` and has no `error.` namespace at all, and its lookup falls
+back to returning the key unchanged — so clients received the literal string
+`"error.forbidden"` where PHP's `fail(LangKey::FORBIDDEN, 403)` sends
+`"Forbidden"`. **This affected every already-delivered legacy endpoint that
+gates on a permission**, not only this wave's, so the fix is at the enforcer.
+
+**`SELECT LAST_INSERT_ID()` is not a port of `PDO::lastInsertId()`.** PHP holds
+one connection per request; a `JdbcTemplate` borrows one per call. The insert
+and the id read could therefore run on *different* pooled connections, and
+`LAST_INSERT_ID()` is session-scoped — so under concurrency the second call
+returns another request's id, or `0` on a connection that has inserted nothing.
+The caller then re-reads "its" row by that id, which is how a lost id becomes a
+response carrying **another tenant's** row.
+
+It is invisible single-threaded and invisible inside a transaction, which pins
+one connection — which is exactly why it survives review. `LegacyGeneratedKeys`
+now asks JDBC for the key the insert statement itself generated, so there is no
+second round trip to misroute, and a twelve-thread regression asserts every
+caller reads back its own row. Reverting to the two-call form fails both cases.
+
+### Ledger after Wave 13.3
+
+`FINAL_COMPATIBLE` 134 → **142**; `ITEM13_REMAINING` 64 → **56**; partition
+129/4/1 → **137/4/1**. Live total 198 unchanged.
+
+Evidence: `./gradlew check` — **0 failures**. The test count is not restated
+here for the reason given under D-130: a figure that must be re-measured on
+every push cannot stay true in a durable record, and this one had already drifted
+across several review rounds. The
+transactional rollback was falsified by removing `@Transactional`, which is what
+exposed the item-shape bug above.

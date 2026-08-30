@@ -255,4 +255,38 @@ class LegacyValuesTest {
 		assertThat(LegacyValues.fromEnum(null)).isNull();
 	}
 
+
+	/**
+	 * {@code filter_var(..., FILTER_VALIDATE_BOOLEAN)} strips a <b>third</b>
+	 * whitespace set: not {@link String#trim}'s and not {@code phpTrim}'s.
+	 *
+	 * <p>It strips space, tab, newline, carriage return and vertical tab --
+	 * and <b>neither form feed nor NUL</b>, both of which Java's
+	 * {@code String.trim()} removes.
+	 *
+	 * <p>Measured against a PHP 8.5.7 CLI probe rather than read from the
+	 * extension source, which an earlier revision of this test got backwards
+	 * for form feed.
+	 */
+	@Test
+	void filterValidateBooleanUsesItsOwnWhitespaceSet() {
+		assertThat(LegacyValues.toPhpFilterBoolean("\ftrue\f"))
+				.as("form feed is NOT stripped -- measured against a PHP 8.5.7 CLI probe, "
+						+ "which returns false; String.trim() would have stripped it and returned true")
+				.isFalse();
+		assertThat(LegacyValues.toPhpFilterBoolean("\u000Btrue")).isTrue();
+		assertThat(LegacyValues.toPhpFilterBoolean("  true\t")).isTrue();
+
+		assertThat(LegacyValues.toPhpFilterBoolean("\0true"))
+				.as("NUL is NOT stripped, so the value is unrecognised and false -- "
+						+ "String.trim() would have stripped it and returned true")
+				.isFalse();
+		assertThat(LegacyValues.toPhpFilterBoolean("true\0")).isFalse();
+
+		assertThat(LegacyValues.toPhpFilterBoolean("yes")).isTrue();
+		assertThat(LegacyValues.toPhpFilterBoolean("on")).isTrue();
+		assertThat(LegacyValues.toPhpFilterBoolean("1")).isTrue();
+		assertThat(LegacyValues.toPhpFilterBoolean("no")).isFalse();
+		assertThat(LegacyValues.toPhpFilterBoolean("")).isFalse();
+	}
 }

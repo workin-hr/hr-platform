@@ -171,8 +171,57 @@ public final class LegacyValues {
 		if (raw instanceof Number number) {
 			return number.doubleValue() == 1.0d;
 		}
-		String value = toPhpString(raw).trim().toLowerCase(java.util.Locale.ROOT);
+		String value = filterVarTrim(toPhpString(raw)).toLowerCase(java.util.Locale.ROOT);
 		return "1".equals(value) || "true".equals(value) || "on".equals(value) || "yes".equals(value);
+	}
+
+	/**
+	 * The whitespace {@code filter_var(..., FILTER_VALIDATE_BOOLEAN)} strips,
+	 * which is a <b>third</b> character set -- not {@link String#trim}'s and not
+	 * {@link #phpTrim}'s.
+	 *
+	 * <p>{@code filter_var} strips {@code ' '}, {@code \t}, {@code \n},
+	 * {@code \r} and {@code \v} from both ends -- and <b>neither form feed nor
+	 * NUL</b>. Compared with the two sets already in this class:
+	 *
+	 * <ul>
+	 * <li>it does <b>not</b> strip NUL, which both {@link #phpTrim} (PHP's
+	 *     {@code trim()}) and Java's {@code String.trim()} do;</li>
+	 * <li>it does <b>not</b> strip form feed, which Java's {@code String.trim()}
+	 *     does -- {@code phpTrim} does not either, so those two agree here.</li>
+	 * </ul>
+	 *
+	 * <p>Both are observable divergences from {@code String.trim()}:
+	 * {@code "\0true"} and {@code "\ftrue\f"} are each unrecognised by PHP and
+	 * therefore <b>false</b>, while {@code String.trim()} would strip the
+	 * padding and make both true.
+	 *
+	 * <p><b>Source of the character set.</b> Measured, not read: a PHP 8.5.7 CLI
+	 * probe of {@code filter_var(chr(12) . 'true' . chr(12), FILTER_VALIDATE_BOOLEAN)}
+	 * returns {@code false}, and the vertical-tab equivalent returns
+	 * {@code true}. An earlier revision of this helper claimed the opposite for
+	 * form feed on the strength of reading the extension's C source, which was
+	 * wrong; the probe is the evidence that settles it, and PHP is not
+	 * executable in this repository's environment to re-derive it.
+	 */
+	static String filterVarTrim(String value) {
+		if (value == null) {
+			return "";
+		}
+		int start = 0;
+		int end = value.length();
+		while (start < end && isFilterVarSpace(value.charAt(start))) {
+			start++;
+		}
+		while (end > start && isFilterVarSpace(value.charAt(end - 1))) {
+			end--;
+		}
+		return value.substring(start, end);
+	}
+
+	private static boolean isFilterVarSpace(char c) {
+		// No '\f' and no NUL -- see the measurement noted above.
+		return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == 0x0B;
 	}
 
 	/**
