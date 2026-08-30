@@ -19,8 +19,11 @@ more settled than the ADRs it summarizes.
   proposed direction, see ADR-0001 (Repository Strategy)
 - Java and Spring Boot backend — proposed direction, see ADR-0002 (Modular
   Monolith Baseline); requires an approved ADR before implementation begins
-- Next.js admin portal — proposed direction; no dedicated ADR yet, requires
-  one before implementation begins
+- Next.js admin portal — direction confirmed for the narrowed
+  platform-admin surface, see ADR-0009 §"Technology For The Platform-Admin
+  Web Surface" (accepted 2026-08-05, `docs/bootstrap/decision-log.md`
+  D-025). Its authentication is **not** yet decided — see ADR-0014
+  (Proposed), which must be accepted before implementation begins
 - Flutter compatibility retained where required by validated client
   behavior — proposed direction, see ADR-0003 (API Versioning And Flutter
   Compatibility)

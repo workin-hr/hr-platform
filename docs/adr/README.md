@@ -63,7 +63,12 @@ maintaining a second, divergent copy of these rules — see
 
 ## Proposed ADRs
 
-None — all 13 ADRs have a recorded decision as of 2026-08-17. ADR-0006's
-Part B (final vendor protocol/connectivity detail) is the only remaining
+- `ADR-0014-platform-admin-web-authentication.md` — how the Next.js
+  platform-admin surface authenticates: ADR-0005's rotating-refresh model
+  carried over `HttpOnly`/`Secure`/`SameSite` cookies rather than
+  browser-stored bearer tokens, with MFA and step-up on destructive
+  actions (proposed 2026-08-30, **not approved**)
+
+ADR-0006's Part B (final vendor protocol/connectivity detail) is a further
 open ADR sub-item, tracked within `ADR-0006-attendance-edge-gateway-direction.md`
-itself, not as a separately `Proposed` ADR.
+itself rather than as a separately `Proposed` ADR.
