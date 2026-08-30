@@ -101,9 +101,13 @@ class PlatformAdminAuthFlowTest extends AbstractIntegrationTest {
 
 	/**
 	 * R-026. Deactivation is the control an operator reaches for when someone
-	 * must lose access <em>now</em> -- a departure, a suspected compromise. On
-	 * this surface that access includes suspending and deleting customer
-	 * companies.
+	 * must lose access <em>now</em> -- a departure, a suspected compromise.
+	 *
+	 * <p>Scoped to what exists: the only authenticated route on this surface
+	 * today is {@code GET /api/platform-admin/me}, so what the defect realised
+	 * was continued identity disclosure. The operations this surface is for --
+	 * company suspension and deletion -- are not built, and the defect mattered
+	 * because the first one would have inherited it silently.
 	 *
 	 * <p>Before this was fixed, {@code PlatformAdminAuthenticationFilter} built
 	 * its principal from the JWT subject alone and never loaded the row, so a

@@ -231,9 +231,16 @@ it sits here rather than only in the risk register.
 Two defensible answers, and the choice belongs to whoever owns **ADR-0005**:
 
 1. **Enforce session status per request.** Resolve `sid` in the filter and
-   reject a token whose family is `REVOKED`. The marginal cost is small — R-026
-   already made the filter pay one indexed lookup per request — and it makes
-   logout mean what an operator assumes it means.
+   reject a token whose family is `REVOKED`.
+
+   **The cost is not the same on both surfaces**, and the earlier version of
+   this entry used a platform-admin fact to argue for both. R-026 added a
+   repository lookup to `PlatformAdminAuthenticationFilter` only, so there the
+   marginal cost really is small — a second indexed query beside one that is
+   already paid. `JwtAuthenticationFilter` has **no repository dependency and
+   no existing lookup**, so enforcing `sid` there introduces a database query
+   per request to the busiest path in the system. That is a real decision, not
+   a rounding error, and it may well be answered differently for each surface.
 2. **Accept access-token survival** as the standard stateless-JWT trade, and
    record it, so the inconsistency with R-026's stated principle ("immediate
    revocation over cached authorization state") is a decision rather than an

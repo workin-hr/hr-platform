@@ -81,16 +81,28 @@ public class PlatformAdminAuthenticationFilter extends OncePerRequestFilter {
 				boolean active = platformAdminRepository.findById(platformAdminId)
 						.map(PlatformAdmin::isActive)
 						.orElse(false);
-				if (!active) {
-					SecurityContextHolder.clearContext();
-					filterChain.doFilter(request, response);
-					return;
+				if (active) {
+					AuthenticatedPlatformAdminPrincipal principal =
+							new AuthenticatedPlatformAdminPrincipal(platformAdminId);
+					Authentication authentication = new UsernamePasswordAuthenticationToken(
+							principal, null, List.of());
+					SecurityContextHolder.getContext().setAuthentication(authentication);
 				}
-				AuthenticatedPlatformAdminPrincipal principal =
-						new AuthenticatedPlatformAdminPrincipal(platformAdminId);
-				Authentication authentication = new UsernamePasswordAuthenticationToken(
-						principal, null, List.of());
-				SecurityContextHolder.getContext().setAuthentication(authentication);
+				else {
+					// Deliberately no early return, and no doFilter() call here.
+					// An inactive admin is handled the same way an unparseable
+					// token is: the context stays clear and the single
+					// doFilter() below runs the chain once.
+					//
+					// An earlier version called filterChain.doFilter() inside
+					// this try and returned. On a permitAll route -- login,
+					// refresh, logout -- the chain really does continue, so a
+					// downstream JwtException or IllegalArgumentException landed
+					// in the catch below and execution then fell through to the
+					// doFilter() at the end: the whole downstream chain and its
+					// controller ran a second time.
+					SecurityContextHolder.clearContext();
+				}
 			} catch (JwtException | IllegalArgumentException ex) {
 				SecurityContextHolder.clearContext();
 			}
