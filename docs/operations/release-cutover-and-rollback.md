@@ -138,21 +138,82 @@ Phase 1 wrote) and because it constrains any future rotation of that secret: a
 replacement value must be ≥ 32 bytes or Phase 1 will not boot. The value itself
 is not recorded here or anywhere in this repository.
 
+### Claim 2b — "PHP still runs": **not verified at all**
+
+G11's second half is a statement about the **rollback target**, and nothing in
+this section establishes it. Session compatibility is necessary for a
+transparent rollback; it is nowhere near sufficient. If the PHP artifact, its
+runtime configuration, or the traffic-routing path back to it is unavailable or
+has drifted at the moment rollback is called, then every token test above passes
+and the rollback is still impossible.
+
+Nothing here provides a PHP deployment, a routing reversal, a health check, or
+post-rollback smoke evidence — and the release/rollback template below this
+section is still unfilled. **This is tracked as its own blocker (R-025) rather
+than folded into the token work**, because the two fail independently and only
+one of them has been looked at.
+
+An end-to-end rollback rehearsal — route traffic back to PHP on a non-production
+environment, confirm it serves, run the smoke checks — is what closes it. Until
+then the "cheap rollback" claim rests on an untested assumption about the thing
+being rolled back to.
+
 ### Required pre-cutover verification
 
-These are the concrete steps G11's rehearsal is missing.
+These are the concrete steps G11's rehearsal is missing. Each names its own
+negative control, because every one of these checks can otherwise pass for the
+wrong reason.
 
-1. **Provision `legacy_refresh_tokens`** in the production legacy database by an
-   approved mechanism (ADR-0013 Open Questions — undecided). Rehearse it against
-   a restored copy first, and record the mechanism, its owner and its lock
-   duration here. Without this table the Java application cannot serve a login.
-2. **Exchange a token in both directions.** With the Java backend deployed and
-   configured for the cutover, obtain a token from a Java-served login route and
-   present it to the **PHP** application on an authenticated endpoint. It must be
-   accepted. Then reverse it: a token from PHP must be accepted by Java.
-3. If PHP answers `unauthorized_invalid_token`, the two deployments do not share
-   a signing secret — **stop the cutover**, because both the cutover and any
-   rollback will force-log-out every user.
+**1. Provision `legacy_refresh_tokens`** in the production legacy database by an
+approved mechanism (ADR-0013 Open Questions — undecided). Rehearse it against a
+restored copy first, and record the mechanism, its owner and its lock duration
+here.
+
+> **Do not use a successful login as the check.** The parity login route
+> (`/apis/api/auth/login_employee.php` → `LegacyPhpLoginService`) never touches
+> the refresh-token repository — it updates `employees`/`push_tokens` and issues
+> a JWT — so it returns 200 whether or not the table exists. The table is
+> reached by `LegacyRefreshTokenService.revokeAllForEmployee()`, called from
+> `LegacyProfileService` (password change, logout) and `LegacyOtpAuthService`
+> (OTP verify). A login-only check therefore passes while exactly those routes
+> are broken.
+>
+> Verify directly instead: `SHOW CREATE TABLE legacy_refresh_tokens` against the
+> cutover database, **and** exercise one route that actually writes it — a
+> password change or a logout — confirming it succeeds rather than erroring.
+
+**2. Exchange a token in both directions**, against a route that genuinely
+requires authentication.
+
+> **Do not pick the route arbitrarily.** A 200 from a route that tolerates
+> anonymous callers proves nothing about the token. `/apis/api/complaints/create.php`
+> is exactly such a route — `LegacyRequestGuard` carries explicit handling for
+> it because it proceeds anonymously when token decoding fails — so using it
+> would false-pass the single check that stands between the cutover and a mass
+> forced logout.
+>
+> Use `/apis/api/attendance_exception_types/list.php`, which requires
+> authentication in both systems and is the route the automated end-to-end tests
+> already use for this purpose.
+
+- Obtain a token from a Java-served login and present it to **PHP** on that
+  route. It must return 200 with `success: true`, and the payload must be scoped
+  to the token's own company — not merely a non-error response.
+- Reverse it: a token minted by PHP must be accepted by Java on the same route.
+- **Negative control, required in both directions:** repeat each request with a
+  token signed by a deliberately foreign secret. Both systems must reject it. If
+  a foreign-signed token is *also* accepted, the positive result above is
+  meaningless — the route is not enforcing what you think it is, and the exchange
+  has told you nothing.
+
+**3. Stop the cutover on rejection.** If PHP answers
+`unauthorized_invalid_token` for the genuine token, the two deployments do not
+share a signing secret — both the cutover and any rollback will force-log-out
+every user (R-024).
+
+**4. Rehearse the rollback itself** (R-025), which is a separate exercise from
+all of the above: route traffic back to PHP on a non-production environment,
+confirm it serves, and run the smoke checks against it.
 
 Record the results here. Until they are recorded, G11 is not closed, and the
 "transparent rollback" property must be described as *expected* rather than

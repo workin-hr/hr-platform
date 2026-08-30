@@ -992,9 +992,10 @@ assumed, because it is the main reason Phase 1's risk profile is acceptable.
 > half is **not true as worded** — Phase 1 adds `legacy_refresh_tokens` to the
 > legacy MariaDB (D-043 amendment 3), and its provisioning against a real
 > instance is undecided (**R-023**). Session continuity also depends on one
-> unverified config value, the shared signing secret (**R-024**). Both must be
-> closed before this gate is; see D-143 and D-144 and the pre-cutover steps in
-> `release-cutover-and-rollback.md`.
+> unverified config value, the shared signing secret (**R-024**). And the gate's
+> other half, *"PHP still runs"*, has not been examined at all: nothing shows the
+> rollback target is restorable (**R-025**). Three blockers, all open; see D-143
+> and D-144 and the pre-cutover steps in `release-cutover-and-rollback.md`.
 
 **G12 — Smoke and post-deployment validation.**
 `production-smoke-and-post-deployment-validation.md`'s checks defined against

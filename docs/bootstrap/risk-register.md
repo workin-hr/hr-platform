@@ -412,3 +412,21 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Target Date | Before the Phase 1 cutover window is scheduled. |
 | Evidence | `LegacyPhpJwtService` and `JwtService` both bind `app.jwt.secret`; `apis/helpers/functions.php:420-430`. **Secondary constraint:** `JwtService` is component-scanned into the `phase1-mysql` context and its constructor calls `Keys.hmacShaKeyFor()`, which rejects keys under 256 bits, whereas PHP's `hash_hmac` accepts any length — so a legacy secret shorter than 32 bytes would prevent Java from starting rather than merely mismatching. Checked: the legacy secret is 65 bytes, so this is satisfied today, but it constrains any future rotation. The value is not recorded in this repository. |
 | Last Reviewed | 2026-08-30 |
+
+## R-025: Phase 1's Rollback Target Has Never Been Shown To Be Restorable
+
+| Field | Value |
+|---|---|
+| Description | G11's rollback claim has two halves — "the database is unchanged" and **"PHP still runs"** — and only the first has been examined. Nothing verifies that the PHP artifact, its runtime configuration, or the traffic-routing path back to it is available and working at the moment a rollback is called. `release-cutover-and-rollback.md`'s own release/rollback procedure is still an unfilled template: there is no PHP deployment step, no routing reversal, no health check, and no post-rollback smoke evidence anywhere. |
+| Category | Cutover readiness / Production safety / Rollback |
+| Probability | Unknown, and untested — which is the finding. The legacy application is frozen at `d113204` and is expected to run, but "expected to" is exactly the standard G11 exists to replace. |
+| Impact | Session compatibility (**R-024**) is necessary for a transparent rollback and nowhere near sufficient. Every token check can pass while the rollback is impossible because there is nothing to roll back *to*. This is the failure mode where the release has no way out and discovers it only under pressure. |
+| Severity | High. Phase 1's entire risk posture rests on the rollback being cheap; an unrehearsed rollback is not known to be cheap or even available. |
+| Owner | Repository owner. |
+| Mitigation | An end-to-end rollback rehearsal on a non-production environment: route traffic back to PHP, confirm it serves, run the smoke checks against it. Recorded as pre-cutover step 4. Separately, fill in the release/rollback procedure the template is still waiting for — cutover steps, sequencing, triggers, owners. |
+| Trigger | Scheduling the Phase 1 cutover. |
+| Contingency | None available if it fails at cutover time, which is the point of rehearsing it beforehand. If the rehearsal shows PHP cannot be restored quickly, Phase 1's risk acceptance has to be revisited: the phase was approved on the strength of a cheap rollback that would not exist. |
+| Status | Open. Surfaced by independent review of PR #147 on 2026-08-30, which correctly observed that the PR substituted session compatibility for G11's whole claim. |
+| Target Date | Before the Phase 1 cutover window is scheduled. |
+| Evidence | `docs/operations/release-cutover-and-rollback.md` — Claim 2b, and the unfilled Cutover Step / Rollback Procedure / Owner / Evidence sections below it. Tracked separately from R-023 (schema prerequisite) and R-024 (signing secret) because the three fail independently. |
+| Last Reviewed | 2026-08-30 |
