@@ -564,8 +564,12 @@ by `leave_balances/generate.php`).
 **19 at this document's pinned source** (`83c326e`) — 20 in the later
 `d113204` tree, which adds `complaints/delete.php`. The count here follows the
 pin, because every other total and piece of evidence in this file does; the body below named no `employee_docs` or `complaints` endpoint
-individually, so those eight carried the real evidence gap rather than the
-four the arithmetic implied. They were read in the bounded C3/C8 pass
+individually, so those **seven** carried the real evidence gap rather than the
+**three** the arithmetic implied. (Those figures are the pin's: at `d113204`
+the same two modules hold eight and the shortfall is four, because
+`complaints/delete.php` exists there. The 8/4 pair belongs to the later-source
+discovery artifact and is correct there; carrying it into this pinned inventory
+would make the file disagree with its own declared source.) They were read in the bounded C3/C8 pass
 (`docs/migration/2026-08-29-c3-c8-bounded-discovery.md`), which found two
 contract issues the original "no scoping gaps found" would have hidden:
 `complaints/create.php` is **unauthenticated** and writes rows no list query

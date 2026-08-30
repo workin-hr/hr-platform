@@ -462,10 +462,19 @@ REAL_GATE_WORKFLOW = REPO_ROOT / ".github/workflows/independent-review-gate.yml"
 
 
 def _thread(author: str, *replies: tuple[str, str], path: str = "a.java", line: int = 1,
-            resolved: bool = True) -> dict:
+            resolved: bool = True, total_count: int | None = None) -> dict:
     nodes = [{"author": {"login": author}, "body": "P1: a finding"}]
     nodes += [{"author": {"login": who}, "body": body} for who, body in replies]
-    return {"isResolved": resolved, "path": path, "line": line, "comments": {"nodes": nodes}}
+    comments: dict = {"nodes": nodes}
+    # Mirrors the real payload: totalCount is what the server holds, nodes is
+    # what one page returned. Passing a larger total_count simulates a thread
+    # whose replies did not fit in a single page.
+    comments["totalCount"] = len(nodes) if total_count is None else total_count
+    # `id` mirrors the real payload: the script selects it to paginate a
+    # specific thread's comments, and a fixture without one cannot exercise
+    # that path at all.
+    return {"id": f"THREAD_{path}_{line}", "isResolved": resolved,
+            "path": path, "line": line, "comments": comments}
 
 
 def run_check_dispositions(threads: list[dict], workflow_text: str | None = None) -> subprocess.CompletedProcess:
@@ -483,6 +492,116 @@ def run_check_dispositions(threads: list[dict], workflow_text: str | None = None
             ["bash", str(CHECK_DISPOSITIONS_SCRIPT)],
             capture_output=True, text=True, timeout=10, env=env,
         )
+
+
+def run_check_dispositions_over_fake_gh(pages: list[dict]) -> subprocess.CompletedProcess:
+    """Drive the script through its *live* path — no REVIEW_THREADS_JSON_FILE —
+    with a fake `gh` on PATH that serves the supplied pages in order.
+
+    The fixture path deliberately skips pagination, so every other case in this
+    file leaves the cursor handling, page merging and comment-fetch code
+    completely unexecuted. That code is the part that decides whether a finding
+    or a disposition is seen at all, so it needs a transport, not a payload."""
+    with tempfile.TemporaryDirectory(prefix="dispositions-gh-") as tmp:
+        tmpdir = Path(tmp)
+        for index, page in enumerate(pages):
+            (tmpdir / f"page{index}.json").write_text(json.dumps(page), encoding="utf-8")
+        # Each invocation consumes the next page AND records its full argument
+        # list. Serving by call count alone would let a broken implementation
+        # pass: if the cursor were never advanced -- left at `null` every time
+        # -- this shim would still hand over page 1, then page 2, and the test
+        # would go green while live GitHub returned the first page forever.
+        # The recorded arguments are what the caller asserts on.
+        (tmpdir / "gh").write_text(
+            "#!/bin/sh\n"
+            f'counter="{tmpdir}/counter"\n'
+            f'log="{tmpdir}/calls.log"\n'
+            'n=0; [ -f "$counter" ] && n="$(cat "$counter")"\n'
+            'echo $((n + 1)) > "$counter"\n'
+            # One line per invocation: the GraphQL document is multi-line, so
+            # logging "$*" raw would split a single call across many lines and
+            # make calls[1] a fragment of the first query rather than the
+            # second call.
+            '''printf "%s\\n" "$(printf "%s" "$*" | tr "\\n" " ")" >> "$log"\n'''
+            f'cat "{tmpdir}/page$n.json"\n',
+            encoding="utf-8")
+        (tmpdir / "gh").chmod(0o755)
+        env = dict(os.environ)
+        env["PATH"] = f"{tmpdir}:{env['PATH']}"
+        env.pop("REVIEW_THREADS_JSON_FILE", None)
+        workflow = tmpdir / "gate.yml"
+        # Quoted: the script reads REVIEWER from a `REVIEWER: "..."` assignment.
+        workflow.write_text(f'env:\n  REVIEWER: "{REVIEWER}"\n', encoding="utf-8")
+        env["INDEPENDENT_REVIEW_WORKFLOW_FILE"] = str(workflow)
+        proc = subprocess.run(
+            ["bash", str(CHECK_DISPOSITIONS_SCRIPT), "1"],
+            capture_output=True, text=True, timeout=30, env=env,
+        )
+        log = tmpdir / "calls.log"
+        proc.gh_calls = log.read_text(encoding="utf-8").splitlines() if log.is_file() else []  # type: ignore[attr-defined]
+        return proc
+
+
+def _thread_page(threads: list[dict], has_next: bool, cursor: str = "CUR") -> dict:
+    return {"data": {"repository": {"pullRequest": {"reviewThreads": {
+        "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+        "nodes": threads}}}}}
+
+
+def test_dispositions_a_finding_on_the_second_thread_page_is_seen() -> None:
+    """The failure that motivated pagination: an undispositioned finding past
+    the first page of threads was invisible, so the check reported success on
+    exactly the longest, most-reviewed pull requests."""
+    page_one = _thread_page(
+        [_thread(REVIEWER, ("karimtismail", "Disposition: fixed"))], True, cursor="CUR1")
+    page_two = _thread_page(
+        [_thread(REVIEWER, ("karimtismail", "Disposition: fixed"),
+                 path="middle.java", line=2)], True, cursor="CUR2")
+    page_three = _thread_page(
+        [_thread(REVIEWER, ("karimtismail", "no disposition here"),
+                 path="third/page.java", line=7)], False)
+    proc = run_check_dispositions_over_fake_gh([page_one, page_two, page_three])
+    calls = proc.gh_calls  # type: ignore[attr-defined]
+    check(
+        proc.returncode != 0
+        and "third/page.java" in proc.stdout
+        # Three pages, so advancement has to happen twice -- a single-step
+        # cursor bug survives a two-page fixture.
+        and len(calls) >= 3
+        and "cursor=CUR1" in calls[1]
+        and "cursor=CUR2" in calls[2],
+        f"a finding on the third thread page is found, and each request carries the "
+        f"previous page's endCursor (exit={proc.returncode}, calls={calls}, "
+        f"stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_a_reply_on_the_second_comment_page_is_honoured() -> None:
+    """The opposite failure: a disposition posted past a thread's hundredth
+    comment was unreadable, so the check blocked a merge whose finding had in
+    fact been answered."""
+    # totalCount 2 -- the finding plus one reply -- with only the finding on the
+    # first page. After the fetch below the thread holds both, which is what
+    # lets the check judge it instead of refusing.
+    truncated = _thread(REVIEWER, total_count=2)
+    truncated["comments"]["pageInfo"] = {"hasNextPage": True, "endCursor": "C1"}
+    page_one = _thread_page([truncated], False)
+    comment_page = {"data": {"node": {"comments": {
+        "pageInfo": {"hasNextPage": False, "endCursor": "C2"},
+        "nodes": [{"author": {"login": "karimtismail"}, "body": "Disposition: fixed"}]}}}}
+    proc = run_check_dispositions_over_fake_gh([page_one, comment_page])
+    calls = proc.gh_calls  # type: ignore[attr-defined]
+    check(
+        proc.returncode == 0
+        and len(calls) >= 2
+        # The follow-up must ask for that thread, from where its first page
+        # stopped -- not re-request the same page.
+        and "cursor=C1" in calls[1]
+        and "THREAD_a.java_1" in calls[1],
+        f"a disposition on a later comment page discharges the finding, and the "
+        f"fetch carries the thread id and its comment cursor "
+        f"(exit={proc.returncode}, calls={calls}, stdout={proc.stdout!r})",
+    )
 
 
 def test_dispositions_match_the_graphql_login_without_the_bot_suffix() -> None:
@@ -589,6 +708,57 @@ def test_dispositions_an_invented_term_is_not_a_disposition() -> None:
     )
 
 
+def test_dispositions_a_term_beginning_with_an_allowed_value_is_rejected() -> None:
+    """The closed vocabulary must match whole terms, not prefixes.
+
+    `test_dispositions_an_invented_term_is_not_a_disposition` uses "wontfix",
+    which shares no prefix with any allowed value and so was rejected even by
+    the unanchored pattern. "fixed-later" and "supersededness" are the cases
+    that actually distinguish the two: both begin with a real disposition and
+    both silently passed before the pattern required a complete term."""
+    for invented in ("Disposition: fixed-later", "Disposition: supersededness"):
+        proc = run_check_dispositions([_thread(REVIEWER, ("karimtismail", invented))])
+        check(
+            proc.returncode != 0,
+            f"{invented!r} is not a disposition (exit={proc.returncode}, stdout={proc.stdout!r})",
+        )
+
+
+def test_dispositions_every_allowed_term_is_still_accepted() -> None:
+    """The anchor must not have narrowed the vocabulary it protects --
+    `accepted-risk` and `declined-with-evidence` both contain hyphens, which is
+    exactly what the lookahead excludes when it follows a match."""
+    for allowed in (
+        "Disposition: fixed",
+        "Disposition: declined-with-evidence",
+        "Disposition: accepted-risk",
+        "Disposition: superseded",
+    ):
+        proc = run_check_dispositions([_thread(REVIEWER, ("karimtismail", allowed))])
+        check(
+            proc.returncode == 0,
+            f"{allowed!r} is still accepted (exit={proc.returncode}, stdout={proc.stdout!r})",
+        )
+
+
+def test_dispositions_a_thread_that_could_not_be_fully_fetched_is_refused() -> None:
+    """A thread whose comments are still short of `totalCount` after the fetch
+    cannot be judged: the disposition may sit on a comment nobody retrieved.
+
+    Against a live pull request the script now paginates the remainder, so this
+    state means the fetch was skipped or failed. Fixtures take the
+    `REVIEW_THREADS_JSON_FILE` path, which skips it deliberately — so this case
+    also pins that a truncated fixture is refused rather than silently judged.
+    """
+    long_thread = _thread(REVIEWER, ("karimtismail", "Disposition: fixed"), total_count = 250)
+    proc = run_check_dispositions([long_thread])
+    check(
+        proc.returncode != 0 and "could not be fully fetched" in (proc.stderr + proc.stdout),
+        f"an overlong thread is refused, not silently misjudged (exit={proc.returncode}, "
+        f"stdout={proc.stdout!r}, stderr={proc.stderr!r})",
+    )
+
+
 def test_dispositions_reviewer_comes_from_the_workflow_assignment_not_a_comment() -> None:
     """Same binding rule as check-branch-protection.sh, and the same bug this
     repository has already written twice: a login named only in a comment must
@@ -625,11 +795,18 @@ def test_dispositions_real_workflow_reviewer_is_readable() -> None:
 CHECK_BRANCH_PROTECTION_SCRIPT = REPO_ROOT / "scripts/check-branch-protection.sh"
 
 GOOD_PROTECTION_JSON = {
-    "required_pull_request_reviews": {"required_approving_review_count": 1},
+    "required_pull_request_reviews": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews": True,
+    },
     "enforce_admins": {"enabled": True},
     "allow_force_pushes": {"enabled": False},
+    "allow_deletions": {"enabled": False},
     "required_conversation_resolution": {"enabled": True},
-    "required_status_checks": {"contexts": ["validate", "independent-review"]},
+    "required_status_checks": {
+        "contexts": ["validate", "independent-review"],
+        "strict": True,
+    },
 }
 
 
@@ -671,7 +848,10 @@ def test_branch_protection_solo_maintainer_requires_zero_approvals() -> None:
     satisfiable value and the check must accept it rather than demand an
     approval nobody can give."""
     solo = {**GOOD_PROTECTION_JSON,
-            "required_pull_request_reviews": {"required_approving_review_count": 0}}
+            "required_pull_request_reviews": {
+                **GOOD_PROTECTION_JSON["required_pull_request_reviews"],
+                "required_approving_review_count": 0,
+            }}
     proc = run_check_branch_protection(solo, write_humans=1)
     check(
         proc.returncode == 0 and "procedural obligation" in proc.stdout,
@@ -704,11 +884,15 @@ def test_branch_protection_requires_approval_once_a_second_maintainer_exists() -
 
 def test_branch_protection_reports_every_failing_field() -> None:
     bad = {
-        "required_pull_request_reviews": {"required_approving_review_count": 0},
+        "required_pull_request_reviews": {
+            "required_approving_review_count": 0,
+            "dismiss_stale_reviews": False,
+        },
         "enforce_admins": {"enabled": False},
         "allow_force_pushes": {"enabled": True},
+        "allow_deletions": {"enabled": True},
         "required_conversation_resolution": {"enabled": False},
-        "required_status_checks": {"contexts": ["something-else"]},
+        "required_status_checks": {"contexts": ["something-else"], "strict": False},
     }
     proc = run_check_branch_protection(bad)
     check(
@@ -716,10 +900,75 @@ def test_branch_protection_reports_every_failing_field() -> None:
         and "required_approving_review_count is 0" in proc.stdout
         and "enforce_admins.enabled is false" in proc.stdout
         and "allow_force_pushes.enabled is true" in proc.stdout
+        and "allow_deletions.enabled is true" in proc.stdout
         and "required_conversation_resolution.enabled is false" in proc.stdout
+        and "required_status_checks.strict is false" in proc.stdout
+        and "dismiss_stale_reviews is false" in proc.stdout
         and "does not include 'validate'" in proc.stdout
         and "does not include 'independent-review'" in proc.stdout,
-        f"branch protection missing every requirement fails, naming all 6 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+        f"branch protection missing every requirement fails, naming all 9 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_without_strict_status_checks_fails() -> None:
+    """D-125 requires `strict`. Without it a pull request that went green
+    against a stale base can merge into a main it never ran against."""
+    bad = {**GOOD_PROTECTION_JSON}
+    bad["required_status_checks"] = {**bad["required_status_checks"], "strict": False}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "required_status_checks.strict is false" in proc.stdout,
+        f"non-strict status checks fail (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_without_stale_review_dismissal_fails() -> None:
+    """D-125 requires `dismiss_stale_reviews`. Without it, approve-then-push
+    lands unreviewed code under a green approval."""
+    bad = {**GOOD_PROTECTION_JSON}
+    bad["required_pull_request_reviews"] = {
+        **bad["required_pull_request_reviews"],
+        "dismiss_stale_reviews": False,
+    }
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "dismiss_stale_reviews is false" in proc.stdout,
+        f"approvals surviving a new push fail (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_with_allow_force_pushes_absent_fails() -> None:
+    """Same fail-closed rule as allow_deletions. Both requirements are
+    `false`, so `// false` would make an absent field pass — and an absent
+    field means the payload shape changed, which is exactly when a control
+    must not report success."""
+    bad = {k: val for k, val in GOOD_PROTECTION_JSON.items() if k != "allow_force_pushes"}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "allow_force_pushes.enabled is null" in proc.stdout,
+        f"an absent allow_force_pushes fails rather than passing (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_with_allow_deletions_absent_fails() -> None:
+    """The one new check whose required value is `false`, so a `// false`
+    default would make an absent field *pass*. An absent field means the
+    payload shape changed, which is exactly when a control must not quietly
+    report success."""
+    bad = {k: val for k, val in GOOD_PROTECTION_JSON.items() if k != "allow_deletions"}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "allow_deletions.enabled is null" in proc.stdout,
+        f"an absent allow_deletions fails rather than passing (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_with_deletions_allowed_fails() -> None:
+    bad = {**GOOD_PROTECTION_JSON, "allow_deletions": {"enabled": True}}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "allow_deletions.enabled is true" in proc.stdout,
+        f"branch deletion enabled fails (exit={proc.returncode}, stdout={proc.stdout!r})",
     )
 
 
@@ -758,6 +1007,7 @@ def test_branch_protection_job_id_is_read_from_workflow_file() -> None:
     # The independent-review context is required independently of this one and
     # is read from its own workflow, so it stays in the fixture.
     protection["required_status_checks"] = {
+        **GOOD_PROTECTION_JSON["required_status_checks"],
         "contexts": ["totally-different-job-name", "independent-review"],
     }
     proc = run_check_branch_protection(protection, workflow_text=fake_workflow)
@@ -2356,6 +2606,8 @@ def main() -> int:
     test_nightly_tier_named_without_schedule_workflow_fails()
     test_nightly_tier_named_with_schedule_workflow_passes()
     test_real_repository_has_nightly_workflow()
+    test_dispositions_a_finding_on_the_second_thread_page_is_seen()
+    test_dispositions_a_reply_on_the_second_comment_page_is_honoured()
     test_dispositions_match_the_graphql_login_without_the_bot_suffix()
     test_dispositions_an_unsuffixed_login_still_fails_without_a_disposition()
     test_dispositions_every_finding_answered_passes()
@@ -2365,6 +2617,9 @@ def main() -> int:
     test_dispositions_threads_opened_by_humans_are_not_findings()
     test_dispositions_all_four_vocabulary_terms_are_accepted()
     test_dispositions_an_invented_term_is_not_a_disposition()
+    test_dispositions_a_term_beginning_with_an_allowed_value_is_rejected()
+    test_dispositions_every_allowed_term_is_still_accepted()
+    test_dispositions_a_thread_that_could_not_be_fully_fetched_is_refused()
     test_dispositions_reviewer_comes_from_the_workflow_assignment_not_a_comment()
     test_dispositions_real_workflow_reviewer_is_readable()
     test_branch_protection_all_requirements_met_passes()
@@ -2372,6 +2627,11 @@ def main() -> int:
     test_branch_protection_rejects_unsatisfiable_approval_requirement()
     test_branch_protection_requires_approval_once_a_second_maintainer_exists()
     test_branch_protection_reports_every_failing_field()
+    test_branch_protection_without_strict_status_checks_fails()
+    test_branch_protection_without_stale_review_dismissal_fails()
+    test_branch_protection_with_deletions_allowed_fails()
+    test_branch_protection_with_allow_deletions_absent_fails()
+    test_branch_protection_with_allow_force_pushes_absent_fails()
     test_branch_protection_without_conversation_resolution_fails()
     test_branch_protection_without_the_independent_review_context_fails()
     test_branch_protection_job_id_is_read_from_workflow_file()
