@@ -215,7 +215,7 @@ These belong with `hr-platform#22`, which owns push delivery, rather than being
 answered separately: fixing the table without the delivery half would leave the
 same dead route with a different failure mode.
 
-## Platform-Admin Session Revocation (R-027)
+## Session Revocation On Logout — Both Surfaces (R-027)
 
 Surfaced 2026-08-31 by an independent security review of PR #152. This is a
 **decision that has not been made**, not a defect awaiting a fix — which is why
@@ -244,6 +244,14 @@ immediate. Logout is not. So the stronger control works and the weaker one does
 not, which is the opposite of what someone reaching for either would assume —
 and incident response reaches for logout first.
 
-Not urgent today: the only authenticated route on this surface is
-`GET /api/platform-admin/me`. It becomes urgent with the first destructive
-platform-admin endpoint.
+**This was first written as "not urgent today", scoped to platform admin, where
+the only authenticated route is `GET /api/platform-admin/me`. That scoping was
+wrong.** The tenant path has the identical defect — `JwtService:69` issues
+`sid`, `JwtAuthenticationFilter` never reads it, `RefreshTokenService.logout()`
+revokes the family only — and it has **58 mutating endpoints live today**,
+including payslip create/update/delete, salary contracts and branch deletion. A
+token revoked by logout can still perform all of them until `exp`.
+
+So the decision is owed for the tenant surface now, not at the first destructive
+platform-admin endpoint. Whichever way it goes, it should be answered once for
+both filters rather than twice.

@@ -2465,3 +2465,21 @@ change and `main`.
 
 If a defect is later found in this batch, this entry is the explanation for how
 it reached `main`, and the honest answer is that nobody independent looked.
+
+## D-145: Platform-admin authorization is re-derived per request, not cached in the token
+
+| Field | Value |
+|---|---|
+| Decision | `PlatformAdminAuthenticationFilter` loads the `platform_admins` row and verifies `active` on **every** request, failing closed when the row is absent. A valid signature is no longer sufficient to authenticate a platform administrator. This accepts **one indexed primary-key lookup per platform-admin request** as the standing cost. |
+| Reason | Without it a deactivated administrator kept full access until their access token expired — up to 900s — via the exact control an operator reaches for when someone must lose access immediately (**R-026**). `PlatformAdminSessionService` refused to *rotate* a deactivated admin's refresh token, which is what F-26 means by "fail-closed rotation for deactivated admins", but rotation happens at most every 15 minutes and the live access token kept working until then. The gap was bounded, silent, and on the surface with the highest privilege in the system. |
+| Alternatives | (a) **Shorten the access-token TTL** — shrinks the window, never closes it, and buys the reduction with more rotation traffic. (b) **Cache the active flag** — reintroduces exactly the defect, since the cache is the stale authorization state the lookup exists to avoid. (c) **Check only at rotation**, the prior behaviour — rejected as the thing being fixed. |
+| Impact | Same trade **ADR-0010** already makes deliberately for tenant routes: immediate revocation over cached authorization state, at one indexed lookup per request. Any new entry point onto `/api/platform-admin/**` — including the BFF proposed in **ADR-0014** — inherits the check by construction, because it is in the filter rather than in a handler. |
+| Evidence | `backend/src/main/java/com/workin/backend/security/PlatformAdminAuthenticationFilter.java`; `PlatformAdminAuthFlowTest#aTokenIssuedBeforeDeactivationStopsWorkingImmediately` — logs in, confirms the token works, deactivates the row, asserts the same unexpired token is refused. Falsified by removing the check and confirming only that test fails. An independent security review of PR #152 traced the filter chain, the `permitAll` routes, the error paths and the `phase1-mysql` profile, and found no bypass. |
+| Status | Accepted 2026-08-31. |
+
+> **Not closed by this decision**: revocation on **logout** is a separate,
+> unresolved question on both surfaces — the access token's `sid` claim is
+> issued and never read, so a logged-out token keeps working until `exp`
+> (**R-027**, `open-questions.md`, annotated on ADR-0005). D-145 makes
+> *deactivation* immediate; it does not make *logout* immediate, and those are
+> the two controls an operator is most likely to confuse.

@@ -33,9 +33,16 @@ import io.jsonwebtoken.JwtException;
  * signature is not sufficient: the {@code platform_admins} row is loaded and
  * {@code active} verified before the principal is set. Without that, a
  * deactivated administrator kept full access until their access token expired
- * -- up to {@code app.platform-admin.jwt.access-token-ttl-seconds} (900s) on
- * the surface that suspends and deletes customer companies, via the exact
- * control an operator reaches for when someone must lose access immediately.
+ * -- up to {@code app.platform-admin.jwt.access-token-ttl-seconds} (900s), via
+ * the exact control an operator reaches for when someone must lose access
+ * immediately.
+ *
+ * <p>Scoped honestly: the only authenticated route on this surface today is
+ * {@code GET /api/platform-admin/me}, so what was realised was continued
+ * identity disclosure, not continued destructive capability. The operations
+ * this surface exists for -- company suspension and deletion (ADR-0009 Option
+ * E) -- are not built. The defect mattered because the first such endpoint
+ * would have inherited it silently.
  *
  * <p>{@link com.workin.backend.platformadmin.PlatformAdminSessionService}
  * already refuses to rotate a deactivated admin's refresh token, which bounded
