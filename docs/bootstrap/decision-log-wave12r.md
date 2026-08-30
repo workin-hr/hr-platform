@@ -1106,7 +1106,7 @@ with PHP.
 `workforce_planning` routes; the upstream fix has to cover both, or the port
 cannot follow it.
 
-The exposure is now carried in the risk register as **R-021**, recorded as open
+The exposure is now carried in the risk register as **R-012**, recorded as open
 and undecided rather than as an accepted residual — a cutover or security review
 starting from the register has to be able to find it.
 

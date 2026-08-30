@@ -142,7 +142,7 @@ purport to wait for the fix while still shipping the vulnerable route.
   is from **Wave 13.5 upward**, not #141 alone, and the regressions are
   **inverted rather than deleted** in the same change.
 - **Tracked in:** D-131, `docs/security/threat-model.md`'s tenant ↔ tenant row,
-  and **R-021** in the risk register. R-021 records it as an *open, undecided*
+  and **R-012** in the risk register. R-012 records it as an *open, undecided*
   exposure — not an accepted residual — precisely so that a cutover or security
   review starting from the canonical register finds it. Registering a risk does
   not presume its disposition; an earlier revision of this bullet said the

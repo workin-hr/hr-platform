@@ -186,11 +186,7 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Evidence | `hr-legacy@d113204` `apis/api/assets/*.php` — no `require_hr_permission()` call in any of the five files; `requireAuth([COMPANY_ADMIN, HR])` on `create`/`update`/`delete`. Client: `workin_desktop/lib/presentation/layouts/main/controllers/main_desktop_provider.dart:82`. Discovery: `docs/migration/2026-08-29-c3-c8-bounded-discovery.md`. Decision: D-130. Upstream: `hr-legacy#8`. |
 | Last Reviewed | 2026-08-29 |
 
-## R-021: A Confirmed Cross-Tenant Disclosure Ships On Two Surfaces Pending An Owner Decision
-
-<!-- Numbered R-021 rather than R-011: R-011 through R-020 are introduced by
-     branches higher in the Item 13 stack, and reusing a number here would
-     collide on merge. The gap closes as those branches land. -->
+## R-012: A Confirmed Cross-Tenant Disclosure Ships On Two Surfaces Pending An Owner Decision
 
 | Field | Value |
 |---|---|
