@@ -90,8 +90,8 @@ several of the questions this ADR was opened to ask:
 |---|---|
 | Platform admins are **their own identity type**, not a role on a shared identity | `PlatformAdmin`, `PlatformAdminRepository`, `platform_admins` |
 | ADR-0005's rotation model already applies to them | `PlatformAdminSessionService.issue()`/`rotate()`, `platform_admin_refresh_tokens` |
-| Session lifetimes are **already scoped tighter than the client defaults** | `app.platform-admin.jwt.access-token-ttl-seconds:900` (15 min) and `refresh-token-ttl-seconds:604800` (**7 days**, not the clients' 60) |
-| Platform-admin actions are **already audited** | `PlatformAdminAuditService`, `PlatformAdminAuditEvent` |
+| Session lifetimes are **already scoped separately** from the clients' | `app.platform-admin.jwt.access-token-ttl-seconds:900` — identical to the clients' 900, not tighter — and `refresh-token-ttl-seconds:604800` (**7 days** against the clients' 60). Only the refresh bound differs. |
+| An audit trail **exists**, for auth-lifecycle events | `PlatformAdminAuditService`, `PlatformAdminAuditEvent` — `LOGIN`/`LOGIN_FAILED`/`LOGOUT`/`SESSION_REUSE_REVOKED`/`ALL_SESSIONS_REVOKED`. F-26 leaves per-endpoint audit of future `platform.*` business actions as a **standing acceptance criterion**, so 'already audited' would overstate it: no business endpoint exists yet to audit. |
 | There is **no self-registration**; the first admin comes from bootstrap env vars and is never overwritten | `PlatformAdminBootstrap` |
 
 So the identity model, the token model, the lifetimes and the audit trail are
@@ -289,8 +289,12 @@ than the model.
 
 ## Consequences
 
-- The Java backend is **unchanged**. No cookie entry point, no second transport,
-  no new security model to keep in step with the existing one.
+- The Java backend's **authentication transport** is unchanged. No cookie entry
+  point, no second transport, no new security model to keep in step with the
+  existing one. This is **not** a claim that the backend needs no changes:
+  Decision 5 requires an active-admin lookup in the shared request path
+  (**R-026**), and Decision 6's enforcement may require a BFF credential. Both
+  are backend work.
 - The Next.js app must never call the Java API from the browser. That is a
   standing architectural constraint on it, not a one-time implementation note,
   and it should be enforced by review or lint rather than convention.
