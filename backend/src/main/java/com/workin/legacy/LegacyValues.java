@@ -104,6 +104,34 @@ public final class LegacyValues {
 	}
 
 	/**
+	 * A JSON-decoded value as PDO would bind it, for the whitelist-update paths
+	 * that pass caller input straight to a placeholder.
+	 *
+	 * <p>{@code whitelist_update_fields()} does no casting: it hands
+	 * {@code $data[$field]} to PDO exactly as {@code json_decode()} produced it.
+	 * PDO then binds with its default {@code PDO::PARAM_STR}, which applies
+	 * PHP's own string conversion -- so the value that reaches the column is
+	 * {@link #toPhpString}'s, not the raw JSON type's.
+	 *
+	 * <p><b>Measured against a real MariaDB PDO probe</b>, not inferred: the
+	 * evidence is recorded on
+	 * {@code LegacyDepartmentEndToEndTest#createAndUpdateStoreThePhpPdoCastOfNonStringNameValues}
+	 * for the sibling path that binds {@code name} the same way --
+	 * {@code false} persists {@code ""}, {@code true} persists {@code "1"}, a
+	 * JSON array or object persists {@code "Array"}, and {@code 42} persists
+	 * {@code "42"}.
+	 *
+	 * <p><b>Null is the one value that is not converted.</b> PDO detects it and
+	 * binds {@code PARAM_NULL}, storing SQL NULL -- where
+	 * {@code toPhpString(null)} would give {@code ""} and write an empty string
+	 * into a nullable column. {@code assets.returned_at} is exactly such a
+	 * column, so the distinction is load-bearing rather than theoretical.
+	 */
+	public static Object toPdoBindValue(Object raw) {
+		return raw == null ? null : toPhpString(raw);
+	}
+
+	/**
 	 * A JSON-decoded value converted like PHP's explicit {@code (string)} cast.
 	 *
 	 * <p>Null and false become the empty string, true becomes {@code "1"}, strings remain

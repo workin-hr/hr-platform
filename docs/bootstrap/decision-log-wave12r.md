@@ -1086,3 +1086,114 @@ every push cannot stay true in a durable record, and this one had already drifte
 across several review rounds. The
 transactional rollback was falsified by removing `@Transactional`, which is what
 exposed the item-shape bug above.
+
+## D-130: Wave 13.4a delivers `assets` and `administrative_decisions`, and records the client-only authorization on `assets`
+
+**Status:** Accepted 2026-08-29. The endpoint-specific evidence record for the
+C3/C8 pass's `assets` finding, filed **under** D-044 and D-045 rather than as a
+new risk acceptance. An earlier revision of this line called it an
+"owner-approved disposition", which contradicted the body below: the behaviour
+was already governed by those two decisions, so no additional owner sign-off was
+owed and none was taken. Nothing here re-opens or re-grants that acceptance.
+
+Ten endpoints across two modules that agree on almost nothing. Each difference
+below is legacy's, is separately observable, and would be erased by the shared
+abstraction the two modules invite.
+
+| | `assets` | `administrative_decisions` |
+|---|---|---|
+| permission gate | **none, anywhere** | `can_employees` on every route but `list` |
+| `list` admits | ADMIN, HR, MANAGER, EMPLOYEE (self-scoped) | any role, hand-written checks, EMPLOYEE sees `is_active=1` only |
+| `one` admits | ADMIN, HR, MANAGER | ADMIN, HR |
+| boolean parsing | `filter_var(FILTER_VALIDATE_BOOLEAN)` | `(int) $v === 1` |
+| delete body | `{"deleted": true}` | no `data` key at all |
+
+So `"is_active": "true"` **deactivates** a decision while `"is_returned": "true"`
+**marks an asset returned** — the same JSON value, opposite outcomes, in one
+wave. And MANAGER can list decisions but not read one; an employee can list
+assets but not read one; an HR user without `can_employees` is refused the
+decisions list while an ordinary employee is served it.
+
+### The `assets` permission gap was already decided — D-044 and D-045 govern it
+
+The bounded C3/C8 pass established that the desktop client hides the Assets
+screen behind `hrPermission: HrPermissionFlag.assets`, while the server enforces
+**no** `hr_permissions` check on any of the five routes.
+
+**Scope, stated precisely — an earlier revision of this entry overstated it.**
+The three write routes are `requireAuth([COMPANY_ADMIN, HR])`, so MANAGER and
+EMPLOYEE sessions are refused with 403. What is unenforced is only the narrower
+flag: an **admin or HR user whose `can_assets` is unset** is hidden the screen by
+the client and served by the server. That is a privilege gap *within* an
+already-privileged role, not open access — and the difference matters, because a
+port written against the wider claim would have granted MANAGER and EMPLOYEE a
+mutation capability legacy does not give them.
+
+The gap itself is **already tracked upstream as `hr-legacy#8`**; what this wave
+adds is the client evidence and the decision to reproduce it.
+
+**This is not a new acceptance, and an earlier revision of this entry wrongly
+presented it as one.** Two accepted decisions already bind it:
+
+- **D-044** — "Phase 1 also reproduces `hr-legacy#8`'s confirmed enforcement
+  gap … Enforcement is added explicitly, per legacy-side controller method,
+  matching exactly which endpoints legacy itself checks and which it doesn't."
+- **D-045** — "no `hr_permissions.can_*` flag is enforced on a legacy endpoint
+  unless that endpoint's PHP demonstrably enforces it", and it enumerates
+  `can_assets` among the fifteen flags **never read as a gate anywhere**.
+
+So the port's behaviour here follows from decisions already taken, and this
+wave owes **evidence**, not another owner sign-off. Treating it as a blocking
+decision would have stalled Wave 13.4 for a question that was answered before
+it started.
+
+What this entry adds is the endpoint-specific record, so that:
+
+- the behaviour is traceable to D-044/D-045 rather than looking like an
+  accident of faithfulness;
+- anyone later "hardening" the module knows they are changing a live contract
+  and which client depends on the current one;
+- the eventual fix is a legacy change first, ported second — not a divergence
+  introduced in the Java.
+
+Custody records are not payroll or personal data, the exposure is bounded to a
+single tenant, and it is reachable only by roles already trusted with the rest
+of that tenant's HR data — which together are why this is acceptable as a
+Phase-1 residual rather than a blocker. It is **not** closed, and it does not
+become closed by being written down. It is registered as **R-010** so that a
+risk-based release review has an owner, a trigger and a contingency for it
+rather than only a decision-log paragraph.
+
+### Smaller preserved behaviours
+
+- **Two filter guards in one handler.** `assets/list.php` uses `!empty()` for
+  `employee_id` and `isset()` for `is_returned`, so `?employee_id=0` silently
+  lists *everyone* while `?is_returned=0` really filters.
+- **`list` and `one` return different columns.** The list selects
+  `photo_url`; `one` does not.
+- **An explicit `is_returned: false` beats the `returned_at` inference**,
+  because `array_key_exists` is tested before the date is consulted.
+- **A foreign employee id is `employee_not_found` (404)**, the same answer a
+  genuinely missing id gives — so it confirms nothing about another tenant.
+- **`administrative_decisions/create` can answer 201 with `data: {}`**:
+  `public_row($row ?? [])` renders an empty object if the re-read comes back
+  empty rather than failing.
+- **A non-positive id 404s before any query**, because
+  `administrative_decision_assert_company_row()` returns null for `id <= 0`.
+
+### Ledger after Wave 13.4a
+
+`FINAL_COMPATIBLE` 142 → **152**; `ITEM13_REMAINING` 56 → **46**; partition
+137/4/1 → **147/4/1**. Live total 198 unchanged.
+
+Evidence: `./gradlew check` — **0 failures**. The two module-disagreement
+regressions were falsified by harmonising the boolean rule and by dropping the
+employee row filter; each break was caught by the case written for it.
+
+**The test count is deliberately not restated here.** An earlier revision said
+"2014 tests, 14 new", which was already wrong when written — the wave added
+sixteen `@Test` methods — and went further out of date with every review round
+that added another regression. A figure that must be re-measured on each push to
+stay true does not belong in a durable decision record; the suite's own output is
+the evidence, and `LegacyPhpRouteInventoryTest` is what pins the delivered
+route count.
