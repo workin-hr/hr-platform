@@ -81,6 +81,63 @@ existing one. Confirmed in `docs/legacy/existing-php-module-inventory.md`
 | Dashboard-only: `setting_templates`, `activities` | Yes — no API equivalent | No | No | Session | Dashboard: HR-role/company-admin | No existing API contract | New capability decision for any future web admin — nothing to port a contract for | New (if built) |
 | Orphaned: `set_employee_attendance_method` | No | Client declares the endpoint constant but never calls it (dead reference) | No | N/A | N/A | No live contract — client-declared, server-nonexistent | See F-05 — confirm abandoned vs. planned before deciding whether the new backend needs this at all | No |
 
+## `assets` And `administrative_decisions` Consumers (Added 2026-08-29, C8)
+
+These two modules **are** covered by the grouped reference row above, which
+records them at module granularity. What that row could not say — and what C8
+recorded as "10 endpoints with no recorded client consumer" — is *which
+endpoints* each client calls. The bounded C3/C8 pass
+(`docs/migration/2026-08-29-c3-c8-bounded-discovery.md`) established that per
+endpoint.
+
+**This table corrects the grouped row's Mobile column for these two modules.**
+That row reads Mobile = "No", which is right for the other six modules in it and
+wrong for these two: mobile has feature directories for both and declares
+`assets/list` and `administrative_decisions/list` in its own `api_constants.dart`.
+The grouped row's own caveat — "not individually re-verified per sub-module this
+pass" — is exactly the gap this closes. Where the two disagree for `assets` or
+`administrative_decisions`, **this table is authoritative**; the grouped row
+remains authoritative for the other six.
+
+| Endpoint | Desktop | Mobile | Evidence |
+|---|---|---|---|
+| `assets/list` | yes | yes | `api_constants.dart:190`; desktop `features/_/assets/`, mobile profile screens |
+| `assets/one` | yes | — | `api_constants.dart` |
+| `assets/create` | yes | — | `api_constants.dart:192` |
+| `assets/update` | yes | — | `api_constants.dart` |
+| `assets/delete` | yes | — | `api_constants.dart` |
+| `administrative_decisions/list` | yes | yes | `api_constants.dart:120` |
+| `administrative_decisions/create` | yes | — | `api_constants.dart:121` |
+| `administrative_decisions/update` | yes | — | `api_constants.dart` |
+| `administrative_decisions/delete` | yes | — | `api_constants.dart` |
+| `administrative_decisions/one` | **none declared** | **none declared** | — |
+
+**Every `yes` above is a live call site, not just a declaration.** That
+distinction matters here because this matrix's own F-05 row records a constant
+the client declares and never calls, so a declaration alone would not settle
+C8. Each constant was traced into
+`data/data_source/remote/remote_data_source.dart` — desktop around lines
+1306–1445, mobile at 188 (`assets/list`) and 456
+(`administrative_decisions/list`) — and every one is passed as an `endPoint:`
+to a real request method.
+
+`administrative_decisions/one` is **not** treated as dead surface on this
+evidence. Absence from two clients is not proof of no consumer, and C4 records
+what happens when reachability is inferred from one artifact's silence.
+
+**`assets` enforces its permission flag client-side only.** The desktop sidebar
+carries `hrPermission: HrPermissionFlag.assets`, while the endpoint inventory
+records `assets` among the modules where the `hr_permissions` matrix is **not**
+enforced server-side — the gap already tracked as `hr-legacy#8` in the grouped
+row above.
+
+Precisely: the three write routes are `requireAuth([COMPANY_ADMIN, HR])`, so
+MANAGER and EMPLOYEE are refused. What is unenforced is the narrower flag — an
+**admin or HR user with `can_assets` unset** is hidden the screen by the client
+and served by the server. A privilege gap within an already-privileged role, not
+open access. A faithful Phase-1 port reproduces it (D-058) and must do so as a
+recorded decision, not by accident.
+
 ## Capability And Ownership Matrix (Added 2026-08-04)
 
 **Reframes the module list above by who owns each capability, not just

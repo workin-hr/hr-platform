@@ -703,3 +703,66 @@ unsatisfiable state was observed directly: PR #132 sat at
 `mergeStateStatus=BLOCKED` with `reviewDecision=REVIEW_REQUIRED` and no
 reviewer able to clear it. `scripts/test_validate_phase0.py` covers both
 directions of the derived rule and is 83/83.
+
+## D-127: Step 7 gets a disposition check, and an explicit limit
+
+**Status:** Accepted 2026-08-29. Partially closes the gap **R-008** records.
+
+Step 7 of the merge sequence — every finding fixed, or answered on its thread —
+was the one step with no mechanical component at all. `independent-review`
+proves a round happened on the final head; `required_conversation_resolution`
+proves no thread is left open. Neither proves a finding was *answered*, because
+resolution is a state anyone with write access can set without changing a line
+or replying. R-008's third realization is that gap: six findings, four of them
+P1, posted ten seconds before a squash merge with both signals green.
+
+`scripts/check-review-dispositions.sh <pr>` requires every review thread the
+named reviewer **opened** to carry a reply declaring one of four dispositions:
+
+| Disposition | Asserts |
+|---|---|
+| `fixed` | the code changed; say which commit |
+| `declined-with-evidence` | the finding is wrong, and the reply says why with a reference someone else can check |
+| `accepted-risk` | the finding is right and is not being fixed now; say who accepted it and where it is tracked |
+| `superseded` | a later change or finding replaced this one |
+
+### What it deliberately does not do
+
+**It does not judge whether the disposition is right.** "Declined" with a bad
+reason passes exactly as "declined" with a good one. That is not a gap to close
+later — it is not decidable, and a check implying otherwise would be worse than
+no check, because R-008 already records a merge that went wrong through a green
+box being read as more than it said. The tool narrows what a human must verify;
+it does not replace the verification.
+
+### Four properties that make it non-trivial to satisfy
+
+- **A resolved thread with no reply fails.** This is the whole point: it is
+  exactly the state `required_conversation_resolution` reports as clean.
+- **A finding cannot disposition itself.** The declaration must come from a
+  reply, not from the reviewer's own comment — otherwise the check would be
+  satisfiable by the party being checked.
+- **The vocabulary is closed.** `Disposition: wontfix` fails rather than
+  becoming a silent fifth category.
+- **Threads a human opened are not findings.** Requiring a disposition on those
+  would train people to type the token to clear noise, which is how a control
+  decays into a formality.
+
+The reviewer login is read from `independent-review-gate.yml`'s `REVIEWER:`
+**assignment**, not from anywhere else in the file — the same binding rule
+`check-branch-protection.sh` uses, for the same reason: this repository has
+twice written a validator that a comment could satisfy.
+
+### What is still owed
+
+It is a script run against a pull request, **not a required status**. Wiring it
+to a published context is a separate decision, and a heavier one than it looks:
+it needs `statuses: write`, which under D-122's reasoning means the privileged
+`pull_request_target` trigger and the safety conditions `validate_workflow_safety()`
+enforces. Until then step 7 is a human obligation *supported by* a tool rather
+than one enforced by the platform, and R-008 stays open on that basis.
+
+Evidence: nine regression cases in `scripts/test_validate_phase0.py`, 89/89.
+Falsified in two directions — opening the vocabulary to any token, and allowing
+a finding's own text to discharge it — with each break caught by the case
+written for it.

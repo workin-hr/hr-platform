@@ -209,11 +209,19 @@ only after a human completed the underlying action first.
    reason, and the thread resolved. A P1 or P2 left with no reply and no fix
    means the gate has been read, not passed. Re-request review if the fixes
    changed the head.
-   **This step is not mechanically enforced.** Thread resolution is a state a
-   human can set without acting, so `required_conversation_resolution` and the
-   `independent-review` status can both be green with every finding ignored.
-   Whoever merges is asserting they read the findings — a green merge box is
-   not that assertion (R-008).
+   **Half of this step is now mechanically checkable.** Run
+   `bash scripts/check-review-dispositions.sh <pr>` (D-127): it requires every
+   thread the independent reviewer opened to carry a reply declaring
+   `Disposition: fixed`, `declined-with-evidence`, `accepted-risk`, or
+   `superseded`. A resolved-but-unanswered finding fails it, which is precisely
+   what `required_conversation_resolution` cannot see — resolution is a state a
+   human can set without acting.
+
+   **The other half is not, and cannot be.** The check verifies a disposition
+   was *written*, never that it is *right*: "declined" with a bad reason passes
+   exactly as "declined" with a good one. Whoever merges is still asserting they
+   read the findings and judged the answers — a green merge box is not that
+   assertion (R-008).
 8. A human merges the pull request. No agent merges it, and no agent
    approves its own or another agent's work.
 9. The human records, in `docs/bootstrap/decision-log.md`: the pull-request
