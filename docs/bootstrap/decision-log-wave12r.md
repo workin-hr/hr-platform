@@ -1279,7 +1279,14 @@ succeeds and re-notifies; only `reject` checks.
   silently ignored, making it indistinguishable from supplying nothing).
 - The complaints list filters to `pending` **by default**; `?status=all` is the
   escape hatch, and an unrecognised status is *wider* than the default.
-- `employee_docs/update.php` is **POST**, not PUT, unlike the rest of Item 13.
+- `employee_docs/update.php` **and `complaints/update.php`** are **POST**, not
+  PUT. They are the only two: every other `update.php` across the whole legacy
+  API is PUT (24 update routes, 22 of them PUT). An earlier revision of this
+  line named `employee_docs` alone and said it was unlike "the rest of Item 13",
+  which reads as though `complaints/update.php` were PUT. It is not
+  (`apis/api/complaints/update.php:6`), and a reviewer took that wording as
+  evidence the port had the wrong verb. Both are POST in Java because both are
+  POST in PHP.
 - `doc_type` defaults to the literal `"other"` and is neither trimmed nor
   validated against any list.
 
