@@ -2390,3 +2390,78 @@ why the port already behaves this way and no code changes here. But AGENTS.md
 forbids an agent silently accepting a knowingly-shipped tenant-boundary defect,
 and the difference between "the default applies" and "the owner accepted it" is
 the whole point of the rule. Both are now recorded as the second.
+
+## D-142: The independent-review gate was lifted by owner decision, and twelve pull requests merged without it
+
+**Status:** Accepted 2026-08-30 by the repository owner. Recorded because it is
+the single largest governance exception in the project's history, and because
+nothing else in the repository would show it afterwards.
+
+### What happened
+
+`main`'s branch protection required two contexts, `validate` and
+`independent-review`, with `enforce_admins: true`. `independent-review` was
+`failure` on all twelve open pull requests — not because any of them was
+unreviewed work, but because `chatgpt-codex-connector[bot]` had exhausted its
+externally-billed quota (**R-009**). It granted two rounds at 10:51 UTC and
+zero at 12:14 and 13:24.
+
+AGENTS.md's rule for exactly this case is that the gate is *unavailable, not
+waived: the merge waits*. The owner elected not to wait. Their direction:
+
+> skip codex, can fix all comments, after that approve thene and accept all PRs
+
+The owner removed `independent-review` from `main`'s required contexts, the
+twelve pull requests were merged, and the context was restored afterwards.
+`validate`, `enforce_admins` and `required_conversation_resolution` stayed on
+throughout; only the one context was lifted, and only for the duration.
+
+### What this means, stated plainly
+
+**Twelve pull requests entered `main` without an independent review of their
+final heads.** That includes the entire Item 13 port — 198 endpoints — and the
+two security residuals accepted the same day under D-141:
+
+- **R-016** (Critical): `complete_company_registration.php` returns a
+  company-admin session token to an unauthenticated caller for any `company_id`
+  it is handed.
+- **R-012**: the `workforce_planning` cross-tenant disclosure, on both
+  `list.php` and `dashboard/stats.php`.
+
+Neither is a defect introduced by the port; both reproduce `hr-legacy` under
+D-058 and are filed upstream. But neither had an independent reviewer look at
+the final state of the code that shipped them.
+
+### What was and was not verified
+
+Verified before merge:
+
+- `./gradlew check` at the stack tip: **2178 tests, 0 failures**.
+- `validate` green on every pull request at the head that merged.
+- **Zero unresolved review threads** across all twelve.
+- 27 review findings from the rounds that *did* run were dispositioned: 21
+  fixed, 6 declined with the evidence recorded in-thread.
+
+Not verified:
+
+- No independent review of any final head. The last Codex round on most of
+  these predates the last several commits, including every fix made in response
+  to that round. **A fix is exactly the change most likely to be wrong, and none
+  of the fixes were reviewed.**
+- #138 is a special case worth naming: it *was* reviewed clean, and its gate was
+  red anyway because Codex reports a no-findings review as a comment rather than
+  a review object, which the gate does not count. That is a gate defect, not a
+  review gap — and it is still present.
+
+### Why this is recorded rather than quietly done
+
+R-009 was written as a risk about billing. It has now caused a governance
+exception, so it is no longer theoretical: it is a realised risk whose
+mitigation is a second reviewer or a funded budget, not a note. The
+repository's sole reviewer is also the sole author of every pull request, so
+`required_approving_review_count` is `0` and no human approval gate exists
+either — lifting the Codex context left **no** independent check between a
+change and `main`.
+
+If a defect is later found in this batch, this entry is the explanation for how
+it reached `main`, and the honest answer is that nobody independent looked.
