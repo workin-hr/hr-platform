@@ -98,8 +98,8 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 
 ## Workforce Planning Cross-Tenant Disclosure (D-131 — blocks Wave 13.4b)
 
-**D-131 is `PROPOSED`, not accepted, and PR #141 must not merge on a green gate
-alone until this is answered.**
+**RESOLVED 2026-08-30 (D-141): parity, on both surfaces, and Item 13 is not
+held.** The text below is the question as it stood while open, kept unedited.
 
 `workforce_planning`'s `save_target.php` and `update.php` accept unvalidated
 foreign `branch_id`/`department_id`/`job_title_id`, and the three name joins in
@@ -133,6 +133,12 @@ The choice is therefore to accept the disclosure on **both** surfaces for
 Phase 1, or to hold **Item 13 as a whole**. An option that holds only #141 would
 purport to wait for the fix while still shipping the vulnerable route.
 
+- **RESOLVED 2026-08-30 — parity, on both surfaces, Item 13 not held.** The
+  owner's direction: *"i need java to be like php fot fix any issue"*, given
+  with an explicit parity ruling on R-016. Recorded as **D-141**; D-131 moves
+  from `PROPOSED` to `Accepted` and R-012 from open-undecided to
+  owner-accepted. The question text below is kept as written, unedited, as the
+  record of what was actually put to the owner.
 - **Owner:** repository owner. Not an agent decision — AGENTS.md forbids an
   agent silently making one of this kind, and an earlier revision of D-131
   wrongly recorded it as accepted.
