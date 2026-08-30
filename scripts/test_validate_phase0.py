@@ -1874,6 +1874,83 @@ def test_skill_catalog_fully_listed_passes() -> None:
         shutil.rmtree(root)
 
 
+def test_git_ignored_skill_is_exempt_from_the_catalog() -> None:
+    """Third-party skills installed into the working tree (`npx skills
+    add ...`) are local tooling, not repository content. They are
+    unreachable from CI or any other clone, so requiring them in a
+    governance document would make the check unsatisfiable for everyone
+    but the machine that installed them."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        (root / "docs/agents").mkdir(parents=True)
+        (root / "docs/agents/skill-catalog.md").write_text(
+            "# Skill Catalog\n\n- repo-skill\n", encoding="utf-8"
+        )
+        skills_dir = root / ".agents/skills"
+        for name in ("repo-skill", "vendor-tool"):
+            (skills_dir / name).mkdir(parents=True)
+            (skills_dir / name / "SKILL.md").write_text(f"---\nname: {name}\n---\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_skill_catalog_consistency(failures, root=root)
+        check(
+            failures == [],
+            f"a git-ignored skill is exempt from the catalog (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_untracked_but_not_ignored_skill_is_still_checked() -> None:
+    """The exemption must not extend to a genuinely new skill on its way
+    into the repository -- that is the case the drift check exists for,
+    and it is untracked right up until the moment it is committed."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        (root / "docs/agents").mkdir(parents=True)
+        (root / "docs/agents/skill-catalog.md").write_text("# Skill Catalog\n\n", encoding="utf-8")
+        skills_dir = root / ".agents/skills"
+        (skills_dir / "brand-new-skill").mkdir(parents=True)
+        (skills_dir / "brand-new-skill/SKILL.md").write_text(
+            "---\nname: brand-new-skill\n---\n", encoding="utf-8"
+        )
+
+        failures: list[str] = []
+        v.validate_skill_catalog_consistency(failures, root=root)
+        check(
+            any("brand-new-skill" in f for f in failures),
+            f"an untracked, non-ignored skill is still required in the catalog (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_skill_catalog_check_is_unchanged_outside_a_git_repository() -> None:
+    """`_git_ignores` must fail closed. With no repository present git
+    cannot answer, and an unknown answer must not exempt anything from a
+    governance control."""
+    root = make_root()
+    try:
+        (root / "docs/agents").mkdir(parents=True)
+        (root / "docs/agents/skill-catalog.md").write_text("# Skill Catalog\n\n", encoding="utf-8")
+        skills_dir = root / ".agents/skills"
+        (skills_dir / "uncatalogued").mkdir(parents=True)
+        (skills_dir / "uncatalogued/SKILL.md").write_text("---\nname: uncatalogued\n---\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_skill_catalog_consistency(failures, root=root)
+        check(
+            any("uncatalogued" in f for f in failures),
+            f"outside a git repository nothing is exempted (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_real_repository_skill_catalog_still_passes() -> None:
     """Sanity check against the real repository, proving this check doesn't
     break the actual catalog."""
@@ -2092,6 +2169,9 @@ def main() -> int:
     test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()
+    test_git_ignored_skill_is_exempt_from_the_catalog()
+    test_untracked_but_not_ignored_skill_is_still_checked()
+    test_skill_catalog_check_is_unchanged_outside_a_git_repository()
     test_real_repository_skill_catalog_still_passes()
     test_product_code_outside_spike_still_fails()
     test_product_code_inside_spike_is_excluded()
