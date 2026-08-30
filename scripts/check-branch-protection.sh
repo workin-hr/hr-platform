@@ -144,7 +144,11 @@ if [ "$enforce_admins" != "true" ]; then
   failures=$((failures + 1))
 fi
 
-allow_force_pushes="$(echo "$PROTECTION_JSON" | jq -r '.allow_force_pushes.enabled // false')"
+# Read without `// false`, for the same reason as allow_deletions below: the
+# required value here IS false, so a default would make an absent field pass.
+# The two checks whose required value is `true` keep their defaults, where an
+# absent field correctly fails.
+allow_force_pushes="$(echo "$PROTECTION_JSON" | jq -r '.allow_force_pushes.enabled')"
 if [ "$allow_force_pushes" != "false" ]; then
   echo "FAIL: allow_force_pushes.enabled is $allow_force_pushes (need false)"
   failures=$((failures + 1))

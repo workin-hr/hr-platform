@@ -464,7 +464,11 @@ def _thread(author: str, *replies: tuple[str, str], path: str = "a.java", line: 
     # what one page returned. Passing a larger total_count simulates a thread
     # whose replies did not fit in a single page.
     comments["totalCount"] = len(nodes) if total_count is None else total_count
-    return {"isResolved": resolved, "path": path, "line": line, "comments": comments}
+    # `id` mirrors the real payload: the script selects it to paginate a
+    # specific thread's comments, and a fixture without one cannot exercise
+    # that path at all.
+    return {"id": f"THREAD_{path}_{line}", "isResolved": resolved,
+            "path": path, "line": line, "comments": comments}
 
 
 def run_check_dispositions(threads: list[dict], workflow_text: str | None = None) -> subprocess.CompletedProcess:
@@ -482,6 +486,84 @@ def run_check_dispositions(threads: list[dict], workflow_text: str | None = None
             ["bash", str(CHECK_DISPOSITIONS_SCRIPT)],
             capture_output=True, text=True, timeout=10, env=env,
         )
+
+
+def run_check_dispositions_over_fake_gh(pages: list[dict]) -> subprocess.CompletedProcess:
+    """Drive the script through its *live* path — no REVIEW_THREADS_JSON_FILE —
+    with a fake `gh` on PATH that serves the supplied pages in order.
+
+    The fixture path deliberately skips pagination, so every other case in this
+    file leaves the cursor handling, page merging and comment-fetch code
+    completely unexecuted. That code is the part that decides whether a finding
+    or a disposition is seen at all, so it needs a transport, not a payload."""
+    with tempfile.TemporaryDirectory(prefix="dispositions-gh-") as tmp:
+        tmpdir = Path(tmp)
+        for index, page in enumerate(pages):
+            (tmpdir / f"page{index}.json").write_text(json.dumps(page), encoding="utf-8")
+        # Each invocation consumes the next page, so the script's own loop
+        # ordering is what selects them -- the shim asserts nothing itself.
+        (tmpdir / "gh").write_text(
+            "#!/bin/sh\n"
+            f'counter="{tmpdir}/counter"\n'
+            'n=0; [ -f "$counter" ] && n="$(cat "$counter")"\n'
+            'echo $((n + 1)) > "$counter"\n'
+            f'cat "{tmpdir}/page$n.json"\n',
+            encoding="utf-8")
+        (tmpdir / "gh").chmod(0o755)
+        env = dict(os.environ)
+        env["PATH"] = f"{tmpdir}:{env['PATH']}"
+        env.pop("REVIEW_THREADS_JSON_FILE", None)
+        workflow = tmpdir / "gate.yml"
+        # Quoted: the script reads REVIEWER from a `REVIEWER: "..."` assignment.
+        workflow.write_text(f'env:\n  REVIEWER: "{REVIEWER}"\n', encoding="utf-8")
+        env["INDEPENDENT_REVIEW_WORKFLOW_FILE"] = str(workflow)
+        return subprocess.run(
+            ["bash", str(CHECK_DISPOSITIONS_SCRIPT), "1"],
+            capture_output=True, text=True, timeout=30, env=env,
+        )
+
+
+def _thread_page(threads: list[dict], has_next: bool, cursor: str = "CUR") -> dict:
+    return {"data": {"repository": {"pullRequest": {"reviewThreads": {
+        "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+        "nodes": threads}}}}}
+
+
+def test_dispositions_a_finding_on_the_second_thread_page_is_seen() -> None:
+    """The failure that motivated pagination: an undispositioned finding past
+    the first page of threads was invisible, so the check reported success on
+    exactly the longest, most-reviewed pull requests."""
+    page_one = _thread_page([_thread(REVIEWER, ("karimtismail", "Disposition: fixed"))], True)
+    page_two = _thread_page(
+        [_thread(REVIEWER, ("karimtismail", "no disposition here"),
+                 path="second/page.java", line=7)], False)
+    proc = run_check_dispositions_over_fake_gh([page_one, page_two])
+    check(
+        proc.returncode != 0 and "second/page.java" in proc.stdout,
+        f"a finding on the second thread page is still required to be dispositioned "
+        f"(exit={proc.returncode}, stdout={proc.stdout!r}, stderr={proc.stderr!r})",
+    )
+
+
+def test_dispositions_a_reply_on_the_second_comment_page_is_honoured() -> None:
+    """The opposite failure: a disposition posted past a thread's hundredth
+    comment was unreadable, so the check blocked a merge whose finding had in
+    fact been answered."""
+    # totalCount 2 -- the finding plus one reply -- with only the finding on the
+    # first page. After the fetch below the thread holds both, which is what
+    # lets the check judge it instead of refusing.
+    truncated = _thread(REVIEWER, total_count=2)
+    truncated["comments"]["pageInfo"] = {"hasNextPage": True, "endCursor": "C1"}
+    page_one = _thread_page([truncated], False)
+    comment_page = {"data": {"node": {"comments": {
+        "pageInfo": {"hasNextPage": False, "endCursor": "C2"},
+        "nodes": [{"author": {"login": "karimtismail"}, "body": "Disposition: fixed"}]}}}}
+    proc = run_check_dispositions_over_fake_gh([page_one, comment_page])
+    check(
+        proc.returncode == 0,
+        f"a disposition on a later comment page discharges the finding "
+        f"(exit={proc.returncode}, stdout={proc.stdout!r}, stderr={proc.stderr!r})",
+    )
 
 
 def test_dispositions_match_the_graphql_login_without_the_bot_suffix() -> None:
@@ -814,6 +896,19 @@ def test_branch_protection_without_stale_review_dismissal_fails() -> None:
     check(
         proc.returncode != 0 and "dismiss_stale_reviews is false" in proc.stdout,
         f"approvals surviving a new push fail (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_with_allow_force_pushes_absent_fails() -> None:
+    """Same fail-closed rule as allow_deletions. Both requirements are
+    `false`, so `// false` would make an absent field pass — and an absent
+    field means the payload shape changed, which is exactly when a control
+    must not report success."""
+    bad = {k: val for k, val in GOOD_PROTECTION_JSON.items() if k != "allow_force_pushes"}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "allow_force_pushes.enabled is null" in proc.stdout,
+        f"an absent allow_force_pushes fails rather than passing (exit={proc.returncode}, stdout={proc.stdout!r})",
     )
 
 
@@ -2134,6 +2229,8 @@ def main() -> int:
     test_nightly_tier_named_without_schedule_workflow_fails()
     test_nightly_tier_named_with_schedule_workflow_passes()
     test_real_repository_has_nightly_workflow()
+    test_dispositions_a_finding_on_the_second_thread_page_is_seen()
+    test_dispositions_a_reply_on_the_second_comment_page_is_honoured()
     test_dispositions_match_the_graphql_login_without_the_bot_suffix()
     test_dispositions_an_unsuffixed_login_still_fails_without_a_disposition()
     test_dispositions_every_finding_answered_passes()
@@ -2157,6 +2254,7 @@ def main() -> int:
     test_branch_protection_without_stale_review_dismissal_fails()
     test_branch_protection_with_deletions_allowed_fails()
     test_branch_protection_with_allow_deletions_absent_fails()
+    test_branch_protection_with_allow_force_pushes_absent_fails()
     test_branch_protection_without_conversation_resolution_fails()
     test_branch_protection_without_the_independent_review_context_fails()
     test_branch_protection_job_id_is_read_from_workflow_file()
