@@ -177,10 +177,34 @@ here.
 > `LegacyProfileService` (password change, logout) and `LegacyOtpAuthService`
 > (OTP verify). A login-only check therefore passes while exactly those routes
 > are broken.
->
-> Verify directly instead: `SHOW CREATE TABLE legacy_refresh_tokens` against the
-> cutover database, **and** exercise one route that actually writes it — a
-> password change or a logout — confirming it succeeds rather than erroring.
+
+**How to verify it, without touching customer data.** The obvious write-path
+checks are **destructive against production and must not be used on a real
+account**:
+
+| Check | What it actually does |
+|---|---|
+| Password change | replaces the employee's credential — they can no longer log in with the password they have |
+| Logout | worse: `LegacyProfileService.logout()` deletes push tokens, **deactivates the employee**, and notifies the company that the employee left, all before it reaches `legacy_refresh_tokens` |
+
+Legacy's "logout" is an account deactivation, not a session end. Running it
+against a live employee to test a table would disable that person's account and
+send their employer a departure notice. Use this instead, in order:
+
+1. **On the cutover database, read-only:** `SHOW CREATE TABLE legacy_refresh_tokens`.
+   Confirm it exists and its shape matches `phase1_extensions.schema.sql` —
+   columns, the `token_hash` unique key, the status check constraint, both
+   indexes. This is the only step that touches production, and it mutates
+   nothing.
+2. **On the restored copy used for the provisioning rehearsal, not production:**
+   exercise one write path end to end — an OTP verify or a password change — and
+   confirm it succeeds rather than erroring on a missing table. The restored copy
+   is where destructive checks belong; that is what it is for.
+3. **Only if a production write-path confirmation is judged necessary:** use a
+   named disposable canary employee in a non-customer company, created for this
+   purpose, and record its identity and cleanup here. Never a real employee, and
+   never an account belonging to a customer company — step 2 covers the same
+   ground without the exposure.
 
 **2. Exchange a token in both directions**, against a route that genuinely
 requires authentication.

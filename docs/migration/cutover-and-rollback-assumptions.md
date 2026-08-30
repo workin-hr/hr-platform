@@ -7,6 +7,15 @@ actually known, and mark everything else as an open question.
 
 ## Assumption: Forced Re-Authentication On Auth Cutover (Confirmed Decision, 2026-08-04)
 
+> **Scope: the Phase-2 authentication cutover only. This assumption does not
+> describe Phase 1.** Added 2026-08-30 per **D-143**. Under **D-111** Phase 1 is
+> zero-client-change: it emits tokens byte-identical to `jwtEncode()`'s and
+> validates PHP's unchanged, so no Phase-1 session is invalidated in either
+> direction, provided both deployments share a signing secret (**R-024**). The
+> Statement, Risk and Rollback bullets below all read as Phase-2 statements —
+> applying any of them to Phase 1 would plan a mass forced logout that Phase 1
+> does not cause. Evidence: `docs/operations/release-cutover-and-rollback.md`.
+
 - **Category**: Cutover window, data-freeze scope, communication.
 - **Confidence**: Evidenced — this is a confirmed product decision, not
   a hypothesis. See `docs/adr/ADR-0005-authentication-direction.md`
