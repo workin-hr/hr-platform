@@ -27,13 +27,26 @@ actually known, and mark everything else as an open question.
   silent failure, and by scheduling cutover communication in advance
   (see `docs/security/authentication-remediation-design.md` for the
   full remediation design this assumption feeds).
-- **Rollback Implication**: if the new auth backend needs to be rolled
-  back after cutover, users who already re-authenticated against it
-  hold **new-system credentials/tokens the old `hr-legacy` system does
-  not recognize** — rollback is not silently transparent to users who
-  already migrated. This needs an explicit rollback communication plan
-  (not designed here) if rollback is a real possibility for the
-  cutover window chosen, not assumed to be a clean no-op.
+- **Rollback Implication**: **superseded for Phase 1 as of 2026-08-30 —
+  see `docs/operations/release-cutover-and-rollback.md`.** This bullet
+  was written on 2026-08-04 for ADR-0005's *new* authentication design,
+  before D-111 settled Phase 1 as zero-client-change. Under D-111 the
+  Phase-1 port emits tokens byte-identical to `jwtEncode()`'s — same
+  header, same HS256 construction, same claims in the same order, same
+  ten-year expiry — so a session issued by either system authenticates
+  against the other, **provided both deployments carry the same signing
+  secret**. `LegacyPhpJwtWireCompatibilityTest` pins that in both
+  directions. Rollback is therefore expected to be transparent, not
+  disruptive, and the pre-cutover check that confirms it is recorded in
+  the operations document. The original text stands below for the
+  Phase-2 auth cutover, where it still applies:
+  > if the new auth backend needs to be rolled back after cutover, users
+  > who already re-authenticated against it hold new-system
+  > credentials/tokens the old `hr-legacy` system does not recognize —
+  > rollback is not silently transparent to users who already migrated.
+  > This needs an explicit rollback communication plan (not designed
+  > here) if rollback is a real possibility for the cutover window
+  > chosen, not assumed to be a clean no-op.
 - **Evidence**: Direct product-owner decision, this repository, this
   conversation, 2026-08-04.
 
