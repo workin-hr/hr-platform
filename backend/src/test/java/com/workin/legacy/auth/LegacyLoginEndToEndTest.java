@@ -105,6 +105,14 @@ class LegacyLoginEndToEndTest {
 					  (90041, 9002, 9102, 'Suspended', 'Co', '+201100090041', 'employee', '%1$s',
 					   1, 1, 0, 'accepted', 1, '2025-04-01 08:00:00')
 					""".formatted(hash));
+			// One row per company, distinguishable by name. Without a row for the
+			// *other* company these tests cannot tell correct tenant re-derivation
+			// from none at all: an empty list is the same 200 either way.
+			st.execute("""
+					INSERT INTO exception_types (id, company_id, name, is_active, created_at) VALUES
+					  (9201, 9001, 'E2E Type Of Company 9001', 1, '2025-05-01 08:00:00'),
+					  (9202, 9002, 'E2E Type Of Company 9002', 1, '2025-05-01 08:00:00')
+					""");
 		}
 	}
 
@@ -241,6 +249,9 @@ class LegacyLoginEndToEndTest {
 				.as("a session PHP issued before cutover must keep working after it")
 				.isEqualTo(200);
 		assertThat(response.getBody().get("success")).isEqualTo(true);
+		assertThat(namesIn(response))
+				.as("the company must be re-derived from the token, not guessed or dropped")
+				.containsExactly("E2E Type Of Company 9001");
 	}
 
 	@Test
@@ -252,6 +263,7 @@ class LegacyLoginEndToEndTest {
 		ResponseEntity<Map> response = listExceptionTypesWith(phpToken);
 		assertThat(response.getStatusCode().value()).isEqualTo(200);
 		assertThat(response.getBody().get("success")).isEqualTo(true);
+		assertThat(namesIn(response)).containsExactly("E2E Type Of Company 9001");
 	}
 
 	/**
@@ -281,6 +293,14 @@ class LegacyLoginEndToEndTest {
 		assertThat(response.getStatusCode().value()).isEqualTo(200);
 		Map data = (Map) response.getBody().get("data");
 		return (String) data.get("token");
+	}
+
+	private static java.util.List<String> namesIn(ResponseEntity<Map> response) {
+		Object data = response.getBody().get("data");
+		java.util.List<Map> rows = data instanceof Map map
+				? (java.util.List<Map>) map.get("items")
+				: (java.util.List<Map>) data;
+		return rows.stream().map(row -> String.valueOf(row.get("name"))).toList();
 	}
 
 	private ResponseEntity<Map> listExceptionTypesWith(String token) {

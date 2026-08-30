@@ -219,6 +219,16 @@ requires authentication.
 > Use `/apis/api/attendance_exception_types/list.php`, which requires
 > authentication in both systems and is the route the automated end-to-end tests
 > already use for this purpose.
+>
+> **Use a disposable smoke account, never a real employee.** The Java login
+> itself mutates production state *before* any compatibility result is known:
+> `LegacyPhpLoginService` increments that employee's `token_version` — which
+> invalidates their current session under legacy's single-active-session model —
+> and deletes their `push_tokens` rows, stopping notifications on their device.
+> Verifying the signing secret would therefore log a real user out and silence
+> their app, and it would do so even if the exchange then failed. Provision a
+> named smoke employee in a non-customer company for this, and record its
+> identity and cleanup here alongside the result.
 
 - Obtain a token from a Java-served login and present it to **PHP** on that
   route. It must return 200 with `success: true`, and the payload must be scoped

@@ -69,6 +69,34 @@ neither is decided by that document:
 Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 §8.1 — the questions that gated Item 12's closure and the final exit gate.
 
+- **How does `legacy_refresh_tokens` get created against the production legacy
+  MariaDB, and who owns that step?** (**R-023**, ADR-0013 Open Questions,
+  D-043 amendment 3.) Phase 1 adds exactly one table to the legacy database and
+  nothing in the application creates it — Flyway owns no MariaDB location and
+  `hibernate.hbm2ddl.auto` is `none`. Today it exists only where a test
+  container applies `phase1_extensions.schema.sql` out of band. **Resolution
+  criteria**: an approved provisioning mechanism, rehearsed against a restored
+  copy, with the mechanism, its owner and its lock duration recorded in
+  `docs/operations/release-cutover-and-rollback.md`. Note the failure mode is
+  not a clean startup error — the parity login route never touches the table,
+  so a missing table surfaces later as broken password-change, logout and
+  OTP-verify paths.
+- **Is the PHP rollback target actually restorable?** (**R-025**.) G11's claim
+  is "the database is unchanged *and PHP still runs*"; only the first half has
+  been examined. Nothing establishes that the PHP artifact, its runtime
+  configuration, or the traffic-routing path back to it is available and working
+  at the moment a rollback is called, and the release/rollback procedure is
+  still an unfilled template. **Resolution criteria**: an end-to-end rollback
+  rehearsal on a non-production environment — route traffic back to PHP,
+  confirm it serves, run the smoke checks — recorded in the same document.
+  Until then Phase 1's risk acceptance rests on a rollback nobody has performed.
+- **Do the two deployments share a JWT signing secret?** (**R-024**.) Phase 1's
+  zero-client-change property depends on `app.jwt.secret` being byte-identical
+  to PHP's `AppConfig::JWT_SECRET`, and nothing compares them. **Resolution
+  criteria**: the bidirectional token exchange in the cutover document,
+  including its foreign-signed negative control, run against a disposable smoke
+  account rather than a real employee.
+
 - ~~Are `attendance/overall_report.php`, `attendance/export.php` and
   `payslips/export.php` delivered, formally excluded under a numbered decision,
   or deferred to a later item?~~ **Resolved 2026-08-28 (O-8/D-120): all three
