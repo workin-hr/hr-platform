@@ -494,6 +494,39 @@ class LegacySettingsEndToEndTest {
 		}
 	}
 
+	/**
+	 * The same contract for a failure in the <b>allowed-values lookup</b>, which
+	 * PHP performs at {@code update.php:190} — inside the {@code try} that opens
+	 * at {@code :178}, not before it. Running it outside the translation
+	 * boundary would answer D-084's generic 500 for a timeout or a lost
+	 * connection where legacy answers {@code error_with_message}.
+	 *
+	 * <p>A trigger cannot force a {@code SELECT} to fail, so the table is
+	 * renamed out from under the query instead.
+	 *
+	 * <p>Deliberately not extended to {@code create.php} or {@code delete.php}:
+	 * create's definition and existence lookups sit <em>above</em> its
+	 * {@code try} at {@code :181}, and delete has no {@code try} at all, so
+	 * their Java counterparts are correct outside the wrapper.
+	 */
+	@Test
+	@Order(24)
+	void aFailedAllowedValuesLookupAlsoAnswersErrorWithMessage() {
+		execute("RENAME TABLE setting_allowed_values TO setting_allowed_values_hidden");
+		try {
+			ResponseEntity<Map<String, Object>> response = send(UPDATE, HttpMethod.PUT, token(ADMIN),
+					"{\"setting_key\":\"modules\",\"values\":[\"payroll\"]}");
+
+			assertThat(response.getStatusCode().value()).isEqualTo(500);
+			assertThat(response.getBody()).containsEntry("success", false);
+			assertThat(response.getBody().get("message")).asString()
+					.as("PHP's error_with_message, not \"Internal server error\"")
+					.isNotEqualTo("Internal server error");
+		} finally {
+			execute("RENAME TABLE setting_allowed_values_hidden TO setting_allowed_values");
+		}
+	}
+
 	@Test
 	@Order(25)
 	void allowedValuesRequiresItsDefinitionIdAndFourZeroFoursAnUnknownOne() {
@@ -529,6 +562,63 @@ class LegacySettingsEndToEndTest {
 				HttpMethod.GET, null, null).getStatusCode().value())
 				.as("setting_allowed_values/list.php")
 				.isEqualTo(200);
+	}
+
+	/**
+	 * {@code options.php} orders by {@code setting_key} in the <b>database's</b>
+	 * collation, which is {@code utf8mb4_unicode_ci} and therefore
+	 * case-insensitive. A Java string comparator is binary and would sort every
+	 * uppercase key ahead of every lowercase one.
+	 *
+	 * <p>Inserted and removed inside the test rather than added to the shared
+	 * fixture, which two other assertions pin at three definitions.
+	 */
+	@Test
+	@Order(27)
+	@SuppressWarnings("unchecked")
+	void theOptionsMapFollowsTheDatabaseCollationNotJavaStringOrder() {
+		execute("INSERT INTO setting_definitions (id, setting_key, label_ar, label_en,"
+				+ " description_ar, description_en, icon_data, is_multi, is_required, sort_order)"
+				+ " VALUES (90, 'MONTHLY_ACCRUAL', NULL, 'Monthly', NULL, NULL, NULL, 0, 0, 9)");
+		try {
+			Map<String, Object> all = (Map<String, Object>) data(
+					send(OPTIONS, HttpMethod.GET, token(ADMIN), null));
+			assertThat(all.keySet())
+					.as("case-insensitive: MONTHLY_ACCRUAL sorts among the lowercase keys, "
+							+ "after `modules` because `mod` < `mon`")
+					.containsExactly("currency", "modules", "MONTHLY_ACCRUAL", "theme");
+		} finally {
+			execute("DELETE FROM setting_definitions WHERE id = 90");
+		}
+	}
+
+	/**
+	 * PHP builds {@code $map = []} and {@code json_encode()} emits {@code []}
+	 * for it when no definition exists -- a bare array, where a Java map would
+	 * always serialize as {@code {}}.
+	 */
+	@Test
+	@Order(28)
+	void anEmptyDefinitionCatalogueAnswersAJsonArrayNotAnObject() {
+		// Plain tables, not TEMPORARY: execute() opens a fresh connection per
+		// statement, and a temporary table would not survive between them.
+		execute("CREATE TABLE _defs_backup AS SELECT * FROM setting_definitions");
+		execute("CREATE TABLE _vals_backup AS SELECT * FROM setting_allowed_values");
+		execute("DELETE FROM setting_allowed_values");
+		execute("DELETE FROM setting_definitions");
+		try {
+			ResponseEntity<Map<String, Object>> response =
+					send(OPTIONS, HttpMethod.GET, token(ADMIN), null);
+			assertThat(response.getStatusCode().value()).isEqualTo(200);
+			assertThat(response.getBody().get("data"))
+					.as("PHP's bare array encodes as [], not {}")
+					.isInstanceOf(List.class);
+		} finally {
+			execute("INSERT INTO setting_definitions SELECT * FROM _defs_backup");
+			execute("INSERT INTO setting_allowed_values SELECT * FROM _vals_backup");
+			execute("DROP TABLE _defs_backup");
+			execute("DROP TABLE _vals_backup");
+		}
 	}
 
 	// ---------------- fixture ----------------

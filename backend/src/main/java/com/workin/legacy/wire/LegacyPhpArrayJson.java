@@ -74,6 +74,25 @@ public final class LegacyPhpArrayJson {
 		return new ArrayList<>(map.values());
 	}
 
+	/**
+	 * The same rule for a site whose PHP builds a <b>bare</b> array rather than
+	 * one cast with {@code (object)}.
+	 *
+	 * <p>The only difference is the empty case, and it is the case that
+	 * matters: {@link #encode} keeps an empty map an object because the
+	 * endpoints it serves write {@code (object)[]}, whereas a bare
+	 * {@code $map = []} that never gains a key encodes as {@code []}.
+	 * {@code company_settings/options.php} is the second kind -- it builds
+	 * {@code $map} in a loop over the definitions and passes it straight to
+	 * {@code ok()}, so an empty catalogue answers a JSON array.
+	 */
+	public static Object encodeBareArray(Map<String, Object> map) {
+		if (map == null || map.isEmpty()) {
+			return List.of();
+		}
+		return encode(map);
+	}
+
 	/** Every map value of {@code out}, encoded by {@link #encode}. */
 	public static Map<String, Object> encodeValues(Map<String, Object> out, String... keys) {
 		Map<String, Object> result = new LinkedHashMap<>(out);
