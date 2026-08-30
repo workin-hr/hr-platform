@@ -15,12 +15,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.legacy.wire.LegacyApiResponse;
 import com.workin.legacy.wire.LegacyPhpRoutes;
+import com.workin.legacy.wire.LegacyWireExceptionHandler;
 
 /** Bidirectional literal inventory for every delivered {@code /apis/**} route. */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.MOCK)
@@ -54,6 +56,7 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/branches/one.php", "/apis/api/branches/update.php",
 			"/apis/api/company/update.php", "/apis/api/company/upload_commercial_reg.php",
 			"/apis/api/company/upload_logo.php",
+			"/apis/api/configs/get.php",
 			"/apis/api/company_official_holidays/create.php",
 			"/apis/api/company_official_holidays/delete.php",
 			"/apis/api/company_official_holidays/list.php",
@@ -133,8 +136,8 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	@Test
-	void deliveredRouteCountIsNowOneHundredTwentyEight() {
-		assertThat(EXPECTED_ROUTES).hasSize(128).doesNotHaveDuplicates();
+	void deliveredRouteCountIsNowOneHundredTwentyNine() {
+		assertThat(EXPECTED_ROUTES).hasSize(129).doesNotHaveDuplicates();
 	}
 
 	/**
@@ -212,8 +215,8 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(CONDITIONAL_ROUTES).hasSize(1);
 		assertThat(EXPECTED_ROUTES).containsAll(DOWNLOAD_ONLY_ROUTES).containsAll(CONDITIONAL_ROUTES);
 		assertThat(EXPECTED_ROUTES.size() - DOWNLOAD_ONLY_ROUTES.size() - CONDITIONAL_ROUTES.size())
-				.as("envelope-only routes, per the completion plan's 123/4/1 partition")
-				.isEqualTo(123);
+				.as("envelope-only routes, per the completion plan's 124/4/1 partition")
+				.isEqualTo(124);
 	}
 
 	@Test
@@ -243,6 +246,46 @@ class LegacyPhpRouteInventoryTest {
 				"/apis/api/attendance/overall_report.php",
 				"/apis/api/attendance/export.php",
 				"/apis/api/payslips/export.php");
+	}
+
+	/**
+	 * Every {@code /apis/**} handler must sit in a package the D-074 wire
+	 * handler advises.
+	 *
+	 * <p>{@link com.workin.legacy.wire.LegacyWireExceptionHandler} is scoped by
+	 * an explicit {@code basePackages} allowlist, so a controller in a package
+	 * nobody remembered to add compiles, maps, and serves happily -- until it
+	 * throws, at which point {@code LegacyApiException} escapes uncaught and the
+	 * client receives a <b>500 with the platform error body</b> instead of the
+	 * envelope and status PHP would have sent. Nothing else in the build catches
+	 * that: the route is mapped, the security boundary covers it, and the happy
+	 * path is green.
+	 *
+	 * <p>Item 13.0 hit exactly this. {@code configs/get.php} answered a POST
+	 * with 500 rather than PHP's 405 {@code invalid_method}, because
+	 * {@code com.workin.legacy.configs} was new and unlisted. Item 13 adds
+	 * seventeen more modules, so this is a drift test rather than a one-off fix.
+	 */
+	@Test
+	void everyLegacyRouteHandlerIsCoveredByTheD074ExceptionHandler() {
+		List<String> advised = List.of(
+				LegacyWireExceptionHandler.class.getAnnotation(RestControllerAdvice.class).basePackages());
+		List<Class<?>> assignable = List.of(
+				LegacyWireExceptionHandler.class.getAnnotation(RestControllerAdvice.class).assignableTypes());
+
+		handlerMapping.getHandlerMethods().entrySet().stream()
+				.filter(entry -> entry.getKey().getPatternValues().stream()
+						.anyMatch(pattern -> pattern.startsWith("/apis/")))
+				.map(entry -> entry.getValue().getBeanType())
+				.distinct()
+				.forEach(controller -> assertThat(
+						advised.stream().anyMatch(pkg -> controller.getPackageName().equals(pkg))
+								|| assignable.contains(controller))
+						.as("%s serves /apis/** but is outside LegacyWireExceptionHandler's scope, "
+								+ "so a LegacyApiException from it would answer 500 instead of the "
+								+ "D-074 envelope -- add %s to its basePackages",
+								controller.getName(), controller.getPackageName())
+						.isTrue());
 	}
 
 	@Test

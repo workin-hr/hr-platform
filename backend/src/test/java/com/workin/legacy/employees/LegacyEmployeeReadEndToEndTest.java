@@ -375,6 +375,17 @@ class LegacyEmployeeReadEndToEndTest {
 		// requireAuth, or 405 invalid_method from the method guard that runs
 		// before it on a route with a different verb -- never a 200, and always
 		// in the PHP envelope.
+		//
+		// One route is exempt, and the exemption is a closed literal list
+		// rather than a predicate so that adding to it is a visible diff:
+		// configs/get.php has no requireAuth() in legacy at all (Item 13.0). A
+		// client must read the maintenance flag and the version gate before it
+		// can log in, so answering 401 there would break the endpoint's whole
+		// purpose and violate D-111. auth/login_employee.php is equally
+		// unauthenticated but needs no exemption -- it is POST-only, so an
+		// unauthenticated GET still ends at the 405 this invariant demands.
+		List<String> publicByDesign = List.of("/apis/api/configs/get.php");
+
 		List<String> routes = handlerMapping.getHandlerMethods().keySet().stream()
 				.flatMap(info -> info.getPatternValues().stream())
 				.filter(pattern -> pattern.startsWith("/apis/"))
@@ -382,9 +393,25 @@ class LegacyEmployeeReadEndToEndTest {
 				.sorted()
 				.toList();
 		assertThat(routes).isNotEmpty();
+		assertThat(routes).containsAll(publicByDesign);
+
+		for (String route : publicByDesign) {
+			ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+					URI.create(restTemplate.getRootUri() + route), HttpMethod.GET, new HttpEntity<>(new HttpHeaders()),
+					new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
+			assertThat(response.getStatusCode().value())
+					.withFailMessage("%s is public by design and must serve an unauthenticated GET", route)
+					.isEqualTo(200);
+			assertThat(response.getBody().get("success"))
+					.withFailMessage("%s did not answer in the PHP envelope", route)
+					.isEqualTo(true);
+		}
 
 		List<String> denied = new java.util.ArrayList<>();
 		for (String route : routes) {
+			if (publicByDesign.contains(route)) {
+				continue;
+			}
 			ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
 					URI.create(restTemplate.getRootUri() + route), HttpMethod.GET, new HttpEntity<>(new HttpHeaders()),
 					new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });

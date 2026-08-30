@@ -704,6 +704,98 @@ unsatisfiable state was observed directly: PR #132 sat at
 reviewer able to clear it. `scripts/test_validate_phase0.py` covers both
 directions of the derived rule and is 83/83.
 
+## D-126: `configs/get.php` is ported as-is, unauthenticated, in Item 13.0
+
+**Status:** Accepted 2026-08-29. First endpoint delivered outside Item 12.
+
+`configs` is one endpoint and the completion plan's §2.4 puts it first in Item
+13 rather than last with the other single-endpoint reference modules. The
+reason is a circularity: the Flutter refresh-token gap (`hr-platform#18`) can
+only be closed by shipping new client builds, and new client builds are forced
+through the version gate this endpoint serves (`hr-platform#21`). Built last, it
+would leave no way to tell clients a cutover had happened.
+
+### It stays unauthenticated, and that is a decision rather than an omission
+
+The PHP calls no `requireAuth()` at all — it checks the method and queries. A
+client must read the maintenance flag and version gate **before** it can log in,
+so a 401 here would break the endpoint's purpose, and D-111 forbids changing
+what an existing client sees. What makes it safe to expose is the data, not the
+routing: `configs` has no `company_id` column (`mysql_workin.schema.sql:373-377`),
+carries no personal data, and holds global operational configuration only. It is
+therefore the second entry in `LegacyPhpRoutes` that is public because *legacy*
+enforces nothing, rather than because its controller enforces authentication
+itself — a distinction now stated in that class, because conflating the two
+categories is how a real hole would be added later.
+
+`LegacyEmployeeReadEndToEndTest#noMappedPhpRouteAnswersAnUnauthenticatedRequest`
+previously asserted that **every** mapped route answers 401 or 405 to an
+unauthenticated GET. It now carries a closed literal list of public routes and
+asserts this one serves 200 in the envelope. A list rather than a predicate, so
+that widening it is a visible diff.
+
+### Four legacy behaviours preserved under D-058
+
+| Behaviour | PHP | Why it is not "fixed" |
+|---|---|---|
+| An unknown key is **200 with `config_value: null`** | `$row[...] ?? null` — no 404 branch | A client distinguishing "absent" from "error" today would break |
+| The echoed `config_key` is the **requested** one, not the row's | read from `$_GET` | Observable on exactly the missing-key path |
+| `?config_key=` (empty) falls through to the **all-configs** branch | `$key !== null && $key !== ''` | Tests the exact empty string, so `?config_key=%20` is a real one-character key that misses |
+| A row keyed `server_time` is **overwritten** by the clock, keeping its position | assignment into an existing array key | Reachable — the dashboard's configs editor writes arbitrary keys — and a client reading `server_time` receives the clock today |
+
+Key order is insertion order in both languages, so the store folds rows into a
+`LinkedHashMap`. That is a wire property, not a style choice: PHP has no
+`ORDER BY` and `json_encode` emits an associative array in insertion order, so a
+hash-ordered map serialises the same pairs into a different response body. The
+regression asserts the exact key sequence — an earlier two-key relative-position
+assertion passed under `HashMap` by luck, and was replaced once falsification
+showed it.
+
+### `server_timezone` is a POSIX zone name whose sign is inverted
+
+`date_default_timezone_set('Etc/GMT-3')` makes `date_default_timezone_get()`
+return that literal string, so the field is `Etc/GMT-3` or `Etc/GMT-2` — never
+`+03:00` and never an IANA city zone. **`Etc/GMT-3` is UTC+3**: these zones count
+west-positive, so the name reads like the opposite of what it means, and
+"correcting" the sign would move every client's clock six hours. The rendering
+lives in `LegacyRuntimeOffset` beside the existing offset grammar so that the
+endpoint and `LegacyClock` cannot disagree about which profile is active. The
+PHP's `?: 'UTC'` fallback is unreachable and is not reproduced.
+
+The desktop version-gate fields F-07 names (`min*BuildNumberKey`,
+`*UnderMaintenanceKey`) need no mapping: the endpoint is key-agnostic and serves
+whatever rows exist, so those keys are data rather than code.
+
+### A gap found by building it, now covered by a drift test
+
+`LegacyWireExceptionHandler` is scoped by an explicit `basePackages` allowlist.
+A controller in an unlisted package maps and serves normally — until it throws,
+at which point `LegacyApiException` escapes and the client gets a **500 with the
+platform error body** instead of PHP's status and envelope. Nothing in the build
+caught that: the route was mapped, the security boundary covered it, and the
+happy path was green. It surfaced only because a POST to this endpoint answered
+500 where PHP answers 405 `invalid_method`.
+
+`everyLegacyRouteHandlerIsCoveredByTheD074ExceptionHandler` now derives the
+check from the live handler mappings and the annotation itself, and names the
+package to add when it fails. Item 13 adds seventeen more modules, so this is
+worth a drift test rather than a one-line fix.
+
+### Ledger
+
+`FINAL_COMPATIBLE` 128 → **129**; `ITEM13_REMAINING` 70 → **69**; the response-shape
+partition 123/4/1 → **124/4/1**. The live total of 198 is unchanged, as it must
+be — this moves an endpoint between buckets rather than discovering one.
+
+Evidence: `./gradlew check` — 1943 tests, 13 of them new. The one failure is
+`LegacyEmployeeStatsAndTeamEndToEndTest#myTeamCarriesTheOrgLabelsAndTheCheckedInMarker`,
+which fails identically on a clean tree at this time of night and is **not**
+caused by this change: it compares `checked_in_today` against the database's
+`CURRENT_DATE` while the run crosses the midnight boundary between legacy's
++02:00 profile and the JVM's local zone. That is the D-083 gap the test's own
+comment describes, realised as a time-of-day flake. Recorded here rather than
+fixed inside Item 13.0, and owed as its own issue.
+
 ## D-127: Step 7 gets a disposition check, and an explicit limit
 
 **Status:** Accepted 2026-08-29. Partially closes the gap **R-008** records.
