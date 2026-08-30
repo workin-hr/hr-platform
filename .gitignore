@@ -24,3 +24,7 @@ __pycache__/
 # Session-local git worktrees (never repository content)
 .claude/worktrees/
 .superpowers/
+
+# Legacy upload target: runtime and test artifacts, never source.
+backend/uploads/
+uploads/

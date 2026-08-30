@@ -56,6 +56,61 @@ public class LegacyRequestGuard {
 		return new LegacyRequestContext(employeeId, tenantScope.current(), role);
 	}
 
+	/**
+	 * {@code if ($auth = getAuth())} -- an <b>optional</b> authentication.
+	 *
+	 * <p>Returns null when the request carries no usable token, instead of
+	 * answering 401. Only {@code complaints/create.php} needs this: it accepts
+	 * anonymous submissions and attaches the employee and company only when a
+	 * caller happens to be signed in.
+	 *
+	 * <h2>Where the boundary actually is</h2>
+	 * <p>PHP's {@code getAuth()} ends in {@code jwtDecode()}, which returns
+	 * {@code null} for a malformed token, a bad signature, or an expired
+	 * {@code exp} ({@code functions.php:435-453}). {@code if ($auth = getAuth())}
+	 * is then false and the request proceeds <b>anonymously</b>. So an
+	 * unusable token is not an error on this route in legacy, and it is not one
+	 * here either -- the filter clears the context and this method returns
+	 * null, which is the same outcome.
+	 *
+	 * <p>What <em>is</em> still enforced is the check that runs <b>after</b> a
+	 * successful decode: PHP follows {@code getAuth()} with
+	 * {@code requireEmployeeSessionValid($auth)}, so a validly-signed token
+	 * whose {@code token_version} has been bumped is <b>rejected with 401</b>
+	 * rather than downgraded to anonymous. {@link #requireSessionValid} is
+	 * called below for exactly that reason.
+	 *
+	 * <p>The distinction matters and is easy to state backwards: a token that
+	 * cannot be decoded is invisible, while a token that decodes but has been
+	 * revoked is refused.
+	 *
+	 * <p><b>{@code @Transactional} for the same reason {@link #requireAuth} is.</b>
+	 * The decode path reaches {@link #requireSessionValid}, which disables the
+	 * Hibernate tenant filters through the shared {@code EntityManager}; with
+	 * {@code spring.jpa.open-in-view=false} there is no persistence context
+	 * outside a transaction, so an <em>authenticated</em> submission would fail
+	 * before the insert while an anonymous one took the early return and
+	 * succeeded. Optional authentication still needs the boundary the mandatory
+	 * one has.
+	 */
+	@Transactional
+	public LegacyRequestContext optionalAuth() {
+		if (SecurityContextHolder.getContext().getAuthentication() == null
+				|| !(SecurityContextHolder.getContext().getAuthentication().getPrincipal()
+						instanceof AuthenticatedPrincipal principal)) {
+			return null;
+		}
+		requireSessionValid(principal);
+		if (!tenantScope.isEstablished()) {
+			return null;
+		}
+		long employeeId = principal.legacyAuthType() != null
+				&& !"employee".equals(principal.legacyAuthType())
+				? 0L : (principal.identityId() == null ? 0L : principal.identityId());
+		return new LegacyRequestContext(employeeId, tenantScope.current(),
+				parseRole(principal.claimedRole()));
+	}
+
 	/** PHP requireCompanyActive($company_id). */
 	public void requireCompanyActive(long companyId) {
 		String status = legacyCompanyRepository.findById(companyId)

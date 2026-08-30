@@ -385,7 +385,9 @@ class LegacyEmployeeReadEndToEndTest {
 		// answering 401 on any of them would break the endpoint's purpose and
 		// violate D-111. auth/login_employee.php is equally unauthenticated but
 		// needs no exemption -- it is POST-only, so an unauthenticated GET
-		// still ends at the 405 this invariant demands.
+		// still ends at the 405 this invariant demands -- and so does
+		// complaints/create.php, which is equally unauthenticated and equally
+		// POST-only, so it needs no entry here either.
 		//
 		// The assertion is "not a 401", not "a 200": app_content/one.php reached
 		// with no content_key answers 400 key_required, which is still the

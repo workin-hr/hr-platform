@@ -623,11 +623,11 @@ and every difference below is legacy's.
 | `administrative_decisions/update.php` | PUT | ADMIN, HR | `can_employees`. Absent fields keep their current value; a supplied-but-blank `title`/`body` is `field_required`. Boolean via exact `(int) === 1`, so `"true"` **deactivates**. |
 | `administrative_decisions/delete.php` | DELETE | ADMIN, HR | `can_employees`. `ok(OK, null)` — **no `data` key at all**, unlike the asset delete. |
 
-**All ten require an active company.** Every one of the routes above calls
-`requireCompanyActive($company_id)` after its role check, so an admitted role
-belonging to an inactive company is refused with 403 regardless of the role and
-`hr_permissions` columns tabulated here. The role column is therefore a
-necessary condition, not a sufficient one.
+**All ten routes require an active company.** Every one goes through
+`requireCompanyActive()` after its role check, so a suspended company gets 403
+on the whole module — unlike `banners`/`faqs` in Wave 13.5, which serve platform
+content to a suspended company's staff. The role and `hr_permissions` columns
+above are therefore necessary conditions, not sufficient ones.
 
 **Two boolean conventions in one wave.** `"is_active": "true"` deactivates a
 decision while `"is_returned": "true"` marks an asset returned. Any client

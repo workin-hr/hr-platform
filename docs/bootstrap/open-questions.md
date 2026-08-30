@@ -154,3 +154,30 @@ purport to wait for the fix while still shipping the vulnerable route.
   not presume its disposition; an earlier revision of this bullet said the
   opposite and kept the register silent about a confirmed cross-tenant
   disclosure.
+
+## Anonymous Complaints (`complaints/create.php`, D-132)
+
+`complaints/create.php` is the only endpoint in the Phase-1 surface that is
+**both unauthenticated and a write**. It stores a caller-supplied `name`,
+`phone` and `message`, with `company_id` and `employee_id` left NULL when no
+token is present. D-132 ports it as-is by owner decision; these questions are
+what that decision deliberately left open.
+
+- **Is an anonymous complaint meant to be readable at all?** `list.php` filters
+  `company_id = ?`, so a NULL-company row can never be returned to any company,
+  and there is no other read path in the API. Is it a deliberate "contact us"
+  inbox read outside the API (dashboard or direct database), or a defect? Until
+  this is answered it is **not** filed upstream, because the code does not
+  contradict itself the way `hr-legacy#31`/`#32`/`#33` do.
+- **What rate limiting should an anonymous public write have?** There is none
+  today. The OTP endpoints have a cooldown and hourly caps
+  (`otp_assert_can_send()`); this route has nothing comparable.
+- **What is the retention policy for anonymous PII?** The row holds a name and a
+  phone number supplied by an unauthenticated caller, with no owning tenant and
+  therefore no tenant-scoped deletion path.
+- **Is spam a live concern for it?** Related to both of the above; the answer
+  decides whether the first two need addressing before or after cutover.
+
+These are recorded here rather than answered because Phase 1's contract is
+parity and none of them changes the port. They become live at the point someone
+decides the legacy contract should change.
