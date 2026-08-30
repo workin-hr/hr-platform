@@ -607,6 +607,12 @@ and every difference below is legacy's.
 | `administrative_decisions/update.php` | PUT | ADMIN, HR | `can_employees`. Absent fields keep their current value; a supplied-but-blank `title`/`body` is `field_required`. Boolean via exact `(int) === 1`, so `"true"` **deactivates**. |
 | `administrative_decisions/delete.php` | DELETE | ADMIN, HR | `can_employees`. `ok(OK, null)` — **no `data` key at all**, unlike the asset delete. |
 
+**All ten require an active company.** Every one of the routes above calls
+`requireCompanyActive($company_id)` after its role check, so an admitted role
+belonging to an inactive company is refused with 403 regardless of the role and
+`hr_permissions` columns tabulated here. The role column is therefore a
+necessary condition, not a sufficient one.
+
 **Two boolean conventions in one wave.** `"is_active": "true"` deactivates a
 decision while `"is_returned": "true"` marks an asset returned. Any client
 sending string booleans must be checked against both.
