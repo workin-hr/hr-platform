@@ -66,9 +66,9 @@ multi-repository `workin-hr-workspace` bootstrap workspace:
 Done when:
 
 - The GitHub settings described in both checklists exist in the live
-  organization, other than `hr-platform` branch protection/rulesets, which
-  are Deferred under D-013 and are not a completion requirement for this
-  item.
+  organization. `hr-platform` branch protection was Deferred under D-013 and is
+  **applied as of 2026-08-29 (D-125)**, once the repository became public;
+  `bash scripts/check-branch-protection.sh` verifies it.
 - Required teams, labels, milestones, and project fields exist.
 
 ### H2. Resolve Open Bootstrap Decisions
@@ -201,10 +201,9 @@ not wait on H2 and has in fact already substantially proceeded (see
 H2 being resolved first. H2 still needs a human answer — it just isn't a
 gate on A1.
 
-1. Complete H1's non-deferred items (teams, labels, project, org profile) —
-   it is still the external governance blocker for those, though branch
-   protection specifically is Deferred per D-013 (see H1 above) and does
-   not block anything.
+1. Complete H1's remaining items (teams, labels, project, org profile) — it is
+   still the external governance blocker for those. Branch protection, once the
+   deferred part of H1, is applied under D-125 (see H1 above).
 2. Resolve H2 in parallel with Discovery, not before it — ownership and
    repository-boundary ambiguity should still be closed out, but per D-015
    it is not a precondition for A1 to continue.
