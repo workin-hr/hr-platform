@@ -89,7 +89,7 @@ several of the questions this ADR was opened to ask:
 | Already decided in code | Where |
 |---|---|
 | Platform admins are **their own identity type**, not a role on a shared identity | `PlatformAdmin`, `PlatformAdminRepository`, `platform_admins` |
-| ADR-0005's rotation model already applies to them | `PlatformAdminSessionService.issue()`/`rotate()`, `platform_admin_refresh_tokens` |
+| ADR-0005's **rotation** model already applies to them | `PlatformAdminSessionService.issue()`/`rotate()`, `platform_admin_refresh_tokens` — reuse detection and family revocation are there. **Its session-management half is not**: ADR-0005 requires sessions to be *listed and revoked individually*, and there is no list query on `PlatformAdminRefreshTokenRepository` and no controller exposing either operation. Revocation today needs the refresh token in hand (logout) or is all-or-nothing (`revokeAllForPlatformAdmin`, which has no production caller). Worth noting the same gap exists on the tenant side — `RefreshTokenRepository` has no list query either — so this is an ADR-0005 shortfall, not a platform-admin one. |
 | Session lifetimes are **already scoped separately** from the clients' | `app.platform-admin.jwt.access-token-ttl-seconds:900` — identical to the clients' 900, not tighter — and `refresh-token-ttl-seconds:604800` (**7 days** against the clients' 60). Only the refresh bound differs. |
 | An audit trail **exists**, for auth-lifecycle events | `PlatformAdminAuditService`, `PlatformAdminAuditEvent` — `LOGIN`/`LOGIN_FAILED`/`LOGOUT`/`SESSION_REUSE_REVOKED`/`ALL_SESSIONS_REVOKED`. F-26 leaves per-endpoint audit of future `platform.*` business actions as a **standing acceptance criterion**, so 'already audited' would overstate it: no business endpoint exists yet to audit. |
 | There is **no self-registration**; the first admin comes from bootstrap env vars and is never overwritten | `PlatformAdminBootstrap` |
@@ -197,6 +197,17 @@ This is the one genuine gap. Every platform-admin identity enrols in TOTP.
 Beyond login, destructive operations — company suspension, company deletion —
 require step-up re-authentication, so a hijacked session is not automatically
 authority to destroy a customer's tenancy.
+
+**Step-up is bounded, or it is decoration.** A "step-up satisfied" flag set once
+and honoured for the rest of the session is indistinguishable from no step-up at
+all for any action taken later, which is when a hijacked session would be used.
+Three properties are required, not just a representation:
+
+| Property | Why |
+|---|---|
+| **Maximum age** — minutes, not the session lifetime | the challenge must be recent relative to the action, not to the login |
+| **Single use** | one challenge authorises one operation, so it cannot be banked |
+| **Bound to the action** | satisfying step-up for a suspension must not also authorise a deletion |
 
 The population is small, internal, and bootstrap-provisioned with no
 self-registration, which makes this cheap to operate and removes the usual
@@ -368,9 +379,14 @@ than the model.
   (**R-023**, **R-024**, **R-025**) and a pending cutover. Recording the decision
   now is cheap; building against it before the port lands is scope expansion
   across an unfinished migration.
-- **R-026 is owned elsewhere.** This ADR surfaced the deactivation defect and
-  Decision 5 depends on it being closed, but the register entry and the fix live
-  in PR #152 — it is referenced here, not filed here.
+- **R-026 is owned elsewhere, and that is a real ordering dependency.** This ADR
+  surfaced the deactivation defect and Decision 5 depends on it being closed, but
+  both the register entry and the fix live in PR #152. Until that merges, `R-026`
+  resolves to nothing on `main`, so this ADR names an acceptance dependency a
+  reader cannot look up. **#152 must merge first**; if it were abandoned, Decision
+  5 would need the defect restated here rather than referenced. Splitting them
+  kept the security fix reviewable on its own, which was the right trade — but it
+  is a trade, not a free one.
 
 ## Risks
 
@@ -394,6 +410,13 @@ than the model.
   refresh per session — a lock or single-flight around rotation — and that
   requirement belongs in its implementation notes, not discovered in
   production.
+
+  **The lock has to be shared, not process-local.** A Next.js BFF runs on
+  several workers or serverless instances, so an in-process mutex or
+  single-flight leaves two instances racing the same stored refresh token — the
+  exact scenario, with the mitigation appearing to be in place. Coordination
+  must go through whatever backing store holds the session (Decision 2's
+  server-side store), so all instances serialise against the same record.
 - **CSRF, newly relevant.** Cookies reintroduce a class the bearer clients never
   had. Mitigation: `SameSite=Lax` plus anti-CSRF tokens, with negative tests
   asserting a cross-site state-changing request is rejected.
@@ -438,7 +461,15 @@ Still required before this moves from `Proposed` to `Accepted`:
 7. **Concrete session bounds**: the idle timeout and the non-renewable absolute
    family cap Decision 3 requires, as numbers.
 8. The MFA-bearing login exchange Decision 4 implies — challenge/response,
-   enrolment, and how a step-up-satisfied session is represented.
+   enrolment, and how a step-up-satisfied session is represented **with its
+   maximum age, single-use and action-binding rules**.
+9. Attempt throttling for the password and TOTP steps (Decision 7), with the
+   limit and lockout window chosen.
+10. Whether ADR-0005's *list and revoke sessions individually* requirement is
+    delivered for this surface before it ships, or explicitly deferred. It is
+    unimplemented on both surfaces today, so this ADR does not create the gap —
+    but an admin surface with MFA and no way to see or kill your own sessions is
+    an odd place to leave it.
 
 **Identity separation is deliberately not on this list.** **D-027** made
 individual platform-admin identity a P0 requirement and **F-26** records it as

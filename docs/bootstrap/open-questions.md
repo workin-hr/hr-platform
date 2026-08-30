@@ -237,6 +237,13 @@ Surfaced by `docs/adr/ADR-0014-platform-admin-web-authentication.md`, which is
   plus password and returns the token pair immediately, so there is nowhere for
   a TOTP challenge to happen. Needs a challenge/response step, enrolment, and a
   representation for a step-up-satisfied session.
+- **Is ADR-0005's "sessions can be listed and revoked individually" going to be
+  delivered?** It is unimplemented on **both** surfaces: neither
+  `PlatformAdminRefreshTokenRepository` nor `RefreshTokenRepository` has a list
+  query, and no controller exposes listing or revoke-by-session. Revocation
+  today requires holding the refresh token, or is all-or-nothing. This is an
+  ADR-0005 shortfall rather than an ADR-0014 one, but a new admin surface with
+  MFA and no session visibility is a conspicuous place to inherit it.
 - **What throttling do the password and TOTP steps get?** `PlatformAdminLoginService`
   has no attempt limit, backoff or lockout, while the legacy dashboard it
   replaces enforces 8 attempts / 15 minutes. A six-digit second factor without
