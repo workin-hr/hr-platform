@@ -20,6 +20,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 import com.workin.backend.identity.JwtService;
 import com.workin.backend.platformadmin.PlatformAdminJwtService;
+import com.workin.backend.platformadmin.PlatformAdminRepository;
 import com.workin.backend.tenancy.NoTenantScopeException;
 import com.workin.backend.tenancy.TenantScope;
 import com.workin.backend.tenancy.TenantScopeFilter;
@@ -42,6 +43,7 @@ public class SecurityConfig {
 	@Profile("!phase1-mysql")
 	public SecurityFilterChain platformAdminSecurityFilterChain(
 			HttpSecurity http, PlatformAdminJwtService platformAdminJwtService,
+			PlatformAdminRepository platformAdminRepository,
 			ApiSecurityErrorHandler apiSecurityErrorHandler) throws Exception {
 		http
 			.securityMatcher("/api/platform-admin/**")
@@ -55,7 +57,8 @@ public class SecurityConfig {
 						"/api/platform-admin/logout").permitAll()
 				.anyRequest().authenticated())
 			.addFilterBefore(
-				new PlatformAdminAuthenticationFilter(platformAdminJwtService), UsernamePasswordAuthenticationFilter.class);
+				new PlatformAdminAuthenticationFilter(platformAdminJwtService, platformAdminRepository),
+				UsernamePasswordAuthenticationFilter.class);
 		return http.build();
 	}
 
