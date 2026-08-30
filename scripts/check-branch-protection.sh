@@ -17,6 +17,8 @@
 #     instead of calling `gh api`.
 #   PHASE0_WORKFLOW_FILE - read the required job id from this file
 #     instead of .github/workflows/phase0-validate.yml.
+#   BRANCH_PROTECTION_WRITE_HUMANS - use this count of write-access humans
+#     instead of querying the collaborator list.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -102,10 +104,38 @@ fi
 
 failures=0
 
+# GitHub forbids a pull request's author from approving it. So the approving
+# review count is only satisfiable when a *second* human holds write access:
+# with one maintainer, `>= 1` blocks every pull request they open for ever
+# rather than requiring a review of it (D-125). The requirement is therefore
+# derived from the collaborator list rather than fixed, and this check is
+# bidirectional -- it rejects a missing approval where one is possible, and
+# rejects an unsatisfiable one where it is not, so the requirement returns by
+# itself the day a second maintainer is added.
+#
+# Bots are excluded: `chatgpt-codex-connector[bot]` holds no approval right
+# (D-121) and its review arrives through the `independent-review` context.
+if [ -n "${BRANCH_PROTECTION_WRITE_HUMANS:-}" ]; then
+  write_humans="$BRANCH_PROTECTION_WRITE_HUMANS"
+else
+  write_humans="$(
+    gh api "repos/:owner/:repo/collaborators?permission=push&per_page=100" --paginate \
+      --jq '[.[] | select(.type != "Bot") | select(.login | endswith("[bot]") | not)] | length' \
+      2>/dev/null | awk '{ total += $1 } END { print total + 0 }'
+  )"
+fi
+
 required_review_count="$(echo "$PROTECTION_JSON" | jq -r '.required_pull_request_reviews.required_approving_review_count // 0')"
-if [ "$required_review_count" -lt 1 ]; then
-  echo "FAIL: required_pull_request_reviews.required_approving_review_count is $required_review_count (need >= 1)"
+if [ "$write_humans" -ge 2 ]; then
+  if [ "$required_review_count" -lt 1 ]; then
+    echo "FAIL: required_approving_review_count is $required_review_count (need >= 1: $write_humans humans hold write access, so a peer approval is possible)"
+    failures=$((failures + 1))
+  fi
+elif [ "$required_review_count" -ge 1 ]; then
+  echo "FAIL: required_approving_review_count is $required_review_count but only $write_humans human holds write access -- GitHub forbids self-approval, so no pull request could ever be merged (need 0 until a second maintainer exists)"
   failures=$((failures + 1))
+else
+  echo "NOTE: required_approving_review_count is 0 because only $write_humans human holds write access; step 6's approval stays a procedural obligation until a second maintainer is added (D-125)"
 fi
 
 enforce_admins="$(echo "$PROTECTION_JSON" | jq -r '.enforce_admins.enabled // false')"
@@ -154,4 +184,4 @@ if [ "$failures" -gt 0 ]; then
   exit 1
 fi
 
-echo "Branch protection on main meets all requirements (required review >= 1, enforce_admins, no force pushes, conversation resolution, required checks '$REQUIRED_JOB_NAME' and '$INDEPENDENT_REVIEW_CONTEXT')."
+echo "Branch protection on main meets all requirements (approving reviews satisfiable for $write_humans write-access human(s), enforce_admins, no force pushes, conversation resolution, required checks '$REQUIRED_JOB_NAME' and '$INDEPENDENT_REVIEW_CONTEXT')."
