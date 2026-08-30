@@ -309,6 +309,9 @@ than the model.
   (**R-023**, **R-024**, **R-025**) and a pending cutover. Recording the decision
   now is cheap; building against it before the port lands is scope expansion
   across an unfinished migration.
+- **R-026 is owned elsewhere.** This ADR surfaced the deactivation defect and
+  Decision 5 depends on it being closed, but the register entry and the fix live
+  in PR #152 — it is referenced here, not filed here.
 
 ## Risks
 
