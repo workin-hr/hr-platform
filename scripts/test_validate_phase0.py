@@ -2050,6 +2050,80 @@ def test_ignored_paths_are_skipped_by_the_forbidden_file_scanner() -> None:
         shutil.rmtree(root)
 
 
+def _make_repo_with_real_submodule(root: Path) -> None:
+    """A `.gitmodules` file alone does not reproduce the failure: `git
+    check-ignore` only aborts when the path is a real **gitlink** in the index.
+    An earlier fixture wrote the text and nothing else, which is why it passed
+    against a scanner that was genuinely broken on any clone with
+    `flutter-integration` populated."""
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    inner = root / "sub"
+    inner.mkdir()
+    subprocess.run(["git", "init", "-q", str(inner)], check=True)
+    (inner / "README.md").write_text("# inner\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(inner), "add", "README.md"], check=True)
+    subprocess.run(
+        ["git", "-C", str(inner), "-c", "user.email=t@example.invalid",
+         "-c", "user.name=t", "commit", "-qm", "inner"], check=True)
+    sha = subprocess.run(["git", "-C", str(inner), "rev-parse", "HEAD"],
+                         capture_output=True, text=True, check=True).stdout.strip()
+    (root / ".gitmodules").write_text(
+        '[submodule "sub"]\n\tpath = sub\n\turl = ./sub\n', encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(root), "update-index", "--add",
+         "--cacheinfo", f"160000,{sha},sub"], check=True)
+
+
+def test_forbidden_scan_keeps_the_ignore_exemption_with_a_populated_submodule() -> None:
+    """The regression that matters. `git check-ignore` aborts the whole batch
+    with exit 128 on the first path inside a submodule, and the fail-closed
+    rule then returns an empty set -- so every ignored path gets scanned after
+    all. Filtering submodules *after* the batch does not help; they must be
+    excluded before it."""
+    root = make_root()
+    try:
+        _make_repo_with_real_submodule(root)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        vendor = root / ".agents/skills/vendor-tool/scripts"
+        vendor.mkdir(parents=True)
+        (vendor / "helper.ts").write_text("export const x = 1;\n", encoding="utf-8")
+        (root / "admin-web").mkdir()
+        (root / "admin-web/App.tsx").write_text("export default null;\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(
+            any("admin-web/App.tsx" in f for f in failures)
+            and not any("vendor-tool" in f for f in failures),
+            f"a populated submodule must not disable the ignore exemption (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_link_scan_keeps_the_ignore_exemption_with_a_populated_submodule() -> None:
+    """Same batch-abort hazard for the link scanner, with a real gitlink this
+    time rather than a `.gitmodules` file on its own."""
+    root = make_root()
+    try:
+        _make_repo_with_real_submodule(root)
+        (root / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (root / "vendor").mkdir()
+        (root / "vendor/README.md").write_text("[gone](./nope.md)\n", encoding="utf-8")
+        (root / "own.md").write_text("[also gone](./missing.md)\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_links(failures, root=root)
+        check(
+            any("own.md" in f for f in failures)
+            and not any("vendor" in f for f in failures)
+            and not any("sub/" in f for f in failures),
+            f"a populated submodule must not disable the link exemption (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_real_repository_skill_catalog_still_passes() -> None:
     """Sanity check against the real repository, proving this check doesn't
     break the actual catalog."""
@@ -2275,6 +2349,8 @@ def main() -> int:
     test_submodule_markdown_is_skipped_by_the_link_scanner()
     test_ignored_skill_bypasses_the_repository_schema()
     test_ignored_paths_are_skipped_by_the_forbidden_file_scanner()
+    test_forbidden_scan_keeps_the_ignore_exemption_with_a_populated_submodule()
+    test_link_scan_keeps_the_ignore_exemption_with_a_populated_submodule()
     test_real_repository_skill_catalog_still_passes()
     test_product_code_outside_spike_still_fails()
     test_product_code_inside_spike_is_excluded()

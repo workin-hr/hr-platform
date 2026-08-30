@@ -272,7 +272,24 @@ def validate_forbidden_files(failures: list[str], root: Path | None = None) -> N
     # scanner. Without this, gitignoring a skill still breaks validation on
     # the machine that installed it. Untracked, non-ignored files are still
     # scanned: that is the case the Phase 0 lock exists for.
-    all_paths = list(root.rglob("*"))
+    #
+    # Submodule and .git paths are filtered out BEFORE the batch, not after.
+    # `git check-ignore` aborts the entire call with exit 128 on the first path
+    # inside a submodule ("Pathspec ... is in submodule"), and the fail-closed
+    # rule then returns an empty set -- silently checking everything, including
+    # the ignored paths this exemption exists for. validate_links already
+    # pre-filters for exactly this reason; an earlier version of this function
+    # did not, so the exemption did nothing at all on any clone with
+    # `flutter-integration` populated, which is the normal state for anyone
+    # working on the Flutter integration.
+    all_paths = [
+        p
+        for p in root.rglob("*")
+        if ".git" not in p.relative_to(root).parts
+        and not any(
+            rel_path_is_under(p.relative_to(root).parts, sub) for sub in submodule_paths
+        )
+    ]
     ignored = _git_ignored_subset(root, [str(p.relative_to(root)) for p in all_paths])
     for path in all_paths:
         rel_path = path.relative_to(root)
@@ -1366,17 +1383,26 @@ def _git_ignored_subset(root: Path, relatives: list[str]) -> set[str]:
         return set()
     try:
         completed = subprocess.run(
-            ["git", "-C", str(root), "check-ignore", "--stdin"],
-            input="\n".join(relatives),
+            # -z on both sides. Without it git applies core.quotePath and emits
+            # a C-quoted, escaped form for any non-ASCII path, which never
+            # compares equal to the path we asked about -- so the exemption
+            # would silently not apply to it. NUL delimiting also removes the
+            # .strip() that would corrupt a filename with leading or trailing
+            # whitespace.
+            ["git", "-C", str(root), "check-ignore", "--stdin", "-z"],
+            input="\0".join(relatives).encode("utf-8") + b"\0",
             capture_output=True,
-            text=True,
             check=False,
         )
     except (OSError, ValueError):
         return set()
     if completed.returncode not in (0, 1):  # 1 = nothing ignored, not an error
         return set()
-    return {line.strip() for line in completed.stdout.splitlines() if line.strip()}
+    return {
+        chunk.decode("utf-8", errors="surrogateescape")
+        for chunk in completed.stdout.split(b"\0")
+        if chunk
+    }
 
 
 def validate_links(failures: list[str], root: Path | None = None) -> None:
