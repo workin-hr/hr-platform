@@ -579,7 +579,16 @@ unauthenticated, on its literal `/apis/api/configs/get.php` URL. It answers two
 shapes from one route: `?config_key=...` returns `{config_key, config_value}`
 — 200 with a null value for an unknown key, never a 404 — and no key returns
 every row plus `server_time` and `server_timezone`. An **empty** `config_key`
-is not a key and falls through to the all-rows branch. `time/now.php` in this
+is not a key and falls through to the all-rows branch. **Wave 13.5 delivers five of this group's endpoints
+(2026-08-29, D-128)**: `phone_countries/list.php` and `app_content/one.php`
+stay unauthenticated, `banners/list.php` and `faqs/list.php` take any
+authenticated role with no company-active check, and `dashboard/stats.php` is
+COMPANY_ADMIN/HR only. Two locale rules coexist here and both are faithful:
+`app_content` resolves through `app_locale()` and defaults to **English** with
+no `Accept-Language`, while `phone_countries` uses its own rule and defaults to
+**Arabic**.
+
+`time/now.php` in this
 same group stays excluded as unreachable dead surface (O-3); the two are easy
 to confuse because both look like clock endpoints, but only this one is
 routable, and it is where the authoritative clock actually reaches clients.

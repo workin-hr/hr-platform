@@ -29,12 +29,19 @@ package com.workin.legacy.wire;
  * (active company), plus the tenant re-derivation behind
  * {@code LegacyRequestContext#companyId()}.
  *
- * <h2>Two entries are unauthenticated in legacy itself</h2>
- * <p>{@code auth/login_employee.php} and {@code configs/get.php} are listed for
- * a different reason from every other entry: their PHP calls no
+ * <h2>Four entries are unauthenticated in legacy itself</h2>
+ * <p>{@code auth/login_employee.php}, {@code configs/get.php},
+ * {@code phone_countries/list.php} and {@code app_content/one.php} are listed
+ * for a different reason from every other entry: their PHP calls no
  * {@code requireAuth()} at all, so there is no guard order for the controller
  * to reproduce -- the endpoint is public in legacy and must stay public here
- * (D-111). Both perform their own PHP method validation first.
+ * (D-111). Each performs its own PHP method validation first.
+ *
+ * <p>All four are safe to expose for the same kind of reason, which is about
+ * the <em>data</em> rather than the routing: a login handler, global
+ * operational configuration, the dial-code reference list, and pre-login
+ * marketing/legal copy. None reads company or personal data, and a client
+ * legitimately needs the last three <b>before</b> it can authenticate.
  *
  * <p><b>Read the two categories separately when adding an entry.</b> Everything
  * else on this list is permitted because its controller enforces authentication
@@ -85,6 +92,11 @@ public final class LegacyPhpRoutes {
 		"/apis/api/job_titles/**",
 		"/apis/api/auth/login_employee.php",
 		"/apis/api/configs/get.php",
+		"/apis/api/phone_countries/list.php",
+		"/apis/api/app_content/one.php",
+		"/apis/api/banners/list.php",
+		"/apis/api/faqs/list.php",
+		"/apis/api/dashboard/stats.php",
 	};
 
 	private LegacyPhpRoutes() {
