@@ -114,7 +114,13 @@ SYSTEM_PATH_DIRS = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # nested regression suite (scripts/test_git_guard.py) calls
 # `git branch --show-current` for real (get_current_branch()) against this
 # actual repository.
-ESSENTIAL_RUNTIME_TOOLS = ("git", "bash", "sh", "python3")
+# xargs joined this list when verify-bootstrap.sh started building its linter
+# file lists NUL-delimited: `existing_files` pipes through `xargs -0` so
+# filenames containing spaces or newlines keep their argument boundaries. Left
+# off, the shimmed run dies in that pipeline under `set -e` before it ever
+# prints the SUMMARY line these tests read — a failure that looks like a
+# broken assertion rather than a missing runtime.
+ESSENTIAL_RUNTIME_TOOLS = ("git", "bash", "sh", "python3", "xargs")
 
 
 def _essential_runtime_path_dirs() -> str:
@@ -2124,6 +2130,345 @@ def test_skill_catalog_fully_listed_passes() -> None:
         shutil.rmtree(root)
 
 
+def test_git_ignored_skill_is_exempt_from_the_catalog() -> None:
+    """Third-party skills installed into the working tree (`npx skills
+    add ...`) are local tooling, not repository content. They are
+    unreachable from CI or any other clone, so requiring them in a
+    governance document would make the check unsatisfiable for everyone
+    but the machine that installed them."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        (root / "docs/agents").mkdir(parents=True)
+        (root / "docs/agents/skill-catalog.md").write_text(
+            "# Skill Catalog\n\n- repo-skill\n", encoding="utf-8"
+        )
+        skills_dir = root / ".agents/skills"
+        for name in ("repo-skill", "vendor-tool"):
+            (skills_dir / name).mkdir(parents=True)
+            (skills_dir / name / "SKILL.md").write_text(f"---\nname: {name}\n---\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_skill_catalog_consistency(failures, root=root)
+        check(
+            failures == [],
+            f"a git-ignored skill is exempt from the catalog (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_untracked_but_not_ignored_skill_is_still_checked() -> None:
+    """The exemption must not extend to a genuinely new skill on its way
+    into the repository -- that is the case the drift check exists for,
+    and it is untracked right up until the moment it is committed."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        (root / "docs/agents").mkdir(parents=True)
+        (root / "docs/agents/skill-catalog.md").write_text("# Skill Catalog\n\n", encoding="utf-8")
+        skills_dir = root / ".agents/skills"
+        (skills_dir / "brand-new-skill").mkdir(parents=True)
+        (skills_dir / "brand-new-skill/SKILL.md").write_text(
+            "---\nname: brand-new-skill\n---\n", encoding="utf-8"
+        )
+
+        failures: list[str] = []
+        v.validate_skill_catalog_consistency(failures, root=root)
+        check(
+            any("brand-new-skill" in f for f in failures),
+            f"an untracked, non-ignored skill is still required in the catalog (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_skill_catalog_check_is_unchanged_outside_a_git_repository() -> None:
+    """`_git_ignores` must fail closed. With no repository present git
+    cannot answer, and an unknown answer must not exempt anything from a
+    governance control."""
+    root = make_root()
+    try:
+        (root / "docs/agents").mkdir(parents=True)
+        (root / "docs/agents/skill-catalog.md").write_text("# Skill Catalog\n\n", encoding="utf-8")
+        skills_dir = root / ".agents/skills"
+        (skills_dir / "uncatalogued").mkdir(parents=True)
+        (skills_dir / "uncatalogued/SKILL.md").write_text("---\nname: uncatalogued\n---\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_skill_catalog_consistency(failures, root=root)
+        check(
+            any("uncatalogued" in f for f in failures),
+            f"outside a git repository nothing is exempted (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_ignored_markdown_is_skipped_by_the_link_scanner() -> None:
+    """The link scanner's exemption, exercised in isolation. On the real
+    repository this branch is only taken when a third-party skill happens to
+    be installed, so without a fixture it is untested in CI."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (root / "vendor").mkdir()
+        (root / "vendor/README.md").write_text("[gone](./nope.md)\n", encoding="utf-8")
+        (root / "own.md").write_text("[also gone](./missing.md)\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_links(failures, root=root)
+        check(
+            any("own.md" in f for f in failures) and not any("vendor" in f for f in failures),
+            f"ignored Markdown is skipped, tracked Markdown is not (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_submodule_markdown_is_skipped_by_the_link_scanner() -> None:
+    """Submodule content belongs to another repository (ADR-0001), and a path
+    inside one makes `git check-ignore` abort -- which, fail-closed, would
+    silently disable the exemption for every other file too."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitmodules").write_text(
+            '[submodule "sub"]\n\tpath = sub\n\turl = https://example.invalid/sub.git\n',
+            encoding="utf-8",
+        )
+        (root / "sub").mkdir()
+        (root / "sub/README.md").write_text("[broken](./nope.md)\n", encoding="utf-8")
+        (root / "own.md").write_text("[broken](./missing.md)\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_links(failures, root=root)
+        check(
+            any("own.md" in f for f in failures) and not any("sub/" in f for f in failures),
+            f"submodule Markdown is skipped, the repository's own is not (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_ignored_skill_bypasses_the_repository_schema() -> None:
+    """The structural exemption in validate_skill_files, which the catalog
+    tests do not reach. A third-party skill uses its author's schema and can
+    never satisfy SKILL_SECTIONS; an unignored one still must."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        skills_dir = root / ".agents/skills"
+        for name in ("vendor-tool", "own-skill"):
+            (skills_dir / name).mkdir(parents=True)
+            (skills_dir / name / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: d\n---\n\n# {name}\n", encoding="utf-8"
+            )
+
+        failures: list[str] = []
+        v.validate_skill_files(failures, root=root)
+        check(
+            any("own-skill" in f for f in failures)
+            and not any("vendor-tool" in f for f in failures),
+            f"an ignored skill bypasses the repository schema, an unignored one does not (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_ignored_paths_are_skipped_by_the_forbidden_file_scanner() -> None:
+    """Installed skills routinely ship package.json, src/ and .ts helpers --
+    ordinary tooling for their author, Phase 0 product code to this scanner.
+    Without the boundary, gitignoring a skill still breaks validation on the
+    machine that installed it."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        vendor = root / ".agents/skills/vendor-tool/scripts"
+        vendor.mkdir(parents=True)
+        (vendor / "helper.ts").write_text("export const x = 1;\n", encoding="utf-8")
+        (root / "admin-web").mkdir()
+        (root / "admin-web/App.tsx").write_text("export default null;\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(
+            any("admin-web/App.tsx" in f for f in failures)
+            and not any("vendor-tool" in f for f in failures),
+            f"ignored tooling is skipped, unignored product code still fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def _make_repo_with_real_submodule(root: Path) -> None:
+    """A `.gitmodules` file alone does not reproduce the failure: `git
+    check-ignore` only aborts when the path is a real **gitlink** in the index.
+    An earlier fixture wrote the text and nothing else, which is why it passed
+    against a scanner that was genuinely broken on any clone with
+    `flutter-integration` populated."""
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    inner = root / "sub"
+    inner.mkdir()
+    subprocess.run(["git", "init", "-q", str(inner)], check=True)
+    (inner / "README.md").write_text("# inner\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(inner), "add", "README.md"], check=True)
+    subprocess.run(
+        # commit.gpgSign=false explicitly: a developer with global signing
+        # enabled but no key available in a non-interactive run would otherwise
+        # fail here, before either scanner is exercised. The per-command
+        # identity settings do not override it.
+        ["git", "-C", str(inner), "-c", "user.email=t@example.invalid",
+         "-c", "user.name=t", "-c", "commit.gpgSign=false",
+         "commit", "-qm", "inner"], check=True)
+    sha = subprocess.run(["git", "-C", str(inner), "rev-parse", "HEAD"],
+                         capture_output=True, text=True, check=True).stdout.strip()
+    (root / ".gitmodules").write_text(
+        '[submodule "sub"]\n\tpath = sub\n\turl = ./sub\n', encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(root), "update-index", "--add",
+         "--cacheinfo", f"160000,{sha},sub"], check=True)
+
+
+def test_forbidden_scan_keeps_the_ignore_exemption_with_a_populated_submodule() -> None:
+    """The regression that matters. `git check-ignore` aborts the whole batch
+    with exit 128 on the first path inside a submodule, and the fail-closed
+    rule then returns an empty set -- so every ignored path gets scanned after
+    all. Filtering submodules *after* the batch does not help; they must be
+    excluded before it."""
+    root = make_root()
+    try:
+        _make_repo_with_real_submodule(root)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        vendor = root / ".agents/skills/vendor-tool/scripts"
+        vendor.mkdir(parents=True)
+        (vendor / "helper.ts").write_text("export const x = 1;\n", encoding="utf-8")
+        (root / "admin-web").mkdir()
+        (root / "admin-web/App.tsx").write_text("export default null;\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(
+            any("admin-web/App.tsx" in f for f in failures)
+            and not any("vendor-tool" in f for f in failures),
+            f"a populated submodule must not disable the ignore exemption (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_link_scan_keeps_the_ignore_exemption_with_a_populated_submodule() -> None:
+    """Same batch-abort hazard for the link scanner, with a real gitlink this
+    time rather than a `.gitmodules` file on its own."""
+    root = make_root()
+    try:
+        _make_repo_with_real_submodule(root)
+        (root / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (root / "vendor").mkdir()
+        (root / "vendor/README.md").write_text("[gone](./nope.md)\n", encoding="utf-8")
+        (root / "own.md").write_text("[also gone](./missing.md)\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_links(failures, root=root)
+        check(
+            any("own.md" in f for f in failures)
+            and not any("vendor" in f for f in failures)
+            and not any("sub/" in f for f in failures),
+            f"a populated submodule must not disable the link exemption (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_a_non_utf8_filename_does_not_disable_the_ignore_exemption() -> None:
+    """`rglob()` decodes paths with surrogateescape, so a filename that is not
+    valid UTF-8 -- exactly the kind of artifact a vendored third-party tree can
+    carry -- must not raise on the way into `git check-ignore`. It did: the
+    UnicodeEncodeError is a ValueError, swallowed by the fail-closed handler,
+    which returned an empty set and silently re-enabled scanning for every
+    ignored path in the tree."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (root / "vendor").mkdir()
+        (root / "vendor/plain.txt").write_text("x", encoding="utf-8")
+        # os.fsdecode round-trips the undecodable byte through a surrogate,
+        # which is what rglob() will hand back.
+        hostile = root / "vendor" / os.fsdecode(b"bad_\xff.txt")
+        hostile.write_bytes(b"x")
+
+        relatives = [
+            str(p.relative_to(root))
+            for p in root.rglob("*")
+            if ".git" not in p.relative_to(root).parts
+        ]
+        ignored = v._git_ignored_subset(root, relatives)
+        check(
+            any(r.startswith("vendor") for r in ignored),
+            f"a non-UTF-8 filename must not empty the ignored set (ignored={ignored})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def _existing_files_helper() -> str:
+    """The real `existing_files` definition, lifted out of
+    scripts/verify-bootstrap.sh rather than restated here, so this test cannot
+    pass against a copy that has drifted from the shipped one."""
+    text = VERIFY_BOOTSTRAP_SCRIPT.read_text(encoding="utf-8")
+    start = text.index("existing_files() {")
+    end = text.index("}", text.index("xargs -0 sh -c", start)) + 1
+    return text[start:end]
+
+
+def test_verify_bootstrap_file_list_survives_awkward_filenames_and_deletions() -> None:
+    """Two ways the linter file list can be wrong, both of which break the
+    aggregate verification rather than the code under test.
+
+    A filename containing a space is legal; a space-joined, unquoted expansion
+    splits it into two nonexistent paths. And `--cached` still lists a file the
+    developer has deleted without staging the deletion, handing the linter a
+    path that is not there — which fails the run before it reaches the files
+    that do exist."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / "has space.md").write_text("# a\n", encoding="utf-8")
+        (root / "keep.md").write_text("# b\n", encoding="utf-8")
+        (root / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (root / "vendor").mkdir()
+        (root / "vendor/ignored.md").write_text("# c\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "-C", str(root), "-c", "user.email=t@example.invalid",
+             "-c", "user.name=t", "-c", "commit.gpgSign=false",
+             "commit", "-qm", "init"], check=True)
+        (root / "keep.md").unlink()          # tracked, deleted, not staged
+        (root / "brand new.md").write_text("# d\n", encoding="utf-8")  # untracked
+
+        script = f"{_existing_files_helper()}\nexisting_files '*.md'\n"
+        out = subprocess.run(["sh", "-c", script], cwd=root,
+                             capture_output=True, check=True).stdout
+        names = [chunk.decode() for chunk in out.split(b"\0") if chunk]
+
+        check(
+            "has space.md" in names
+            and "brand new.md" in names
+            and "keep.md" not in names
+            and "vendor/ignored.md" not in names,
+            "the file list keeps spaced and untracked names, drops unstaged "
+            f"deletions and ignored paths (got {names})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_real_repository_skill_catalog_still_passes() -> None:
     """Sanity check against the real repository, proving this check doesn't
     break the actual catalog."""
@@ -2352,6 +2697,17 @@ def main() -> int:
     test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()
+    test_git_ignored_skill_is_exempt_from_the_catalog()
+    test_untracked_but_not_ignored_skill_is_still_checked()
+    test_skill_catalog_check_is_unchanged_outside_a_git_repository()
+    test_ignored_markdown_is_skipped_by_the_link_scanner()
+    test_submodule_markdown_is_skipped_by_the_link_scanner()
+    test_ignored_skill_bypasses_the_repository_schema()
+    test_ignored_paths_are_skipped_by_the_forbidden_file_scanner()
+    test_forbidden_scan_keeps_the_ignore_exemption_with_a_populated_submodule()
+    test_link_scan_keeps_the_ignore_exemption_with_a_populated_submodule()
+    test_a_non_utf8_filename_does_not_disable_the_ignore_exemption()
+    test_verify_bootstrap_file_list_survives_awkward_filenames_and_deletions()
     test_real_repository_skill_catalog_still_passes()
     test_product_code_outside_spike_still_fails()
     test_product_code_inside_spike_is_excluded()
