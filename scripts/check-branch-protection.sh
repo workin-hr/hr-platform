@@ -199,7 +199,13 @@ if [ "$dismiss_stale" != "true" ]; then
   failures=$((failures + 1))
 fi
 
-allow_deletions="$(echo "$PROTECTION_JSON" | jq -r '.allow_deletions.enabled // false')"
+# Read without a `// false` default, unlike the checks above. For strict and
+# dismiss_stale_reviews an absent field means "not enabled", so defaulting to
+# false fails in the safe direction. Here the required value *is* false, so a
+# default would make an absent field pass -- the one place a future payload
+# change could silently stop enforcing while still reporting "meets all
+# requirements". Anything that is not literally false fails, including null.
+allow_deletions="$(echo "$PROTECTION_JSON" | jq -r '.allow_deletions.enabled')"
 if [ "$allow_deletions" != "false" ]; then
   echo "FAIL: allow_deletions.enabled is $allow_deletions (need false -- D-125)"
   failures=$((failures + 1))

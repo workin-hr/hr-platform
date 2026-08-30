@@ -813,6 +813,19 @@ def test_branch_protection_without_stale_review_dismissal_fails() -> None:
     )
 
 
+def test_branch_protection_with_allow_deletions_absent_fails() -> None:
+    """The one new check whose required value is `false`, so a `// false`
+    default would make an absent field *pass*. An absent field means the
+    payload shape changed, which is exactly when a control must not quietly
+    report success."""
+    bad = {k: val for k, val in GOOD_PROTECTION_JSON.items() if k != "allow_deletions"}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "allow_deletions.enabled is null" in proc.stdout,
+        f"an absent allow_deletions fails rather than passing (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
 def test_branch_protection_with_deletions_allowed_fails() -> None:
     bad = {**GOOD_PROTECTION_JSON, "allow_deletions": {"enabled": True}}
     proc = run_check_branch_protection(bad)
@@ -2139,6 +2152,7 @@ def main() -> int:
     test_branch_protection_without_strict_status_checks_fails()
     test_branch_protection_without_stale_review_dismissal_fails()
     test_branch_protection_with_deletions_allowed_fails()
+    test_branch_protection_with_allow_deletions_absent_fails()
     test_branch_protection_without_conversation_resolution_fails()
     test_branch_protection_without_the_independent_review_context_fails()
     test_branch_protection_job_id_is_read_from_workflow_file()
