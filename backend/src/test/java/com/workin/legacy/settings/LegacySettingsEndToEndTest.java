@@ -508,6 +508,29 @@ class LegacySettingsEndToEndTest {
 				.isEqualTo(404);
 	}
 
+	/**
+	 * A page whose offset exceeds {@link Integer#MAX_VALUE}. PHP computes the
+	 * offset in 64-bit and returns a successful empty page; narrowing it to
+	 * {@code int} wraps it negative, which MariaDB rejects outright, so the
+	 * divergence shows up as a 500 rather than as wrong rows.
+	 *
+	 * <p>At the maximum limit of 100, {@code page=21474838} is the first page
+	 * past the boundary: {@code 21474837 * 100 == 2147483700}, which is
+	 * {@code Integer.MAX_VALUE + 53}.
+	 */
+	@Test
+	@Order(26)
+	void aPageOffsetBeyondIntRangeIsAnEmptyPageRatherThanFiveHundred() {
+		assertThat(send(DEFINITIONS + "?page=21474838&limit=100", HttpMethod.GET, token(ADMIN), null)
+				.getStatusCode().value())
+				.as("setting_definitions/list.php")
+				.isEqualTo(200);
+		assertThat(send(ALLOWED + "?setting_definition_id=" + DEF_THEME + "&page=21474838&limit=100",
+				HttpMethod.GET, null, null).getStatusCode().value())
+				.as("setting_allowed_values/list.php")
+				.isEqualTo(200);
+	}
+
 	// ---------------- fixture ----------------
 
 	private static Object data(ResponseEntity<Map<String, Object>> response) {

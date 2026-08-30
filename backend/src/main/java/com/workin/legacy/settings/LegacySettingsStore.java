@@ -241,7 +241,7 @@ public class LegacySettingsStore {
 	 * ordered maps for exactly that reason: naming a subset here would silently
 	 * narrow what the endpoint returns.
 	 */
-	public List<Map<String, Object>> definitionRows(String search, int limit, int offset) {
+	public List<Map<String, Object>> definitionRows(String search, long limit, long offset) {
 		StringBuilder sql = new StringBuilder("SELECT * FROM setting_definitions");
 		List<Object> binds = new java.util.ArrayList<>();
 		if (search != null) {
@@ -271,7 +271,7 @@ public class LegacySettingsStore {
 		return total == null ? 0L : total;
 	}
 
-	public List<Map<String, Object>> allowedValueRows(long definitionId, int limit, int offset) {
+	public List<Map<String, Object>> allowedValueRows(long definitionId, long limit, long offset) {
 		return jdbcTemplate.query(
 				"SELECT * FROM setting_allowed_values WHERE setting_definition_id = ?"
 						+ " ORDER BY sort_order ASC, id ASC LIMIT ? OFFSET ?",

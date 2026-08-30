@@ -178,7 +178,7 @@ public class LegacySettingsController {
 		String locale = locale(request);
 		List<Map<String, Object>> rows = new ArrayList<>();
 		for (Map<String, Object> row : store.definitionRows(
-				search, (int) pagination.limit(), (int) pagination.offset())) {
+				search, pagination.limit(), pagination.offset())) {
 			Map<String, Object> shaped = new LinkedHashMap<>(row);
 			shaped.put("label", LegacySettingLabels.pick(locale,
 					nullableText(row.get("label_ar")), nullableText(row.get("label_en")),
@@ -218,7 +218,7 @@ public class LegacySettingsController {
 		String locale = locale(request);
 		List<Map<String, Object>> rows = new ArrayList<>();
 		for (Map<String, Object> row : store.allowedValueRows(
-				definitionId, (int) pagination.limit(), (int) pagination.offset())) {
+				definitionId, pagination.limit(), pagination.offset())) {
 			Map<String, Object> shaped = new LinkedHashMap<>(row);
 			shaped.put("label", LegacySettingLabels.pick(locale,
 					nullableText(row.get("label_ar")), nullableText(row.get("label_en")),
