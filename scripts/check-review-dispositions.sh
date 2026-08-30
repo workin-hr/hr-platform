@@ -78,21 +78,64 @@ else
   # variables bound by the -F flags, not shell expansions. They must reach the
   # server literally, so the single quotes are the point and SC2016 is noise.
   # shellcheck disable=SC2016
-  THREADS_JSON="$(gh api graphql -F pr="$PR_NUMBER" -F owner=:owner -F repo=:repo -f query='
-    query($owner: String!, $repo: String!, $pr: Int!) {
-      repository(owner: $owner, name: $repo) {
-        pullRequest(number: $pr) {
-          reviewThreads(first: 100) {
-            nodes {
-              isResolved
-              path
-              line
-              comments(first: 100) { nodes { author { login } body } }
+  # Paginated deliberately. A single `reviewThreads(first: 100)` page silently
+  # truncates on a pull request with more than 100 threads, and an
+  # undispositioned finding on thread 101 would then be invisible to the
+  # arithmetic below -- the check would report success precisely on the
+  # longest, most-reviewed pull requests, which are the ones it exists for.
+  # This is not hypothetical: PR #142 in this repository carried 31 reviews,
+  # and unpaginated REST queries against it produced two false "gate bypassed"
+  # alarms earlier in the same wave.
+  THREADS_JSON=""
+  cursor="null"
+  while :; do
+    # shellcheck disable=SC2016
+    page="$(gh api graphql -F pr="$PR_NUMBER" -F owner=:owner -F repo=:repo -F cursor="$cursor" -f query='
+      query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $pr) {
+            reviewThreads(first: 100, after: $cursor) {
+              pageInfo { hasNextPage endCursor }
+              nodes {
+                id
+                isResolved
+                path
+                line
+                  # 100 comments per thread, and the disposition is looked for in
+                # comments[1:]. A thread that runs past 100 replies would hide a
+                # valid disposition and block a merge that had actually answered
+                # the finding -- the opposite failure to the outer truncation,
+                # and the reason this is capped rather than silently sliced:
+                # `totalCount` lets the check say so instead of guessing.
+                comments(first: 100) {
+                  totalCount
+                  pageInfo { hasNextPage endCursor }
+                  nodes { author { login } body }
+                }
+              }
             }
           }
         }
-      }
-    }')"
+      }')"
+    if ! echo "$page" | jq -e . >/dev/null 2>&1; then
+      THREADS_JSON="$page"
+      break
+    fi
+    if [ -z "$THREADS_JSON" ]; then
+      THREADS_JSON="$page"
+    else
+      THREADS_JSON="$(jq -s '
+        .[0] as $acc | .[1] as $next
+        | $acc
+        | .data.repository.pullRequest.reviewThreads.nodes =
+            ($acc.data.repository.pullRequest.reviewThreads.nodes
+             + $next.data.repository.pullRequest.reviewThreads.nodes)' \
+        <(echo "$THREADS_JSON") <(echo "$page"))"
+    fi
+    has_next="$(echo "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage // false')"
+    [ "$has_next" = "true" ] || break
+    cursor="$(echo "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')"
+  done
 fi
 
 if ! echo "$THREADS_JSON" | jq -e . >/dev/null 2>&1; then
@@ -120,6 +163,57 @@ findings="$(echo "$THREADS_JSON" | jq --arg reviewer "$REVIEWER_LOGIN" '
     | select((.comments.nodes | length) > 0)
     | select((.comments.nodes[0].author.login | sub("\\[bot\\]$"; "")) == $reviewer) ]')"
 
+# A thread longer than one comment page needs its remaining comments fetched
+# before the disposition can be judged. An earlier version refused instead --
+# but refusing is not a recoverable state: answering or resolving the thread by
+# hand does not reduce totalCount, so that thread would fail every subsequent
+# run forever. Fetch the rest.
+if [ -z "${REVIEW_THREADS_JSON_FILE:-}" ]; then
+  overlong_ids="$(echo "$findings" | jq -r '
+    .[] | select(.comments.totalCount > (.comments.nodes | length)) | .id')"
+  for thread_id in $overlong_ids; do
+    comment_cursor="$(echo "$findings" | jq -r --arg id "$thread_id" '
+      .[] | select(.id == $id) | .comments.pageInfo.endCursor')"
+    while [ -n "$comment_cursor" ] && [ "$comment_cursor" != "null" ]; do
+      # shellcheck disable=SC2016
+      comment_page="$(gh api graphql -F id="$thread_id" -F cursor="$comment_cursor" -f query='
+        query($id: ID!, $cursor: String) {
+          node(id: $id) {
+            ... on PullRequestReviewThread {
+              comments(first: 100, after: $cursor) {
+                pageInfo { hasNextPage endCursor }
+                nodes { author { login } body }
+              }
+            }
+          }
+        }')"
+      findings="$(jq -s --arg id "$thread_id" '
+        .[0] as $acc | .[1] as $page
+        | $acc
+        | map(if .id == $id
+              then .comments.nodes += $page.data.node.comments.nodes
+              else . end)' \
+        <(echo "$findings") <(echo "$comment_page"))"
+      if [ "$(echo "$comment_page" | jq -r '.data.node.comments.pageInfo.hasNextPage // false')" != "true" ]; then
+        break
+      fi
+      comment_cursor="$(echo "$comment_page" | jq -r '.data.node.comments.pageInfo.endCursor')"
+    done
+  done
+fi
+
+# Whatever the source, refuse to judge a thread whose comments are still short
+# of totalCount -- that can only happen if the fetch above was skipped (a
+# fixture) or failed, and guessing in either direction is worse than saying so.
+still_short="$(echo "$findings" | jq -r '
+  .[] | select(.comments.totalCount > (.comments.nodes | length))
+  | "  " + ((.path // "(no path)")) + ":" + ((.line // 0) | tostring)')"
+if [ -n "$still_short" ]; then
+  echo "Error: these threads could not be fully fetched, so a disposition may be unreadable:" >&2
+  echo "$still_short" >&2
+  exit 1
+fi
+
 total="$(echo "$findings" | jq 'length')"
 
 if [ "$total" -eq 0 ]; then
@@ -132,12 +226,12 @@ fi
 # discharge that finding.
 undisposed="$(echo "$findings" | jq -r --arg d "$DISPOSITIONS" '
   .[] | select(
-    ([ .comments.nodes[1:][] | select(.body | test("(?i)disposition:[[:space:]]*(" + $d + ")")) ] | length) == 0
+    ([ .comments.nodes[1:][] | select(.body | test("(?i)disposition:[[:space:]]*(" + $d + ")(?![-[:alnum:]_])")) ] | length) == 0
   ) | "  " + ((.path // "(no path)")) + ":" + ((.line // 0) | tostring)')"
 
 missing="$(echo "$findings" | jq -r --arg d "$DISPOSITIONS" '
   [ .[] | select(
-    ([ .comments.nodes[1:][] | select(.body | test("(?i)disposition:[[:space:]]*(" + $d + ")")) ] | length) == 0
+    ([ .comments.nodes[1:][] | select(.body | test("(?i)disposition:[[:space:]]*(" + $d + ")(?![-[:alnum:]_])")) ] | length) == 0
   ) ] | length')"
 
 if [ "$missing" -gt 0 ]; then

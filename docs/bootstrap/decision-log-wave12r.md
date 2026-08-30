@@ -662,8 +662,12 @@ It is bidirectional, which is what makes it worth having:
 | 1 | `0` | `>= 1` — unsatisfiable, blocks every merge for ever |
 | >= 2 | `>= 1` | `0` — a possible peer approval was dropped |
 
-So the requirement **returns by itself** the day a second maintainer is added;
-it is not a deferral anyone has to remember. Bots are excluded from the count
+So the requirement is **alerted, not applied**, the day a second maintainer is added: `check-branch-protection.sh` increments `failures` and exits nonzero, and nothing changes the repository setting. Until an operator runs the check *and* separately updates protection, merges remain possible without a required human approval. The check is a detector, not a remediation, and
+**no workflow invokes it** — so this is a standing manual obligation that
+somebody does have to remember, and saying otherwise would present an
+uninvoked script as an automatic control. Closing it properly means either
+running the check in CI or applying the setting, and neither exists today.
+Bots are excluded from the count
 deliberately: `chatgpt-codex-connector[bot]` holds no approval right (D-121)
 and its review arrives through the `independent-review` context instead.
 
@@ -827,7 +831,11 @@ no check, because R-008 already records a merge that went wrong through a green
 box being read as more than it said. The tool narrows what a human must verify;
 it does not replace the verification.
 
-### Four properties that make it non-trivial to satisfy
+### Six properties that make it non-trivial to satisfy
+
+*(Four at acceptance; two added 2026-08-31 after an independent review of the
+D-142 batch found the check could report success without having read every
+finding — see the last two bullets.)*
 
 - **A resolved thread with no reply fails.** This is the whole point: it is
   exactly the state `required_conversation_resolution` reports as clean.
@@ -839,6 +847,19 @@ it does not replace the verification.
 - **Threads a human opened are not findings.** Requiring a disposition on those
   would train people to type the token to clear noise, which is how a control
   decays into a formality.
+- **Every thread and every comment is read, not the first page of each.**
+  `reviewThreads` and each thread's `comments` are both paginated. Unpaginated,
+  the check reported success on any pull request with more than 100 threads —
+  failing open precisely on the longest, most-reviewed ones it exists for — and
+  could not see a disposition posted past a thread's hundredth comment, which
+  fails the other way and blocks a merge whose finding *was* answered. If a
+  thread still cannot be fully fetched, the check refuses by name rather than
+  judging on partial data.
+- **The vocabulary matches whole terms, not prefixes.** `Disposition: fixed-later`
+  and `Disposition: supersededness` no longer discharge a finding by matching an
+  allowed prefix. The original closed-vocabulary case used `wontfix`, which
+  shares no prefix with any allowed value and passed either way — so this
+  property was asserted but never actually tested.
 
 The reviewer login is read from `independent-review-gate.yml`'s `REVIEWER:`
 **assignment**, not from anywhere else in the file — the same binding rule
@@ -854,10 +875,11 @@ it needs `statuses: write`, which under D-122's reasoning means the privileged
 enforces. Until then step 7 is a human obligation *supported by* a tool rather
 than one enforced by the platform, and R-008 stays open on that basis.
 
-Evidence: nine regression cases in `scripts/test_validate_phase0.py`, 89/89.
-Falsified in two directions — opening the vocabulary to any token, and allowing
-a finding's own text to discharge it — with each break caught by the case
-written for it.
+Evidence: thirteen regression cases in `scripts/test_validate_phase0.py`.
+Falsified in four directions — opening the vocabulary to any token, allowing a
+finding's own text to discharge it, removing the whole-term anchor (which lets
+`fixed-later` pass), and truncating a thread's comments (which must refuse
+rather than judge) — with each break caught by the case written for it.
 
 ## D-128: Wave 13.5 delivers the five reference endpoints, and is taken before 13.1
 
