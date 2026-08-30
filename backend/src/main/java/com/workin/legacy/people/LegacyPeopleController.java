@@ -143,8 +143,11 @@ public class LegacyPeopleController {
 	 * string came from the body. The <b>last</b> such value is taken, because
 	 * PHP's {@code parse_str()} keeps the final duplicate.
 	 *
-	 * <p>A multipart request needs none of that: {@code getPart()} reads the
-	 * body directly and never sees the query string.
+	 * <p>A multipart request needs none of that positional reasoning --
+	 * {@code getParts()} reads the body directly and never sees the query string
+	 * -- but it still needs the name normalization and the last-duplicate rule,
+	 * so {@link LegacyPostFields} walks the parts rather than looking one up by
+	 * name.
 	 */
 	private static String formField(HttpServletRequest request, String name) {
 		return LegacyPostFields.field(request, name);

@@ -1106,6 +1106,10 @@ with PHP.
 `workforce_planning` routes; the upstream fix has to cover both, or the port
 cannot follow it.
 
+The exposure is now carried in the risk register as **R-012**, recorded as open
+and undecided rather than as an accepted residual — a cutover or security review
+starting from the register has to be able to find it.
+
 This surface was missed when D-131 was first written. It was found by review on
 PR #138, not by the wave that introduced it.
 
@@ -1179,7 +1183,7 @@ an acceptance that has not happened.
 `FINAL_COMPATIBLE` 152 → **159**; `ITEM13_REMAINING` 46 → **39**; partition
 147/4/1 → **154/4/1**. Live total 198 unchanged.
 
-Evidence: `./gradlew check` — **2024 tests, 0 failures**, 10 new.
+Evidence: `./gradlew check` — **0 failures**, 10 new regressions. The suite-wide count is deliberately omitted: every review round adds regressions, so an aggregate recorded here is stale by the next commit (the same reason given two entries above).
 
 ## D-132: Wave 13.4c completes Item 13.4, and ports the public complaints write as-is
 
@@ -1296,7 +1300,7 @@ succeeds and re-notifies; only `reject` checks.
 154/4/1 → **165/4/1**. Live total 198 unchanged. **Item 13.4 is complete**; only
 Waves 13.1 (auth, 13) and 13.2 (profile 9 + notifications 6) remain.
 
-Evidence: `./gradlew check` — **2038 tests, 0 failures**, 14 new.
+Evidence: `./gradlew check` — **0 failures**, 14 new regressions. The suite-wide count is omitted for the reason given under the preceding entries: it is stale by the next commit.
 
 ## D-133: Wave 13.2 delivers `notifications` (6) and seven of the nine `profile` endpoints
 
@@ -1457,7 +1461,7 @@ exactly as PHP is.
 165/4/1 → **178/4/1**. Live total 198 unchanged. Remaining: Wave 13.1, which is
 the 13 auth endpoints plus the two OTP-dependent `profile` phone-change routes.
 
-Evidence: `./gradlew check` — see the wave's PR body for the count.
+Evidence: `./gradlew check` — **0 failures**. The suite-wide count is omitted deliberately: it is stale by the next commit.
 
 ## D-134: Wave 13.1a delivers the OTP layer, the four public OTP routes, and the two `profile` phone-change routes
 

@@ -664,8 +664,13 @@ authenticated session but no specific role. `setting_definitions` is
 `COMPANY_ADMIN`/`HR` only (the definitions side of the EAV settings
 system, as opposed to `company_settings`, which is the per-company
 selected-values side). `dashboard/stats.php` is the single dashboard
-summary-widget endpoint, `COMPANY_ADMIN`/`HR` only, not traced past its
-company-scoped call site in this pass.
+summary-widget endpoint, `COMPANY_ADMIN`/`HR` only. It has since been **traced
+in full**: it is the second surface of the D-131 cross-tenant disclosure. Its
+`workforce_planning`→`departments` join (`stats.php:91-99`) matches on
+`department_id` alone while filtering only `wt.company_id`, and
+`workforce_planning.department_id` has no foreign key, so a foreign
+department's name and its active headcount can be read from a single
+authenticated `GET`.
 
 **`configs/get.php` is delivered (Item 13.0, 2026-08-29, D-126)** and remains
 unauthenticated, on its literal `/apis/api/configs/get.php` URL. It answers two
