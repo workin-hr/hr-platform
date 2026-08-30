@@ -10,10 +10,12 @@
 
 ## Target Context (Intended Direction — Subject To Discovery And ADR Approval)
 
-None of the items below are decided. Each is a candidate direction backed
-by a specific ADR, and every one of those ADRs is currently `Proposed`, not
-`Accepted` — see `docs/adr/README.md`. This section must not be read as
-more settled than the ADRs it summarizes.
+**Mixed status — read each bullet, not this heading.** This section was written
+when every ADR below was `Proposed`; several have since been accepted
+(ADR-0005, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013), while others
+remain candidate directions. Each bullet now carries its own status, and
+`docs/adr/README.md` is authoritative. This section must not be read as more
+settled — or less settled — than the ADRs it summarizes.
 
 - `hr-platform` as the planning and future implementation repository —
   proposed direction, see ADR-0001 (Repository Strategy)

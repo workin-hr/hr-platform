@@ -214,3 +214,30 @@ fixed. Three questions have to be answered before it can be:
 These belong with `hr-platform#22`, which owns push delivery, rather than being
 answered separately: fixing the table without the delivery half would leave the
 same dead route with a different failure mode.
+
+## Platform-Admin Web Surface Authentication (ADR-0014, Proposed)
+
+Surfaced by `docs/adr/ADR-0014-platform-admin-web-authentication.md`, which is
+**`Proposed` and unapproved**. These block its acceptance, not any current work.
+
+- **Is the BFF boundary the agreed shape, and how is "the browser never receives
+  a platform-admin token" *enforced* rather than documented?** The existing
+  `/api/platform-admin/login` and `/refresh` hand both tokens to any caller, so
+  the wrong wiring is the path of least resistance.
+- **Stateless signed cookie or server-side session for the BFF**, and what cookie
+  domain topology does the choice imply?
+- **Which TOTP implementation, and what recovery design?** The population is
+  bootstrap-provisioned with no self-registration, so lockout has no
+  self-service escape today.
+- **Does the legacy PHP dashboard's `admin`-role surface run in parallel during
+  Phase 2?** If so, do both surfaces authenticate independently?
+- **What retention applies to `PlatformAdminAuditEvent`?** The audit trail
+  exists; how long it must survive is not recorded anywhere.
+
+Not open, recorded here because an earlier draft wrongly reopened it:
+**platform-admin identity separation is settled** by D-027 and F-26 — individual
+identities, structurally separated JWT sessions, `platform_admin_refresh_tokens`,
+and audit attribution with a NOT NULL admin FK.
+
+Tracked separately as a defect rather than a question: **R-026**, deactivation
+not enforced per request.

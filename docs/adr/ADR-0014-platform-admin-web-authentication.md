@@ -10,7 +10,7 @@
 | Date | 2026-08-30 |
 | Owners | Solution Architect (primary), Product (scope input) |
 | Deciders | Repository owner; engineering lead for feasibility sign-off |
-| Related Issues | None yet |
+| Related Issues | `hr-legacy#11` (shared platform-admin password — the finding this surface's identity model exists to close, D-027/F-26); `hr-platform#25` (dashboard retirement, ADR-0009) |
 | Supersedes | None |
 | Superseded By | None |
 
@@ -46,11 +46,20 @@ of D-058; it is a surface D-058 never covered.
 `hr-legacy/dashboard/includes/auth.php` uses PHP sessions:
 `$_SESSION['admin_logged_in']` / `company_logged_in` / `hr_logged_in`, with a
 `SESSION_TIMEOUT` sliding window renewed on each request. Under ADR-0009 the
-company and HR session paths are being retired outright, and the dashboard
-carries known security findings (`hr-legacy#2`, `#3`, `#6`).
+company and HR session paths are being retired outright.
 
-Porting that design would import those findings into a greenfield application
-whose only justification for the design would be that it already existed.
+The relevant authentication evidence against it is **`hr-legacy#11`**: the
+platform-admin surface authenticated on a **shared password**, with no
+individual identity, no per-admin revocation and no audit attribution. D-027
+made replacing that a P0 requirement and F-26 records it as substantially
+closed by the `platformadmin` package. Porting the session mechanism would walk
+back the one finding this surface's identity model was built to close.
+
+*(An earlier draft cited `hr-legacy#2`, `#3` and `#6` here. Those are
+tenant-scoping and IDOR defects in dashboard **action handlers** — real, but
+properties of those handlers, not of the session mechanism, so porting the
+mechanism alone would not import them. Using them as the argument would have
+justified a transport decision with unrelated authorization bugs.)*
 
 ### Constraint 3 — the authentication *model* is already decided
 
@@ -149,14 +158,23 @@ Because the session cookie is attached automatically, **CSRF protection is part
 of this decision, not a follow-up**: `SameSite=Lax` plus an explicit anti-CSRF
 token on every state-changing request.
 
-### 3. Session lifetimes are already correct — confirm, do not change
+### 3. Session lifetimes: the baseline is already there; add an idle and an absolute bound
 
 `app.platform-admin.jwt.access-token-ttl-seconds` is 900 (15 minutes) and
-`refresh-token-ttl-seconds` is 604800 (7 days), already scoped separately from
-the clients' 60-day refresh. **An earlier draft of this ADR proposed shortening
-these without checking; they were already short.** This ADR asserts no change,
-only that the BFF's own cookie session must not outlive the refresh token it
-wraps.
+`app.platform-admin.jwt.refresh-token-ttl-seconds` is 604800 (**7 days**), scoped
+separately from the tenant clients' 60-day value — and that 60-day figure is
+recorded as a configurable starting value, not a calibrated product decision, so
+an earlier draft was wrong to describe it as calibrated and wrong to propose
+shortening admin bounds that were already short.
+
+What actually remains is narrower, and it is not a smaller number:
+
+- The 7-day refresh is **sliding** — each rotation issues a fresh 7-day token, so
+  a session used daily never expires. The missing controls are an **idle
+  timeout** (expiry measured from last use, not last rotation) and a
+  **non-renewable absolute cap on the token family**, after which
+  re-authentication is required regardless of activity.
+- The BFF's own cookie session must not outlive the refresh token it wraps.
 
 ### 4. MFA is required, with step-up on destructive actions
 
@@ -169,12 +187,49 @@ The population is small, internal, and bootstrap-provisioned with no
 self-registration, which makes this cheap to operate and removes the usual
 objection.
 
-### 5. Authorization and audit are unchanged
+### 5. Deactivation must be enforced per request — it is not today
 
-**ADR-0010**'s model already loads and validates authorization server-side on
-every request, and `PlatformAdminAuditService` already records platform-admin
-actions. This ADR changes how a browser session is carried, not what an admin
-may do or what is recorded.
+An earlier draft of this ADR claimed authorization was already loaded and
+validated server-side on every request, citing **ADR-0010**. **That is false for
+the existing platform-admin path**, and the review that caught it is right:
+
+- `PlatformAdminAuthenticationFilter` builds `AuthenticatedPlatformAdminPrincipal`
+  from the JWT subject alone. It **never loads the admin row** and never checks
+  `active`.
+- `PlatformAdminSessionService` checks deactivation **only on refresh** — which
+  F-26 correctly describes as "fail-closed rotation for deactivated admins", a
+  narrower claim than per-request enforcement.
+
+So a platform administrator who is deactivated **retains full access until their
+access token expires** — up to 15 minutes on the highest-privilege surface in the
+system, and deactivation is exactly the control used when an admin should stop
+having access immediately.
+
+This ADR therefore **requires** an active-admin lookup in the shared request
+path, reached by both the existing bearer entry point and the BFF, with a
+regression test per transport. Tracked as **R-026**. Until that exists,
+authorization for this surface must not be described as unchanged or as already
+covered by ADR-0010.
+
+`PlatformAdminAuditService` already records platform-admin actions; that part is
+unchanged.
+
+### 6. The existing bearer endpoints are restricted to the BFF, not left open
+
+`/api/platform-admin/login` and `/refresh` return raw access and refresh tokens,
+and `/api/platform-admin/**` authenticates through an `Authorization: Bearer`
+filter. Leaving that contract publicly reachable while claiming a cookie-only
+browser boundary would mean a JS-readable credential path sitting beside the one
+this ADR exists to close — any future developer could wire the browser straight
+to it.
+
+**Decision: those endpoints remain the only way in, and the BFF becomes their
+only permitted caller.** They are not replaced and not duplicated; what changes
+is that the browser is not a client of them. How that restriction is enforced —
+network reachability, a required BFF credential, or both — is a validation item
+below, but the *decision* that they are not browser-facing is made here rather
+than left to implementation. The endpoint inventory and client-contract evidence
+must record them as BFF-only once that is in place.
 
 ## Alternatives Considered
 
@@ -292,6 +347,18 @@ Still required before this moves from `Proposed` to `Accepted`:
    factor it protects.
 4. Confirmation of whether the legacy PHP dashboard's `admin`-role surface runs
    in parallel during Phase 2, and if so whether both authenticate independently.
+5. Enforcement mechanism for keeping `/api/platform-admin/**` BFF-only
+   (Decision 6) — network reachability, a required BFF credential, or both.
+6. The active-admin lookup required by Decision 5, with a regression test per
+   transport (**R-026**).
+
+**Identity separation is deliberately not on this list.** **D-027** made
+individual platform-admin identity a P0 requirement and **F-26** records it as
+substantially closed — separate identities, structurally separated JWT sessions,
+`platform_admin_refresh_tokens`, and audit attribution with a NOT NULL admin FK.
+An earlier draft of this ADR listed it as an unanswered acceptance blocker, which
+would have reopened an accepted security decision against evidence that already
+exists.
 
 ## Open Questions
 
