@@ -30,13 +30,11 @@ name: Independent Review Gate
 # name supersede each other. The job therefore succeeds whenever it managed to
 # publish; `independent-review` is the signal, not this job.
 #
-# The status is advisory until a human adds `independent-review` to `main`'s
-# required contexts, which cannot happen while branch protection is Deferred
-# under D-013 — see docs/bootstrap/risk-register.md R-008 and
-# scripts/check-branch-protection.sh, which requires the context once applied.
-# A green status is evidence for the merge sequence's step 5. It says a round
-# happened, not that its findings were addressed; that is step 7, and nothing in
-# this repository verifies it mechanically.
+# The status is a REQUIRED check on `main` as of D-125 (2026-08-29) -- no longer
+# advisory. `scripts/check-branch-protection.sh` verifies it is in the required
+# contexts. A green status carries the merge sequence's step 5: it says a round
+# happened on this head, not that its findings were addressed. That is step 7,
+# and nothing in this repository verifies it mechanically (R-008).
 #
 # Fork limitation, disclosed rather than worked around: `GITHUB_TOKEN` is
 # read-only for pull requests from forks, so the status cannot be published for

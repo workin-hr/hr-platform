@@ -518,10 +518,26 @@ schema inventory (`month_start_day`/`month_end_day`/`weekly_off_days`/
 `overtime_rate` and others, including `MONTHLY_LEAVE_ACCRUAL`, consumed
 by `leave_balances/generate.php`).
 
-## Employee Docs, Company Join Requests, HR Employees, Complaints, Schedules, Company (16 endpoints)
+## Employee Docs, Company Join Requests, HR Employees, Complaints, Schedules, Company (19 endpoints)
 
-All 16 endpoints across these 6 small modules read; no scoping gaps
-found. Notably, `company_join_requests/accept.php` and `reject.php`
+**Corrected 2026-08-29 (C3).** This heading read 16 and the six modules hold
+**19 at this document's pinned source** (`83c326e`) — 20 in the later
+`d113204` tree, which adds `complaints/delete.php`. The count here follows the
+pin, because every other total and piece of evidence in this file does; the body below named no `employee_docs` or `complaints` endpoint
+individually, so those eight carried the real evidence gap rather than the
+four the arithmetic implied. They were read in the bounded C3/C8 pass
+(`docs/migration/2026-08-29-c3-c8-bounded-discovery.md`), which found two
+contract issues the original "no scoping gaps found" would have hidden:
+`complaints/create.php` is **unauthenticated** and writes rows no list query
+can return, and `employee_docs` authenticates MANAGER but honours that role
+on `list`/`upload` while restricting it on `update`/`delete` to the manager's
+**own** documents — an ownership check, not a blanket denial, so a port must not
+refuse the role outright.
+
+**The other four modules in this heading were not re-read** by that pass and
+remain owed; only `employee_docs` and `complaints` were covered.
+
+The remaining twelve read as follows; no scoping gaps found among them. Notably, `company_join_requests/accept.php` and `reject.php`
 match the exact approve/reject shape that was broken in `advances` —
 both are correctly company-scoped here, confirming the `advances` gap is
 isolated to that module. `hr_employees/update_permissions.php` writes the

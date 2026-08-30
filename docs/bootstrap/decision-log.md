@@ -165,6 +165,13 @@ certainty than the ADR it depends on.
 
 ## D-013: Defer H1 Branch-Protection Enforcement (GitHub Free Plan Limitation)
 
+> **Superseded 2026-08-29 by D-125** (`decision-log-wave12r.md`). This entry's
+> reasoning is preserved as written and was correct at the time: the deferral
+> rested on `hr-platform` being **private** on a Free organization. The
+> repository is now **public**, where Free has always offered branch protection,
+> so the premise no longer holds and protection is applied. The organization was
+> not upgraded — the constraint below is untouched.
+
 | Field | Value |
 |---|---|
 | Decision | H1 branch-protection enforcement on `main` is explicitly Deferred, not Completed. The `workin-hr` organization will not be upgraded from GitHub Free, and `hr-platform` will not be made public, in order to unblock it. |
