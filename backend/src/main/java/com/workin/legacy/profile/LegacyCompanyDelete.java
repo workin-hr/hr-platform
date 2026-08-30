@@ -36,10 +36,24 @@ import com.workin.legacy.wire.LegacyMessages;
  * cascade can commit -- which is a real operational property of this endpoint,
  * not an accident of the port.
  *
- * <p>The one statement that is <b>not</b> forgiving is the last: if deleting
- * the company row does not affect exactly one row, PHP throws and the whole
- * transaction rolls back. So the cascade either removes the company or leaves
- * everything, even though individual sub-deletes may have been skipped.
+ * <p><b>Every statement outside those inner catches is fatal.</b> PHP's outer
+ * {@code try} ends in {@code catch (Throwable $e) { $pdo->rollBack(); throw $e; }},
+ * so a failure in the {@code notifications} update or delete, anywhere in the
+ * employee-owned join loop, in the {@code departments.manager_id} update, or in
+ * the {@code department_branches} delete aborts the cascade and rolls the whole
+ * transaction back. Only the statements wrapped in
+ * {@code catch (Throwable $ignored)} are survivable.
+ *
+ * <p>What is special about the last statement is narrower: it is the only one
+ * whose <em>success</em> is inspected. Deleting the company row is checked with
+ * {@code rowCount() !== 1} and throws when it does not match, which catches a
+ * silent no-op that would otherwise commit. An earlier revision of this comment
+ * called it "the one statement that is not forgiving", conflating "explicitly
+ * checked" with "able to abort"; the second set is much larger.
+ *
+ * <p>Either way the outcome is all-or-nothing at the company level: the cascade
+ * removes the company or leaves everything, even though individual guarded
+ * sub-deletes may have been skipped within a successful run.
  *
  * <h2>Rollback</h2>
  * <p>There is none. This is a hard delete of a tenant and everything under it,

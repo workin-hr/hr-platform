@@ -1069,8 +1069,10 @@ Not decisions — evidence and sequencing owed by the waves that own them.
   emits, matching its reader-observable content, headers and filename rather than
   its archive bytes (D-085, §5 G3). `ITEM12_REMAINING` is empty and
   `FINAL_COMPATIBLE` stands at 183 (§3.2), after Item 13.0's `configs/get.php`,
-  Wave 13.5's five, Wave 13.3's eight, and Item 13.4's twenty-eight across waves
-  13.4a, 13.4b and 13.4c.
+  Wave 13.5's five, Wave 13.3's eight, Item 13.4's twenty-eight across waves
+  13.4a, 13.4b and 13.4c, and **Wave 13.2's thirteen** — six `notifications`
+  plus seven of the nine `profile` routes. The contributor list must add up to
+  the figure beside it: 170 + 13 = 183.
 
   **G2 is not closed by that.** Its numerator is; the gate covers all 198 live
   endpoints and Item 13's remainder still stands — see §3.2's
