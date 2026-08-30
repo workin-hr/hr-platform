@@ -466,7 +466,7 @@ table; only the distribution across buckets has moved.
 | `IMPLEMENTED_BUT_REQUIRES_D074_RETROFIT` | **0** | Closed by Wave 12.R (D-107/D-108/D-110/D-111). No `/api/legacy/**` business route remains mapped. |
 | `ITEM12_REMAINING` | **0** | **Empty as of 2026-08-28.** All three of C9's endpoints were delivered rather than excluded, exactly as O-8/D-120 dispositioned. |
 | `ITEM13_REMAINING` | **15** | §2.2's 71 less `auth/login_employee` (Wave 12.R), `configs/get.php` (Item 13.0), Wave 13.5's five, Wave 13.3's eight, Wave 13.4a's ten, Wave 13.4b's seven, Wave 13.4c's eleven and Wave 13.2's thirteen. Only Wave 13.1 remains: the 13 `auth` endpoints plus the two `profile` phone-change routes Wave 13.2 deferred to it, because both are OTP flows sharing their entire helper set with `auth` (D-133). |
-| **Live total** | **198** | 170 + 0 + 0 + 28 |
+| **Live total** | **198** | 183 + 0 + 0 + 15 |
 | `EXPLICITLY_EXCLUDED_WITH_DECISION` | **1** | `apis/api/time/now.php` (O-3, §2.3). Outside the live total. |
 | **Endpoint files** | **199** | 198 live + 1 excluded |
 
@@ -863,7 +863,7 @@ query parameter:
 
 | Shape | Live today | PHP terminates in | Java answers |
 |---|---|---|---|
-| **Envelope only** | **165** of the 170 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — including `attendance/overall_report.php`, delivered by Wave 12.6.6c |
+| **Envelope only** | **178** of the 183 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — including `attendance/overall_report.php`, delivered by Wave 12.6.6c |
 | **Download only** | **4**: `employees/template_excel.php`, `leave_balances/template_excel.php`, `attendance/export.php`, `payslips/export.php` | `stream_employee_template_xlsx()` / `leave_balance_excel_stream_template()` — write to output and `exit`; `api_xlsx_export_send()` for the export | the same reader-observable file, `Content-Type`, `attachment` disposition and filename. **All delivered** — `LegacyEmployeeController.templateExcel` writes the bytes itself, `LegacyLeaveBalanceController.template` returns `ResponseEntity<byte[]>`, and `LegacyAttendanceController.export` returns the workbook for either sheet |
 | **Conditional** | **1**: `penalties/report.php` | `?format=csv` → the file's **own local** `streamCSV()` (`penalties/report.php:24`), which `exit`s; anything else falls through to `ok()` | both shapes from one handler. **Delivered** — `LegacyPenaltyController.report` returns `ResponseEntity<?>`: the workbook on the `csv` branch, `LegacyApiResponse.ok` otherwise |
 | **Owed** | **none** — Item 12's last endpoint shipped 2026-08-28 | — | — |

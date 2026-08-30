@@ -21,10 +21,24 @@ import com.workin.legacy.wire.LegacyApiException;
  *
  * <p>The branch is on the auth <em>type</em>, not on which id happens to be
  * non-zero, and the company branch additionally requires {@code company_id > 0}.
- * A company-type token with no company id therefore falls through to the
- * second test rather than matching an unscoped company inbox -- and, having no
- * employee id either, ends at the 401. That fallthrough is why
- * {@link LegacyRequestContext#authType()} exists as its own field.
+ * That ordering is why {@link LegacyRequestContext#authType()} exists as its own
+ * field: without the type, a company session with no company id would match the
+ * employee branch on its employee id, reading an employee's inbox from a company
+ * token.
+ *
+ * <p><b>The second test is not reachable by a non-employee token, in either
+ * system.</b> PHP's helper reads {@code $auth[AuthKey::EMPLOYEE_ID]} whatever
+ * the type is, so a token typed neither {@code company} nor {@code employee} but
+ * carrying an employee id would reach the employee branch there -- and would do
+ * so having skipped {@code requireEmployeeSessionValid()}, which only runs for
+ * {@code type === 'employee'}. No such token exists: {@code AuthTypeEnum} has
+ * exactly two cases and all four issuers
+ * ({@code login_company}, {@code login_desktop},
+ * {@code complete_company_registration}, and the employee issuer in
+ * {@code functions.php:556}) emit one of them. So the filter's shape is ported
+ * faithfully and the unreachable arm stays unreachable on both sides; Java's
+ * narrower context is not a divergence in behaviour, because no issued token can
+ * tell the difference.
  *
  * <h2>This is the whole tenant boundary for the module</h2>
  * <p>There is no separate {@code company_id} check on the employee branch:
