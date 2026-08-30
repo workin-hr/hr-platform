@@ -214,3 +214,36 @@ fixed. Three questions have to be answered before it can be:
 These belong with `hr-platform#22`, which owns push delivery, rather than being
 answered separately: fixing the table without the delivery half would leave the
 same dead route with a different failure mode.
+
+## Platform-Admin Session Revocation (R-027)
+
+Surfaced 2026-08-31 by an independent security review of PR #152. This is a
+**decision that has not been made**, not a defect awaiting a fix — which is why
+it sits here rather than only in the risk register.
+
+- **Should logging out invalidate the live access token, or only the refresh
+  family?** Today it is the latter: the token carries a `sid` claim naming its
+  session family (`PlatformAdminJwtService:55`) and
+  `PlatformAdminAuthenticationFilter` never reads it, so
+  `PlatformAdminSessionService.logout(String)` revokes the family while the
+  current access token keeps authenticating until `exp` (≤900s).
+
+Two defensible answers, and the choice belongs to whoever owns **ADR-0005**:
+
+1. **Enforce session status per request.** Resolve `sid` in the filter and
+   reject a token whose family is `REVOKED`. The marginal cost is small — R-026
+   already made the filter pay one indexed lookup per request — and it makes
+   logout mean what an operator assumes it means.
+2. **Accept access-token survival** as the standard stateless-JWT trade, and
+   record it, so the inconsistency with R-026's stated principle ("immediate
+   revocation over cached authorization state") is a decision rather than an
+   accident.
+
+**Why it needs answering rather than deferring**: R-026 made *deactivation*
+immediate. Logout is not. So the stronger control works and the weaker one does
+not, which is the opposite of what someone reaching for either would assume —
+and incident response reaches for logout first.
+
+Not urgent today: the only authenticated route on this surface is
+`GET /api/platform-admin/me`. It becomes urgent with the first destructive
+platform-admin endpoint.
