@@ -211,6 +211,48 @@ public class LegacyPhoneNumbers {
 				+ ", '')), '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')";
 	}
 
+	/**
+	 * {@code phone_sql_match_clause()} ({@code phone_validator_helper.php:114-125}):
+	 * a {@code WHERE} fragment matching any stored formatting of the same
+	 * number, and the values to bind with it.
+	 *
+	 * <p>A phone with no digits produces the literal {@code "0=1"} and no
+	 * binds, so a query built from it matches nothing rather than everything.
+	 * That guard is the whole reason this returns a fragment instead of a list
+	 * of variants for the caller to splice.
+	 */
+	public static MatchClause sqlMatchClause(String column, String phone) {
+		List<String> variants = lookupVariants(phone);
+		if (variants.isEmpty()) {
+			return new MatchClause("0=1", List.of());
+		}
+		String placeholders = String.join(", ", java.util.Collections.nCopies(variants.size(), "?"));
+		return new MatchClause(digitsSqlExpression(column) + " IN (" + placeholders + ")", variants);
+	}
+
+	/** The fragment and its binds, kept together so they cannot drift apart. */
+	public record MatchClause(String sql, List<String> binds) {
+	}
+
+	/**
+	 * {@code phones_are_equivalent()}: true when the two numbers share any
+	 * lookup variant. Either side having no digits is false, so an empty phone
+	 * is not equivalent to another empty phone.
+	 */
+	public static boolean areEquivalent(String phoneA, String phoneB) {
+		List<String> a = lookupVariants(phoneA);
+		List<String> b = lookupVariants(phoneB);
+		if (a.isEmpty() || b.isEmpty()) {
+			return false;
+		}
+		for (String candidate : a) {
+			if (b.contains(candidate)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/** {@code phone_country_resolve_code()}: a known dial code, else the first configured one, else {@code +20}. */
 	public String resolveCode(String countryCode) {
 		String code = normalizeDialCode(countryCode);

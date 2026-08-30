@@ -1648,6 +1648,687 @@ the 13 auth endpoints plus the two OTP-dependent `profile` phone-change routes.
 
 Evidence: `./gradlew check` — **0 failures**. The suite-wide count is omitted deliberately: it is stale by the next commit.
 
+## D-134: Wave 13.1a delivers the OTP layer, the four public OTP routes, and the two `profile` phone-change routes
+
+**Status:** Accepted
+**Date:** 2026-08-29
+**Context:** D-128 deliberately scheduled Wave 13.1 last, calling it "the
+largest security surface in Item 13" and reserving it for a point where review
+is available. Wave 13.2 then deferred `profile/request_phone_change.php` and
+`profile/confirm_phone_change.php` into it, because both are OTP flows sharing
+their whole helper set with `auth` (D-133).
+
+### The split, and why it is not arbitrary
+
+13.1 is fifteen endpoints. **13.1a** is the six that are OTP flows end to end —
+`auth/{verify_otp,resend_otp,forgot_password,reset_password}` plus the two
+`profile` phone-change routes — together with the layer they all sit on:
+`otp_helper.php`, `whatsapp_helper.php`, and the two phone helpers Wave 12
+had not yet needed (`phone_sql_match_clause()`, `phones_are_equivalent()`).
+**13.1b** is the nine account-lifecycle endpoints: registration, joining, and
+the three logins.
+
+The line is the OTP layer. Everything in 13.1a either issues or verifies a
+code; nothing in 13.1b does except through the same layer, which is why the
+layer ships first and separately.
+
+### The OTP code does not reach the response, and that is not a new decision
+
+Legacy answers `ok(OTP_SENT, AppConfig::DEBUG ? [Response::OTP => $code] : [])`
+on `resend_otp`, `forgot_password` and `register_company`. The threat model
+records the consequence in full: with `DEBUG` on, anyone who knows a phone
+number reads the real code straight back and completes `reset_password.php` —
+a complete authentication bypass, not scoped to one tenant.
+
+That was **confirmed live on 2026-08-04 and the production value was changed to
+`false` on 2026-08-05** by the repository owner. PMR-05 and `hr-legacy#4`
+already record "no `DEBUG`-gated secret exception at all" as a mandatory
+requirement of this rewrite. So the false branch is the only branch here: the
+response carries PHP's empty array (`"data": []`, an array and not an object),
+and `theIssuedCodeIsNeverPutOnTheWire` asserts it by reading the code out of
+the *delivered message* rather than being handed it.
+
+Legacy's other `DEBUG` branch — `sendWhatsAppText()` returning **true** when
+WhatsApp is unconfigured, so an undelivered OTP counts as sent — is not ported
+for the same reason and a stronger one: it would let an unconfigured production
+issue codes nobody receives while reporting success.
+
+### R-014 is now asserted, not just described
+
+`otp_assert_can_send()`'s third check reads as a per-IP hourly cap. Against the
+frozen schema it is not one. `otp_count_recent_sends()` drops any predicate
+whose column is absent, and all three are: `otp_request_logs` does not exist,
+and `otp_codes` has neither `ip_address` nor `purpose`. Called as
+`otp_count_recent_sends(null, $ip, '', 3600)` — no phone argument either — what
+executes is:
+
+```sql
+SELECT COUNT(*) FROM otp_codes WHERE created_at > NOW() - INTERVAL 3600 SECOND
+```
+
+Every OTP the platform issued in the last hour. At twenty, **everyone** is
+refused, and the rows accumulate because `otp_clear_for_phone()` soft-invalidates
+by design. `thePerIpCapIsActuallyAPlatformWideCap` seeds twenty rows for twenty
+unrelated phones and shows a twenty-first, previously-unseen phone refused —
+then recovering when the global count drops. Ported as-is; the register entry
+was written before the code so the finding could not be lost inside the wave.
+
+The other degradation is harmless: the per-purpose cap collapses to a per-phone
+cap across all purposes, which is stricter than intended.
+
+### Preserved behaviours a reasonable person would have normalised
+
+- **`resend_otp.php`'s cooldown is 400, not 429.** `fail()` is called with no
+  status argument, so it takes the default. Every other cooldown in the system
+  is 429, including the one inside the limiter that checks the same 60-second
+  window immediately after. The local check always wins, so the observable
+  status is 400.
+- **`resend_otp.php` does not check that the phone belongs to anybody.** Any
+  number can be sent a WhatsApp message through it, once a minute.
+- **A pending employee can log in but cannot reset their password.**
+  `login_employee.php` lets a *single* pending account through;
+  `resolve_single_employee_auth_by_phone()` rejects any pending account with
+  `joined_company_wait_hr`. The two functions look alike and differ exactly
+  here, which is why `LegacyPhoneAuthResolver` is its own class rather than
+  `LegacyLoginResolver` with the password filter removed.
+- **`reset_password.php` has no minimum password length**, unlike
+  `profile/change_password.php`'s six. A one-character password is accepted.
+- **`reset_password.php`'s company branch updates every matching row**, not
+  one — two companies sharing a number both have their password replaced.
+- **`verify_otp.php`'s company update matches the phone exactly**, not through
+  `phone_sql_match_clause()` like everything around it. A company whose stored
+  phone carries a `+` or a space verifies successfully and is never marked
+  `otp_verified`, leaving it stuck at `login_company.php`'s verify-first branch.
+- **The two phone-change routes refuse a non-company session with 403** where
+  `delete_account_preview.php` refuses the same condition with 401. One module,
+  two statuses, both preserved.
+- **Confirming a phone change sets `otp_verified = 1`**, so a company that
+  never verified its original number becomes verified by changing it.
+- **The `X-Forwarded-For` family is trusted ahead of the socket address**, so a
+  caller chooses the IP the per-IP limit sees. Given R-014 that limit is not
+  per-IP anyway, but the trust order is ported and recorded rather than
+  quietly hardened.
+
+### The WhatsApp integration is real, and unconfigured means 503
+
+`LegacyWhatsAppSender` is a seam and `LegacyWhatsAppHttpSender` is the Whats360
+call behind it: 15-second timeout, primary-then-fallback instance ordering, and
+a fifteen-minute skip for an instance that answered "not connected". PHP keeps
+that skip map in a temp file because each request is a fresh process; a JVM
+shares memory, so it lives in the process. Same scope, different mechanism.
+
+Failures never throw — legacy logs and returns false, and the caller turns
+false into **503 `otp_delivery_failed`**. Throwing would turn a 503 into a 500.
+A deployment with no WhatsApp credentials therefore cannot issue an OTP at all,
+which is legacy's production behaviour and is asserted
+(`aFailedDeliveryIs503AndStillConsumedTheSlot`) — including the part that
+matters operationally: **the OTP row is written before the send**, so a failed
+delivery still puts the caller in cooldown for a code they never received.
+
+### Ledger after Wave 13.1a
+
+`FINAL_COMPATIBLE` 183 → **189**; `ITEM13_REMAINING` 15 → **9**; partition
+178/4/1 → **184/4/1**. Live total 198 unchanged. Remaining: Wave 13.1b's nine
+account-lifecycle endpoints.
+
+## D-135: Wave 13.1b completes Item 13 — the nine account-lifecycle `auth` endpoints
+
+**Status:** Accepted
+**Date:** 2026-08-29
+**Context:** Wave 13.1a delivered the OTP layer and the six endpoints built on
+it. The nine that remained are registration, joining and the three logins.
+
+**With this wave `FINAL_COMPATIBLE` reaches 198 — the whole live endpoint
+surface. `ITEM13_REMAINING` is 0.**
+
+### Three ways to find a company by phone, all preserved
+
+`register_company.php`, `register_employee.php` and `login_company.php` match
+the `phone` column **exactly** against the submitted value.
+`join_company.php` and `forgot_password.php` match through
+`phone_sql_match_clause()`, which accepts every stored spelling. The
+consequence is asymmetric and real: a company stored as `+201012345678` can be
+joined and can reset its password, but **cannot log in** unless the client
+sends exactly that string — and a second registration under `01012345678` is
+not detected as a duplicate. Asserted in
+`registerCompanyDuplicateCheckIsExactSoAVariantSlipsThrough`.
+
+### Two endpoints that both mean "join", and only one works
+
+- `register_employee.php` keys off the company's **phone**, writes no
+  `join_request_status` (so the column default makes the employee immediately
+  `accepted`), and writes no `branch_id`.
+- `join_company.php` keys off the public **code**, resolves the company's first
+  active branch, and creates a `pending`, inactive row.
+
+The first **cannot succeed**: `branch_id` is `NOT NULL` with no default, takes
+an implicit `0` under `sql_mode=''`, and `fk_employee_branch` rejects it. Every
+call is a 500. Recorded as **R-017** and asserted. This was found by running
+the port, not by reading it — the first test run returned the constraint
+violation, and the test now pins it.
+
+### R-016: `complete_company_registration.php` hands out a company-admin session
+
+The endpoint is unauthenticated — `grep -c 'requireAuth\|requireCompanyActive\|getAuth'`
+over the file returns **0** — takes `company_id` straight from `$_POST`, and
+returns `jwtEncode([type => company, company_id => <caller-supplied>, role =>
+company_admin])`. Its only gates are that the row exists, `otp_verified = 1`
+and `profile_completed ≠ 1`.
+
+**The threat model rated this Medium on the explicit reasoning that it "does
+not grant login access to the hijacked company".** The token block four lines
+from the end of the file shows that it does. The row was corrected to Critical
+with that evidence, and **R-016** records it. The regression is the proof, not
+a description: it presents no credential, names a company it does not own, and
+then uses the returned token successfully against `profile/company.php`.
+
+Ported in parity form because that is Phase 1's contract. Recording it in three
+places is what makes shipping it a visible decision rather than a silent one.
+
+### The `ALTER TABLE` in `register_company.php` is deliberately not ported
+
+PHP wraps its insert in an `ensureColumn()` helper that runs
+`ALTER TABLE companies ADD COLUMN ...` **at request time, from a public
+unauthenticated endpoint**, and only errors if the column is still missing
+afterwards.
+
+Every column it guards exists in `hr-legacy@d113204`, so all seven gates take
+their early return and the DDL never executes. The branch is unreachable
+against the frozen schema, and running schema migrations from an anonymous HTTP
+request is a line this repository's production standards do not cross. The
+observable half **is** reproduced: the columns are still required and their
+absence would still be an error rather than a silent skip. This is the wave's
+one deliberate divergence and it is recorded here rather than left implicit.
+
+### The two logins disagree in three places
+
+`login_company.php` and `login_desktop.php`'s company branch are almost
+identical and differ exactly here:
+
+| Condition | `login_company.php` | `login_desktop.php` |
+|---|---|---|
+| Unknown phone | 401 `invalid_phone_password` | 401 `company_not_registered` |
+| Wrong password | 401 `invalid_phone_password` | 401 `incorrect_password` |
+| Profile incomplete | 403 `complete_company_profile_first` | **200** with the company and no token |
+| On success | no onboarding notifications | writes the two onboarding notifications |
+
+So desktop tells an anonymous caller whether a phone is registered and mobile
+does not. All four differences are preserved and asserted.
+
+`login_desktop.php`'s HR branch is **HR only** and says so in SQL — `role =
+'hr' AND is_active = 1` — so a company admin with the same phone is
+`user_not_found` 401 there even though `login_employee.php` would admit them.
+It orders `e.id ASC`, oldest first, where every other login path orders newest
+first.
+
+### Smaller preserved behaviours across the nine
+
+- A `pending` company **can** log in; only a status that is neither pending nor
+  active reaches `company_pending_admin`.
+- `check_status.php` answers **200 for all four outcomes** — it routes the
+  client's next screen, it does not guard — and matches the phone exactly, so a
+  differently-formatted number is "not found".
+- `lookup_company.php` falls back to the legacy id only when the code is
+  **empty**; a supplied-but-invalid code is `company_code_invalid` and never
+  falls back. With neither, the error names `company_code`.
+- `complete_company_registration.php` uploads **both files before** validating
+  the three foreign keys, so a bad `company_title_id` still leaves two files on
+  disk. Its three foreign-key checks share one `field_required` with **no field
+  name**, so the client cannot tell which was wrong. And `first_name`/`last_name`
+  are written only when non-empty, so step two cannot blank step one's names.
+- `resolve_employee_name_from_body()`'s `name`-splitting fallback is
+  **unreachable from `join_company.php`** — `first_name` is `required()`, and a
+  body supplying only `name` is a 400. **Corrected 2026-08-30 after review:**
+  the `Pending-<phone>` fallback is *not* unreachable, and the very next bullet
+  said why without the connection being made. `required()` is
+  `isset() && !== ''`, so `"first_name": "  "` **passes** it; `fromBody()` then
+  trims to empty and assigns `Pending-<phone>`. One input shape reaches it, and
+  the regression now asserts the stored name rather than only the 201 — the
+  earlier version submitted exactly that body and checked only the status,
+  which is how an invariant that the same decision contradicts two bullets
+  later survived being written down.
+- `required()` rejects `""` but not `"  "` — it is `isset() && !== ''`, not a
+  trim. `register_company.php` is the exception and trims first, because it
+  rebuilds the array it validates.
+- `join_company.php`'s duplicate probe is company-scoped and treats `rejected`
+  as absent, so a rejected applicant passes it — and is then stopped by the
+  **global** `UNIQUE KEY phone` on `employees`. That is what the `try/catch`
+  around the INSERT is for, and why the answer is 409 rather than the probe's
+  400. Reproduced including PHP's inspection of the driver message for the word
+  "phone" to choose between two message keys.
+- A caller whose phone **is the company's own** bypasses both global-uniqueness
+  checks, so an owner may create an employee account for themselves.
+- `notification_ensure_company_onboarding()` is idempotent by **query**, not by
+  constraint, so two concurrent logins can both insert. Harmless and preserved.
+
+### Shared rather than copied
+
+`LegacyPeopleController`'s private `$_POST`/`$_FILES` helpers moved to
+`LegacyPostFields`, because `complete_company_registration.php` needs the
+identical rules and PHP has one `$_POST`, not two. A second copy would be free
+to drift while each module's own tests agreed with its own copy.
+
+### Ledger after Wave 13.1b
+
+`FINAL_COMPATIBLE` 189 → **198**; `ITEM13_REMAINING` 9 → **0**; partition
+184/4/1 → **193/4/1**. **Item 13 is complete and every live legacy endpoint is
+delivered.**
+
+## D-136: Review dispositions for Wave 13.1 — what the independent gate caught
+
+**Status:** Accepted
+**Date:** 2026-08-29
+**Context:** `chatgpt-codex-connector[bot]` reviewed PR #144 and raised seven
+findings. D-128 had deferred this wave specifically so that review would be
+available for it; this is what that bought.
+
+Two were defects in the port, two were latent gaps the port made reachable, one
+was an error in **this repository's own documentation**, one was an artifact
+desync, and one was a deployment gap. None was rejected.
+
+### The two real port defects
+
+**The employee country code was being discarded.**
+`forgot_password.php`'s no-`company_id` branch carries
+`COUNTRY_CODE => $employee[COUNTRY_CODE] ?? null` out of
+`resolve_single_employee_auth_by_phone()` and into the WhatsApp send. The port
+passed null and let `otp_resolve_country_code_for_phone()` re-derive it — and
+that helper matches the phone column **exactly**, so a number the
+variant-aware account query found (`+966 50…`) is not found again, delivery
+falls back to `+20`, and the JID is wrong. Fixed by reading the row's own
+`country_code` alongside its phone;
+`theResolvedEmployeesCountryCodeIsUsedForDelivery` asserts it and was falsified
+before being trusted.
+
+**`InetAddress.getByName()` resolved hostnames.** `otp_client_ip()` ports
+`filter_var(..., FILTER_VALIDATE_IP)`, which never resolves names. The port
+screened characters and then called `getByName()`, so a hostname made only of
+hex letters and dots — `bad.cafe` — passed the screen and triggered a
+**blocking DNS lookup of a name an unauthenticated caller chose**, on the
+request thread, through `X-Forwarded-For`. Two problems in one: a divergence
+from PHP and anonymous-input-driven outbound resolution. Replaced with a
+literal-only IPv4/IPv6 parser, with `LegacyClientAddressTest` covering both
+families and the motivating case.
+
+### One error in our own documentation
+
+The reviewer read `LegacyPhoneAuthResolver`'s javadoc — *"a set containing one
+pending row reports pending regardless of what the other rows say"* — and
+correctly flagged that the code does not do that. **The code was right and the
+comment was wrong**: PHP's entire rejection block sits inside
+`if ($login_ready === [])`, so a phone owning both a ready and a pending
+account resolves to the ready one. The javadoc is corrected, says plainly that
+an earlier draft stated it backwards, and
+`aPhoneOwningBothAReadyAndAPendingAccountResolvesToTheReadyOne` now pins the
+real behaviour so the wrong version cannot come back through a comment.
+
+Worth recording because the failure mode is instructive: a confident,
+well-written comment that inverts its code is harder to catch than absent
+documentation, and it nearly became the specification.
+
+### Two latent gaps the port made reachable
+
+**A credential could reach the logs.** The Whats360 token travels in the
+request URL — legacy's own shape — and several failures embed that URL in their
+exception message; the port logged `ex.toString()`. Now only the exception's
+class name is logged. AGENTS.md's "never print, log, commit, or otherwise
+expose production credentials" is unambiguous, and this was one malformed
+`api-base` away from writing the token to disk.
+
+**Password reset did not revoke refresh sessions.** ADR-0005 states that
+"logout and password change/reset revoke the relevant session(s) — closing the
+gap where `hr-legacy` password resets never invalidate existing sessions", and
+`#7`'s row names this wiring as remaining. `revokeAllForEmployee()` existed and
+was called from **nowhere**. Now wired into all three legacy credential-changing
+routes — `auth/reset_password.php`, `profile/change_password.php` and
+`profile/logout.php` — rather than only the one the reviewer pointed at, because
+fixing one of three would have been arbitrary.
+
+It is **a no-op today**, and saying so matters. The first version of this
+paragraph gave the weaker reason — that the only issuer, `LegacyLoginService`,
+is reached solely by a test-only controller. **Corrected after the second review
+round:** it is a no-op *by design of the phase*. D-111 states that short-lived
+access tokens and rotating refresh tokens "are not permitted to alter the
+literal Phase-1 `/apis/**` contract", so no route on that surface issues a
+refresh token at all, and none is meant to. The calls are still worth having --
+they cost nothing and are correct the moment a route outside this surface issues
+one for these identities -- but the reason is the phase boundary, not an
+unmapped bean.
+
+### F-27 was stale, and the fix was not to change the code
+
+F-27 says the reset-password and change-password endpoints "don't exist in the
+rewrite yet" and blocks until they enforce a minimum length. They now exist —
+as **Phase-1 parity ports**, which deliberately reproduce legacy's rules (no
+minimum on reset, six characters on change). Enforcing a minimum in the ports
+would make the two systems accept different passwords for the same request,
+which is exactly the divergence Phase 1 exists to prevent.
+
+So the row is synchronized rather than satisfied: the requirement attaches to
+the **native** endpoints that replace these at cutover, and the row now says so
+explicitly instead of leaving a delivered route sitting under a trigger
+condition that had already fired.
+
+### The deployment gap
+
+R-015 recorded that no WhatsApp credentials are configured, but the properties
+appeared nowhere in `application.properties` and nothing told an operator what
+to do. Now: declared with their environment mappings and a comment saying why
+they are empty, plus a runbook section covering configuration, four pre-cutover
+validation steps, a symptom-to-log-line table, and a warning that R-014's
+platform-wide cap will start refusing unrelated callers during a high-volume
+smoke test on this path.
+
+### What this says about the gate
+
+Every one of the seven was actionable and none needed arguing down. The two
+port defects were both in the same shape of code — a value quietly re-derived
+instead of carried, and a standard-library call that does more than the PHP
+function it replaces — which is the shape a second reader catches and an author
+does not.
+
+## D-137: Second review round on Wave 13.1 — four more defects, and the "complete" ambiguity
+
+**Status:** Accepted
+**Date:** 2026-08-29
+**Context:** The 13.1b push drew a second round of six findings. Four were
+defects in the port; two were the same artifact-conflict shape as D-136's F-27
+finding, and together they exposed a real ambiguity in how this repository's
+ledger is read.
+
+### Four defects, three of them locale- or platform-shaped
+
+**Uploads ran before every gate.** `complete_company_registration.php` reaches
+`uploadFile()` only after the scalar checks, the company lookup and both state
+gates. The port passed the stored URLs as **constructor arguments**, and Java
+evaluates arguments eagerly — so a public request naming `company_id=0` wrote
+both files to disk and then returned 400. That is a divergence from the order
+this class's own javadoc documents, *and* a cheap way for an unauthenticated
+caller to accumulate orphaned files. Fixed by passing an `UploadedFiles`
+supplier invoked in PHP's position. The regression asserts the **file count**,
+not just the status: four rejections above the uploads, and not one byte
+written.
+
+Note the shape: for the second time in this wave, the code contradicted a
+comment that described the correct behaviour. The comment was right and the
+code was wrong; in D-136's case it was the reverse. Both were caught by a
+reader comparing the two.
+
+**`toUpperCase()` is not `strtoupper()`.** `company_code_normalize()` is
+byte-wise and touches only `a-z`. Java's applies Unicode folding, and some
+foldings lengthen the string: `"abcß1"` becomes `"ABCSS1"` in Java and stays
+`"abcß1"` in PHP. So Java would turn input PHP **rejects** into a valid code
+that might match a real company's. Replaced with ASCII-only folding.
+
+**`String.format("%04d")` is locale-dependent.** Under a default locale with
+non-ASCII digits — `ar_EG` among them, which is not a hypothetical for this
+product — it renders 7 as `٠٠٠٧`. That value would be stored and delivered, and
+a client submitting the ordinary `0007` could never verify it. Every OTP in the
+system would silently stop working on a host configured that way. `Locale.ROOT`
+now, with a comment saying why it is load-bearing.
+
+**Multipart field names skipped PHP's normalization.** `LegacyPostFields`
+normalized dots and spaces on the urlencoded branch and used an exact
+`getPart(name)` on the multipart one — so a part named `company.name`, which
+PHP sees as `$_POST['company_name']`, was invisible. Both branches now iterate
+and match on the normalized name.
+
+### The ambiguity worth fixing once
+
+Two P1s said, in effect: *the matrix declares this module's cutover blocked, and
+you are marking it complete.* Both were right about the conflict and neither was
+right that the port should change.
+
+`#9` (the onboarding endpoint's guessable `company_id`) and `#10` (no rate
+limiting on OTP verification) are **legacy defects the ports faithfully
+reproduce**. Fixing either in Java alone would make the two systems answer
+differently for the same request — the divergence Phase 1 exists to prevent.
+
+The real problem was that `FINAL_COMPATIBLE` was being read as "cutover-ready",
+and nothing said otherwise. The completion plan now states plainly that it
+counts endpoints reproducing the frozen PHP and **nothing more**, lists the four
+rows that remain cutover blockers over delivered endpoints (`#8`, `#9`, `#10`,
+`F-27`), and says a parity port neither satisfies nor waives any of them. Rows
+`#9` and `#10` carry the same statement from their side.
+
+Two reviewers reaching the same wrong conclusion from the same document is a
+documentation defect, not two reviewer errors.
+
+### R-018
+
+`#10`'s defect is now characterised precisely enough to be actionable, and it is
+more serious than "no rate limiting" conveys: the issuance limiter guards only
+issuance, so an unauthenticated caller can submit all 10,000 four-digit values
+against an active code — and `verify_otp.php` with `purpose=password_reset`
+deliberately leaves a correct guess **active** for `reset_password.php` to
+consume. A successful brute force is therefore directly usable to set a password
+the attacker chooses. Recorded as **R-018**, Critical, with the ten-minute
+expiry noted as the only real limit.
+
+## D-138: Third review round — the first two findings declined, on the decision record
+
+**Status:** Accepted
+**Date:** 2026-08-29
+**Context:** The second round's fixes drew two more findings. Both were the
+first in this wave where the port was already right, and both are recorded here
+because *declining* a finding needs at least as much evidence as accepting one.
+
+### D-042 does not govern the `/apis/**` token model — D-111 supersedes it
+
+The finding read D-042 ("Phase 1 Keeps Legacy Login Semantics But Not Legacy's
+Token Model", Accepted 2026-08-16) as forbidding the 10-year PHP JWT these
+routes issue, and asked for short-lived access tokens plus refresh rotation.
+
+**D-111 (Accepted 2026-08-25) supersedes D-042 on exactly this point, and says
+so in the decision log itself:**
+
+> The earlier draft of this decision incorrectly allowed the new-platform
+> refresh-token design to remain on the Phase-1 employee-login route. **D-111
+> supersedes that detail**: the frozen PHP login and token behavior is
+> authoritative for Phase 1.
+
+D-111 then requires the opposite of the finding: Java must preserve the
+"authentication token shape"; `auth/login_employee.php` "does not add a refresh
+token"; the compatibility chain "also accepts the frozen company JWT used by
+desktop/company login" — a sentence written in anticipation of the very routes
+Wave 13.1b delivers; and short-lived access tokens with rotating refresh tokens
+"are not permitted to alter the literal Phase-1 `/apis/**` contract".
+
+So the port stands. The 10-year lifetime remains a recorded defect
+(`hr-legacy#7`) owned by the modernization phase, and
+`app.legacy-jwt.expiry-hours` is already a property, so the lifetime is an
+operational lever without a code change — though shortening it is client-visible
+and needs the decision D-111 deferred.
+
+**The finding did improve one thing.** It observed that the
+`revokeAllForEmployee()` calls added in D-136 "only touch a refresh-token store
+that they never populate". D-136 explained that as an accident of wiring; the
+better reason is the phase boundary — D-111 forbids issuing refresh tokens on
+this surface at all, so the calls are a no-op *by design* rather than by
+oversight. D-136 is corrected.
+
+### `join_company.php` really does discard the dial code — R-019
+
+The finding said the insert omits `country_code` and asked for it to be added.
+It is right that the column is omitted and right about the consequence. It is
+wrong that this is the port's doing: PHP's INSERT names nine columns and
+`country_code` is not among them, so legacy resolves the code, **validates the
+phone against it**, and then throws it away.
+
+Adding it in Java would make a joined employee's row differ between the two
+systems on a column other endpoints read. So the defect is recorded as **R-019**
+and pinned by `aNonEgyptianJoinerHasNoCountryCodeStored`, which asserts the NULL
+and was falsified by writing the column and watching it fail.
+
+The consequence is worth restating because it surfaces far from its cause: a
+non-Egyptian joiner has no stored dial code, so a later `forgot_password.php`
+falls back to `+20`, builds an Egyptian JID from a Saudi number, and the OTP
+goes nowhere — while the logs record a successful send. The *same* failure mode
+arrived in round one as a genuine port defect on a different route and was fixed
+there (D-136); this one is legacy's and is not.
+
+The fixture now seeds `phone_countries`, because the frozen dump ships it empty
+and without a `+966` row the non-default-country case silently resolves to `+20`
+and tests nothing.
+
+### On declining findings
+
+Two of fifteen findings across three rounds were declined, and both needed the
+decision log to settle rather than the code. That is the ratio one would hope
+for: the reviewer is reading the implementation without the full decision
+history, so a finding that contradicts an accepted decision is more likely to
+have found a *stale or ambiguous decision* than a wrong implementation — which
+is what happened with F-27, `#9` and `#10`, where the artifacts were the thing
+that changed.
+
+## D-139: Fourth review round — three defects, one corrected decision, one honest limit
+
+**Status:** Accepted
+**Date:** 2026-08-30
+**Context:** The third round's fixes drew five more findings. Four were valid;
+the fifth re-raised a finding already declined with evidence, having read a
+different thread's "Fixed" as covering it.
+
+### Two half-done fixes from the previous round
+
+**`file()` never got the treatment `field()` did.** Round three normalized
+dot-and-space field names on the `$_POST` lookup and left `$_FILES` on an exact
+`getFile(name)`. PHP normalizes both, so a part named `commercial.reg` is
+`$_FILES['commercial_reg']` there and was null here — and on
+`complete_company_registration.php` that means the logo is stored and *then*
+the request is rejected for a missing commercial register. An orphaned file and
+a misleading error, from a fix that stopped one method short. Both lookups now
+follow the same rule, which is the entire point of them living in one class.
+
+**`required()` ran in the wrong order.** `confirm_phone_change.php` checks all
+three fields in a single call — `[PHONE, COUNTRY_CODE, OTP]` — before any
+validation, so a body missing both the phone and the code is told about the
+**phone**. The port checked `otp` first and reported `otp` for that body, which
+sends a compatibility client down the wrong recovery flow.
+
+### A decision that contradicted itself two bullets apart
+
+D-137 stated that `resolve_employee_name_from_body()`'s fallbacks are
+unreachable from `join_company.php`. Only the **splitting** one is. The
+`Pending-<phone>` fallback is reachable, and **the very next bullet of the same
+decision said why**: `required()` is `isset() && !== ''` rather than a trim, so
+`"first_name": "  "` passes the guard and is then trimmed to empty by the
+resolver.
+
+The regression submitted exactly that body and asserted only the 201 — so the
+test that should have caught the false invariant was what let it stand.
+Corrected in three places: the decision, the helper's javadoc, and the test,
+which now asserts the stored `Pending-01000033079` and was falsified by
+disabling the fallback.
+
+This is the second documentation defect this wave (D-136 was the first, in the
+opposite direction). Both were confident prose next to code that disagreed with
+it, and neither would have been caught by a reader looking only at the code or
+only at the docs.
+
+### A test that promised more than it delivered — and still does, now honestly
+
+The cross-company duplicate test used a phone belonging to the same company it
+was joining, so the company-scoped probe answered 400 and the 409 branch was
+never reached: it asserted 400 under a name promising 409. The fixture now
+seeds another company and the test asserts 409.
+
+**Falsifying it produced a better result than the fix.** Disabling
+`employee_phone_exists_globally()` left the test green, because
+`employees.phone` is *globally* UNIQUE — the INSERT then fails and the
+duplicate-entry catch answers with the same status and the same message key.
+The explicit check and the index are redundant for this case and
+indistinguishable over HTTP.
+
+So the test pins the outcome, which is the contract, and cannot pin the branch.
+It now says that, rather than leaving a reader to assume coverage it does not
+have. A companion test covers the branch that *is* distinguishable: the
+company's own phone bypasses both global checks.
+
+### The re-raised finding
+
+The fifth asked again for `join_company.php` to persist `country_code`, reading
+another thread's "Fixed" as having covered it. That "Fixed" was round one's
+`forgot_password.php` defect, where the port genuinely discarded a value PHP
+carries. This route is the opposite: PHP's INSERT names nine columns and
+`country_code` is not among them. Declined again with the column list, and
+R-019 already records the legacy defect with a regression.
+
+The fixture gained a `phone_countries` seed in the process — the frozen dump
+ships that table empty, so without a `+966` row the non-default-country case
+resolved to `+20` and the regression tested nothing.
+
+### A sixth finding, declined on an inverted premise
+
+A later finding asked for the logo to be checked *between* the two uploads,
+stating that "the ported PHP ordering aborts after the failed logo upload
+before attempting the second upload". It does not: both `uploadFile()` calls
+are unconditional statements and both `if (!$url)` checks come after them
+(`complete_company_registration.php:68-76`). Legacy therefore does store the
+commercial register before discovering the logo is missing, and the port
+matches.
+
+The orphan the finding describes is real and is legacy's. Making the change
+would have made the port write one fewer file than legacy for that input, on an
+endpoint where the file count is observable on disk.
+
+It is worth separating from the round-three finding it resembles, which was
+correct and was fixed. There the uploads ran before the **scalar and state
+gates**, which PHP reaches first, so a `company_id=0` request wrote two files
+where legacy writes none. The sequence *between* the two uploads is a different
+question with the opposite answer. `bothUploadsRunBeforeEitherIsChecked` now
+pins it — asserting the 400 and that the file count rose by exactly one — and
+applying the requested change makes it fail, which is how the premise was
+settled rather than argued.
+
+## D-140: Fifth review round — two ordering and null-handling defects
+
+**Status:** Accepted
+**Date:** 2026-08-30
+
+**Multipart order was lost across normalized aliases.** `file()` grouped by raw
+name via `getMultiFileMap()`, took the last entry of each matching bucket, and
+let later buckets win — so for `logo=A, lo.go=B, logo=C` it chose C and then
+overwrote it with the earlier B. PHP normalizes each part as it parses and keeps
+the final one. `file()` now walks `getParts()` in arrival order and resolves the
+winner by raw name plus its ordinal within that name, which keeps wire order
+while still returning a `MultipartFile`.
+
+The fix that preceded it — normalizing the name at all — was correct and
+incomplete in a way that only shows with interleaved aliases, which is the kind
+of input nobody writes a test for unprompted.
+
+**`"country_code": null` was rejected where legacy defaults it.**
+`trim((string) ($body[COUNTRY_CODE] ?? '+20'))` treats an explicit null exactly
+like an absent key. The port tested `containsKey()`, so an explicit null left
+the code as `""` and `isValidLocal("", phone)` rejected a valid Egyptian number
+with `invalid_phone_number` — a registration legacy completes. The default now
+keys off the value being null, which is what `??` does, and
+`anExplicitlyNullCountryCodeTakesTheDefault` asserts both the 201 and the stored
+`+20`.
+
+Both were falsified by restoring the previous behaviour and confirming the new
+assertions fail.
+
+### The pattern across five rounds
+
+Twenty-three findings: nineteen fixed, four declined with evidence. The declined
+four all turned on something the reviewer could not see from the diff — a
+superseding decision (D-111), or PHP source whose ordering contradicts a
+reasonable reading. The nineteen cluster into three recognisable shapes:
+
+1. **a value quietly re-derived instead of carried** (the employee country code,
+   twice on different routes);
+2. **a standard-library call that does more than the PHP function it replaces**
+   (`getByName()` resolving names, `toUpperCase()` folding Unicode,
+   `String.format()` localizing digits, `getMultiFileMap()` losing order);
+3. **prose and code disagreeing**, in both directions — a javadoc that inverted
+   its own resolver, and a decision that contradicted itself two bullets apart.
+
+The third shape is the one worth carrying forward: neither instance would have
+been caught by reading only the code or only the documentation, and in both
+cases the *wrong* half was the confident, well-written one.
+
 ## D-141: The owner accepts parity on R-016 and R-012 — both ship reproducing legacy
 
 **Status:** Accepted 2026-08-30 by the repository owner. This is the owner
@@ -1661,8 +2342,7 @@ The direction, verbatim and unedited:
 ### What is accepted
 
 **R-016 — `complete_company_registration.php`.** Named explicitly by the owner.
-(Its risk-register entry is introduced with Wave 13.1b, higher in this stack, so
-a reader of Wave 13.4b alone will find the decision here but not the entry.)
+
 The route stays unauthenticated, keeps taking `company_id` from `$_POST`, and
 keeps returning a company-admin session token for whatever id it is handed. No
 Java-side authentication is added. Severity stays **Critical**: accepting a risk

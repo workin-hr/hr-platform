@@ -10,11 +10,20 @@ package com.workin.legacy.auth;
  * clients branch on them, so Phase 1 reproduces them exactly (D-040's
  * contract parity, reaffirmed by D-042).
  *
- * <p>The one thing Phase 1 does <em>not</em> reproduce is the session
- * token itself — legacy's 10-year JWT with no revocation is a recorded
- * defect (`hr-legacy#7`), and D-042 keeps the short-lived access token
- * plus refresh rotation instead. Outcomes are parity; token lifetime is
- * the recorded exception.
+ * <p><b>The session token is parity too, on this surface.</b> D-042 once
+ * carved out an exception here — legacy's 10-year JWT with no revocation
+ * is a recorded defect (`hr-legacy#7`), and D-042 kept short-lived access
+ * tokens plus refresh rotation instead. **D-111 supersedes that detail**
+ * and the decision log says so outright: "the frozen PHP login and token
+ * behavior is authoritative for Phase 1". The literal {@code /apis/**}
+ * routes therefore issue the PHP token shape and no refresh token, and
+ * short-lived tokens "are not permitted to alter the literal Phase-1
+ * {@code /apis/**} contract".
+ *
+ * <p>So: outcomes are parity, and so is the token. The 10-year lifetime
+ * stays a defect owned by a later modernization phase, not an exception
+ * taken here. (See D-138 — a review round read the stale version of this
+ * paragraph as the governing rule.)
  */
 public enum LegacyLoginOutcome {
 

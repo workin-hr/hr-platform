@@ -16,6 +16,7 @@ import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyApiResponse;
 import com.workin.legacy.wire.LegacyMessages;
+import com.workin.legacy.wire.LegacyPostFields;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -124,37 +125,7 @@ public class LegacyPeopleController {
 	 * during argument resolution before {@code requireMethod} has run.
 	 */
 	private static MultipartFile uploadedFile(HttpServletRequest request) {
-		if (!(request instanceof org.springframework.web.multipart.MultipartHttpServletRequest multipart)) {
-			return null;
-		}
-		// getFile(name) is an exact-name, first-match lookup. PHP normalizes the
-		// external name before populating $_FILES and keeps the LAST duplicate,
-		// so `file.name=A` then `file=B` is $_FILES['file'] == B there and A
-		// here. Walked in wire order instead, because getMultiFileMap() groups by
-		// raw name: picking the last of each matching bucket would let an earlier
-		// alias overwrite a later one.
-		String winningName = null;
-		int winningIndex = -1;
-		java.util.Map<String, Integer> seen = new java.util.HashMap<>();
-		try {
-			for (jakarta.servlet.http.Part part : request.getParts()) {
-				if (part.getSubmittedFileName() == null) {
-					continue;
-				}
-				int index = seen.merge(part.getName(), 0, (existing, ignored) -> existing + 1);
-				if (normalizePhpFieldName(part.getName()).equals("file")) {
-					winningName = part.getName();
-					winningIndex = index;
-				}
-			}
-		} catch (Exception ex) {
-			return null;
-		}
-		if (winningName == null) {
-			return null;
-		}
-		java.util.List<MultipartFile> files = multipart.getMultiFileMap().get(winningName);
-		return files == null || winningIndex >= files.size() ? null : files.get(winningIndex);
+		return LegacyPostFields.file(request, "file");
 	}
 
 	/**
@@ -175,91 +146,11 @@ public class LegacyPeopleController {
 	 * <p>A multipart request needs none of that positional reasoning --
 	 * {@code getParts()} reads the body directly and never sees the query string
 	 * -- but it still needs the name normalization and the last-duplicate rule,
-	 * so it is walked rather than looked up by name.
+	 * so {@link LegacyPostFields} walks the parts rather than looking one up by
+	 * name.
 	 */
 	private static String formField(HttpServletRequest request, String name) {
-		String contentType = request.getContentType();
-		if (contentType != null && contentType.toLowerCase(java.util.Locale.ROOT)
-				.startsWith("multipart/form-data")) {
-			try {
-				// getPart(name) is an exact-name, first-match lookup, which is
-				// wrong twice over: PHP normalizes the external name before
-				// populating $_POST, so `doc.type` is $_POST['doc_type'] and is
-				// invisible to an exact lookup; and parse_str() keeps the LAST
-				// duplicate where getPart returns the first. On this route both
-				// decide whose record the document lands on.
-				jakarta.servlet.http.Part matched = null;
-				for (jakarta.servlet.http.Part part : request.getParts()) {
-					if (!normalizePhpFieldName(part.getName()).equals(name)) {
-						continue;
-					}
-					// A part carrying a filename is a FILE. PHP puts those in
-					// $_FILES and never in $_POST, so reading its bytes as a form
-					// value would accept input legacy does not see.
-					if (part.getSubmittedFileName() != null) {
-						continue;
-					}
-					matched = part;
-				}
-				if (matched == null) {
-					return null;
-				}
-				try (java.io.InputStream in = matched.getInputStream()) {
-					return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-				}
-			} catch (Exception ex) {
-				return null;
-			}
-		}
-
-		// PHP normalizes dots and spaces in external field names, so a body
-		// carrying `doc.type` or `doc type` populates $_POST['doc_type'] and the
-		// required-field guard passes. The servlet container does not, so the
-		// body is matched on the normalized name rather than the raw one.
-		String[] merged = null;
-		int fromQueryString = 0;
-		for (java.util.Map.Entry<String, String[]> entry : request.getParameterMap().entrySet()) {
-			if (!normalizePhpFieldName(entry.getKey()).equals(name)) {
-				continue;
-			}
-			merged = merged == null ? entry.getValue()
-					: concat(merged, entry.getValue());
-			fromQueryString += countInQueryString(request, entry.getKey());
-		}
-		if (merged == null) {
-			return null;
-		}
-		return merged.length <= fromQueryString ? null : merged[merged.length - 1];
-	}
-
-	/** {@code parse_str()}'s external-name normalization: dots and spaces become underscores. */
-	private static String normalizePhpFieldName(String name) {
-		return name.replace('.', '_').replace(' ', '_');
-	}
-
-	private static String[] concat(String[] first, String[] second) {
-		String[] out = java.util.Arrays.copyOf(first, first.length + second.length);
-		System.arraycopy(second, 0, out, first.length, second.length);
-		return out;
-	}
-
-	private static int countInQueryString(HttpServletRequest request, String rawName) {
-		String query = request.getQueryString();
-		if (query == null) {
-			return 0;
-		}
-		int count = 0;
-		for (String pair : query.split("&")) {
-			if (pair.isEmpty()) {
-				continue;
-			}
-			String key = java.net.URLDecoder.decode(pair.split("=", 2)[0],
-					java.nio.charset.StandardCharsets.UTF_8);
-			if (key.equals(rawName)) {
-				count++;
-			}
-		}
-		return count;
+		return LegacyPostFields.field(request, name);
 	}
 
 	@RequestMapping("/apis/api/employee_docs/delete.php")

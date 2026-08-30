@@ -18,14 +18,20 @@ import com.workin.legacy.wire.LegacyMessages;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * Wave 13.2: {@code apis/api/profile/*.php}, minus the two phone-change routes
- * that need the OTP layer Wave 13.1 owns.
+ * {@code apis/api/profile/*.php}. Seven routes landed in Wave 13.2; the two
+ * phone-change routes landed in Wave 13.1a with the OTP layer they share with
+ * {@code auth}.
  *
- * <p>Six of the seven check the HTTP method first, as every other legacy module
- * does. {@code profile/employee.php} does <b>not</b>: it authenticates first
- * and dispatches on the method afterwards, so an anonymous {@code PATCH} to it
- * is a 401 where the same request to any sibling is a 405. That inversion is
- * reproduced in {@link #employee} rather than normalised away.
+ * <p>Eight of the nine check the HTTP method first, as every other legacy
+ * module does. {@code profile/employee.php} does <b>not</b>: it authenticates
+ * first and dispatches on the method afterwards, so an anonymous {@code PATCH}
+ * to it is a 401 where the same request to any sibling is a 405. That
+ * inversion is reproduced in {@link #employee} rather than normalised away.
+ *
+ * <p>The module also disagrees with itself about the status for "wrong session
+ * type": {@code delete_account_preview.php} answers <b>401</b> and the two
+ * phone-change routes answer <b>403</b>, for the same condition. Both are
+ * preserved.
  */
 @RestController
 public class LegacyProfileController {
@@ -124,6 +130,22 @@ public class LegacyProfileController {
 			return LegacyApiResponse.ok(message(request, "company_account_deleted"), data);
 		}
 		return LegacyApiResponse.ok(message(request, "ok"), null);
+	}
+
+	/** Company sessions only, and it refuses with **403** where the delete preview uses 401. */
+	@RequestMapping("/apis/api/profile/request_phone_change.php")
+	public LegacyApiResponse requestPhoneChange(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		service.requestPhoneChange(request, requestGuard.requireAuth(),
+				LegacyJsonBody.read(request), messages.resolveLocale(request));
+		return LegacyApiResponse.ok(message(request, "otp_sent"), null);
+	}
+
+	@RequestMapping("/apis/api/profile/confirm_phone_change.php")
+	public LegacyApiResponse confirmPhoneChange(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		return LegacyApiResponse.ok(message(request, "phone_changed"),
+				service.confirmPhoneChange(requestGuard.requireAuth(), LegacyJsonBody.read(request)));
 	}
 
 	private static void requireMethod(HttpServletRequest request, String expected) {

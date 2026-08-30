@@ -92,6 +92,81 @@ Link the proof that the check ran and passed or failed. Evidence may include:
 
 If evidence is not retained automatically, define how it will be recorded.
 
+## WhatsApp OTP Delivery (R-015) — Required Before Auth Cutover
+
+The legacy auth and profile routes issue every OTP through the Whats360
+gateway. Its credentials are **not** in this repository and the properties
+default to empty, so an unconfigured deployment answers **503
+`otp_delivery_failed`** on every OTP-issuing route:
+`auth/resend_otp`, `auth/forgot_password`, `auth/register_company`, the
+verify-first branch of **both** `auth/login_company` and
+`auth/login_desktop` (`login_as=company`), and
+`profile/request_phone_change`. Nobody can register, reset a password, or
+verify a phone — on mobile **or** desktop.
+
+### Configuration
+
+Supply these from the deployment's secret store. **Never commit a value** —
+`app.legacy-whatsapp.api-token` is a credential, and it travels in the request
+URL, which is why `LegacyWhatsAppHttpSender` logs only an exception's class
+name and never its message.
+
+| Property | Environment variable | Required? |
+|---|---|---|
+| `app.legacy-whatsapp.api-token` | `LEGACY_WHATSAPP_API_TOKEN` | **Yes** |
+| `app.legacy-whatsapp.instance-id` | `LEGACY_WHATSAPP_INSTANCE_ID` | **Yes** — at least one instance |
+| `app.legacy-whatsapp.instance-id-fallback` | `LEGACY_WHATSAPP_INSTANCE_ID_FALLBACK` | No — used when the primary reports "not connected" |
+| `app.legacy-whatsapp.api-base` | `LEGACY_WHATSAPP_API_BASE` | No — defaults to legacy's endpoint |
+
+Use the same Whats360 account the frozen stack uses. A token or instance id
+left at its committed placeholder counts as unconfigured.
+
+### Pre-cutover validation
+
+1. **Confirm it is configured at all.** Start the service and read the startup
+   line from `LegacyWhatsAppHttpSender`: either
+   `WhatsApp OTP delivery is configured: N instance(s)` or
+   `WhatsApp is not configured at startup`. One of the two is always emitted, so
+   absence of the error means the check did not run — not that it passed.
+
+   > Until this line existed, this step said to grep for
+   > `WhatsApp is not configured`, which is logged only inside `sendText()`. An
+   > operator running the grep *before* making an OTP request always found
+   > nothing, including when every credential was empty, and read that as a
+   > pass. Do not go back to inferring configuration from an absent log line.
+2. **Send one real code.** `POST /apis/api/auth/resend_otp.php` with a phone
+   the operator controls. Expect **200** and an actual WhatsApp message. A
+   **503** means delivery failed — check the log for
+   `WhatsApp delivery failed on every instance` (transport or credentials)
+   versus `no LID found` (the number is not on WhatsApp, which is not an
+   outage).
+3. **Confirm the code is not in the response.** The body's `data` must be `[]`.
+   An OTP appearing there is the PMR-05 / `hr-legacy#4` disclosure and is a
+   release blocker, not a smoke-test note.
+4. **Exercise the fallback**, if a fallback instance is configured: an instance
+   that answers "not connected" is skipped for fifteen minutes, so a second
+   send within that window should still succeed.
+
+### What an operator sees when it fails
+
+| Symptom | Log line | Meaning |
+|---|---|---|
+| Every OTP route 503s immediately | `WhatsApp is not configured` (ERROR, every attempt) | No credentials supplied |
+| OTP routes 503 intermittently | `WhatsApp instance disconnected` then `will prefer fallback briefly` | The primary instance dropped; the fallback is being preferred for 15 minutes |
+| One number always 503s | `WhatsApp number unreachable ... no LID found` | That number is not on WhatsApp — not an outage |
+| Every OTP route 503s after working | `WhatsApp delivery failed on every instance` | Gateway outage, expired token, or network egress blocked |
+
+**A 503 here is indistinguishable to a user from the platform being down**, so
+this path is worth an alert rather than only a dashboard.
+
+### Rate limiting interacts with this — R-014
+
+The OTP limiter's per-IP cap currently behaves as a **platform-wide 20-per-hour
+cap** against the frozen schema. During validation, twenty sends in an hour
+will start refusing *unrelated* callers with 429
+`otp_too_many_requests`. Do not read that as a WhatsApp failure, and do not run
+a high-volume smoke test on this path without reading R-014 first.
+
 ## Open Questions
 
 - Which smoke tests can be automated safely for every production deployment?

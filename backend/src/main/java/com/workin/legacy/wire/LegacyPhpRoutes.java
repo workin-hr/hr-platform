@@ -29,20 +29,45 @@ package com.workin.legacy.wire;
  * (active company), plus the tenant re-derivation behind
  * {@code LegacyRequestContext#companyId()}.
  *
- * <h2>Six entries are unauthenticated in legacy itself</h2>
+ * <h2>Nineteen entries are unauthenticated in legacy itself</h2>
  * <p>{@code auth/login_employee.php}, {@code configs/get.php},
  * {@code phone_countries/list.php}, {@code app_content/one.php},
- * {@code setting_allowed_values/list.php} and {@code complaints/create.php}
- * are listed for a different reason from every other entry: their PHP calls no
- * {@code requireAuth()} at all, so there is no guard order for the controller
- * to reproduce -- the endpoint is public in legacy and must stay public here
- * (D-111). Each performs its own PHP method validation first.
+ * {@code setting_allowed_values/list.php}, {@code complaints/create.php} and
+ * Wave 13.1a's four OTP routes -- {@code auth/verify_otp.php},
+ * {@code auth/resend_otp.php}, {@code auth/forgot_password.php} and
+ * {@code auth/reset_password.php} -- and Wave 13.1b's nine account-lifecycle
+ * routes are listed for a different reason from every other entry: their PHP calls no {@code requireAuth()} at all, so there
+ * is no guard order for the controller to reproduce -- the endpoint is public
+ * in legacy and must stay public here (D-111). Each performs its own PHP
+ * method validation first.
  *
- * <p>Five of the six are safe to expose for the same kind of reason, which is
- * about the <em>data</em> rather than the routing: a login handler, global
- * operational configuration, the dial-code reference list, pre-login
+ * <p><b>The four OTP routes are the sharpest edge on this list.</b> Two of
+ * them ({@code resend_otp}, {@code forgot_password}) cause an outbound
+ * WhatsApp message to a caller-chosen number, and {@code reset_password}
+ * changes a password given only a phone and a four-digit code. What stands
+ * between them and abuse is the OTP rate limiter -- whose per-IP cap is
+ * currently a platform-wide cap (R-014) -- and the fact that the code is no
+ * longer returned in the response (PMR-05, {@code hr-legacy#4}). They are
+ * listed because legacy requires no authentication, not because exposing them
+ * is comfortable.
+ *
+ * <p><b>{@code auth/complete_company_registration.php} is sharper still.</b>
+ * It is unauthenticated, takes {@code company_id} straight from
+ * {@code $_POST}, and returns a <b>company-admin token for that id</b> -- so
+ * naming a company that is mid-onboarding is enough to be handed a session for
+ * it. That is R-016, ported in parity form under D-058 and recorded in the risk
+ * register, the threat model and the endpoint inventory. It is on this list
+ * because legacy requires no authentication for it; nothing about that is
+ * an endorsement.
+ *
+ * <p>Five of the original six are safe to expose for the same kind of reason,
+ * which is about the <em>data</em> rather than the routing: a login handler,
+ * global operational configuration, the dial-code reference list, pre-login
  * marketing/legal copy, and the platform's allowed-value catalogue. None reads
- * company or personal data.
+ * company or personal data. {@code auth/get_company_registration_options.php}
+ * joins them on the same argument -- three lookup tables with no
+ * {@code company_id} and no personal data, which a client must render the
+ * registration form from before any account exists to authenticate with.
  *
  * <p><b>{@code complaints/create.php} is the exception, and that argument does
  * not cover it.</b> It is the only public entry that <em>writes</em>: it
@@ -107,6 +132,19 @@ public final class LegacyPhpRoutes {
 		"/apis/api/departments/**",
 		"/apis/api/job_titles/**",
 		"/apis/api/auth/login_employee.php",
+		"/apis/api/auth/verify_otp.php",
+		"/apis/api/auth/resend_otp.php",
+		"/apis/api/auth/forgot_password.php",
+		"/apis/api/auth/reset_password.php",
+		"/apis/api/auth/get_company_registration_options.php",
+		"/apis/api/auth/lookup_company.php",
+		"/apis/api/auth/check_status.php",
+		"/apis/api/auth/register_company.php",
+		"/apis/api/auth/complete_company_registration.php",
+		"/apis/api/auth/register_employee.php",
+		"/apis/api/auth/join_company.php",
+		"/apis/api/auth/login_company.php",
+		"/apis/api/auth/login_desktop.php",
 		"/apis/api/configs/get.php",
 		"/apis/api/phone_countries/list.php",
 		"/apis/api/app_content/one.php",
@@ -128,6 +166,8 @@ public final class LegacyPhpRoutes {
 		"/apis/api/profile/change_password.php",
 		"/apis/api/profile/logout.php",
 		"/apis/api/profile/register_push_token.php",
+		"/apis/api/profile/request_phone_change.php",
+		"/apis/api/profile/confirm_phone_change.php",
 		"/apis/api/profile/delete_account_preview.php",
 		"/apis/api/profile/delete_account.php",
 	};

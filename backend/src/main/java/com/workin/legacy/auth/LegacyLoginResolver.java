@@ -21,10 +21,11 @@ import java.util.function.Predicate;
  * account <em>succeeds</em> rather than failing. Both are pinned by
  * tests, because both are invisible to a casual reading.
  *
- * <p>What this deliberately does not decide is the session token.
- * D-042 keeps the short-lived access token plus refresh rotation rather
- * than legacy's 10-year JWT: outcomes are parity, token lifetime is the
- * recorded exception.
+ * <p>What this deliberately does not decide is the session token. On the
+ * literal {@code /apis/**} surface that is the frozen PHP token, not the
+ * platform's: D-111 supersedes D-042's exception and makes "the frozen PHP
+ * login and token behavior authoritative for Phase 1", forbidding refresh
+ * tokens there. See {@link LegacyLoginOutcome} and D-138.
  */
 public final class LegacyLoginResolver {
 

@@ -387,7 +387,12 @@ class LegacyEmployeeReadEndToEndTest {
 		// needs no exemption -- it is POST-only, so an unauthenticated GET
 		// still ends at the 405 this invariant demands -- and so does
 		// complaints/create.php, which is equally unauthenticated and equally
-		// POST-only, so it needs no entry here either.
+		// POST-only, so it needs no entry here either. Wave 13.1a's four OTP
+		// routes (auth/{verify_otp,resend_otp,forgot_password,reset_password})
+		// are the same case a fourth time over: unauthenticated in legacy, and
+		// POST-only, so an unauthenticated GET still ends at the 405. They are
+		// deliberately NOT added to the list below -- an entry there would
+		// exempt them from the invariant they actually satisfy.
 		//
 		// The assertion is "not a 401", not "a 200": app_content/one.php reached
 		// with no content_key answers 400 key_required, which is still the
@@ -396,7 +401,17 @@ class LegacyEmployeeReadEndToEndTest {
 				"/apis/api/configs/get.php",
 				"/apis/api/phone_countries/list.php",
 				"/apis/api/app_content/one.php",
-				"/apis/api/setting_allowed_values/list.php");
+				"/apis/api/setting_allowed_values/list.php",
+				// Wave 13.1b. The one GET among the nine account-lifecycle auth
+				// routes, and unauthenticated in legacy like all nine -- so it
+				// answers 200 rather than the 401-or-405 this invariant demands,
+				// and needs an entry where its POST-only siblings do not. Safe on
+				// the same data argument as phone_countries/list.php: it returns
+				// the company_activities, company_titles and company_sizes lookup
+				// tables, which are platform configuration with no company_id and
+				// no personal data, and a client must render the registration form
+				// from them *before* any account exists to authenticate with.
+				"/apis/api/auth/get_company_registration_options.php");
 
 		List<String> routes = handlerMapping.getHandlerMethods().keySet().stream()
 				.flatMap(info -> info.getPatternValues().stream())
