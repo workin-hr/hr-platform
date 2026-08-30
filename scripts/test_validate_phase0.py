@@ -1951,6 +1951,105 @@ def test_skill_catalog_check_is_unchanged_outside_a_git_repository() -> None:
         shutil.rmtree(root)
 
 
+def test_ignored_markdown_is_skipped_by_the_link_scanner() -> None:
+    """The link scanner's exemption, exercised in isolation. On the real
+    repository this branch is only taken when a third-party skill happens to
+    be installed, so without a fixture it is untested in CI."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (root / "vendor").mkdir()
+        (root / "vendor/README.md").write_text("[gone](./nope.md)\n", encoding="utf-8")
+        (root / "own.md").write_text("[also gone](./missing.md)\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_links(failures, root=root)
+        check(
+            any("own.md" in f for f in failures) and not any("vendor" in f for f in failures),
+            f"ignored Markdown is skipped, tracked Markdown is not (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_submodule_markdown_is_skipped_by_the_link_scanner() -> None:
+    """Submodule content belongs to another repository (ADR-0001), and a path
+    inside one makes `git check-ignore` abort -- which, fail-closed, would
+    silently disable the exemption for every other file too."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitmodules").write_text(
+            '[submodule "sub"]\n\tpath = sub\n\turl = https://example.invalid/sub.git\n',
+            encoding="utf-8",
+        )
+        (root / "sub").mkdir()
+        (root / "sub/README.md").write_text("[broken](./nope.md)\n", encoding="utf-8")
+        (root / "own.md").write_text("[broken](./missing.md)\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_links(failures, root=root)
+        check(
+            any("own.md" in f for f in failures) and not any("sub/" in f for f in failures),
+            f"submodule Markdown is skipped, the repository's own is not (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_ignored_skill_bypasses_the_repository_schema() -> None:
+    """The structural exemption in validate_skill_files, which the catalog
+    tests do not reach. A third-party skill uses its author's schema and can
+    never satisfy SKILL_SECTIONS; an unignored one still must."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        skills_dir = root / ".agents/skills"
+        for name in ("vendor-tool", "own-skill"):
+            (skills_dir / name).mkdir(parents=True)
+            (skills_dir / name / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: d\n---\n\n# {name}\n", encoding="utf-8"
+            )
+
+        failures: list[str] = []
+        v.validate_skill_files(failures, root=root)
+        check(
+            any("own-skill" in f for f in failures)
+            and not any("vendor-tool" in f for f in failures),
+            f"an ignored skill bypasses the repository schema, an unignored one does not (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_ignored_paths_are_skipped_by_the_forbidden_file_scanner() -> None:
+    """Installed skills routinely ship package.json, src/ and .ts helpers --
+    ordinary tooling for their author, Phase 0 product code to this scanner.
+    Without the boundary, gitignoring a skill still breaks validation on the
+    machine that installed it."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        vendor = root / ".agents/skills/vendor-tool/scripts"
+        vendor.mkdir(parents=True)
+        (vendor / "helper.ts").write_text("export const x = 1;\n", encoding="utf-8")
+        (root / "admin-web").mkdir()
+        (root / "admin-web/App.tsx").write_text("export default null;\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(
+            any("admin-web/App.tsx" in f for f in failures)
+            and not any("vendor-tool" in f for f in failures),
+            f"ignored tooling is skipped, unignored product code still fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_real_repository_skill_catalog_still_passes() -> None:
     """Sanity check against the real repository, proving this check doesn't
     break the actual catalog."""
@@ -2172,6 +2271,10 @@ def main() -> int:
     test_git_ignored_skill_is_exempt_from_the_catalog()
     test_untracked_but_not_ignored_skill_is_still_checked()
     test_skill_catalog_check_is_unchanged_outside_a_git_repository()
+    test_ignored_markdown_is_skipped_by_the_link_scanner()
+    test_submodule_markdown_is_skipped_by_the_link_scanner()
+    test_ignored_skill_bypasses_the_repository_schema()
+    test_ignored_paths_are_skipped_by_the_forbidden_file_scanner()
     test_real_repository_skill_catalog_still_passes()
     test_product_code_outside_spike_still_fails()
     test_product_code_inside_spike_is_excluded()

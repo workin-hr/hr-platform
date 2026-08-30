@@ -265,8 +265,19 @@ def rel_path_is_under(rel_parts: tuple[str, ...], parent_parts: tuple[str, ...])
 def validate_forbidden_files(failures: list[str], root: Path | None = None) -> None:
     root = root if root is not None else ROOT
     submodule_paths = load_submodule_paths(root)
-    for path in root.rglob("*"):
+    # Same repository-content boundary as validate_links and
+    # validate_skill_catalog_consistency. An installed third-party skill
+    # routinely ships a package.json, a src/ directory or a .ts helper --
+    # normal tooling for its author, and Phase 0 "product code" to this
+    # scanner. Without this, gitignoring a skill still breaks validation on
+    # the machine that installed it. Untracked, non-ignored files are still
+    # scanned: that is the case the Phase 0 lock exists for.
+    all_paths = list(root.rglob("*"))
+    ignored = _git_ignored_subset(root, [str(p.relative_to(root)) for p in all_paths])
+    for path in all_paths:
         rel_path = path.relative_to(root)
+        if str(rel_path) in ignored:
+            continue
         if rel_path.parts and rel_path.parts[0] == SPIKE_DIR_NAME:
             continue
         if rel_path.parts and rel_path.parts[0] in PHASE1_UNLOCKED_DIRS:
@@ -687,7 +698,8 @@ def validate_claude_settings(failures: list[str], root: Path | None = None) -> N
         fail("Missing scripts/edit_audit_log.py, required by the Claude PostToolUse hook", failures)
 
 
-def validate_skill_files(failures: list[str]) -> None:
+def validate_skill_files(failures: list[str], root: Path | None = None) -> None:
+    root = root if root is not None else ROOT
     required_skills = {
         "bootstrap-repository",
         "create-project-charter",
@@ -713,7 +725,7 @@ def validate_skill_files(failures: list[str]) -> None:
     # which is this repository's own procedure schema for its 15 authored
     # governance skills.
     found_skills = set()
-    for base in (ROOT / ".agents/skills", ROOT / ".claude/skills"):
+    for base in (root / ".agents/skills", root / ".claude/skills"):
         if not base.is_dir():
             continue
         for path in sorted(base.glob("*/SKILL.md")):
@@ -723,20 +735,20 @@ def validate_skill_files(failures: list[str]) -> None:
             # local tooling, not repository content. Third-party skills use
             # their authors' own schema and will never satisfy SKILL_SECTIONS,
             # which is this repository's procedure schema for skills it wrote.
-            if _git_ignores(ROOT, str(path.parent.relative_to(ROOT))):
+            if _git_ignores(root, str(path.parent.relative_to(root))):
                 continue
             text = path.read_text(encoding="utf-8")
             if not text.startswith("---\n"):
-                fail(f"Skill missing YAML frontmatter: {path.relative_to(ROOT)}", failures)
+                fail(f"Skill missing YAML frontmatter: {path.relative_to(root)}", failures)
             if "name:" not in text or "description:" not in text:
-                fail(f"Skill frontmatter missing name/description: {path.relative_to(ROOT)}", failures)
+                fail(f"Skill frontmatter missing name/description: {path.relative_to(root)}", failures)
             if name.startswith("speckit-"):
                 continue
-            if base == ROOT / ".agents/skills":
+            if base == root / ".agents/skills":
                 found_skills.add(name)
             for section in SKILL_SECTIONS:
                 if section not in text:
-                    fail(f"Skill missing section {section}: {path.relative_to(ROOT)}", failures)
+                    fail(f"Skill missing section {section}: {path.relative_to(root)}", failures)
     missing = sorted(required_skills - found_skills)
     for name in missing:
         fail(f"Missing required skill: .agents/skills/{name}/SKILL.md", failures)
@@ -1367,38 +1379,32 @@ def _git_ignored_subset(root: Path, relatives: list[str]) -> set[str]:
     return {line.strip() for line in completed.stdout.splitlines() if line.strip()}
 
 
-def _submodule_prefixes(root: Path) -> tuple[str, ...]:
-    """Paths of the git submodules declared in .gitmodules.
-
-    Their content is another repository's -- this one carries only a pinned
-    commit reference (ADR-0001), and no plain clone or CI job populates
-    them. They also make `git check-ignore` abort outright ("Pathspec ... is
-    in submodule"), which would take the whole batch down with them."""
-    modules = root / ".gitmodules"
-    if not modules.is_file():
-        return ()
-    return tuple(
-        line.split("=", 1)[1].strip()
-        for line in modules.read_text(encoding="utf-8").splitlines()
-        if line.strip().startswith("path")
-    )
-
-
-def validate_links(failures: list[str]) -> None:
-    # Git-ignored Markdown is local tooling, not repository content -- see
-    # validate_skill_catalog_consistency. A third-party skill's README
-    # linking to its own example tree is not this repository's broken link,
-    # and nobody else could reproduce or fix the failure.
-    submodules = _submodule_prefixes(ROOT)
+def validate_links(failures: list[str], root: Path | None = None) -> None:
+    # Two exclusions, for two different reasons.
+    #
+    # Submodules: their content is another repository's -- this one carries
+    # only a pinned commit reference (ADR-0001), and no plain clone or CI job
+    # populates them. They also make `git check-ignore` abort outright
+    # ("Pathspec ... is in submodule"), which under the fail-closed rule would
+    # take the whole batch down and silently check everything anyway.
+    #
+    # Git-ignored Markdown: local tooling, not repository content -- see
+    # validate_skill_catalog_consistency. A third-party skill's README linking
+    # to its own example tree is not this repository's broken link, and nobody
+    # else could reproduce or fix the failure.
+    root = root if root is not None else ROOT
+    submodule_paths = load_submodule_paths(root)
     candidates = [
         p
-        for p in ROOT.rglob("*.md")
+        for p in root.rglob("*.md")
         if ".git" not in p.parts
-        and not any(str(p.relative_to(ROOT)).startswith(f"{m}/") for m in submodules)
+        and not any(
+            rel_path_is_under(p.relative_to(root).parts, sub) for sub in submodule_paths
+        )
     ]
-    ignored = _git_ignored_subset(ROOT, [str(p.relative_to(ROOT)) for p in candidates])
+    ignored = _git_ignored_subset(root, [str(p.relative_to(root)) for p in candidates])
     for path in candidates:
-        if str(path.relative_to(ROOT)) in ignored:
+        if str(path.relative_to(root)) in ignored:
             continue
         text = path.read_text(encoding="utf-8")
         for match in LINK_RE.finditer(text):
@@ -1410,7 +1416,7 @@ def validate_links(failures: list[str]) -> None:
                 continue
             resolved = (path.parent / clean).resolve()
             if not resolved.exists():
-                fail(f"Broken relative link in {path.relative_to(ROOT)}: {target}", failures)
+                fail(f"Broken relative link in {path.relative_to(root)}: {target}", failures)
 
 
 def validate_workflow_safety(failures: list[str], root: Path | None = None) -> None:
