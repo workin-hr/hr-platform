@@ -141,6 +141,11 @@ not_ignored_z() {
 # that is not there fails the whole run before it reaches the files that do
 # exist.
 existing_files() {
+  # $f below is expanded by the inner `sh -c`, not by this shell, so the
+  # single quotes are the point and SC2016 is noise -- the same situation,
+  # and the same suppression, as the GraphQL query in
+  # check-review-dispositions.sh.
+  # shellcheck disable=SC2016
   git ls-files -z --cached --others --exclude-standard -- "$@" |
     xargs -0 sh -c 'for f do
       if [ -e "$f" ]; then printf "%s\0" "$f"; fi
