@@ -122,9 +122,18 @@ The platform-admin web surface authenticates as follows.
 
 ### 1. Keep the existing backend contract; do not add a cookie transport to it
 
-`PlatformAdminAuthController` stays exactly as it is — tokens in the JSON body,
+`PlatformAdminAuthController` keeps its **transport**: tokens in the JSON body,
 bearer on the way back in. **No second authentication transport is added to the
 Java backend.**
+
+> **This is not "no backend changes".** Decision 4 requires TOTP at login and
+> step-up on destructive operations, and today `/login` takes phone plus
+> password and returns the token pair immediately — there is nowhere for a
+> challenge to happen. Delivering MFA needs a changed login exchange (a
+> challenge/response step), enrolment endpoints, and a way to mark a session
+> step-up-satisfied. Decision 5 requires a backend change too. What this
+> decision fixes is that the browser is not given a second way *in*, not that
+> the contract is frozen.
 
 An earlier draft of this ADR proposed that the backend set cookies directly, and
 then named "two transports, one backend" as the primary risk it introduced. That
@@ -176,6 +185,12 @@ What actually remains is narrower, and it is not a smaller number:
   re-authentication is required regardless of activity.
 - The BFF's own cookie session must not outlive the refresh token it wraps.
 
+**The bounds themselves are not set here, and that is a gap, not a delegation.**
+Declaring an idle timeout and an absolute cap mandatory without numbers lets
+this ADR be accepted while the family still slides forever, or lets two
+implementations pick incompatible values. Choosing them is validation item 7
+below and blocks acceptance.
+
 ### 4. MFA is required, with step-up on destructive actions
 
 This is the one genuine gap. Every platform-admin identity enrols in TOTP.
@@ -211,8 +226,11 @@ regression test per transport. Tracked as **R-026**. Until that exists,
 authorization for this surface must not be described as unchanged or as already
 covered by ADR-0010.
 
-`PlatformAdminAuditService` already records platform-admin actions; that part is
-unchanged.
+`PlatformAdminAuditService` records **auth-lifecycle events**
+(`LOGIN`/`LOGIN_FAILED`/`LOGOUT`/`SESSION_REUSE_REVOKED`/`ALL_SESSIONS_REVOKED`)
+and nothing else — its only callers are `PlatformAdminLoginService` and
+`PlatformAdminSessionService`. Per-endpoint audit of business actions is F-26's
+standing acceptance criterion, still owed. That part is unchanged by this ADR.
 
 ### 6. The existing bearer endpoints are restricted to the BFF, not left open
 
@@ -321,6 +339,16 @@ than the model.
   holder, not as a static frontend — no tokens in logs, no tokens in the
   filesystem, revocation reachable through the existing
   `PlatformAdminSessionService`.
+- **Concurrent refresh in the BFF revokes the whole family.**
+  `PlatformAdminSessionService.rotate()` treats a second presentation of an
+  already-rotated refresh token as reuse and revokes the family — correct
+  behaviour against theft, and a trap for a BFF. Several browser requests
+  arriving just after the access token expires can reach separate Next.js
+  handlers, each submitting the same stored refresh token, and normal
+  day-to-day concurrency then looks exactly like an attack: every session for
+  that admin dies. Mitigation: the BFF must serialise refresh per session — a
+  lock or single-flight around rotation — and that requirement belongs in its
+  implementation notes, not discovered in production.
 - **CSRF, newly relevant.** Cookies reintroduce a class the bearer clients never
   had. Mitigation: `SameSite=Lax` plus anti-CSRF tokens, with negative tests
   asserting a cross-site state-changing request is rejected.
@@ -348,8 +376,12 @@ Still required before this moves from `Proposed` to `Accepted`:
 1. Engineering-lead sign-off on the BFF boundary — specifically that the browser
    never receives a platform-admin token, and how that is enforced rather than
    documented.
-2. The BFF session store decision (stateless signed cookie versus server-side
-   session), and the cookie domain topology it implies.
+2. The BFF session store design, and the cookie domain topology it implies.
+   **Not** "stateless signed cookie versus server-side session": a stateless
+   cookie carrying the token pair would send those tokens to the browser, which
+   Decision 2 exists to prevent — signing gives integrity, not confidentiality.
+   A cookie holding only an opaque handle is server-side state by definition. So
+   the open question is *what* server-side store, not *whether* one.
 3. A named TOTP implementation and a recovery design that does not weaken the
    factor it protects.
 4. Confirmation of whether the legacy PHP dashboard's `admin`-role surface runs
@@ -358,6 +390,10 @@ Still required before this moves from `Proposed` to `Accepted`:
    (Decision 6) — network reachability, a required BFF credential, or both.
 6. The active-admin lookup required by Decision 5, with a regression test per
    transport (**R-026**).
+7. **Concrete session bounds**: the idle timeout and the non-renewable absolute
+   family cap Decision 3 requires, as numbers.
+8. The MFA-bearing login exchange Decision 4 implies — challenge/response,
+   enrolment, and how a step-up-satisfied session is represented.
 
 **Identity separation is deliberately not on this list.** **D-027** made
 individual platform-admin identity a P0 requirement and **F-26** records it as
@@ -373,8 +409,12 @@ exists.
   shared identity?~~ **Answered 2026-08-30 by reading the code**: their own type
   (`PlatformAdmin`, `platform_admins`, `platform_admin_refresh_tokens`), with no
   self-registration. This was the blocking question when the ADR was opened.
-- Does the admin surface share an origin with the BFF, and the BFF with the Java
-  backend? This decides whether `SameSite=Lax` is sufficient.
+- Does the browser-facing admin surface share a **schemeful site** with the BFF
+  that sets the cookie? That — not "same origin" — is what decides `SameSite`
+  behaviour: different subdomains are different origins but usually the same
+  site, so `Lax` still attaches. The **BFF-to-Java** leg is irrelevant to this
+  question: it is server-to-server and the browser's session cookie is never
+  attached to it.
 - What is the **retention** requirement for `PlatformAdminAuditEvent`? The audit
   trail exists; how long it must survive does not appear to be recorded.
 - Is there a regulatory or customer-contractual requirement that would force

@@ -64,10 +64,11 @@ maintaining a second, divergent copy of these rules — see
 ## Proposed ADRs
 
 - `ADR-0014-platform-admin-web-authentication.md` — how the Next.js
-  platform-admin surface authenticates: ADR-0005's rotating-refresh model
-  carried over `HttpOnly`/`Secure`/`SameSite` cookies rather than
-  browser-stored bearer tokens, with MFA and step-up on destructive
-  actions (proposed 2026-08-30, **not approved**)
+  platform-admin surface authenticates: the platform-admin access and
+  refresh tokens stay **server-side on a BFF and never reach the
+  browser**, which receives only the BFF's own
+  `HttpOnly`/`Secure`/`SameSite` session cookie; plus MFA with step-up on
+  destructive actions (proposed 2026-08-30, **not approved**)
 
 ADR-0006's Part B (final vendor protocol/connectivity detail) is a further
 open ADR sub-item, tracked within `ADR-0006-attendance-edge-gateway-direction.md`
