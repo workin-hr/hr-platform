@@ -907,8 +907,12 @@ exposed the item-shape bug above.
 
 ## D-130: Wave 13.4a delivers `assets` and `administrative_decisions`, and records the client-only authorization on `assets`
 
-**Status:** Accepted 2026-08-29. Owner-approved disposition of the C3/C8 pass's
-`assets` finding.
+**Status:** Accepted 2026-08-29. The endpoint-specific evidence record for the
+C3/C8 pass's `assets` finding, filed **under** D-044 and D-045 rather than as a
+new risk acceptance. An earlier revision of this line called it an
+"owner-approved disposition", which contradicted the body below: the behaviour
+was already governed by those two decisions, so no additional owner sign-off was
+owed and none was taken. Nothing here re-opens or re-grants that acceptance.
 
 Ten endpoints across two modules that agree on almost nothing. Each difference
 below is legacy's, is separately observable, and would be erased by the shared
