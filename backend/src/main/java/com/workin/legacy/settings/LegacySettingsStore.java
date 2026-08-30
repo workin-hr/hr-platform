@@ -63,6 +63,23 @@ public class LegacySettingsStore {
 				DEFINITION_MAPPER);
 	}
 
+	/**
+	 * {@code options.php}'s own query: the keys alone, ordered by
+	 * {@code setting_key} in the <b>database's</b> collation.
+	 *
+	 * <p>Separate from {@link #allDefinitions()}, which orders by
+	 * {@code sort_order, id} for {@code list.php}. Re-sorting in Java would not
+	 * do: {@code setting_key} is {@code utf8mb4_unicode_ci}, so MariaDB compares
+	 * it case-insensitively while a Java string comparator is binary and would
+	 * put {@code MONTHLY_LEAVE_ACCRUAL} before every lowercase {@code month_*}
+	 * key instead of among them.
+	 */
+	public List<String> definitionKeysByKeyOrder() {
+		return jdbcTemplate.queryForList(
+				"SELECT setting_key FROM setting_definitions ORDER BY setting_key ASC",
+				String.class);
+	}
+
 	public Definition definition(long id) {
 		List<Definition> rows = jdbcTemplate.query(
 				"SELECT " + DEFINITION_COLUMNS + " FROM setting_definitions WHERE id = ?",
