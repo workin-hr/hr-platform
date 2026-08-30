@@ -343,7 +343,7 @@ Endpoint counts from `hr-legacy@d113204`; "Java counterpart" measured against
 | `company_settings` | 6 | entity exists but is schema-incompatible (EAV vs five typed columns) | Item 13 (D-4) | `setting_definitions`, `setting_allowed_values` | dashboard, desktop | gated by `can_company_settings` in the 17-flag matrix | 13.3 |
 | `setting_definitions` | 1 | none | Item 13 (D-4) | none | platform administration | `COMPANY_ADMIN`/`HR` only | 13.3 |
 | `setting_allowed_values` | 1 | none | Item 13 (D-4) | none | shared read, all clients | unauthenticated | 13.3 |
-| `workforce_planning` | 7 | none | Item 13 | `employees`, `departments`, `job_titles` | dashboard page directory confirmed; desktop (headcount targets) | the recorded edit-hijack/bare-delete finding is on `dashboard/pages/workforce_planning/page.php` — the PHP dashboard, **not** this API module (§4.9) | 13.4 |
+| `workforce_planning` | 7 | none | Item 13 | `employees`, `departments`, `job_titles` | dashboard page directory confirmed; desktop (headcount targets) | **cross-tenant disclosure in this API module** (D-131, `hr-legacy#33`): two of the three write paths (`save_target.php` and `update.php`; `create.php` does validate all three) do not validate the foreign ids they store, and the read joins carry no tenant predicate, so a user of company A can store company B's `branch_id`/`department_id`/`job_title_id` and read the names back. The same unscoped department join is in `dashboard/stats.php`, delivered in Wave 13.5, which also returns that department's headcount. A separate edit-hijack/bare-delete finding is on `dashboard/pages/workforce_planning/page.php` — that one is the PHP dashboard, not this module (§4.9) | 13.4 |
 | `assets` | 5 | none | Item 13 | `employees` | desktop consumes all five, mobile consumes `list` — **C8 discharged 2026-08-29**, call sites traced in `three-frontend-api-usage-matrix.md` | `hr_permissions` **not** enforced (recorded inconsistency) | 13.4 |
 | `administrative_decisions` | 5 | none | Item 13 | `employees` | desktop consumes four (`list`, `create`, `update`, `delete`), mobile consumes `list`; **`one` is declared by neither** — **C8 discharged 2026-08-29**, call sites traced in `three-frontend-api-usage-matrix.md` | `hr_permissions` enforced on all 5 | 13.4 |
 | `employee_docs` | 4 | none | Item 13 | `employees`, upload slots | mobile (confirmed), dashboard/desktop likely | file upload surface | 13.4 |
@@ -353,7 +353,7 @@ Endpoint counts from `hr-legacy@d113204`; "Java counterpart" measured against
 | `banners` | 1 | none | Item 13 | none | mobile | any authenticated session | 13.5 |
 | `faqs` | 1 | none | Item 13 | none | mobile | any authenticated session | 13.5 |
 | `phone_countries` | 1 | none | Item 13 | none | all clients | unauthenticated | 13.5 |
-| `dashboard` | 1 | none | Item 13 | `employees`, `attendance` | dashboard/desktop summary widget | `COMPANY_ADMIN`/`HR` only; call site not traced past its company-scoped entry | 13.5 |
+| `dashboard` | 1 | none | Item 13 | `employees`, `attendance`, `workforce_planning`, `departments` | dashboard/desktop summary widget | `COMPANY_ADMIN`/`HR` only. **Traced in full** — `stats.php` is the second D-131 surface: its `workforce_planning`→`departments` join carries no tenant predicate and returns a foreign department's name and active headcount | 13.5 |
 | **Total** | **71** | | **18 modules** | | | | |
 
 **71 total scope, 70 currently unimplemented.** `auth/login_employee` is already
@@ -462,11 +462,11 @@ table; only the distribution across buckets has moved.
 
 | Status | Endpoints | What it covers |
 |---|---|---|
-| `FINAL_COMPATIBLE` | **152** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(152)`). Waves 12.4 through 12.10, the Wave 12.R retrofit, Wave 12.6.6's two attendance endpoints, Wave 12.9's `payslips/export.php`, **Item 13.0's `configs/get.php`** — the first endpoint delivered outside Item 12 — **Item 13.5's five reference endpoints**, **Wave 13.3's eight settings endpoints**, and **Wave 13.4a's ten records endpoints**. |
+| `FINAL_COMPATIBLE` | **159** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(159)`). Waves 12.4 through 12.10, the Wave 12.R retrofit, Wave 12.6.6's two attendance endpoints, Wave 12.9's `payslips/export.php`, **Item 13.0's `configs/get.php`** — the first endpoint delivered outside Item 12 — **Item 13.5's five reference endpoints**, **Wave 13.3's eight settings endpoints**, **Wave 13.4a's ten records endpoints**, and **Wave 13.4b's seven workforce-planning endpoints**. |
 | `IMPLEMENTED_BUT_REQUIRES_D074_RETROFIT` | **0** | Closed by Wave 12.R (D-107/D-108/D-110/D-111). No `/api/legacy/**` business route remains mapped. |
 | `ITEM12_REMAINING` | **0** | **Empty as of 2026-08-28.** All three of C9's endpoints were delivered rather than excluded, exactly as O-8/D-120 dispositioned. |
-| `ITEM13_REMAINING` | **46** | §2.2's 71 less `auth/login_employee` (Wave 12.R), `configs/get.php` (Item 13.0), Wave 13.5's five, Wave 13.3's eight and Wave 13.4a's ten. |
-| **Live total** | **198** | 152 + 0 + 0 + 46 |
+| `ITEM13_REMAINING` | **39** | §2.2's 71 less `auth/login_employee` (Wave 12.R), `configs/get.php` (Item 13.0), Wave 13.5's five, Wave 13.3's eight, Wave 13.4a's ten and Wave 13.4b's seven. |
+| **Live total** | **198** | 159 + 0 + 0 + 39 |
 | `EXPLICITLY_EXCLUDED_WITH_DECISION` | **1** | `apis/api/time/now.php` (O-3, §2.3). Outside the live total. |
 | **Endpoint files** | **199** | 198 live + 1 excluded |
 
@@ -857,13 +857,13 @@ end-to-end tests, with **G6** as the floor that guarantees none reaches cutover
 with zero measured evidence. Do not cite the inventory as proof of anything but
 the URL surface.
 
-The response contract is per-endpoint, not repository-wide (D-120). The 152
-delivered routes split **147 / 4 / 1**, and one endpoint's shape depends on a
+The response contract is per-endpoint, not repository-wide (D-120). The 159
+delivered routes split **154 / 4 / 1**, and one endpoint's shape depends on a
 query parameter:
 
 | Shape | Live today | PHP terminates in | Java answers |
 |---|---|---|---|
-| **Envelope only** | **147** of the 152 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — including `attendance/overall_report.php`, delivered by Wave 12.6.6c |
+| **Envelope only** | **154** of the 159 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — including `attendance/overall_report.php`, delivered by Wave 12.6.6c |
 | **Download only** | **4**: `employees/template_excel.php`, `leave_balances/template_excel.php`, `attendance/export.php`, `payslips/export.php` | `stream_employee_template_xlsx()` / `leave_balance_excel_stream_template()` — write to output and `exit`; `api_xlsx_export_send()` for the export | the same reader-observable file, `Content-Type`, `attachment` disposition and filename. **All delivered** — `LegacyEmployeeController.templateExcel` writes the bytes itself, `LegacyLeaveBalanceController.template` returns `ResponseEntity<byte[]>`, and `LegacyAttendanceController.export` returns the workbook for either sheet |
 | **Conditional** | **1**: `penalties/report.php` | `?format=csv` → the file's **own local** `streamCSV()` (`penalties/report.php:24`), which `exit`s; anything else falls through to `ok()` | both shapes from one handler. **Delivered** — `LegacyPenaltyController.report` returns `ResponseEntity<?>`: the workbook on the `csv` branch, `LegacyApiResponse.ok` otherwise |
 | **Owed** | **none** — Item 12's last endpoint shipped 2026-08-28 | — | — |
@@ -891,7 +891,7 @@ hand-maintained**: `LegacyPhpRouteInventoryTest`'s
 classification from the live handler mappings — a route answers in the envelope
 iff its handler returns `LegacyApiResponse` or `ResponseEntity<LegacyApiResponse>`
 — and asserts the non-envelope set is exactly these three.
-`theResponseShapePartitionMatchesTheCompletionPlan` pins the 147/4/1 arithmetic to
+`theResponseShapePartitionMatchesTheCompletionPlan` pins the 154/4/1 arithmetic to
 the same inventory. Adding a download route, or converting one back to the
 envelope, fails those tests instead of staling this table, which it has already
 done twice.
@@ -1068,8 +1068,8 @@ Not decisions — evidence and sequencing owed by the waves that own them.
   `attendance/export.php` and `payslips/export.php` answer the workbook their PHP
   emits, matching its reader-observable content, headers and filename rather than
   its archive bytes (D-085, §5 G3). `ITEM12_REMAINING` is empty and
-  `FINAL_COMPATIBLE` stands at 152 (§3.2), after Item 13.0's `configs/get.php`,
-  Wave 13.5's five, Wave 13.3's eight and Wave 13.4a's ten.
+  `FINAL_COMPATIBLE` stands at 159 (§3.2), after Item 13.0's `configs/get.php`,
+  Wave 13.5's five, Wave 13.3's eight, Wave 13.4a's ten and Wave 13.4b's seven.
 
   **G2 is not closed by that.** Its numerator is; the gate covers all 198 live
   endpoints and Item 13's remainder still stands — see §3.2's

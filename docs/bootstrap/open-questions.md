@@ -95,3 +95,62 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 
 - Will `specify-cli` be installed during Phase 0 or deferred until human review approves it?
 - Will GitHub MCP be enabled read-only during discovery or deferred entirely?
+
+## Workforce Planning Cross-Tenant Disclosure (D-131 — blocks Wave 13.4b)
+
+**RESOLVED 2026-08-30 (D-141): parity, on both surfaces, and Item 13 is not
+held.** The text below is the question as it stood while open, kept unedited.
+
+`workforce_planning`'s `save_target.php` and `update.php` accept unvalidated
+foreign `branch_id`/`department_id`/`job_title_id`, and the three name joins in
+`list.php` carry no tenant predicate. A `company_admin` or `hr` user in any
+tenant can therefore write another company's id into their own planning row and
+read that company's **name** back — a cross-tenant read in two ordinary API
+calls. Filed upstream as `hr-legacy#33`; demonstrated by a regression that
+performs the attack.
+
+**The question is narrower than "should this merge".** The port is faithful and
+D-058 already makes parity the default: fixing it in Java alone would make the
+two systems answer differently for the same request and would mask the defect
+rather than resolve it. What is owed is a decision on one point:
+
+> Given that this particular defect crosses a **tenant boundary**, is parity
+> still the right default — or should Item 13 wait for `hr-legacy#33` to land
+> and port the fix instead?
+
+**Holding Wave 13.4b alone no longer answers this.** The same unscoped join is
+in `dashboard/stats.php`, delivered in **Wave 13.5 (PR #138)**, which sits below
+13.4b in the stack — and that surface leaks the foreign department's active
+headcount as well as its name. So the options are:
+
+| Option | 13.4b's `list.php` leak | `stats.php` leak |
+|---|---|---|
+| Merge the stack | ships | ships |
+| Hold 13.4b only | held | **ships** |
+| Hold from 13.5 up | held | held — but that holds all of Item 13 |
+
+The choice is therefore to accept the disclosure on **both** surfaces for
+Phase 1, or to hold **Item 13 as a whole**. An option that holds only #141 would
+purport to wait for the fix while still shipping the vulnerable route.
+
+- **RESOLVED 2026-08-30 — parity, on both surfaces, Item 13 not held.** The
+  owner's direction: *"i need java to be like php fot fix any issue"*, given
+  with an explicit parity ruling on R-016. Recorded as **D-141**; D-131 moves
+  from `PROPOSED` to `Accepted` and R-012 from open-undecided to
+  owner-accepted. The question text below is kept as written, unedited, as the
+  record of what was actually put to the owner.
+- **Owner:** repository owner. Not an agent decision — AGENTS.md forbids an
+  agent silently making one of this kind, and an earlier revision of D-131
+  wrongly recorded it as accepted.
+- **Resolution trigger:** either the owner records parity as still correct (D-131
+  moves to Accepted, the stack merges, and the regressions keep asserting the
+  leak on both surfaces), or the owner elects to wait — in which case the hold
+  is from **Wave 13.5 upward**, not #141 alone, and the regressions are
+  **inverted rather than deleted** in the same change.
+- **Tracked in:** D-131, `docs/security/threat-model.md`'s tenant ↔ tenant row,
+  and **R-012** in the risk register. R-012 records it as an *open, undecided*
+  exposure — not an accepted residual — precisely so that a cutover or security
+  review starting from the canonical register finds it. Registering a risk does
+  not presume its disposition; an earlier revision of this bullet said the
+  opposite and kept the register silent about a confirmed cross-tenant
+  disclosure.

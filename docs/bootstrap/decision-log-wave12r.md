@@ -1197,3 +1197,234 @@ that added another regression. A figure that must be re-measured on each push to
 stay true does not belong in a durable decision record; the suite's own output is
 the evidence, and `LegacyPhpRouteInventoryTest` is what pins the delivered
 route count.
+
+## D-131: Wave 13.4b delivers `workforce_planning`, reproducing a cross-tenant disclosure and filing it upstream
+
+**Status: ACCEPTED 2026-08-30 by the repository owner — see D-141.** It stood as
+`PROPOSED` from 2026-08-29 until then, and the paragraphs below were written
+while it was still open; they are kept unedited as the record of what was put to
+the owner, and of the fact that no agent decided it. The answer was parity, on
+both surfaces, without holding Item 13.
+
+<!-- markdownlint-disable-next-line MD036 -->
+**This entry was written and implemented in the same change, by the same
+author, and no human has approved it.** An earlier revision marked it
+"Accepted", which it was not: filing an upstream issue is not approval, and
+AGENTS.md is explicit that no agent may silently make a decision of this kind.
+The distinction matters more here than anywhere else in Item 13, because what is
+being decided is whether to knowingly ship a reproduction of a **cross-tenant
+information disclosure**.
+
+**What approval means here, precisely.** The port is faithful and the default
+governing it is D-058 — Phase 1 reproduces legacy, and diverging in Java alone
+would make the two systems answer differently for the same request. The question
+put to the owner is narrower: *given that this specific defect crosses a tenant
+boundary, is parity still the right default, or should Wave 13.4b wait for
+`hr-legacy#33` to land first?* Either answer is defensible; neither is the
+agent's to pick.
+
+Until that is recorded, this entry stands as a proposal and the pull request
+should not merge on a green gate alone.
+
+Seven routes, six handlers -- `summary.php` is literally
+`require __DIR__ . '/list.php'`, so the two URLs are one endpoint and are mapped
+as two paths on a single method rather than duplicated.
+
+### The finding
+
+Only one of the three write paths validates the foreign ids it stores:
+
+| Endpoint | Validates `branch_id` / `department_id` / `job_title_id`? |
+|---|---|
+| `create.php` | **yes** — three explicit ownership checks |
+| `save_target.php` | **no** |
+| `update.php` | **no** — all three sit in the `whitelist_update_fields()` allowlist |
+
+And the read path's three `LEFT JOIN`s match on id alone, with **no tenant
+predicate**. Together those mean a `company_admin` or `hr` user of company A can
+`POST save_target.php` with company B's `branch_id`, then `GET list.php` and
+read **company B's branch name** back. The same works for departments, job
+titles, and through `update.php`. Iterating ids enumerates a competitor's
+organizational structure.
+
+Only names leak, not employee or payroll data — but it is a cross-tenant read by
+an authenticated user of a different tenant, reachable in two ordinary API calls
+with no special conditions.
+
+### The same defect is on a second surface, already delivered in Wave 13.5
+
+`apis/api/dashboard/stats.php:91-99` runs the same unscoped join:
+
+```sql
+FROM workforce_planning wt
+JOIN departments s ON s.id = wt.department_id
+WHERE wt.company_id = ?
+```
+
+`workforce_planning.department_id` carries no foreign key
+(`mysql_workin.schema.sql:939-948`; the table's only indexes are its primary key
+and `uq_workforce_target`), so a row this company owns may reference another
+company's department. `stats.php` then returns that department's **name** and,
+through the correlated subquery, its **active headcount** — one field more than
+the 13.4b path leaks. It needs no write of its own: a single authenticated `GET`
+is enough once such a row exists, and `save_target.php` is how it gets there.
+
+**This changes what the decision buys.** Holding Wave 13.4b was the obvious way
+to keep the disclosure out of the cutover; it no longer is. `stats.php` is
+delivered in **Wave 13.5 (PR #138)**, which sits *below* 13.4b in the stack, so
+every option that merges 13.5 ships the leak whatever happens to 13.4b:
+
+| Option | 13.4b's `list.php` leak | `stats.php` leak |
+|---|---|---|
+| Merge the stack | ships | ships |
+| Hold 13.4b only | held | **ships** |
+| Hold from 13.5 up | held | held — but this holds Waves 13.5, 13.3, 13.4a and everything stacked above them, which is all of Item 13 |
+
+So the question is no longer "ship 13.4b or wait". It is: accept the disclosure
+across both surfaces for Phase 1, or hold **Item 13 as a whole** for
+`hr-legacy#33`. The third option — fix it in Java only — remains the one this
+entry argues against, and doing it on `stats.php` alone would be worse than
+either, because the two surfaces would then disagree with each other as well as
+with PHP.
+
+`hr-legacy#33` must be updated to name `dashboard/stats.php` alongside the
+`workforce_planning` routes; the upstream fix has to cover both, or the port
+cannot follow it.
+
+The exposure is now carried in the risk register as **R-012**, recorded as open
+and undecided rather than as an accepted residual — a cutover or security review
+starting from the register has to be able to find it.
+
+This surface was missed when D-131 was first written. It was found by review on
+PR #138, not by the wave that introduced it.
+
+### Why it is reproduced rather than fixed here
+
+Phase 1's contract is parity (D-058), the defect exists in production today, and
+the Java port does not make it worse. **Fixing it in the port alone would be a
+silent divergence** — the two systems would answer differently for the same
+request, which is exactly what the phase exists to prevent, and it would mask
+the problem rather than resolve it.
+
+So: reproduced exactly, **filed upstream as `hr-legacy` issue #33** with a
+proposed fix and a note that existing rows may already carry foreign ids, and
+recorded here. The port changes when legacy changes, in the same direction.
+
+### The regression asserts the vulnerable behaviour on purpose
+
+`saveTargetLeaksAnotherCompanysBranchNameThroughTheUntenantedJoin` performs the
+attack and asserts that the victim's branch name comes back. That is deliberate,
+it is commented as such in the test, and the comment instructs that the test be
+**inverted, not deleted**, once legacy is fixed — so the fix cannot land without
+someone consciously changing this assertion.
+
+**Nothing in this entry should be read as an endorsement of the behaviour.**
+Writing a defect down does not close it, and this one is open.
+
+### Other preserved behaviours in this module
+
+- `save_target.php` upserts on the `uq_workforce_target` unique key over
+  `(company_id, branch_id, department_id, job_title_id)` and answers
+  `{"saved": true}` — never the row — so a caller cannot tell whether it created
+  or updated.
+- A negative `planned_count` is **floored to 0** by `max(0, (int) ...)` rather
+  than rejected.
+- The department check in `create.php` is skipped when the id is 0, because the
+  schema defaults `department_id` to 0 and legacy reads that as "no department"
+  rather than as a foreign key.
+- `job_title_belongs_to_company()` additionally requires `is_active = 1`, so an
+  inactive job title is `job_title_not_found`.
+- The list's search matches the **job title's** name only, though the row also
+  carries the branch and department names.
+- `update.php`'s post-write re-read drops the `company_id` filter its own
+  `UPDATE` carried.
+
+### Security and inventory artifacts corrected alongside this entry
+
+Four documents described `workforce_planning` as company-scoped without
+qualification, which the evidence above disproves. All four now state that the
+module's **name joins carry no tenant predicate** and that two of its three
+write paths accept unvalidated foreign ids:
+
+- `docs/api/existing-endpoint-inventory.md` — the module section, whose own
+  caveat ("scoping depth not traced further in this pass") is where the gap
+  lived;
+- `docs/api/three-frontend-api-usage-matrix.md` — the client contract row;
+- `docs/legacy/existing-php-module-inventory.md` — which read "consistently
+  company-scoped";
+- `docs/security/threat-model.md` — a new **tenant ↔ tenant** row, because a
+  cross-tenant read belongs in the artifact security triage and cutover review
+  actually consult, not only in a decision log.
+
+The threat-model row records D-131 as **proposed**, so the model does not imply
+an acceptance that has not happened.
+
+### Ledger after Wave 13.4b
+
+`FINAL_COMPATIBLE` 152 → **159**; `ITEM13_REMAINING` 46 → **39**; partition
+147/4/1 → **154/4/1**. Live total 198 unchanged.
+
+Evidence: `./gradlew check` — **0 failures**, 10 new regressions. The suite-wide count is deliberately omitted: every review round adds regressions, so an aggregate recorded here is stale by the next commit (the same reason given two entries above).
+
+## D-141: The owner accepts parity on R-016 and R-012 — both ship reproducing legacy
+
+**Status:** Accepted 2026-08-30 by the repository owner. This is the owner
+decision D-131 was waiting for, and the one R-016 was recorded to force.
+
+The direction, verbatim and unedited:
+
+> r-016 parity (i need java to be like php) fot fix any issue, for the
+> reminaning pr i approved for them
+
+### What is accepted
+
+**R-016 — `complete_company_registration.php`.** Named explicitly by the owner.
+(Its risk-register entry is introduced with Wave 13.1b, higher in this stack, so
+a reader of Wave 13.4b alone will find the decision here but not the entry.)
+The route stays unauthenticated, keeps taking `company_id` from `$_POST`, and
+keeps returning a company-admin session token for whatever id it is handed. No
+Java-side authentication is added. Severity stays **Critical**: accepting a risk
+records that the owner chose to carry it, it does not make the risk smaller.
+
+**R-012 / D-131 — the `workforce_planning` cross-tenant disclosure.** Accepted
+under the general half of the same instruction ("for any issue"), which closes
+D-131 as `Accepted` and releases the hold on Item 13. What ships:
+
+| Surface | Discloses |
+|---|---|
+| `workforce_planning/list.php` | another tenant's branch, department and job-title **names**, enumerable by iterating ids |
+| `dashboard/stats.php` | a foreign department's name and its **active headcount** |
+
+**A caveat recorded rather than smoothed over.** The owner named R-016; R-012
+is covered by the general rule, not by name. The two are not equivalent in
+kind — R-016 is an authentication gap on one route, R-012 crosses a tenant
+boundary — and AGENTS.md singles out exactly that class for explicit owner
+decision. The general instruction is read as covering it because the owner has
+now given the same direction three times ("yes java like php for anything", "i
+need java to be like the same behivaour in php", and this one), and because
+holding Item 13 for a defect the owner has repeatedly declined to diverge on
+would be substituting an agent's judgment for theirs. If that reading is wrong,
+this entry is the place to correct it, and nothing about the code changes —
+only these two Status rows.
+
+### What is not accepted, and what this does not do
+
+- It does not lower either severity, close either register entry, or withdraw
+  `hr-legacy#33` and the upstream fix R-016 needs. Both entries stay open as
+  **tracking** rows against that work.
+- It does not touch the regressions. `LegacyWorkforcePlanningEndToEndTest`
+  still performs the cross-tenant read and asserts the leak, carrying its
+  instruction to be **inverted rather than deleted** once legacy is fixed. A
+  parity port that stops asserting its own known defect stops being evidence.
+- It is not a merge authorization. The owner's message also says the remaining
+  pull requests are approved; approval and the `independent-review` gate are
+  different conditions, and the gate is red on all twelve for reasons unrelated
+  to this decision (R-009 quota, and the clean-review gap on #138).
+
+### Why this was the owner's to make and not the agent's
+
+D-058 makes parity the default and would have reached the same answer, which is
+why the port already behaves this way and no code changes here. But AGENTS.md
+forbids an agent silently accepting a knowingly-shipped tenant-boundary defect,
+and the difference between "the default applies" and "the owner accepted it" is
+the whole point of the rule. Both are now recorded as the second.
