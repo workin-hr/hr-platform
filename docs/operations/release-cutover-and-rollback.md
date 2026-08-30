@@ -36,7 +36,7 @@ cutover.
 ### Claim 1 — "the database is unchanged": **true of the legacy contract, false of the database**
 
 **What is verified.** Java applies **no DDL to the vendored legacy schema**.
-Flyway is bound to `spring.datasource` and its migrations under
+Flyway is bound to its own dedicated `flywayDataSource` and its migrations under
 `db/migration/{common,rls}` are the Phase-2 PostgreSQL target schema; it owns no
 MariaDB location. The legacy connection is a separate datasource
 (`app.legacy-db.*`) built by `LegacyPersistenceConfig`, which is
@@ -90,9 +90,20 @@ signature construction, the same flat claim set **in the same order** — order
 matters, because the signature covers the encoded bytes. The configured default
 expiry is 87600 hours, matching PHP's `JWT_EXPIRE_HOURS`.
 
-Two test layers pin this, both building their expectations from `PhpJwtOracle`,
-an independent reimplementation of `jwtEncode()` — never from the production
-encoder, so a change to the encoder cannot drag the expectation with it:
+Two test layers pin this. Every token-shaped expectation is built from
+`PhpJwtOracle`, an independent reimplementation of `jwtEncode()` — never from
+the production encoder, so a change to the encoder cannot drag the expectation
+with it. (The header and expiry assertions compare against literals and
+arithmetic rather than the oracle; they need no oracle to be meaningful.)
+
+**The oracle's independence has a limit worth stating**: it is an independent
+*Java* reading of `jwtEncode()`, so a shared misreading of PHP's `json_encode`
+would pass both layers. PHP escapes `/` as `\/` and non-ASCII as `\uXXXX`;
+neither the oracle nor `LegacyPhpJwtService` does. No claim value in the current
+contract contains either — the roles are plain ASCII enums — so this is inert
+today, but a future role containing `/` or Arabic text would sign differently in
+the two systems while every test stayed green. The bidirectional exchange in the
+pre-cutover steps is the backstop that does not share this blind spot.
 
 | Layer | File | What it establishes |
 |---|---|---|
@@ -212,11 +223,22 @@ send their employer a departure notice. Use this instead, in order:
 3. **On the restored copy used for the provisioning rehearsal, not production:**
    exercise one write path end to end — **`reset_password.php` with
    `type=employee`** — and confirm it succeeds rather than erroring. Record
-   evidence that it actually reached the refresh-token write (a row in
-   `legacy_refresh_tokens` moving to `REVOKED`, or the equivalent query log), not
-   merely that the request returned 200. The restored copy is where destructive
-   checks belong; that is what it is for.
+   evidence that it actually reached the refresh-token write — **the query log
+   showing the `UPDATE` against `legacy_refresh_tokens` executed without
+   erroring** — not merely that the request returned 200.
 
+   > **Expect zero rows affected, and treat that as success.** Under D-111 no
+   > Phase-1 route ever *inserts* into this table: the only issuer,
+   > `LegacyLoginService`, has no controller, so the table is empty in
+   > production. `revokeAllForEmployee()` is an unconditional bulk `UPDATE`,
+   > which is exactly why it is a valid probe — it errors if the table is absent
+   > and succeeds against zero rows if it is present. Do **not** wait for a row
+   > to move to `REVOKED`; none will, and an operator who expects one will
+   > report a passing check as a failure.
+   >
+   > The restored copy is where destructive checks belong; that is what it is
+   > for.
+   >
    > **Not OTP verify, and not company mode.** Two ways to run this check and
    > learn nothing:
    >

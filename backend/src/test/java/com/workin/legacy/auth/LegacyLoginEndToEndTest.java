@@ -267,6 +267,33 @@ class LegacyLoginEndToEndTest {
 	}
 
 	/**
+	 * The claim is not the tenant. Employee 90011 belongs to company 9001, so
+	 * every other test here has a token whose {@code company_id} claim happens
+	 * to agree with the database — which means none of them can tell tenant
+	 * re-derivation from simply trusting the claim.
+	 *
+	 * <p>This one forges the disagreement: a validly signed token for employee
+	 * 90011 asserting company 9002. If the guard trusted the claim it would
+	 * serve 9002's data; because {@code LegacyTenantContextService} re-derives
+	 * the company from {@code employee_id} and cross-checks it, the request is
+	 * refused instead.
+	 */
+	@Test
+	void aForgedCompanyClaimIsRefusedRatherThanTrusted() throws Exception {
+		String forged = PhpJwtOracle.encode(
+				PhpJwtOracle.employeePayload(
+						90011L, 9002L, "employee", readTokenVersion(90011L),
+						PhpJwtOracle.tenYearsFromNow()),
+				SECRET);
+
+		ResponseEntity<Map> response = listExceptionTypesWith(forged);
+		assertThat(response.getStatusCode().value())
+				.as("the company must come from the database, never from the token")
+				.isNotEqualTo(200);
+		assertThat(response.getBody().get("success")).isEqualTo(false);
+	}
+
+	/**
 	 * Falsifies the two tests above: if the guard were not actually engaged on
 	 * this route, they would pass for the wrong reason. A stale
 	 * {@code token_version} must still be rejected even though the signature is
