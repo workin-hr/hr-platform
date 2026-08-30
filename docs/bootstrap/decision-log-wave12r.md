@@ -2160,6 +2160,7 @@ The direction, verbatim and unedited:
 ### What is accepted
 
 **R-016 — `complete_company_registration.php`.** Named explicitly by the owner.
+
 The route stays unauthenticated, keeps taking `company_id` from `$_POST`, and
 keeps returning a company-admin session token for whatever id it is handed. No
 Java-side authentication is added. Severity stays **Critical**: accepting a risk
