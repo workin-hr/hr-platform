@@ -180,8 +180,8 @@ here.
 > a JWT — so it returns 200 whether or not the table exists. The table is
 > reached by `LegacyRefreshTokenService.revokeAllForEmployee()`, called from
 > `LegacyProfileService` (password change, logout) and `LegacyOtpAuthService`
-> (OTP verify). A login-only check therefore passes while exactly those routes
-> are broken.
+> (`reset_password.php`, **employee mode only**). A login-only check therefore
+> passes while exactly those routes are broken.
 
 **How to verify it, without touching customer data.** The obvious write-path
 checks are **destructive against production and must not be used on a real
@@ -210,14 +210,25 @@ send their employer a departure notice. Use this instead, in order:
    running the check: `SHOW GRANTS FOR CURRENT_USER()` on an application
    connection, or the equivalent `information_schema` lookup.
 3. **On the restored copy used for the provisioning rehearsal, not production:**
-   exercise one write path end to end — **`reset_password.php`** — and confirm it
-   succeeds rather than erroring. The restored copy is where destructive checks
-   belong; that is what it is for.
+   exercise one write path end to end — **`reset_password.php` with
+   `type=employee`** — and confirm it succeeds rather than erroring. Record
+   evidence that it actually reached the refresh-token write (a row in
+   `legacy_refresh_tokens` moving to `REVOKED`, or the equivalent query log), not
+   merely that the request returned 200. The restored copy is where destructive
+   checks belong; that is what it is for.
 
-   > **Not OTP verify.** `LegacyOtpAuthService.verifyOtp()` never touches the
-   > refresh-token repository; only `resetPassword()` does. An OTP-verify check
-   > would pass without exercising the table at all — the same false-confidence
-   > trap as using login.
+   > **Not OTP verify, and not company mode.** Two ways to run this check and
+   > learn nothing:
+   >
+   > - `LegacyOtpAuthService.verifyOtp()` never touches the refresh-token
+   >   repository at all; only `resetPassword()` does.
+   > - Inside `resetPassword()`, the **company** branch calls
+   >   `updateCompanyPasswordByPhone()` and stops. Only the **employee** branch
+   >   reaches `revokeAllForEmployee()`. A `type=company` reset therefore
+   >   succeeds with the table missing.
+   >
+   > Both are the same false-confidence trap as using login: a green result that
+   > never touched the thing under test.
    >
    > **And this path fails badly.** `resetPassword()` calls
    > `updateEmployeePasswordByPhone()` and *only then*

@@ -80,7 +80,9 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
   `docs/operations/release-cutover-and-rollback.md`. Note the failure mode is
   not a clean startup error — the parity login route never touches the table,
   so a missing table surfaces later as broken password-change, logout and
-  OTP-verify paths.
+  employee-mode `reset_password.php` paths. **Not** OTP verify, which never
+  touches the table, and **not** a company-mode reset, whose branch stops at
+  `updateCompanyPasswordByPhone()` — both succeed with the table absent.
 - **Is the PHP rollback target actually restorable?** (**R-025**.) G11's claim
   is "the database is unchanged *and PHP still runs*"; only the first half has
   been examined. Nothing establishes that the PHP artifact, its runtime
