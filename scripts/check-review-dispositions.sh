@@ -97,6 +97,7 @@ else
             reviewThreads(first: 100, after: $cursor) {
               pageInfo { hasNextPage endCursor }
               nodes {
+                id
                 isResolved
                 path
                 line
@@ -106,7 +107,11 @@ else
                 # the finding -- the opposite failure to the outer truncation,
                 # and the reason this is capped rather than silently sliced:
                 # `totalCount` lets the check say so instead of guessing.
-                comments(first: 100) { totalCount nodes { author { login } body } }
+                comments(first: 100) {
+                  totalCount
+                  pageInfo { hasNextPage endCursor }
+                  nodes { author { login } body }
+                }
               }
             }
           }
@@ -158,17 +163,54 @@ findings="$(echo "$THREADS_JSON" | jq --arg reviewer "$REVIEWER_LOGIN" '
     | select((.comments.nodes | length) > 0)
     | select((.comments.nodes[0].author.login | sub("\\[bot\\]$"; "")) == $reviewer) ]')"
 
-# A thread longer than one comment page cannot be evaluated safely: the
-# disposition may be on a comment this query never fetched, and treating that as
-# "undispositioned" would block a merge whose finding was answered. Refuse
-# rather than guess.
-overlong="$(echo "$findings" | jq -r '
+# A thread longer than one comment page needs its remaining comments fetched
+# before the disposition can be judged. An earlier version refused instead --
+# but refusing is not a recoverable state: answering or resolving the thread by
+# hand does not reduce totalCount, so that thread would fail every subsequent
+# run forever. Fetch the rest.
+if [ -z "${REVIEW_THREADS_JSON_FILE:-}" ]; then
+  overlong_ids="$(echo "$findings" | jq -r '
+    .[] | select(.comments.totalCount > (.comments.nodes | length)) | .id')"
+  for thread_id in $overlong_ids; do
+    comment_cursor="$(echo "$findings" | jq -r --arg id "$thread_id" '
+      .[] | select(.id == $id) | .comments.pageInfo.endCursor')"
+    while [ -n "$comment_cursor" ] && [ "$comment_cursor" != "null" ]; do
+      # shellcheck disable=SC2016
+      comment_page="$(gh api graphql -F id="$thread_id" -F cursor="$comment_cursor" -f query='
+        query($id: ID!, $cursor: String) {
+          node(id: $id) {
+            ... on PullRequestReviewThread {
+              comments(first: 100, after: $cursor) {
+                pageInfo { hasNextPage endCursor }
+                nodes { author { login } body }
+              }
+            }
+          }
+        }')"
+      findings="$(jq -s --arg id "$thread_id" '
+        .[0] as $acc | .[1] as $page
+        | $acc
+        | map(if .id == $id
+              then .comments.nodes += $page.data.node.comments.nodes
+              else . end)' \
+        <(echo "$findings") <(echo "$comment_page"))"
+      if [ "$(echo "$comment_page" | jq -r '.data.node.comments.pageInfo.hasNextPage // false')" != "true" ]; then
+        break
+      fi
+      comment_cursor="$(echo "$comment_page" | jq -r '.data.node.comments.pageInfo.endCursor')"
+    done
+  done
+fi
+
+# Whatever the source, refuse to judge a thread whose comments are still short
+# of totalCount -- that can only happen if the fetch above was skipped (a
+# fixture) or failed, and guessing in either direction is worse than saying so.
+still_short="$(echo "$findings" | jq -r '
   .[] | select(.comments.totalCount > (.comments.nodes | length))
   | "  " + ((.path // "(no path)")) + ":" + ((.line // 0) | tostring)')"
-if [ -n "$overlong" ]; then
-  echo "Error: these threads exceed one comment page, so a disposition may be unreadable:" >&2
-  echo "$overlong" >&2
-  echo "Re-run with comment pagination, or resolve them by hand." >&2
+if [ -n "$still_short" ]; then
+  echo "Error: these threads could not be fully fetched, so a disposition may be unreadable:" >&2
+  echo "$still_short" >&2
   exit 1
 fi
 

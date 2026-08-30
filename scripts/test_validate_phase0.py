@@ -621,15 +621,19 @@ def test_dispositions_every_allowed_term_is_still_accepted() -> None:
         )
 
 
-def test_dispositions_a_thread_longer_than_one_comment_page_is_refused() -> None:
-    """A thread whose replies exceed one page cannot be evaluated: the
-    disposition may sit on a comment the query never fetched. Treating that as
-    undispositioned would block a merge whose finding *was* answered, so the
-    check refuses with the thread named rather than guessing."""
+def test_dispositions_a_thread_that_could_not_be_fully_fetched_is_refused() -> None:
+    """A thread whose comments are still short of `totalCount` after the fetch
+    cannot be judged: the disposition may sit on a comment nobody retrieved.
+
+    Against a live pull request the script now paginates the remainder, so this
+    state means the fetch was skipped or failed. Fixtures take the
+    `REVIEW_THREADS_JSON_FILE` path, which skips it deliberately — so this case
+    also pins that a truncated fixture is refused rather than silently judged.
+    """
     long_thread = _thread(REVIEWER, ("karimtismail", "Disposition: fixed"), total_count = 250)
     proc = run_check_dispositions([long_thread])
     check(
-        proc.returncode != 0 and "exceed one comment page" in (proc.stderr + proc.stdout),
+        proc.returncode != 0 and "could not be fully fetched" in (proc.stderr + proc.stdout),
         f"an overlong thread is refused, not silently misjudged (exit={proc.returncode}, "
         f"stdout={proc.stdout!r}, stderr={proc.stderr!r})",
     )
@@ -2141,7 +2145,7 @@ def main() -> int:
     test_dispositions_an_invented_term_is_not_a_disposition()
     test_dispositions_a_term_beginning_with_an_allowed_value_is_rejected()
     test_dispositions_every_allowed_term_is_still_accepted()
-    test_dispositions_a_thread_longer_than_one_comment_page_is_refused()
+    test_dispositions_a_thread_that_could_not_be_fully_fetched_is_refused()
     test_dispositions_reviewer_comes_from_the_workflow_assignment_not_a_comment()
     test_dispositions_real_workflow_reviewer_is_readable()
     test_branch_protection_all_requirements_met_passes()
