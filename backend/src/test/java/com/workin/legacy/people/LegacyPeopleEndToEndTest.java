@@ -278,6 +278,52 @@ class LegacyPeopleEndToEndTest {
 		assertThat(row).as("nor supply the doc type").containsEntry("doc_type", "other");
 	}
 
+	/**
+	 * PHP normalizes an external field name before populating {@code $_POST}
+	 * and keeps the <b>last</b> duplicate. An exact-name, first-match
+	 * {@code getPart()} loses both rules, and on this route both decide whose
+	 * record the document lands on.
+	 *
+	 * <p>{@code employee.id} normalizes to {@code employee_id}, so legacy sees
+	 * it; and the later plain {@code employee_id} wins over it, so the document
+	 * attaches to the caller rather than to {@code OTHER_STAFF}.
+	 */
+	@Test
+	@Order(7)
+	void uploadNormalizesMultipartFieldNamesAndKeepsTheLastDuplicate() {
+		MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
+		// employee_id appears twice under its PLAIN name: an exact-name lookup
+		// finds the first (OTHER_STAFF), parse_str() keeps the last (ADMIN). The
+		// dotted alias covers normalization separately.
+		form.add("employee_id", String.valueOf(OTHER_STAFF));
+		form.add("doc.type", "from_dotted");
+		form.add("employee_id", String.valueOf(ADMIN));
+		form.add("file", new ByteArrayResource(PNG_BYTES) {
+			@Override
+			public String getFilename() {
+				return "dupes.png";
+			}
+		});
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(token(ADMIN, "company_admin"));
+		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + "/apis/api/employee_docs/upload.php"),
+				HttpMethod.POST, new HttpEntity<>(form, headers),
+				new ParameterizedTypeReference<Map<String, Object>>() { });
+
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(201);
+		@SuppressWarnings("unchecked")
+		Map<String, Object> row = (Map<String, Object>) response.getBody().get("data");
+		assertThat(((Number) row.get("employee_id")).longValue())
+				.as("parse_str() keeps the last duplicate, so employee_id beats employee.id")
+				.isEqualTo(ADMIN);
+		assertThat(row)
+				.as("a dotted name is still normalized and read")
+				.containsEntry("doc_type", "from_dotted");
+	}
+
 	@Test
 	@Order(8)
 	void aDocumentOfAnotherCompanysEmployeeIsNotFound() {
