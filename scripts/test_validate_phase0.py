@@ -456,10 +456,15 @@ REAL_GATE_WORKFLOW = REPO_ROOT / ".github/workflows/independent-review-gate.yml"
 
 
 def _thread(author: str, *replies: tuple[str, str], path: str = "a.java", line: int = 1,
-            resolved: bool = True) -> dict:
+            resolved: bool = True, total_count: int | None = None) -> dict:
     nodes = [{"author": {"login": author}, "body": "P1: a finding"}]
     nodes += [{"author": {"login": who}, "body": body} for who, body in replies]
-    return {"isResolved": resolved, "path": path, "line": line, "comments": {"nodes": nodes}}
+    comments: dict = {"nodes": nodes}
+    # Mirrors the real payload: totalCount is what the server holds, nodes is
+    # what one page returned. Passing a larger total_count simulates a thread
+    # whose replies did not fit in a single page.
+    comments["totalCount"] = len(nodes) if total_count is None else total_count
+    return {"isResolved": resolved, "path": path, "line": line, "comments": comments}
 
 
 def run_check_dispositions(threads: list[dict], workflow_text: str | None = None) -> subprocess.CompletedProcess:
@@ -614,6 +619,20 @@ def test_dispositions_every_allowed_term_is_still_accepted() -> None:
             proc.returncode == 0,
             f"{allowed!r} is still accepted (exit={proc.returncode}, stdout={proc.stdout!r})",
         )
+
+
+def test_dispositions_a_thread_longer_than_one_comment_page_is_refused() -> None:
+    """A thread whose replies exceed one page cannot be evaluated: the
+    disposition may sit on a comment the query never fetched. Treating that as
+    undispositioned would block a merge whose finding *was* answered, so the
+    check refuses with the thread named rather than guessing."""
+    long_thread = _thread(REVIEWER, ("karimtismail", "Disposition: fixed"), total_count = 250)
+    proc = run_check_dispositions([long_thread])
+    check(
+        proc.returncode != 0 and "exceed one comment page" in (proc.stderr + proc.stdout),
+        f"an overlong thread is refused, not silently misjudged (exit={proc.returncode}, "
+        f"stdout={proc.stdout!r}, stderr={proc.stderr!r})",
+    )
 
 
 def test_dispositions_reviewer_comes_from_the_workflow_assignment_not_a_comment() -> None:
@@ -2109,6 +2128,7 @@ def main() -> int:
     test_dispositions_an_invented_term_is_not_a_disposition()
     test_dispositions_a_term_beginning_with_an_allowed_value_is_rejected()
     test_dispositions_every_allowed_term_is_still_accepted()
+    test_dispositions_a_thread_longer_than_one_comment_page_is_refused()
     test_dispositions_reviewer_comes_from_the_workflow_assignment_not_a_comment()
     test_dispositions_real_workflow_reviewer_is_readable()
     test_branch_protection_all_requirements_met_passes()

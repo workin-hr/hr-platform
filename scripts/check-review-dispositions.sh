@@ -100,7 +100,13 @@ else
                 isResolved
                 path
                 line
-                comments(first: 100) { nodes { author { login } body } }
+                  # 100 comments per thread, and the disposition is looked for in
+                # comments[1:]. A thread that runs past 100 replies would hide a
+                # valid disposition and block a merge that had actually answered
+                # the finding -- the opposite failure to the outer truncation,
+                # and the reason this is capped rather than silently sliced:
+                # `totalCount` lets the check say so instead of guessing.
+                comments(first: 100) { totalCount nodes { author { login } body } }
               }
             }
           }
@@ -151,6 +157,20 @@ findings="$(echo "$THREADS_JSON" | jq --arg reviewer "$REVIEWER_LOGIN" '
   [ .data.repository.pullRequest.reviewThreads.nodes[]
     | select((.comments.nodes | length) > 0)
     | select((.comments.nodes[0].author.login | sub("\\[bot\\]$"; "")) == $reviewer) ]')"
+
+# A thread longer than one comment page cannot be evaluated safely: the
+# disposition may be on a comment this query never fetched, and treating that as
+# "undispositioned" would block a merge whose finding was answered. Refuse
+# rather than guess.
+overlong="$(echo "$findings" | jq -r '
+  .[] | select(.comments.totalCount > (.comments.nodes | length))
+  | "  " + ((.path // "(no path)")) + ":" + ((.line // 0) | tostring)')"
+if [ -n "$overlong" ]; then
+  echo "Error: these threads exceed one comment page, so a disposition may be unreadable:" >&2
+  echo "$overlong" >&2
+  echo "Re-run with comment pagination, or resolve them by hand." >&2
+  exit 1
+fi
 
 total="$(echo "$findings" | jq 'length')"
 
