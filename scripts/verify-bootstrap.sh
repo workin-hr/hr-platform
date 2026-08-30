@@ -73,13 +73,100 @@ run_tool() {
   return 0
 }
 
+# run_tool's sibling for the tools that take a file list.
+#
+# The list arrives NUL-delimited on stdin **by redirection, never by pipe**: a
+# pipeline runs its right-hand side in a subshell, so the `skipped` /
+# `skipped_count` updates below would be discarded and the SUMMARY -- which
+# exists precisely so a local skip cannot go unnoticed -- would under-report.
+# Caught by the shim regression test after exactly that happened to lychee.
+#
+# The list is handed over with xargs -0,
+# because filenames may legally contain spaces, tabs, glob characters or
+# newlines -- all of which a space-joined, unquoted expansion would split or
+# glob into different arguments, so the linter would inspect the wrong paths or
+# fail on a valid one. POSIX sh has no arrays, so xargs is the portable way to
+# keep argument boundaries intact.
+run_tool_on_list() {
+  tool="$1"
+  shift
+  if command -v "$tool" >/dev/null 2>&1; then
+    echo "Running $tool on the filtered file list"
+    xargs -0 "$tool" "$@"
+    return $?
+  fi
+  cat >/dev/null   # drain the list so the producer does not see EPIPE
+  if [ "$STRICT" = "true" ]; then
+    echo "REQUIRED TOOL MISSING: $tool is not on PATH." >&2
+    echo "In BOOTSTRAP_STRICT=true mode this is a hard failure, not a skip." >&2
+    echo "CI installs a pinned copy into a job-local tools directory added to PATH before this step runs." >&2
+    return 1
+  fi
+  echo "Skipping $tool: not installed locally. Run scripts/check-bootstrap-prerequisites.sh for install guidance, or rely on CI (which never skips)."
+  skipped="$skipped $tool"
+  skipped_count=$((skipped_count + 1))
+  return 0
+}
+
+# Git-ignored paths are not repository content -- the same boundary
+# scripts/validate_phase0.py applies, and for the same reason. Installing a
+# third-party agent skill (`npx skills add ...` writes to .agents/skills/)
+# drops that author's shell scripts under a glob this script expands, so
+# without the filter their ShellCheck conventions become this repository's
+# aggregate verification failure, on the machine that installed them and
+# nowhere else.
+#
+# Deliberately NOT applied to gitleaks below: narrowing a secret scan by
+# gitignore is backwards. A credential sitting in an ignored third-party
+# tree is exactly the one worth knowing about, and the scan is cheap.
+not_ignored_z() {
+  for candidate in "$@"; do
+    [ -e "$candidate" ] || continue
+    git check-ignore -q "$candidate" 2>/dev/null && continue
+    printf '%s\0' "$candidate"
+  done
+}
+
+# lychee and yamllint both take paths rather than a config-level gitignore
+# switch (unlike markdownlint-cli2, which has "gitignore": true), so the same
+# boundary is applied by handing them explicit file lists.
+#
+# --cached --others --exclude-standard, not plain `git ls-files`: the default
+# lists tracked files only, which would silently drop a new, not-yet-staged
+# document from the link check. The exemption is meant to exclude ignored
+# third-party tooling, not every file a developer has just written.
+#
+# The existence filter drops the other direction: --cached still emits a file
+# the developer has deleted but not yet staged, and handing a linter a path
+# that is not there fails the whole run before it reaches the files that do
+# exist.
+existing_files() {
+  # $f below is expanded by the inner `sh -c`, not by this shell, so the
+  # single quotes are the point and SC2016 is noise -- the same situation,
+  # and the same suppression, as the GraphQL query in
+  # check-review-dispositions.sh.
+  # shellcheck disable=SC2016
+  git ls-files -z --cached --others --exclude-standard -- "$@" |
+    xargs -0 sh -c 'for f do
+      if [ -e "$f" ]; then printf "%s\0" "$f"; fi
+    done' _
+}
+
+# A temp file rather than a pipe, so run_tool_on_list stays in this shell and
+# its skip accounting survives. Removed on exit, including on failure.
+file_list="$(mktemp)"
+trap 'rm -f "$file_list"' EXIT
+
 status=0
 run_tool markdownlint-cli2 "**/*.md" || status=1
-run_tool yamllint -s . || status=1
-run_tool shellcheck scripts/*.sh .agents/skills/*/scripts/*.sh || status=1
+existing_files '*.yml' '*.yaml' > "$file_list"
+run_tool_on_list yamllint -s < "$file_list" || status=1
+not_ignored_z scripts/*.sh .agents/skills/*/scripts/*.sh > "$file_list"
+run_tool_on_list shellcheck < "$file_list" || status=1
 run_tool actionlint || status=1
 run_tool gitleaks detect --no-git --source . --redact --exit-code 1 || status=1
-run_tool lychee "**/*.md" || status=1
+existing_files '*.md' > "$file_list"
+run_tool_on_list lychee < "$file_list" || status=1
 
 echo
 echo "=================================================================="
