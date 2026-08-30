@@ -1018,8 +1018,11 @@ route count.
 
 ## D-131: Wave 13.4b delivers `workforce_planning`, reproducing a cross-tenant disclosure and filing it upstream
 
-**Status: PROPOSED — owner approval required before merge.** Security-relevant;
-**not** closed by this entry.
+**Status: ACCEPTED 2026-08-30 by the repository owner — see D-141.** It stood as
+`PROPOSED` from 2026-08-29 until then, and the paragraphs below were written
+while it was still open; they are kept unedited as the record of what was put to
+the owner, and of the fact that no agent decided it. The answer was parity, on
+both surfaces, without holding Item 13.
 
 <!-- markdownlint-disable-next-line MD036 -->
 **This entry was written and implemented in the same change, by the same
@@ -1180,3 +1183,66 @@ an acceptance that has not happened.
 147/4/1 → **154/4/1**. Live total 198 unchanged.
 
 Evidence: `./gradlew check` — **0 failures**, 10 new regressions. The suite-wide count is deliberately omitted: every review round adds regressions, so an aggregate recorded here is stale by the next commit (the same reason given two entries above).
+
+## D-141: The owner accepts parity on R-016 and R-012 — both ship reproducing legacy
+
+**Status:** Accepted 2026-08-30 by the repository owner. This is the owner
+decision D-131 was waiting for, and the one R-016 was recorded to force.
+
+The direction, verbatim and unedited:
+
+> r-016 parity (i need java to be like php) fot fix any issue, for the
+> reminaning pr i approved for them
+
+### What is accepted
+
+**R-016 — `complete_company_registration.php`.** Named explicitly by the owner.
+(Its risk-register entry is introduced with Wave 13.1b, higher in this stack, so
+a reader of Wave 13.4b alone will find the decision here but not the entry.)
+The route stays unauthenticated, keeps taking `company_id` from `$_POST`, and
+keeps returning a company-admin session token for whatever id it is handed. No
+Java-side authentication is added. Severity stays **Critical**: accepting a risk
+records that the owner chose to carry it, it does not make the risk smaller.
+
+**R-012 / D-131 — the `workforce_planning` cross-tenant disclosure.** Accepted
+under the general half of the same instruction ("for any issue"), which closes
+D-131 as `Accepted` and releases the hold on Item 13. What ships:
+
+| Surface | Discloses |
+|---|---|
+| `workforce_planning/list.php` | another tenant's branch, department and job-title **names**, enumerable by iterating ids |
+| `dashboard/stats.php` | a foreign department's name and its **active headcount** |
+
+**A caveat recorded rather than smoothed over.** The owner named R-016; R-012
+is covered by the general rule, not by name. The two are not equivalent in
+kind — R-016 is an authentication gap on one route, R-012 crosses a tenant
+boundary — and AGENTS.md singles out exactly that class for explicit owner
+decision. The general instruction is read as covering it because the owner has
+now given the same direction three times ("yes java like php for anything", "i
+need java to be like the same behivaour in php", and this one), and because
+holding Item 13 for a defect the owner has repeatedly declined to diverge on
+would be substituting an agent's judgment for theirs. If that reading is wrong,
+this entry is the place to correct it, and nothing about the code changes —
+only these two Status rows.
+
+### What is not accepted, and what this does not do
+
+- It does not lower either severity, close either register entry, or withdraw
+  `hr-legacy#33` and the upstream fix R-016 needs. Both entries stay open as
+  **tracking** rows against that work.
+- It does not touch the regressions. `LegacyWorkforcePlanningEndToEndTest`
+  still performs the cross-tenant read and asserts the leak, carrying its
+  instruction to be **inverted rather than deleted** once legacy is fixed. A
+  parity port that stops asserting its own known defect stops being evidence.
+- It is not a merge authorization. The owner's message also says the remaining
+  pull requests are approved; approval and the `independent-review` gate are
+  different conditions, and the gate is red on all twelve for reasons unrelated
+  to this decision (R-009 quota, and the clean-review gap on #138).
+
+### Why this was the owner's to make and not the agent's
+
+D-058 makes parity the default and would have reached the same answer, which is
+why the port already behaves this way and no code changes here. But AGENTS.md
+forbids an agent silently accepting a knowingly-shipped tenant-boundary defect,
+and the difference between "the default applies" and "the owner accepted it" is
+the whole point of the rule. Both are now recorded as the second.
