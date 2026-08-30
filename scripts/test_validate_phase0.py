@@ -2063,8 +2063,13 @@ def _make_repo_with_real_submodule(root: Path) -> None:
     (inner / "README.md").write_text("# inner\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(inner), "add", "README.md"], check=True)
     subprocess.run(
+        # commit.gpgSign=false explicitly: a developer with global signing
+        # enabled but no key available in a non-interactive run would otherwise
+        # fail here, before either scanner is exercised. The per-command
+        # identity settings do not override it.
         ["git", "-C", str(inner), "-c", "user.email=t@example.invalid",
-         "-c", "user.name=t", "commit", "-qm", "inner"], check=True)
+         "-c", "user.name=t", "-c", "commit.gpgSign=false",
+         "commit", "-qm", "inner"], check=True)
     sha = subprocess.run(["git", "-C", str(inner), "rev-parse", "HEAD"],
                          capture_output=True, text=True, check=True).stdout.strip()
     (root / ".gitmodules").write_text(

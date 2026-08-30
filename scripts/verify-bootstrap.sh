@@ -96,14 +96,24 @@ not_ignored() {
 set -- $(not_ignored scripts/*.sh .agents/skills/*/scripts/*.sh)
 shell_scripts="$*"
 
-# lychee takes a glob rather than a config-level gitignore switch (unlike
-# markdownlint-cli2, which has "gitignore": true), so the same boundary is
-# applied by handing it an explicit file list.
-markdown_files="$(git ls-files '*.md' | tr '\n' ' ')"
+# lychee and yamllint both take paths rather than a config-level gitignore
+# switch (unlike markdownlint-cli2, which has "gitignore": true), so the same
+# boundary is applied by handing them explicit file lists.
+#
+# --cached --others --exclude-standard, not plain `git ls-files`: the default
+# lists tracked files only, which would silently drop a new, not-yet-staged
+# document from the link check. The exemption is meant to exclude ignored
+# third-party tooling, not every file a developer has just written.
+tracked_and_new() {
+  git ls-files --cached --others --exclude-standard -- "$1" | tr '\n' ' '
+}
+markdown_files="$(tracked_and_new '*.md')"
+yaml_files="$(tracked_and_new '*.yml')$(tracked_and_new '*.yaml')"
 
 status=0
 run_tool markdownlint-cli2 "**/*.md" || status=1
-run_tool yamllint -s . || status=1
+# shellcheck disable=SC2086 # deliberate word splitting: one argument per path
+run_tool yamllint -s $yaml_files || status=1
 # shellcheck disable=SC2086 # same
 run_tool shellcheck $shell_scripts || status=1
 run_tool actionlint || status=1
