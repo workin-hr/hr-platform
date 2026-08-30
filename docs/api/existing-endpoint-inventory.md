@@ -644,7 +644,8 @@ and every difference below is legacy's.
 **All ten routes require an active company.** Every one goes through
 `requireCompanyActive()` after its role check, so a suspended company gets 403
 on the whole module — unlike `banners`/`faqs` in Wave 13.5, which serve platform
-content to a suspended company's staff.
+content to a suspended company's staff. The role and `hr_permissions` columns
+above are therefore necessary conditions, not sufficient ones.
 
 **Two boolean conventions in one wave.** `"is_active": "true"` deactivates a
 decision while `"is_returned": "true"` marks an asset returned. Any client

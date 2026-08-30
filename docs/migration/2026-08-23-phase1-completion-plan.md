@@ -343,7 +343,7 @@ Endpoint counts from `hr-legacy@d113204`; "Java counterpart" measured against
 | `company_settings` | 6 | entity exists but is schema-incompatible (EAV vs five typed columns) | Item 13 (D-4) | `setting_definitions`, `setting_allowed_values` | dashboard, desktop | gated by `can_company_settings` in the 17-flag matrix | 13.3 |
 | `setting_definitions` | 1 | none | Item 13 (D-4) | none | platform administration | `COMPANY_ADMIN`/`HR` only | 13.3 |
 | `setting_allowed_values` | 1 | none | Item 13 (D-4) | none | shared read, all clients | unauthenticated | 13.3 |
-| `workforce_planning` | 7 | none | Item 13 | `employees`, `departments`, `job_titles` | dashboard page directory confirmed; desktop (headcount targets) | the recorded edit-hijack/bare-delete finding is on `dashboard/pages/workforce_planning/page.php` — the PHP dashboard, **not** this API module (§4.9) | 13.4 |
+| `workforce_planning` | 7 | none | Item 13 | `employees`, `departments`, `job_titles` | dashboard page directory confirmed; desktop (headcount targets) | **cross-tenant disclosure in this API module** (D-131, `hr-legacy#33`): the write paths do not validate the foreign ids they store and the read joins carry no tenant predicate, so a user of company A can store company B's `branch_id`/`department_id`/`job_title_id` and read the names back. The same unscoped department join is in `dashboard/stats.php`, delivered in Wave 13.5, which also returns that department's headcount. A separate edit-hijack/bare-delete finding is on `dashboard/pages/workforce_planning/page.php` — that one is the PHP dashboard, not this module (§4.9) | 13.4 |
 | `assets` | 5 | none | Item 13 | `employees` | **no confirmed consumer evidence** — C8 | `hr_permissions` **not** enforced (recorded inconsistency) | 13.4 |
 | `administrative_decisions` | 5 | none | Item 13 | `employees` | **no confirmed consumer evidence** — C8 | `hr_permissions` enforced on all 5 | 13.4 |
 | `employee_docs` | 4 | none | Item 13 | `employees`, upload slots | mobile (confirmed), dashboard/desktop likely | file upload surface | 13.4 |
@@ -481,7 +481,7 @@ which is why this paragraph is here rather than implied.
 | `IMPLEMENTED_BUT_REQUIRES_D074_RETROFIT` | **0** | Closed by Wave 12.R (D-107/D-108/D-110/D-111). No `/api/legacy/**` business route remains mapped. |
 | `ITEM12_REMAINING` | **0** | **Empty as of 2026-08-28.** All three of C9's endpoints were delivered rather than excluded, exactly as O-8/D-120 dispositioned. |
 | `ITEM13_REMAINING` | **0** | Item 13 is complete. §2.2's 71 endpoints are all delivered: `auth/login_employee` (Wave 12.R), `configs/get.php` (Item 13.0), Wave 13.5's five, Wave 13.3's eight, Wave 13.4a's ten, Wave 13.4b's seven, Wave 13.4c's eleven, Wave 13.2's thirteen, Wave 13.1a's six and Wave 13.1b's nine (D-135). |
-| **Live total** | **198** | 170 + 0 + 0 + 28 |
+| **Live total** | **198** | 198 + 0 + 0 + 0 |
 | `EXPLICITLY_EXCLUDED_WITH_DECISION` | **1** | `apis/api/time/now.php` (O-3, §2.3). Outside the live total. |
 | **Endpoint files** | **199** | 198 live + 1 excluded |
 
@@ -878,7 +878,7 @@ query parameter:
 
 | Shape | Live today | PHP terminates in | Java answers |
 |---|---|---|---|
-| **Envelope only** | **165** of the 170 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — including `attendance/overall_report.php`, delivered by Wave 12.6.6c |
+| **Envelope only** | **193** of the 198 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — including `attendance/overall_report.php`, delivered by Wave 12.6.6c |
 | **Download only** | **4**: `employees/template_excel.php`, `leave_balances/template_excel.php`, `attendance/export.php`, `payslips/export.php` | `stream_employee_template_xlsx()` / `leave_balance_excel_stream_template()` — write to output and `exit`; `api_xlsx_export_send()` for the export | the same reader-observable file, `Content-Type`, `attachment` disposition and filename. **All delivered** — `LegacyEmployeeController.templateExcel` writes the bytes itself, `LegacyLeaveBalanceController.template` returns `ResponseEntity<byte[]>`, and `LegacyAttendanceController.export` returns the workbook for either sheet |
 | **Conditional** | **1**: `penalties/report.php` | `?format=csv` → the file's **own local** `streamCSV()` (`penalties/report.php:24`), which `exit`s; anything else falls through to `ok()` | both shapes from one handler. **Delivered** — `LegacyPenaltyController.report` returns `ResponseEntity<?>`: the workbook on the `csv` branch, `LegacyApiResponse.ok` otherwise |
 | **Owed** | **none** — Item 12's last endpoint shipped 2026-08-28 | — | — |
