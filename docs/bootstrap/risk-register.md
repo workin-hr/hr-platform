@@ -466,3 +466,27 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Target Date | **The tenant decision is owed now** — the 58 mutating endpoints are live, so this risk is already realised there and has no future milestone to wait for. Set against the next planned change to the tenant authentication path, or the next security review, whichever is sooner. The platform-admin half separately remains due before any destructive operation ships on that surface. |
 | Evidence | Platform admin: `PlatformAdminJwtService:55` (`sid` issued), `PlatformAdminAuthenticationFilter` (never read), `PlatformAdminSessionService.logout(String)`. Tenant: `JwtService:69` (`sid` issued), `JwtAuthenticationFilter` (no `sid` reference anywhere), `RefreshTokenService.logout(String)` (family only). Write surface counted by enumerating non-auth mutating mappings outside `platformadmin`. Related: **R-026**, the same defect class, now closed. |
 | Last Reviewed | 2026-08-31 |
+
+## R-028: The Port Was Mapped On File Paths, Not On The URLs Clients Call
+
+| Field | Value |
+|---|---|
+| Description | Every legacy controller mapped the PHP **file** path (`/apis/api/configs/get.php`) because the endpoint inventory was built from the source tree. Both Flutter clients call the **router** path (`/apis/api/configs/get`) — `api_constants.dart` joins `https://workin.company/apis/api/` with paths like `auth/login_employee`, and none of its 266 endpoint constants ends in `.php`. `apis/.htaccess` rewrites to `index.php` only when the target does not exist, so a direct `.php` request bypasses the bootstrap those files assume and fatals. |
+| Category | Migration / API contract / Cutover readiness |
+| Probability | Was certain. Every client request at cutover would have hit an unmapped path. |
+| Impact | **Total failure of D-111's zero-client-change premise, at the routing layer, before any business logic ran.** Measured against the 190 endpoints the clients actually call: Java answered the client URL form correctly for **9**. The same endpoints with `.php` appended: 188. Verified against production — `/apis/api/configs/get` answers 200 and `/apis/api/configs/get.php` answers 500. |
+| Severity | **Was Critical.** Not a degradation but a complete outage of the mobile and desktop clients from the first request after cutover, with a rollback needed to restore service. |
+| Owner | Repository owner. |
+| Mitigation | **Fixed.** `LegacyPhpRouterFilter` ports `apis/api/index.php`'s router: a two-segment route under `/apis/api/` resolves to the `.php` file serving it. Registered at `HIGHEST_PRECEDENCE` **outside** the Spring Security chain, because the permit-list in `LegacyPhpRoutes` is written in `.php` paths and authorization must evaluate the rewritten path or it would 401 endpoints legacy serves anonymously. After the fix the sweep matches **188/190**, and `configs/get` returns byte-identical JSON from both stacks. |
+| Trigger | Any new legacy endpoint: it must be reachable in the client form, which the filter now guarantees by construction rather than per-controller. |
+| Contingency | None needed post-fix. Had it shipped, the only remedy would have been rollback — the clients are frozen and cannot be pointed at a different URL shape. |
+| Status | **Closed 2026-08-31.** Found by the PHP↔Java parity harness (`docs/migration/2026-08-31-php-java-parity-harness.md`) on its first sweep. Not findable by reading either codebase: the tests exercised the same file paths the controllers mapped, so they passed against a backend no client could reach. |
+| Target Date | Met, before cutover. |
+| Evidence | `LegacyPhpRouterFilter`, `LegacyPhpRouterConfig`; five regression cases in `LegacyReferenceEndToEndTest` (three fail with the filter disabled); `flutter-integration/*/lib/core/network/api_constants.dart`; production status codes recorded above; sweep results in `parity-harness/`. |
+| Last Reviewed | 2026-08-31 |
+
+> **What this says about the evidence base.** The endpoint inventory, the
+> 198-endpoint count and every wave's delivery claim were built from the PHP
+> *source tree* rather than from the URLs clients request. `LegacyLoginEndToEndTest`
+> hits `login_employee.php` and passes; it would have passed forever. A port
+> verified against its own source tree verifies the wrong contract.

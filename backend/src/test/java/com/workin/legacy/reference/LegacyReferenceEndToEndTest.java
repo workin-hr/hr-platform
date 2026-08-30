@@ -78,6 +78,94 @@ class LegacyReferenceEndToEndTest {
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
 	}
 
+	// ---------------- legacy router path form ----------------
+
+	/**
+	 * The URL form the Flutter clients actually use.
+	 *
+	 * <p>Every controller here maps a <em>file</em> path
+	 * ({@code .../list.php}) because the endpoint inventory was built from the
+	 * PHP source tree. No client calls that. {@code api_constants.dart} joins
+	 * {@code https://workin.company/apis/api/} with {@code phone_countries/list},
+	 * and none of its 266 endpoint constants ends in {@code .php}. Production
+	 * agrees: {@code /apis/api/configs/get} answers 200 and
+	 * {@code /apis/api/configs/get.php} answers 500, because the direct file
+	 * assumes a bootstrap only {@code index.php} performs.
+	 *
+	 * <p>Measured before {@link com.workin.legacy.wire.LegacyPhpRouterFilter}
+	 * existed: Java answered the client's form for 9 of the 190 endpoints the
+	 * clients call. This is the case that pins the other 181.
+	 */
+	@Test
+	void theRouterPathFormAnswersIdenticallyToTheFilePath() {
+		ResponseEntity<Map> viaFile = restTemplate.getForEntity(COUNTRIES, Map.class);
+		ResponseEntity<Map> viaRoute = restTemplate.getForEntity(
+				COUNTRIES.substring(0, COUNTRIES.length() - ".php".length()), Map.class);
+
+		assertThat(viaRoute.getStatusCode())
+				.as("the URL the clients actually call must be served")
+				.isEqualTo(viaFile.getStatusCode());
+		assertThat(viaRoute.getBody())
+				.as("and must return the same payload, not merely the same status")
+				.isEqualTo(viaFile.getBody());
+	}
+
+	/**
+	 * The rewrite must not fire twice. A path already naming the file is left
+	 * alone -- otherwise it would become {@code list.php.php} and 404.
+	 */
+	@Test
+	void theFilePathFormStillWorks() {
+		assertThat(restTemplate.getForEntity(COUNTRIES, Map.class).getStatusCode().value()).isEqualTo(200);
+	}
+
+	/**
+	 * A public route stays public through the rewrite. This is the ordering
+	 * the filter exists to get right: the security permit-list is written in
+	 * {@code .php} paths, so if authorization saw the client's form it would
+	 * fall through to {@code anyRequest().authenticated()} and 401 an endpoint
+	 * legacy serves anonymously.
+	 */
+	@Test
+	void aPublicRouteIsStillPublicWhenCalledInTheClientForm() {
+		ResponseEntity<Map> response = restTemplate.getForEntity(
+				"/apis/api/phone_countries/list", Map.class);
+
+		assertThat(response.getStatusCode().value())
+				.as("no Authorization header, and legacy calls no requireAuth() here")
+				.isEqualTo(200);
+		assertThat(response.getBody().get("success")).isEqualTo(true);
+	}
+
+	/**
+	 * Legacy's router reads exactly two segments after {@code api} and ignores
+	 * the rest, so a deeper path is not a route it would serve. Rewriting one
+	 * would invent a file name that does not exist.
+	 */
+	@Test
+	void aDeeperPathIsNotRewritten() {
+		assertThat(restTemplate.getForEntity("/apis/api/phone_countries/list/extra", Map.class)
+				.getStatusCode().value())
+				.as("three segments is not a legacy route")
+				.isNotEqualTo(200);
+	}
+
+	/**
+	 * The query string has to survive the rewrite -- legacy reads its
+	 * parameters from it, so losing it would turn a filtered request into an
+	 * unfiltered one rather than into an error.
+	 */
+	@Test
+	void theQueryStringSurvivesTheRewrite() {
+		ResponseEntity<Map> viaRoute = restTemplate.getForEntity(
+				"/apis/api/phone_countries/list?lang=en", Map.class);
+		ResponseEntity<Map> viaFile = restTemplate.getForEntity(
+				"/apis/api/phone_countries/list.php?lang=en", Map.class);
+
+		assertThat(viaRoute.getStatusCode()).isEqualTo(viaFile.getStatusCode());
+		assertThat(viaRoute.getBody()).isEqualTo(viaFile.getBody());
+	}
+
 	// ---------------- phone_countries ----------------
 
 	@Test
