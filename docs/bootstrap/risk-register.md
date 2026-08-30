@@ -376,25 +376,3 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Target Date | Before the OTP IP columns are added, whichever change introduces them. |
 | Evidence | `hr-legacy@d113204` `apis/helpers/otp_helper.php:43-46`; port at `LegacyClientAddress.clientIp()`; the inert-predicate mechanism in R-014. Related: `LegacyClientAddressTest#anIpv4TailIsRejectedAnywhereButTheEndOfTheLiteral`, which pins the validator that decides whether a supplied header is used at all. |
 | Last Reviewed | 2026-08-30 |
-
-## R-026: A Deactivated Platform Administrator Keeps Access Until Their Token Expires
-
-| Field | Value |
-|---|---|
-| Description | `PlatformAdminAuthenticationFilter` builds `AuthenticatedPlatformAdminPrincipal` from the JWT subject alone — it never loads the `platform_admins` row and never checks `active`. `PlatformAdminSessionService` checks deactivation only when a refresh occurs, which is what F-26 means by "fail-closed rotation for deactivated admins": a narrower guarantee than per-request enforcement. `/api/platform-admin/me` likewise returns the row without checking `active`. |
-| Category | Security / AuthN-AuthZ / Platform administration |
-| Probability | Certain whenever an admin is deactivated while holding a live access token. |
-| Impact | The deactivated administrator retains **full platform-admin access for up to the access-token TTL** (`app.platform-admin.jwt.access-token-ttl-seconds`, 900s). Deactivation is precisely the control an operator reaches for when someone must stop having access *now* — a departing employee, a suspected compromise — and on this surface that access includes suspending and deleting customer companies. The window is bounded and short, which is the only thing keeping this out of the high band. |
-| Severity | Medium. Bounded to 15 minutes and requires an already-issued token, but it is a silent gap in the highest-privilege surface in the system, and the mitigation an operator would believe in (deactivate the account) does not do what they expect. |
-| Owner | Repository owner. |
-| Mitigation | An active-admin lookup in the shared request path, reached by every entry point, with a regression test per transport. Recorded as a requirement of **ADR-0014** (Decision 5) — an ADR that must not be accepted while describing this surface's authorization as already covered by ADR-0010. Interim operational mitigation: after deactivating an admin, also revoke their sessions (`PlatformAdminSessionService`'s revoke-all primitive), which invalidates refresh but does **not** shorten the current access token. |
-| Trigger | Any platform-admin deactivation; any new entry point onto `/api/platform-admin/**`, including the BFF proposed by ADR-0014, since both would inherit the same filter. |
-| Contingency | Reduce `app.platform-admin.jwt.access-token-ttl-seconds` to shrink the window until the lookup exists. This is a mitigation of blast radius, not a fix. |
-| Status | Open. Surfaced by independent review of PR #148 on 2026-08-30, which correctly rejected that ADR's claim that ADR-0010's per-request authorization already covered this path. Confirmed by reading `PlatformAdminAuthenticationFilter`. |
-| Target Date | Before the platform-admin web surface ships, and before any additional entry point is added to `/api/platform-admin/**`. |
-| Evidence | `backend/src/main/java/com/workin/backend/security/PlatformAdminAuthenticationFilter.java`; `PlatformAdminSessionService`; F-26 in `docs/migration/consolidated-task-matrix.md` ("fail-closed rotation for deactivated admins"); ADR-0014 Decision 5. |
-| Last Reviewed | 2026-08-30 |
-
-> **Numbering note.** R-023, R-024 and R-025 are proposed in PR #147 and are not
-> on `main` yet. R-026 is filed here from PR #148 rather than renumbered, so the
-> two PRs do not collide; whichever merges second inherits a contiguous register.
