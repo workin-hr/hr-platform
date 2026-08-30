@@ -445,6 +445,174 @@ def test_real_repository_settings_still_pass() -> None:
 
 
 # ---------------------------------------------------------------------------
+# scripts/check-review-dispositions.sh (step 7, R-008)
+# ---------------------------------------------------------------------------
+
+CHECK_DISPOSITIONS_SCRIPT = REPO_ROOT / "scripts/check-review-dispositions.sh"
+
+REVIEWER = "chatgpt-codex-connector[bot]"
+
+REAL_GATE_WORKFLOW = REPO_ROOT / ".github/workflows/independent-review-gate.yml"
+
+
+def _thread(author: str, *replies: tuple[str, str], path: str = "a.java", line: int = 1,
+            resolved: bool = True) -> dict:
+    nodes = [{"author": {"login": author}, "body": "P1: a finding"}]
+    nodes += [{"author": {"login": who}, "body": body} for who, body in replies]
+    return {"isResolved": resolved, "path": path, "line": line, "comments": {"nodes": nodes}}
+
+
+def run_check_dispositions(threads: list[dict], workflow_text: str | None = None) -> subprocess.CompletedProcess:
+    payload = {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": threads}}}}}
+    with tempfile.TemporaryDirectory(prefix="dispositions-test-") as tmp:
+        json_file = Path(tmp) / "threads.json"
+        json_file.write_text(json.dumps(payload), encoding="utf-8")
+        env = dict(os.environ)
+        env["REVIEW_THREADS_JSON_FILE"] = str(json_file)
+        if workflow_text is not None:
+            workflow_file = Path(tmp) / "gate.yml"
+            workflow_file.write_text(workflow_text, encoding="utf-8")
+            env["INDEPENDENT_REVIEW_WORKFLOW_FILE"] = str(workflow_file)
+        return subprocess.run(
+            ["bash", str(CHECK_DISPOSITIONS_SCRIPT)],
+            capture_output=True, text=True, timeout=10, env=env,
+        )
+
+
+def test_dispositions_match_the_graphql_login_without_the_bot_suffix() -> None:
+    """The GraphQL API returns a bot login WITHOUT the `[bot]` suffix that the
+    workflow declares, the REST API returns and the UI shows. Comparing the two
+    literally never matches, and the check then reports "no findings" and passes
+    on every real pull request.
+
+    This case uses the **GraphQL** spelling on purpose. The other cases here use
+    the suffixed form, which is what the original fixtures assumed -- and why
+    they all passed while the script could not have worked against GitHub."""
+    proc = run_check_dispositions([
+        _thread("chatgpt-codex-connector", ("karimtismail", "Disposition: fixed"))])
+    check(
+        proc.returncode == 0 and "All 1 finding(s)" in proc.stdout,
+        f"a GraphQL-form bot login is recognised as the reviewer (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_an_unsuffixed_login_still_fails_without_a_disposition() -> None:
+    """The suffix-stripping must not make every thread pass: the same GraphQL
+    login with no reply is still an undisposed finding."""
+    proc = run_check_dispositions([_thread("chatgpt-codex-connector")])
+    check(
+        proc.returncode != 0 and "1 of 1" in proc.stdout,
+        f"stripping the suffix does not excuse a missing disposition (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_every_finding_answered_passes() -> None:
+    proc = run_check_dispositions([
+        _thread(REVIEWER, ("karimtismail", "Disposition: fixed in abc1234")),
+        _thread(REVIEWER, ("karimtismail", "Disposition: declined-with-evidence, see PHP line 88")),
+    ])
+    check(
+        proc.returncode == 0 and "All 2 finding(s)" in proc.stdout,
+        f"every finding disposed passes (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_missing_one_fails_and_names_it() -> None:
+    proc = run_check_dispositions([
+        _thread(REVIEWER, ("karimtismail", "Disposition: fixed"), path="a.java", line=10),
+        _thread(REVIEWER, ("karimtismail", "looks fine to me"), path="b.java", line=20),
+    ])
+    check(
+        proc.returncode != 0 and "1 of 2" in proc.stdout and "b.java:20" in proc.stdout,
+        f"an undisposed finding fails and is named (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_resolution_alone_does_not_satisfy_step_seven() -> None:
+    """The whole reason this check exists. `required_conversation_resolution`
+    passes on a resolved thread; resolution is a state anyone with write access
+    can set without answering, which is exactly R-008's third realization."""
+    proc = run_check_dispositions([_thread(REVIEWER, resolved=True)])
+    check(
+        proc.returncode != 0,
+        f"a resolved but unanswered finding still fails (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_a_finding_cannot_disposition_itself() -> None:
+    """The disposition must come from a reply. A reviewer whose own finding
+    text contains the word would otherwise discharge itself, which would make
+    the check trivially satisfiable by the party it is meant to check."""
+    threads = [_thread(REVIEWER)]
+    threads[0]["comments"]["nodes"][0]["body"] = "P1: Disposition: fixed -- quoted in the finding itself"
+    proc = run_check_dispositions(threads)
+    check(
+        proc.returncode != 0,
+        f"a finding quoting a disposition does not discharge itself (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_threads_opened_by_humans_are_not_findings() -> None:
+    """Step 7 speaks to the independent reviewer's findings. A thread a human
+    started is a conversation, and requiring a disposition on it would train
+    people to type the token to clear noise."""
+    proc = run_check_dispositions([_thread("karimtismail", ("karimtismail", "just thinking aloud"))])
+    check(
+        proc.returncode == 0 and "nothing for step 7" in proc.stdout,
+        f"a human-opened thread is not a finding (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_all_four_vocabulary_terms_are_accepted() -> None:
+    terms = ["fixed", "declined-with-evidence", "accepted-risk", "superseded"]
+    proc = run_check_dispositions(
+        [_thread(REVIEWER, ("karimtismail", f"Disposition: {term}")) for term in terms])
+    check(
+        proc.returncode == 0 and "All 4 finding(s)" in proc.stdout,
+        f"all four dispositions are accepted (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_an_invented_term_is_not_a_disposition() -> None:
+    """A closed vocabulary, so that "Disposition: wontfix" or "Disposition: ok"
+    is a failure rather than a silent fifth category."""
+    proc = run_check_dispositions([_thread(REVIEWER, ("karimtismail", "Disposition: wontfix"))])
+    check(
+        proc.returncode != 0,
+        f"an invented disposition is rejected (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_reviewer_comes_from_the_workflow_assignment_not_a_comment() -> None:
+    """Same binding rule as check-branch-protection.sh, and the same bug this
+    repository has already written twice: a login named only in a comment must
+    not stand in for the one the gate queries."""
+    workflow = (
+        '# the reviewer is chatgpt-codex-connector[bot]\n'
+        'jobs:\n  gate:\n    steps:\n      - env:\n'
+        '          REVIEWER: "someone-else[bot]"\n'
+    )
+    proc = run_check_dispositions([_thread(REVIEWER, ("karimtismail", "Disposition: fixed"))],
+                                  workflow_text=workflow)
+    check(
+        proc.returncode == 0 and "nothing for step 7" in proc.stdout,
+        "the reviewer is read from the REVIEWER assignment, not from a comment "
+        f"(exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_real_workflow_reviewer_is_readable() -> None:
+    """Against the repository's own gate file, so the two cannot drift."""
+    proc = run_check_dispositions(
+        [_thread(REVIEWER, ("karimtismail", "Disposition: fixed"))],
+        workflow_text=REAL_GATE_WORKFLOW.read_text(encoding="utf-8"))
+    check(
+        proc.returncode == 0 and "All 1 finding(s)" in proc.stdout,
+        f"the real gate workflow names the reviewer this script reads (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+# ---------------------------------------------------------------------------
 # scripts/check-branch-protection.sh (GH-1)
 # ---------------------------------------------------------------------------
 
@@ -459,12 +627,18 @@ GOOD_PROTECTION_JSON = {
 }
 
 
-def run_check_branch_protection(protection: dict, workflow_text: str | None = None) -> subprocess.CompletedProcess:
+def run_check_branch_protection(
+    protection: dict, workflow_text: str | None = None, write_humans: int = 2
+) -> subprocess.CompletedProcess:
+    """`write_humans` defaults to 2 -- the multi-maintainer case, where an
+    approving review is possible and therefore required. The solo case is
+    exercised explicitly by the tests that care about it."""
     with tempfile.TemporaryDirectory(prefix="branch-protection-test-") as tmp:
         json_file = Path(tmp) / "protection.json"
         json_file.write_text(json.dumps(protection), encoding="utf-8")
         env = dict(os.environ)
         env["BRANCH_PROTECTION_JSON_FILE"] = str(json_file)
+        env["BRANCH_PROTECTION_WRITE_HUMANS"] = str(write_humans)
         if workflow_text is not None:
             workflow_file = Path(tmp) / "workflow.yml"
             workflow_file.write_text(workflow_text, encoding="utf-8")
@@ -483,6 +657,42 @@ def test_branch_protection_all_requirements_met_passes() -> None:
     check(
         proc.returncode == 0 and "meets all requirements" in proc.stdout,
         f"branch protection meeting every requirement passes (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_solo_maintainer_requires_zero_approvals() -> None:
+    """The live configuration: one write-access human, so `0` is the only
+    satisfiable value and the check must accept it rather than demand an
+    approval nobody can give."""
+    solo = {**GOOD_PROTECTION_JSON,
+            "required_pull_request_reviews": {"required_approving_review_count": 0}}
+    proc = run_check_branch_protection(solo, write_humans=1)
+    check(
+        proc.returncode == 0 and "procedural obligation" in proc.stdout,
+        f"a solo maintainer passes with 0 required approvals (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_rejects_unsatisfiable_approval_requirement() -> None:
+    """The deadlock this check exists to catch: requiring an approving review
+    where the only write-access human is every pull request's author. GitHub
+    forbids self-approval, so nothing could ever merge."""
+    proc = run_check_branch_protection(GOOD_PROTECTION_JSON, write_humans=1)
+    check(
+        proc.returncode != 0 and "could ever be merged" in proc.stdout,
+        f"one maintainer plus a required approval is rejected as unsatisfiable (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_requires_approval_once_a_second_maintainer_exists() -> None:
+    """The requirement returns by itself: with two humans a peer approval is
+    possible, so dropping the count is no longer excused."""
+    solo = {**GOOD_PROTECTION_JSON,
+            "required_pull_request_reviews": {"required_approving_review_count": 0}}
+    proc = run_check_branch_protection(solo, write_humans=2)
+    check(
+        proc.returncode != 0 and "a peer approval is possible" in proc.stdout,
+        f"two maintainers with 0 required approvals is rejected (exit={proc.returncode}, stdout={proc.stdout!r})",
     )
 
 
@@ -1801,7 +2011,21 @@ def main() -> int:
     test_nightly_tier_named_without_schedule_workflow_fails()
     test_nightly_tier_named_with_schedule_workflow_passes()
     test_real_repository_has_nightly_workflow()
+    test_dispositions_match_the_graphql_login_without_the_bot_suffix()
+    test_dispositions_an_unsuffixed_login_still_fails_without_a_disposition()
+    test_dispositions_every_finding_answered_passes()
+    test_dispositions_missing_one_fails_and_names_it()
+    test_dispositions_resolution_alone_does_not_satisfy_step_seven()
+    test_dispositions_a_finding_cannot_disposition_itself()
+    test_dispositions_threads_opened_by_humans_are_not_findings()
+    test_dispositions_all_four_vocabulary_terms_are_accepted()
+    test_dispositions_an_invented_term_is_not_a_disposition()
+    test_dispositions_reviewer_comes_from_the_workflow_assignment_not_a_comment()
+    test_dispositions_real_workflow_reviewer_is_readable()
     test_branch_protection_all_requirements_met_passes()
+    test_branch_protection_solo_maintainer_requires_zero_approvals()
+    test_branch_protection_rejects_unsatisfiable_approval_requirement()
+    test_branch_protection_requires_approval_once_a_second_maintainer_exists()
     test_branch_protection_reports_every_failing_field()
     test_branch_protection_without_conversation_resolution_fails()
     test_branch_protection_without_the_independent_review_context_fails()
