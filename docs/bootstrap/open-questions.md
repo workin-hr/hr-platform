@@ -224,8 +224,23 @@ Surfaced by `docs/adr/ADR-0014-platform-admin-web-authentication.md`, which is
   a platform-admin token" *enforced* rather than documented?** The existing
   `/api/platform-admin/login` and `/refresh` hand both tokens to any caller, so
   the wrong wiring is the path of least resistance.
-- **Stateless signed cookie or server-side session for the BFF**, and what cookie
-  domain topology does the choice imply?
+- **What server-side session store does the BFF use**, and what cookie domain
+  topology does it imply? Not *whether* one: a stateless signed cookie carrying
+  the token pair would send those tokens to the browser, which the whole design
+  exists to prevent — signing gives integrity, not confidentiality — and a
+  cookie holding only an opaque handle is server-side state by definition.
+- **What are the concrete session bounds** — the idle timeout and the
+  non-renewable absolute family cap? The 7-day refresh is *sliding* today, so a
+  session used daily never expires. Declared mandatory without numbers, the ADR
+  could be accepted with that unchanged.
+- **What does the MFA-bearing login exchange look like?** `/login` takes phone
+  plus password and returns the token pair immediately, so there is nowhere for
+  a TOTP challenge to happen. Needs a challenge/response step, enrolment, and a
+  representation for a step-up-satisfied session.
+- **What throttling do the password and TOTP steps get?** `PlatformAdminLoginService`
+  has no attempt limit, backoff or lockout, while the legacy dashboard it
+  replaces enforces 8 attempts / 15 minutes. A six-digit second factor without
+  throttling is a feasible online search, so this is not a follow-up to MFA.
 - **Which TOTP implementation, and what recovery design?** The population is
   bootstrap-provisioned with no self-registration, so lockout has no
   self-service escape today.

@@ -232,7 +232,48 @@ and nothing else — its only callers are `PlatformAdminLoginService` and
 `PlatformAdminSessionService`. Per-endpoint audit of business actions is F-26's
 standing acceptance criterion, still owed. That part is unchanged by this ADR.
 
-### 6. The existing bearer endpoints are restricted to the BFF, not left open
+### 6. Logging out of the browser must revoke the backend session, not just the cookie
+
+A browser logout has to do three things, and only the first is obvious:
+
+1. Clear the BFF's session cookie.
+2. **Invalidate the BFF's own server-side session record**, so a copied session
+   identifier is worthless afterwards.
+3. **Call the Java `/api/platform-admin/logout`** with the stored refresh token,
+   so the backend family is revoked.
+
+Omit the third and the device looks logged out while the refresh family keeps
+sliding for up to seven days — the BFF could resume the session at any point,
+and anything holding that refresh token still can. Omit the second and the
+cookie value alone is enough to walk back in.
+
+Worth stating because the failure is invisible from the browser: the user sees a
+login screen and reasonably concludes the session is over.
+
+**This does not fix R-027.** Revoking the family still leaves the *access* token
+valid until `exp`; that is the open question ADR-0005 owns. This decision only
+requires that logout does everything currently available to it.
+
+### 7. Authentication attempts are throttled, and this is not optional
+
+`PlatformAdminLoginService` has **no attempt limit, no backoff and no lockout**
+— only audit attribution of failures. The legacy dashboard it replaces enforces
+an **8-attempt, 15-minute lockout** (`dashboard/includes/security.php`), which
+the threat model records as one of the few real mitigations standing in front of
+the shared admin password.
+
+So the new platform-admin login is currently **weaker than the system it
+replaces** on online guessing, and relaying it through a public browser surface
+does not change that. Adding TOTP without throttling does not close it either: a
+six-digit second factor is 10^6 values, which is a feasible online search
+against an unlimited endpoint, and step-up on destructive actions inherits the
+same weakness.
+
+Throttling therefore ships **with** MFA, not after it: per-identity attempt
+limiting with lockout on both the password and the TOTP step. Matching legacy's
+8/15 is the floor, not the target.
+
+### 8. The existing bearer endpoints are restricted to the BFF, not left open
 
 `/api/platform-admin/login` and `/refresh` return raw access and refresh tokens,
 and `/api/platform-admin/**` authenticates through an `Authorization: Bearer`
@@ -311,7 +352,7 @@ than the model.
   point, no second transport, no new security model to keep in step with the
   existing one. This is **not** a claim that the backend needs no changes:
   Decision 5 requires an active-admin lookup in the shared request path
-  (**R-026**), and Decision 6's enforcement may require a BFF credential. Both
+  (**R-026**), and Decision 8's enforcement may require a BFF credential. Both
   are backend work.
 - The Next.js app must never call the Java API from the browser. That is a
   standing architectural constraint on it, not a one-time implementation note,
@@ -345,10 +386,14 @@ than the model.
   behaviour against theft, and a trap for a BFF. Several browser requests
   arriving just after the access token expires can reach separate Next.js
   handlers, each submitting the same stored refresh token, and normal
-  day-to-day concurrency then looks exactly like an attack: every session for
-  that admin dies. Mitigation: the BFF must serialise refresh per session — a
-  lock or single-flight around rotation — and that requirement belongs in its
-  implementation notes, not discovered in production.
+  day-to-day concurrency then looks exactly like an attack. **Scoped
+  correctly**: `revokeFamilyForReuse()` calls `setStatusForFamily()`, so what
+  dies is the presented token's family — that one session — not every session
+  the admin holds, which carry different family UUIDs. The admin is logged out
+  mid-task rather than everywhere at once. Mitigation: the BFF must serialise
+  refresh per session — a lock or single-flight around rotation — and that
+  requirement belongs in its implementation notes, not discovered in
+  production.
 - **CSRF, newly relevant.** Cookies reintroduce a class the bearer clients never
   had. Mitigation: `SameSite=Lax` plus anti-CSRF tokens, with negative tests
   asserting a cross-site state-changing request is rejected.
@@ -387,7 +432,7 @@ Still required before this moves from `Proposed` to `Accepted`:
 4. Confirmation of whether the legacy PHP dashboard's `admin`-role surface runs
    in parallel during Phase 2, and if so whether both authenticate independently.
 5. Enforcement mechanism for keeping `/api/platform-admin/**` BFF-only
-   (Decision 6) — network reachability, a required BFF credential, or both.
+   (Decision 8) — network reachability, a required BFF credential, or both.
 6. The active-admin lookup required by Decision 5, with a regression test per
    transport (**R-026**).
 7. **Concrete session bounds**: the idle timeout and the non-renewable absolute
