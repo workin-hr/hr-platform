@@ -21,6 +21,7 @@ import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyApiResponse;
 import com.workin.legacy.wire.LegacyMessages;
+import com.workin.legacy.wire.LegacyPhpArrayJson;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -97,8 +98,14 @@ public class LegacySettingsController {
 		// endpoint answers the whole map instead of that one key.
 		String settingKey = LegacyValues.isPhpEmpty(raw)
 				? null : LegacyValues.phpTrim(LegacyValues.toPhpString(raw));
+		Map<String, Object> options = settingsService.options(settingKey, locale(request));
+		// The all-keys branch builds PHP's `$map = []`, which json_encode emits
+		// as `[]` when no definition exists -- a bare array, not an object. A
+		// Java map always serializes as `{}`, so it goes through the PHP array
+		// rule. The single-key branch is a literal `['setting_key' => ...,
+		// 'options' => ...]` and is always an object, so it is left alone.
 		return LegacyApiResponse.ok(message(request, "ok"),
-				settingsService.options(settingKey, locale(request)));
+				settingKey == null ? LegacyPhpArrayJson.encodeBareArray(options) : options);
 	}
 
 	@RequestMapping("/apis/api/company_settings/create.php")
