@@ -114,7 +114,13 @@ SYSTEM_PATH_DIRS = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # nested regression suite (scripts/test_git_guard.py) calls
 # `git branch --show-current` for real (get_current_branch()) against this
 # actual repository.
-ESSENTIAL_RUNTIME_TOOLS = ("git", "bash", "sh", "python3")
+# xargs joined this list when verify-bootstrap.sh started building its linter
+# file lists NUL-delimited: `existing_files` pipes through `xargs -0` so
+# filenames containing spaces or newlines keep their argument boundaries. Left
+# off, the shimmed run dies in that pipeline under `set -e` before it ever
+# prints the SUMMARY line these tests read — a failure that looks like a
+# broken assertion rather than a missing runtime.
+ESSENTIAL_RUNTIME_TOOLS = ("git", "bash", "sh", "python3", "xargs")
 
 
 def _essential_runtime_path_dirs() -> str:
@@ -2161,6 +2167,58 @@ def test_a_non_utf8_filename_does_not_disable_the_ignore_exemption() -> None:
         shutil.rmtree(root)
 
 
+def _existing_files_helper() -> str:
+    """The real `existing_files` definition, lifted out of
+    scripts/verify-bootstrap.sh rather than restated here, so this test cannot
+    pass against a copy that has drifted from the shipped one."""
+    text = VERIFY_BOOTSTRAP_SCRIPT.read_text(encoding="utf-8")
+    start = text.index("existing_files() {")
+    end = text.index("}", text.index("xargs -0 sh -c", start)) + 1
+    return text[start:end]
+
+
+def test_verify_bootstrap_file_list_survives_awkward_filenames_and_deletions() -> None:
+    """Two ways the linter file list can be wrong, both of which break the
+    aggregate verification rather than the code under test.
+
+    A filename containing a space is legal; a space-joined, unquoted expansion
+    splits it into two nonexistent paths. And `--cached` still lists a file the
+    developer has deleted without staging the deletion, handing the linter a
+    path that is not there — which fails the run before it reaches the files
+    that do exist."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / "has space.md").write_text("# a\n", encoding="utf-8")
+        (root / "keep.md").write_text("# b\n", encoding="utf-8")
+        (root / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (root / "vendor").mkdir()
+        (root / "vendor/ignored.md").write_text("# c\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "-C", str(root), "-c", "user.email=t@example.invalid",
+             "-c", "user.name=t", "-c", "commit.gpgSign=false",
+             "commit", "-qm", "init"], check=True)
+        (root / "keep.md").unlink()          # tracked, deleted, not staged
+        (root / "brand new.md").write_text("# d\n", encoding="utf-8")  # untracked
+
+        script = f"{_existing_files_helper()}\nexisting_files '*.md'\n"
+        out = subprocess.run(["sh", "-c", script], cwd=root,
+                             capture_output=True, check=True).stdout
+        names = [chunk.decode() for chunk in out.split(b"\0") if chunk]
+
+        check(
+            "has space.md" in names
+            and "brand new.md" in names
+            and "keep.md" not in names
+            and "vendor/ignored.md" not in names,
+            "the file list keeps spaced and untracked names, drops unstaged "
+            f"deletions and ignored paths (got {names})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_real_repository_skill_catalog_still_passes() -> None:
     """Sanity check against the real repository, proving this check doesn't
     break the actual catalog."""
@@ -2389,6 +2447,7 @@ def main() -> int:
     test_forbidden_scan_keeps_the_ignore_exemption_with_a_populated_submodule()
     test_link_scan_keeps_the_ignore_exemption_with_a_populated_submodule()
     test_a_non_utf8_filename_does_not_disable_the_ignore_exemption()
+    test_verify_bootstrap_file_list_survives_awkward_filenames_and_deletions()
     test_real_repository_skill_catalog_still_passes()
     test_product_code_outside_spike_still_fails()
     test_product_code_inside_spike_is_excluded()
