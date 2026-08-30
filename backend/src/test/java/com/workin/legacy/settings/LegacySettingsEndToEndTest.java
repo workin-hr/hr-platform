@@ -531,6 +531,63 @@ class LegacySettingsEndToEndTest {
 				.isEqualTo(200);
 	}
 
+	/**
+	 * {@code options.php} orders by {@code setting_key} in the <b>database's</b>
+	 * collation, which is {@code utf8mb4_unicode_ci} and therefore
+	 * case-insensitive. A Java string comparator is binary and would sort every
+	 * uppercase key ahead of every lowercase one.
+	 *
+	 * <p>Inserted and removed inside the test rather than added to the shared
+	 * fixture, which two other assertions pin at three definitions.
+	 */
+	@Test
+	@Order(27)
+	@SuppressWarnings("unchecked")
+	void theOptionsMapFollowsTheDatabaseCollationNotJavaStringOrder() {
+		execute("INSERT INTO setting_definitions (id, setting_key, label_ar, label_en,"
+				+ " description_ar, description_en, icon_data, is_multi, is_required, sort_order)"
+				+ " VALUES (90, 'MONTHLY_ACCRUAL', NULL, 'Monthly', NULL, NULL, NULL, 0, 0, 9)");
+		try {
+			Map<String, Object> all = (Map<String, Object>) data(
+					send(OPTIONS, HttpMethod.GET, token(ADMIN), null));
+			assertThat(all.keySet())
+					.as("case-insensitive: MONTHLY_ACCRUAL sorts among the lowercase keys, "
+							+ "after `modules` because `mod` < `mon`")
+					.containsExactly("currency", "modules", "MONTHLY_ACCRUAL", "theme");
+		} finally {
+			execute("DELETE FROM setting_definitions WHERE id = 90");
+		}
+	}
+
+	/**
+	 * PHP builds {@code $map = []} and {@code json_encode()} emits {@code []}
+	 * for it when no definition exists -- a bare array, where a Java map would
+	 * always serialize as {@code {}}.
+	 */
+	@Test
+	@Order(28)
+	void anEmptyDefinitionCatalogueAnswersAJsonArrayNotAnObject() {
+		// Plain tables, not TEMPORARY: execute() opens a fresh connection per
+		// statement, and a temporary table would not survive between them.
+		execute("CREATE TABLE _defs_backup AS SELECT * FROM setting_definitions");
+		execute("CREATE TABLE _vals_backup AS SELECT * FROM setting_allowed_values");
+		execute("DELETE FROM setting_allowed_values");
+		execute("DELETE FROM setting_definitions");
+		try {
+			ResponseEntity<Map<String, Object>> response =
+					send(OPTIONS, HttpMethod.GET, token(ADMIN), null);
+			assertThat(response.getStatusCode().value()).isEqualTo(200);
+			assertThat(response.getBody().get("data"))
+					.as("PHP's bare array encodes as [], not {}")
+					.isInstanceOf(List.class);
+		} finally {
+			execute("INSERT INTO setting_definitions SELECT * FROM _defs_backup");
+			execute("INSERT INTO setting_allowed_values SELECT * FROM _vals_backup");
+			execute("DROP TABLE _defs_backup");
+			execute("DROP TABLE _vals_backup");
+		}
+	}
+
 	// ---------------- fixture ----------------
 
 	private static Object data(ResponseEntity<Map<String, Object>> response) {

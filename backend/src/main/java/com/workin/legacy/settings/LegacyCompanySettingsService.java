@@ -105,11 +105,12 @@ public class LegacyCompanySettingsService {
 			out.put("options", optionsForKey(settingKey, locale));
 			return out;
 		}
+		// Ordered by the database, not re-sorted here: `setting_key` collates
+		// utf8mb4_unicode_ci, so MariaDB's ORDER BY is case-insensitive where a
+		// Java comparator is binary.
 		Map<String, Object> out = new LinkedHashMap<>();
-		for (LegacySettingsStore.Definition definition : store.allDefinitions().stream()
-				.sorted(java.util.Comparator.comparing(LegacySettingsStore.Definition::settingKey))
-				.toList()) {
-			out.put(definition.settingKey(), optionsForKey(definition.settingKey(), locale));
+		for (String key : store.definitionKeysByKeyOrder()) {
+			out.put(key, optionsForKey(key, locale));
 		}
 		return out;
 	}
