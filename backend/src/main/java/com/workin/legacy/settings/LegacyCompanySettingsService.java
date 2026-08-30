@@ -184,9 +184,14 @@ public class LegacyCompanySettingsService {
 			});
 		}
 
-		Map<String, Long> allowed = requireAllowed(definition.id(), values);
-
+		// Inside the boundary, not before it: update.php's `try` opens at :178
+		// and the allowed-values lookup is at :190, so a timeout or lost
+		// connection there is PHP's error_with_message, not a bare 500.
+		// (create.php is the opposite -- its definition and existence lookups
+		// sit above its `try` at :181 -- and delete.php has no `try` at all, so
+		// their Java counterparts stay outside this wrapper deliberately.)
 		return persisting(() -> {
+			Map<String, Long> allowed = requireAllowed(definition.id(), values);
 			long target = store.companySettingId(companyId, definition.id());
 			if (target <= 0) {
 				target = store.insertCompanySetting(companyId, definition.id());

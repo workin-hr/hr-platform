@@ -494,6 +494,39 @@ class LegacySettingsEndToEndTest {
 		}
 	}
 
+	/**
+	 * The same contract for a failure in the <b>allowed-values lookup</b>, which
+	 * PHP performs at {@code update.php:190} — inside the {@code try} that opens
+	 * at {@code :178}, not before it. Running it outside the translation
+	 * boundary would answer D-084's generic 500 for a timeout or a lost
+	 * connection where legacy answers {@code error_with_message}.
+	 *
+	 * <p>A trigger cannot force a {@code SELECT} to fail, so the table is
+	 * renamed out from under the query instead.
+	 *
+	 * <p>Deliberately not extended to {@code create.php} or {@code delete.php}:
+	 * create's definition and existence lookups sit <em>above</em> its
+	 * {@code try} at {@code :181}, and delete has no {@code try} at all, so
+	 * their Java counterparts are correct outside the wrapper.
+	 */
+	@Test
+	@Order(24)
+	void aFailedAllowedValuesLookupAlsoAnswersErrorWithMessage() {
+		execute("RENAME TABLE setting_allowed_values TO setting_allowed_values_hidden");
+		try {
+			ResponseEntity<Map<String, Object>> response = send(UPDATE, HttpMethod.PUT, token(ADMIN),
+					"{\"setting_key\":\"modules\",\"values\":[\"payroll\"]}");
+
+			assertThat(response.getStatusCode().value()).isEqualTo(500);
+			assertThat(response.getBody()).containsEntry("success", false);
+			assertThat(response.getBody().get("message")).asString()
+					.as("PHP's error_with_message, not \"Internal server error\"")
+					.isNotEqualTo("Internal server error");
+		} finally {
+			execute("RENAME TABLE setting_allowed_values_hidden TO setting_allowed_values");
+		}
+	}
+
 	@Test
 	@Order(25)
 	void allowedValuesRequiresItsDefinitionIdAndFourZeroFoursAnUnknownOne() {
