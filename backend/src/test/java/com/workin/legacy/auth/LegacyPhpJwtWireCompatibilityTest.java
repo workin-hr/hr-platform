@@ -2,13 +2,8 @@ package com.workin.legacy.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /**
  * The tokens this service emits must be indistinguishable from
@@ -26,17 +21,23 @@ import org.junit.jupiter.api.Test;
  * re-authenticate, and a rollback forces every session issued since cutover to
  * re-authenticate <em>again</em>.
  *
- * <p>This test pins everything that is verifiable in this repository: the
- * header, the algorithm, the claim names and their order, and the signature
- * construction. It reimplements {@code jwtEncode()}
- * ({@code apis/helpers/functions.php:420-430}) independently rather than
- * calling the production encoder, so a change to the encoder cannot silently
- * drag the expectation along with it.
+ * <p>This test pins what is decidable at the codec level: the header, the
+ * algorithm, the claim names and their order, the signature construction, and
+ * the configured default lifetime. It builds every expectation from
+ * {@link PhpJwtOracle}, an independent reimplementation of {@code jwtEncode()},
+ * so a change to the production encoder cannot drag the expectation with it.
  *
- * <p><b>What it cannot check</b> is the one input it has no access to: whether
- * the deployed {@code app.jwt.secret} is byte-identical to PHP's
- * {@code AppConfig::JWT_SECRET}. Nothing in this repository can know that, and
- * nothing currently asserts it -- see the pre-cutover verification step in
+ * <p><b>The codec is not the whole path.</b> A real Phase 1 request also
+ * traverses {@code LegacyPhpJwtAuthenticationFilter}, tenant re-derivation and
+ * {@code LegacyRequestGuard}'s token-version and role checks -- any of which
+ * could reject a structurally valid PHP token and silently break the rollback
+ * property this file claims to protect. That half is covered by
+ * {@code LegacyLoginEndToEndTest}, which presents oracle-encoded tokens over
+ * real HTTP against real MariaDB.
+ *
+ * <p><b>What neither test can check</b> is the one input they have no access
+ * to: whether the deployed {@code app.jwt.secret} is byte-identical to PHP's
+ * {@code AppConfig::JWT_SECRET}. See the pre-cutover verification step in
  * {@code docs/operations/release-cutover-and-rollback.md}, which is the only
  * place that gap can be closed.
  */
@@ -46,31 +47,11 @@ class LegacyPhpJwtWireCompatibilityTest {
 
 	private final LegacyPhpJwtService service = new LegacyPhpJwtService(SECRET, 87600);
 
-	/**
-	 * {@code apis/helpers/functions.php:420-430}, reimplemented here rather than
-	 * shared with the production path, so this is a genuine oracle.
-	 */
-	private static String phpJwtEncode(String payloadJson, String secret) throws Exception {
-		Base64.Encoder url = Base64.getUrlEncoder().withoutPadding();
-		String header = url.encodeToString(
-				"{\"alg\":\"HS256\",\"typ\":\"JWT\"}".getBytes(StandardCharsets.UTF_8));
-		String payload = url.encodeToString(payloadJson.getBytes(StandardCharsets.UTF_8));
-		Mac mac = Mac.getInstance("HmacSHA256");
-		mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-		byte[] sig = mac.doFinal((header + "." + payload).getBytes(StandardCharsets.US_ASCII));
-		return header + "." + payload + "." + url.encodeToString(sig);
-	}
-
-	private static String segment(String token, int index) {
-		return new String(Base64.getUrlDecoder().decode(token.split("\\.")[index]),
-				StandardCharsets.UTF_8);
-	}
-
 	/** PHP writes {@code {"alg":"HS256","typ":"JWT"}} and nothing else. */
 	@Test
 	void theHeaderIsByteIdenticalToPhps() {
 		String token = service.issueCompanyToken(7L, "company_admin");
-		assertThat(segment(token, 0)).isEqualTo("{\"alg\":\"HS256\",\"typ\":\"JWT\"}");
+		assertThat(PhpJwtOracle.decodeSegment(token, 0)).isEqualTo("{\"alg\":\"HS256\",\"typ\":\"JWT\"}");
 	}
 
 	/**
@@ -79,32 +60,25 @@ class LegacyPhpJwtWireCompatibilityTest {
 	 * same logical payload. PHP's array literal fixes the order.
 	 */
 	@Test
-	void theCompanyTokenIsIndistinguishableFromJwtEncodesOutput() throws Exception {
+	void theCompanyTokenIsIndistinguishableFromJwtEncodesOutput() {
 		String token = service.issueCompanyToken(7L, "company_admin");
-		long exp = Long.parseLong(segment(token, 1).replaceAll(".*\"exp\":(\\d+).*", "$1"));
-
-		String expected = phpJwtEncode(
-				"{\"type\":\"company\",\"company_id\":7,\"role\":\"company_admin\",\"exp\":" + exp + "}",
-				SECRET);
+		long exp = expiryOf(token);
 
 		assertThat(token)
 				.as("a Java-issued company token must verify unchanged in PHP")
-				.isEqualTo(expected);
+				.isEqualTo(PhpJwtOracle.encode(
+						PhpJwtOracle.companyPayload(7L, "company_admin", exp), SECRET));
 	}
 
 	@Test
-	void theEmployeeTokenIsIndistinguishableFromJwtEncodesOutput() throws Exception {
+	void theEmployeeTokenIsIndistinguishableFromJwtEncodesOutput() {
 		String token = service.issueEmployeeToken(42L, 7L, "hr", 3L);
-		long exp = Long.parseLong(segment(token, 1).replaceAll(".*\"exp\":(\\d+).*", "$1"));
-
-		String expected = phpJwtEncode(
-				"{\"type\":\"employee\",\"employee_id\":42,\"company_id\":7,\"role\":\"hr\""
-						+ ",\"token_version\":3,\"exp\":" + exp + "}",
-				SECRET);
+		long exp = expiryOf(token);
 
 		assertThat(token)
 				.as("a Java-issued employee token must verify unchanged in PHP")
-				.isEqualTo(expected);
+				.isEqualTo(PhpJwtOracle.encode(
+						PhpJwtOracle.employeePayload(42L, 7L, "hr", 3L, exp), SECRET));
 	}
 
 	/**
@@ -112,12 +86,10 @@ class LegacyPhpJwtWireCompatibilityTest {
 	 * token PHP minted before cutover must still authenticate against Java.
 	 */
 	@Test
-	void aTokenMintedByPhpIsAcceptedByJava() throws Exception {
+	void aTokenMintedByPhpIsAcceptedByJava() {
 		long exp = System.currentTimeMillis() / 1000 + 3600;
-		String phpToken = phpJwtEncode(
-				"{\"type\":\"employee\",\"employee_id\":42,\"company_id\":7,\"role\":\"hr\""
-						+ ",\"token_version\":3,\"exp\":" + exp + "}",
-				SECRET);
+		String phpToken = PhpJwtOracle.encode(
+				PhpJwtOracle.employeePayload(42L, 7L, "hr", 3L, exp), SECRET);
 
 		assertThat(service.decode(phpToken))
 				.as("a PHP-issued session must survive cutover")
@@ -131,10 +103,10 @@ class LegacyPhpJwtWireCompatibilityTest {
 	 * invalid at the instant of cutover.
 	 */
 	@Test
-	void aTokenSignedWithADifferentSecretIsRejected() throws Exception {
+	void aTokenSignedWithADifferentSecretIsRejected() {
 		long exp = System.currentTimeMillis() / 1000 + 3600;
-		String foreign = phpJwtEncode(
-				"{\"type\":\"company\",\"company_id\":7,\"role\":\"company_admin\",\"exp\":" + exp + "}",
+		String foreign = PhpJwtOracle.encode(
+				PhpJwtOracle.companyPayload(7L, "company_admin", exp),
 				"a-different-secret-as-if-the-two-deployments-disagreed");
 
 		assertThat(service.decode(foreign))
@@ -146,13 +118,28 @@ class LegacyPhpJwtWireCompatibilityTest {
 	 * PHP's {@code JWT_EXPIRE_HOURS} is 87600 -- ten years. The Java default
 	 * must match, or tokens minted either side of a cutover expire on different
 	 * schedules and the two systems disagree about who is still logged in.
+	 *
+	 * <p>Bound through the container with no {@code app.legacy-jwt.expiry-hours}
+	 * property set, so this exercises the {@code @Value} fallback that
+	 * production actually runs on. Constructing the service directly with a
+	 * literal {@code 87600} would assert only that the fixture passes what the
+	 * fixture passes, and would stay green if the fallback were edited.
 	 */
 	@Test
-	void theDefaultExpiryMatchesPhpsTenYears() {
-		long exp = Long.parseLong(
-				segment(service.issueCompanyToken(1L, "company_admin"), 1)
-						.replaceAll(".*\"exp\":(\\d+).*", "$1"));
-		long hours = (exp - System.currentTimeMillis() / 1000) / 3600;
-		assertThat(hours).isBetween(87598L, 87600L);
+	void theConfiguredDefaultExpiryMatchesPhpsTenYears() {
+		new ApplicationContextRunner()
+				.withBean(LegacyPhpJwtService.class)
+				.withPropertyValues("app.jwt.secret=" + SECRET)
+				.run(context -> {
+					long exp = expiryOf(context.getBean(LegacyPhpJwtService.class)
+							.issueCompanyToken(1L, "company_admin"));
+					long hours = (exp - System.currentTimeMillis() / 1000) / 3600;
+					assertThat(hours).isBetween(87598L, 87600L);
+				});
+	}
+
+	private static long expiryOf(String token) {
+		return Long.parseLong(
+				PhpJwtOracle.decodeSegment(token, 1).replaceAll(".*\"exp\":(\\d+).*", "$1"));
 	}
 }

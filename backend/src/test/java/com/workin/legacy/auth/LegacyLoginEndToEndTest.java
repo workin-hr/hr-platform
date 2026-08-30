@@ -39,6 +39,7 @@ class LegacyLoginEndToEndTest {
 	private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 	private static final String KNOWN_PASSWORD = "Secret123!";
 	private static final String LOGIN = "/apis/api/auth/login_employee.php";
+	private static final String SECRET = "test-only-secret-not-used-in-production-000000000000";
 
 	@Autowired
 	private TestRestTemplate restTemplate;
@@ -62,7 +63,7 @@ class LegacyLoginEndToEndTest {
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {
-		registry.add("app.jwt.secret", () -> "test-only-secret-not-used-in-production-000000000000");
+		registry.add("app.jwt.secret", () -> SECRET);
 		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
 		registry.add("app.legacy-db.username", MARIADB::getUsername);
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
@@ -210,6 +211,66 @@ class LegacyLoginEndToEndTest {
 
 		ResponseEntity<Map> accepted = listExceptionTypesWith(secondToken);
 		assertThat(accepted.getStatusCode().value()).isEqualTo(200);
+	}
+
+	/**
+	 * The rollback direction, over the real path rather than the codec.
+	 *
+	 * <p>{@code LegacyPhpJwtWireCompatibilityTest} proves the codec accepts a
+	 * PHP-minted token. That is not sufficient for G11's claim: a live request
+	 * also traverses {@code LegacyPhpJwtAuthenticationFilter}, tenant
+	 * re-derivation and {@code LegacyRequestGuard}'s token-version and role
+	 * checks. A regression in any of those would leave the codec test green
+	 * while every pre-cutover session broke.
+	 *
+	 * <p>The token here is encoded by {@link PhpJwtOracle}, never by the
+	 * production service, so this is a genuine PHP token as far as the
+	 * application can tell -- exactly what a user holds when the cutover
+	 * happens mid-session.
+	 */
+	@Test
+	void aPhpMintedEmployeeTokenAuthenticatesAProtectedRouteOverRealHttp() throws Exception {
+		String phpToken = PhpJwtOracle.encode(
+				PhpJwtOracle.employeePayload(
+						90011L, 9001L, "employee", readTokenVersion(90011L),
+						PhpJwtOracle.tenYearsFromNow()),
+				SECRET);
+
+		ResponseEntity<Map> response = listExceptionTypesWith(phpToken);
+		assertThat(response.getStatusCode().value())
+				.as("a session PHP issued before cutover must keep working after it")
+				.isEqualTo(200);
+		assertThat(response.getBody().get("success")).isEqualTo(true);
+	}
+
+	@Test
+	void aPhpMintedCompanyTokenAuthenticatesAProtectedRouteOverRealHttp() {
+		String phpToken = PhpJwtOracle.encode(
+				PhpJwtOracle.companyPayload(9001L, "company_admin", PhpJwtOracle.tenYearsFromNow()),
+				SECRET);
+
+		ResponseEntity<Map> response = listExceptionTypesWith(phpToken);
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		assertThat(response.getBody().get("success")).isEqualTo(true);
+	}
+
+	/**
+	 * Falsifies the two tests above: if the guard were not actually engaged on
+	 * this route, they would pass for the wrong reason. A stale
+	 * {@code token_version} must still be rejected even though the signature is
+	 * valid, which is what makes their 200 evidence of anything.
+	 */
+	@Test
+	void aPhpMintedTokenWithAStaleTokenVersionIsStillRejected() throws Exception {
+		String stale = PhpJwtOracle.encode(
+				PhpJwtOracle.employeePayload(
+						90011L, 9001L, "employee", readTokenVersion(90011L) - 1,
+						PhpJwtOracle.tenYearsFromNow()),
+				SECRET);
+
+		ResponseEntity<Map> response = listExceptionTypesWith(stale);
+		assertThat(response.getStatusCode().value()).isEqualTo(401);
+		assertThat(response.getBody().get("success")).isEqualTo(false);
 	}
 
 	private ResponseEntity<Map> login(String phone, String password) {

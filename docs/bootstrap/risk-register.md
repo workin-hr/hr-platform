@@ -376,3 +376,39 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Target Date | Before the OTP IP columns are added, whichever change introduces them. |
 | Evidence | `hr-legacy@d113204` `apis/helpers/otp_helper.php:43-46`; port at `LegacyClientAddress.clientIp()`; the inert-predicate mechanism in R-014. Related: `LegacyClientAddressTest#anIpv4TailIsRejectedAnywhereButTheEndOfTheLiteral`, which pins the validator that decides whether a supplied header is used at all. |
 | Last Reviewed | 2026-08-30 |
+
+## R-023: Phase 1 Cutover Has An Unprovisioned Schema Prerequisite On The Production Legacy Database
+
+| Field | Value |
+|---|---|
+| Description | Phase 1 adds exactly one table to the legacy MariaDB — `legacy_refresh_tokens` (`backend/src/test/resources/legacy/phase1_extensions.schema.sql`), authorised as a narrow exception by **D-043 amendment 3**. It does not exist in production legacy MySQL, and **nothing creates it**: Flyway owns no MariaDB location, `LegacyPersistenceConfig` sets `hibernate.hbm2ddl.auto` to `none`, and ADR-0013's Open Questions record that the provisioning mechanism for a real, non-test instance is undecided. Today the table exists only where a test container applies the extension schema out-of-band. |
+| Category | Migration / Cutover readiness / Production safety |
+| Probability | Certain — the Java application cannot serve a legacy login without this table, so the cutover cannot succeed until it is provisioned. |
+| Impact | Cutover fails at the first login attempt if the step is forgotten. More importantly, the step is a **DDL statement against the production legacy database** executed by an undecided mechanism, which is precisely the class of action that needs a named owner, a rehearsal against a restored copy, and a stated lock duration rather than an ad hoc `CREATE TABLE` on the night. |
+| Severity | Medium. The change itself is trivial and additive; the risk is that it is treated as trivial and therefore performed without the controls a production schema change requires. |
+| Owner | Repository owner. |
+| Mitigation | Decide and approve the provisioning mechanism before the cutover window, per ADR-0013's Open Questions. Rehearse it against a restored copy of the production legacy database and record the mechanism, owner and lock duration in `docs/operations/release-cutover-and-rollback.md`, which now carries this as an explicit pre-cutover step. |
+| Trigger | Scheduling the Phase 1 cutover. |
+| Contingency | **Rollback does not need to reverse it.** The table is purely additive and no PHP code references it, so after a rollback it is simply orphaned — harmless in place, and leaving it preserves the option of rolling forward again without repeating the DDL. Dropping it is deliberately *not* part of the rollback procedure. |
+| Status | Open. Surfaced by independent review of PR #147 on 2026-08-30, which correctly rejected that PR's original claim that Phase 1 changes no tables. |
+| Target Date | Before the Phase 1 cutover window is scheduled. |
+| Evidence | `phase1_extensions.schema.sql`; `LegacyPersistenceConfig` (`hbm2ddl.auto=none`, "No Flyway ownership of any MariaDB schema"); ADR-0013 Open Questions; D-043 amendment 3; decision-log entries D-050/D-051 declining to widen the exception. |
+| Last Reviewed | 2026-08-30 |
+
+## R-024: A Signing-Secret Mismatch At Phase 1 Cutover Logs Out Every User, Twice
+
+| Field | Value |
+|---|---|
+| Description | Phase 1's zero-client-change property (**D-111**) depends on Java and PHP sharing one HS256 signing secret. `LegacyPhpJwtService` binds `app.jwt.secret`; PHP uses `AppConfig::JWT_SECRET`. Nothing verifies the two are byte-identical — `JwtSecretStartupCheck` rejects a known placeholder value and nothing more — and until PR #147 no document stated the requirement at all. |
+| Category | Security / Cutover readiness / Customer impact |
+| Probability | Unknown, and that is the point: it is a single configuration value that no check compares, so a mismatch would be discovered by users rather than by the release. |
+| Impact | If the secrets differ, **cutover invalidates every live PHP-issued session at once** — a mass forced logout of the entire active user base — and a **rollback invalidates every session Java issued since cutover, logging everyone out a second time**. This inverts the phase's central risk assumption: the rollback that is supposed to be cheap becomes the second-most disruptive event of the release. If they match, both transitions are transparent. |
+| Severity | High if it occurs; the exposure is one unverified config value and the verification is a single request. |
+| Owner | Repository owner. |
+| Mitigation | The pre-cutover token exchange recorded in `docs/operations/release-cutover-and-rollback.md`: mint a token in Java, present it to PHP on an authenticated endpoint, then reverse the direction. Rejection means the deployments disagree — stop the cutover. Wire compatibility either side of that secret is already pinned by `LegacyPhpJwtWireCompatibilityTest` (codec) and `LegacyLoginEndToEndTest` (real HTTP through the production filter chain), both building expectations from an independent reimplementation of `jwtEncode()`. |
+| Trigger | Any Phase 1 cutover; any rotation of either secret. |
+| Contingency | If a mismatch is found before cutover, align the configured value and re-run the exchange. If it is discovered *after* cutover, rolling back does not restore the logged-out sessions — the population is already forced to re-authenticate — so the decision becomes forward-fix versus rollback on other grounds, and a user communication is required either way. |
+| Status | Open. Recorded 2026-08-30 with PR #147; the secondary constraint below was surfaced by independent review of that PR. |
+| Target Date | Before the Phase 1 cutover window is scheduled. |
+| Evidence | `LegacyPhpJwtService` and `JwtService` both bind `app.jwt.secret`; `apis/helpers/functions.php:420-430`. **Secondary constraint:** `JwtService` is component-scanned into the `phase1-mysql` context and its constructor calls `Keys.hmacShaKeyFor()`, which rejects keys under 256 bits, whereas PHP's `hash_hmac` accepts any length — so a legacy secret shorter than 32 bytes would prevent Java from starting rather than merely mismatching. Checked: the legacy secret is 65 bytes, so this is satisfied today, but it constrains any future rotation. The value is not recorded in this repository. |
+| Last Reviewed | 2026-08-30 |
