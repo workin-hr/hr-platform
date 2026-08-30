@@ -115,16 +115,36 @@ two systems answer differently for the same request and would mask the defect
 rather than resolve it. What is owed is a decision on one point:
 
 > Given that this particular defect crosses a **tenant boundary**, is parity
-> still the right default — or should Wave 13.4b wait for `hr-legacy#33` to land
+> still the right default — or should Item 13 wait for `hr-legacy#33` to land
 > and port the fix instead?
+
+**Holding Wave 13.4b alone no longer answers this.** The same unscoped join is
+in `dashboard/stats.php`, delivered in **Wave 13.5 (PR #138)**, which sits below
+13.4b in the stack — and that surface leaks the foreign department's active
+headcount as well as its name. So the options are:
+
+| Option | 13.4b's `list.php` leak | `stats.php` leak |
+|---|---|---|
+| Merge the stack | ships | ships |
+| Hold 13.4b only | held | **ships** |
+| Hold from 13.5 up | held | held — but that holds all of Item 13 |
+
+The choice is therefore to accept the disclosure on **both** surfaces for
+Phase 1, or to hold **Item 13 as a whole**. An option that holds only #141 would
+purport to wait for the fix while still shipping the vulnerable route.
 
 - **Owner:** repository owner. Not an agent decision — AGENTS.md forbids an
   agent silently making one of this kind, and an earlier revision of D-131
   wrongly recorded it as accepted.
 - **Resolution trigger:** either the owner records parity as still correct (D-131
-  moves to Accepted, #141 merges, the regression keeps asserting the leak), or
-  the owner elects to wait (#141 holds until `hr-legacy#33` is fixed, and the
-  regression is **inverted rather than deleted** in the same change).
-- **Tracked in:** D-131, `docs/security/threat-model.md`'s tenant ↔ tenant row.
-  Deliberately **not** in the risk register: registering it as an accepted
-  residual would presume the decision that is still open.
+  moves to Accepted, the stack merges, and the regressions keep asserting the
+  leak on both surfaces), or the owner elects to wait — in which case the hold
+  is from **Wave 13.5 upward**, not #141 alone, and the regressions are
+  **inverted rather than deleted** in the same change.
+- **Tracked in:** D-131, `docs/security/threat-model.md`'s tenant ↔ tenant row,
+  and **R-021** in the risk register. R-021 records it as an *open, undecided*
+  exposure — not an accepted residual — precisely so that a cutover or security
+  review starting from the canonical register finds it. Registering a risk does
+  not presume its disposition; an earlier revision of this bullet said the
+  opposite and kept the register silent about a confirmed cross-tenant
+  disclosure.

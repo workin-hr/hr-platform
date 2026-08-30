@@ -1106,6 +1106,10 @@ with PHP.
 `workforce_planning` routes; the upstream fix has to cover both, or the port
 cannot follow it.
 
+The exposure is now carried in the risk register as **R-021**, recorded as open
+and undecided rather than as an accepted residual — a cutover or security review
+starting from the register has to be able to find it.
+
 This surface was missed when D-131 was first written. It was found by review on
 PR #138, not by the wave that introduced it.
 
@@ -1175,4 +1179,4 @@ an acceptance that has not happened.
 `FINAL_COMPATIBLE` 152 → **159**; `ITEM13_REMAINING` 46 → **39**; partition
 147/4/1 → **154/4/1**. Live total 198 unchanged.
 
-Evidence: `./gradlew check` — **2024 tests, 0 failures**, 10 new.
+Evidence: `./gradlew check` — **0 failures**, 10 new regressions. The suite-wide count is deliberately omitted: every review round adds regressions, so an aggregate recorded here is stale by the next commit (the same reason given two entries above).

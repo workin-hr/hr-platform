@@ -185,3 +185,25 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Status | Open — accepted residual, non-blocking for Phase 1. Recorded rather than mitigated. |
 | Evidence | `hr-legacy@d113204` `apis/api/assets/*.php` — no `require_hr_permission()` call in any of the five files; `requireAuth([COMPANY_ADMIN, HR])` on `create`/`update`/`delete`. Client: `workin_desktop/lib/presentation/layouts/main/controllers/main_desktop_provider.dart:82`. Discovery: `docs/migration/2026-08-29-c3-c8-bounded-discovery.md`. Decision: D-130. Upstream: `hr-legacy#8`. |
 | Last Reviewed | 2026-08-29 |
+
+## R-021: A Confirmed Cross-Tenant Disclosure Ships On Two Surfaces Pending An Owner Decision
+
+<!-- Numbered R-021 rather than R-011: R-011 through R-020 are introduced by
+     branches higher in the Item 13 stack, and reusing a number here would
+     collide on merge. The gap closes as those branches land. -->
+
+| Field | Value |
+|---|---|
+| Description | `workforce_planning` joins `branches`, `departments` and `job_titles` on id alone with **no tenant predicate**, while two of its three write paths (`save_target.php`, `update.php`) store caller-supplied foreign ids without ownership validation. A `company_admin` or `hr` user of company A can therefore write company B's `branch_id`/`department_id`/`job_title_id` into their own planning row and read company B's **names** back from `list.php`. **The same unscoped department join is in `dashboard/stats.php:91-99`**, which additionally returns that department's **active headcount** through a correlated subquery. `workforce_planning.department_id` carries no foreign key (`mysql_workin.schema.sql:939-948`), so nothing in the schema prevents the mismatched row. The Phase-1 Java port reproduces both faithfully under D-058. |
+| Category | Security / Tenant isolation / Legacy parity |
+| Probability | High — two ordinary authenticated API calls, no timing or special conditions. The `stats.php` surface needs no write of its own once such a row exists. |
+| Impact | Medium. Names of another tenant's branches, departments and job titles, enumerable by iterating ids; plus an aggregate active headcount per department from `stats.php`. No per-employee, payroll or personal data crosses. The harm is competitive intelligence and the breach of an isolation guarantee customers reasonably assume, not exposure of individuals. |
+| Severity | Medium |
+| Owner | **Repository owner — decision open.** D-131 is `PROPOSED`, not Accepted. |
+| Mitigation | **None applied, deliberately.** Fixing it in Java alone would make the two systems answer differently for the same request, which is what Phase 1 exists to prevent, and would mask rather than resolve the legacy defect. Filed upstream as `hr-legacy#33`, which must cover **both** surfaces or the port cannot follow it. |
+| Trigger | Any cutover of `workforce_planning` or `dashboard/stats.php`; any customer or audit question about tenant isolation; `hr-legacy#33` being scheduled. |
+| Contingency | Two options, and they are not symmetric: accept the disclosure on both surfaces for Phase 1, or hold **Item 13 as a whole**. Holding PR #141 alone does **not** work — `stats.php` ships in Wave 13.5, below 13.4b in the stack — and would give the appearance of waiting for a fix while still shipping the vulnerable route. |
+| Status | **Open — NOT accepted.** This entry records an undecided exposure so that a cutover or security review starting from the canonical register finds it. Registering a risk does not presume its disposition. An earlier revision of `open-questions.md` argued the opposite and kept the register silent about a confirmed cross-tenant disclosure; that reasoning is retracted. |
+| Target Date | Blocking on an owner decision before Item 13 cutover. No parity work proceeds past that decision point. |
+| Evidence | `hr-legacy@d113204` `apis/api/workforce_planning/{save_target,update,list}.php` and `apis/api/dashboard/stats.php:91-99`, against `mysql_workin.schema.sql:939-948`. Regression: `LegacyWorkforcePlanningEndToEndTest#saveTargetLeaksAnotherCompanysBranchNameThroughTheUntenantedJoin`, which performs the attack and asserts the leak, carrying an instruction to invert rather than delete it once legacy is fixed. Decision: D-131. Threat model: the tenant ↔ tenant row. Upstream: `hr-legacy#33`. The `stats.php` surface was found by review on PR #138. |
+| Last Reviewed | 2026-08-30 |
