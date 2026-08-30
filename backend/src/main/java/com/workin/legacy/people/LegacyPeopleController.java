@@ -124,10 +124,37 @@ public class LegacyPeopleController {
 	 * during argument resolution before {@code requireMethod} has run.
 	 */
 	private static MultipartFile uploadedFile(HttpServletRequest request) {
-		if (request instanceof org.springframework.web.multipart.MultipartHttpServletRequest multipart) {
-			return multipart.getFile("file");
+		if (!(request instanceof org.springframework.web.multipart.MultipartHttpServletRequest multipart)) {
+			return null;
 		}
-		return null;
+		// getFile(name) is an exact-name, first-match lookup. PHP normalizes the
+		// external name before populating $_FILES and keeps the LAST duplicate,
+		// so `file.name=A` then `file=B` is $_FILES['file'] == B there and A
+		// here. Walked in wire order instead, because getMultiFileMap() groups by
+		// raw name: picking the last of each matching bucket would let an earlier
+		// alias overwrite a later one.
+		String winningName = null;
+		int winningIndex = -1;
+		java.util.Map<String, Integer> seen = new java.util.HashMap<>();
+		try {
+			for (jakarta.servlet.http.Part part : request.getParts()) {
+				if (part.getSubmittedFileName() == null) {
+					continue;
+				}
+				int index = seen.merge(part.getName(), 0, (existing, ignored) -> existing + 1);
+				if (normalizePhpFieldName(part.getName()).equals("file")) {
+					winningName = part.getName();
+					winningIndex = index;
+				}
+			}
+		} catch (Exception ex) {
+			return null;
+		}
+		if (winningName == null) {
+			return null;
+		}
+		java.util.List<MultipartFile> files = multipart.getMultiFileMap().get(winningName);
+		return files == null || winningIndex >= files.size() ? null : files.get(winningIndex);
 	}
 
 	/**
@@ -145,23 +172,39 @@ public class LegacyPeopleController {
 	 * string came from the body. The <b>last</b> such value is taken, because
 	 * PHP's {@code parse_str()} keeps the final duplicate.
 	 *
-	 * <p>A multipart request needs none of that: {@code getPart()} reads the
-	 * body directly and never sees the query string.
+	 * <p>A multipart request needs none of that positional reasoning --
+	 * {@code getParts()} reads the body directly and never sees the query string
+	 * -- but it still needs the name normalization and the last-duplicate rule,
+	 * so it is walked rather than looked up by name.
 	 */
 	private static String formField(HttpServletRequest request, String name) {
 		String contentType = request.getContentType();
 		if (contentType != null && contentType.toLowerCase(java.util.Locale.ROOT)
 				.startsWith("multipart/form-data")) {
 			try {
-				jakarta.servlet.http.Part part = request.getPart(name);
-				// A part carrying a filename is a FILE. PHP puts those in $_FILES
-				// and never in $_POST, so reading its bytes as a form value would
-				// accept input legacy does not see -- and on this route that input
-				// selects whose record the document lands on.
-				if (part == null || part.getSubmittedFileName() != null) {
+				// getPart(name) is an exact-name, first-match lookup, which is
+				// wrong twice over: PHP normalizes the external name before
+				// populating $_POST, so `doc.type` is $_POST['doc_type'] and is
+				// invisible to an exact lookup; and parse_str() keeps the LAST
+				// duplicate where getPart returns the first. On this route both
+				// decide whose record the document lands on.
+				jakarta.servlet.http.Part matched = null;
+				for (jakarta.servlet.http.Part part : request.getParts()) {
+					if (!normalizePhpFieldName(part.getName()).equals(name)) {
+						continue;
+					}
+					// A part carrying a filename is a FILE. PHP puts those in
+					// $_FILES and never in $_POST, so reading its bytes as a form
+					// value would accept input legacy does not see.
+					if (part.getSubmittedFileName() != null) {
+						continue;
+					}
+					matched = part;
+				}
+				if (matched == null) {
 					return null;
 				}
-				try (java.io.InputStream in = part.getInputStream()) {
+				try (java.io.InputStream in = matched.getInputStream()) {
 					return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
 				}
 			} catch (Exception ex) {
