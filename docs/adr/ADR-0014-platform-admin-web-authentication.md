@@ -71,6 +71,31 @@ of it and `authentication-remediation-design.md` finds no mention of `httpOnly`,
 `SameSite`, or CSRF. The model transfers; the **storage and transport do not**,
 and that gap is what makes this a decision rather than a lookup.
 
+### Constraint 4 — the platform-admin backend already exists
+
+**This is not greenfield, and an earlier draft of this ADR wrongly assumed it
+was.** `com.workin.backend.platformadmin` is already built and already answers
+several of the questions this ADR was opened to ask:
+
+| Already decided in code | Where |
+|---|---|
+| Platform admins are **their own identity type**, not a role on a shared identity | `PlatformAdmin`, `PlatformAdminRepository`, `platform_admins` |
+| ADR-0005's rotation model already applies to them | `PlatformAdminSessionService.issue()`/`rotate()`, `platform_admin_refresh_tokens` |
+| Session lifetimes are **already scoped tighter than the client defaults** | `app.platform-admin.jwt.access-token-ttl-seconds:900` (15 min) and `refresh-token-ttl-seconds:604800` (**7 days**, not the clients' 60) |
+| Platform-admin actions are **already audited** | `PlatformAdminAuditService`, `PlatformAdminAuditEvent` |
+| There is **no self-registration**; the first admin comes from bootstrap env vars and is never overwritten | `PlatformAdminBootstrap` |
+
+So the identity model, the token model, the lifetimes and the audit trail are
+settled and implemented. Two things are not:
+
+1. **Transport.** `PlatformAdminAuthController` returns both the access token and
+   the raw refresh token **in the JSON response body**
+   (`PlatformAdminAuthResponse`). That is correct for a machine client. For a
+   browser it means the credential lands in JavaScript's hands, which is exactly
+   the outcome this ADR exists to prevent.
+2. **MFA.** A search of the whole package for TOTP/MFA/two-factor returns
+   nothing. The highest-privilege surface in the system is single-factor today.
+
 ### Why this matters more here than anywhere else
 
 This is the highest-privilege surface in the system. Its users can suspend and
@@ -86,58 +111,70 @@ following independent review.
 
 The platform-admin web surface authenticates as follows.
 
-### 1. The ADR-0005 model applies unchanged
+### 1. Keep the existing backend contract; do not add a cookie transport to it
 
-Short-lived access token, opaque rotating refresh token with reuse detection and
-family revocation, server-side session persistence. No second model, no
-parallel implementation: the same `RefreshTokenService` semantics the mobile and
-desktop clients use.
+`PlatformAdminAuthController` stays exactly as it is — tokens in the JSON body,
+bearer on the way back in. **No second authentication transport is added to the
+Java backend.**
 
-### 2. The browser never holds a JS-readable credential
+An earlier draft of this ADR proposed that the backend set cookies directly, and
+then named "two transports, one backend" as the primary risk it introduced. That
+risk was self-inflicted: the transport problem belongs to the web client, not to
+the API.
 
-The session is carried in cookies set by the backend:
+### 2. The browser talks to a server-side session boundary, never to the API
+
+The Next.js app calls the Java API only from its **server side** (route handlers
+or a dedicated BFF). That server side holds the platform-admin access and refresh
+tokens, and issues the browser its own session cookie:
 
 | Attribute | Value | Why |
 |---|---|---|
-| `HttpOnly` | yes | script cannot read the credential, so an XSS does not become a stolen session |
+| `HttpOnly` | yes | script cannot read the session, so an XSS does not become a stolen platform-admin session |
 | `Secure` | yes | never transmitted over plaintext |
-| `SameSite` | `Lax` | blocks cross-site cookie attachment on state-changing navigations |
-| `Path` | scoped to the admin surface | not attached to unrelated backend routes |
+| `SameSite` | `Lax` | blocks cross-site attachment on state-changing navigations |
+| `Path` | scoped to the admin surface | not attached to unrelated routes |
 
-**Explicitly rejected: a bearer JWT in `localStorage` or `sessionStorage`.** This
-is the default many Next.js examples still reach for, and it means any script
-executing on the page — first-party bug, compromised dependency, injected
-content — can read and exfiltrate a credential that suspends companies.
-`HttpOnly` removes that entire class of outcome for the cost of a cookie
-attribute.
+The platform-admin tokens **never reach the browser at all**. This is strictly
+better than making them `HttpOnly`: a credential that is never sent to the client
+cannot be stolen from it, and the Java backend keeps one authentication model.
 
-Because cookies are attached automatically, **CSRF protection is required** and
-is part of this decision, not a follow-up: `SameSite=Lax` plus an explicit
-anti-CSRF token on every state-changing request.
+**Explicitly rejected: putting the tokens `PlatformAdminAuthResponse` already
+returns into `localStorage` or `sessionStorage`.** This is the default many
+Next.js examples reach for, and because the backend hands both tokens to whoever
+calls `/login`, it is also the path of least resistance here. It would let any
+script executing on the page read a credential that suspends customer companies.
 
-### 3. Shorter session lifetimes than the mobile default
+Because the session cookie is attached automatically, **CSRF protection is part
+of this decision, not a follow-up**: `SameSite=Lax` plus an explicit anti-CSRF
+token on every state-changing request.
 
-The 60-day refresh TTL is calibrated for a phone in a pocket. For a surface that
-suspends companies it is too long. This surface gets its own bounds — an idle
-timeout in hours and an absolute cap in days, not months — configured
-separately from the client defaults rather than inheriting them.
+### 3. Session lifetimes are already correct — confirm, do not change
+
+`app.platform-admin.jwt.access-token-ttl-seconds` is 900 (15 minutes) and
+`refresh-token-ttl-seconds` is 604800 (7 days), already scoped separately from
+the clients' 60-day refresh. **An earlier draft of this ADR proposed shortening
+these without checking; they were already short.** This ADR asserts no change,
+only that the BFF's own cookie session must not outlive the refresh token it
+wraps.
 
 ### 4. MFA is required, with step-up on destructive actions
 
-Every platform-admin identity enrols in TOTP. Beyond login, destructive
-operations — company suspension, company deletion — require step-up
-re-authentication, so a hijacked *session* is not automatically authority to
-destroy a customer's tenancy.
+This is the one genuine gap. Every platform-admin identity enrols in TOTP.
+Beyond login, destructive operations — company suspension, company deletion —
+require step-up re-authentication, so a hijacked session is not automatically
+authority to destroy a customer's tenancy.
 
-The user population is small and internal, which makes this cheap to operate and
-removes the usual objection.
+The population is small, internal, and bootstrap-provisioned with no
+self-registration, which makes this cheap to operate and removes the usual
+objection.
 
-### 5. Authorization is unchanged
+### 5. Authorization and audit are unchanged
 
-**ADR-0010**'s model already anticipates this surface: authorization data is
-loaded and validated server-side on every request, explicitly so that web,
-mobile and desktop cannot diverge in freshness. This ADR changes how a caller
-proves *who* they are, not what they may do.
+**ADR-0010**'s model already loads and validates authorization server-side on
+every request, and `PlatformAdminAuditService` already records platform-admin
+actions. This ADR changes how a browser session is carried, not what an admin
+may do or what is recorded.
 
 ## Alternatives Considered
 
@@ -151,12 +188,26 @@ design carrying open security findings into a new application.
 
 ### Option B — Bearer token in browser storage
 
-Issue the same access/refresh pair the Flutter clients receive and store it in
-`localStorage`, with an `Authorization` header.
+Store the access/refresh pair `PlatformAdminAuthResponse` already returns in
+`localStorage` and send it with an `Authorization` header.
 
-**Rejected.** Maximum blast radius from any XSS on the highest-privilege surface
-in the system. Its advantages — symmetry with the mobile clients, no CSRF
-concern — do not outweigh making the credential script-readable here.
+**Rejected**, and worth naming precisely because it is the path of least
+resistance: the backend already hands both tokens to any caller of `/login`, so
+this requires no backend work at all. It also gives maximum blast radius to any
+XSS on the highest-privilege surface in the system. Its advantages — symmetry
+with the mobile clients, no CSRF concern, least effort — do not outweigh making a
+company-suspending credential script-readable.
+
+### Option B2 — Backend sets the cookies itself
+
+Add a cookie-issuing entry point to `PlatformAdminAuthController` alongside the
+existing JSON one.
+
+**Rejected** — and this was the previous draft of this ADR's own proposal. It
+gives the Java backend two authentication transports that must never diverge in
+how they resolve identity or authorization, which is a permanent correctness
+burden accepted to solve a problem that belongs to one client. The BFF achieves
+the same browser-side guarantee with no backend change.
 
 ### Option C — Access token in memory only, refresh via cookie
 
@@ -183,19 +234,18 @@ than the model.
 
 ## Consequences
 
-- The Java backend gains a **second authentication transport**: bearer tokens
-  for the Flutter clients, cookies for the admin web surface. Both must resolve
-  to **one** authoritative validation and authorization path — two entry points,
-  not two security models. This is the main implementation risk (see Risks).
-- The Next.js app needs a server-side session boundary (route handlers or a BFF)
-  rather than calling the Java API directly from the browser, so cookies stay
-  first-party and the token never reaches client JavaScript.
-- Cookie domain and subdomain topology becomes a deployment decision, not just
-  an application one.
-- MFA needs enrolment, recovery and lockout flows — small population, but they
-  cannot be skipped.
-- Platform-admin actions need audit logging that records the acting admin
-  identity; this surface's whole purpose is actions taken *on* customers.
+- The Java backend is **unchanged**. No cookie entry point, no second transport,
+  no new security model to keep in step with the existing one.
+- The Next.js app must never call the Java API from the browser. That is a
+  standing architectural constraint on it, not a one-time implementation note,
+  and it should be enforced by review or lint rather than convention.
+- The BFF becomes a credential holder, so **its own runtime is now in scope for
+  platform-admin security**: its session store, its deployment, and its secrets.
+  This is the real cost of the approach and it should not be understated — it
+  trades a browser-storage risk for a server-side-custody responsibility.
+- Cookie domain and subdomain topology becomes a deployment decision.
+- MFA needs enrolment, recovery and lockout flows. Small population, but they
+  cannot be skipped, and recovery must not become the weakest link.
 - **Sequencing**: this is Phase 2 work. Phase 1 has three open G11 blockers
   (**R-023**, **R-024**, **R-025**) and a pending cutover. Recording the decision
   now is cheap; building against it before the port lands is scope expansion
@@ -203,45 +253,56 @@ than the model.
 
 ## Risks
 
-- **Two transports, one backend.** If cookie and bearer paths diverge in how
-  they resolve identity or authorization, one becomes a bypass of the other.
-  Mitigation: a single validation component both entry points delegate to, and a
-  test that asserts an identical authorization outcome for the same principal
-  arriving either way.
+- **BFF token custody.** The server side now holds long-lived platform-admin
+  refresh tokens. A compromise there is equivalent to a compromise of every
+  platform-admin session. Mitigation: treat the BFF as a production secret
+  holder, not as a static frontend — no tokens in logs, no tokens in the
+  filesystem, revocation reachable through the existing
+  `PlatformAdminSessionService`.
 - **CSRF, newly relevant.** Cookies reintroduce a class the bearer clients never
-  had. Mitigation: `SameSite=Lax` plus anti-CSRF tokens, and negative tests that
-  a cross-site state-changing request is rejected.
-- **MFA lockout of the only admins.** A recovery path is required, and it must
-  not itself become the weakest link.
-- **Session-fixation and post-auth rotation.** The session identifier must be
-  rotated on login and on privilege change.
-- **Accepted for now**: self-managed authentication carries lifecycle burden
-  (joiners/leavers, credential rotation) an IdP would absorb — see Option D.
+  had. Mitigation: `SameSite=Lax` plus anti-CSRF tokens, with negative tests
+  asserting a cross-site state-changing request is rejected.
+- **The easy wrong path stays open.** `PlatformAdminAuthResponse` hands both
+  tokens to any caller of `/login`, so a future developer can trivially wire the
+  browser straight to the API and reintroduce exactly the risk this ADR closes.
+  Mitigation: the constraint in Consequences must be enforced, not assumed.
+- **MFA lockout of the only admins**, given bootstrap provisioning and no
+  self-registration. A recovery path is required.
+- **Session fixation.** The BFF's session identifier must rotate on login and on
+  privilege change.
+- **Accepted for now**: self-managed authentication carries lifecycle burden an
+  IdP would absorb — see Option D.
 
 ## Validation Evidence
 
-**None yet — this decision has not been validated.** Required before it can move
-from `Proposed` to `Accepted`:
+**Partially evidenced.** What the code already establishes was verified directly
+against `com.workin.backend.platformadmin` on 2026-08-30 and is recorded in
+Constraint 4: separate identity type, rotation model in use, 15-minute access /
+7-day refresh lifetimes, audit trail present, no self-registration, **no MFA**,
+tokens returned in the response body.
 
-1. Engineering-lead sign-off on the two-transport approach, specifically the
-   single-validation-path requirement.
-2. A decision on the Next.js session boundary — route handlers versus a
-   dedicated BFF — with the cookie domain topology it implies.
-3. Confirmed idle and absolute session bounds for this surface (Section 3
-   states the shape, not the numbers).
-4. A named TOTP implementation and a recovery design.
-5. Confirmation that platform-admin identities are provisioned distinctly from
-   company/HR identities, so this surface's stricter rules cannot be inherited
-   by, or bypassed through, a company-scoped account.
+Still required before this moves from `Proposed` to `Accepted`:
+
+1. Engineering-lead sign-off on the BFF boundary — specifically that the browser
+   never receives a platform-admin token, and how that is enforced rather than
+   documented.
+2. The BFF session store decision (stateless signed cookie versus server-side
+   session), and the cookie domain topology it implies.
+3. A named TOTP implementation and a recovery design that does not weaken the
+   factor it protects.
+4. Confirmation of whether the legacy PHP dashboard's `admin`-role surface runs
+   in parallel during Phase 2, and if so whether both authenticate independently.
 
 ## Open Questions
 
-- Do platform admins exist as their own identity type today, or as a role on a
-  shared identity? Item 5 above cannot be answered until this is.
-- Does the admin surface share an origin with the Java backend, or is it
-  cross-origin? This decides whether `SameSite=Lax` is sufficient or the
-  topology needs revisiting.
-- What is the audit retention requirement for platform-admin actions?
+- ~~Do platform admins exist as their own identity type, or as a role on a
+  shared identity?~~ **Answered 2026-08-30 by reading the code**: their own type
+  (`PlatformAdmin`, `platform_admins`, `platform_admin_refresh_tokens`), with no
+  self-registration. This was the blocking question when the ADR was opened.
+- Does the admin surface share an origin with the BFF, and the BFF with the Java
+  backend? This decides whether `SameSite=Lax` is sufficient.
+- What is the **retention** requirement for `PlatformAdminAuditEvent`? The audit
+  trail exists; how long it must survive does not appear to be recorded.
 - Is there a regulatory or customer-contractual requirement that would force
   Option D (external IdP) sooner than convenience would?
 - Does the existing PHP dashboard's `admin`-role surface keep running during
