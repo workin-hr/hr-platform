@@ -133,6 +133,15 @@ The new system's authentication direction is:
   individually. Logout and password change/reset revoke the relevant
   session(s) — closing the gap where `hr-legacy` password resets never
   invalidate existing sessions.
+
+  > **Open, 2026-08-31 (R-027):** "revoke the session" is implemented as
+  > revoking the **refresh family**, not the live access token. The access
+  > token carries a `sid` claim that no filter reads, so it keeps
+  > authenticating until `exp`. Whether this ADR's revocation promise
+  > requires per-request session-status enforcement, or whether
+  > access-token survival is accepted as the stateless-JWT trade, is an
+  > open decision on this ADR — see `docs/bootstrap/open-questions.md`.
+  > Verified on the platform-admin path; the tenant path shares the shape.
 - **Secure client storage using `flutter_secure_storage`** — replacing
   both real clients' current plain `SharedPreferences` token storage
   (Android Keystore/iOS Keychain-backed on mobile; platform credential

@@ -244,3 +244,51 @@ fixed. Three questions have to be answered before it can be:
 These belong with `hr-platform#22`, which owns push delivery, rather than being
 answered separately: fixing the table without the delivery half would leave the
 same dead route with a different failure mode.
+
+## Session Revocation On Logout — Both Surfaces (R-027)
+
+Surfaced 2026-08-31 by an independent security review of PR #152. This is a
+**decision that has not been made**, not a defect awaiting a fix — which is why
+it sits here rather than only in the risk register.
+
+- **Should logging out invalidate the live access token, or only the refresh
+  family?** Today it is the latter: the token carries a `sid` claim naming its
+  session family (`PlatformAdminJwtService:55`) and
+  `PlatformAdminAuthenticationFilter` never reads it, so
+  `PlatformAdminSessionService.logout(String)` revokes the family while the
+  current access token keeps authenticating until `exp` (≤900s).
+
+Two defensible answers, and the choice belongs to whoever owns **ADR-0005**:
+
+1. **Enforce session status per request.** Resolve `sid` in the filter and
+   reject a token whose family is `REVOKED`.
+
+   **The cost is not the same on both surfaces**, and the earlier version of
+   this entry used a platform-admin fact to argue for both. R-026 added a
+   repository lookup to `PlatformAdminAuthenticationFilter` only, so there the
+   marginal cost really is small — a second indexed query beside one that is
+   already paid. `JwtAuthenticationFilter` has **no repository dependency and
+   no existing lookup**, so enforcing `sid` there introduces a database query
+   per request to the busiest path in the system. That is a real decision, not
+   a rounding error, and it may well be answered differently for each surface.
+2. **Accept access-token survival** as the standard stateless-JWT trade, and
+   record it, so the inconsistency with R-026's stated principle ("immediate
+   revocation over cached authorization state") is a decision rather than an
+   accident.
+
+**Why it needs answering rather than deferring**: R-026 made *deactivation*
+immediate. Logout is not. So the stronger control works and the weaker one does
+not, which is the opposite of what someone reaching for either would assume —
+and incident response reaches for logout first.
+
+**This was first written as "not urgent today", scoped to platform admin, where
+the only authenticated route is `GET /api/platform-admin/me`. That scoping was
+wrong.** The tenant path has the identical defect — `JwtService:69` issues
+`sid`, `JwtAuthenticationFilter` never reads it, `RefreshTokenService.logout()`
+revokes the family only — and it has **58 mutating endpoints live today**,
+including payslip create/update/delete, salary contracts and branch deletion. A
+token revoked by logout can still perform all of them until `exp`.
+
+So the decision is owed for the tenant surface now, not at the first destructive
+platform-admin endpoint. Whichever way it goes, it should be answered once for
+both filters rather than twice.
