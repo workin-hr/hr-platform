@@ -285,6 +285,22 @@ flowchart TD
 resource-scope changes take effect on the next request** — never
 dependent on access-token expiry, refresh, logout, or re-login.
 
+> **Platform administrators are covered by the same rule (D-145, 2026-08-31).**
+> This section and §6 are written in tenant terms — membership, roles, resource
+> scopes — and platform admins have none of those, which left it ambiguous
+> whether "next request" applied to them. It does: `PlatformAdminAuthenticationFilter`
+> loads the `platform_admins` row and verifies `active` on every request, so
+> **deactivating a platform admin takes effect immediately** rather than at
+> token expiry. It did not, until R-026 was closed — a deactivated admin kept
+> access for up to 900s.
+>
+> One exception, and it is shared with the tenant path rather than special to
+> platform admin: **logout** revokes only the refresh family. The access token's
+> `sid` claim is issued and never read on either surface, so a logged-out token
+> keeps working until `exp`. Whether this section's promise requires closing
+> that is open — **R-027**, `docs/bootstrap/open-questions.md`, annotated on
+> ADR-0005.
+
 For the MVP:
 
 - Load the active membership, effective permissions, and effective
