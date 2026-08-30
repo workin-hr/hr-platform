@@ -1390,7 +1390,13 @@ def _git_ignored_subset(root: Path, relatives: list[str]) -> set[str]:
             # .strip() that would corrupt a filename with leading or trailing
             # whitespace.
             ["git", "-C", str(root), "check-ignore", "--stdin", "-z"],
-            input="\0".join(relatives).encode("utf-8") + b"\0",
+            # surrogateescape on BOTH sides. rglob() decodes paths with
+            # surrogateescape, so a non-UTF-8 filename anywhere in the tree
+            # raises UnicodeEncodeError here -- a ValueError, swallowed below,
+            # returning an empty set and silently disabling the exemption for
+            # every path. Same failure mode the submodule pre-filter above
+            # exists to prevent, one line lower.
+            input="\0".join(relatives).encode("utf-8", errors="surrogateescape") + b"\0",
             capture_output=True,
             check=False,
         )

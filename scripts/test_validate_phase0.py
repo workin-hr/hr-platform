@@ -2124,6 +2124,38 @@ def test_link_scan_keeps_the_ignore_exemption_with_a_populated_submodule() -> No
         shutil.rmtree(root)
 
 
+def test_a_non_utf8_filename_does_not_disable_the_ignore_exemption() -> None:
+    """`rglob()` decodes paths with surrogateescape, so a filename that is not
+    valid UTF-8 -- exactly the kind of artifact a vendored third-party tree can
+    carry -- must not raise on the way into `git check-ignore`. It did: the
+    UnicodeEncodeError is a ValueError, swallowed by the fail-closed handler,
+    which returned an empty set and silently re-enabled scanning for every
+    ignored path in the tree."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (root / "vendor").mkdir()
+        (root / "vendor/plain.txt").write_text("x", encoding="utf-8")
+        # os.fsdecode round-trips the undecodable byte through a surrogate,
+        # which is what rglob() will hand back.
+        hostile = root / "vendor" / os.fsdecode(b"bad_\xff.txt")
+        hostile.write_bytes(b"x")
+
+        relatives = [
+            str(p.relative_to(root))
+            for p in root.rglob("*")
+            if ".git" not in p.relative_to(root).parts
+        ]
+        ignored = v._git_ignored_subset(root, relatives)
+        check(
+            any(r.startswith("vendor") for r in ignored),
+            f"a non-UTF-8 filename must not empty the ignored set (ignored={ignored})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_real_repository_skill_catalog_still_passes() -> None:
     """Sanity check against the real repository, proving this check doesn't
     break the actual catalog."""
@@ -2351,6 +2383,7 @@ def main() -> int:
     test_ignored_paths_are_skipped_by_the_forbidden_file_scanner()
     test_forbidden_scan_keeps_the_ignore_exemption_with_a_populated_submodule()
     test_link_scan_keeps_the_ignore_exemption_with_a_populated_submodule()
+    test_a_non_utf8_filename_does_not_disable_the_ignore_exemption()
     test_real_repository_skill_catalog_still_passes()
     test_product_code_outside_spike_still_fails()
     test_product_code_inside_spike_is_excluded()
