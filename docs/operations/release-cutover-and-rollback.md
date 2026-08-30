@@ -24,9 +24,14 @@ Discovery has not evidenced.*
 
 The completion plan's G11 states: *"Phase 1 has a genuinely cheap rollback — the
 database is unchanged and PHP still runs."* That is two claims, and they have
-different evidence. **Neither is true as literally stated**; both are close
-enough to true that the conclusion survives, but the gaps are where a cutover
-goes wrong, so they are recorded precisely.
+different evidence, and **neither is true as literally stated**.
+
+The first is close enough to true that its conclusion survives by argument (see
+Claim 1). **The second has not been examined at all** — see Claim 2b — so the
+cheap-rollback conclusion as a whole is **expected, not established**, and stays
+open until the prescribed rollback rehearsal succeeds (**R-025**). Treat it as a
+conclusion under test, not a finding, when using this document to approve a
+cutover.
 
 ### Claim 1 — "the database is unchanged": **true of the legacy contract, false of the database**
 

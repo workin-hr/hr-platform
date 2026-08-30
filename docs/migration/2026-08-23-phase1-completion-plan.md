@@ -986,7 +986,7 @@ merely written. Phase 1 has a genuinely cheap rollback — the database is
 unchanged and PHP still runs — and that property must be verified rather than
 assumed, because it is the main reason Phase 1's risk profile is acceptable.
 
-> **Partially verified 2026-08-30; still open, with two named blockers.** The
+> **Partially verified 2026-08-30; still open, with three named blockers.** The
 > session half is verified in code: Java and PHP tokens are mutually valid, at
 > the codec and over real HTTP through the production filter chain. The database
 > half is **not true as worded** — Phase 1 adds `legacy_refresh_tokens` to the
