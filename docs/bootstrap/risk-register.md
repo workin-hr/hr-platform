@@ -399,3 +399,21 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 > on `main` yet. R-026 is filed from the PR #148 review rather than renumbered,
 > so the branches do not collide; whichever merges last inherits a contiguous
 > register.
+
+## R-027: Platform-Admin Logout Does Not Invalidate The Live Access Token
+
+| Field | Value |
+|---|---|
+| Description | `POST /api/platform-admin/logout` revokes the refresh-token family (`PlatformAdminSessionService.revokeSession`), but `PlatformAdminAuthenticationFilter` authenticates on signature plus `active` only. The token's `sid` claim — issued at `PlatformAdminJwtService:55` and naming the session family — is **never checked against `platform_admin_refresh_tokens` status**. A logged-out access token therefore keeps authenticating until `exp`. |
+| Category | Security / Session revocation / Platform administration |
+| Probability | Certain: logout always leaves the current access token valid for the remainder of its TTL. |
+| Impact | An operator responding to a suspected **token theft** by logging the session out does not achieve what they intend — the stolen access token continues to work for up to `app.platform-admin.jwt.access-token-ttl-seconds` (900s). Deactivating the admin *does* now stop it immediately (**R-026**), so the stronger kill switch works; the weaker one does not, which is the wrong way round from an operator's mental model. Note `revokeAllForPlatformAdmin()` has **no production caller** — only tests — so the "revoke all sessions" variant is latent rather than reachable. |
+| Severity | Low. Requires prior theft of a live access token, the window is bounded at 15 minutes, and the deactivation path added by R-026 is the control an operator is more likely to reach for. Recorded because it is **inconsistent with R-026's own stated principle** — "immediate revocation over cached authorization state" — not because the exposure is large. |
+| Owner | Repository owner. |
+| Mitigation | **None applied, deliberately.** Two options, and the choice is a product decision rather than a bug fix: (a) resolve the `sid` claim in the filter and reject a token whose family is `REVOKED` — one additional indexed query alongside the `findById` that R-026 already pays for, so the marginal cost is small; or (b) accept access-token-survives-logout as the standard stateless-JWT trade and leave it recorded here. This entry exists so the inconsistency is a decision rather than an accident. |
+| Trigger | Any platform-admin route that performs a destructive action landing on this surface (company suspend/delete); any production caller being added for `revokeAllForPlatformAdmin()`; any incident response that relies on logout rather than deactivation. |
+| Contingency | Deactivate the administrator rather than logging the session out — R-026's per-request check makes that immediate. Worth stating in an incident runbook, because it is the opposite of the intuitive action. |
+| Status | Open — recorded, not accepted. Surfaced 2026-08-31 by an independent security review of PR #152 and confirmed against the code: the `sid` claim is issued and never read, and `revokeAllForPlatformAdmin()` has no production caller. Deliberately **not** fixed inside #152, which exists to close R-026; changing logout semantics is a product-visible behaviour change that deserves its own decision rather than riding along in a security fix. |
+| Target Date | Before any destructive platform-admin operation ships on this surface. |
+| Evidence | `PlatformAdminJwtService:55` (the `sid` claim); `PlatformAdminAuthenticationFilter` (no session-status check); `PlatformAdminSessionService.revokeSession`/`revokeAllForPlatformAdmin`. Related: **R-026**, the same defect class, now closed. |
+| Last Reviewed | 2026-08-31 |
