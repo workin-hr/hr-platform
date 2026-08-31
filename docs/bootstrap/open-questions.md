@@ -295,10 +295,18 @@ deciders and only the owner has approved.
   today requires holding the refresh token, or is all-or-nothing. This is an
   ADR-0005 shortfall rather than an ADR-0014 one, but a new admin surface with
   MFA and no session visibility is a conspicuous place to inherit it.
-- **What throttling do the password and TOTP steps get?** `PlatformAdminLoginService`
-  has no attempt limit, backoff or lockout, while the legacy dashboard it
-  replaces enforces 8 attempts / 15 minutes. A six-digit second factor without
-  throttling is a feasible online search, so this is not a follow-up to MFA.
+- **What throttling do the password and TOTP steps get, and where is it
+  counted?** `PlatformAdminLoginService` has no attempt limit, backoff or
+  lockout, while the legacy dashboard it replaces enforces 8 attempts /
+  15 minutes. A six-digit second factor without throttling is a feasible online
+  search, so this is not a follow-up to MFA. **The limit and window are not
+  sufficient to close this**: it must be enforced in **shared state at the Java
+  backend boundary**, where every attempt converges regardless of which BFF
+  instance received it, and it must **survive a restart**. A process-local
+  counter satisfies "8 attempts / 15 minutes" while giving each worker its own
+  budget and resetting on restart — against a six-digit code that difference is
+  the whole control. The acceptance test is **8 attempts submitted through
+  separate workers are refused**, not 8 attempts.
 - **How is a lost rotation response recovered?** If the BFF's `rotate()` call
   commits at the backend but the response is lost — an ordinary timeout, not an
   attack — the BFF still holds the superseded token. Presenting it is

@@ -317,9 +317,18 @@ different objects. Logout must, in one atomic step:
    request path can read — only the retry worker can. The token survives to
    revoke the family; the session does not survive to be used.
 
-The outbox retry is idempotent: `/api/platform-admin/logout` already tolerates
-being called with a token that is unknown or already revoked, which is what
-makes at-least-once delivery safe here. An entry that cannot be drained is an
+The outbox retry is idempotent **for the family transition, but not yet for the
+audit trail**, and at-least-once delivery makes that difference matter.
+`/api/platform-admin/logout` tolerates a token that is unknown or already
+revoked — the `REVOKED` update is a no-op the second time — but
+`PlatformAdminSessionService.logout()` records a `LOGOUT` event on **every**
+call. A committed logout whose response was lost therefore produces one audit
+event per retry, all attributed to a single user action, which is exactly the
+kind of noise that makes an incident timeline unreliable. So the audit write is
+**conditional on the revocation actually transitioning the family**, or carries
+an idempotency key the retry reuses. Making the endpoint idempotent in the
+status code is not the same as making it idempotent in its side effects, and
+the outbox depends on the second. An entry that cannot be drained is an
 operational alert, not a user-visible failure — the user is already logged out.
 
 **Logout takes the same per-session lock a refresh does, and the successor
@@ -610,7 +619,10 @@ buildable:
    *which company* is consumable by a hijacked session against a different
    tenant, which is the scenario step-up exists for.
 9. Attempt throttling for the password and TOTP steps (Decision 7), with the
-   limit and lockout window chosen.
+   limit and lockout window chosen — **and counted in shared, restart-surviving
+   state at the Java backend boundary**, not per BFF process. A process-local
+   counter meets the stated limit while giving each worker its own budget, so
+   the validation is **8 attempts through separate workers**, not 8 attempts.
 10. Whether ADR-0005's *list and revoke sessions individually* requirement is
     delivered for this surface before it ships, or explicitly deferred. It is
     unimplemented on both surfaces today, so this ADR does not create the gap —
