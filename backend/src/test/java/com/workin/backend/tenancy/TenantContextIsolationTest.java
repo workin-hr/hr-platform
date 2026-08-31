@@ -51,9 +51,18 @@ class TenantContextIsolationTest extends AbstractIntegrationTest {
 		// would produce. This must never be treated as proof of
 		// membership -- TenantContextService re-derives and cross-checks
 		// against the database on every request.
+		// Company A's *real* session family, not a random UUID. The premise
+		// above is an attacker holding a genuine authenticated session and
+		// tampering with the membership claims, so the session must be one
+		// that actually exists -- otherwise the request is now refused at
+		// authentication for an unrelated reason (an unknown session is
+		// revoked, D-146/R-027) and never reaches the re-derivation this
+		// test exists to prove.
+		String sessionOfCompanyA = jwtService.parseAndValidate(companyA.accessToken())
+				.get("sid", String.class);
 		String forgedToken = jwtService.issueAccessToken(
 				extractIdentityIdFrom(companyA), companyB.membershipId(), companyB.companyId(),
-				java.util.UUID.randomUUID().toString());
+				sessionOfCompanyA);
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.setBearerAuth(forgedToken);

@@ -294,12 +294,12 @@ dependent on access-token expiry, refresh, logout, or re-login.
 > token expiry. It did not, until R-026 was closed — a deactivated admin kept
 > access for up to 900s.
 >
-> One exception, and it is shared with the tenant path rather than special to
-> platform admin: **logout** revokes only the refresh family. The access token's
-> `sid` claim is issued and never read on either surface, so a logged-out token
-> keeps working until `exp`. Whether this section's promise requires closing
-> that is open — **R-027**, `docs/bootstrap/open-questions.md`, annotated on
-> ADR-0005.
+> This once had an exception, shared with the tenant path rather than special to
+> platform admin: **logout** revoked only the refresh family, and the access
+> token's `sid` claim was issued and never read on either surface, so a
+> logged-out token kept working until `exp`. Closed 2026-08-31 (**R-027**,
+> **D-146**): both filters now resolve `sid` and refuse a token whose session
+> family is `REVOKED`, at one indexed lookup per authenticated request.
 
 For the MVP:
 

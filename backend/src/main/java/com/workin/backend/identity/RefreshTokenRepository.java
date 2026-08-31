@@ -58,6 +58,26 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
 	@Query("update RefreshToken t set t.status = :to where t.familyId = :familyId")
 	int setStatusForFamily(@Param("familyId") UUID familyId, @Param("to") RefreshTokenStatus to);
 
+	/**
+	 * Whether this session family still has a usable token.
+	 *
+	 * <p>Logout and reuse-detection both set every row in a family to
+	 * {@code REVOKED}, but until R-027 nothing read that on the request path:
+	 * the access token carries the family in its {@code sid} claim and
+	 * {@link com.workin.backend.security.JwtAuthenticationFilter} never looked
+	 * at it, so a logged-out token kept authenticating until it expired.
+	 *
+	 * <p>Indexed on {@code family_id} (V15), so this is one indexed lookup --
+	 * the same trade ADR-0010 already makes for authorization: immediate
+	 * revocation over cached session state.
+	 */
+	boolean existsByFamilyIdAndStatusNot(UUID familyId, RefreshTokenStatus status);
+
+	/** True while any token in this session family is not {@code REVOKED}. */
+	default boolean familyIsLive(UUID familyId) {
+		return existsByFamilyIdAndStatusNot(familyId, RefreshTokenStatus.REVOKED);
+	}
+
 	@Modifying
 	@Query("update RefreshToken t set t.status = :to where t.identityId = :identityId")
 	int setStatusForIdentity(@Param("identityId") Long identityId, @Param("to") RefreshTokenStatus to);
