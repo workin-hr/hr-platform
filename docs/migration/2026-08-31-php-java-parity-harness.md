@@ -250,9 +250,53 @@ The rejection cases are kept deliberately rather than deleted: error envelopes
 are where PHP's quirks concentrate, and a rejection that differs breaks a client
 as surely as a success that differs.
 
+### Extended results
+
+| | |
+|---|---|
+| Cases | **17** |
+| Identical (response **and** rows) | **17** |
+| Differing | **0** |
+
+Writes now verified at row level: branches, departments, advances,
+administrative decisions, **payroll batches**, **leave balances** and
+**attendance**. Eight rejection cases verified alongside them.
+
+### Two traps this hit, both worth keeping
+
+**Most admin endpoints answered 403 before touching any business logic.**
+`hr_session_has_permission` lets a **company** token through unconditionally,
+but an **employee** token needs an `hr_permissions` row — and the test user had
+none. A sweep comparing two refusals reports parity it never tested, which is
+what the first run's "8 identical" mostly was. `seed-two.sh` now grants all
+seventeen `can_*` columns.
+
+**The one difference the sweep reported was the harness, not the code.**
+`payroll_batches/create` differed on `created_at` by one second, because the two
+stacks are called sequentially. Timestamps are now excluded from both the row
+hash and the response comparison — otherwise every endpoint that stamps a row
+reports a difference and the real ones drown. What is compared is what each
+stack *chose* to write, not when it was called.
+
+### A finding that is not a parity failure
+
+Both stacks accepted `month: 13` on `payroll_batches/create` — 201, with a
+computed period of `2026-11-21` to `2026-12-20`, so the batch is real and covers
+shifted dates. Both accepted `total_days: -5` on `leave_balances/create`,
+persisting `remaining_days: -5.0`.
+
+Java reproduces legacy exactly, so the sweep passes. The gap is legacy's, and
+Phase 1 inherits it: **R-030**. Recorded rather than fixed, because adding
+validation to Java alone would make a request PHP accepts into an error in Java
+— which is precisely what D-058 forbids without evidence.
+
+This is the shape of finding a parity harness is uniquely good at: it cannot
+tell you the shared behaviour is *right*, only that both systems agree. Reading
+what they agreed on is still a human job.
+
 ### What is still uncovered
 
-Three mutating endpoints out of roughly a hundred. The mechanism works
+Seven mutating endpoints out of roughly a hundred. The mechanism works
 end-to-end; the case list is the work. The highest-value additions are the
 payroll batch lifecycle, attendance write paths and request approval — where the
 money and the legal obligations are.

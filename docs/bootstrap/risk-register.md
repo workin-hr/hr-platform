@@ -508,3 +508,21 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Target Date | None. Recorded for recognition rather than remediation. |
 | Evidence | `hr-legacy/apis/api/payslips/list.php:134-141`; `LegacyPayslipStore`; harness measurement — same 20-row set, 12/20 positional agreement after the `e.id` fix, **0 value differences and 0 type differences** when compared keyed by id. |
 | Last Reviewed | 2026-08-31 |
+
+## R-030: Legacy Accepts Out-Of-Range Payroll Months And Negative Leave Balances
+
+| Field | Value |
+|---|---|
+| Description | Two write endpoints validate less than their callers assume, and the Java port reproduces both faithfully (D-058), so this is a **legacy** defect that Phase 1 inherits rather than introduces. `payroll_batches/create` accepts `month: 13` — it returns 201 and computes a fiscal period from it (`period_from 2026-11-21`, `period_to 2026-12-20`), so the batch is real and covers **shifted dates** rather than being rejected. `leave_balances/create` accepts `total_days: -5`, persisting `remaining_days: -5.0`. |
+| Category | Data integrity / Input validation / Payroll |
+| Probability | Unknown in production, but nothing prevents it: both are plain API calls with no client-side guarantee behind them, and the desktop client is not the only possible caller. |
+| Impact | A mistyped month creates a payroll batch whose period silently does not match its label — the batch says month 13 while covering late November to late December. Anything downstream that groups or reconciles by month sees a batch that does not belong to any real month. Negative leave entitlement propagates into balance arithmetic and into whatever the client renders. Neither fails loudly; both produce plausible-looking rows. |
+| Severity | Medium. No evidence either has occurred, and both require an unusual request — but payroll data that is wrong and looks right is the expensive kind, and the absence of validation means the only thing preventing it today is that nobody has typed it. |
+| Owner | Repository owner. |
+| Mitigation | **None applied, deliberately.** Adding validation in Java alone would make the two systems answer differently for the same request, which **D-058** puts the burden of proof on — and during Phase 1 a request PHP accepts must not become an error in Java. The correct sequence is to fix `hr-legacy` first and port the change, as with every other finding of this class. |
+| Trigger | Any payroll reconciliation that finds a batch outside months 1–12; any leave report showing a negative entitlement; any decision to add input validation to the legacy API. |
+| Contingency | A read-only query over `payroll_batches` for `month NOT BETWEEN 1 AND 12`, and over `leave_balance` for `total_days < 0`, would establish whether either has already happened. Neither has been run — that needs explicit authorization for production access. |
+| Status | Open — recorded, not accepted. Found on 2026-08-31 by the parity harness's mutation sweep, which sends deliberately invalid input to both stacks and compares the outcome. Both accepted it identically, so the sweep passed on parity while surfacing the shared gap. |
+| Target Date | Before any hardening pass on the legacy write API, or sooner if a reconciliation finds an affected row. |
+| Evidence | `hr-legacy/apis/api/payroll_batches/create.php` (`required()` covers presence, not range); `leave_balances/create.php` (same); harness cases `payroll_batches (month 13)` and `leave_balances (negative days)`, both 201/201 with identical rows. |
+| Last Reviewed | 2026-08-31 |
