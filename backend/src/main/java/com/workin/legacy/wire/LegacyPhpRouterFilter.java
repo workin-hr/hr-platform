@@ -237,7 +237,12 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 	private String safeLocale(HttpServletRequest request) {
 		try {
 			return messages.resolveLocale(request);
-		} catch (RuntimeException ex) {
+		} catch (IllegalArgumentException ex) {
+			// Narrow deliberately: URLDecoder's malformed-escape failure is an
+			// IllegalArgumentException, and that is the only failure a caller
+			// can provoke here. Catching RuntimeException would also swallow a
+			// genuine bug inside resolveLocale and answer 404 as though the
+			// route were simply unknown.
 			return messages.resolveLocale(new HttpServletRequestWrapper(request) {
 				@Override
 				public String getQueryString() {
