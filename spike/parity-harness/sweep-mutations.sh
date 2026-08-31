@@ -41,10 +41,19 @@ snapshot() {  # $1=database $2=table
   # catches a missing or wrong-column write; the drift check below catches a
   # timezone or default that is hours out. Between them, only a
   # sub-tolerance difference in an otherwise-present timestamp goes unnoticed.
+  #
+  # ONLY the audit columns are collapsed. An earlier version collapsed every
+  # temporal column, which quietly gutted the cases that matter most:
+  # `attendance/create` sends check_in and check_out, and reducing them to
+  # `set` meant PHP could persist 09:00 while Java persisted a different day
+  # entirely and the row hash still matched. Business dates and times are
+  # caller-supplied and deterministic, so they are compared EXACTLY; only
+  # created_at/updated_at are nondeterministic between two sequential calls.
   local cols
   cols=$(m information_schema -e "
     SELECT GROUP_CONCAT(
              CASE WHEN data_type IN ('timestamp','datetime','date')
+                   AND column_name IN ('created_at','updated_at','deleted_at')
                   THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ELSE ''set'' END')
                   ELSE CONCAT('\`', column_name, '\`') END
              ORDER BY ordinal_position)
@@ -57,19 +66,28 @@ snapshot() {  # $1=database $2=table
 # calls drift by a second or two; a timezone error or a wrong default is hours.
 TS_TOLERANCE_SECONDS=${TS_TOLERANCE_SECONDS:-120}
 
-timestamp_drift() {  # $1=table -> seconds between the two stacks' newest row, or empty
-  local col
-  col=$(m information_schema -e "
+timestamp_drift() {  # $1=table -> worst drift across audit columns, or empty
+  # EVERY audit column, not the first by name. `ORDER BY column_name LIMIT 1`
+  # always picked created_at, so an update that wrote updated_at with the wrong
+  # timezone or default was checked against a column the update never touched
+  # -- while the row hash had already reduced both to `set`. The drift check
+  # existed for exactly that defect and could not see it.
+  local cols worst=""
+  cols=$(m information_schema -e "
     SELECT column_name FROM columns
     WHERE table_schema='$PHP_DB' AND table_name='$1'
-      AND column_name IN ('created_at','updated_at')
-    ORDER BY column_name LIMIT 1" 2>/dev/null)
-  [ -n "$col" ] && [ "$col" != NULL ] || return 0
-  local a b
-  a=$(m "$PHP_DB"  -e "SELECT UNIX_TIMESTAMP(MAX(\`$col\`)) FROM \`$1\`" 2>/dev/null)
-  b=$(m "$JAVA_DB" -e "SELECT UNIX_TIMESTAMP(MAX(\`$col\`)) FROM \`$1\`" 2>/dev/null)
-  case "$a$b" in *NULL*|"") return 0 ;; esac
-  echo $(( a > b ? a - b : b - a ))
+      AND column_name IN ('created_at','updated_at','deleted_at')" 2>/dev/null)
+  [ -n "$cols" ] || return 0
+  local col a b d
+  while read -r col; do
+    [ -n "$col" ] && [ "$col" != NULL ] || continue
+    a=$(m "$PHP_DB"  -e "SELECT UNIX_TIMESTAMP(MAX(\`$col\`)) FROM \`$1\`" 2>/dev/null)
+    b=$(m "$JAVA_DB" -e "SELECT UNIX_TIMESTAMP(MAX(\`$col\`)) FROM \`$1\`" 2>/dev/null)
+    case "$a$b" in *NULL*|"") continue ;; esac
+    d=$(( a > b ? a - b : b - a ))
+    [ -z "$worst" ] || [ "$d" -gt "$worst" ] && worst=$d
+  done <<< "$cols"
+  [ -n "$worst" ] && echo "$worst"
 }
 
 mint_token() {  # $1=base url  -> stdout
@@ -106,12 +124,18 @@ run_case() {
   # Canonicalise, and blank any timestamp-shaped value for the same reason the
   # row snapshot drops them: sequential calls differ by a second, and that is
   # the harness talking, not the code.
+  # Scrubs by KEY, not by value shape. Matching any timestamp-shaped string
+  # blanked `check_in` and `check_out` in the response too, so PHP could return
+  # 09:00 and Java a different time with the bodies still comparing equal --
+  # the same hole the row hash had, on the other side of the comparison.
+  # Only the audit keys are nondeterministic between two sequential calls.
   norm() { python3 -c "
-import json,re,sys
-def scrub(v):
-    if isinstance(v,dict): return {k:scrub(x) for k,x in v.items()}
-    if isinstance(v,list): return [scrub(x) for x in v]
-    if isinstance(v,str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}.*', v): return '<TS>'
+import json,sys
+AUDIT={'created_at','updated_at','deleted_at'}
+def scrub(v,key=None):
+    if isinstance(v,dict): return {k:scrub(x,k) for k,x in v.items()}
+    if isinstance(v,list): return [scrub(x,key) for x in v]
+    if key in AUDIT and v is not None: return '<TS>'
     return v
 print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii=False))" "$1" 2>/dev/null || cat "$1"; }
   pbody=$(norm /tmp/mp.json)
