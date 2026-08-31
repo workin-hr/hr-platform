@@ -194,6 +194,69 @@ data corruption and was pure positional misalignment. **Diff keyed by id, and
 separate "same number, different JSON type" from "different value"** — otherwise
 the real defects drown in artefacts of your own comparison.
 
+## Level 4: mutating endpoints, compared on state as well as response
+
+The three levels above are all reads. That left **153 of 190 endpoints
+unverified** — everything that writes — because with one shared database the
+first stack's write changes what the second one sees, and the comparison stops
+measuring the code.
+
+`sweep-mutations.sh` fixes that with **two identical database copies**, one per
+stack (`seed-two.sh`, `JAVA_DB=workin_java`). For each case it sends the same
+request to both from the same starting state and compares:
+
+- the **response** — status and canonicalised body
+- the **rows each stack wrote** — a hash of every affected table, ordered by
+  primary key
+
+The second half is the one that earns its keep. An endpoint can answer
+identically and still persist differently: the wrong column, a different
+rounding, a missing `updated_at`, a divergent default. The response cannot see
+any of that, and those are exactly the defects that surface as wrong money weeks
+later.
+
+Every case reseeds both databases first, so cases cannot contaminate each other.
+That is slow on purpose — a shared, drifting state makes a failure impossible to
+attribute.
+
+### First results
+
+| | |
+|---|---|
+| Mutations verified identical (response **and** rows) | **3** — branches, departments, advances |
+| Rejections verified identical | **6** |
+| Differing | **0** |
+
+`advances/create` is the one worth naming: it writes money, and both stacks
+produced byte-identical rows.
+
+### A trap this hit first time round
+
+The initial run reported "8 identical" — and **seven of those were rejections**,
+because the request bodies were guesses. Only one case actually wrote anything,
+so the row diff barely executed. A green number that means "both stacks refused
+my malformed request" is not parity coverage.
+
+Two habits came out of it, and both are in the script:
+
+- **Read the rejection message** before believing a case. `advances/create`
+  wanted `employee_id`; `departments/create` wanted `branch_ids`;
+  `requests/create` is employee-scoped and the test user is a company admin.
+- **Resolve ids from the seeded data at runtime**, never hardcode them.
+  Hardcoded ids turn into `400`s after a reseed, and a `400` that matches a
+  `400` reports as a pass.
+
+The rejection cases are kept deliberately rather than deleted: error envelopes
+are where PHP's quirks concentrate, and a rejection that differs breaks a client
+as surely as a success that differs.
+
+### What is still uncovered
+
+Three mutating endpoints out of roughly a hundred. The mechanism works
+end-to-end; the case list is the work. The highest-value additions are the
+payroll batch lifecycle, attendance write paths and request approval — where the
+money and the legal obligations are.
+
 ## The two endpoints that still differ
 
 With the suffix corrected, 188 of 190 match. The rest are real gaps, not noise:
