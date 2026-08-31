@@ -395,16 +395,20 @@ live total.
 > today.
 >
 > That makes this clause load-bearing rather than academic: *"must return 404
-> after cutover"*. Measured against the parity harness on 2026-08-31, Java does
-> not meet it — **401** when unauthenticated (the security chain rejects before
+> after cutover"*. Measured against the parity harness on 2026-08-31, Java did
+> not meet it — **401** when unauthenticated (the security chain rejected before
 > routing, where PHP's router rejects before authenticating), and a 404 in
-> **Spring's** envelope rather than PHP's when authenticated. Both are
-> properties of every unmatched `/apis/api/**` path, not of this endpoint. See
+> **Spring's** envelope rather than PHP's when authenticated. Both were
+> properties of every unmatched `/apis/api/**` path, not of this endpoint.
+>
+> The exclusion itself was unaffected — no endpoint needed building. What needed
+> building was the router's unmatched-path behaviour, **delivered 2026-08-31
+> (D-147)**: `LegacyPhpRouterFilter` now reproduces `index.php`'s three
+> refusals, before authentication, in PHP's envelope. `time/now` answers 404 in
+> both stacks with an identical body, so this clause is now met by measurement
+> rather than by assumption. See
 > `docs/migration/2026-08-31-php-java-parity-harness.md`, "`time/now`, measured
 > precisely".
->
-> The exclusion itself is unaffected — no endpoint needs building. What needs
-> building is the router's unmatched-path behaviour.
 
 The mirror-image anomaly is recorded with it: **`reports` is in
 `allowedList()` and has no directory at all.** It contributes zero endpoints, so

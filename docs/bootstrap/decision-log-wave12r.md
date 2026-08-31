@@ -2545,3 +2545,34 @@ it reached `main`, and the honest answer is that nobody independent looked.
 > would 401 every anonymous endpoint. R-028 records the defect; this records
 > what was chosen and what was rejected, so the next person to touch legacy
 > routing does not rediscover the ordering constraint by breaking it.
+
+## D-147: The router answers for paths it does not serve, before authentication
+
+| Field | Value |
+|---|---|
+| Decision | `LegacyPhpRouterFilter` reproduces `apis/api/index.php`'s three refusals for any `/apis/api/**` path no endpoint serves: unknown module → **404** `module_not_found` naming the allow-list back, allow-listed module with no action → **501** `module_not_implemented`, missing action segment → **404** `unknown_action`. All three are answered **before** the Spring Security chain, in D-074's `{success,message}` envelope, localised like every other legacy message. |
+| Reason | Java had no behaviour for an unserved path, so the container's default leaked through in two ways at once. **Status and order**: PHP resolves the module at the top of `index.php`, before the action file and therefore before any `requireAuth()`, so an unknown path is a 404 to an anonymous caller. Java's security chain sits in front of the dispatcher, so the same request answered **401**. **Shape**: the body was Spring's `{timestamp,status,error,path}`, which no client here parses. This was not hypothetical — `time/now` is on that path and the mobile client calls it from its **home screen** (`home_provider.dart:79`), which is also what falsified **O-3**'s "unreachable dead surface" premise. |
+| Alternatives | (a) **A `NoResourceFoundException` handler** — cannot work: `LegacyWireExceptionHandler` is a package-scoped `@RestControllerAdvice`, and an unmatched path never reaches a controller. It also could not fix the 401, which is decided before the dispatcher. (b) **Widen the security permit-list to all of `/apis/**`** — fixes the status by removing the guard, and would make every unported route publicly reachable. Rejected outright. (c) **Map the missing routes explicitly** — answers the two known cases and leaves the next one to be found in production; the defect is the *absence of a rule*, not two absent endpoints. |
+| Impact | Closes the last two rows of the parity sweep: **190/190, differing = 0**, up from 188/190. Restores the fail-closed property the 401 was accidentally providing, without weakening it — an unserved path is refused by the router rather than reaching the dispatcher, and the permit-list is untouched. **The 501 branch is derived, not restated**: the set of served routes comes from the live `RequestMappingHandlerMapping`, so a route added, renamed or lost moves with it and cannot drift the way a second hand-written list would. Only paths with **no** handler take the refusal branch, so no delivered endpoint changes behaviour. **Rollback** is reverting the filter; the module list and messages are additive. |
+| Evidence | `LegacyPhpModules` (ported literally from `ApiModule::allowedList()`, in PHP's order because `implode(', ', ...)` puts it in the response body); `LegacyPhpRouterFilter.writeRouterRefusal`. `LegacyPhpRouterRefusalTest` covers all three refusals, both languages, the fail-closed 404-not-401 case, PHP's segment normalisation (a non-existent `configs/nope.php` reports action `nopephp`, because `index.php` strips everything outside `[a-z0-9_]`), and a control that a delivered endpoint is still served in both URL forms. **Measured against both running stacks and byte-identical on every case**, then the full unauthenticated sweep re-run: 190/190. |
+| Status | Accepted 2026-08-31. Closes the `time/now` half of **R-028**'s residuals and makes **O-3**'s "must return 404 after cutover" true by measurement. |
+
+> **Deliberately not included**, both recorded so they are known gaps rather
+> than oversights:
+>
+> 1. `index.php`'s `ROUTING_USE_PATH_ONLY` guard, which answers **400** when a
+>    non-empty `action` arrives as a query or form parameter. It applies to
+>    *every* routed request, including ones that succeed today, so it is a
+>    change to delivered endpoints rather than to unserved paths and belongs
+>    with its own evidence.
+> 2. **Apache's own responses for directory-shaped paths.** Measured: `/apis/`
+>    is **403** in PHP (directory listing denied) and `/apis/api/configs` and
+>    `/apis/api` are **301** (`mod_dir` appending a trailing slash, because
+>    those directories exist on disk). These never reach `index.php` at all, so
+>    they are web-server behaviour rather than router contract; no client
+>    requests them, and none appears in the endpoint sweep. Java answers 404
+>    `unknown_action` for `/apis/api/configs` — which is what `index.php` would
+>    have said had Apache not intercepted — and the security chain's 401 for the
+>    other two. Reproducing `mod_dir` in the application was judged the wrong
+>    trade. Note `/apis/api/` **with** the trailing slash does reach the router
+>    and does match: 404 `Module 'none' not found`, PHP's `$module ?: 'none'`.

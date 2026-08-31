@@ -1,6 +1,9 @@
 package com.workin.legacy.wire;
 
 import java.io.IOException;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Supplier;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -8,7 +11,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 
+import org.springframework.http.MediaType;
 import org.springframework.web.filter.OncePerRequestFilter;
+
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Ports {@code apis/api/index.php}'s router: a suffix-less route resolves to
@@ -57,6 +63,35 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 	private static final String API_PREFIX = "/apis/api/";
 	private static final String PHP_SUFFIX = ".php";
 
+	private final Supplier<Set<String>> mappedRoutes;
+	private final LegacyMessages messages;
+	private final ObjectMapper objectMapper;
+
+	public LegacyPhpRouterFilter(
+			Supplier<Set<String>> mappedRoutes, LegacyMessages messages, ObjectMapper objectMapper) {
+		this.mappedRoutes = mappedRoutes;
+		this.messages = messages;
+		this.objectMapper = objectMapper;
+	}
+
+	/**
+	 * {@code index.php} lowercases each segment and strips everything outside
+	 * {@code [a-z0-9_]} before matching. The consequence is easy to miss: a
+	 * request for a <em>non-existent</em> {@code .php} file is rewritten to the
+	 * router by {@code .htaccess}, and the router then reads the dot out of the
+	 * segment -- so {@code /apis/api/configs/nope.php} looks for action
+	 * {@code nopephp}, and reports that name back in the 501.
+	 */
+	private static String phpSegment(String raw) {
+		StringBuilder out = new StringBuilder(raw.length());
+		for (char c : raw.toLowerCase(java.util.Locale.ROOT).toCharArray()) {
+			if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+				out.append(c);
+			}
+		}
+		return out.toString();
+	}
+
 	/**
 	 * The file a legacy route resolves to, or {@code null} if the path is not
 	 * one legacy would route.
@@ -92,6 +127,15 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 			throws ServletException, IOException {
 		String uri = request.getRequestURI();
 		String rewritten = resolveLegacyFile(uri);
+		String target = rewritten == null ? uri : rewritten;
+
+		// Only paths nothing serves take the router's error branch. A mapped
+		// route -- in either form -- is dispatched exactly as before, so this
+		// cannot change the behaviour of a delivered endpoint.
+		if (uri.startsWith(API_PREFIX) && !mappedRoutes.get().contains(target)) {
+			writeRouterRefusal(request, response, uri);
+			return;
+		}
 		if (rewritten == null) {
 			filterChain.doFilter(request, response);
 			return;
@@ -122,6 +166,59 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 				return null;
 			}
 		}, response);
+	}
+
+	/**
+	 * {@code index.php}'s three refusals, for a path no endpoint serves.
+	 *
+	 * <p>These run <b>before</b> authentication, which is the half that is easy
+	 * to lose. PHP resolves the module against the allow-list at the top of
+	 * {@code index.php}; {@code requireAuth()} lives inside the action file and
+	 * never executes for a path that does not resolve. Java's security chain
+	 * sits in front of the dispatcher, so before this filter an unauthenticated
+	 * request for an unknown path answered <b>401</b> where PHP answers
+	 * <b>404</b> -- and {@code time/now}, which the mobile client calls from its
+	 * home screen, is exactly that path.
+	 *
+	 * <p>Written straight to the response rather than thrown: this filter is
+	 * registered outside the {@code DispatcherServlet}, so
+	 * {@link LegacyWireExceptionHandler} -- a {@code @RestControllerAdvice} --
+	 * cannot see an exception raised here.
+	 */
+	private void writeRouterRefusal(HttpServletRequest request, HttpServletResponse response, String uri)
+			throws IOException {
+		String remainder = uri.substring(API_PREFIX.length());
+		int slash = remainder.indexOf('/');
+		String module = phpSegment(slash < 0 ? remainder : remainder.substring(0, slash));
+		String rest = slash < 0 ? "" : remainder.substring(slash + 1);
+		int next = rest.indexOf('/');
+		String action = phpSegment(next < 0 ? rest : rest.substring(0, next));
+
+		int status;
+		String key;
+		Map<String, Object> replace;
+		if (module.isEmpty() || !LegacyPhpModules.isAllowed(module)) {
+			status = 404;
+			key = "module_not_found";
+			// PHP's `$module ?: 'none'` -- an empty segment is reported as the
+			// literal string, not as an absent value.
+			replace = Map.of("module", module.isEmpty() ? "none" : module,
+					"list", LegacyPhpModules.ALLOWED_CSV);
+		} else if (action.isEmpty()) {
+			status = 404;
+			key = "unknown_action";
+			replace = Map.of();
+		} else {
+			status = 501;
+			key = "module_not_implemented";
+			replace = Map.of("module", module + "/" + action);
+		}
+
+		String text = messages.translate(messages.resolveLocale(request), key, replace);
+		response.setStatus(status);
+		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+		response.setCharacterEncoding("UTF-8");
+		response.getWriter().write(objectMapper.writeValueAsString(LegacyApiResponse.fail(text, null)));
 	}
 
 }

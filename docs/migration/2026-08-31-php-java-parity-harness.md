@@ -204,20 +204,28 @@ always **R-029** — legacy's own non-determinism — and nothing else.
 
 ### Where it landed
 
-| | |
-|---|---|
-| Endpoints returning **byte-identical** JSON | **37** |
-| Endpoints differing | **0** |
+| | First run (2026-08-31) | After the permission seed was completed |
+|---|---|---|
+| Endpoints returning **byte-identical** JSON | 37 | **39** |
+| Endpoints differing | 0 | **2** |
+| Not 200 on both (POST-only, or needing params) | 153 | 149 |
 
-(One fix in this section was later retracted — see item 2. The endpoint counts
-are unaffected: they were measured against the number-rendering fix, which
-stands.)
-| Not 200 on both (POST-only, or needing params) | 153 |
+(One fix in this section was later retracted — see item 2. The counts are
+unaffected: they were measured against the number-rendering fix, which stands.)
 
-`payslips/list` now matches on **every value and every type** when compared
-keyed by id. Only its row *order* still differs, and that is legacy's own
-non-determinism — two payslips of one employee tie on every ORDER BY column
-(**R-029**).
+**The two differing bodies are not a regression, and the count rising is not
+either.** Seeding all seventeen `can_*` permissions moved four endpoints out of
+"not 200 on both" and into the comparison, which is where the two differences
+became visible. Both were then identified:
+
+- `company_settings/options` — Java emits an extra `label` key in every option
+  row that PHP does not (**R-032**, new). Additive, so no client breaks, but it
+  is a response-shape divergence under D-074 and a 28% larger body.
+- `payslips/list` — **R-029**, and nothing new. Compared keyed by id: same 20
+  rows, same keys, **every value equal**. Only the order of *tied* pairs differs
+  (`[3302, 5291]` against `[5291, 3302]`). That it read as 0 differing on the
+  first run and 2 on this one is the point of R-029: legacy's ordering is
+  non-deterministic, so the same query can agree by luck.
 
 ### A methodology note worth keeping
 
@@ -357,15 +365,20 @@ additions are the rest of the payroll batch lifecycle (calculate, finalize,
 reopen, delete), the remaining attendance write paths, and request approval —
 where the money and the legal obligations are.
 
-## The two endpoints that still differ
+## The two endpoints that differed, and now do not
 
-With the suffix corrected, 188 of 190 declared constants match. The two
-residuals are **not** the same kind of thing, and an earlier draft of this
-section wrongly said both were uncalled:
+With the suffix corrected, 188 of 190 declared constants matched. Both
+residuals were the **same** defect wearing two faces — the router had no
+behaviour at all for a path it does not serve — and both are closed by the
+unmatched-path fix below. **The sweep now reports 190/190, differing=0.**
+
+The two rows are kept because what they revealed matters more than the count.
+They are **not** the same kind of endpoint, and an earlier draft of this section
+wrongly said both were uncalled:
 
 | Endpoint | PHP | Java | Reading |
 |---|---|---|---|
-| `attendance/set_employee_attendance_method` | 501 | 404 | PHP routes it and answers *not implemented*; Java does not map it at all. **Not user-visible**: the desktop client declares this constant but has no call site for it (`docs/api/three-frontend-api-usage-matrix.md`, F-05), so nothing reaches either failure. It is a declaration-coverage gap, not a live parity gap, and should not be counted as the latter. |
+| `attendance/set_employee_attendance_method` | 501 | ~~404~~ **501** | PHP routes it and answers *not implemented*; Java did not map it at all. **Not user-visible**: the desktop client declares this constant but has no call site for it (`docs/api/three-frontend-api-usage-matrix.md`, F-05), so nothing reached either failure. It was a declaration-coverage gap, not a live parity gap. Closed by the router answering 501 as PHP does. |
 | `time/now` | 404 | see below | **Called, and O-3's premise is wrong.** O-3 excludes this as unreachable dead surface. It is not: the mobile client calls it from the home screen — `home_provider.dart:79` → `GetServerTimeUsecase` → `repository.getServerTime()` → `remote_data_source.dart:179` → `ApiConstants.getServerTimeEndpoint` (`'time/now'`). The chain is fully wired. PHP itself 404s it (`time` is not in `app_allowed_modules()`), so the mobile home screen already absorbs a 404 today and the *status* is not the gap — the **envelope** is. See the note below the table. |
 
 ### `time/now`, measured precisely
@@ -388,17 +401,27 @@ Two distinct problems, and neither is "the exclusion is already reality":
 2. **The 404 envelope is Spring's, not PHP's.** A client that reads `success`
    and `message` — which every client here does — cannot parse Java's shape.
 
-Both are properties of *every* unmatched path under `/apis/api/`, so this is a
+Both were properties of *every* unmatched path under `/apis/api/`, so this was a
 router-level gap rather than one endpoint's bug. PHP's contract for unmatched
 paths is: unknown module → 404 `module_not_found` (with the allowed-module
 list), known module with no action file → 501 `module_not_implemented`, both in
-the standard envelope. Java reproduces none of it. Tracked as a follow-up to the
-router fix rather than fixed here, because it changes the response shape on a
-whole surface and deserves its own review.
+the standard envelope, and **both decided before authentication**.
 
-**O-3 must be revisited.** It excludes `time/now` as unreachable dead surface;
-the mobile client calls it from the home screen. The exclusion's premise is
-false regardless of what is decided about the envelope.
+**Closed 2026-08-31 (D-147).** `LegacyPhpRouterFilter` now answers all three
+refusals itself, which is also why it answers them before the security chain:
+the filter is registered outside Spring Security at `HIGHEST_PRECEDENCE`, in the
+same position PHP's router occupies relative to `requireAuth()`. Re-measured
+against both stacks, byte-identical in both languages including PHP's
+segment-normalisation quirk — a request for a non-existent `configs/nope.php`
+reports action `nopephp`, because `index.php` strips everything outside
+`[a-z0-9_]` from each segment. **The unauthenticated sweep is now 190/190,
+differing=0.**
+
+**O-3's characterisation was revisited** and amended in the completion plan: it
+excludes `time/now` as unreachable dead surface, but the mobile client calls it
+from the home screen. The exclusion itself stands — no endpoint needed building
+— and its operative clause, *"must return 404 after cutover"*, is now actually
+met rather than assumed.
 
 ---
 
