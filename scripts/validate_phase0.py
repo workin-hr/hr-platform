@@ -265,8 +265,36 @@ def rel_path_is_under(rel_parts: tuple[str, ...], parent_parts: tuple[str, ...])
 def validate_forbidden_files(failures: list[str], root: Path | None = None) -> None:
     root = root if root is not None else ROOT
     submodule_paths = load_submodule_paths(root)
-    for path in root.rglob("*"):
+    # Same repository-content boundary as validate_links and
+    # validate_skill_catalog_consistency. An installed third-party skill
+    # routinely ships a package.json, a src/ directory or a .ts helper --
+    # normal tooling for its author, and Phase 0 "product code" to this
+    # scanner. Without this, gitignoring a skill still breaks validation on
+    # the machine that installed it. Untracked, non-ignored files are still
+    # scanned: that is the case the Phase 0 lock exists for.
+    #
+    # Submodule and .git paths are filtered out BEFORE the batch, not after.
+    # `git check-ignore` aborts the entire call with exit 128 on the first path
+    # inside a submodule ("Pathspec ... is in submodule"), and the fail-closed
+    # rule then returns an empty set -- silently checking everything, including
+    # the ignored paths this exemption exists for. validate_links already
+    # pre-filters for exactly this reason; an earlier version of this function
+    # did not, so the exemption did nothing at all on any clone with
+    # `flutter-integration` populated, which is the normal state for anyone
+    # working on the Flutter integration.
+    all_paths = [
+        p
+        for p in root.rglob("*")
+        if ".git" not in p.relative_to(root).parts
+        and not any(
+            rel_path_is_under(p.relative_to(root).parts, sub) for sub in submodule_paths
+        )
+    ]
+    ignored = _git_ignored_subset(root, [str(p.relative_to(root)) for p in all_paths])
+    for path in all_paths:
         rel_path = path.relative_to(root)
+        if str(rel_path) in ignored:
+            continue
         if rel_path.parts and rel_path.parts[0] == SPIKE_DIR_NAME:
             continue
         if rel_path.parts and rel_path.parts[0] in PHASE1_UNLOCKED_DIRS:
@@ -687,7 +715,8 @@ def validate_claude_settings(failures: list[str], root: Path | None = None) -> N
         fail("Missing scripts/edit_audit_log.py, required by the Claude PostToolUse hook", failures)
 
 
-def validate_skill_files(failures: list[str]) -> None:
+def validate_skill_files(failures: list[str], root: Path | None = None) -> None:
+    root = root if root is not None else ROOT
     required_skills = {
         "bootstrap-repository",
         "create-project-charter",
@@ -713,23 +742,30 @@ def validate_skill_files(failures: list[str]) -> None:
     # which is this repository's own procedure schema for its 15 authored
     # governance skills.
     found_skills = set()
-    for base in (ROOT / ".agents/skills", ROOT / ".claude/skills"):
+    for base in (root / ".agents/skills", root / ".claude/skills"):
         if not base.is_dir():
             continue
         for path in sorted(base.glob("*/SKILL.md")):
             name = path.parent.name
+            # Same exemption, and the same reasoning, as
+            # validate_skill_catalog_consistency: a git-ignored directory is
+            # local tooling, not repository content. Third-party skills use
+            # their authors' own schema and will never satisfy SKILL_SECTIONS,
+            # which is this repository's procedure schema for skills it wrote.
+            if _git_ignores(root, str(path.parent.relative_to(root))):
+                continue
             text = path.read_text(encoding="utf-8")
             if not text.startswith("---\n"):
-                fail(f"Skill missing YAML frontmatter: {path.relative_to(ROOT)}", failures)
+                fail(f"Skill missing YAML frontmatter: {path.relative_to(root)}", failures)
             if "name:" not in text or "description:" not in text:
-                fail(f"Skill frontmatter missing name/description: {path.relative_to(ROOT)}", failures)
+                fail(f"Skill frontmatter missing name/description: {path.relative_to(root)}", failures)
             if name.startswith("speckit-"):
                 continue
-            if base == ROOT / ".agents/skills":
+            if base == root / ".agents/skills":
                 found_skills.add(name)
             for section in SKILL_SECTIONS:
                 if section not in text:
-                    fail(f"Skill missing section {section}: {path.relative_to(ROOT)}", failures)
+                    fail(f"Skill missing section {section}: {path.relative_to(root)}", failures)
     missing = sorted(required_skills - found_skills)
     for name in missing:
         fail(f"Missing required skill: .agents/skills/{name}/SKILL.md", failures)
@@ -1020,13 +1056,46 @@ def validate_nightly_workflow_exists_if_promised(failures: list[str], root: Path
     )
 
 
+def _git_ignores(root: Path, relative: str) -> bool:
+    """True only when git is available, the tree is a repository, and it
+    positively reports the path as ignored.
+
+    Anything else -- no git, not a repository, an unexpected exit code --
+    returns False, so the caller checks the path. This check is a
+    governance control: an unknown answer must not silently exempt
+    something from it."""
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "check-ignore", "--quiet", "--", relative],
+            capture_output=True,
+            check=False,
+        )
+    except (OSError, ValueError):
+        return False
+    return completed.returncode == 0
+
+
 def validate_skill_catalog_consistency(failures: list[str], root: Path | None = None) -> None:
     """docs/agents/skill-catalog.md hand-maintains a list of skill names —
     exactly the kind of filesystem mirror that drifts silently unless
     checked (it had drifted: the 9 vendor speckit-* skills were missing
     from the catalog before this check was added). Every skill directory
     under .agents/skills/, including vendor-provided ones, must be named
-    somewhere in the catalog text."""
+    somewhere in the catalog text.
+
+    **Git-ignored directories are exempt**, because the catalog documents
+    *repository* skills and an ignored path is by definition not
+    repository content. Third-party skills installed into the working
+    tree by tooling (`npx skills add ...` writes to `.agents/skills/` and
+    symlinks into `.claude/skills/`) are local to one machine: they never
+    reach CI or another clone, so a failure here could not be reproduced
+    or fixed by anyone else, and the only way to satisfy it would be to
+    list third-party tool names in a governance document.
+
+    Untracked-but-not-ignored skills are still checked. That is the case
+    that matters — a genuinely new skill on its way into the repository —
+    and exempting it would remove the drift protection at exactly the
+    moment it is needed."""
     root = root if root is not None else ROOT
     catalog = root / "docs/agents/skill-catalog.md"
     skills_dir = root / ".agents/skills"
@@ -1035,12 +1104,15 @@ def validate_skill_catalog_consistency(failures: list[str], root: Path | None = 
     catalog_text = catalog.read_text(encoding="utf-8")
     for path in sorted(skills_dir.glob("*/SKILL.md")):
         name = path.parent.name
-        if name not in catalog_text:
-            fail(
-                f"Skill '{name}' (.agents/skills/{name}/SKILL.md) is not listed in "
-                "docs/agents/skill-catalog.md",
-                failures,
-            )
+        if name in catalog_text:
+            continue
+        if _git_ignores(root, f".agents/skills/{name}"):
+            continue
+        fail(
+            f"Skill '{name}' (.agents/skills/{name}/SKILL.md) is not listed in "
+            "docs/agents/skill-catalog.md",
+            failures,
+        )
 
 
 ADR_REQUIRED_SECTIONS = [
@@ -1300,8 +1372,72 @@ def validate_secrets(failures: list[str]) -> None:
                 break
 
 
-def validate_links(failures: list[str]) -> None:
-    for path in ROOT.rglob("*.md"):
+def _git_ignored_subset(root: Path, relatives: list[str]) -> set[str]:
+    """Batched form of `_git_ignores` -- one `git check-ignore` call for
+    the whole list rather than one per path, because the link scanner
+    walks every Markdown file in the tree.
+
+    Fails closed the same way: on any error the returned set is empty, so
+    every path is checked."""
+    if not relatives:
+        return set()
+    try:
+        completed = subprocess.run(
+            # -z on both sides. Without it git applies core.quotePath and emits
+            # a C-quoted, escaped form for any non-ASCII path, which never
+            # compares equal to the path we asked about -- so the exemption
+            # would silently not apply to it. NUL delimiting also removes the
+            # .strip() that would corrupt a filename with leading or trailing
+            # whitespace.
+            ["git", "-C", str(root), "check-ignore", "--stdin", "-z"],
+            # surrogateescape on BOTH sides. rglob() decodes paths with
+            # surrogateescape, so a non-UTF-8 filename anywhere in the tree
+            # raises UnicodeEncodeError here -- a ValueError, swallowed below,
+            # returning an empty set and silently disabling the exemption for
+            # every path. Same failure mode the submodule pre-filter above
+            # exists to prevent, one line lower.
+            input="\0".join(relatives).encode("utf-8", errors="surrogateescape") + b"\0",
+            capture_output=True,
+            check=False,
+        )
+    except (OSError, ValueError):
+        return set()
+    if completed.returncode not in (0, 1):  # 1 = nothing ignored, not an error
+        return set()
+    return {
+        chunk.decode("utf-8", errors="surrogateescape")
+        for chunk in completed.stdout.split(b"\0")
+        if chunk
+    }
+
+
+def validate_links(failures: list[str], root: Path | None = None) -> None:
+    # Two exclusions, for two different reasons.
+    #
+    # Submodules: their content is another repository's -- this one carries
+    # only a pinned commit reference (ADR-0001), and no plain clone or CI job
+    # populates them. They also make `git check-ignore` abort outright
+    # ("Pathspec ... is in submodule"), which under the fail-closed rule would
+    # take the whole batch down and silently check everything anyway.
+    #
+    # Git-ignored Markdown: local tooling, not repository content -- see
+    # validate_skill_catalog_consistency. A third-party skill's README linking
+    # to its own example tree is not this repository's broken link, and nobody
+    # else could reproduce or fix the failure.
+    root = root if root is not None else ROOT
+    submodule_paths = load_submodule_paths(root)
+    candidates = [
+        p
+        for p in root.rglob("*.md")
+        if ".git" not in p.parts
+        and not any(
+            rel_path_is_under(p.relative_to(root).parts, sub) for sub in submodule_paths
+        )
+    ]
+    ignored = _git_ignored_subset(root, [str(p.relative_to(root)) for p in candidates])
+    for path in candidates:
+        if str(path.relative_to(root)) in ignored:
+            continue
         text = path.read_text(encoding="utf-8")
         for match in LINK_RE.finditer(text):
             target = match.group(1).strip()
@@ -1312,7 +1448,7 @@ def validate_links(failures: list[str]) -> None:
                 continue
             resolved = (path.parent / clean).resolve()
             if not resolved.exists():
-                fail(f"Broken relative link in {path.relative_to(ROOT)}: {target}", failures)
+                fail(f"Broken relative link in {path.relative_to(root)}: {target}", failures)
 
 
 def validate_workflow_safety(failures: list[str], root: Path | None = None) -> None:

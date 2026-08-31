@@ -6,8 +6,8 @@
 |---|---|
 | ADR ID | ADR-0014 |
 | Title | Authentication for the platform-admin web surface |
-| Status | Proposed |
-| Date | 2026-08-30 |
+| Status | Accepted |
+| Date | 2026-08-30 (accepted 2026-08-31 by the repository owner — see `docs/bootstrap/decision-log-wave12r.md` D-146) |
 | Owners | Solution Architect (primary), Product (scope input) |
 | Deciders | Repository owner; engineering lead for feasibility sign-off |
 | Related Issues | `hr-legacy#11` (shared platform-admin password — the finding this surface's identity model exists to close, D-027/F-26); `hr-platform#25` (dashboard retirement, ADR-0009) |
@@ -113,10 +113,16 @@ problem — it is every tenant's.
 
 ## Decision
 
-**Approval status: Proposed — this decision has not been approved.** This
-section describes a candidate direction and must not be read as an accepted
-architecture decision until `Status` above is changed to `Accepted` by a human,
-following independent review.
+**Accepted 2026-08-31 by the repository owner** (D-146).
+
+**Accepted over its own validation list.** The items below were written as
+acceptance blockers; the owner accepted the direction with all of them still
+open, which is theirs to do. They do not disappear — they become
+**implementation prerequisites**: the design is settled, and none of it may
+ship until they are answered. Two in particular gate any code at all —
+throttling (Decision 7), because the surface is currently weaker than the
+system it replaces, and the active-admin lookup (Decision 5, R-026), which
+merged separately in PR #152.
 
 The platform-admin web surface authenticates as follows.
 
@@ -439,7 +445,10 @@ Constraint 4: separate identity type, rotation model in use, 15-minute access /
 7-day refresh lifetimes, audit trail present, no self-registration, **no MFA**,
 tokens returned in the response body.
 
-Still required before this moves from `Proposed` to `Accepted`:
+**These were acceptance blockers; the ADR was accepted over them on 2026-08-31,
+so they are now implementation prerequisites.** None of this may ship until they
+are answered — the decision being settled is not the same as the design being
+buildable:
 
 1. Engineering-lead sign-off on the BFF boundary — specifically that the browser
    never receives a platform-admin token, and how that is enforced rather than

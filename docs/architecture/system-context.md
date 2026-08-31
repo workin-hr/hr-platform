@@ -24,8 +24,11 @@ settled — or less settled — than the ADRs it summarizes.
 - Next.js admin portal — direction confirmed for the narrowed
   platform-admin surface, see ADR-0009 §"Technology For The Platform-Admin
   Web Surface" (accepted 2026-08-05, `docs/bootstrap/decision-log.md`
-  D-025). Its authentication is **not** yet decided — see ADR-0014
-  (Proposed), which must be accepted before implementation begins
+  D-025). Its authentication is settled by ADR-0014 (accepted
+  2026-08-31, D-146): the platform-admin tokens stay on a server-side BFF
+  and never reach the browser. That ADR was accepted over ten open
+  validation items, which are now implementation prerequisites — the
+  decision is settled, the design is not yet buildable
 - Flutter compatibility retained where required by validated client
   behavior — **accepted**, see ADR-0003 (API Versioning And Flutter
   Compatibility)

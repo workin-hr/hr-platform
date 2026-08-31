@@ -69,6 +69,36 @@ neither is decided by that document:
 Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 §8.1 — the questions that gated Item 12's closure and the final exit gate.
 
+- **How does `legacy_refresh_tokens` get created against the production legacy
+  MariaDB, and who owns that step?** (**R-023**, ADR-0013 Open Questions,
+  D-043 amendment 3.) Phase 1 adds exactly one table to the legacy database and
+  nothing in the application creates it — Flyway owns no MariaDB location and
+  `hibernate.hbm2ddl.auto` is `none`. Today it exists only where a test
+  container applies `phase1_extensions.schema.sql` out of band. **Resolution
+  criteria**: an approved provisioning mechanism, rehearsed against a restored
+  copy, with the mechanism, its owner and its lock duration recorded in
+  `docs/operations/release-cutover-and-rollback.md`. Note the failure mode is
+  not a clean startup error — the parity login route never touches the table,
+  so a missing table surfaces later as broken password-change, logout and
+  employee-mode `reset_password.php` paths. **Not** OTP verify, which never
+  touches the table, and **not** a company-mode reset, whose branch stops at
+  `updateCompanyPasswordByPhone()` — both succeed with the table absent.
+- **Is the PHP rollback target actually restorable?** (**R-025**.) G11's claim
+  is "the database is unchanged *and PHP still runs*"; only the first half has
+  been examined. Nothing establishes that the PHP artifact, its runtime
+  configuration, or the traffic-routing path back to it is available and working
+  at the moment a rollback is called, and the release/rollback procedure is
+  still an unfilled template. **Resolution criteria**: an end-to-end rollback
+  rehearsal on a non-production environment — route traffic back to PHP,
+  confirm it serves, run the smoke checks — recorded in the same document.
+  Until then Phase 1's risk acceptance rests on a rollback nobody has performed.
+- **Do the two deployments share a JWT signing secret?** (**R-024**.) Phase 1's
+  zero-client-change property depends on `app.jwt.secret` being byte-identical
+  to PHP's `AppConfig::JWT_SECRET`, and nothing compares them. **Resolution
+  criteria**: the bidirectional token exchange in the cutover document,
+  including its foreign-signed negative control, run against a disposable smoke
+  account rather than a real employee.
+
 - ~~Are `attendance/overall_report.php`, `attendance/export.php` and
   `payslips/export.php` delivered, formally excluded under a numbered decision,
   or deferred to a later item?~~ **Resolved 2026-08-28 (O-8/D-120): all three
@@ -263,3 +293,51 @@ and audit attribution with a NOT NULL admin FK.
 
 Tracked separately as a defect rather than a question: **R-026**, deactivation
 not enforced per request.
+
+## Session Revocation On Logout — Both Surfaces (R-027)
+
+Surfaced 2026-08-31 by an independent security review of PR #152. This is a
+**decision that has not been made**, not a defect awaiting a fix — which is why
+it sits here rather than only in the risk register.
+
+- **Should logging out invalidate the live access token, or only the refresh
+  family?** Today it is the latter: the token carries a `sid` claim naming its
+  session family (`PlatformAdminJwtService:55`) and
+  `PlatformAdminAuthenticationFilter` never reads it, so
+  `PlatformAdminSessionService.logout(String)` revokes the family while the
+  current access token keeps authenticating until `exp` (≤900s).
+
+Two defensible answers, and the choice belongs to whoever owns **ADR-0005**:
+
+1. **Enforce session status per request.** Resolve `sid` in the filter and
+   reject a token whose family is `REVOKED`.
+
+   **The cost is not the same on both surfaces**, and the earlier version of
+   this entry used a platform-admin fact to argue for both. R-026 added a
+   repository lookup to `PlatformAdminAuthenticationFilter` only, so there the
+   marginal cost really is small — a second indexed query beside one that is
+   already paid. `JwtAuthenticationFilter` has **no repository dependency and
+   no existing lookup**, so enforcing `sid` there introduces a database query
+   per request to the busiest path in the system. That is a real decision, not
+   a rounding error, and it may well be answered differently for each surface.
+2. **Accept access-token survival** as the standard stateless-JWT trade, and
+   record it, so the inconsistency with R-026's stated principle ("immediate
+   revocation over cached authorization state") is a decision rather than an
+   accident.
+
+**Why it needs answering rather than deferring**: R-026 made *deactivation*
+immediate. Logout is not. So the stronger control works and the weaker one does
+not, which is the opposite of what someone reaching for either would assume —
+and incident response reaches for logout first.
+
+**This was first written as "not urgent today", scoped to platform admin, where
+the only authenticated route is `GET /api/platform-admin/me`. That scoping was
+wrong.** The tenant path has the identical defect — `JwtService:69` issues
+`sid`, `JwtAuthenticationFilter` never reads it, `RefreshTokenService.logout()`
+revokes the family only — and it has **58 mutating endpoints live today**,
+including payslip create/update/delete, salary contracts and branch deletion. A
+token revoked by logout can still perform all of them until `exp`.
+
+So the decision is owed for the tenant surface now, not at the first destructive
+platform-admin endpoint. Whichever way it goes, it should be answered once for
+both filters rather than twice.

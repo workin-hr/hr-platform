@@ -662,8 +662,12 @@ It is bidirectional, which is what makes it worth having:
 | 1 | `0` | `>= 1` — unsatisfiable, blocks every merge for ever |
 | >= 2 | `>= 1` | `0` — a possible peer approval was dropped |
 
-So the requirement **returns by itself** the day a second maintainer is added;
-it is not a deferral anyone has to remember. Bots are excluded from the count
+So the requirement is **alerted, not applied**, the day a second maintainer is added: `check-branch-protection.sh` increments `failures` and exits nonzero, and nothing changes the repository setting. Until an operator runs the check *and* separately updates protection, merges remain possible without a required human approval. The check is a detector, not a remediation, and
+**no workflow invokes it** — so this is a standing manual obligation that
+somebody does have to remember, and saying otherwise would present an
+uninvoked script as an automatic control. Closing it properly means either
+running the check in CI or applying the setting, and neither exists today.
+Bots are excluded from the count
 deliberately: `chatgpt-codex-connector[bot]` holds no approval right (D-121)
 and its review arrives through the `independent-review` context instead.
 
@@ -827,7 +831,11 @@ no check, because R-008 already records a merge that went wrong through a green
 box being read as more than it said. The tool narrows what a human must verify;
 it does not replace the verification.
 
-### Four properties that make it non-trivial to satisfy
+### Six properties that make it non-trivial to satisfy
+
+*(Four at acceptance; two added 2026-08-31 after an independent review of the
+D-142 batch found the check could report success without having read every
+finding — see the last two bullets.)*
 
 - **A resolved thread with no reply fails.** This is the whole point: it is
   exactly the state `required_conversation_resolution` reports as clean.
@@ -839,6 +847,19 @@ it does not replace the verification.
 - **Threads a human opened are not findings.** Requiring a disposition on those
   would train people to type the token to clear noise, which is how a control
   decays into a formality.
+- **Every thread and every comment is read, not the first page of each.**
+  `reviewThreads` and each thread's `comments` are both paginated. Unpaginated,
+  the check reported success on any pull request with more than 100 threads —
+  failing open precisely on the longest, most-reviewed ones it exists for — and
+  could not see a disposition posted past a thread's hundredth comment, which
+  fails the other way and blocks a merge whose finding *was* answered. If a
+  thread still cannot be fully fetched, the check refuses by name rather than
+  judging on partial data.
+- **The vocabulary matches whole terms, not prefixes.** `Disposition: fixed-later`
+  and `Disposition: supersededness` no longer discharge a finding by matching an
+  allowed prefix. The original closed-vocabulary case used `wontfix`, which
+  shares no prefix with any allowed value and passed either way — so this
+  property was asserted but never actually tested.
 
 The reviewer login is read from `independent-review-gate.yml`'s `REVIEWER:`
 **assignment**, not from anywhere else in the file — the same binding rule
@@ -854,10 +875,11 @@ it needs `statuses: write`, which under D-122's reasoning means the privileged
 enforces. Until then step 7 is a human obligation *supported by* a tool rather
 than one enforced by the platform, and R-008 stays open on that basis.
 
-Evidence: nine regression cases in `scripts/test_validate_phase0.py`, 89/89.
-Falsified in two directions — opening the vocabulary to any token, and allowing
-a finding's own text to discharge it — with each break caught by the case
-written for it.
+Evidence: thirteen regression cases in `scripts/test_validate_phase0.py`.
+Falsified in four directions — opening the vocabulary to any token, allowing a
+finding's own text to discharge it, removing the whole-term anchor (which lets
+`fixed-later` pass), and truncating a thread's comments (which must refuse
+rather than judge) — with each break caught by the case written for it.
 
 ## D-128: Wave 13.5 delivers the five reference endpoints, and is taken before 13.1
 
@@ -2465,3 +2487,65 @@ change and `main`.
 
 If a defect is later found in this batch, this entry is the explanation for how
 it reached `main`, and the honest answer is that nobody independent looked.
+
+## D-143: Phase 1 is exempt from ADR-0005's forced re-authentication — sessions carry across the cutover in both directions
+
+| Field | Value |
+|---|---|
+| Decision | The forced-re-authentication design in `docs/security/authentication-remediation-design.md` and the matching assumption in `docs/migration/cutover-and-rollback-assumptions.md` are **scoped to the Phase-2 authentication cutover**. They do not describe Phase 1. Under **D-111** (zero client change) the Phase-1 port emits tokens byte-identical to `jwtEncode()`'s and accepts PHP's unchanged, so no session is invalidated in either direction — conditional on the two deployments sharing a signing secret (**R-024**). |
+| Reason | Both documents were written on 2026-08-04 for ADR-0005's *new* authentication model, before D-111 settled Phase 1 as zero-client-change. Left unscoped they state the opposite of Phase 1 reality, and they are the canonical artifacts a cutover review would consult. Overstating the rollback cost is not a harmless conservatism: G11 treats Phase 1's cheap rollback as the reason its risk profile is acceptable, and a reviewer reading "rollback is not silently transparent" would reasonably conclude the rollback is not worth attempting. |
+| Alternatives | (a) Rewrite the Phase-2 sections outright — rejected, they remain correct for the phase they were written for, and deleting them would lose a decided design. (b) Leave them and rely on readers inferring the phase — rejected, that is what produced the contradiction. Both documents are therefore annotated in place, with the original text preserved and marked as Phase-2-only. |
+| Impact | `docs/security/authentication-remediation-design.md` (scope note plus two section-level markers), `docs/migration/cutover-and-rollback-assumptions.md` (annotated earlier the same day), `docs/operations/release-cutover-and-rollback.md` (the evidence and the two preconditions). New risks **R-023**, **R-024** and **R-025** record the cutover prerequisites this exposed (R-025 was added after this row was first written, and is attributed in D-144). |
+| Evidence | `LegacyPhpJwtWireCompatibilityTest` pins the codec — header, algorithm, claim set and order, signature, and the bound default expiry through property binding. `LegacyLoginEndToEndTest` pins the real path: oracle-encoded employee and company tokens accepted over real HTTP against real MariaDB through the filter chain, tenant re-derivation and `LegacyRequestGuard`, with a stale-`token_version` token still rejected so the acceptances mean something. Both build expectations from `PhpJwtOracle`, an independent reimplementation of `jwtEncode()`, never from the production encoder. |
+| Status | Accepted 2026-08-30. |
+
+## D-144: G11's rollback claim is recorded as partly false rather than restated as true
+
+| Field | Value |
+|---|---|
+| Decision | The completion plan's G11 asserts *"the database is unchanged and PHP still runs."* The first half is **false as literally stated** — Phase 1 adds `legacy_refresh_tokens` to the legacy MariaDB (D-043 amendment 3). The operations document records the claim as false and preserves the conclusion by argument (the change is additive, no PHP code references the table, so rollback orphans it harmlessly and deliberately does not drop it) rather than by quietly restating the claim in narrower words. |
+| Reason | The gap between "no schema change" and "one additive table whose provisioning mechanism is undecided" is exactly where a cutover goes wrong. ADR-0013 leaves the provisioning of that table against a real MariaDB instance an open question, so the cutover has an unowned, unrehearsed DDL prerequisite against the production legacy database. Recording the claim as approximately true would have carried that prerequisite silently into the cutover window. |
+| Alternatives | Narrow the wording to "the legacy contract is unchanged" and move on — rejected. It is accurate but it disposes of the finding without surfacing the missing provisioning step, which is the part with operational consequences. |
+| Impact | `docs/operations/release-cutover-and-rollback.md` Claim 1 rewritten; provisioning added as pre-cutover step 1; **R-023** filed. G11 remains **open**, with three named blockers rather than a checkmark: **R-023** (the unprovisioned schema prerequisite), **R-024** (the signing secret both systems must share) and **R-025** (whether the PHP rollback target is restorable at all — the half of G11's claim this review found had never been examined). |
+| Evidence | Independent review of PR #147 (`chatgpt-codex-connector[bot]`, 2026-08-30) rejected the original claim and was correct on both sub-points: the extension table, and the fact that the draft cited `spring.jpa.hibernate.ddl-auto=validate` — a **PostgreSQL** setting — as MariaDB's protection. The real setting is `hibernate.hbm2ddl.auto=none` on the legacy `EntityManagerFactory`; stronger for the purpose, but the citation was wrong. |
+| Status | Accepted 2026-08-30. |
+
+## D-145: Platform-admin authorization is re-derived per request, not cached in the token
+
+| Field | Value |
+|---|---|
+| Decision | `PlatformAdminAuthenticationFilter` loads the `platform_admins` row and verifies `active` on **every** request, failing closed when the row is absent. A valid signature is no longer sufficient to authenticate a platform administrator. This accepts **one indexed primary-key lookup per platform-admin request** as the standing cost. |
+| Reason | Without it a deactivated administrator kept full access until their access token expired — up to 900s — via the exact control an operator reaches for when someone must lose access immediately (**R-026**). `PlatformAdminSessionService` refused to *rotate* a deactivated admin's refresh token, which is what F-26 means by "fail-closed rotation for deactivated admins", but rotation happens at most every 15 minutes and the live access token kept working until then. The gap was bounded, silent, and on the surface with the highest privilege in the system. |
+| Alternatives | (a) **Shorten the access-token TTL** — shrinks the window, never closes it, and buys the reduction with more rotation traffic. (b) **Cache the active flag** — reintroduces exactly the defect, since the cache is the stale authorization state the lookup exists to avoid. (c) **Check only at rotation**, the prior behaviour — rejected as the thing being fixed. |
+| Impact | Same trade **ADR-0010** already makes deliberately for tenant routes: immediate revocation over cached authorization state, at one indexed lookup per request. Any new entry point onto `/api/platform-admin/**` — including the BFF proposed in **ADR-0014** — inherits the check by construction, because it is in the filter rather than in a handler. |
+| Evidence | `backend/src/main/java/com/workin/backend/security/PlatformAdminAuthenticationFilter.java`; `PlatformAdminAuthFlowTest#aTokenIssuedBeforeDeactivationStopsWorkingImmediately` — logs in, confirms the token works, deactivates the row, asserts the same unexpired token is refused. Falsified by removing the check and confirming only that test fails. An independent security review of PR #152 traced the filter chain, the `permitAll` routes, the error paths and the `phase1-mysql` profile, and found no bypass. |
+| Status | Accepted 2026-08-31. |
+
+> **Not closed by this decision**: revocation on **logout** is a separate,
+> unresolved question on both surfaces — the access token's `sid` claim is
+> issued and never read, so a logged-out token keeps working until `exp`
+> (**R-027**, `open-questions.md`, annotated on ADR-0005). D-145 makes
+> *deactivation* immediate; it does not make *logout* immediate, and those are
+> the two controls an operator is most likely to confuse.
+
+## D-146: ADR-0014 accepted — the platform-admin browser session never holds a platform-admin token
+
+| Field | Value |
+|---|---|
+| Decision | **ADR-0014 is Accepted** (2026-08-31, repository owner). The Next.js platform-admin surface calls the Java API only from its **server side**; that server side holds the platform-admin access and refresh tokens, and the browser receives only the BFF's own `HttpOnly`/`Secure`/`SameSite` session cookie. `PlatformAdminAuthController` keeps its existing JSON/bearer contract and gains no cookie transport, but `/api/platform-admin/**` becomes BFF-only. MFA (TOTP) is required with bounded step-up on destructive operations, and authentication attempts are throttled. |
+| Reason | The tokens never reaching the browser is strictly stronger than making them `HttpOnly`: a credential that is never sent cannot be stolen from the client, and the backend keeps one authentication model instead of two that must never diverge. On the surface that suspends and deletes customer companies, that margin is worth the BFF. |
+| Alternatives | **Bearer token in browser storage** — the path of least resistance, since `/login` already returns both tokens to any caller, and the reason it is rejected: any script on the page could read a company-suspending credential. **Backend sets cookies itself** — the ADR's own earlier draft, rejected because it gives the Java backend two authentication transports that must never disagree, a permanent burden accepted to solve one client's problem. **External IdP** — deferred, not rejected; named as the likely future supersession. |
+| Impact | `docs/adr/ADR-0014-platform-admin-web-authentication.md` (Accepted), `docs/adr/README.md`, `docs/architecture/system-context.md`, `docs/bootstrap/open-questions.md`. Depends on **R-026**, closed in PR #152 — the per-request active-admin lookup, without which every entry point onto this surface inherits a 15-minute deactivation window. |
+| Status | Accepted 2026-08-31. |
+
+> **Accepted over ten open validation items, deliberately.** They were written as
+> acceptance blockers and the owner accepted the direction with all of them
+> open. That is the owner's call and it is recorded here rather than smoothed
+> over: the **decision** is settled, the **design is not buildable yet**. The
+> items become implementation prerequisites, and two of them gate any code at
+> all — **throttling** (Decision 7), because `PlatformAdminLoginService` has no
+> attempt limit while the legacy dashboard it replaces enforces 8 attempts in 15
+> minutes, so this surface is currently *weaker* than the system it is
+> succeeding; and the **step-up bounds** (Decision 4), because a step-up flag
+> with no maximum age, single-use rule or action binding is step-up in name
+> only.

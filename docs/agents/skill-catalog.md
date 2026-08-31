@@ -46,6 +46,34 @@ This list is checked against `.agents/skills/*/SKILL.md` on every build
 skill directory not named somewhere on this page fails validation, so this
 catalog cannot silently drift from what actually exists on disk.
 
+### What the check covers, and what it deliberately does not
+
+**Scope: repository content.** A skill directory that **git ignores** is exempt
+from this catalog, from the `SKILL_SECTIONS` structure check, from the
+broken-link scan and from the Phase 0 forbidden-file scan.
+
+The reason is that an ignored path is, by definition, not repository content.
+Tooling such as `npx skills add ...` installs third-party skills into
+`.agents/skills/` and symlinks them into `.claude/skills/`; they exist only on
+the machine that installed them, never reach CI or another clone, and use their
+authors' own schema rather than this repository's. Requiring them here would
+mean listing third-party tool names in a governance document to satisfy a check
+that nobody else can reproduce or fix — and would break `validate_phase0.py`
+locally for anyone who installs one.
+
+**Untracked but *not* ignored skills are still checked.** That is the case the
+drift protection exists for: a genuinely new repository skill is untracked right
+up until it is committed, and exempting it would remove the guard exactly when it
+matters.
+
+The exemption **fails closed**. If git is unavailable, the tree is not a
+repository, or `git check-ignore` returns anything unexpected, every path is
+checked. Git being unable to answer must never silently exempt something from a
+governance control.
+
+Regression cases covering all four scanners, both directions of the exemption,
+and the outside-a-repository fallback are in `scripts/test_validate_phase0.py`.
+
 Every repository-authored skill inherits the root `AGENTS.md` contract through
 its mandatory `Canonical Instructions` section. `propagate-change` applies
 that contract's synchronized-artifact check before handoff.

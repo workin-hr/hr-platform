@@ -114,7 +114,13 @@ SYSTEM_PATH_DIRS = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # nested regression suite (scripts/test_git_guard.py) calls
 # `git branch --show-current` for real (get_current_branch()) against this
 # actual repository.
-ESSENTIAL_RUNTIME_TOOLS = ("git", "bash", "sh", "python3")
+# xargs joined this list when verify-bootstrap.sh started building its linter
+# file lists NUL-delimited: `existing_files` pipes through `xargs -0` so
+# filenames containing spaces or newlines keep their argument boundaries. Left
+# off, the shimmed run dies in that pipeline under `set -e` before it ever
+# prints the SUMMARY line these tests read — a failure that looks like a
+# broken assertion rather than a missing runtime.
+ESSENTIAL_RUNTIME_TOOLS = ("git", "bash", "sh", "python3", "xargs")
 
 
 def _essential_runtime_path_dirs() -> str:
@@ -456,10 +462,19 @@ REAL_GATE_WORKFLOW = REPO_ROOT / ".github/workflows/independent-review-gate.yml"
 
 
 def _thread(author: str, *replies: tuple[str, str], path: str = "a.java", line: int = 1,
-            resolved: bool = True) -> dict:
+            resolved: bool = True, total_count: int | None = None) -> dict:
     nodes = [{"author": {"login": author}, "body": "P1: a finding"}]
     nodes += [{"author": {"login": who}, "body": body} for who, body in replies]
-    return {"isResolved": resolved, "path": path, "line": line, "comments": {"nodes": nodes}}
+    comments: dict = {"nodes": nodes}
+    # Mirrors the real payload: totalCount is what the server holds, nodes is
+    # what one page returned. Passing a larger total_count simulates a thread
+    # whose replies did not fit in a single page.
+    comments["totalCount"] = len(nodes) if total_count is None else total_count
+    # `id` mirrors the real payload: the script selects it to paginate a
+    # specific thread's comments, and a fixture without one cannot exercise
+    # that path at all.
+    return {"id": f"THREAD_{path}_{line}", "isResolved": resolved,
+            "path": path, "line": line, "comments": comments}
 
 
 def run_check_dispositions(threads: list[dict], workflow_text: str | None = None) -> subprocess.CompletedProcess:
@@ -477,6 +492,116 @@ def run_check_dispositions(threads: list[dict], workflow_text: str | None = None
             ["bash", str(CHECK_DISPOSITIONS_SCRIPT)],
             capture_output=True, text=True, timeout=10, env=env,
         )
+
+
+def run_check_dispositions_over_fake_gh(pages: list[dict]) -> subprocess.CompletedProcess:
+    """Drive the script through its *live* path — no REVIEW_THREADS_JSON_FILE —
+    with a fake `gh` on PATH that serves the supplied pages in order.
+
+    The fixture path deliberately skips pagination, so every other case in this
+    file leaves the cursor handling, page merging and comment-fetch code
+    completely unexecuted. That code is the part that decides whether a finding
+    or a disposition is seen at all, so it needs a transport, not a payload."""
+    with tempfile.TemporaryDirectory(prefix="dispositions-gh-") as tmp:
+        tmpdir = Path(tmp)
+        for index, page in enumerate(pages):
+            (tmpdir / f"page{index}.json").write_text(json.dumps(page), encoding="utf-8")
+        # Each invocation consumes the next page AND records its full argument
+        # list. Serving by call count alone would let a broken implementation
+        # pass: if the cursor were never advanced -- left at `null` every time
+        # -- this shim would still hand over page 1, then page 2, and the test
+        # would go green while live GitHub returned the first page forever.
+        # The recorded arguments are what the caller asserts on.
+        (tmpdir / "gh").write_text(
+            "#!/bin/sh\n"
+            f'counter="{tmpdir}/counter"\n'
+            f'log="{tmpdir}/calls.log"\n'
+            'n=0; [ -f "$counter" ] && n="$(cat "$counter")"\n'
+            'echo $((n + 1)) > "$counter"\n'
+            # One line per invocation: the GraphQL document is multi-line, so
+            # logging "$*" raw would split a single call across many lines and
+            # make calls[1] a fragment of the first query rather than the
+            # second call.
+            '''printf "%s\\n" "$(printf "%s" "$*" | tr "\\n" " ")" >> "$log"\n'''
+            f'cat "{tmpdir}/page$n.json"\n',
+            encoding="utf-8")
+        (tmpdir / "gh").chmod(0o755)
+        env = dict(os.environ)
+        env["PATH"] = f"{tmpdir}:{env['PATH']}"
+        env.pop("REVIEW_THREADS_JSON_FILE", None)
+        workflow = tmpdir / "gate.yml"
+        # Quoted: the script reads REVIEWER from a `REVIEWER: "..."` assignment.
+        workflow.write_text(f'env:\n  REVIEWER: "{REVIEWER}"\n', encoding="utf-8")
+        env["INDEPENDENT_REVIEW_WORKFLOW_FILE"] = str(workflow)
+        proc = subprocess.run(
+            ["bash", str(CHECK_DISPOSITIONS_SCRIPT), "1"],
+            capture_output=True, text=True, timeout=30, env=env,
+        )
+        log = tmpdir / "calls.log"
+        proc.gh_calls = log.read_text(encoding="utf-8").splitlines() if log.is_file() else []  # type: ignore[attr-defined]
+        return proc
+
+
+def _thread_page(threads: list[dict], has_next: bool, cursor: str = "CUR") -> dict:
+    return {"data": {"repository": {"pullRequest": {"reviewThreads": {
+        "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
+        "nodes": threads}}}}}
+
+
+def test_dispositions_a_finding_on_the_second_thread_page_is_seen() -> None:
+    """The failure that motivated pagination: an undispositioned finding past
+    the first page of threads was invisible, so the check reported success on
+    exactly the longest, most-reviewed pull requests."""
+    page_one = _thread_page(
+        [_thread(REVIEWER, ("karimtismail", "Disposition: fixed"))], True, cursor="CUR1")
+    page_two = _thread_page(
+        [_thread(REVIEWER, ("karimtismail", "Disposition: fixed"),
+                 path="middle.java", line=2)], True, cursor="CUR2")
+    page_three = _thread_page(
+        [_thread(REVIEWER, ("karimtismail", "no disposition here"),
+                 path="third/page.java", line=7)], False)
+    proc = run_check_dispositions_over_fake_gh([page_one, page_two, page_three])
+    calls = proc.gh_calls  # type: ignore[attr-defined]
+    check(
+        proc.returncode != 0
+        and "third/page.java" in proc.stdout
+        # Three pages, so advancement has to happen twice -- a single-step
+        # cursor bug survives a two-page fixture.
+        and len(calls) >= 3
+        and "cursor=CUR1" in calls[1]
+        and "cursor=CUR2" in calls[2],
+        f"a finding on the third thread page is found, and each request carries the "
+        f"previous page's endCursor (exit={proc.returncode}, calls={calls}, "
+        f"stdout={proc.stdout!r})",
+    )
+
+
+def test_dispositions_a_reply_on_the_second_comment_page_is_honoured() -> None:
+    """The opposite failure: a disposition posted past a thread's hundredth
+    comment was unreadable, so the check blocked a merge whose finding had in
+    fact been answered."""
+    # totalCount 2 -- the finding plus one reply -- with only the finding on the
+    # first page. After the fetch below the thread holds both, which is what
+    # lets the check judge it instead of refusing.
+    truncated = _thread(REVIEWER, total_count=2)
+    truncated["comments"]["pageInfo"] = {"hasNextPage": True, "endCursor": "C1"}
+    page_one = _thread_page([truncated], False)
+    comment_page = {"data": {"node": {"comments": {
+        "pageInfo": {"hasNextPage": False, "endCursor": "C2"},
+        "nodes": [{"author": {"login": "karimtismail"}, "body": "Disposition: fixed"}]}}}}
+    proc = run_check_dispositions_over_fake_gh([page_one, comment_page])
+    calls = proc.gh_calls  # type: ignore[attr-defined]
+    check(
+        proc.returncode == 0
+        and len(calls) >= 2
+        # The follow-up must ask for that thread, from where its first page
+        # stopped -- not re-request the same page.
+        and "cursor=C1" in calls[1]
+        and "THREAD_a.java_1" in calls[1],
+        f"a disposition on a later comment page discharges the finding, and the "
+        f"fetch carries the thread id and its comment cursor "
+        f"(exit={proc.returncode}, calls={calls}, stdout={proc.stdout!r})",
+    )
 
 
 def test_dispositions_match_the_graphql_login_without_the_bot_suffix() -> None:
@@ -583,6 +708,57 @@ def test_dispositions_an_invented_term_is_not_a_disposition() -> None:
     )
 
 
+def test_dispositions_a_term_beginning_with_an_allowed_value_is_rejected() -> None:
+    """The closed vocabulary must match whole terms, not prefixes.
+
+    `test_dispositions_an_invented_term_is_not_a_disposition` uses "wontfix",
+    which shares no prefix with any allowed value and so was rejected even by
+    the unanchored pattern. "fixed-later" and "supersededness" are the cases
+    that actually distinguish the two: both begin with a real disposition and
+    both silently passed before the pattern required a complete term."""
+    for invented in ("Disposition: fixed-later", "Disposition: supersededness"):
+        proc = run_check_dispositions([_thread(REVIEWER, ("karimtismail", invented))])
+        check(
+            proc.returncode != 0,
+            f"{invented!r} is not a disposition (exit={proc.returncode}, stdout={proc.stdout!r})",
+        )
+
+
+def test_dispositions_every_allowed_term_is_still_accepted() -> None:
+    """The anchor must not have narrowed the vocabulary it protects --
+    `accepted-risk` and `declined-with-evidence` both contain hyphens, which is
+    exactly what the lookahead excludes when it follows a match."""
+    for allowed in (
+        "Disposition: fixed",
+        "Disposition: declined-with-evidence",
+        "Disposition: accepted-risk",
+        "Disposition: superseded",
+    ):
+        proc = run_check_dispositions([_thread(REVIEWER, ("karimtismail", allowed))])
+        check(
+            proc.returncode == 0,
+            f"{allowed!r} is still accepted (exit={proc.returncode}, stdout={proc.stdout!r})",
+        )
+
+
+def test_dispositions_a_thread_that_could_not_be_fully_fetched_is_refused() -> None:
+    """A thread whose comments are still short of `totalCount` after the fetch
+    cannot be judged: the disposition may sit on a comment nobody retrieved.
+
+    Against a live pull request the script now paginates the remainder, so this
+    state means the fetch was skipped or failed. Fixtures take the
+    `REVIEW_THREADS_JSON_FILE` path, which skips it deliberately — so this case
+    also pins that a truncated fixture is refused rather than silently judged.
+    """
+    long_thread = _thread(REVIEWER, ("karimtismail", "Disposition: fixed"), total_count = 250)
+    proc = run_check_dispositions([long_thread])
+    check(
+        proc.returncode != 0 and "could not be fully fetched" in (proc.stderr + proc.stdout),
+        f"an overlong thread is refused, not silently misjudged (exit={proc.returncode}, "
+        f"stdout={proc.stdout!r}, stderr={proc.stderr!r})",
+    )
+
+
 def test_dispositions_reviewer_comes_from_the_workflow_assignment_not_a_comment() -> None:
     """Same binding rule as check-branch-protection.sh, and the same bug this
     repository has already written twice: a login named only in a comment must
@@ -619,11 +795,18 @@ def test_dispositions_real_workflow_reviewer_is_readable() -> None:
 CHECK_BRANCH_PROTECTION_SCRIPT = REPO_ROOT / "scripts/check-branch-protection.sh"
 
 GOOD_PROTECTION_JSON = {
-    "required_pull_request_reviews": {"required_approving_review_count": 1},
+    "required_pull_request_reviews": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews": True,
+    },
     "enforce_admins": {"enabled": True},
     "allow_force_pushes": {"enabled": False},
+    "allow_deletions": {"enabled": False},
     "required_conversation_resolution": {"enabled": True},
-    "required_status_checks": {"contexts": ["validate", "independent-review"]},
+    "required_status_checks": {
+        "contexts": ["validate", "independent-review"],
+        "strict": True,
+    },
 }
 
 
@@ -665,7 +848,10 @@ def test_branch_protection_solo_maintainer_requires_zero_approvals() -> None:
     satisfiable value and the check must accept it rather than demand an
     approval nobody can give."""
     solo = {**GOOD_PROTECTION_JSON,
-            "required_pull_request_reviews": {"required_approving_review_count": 0}}
+            "required_pull_request_reviews": {
+                **GOOD_PROTECTION_JSON["required_pull_request_reviews"],
+                "required_approving_review_count": 0,
+            }}
     proc = run_check_branch_protection(solo, write_humans=1)
     check(
         proc.returncode == 0 and "procedural obligation" in proc.stdout,
@@ -698,11 +884,15 @@ def test_branch_protection_requires_approval_once_a_second_maintainer_exists() -
 
 def test_branch_protection_reports_every_failing_field() -> None:
     bad = {
-        "required_pull_request_reviews": {"required_approving_review_count": 0},
+        "required_pull_request_reviews": {
+            "required_approving_review_count": 0,
+            "dismiss_stale_reviews": False,
+        },
         "enforce_admins": {"enabled": False},
         "allow_force_pushes": {"enabled": True},
+        "allow_deletions": {"enabled": True},
         "required_conversation_resolution": {"enabled": False},
-        "required_status_checks": {"contexts": ["something-else"]},
+        "required_status_checks": {"contexts": ["something-else"], "strict": False},
     }
     proc = run_check_branch_protection(bad)
     check(
@@ -710,10 +900,75 @@ def test_branch_protection_reports_every_failing_field() -> None:
         and "required_approving_review_count is 0" in proc.stdout
         and "enforce_admins.enabled is false" in proc.stdout
         and "allow_force_pushes.enabled is true" in proc.stdout
+        and "allow_deletions.enabled is true" in proc.stdout
         and "required_conversation_resolution.enabled is false" in proc.stdout
+        and "required_status_checks.strict is false" in proc.stdout
+        and "dismiss_stale_reviews is false" in proc.stdout
         and "does not include 'validate'" in proc.stdout
         and "does not include 'independent-review'" in proc.stdout,
-        f"branch protection missing every requirement fails, naming all 6 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+        f"branch protection missing every requirement fails, naming all 9 fields (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_without_strict_status_checks_fails() -> None:
+    """D-125 requires `strict`. Without it a pull request that went green
+    against a stale base can merge into a main it never ran against."""
+    bad = {**GOOD_PROTECTION_JSON}
+    bad["required_status_checks"] = {**bad["required_status_checks"], "strict": False}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "required_status_checks.strict is false" in proc.stdout,
+        f"non-strict status checks fail (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_without_stale_review_dismissal_fails() -> None:
+    """D-125 requires `dismiss_stale_reviews`. Without it, approve-then-push
+    lands unreviewed code under a green approval."""
+    bad = {**GOOD_PROTECTION_JSON}
+    bad["required_pull_request_reviews"] = {
+        **bad["required_pull_request_reviews"],
+        "dismiss_stale_reviews": False,
+    }
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "dismiss_stale_reviews is false" in proc.stdout,
+        f"approvals surviving a new push fail (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_with_allow_force_pushes_absent_fails() -> None:
+    """Same fail-closed rule as allow_deletions. Both requirements are
+    `false`, so `// false` would make an absent field pass — and an absent
+    field means the payload shape changed, which is exactly when a control
+    must not report success."""
+    bad = {k: val for k, val in GOOD_PROTECTION_JSON.items() if k != "allow_force_pushes"}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "allow_force_pushes.enabled is null" in proc.stdout,
+        f"an absent allow_force_pushes fails rather than passing (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_with_allow_deletions_absent_fails() -> None:
+    """The one new check whose required value is `false`, so a `// false`
+    default would make an absent field *pass*. An absent field means the
+    payload shape changed, which is exactly when a control must not quietly
+    report success."""
+    bad = {k: val for k, val in GOOD_PROTECTION_JSON.items() if k != "allow_deletions"}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "allow_deletions.enabled is null" in proc.stdout,
+        f"an absent allow_deletions fails rather than passing (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+
+def test_branch_protection_with_deletions_allowed_fails() -> None:
+    bad = {**GOOD_PROTECTION_JSON, "allow_deletions": {"enabled": True}}
+    proc = run_check_branch_protection(bad)
+    check(
+        proc.returncode != 0 and "allow_deletions.enabled is true" in proc.stdout,
+        f"branch deletion enabled fails (exit={proc.returncode}, stdout={proc.stdout!r})",
     )
 
 
@@ -752,6 +1007,7 @@ def test_branch_protection_job_id_is_read_from_workflow_file() -> None:
     # The independent-review context is required independently of this one and
     # is read from its own workflow, so it stays in the fixture.
     protection["required_status_checks"] = {
+        **GOOD_PROTECTION_JSON["required_status_checks"],
         "contexts": ["totally-different-job-name", "independent-review"],
     }
     proc = run_check_branch_protection(protection, workflow_text=fake_workflow)
@@ -1874,6 +2130,345 @@ def test_skill_catalog_fully_listed_passes() -> None:
         shutil.rmtree(root)
 
 
+def test_git_ignored_skill_is_exempt_from_the_catalog() -> None:
+    """Third-party skills installed into the working tree (`npx skills
+    add ...`) are local tooling, not repository content. They are
+    unreachable from CI or any other clone, so requiring them in a
+    governance document would make the check unsatisfiable for everyone
+    but the machine that installed them."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        (root / "docs/agents").mkdir(parents=True)
+        (root / "docs/agents/skill-catalog.md").write_text(
+            "# Skill Catalog\n\n- repo-skill\n", encoding="utf-8"
+        )
+        skills_dir = root / ".agents/skills"
+        for name in ("repo-skill", "vendor-tool"):
+            (skills_dir / name).mkdir(parents=True)
+            (skills_dir / name / "SKILL.md").write_text(f"---\nname: {name}\n---\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_skill_catalog_consistency(failures, root=root)
+        check(
+            failures == [],
+            f"a git-ignored skill is exempt from the catalog (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_untracked_but_not_ignored_skill_is_still_checked() -> None:
+    """The exemption must not extend to a genuinely new skill on its way
+    into the repository -- that is the case the drift check exists for,
+    and it is untracked right up until the moment it is committed."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        (root / "docs/agents").mkdir(parents=True)
+        (root / "docs/agents/skill-catalog.md").write_text("# Skill Catalog\n\n", encoding="utf-8")
+        skills_dir = root / ".agents/skills"
+        (skills_dir / "brand-new-skill").mkdir(parents=True)
+        (skills_dir / "brand-new-skill/SKILL.md").write_text(
+            "---\nname: brand-new-skill\n---\n", encoding="utf-8"
+        )
+
+        failures: list[str] = []
+        v.validate_skill_catalog_consistency(failures, root=root)
+        check(
+            any("brand-new-skill" in f for f in failures),
+            f"an untracked, non-ignored skill is still required in the catalog (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_skill_catalog_check_is_unchanged_outside_a_git_repository() -> None:
+    """`_git_ignores` must fail closed. With no repository present git
+    cannot answer, and an unknown answer must not exempt anything from a
+    governance control."""
+    root = make_root()
+    try:
+        (root / "docs/agents").mkdir(parents=True)
+        (root / "docs/agents/skill-catalog.md").write_text("# Skill Catalog\n\n", encoding="utf-8")
+        skills_dir = root / ".agents/skills"
+        (skills_dir / "uncatalogued").mkdir(parents=True)
+        (skills_dir / "uncatalogued/SKILL.md").write_text("---\nname: uncatalogued\n---\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_skill_catalog_consistency(failures, root=root)
+        check(
+            any("uncatalogued" in f for f in failures),
+            f"outside a git repository nothing is exempted (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_ignored_markdown_is_skipped_by_the_link_scanner() -> None:
+    """The link scanner's exemption, exercised in isolation. On the real
+    repository this branch is only taken when a third-party skill happens to
+    be installed, so without a fixture it is untested in CI."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (root / "vendor").mkdir()
+        (root / "vendor/README.md").write_text("[gone](./nope.md)\n", encoding="utf-8")
+        (root / "own.md").write_text("[also gone](./missing.md)\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_links(failures, root=root)
+        check(
+            any("own.md" in f for f in failures) and not any("vendor" in f for f in failures),
+            f"ignored Markdown is skipped, tracked Markdown is not (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_submodule_markdown_is_skipped_by_the_link_scanner() -> None:
+    """Submodule content belongs to another repository (ADR-0001), and a path
+    inside one makes `git check-ignore` abort -- which, fail-closed, would
+    silently disable the exemption for every other file too."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitmodules").write_text(
+            '[submodule "sub"]\n\tpath = sub\n\turl = https://example.invalid/sub.git\n',
+            encoding="utf-8",
+        )
+        (root / "sub").mkdir()
+        (root / "sub/README.md").write_text("[broken](./nope.md)\n", encoding="utf-8")
+        (root / "own.md").write_text("[broken](./missing.md)\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_links(failures, root=root)
+        check(
+            any("own.md" in f for f in failures) and not any("sub/" in f for f in failures),
+            f"submodule Markdown is skipped, the repository's own is not (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_ignored_skill_bypasses_the_repository_schema() -> None:
+    """The structural exemption in validate_skill_files, which the catalog
+    tests do not reach. A third-party skill uses its author's schema and can
+    never satisfy SKILL_SECTIONS; an unignored one still must."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        skills_dir = root / ".agents/skills"
+        for name in ("vendor-tool", "own-skill"):
+            (skills_dir / name).mkdir(parents=True)
+            (skills_dir / name / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: d\n---\n\n# {name}\n", encoding="utf-8"
+            )
+
+        failures: list[str] = []
+        v.validate_skill_files(failures, root=root)
+        check(
+            any("own-skill" in f for f in failures)
+            and not any("vendor-tool" in f for f in failures),
+            f"an ignored skill bypasses the repository schema, an unignored one does not (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_ignored_paths_are_skipped_by_the_forbidden_file_scanner() -> None:
+    """Installed skills routinely ship package.json, src/ and .ts helpers --
+    ordinary tooling for their author, Phase 0 product code to this scanner.
+    Without the boundary, gitignoring a skill still breaks validation on the
+    machine that installed it."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        vendor = root / ".agents/skills/vendor-tool/scripts"
+        vendor.mkdir(parents=True)
+        (vendor / "helper.ts").write_text("export const x = 1;\n", encoding="utf-8")
+        (root / "admin-web").mkdir()
+        (root / "admin-web/App.tsx").write_text("export default null;\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(
+            any("admin-web/App.tsx" in f for f in failures)
+            and not any("vendor-tool" in f for f in failures),
+            f"ignored tooling is skipped, unignored product code still fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def _make_repo_with_real_submodule(root: Path) -> None:
+    """A `.gitmodules` file alone does not reproduce the failure: `git
+    check-ignore` only aborts when the path is a real **gitlink** in the index.
+    An earlier fixture wrote the text and nothing else, which is why it passed
+    against a scanner that was genuinely broken on any clone with
+    `flutter-integration` populated."""
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    inner = root / "sub"
+    inner.mkdir()
+    subprocess.run(["git", "init", "-q", str(inner)], check=True)
+    (inner / "README.md").write_text("# inner\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(inner), "add", "README.md"], check=True)
+    subprocess.run(
+        # commit.gpgSign=false explicitly: a developer with global signing
+        # enabled but no key available in a non-interactive run would otherwise
+        # fail here, before either scanner is exercised. The per-command
+        # identity settings do not override it.
+        ["git", "-C", str(inner), "-c", "user.email=t@example.invalid",
+         "-c", "user.name=t", "-c", "commit.gpgSign=false",
+         "commit", "-qm", "inner"], check=True)
+    sha = subprocess.run(["git", "-C", str(inner), "rev-parse", "HEAD"],
+                         capture_output=True, text=True, check=True).stdout.strip()
+    (root / ".gitmodules").write_text(
+        '[submodule "sub"]\n\tpath = sub\n\turl = ./sub\n', encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(root), "update-index", "--add",
+         "--cacheinfo", f"160000,{sha},sub"], check=True)
+
+
+def test_forbidden_scan_keeps_the_ignore_exemption_with_a_populated_submodule() -> None:
+    """The regression that matters. `git check-ignore` aborts the whole batch
+    with exit 128 on the first path inside a submodule, and the fail-closed
+    rule then returns an empty set -- so every ignored path gets scanned after
+    all. Filtering submodules *after* the batch does not help; they must be
+    excluded before it."""
+    root = make_root()
+    try:
+        _make_repo_with_real_submodule(root)
+        (root / ".gitignore").write_text(".agents/skills/vendor-tool/\n", encoding="utf-8")
+        vendor = root / ".agents/skills/vendor-tool/scripts"
+        vendor.mkdir(parents=True)
+        (vendor / "helper.ts").write_text("export const x = 1;\n", encoding="utf-8")
+        (root / "admin-web").mkdir()
+        (root / "admin-web/App.tsx").write_text("export default null;\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(
+            any("admin-web/App.tsx" in f for f in failures)
+            and not any("vendor-tool" in f for f in failures),
+            f"a populated submodule must not disable the ignore exemption (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_link_scan_keeps_the_ignore_exemption_with_a_populated_submodule() -> None:
+    """Same batch-abort hazard for the link scanner, with a real gitlink this
+    time rather than a `.gitmodules` file on its own."""
+    root = make_root()
+    try:
+        _make_repo_with_real_submodule(root)
+        (root / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (root / "vendor").mkdir()
+        (root / "vendor/README.md").write_text("[gone](./nope.md)\n", encoding="utf-8")
+        (root / "own.md").write_text("[also gone](./missing.md)\n", encoding="utf-8")
+
+        failures: list[str] = []
+        v.validate_links(failures, root=root)
+        check(
+            any("own.md" in f for f in failures)
+            and not any("vendor" in f for f in failures)
+            and not any("sub/" in f for f in failures),
+            f"a populated submodule must not disable the link exemption (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_a_non_utf8_filename_does_not_disable_the_ignore_exemption() -> None:
+    """`rglob()` decodes paths with surrogateescape, so a filename that is not
+    valid UTF-8 -- exactly the kind of artifact a vendored third-party tree can
+    carry -- must not raise on the way into `git check-ignore`. It did: the
+    UnicodeEncodeError is a ValueError, swallowed by the fail-closed handler,
+    which returned an empty set and silently re-enabled scanning for every
+    ignored path in the tree."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (root / "vendor").mkdir()
+        (root / "vendor/plain.txt").write_text("x", encoding="utf-8")
+        # os.fsdecode round-trips the undecodable byte through a surrogate,
+        # which is what rglob() will hand back.
+        hostile = root / "vendor" / os.fsdecode(b"bad_\xff.txt")
+        hostile.write_bytes(b"x")
+
+        relatives = [
+            str(p.relative_to(root))
+            for p in root.rglob("*")
+            if ".git" not in p.relative_to(root).parts
+        ]
+        ignored = v._git_ignored_subset(root, relatives)
+        check(
+            any(r.startswith("vendor") for r in ignored),
+            f"a non-UTF-8 filename must not empty the ignored set (ignored={ignored})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def _existing_files_helper() -> str:
+    """The real `existing_files` definition, lifted out of
+    scripts/verify-bootstrap.sh rather than restated here, so this test cannot
+    pass against a copy that has drifted from the shipped one."""
+    text = VERIFY_BOOTSTRAP_SCRIPT.read_text(encoding="utf-8")
+    start = text.index("existing_files() {")
+    end = text.index("}", text.index("xargs -0 sh -c", start)) + 1
+    return text[start:end]
+
+
+def test_verify_bootstrap_file_list_survives_awkward_filenames_and_deletions() -> None:
+    """Two ways the linter file list can be wrong, both of which break the
+    aggregate verification rather than the code under test.
+
+    A filename containing a space is legal; a space-joined, unquoted expansion
+    splits it into two nonexistent paths. And `--cached` still lists a file the
+    developer has deleted without staging the deletion, handing the linter a
+    path that is not there — which fails the run before it reaches the files
+    that do exist."""
+    root = make_root()
+    try:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / "has space.md").write_text("# a\n", encoding="utf-8")
+        (root / "keep.md").write_text("# b\n", encoding="utf-8")
+        (root / ".gitignore").write_text("vendor/\n", encoding="utf-8")
+        (root / "vendor").mkdir()
+        (root / "vendor/ignored.md").write_text("# c\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "-C", str(root), "-c", "user.email=t@example.invalid",
+             "-c", "user.name=t", "-c", "commit.gpgSign=false",
+             "commit", "-qm", "init"], check=True)
+        (root / "keep.md").unlink()          # tracked, deleted, not staged
+        (root / "brand new.md").write_text("# d\n", encoding="utf-8")  # untracked
+
+        script = f"{_existing_files_helper()}\nexisting_files '*.md'\n"
+        out = subprocess.run(["sh", "-c", script], cwd=root,
+                             capture_output=True, check=True).stdout
+        names = [chunk.decode() for chunk in out.split(b"\0") if chunk]
+
+        check(
+            "has space.md" in names
+            and "brand new.md" in names
+            and "keep.md" not in names
+            and "vendor/ignored.md" not in names,
+            "the file list keeps spaced and untracked names, drops unstaged "
+            f"deletions and ignored paths (got {names})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_real_repository_skill_catalog_still_passes() -> None:
     """Sanity check against the real repository, proving this check doesn't
     break the actual catalog."""
@@ -2011,6 +2606,8 @@ def main() -> int:
     test_nightly_tier_named_without_schedule_workflow_fails()
     test_nightly_tier_named_with_schedule_workflow_passes()
     test_real_repository_has_nightly_workflow()
+    test_dispositions_a_finding_on_the_second_thread_page_is_seen()
+    test_dispositions_a_reply_on_the_second_comment_page_is_honoured()
     test_dispositions_match_the_graphql_login_without_the_bot_suffix()
     test_dispositions_an_unsuffixed_login_still_fails_without_a_disposition()
     test_dispositions_every_finding_answered_passes()
@@ -2020,6 +2617,9 @@ def main() -> int:
     test_dispositions_threads_opened_by_humans_are_not_findings()
     test_dispositions_all_four_vocabulary_terms_are_accepted()
     test_dispositions_an_invented_term_is_not_a_disposition()
+    test_dispositions_a_term_beginning_with_an_allowed_value_is_rejected()
+    test_dispositions_every_allowed_term_is_still_accepted()
+    test_dispositions_a_thread_that_could_not_be_fully_fetched_is_refused()
     test_dispositions_reviewer_comes_from_the_workflow_assignment_not_a_comment()
     test_dispositions_real_workflow_reviewer_is_readable()
     test_branch_protection_all_requirements_met_passes()
@@ -2027,6 +2627,11 @@ def main() -> int:
     test_branch_protection_rejects_unsatisfiable_approval_requirement()
     test_branch_protection_requires_approval_once_a_second_maintainer_exists()
     test_branch_protection_reports_every_failing_field()
+    test_branch_protection_without_strict_status_checks_fails()
+    test_branch_protection_without_stale_review_dismissal_fails()
+    test_branch_protection_with_deletions_allowed_fails()
+    test_branch_protection_with_allow_deletions_absent_fails()
+    test_branch_protection_with_allow_force_pushes_absent_fails()
     test_branch_protection_without_conversation_resolution_fails()
     test_branch_protection_without_the_independent_review_context_fails()
     test_branch_protection_job_id_is_read_from_workflow_file()
@@ -2092,6 +2697,17 @@ def main() -> int:
     test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()
+    test_git_ignored_skill_is_exempt_from_the_catalog()
+    test_untracked_but_not_ignored_skill_is_still_checked()
+    test_skill_catalog_check_is_unchanged_outside_a_git_repository()
+    test_ignored_markdown_is_skipped_by_the_link_scanner()
+    test_submodule_markdown_is_skipped_by_the_link_scanner()
+    test_ignored_skill_bypasses_the_repository_schema()
+    test_ignored_paths_are_skipped_by_the_forbidden_file_scanner()
+    test_forbidden_scan_keeps_the_ignore_exemption_with_a_populated_submodule()
+    test_link_scan_keeps_the_ignore_exemption_with_a_populated_submodule()
+    test_a_non_utf8_filename_does_not_disable_the_ignore_exemption()
+    test_verify_bootstrap_file_list_survives_awkward_filenames_and_deletions()
     test_real_repository_skill_catalog_still_passes()
     test_product_code_outside_spike_still_fails()
     test_product_code_inside_spike_is_excluded()
