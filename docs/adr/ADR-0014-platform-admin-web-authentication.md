@@ -451,14 +451,33 @@ than the model.
   requirement belongs in its implementation notes, not discovered in
   production.
 
-  **A lock is not sufficient on its own.** It handles concurrent callers; it
-  does not handle a *lost outcome*. If Java commits the rotation but its
-  response never arrives, or the BFF worker dies before persisting the
-  successor, the session store still holds the rotated-out token — and its next
-  use is classified as reuse, revoking the family, with no attacker anywhere
-  near it. The BFF must be able to tell "rotation failed" from "rotation
-  succeeded and I lost the answer", which means persisting intent before the
-  call and reconciling after, not just serialising around it.
+  **A lock is not sufficient on its own, and the BFF cannot close the gap by
+  itself.** A lock handles concurrent callers; it does not handle a *lost
+  outcome*. If Java commits the rotation but its response never arrives, or the
+  worker dies before persisting the successor, the session store still holds the
+  rotated-out token — and its next use is classified as reuse, revoking the
+  family, with no attacker anywhere near it.
+
+  An earlier version of this bullet proposed "persist intent and reconcile".
+  **That is not implementable against the current API**, and saying so is more
+  useful than a mitigation that cannot be built: `PlatformAdminSessionService.rotate()`
+  takes only the presented token, stores only the successor's **hash**, returns
+  the raw successor exactly once, and offers no idempotency key and no
+  reconciliation endpoint. A BFF that lost the response has nothing to ask and
+  nothing to retry with — re-presenting the predecessor is precisely what
+  triggers revocation.
+
+  Closing it needs a **backend** change, which this ADR does not design: an
+  idempotency key on rotation, or a bounded grace window in which the immediate
+  predecessor is accepted once more, or an endpoint that returns the current
+  successor for a session. Choosing between those is validation item 11.
+
+  **Until then the residual is explicit**: a lost rotation response logs that
+  administrator out, and they log in again. Bounded and recoverable, but it is a
+  real failure mode of the design rather than an implementation detail — and it
+  qualifies Decision 1, which says the backend contract is unchanged. It is
+  unchanged for *transport*; this is the one place the design may still require
+  something from it.
 
   **The lock also has to be shared, not process-local.** A Next.js BFF runs on
   several workers or serverless instances, so an in-process mutex or
@@ -509,7 +528,8 @@ buildable:
 5. Enforcement mechanism for keeping `/api/platform-admin/**` BFF-only
    (Decision 8) — network reachability, a required BFF credential, or both.
 6. The active-admin lookup required by Decision 5, with a regression test per
-   transport (**R-026**).
+   transport (**R-026** — closed in PR #152; retained here as the record of what
+   the surface depends on).
 7. **Concrete session bounds**: the idle timeout and the non-renewable absolute
    family cap Decision 3 requires, as numbers.
 8. The MFA-bearing login exchange Decision 4 implies — challenge/response,
@@ -522,6 +542,10 @@ buildable:
     unimplemented on both surfaces today, so this ADR does not create the gap —
     but an admin surface with MFA and no way to see or kill your own sessions is
     an odd place to leave it.
+11. How a lost rotation response is recovered: an idempotency key on
+    `rotate()`, a bounded grace window accepting the immediate predecessor once,
+    or an endpoint returning a session's current successor. Needs a backend
+    change; the BFF cannot close it alone.
 
 **Identity separation is deliberately not on this list.** **D-027** made
 individual platform-admin identity a P0 requirement and **F-26** records it as
