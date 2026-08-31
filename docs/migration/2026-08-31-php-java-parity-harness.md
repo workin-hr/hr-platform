@@ -26,7 +26,16 @@ maps the *file* path — `/apis/api/auth/login_employee.php` — because the
 endpoint inventory was built from the PHP source tree, where those files are
 what you see.
 
-Measured across the **190 distinct endpoints the clients actually call**:
+Measured across the **190 distinct endpoint constants the clients declare**.
+
+That denominator is declaration coverage, not call-site coverage: it was
+extracted from the clients' endpoint constants, and at least one of them
+(`attendance/set_employee_attendance_method`) is declared but never called —
+`docs/api/three-frontend-api-usage-matrix.md` records it as a dead reference.
+So the figures below measure the surface the clients *can* address, which is the
+right denominator for a routing fix, and is **not** the same as the live surface
+a user can reach. Where that distinction changes the reading of a result, it is
+called out at that result.
 
 | | Endpoints matching PHP's status |
 |---|---|
@@ -66,14 +75,25 @@ authorization rules and the dispatcher all observe one consistent path.
 
 ## Running it
 
-Everything lives in `parity-harness/`, a sibling of the two repositories.
-It is deliberately **not** inside `hr-platform`: that repo's Phase 0 lock
-forbids `docker-compose.yml`, `Dockerfile` and `*.sql` outside `backend/` and
-`spike/`, and this is throwaway comparison tooling rather than repository
-content.
+Everything lives in **`spike/parity-harness/`**, versioned in this repository.
+
+It began as a sibling directory outside both repos, on the reasoning that it was
+throwaway tooling and that the Phase 0 lock forbids `docker-compose.yml`,
+`Dockerfile` and `*.sql` outside `backend/` and `spike/`. That was wrong on the
+point that matters: the moment these results are cited as the evidence closing
+**R-028**, a reviewer has to be able to run them, read the normalisation logic,
+and check that the harness still matches the implementation. Evidence that only
+exists on one machine is not evidence. `spike/` is precisely the directory the
+lock excludes for this kind of experiment (`scripts/validate_phase0.py`,
+`SPIKE_DIR_NAME`), so it is legal there.
+
+The signing secret, the minted tokens, the sweep output (which contains real
+response bodies from the snapshot) and the two PHP config files are git-ignored;
+`.example` templates for the configs sit beside them. See the harness README for
+first-time setup.
 
 ```sh
-cd parity-harness
+cd spike/parity-harness
 docker compose up -d db          # MariaDB 11.8, port 13306
 # seed: schema, then data with FK checks off, then the Phase-1 extension table
 docker compose up -d php         # hr-legacy on port 18080
@@ -296,10 +316,15 @@ seventeen `can_*` columns.
 
 **The one difference the sweep reported was the harness, not the code.**
 `payroll_batches/create` differed on `created_at` by one second, because the two
-stacks are called sequentially. Timestamps are now excluded from both the row
-hash and the response comparison — otherwise every endpoint that stamps a row
-reports a difference and the real ones drown. What is compared is what each
-stack *chose* to write, not when it was called.
+stacks are called sequentially. They are **normalised, not excluded** — see
+"Timestamps are normalised, not excluded" above for the reasoning. In the row
+hash each timestamp/date column collapses to `null` or `set`, so a missing or
+wrong-column audit write is still caught; a separate check compares the two
+stacks' newest `created_at`/`updated_at` per table and fails beyond
+`TS_TOLERANCE_SECONDS` (120s), so a timezone error or a wrong default is caught
+too. In the response body, timestamp-shaped strings collapse to `<TS>`. Only a
+sub-tolerance difference in an otherwise-present timestamp goes unnoticed. What
+is compared is what each stack *chose* to write, not when it was called.
 
 ### A finding that is not a parity failure
 
@@ -334,12 +359,46 @@ where the money and the legal obligations are.
 
 ## The two endpoints that still differ
 
-With the suffix corrected, 188 of 190 match. The rest are real gaps, not noise:
+With the suffix corrected, 188 of 190 declared constants match. The two
+residuals are **not** the same kind of thing, and an earlier draft of this
+section wrongly said both were uncalled:
 
 | Endpoint | PHP | Java | Reading |
 |---|---|---|---|
-| `attendance/set_employee_attendance_method` | 501 | 404 | PHP has the route and answers *not implemented*; Java does not map it at all. A client calling it gets a different failure. |
-| `time/now` | 404 | 401 | The documented O-3 exclusion — but PHP **404s** it, so the exclusion may already be reality rather than a decision still owed. Worth re-checking O-3 against this evidence. |
+| `attendance/set_employee_attendance_method` | 501 | 404 | PHP routes it and answers *not implemented*; Java does not map it at all. **Not user-visible**: the desktop client declares this constant but has no call site for it (`docs/api/three-frontend-api-usage-matrix.md`, F-05), so nothing reaches either failure. It is a declaration-coverage gap, not a live parity gap, and should not be counted as the latter. |
+| `time/now` | 404 | see below | **Called, and O-3's premise is wrong.** O-3 excludes this as unreachable dead surface. It is not: the mobile client calls it from the home screen — `home_provider.dart:79` → `GetServerTimeUsecase` → `repository.getServerTime()` → `remote_data_source.dart:179` → `ApiConstants.getServerTimeEndpoint` (`'time/now'`). The chain is fully wired. PHP itself 404s it (`time` is not in `app_allowed_modules()`), so the mobile home screen already absorbs a 404 today and the *status* is not the gap — the **envelope** is. See the note below the table. |
+
+### `time/now`, measured precisely
+
+Re-measured 2026-08-31 against the harness (Java jar built 03:07). The single
+"404 vs 401" line an earlier draft carried was measuring only the
+unauthenticated case and hid that there are **two** divergences:
+
+| Request | PHP | Java |
+|---|---|---|
+| unauthenticated | 404, `{"success":false,"message":"Module 'time' not found. Available: …"}` | **401**, `{"code":"error.unauthorized","message":"Unauthorized"}` |
+| authenticated | 404, same PHP envelope | 404, **Spring's** `{"timestamp","status","error","path"}` |
+
+Two distinct problems, and neither is "the exclusion is already reality":
+
+1. **Java demands authentication for a route PHP does not recognise.** PHP's
+   router rejects the unknown module *before* any auth check; Java's security
+   chain rejects the request before routing. Any unmapped `/apis/**` path
+   behaves this way, not just this one.
+2. **The 404 envelope is Spring's, not PHP's.** A client that reads `success`
+   and `message` — which every client here does — cannot parse Java's shape.
+
+Both are properties of *every* unmatched path under `/apis/api/`, so this is a
+router-level gap rather than one endpoint's bug. PHP's contract for unmatched
+paths is: unknown module → 404 `module_not_found` (with the allowed-module
+list), known module with no action file → 501 `module_not_implemented`, both in
+the standard envelope. Java reproduces none of it. Tracked as a follow-up to the
+router fix rather than fixed here, because it changes the response shape on a
+whole surface and deserves its own review.
+
+**O-3 must be revisited.** It excludes `time/now` as unreachable dead surface;
+the mobile client calls it from the home screen. The exclusion's premise is
+false regardless of what is decided about the envelope.
 
 ---
 

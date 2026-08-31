@@ -164,16 +164,33 @@ class LegacyReferenceEndToEndTest {
 	 * The query string has to survive the rewrite -- legacy reads its
 	 * parameters from it, so losing it would turn a filtered request into an
 	 * unfiltered one rather than into an error.
+	 *
+	 * <p>Deliberately <b>not</b> {@code phone_countries/list?lang=en}, which is
+	 * what this test used to assert: that endpoint does not read {@code lang}
+	 * at all -- it selects on {@code Accept-Language} -- so both sides matched
+	 * whether the query string survived or was dropped entirely, and the test
+	 * could not fail. {@code content_key} is material: the third assertion
+	 * below pins that the same route answers 400 without it, so a dropped
+	 * query string turns the first two assertions red instead of green.
 	 */
 	@Test
 	void theQueryStringSurvivesTheRewrite() {
 		ResponseEntity<Map> viaRoute = restTemplate.getForEntity(
-				"/apis/api/phone_countries/list?lang=en", Map.class);
+				"/apis/api/app_content/one?content_key=terms", Map.class);
 		ResponseEntity<Map> viaFile = restTemplate.getForEntity(
-				"/apis/api/phone_countries/list.php?lang=en", Map.class);
+				"/apis/api/app_content/one.php?content_key=terms", Map.class);
 
+		assertThat(viaRoute.getStatusCode().value())
+				.as("the keyed request must succeed, or the comparison below proves nothing")
+				.isEqualTo(200);
 		assertThat(viaRoute.getStatusCode()).isEqualTo(viaFile.getStatusCode());
 		assertThat(viaRoute.getBody()).isEqualTo(viaFile.getBody());
+
+		assertThat(restTemplate.getForEntity("/apis/api/app_content/one", Map.class)
+				.getStatusCode().value())
+				.as("without content_key the same route answers 400 -- which is what a "
+						+ "dropped query string would produce")
+				.isEqualTo(400);
 	}
 
 	// ---------------- phone_countries ----------------

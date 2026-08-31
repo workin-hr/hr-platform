@@ -1,0 +1,41 @@
+# Parity harness: PHP and Java served side by side from ONE MariaDB, so a
+# response difference can only come from the application, never from the data.
+#
+# Versioned under spike/ so the parity results this harness produces are
+# reproducible by a reviewer. spike/ is the one top-level directory the Phase 0
+# lock excludes for exactly this kind of experiment (scripts/validate_phase0.py,
+# SPIKE_DIR_NAME).
+#
+# LEGACY defaults to the sibling hr-legacy checkout; override it if your
+# workspace is laid out differently.
+services:
+  db:
+    image: mariadb:11.8
+    environment:
+      MARIADB_ROOT_PASSWORD: parity
+      MARIADB_DATABASE: workin
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --sql-mode=
+    ports: ["13306:3306"]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  php:
+    image: php:8.2-apache
+    depends_on:
+      db: {condition: service_healthy}
+    ports: ["18080:80"]
+    volumes:
+      - ${LEGACY:-../../../hr-legacy}:/var/www/html:ro
+      - ./php/constants.php:/var/www/html/apis/config/constants.php:ro
+      - ./php/dashboard-constants.php:/var/www/html/dashboard/includes/constants.php:ro
+      - ./php/uploads:/var/www/html/uploads
+    command: >
+      bash -c "docker-php-ext-install pdo_mysql >/dev/null 2>&1 &&
+               a2enmod rewrite >/dev/null 2>&1 &&
+               apache2-foreground"

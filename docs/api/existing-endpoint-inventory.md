@@ -703,7 +703,9 @@ department's name and its active headcount can be read from a single
 authenticated `GET`.
 
 **`configs/get.php` is delivered (Item 13.0, 2026-08-29, D-126)** and remains
-unauthenticated, on its literal `/apis/api/configs/get.php` URL. It answers two
+unauthenticated. Clients call it at `/apis/api/configs/get` — the suffixless
+router path; `configs/get.php` is the file name behind it, and the literal
+`.php` URL returns 500 (see the note at the top of this document). It answers two
 shapes from one route: `?config_key=...` returns `{config_key, config_value}`
 — 200 with a null value for an unknown key, never a 404 — and no key returns
 every row plus `server_time` and `server_timezone`. An **empty** `config_key`

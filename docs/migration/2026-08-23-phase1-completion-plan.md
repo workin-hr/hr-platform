@@ -381,6 +381,31 @@ Phase 1 therefore has nothing to reproduce: a request to `/api/time/now` returns
 is counted once, in `EXPLICITLY_EXCLUDED_WITH_DECISION`, and excluded from the
 live total.
 
+> **Amended 2026-08-31 — the evidence above stands, "dead surface" does not,
+> and the 404 requirement is currently unmet.**
+>
+> Points 1–3 were re-verified and remain correct: `time` is not allow-listed and
+> PHP answers `module_not_found` before looking for an action file. But
+> *unreachable* here means unreachable **server-side**. It does not mean no
+> client calls it, which is how "dead surface" has been read since. The mobile
+> client calls it from the **home screen** — `home_provider.dart:79` →
+> `GetServerTimeUsecase` → `repository.getServerTime()` →
+> `remote_data_source.dart:179` → `ApiConstants.getServerTimeEndpoint`
+> (`'time/now'`). The chain is fully wired; the client simply absorbs PHP's 404
+> today.
+>
+> That makes this clause load-bearing rather than academic: *"must return 404
+> after cutover"*. Measured against the parity harness on 2026-08-31, Java does
+> not meet it — **401** when unauthenticated (the security chain rejects before
+> routing, where PHP's router rejects before authenticating), and a 404 in
+> **Spring's** envelope rather than PHP's when authenticated. Both are
+> properties of every unmatched `/apis/api/**` path, not of this endpoint. See
+> `docs/migration/2026-08-31-php-java-parity-harness.md`, "`time/now`, measured
+> precisely".
+>
+> The exclusion itself is unaffected — no endpoint needs building. What needs
+> building is the router's unmatched-path behaviour.
+
 The mirror-image anomaly is recorded with it: **`reports` is in
 `allowedList()` and has no directory at all.** It contributes zero endpoints, so
 it changes no count — but it is an advertised module on which every action 404s,
@@ -885,8 +910,10 @@ implementation still satisfies it.
 > against both stacks), not by this test — an inventory of a codebase against
 > itself cannot establish a client contract. The wire contract itself is carried by each endpoint's own contract and
 end-to-end tests, with **G6** as the floor that guarantees none reaches cutover
-with zero measured evidence. Do not cite the inventory as proof of anything but
-the URL surface.
+with zero measured evidence. Do not cite the inventory as proof of the URL
+surface: it evidences the **internal controller mappings only**, and URL
+reachability must come from the parity harness. Citing it for the URL surface
+is what let R-028 through.
 
 The response contract is per-endpoint, not repository-wide (D-120). The 170
 delivered routes split **165 / 4 / 1**, and one endpoint's shape depends on a

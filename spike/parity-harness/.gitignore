@@ -1,0 +1,15 @@
+# Locally generated, never committed: signing secret, minted tokens, app logs,
+# and sweep output (which contains real response bodies from the snapshot).
+.jwt-secret
+.php-token
+.java-token
+*.log
+sweep-results.txt
+sweep-after.txt
+sweep-control.txt
+auth-diffs.txt
+mutation-diffs.txt
+php/uploads/
+# The real configs, filled in from the .example templates beside them.
+php/constants.php
+php/dashboard-constants.php
