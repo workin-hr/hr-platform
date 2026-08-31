@@ -174,6 +174,13 @@ environment, confirm it serves, run the smoke checks — is what closes it. Unti
 then the "cheap rollback" claim rests on an untested assumption about the thing
 being rolled back to.
 
+> **Every URL in this document is a router path, without `.php`.** That is
+> what clients send and what both systems serve; requesting the `.php` file
+> directly bypasses the bootstrap it assumes and returns 500 in PHP
+> (**R-028**). An earlier version of these steps used the file names taken from
+> the endpoint inventory, which would have had an operator probing URLs that
+> fail in both stacks and reading that as a cutover problem.
+
 ### Required pre-cutover verification
 
 These are the concrete steps G11's rehearsal is missing. Each names its own
@@ -186,7 +193,7 @@ restored copy first, and record the mechanism, its owner and its lock duration
 here.
 
 > **Do not use a successful login as the check.** The parity login route
-> (`/apis/api/auth/login_employee.php` → `LegacyPhpLoginService`) never touches
+> (`/apis/api/auth/login_employee` → `LegacyPhpLoginService`) never touches
 > the refresh-token repository — it updates `employees`/`push_tokens` and issues
 > a JWT — so it returns 200 whether or not the table exists. The table is
 > reached by `LegacyRefreshTokenService.revokeAllForEmployee()`, called from
@@ -271,13 +278,13 @@ send their employer a departure notice. Use this instead, in order:
 requires authentication.
 
 > **Do not pick the route arbitrarily.** A 200 from a route that tolerates
-> anonymous callers proves nothing about the token. `/apis/api/complaints/create.php`
+> anonymous callers proves nothing about the token. `/apis/api/complaints/create`
 > is exactly such a route — `LegacyRequestGuard` carries explicit handling for
 > it because it proceeds anonymously when token decoding fails — so using it
 > would false-pass the single check that stands between the cutover and a mass
 > forced logout.
 >
-> Use `/apis/api/attendance_exception_types/list.php`, which requires
+> Use `/apis/api/attendance_exception_types/list`, which requires
 > authentication in both systems and is the route the automated end-to-end tests
 > already use for this purpose.
 >

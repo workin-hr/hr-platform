@@ -245,7 +245,10 @@ class LegacyEmployeeStatsAndTeamEndToEndTest {
 		// value is asserted numerically so the test pins what PHP sends rather
 		// than what Jackson happened to.
 		Map<String, Object> empty = dataOf(get(STATS + "?from=2030-01-01", ADMIN_1, 200));
-		assertThat(((Number) empty.get("avg_tenure_months")).doubleValue()).isEqualTo(0.0);
+		assertThat(empty.get("avg_tenure_months"))
+				.as("PHP sends 0, not 0.0 -- reading it as a Number would pass either way")
+				.isInstanceOf(Integer.class)
+				.isEqualTo(0);
 	}
 
 	@Test
