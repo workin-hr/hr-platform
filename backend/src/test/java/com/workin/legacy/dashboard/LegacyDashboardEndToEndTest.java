@@ -125,7 +125,12 @@ class LegacyDashboardEndToEndTest {
 		Map<String, Object> stats = stats(ADMIN);
 
 		// Engineering: 1000 + 2000 (two contracts, same employee) + 3000; Sales: 4000.
-		assertThat((Double) stats.get("total_basic_salaries")).isEqualTo(10000.0);
+		//
+		// Read as Number, not cast to Double: PHP casts these aggregates to
+		// (float) and json_encode then writes the shortest form, so a whole
+		// total arrives as `10000`, not `10000.0`. Asserting the Java-side type
+		// here is asserting a rendering PHP does not produce.
+		assertThat(((Number) stats.get("total_basic_salaries")).doubleValue()).isEqualTo(10000.0);
 	}
 
 	/**

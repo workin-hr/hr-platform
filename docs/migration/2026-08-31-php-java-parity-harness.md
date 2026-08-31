@@ -128,6 +128,72 @@ That row must never be created anywhere but the container.
 
 ---
 
+## Level 3 results: authenticated body comparison
+
+Run with one throwaway employee (`999001`, company 244 — created in the harness
+database only, never anywhere else) logging into both stacks and diffing the
+JSON.
+
+**The bidirectional token exchange R-024 asks for, performed live:**
+
+| Direction | Result |
+|---|---|
+| Java-minted token → PHP | **200** |
+| PHP-minted token → Java | **200** |
+| Foreign-signed token → both | **401** |
+
+One caveat learned the hard way: each login **bumps `token_version`**, so a
+token minted before another login is correctly rejected. Test the direction you
+care about *last*, or you will read single-active-session enforcement as a
+compatibility failure. This proves the mechanism when the secret matches; it
+does not prove production's secrets match.
+
+### Two defects found, both client-affecting
+
+**1. Whole numbers rendered as floats.** PHP casts aggregates to `(float)` and
+`json_encode` writes the shortest form — `2604`, not `2604.0`. Jackson writes
+`2604.0`. Same value, **different JSON type**: Dart's `json.decode` yields `int`
+for one and `double` for the other, so `as int` throws on one and not the other.
+
+Verified against the running PHP:
+
+| PHP value | `json_encode` |
+|---|---|
+| `0.0` | `0` |
+| `2604.0` | `2604` |
+| `2604.5` | `2604.5` |
+
+It only shows on **whole** values, which is why it survives review and appears
+in production, where counts and sums usually are whole. It accounted for every
+one of the 157 differing leaves in `dashboard/stats` and all four differing
+endpoints. Fixed by `LegacyPhpNumberJsonConfig`, scoped to `phase1-mysql`.
+
+**2. The wrong tie-break in `payslips/list`.** PHP's final ORDER BY term is
+`e.id` — the *employee* id. Java used `p.id`, the *payslip* id, so ties resolved
+differently and the client saw a reordered list. One character. The sibling
+query at the bottom of the same file already had it right.
+
+### Where it landed
+
+| | |
+|---|---|
+| Endpoints returning **byte-identical** JSON | **37** |
+| Endpoints differing | **0** |
+| Not 200 on both (POST-only, or needing params) | 153 |
+
+`payslips/list` now matches on **every value and every type** when compared
+keyed by id. Only its row *order* still differs, and that is legacy's own
+non-determinism — two payslips of one employee tie on every ORDER BY column
+(**R-029**).
+
+### A methodology note worth keeping
+
+Comparing `data[0]` across two stacks is unsafe when ordering differs: it made
+`basic_salary` look like `4615.44` versus `0.00`, which reads as catastrophic
+data corruption and was pure positional misalignment. **Diff keyed by id, and
+separate "same number, different JSON type" from "different value"** — otherwise
+the real defects drown in artefacts of your own comparison.
+
 ## The two endpoints that still differ
 
 With the suffix corrected, 188 of 190 match. The rest are real gaps, not noise:

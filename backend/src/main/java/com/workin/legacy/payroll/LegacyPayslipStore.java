@@ -120,7 +120,14 @@ public class LegacyPayslipStore {
 				  CASE WHEN e.employee_code REGEXP '^[0-9]+$'
 				    THEN CAST(e.employee_code AS UNSIGNED) ELSE NULL END ASC,
 				  e.employee_code ASC,
-				  p.id ASC
+				  -- e.id, not p.id: PHP's final tie-break is the EMPLOYEE id
+				  -- (payslips/list.php:141). Two payslips sharing an
+				  -- employee_code then order differently in each system --
+				  -- same rows, different sequence, which a client renders as a
+				  -- reordered list. Found by diffing both stacks on one
+				  -- database; the sibling query at the bottom of this file
+				  -- already had it right.
+				  e.id ASC
 				""".formatted(where);
 
 		// LegacyJdbcValues.rowMapper(), not queryForList: every other read here

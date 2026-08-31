@@ -490,3 +490,21 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 > *source tree* rather than from the URLs clients request. `LegacyLoginEndToEndTest`
 > hits `login_employee.php` and passes; it would have passed forever. A port
 > verified against its own source tree verifies the wrong contract.
+
+## R-029: Legacy's Payslip Ordering Is Non-Deterministic, So Both Systems Are Arbitrary
+
+| Field | Value |
+|---|---|
+| Description | `payslips/list.php` orders by numeric `employee_code`, then `employee_code`, then **`e.id`** — the employee id. Two payslips belonging to the same employee therefore tie on every ORDER BY column, and MariaDB returns them in whatever order the plan produces. Confirmed on the parity harness: payslips 3725 and 5714 both belong to employee 6245 (`employee_code` `3`), and PHP and Java return them in opposite order **from the same database**. |
+| Category | API contract / Parity / Client-visible behaviour |
+| Probability | Certain whenever a result page contains more than one payslip for one employee — the normal case for any multi-month query. |
+| Impact | A client rendering the list sees an arbitrary order that can differ between the two systems, and can differ between two calls to the same system if the plan changes. With `LIMIT`, an unstable sort can also change **which** rows land on a page, so pagination may skip or repeat a row. Not data loss, and no value is wrong — every field matched exactly once ordering was accounted for. |
+| Severity | Low. Legacy has always behaved this way and no client is known to depend on the order. It is recorded because the parity harness would otherwise report a permanent, unfixable difference on this endpoint, and a future reader would waste time chasing it. |
+| Owner | Repository owner. |
+| Mitigation | **None applied, deliberately.** Adding a deterministic final tie-break (`p.id`) would make Java stable and *diverge from legacy*, which **D-058** puts the burden of proof on. The correct sequence is to change `hr-legacy` first and port the change, as with every other finding of this class. |
+| Trigger | Any complaint about payslip list ordering; any client that starts depending on order; any decision to add pagination guarantees. |
+| Contingency | If a client does depend on it, the tie-break must be added to **both** systems in the same change, not to Java alone. |
+| Status | Open — recorded, not accepted. Found by the parity harness on 2026-08-31 while chasing what looked like a Java ordering bug; a genuine one (`p.id` where PHP uses `e.id`) was found and fixed alongside it, and this residual is what remained. |
+| Target Date | None. Recorded for recognition rather than remediation. |
+| Evidence | `hr-legacy/apis/api/payslips/list.php:134-141`; `LegacyPayslipStore`; harness measurement — same 20-row set, 12/20 positional agreement after the `e.id` fix, **0 value differences and 0 type differences** when compared keyed by id. |
+| Last Reviewed | 2026-08-31 |

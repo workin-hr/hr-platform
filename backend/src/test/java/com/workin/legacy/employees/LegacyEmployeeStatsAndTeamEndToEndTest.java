@@ -235,10 +235,17 @@ class LegacyEmployeeStatsAndTeamEndToEndTest {
 		// round($raw, 1): at most one decimal place survives.
 		assertThat(Math.abs(tenure * 10 - Math.round(tenure * 10))).isLessThan(0.0001);
 
-		// AVG over an empty set is SQL NULL, which PHP renders as 0.0 rather
+		// AVG over an empty set is SQL NULL, which PHP renders as a zero rather
 		// than omitting the key or sending null.
+		//
+		// It renders `0`, not `0.0` -- this comment previously claimed the
+		// latter. Measured against the running PHP on 2026-08-31:
+		// json_encode(0.0) is `0`, because serialize_precision=-1 writes the
+		// shortest representation and a whole float loses its fraction. The
+		// value is asserted numerically so the test pins what PHP sends rather
+		// than what Jackson happened to.
 		Map<String, Object> empty = dataOf(get(STATS + "?from=2030-01-01", ADMIN_1, 200));
-		assertThat(empty.get("avg_tenure_months")).isEqualTo(0.0);
+		assertThat(((Number) empty.get("avg_tenure_months")).doubleValue()).isEqualTo(0.0);
 	}
 
 	@Test
