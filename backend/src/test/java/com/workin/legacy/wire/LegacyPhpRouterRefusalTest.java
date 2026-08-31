@@ -209,6 +209,31 @@ class LegacyPhpRouterRefusalTest {
 				.contains("\u0627\u0644\u0648\u062d\u062f\u0629");
 	}
 
+	/**
+	 * A malformed {@code lang} is a <em>value</em>, not an absence. PHP's
+	 * {@code parse_str} keeps {@code lang=%} as the literal {@code "%"} — a
+	 * nonempty value that is not {@code ar}, so it selects English and
+	 * overrides an {@code Accept-Language: ar} header, exactly as
+	 * {@code ?lang=xx} does. Measured against the running PHP.
+	 *
+	 * <p>An earlier fallback dropped the pair entirely, which made the request
+	 * look like it carried no {@code lang}, let the header win, and answered
+	 * the refusal in Arabic where legacy answers English.
+	 */
+	@Test
+	void aMalformedLangOverridesTheHeaderRatherThanDisappearing() throws IOException {
+		assertThat(rawGet("/apis/api/time/now?lang=%", "ar"))
+				.as("a malformed lang is a non-Arabic value and must beat the Arabic header, "
+						+ "the same way ?lang=xx does")
+				.contains("Module 'time' not found");
+
+		// The control that makes the assertion above mean something: with no
+		// lang at all, the same header does select Arabic.
+		assertThat(rawGet("/apis/api/time/now", "ar"))
+				.as("with no lang, the Arabic header wins")
+				.contains("\u0627\u0644\u0648\u062d\u062f\u0629");
+	}
+
 	/** Writes the request line directly, so the malformed escape is sent verbatim. */
 	private String rawGet(String target, String locale) throws IOException {
 		int port = URI.create(restTemplate.getRootUri()).getPort();

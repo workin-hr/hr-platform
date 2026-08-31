@@ -260,35 +260,30 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 			// can provoke here. Catching RuntimeException would also swallow a
 			// genuine bug inside resolveLocale and answer 404 as though the
 			// route were simply unknown.
-			return localeFromLangOnly(request, onlyLangPair(request.getQueryString()));
-		}
-	}
-
-	private String localeFromLangOnly(HttpServletRequest request, String langOnly) {
-		try {
+			String langOnly = onlyLangPair(request.getQueryString());
 			return messages.resolveLocale(new HttpServletRequestWrapper(request) {
 				@Override
 				public String getQueryString() {
 					return langOnly;
 				}
 			});
-		} catch (IllegalArgumentException ex) {
-			// `lang` was itself the malformed pair. Nothing in the query is
-			// usable, so fall through to the header and the default -- what a
-			// request with no `lang` at all would have resolved to.
-			return messages.resolveLocale(new HttpServletRequestWrapper(request) {
-				@Override
-				public String getQueryString() {
-					return null;
-				}
-			});
 		}
 	}
 
 	/**
-	 * The {@code lang} pair alone, verbatim, or {@code null} if there is none.
-	 * The <em>last</em> occurrence wins, matching {@code parse_str}, which is
-	 * also what {@link LegacyQueryParameters} does for duplicates.
+	 * The {@code lang} pair alone, with any dangling {@code %} escaped so it
+	 * survives decoding, or {@code null} if there is none. The <em>last</em>
+	 * occurrence wins, matching {@code parse_str}, which is also what
+	 * {@link LegacyQueryParameters} does for duplicates.
+	 *
+	 * <p><b>Escaped, not dropped, and the difference is client-visible.</b>
+	 * {@code parse_str} keeps a malformed {@code lang=%} as the literal string
+	 * {@code "%"} — a nonempty value that is not {@code ar}, so it selects
+	 * English and <em>overrides</em> an {@code Accept-Language: ar} header,
+	 * exactly as {@code ?lang=xx} would. Measured against the running PHP.
+	 * Removing the pair instead made the request look like it had no
+	 * {@code lang} at all, so the header won and the refusal came back in
+	 * Arabic where legacy answers English.
 	 */
 	private static String onlyLangPair(String query) {
 		if (query == null) {
@@ -300,7 +295,30 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 				found = pair;
 			}
 		}
-		return found;
+		return found == null ? null : escapeDanglingPercents(found);
+	}
+
+	/**
+	 * Percent-escapes any {@code %} that does not begin a valid escape, so
+	 * {@code URLDecoder} yields the literal characters {@code parse_str} would
+	 * have kept rather than throwing.
+	 */
+	private static String escapeDanglingPercents(String pair) {
+		StringBuilder out = new StringBuilder(pair.length() + 8);
+		for (int i = 0; i < pair.length(); i++) {
+			char c = pair.charAt(i);
+			if (c == '%' && !(i + 2 < pair.length()
+					&& isHex(pair.charAt(i + 1)) && isHex(pair.charAt(i + 2)))) {
+				out.append("%25");
+			} else {
+				out.append(c);
+			}
+		}
+		return out.toString();
+	}
+
+	private static boolean isHex(char c) {
+		return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 	}
 
 }
