@@ -255,60 +255,46 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 		try {
 			return messages.resolveLocale(request);
 		} catch (IllegalArgumentException ex) {
-			// Narrow deliberately: URLDecoder's malformed-escape failure is an
-			// IllegalArgumentException, and that is the only failure a caller
-			// can provoke here. Catching RuntimeException would also swallow a
-			// genuine bug inside resolveLocale and answer 404 as though the
-			// route were simply unknown.
-			String langOnly = onlyLangPair(request.getQueryString());
+			// Escape the dangling `%` and re-resolve the WHOLE query, rather
+			// than picking out a `lang` pair. PHP parses far more shapes as
+			// `lang` than a literal `lang=` prefix matches, and each one
+			// resolves differently -- measured against the running PHP with
+			// `Accept-Language: ar`:
+			//
+			//   ?lang=ar     -> Arabic
+			//   ?l%61ng=ar   -> Arabic   (the NAME is percent-decoded too)
+			//   ?lang[]=ar   -> English  (an array stringifies to "Array")
+			//   ?lang=%      -> English  (literal "%", nonempty and not "ar")
+			//
+			// Extracting only `lang=`-prefixed pairs lost the array and
+			// encoded-name forms, letting the header win where legacy answers
+			// English. Escaping leaves every parameter, name and shape intact
+			// and hands the real parser exactly what parse_str would have kept.
+			String repaired = escapeDanglingPercents(request.getQueryString());
 			return messages.resolveLocale(new HttpServletRequestWrapper(request) {
 				@Override
 				public String getQueryString() {
-					return langOnly;
+					return repaired;
 				}
 			});
 		}
 	}
 
 	/**
-	 * The {@code lang} pair alone, with any dangling {@code %} escaped so it
-	 * survives decoding, or {@code null} if there is none. The <em>last</em>
-	 * occurrence wins, matching {@code parse_str}, which is also what
-	 * {@link LegacyQueryParameters} does for duplicates.
-	 *
-	 * <p><b>Escaped, not dropped, and the difference is client-visible.</b>
-	 * {@code parse_str} keeps a malformed {@code lang=%} as the literal string
-	 * {@code "%"} — a nonempty value that is not {@code ar}, so it selects
-	 * English and <em>overrides</em> an {@code Accept-Language: ar} header,
-	 * exactly as {@code ?lang=xx} would. Measured against the running PHP.
-	 * Removing the pair instead made the request look like it had no
-	 * {@code lang} at all, so the header won and the refusal came back in
-	 * Arabic where legacy answers English.
+	 * Percent-escapes any {@code %} that does not begin a valid escape, so
+	 * {@code URLDecoder} yields the literal characters {@code parse_str} would
+	 * have kept rather than throwing. Applied to the whole query string, so no
+	 * parameter is dropped and no name or shape is reinterpreted.
 	 */
-	private static String onlyLangPair(String query) {
+	private static String escapeDanglingPercents(String query) {
 		if (query == null) {
 			return null;
 		}
-		String found = null;
-		for (String pair : query.split("&")) {
-			if (pair.equals("lang") || pair.startsWith("lang=")) {
-				found = pair;
-			}
-		}
-		return found == null ? null : escapeDanglingPercents(found);
-	}
-
-	/**
-	 * Percent-escapes any {@code %} that does not begin a valid escape, so
-	 * {@code URLDecoder} yields the literal characters {@code parse_str} would
-	 * have kept rather than throwing.
-	 */
-	private static String escapeDanglingPercents(String pair) {
-		StringBuilder out = new StringBuilder(pair.length() + 8);
-		for (int i = 0; i < pair.length(); i++) {
-			char c = pair.charAt(i);
-			if (c == '%' && !(i + 2 < pair.length()
-					&& isHex(pair.charAt(i + 1)) && isHex(pair.charAt(i + 2)))) {
+		StringBuilder out = new StringBuilder(query.length() + 8);
+		for (int i = 0; i < query.length(); i++) {
+			char c = query.charAt(i);
+			if (c == '%' && !(i + 2 < query.length()
+					&& isHex(query.charAt(i + 1)) && isHex(query.charAt(i + 2)))) {
 				out.append("%25");
 			} else {
 				out.append(c);

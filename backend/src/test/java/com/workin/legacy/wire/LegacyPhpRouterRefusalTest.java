@@ -234,6 +234,32 @@ class LegacyPhpRouterRefusalTest {
 				.contains("\u0627\u0644\u0648\u062d\u062f\u0629");
 	}
 
+	/**
+	 * PHP parses more shapes as {@code lang} than a literal {@code lang=}
+	 * prefix matches. The parameter <b>name</b> is percent-decoded too, so
+	 * {@code l%61ng} is {@code lang} — measured against the running PHP, which
+	 * answers Arabic for {@code ?l%61ng=ar&x=%} even with an English header.
+	 *
+	 * <p>An earlier fallback extracted only {@code lang=}-prefixed pairs and
+	 * lost this, letting the header win where legacy selects Arabic. Repairing
+	 * the whole query instead of picking out one parameter is what fixes every
+	 * shape at once.
+	 *
+	 * <p><b>The array form is deliberately not asserted here.</b>
+	 * {@code ?lang[]=ar} stringifies to {@code "Array"} in PHP — which also
+	 * emits an {@code Array to string conversion} warning into the body — but
+	 * Java never sees it: {@code [} and {@code ]} are illegal in a request
+	 * target and Tomcat answers 400 before any filter runs. That is
+	 * <b>D-070</b>, an accepted divergence, not something this repair can or
+	 * should reach.
+	 */
+	@Test
+	void aPercentEncodedLangNameSurvivesTheRepair() throws IOException {
+		assertThat(rawGet("/apis/api/time/now?l%61ng=ar&x=%", "en"))
+				.as("the parameter name is percent-decoded, so l%61ng is lang and selects Arabic")
+				.contains("\u0627\u0644\u0648\u062d\u062f\u0629");
+	}
+
 	/** Writes the request line directly, so the malformed escape is sent verbatim. */
 	private String rawGet(String target, String locale) throws IOException {
 		int port = URI.create(restTemplate.getRootUri()).getPort();

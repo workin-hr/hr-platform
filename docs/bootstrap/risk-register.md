@@ -545,20 +545,20 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Evidence | Found by the harness's authenticated sweep (Level 3) on 2026-08-31, which reported `company_settings/options` as one of two differing bodies. Keyed comparison of the parsed responses: identical top-level keys and identical group names; every group's rows differ only by the presence of `label` in Java, e.g. PHP `{'value': 'Fri', 'label_ar': 'الجمعة', 'label_en': 'Friday'}` against Java `{'value': 'Fri', 'label': 'Friday', 'label_ar': 'الجمعة', 'label_en': 'Friday'}`. The other differing body was `payslips/list`, which is **R-029** (tie-break ordering) and not a new finding: same 20 ids, all values equal, only the order of tied pairs differs. |
 | Last Reviewed | 2026-08-31 |
 
-## R-034: A Malformed Percent Escape In Any Query Parameter Fails The Whole Request
+## R-034: Malformed Percent Encoding Is Rejected By Tomcat — Reference To D-070
 
 | Field | Value |
 |---|---|
-| Description | Tomcat rejects a request whose query string contains an invalid percent sequence — `?x=%`, `?x=%zz`, a truncated `%A` — with **400 Bad Request** in Spring's error envelope, before the controller runs. PHP's `parse_str` keeps the literal `%` as an ordinary character and serves the request normally. The parameter does not have to be one the endpoint reads: any malformed pair anywhere in the query fails the request. |
-| Category | Parity / Request handling / **Every `/apis/**` endpoint** |
-| Probability | Certain for that input shape. How often clients send it is unmeasured — but a `%` reaches a query string easily: an un-encoded value typed into a search or filter field, a percentage in a name or note, or a double-encoding bug in a client. |
-| Impact | **PHP answers 200 and Java answers 400**, measured on delivered endpoints (`phone_countries/list?x=%`: PHP 200, Java 400) — so this is a **client-visible break under D-111**, not a cosmetic difference, and the client cannot be changed to work around it. Two aspects make it worse than one bad status: the body is Spring's `{timestamp,status,error,path}` rather than the `{success,message}` envelope clients parse (D-074), so error handling misreads it; and the rejection happens at the container, so no controller guard, filter or handler in this repository can see or shape it. |
-| Severity | **Medium.** Bounded to a specific input shape and not reached by a well-formed client, but it fails **every** endpoint uniformly, breaks the response contract as well as the status, and is invisible to the application. Not High only because no evidence yet shows a real client emitting it. |
+| Description | A malformed percent sequence in a query string (`?x=%`, `?x=%zz`, a truncated `%A`) is rejected by Tomcat with **400 Bad Request** before the dispatcher, on every `/apis/**` endpoint, where PHP's `parse_str` keeps the literal `%` and serves the request. Measured with raw sockets: `GET /apis/api/phone_countries/list?x=%` is **200** in PHP and **400** in Java; `?x=%25` is 200 on both. |
+| Category | Parity / Request handling — **already decided, see D-070** |
+| Probability | Certain for that input shape, on every endpoint. |
+| Impact | The response is Tomcat's, not the D-074 envelope, and the rejection happens before any code in this repository can see it. |
+| Severity | **Not an open defect. Accepted.** |
 | Owner | Repository owner. |
-| Mitigation | **None applied.** Deliberately not fixed alongside **D-148**, which found it: that decision concerns paths the router does not serve, while this is container-level input handling on the whole surface and deserves its own evidence and review. Likely shapes: Tomcat's `relaxedQueryChars`/`encodedSolidusHandling`-adjacent connector settings, or decoding the query leniently before it reaches parameter parsing. Whichever is chosen must be measured against PHP rather than assumed, because "tolerant" is not one behaviour — PHP keeps the literal character, and matching that is the requirement. |
-| Trigger | Already present. Becomes visible the moment a client sends an un-encoded `%`. |
-| Contingency | None at the application layer, which is the point: the request never reaches code this repository controls. |
-| Status | **Open.** Found 2026-08-31 while investigating a review finding about locale resolution on the router's refusal path; the refusal path is fixed under D-148, and this is the wider case that investigation exposed. |
-| Target Date | Before Phase 1 cutover — it is a client-visible response-contract divergence, so it belongs with the other D-074 shape items. |
-| Evidence | Measured against both stacks with **raw sockets**, because every HTTP client normalizes the request target and re-encodes `%` to `%25`, which hides the behaviour entirely: `GET /apis/api/phone_countries/list?x=%` → PHP **200**, Java **400**. The Java response carries Tomcat's connector-level signature (`Connection: close`, `Content-Disposition: inline;filename=f.txt`), confirming it is rejected before the dispatcher. A well-formed `?x=%25` returns 200 on both, which isolates the cause to the escape rather than the parameter. Related: **D-148**, whose `safeLocale` handles the same decode failure on the one path that runs before parameter parsing. |
-| Last Reviewed | 2026-08-31 |
+| Mitigation | **None, deliberately — and none is to be attempted.** **D-070** accepted this exact behaviour as an explicit, narrowly scoped Phase-1 divergence on 2026-08-19, with the owner's instruction recorded verbatim: *"Do not relax, replace, intercept, or bypass Tomcat request-target parsing"*, and *"Invalid percent encoding rejected by the embedded HTTP server before controller execution is outside the Phase-1 application/business compatibility contract."* |
+| Trigger | None outstanding. |
+| Contingency | Not applicable. |
+| Status | **Closed on discovery — duplicate of an accepted decision.** This entry was first written as an open pre-cutover defect proposing Tomcat connector changes, which would have driven work directly contrary to D-070. It is retained, corrected, as a pointer: the behaviour is real and someone re-measuring it should find the decision rather than re-open it. The failure was mine — I measured a divergence and recorded it without checking whether it had already been decided. |
+| Target Date | None. |
+| Evidence | Raw-socket measurement above, and **D-070** in `docs/bootstrap/decision-log.md`. Related: **D-148**, whose `safeLocale` handles the same decode failure on the one path that runs *before* Tomcat's parameter parsing — that path is inside the application, so it is the router's contract rather than the container's, and is not covered by D-070. |
+| Last Reviewed | 2026-09-01 (corrected) |
