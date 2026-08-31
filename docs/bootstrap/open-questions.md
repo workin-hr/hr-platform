@@ -245,10 +245,18 @@ These belong with `hr-platform#22`, which owns push delivery, rather than being
 answered separately: fixing the table without the delivery half would leave the
 same dead route with a different failure mode.
 
-## Platform-Admin Web Surface Authentication (ADR-0014, Proposed)
+## Platform-Admin Web Surface Authentication (ADR-0014, Accepted)
 
-Surfaced by `docs/adr/ADR-0014-platform-admin-web-authentication.md`, which is
-**`Proposed` and unapproved**. These block its acceptance, not any current work.
+Surfaced by `docs/adr/ADR-0014-platform-admin-web-authentication.md`, **accepted
+2026-08-31 (D-146) over these items**, which were written as acceptance
+blockers. They are now **implementation prerequisites**: the decision is
+settled, and none of this may ship until they are answered. Two gate any code at
+all — throttling, because the surface is currently weaker than the system it
+replaces, and the step-up bounds, because an unbounded step-up flag is step-up
+in name only.
+
+Also outstanding: **engineering-lead feasibility sign-off**. The ADR names two
+deciders and only the owner has approved.
 
 - **Is the BFF boundary the agreed shape, and how is "the browser never receives
   a platform-admin token" *enforced* rather than documented?** The existing

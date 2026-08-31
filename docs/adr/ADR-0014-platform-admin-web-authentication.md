@@ -115,6 +115,14 @@ problem — it is every tenant's.
 
 **Accepted 2026-08-31 by the repository owner** (D-146).
 
+> **One of the two named deciders has signed.** The metadata names the
+> repository owner *and* the engineering lead (feasibility). Only the owner has
+> approved. The owner can settle direction alone — that is what an owner is for
+> — but the feasibility half is unsigned, and validation item 1 is exactly that
+> signature. Recorded here rather than left to be inferred from a metadata row:
+> **this ADR is owner-accepted, not jointly accepted**, and the BFF boundary has
+> had no engineering feasibility review.
+
 **Accepted over its own validation list.** The items below were written as
 acceptance blockers; the owner accepted the direction with all of them still
 open, which is theirs to do. They do not disappear — they become
@@ -237,11 +245,18 @@ access token expires** — up to 15 minutes on the highest-privilege surface in 
 system, and deactivation is exactly the control used when an admin should stop
 having access immediately.
 
-This ADR therefore **requires** an active-admin lookup in the shared request
-path, reached by both the existing bearer entry point and the BFF, with a
-regression test per transport. Tracked as **R-026**. Until that exists,
-authorization for this surface must not be described as unchanged or as already
-covered by ADR-0010.
+This ADR required an active-admin lookup in the shared request path, reached by
+both the existing bearer entry point and the BFF, with a regression test.
+
+**That is done.** `PlatformAdminAuthenticationFilter` loads the
+`platform_admins` row and verifies `active` on every request, failing closed on
+a missing row; `PlatformAdminAuthFlowTest#aTokenIssuedBeforeDeactivationStopsWorkingImmediately`
+pins it. Closed as **R-026**, decided as **D-145**, merged in PR #152 — so the
+BFF inherits the check by construction rather than needing to add it.
+
+The prose above is kept in the past tense rather than deleted: it is the reason
+the requirement exists, and a future entry point that bypasses the filter would
+reintroduce exactly this.
 
 `PlatformAdminAuditService` records **auth-lifecycle events**
 (`LOGIN`/`LOGIN_FAILED`/`LOGOUT`/`SESSION_REUSE_REVOKED`/`ALL_SESSIONS_REVOKED`)
@@ -263,6 +278,15 @@ Omit the third and the device looks logged out while the refresh family keeps
 sliding for up to seven days — the BFF could resume the session at any point,
 and anything holding that refresh token still can. Omit the second and the
 cookie value alone is enough to walk back in.
+
+**Order matters, and the obvious order is wrong.** Clearing the cookie and
+deleting the BFF session first destroys the only copy of the refresh token the
+BFF holds — so if the Java `/logout` then times out or the backend is
+unavailable, the user is shown a completed logout while the refresh family
+remains usable and nothing retains the token needed to revoke it. Revoke at the
+backend **first**, and only clear local state once that has succeeded; on
+failure, keep the session record and retry rather than reporting success. A
+logout that cannot be completed must not look like one that was.
 
 Worth stating because the failure is invisible from the browser: the user sees a
 login screen and reasonably concludes the session is over.
@@ -398,10 +422,20 @@ than the model.
 
 - **BFF token custody.** The server side now holds long-lived platform-admin
   refresh tokens. A compromise there is equivalent to a compromise of every
-  platform-admin session. Mitigation: treat the BFF as a production secret
-  holder, not as a static frontend — no tokens in logs, no tokens in the
-  filesystem, revocation reachable through the existing
-  `PlatformAdminSessionService`.
+  platform-admin session.
+
+  **And it is worse than the backend's own exposure**, which is the part easy to
+  miss: Java stores only a SHA-256 *hash* of each refresh token, so a read of
+  `platform_admin_refresh_tokens` yields nothing usable. The BFF must retain the
+  **raw** token to present it, so its session store — and every backup and
+  replica of that store — holds live credentials for every platform admin.
+
+  Mitigation: treat the BFF store as a credential store, not a cache. Encrypt
+  the tokens at rest under a key the store itself does not hold, keep backups
+  under the same rule, and make revocation through `PlatformAdminSessionService`
+  part of the incident response for a store compromise. Excluding tokens from
+  logs and the filesystem, as an earlier version of this bullet said, does not
+  address a database read at all.
 - **Concurrent refresh in the BFF revokes the whole family.**
   `PlatformAdminSessionService.rotate()` treats a second presentation of an
   already-rotated refresh token as reuse and revokes the family — correct
@@ -417,7 +451,16 @@ than the model.
   requirement belongs in its implementation notes, not discovered in
   production.
 
-  **The lock has to be shared, not process-local.** A Next.js BFF runs on
+  **A lock is not sufficient on its own.** It handles concurrent callers; it
+  does not handle a *lost outcome*. If Java commits the rotation but its
+  response never arrives, or the BFF worker dies before persisting the
+  successor, the session store still holds the rotated-out token — and its next
+  use is classified as reuse, revoking the family, with no attacker anywhere
+  near it. The BFF must be able to tell "rotation failed" from "rotation
+  succeeded and I lost the answer", which means persisting intent before the
+  call and reconciling after, not just serialising around it.
+
+  **The lock also has to be shared, not process-local.** A Next.js BFF runs on
   several workers or serverless instances, so an in-process mutex or
   single-flight leaves two instances racing the same stored refresh token — the
   exact scenario, with the mitigation appearing to be in place. Coordination
