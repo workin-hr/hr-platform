@@ -298,7 +298,7 @@ dependent on access-token expiry, refresh, logout, or re-login.
 > platform admin: **logout** revoked only the refresh family, and the access
 > token's `sid` claim was issued and never read on either surface, so a
 > logged-out token kept working until `exp`. Closed 2026-08-31 (**R-027**,
-> **D-146**): both filters now resolve `sid` and refuse a token whose session
+> **D-149**): both filters now resolve `sid` and refuse a token whose session
 > family is `REVOKED`, at one indexed lookup per authenticated request.
 
 For the MVP:

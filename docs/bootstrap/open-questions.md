@@ -247,7 +247,7 @@ same dead route with a different failure mode.
 
 ## Session Revocation On Logout — Both Surfaces (R-027) — ANSWERED
 
-> **Answered 2026-08-31: option 1, on both surfaces — [D-146](decision-log-wave12r.md). Logout now invalidates the live access token.**
+> **Answered 2026-08-31: option 1, on both surfaces — [D-149](decision-log-wave12r.md). Logout now invalidates the live access token.**
 > The question and its reasoning are kept below as the record of what was
 > weighed, including the cost objection that turned out to be the real
 > substance of the decision. **R-027 is closed.**

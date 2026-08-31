@@ -134,7 +134,7 @@ The new system's authentication direction is:
   session(s) — closing the gap where `hr-legacy` password resets never
   invalidate existing sessions.
 
-  > **Resolved, 2026-08-31 (R-027, D-146):** for a period this promise was
+  > **Resolved, 2026-08-31 (R-027, D-149):** for a period this promise was
   > only half kept — "revoke the session" revoked the **refresh family**,
   > not the live access token, which carried a `sid` claim no filter read
   > and so kept authenticating until `exp`. Both filters now resolve `sid`
