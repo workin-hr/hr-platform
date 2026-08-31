@@ -39,6 +39,25 @@ accordingly per entry.
 
 Source: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`.
 
+> **Read the `.php` file names below as file names, not as URLs.** This
+> inventory is organised by the PHP source tree, so every entry names a file.
+> The URL a client requests is the **router path, without the suffix**:
+> `apis/api/index.php` maps `/api/{module}/{action}` onto
+> `api/{module}/{action}.php`, and `apis/.htaccess` only rewrites when the
+> target does *not* exist on disk — so requesting the `.php` file directly
+> bypasses the bootstrap it assumes and fails. Measured against production on
+> 2026-08-31: `/apis/api/configs/get` returns **200**,
+> `/apis/api/configs/get.php` returns **500**. Both Flutter clients agree —
+> `api_constants.dart` joins `https://workin.company/apis/api/` with paths like
+> `auth/login_employee`, and none of its 266 endpoint constants carries the
+> suffix.
+>
+> This distinction was lost when the Java port was built from this document:
+> its controllers mapped the file paths, so Java answered the client URL form
+> for 9 of the 190 endpoints the clients call (**R-028**). Anything derived
+> from this inventory — mappings, tests, coverage counts — must convert file
+> name to route rather than assuming they are the same string.
+
 ---
 
 ## Endpoint: `POST /api/auth/login_employee`
