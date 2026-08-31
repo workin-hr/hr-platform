@@ -2527,3 +2527,21 @@ it reached `main`, and the honest answer is that nobody independent looked.
 > (**R-027**, `open-questions.md`, annotated on ADR-0005). D-145 makes
 > *deactivation* immediate; it does not make *logout* immediate, and those are
 > the two controls an operator is most likely to confuse.
+
+## D-147: Legacy routes are served by porting `index.php`'s router, ahead of the security chain
+
+| Field | Value |
+|---|---|
+| Decision | Legacy URLs are served by a single servlet filter, `LegacyPhpRouterFilter`, that reproduces `apis/api/index.php`: the two segments after `/apis/api/` resolve to the `.php` file serving them, and anything beyond those two segments is ignored, as legacy ignores it. It is registered at `HIGHEST_PRECEDENCE` and **outside** the Spring Security chain, and it **wraps** the request rather than forwarding it. |
+| Reason | Controllers map file paths (`/apis/api/configs/get.php`) because the endpoint inventory was built from the PHP source tree; clients call router paths (`/apis/api/configs/get`) and none of the 266 client endpoint constants carries the suffix. Measured: Java answered the client URL form for **9 of 190** endpoints before this, and 188 after (**R-028**). |
+| Alternatives | **Map both forms on every controller** — 190 further mappings, and a new endpoint could be added in one form and forgotten in the other; the defect would recur silently, one endpoint at a time. **Rewrite inside the security chain** — rejected on ordering: the permit-list in `LegacyPhpRoutes` is written in `.php` paths, so authorization evaluating the client form would fall through to `anyRequest().authenticated()` and 401 endpoints legacy serves anonymously. **Forward instead of wrap** — a forward skips the filter chain by default, so Spring Security and the dispatcher would observe different paths. |
+| Impact | One rewrite for the whole surface, so reachability cannot drift per endpoint. The security matcher, the authorization rules and the dispatcher all observe one path. `getRequestURL()` rebuilds from the resolved file rather than appending a suffix, because trailing segments are dropped. Five regression cases in `LegacyReferenceEndToEndTest`, three of which fail with the filter disabled. |
+| Evidence | `LegacyPhpRouterFilter`, `LegacyPhpRouterConfig`; production measurement (`/apis/api/configs/get` → 200, `/apis/api/configs/get.php` → 500); `apis/.htaccess` rewrites only when the target does not exist, so a direct `.php` request bypasses the bootstrap those files assume; `flutter-integration/*/lib/core/network/api_constants.dart`. |
+| Status | Accepted 2026-08-31. |
+
+> **Why this is a decision and not just a fix.** It selects a mechanism and an
+> ordering for **every legacy route at once**, and the ordering is the part that
+> is not obvious: a rewrite placed after the security chain looks equivalent and
+> would 401 every anonymous endpoint. R-028 records the defect; this records
+> what was chosen and what was rejected, so the next person to touch legacy
+> routing does not rediscover the ordering constraint by breaking it.

@@ -232,6 +232,16 @@ Every case reseeds both databases first, so cases cannot contaminate each other.
 That is slow on purpose — a shared, drifting state makes a failure impossible to
 attribute.
 
+**Timestamps are normalised, not excluded.** An earlier version dropped
+`created_at`/`updated_at` from the row hash to stop sequential calls reporting a
+one-second drift as a difference — which also made "wrote no `updated_at`"
+undetectable, the very defect this section holds up as the reason for comparing
+rows at all. They are now compared as **null-or-set**, which catches a missing
+or wrong-column write, with a separate check that the two stacks' newest
+timestamp agree within a tolerance, which catches a timezone or default that is
+hours out. What remains invisible is only a sub-tolerance difference in an
+otherwise-present timestamp.
+
 ### First results
 
 | | |
@@ -309,10 +319,18 @@ what they agreed on is still a human job.
 
 ### What is still uncovered
 
-Seven mutating endpoints out of roughly a hundred. The mechanism works
-end-to-end; the case list is the work. The highest-value additions are the
-payroll batch lifecycle, attendance write paths and request approval — where the
-money and the legal obligations are.
+**Roughly ninety-three of about a hundred mutating endpoints.** Seven are
+verified; the rest have never been compared.
+
+That sentence previously read "seven mutating endpoints out of roughly a
+hundred" under this heading, which inverts it — seven is what is *covered*.
+Anyone reading this as cutover-readiness evidence would have taken the
+validation as almost complete when it is under ten percent.
+
+The mechanism works end-to-end; the case list is the work. The highest-value
+additions are the rest of the payroll batch lifecycle (calculate, finalize,
+reopen, delete), the remaining attendance write paths, and request approval —
+where the money and the legal obligations are.
 
 ## The two endpoints that still differ
 
