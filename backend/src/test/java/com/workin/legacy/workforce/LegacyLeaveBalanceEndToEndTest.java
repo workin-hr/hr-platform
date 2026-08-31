@@ -156,9 +156,13 @@ class LegacyLeaveBalanceEndToEndTest {
 
 		ResponseEntity<Map<String, Object>> response = postMultipart(parts);
 
+		// The exact contract, not merely "not the other message": a negative
+		// assertion here would also pass on a 200, a 500, or any other 400.
+		assertThat(response.getStatusCode().value()).isEqualTo(400);
 		assertThat(response.getBody().get("message"))
-				.as("a chosen zero-byte file is UPLOAD_ERR_OK in PHP, not NO_FILE")
-				.isNotEqualTo("No file uploaded");
+				.as("a chosen zero-byte file is UPLOAD_ERR_OK in PHP, so it reaches the "
+						+ "format check rather than being refused as a missing upload")
+				.isEqualTo("Empty or unreadable file");
 	}
 
 	/** The same endpoint still accepts a genuine upload. */

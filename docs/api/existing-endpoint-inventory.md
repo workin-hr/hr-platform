@@ -507,8 +507,20 @@ both stacks:
 
 The first two both answered otherwise in Java before R-031 — the text field was
 parsed as a spreadsheet and returned **200**, and the empty filename reached the
-analyzer and returned the wrong message. The same three-part guard applies to
-`attendance` and `employees`' spreadsheet endpoints, which already had it.
+analyzer and returned the wrong message.
+
+**The same guard applies to the `attendance` and `employees` spreadsheet
+endpoints, and only `attendance` already had it.** `employees/analyze_excel`
+guarded on `file.isEmpty()`, which tests the *bytes* rather than the filename,
+so it was wrong in both directions and was corrected in the same change:
+
+| `employees/analyze_excel`, `file` part | PHP | Java before |
+|---|---|---|
+| zero bytes, real filename | `Empty or unreadable file` | `No file uploaded` |
+| `filename=""` with content | `No file uploaded` | `File rejected: it does not match…` |
+
+Both now match. An existing test asserted the first of those divergences as if
+it were the contract, and was corrected with the code.
 
 ## Workforce Planning (`apis/api/workforce_planning/`, 7 endpoints)
 

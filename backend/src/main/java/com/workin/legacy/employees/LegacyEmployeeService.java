@@ -1076,7 +1076,18 @@ public class LegacyEmployeeService {
 	 */
 	public Map<String, Object> analyzeSpreadsheet(
 			LegacyRequestContext context, MultipartFile file, boolean arabic) {
-		if (file == null || file.isEmpty()) {
+		// PHP's guard is `!isset($_FILES['file']) || error !== UPLOAD_ERR_OK`,
+		// and UPLOAD_ERR_NO_FILE is about the *filename*, not the byte count.
+		// `isEmpty()` tests the bytes, so it was wrong in both directions,
+		// measured against the running PHP:
+		//   zero bytes with a real name -> PHP `Empty or unreadable file`
+		//                                  (UPLOAD_ERR_OK, reaches the format
+		//                                  check), Java said `no_file_uploaded`
+		//   filename="" with content    -> PHP `no_file_uploaded`, Java let it
+		//                                  through to format validation
+		// Same three-part test as LegacyAttendanceImportService.
+		if (file == null || file.getOriginalFilename() == null
+				|| file.getOriginalFilename().isEmpty()) {
 			throw new LegacyApiException(400, "no_file_uploaded");
 		}
 		byte[] content;
