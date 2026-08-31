@@ -128,9 +128,13 @@ acceptance blockers; the owner accepted the direction with all of them still
 open, which is theirs to do. They do not disappear — they become
 **implementation prerequisites**: the design is settled, and none of it may
 ship until they are answered. Two in particular gate any code at all —
-throttling (Decision 7), because the surface is currently weaker than the
-system it replaces, and the active-admin lookup (Decision 5, R-026), which
-merged separately in PR #152.
+throttling (Decision 7), because the surface is currently weaker than the system
+it replaces, and the **step-up bounds** (Decision 4), because a step-up that is
+not bound to its target is defeated in the scenario it exists for.
+
+The active-admin lookup (Decision 5, **R-026**) was in this set and is **no
+longer**: it merged in PR #152 and is enforced per request today (**D-145**).
+It is listed below as a dependency that has been met, not as outstanding work.
 
 The platform-admin web surface authenticates as follows.
 
@@ -222,6 +226,20 @@ Three properties are required, not just a representation:
 | **Maximum age** — minutes, not the session lifetime | the challenge must be recent relative to the action, not to the login |
 | **Single use** | one challenge authorises one operation, so it cannot be banked |
 | **Bound to the action** | satisfying step-up for a suspension must not also authorise a deletion |
+| **Bound to the target** | satisfying step-up to suspend company A must not authorise suspending company B |
+
+The last row is not a refinement of the one above it. Binding to the operation
+alone leaves the protection defeated in exactly the scenario it exists for: an
+administrator solves a challenge to suspend company A, and an attacker holding
+the hijacked session consumes that single-use approval against company B. Same
+operation, same session, different tenant — every stated property is satisfied
+and the wrong company is suspended.
+
+So the capability is bound to **the canonical operation, the resource
+identifier, and a digest of the security-relevant request parameters**, and the
+server recomputes that binding from the request it is about to execute rather
+than trusting anything echoed back. A mismatch is a failed step-up, not a
+retry.
 
 The population is small, internal, and bootstrap-provisioned with no
 self-registration, which makes this cheap to operate and removes the usual
@@ -279,17 +297,34 @@ sliding for up to seven days — the BFF could resume the session at any point,
 and anything holding that refresh token still can. Omit the second and the
 cookie value alone is enough to walk back in.
 
-**Order matters, and the obvious order is wrong.** Clearing the cookie and
+**Order matters, and both obvious orders are wrong.** Clearing the cookie and
 deleting the BFF session first destroys the only copy of the refresh token the
-BFF holds — so if the Java `/logout` then times out or the backend is
-unavailable, the user is shown a completed logout while the refresh family
-remains usable and nothing retains the token needed to revoke it. Revoke at the
-backend **first**, and only clear local state once that has succeeded; on
-failure, keep the session record and retry rather than reporting success. A
-logout that cannot be completed must not look like one that was.
+BFF holds — so if the Java `/logout` then times out, nothing retains the token
+needed to revoke the family, and it keeps sliding. But an earlier draft of this
+ADR drew the wrong conclusion from that and said to revoke at the backend first,
+keeping the BFF session alive and retrying on failure. **That leaves the
+browser-facing session valid for exactly as long as revocation keeps failing —
+so a copied session identifier stays usable precisely while its owner is trying
+to terminate it.** The failure mode is the attack.
 
-Worth stating because the failure is invisible from the browser: the user sees a
-login screen and reasonably concludes the session is over.
+The two requirements are not actually in tension, because they are about
+different objects. Logout must, in one atomic step:
+
+1. **Invalidate the BFF session record and clear the cookie immediately** — no
+   retry, no waiting on the backend. From this moment the session identifier is
+   worthless whoever holds it.
+2. **Move the raw refresh token into a durable revocation outbox** that no
+   request path can read — only the retry worker can. The token survives to
+   revoke the family; the session does not survive to be used.
+
+The outbox retry is idempotent: `/api/platform-admin/logout` already tolerates
+being called with a token that is unknown or already revoked, which is what
+makes at-least-once delivery safe here. An entry that cannot be drained is an
+operational alert, not a user-visible failure — the user is already logged out.
+
+Worth stating because the residual failure is invisible from the browser: if the
+outbox never drains, the user sees a login screen and reasonably concludes the
+session is over, while the refresh family keeps sliding for up to seven days.
 
 **This does not fix R-027.** Revoking the family still leaves the *access* token
 valid until `exp`; that is the open question ADR-0005 owns. This decision only
@@ -393,8 +428,9 @@ than the model.
   point, no second transport, no new security model to keep in step with the
   existing one. This is **not** a claim that the backend needs no changes:
   Decision 5 requires an active-admin lookup in the shared request path
-  (**R-026**), and Decision 8's enforcement may require a BFF credential. Both
-  are backend work.
+  (**R-026**, delivered in PR #152 as **D-145**), and Decision 8's enforcement
+  may require a BFF credential. Both are backend work; only the second is
+  outstanding.
 - The Next.js app must never call the Java API from the browser. That is a
   standing architectural constraint on it, not a one-time implementation note,
   and it should be enforced by review or lint rather than convention.
@@ -409,14 +445,14 @@ than the model.
   (**R-023**, **R-024**, **R-025**) and a pending cutover. Recording the decision
   now is cheap; building against it before the port lands is scope expansion
   across an unfinished migration.
-- **R-026 is owned elsewhere, and that is a real ordering dependency.** This ADR
-  surfaced the deactivation defect and Decision 5 depends on it being closed, but
-  both the register entry and the fix live in PR #152. Until that merges, `R-026`
-  resolves to nothing on `main`, so this ADR names an acceptance dependency a
-  reader cannot look up. **#152 must merge first**; if it were abandoned, Decision
-  5 would need the defect restated here rather than referenced. Splitting them
-  kept the security fix reviewable on its own, which was the right trade — but it
-  is a trade, not a free one.
+- **R-026 was an ordering dependency, and it has been met.** This ADR surfaced
+  the deactivation defect; Decision 5 depended on it being closed, and both the
+  register entry and the fix lived in PR #152, so for a period this ADR named an
+  acceptance dependency a reader could not look up on `main`. **#152 has since
+  merged**: the active-admin lookup runs per request (**D-145**) and R-026 is
+  closed. Splitting them kept the security fix reviewable on its own, which was
+  the right trade. Recorded because the dependency was real while it lasted, not
+  because it is still outstanding.
 
 ## Risks
 
@@ -522,19 +558,33 @@ buildable:
    A cookie holding only an opaque handle is server-side state by definition. So
    the open question is *what* server-side store, not *whether* one.
 3. A named TOTP implementation and a recovery design that does not weaken the
-   factor it protects.
+   factor it protects — **and seed custody, which is the part that is easy to
+   leave undefined.** Verification requires the backend to keep each symmetric
+   seed in recoverable form, so a plaintext column or an unprotected backup
+   would let anyone who can read the database generate every administrator's
+   second factor. MFA would then be defeated by exactly the compromise it is
+   meant to survive, silently and for every account at once. Required:
+   **application-level encryption with the key held outside the database**,
+   access restricted to the verification path, backups protected to the same
+   standard as the primary store, and a defined re-encryption path for key
+   rotation.
 4. Confirmation of whether the legacy PHP dashboard's `admin`-role surface runs
    in parallel during Phase 2, and if so whether both authenticate independently.
 5. Enforcement mechanism for keeping `/api/platform-admin/**` BFF-only
    (Decision 8) — network reachability, a required BFF credential, or both.
-6. The active-admin lookup required by Decision 5, with a regression test per
-   transport (**R-026** — closed in PR #152; retained here as the record of what
-   the surface depends on).
+6. ~~The active-admin lookup required by Decision 5, with a regression test per
+   transport.~~ **Met.** **R-026** closed, **D-145** accepted, merged in PR #152;
+   the lookup runs on every request. Struck rather than deleted so the
+   dependency stays visible, but it is not outstanding work and must not be
+   re-planned as such.
 7. **Concrete session bounds**: the idle timeout and the non-renewable absolute
    family cap Decision 3 requires, as numbers.
 8. The MFA-bearing login exchange Decision 4 implies — challenge/response,
    enrolment, and how a step-up-satisfied session is represented **with its
-   maximum age, single-use and action-binding rules**.
+   maximum age, single-use, action-binding and target-binding rules**. The last
+   is not a detail of the third: an approval bound to "suspend" but not to
+   *which company* is consumable by a hijacked session against a different
+   tenant, which is the scenario step-up exists for.
 9. Attempt throttling for the password and TOTP steps (Decision 7), with the
    limit and lockout window chosen.
 10. Whether ADR-0005's *list and revoke sessions individually* requirement is

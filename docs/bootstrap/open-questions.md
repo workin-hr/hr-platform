@@ -253,7 +253,9 @@ blockers. They are now **implementation prerequisites**: the decision is
 settled, and none of this may ship until they are answered. Two gate any code at
 all — throttling, because the surface is currently weaker than the system it
 replaces, and the step-up bounds, because an unbounded step-up flag is step-up
-in name only.
+in name only. **The active-admin lookup was in that set and is no longer**: it
+merged in PR #152 (**R-026** closed, **D-145** accepted) and runs per request
+today, so it must not be re-planned as outstanding work.
 
 Also outstanding: **engineering-lead feasibility sign-off**. The ADR names two
 deciders and only the owner has approved.
@@ -286,6 +288,15 @@ deciders and only the owner has approved.
   has no attempt limit, backoff or lockout, while the legacy dashboard it
   replaces enforces 8 attempts / 15 minutes. A six-digit second factor without
   throttling is a feasible online search, so this is not a follow-up to MFA.
+- **How is a lost rotation response recovered?** If the BFF's `rotate()` call
+  commits at the backend but the response is lost — an ordinary timeout, not an
+  attack — the BFF still holds the superseded token. Presenting it is
+  indistinguishable from replay, so reuse-detection revokes the whole family and
+  logs the administrator out. Needs a **backend** change and cannot be closed by
+  the BFF alone: an idempotency key on `rotate()`, a bounded grace window
+  accepting the immediate predecessor once, or an endpoint returning a session's
+  current successor. Listed because without it every prerequisite here can be
+  answered while a network blip still ends a session.
 - **Which TOTP implementation, and what recovery design?** The population is
   bootstrap-provisioned with no self-registration, so lockout has no
   self-service escape today.

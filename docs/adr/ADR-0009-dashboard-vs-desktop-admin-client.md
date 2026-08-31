@@ -343,9 +343,18 @@ verification pass. Status as of 2026-08-05:
 
 ## Open Questions
 
-- Does the platform-admin web surface stay the existing PHP dashboard
+- ~~Does the platform-admin web surface stay the existing PHP dashboard
   (scoped down to just its `admin`-role pages) or get rebuilt as a new,
-  smaller Next.js app from scratch?
+  smaller Next.js app from scratch?~~ **Answered 2026-08-31 by
+  [ADR-0014](ADR-0014-platform-admin-web-authentication.md) (D-146): rebuilt
+  as a Next.js application**, with its server-side BFF as the authentication
+  boundary — the browser never receives a platform-admin token. That decision
+  assumes this application exists, so leaving the question open here left the
+  owning surface ADR contradicting an accepted one. **Consequence for this
+  ADR**: the `admin`-role pages of the PHP dashboard are superseded rather
+  than scoped down, and whether the two run in parallel during Phase 2 — and
+  if so whether they authenticate independently — is ADR-0014's prerequisite 4,
+  not a question this ADR still owns.
 - What is the cutover sequence: fix the Manager-role parity gap first,
   then retire dashboard pages module-by-module, or an all-at-once
   cutover once full parity is confirmed?
