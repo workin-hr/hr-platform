@@ -857,17 +857,33 @@ Three endpoints stand between the repository and G2:
 - `attendance/export.php` — binary streaming response, open per D-101;
 - `payslips/export.php` — binary streaming response, open per D-106.
 
-**G3 — Exact PHP URL and wire contract.** Every live endpoint answers on its
-literal `/apis/api/{module}/{action}.php` URL with **the response contract its
-own PHP file emits**. **Wave 12.R is complete and no `/api/legacy/**` business
-route remains mapped.**
+**G3 — Exact PHP URL and wire contract.** Every live endpoint answers on
+**the URL clients actually request** — `/apis/api/{module}/{action}`, without
+the suffix — with **the response contract its own PHP file emits**. **Wave 12.R
+is complete and no `/api/legacy/**` business route remains mapped.**
+
+> **Corrected 2026-08-31 (R-028, D-147).** This gate previously required the
+> *literal `.php`* URL, which is a file name and not a URL any client sends:
+> `api_constants.dart` joins `https://workin.company/apis/api/` with paths like
+> `auth/login_employee`, and requesting the `.php` file directly returns **500**
+> from PHP. As written, G3 could have been satisfied in full while every Flutter
+> request 404'd — which is precisely the state the port was in until
+> `LegacyPhpRouterFilter` landed.
 
 **What enforces what.** `LegacyPhpRouteInventoryTest`'s bidirectional assertion
-is a **URL-surface** check and nothing more: it compares the set of mapped
-patterns against `EXPECTED_ROUTES`, at 125 routes today and 198 when G2 closes.
-It never exercises a method, a guard order, a status code, an envelope, a header
-or a body, so a route with an incompatible wire implementation still satisfies
-it. The wire contract itself is carried by each endpoint's own contract and
+is an **internal-mapping** check, not a URL-surface one: it compares the set of
+mapped controller patterns against `EXPECTED_ROUTES`, at 125 routes today and
+198 when G2 closes. It never exercises a method, a guard order, a status code,
+an envelope, a header or a body, so a route with an incompatible wire
+implementation still satisfies it.
+
+> It is also blind to the thing R-028 turned out to be. Both sides of that
+> assertion are written in `.php` paths, so it agreed with itself perfectly
+> while no client-reachable URL resolved at all. **Reachability on the client's
+> URL form is evidenced by the parity harness**
+> (`docs/migration/2026-08-31-php-java-parity-harness.md`, 188/190 measured
+> against both stacks), not by this test — an inventory of a codebase against
+> itself cannot establish a client contract. The wire contract itself is carried by each endpoint's own contract and
 end-to-end tests, with **G6** as the floor that guarantees none reaches cutover
 with zero measured evidence. Do not cite the inventory as proof of anything but
 the URL surface.
