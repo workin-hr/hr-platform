@@ -493,6 +493,23 @@ Excel import/analyze/template trio pattern seen in `attendance` and
 (`list.php`/`one.php`/`stats.php` use bare `requireAuth()`) not traced
 for row-level self-scoping in this pass.
 
+**`analyze_excel.php`'s upload guard is `isset($_FILES['file'])` plus
+`error === UPLOAD_ERR_OK`, and the distinction is client-visible** (R-031).
+Three request shapes that look similar answer differently, measured against
+both stacks:
+
+| multipart `file` part | answer |
+|---|---|
+| a text field (no filename) | 400 `No file uploaded` — a `$_POST` field never reaches `$_FILES` |
+| present with `filename=""` | 400 `No file uploaded` — PHP's `UPLOAD_ERR_NO_FILE` |
+| zero bytes with a real filename | 400 `Empty or unreadable file` — `UPLOAD_ERR_OK`, so it reaches the format check |
+| absent entirely | 400 `No file uploaded` |
+
+The first two both answered otherwise in Java before R-031 — the text field was
+parsed as a spreadsheet and returned **200**, and the empty filename reached the
+analyzer and returned the wrong message. The same three-part guard applies to
+`attendance` and `employees`' spreadsheet endpoints, which already had it.
+
 ## Workforce Planning (`apis/api/workforce_planning/`, 7 endpoints)
 
 Headcount-target CRUD per (company, branch, department, job_title), plus

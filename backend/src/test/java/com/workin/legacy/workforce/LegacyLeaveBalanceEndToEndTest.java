@@ -120,6 +120,47 @@ class LegacyLeaveBalanceEndToEndTest {
 		assertThat(response.getBody().get("message")).isEqualTo("No file uploaded");
 	}
 
+	/**
+	 * {@code filename=""} is {@code UPLOAD_ERR_NO_FILE} in PHP, so it answers
+	 * {@code no_file_uploaded} — but Spring still exposes a {@code
+	 * MultipartFile} for it, and skipping only a <em>null</em> submitted
+	 * filename let it reach the analyzer, which answered
+	 * {@code Empty or unreadable file} instead.
+	 */
+	@Test
+	void anEmptyFilenameIsNotAnUploadEither() {
+		MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
+		parts.add("file", filePart("employee_code,total_days\n", ""));
+		parts.add("year", String.valueOf(YEAR));
+
+		ResponseEntity<Map<String, Object>> response = postMultipart(parts);
+
+		assertThat(response.getStatusCode().value())
+				.as("empty filename is UPLOAD_ERR_NO_FILE in PHP: %s", response.getBody())
+				.isEqualTo(400);
+		assertThat(response.getBody().get("message")).isEqualTo("No file uploaded");
+	}
+
+	/**
+	 * The boundary the guard must <em>not</em> swallow: a zero-byte file the
+	 * user actually chose is {@code UPLOAD_ERR_OK} in PHP, so it falls through
+	 * to the format check and fails there — not as {@code no_file_uploaded}.
+	 * Without this, tightening the guard to an emptiness test would look
+	 * correct and silently change a second behaviour.
+	 */
+	@Test
+	void aZeroByteFileWithARealNameFallsThroughToTheFormatCheck() {
+		MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
+		parts.add("file", filePart("", "balances.csv"));
+		parts.add("year", String.valueOf(YEAR));
+
+		ResponseEntity<Map<String, Object>> response = postMultipart(parts);
+
+		assertThat(response.getBody().get("message"))
+				.as("a chosen zero-byte file is UPLOAD_ERR_OK in PHP, not NO_FILE")
+				.isNotEqualTo("No file uploaded");
+	}
+
 	/** The same endpoint still accepts a genuine upload. */
 	@Test
 	void aRealUploadIsStillAccepted() {
@@ -146,8 +187,12 @@ class LegacyLeaveBalanceEndToEndTest {
 	}
 
 	private static HttpEntity<ByteArrayResource> filePart(String csv) {
+		return filePart(csv, "balances.csv");
+	}
+
+	private static HttpEntity<ByteArrayResource> filePart(String csv, String filename) {
 		HttpHeaders partHeaders = new HttpHeaders();
-		partHeaders.setContentDispositionFormData("file", "balances.csv");
+		partHeaders.setContentDispositionFormData("file", filename);
 		return new HttpEntity<>(new ByteArrayResource(csv.getBytes(StandardCharsets.UTF_8)), partHeaders);
 	}
 

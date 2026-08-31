@@ -140,7 +140,17 @@ public class LegacyLeaveBalanceController {
 		// with it -- which is why the other four multipart endpoints go through
 		// it and this one was the outlier.
 		MultipartFile file = LegacyPostFields.file(request, "file");
-		if (file == null) {
+		// PHP's guard is `!isset($_FILES['file']) || error !== UPLOAD_ERR_OK`,
+		// and an empty filename is UPLOAD_ERR_NO_FILE. Spring still exposes a
+		// MultipartFile for `filename=""`, and LegacyPostFields.file only skips
+		// a *null* submitted filename, so the empty case reached the analyzer
+		// and answered `Empty or unreadable file` where PHP answers
+		// `no_file_uploaded`. Same three-part test as
+		// LegacyAttendanceImportService, and deliberately not `isEmpty()` on the
+		// bytes: a zero-byte file the user actually chose is UPLOAD_ERR_OK in
+		// PHP and must fall through to the format check.
+		if (file == null || file.getOriginalFilename() == null
+				|| file.getOriginalFilename().isEmpty()) {
 			throw new LegacyApiException(400, "no_file_uploaded");
 		}
 		int year = formOrQueryYear(request);
