@@ -322,6 +322,18 @@ being called with a token that is unknown or already revoked, which is what
 makes at-least-once delivery safe here. An entry that cannot be drained is an
 operational alert, not a user-visible failure — the user is already logged out.
 
+**Logout takes the same per-session lock a refresh does, and the successor
+write is a compare-and-swap.** Without both, the two flows race and the session
+comes back: a refresh that has already rotated at Java but not yet persisted its
+successor will, on resuming, write that successor into a session logout has just
+deleted — resurrecting the very session the user asked to end, while outbox
+revocation is still pending. The window is exactly the gap between the backend
+rotation committing and the BFF storing the result, which is where every other
+rotation hazard in this design already lives. So logout participates in the
+same serialization as refresh, and **persisting a successor fails if the session
+has been tombstoned** rather than recreating it. A tombstone rather than a plain
+delete is what makes that check possible.
+
 Worth stating because the residual failure is invisible from the browser: if the
 outbox never drains, the user sees a login screen and reasonably concludes the
 session is over, while the refresh family keeps sliding for up to seven days.
@@ -348,6 +360,18 @@ same weakness.
 Throttling therefore ships **with** MFA, not after it: per-identity attempt
 limiting with lockout on both the password and the TOTP step. Matching legacy's
 8/15 is the floor, not the target.
+
+**Counted in shared state, not per process.** This ADR assumes a multi-worker
+or serverless BFF deployment elsewhere in its own consequences, and a
+process-local counter satisfies the sentence above while failing the purpose:
+attempts spread across workers each get their own budget, and a worker restart
+resets it. Against a six-digit second factor that difference is the whole
+control — bounded guessing becomes effectively unbounded. So the limit is
+enforced **at the Java backend boundary**, where every attempt converges
+regardless of which BFF instance received it, in state that survives a restart.
+The acceptance test for this is not "8 attempts are refused" but **8 attempts
+submitted through separate workers are refused**, which is what distinguishes
+a real limit from a per-process one.
 
 ### 8. The existing bearer endpoints are restricted to the BFF, not left open
 

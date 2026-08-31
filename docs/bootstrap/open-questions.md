@@ -276,7 +276,18 @@ deciders and only the owner has approved.
 - **What does the MFA-bearing login exchange look like?** `/login` takes phone
   plus password and returns the token pair immediately, so there is nowhere for
   a TOTP challenge to happen. Needs a challenge/response step, enrolment, and a
-  representation for a step-up-satisfied session.
+  representation for a step-up-satisfied session — **with all four binding
+  rules, not a generic "step-up satisfied" flag**: a **maximum age** in minutes
+  rather than the session lifetime; **single use**; bound to the **canonical
+  operation**; and bound to the **resource identifier and a digest of the
+  security-relevant request parameters**, recomputed server-side from the
+  request about to execute rather than trusted from anything echoed back.
+  The last of those is not a detail of the third. An approval bound to
+  "suspend" but not to *which company* is consumable by a hijacked session
+  against a different tenant — same operation, same session, different tenant,
+  every other property satisfied and the wrong company suspended. Closing this
+  prerequisite without it recreates exactly the defect the binding exists to
+  prevent.
 - **Is ADR-0005's "sessions can be listed and revoked individually" going to be
   delivered?** It is unimplemented on **both** surfaces: neither
   `PlatformAdminRefreshTokenRepository` nor `RefreshTokenRepository` has a list
@@ -297,9 +308,19 @@ deciders and only the owner has approved.
   accepting the immediate predecessor once, or an endpoint returning a session's
   current successor. Listed because without it every prerequisite here can be
   answered while a network blip still ends a session.
-- **Which TOTP implementation, and what recovery design?** The population is
-  bootstrap-provisioned with no self-registration, so lockout has no
-  self-service escape today.
+- **Which TOTP implementation, what recovery design, and how are the seeds
+  kept?** The population is bootstrap-provisioned with no self-registration, so
+  lockout has no self-service escape today. **Seed custody is part of this
+  prerequisite, not a follow-up**: verification requires the backend to hold
+  each symmetric seed in *recoverable* form, so a plaintext column or an
+  unprotected backup lets anyone who can read the database generate every
+  administrator's second factor — MFA defeated by exactly the compromise it
+  exists to survive, silently and for every account at once. Required before
+  the surface ships: **application-level encryption with the key held outside
+  the database**, access restricted to the verification path, **backups
+  protected to the same standard** as the primary store, and a **defined
+  re-encryption path** for key rotation. Marking this answered with an
+  implementation and a recovery flow alone leaves the seeds unprotected.
 - **Does the legacy PHP dashboard's `admin`-role surface run in parallel during
   Phase 2?** If so, do both surfaces authenticate independently?
 - **What retention applies to `PlatformAdminAuditEvent`?** The audit trail
@@ -310,8 +331,12 @@ Not open, recorded here because an earlier draft wrongly reopened it:
 identities, structurally separated JWT sessions, `platform_admin_refresh_tokens`,
 and audit attribution with a NOT NULL admin FK.
 
-Tracked separately as a defect rather than a question: **R-026**, deactivation
-not enforced per request.
+~~Tracked separately as a defect rather than a question: **R-026**, deactivation
+not enforced per request.~~ **Closed.** R-026 was fixed and merged in PR #152;
+`PlatformAdminAuthenticationFilter` loads the row and verifies `active` on every
+request (**D-145**). Struck rather than deleted so the trail stays followable —
+but it is **not outstanding work**, and this section said so above while this
+tail still described it as an active defect.
 
 ## Session Revocation On Logout — Both Surfaces (R-027)
 
