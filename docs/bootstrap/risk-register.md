@@ -466,3 +466,21 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Target Date | **The tenant decision is owed now** — the 58 mutating endpoints are live, so this risk is already realised there and has no future milestone to wait for. Set against the next planned change to the tenant authentication path, or the next security review, whichever is sooner. The platform-admin half separately remains due before any destructive operation ships on that surface. |
 | Evidence | Platform admin: `PlatformAdminJwtService:55` (`sid` issued), `PlatformAdminAuthenticationFilter` (never read), `PlatformAdminSessionService.logout(String)`. Tenant: `JwtService:69` (`sid` issued), `JwtAuthenticationFilter` (no `sid` reference anywhere), `RefreshTokenService.logout(String)` (family only). Write surface counted by enumerating non-auth mutating mappings outside `platformadmin`. Related: **R-026**, the same defect class, now closed. |
 | Last Reviewed | 2026-08-31 |
+
+## R-031: A Text Field Named `file` Was Accepted As A Spreadsheet Upload
+
+| Field | Value |
+|---|---|
+| Description | `LegacyLeaveBalanceController.analyze` guarded its upload with `request.getPart("file")`, which returns **any** multipart part with that name — including a plain text field carrying no filename. PHP guards the same endpoint with `isset($_FILES['file'])`, and a part with no filename is a `$_POST` field there that never reaches `$_FILES`. Java therefore parsed the text as a spreadsheet and answered **200 "Leave balances file analyzed"** where PHP answers **400 `no_file_uploaded`**. |
+| Category | Parity / Input handling / `apis/api/leave_balances/analyze_excel.php` |
+| Probability | Certain, for that request shape. Not reached by any current client, which sends a real file — this is a malformed or hostile request, not a normal one. |
+| Impact | A divergence in the direction that matters: PHP **refuses** and Java **accepts**. The endpoint only analyses and returns a preview, so nothing is persisted and the blast radius is bounded — but the analysis result is what the client then feeds to `import_bulk`, so a caller who could get garbage accepted at the analyse step gets it one step closer to a write. The wider point is that this endpoint was the **only** one of five multipart consumers still calling `getPart` directly; the other four resolve through `MultipartHttpServletRequest`, which exposes only parts that have a filename and so matched PHP by construction. |
+| Severity | **Low.** Bounded to one non-persisting endpoint and not reachable through any client's normal flow. Recorded because it is a *class* of defect — the servlet API's `getPart` and PHP's `$_FILES` do not mean the same thing — and because the endpoint had no end-to-end test at all, which is why it survived. |
+| Owner | Repository owner. |
+| Mitigation | **Applied 2026-08-31.** `analyze` now resolves the upload through `LegacyPostFields.file(request, "file")`, the shared helper the other four multipart endpoints already use. It skips parts whose `getSubmittedFileName()` is null — the servlet equivalent of PHP's `$_FILES` test — and brings PHP's field-name normalisation and last-duplicate-wins rule with it. The now-unused private `part()` helper was deleted, so the divergent path cannot be reintroduced by a new call site. |
+| Trigger | Already triggered; found by the parity harness rather than by a client report. |
+| Contingency | None needed — the fix removes the accepting path entirely. |
+| Status | **Closed — fixed 2026-08-31.** |
+| Target Date | Met. |
+| Evidence | **Measured against both stacks, not inferred.** Before: PHP 400 `{"success":false,"message":"No file uploaded"}`, Java 200 `{"success":true,...}`. After: both 400 with the identical body, with two controls also matching — no `file` part at all (both 400) and a genuine CSV upload (both 200 `Leave balances file analyzed`), the latter proving uploads were not broken by the fix. Regression tests `LegacyLeaveBalanceEndToEndTest#aTextFieldNamedFileIsNotAnUpload` and `#aRealUploadIsStillAccepted`; the first was **verified to fail against the pre-fix controller and pass against the fixed one**. The endpoint previously had no end-to-end coverage. |
+| Last Reviewed | 2026-08-31 (closed) |

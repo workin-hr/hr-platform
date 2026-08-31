@@ -21,10 +21,14 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
@@ -45,6 +49,7 @@ class LegacyLeaveBalanceEndToEndTest {
 	private static final long EMPLOYEE_A1 = 217012L;
 	private static final long EMPLOYEE_A2 = 217013L;
 	private static final long EMPLOYEE_B = 217014L;
+	private static final long ADMIN = 217015L;
 	private static final int YEAR = 2026;
 
 	@Autowired
@@ -88,6 +93,64 @@ class LegacyLeaveBalanceEndToEndTest {
 		assertThat(employeeIds(body)).isEmpty();
 	}
 
+
+	/**
+	 * PHP guards this with {@code isset($_FILES['file'])}. A multipart part
+	 * carrying no filename is a {@code $_POST} field there and never reaches
+	 * {@code $_FILES}, so PHP answers {@code no_file_uploaded}.
+	 *
+	 * <p>{@code request.getPart("file")} does not make that distinction and
+	 * returns the text part, so Java parsed it as a spreadsheet and answered
+	 * 200 — measured against both stacks before the fix. The other four
+	 * multipart endpoints were already correct because they resolve through
+	 * {@code MultipartHttpServletRequest}, which only exposes parts that have a
+	 * filename; this endpoint was the one still calling {@code getPart}.
+	 */
+	@Test
+	void aTextFieldNamedFileIsNotAnUpload() {
+		MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
+		parts.add("file", "not-a-file");
+		parts.add("year", String.valueOf(YEAR));
+
+		ResponseEntity<Map<String, Object>> response = postMultipart(parts);
+
+		assertThat(response.getStatusCode().value())
+				.as("a text field named `file` is not an upload: %s", response.getBody())
+				.isEqualTo(400);
+		assertThat(response.getBody().get("message")).isEqualTo("No file uploaded");
+	}
+
+	/** The same endpoint still accepts a genuine upload. */
+	@Test
+	void aRealUploadIsStillAccepted() {
+		MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
+		parts.add("file", filePart("employee_code,total_days\n" + EMPLOYEE_A1 + ",21\n"));
+		parts.add("year", String.valueOf(YEAR));
+
+		ResponseEntity<Map<String, Object>> response = postMultipart(parts);
+
+		assertThat(response.getStatusCode().value())
+				.as("a real upload must still be analyzed: %s", response.getBody())
+				.isEqualTo(200);
+	}
+
+	private ResponseEntity<Map<String, Object>> postMultipart(MultiValueMap<String, Object> parts) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(tokenFor(ADMIN));
+		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+		headers.set("Accept-Language", "en");
+		return restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + "/apis/api/leave_balances/analyze_excel.php"),
+				HttpMethod.POST, new HttpEntity<>(parts, headers),
+				new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
+	}
+
+	private static HttpEntity<ByteArrayResource> filePart(String csv) {
+		HttpHeaders partHeaders = new HttpHeaders();
+		partHeaders.setContentDispositionFormData("file", "balances.csv");
+		return new HttpEntity<>(new ByteArrayResource(csv.getBytes(StandardCharsets.UTF_8)), partHeaders);
+	}
+
 	private Map<String, Object> get(String path, long employeeId) {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setBearerAuth(tokenFor(employeeId));
@@ -100,7 +163,8 @@ class LegacyLeaveBalanceEndToEndTest {
 	}
 
 	private String tokenFor(long employeeId) {
-		String role = employeeId == MANAGER ? "manager" : "employee";
+		String role = employeeId == ADMIN ? "company_admin"
+				: employeeId == MANAGER ? "manager" : "employee";
 		return jwtService.issueAccessToken(
 				employeeId, employeeId, COMPANY, "test-session", Map.of("role", role, "token_version", 1L));
 	}
@@ -125,6 +189,7 @@ class LegacyLeaveBalanceEndToEndTest {
 			employee(st, EMPLOYEE_A1, BRANCH_A, "employee", "Employee A1");
 			employee(st, EMPLOYEE_A2, BRANCH_A, "employee", "Employee A2");
 			employee(st, EMPLOYEE_B, BRANCH_B, "employee", "Employee B");
+			employee(st, ADMIN, BRANCH_A, "company_admin", "Admin");
 			st.execute("INSERT INTO leave_balance (employee_id, year, total_days, used_days) VALUES "
 					+ "(" + EMPLOYEE_A1 + ", " + YEAR + ", 21, 1),"
 					+ "(" + EMPLOYEE_A2 + ", " + YEAR + ", 22, 2),"
