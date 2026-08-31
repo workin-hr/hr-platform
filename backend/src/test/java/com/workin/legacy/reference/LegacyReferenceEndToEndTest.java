@@ -138,16 +138,26 @@ class LegacyReferenceEndToEndTest {
 	}
 
 	/**
-	 * Legacy's router reads exactly two segments after {@code api} and ignores
-	 * the rest, so a deeper path is not a route it would serve. Rewriting one
-	 * would invent a file name that does not exist.
+	 * Legacy's router reads the two segments after {@code api} and <b>ignores
+	 * the rest</b>, so a deeper path serves the same endpoint.
+	 *
+	 * <p>This test previously asserted the opposite — that a deeper path is
+	 * refused — which was wrong, and wrong against this repository's own
+	 * description of the router. Verified against the running PHP:
+	 * {@code /apis/api/phone_countries/list/extra} answers 200, as does
+	 * {@code .../list/a/b}. A client appending anything to a route would have
+	 * received a 401 or 404 from Java where PHP serves the endpoint.
 	 */
 	@Test
-	void aDeeperPathIsNotRewritten() {
-		assertThat(restTemplate.getForEntity("/apis/api/phone_countries/list/extra", Map.class)
-				.getStatusCode().value())
-				.as("three segments is not a legacy route")
-				.isNotEqualTo(200);
+	void aDeeperPathResolvesToTheSameEndpointAsLegacy() {
+		ResponseEntity<Map> plain = restTemplate.getForEntity("/apis/api/phone_countries/list", Map.class);
+		ResponseEntity<Map> deeper = restTemplate.getForEntity(
+				"/apis/api/phone_countries/list/extra", Map.class);
+
+		assertThat(deeper.getStatusCode())
+				.as("legacy ignores the trailing segments rather than refusing them")
+				.isEqualTo(plain.getStatusCode());
+		assertThat(deeper.getBody()).isEqualTo(plain.getBody());
 	}
 
 	/**

@@ -168,10 +168,19 @@ in production, where counts and sums usually are whole. It accounted for every
 one of the 157 differing leaves in `dashboard/stats` and all four differing
 endpoints. Fixed by `LegacyPhpNumberJsonConfig`, scoped to `phase1-mysql`.
 
-**2. The wrong tie-break in `payslips/list`.** PHP's final ORDER BY term is
-`e.id` — the *employee* id. Java used `p.id`, the *payslip* id, so ties resolved
-differently and the client saw a reordered list. One character. The sibling
-query at the bottom of the same file already had it right.
+**2. ~~The wrong tie-break in `payslips/list`.~~ — retracted.** This was
+reported as a Java defect and was not one. `list()` already ended on `e.id`; the
+line I changed was in `exportRows()`, whose PHP counterpart
+(`data_export_helper.php:552`) genuinely ends on `p.id`. The two legacy queries
+differ deliberately, and the change altered a correct one. Reverted after
+independent review caught it.
+
+The mistake is worth keeping visible because of *how* it survived: I measured
+positional agreement improving from 0/20 to 12/20 and credited the change,
+when the change could not have affected that endpoint at all. A number moved in
+the right direction after an edit, and I treated coincidence as causation
+without checking which method the edit was even in. The ordering residual was
+always **R-029** — legacy's own non-determinism — and nothing else.
 
 ### Where it landed
 
@@ -179,6 +188,10 @@ query at the bottom of the same file already had it right.
 |---|---|
 | Endpoints returning **byte-identical** JSON | **37** |
 | Endpoints differing | **0** |
+
+(One fix in this section was later retracted — see item 2. The endpoint counts
+are unaffected: they were measured against the number-rendering fix, which
+stands.)
 | Not 200 on both (POST-only, or needing params) | 153 |
 
 `payslips/list` now matches on **every value and every type** when compared

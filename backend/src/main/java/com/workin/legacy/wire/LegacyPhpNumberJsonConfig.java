@@ -99,12 +99,19 @@ public class LegacyPhpNumberJsonConfig {
 	private static final class PhpBigDecimalSerializer extends ValueSerializer<BigDecimal> {
 		@Override
 		public void serialize(BigDecimal value, JsonGenerator gen, SerializationContext context) {
-			if (value.stripTrailingZeros().scale() <= 0
+			BigDecimal stripped = value.stripTrailingZeros();
+			if (stripped.scale() <= 0
 					&& value.abs().compareTo(BigDecimal.valueOf(MAX_EXACT_INTEGRAL)) < 0) {
 				gen.writeNumber(value.longValueExact());
 				return;
 			}
-			gen.writeNumber(value);
+			// The stripped value, not the original: PHP casts to float and
+			// json_encode writes the shortest representation, so a DECIMAL(10,2)
+			// holding 100.50 arrives as `100.5` and 0.10 as `0.1`. Writing the
+			// scaled original would emit `100.50` and miss parity on every
+			// non-integral amount ending in a zero -- which payslip enrichment,
+			// working entirely in scale-2 BigDecimals, produces constantly.
+			gen.writeNumber(stripped);
 		}
 	}
 

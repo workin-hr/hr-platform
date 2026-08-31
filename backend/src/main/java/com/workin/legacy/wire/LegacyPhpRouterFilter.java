@@ -58,33 +58,44 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 	private static final String PHP_SUFFIX = ".php";
 
 	/**
-	 * Legacy's router matches {@code /api/{module}/{action}} and nothing
-	 * deeper: {@code index.php} reads exactly two path segments after
-	 * {@code api} and ignores the rest. A path with more segments is not a
-	 * route legacy would serve, so it is left alone rather than rewritten into
-	 * a file name that does not exist.
+	 * The file a legacy route resolves to, or {@code null} if the path is not
+	 * one legacy would route.
+	 *
+	 * <p>{@code index.php} reads the two segments after {@code api} and
+	 * <b>ignores the rest</b>, so {@code /apis/api/phone_countries/list/extra}
+	 * serves the same endpoint as {@code /apis/api/phone_countries/list}.
+	 * Verified against the running PHP: both answer 200, as does
+	 * {@code .../list/a/b}.
+	 *
+	 * <p>An earlier version rejected deeper paths and shipped a test asserting
+	 * that rejection — documenting the opposite of what legacy does, on the
+	 * strength of this class's own javadoc saying the remainder is ignored.
+	 * A client appending anything to a route would have received a 401 or 404
+	 * from Java where PHP serves the endpoint.
 	 */
-	private static boolean isRoutableLegacyPath(String path) {
+	private static String resolveLegacyFile(String path) {
 		if (!path.startsWith(API_PREFIX) || path.endsWith(PHP_SUFFIX)) {
-			return false;
+			return null;
 		}
 		String remainder = path.substring(API_PREFIX.length());
 		int slash = remainder.indexOf('/');
 		if (slash <= 0 || slash == remainder.length() - 1) {
-			return false;
+			return null;
 		}
-		return remainder.indexOf('/', slash + 1) < 0;
+		int next = remainder.indexOf('/', slash + 1);
+		String moduleAndAction = next < 0 ? remainder : remainder.substring(0, next);
+		return API_PREFIX + moduleAndAction + PHP_SUFFIX;
 	}
 
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
 			throws ServletException, IOException {
 		String uri = request.getRequestURI();
-		if (!isRoutableLegacyPath(uri)) {
+		String rewritten = resolveLegacyFile(uri);
+		if (rewritten == null) {
 			filterChain.doFilter(request, response);
 			return;
 		}
-		String rewritten = uri + PHP_SUFFIX;
 		filterChain.doFilter(new HttpServletRequestWrapper(request) {
 			@Override
 			public String getRequestURI() {
@@ -93,8 +104,12 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 
 			@Override
 			public StringBuffer getRequestURL() {
-				StringBuffer original = ((HttpServletRequest) getRequest()).getRequestURL();
-				return new StringBuffer(original.toString() + PHP_SUFFIX);
+				String original = ((HttpServletRequest) getRequest()).getRequestURL().toString();
+				// Rebuild from the rewritten path rather than appending: extra
+				// segments are dropped, so the suffix is not simply added.
+				int pathStart = original.indexOf(uri);
+				return new StringBuffer(
+						pathStart < 0 ? original : original.substring(0, pathStart) + rewritten);
 			}
 
 			@Override
