@@ -121,11 +121,24 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 			return;
 		}
 
+		Set<String> served = mappedRoutes.get();
+		// Fail OPEN, not closed. Every refusal below is decided by absence from
+		// this set, so an empty one would answer 501 for the entire client
+		// surface -- the single worst outcome available to this filter, and
+		// exactly the D-111 break it exists to prevent. An empty set cannot
+		// mean "nothing is served"; it means the mapping was not readable, so
+		// the request is passed through to the dispatcher, which is the
+		// behaviour that existed before this filter.
+		if (served.isEmpty()) {
+			filterChain.doFilter(request, response);
+			return;
+		}
+
 		// The literal `.php` form first, unnormalized. Those are the paths the
 		// controllers are actually mapped on, and normalization would eat the
 		// dot -- `list.php` becomes `listphp` -- so testing the normalized form
 		// first turns every delivered `.php` route into a 501.
-		if (mappedRoutes.get().contains(uri)) {
+		if (served.contains(uri)) {
 			filterChain.doFilter(request, response);
 			return;
 		}
@@ -142,7 +155,7 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 		String rewritten = module.isEmpty() || action.isEmpty()
 				? null : API_PREFIX + module + "/" + action + PHP_SUFFIX;
 
-		if (rewritten == null || !mappedRoutes.get().contains(rewritten)) {
+		if (rewritten == null || !served.contains(rewritten)) {
 			writeRouterRefusal(request, response, module, action);
 			return;
 		}
@@ -230,9 +243,13 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 	 * turned a refusal into a <b>500</b> -- an invalid <em>optional</em>
 	 * localization hint deciding the status of the whole response.
 	 *
-	 * <p>Only the query-string half is unreliable; falling back leaves the
-	 * {@code Accept-Language} header and the default, which is what a request
-	 * with no {@code lang} parameter would have used anyway.
+	 * <p><b>The malformed parameter is not necessarily the one being read.</b>
+	 * {@code ?lang=ar&x=%} is a valid Arabic request with unrelated garbage
+	 * beside it: PHP keeps both and answers in Arabic. Discarding the whole
+	 * query on any decode failure answered that in English -- a second, quieter
+	 * divergence introduced by the fix for the first. So the retry preserves
+	 * the {@code lang} pair verbatim and drops only the rest, and gives up
+	 * entirely just when {@code lang} is itself the malformed one.
 	 */
 	private String safeLocale(HttpServletRequest request) {
 		try {
@@ -243,6 +260,22 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 			// can provoke here. Catching RuntimeException would also swallow a
 			// genuine bug inside resolveLocale and answer 404 as though the
 			// route were simply unknown.
+			return localeFromLangOnly(request, onlyLangPair(request.getQueryString()));
+		}
+	}
+
+	private String localeFromLangOnly(HttpServletRequest request, String langOnly) {
+		try {
+			return messages.resolveLocale(new HttpServletRequestWrapper(request) {
+				@Override
+				public String getQueryString() {
+					return langOnly;
+				}
+			});
+		} catch (IllegalArgumentException ex) {
+			// `lang` was itself the malformed pair. Nothing in the query is
+			// usable, so fall through to the header and the default -- what a
+			// request with no `lang` at all would have resolved to.
 			return messages.resolveLocale(new HttpServletRequestWrapper(request) {
 				@Override
 				public String getQueryString() {
@@ -250,6 +283,24 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 				}
 			});
 		}
+	}
+
+	/**
+	 * The {@code lang} pair alone, verbatim, or {@code null} if there is none.
+	 * The <em>last</em> occurrence wins, matching {@code parse_str}, which is
+	 * also what {@link LegacyQueryParameters} does for duplicates.
+	 */
+	private static String onlyLangPair(String query) {
+		if (query == null) {
+			return null;
+		}
+		String found = null;
+		for (String pair : query.split("&")) {
+			if (pair.equals("lang") || pair.startsWith("lang=")) {
+				found = pair;
+			}
+		}
+		return found;
 	}
 
 }

@@ -10,6 +10,12 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/backend-validate.yml"
+      # The drift detectors this workflow runs live outside backend/, so a PR
+      # touching only a detector or its regression suite would otherwise skip
+      # the step that guards it and stay green.
+      - "scripts/check_legacy_modules_drift.py"
+      - "scripts/test_check_legacy_modules_drift.py"
+      - "scripts/check_legacy_schema_drift.py"
   push:
     branches:
       - main
@@ -17,6 +23,9 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/backend-validate.yml"
+      - "scripts/check_legacy_modules_drift.py"
+      - "scripts/test_check_legacy_modules_drift.py"
+      - "scripts/check_legacy_schema_drift.py"
 
 permissions:
   contents: read

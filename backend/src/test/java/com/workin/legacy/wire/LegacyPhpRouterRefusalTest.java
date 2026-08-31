@@ -2,7 +2,10 @@ package com.workin.legacy.wire;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
+import java.net.Socket;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -19,6 +22,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MariaDBContainer;
+
+import org.springframework.mock.web.MockFilterChain;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 import com.workin.backend.BackendApplication;
 
@@ -63,28 +70,20 @@ class LegacyPhpRouterRefusalTest {
 	@Autowired
 	private TestRestTemplate restTemplate;
 
+	@Autowired
+	private LegacyMessages messages;
+
+	@Autowired
+	private tools.jackson.databind.ObjectMapper objectMapper;
+
 	private ResponseEntity<Map<String, Object>> get(String path, String locale) {
 		HttpHeaders headers = new HttpHeaders();
 		if (locale != null) {
 			headers.set("Accept-Language", locale);
 		}
-		// Not URI.create: one of these paths carries a deliberately malformed
-		// percent escape, and URI.create would reject it in the test rather
-		// than letting the server answer it.
 		return restTemplate.exchange(
-				java.net.URI.create(restTemplate.getRootUri()).resolve(rawPath(path)),
-				HttpMethod.GET, new HttpEntity<>(headers),
+				URI.create(restTemplate.getRootUri() + path), HttpMethod.GET, new HttpEntity<>(headers),
 				new ParameterizedTypeReference<Map<String, Object>>() { });
-	}
-
-	/** Builds a URI without validating escapes, so a malformed one reaches the server. */
-	private static URI rawPath(String path) {
-		try {
-			return new URI(null, null, null, -1, path.split("\\?")[0],
-					path.contains("?") ? path.substring(path.indexOf('?') + 1) : null, null);
-		} catch (java.net.URISyntaxException ex) {
-			throw new IllegalStateException(ex);
-		}
 	}
 
 	@Test
@@ -179,13 +178,78 @@ class LegacyPhpRouterRefusalTest {
 	 * {@code ?lang=} through {@code URLDecoder}, which throws on {@code "%"};
 	 * letting that escape turned the router's 404 into a 500. PHP's
 	 * {@code parse_str} keeps the literal {@code %} and answers its normal 404.
+	 *
+	 * <p><b>Sent over a raw socket, and that is the whole point.</b> An earlier
+	 * version of this test built the URI with {@code new URI(...)}, whose
+	 * multi-argument constructor percent-encodes the {@code %} into
+	 * {@code %25} -- so {@code URLDecoder} succeeded, nothing threw, and the
+	 * test passed whether or not the fix existed. Every HTTP client here
+	 * normalizes the request target, so the only way to send a literal
+	 * {@code %} is to write the request line ourselves.
 	 */
 	@Test
-	void aMalformedQueryEscapeDoesNotReplaceTheRefusalWithA500() {
-		ResponseEntity<Map<String, Object>> response = get("/apis/api/time/now?lang=%", "en");
+	void aMalformedQueryEscapeDoesNotReplaceTheRefusalWithA500() throws IOException {
+		String response = rawGet("/apis/api/time/now?lang=%", "en");
 
-		assertThat(response.getStatusCode().value()).isEqualTo(404);
-		assertThat((String) response.getBody().get("message")).startsWith("Module 'time' not found");
+		assertThat(response).as("raw request must not 500").startsWith("HTTP/1.1 404");
+		assertThat(response).contains("Module 'time' not found");
+	}
+
+	/**
+	 * The malformed pair is not always the one being read. {@code ?lang=ar&x=%}
+	 * is a valid Arabic request with unrelated garbage beside it, and PHP
+	 * answers it in Arabic -- measured. Discarding the whole query on any
+	 * decode failure answered in English instead, which was a second divergence
+	 * introduced by the fix for the first.
+	 */
+	@Test
+	void aValidLangSurvivesAMalformedParameterBesideIt() throws IOException {
+		assertThat(rawGet("/apis/api/time/now?lang=ar&x=%", "en"))
+				.as("lang=ar must still be honoured when an unrelated pair is malformed")
+				.contains("\u0627\u0644\u0648\u062d\u062f\u0629");
+	}
+
+	/** Writes the request line directly, so the malformed escape is sent verbatim. */
+	private String rawGet(String target, String locale) throws IOException {
+		int port = URI.create(restTemplate.getRootUri()).getPort();
+		try (Socket socket = new Socket("127.0.0.1", port)) {
+			socket.getOutputStream().write((
+					"GET " + target + " HTTP/1.1\r\n"
+					+ "Host: localhost\r\n"
+					+ "Accept-Language: " + locale + "\r\n"
+					+ "Connection: close\r\n\r\n").getBytes(StandardCharsets.ISO_8859_1));
+			socket.getOutputStream().flush();
+			return new String(socket.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+		}
+	}
+
+	/**
+	 * Fail open, not closed. Every refusal this filter makes is decided by a
+	 * path's <em>absence</em> from the served-route set, so an empty set would
+	 * answer <b>501 for the entire client surface</b> — the single worst
+	 * outcome available here, and precisely the D-111 break the filter exists
+	 * to prevent. An empty set cannot mean "nothing is served"; it means the
+	 * mapping was not readable, and the request must be passed through to the
+	 * dispatcher exactly as it was before this filter existed.
+	 */
+	@Test
+	void anUnreadableRouteSetPassesRequestsThroughRatherThanRefusingEverything() throws Exception {
+		LegacyPhpRouterFilter failOpen = new LegacyPhpRouterFilter(
+				java.util.Set::of, messages, objectMapper);
+
+		MockHttpServletRequest request = new MockHttpServletRequest("GET", "/apis/api/phone_countries/list");
+		request.setRequestURI("/apis/api/phone_countries/list");
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		MockFilterChain chain = new MockFilterChain();
+
+		failOpen.doFilter(request, response, chain);
+
+		assertThat(chain.getRequest())
+				.as("the request must reach the chain, not be refused")
+				.isNotNull();
+		assertThat(response.getStatus())
+				.as("nothing may be written by the filter itself")
+				.isEqualTo(200);
 	}
 
 	/**
