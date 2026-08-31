@@ -1,0 +1,46 @@
+# ApiModule::allowedList(), vendored from hr-legacy@d113204
+# apis/config/http_api.php. Order is PHP's own: index.php emits
+# implode(', ', $allowedModules) into the module_not_found body, so
+# the order is part of the client-visible contract, not incidental.
+#
+# Vendored for the same reason as mysql_workin.schema.sql: CI has no
+# hr-legacy checkout. Re-derive with
+#   python3 scripts/check_legacy_modules_drift.py --legacy ../hr-legacy --write
+administrative_decisions
+advances
+app_content
+faqs
+attendance
+auth
+banners
+branches
+company
+company_settings
+company_official_holidays
+setting_definitions
+setting_allowed_values
+complaints
+configs
+departments
+employee_docs
+assets
+employees
+hr_employees
+company_join_requests
+job_titles
+workforce_planning
+leave_balances
+notifications
+payroll_batches
+payslips
+penalties
+phone_countries
+profile
+reports
+request_types
+requests
+salary_contracts
+shifts
+schedules
+attendance_exception_types
+dashboard

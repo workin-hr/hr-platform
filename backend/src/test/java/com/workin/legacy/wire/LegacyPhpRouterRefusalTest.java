@@ -68,9 +68,23 @@ class LegacyPhpRouterRefusalTest {
 		if (locale != null) {
 			headers.set("Accept-Language", locale);
 		}
+		// Not URI.create: one of these paths carries a deliberately malformed
+		// percent escape, and URI.create would reject it in the test rather
+		// than letting the server answer it.
 		return restTemplate.exchange(
-				URI.create(restTemplate.getRootUri() + path), HttpMethod.GET, new HttpEntity<>(headers),
+				java.net.URI.create(restTemplate.getRootUri()).resolve(rawPath(path)),
+				HttpMethod.GET, new HttpEntity<>(headers),
 				new ParameterizedTypeReference<Map<String, Object>>() { });
+	}
+
+	/** Builds a URI without validating escapes, so a malformed one reaches the server. */
+	private static URI rawPath(String path) {
+		try {
+			return new URI(null, null, null, -1, path.split("\\?")[0],
+					path.contains("?") ? path.substring(path.indexOf('?') + 1) : null, null);
+		} catch (java.net.URISyntaxException ex) {
+			throw new IllegalStateException(ex);
+		}
 	}
 
 	@Test
@@ -118,6 +132,60 @@ class LegacyPhpRouterRefusalTest {
 	void theRefusalIsLocalizedLikeEveryOtherLegacyMessage() {
 		assertThat(get("/apis/api/reports/summary", "ar").getBody().get("message"))
 				.isEqualTo("الوحدة 'reports/summary' غير مُنفَّذة بعد");
+	}
+
+	/**
+	 * PHP strips {@code [^a-z0-9_]} from the raw segment and lowercases
+	 * <em>after</em>, so an uppercase letter is <b>deleted</b>, not folded.
+	 * Measured against the running PHP: {@code Configs} reads as
+	 * {@code onfigs}, and {@code CONFIGS} as the empty string — which is the
+	 * {@code $module ?: 'none'} case.
+	 *
+	 * <p>An earlier version of {@code phpSegment} lowercased first and so read
+	 * both as {@code configs}, which would have served two paths legacy
+	 * refuses.
+	 */
+	@Test
+	void anUppercaseSegmentIsStrippedRatherThanLowercased() {
+		assertThat(get("/apis/api/CONFIGS/get", "en").getBody().get("message"))
+				.isEqualTo("Module 'none' not found. Available: " + LegacyPhpModules.ALLOWED_CSV);
+		assertThat(get("/apis/api/Configs/get", "en").getBody().get("message"))
+				.isEqualTo("Module 'onfigs' not found. Available: " + LegacyPhpModules.ALLOWED_CSV);
+	}
+
+	/**
+	 * The other half of the same rule, and the one that matters most: a
+	 * separator PHP strips must still reach the endpoint. Both forms below are
+	 * <b>200</b> in legacy, so refusing them would break routes legacy serves.
+	 */
+	@Test
+	void aStrippedSeparatorStillResolvesToTheRealRoute() {
+		// Both measured at 200 against the running PHP, as is the plain form.
+		assertThat(get("/apis/api/phone_count-ries/list", null).getStatusCode().value()).isEqualTo(200);
+		assertThat(get("/apis/api/phone_countries/li.st", null).getStatusCode().value()).isEqualTo(200);
+	}
+
+	/** An action whose characters are all stripped leaves no action at all. */
+	@Test
+	void aModuleWithNoUsableActionIsUnknownAction() {
+		assertThat(get("/apis/api/configs/GET", "en").getStatusCode().value()).isEqualTo(404);
+		assertThat(get("/apis/api/configs/GET", "en").getBody().get("message")).isEqualTo("Unknown action");
+		assertThat(get("/apis/api/configs", "en").getBody().get("message")).isEqualTo("Unknown action");
+	}
+
+	/**
+	 * A malformed percent escape in an <em>optional</em> localization hint must
+	 * not decide the status of the response. {@code resolveLocale} reads
+	 * {@code ?lang=} through {@code URLDecoder}, which throws on {@code "%"};
+	 * letting that escape turned the router's 404 into a 500. PHP's
+	 * {@code parse_str} keeps the literal {@code %} and answers its normal 404.
+	 */
+	@Test
+	void aMalformedQueryEscapeDoesNotReplaceTheRefusalWithA500() {
+		ResponseEntity<Map<String, Object>> response = get("/apis/api/time/now?lang=%", "en");
+
+		assertThat(response.getStatusCode().value()).isEqualTo(404);
+		assertThat((String) response.getBody().get("message")).startsWith("Module 'time' not found");
 	}
 
 	/**

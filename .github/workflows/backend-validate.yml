@@ -66,6 +66,21 @@ jobs:
         working-directory: .
         run: python3 scripts/check_legacy_schema_drift.py --self-test
 
+      # Same split, same reason: the allow-list decides routing status and is
+      # emitted verbatim into client-visible module_not_found bodies, so the
+      # vendored copy is compared against LegacyPhpModules by
+      # LegacyPhpModulesDriftTest (which runs here), and against the real
+      # legacy source by this script's default mode (which needs a checkout
+      # this workflow does not have).
+      # The sibling regression suite rather than --self-test: it subsumes it
+      # and additionally asserts the vendored file's own invariants (38
+      # modules, `reports` present despite having no directory, `time` absent
+      # -- which is what makes time/now a 404), and that a reorder is caught,
+      # since the order is emitted into the client-visible refusal body.
+      - name: Legacy module allow-list drift-detector regression suite
+        working-directory: .
+        run: python3 scripts/test_check_legacy_modules_drift.py
+
       # ---------------------------------------------------------------
       # Phase 2 (storage migration) assets — FROZEN 2026-08-16.
       #

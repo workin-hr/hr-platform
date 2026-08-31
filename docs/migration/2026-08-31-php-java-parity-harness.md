@@ -407,7 +407,7 @@ paths is: unknown module → 404 `module_not_found` (with the allowed-module
 list), known module with no action file → 501 `module_not_implemented`, both in
 the standard envelope, and **both decided before authentication**.
 
-**Closed 2026-08-31 (D-147).** `LegacyPhpRouterFilter` now answers all three
+**Closed 2026-08-31 (D-148).** `LegacyPhpRouterFilter` now answers all three
 refusals itself, which is also why it answers them before the security chain:
 the filter is registered outside Spring Security at `HIGHEST_PRECEDENCE`, in the
 same position PHP's router occupies relative to `requireAuth()`. Re-measured

@@ -83,8 +83,17 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 	 * {@code nopephp}, and reports that name back in the 501.
 	 */
 	private static String phpSegment(String raw) {
+		// strtolower(preg_replace('/[^a-z0-9_]/', '', $segment)) -- the strip
+		// runs on the RAW segment and the lowercase after it, which is not the
+		// same as lowercasing first. `[^a-z0-9_]` does not include A-Z, so an
+		// uppercase letter is DELETED rather than folded: PHP reads `Configs`
+		// as `onfigs` and `CONFIGS` as the empty string. Measured against the
+		// running PHP, which answers "Module 'onfigs' not found" and
+		// "Module 'none' not found" respectively. An earlier version of this
+		// method lowercased first and so read both as `configs`, quietly
+		// serving two paths legacy refuses.
 		StringBuilder out = new StringBuilder(raw.length());
-		for (char c : raw.toLowerCase(java.util.Locale.ROOT).toCharArray()) {
+		for (char c : raw.toCharArray()) {
 			if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
 				out.append(c);
 			}
@@ -92,58 +101,56 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 		return out.toString();
 	}
 
-	/**
-	 * The file a legacy route resolves to, or {@code null} if the path is not
-	 * one legacy would route.
-	 *
-	 * <p>{@code index.php} reads the two segments after {@code api} and
-	 * <b>ignores the rest</b>, so {@code /apis/api/phone_countries/list/extra}
-	 * serves the same endpoint as {@code /apis/api/phone_countries/list}.
-	 * Verified against the running PHP: both answer 200, as does
-	 * {@code .../list/a/b}.
-	 *
-	 * <p>An earlier version rejected deeper paths and shipped a test asserting
-	 * that rejection — documenting the opposite of what legacy does, on the
-	 * strength of this class's own javadoc saying the remainder is ignored.
-	 * A client appending anything to a route would have received a 401 or 404
-	 * from Java where PHP serves the endpoint.
-	 */
-	private static String resolveLegacyFile(String path) {
-		if (!path.startsWith(API_PREFIX) || path.endsWith(PHP_SUFFIX)) {
-			return null;
-		}
-		String remainder = path.substring(API_PREFIX.length());
+	/** The two segments after {@code api}, normalized as {@code index.php} does. */
+	private static String[] moduleAndAction(String uri) {
+		String remainder = uri.substring(API_PREFIX.length());
 		int slash = remainder.indexOf('/');
-		if (slash <= 0 || slash == remainder.length() - 1) {
-			return null;
-		}
-		int next = remainder.indexOf('/', slash + 1);
-		String moduleAndAction = next < 0 ? remainder : remainder.substring(0, next);
-		return API_PREFIX + moduleAndAction + PHP_SUFFIX;
+		String module = phpSegment(slash < 0 ? remainder : remainder.substring(0, slash));
+		String rest = slash < 0 ? "" : remainder.substring(slash + 1);
+		int next = rest.indexOf('/');
+		String action = phpSegment(next < 0 ? rest : rest.substring(0, next));
+		return new String[] { module, action };
 	}
 
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
 			throws ServletException, IOException {
 		String uri = request.getRequestURI();
-		String rewritten = resolveLegacyFile(uri);
-		String target = rewritten == null ? uri : rewritten;
-
-		// Only paths nothing serves take the router's error branch. A mapped
-		// route -- in either form -- is dispatched exactly as before, so this
-		// cannot change the behaviour of a delivered endpoint.
-		if (uri.startsWith(API_PREFIX) && !mappedRoutes.get().contains(target)) {
-			writeRouterRefusal(request, response, uri);
-			return;
-		}
-		if (rewritten == null) {
+		if (!uri.startsWith(API_PREFIX)) {
 			filterChain.doFilter(request, response);
 			return;
 		}
+
+		// The literal `.php` form first, unnormalized. Those are the paths the
+		// controllers are actually mapped on, and normalization would eat the
+		// dot -- `list.php` becomes `listphp` -- so testing the normalized form
+		// first turns every delivered `.php` route into a 501.
+		if (mappedRoutes.get().contains(uri)) {
+			filterChain.doFilter(request, response);
+			return;
+		}
+
+		// Then the client's form, resolved against NORMALIZED segments rather
+		// than the raw path. PHP strips `[^a-z0-9_]` before it looks for the
+		// action file, so `/apis/api/con-figs/get` and `/apis/api/con.figs/get`
+		// both serve `configs/get.php` -- both measured at 200 against the
+		// running PHP. Matching on the raw path refused them as 501, turning
+		// routes legacy serves into errors.
+		String[] parts = moduleAndAction(uri);
+		String module = parts[0];
+		String action = parts[1];
+		String rewritten = module.isEmpty() || action.isEmpty()
+				? null : API_PREFIX + module + "/" + action + PHP_SUFFIX;
+
+		if (rewritten == null || !mappedRoutes.get().contains(rewritten)) {
+			writeRouterRefusal(request, response, module, action);
+			return;
+		}
+		String rewrittenPath = rewritten;
 		filterChain.doFilter(new HttpServletRequestWrapper(request) {
 			@Override
 			public String getRequestURI() {
-				return rewritten;
+				return rewrittenPath;
 			}
 
 			@Override
@@ -153,12 +160,12 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 				// segments are dropped, so the suffix is not simply added.
 				int pathStart = original.indexOf(uri);
 				return new StringBuffer(
-						pathStart < 0 ? original : original.substring(0, pathStart) + rewritten);
+						pathStart < 0 ? original : original.substring(0, pathStart) + rewrittenPath);
 			}
 
 			@Override
 			public String getServletPath() {
-				return rewritten;
+				return rewrittenPath;
 			}
 
 			@Override
@@ -185,15 +192,9 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 	 * {@link LegacyWireExceptionHandler} -- a {@code @RestControllerAdvice} --
 	 * cannot see an exception raised here.
 	 */
-	private void writeRouterRefusal(HttpServletRequest request, HttpServletResponse response, String uri)
+	private void writeRouterRefusal(
+			HttpServletRequest request, HttpServletResponse response, String module, String action)
 			throws IOException {
-		String remainder = uri.substring(API_PREFIX.length());
-		int slash = remainder.indexOf('/');
-		String module = phpSegment(slash < 0 ? remainder : remainder.substring(0, slash));
-		String rest = slash < 0 ? "" : remainder.substring(slash + 1);
-		int next = rest.indexOf('/');
-		String action = phpSegment(next < 0 ? rest : rest.substring(0, next));
-
 		int status;
 		String key;
 		Map<String, Object> replace;
@@ -214,11 +215,36 @@ public class LegacyPhpRouterFilter extends OncePerRequestFilter {
 			replace = Map.of("module", module + "/" + action);
 		}
 
-		String text = messages.translate(messages.resolveLocale(request), key, replace);
+		String text = messages.translate(safeLocale(request), key, replace);
 		response.setStatus(status);
 		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 		response.setCharacterEncoding("UTF-8");
 		response.getWriter().write(objectMapper.writeValueAsString(LegacyApiResponse.fail(text, null)));
+	}
+
+	/**
+	 * {@link LegacyMessages#resolveLocale} reads {@code ?lang=} through
+	 * {@code URLDecoder}, which throws on a malformed escape such as
+	 * {@code ?lang=%}. PHP's {@code parse_str} keeps the literal {@code %} and
+	 * the router answers its normal 404, so letting that exception escape
+	 * turned a refusal into a <b>500</b> -- an invalid <em>optional</em>
+	 * localization hint deciding the status of the whole response.
+	 *
+	 * <p>Only the query-string half is unreliable; falling back leaves the
+	 * {@code Accept-Language} header and the default, which is what a request
+	 * with no {@code lang} parameter would have used anyway.
+	 */
+	private String safeLocale(HttpServletRequest request) {
+		try {
+			return messages.resolveLocale(request);
+		} catch (RuntimeException ex) {
+			return messages.resolveLocale(new HttpServletRequestWrapper(request) {
+				@Override
+				public String getQueryString() {
+					return null;
+				}
+			});
+		}
 	}
 
 }
