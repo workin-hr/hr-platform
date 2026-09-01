@@ -8,6 +8,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -70,6 +73,36 @@ class PlatformAdminSessionFlowTest extends AbstractIntegrationTest {
 				new PlatformAdminRefreshTokenRequest(refreshed.getBody().refreshToken()),
 				String.class);
 		assertThat(newest.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+	}
+
+	/**
+	 * R-027, platform-admin half. {@link #logoutRevokesTheSessionAndIsIdempotent()}
+	 * proves logout kills the <em>refresh</em> token; this one proves it also
+	 * stops the access token already in the caller's hands, which it previously
+	 * did not.
+	 */
+	@Test
+	void logoutAlsoStopsTheAccessTokenImmediately() {
+		PlatformAdminAuthResponse login = loginNewAdmin();
+
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(login.accessToken());
+		HttpEntity<Void> authed = new HttpEntity<>(headers);
+
+		assertThat(restTemplate.exchange("/api/platform-admin/me", HttpMethod.GET, authed, String.class)
+				.getStatusCode())
+				.as("the access token works before logout")
+				.isEqualTo(HttpStatus.OK);
+
+		restTemplate.postForEntity(
+				"/api/platform-admin/logout",
+				new PlatformAdminRefreshTokenRequest(login.refreshToken()),
+				Void.class);
+
+		assertThat(restTemplate.exchange("/api/platform-admin/me", HttpMethod.GET, authed, String.class)
+				.getStatusCode())
+				.as("the same unexpired access token must stop working once the session is revoked")
+				.isEqualTo(HttpStatus.UNAUTHORIZED);
 	}
 
 	@Test

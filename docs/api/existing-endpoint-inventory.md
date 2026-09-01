@@ -39,6 +39,25 @@ accordingly per entry.
 
 Source: `workin-hr/hr-legacy` commit `83c326e40f68dd0d560595a6c4e465eb681f2ce8`.
 
+> **Read the `.php` file names below as file names, not as URLs.** This
+> inventory is organised by the PHP source tree, so every entry names a file.
+> The URL a client requests is the **router path, without the suffix**:
+> `apis/api/index.php` maps `/api/{module}/{action}` onto
+> `api/{module}/{action}.php`, and `apis/.htaccess` only rewrites when the
+> target does *not* exist on disk — so requesting the `.php` file directly
+> bypasses the bootstrap it assumes and fails. Measured against production on
+> 2026-08-31: `/apis/api/configs/get` returns **200**,
+> `/apis/api/configs/get.php` returns **500**. Both Flutter clients agree —
+> `api_constants.dart` joins `https://workin.company/apis/api/` with paths like
+> `auth/login_employee`, and none of its 266 endpoint constants carries the
+> suffix.
+>
+> This distinction was lost when the Java port was built from this document:
+> its controllers mapped the file paths, so Java answered the client URL form
+> for 9 of the 190 endpoints the clients call (**R-028**). Anything derived
+> from this inventory — mappings, tests, coverage counts — must convert file
+> name to route rather than assuming they are the same string.
+
 ---
 
 ## Endpoint: `POST /api/auth/login_employee`
@@ -493,6 +512,35 @@ Excel import/analyze/template trio pattern seen in `attendance` and
 (`list.php`/`one.php`/`stats.php` use bare `requireAuth()`) not traced
 for row-level self-scoping in this pass.
 
+**`analyze_excel.php`'s upload guard is `isset($_FILES['file'])` plus
+`error === UPLOAD_ERR_OK`, and the distinction is client-visible** (R-031).
+Three request shapes that look similar answer differently, measured against
+both stacks:
+
+| multipart `file` part | answer |
+|---|---|
+| a text field (no filename) | 400 `No file uploaded` — a `$_POST` field never reaches `$_FILES` |
+| present with `filename=""` | 400 `No file uploaded` — PHP's `UPLOAD_ERR_NO_FILE` |
+| zero bytes with a real filename | 400 `Empty or unreadable file` — `UPLOAD_ERR_OK`, so it reaches the format check |
+| absent entirely | 400 `No file uploaded` |
+
+The first two both answered otherwise in Java before R-031 — the text field was
+parsed as a spreadsheet and returned **200**, and the empty filename reached the
+analyzer and returned the wrong message.
+
+**The same guard applies to the `attendance` and `employees` spreadsheet
+endpoints, and only `attendance` already had it.** `employees/analyze_excel`
+guarded on `file.isEmpty()`, which tests the *bytes* rather than the filename,
+so it was wrong in both directions and was corrected in the same change:
+
+| `employees/analyze_excel`, `file` part | PHP | Java before |
+|---|---|---|
+| zero bytes, real filename | `Empty or unreadable file` | `No file uploaded` |
+| `filename=""` with content | `No file uploaded` | `File rejected: it does not match…` |
+
+Both now match. An existing test asserted the first of those divergences as if
+it were the contract, and was corrected with the code.
+
 ## Workforce Planning (`apis/api/workforce_planning/`, 7 endpoints)
 
 Headcount-target CRUD per (company, branch, department, job_title), plus
@@ -684,7 +732,9 @@ department's name and its active headcount can be read from a single
 authenticated `GET`.
 
 **`configs/get.php` is delivered (Item 13.0, 2026-08-29, D-126)** and remains
-unauthenticated, on its literal `/apis/api/configs/get.php` URL. It answers two
+unauthenticated. Clients call it at `/apis/api/configs/get` — the suffixless
+router path; `configs/get.php` is the file name behind it, and the literal
+`.php` URL returns 500 (see the note at the top of this document). It answers two
 shapes from one route: `?config_key=...` returns `{config_key, config_value}`
 — 200 with a null value for an unknown key, never a 404 — and no key returns
 every row plus `server_time` and `server_timezone`. An **empty** `config_key`

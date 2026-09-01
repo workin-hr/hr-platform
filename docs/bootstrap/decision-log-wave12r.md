@@ -2521,12 +2521,13 @@ it reached `main`, and the honest answer is that nobody independent looked.
 | Evidence | `backend/src/main/java/com/workin/backend/security/PlatformAdminAuthenticationFilter.java`; `PlatformAdminAuthFlowTest#aTokenIssuedBeforeDeactivationStopsWorkingImmediately` — logs in, confirms the token works, deactivates the row, asserts the same unexpired token is refused. Falsified by removing the check and confirming only that test fails. An independent security review of PR #152 traced the filter chain, the `permitAll` routes, the error paths and the `phase1-mysql` profile, and found no bypass. |
 | Status | Accepted 2026-08-31. |
 
-> **Not closed by this decision**: revocation on **logout** is a separate,
-> unresolved question on both surfaces — the access token's `sid` claim is
-> issued and never read, so a logged-out token keeps working until `exp`
-> (**R-027**, `open-questions.md`, annotated on ADR-0005). D-145 makes
-> *deactivation* immediate; it does not make *logout* immediate, and those are
-> the two controls an operator is most likely to confuse.
+> **Not closed by this decision**: revocation on **logout** was a separate
+> question on both surfaces — the access token's `sid` claim was issued and
+> never read, so a logged-out token kept working until `exp` (**R-027**).
+> D-145 makes *deactivation* immediate; it did not make *logout* immediate,
+> and those are the two controls an operator is most likely to confuse.
+> **Resolved later the same day by [D-149](#d-149-logout-revokes-the-access-token-not-only-the-refresh-family)**,
+> which reads the `sid` claim on both surfaces and closes R-027.
 
 ## D-146: ADR-0014 accepted — the platform-admin browser session never holds a platform-admin token
 
@@ -2549,6 +2550,66 @@ it reached `main`, and the honest answer is that nobody independent looked.
 > succeeding; and the **step-up bounds** (Decision 4), because a step-up flag
 > with no maximum age, single-use rule or action binding is step-up in name
 > only.
+
+## D-147: Legacy routes are served by porting `index.php`'s router, ahead of the security chain
+
+| Field | Value |
+|---|---|
+| Decision | Legacy URLs are served by a single servlet filter, `LegacyPhpRouterFilter`, that reproduces `apis/api/index.php`: the two segments after `/apis/api/` resolve to the `.php` file serving them, and anything beyond those two segments is ignored, as legacy ignores it. It is registered at `HIGHEST_PRECEDENCE` and **outside** the Spring Security chain, and it **wraps** the request rather than forwarding it. |
+| Reason | Controllers map file paths (`/apis/api/configs/get.php`) because the endpoint inventory was built from the PHP source tree; clients call router paths (`/apis/api/configs/get`) and none of the 266 client endpoint constants carries the suffix. Measured: Java answered the client URL form for **9 of 190** endpoints before this, and 188 after (**R-028**). |
+| Alternatives | **Map both forms on every controller** — 190 further mappings, and a new endpoint could be added in one form and forgotten in the other; the defect would recur silently, one endpoint at a time. **Rewrite inside the security chain** — rejected on ordering: the permit-list in `LegacyPhpRoutes` is written in `.php` paths, so authorization evaluating the client form would fall through to `anyRequest().authenticated()` and 401 endpoints legacy serves anonymously. **Forward instead of wrap** — a forward skips the filter chain by default, so Spring Security and the dispatcher would observe different paths. |
+| Impact | One rewrite for the whole surface, so reachability cannot drift per endpoint. The security matcher, the authorization rules and the dispatcher all observe one path. `getRequestURL()` rebuilds from the resolved file rather than appending a suffix, because trailing segments are dropped. Five regression cases in `LegacyReferenceEndToEndTest`, three of which fail with the filter disabled. |
+| Evidence | `LegacyPhpRouterFilter`, `LegacyPhpRouterConfig`; production measurement (`/apis/api/configs/get` → 200, `/apis/api/configs/get.php` → 500); `apis/.htaccess` rewrites only when the target does not exist, so a direct `.php` request bypasses the bootstrap those files assume; `flutter-integration/*/lib/core/network/api_constants.dart`. |
+| Status | Accepted 2026-08-31. |
+
+> **Why this is a decision and not just a fix.** It selects a mechanism and an
+> ordering for **every legacy route at once**, and the ordering is the part that
+> is not obvious: a rewrite placed after the security chain looks equivalent and
+> would 401 every anonymous endpoint. R-028 records the defect; this records
+> what was chosen and what was rejected, so the next person to touch legacy
+> routing does not rediscover the ordering constraint by breaking it.
+
+## D-148: The router answers for paths it does not serve, before authentication
+
+| Field | Value |
+|---|---|
+| Decision | `LegacyPhpRouterFilter` reproduces `apis/api/index.php`'s three refusals for any `/apis/api/**` path no endpoint serves: unknown module → **404** `module_not_found` naming the allow-list back, allow-listed module with no action → **501** `module_not_implemented`, missing action segment → **404** `unknown_action`. All three are answered **before** the Spring Security chain, in D-074's `{success,message}` envelope, localised like every other legacy message. The router also owns the **locale of its own refusals**, which is a client-visible contract in its own right: a query string that cannot be decoded is **repaired, not discarded** — every dangling `%` is escaped so the real parser receives what `parse_str` would have kept. Three behaviours follow, all measured against the running PHP: a malformed escape must not turn the refusal into a **500**; a valid `lang=ar` beside a malformed unrelated pair must still answer **Arabic**; and a malformed `lang=%` is a **nonempty non-Arabic value that overrides** an `Accept-Language: ar` header, exactly as `?lang=xx` does, rather than being treated as absent. Repairing the whole query rather than extracting a `lang` pair is what makes the third hold for every shape PHP parses as `lang`, including a percent-encoded name such as `l%61ng`. |
+| Reason | Java had no behaviour for an unserved path, so the container's default leaked through in two ways at once. **Status and order**: PHP resolves the module at the top of `index.php`, before the action file and therefore before any `requireAuth()`, so an unknown path is a 404 to an anonymous caller. Java's security chain sits in front of the dispatcher, so the same request answered **401**. **Shape**: the body was Spring's `{timestamp,status,error,path}`, which no client here parses. This was not hypothetical — `time/now` is on that path and the mobile client calls it from its **home screen** (`home_provider.dart:79`), which is also what falsified **O-3**'s "unreachable dead surface" premise. |
+| Alternatives | (a) **A `NoResourceFoundException` handler** — cannot work: `LegacyWireExceptionHandler` is a package-scoped `@RestControllerAdvice`, and an unmatched path never reaches a controller. It also could not fix the 401, which is decided before the dispatcher. (b) **Widen the security permit-list to all of `/apis/**`** — fixes the status by removing the guard, and would make every unported route publicly reachable. Rejected outright. (c) **Map the missing routes explicitly** — answers the two known cases and leaves the next one to be found in production; the defect is the *absence of a rule*, not two absent endpoints. |
+| Impact | Closes the last two rows of the parity sweep: **190/190, differing = 0**, up from 188/190. Restores the fail-closed property the 401 was accidentally providing, without weakening it — an unserved path is refused by the router rather than reaching the dispatcher, and the permit-list is untouched. **The 501 branch is derived, not restated**: the set of served routes comes from the live `RequestMappingHandlerMapping`, so a route added, renamed or lost moves with it and cannot drift the way a second hand-written list would. Only paths with **no** handler take the refusal branch, so no delivered endpoint changes behaviour. **Rollback** is reverting the filter; the module list and messages are additive. |
+| Evidence | `LegacyPhpModules` (ported literally from `ApiModule::allowedList()`, in PHP's order because `implode(', ', ...)` puts it in the response body); `LegacyPhpRouterFilter.writeRouterRefusal`. **Two kinds of evidence, kept apart because they prove different things.** **Java-side, automated, runs in CI**: `LegacyPhpRouterRefusalTest` starts only this application, so it pins *this* service's behaviour and cannot by itself establish PHP parity — all three refusal branches (`module_not_found`, `unknown_action`, `module_not_implemented`), the fail-closed 404-not-401 case, both message locales, PHP's segment normalisation in both directions (an uppercase letter is deleted rather than folded, so `Configs` reads as `onfigs`; a stripped separator still resolves, so `phone_count-ries/list` is served), a malformed `?lang=%` not replacing the refusal with a 500, and a control that a delivered endpoint is still served in both URL forms. `LegacyPhpModulesDriftTest` pins the allow-list against a vendored copy of the legacy source rather than against itself. **PHP-comparison, manual, not in CI**: the parity harness (`spike/parity-harness/`), where every case above was measured byte-identical against both running stacks and the full unauthenticated sweep re-run at **190/190, differing = 0, unreachable = 0**. An earlier version of this row credited the Java test with the both-language *parity* comparison, which it cannot make.. A second review round found that the malformed-escape regression was sent through `new URI(...)`, whose multi-argument constructor percent-encodes the `%` into `%25` — so nothing threw and the test passed with or without the fix. It now writes the request line over a raw socket, and all malformed-query cases were verified to fail with the repair removed. The locale contract took **three rounds**, each finding a divergence introduced by the fix for the one before it: dropping the whole query lost a valid `lang`; preserving only a literal `lang=` pair treated a malformed one as absent and let the header win; extracting a pair at all lost the percent-encoded-name form. Escaping the whole query removes the failure mode instead of adding a fourth branch. That investigation also surfaced the same malformed escape failing *delivered* endpoints with a container-level 400 where PHP answers 200 — which is **D-070**, already accepted, and not a new finding. **R-034** records it as a pointer to that decision; it was first written as an open defect proposing Tomcat connector changes, which would have contradicted D-070's explicit instruction not to relax request-target parsing. |
+| Status | Accepted 2026-08-31. Extends **D-147**, which introduced this router; that decision made the client's URL form resolve, this one gives the router an answer for the paths it does not serve. Closes the `time/now` half of **R-028**'s residuals and makes **O-3**'s "must return 404 after cutover" true by measurement. |
+
+> **Deliberately not included**, both recorded so they are known gaps rather
+> than oversights:
+>
+> 1. `index.php`'s `ROUTING_USE_PATH_ONLY` guard, which answers **400** when a
+>    non-empty `action` arrives as a query or form parameter. It applies to
+>    *every* routed request, including ones that succeed today, so it is a
+>    change to delivered endpoints rather than to unserved paths and belongs
+>    with its own evidence.
+> 2. **Apache's own responses for directory-shaped paths.** Measured: `/apis/`
+>    is **403** in PHP (directory listing denied) and `/apis/api/configs` and
+>    `/apis/api` are **301** (`mod_dir` appending a trailing slash, because
+>    those directories exist on disk). These never reach `index.php` at all, so
+>    they are web-server behaviour rather than router contract; no client
+>    requests them, and none appears in the endpoint sweep. Java answers 404
+>    `unknown_action` for `/apis/api/configs` — which is what `index.php` would
+>    have said had Apache not intercepted — and the security chain's 401 for the
+>    other two. Reproducing `mod_dir` in the application was judged the wrong
+>    trade. Note `/apis/api/` **with** the trailing slash does reach the router
+>    and does match: 404 `Module 'none' not found`, PHP's `$module ?: 'none'`.
+
+## D-149: Logout revokes the access token, not only the refresh family
+
+| Field | Value |
+|---|---|
+| Decision | Both authentication filters resolve the access token's `sid` claim and refuse to authenticate when that session family is `REVOKED`. Logout, reuse-detection and identity-wide revocation therefore stop the access token already in the caller's hands, on the **tenant** and **platform-admin** surfaces alike. This accepts **one indexed lookup per authenticated request** on each surface as the standing cost. |
+| Reason | Logout previously revoked the refresh family and nothing else (**R-027**). The `sid` claim naming that family was issued by both surfaces and read by neither, so the control an operator reaches for when a token must stop working immediately did not stop it — for up to a full access-token TTL. On the tenant surface that was not theoretical: 58 live mutating endpoints sat behind it, including payslip create/update/delete, salary contracts and branch deletion. |
+| Alternatives | (a) **Accept it as the standard stateless-JWT trade** and leave R-027 recorded — defensible in the abstract, rejected here because of what the tenant write surface actually exposes and because an operator's mental model of "log the session out" is not negotiable during an incident. (b) **Shorten the access-token TTL** — shrinks the window, never closes it, and pays for the reduction in rotation traffic. (c) **Fix only the tenant surface**, where the realised exposure was — rejected: it would leave two surfaces with different revocation semantics, which is how the original inconsistency arose. |
+| Impact | Same trade **ADR-0010** makes for authorization and **D-145** makes for admin deactivation: immediate revocation over cached session state. Deliberate residual gap — a token carrying no `sid` is treated as live, so tokens minted before the claim existed keep working instead of every session being logged out on deploy; that gap ages out within one access-token TTL of the deploy. **Not in scope, deliberately**: the `phase1-mysql` compatibility chain is untouched. It authenticates PHP-format tokens, which carry no `sid` and have no session-family table behind them — PHP's own logout semantics are the parity requirement on that surface, so importing this behaviour there would be a divergence, not a fix. **Rollback** is reverting the two filter checks; the repository methods are additive and harmless if left. **Operational note**: a spike in 401s on `/api/tenant/**` or `/api/platform-admin/**` immediately after deploy would indicate the check refusing sessions it should not — the filter adds no log line of its own, so the signal is the 401 rate, not an error log. **New coupling this creates**: a `sid` naming no row at all is treated as revoked, so the lifetime of a refresh-token row is now the lifetime of the access tokens issued against it. Verified safe today — neither repository has a delete method and there is no scheduled job anywhere in `src/main/java`, so rows are never removed. But **anyone adding a purge of expired refresh tokens must exclude families newer than one access-token TTL**, or live access tokens will start failing at authentication the moment their family is swept. That constraint did not exist before this decision. |
+| Evidence | `JwtAuthenticationFilter.sessionIsLive` + `RefreshTokenRepository.familyIsLive`; `PlatformAdminAuthenticationFilter.sessionIsLive` + `PlatformAdminRefreshTokenRepository.familyIsLive`. Regression tests `AuthSessionFlowTest#logoutAlsoStopsTheAccessTokenImmediately` and `PlatformAdminSessionFlowTest#logoutAlsoStopsTheAccessTokenImmediately`, each **verified to fail with its fix reverted and pass with it applied**. Indexes confirmed present before relying on them: `refresh_tokens_family_id_idx` (V15), `platform_admin_refresh_tokens_family_id_idx` (V16). Status enum on both surfaces is exactly `ACTIVE`/`ROTATED`/`REVOKED`, so "not `REVOKED`" is a correct liveness test and rotation keeps the family live. |
+| Status | Accepted 2026-08-31. **Numbered D-149, not D-146:** PR #148 allocated D-146 to ADR-0014's acceptance first (that decision lives on PR #148's branch, not this one), and a duplicate identifier leaves every later reference ambiguous about which decision it names. Renumbered on this branch because that one was recorded first. Closes **R-027**; completes the pair begun by **D-145**, which made *deactivation* immediate but explicitly left *logout* open. |
 
 ## D-151: The admin web is JTE inside the existing Spring application, and Phase 2 storage work is out of scope
 

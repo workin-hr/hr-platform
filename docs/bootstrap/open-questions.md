@@ -327,11 +327,16 @@ substantially closed.
 accepted: the active-admin lookup runs per request, and the JTE controllers
 inherit it because it lives in the request path rather than in a handler.
 
-## Session Revocation On Logout — Both Surfaces (R-027)
+## Session Revocation On Logout — Both Surfaces (R-027) — ANSWERED
 
-Surfaced 2026-08-31 by an independent security review of PR #152. This is a
-**decision that has not been made**, not a defect awaiting a fix — which is why
-it sits here rather than only in the risk register.
+> **Answered 2026-08-31: option 1, on both surfaces — [D-149](decision-log-wave12r.md). Logout now invalidates the live access token.**
+> The question and its reasoning are kept below as the record of what was
+> weighed, including the cost objection that turned out to be the real
+> substance of the decision. **R-027 is closed.**
+
+Surfaced 2026-08-31 by an independent security review of PR #152. This was a
+**decision that had not been made**, not a defect awaiting a fix — which is why
+it sat here rather than only in the risk register.
 
 - **Should logging out invalidate the live access token, or only the refresh
   family?** Today it is the latter: the token carries a `sid` claim naming its
@@ -371,6 +376,15 @@ revokes the family only — and it has **58 mutating endpoints live today**,
 including payslip create/update/delete, salary contracts and branch deletion. A
 token revoked by logout can still perform all of them until `exp`.
 
-So the decision is owed for the tenant surface now, not at the first destructive
-platform-admin endpoint. Whichever way it goes, it should be answered once for
-both filters rather than twice.
+So the decision was owed for the tenant surface immediately, not at the first
+destructive platform-admin endpoint. It was answered once for both filters
+rather than twice.
+
+**Resolution.** Option 1. The cost objection above is correct and was accepted
+rather than argued away: `JwtAuthenticationFilter` previously had no repository
+dependency, so this does add one indexed query per request to the busiest path
+in the system. It was accepted because 58 live mutating endpoints sat behind a
+control that did not do what its name says, and because it is the same trade
+ADR-0010 already makes for authorization. If that query later shows up in
+latency measurements, the answer is to measure and revisit it as its own
+decision — not to quietly restore a logout that does not log the caller out.

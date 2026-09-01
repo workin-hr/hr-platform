@@ -120,6 +120,13 @@ public class LegacyPayslipStore {
 				  CASE WHEN e.employee_code REGEXP '^[0-9]+$'
 				    THEN CAST(e.employee_code AS UNSIGNED) ELSE NULL END ASC,
 				  e.employee_code ASC,
+				  -- p.id here, e.id in list() below: the two PHP queries
+				  -- genuinely differ. The export helper
+				  -- (data_export_helper.php:552, inside
+				  -- data_export_payslips_csv) ends on the PAYSLIP id, while
+				  -- payslips/list.php:141 ends on the EMPLOYEE id. They look
+				  -- like a copy-paste slip and are not; changing either to
+				  -- match the other diverges from legacy.
 				  p.id ASC
 				""".formatted(where);
 

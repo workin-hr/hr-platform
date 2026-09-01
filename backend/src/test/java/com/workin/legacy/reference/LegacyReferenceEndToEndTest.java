@@ -78,6 +78,121 @@ class LegacyReferenceEndToEndTest {
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
 	}
 
+	// ---------------- legacy router path form ----------------
+
+	/**
+	 * The URL form the Flutter clients actually use.
+	 *
+	 * <p>Every controller here maps a <em>file</em> path
+	 * ({@code .../list.php}) because the endpoint inventory was built from the
+	 * PHP source tree. No client calls that. {@code api_constants.dart} joins
+	 * {@code https://workin.company/apis/api/} with {@code phone_countries/list},
+	 * and none of its 266 endpoint constants ends in {@code .php}. Production
+	 * agrees: {@code /apis/api/configs/get} answers 200 and
+	 * {@code /apis/api/configs/get.php} answers 500, because the direct file
+	 * assumes a bootstrap only {@code index.php} performs.
+	 *
+	 * <p>Measured before {@link com.workin.legacy.wire.LegacyPhpRouterFilter}
+	 * existed: Java answered the client's form for 9 of the 190 endpoints the
+	 * clients call. This is the case that pins the other 181.
+	 */
+	@Test
+	void theRouterPathFormAnswersIdenticallyToTheFilePath() {
+		ResponseEntity<Map> viaFile = restTemplate.getForEntity(COUNTRIES, Map.class);
+		ResponseEntity<Map> viaRoute = restTemplate.getForEntity(
+				COUNTRIES.substring(0, COUNTRIES.length() - ".php".length()), Map.class);
+
+		assertThat(viaRoute.getStatusCode())
+				.as("the URL the clients actually call must be served")
+				.isEqualTo(viaFile.getStatusCode());
+		assertThat(viaRoute.getBody())
+				.as("and must return the same payload, not merely the same status")
+				.isEqualTo(viaFile.getBody());
+	}
+
+	/**
+	 * The rewrite must not fire twice. A path already naming the file is left
+	 * alone -- otherwise it would become {@code list.php.php} and 404.
+	 */
+	@Test
+	void theFilePathFormStillWorks() {
+		assertThat(restTemplate.getForEntity(COUNTRIES, Map.class).getStatusCode().value()).isEqualTo(200);
+	}
+
+	/**
+	 * A public route stays public through the rewrite. This is the ordering
+	 * the filter exists to get right: the security permit-list is written in
+	 * {@code .php} paths, so if authorization saw the client's form it would
+	 * fall through to {@code anyRequest().authenticated()} and 401 an endpoint
+	 * legacy serves anonymously.
+	 */
+	@Test
+	void aPublicRouteIsStillPublicWhenCalledInTheClientForm() {
+		ResponseEntity<Map> response = restTemplate.getForEntity(
+				"/apis/api/phone_countries/list", Map.class);
+
+		assertThat(response.getStatusCode().value())
+				.as("no Authorization header, and legacy calls no requireAuth() here")
+				.isEqualTo(200);
+		assertThat(response.getBody().get("success")).isEqualTo(true);
+	}
+
+	/**
+	 * Legacy's router reads the two segments after {@code api} and <b>ignores
+	 * the rest</b>, so a deeper path serves the same endpoint.
+	 *
+	 * <p>This test previously asserted the opposite — that a deeper path is
+	 * refused — which was wrong, and wrong against this repository's own
+	 * description of the router. Verified against the running PHP:
+	 * {@code /apis/api/phone_countries/list/extra} answers 200, as does
+	 * {@code .../list/a/b}. A client appending anything to a route would have
+	 * received a 401 or 404 from Java where PHP serves the endpoint.
+	 */
+	@Test
+	void aDeeperPathResolvesToTheSameEndpointAsLegacy() {
+		ResponseEntity<Map> plain = restTemplate.getForEntity("/apis/api/phone_countries/list", Map.class);
+		ResponseEntity<Map> deeper = restTemplate.getForEntity(
+				"/apis/api/phone_countries/list/extra", Map.class);
+
+		assertThat(deeper.getStatusCode())
+				.as("legacy ignores the trailing segments rather than refusing them")
+				.isEqualTo(plain.getStatusCode());
+		assertThat(deeper.getBody()).isEqualTo(plain.getBody());
+	}
+
+	/**
+	 * The query string has to survive the rewrite -- legacy reads its
+	 * parameters from it, so losing it would turn a filtered request into an
+	 * unfiltered one rather than into an error.
+	 *
+	 * <p>Deliberately <b>not</b> {@code phone_countries/list?lang=en}, which is
+	 * what this test used to assert: that endpoint does not read {@code lang}
+	 * at all -- it selects on {@code Accept-Language} -- so both sides matched
+	 * whether the query string survived or was dropped entirely, and the test
+	 * could not fail. {@code content_key} is material: the third assertion
+	 * below pins that the same route answers 400 without it, so a dropped
+	 * query string turns the first two assertions red instead of green.
+	 */
+	@Test
+	void theQueryStringSurvivesTheRewrite() {
+		ResponseEntity<Map> viaRoute = restTemplate.getForEntity(
+				"/apis/api/app_content/one?content_key=terms", Map.class);
+		ResponseEntity<Map> viaFile = restTemplate.getForEntity(
+				"/apis/api/app_content/one.php?content_key=terms", Map.class);
+
+		assertThat(viaRoute.getStatusCode().value())
+				.as("the keyed request must succeed, or the comparison below proves nothing")
+				.isEqualTo(200);
+		assertThat(viaRoute.getStatusCode()).isEqualTo(viaFile.getStatusCode());
+		assertThat(viaRoute.getBody()).isEqualTo(viaFile.getBody());
+
+		assertThat(restTemplate.getForEntity("/apis/api/app_content/one", Map.class)
+				.getStatusCode().value())
+				.as("without content_key the same route answers 400 -- which is what a "
+						+ "dropped query string would produce")
+				.isEqualTo(400);
+	}
+
 	// ---------------- phone_countries ----------------
 
 	@Test
