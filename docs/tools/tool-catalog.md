@@ -37,9 +37,14 @@ recommendations pending human confirmation, not decisions).
 - Maven
 - PostgreSQL
 - Flyway
-- Node LTS
-- pnpm
-- Next.js 16
+- ~~Node LTS~~ — only if a future surface needs it; not required by the JTE
+  admin web (D-151)
+- ~~pnpm~~ — see Node LTS above (D-151)
+- ~~Next.js 16~~ — **not used** (D-151, 2026-09-01). The admin web is
+  server-rendered **JTE** inside the existing Spring application; see
+  ADR-0015, superseding ADR-0014. This entry predated that decision and was
+  cited as support for the Next.js direction, so it is struck rather than
+  deleted
 - Docker
 - Docker Compose
 - JUnit (moved from Evaluate During Discovery — Java/Spring Boot is the confirmed target stack)

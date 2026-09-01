@@ -190,7 +190,17 @@ PHP dashboard (scoped down) or becomes a new purpose-built application is
 a separate, smaller decision than originally framed, and the
 Next.js-vs-JTE question applies to it at this narrower scope:
 
-**Recommendation: Next.js**, as already recorded in
+> **Superseded 2026-09-01 — the recommendation below was not taken.** The
+> repository owner directed **JTE pages inside the existing Spring
+> application**, recorded in
+> [ADR-0015](ADR-0015-platform-admin-jte-authentication.md). The reasoning
+> below is retained as the record of what was weighed, and the ecosystem
+> argument still stands on its own terms — it was outweighed by keeping one
+> deployment and one authentication model, which also removes the entire BFF
+> security surface. The owner's instruction quoted above ("choose the best of
+> thing in 2026 and in future") was one input; this is the closing decision.
+
+**Recommendation at the time: Next.js**, as already recorded in
 `docs/tools/tool-catalog.md` prior to this ADR, for these reasons:
 
 - **2026 ecosystem/hiring**: React/Next.js has a materially larger talent
@@ -345,16 +355,24 @@ verification pass. Status as of 2026-08-05:
 
 - ~~Does the platform-admin web surface stay the existing PHP dashboard
   (scoped down to just its `admin`-role pages) or get rebuilt as a new,
-  smaller Next.js app from scratch?~~ **Answered 2026-08-31 by
-  [ADR-0014](ADR-0014-platform-admin-web-authentication.md) (D-146): rebuilt
-  as a Next.js application**, with its server-side BFF as the authentication
-  boundary — the browser never receives a platform-admin token. That decision
-  assumes this application exists, so leaving the question open here left the
-  owning surface ADR contradicting an accepted one. **Consequence for this
-  ADR**: the `admin`-role pages of the PHP dashboard are superseded rather
-  than scoped down, and whether the two run in parallel during Phase 2 — and
-  if so whether they authenticate independently — is ADR-0014's prerequisite 4,
-  not a question this ADR still owns.
+  smaller Next.js app from scratch?~~ **Answered 2026-09-01 by
+  [ADR-0015](ADR-0015-platform-admin-jte-authentication.md): rebuilt as
+  server-rendered **JTE** pages inside the existing Spring application** — one
+  deployment, on the application's existing authentication and session model.
+
+  **This corrects an earlier answer recorded here.** On 2026-08-31 this
+  question was closed as *Next.js with a server-side BFF*, on the strength of
+  the pre-existing recommendation in `docs/tools/tool-catalog.md` and
+  ADR-0014. The repository owner corrected that premise on 2026-09-01, and
+  ADR-0014 is superseded by ADR-0015 rather than amended, because the BFF's
+  entire security surface — a second credential store, rotation-result
+  custody, browser-token enforcement, cookie topology — existed only because
+  of the browser/backend split.
+
+  **Consequence for this ADR**: the `admin`-role pages of the PHP dashboard
+  are superseded rather than scoped down, and whether the two run in parallel
+  during Phase 2 — and if so whether they authenticate independently — is
+  ADR-0015's prerequisite 7, not a question this ADR still owns.
 - What is the cutover sequence: fix the Manager-role parity gap first,
   then retire dashboard pages module-by-module, or an all-at-once
   cutover once full parity is confirmed?

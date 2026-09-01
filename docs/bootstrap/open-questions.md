@@ -245,132 +245,68 @@ These belong with `hr-platform#22`, which owns push delivery, rather than being
 answered separately: fixing the table without the delivery half would leave the
 same dead route with a different failure mode.
 
-## Platform-Admin Web Surface Authentication (ADR-0014, Accepted)
+## Platform-Admin Web Surface Authentication (ADR-0015, Accepted)
 
-Surfaced by `docs/adr/ADR-0014-platform-admin-web-authentication.md`, **accepted
-2026-08-31 (D-146) over these items**, which were written as acceptance
-blockers. They are now **implementation prerequisites**: the decision is
-settled, and none of this may ship until they are answered. Two gate any code at
-all — throttling, because the surface is currently weaker than the system it
-replaces, and the step-up bounds, because an unbounded step-up flag is step-up
-in name only. **The active-admin lookup was in that set and is no longer**: it
-merged in PR #152 (**R-026** closed, **D-145** accepted) and runs per request
-today, so it must not be re-planned as outstanding work.
+Surfaced by `docs/adr/ADR-0015-platform-admin-jte-authentication.md`, which
+**supersedes ADR-0014**. The admin web is **JTE pages inside the existing
+Spring application** — one deployment, server-side rendered, on the
+application's existing authentication and session model, per the repository
+owner's instruction of 2026-09-01.
 
-Also outstanding: **engineering-lead feasibility sign-off**. The ADR names two
-deciders and only the owner has approved.
+**Most of the previous entries in this section are gone, not answered.** They
+required a browser-facing application holding credentials: the BFF session
+store and its custody (**R-033**, now closed as not applicable),
+rotation-result custody, enforcing that the browser never receives a token, and
+cookie domain topology. With the surface in-process there is nothing to hold,
+so those questions have no subject.
 
-- **Is the BFF boundary the agreed shape, and how is "the browser never receives
-  a platform-admin token" *enforced* rather than documented?** The existing
-  `/api/platform-admin/login` and `/refresh` hand both tokens to any caller, so
-  the wrong wiring is the path of least resistance.
-- **What server-side session store does the BFF use, with what custody**, and
-  what cookie domain topology does it imply? Not *whether* one: a stateless
-  signed cookie carrying the token pair would send those tokens to the browser,
-  which the whole design exists to prevent — signing gives integrity, not
-  confidentiality — and a cookie holding only an opaque handle is server-side
-  state by definition. **Naming a technology does not close this** (**R-033**):
-  the store holds the raw refresh token for every logged-in administrator, and
-  a reader of it bypasses MFA entirely. Encryption at rest under a key held
-  outside the store, access restricted to the BFF runtime identity, replicas
-  and backups to the same standard, reads logged, and a tested mass-revocation
-  path are part of the choice, not follow-ups to it.
-- **What are the concrete session bounds** — the idle timeout and the
-  non-renewable absolute family cap, **enforced on the backend family rather
-  than in the BFF**? The 7-day refresh is *sliding* today: `rotate()` issues
-  every successor at `now + 7 days` and never consults the family's origin, so
-  a session used daily never expires. A BFF cookie expiry does not constrain a
-  raw token stolen from the BFF store and replayed through the backend, which
-  is the scenario the cap exists to bound (**R-033**), so Java must persist or
-  derive the family origin and refuse rotation past the cap — **proven by a
-  test that advances a family beyond it and asserts the backend refuses**.
-  Configuration values or BFF-level coverage do not close this: the property
-  claimed is that a stolen raw token stops working at the cap, and only a test
-  at the backend boundary demonstrates it.
-- **What does the MFA-bearing login exchange look like?** `/login` takes phone
-  plus password and returns the token pair immediately, so there is nowhere for
-  a TOTP challenge to happen. Needs a challenge/response step, enrolment, and a
-  representation for a step-up-satisfied session — **with all four binding
-  rules, not a generic "step-up satisfied" flag**: a **maximum age** in minutes
-  rather than the session lifetime; **single use**; bound to the **canonical
-  operation**; and bound to the **resource identifier and a digest of the
-  security-relevant request parameters**, recomputed server-side from the
-  request about to execute rather than trusted from anything echoed back.
-  The last of those is not a detail of the third. An approval bound to
-  "suspend" but not to *which company* is consumable by a hijacked session
-  against a different tenant — same operation, same session, different tenant,
-  every other property satisfied and the wrong company suspended. Closing this
-  prerequisite without it recreates exactly the defect the binding exists to
-  prevent.
-- **Is ADR-0005's "sessions can be listed and revoked individually" going to be
-  delivered?** It is unimplemented on **both** surfaces: neither
-  `PlatformAdminRefreshTokenRepository` nor `RefreshTokenRepository` has a list
-  query, and no controller exposes listing or revoke-by-session. Revocation
-  today requires holding the refresh token, or is all-or-nothing. This is an
-  ADR-0005 shortfall rather than an ADR-0014 one, but a new admin surface with
-  MFA and no session visibility is a conspicuous place to inherit it.
-- **What throttling do the password and TOTP steps get, and where is it
-  counted?** `PlatformAdminLoginService` has no attempt limit, backoff or
-  lockout, while the legacy dashboard it replaces enforces 8 attempts /
-  15 minutes. A six-digit second factor without throttling is a feasible online
-  search, so this is not a follow-up to MFA. **The limit and window are not
-  sufficient to close this**: it must be enforced in **shared state at the Java
-  backend boundary**, where every attempt converges regardless of which BFF
-  instance received it, and it must **survive a restart**. A process-local
-  counter satisfies "8 attempts / 15 minutes" while giving each worker its own
-  budget and resetting on restart — against a six-digit code that difference is
-  the whole control. The acceptance test is **8 attempts submitted through
-  separate workers are refused**, not 8 attempts.
-- **How is a lost rotation response recovered?** If the BFF's `rotate()` call
-  commits at the backend but the response is lost — an ordinary timeout, not an
-  attack — the BFF still holds the superseded token. Presenting it is
-  indistinguishable from replay, so reuse-detection revokes the whole family and
-  logs the administrator out. Needs a **backend** change and cannot be closed by
-  the BFF alone: an idempotency key on `rotate()`, a bounded grace window
-  accepting the immediate predecessor once, or an endpoint returning a session's
-  current successor.
+These are **implementation prerequisites**: the design is settled and none of it
+may ship until they are answered.
 
-  **Each option pays a different price, so naming one does not close this.**
-  The idempotency-key and current-successor options require Java to retain the
-  **raw** successor — the repository keeps only its hash — creating a second
-  plaintext credential store that **R-033** does not model, so either inherits
-  bounded retention, encryption under an external key, and matching access and
-  backup controls. The grace window retains nothing but **deliberately weakens
-  reuse detection**: inside it a thief holding a just-rotated token can replay
-  without tripping family revocation, and if the BFF already stored its
-  successor that replay can take over or terminate the session. Choosing it
-  means bounding the window against that interval and testing that a replay
-  outside it still revokes the family. Listed because without it every prerequisite here can be
-  answered while a network blip still ends a session.
 - **Which TOTP implementation, what recovery design, and how are the seeds
-  kept?** The population is bootstrap-provisioned with no self-registration, so
-  lockout has no self-service escape today. **Seed custody is part of this
-  prerequisite, not a follow-up**: verification requires the backend to hold
-  each symmetric seed in *recoverable* form, so a plaintext column or an
-  unprotected backup lets anyone who can read the database generate every
-  administrator's second factor — MFA defeated by exactly the compromise it
-  exists to survive, silently and for every account at once. Required before
-  the surface ships: **application-level encryption with the key held outside
-  the database**, access restricted to the verification path, **backups
-  protected to the same standard** as the primary store, and a **defined
-  re-encryption path** for key rotation. Marking this answered with an
-  implementation and a recovery flow alone leaves the seeds unprotected.
+  kept?** Unchanged by the architecture correction, because it is a recoverable
+  secret at rest either way: **application-level encryption with the key held
+  outside the database**, access restricted to the verification path, backups
+  protected to the same standard, and a defined re-encryption path for
+  rotation. An implementation and a recovery flow alone leave the seeds
+  unprotected.
+- **What does the step-up-satisfied representation look like**, with all four
+  bounds — maximum age in minutes, single use, bound to the canonical
+  operation, **and bound to the resource identifier plus a server-recomputed
+  digest of the security-relevant request parameters**? The last is not a
+  detail of the third: an approval bound to "suspend" but not to *which
+  company* is consumable by a hijacked session against a different tenant.
+- **What throttling do the password and TOTP steps get, and where is it
+  counted?** In **shared, restart-surviving state**; a process-local counter
+  meets "8 attempts / 15 minutes" while giving each worker its own budget. The
+  acceptance test is attempts through separate workers, not a count.
+- **What are the concrete session bounds** — idle timeout and a non-renewable
+  absolute cap, as numbers — and is the session id rotated on login to prevent
+  fixation?
+- **CSRF**: which state-changing JTE routes carry a synchroniser token, and
+  where exactly is the filter-chain boundary between the cookie-authenticated
+  UI and the bearer-authenticated API? This is **new** with the in-process
+  model — a cookie-authenticated server-rendered surface is exposed in a way a
+  bearer API is not, and the two models now live in one application.
+- **Session cookie flags** — `HttpOnly`, `Secure`, `SameSite` — chosen and
+  pinned by a test rather than left to defaults.
+- **Is there a global session-revocation operation?** `revokeAllForPlatformAdmin(Long)`
+  is per-administrator despite its name, and unwired. "Revoke every admin
+  session" is an ad-hoc procedure today.
 - **Does the legacy PHP dashboard's `admin`-role surface run in parallel during
   Phase 2?** If so, do both surfaces authenticate independently?
-- **What retention applies to `PlatformAdminAuditEvent`?** The audit trail
-  exists; how long it must survive is not recorded anywhere.
+- **Is ADR-0005's "sessions can be listed and revoked individually" delivered
+  for this surface**, or explicitly deferred? Unimplemented on both surfaces
+  today, so this ADR does not create the gap.
+- **What retention applies to `PlatformAdminAuditEvent`?**
 
-Not open, recorded here because an earlier draft wrongly reopened it:
-**platform-admin identity separation is settled** by D-027 and F-26 — individual
-identities, structurally separated JWT sessions, `platform_admin_refresh_tokens`,
-and audit attribution with a NOT NULL admin FK.
+**Identity separation is deliberately not on this list.** **D-027** made
+individual platform-admin identity a P0 requirement and **F-26** records it as
+substantially closed.
 
-~~Tracked separately as a defect rather than a question: **R-026**, deactivation
-not enforced per request.~~ **Closed.** R-026 was fixed and merged in PR #152;
-`PlatformAdminAuthenticationFilter` loads the row and verifies `active` on every
-request (**D-145**). Struck rather than deleted so the trail stays followable —
-but it is **not outstanding work**, and this section said so above while this
-tail still described it as an active defect.
+**Deactivation is not on this list either.** **R-026** is closed and **D-145**
+accepted: the active-admin lookup runs per request, and the JTE controllers
+inherit it because it lives in the request path rather than in a handler.
 
 ## Session Revocation On Logout — Both Surfaces (R-027)
 

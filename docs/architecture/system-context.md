@@ -21,14 +21,18 @@ settled — or less settled — than the ADRs it summarizes.
   **accepted**, see ADR-0001 (Repository Strategy)
 - Java and Spring Boot backend — **accepted**, see ADR-0002 (Modular
   Monolith Baseline)
-- Next.js admin portal — direction confirmed for the narrowed
-  platform-admin surface, see ADR-0009 §"Technology For The Platform-Admin
-  Web Surface" (accepted 2026-08-05, `docs/bootstrap/decision-log.md`
-  D-025). Its authentication is settled by ADR-0014 (accepted
-  2026-08-31, D-146): the platform-admin tokens stay on a server-side BFF
-  and never reach the browser. That ADR was accepted over ten open
-  validation items, which are now implementation prerequisites — the
-  decision is settled, the design is not yet buildable
+- **JTE admin portal, inside the existing Spring application** — one
+  deployment, server-side rendered, on the application's existing
+  authentication and session model. See **ADR-0015** (accepted
+  2026-09-01, **D-151**), which **supersedes ADR-0014**. An earlier
+  direction of *Next.js with a server-side BFF* was recorded here and in
+  ADR-0009; the repository owner corrected the premise on 2026-09-01, and
+  the BFF's security surface — a second credential store, rotation-result
+  custody, browser-token enforcement, cookie topology — is removed rather
+  than deferred, because none of it exists without a separate frontend.
+  What remains outstanding are implementation prerequisites: MFA/TOTP with
+  seed custody, step-up bounds, throttling, session bounds, and — new to
+  the in-process model — CSRF and session-cookie hardening
 - Flutter compatibility retained where required by validated client
   behavior — **accepted**, see ADR-0003 (API Versioning And Flutter
   Compatibility)

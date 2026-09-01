@@ -6,16 +6,40 @@
 |---|---|
 | ADR ID | ADR-0014 |
 | Title | Authentication for the platform-admin web surface |
-| Status | Accepted |
+| Status | Superseded |
 | Date | 2026-08-30 (accepted 2026-08-31 by the repository owner — see `docs/bootstrap/decision-log-wave12r.md` D-146) |
 | Owners | Solution Architect (primary), Product (scope input) |
 | Deciders | Repository owner; engineering lead for feasibility sign-off |
 | Related Issues | `hr-legacy#11` (shared platform-admin password — the finding this surface's identity model exists to close, D-027/F-26); `hr-platform#25` (dashboard retirement, ADR-0009) |
 | Supersedes | None |
-| Superseded By | None |
+| Superseded By | ADR-0015 |
 
 Valid `Status` values: `Proposed`, `Accepted`, `Rejected`, `Superseded`,
 `Deferred`. New ADRs must start `Proposed`.
+
+## Superseded by ADR-0015
+
+**This ADR designs the wrong architecture.** It assumes a **Next.js
+application with a server-side BFF** holding the platform-admin token pair. The
+repository owner corrected that premise on 2026-09-01: the admin web is **JTE
+pages inside the existing Spring application** — one deployment, server-side
+rendered, on the application's existing authentication and session model.
+
+That is an architecture correction rather than a variation, which is why this
+ADR is superseded rather than amended: most of its security surface existed
+*because of* the browser/backend split and does not survive its removal — the
+BFF credential store (**R-033**), rotation-result custody, browser-token
+enforcement, cookie topology, and the logout revocation outbox.
+
+**Read [ADR-0015](ADR-0015-platform-admin-jte-authentication.md) instead.** The
+requirements that never depended on the BFF — MFA/TOTP and seed custody,
+step-up bounds, throttling, per-request authorization, session invalidation,
+auditability — are carried forward there, together with CSRF and session-cookie
+hardening, which the in-process model makes first-class.
+
+This document is retained rather than deleted because the reasoning it records
+remains the evidence for those surviving requirements, and because the review
+history on it is where several of them were found.
 
 ## Context
 

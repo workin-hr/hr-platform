@@ -55,13 +55,20 @@ maintaining a second, divergent copy of these rules — see
 - `ADR-0012-phase-1-tenant-isolation.md` — tenant isolation without
   row-level security while Phase 1 runs on MySQL, with its compensating
   controls and fail-closed obligations (accepted 2026-08-16)
-- `ADR-0014-platform-admin-web-authentication.md` — the platform-admin
-  access and refresh tokens stay **server-side on a BFF and never reach
-  the browser**, which receives only the BFF's own
-  `HttpOnly`/`Secure`/`SameSite` session cookie; plus MFA with bounded
-  step-up and attempt throttling (accepted 2026-08-31,
-  `docs/bootstrap/decision-log-wave12r.md` D-146 — **over ten open
-  validation items, now implementation prerequisites**)
+- `ADR-0014-platform-admin-web-authentication.md` — **SUPERSEDED by
+  ADR-0015 on 2026-09-01.** Designed the surface as a Next.js app with a
+  server-side BFF holding the token pair. The premise was corrected: the
+  admin web is JTE inside the existing Spring application. Retained
+  because the reasoning behind the requirements that survive is recorded
+  there
+- `ADR-0015-platform-admin-jte-authentication.md` — the platform-admin web
+  surface is **server-rendered JTE inside the existing Spring
+  application**, authenticated by a server-side session; no token is
+  issued to or held by the browser because there is no separate frontend.
+  Carries forward MFA/TOTP with seed custody, bounded step-up, throttling,
+  per-request authorization, session invalidation and auditability, and
+  adds CSRF and session-cookie hardening, which the in-process model makes
+  first-class (accepted 2026-09-01)
 - `ADR-0013-phase1-mysql-profile-bootstrap.md` — the `phase1-mysql`
   Spring profile that points the application at legacy MySQL, inactive
   by default and guarded by an ArchUnit profile-coverage test, becoming
