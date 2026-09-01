@@ -4,13 +4,47 @@
 # then legitimately see different data, which proves nothing.
 set -uo pipefail
 TOKEN=$(cat .php-token)
-same=0; diff=0; err=0; binary=0
+
+# Divergences the repository has already decided to keep. Each names the
+# decision that accepted it -- a bare allowlist would let a real regression be
+# silenced by adding a line, so the reason is the point, not the entry.
+accepted_divergence() {
+  case "$1" in
+    company_official_holidays/list)
+      # D-087: PHP applies require_company_settings_access() ONLY to
+      # COMPANY_ADMIN/HR, so an EMPLOYEE lists holidays freely while an HR user
+      # without the permission is refused the same data. Deliberately removed;
+      # Java answers 200 where PHP answers 403 for those two roles.
+      echo "D-087"; return 0 ;;
+  esac
+  return 1
+}
+same=0; diff=0; err=0; binary=0; accepted=0
 : > auth-diffs.txt
 while read -r ep; do
   [ -n "$ep" ] || continue
   pcode=$(curl -s -m 15 -o /tmp/p.json -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "http://localhost:18080/apis/api/$ep")
   jcode=$(curl -s -m 15 -o /tmp/j.json -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "http://localhost:18081/apis/api/$ep")
-  if [ "$pcode" != "200" ] || [ "$jcode" != "200" ]; then err=$((err+1)); continue; fi
+  # A one-sided failure is a DIFFERENCE, not an exclusion. Putting 200-vs-401
+  # in the "not 200 on both" bucket hid a genuine authenticated status
+  # regression among 144 entries the document describes as POST-only or
+  # parameter-dependent, while the summary understated the differences.
+  if [ "$pcode" != "$jcode" ]; then
+    # An accepted divergence is not a finding. Without this the same known
+    # difference reappears every run and people learn to ignore the number,
+    # which is worse than not reporting it. Each entry must name the decision
+    # that accepted it, so "expected" is auditable rather than asserted.
+    if reason=$(accepted_divergence "$ep"); then
+      accepted=$((accepted+1))
+      printf '%-42s php=%s java=%s ACCEPTED (%s)\n' "$ep" "$pcode" "$jcode" "$reason"
+    else
+      diff=$((diff+1))
+      { echo "### $ep -- STATUS DIFFERS php=$pcode java=$jcode"; } >> auth-diffs.txt
+      printf '%-42s php=%s java=%s STATUS-DIFFERS\n' "$ep" "$pcode" "$jcode"
+    fi
+    continue
+  fi
+  if [ "$pcode" != "200" ]; then err=$((err+1)); continue; fi
   # Canonicalise: key order is not part of the contract, values are.
   pn=$(python3 -c "import json,sys;print(json.dumps(json.load(open('/tmp/p.json')),sort_keys=True,ensure_ascii=False))" 2>/dev/null)
   jn=$(python3 -c "import json,sys;print(json.dumps(json.load(open('/tmp/j.json')),sort_keys=True,ensure_ascii=False))" 2>/dev/null)
@@ -33,4 +67,4 @@ while read -r ep; do
     { echo "### $ep"; echo "PHP  len=${#pn}"; echo "JAVA len=${#jn}"; } >> auth-diffs.txt
   fi
 done < client-endpoints.txt
-echo "identical=$same  differing=$diff  not-compared-non-json=$binary  not-200-on-both=$err"
+echo "identical=$same  differing=$diff  accepted-divergences=$accepted  not-compared-non-json=$binary  not-200-on-both=$err"

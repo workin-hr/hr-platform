@@ -94,17 +94,21 @@ first-time setup.
 
 ```sh
 cd spike/parity-harness
-docker compose up -d db          # MariaDB 11.8, port 13306 (loopback only)
+
+# PHP first: seed.sh runs `php -r password_hash(...)` inside the PHP container,
+# so seeding fails at that step if only the database is up.
+docker compose up -d db php      # MariaDB :13306 and hr-legacy :18080, loopback only
 ./seed.sh                        # schema, data with FK checks off, extension table
-docker compose up -d php         # hr-legacy on port 18080
-./run-java.sh &                  # Java on port 18081, same DB, same JWT secret
+./run-java.sh &                  # Java :18081, same DB, same JWT secret
 ./sweep.sh                       # every client endpoint, both stacks, diffed
+./sweep-auth.sh                  # authenticated bodies, one token, same data
 
 # The MUTATION sweep needs Java on its OWN copy and cannot reconfigure a
-# running JVM, so it is a separate launch. sweep-mutations.sh proves the split
-# with a sentinel and exits 3 if Java is on the wrong database.
-./seed-two.sh && JAVA_DB=workin_java ./run-java.sh &
-./sweep-mutations.sh
+# running JVM, so it is a separate launch. Seed synchronously -- backgrounding
+# the compound would race the sweep's own reseed against a starting JVM.
+./seed-two.sh
+JAVA_DB=workin_java ./run-java.sh &
+./sweep-mutations.sh             # proves the split with a sentinel; exits 3 if not
 ```
 
 Three details that matter:
@@ -227,10 +231,11 @@ Re-measured 2026-09-01 with the corrected script and both extensions installed:
 
 | | |
 |---|---|
-| Endpoints returning **byte-identical** JSON | **41** |
-| Endpoints differing | **2** |
+| Endpoints returning **byte-identical** JSON | **39** |
+| Endpoints differing | **1** |
+| **Accepted divergence** (named decision) | **1** — `company_official_holidays/list`, D-087 |
 | **Not compared** — non-JSON (XLSX) body | **3** |
-| Not 200 on both (POST-only, or needing params) | 144 |
+| Not 200 on both (POST-only, or needing params) | 146 |
 
 The `not compared` row is the whole point of the correction: those three —
 `attendance/export`, `employees/template_excel`, `leave_balances/template_excel`
@@ -238,8 +243,22 @@ The `not compared` row is the whole point of the correction: those three —
 compared. Comparing workbooks properly needs a reader-level comparison (D-085),
 not a byte diff, since a zip carries its own timestamps.
 
-The two differing are **R-032** (`company_settings/options` emits an extra
-`label` key) and **R-029** (`payslips/list` tie-break ordering).
+The differing one is **R-032** (`company_settings/options` emits an extra
+`label` key). **R-029** (`payslips/list` tie-break ordering) is
+non-deterministic and appears in some runs and not others, which is the point
+of that entry.
+
+`company_official_holidays/list` answers **403 in PHP and 200 in Java**, and is
+a decided divergence rather than a finding: **D-087** deliberately removed the
+`require_company_settings_access()` gate that PHP applies *only* to
+COMPANY_ADMIN and HR — a gate that protects nothing, since every less
+privileged role already reads the same list, while refusing the roles that
+administer the module.
+
+It surfaced only after one-sided status differences stopped being filed under
+"not 200 on both". The harness now names the deciding record beside each
+accepted divergence, because a bare allowlist would let a real regression be
+silenced by adding a line.
 
 (One fix in this section was later retracted — see item 2. That retraction is
 about the payslip ordering claim, not these counts.)

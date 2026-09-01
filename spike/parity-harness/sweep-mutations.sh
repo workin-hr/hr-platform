@@ -318,5 +318,11 @@ run_case "leave_balances (negative days)"  POST "leave_balances/create" \
 
 echo
 echo "identical=$pass  differing=$fail"
-[ "$fail" -gt 0 ] && echo "details in mutation-diffs.txt"
+if [ "$fail" -gt 0 ]; then
+  echo "details in mutation-diffs.txt"
+  # The process verdict must agree with the printed one. `exit 0` meant any
+  # wrapper or CI step reading the status accepted a run whose comparisons
+  # differed or never completed.
+  exit 1
+fi
 exit 0
