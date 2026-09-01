@@ -21,6 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.employees.LegacyEmployeeRepository;
+import com.workin.legacy.LegacyClock;
+import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.wire.LegacyApiException;
 
 /**
@@ -38,13 +40,18 @@ public class LegacyBranchService {
 	private final LegacyBranchRepository legacyBranchRepository;
 	private final LegacyEmployeeRepository legacyEmployeeRepository;
 	private final EntityManager entityManager;
+	// Only for resolving strtotime's relative forms ("tomorrow"), which are
+	// relative to PHP's clock, not the JVM default. LegacyClock is
+	// request-scoped and carries the legacy runtime offset.
+	private final LegacyClock clock;
 
 	public LegacyBranchService(
 			LegacyBranchRepository legacyBranchRepository, LegacyEmployeeRepository legacyEmployeeRepository,
-			EntityManager entityManager) {
+			EntityManager entityManager, LegacyClock clock) {
 		this.legacyBranchRepository = legacyBranchRepository;
 		this.legacyEmployeeRepository = legacyEmployeeRepository;
 		this.entityManager = entityManager;
+		this.clock = clock;
 	}
 
 	/** {@code list.php}. Always {@code is_active = 1} -- legacy's own list has no toggle for inactive rows. */
@@ -283,7 +290,37 @@ public class LegacyBranchService {
 	 * format {@code strtotime} accepts (e.g. {@code "next Tuesday"})
 	 * would behave differently here.
 	 */
-	private static Instant parseExpiresAt(String raw) {
+	/**
+	 * {@code generate_qr.php} and {@code update.php} both read this through
+	 * {@code strtotime()}, which accepts far more than ISO-8601.
+	 *
+	 * <p>Two grammars are tried because neither alone matches PHP, and the
+	 * difference is client-visible in both directions:
+	 *
+	 * <ul>
+	 * <li>The ISO attempts are first and unchanged. The desktop client sends
+	 *     {@code DateTime.toIso8601String()}, which emits fractional seconds
+	 *     ({@code 2027-01-01T00:00:00.000}) -- a form
+	 *     {@link LegacyPhpStrtotime} deliberately does not cover, so leading
+	 *     with the bounded grammar would reject the one format a live client
+	 *     actually sends.</li>
+	 * <li>{@link LegacyPhpStrtotime} is the fallback, and is what fixes the
+	 *     defect this method had: {@code 2027-01-01 00:00:00} -- the
+	 *     space-separated form PHP itself <em>writes</em> via
+	 *     {@code date('Y-m-d H:i:s')} and the form the column stores -- was
+	 *     rejected with {@code invalid_date} where PHP answered 200. Reading a
+	 *     branch and sending its own {@code expires_at} back failed on Java
+	 *     and succeeded on PHP. It also brings {@code 01/01/2027},
+	 *     {@code 2027-01-01 12:30} and {@code tomorrow} into line.</li>
+	 * </ul>
+	 *
+	 * <p><b>Bounded, not closed.</b> PHP's relative-offset family
+	 * ({@code +1 day}, {@code next monday}) is still refused here, because
+	 * {@link LegacyPhpStrtotime} does not implement it (D-094) and no client
+	 * constructs a QR expiry that way. That residue is recorded rather than
+	 * silently accepted.
+	 */
+	private Instant parseExpiresAt(String raw) {
 		try {
 			return Instant.parse(raw);
 		} catch (DateTimeParseException ignored) {
@@ -296,11 +333,20 @@ public class LegacyBranchService {
 		}
 		try {
 			return java.time.LocalDate.parse(raw).atStartOfDay(ZoneOffset.UTC).toInstant();
-		} catch (DateTimeParseException ex) {
-			LegacyApiException invalidDate = new LegacyApiException(400, "invalid_date");
-			invalidDate.initCause(ex);
-			throw invalidDate;
+		} catch (DateTimeParseException ignored) {
+			// fall through to PHP's own grammar
 		}
+		// UTC, matching the three ISO attempts above rather than the clock's
+		// offset: PHP resolves through strtotime() and writes the value back
+		// with date('Y-m-d H:i:s') in the same timezone, so the stored
+		// wall-clock time equals what the caller sent. Converting the fallback
+		// at a different offset from the ISO paths would make two spellings of
+		// the same instant persist differently.
+		java.time.LocalDateTime viaPhp = LegacyPhpStrtotime.dateTimeOf(raw, clock.now());
+		if (viaPhp != null) {
+			return viaPhp.toInstant(ZoneOffset.UTC);
+		}
+		throw new LegacyApiException(400, "invalid_date");
 	}
 
 	private LegacyBranchLocationResolver.Coordinates resolveLocation(Map<String, Object> body) {

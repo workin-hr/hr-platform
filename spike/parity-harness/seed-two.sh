@@ -82,6 +82,36 @@ for d in "$PHP_DB" "$JAVA_DB"; do
   VALUES (999001, 1,1,1,1, 1,1,1,1,1, 1,1,1,1, 1,1,1,1)
   ON DUPLICATE KEY UPDATE can_employees=1, can_payroll=1, can_attendance=1,
                           can_requests=1, can_penalties=1, can_leave_balances=1;"
+
+  # A SECOND employee, in company 214, for the same reason seed.sh has one:
+  # the update and delete cases need a row of each resource type to ACT ON, and
+  # 244 has none for requests, penalties, assets, holidays, workforce_planning
+  # or administrative_decisions. Without this, those cases send ?id= of a row
+  # that does not exist, both stacks answer 404, and the case counts as
+  # identical while never having exercised an update or a delete at all --
+  # the same "matching errors read as parity" trap the GET sweep had.
+  #
+  # 214 carries 16 of the 18 resource types, more than any other company in
+  # the snapshot. Cases name which employee they run as.
+  m "$d" -e "
+  SET FOREIGN_KEY_CHECKS=0;
+  INSERT INTO employees
+   (id, company_id, branch_id, first_name, last_name, phone, role, password_hash,
+    is_active, is_mobile_attendance_enabled, can_check_in_any_branch, join_request_status, token_version, created_at)
+  SELECT 999002, 214, (SELECT id FROM branches WHERE company_id=214 ORDER BY id LIMIT 1),
+   'Parity','Breadth','+201999000002','company_admin','$HASH',1,1,0,'accepted',1,NOW()
+  ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), token_version=1, company_id=VALUES(company_id);
+  SET FOREIGN_KEY_CHECKS=1;"
+
+  m "$d" -e "
+  INSERT INTO hr_permissions
+   (employee_id, can_dashboard, can_recent_activities, can_branches, can_departments,
+    can_job_titles, can_shifts, can_leave_balances, can_assets, can_advances,
+    can_workforce_planning, can_salary_calculator, can_company_settings, can_employees,
+    can_attendance, can_requests, can_payroll, can_penalties)
+  VALUES (999002, 1,1,1,1, 1,1,1,1,1, 1,1,1,1, 1,1,1,1)
+  ON DUPLICATE KEY UPDATE can_employees=1, can_payroll=1, can_attendance=1,
+                          can_requests=1, can_penalties=1, can_leave_balances=1;"
 done
 
 echo "=== verifying the two copies start identical ==="

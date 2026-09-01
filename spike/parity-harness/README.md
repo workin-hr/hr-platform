@@ -74,6 +74,39 @@ Two seeded employees, deliberately:
 Company 214 has no `workforce_planning` or `administrative_decisions` row, so
 those two endpoints stay uncompared and say so.
 
+## Mutation sweep
+
+```sh
+JAVA_DB=workin_java ./run-java.sh &   # Java on its OWN copy -- asserted, not assumed
+./sweep-mutations.sh
+```
+
+Each case pins five things, which is what separates a covered endpoint from a
+request that was merely sent:
+
+| | pinned by |
+|---|---|
+| valid request payload | the case's body and `?query` |
+| expected status semantics | `EXPECT`, asserted against PHP |
+| normalised response parity | `norm()` — audit keys and `qr_code` reduced to **shape**, never dropped |
+| affected rows before/after | `TABLES`, hashed per row by `snapshot()` |
+| reset procedure | `seed-two.sh`, re-run before every case |
+
+`EXPECT` exists because comparing PHP against Java cannot catch both stacks
+agreeing on the wrong thing. A fixture that stops resolving makes both answer
+404, which compares equal and would count as a passing mutation that never
+mutated anything.
+
+Values that two *correct* implementations must disagree on — `qr_code` is
+`bin2hex(random_bytes(16))` on one side and `SecureRandom` on the other — are
+normalised to their shape, so a wrong length, uppercase hex or non-hex still
+fails. Shape cannot distinguish a constant, so randomness is asserted where
+more than one sample exists (`LegacyBranchEndToEndTest`), not here.
+
+Divergences the repository has decided to keep are declared in
+`accepted_mutation_divergence()`, keyed on the endpoint **and** the exact
+status pair, and must name the risk or decision that accepted them.
+
 ## What is deliberately not wired
 
 - **No production credentials.** The harness generates its own JWT secret and
