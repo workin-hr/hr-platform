@@ -114,7 +114,7 @@ public class LegacyDepartmentPhpController {
 		requireMethod(request, "DELETE");
 		LegacyRequestContext context = guard();
 		service.delete(context.companyId(), requiredId(request));
-		return LegacyApiResponse.ok(message(request, "department_deleted"), null);
+		return LegacyApiResponse.ok(message(request, "department_deactivated"), null);
 	}
 
 	private LegacyRequestContext guard() {

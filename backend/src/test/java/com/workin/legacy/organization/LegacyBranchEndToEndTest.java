@@ -414,6 +414,77 @@ class LegacyBranchEndToEndTest {
 		assertThat(body.get("message")).isEqualTo("Forbidden");
 	}
 
+	/**
+	 * The parity harness reduces {@code qr_code} to its SHAPE when comparing
+	 * PHP against Java, because two correct implementations must produce
+	 * different random values. That normalisation cannot tell a random code
+	 * from a constant of the same shape, so the randomness is asserted here,
+	 * where more than one sample is available.
+	 */
+	@Test
+	void generateQrProducesADifferentCodeEachTimeInLowercaseHex() {
+		String first = String.valueOf(dataOf(send(
+				GENERATE_QR, ADMIN_1, HttpMethod.POST, "{\"expires_at\":\"2026-12-31T00:00:00Z\"}", 200, "?id=8901"))
+				.get("qr_code"));
+		String second = String.valueOf(dataOf(send(
+				GENERATE_QR, ADMIN_1, HttpMethod.POST, "{\"expires_at\":\"2026-12-31T00:00:00Z\"}", 200, "?id=8901"))
+				.get("qr_code"));
+
+		assertThat(first)
+				.as("bin2hex(random_bytes(16)) is 32 lowercase hex characters")
+				.matches("^[0-9a-f]{32}$");
+		assertThat(second).matches("^[0-9a-f]{32}$");
+		assertThat(first)
+				.as("a constant would pass the harness's shape check; this is what rules it out")
+				.isNotEqualTo(second);
+	}
+
+	/**
+	 * {@code strtotime()} accepts far more than ISO-8601, and Java rejected the
+	 * one form PHP itself writes: {@code date('Y-m-d H:i:s')}, which is also
+	 * what the column stores and what {@code expires_at} is returned as. So
+	 * reading a branch and posting its own {@code expires_at} back answered 400
+	 * on Java and 200 on PHP. Found by the parity harness's mutation sweep.
+	 *
+	 * <p>The ISO forms are asserted alongside deliberately: the desktop client
+	 * sends {@code DateTime.toIso8601String()}, which emits fractional seconds,
+	 * and that form must keep working -- the bounded {@code LegacyPhpStrtotime}
+	 * grammar does not cover it, so the ISO attempts have to stay first.
+	 */
+	@Test
+	void generateQrAcceptsEveryExpiresAtSpellingStrtotimeDoes() {
+		// The form PHP writes and the column stores -- the regression.
+		assertThat(dataOf(send(GENERATE_QR, ADMIN_1, HttpMethod.POST,
+				"{\"expires_at\":\"2026-12-31 00:00:00\"}", 200, "?id=8901")).get("expires_at"))
+				.isEqualTo("2026-12-31 00:00:00");
+		// Without seconds.
+		assertThat(dataOf(send(GENERATE_QR, ADMIN_1, HttpMethod.POST,
+				"{\"expires_at\":\"2026-12-31 12:30\"}", 200, "?id=8901")).get("expires_at"))
+				.isEqualTo("2026-12-31 12:30:00");
+		// American slashes, which strtotime reads month-first.
+		assertThat(dataOf(send(GENERATE_QR, ADMIN_1, HttpMethod.POST,
+				"{\"expires_at\":\"12/31/2026\"}", 200, "?id=8901")).get("expires_at"))
+				.isEqualTo("2026-12-31 00:00:00");
+		// What the desktop client actually sends: ISO with fractional seconds.
+		assertThat(dataOf(send(GENERATE_QR, ADMIN_1, HttpMethod.POST,
+				"{\"expires_at\":\"2026-12-31T00:00:00.000\"}", 200, "?id=8901")).get("expires_at"))
+				.isEqualTo("2026-12-31 00:00:00");
+		// Date only, and ISO with a zone.
+		assertThat(dataOf(send(GENERATE_QR, ADMIN_1, HttpMethod.POST,
+				"{\"expires_at\":\"2026-12-31\"}", 200, "?id=8901")).get("expires_at"))
+				.isEqualTo("2026-12-31 00:00:00");
+		assertThat(dataOf(send(GENERATE_QR, ADMIN_1, HttpMethod.POST,
+				"{\"expires_at\":\"2026-12-31T00:00:00Z\"}", 200, "?id=8901")).get("expires_at"))
+				.isEqualTo("2026-12-31 00:00:00");
+
+		// Still refused, and recorded as such: LegacyPhpStrtotime does not
+		// implement the relative-offset family (D-094), and no client builds a
+		// QR expiry that way. Garbage is refused by both.
+		assertThat(send(GENERATE_QR, ADMIN_1, HttpMethod.POST,
+				"{\"expires_at\":\"garbage\"}", 400, "?id=8901").get("message"))
+				.isEqualTo("Invalid date");
+	}
+
 	// ---------- helpers ----------
 
 	private String tokenFor(long employeeId) {

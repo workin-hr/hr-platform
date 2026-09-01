@@ -180,7 +180,7 @@ public class LegacyAdvanceService {
 			throw new LegacyApiException(404, "not_found");
 		}
 		store.approve(id);
-		return requirePublicRow(store.withEmployee(id));
+		return requirePublicRow(store.withEmployeeNameOnly(id));
 	}
 
 	public Map<String, Object> reject(LegacyRequestContext context, long id, Map<String, Object> body) {
@@ -189,7 +189,7 @@ public class LegacyAdvanceService {
 			throw new LegacyApiException(404, "not_found");
 		}
 		store.reject(id, body.get("rejection_reason"));
-		return requirePublicRow(store.withEmployee(id));
+		return requirePublicRow(store.withEmployeeNameOnly(id));
 	}
 
 	/**
@@ -208,7 +208,7 @@ public class LegacyAdvanceService {
 		if (store.payIfSufficientBalance(id, payment) == 0) {
 			throw new LegacyApiException(400, "payment_exceeds_remaining");
 		}
-		return requirePublicRow(store.withEmployee(id));
+		return requirePublicRow(store.withEmployeeNameOnly(id));
 	}
 
 	public void delete(LegacyRequestContext context, long id) {

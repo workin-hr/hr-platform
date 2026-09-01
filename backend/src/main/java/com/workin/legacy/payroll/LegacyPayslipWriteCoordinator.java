@@ -46,12 +46,24 @@ public class LegacyPayslipWriteCoordinator {
 	}
 
 	public Map<String, Object> create(long companyId, Map<String, Object> body) {
-		Object rawBatchId = body.get("batch_id");
-		if (rawBatchId == null || "".equals(rawBatchId)) {
-			// Preserve service validation/error ordering without opening a transaction when
-			// the required batch id is absent; no mutation can happen on this path.
+		// EVERY required field is checked before the lock, not just batch_id.
+		//
+		// create.php runs required($body, [BATCH_ID, EMPLOYEE_ID]) before it
+		// looks at the batch at all, so a request missing employee_id answers
+		// "Field 'employee_id' is required" even when the batch is finalized.
+		// Locking first inverted that: lockMutableBatch() raised
+		// "Batch already finalized" and the missing field was never reported.
+		// An earlier version guarded only batch_id, which left the second
+		// required field behind the lock. Found by the parity harness's
+		// mutation sweep.
+		//
+		// Delegating is safe for exactly the reason the original comment gave:
+		// a request that cannot pass required() cannot mutate anything, so it
+		// needs no transaction.
+		if (missingRequired(body, "batch_id") || missingRequired(body, "employee_id")) {
 			return service.create(companyId, body);
 		}
+		Object rawBatchId = body.get("batch_id");
 		long batchId = LegacyValues.toPhpLong(rawBatchId);
 		return requiredResult(transactionTemplate.execute(ignored -> {
 			lockMutableBatch(companyId, batchId);
@@ -86,6 +98,12 @@ public class LegacyPayslipWriteCoordinator {
 			lockMutableBatch(companyId, batchId);
 			service.delete(companyId, payslipId);
 		});
+	}
+
+	/** {@code required()} treats null and the empty string alike; so does this. */
+	private static boolean missingRequired(Map<String, Object> body, String key) {
+		Object value = body.get(key);
+		return value == null || "".equals(value);
 	}
 
 	private void lockMutableBatch(long companyId, long batchId) {
