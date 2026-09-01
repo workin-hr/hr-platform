@@ -55,7 +55,7 @@ assert_java_on_its_own_database() {
 # counted, every endpoint that stamps a row would report a difference and real
 # defects would drown in the noise. What is being compared is what each stack
 # *chose* to write, not when the harness happened to call it.
-snapshot() {  # $1=database $2=table
+snapshot() {  # $1=database $2=table $3=accepted columns (comma separated)
   # Timestamps are normalised to null/set rather than dropped.
   #
   # Dropping them was wrong: the whole argument for diffing rows is that a
@@ -69,6 +69,14 @@ snapshot() {  # $1=database $2=table
   # timezone or default that is hours out. Between them, only a
   # sub-tolerance difference in an otherwise-present timestamp goes unnoticed.
   #
+  # decided_at belongs here for the same reason, and was added after the
+  # mutation sweep flaked on requests/approve: it is set by the SERVER with
+  # NOW() (request_actions_helper.php:228), not supplied by the caller, so two
+  # sequentially-called stacks legitimately land in different seconds. It is
+  # collapsed to null/set like the others, so "Java never wrote decided_at"
+  # still fails; only the second-level drift is forgiven, and the drift check
+  # below still catches a timezone or default that is hours out.
+  #
   # ONLY the audit columns are collapsed. An earlier version collapsed every
   # temporal column, which quietly gutted the cases that matter most:
   # `attendance/create` sends check_in and check_out, and reducing them to
@@ -80,13 +88,31 @@ snapshot() {  # $1=database $2=table
   cols=$(m information_schema -e "
     SELECT GROUP_CONCAT(
              CASE WHEN data_type IN ('timestamp','datetime','date')
-                   AND column_name IN ('created_at','updated_at','deleted_at')
+                   AND column_name IN ('created_at','updated_at','deleted_at','decided_at')
                   THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ELSE ''set'' END')
                   -- qr_code is bin2hex(random_bytes(16)) in PHP and SecureRandom in
                   -- Java, so two CORRECT implementations must differ. Reduced to its
                   -- shape rather than dropped: a wrong length, uppercase hex, or a
                   -- constant that is not random at all still fails the comparison,
                   -- which dropping the column would hide.
+                  --
+                  -- Columns a specific case is allowed to differ on, passed in
+                  -- by run_case from accepted_row_columns().
+                  --
+                  -- Collapsed to a CONSTANT, not to null/set. The accepted
+                  -- divergence these exist for is precisely that one stack
+                  -- writes the column and the other leaves it null (D-100 and
+                  -- approver_id), so a null/set marker would still differ and
+                  -- the acceptance would do nothing.
+                  --
+                  -- What that gives up, stated rather than implied: this
+                  -- comparison can no longer tell whether Java still writes the
+                  -- column at all. That is pinned on the Java side instead, by
+                  -- LegacyRequestEndToEndTest and LegacyRequestApprovalEndToEndTest,
+                  -- which both assert approver_id equals the deciding employee.
+                  -- An acceptance without such a test would be a blind spot.
+                  WHEN FIND_IN_SET(column_name, '$3') > 0
+                  THEN '''<accepted-divergence>'''
                   WHEN column_name = 'qr_code'
                   THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ',
                               'WHEN \`', column_name, '\` REGEXP ''^[0-9a-f]{32}$'' ',
@@ -137,7 +163,7 @@ timestamp_drift() {  # $1=table -> worst drift across audit columns, or empty
   cols=$(m information_schema -e "
     SELECT column_name FROM columns
     WHERE table_schema='$PHP_DB' AND table_name='$1'
-      AND column_name IN ('created_at','updated_at','deleted_at')" 2>/dev/null)
+      AND column_name IN ('created_at','updated_at','deleted_at','decided_at')" 2>/dev/null)
   [ -n "$cols" ] || return 0
   local col a b d
   while read -r col; do
@@ -163,11 +189,34 @@ mint_token() {
 }
 PHONE_244=+201999000001
 PHONE_214=+201999000002
+# requests/delete.php is requireAuth([EMPLOYEE]) -- a company_admin is refused
+# 403 before any logic runs, so that endpoint is only reachable as its owner.
+# This actor owns the seeded pending request.
+PHONE_EMP=+201999000003
 
 # Divergences the repository has decided to keep, keyed on the endpoint AND the
 # exact status pair -- keying on the endpoint alone would let ANY future
 # mismatch there be filed under an accepted entry and never reported. Each must
 # name the risk or decision that accepted it, so "expected" stays auditable.
+# Columns a case is allowed to differ on, keyed on endpoint AND table AND
+# column, and each naming the decision that accepted it.
+#
+# This is deliberately NOT a table-level exclusion. Accepting "requests" whole
+# for requests/approve would hide a divergence in status or reply -- the
+# columns that actually carry the decision. Only the named column is
+# collapsed; everything else in the row is still compared byte for byte.
+accepted_row_columns() {  # $1=path $2=table  -> stdout: column list, or empty
+  case "${1%%\?*}:$2" in
+    requests/approve:requests|requests/reject:requests)
+      # D-100: reject.php (and approve.php in the follow-up slice) write
+      # approver_id, which legacy never populates despite the column existing
+      # for exactly this purpose. Nothing in legacy reads it, so there is no
+      # compatibility cost; it resolves the "approver_id mapping" item the
+      # wave specification lists. A deliberate correction, not a preserved bug.
+      echo "approver_id" ;;
+  esac
+}
+
 accepted_mutation_divergence() {  # $1=path $2=php code $3=java code
   case "${1%%\?*}:$2:$3" in
     branches/update:500:404)
@@ -215,7 +264,7 @@ pass=0; fail=0; accepted=0
 run_case() {
   local name="$1" method="$2" path="$3" body="$4" tables="$5" who="${6:-244}" expect="${7:-}"
   case "$who" in -|"") who=244 ;; esac
-  local phone; case "$who" in 214) phone=$PHONE_214 ;; *) phone=$PHONE_244 ;; esac
+  local phone; case "$who" in 214) phone=$PHONE_214 ;; emp) phone=$PHONE_EMP ;; *) phone=$PHONE_244 ;; esac
 
   # A failed reseed leaves the PREVIOUS case's mutations in place, so this case
   # would compare contaminated state and report whatever that happens to give.
@@ -259,7 +308,7 @@ run_case() {
   # Only the audit keys are nondeterministic between two sequential calls.
   norm() { python3 -c "
 import json,re,sys
-AUDIT={'created_at','updated_at','deleted_at'}
+AUDIT={'created_at','updated_at','deleted_at','decided_at'}
 # Same rule the row snapshot uses: a value two CORRECT implementations must
 # disagree on is reduced to its shape, never dropped. A qr_code of the wrong
 # length, in uppercase, or non-hex still compares unequal.
@@ -317,13 +366,19 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
 
   # State comparison runs even when the response already differed: knowing
   # whether the write also diverged is the more useful half.
-  local statediff=""
+  local statediff="" accepted_cols=""
   IFS=',' read -ra tl <<< "$tables"
   for t in "${tl[@]}"; do
     [ -n "$t" ] || continue
-    if [ "$(snapshot "$PHP_DB" "$t")" != "$(snapshot "$JAVA_DB" "$t")" ]; then
+    accepted_cols=$(accepted_row_columns "$path" "$t")
+    if [ "$(snapshot "$PHP_DB" "$t" "$accepted_cols")" != "$(snapshot "$JAVA_DB" "$t" "$accepted_cols")" ]; then
       statediff="$statediff $t"
       continue
+    fi
+    if [ -n "$accepted_cols" ]; then
+      # Named so an accepted column can never quietly become the reason a case
+      # passes -- the run says which column was collapsed and for which table.
+      printf '%-42s %-4s %-4s %s\n' "  ^ accepted column(s)" "" "" "$t.$accepted_cols"
     fi
     drift=$(timestamp_drift "$t")
     if [ -n "$drift" ] && [ "$drift" -gt "$TS_TOLERANCE_SECONDS" ]; then
@@ -401,6 +456,12 @@ C214_SETTING=$(resolve_or_die c214_cs "SELECT setting_definition_id FROM company
 C214_PEN_OPEN=$(resolve_or_die c214_pen_open "SELECT id FROM penalties WHERE id=999010 AND applied_to_payroll=0")
 C214_BATCH_DRAFT=$(resolve_or_die c214_batch_draft "SELECT id FROM payroll_batches WHERE id=999011 AND status='draft'")
 C214_PAYSLIP_DRAFT=$(resolve_or_die c214_payslip_draft "SELECT id FROM payslips WHERE id=999012 AND batch_id=999011")
+# notification_inbox_filter() scopes an employee token to
+# to_employee_id = <caller> AND recipient_kind='employee'
+# (helpers/notifications.php:26), so a company-scoped row -- all the snapshot
+# has -- is not found and mark_read/delete answer 404 on both stacks.
+C214_NOTIF_INBOX=$(resolve_or_die c214_notif_inbox "SELECT id FROM notifications WHERE id=999013 AND to_employee_id=999002 AND recipient_kind='employee'")
+C214_REQ_PENDING=$(resolve_or_die c214_req_pending "SELECT id FROM requests WHERE id=999014 AND status='pending'")
 # A SECOND employee, so payslips/create has someone without a payslip in the
 # draft batch -- the fixture above already occupies the first one, and create
 # would otherwise answer "already exists" rather than creating anything.
@@ -597,6 +658,70 @@ run_case "payslips/create"                 POST "payslips/create" \
   "{\"batch_id\":$C214_BATCH_DRAFT,\"employee_id\":$C214_EMP2}" "payslips" 214 201
 run_case "payslips/create (no employee)"   POST "payslips/create" \
   "{\"batch_id\":$C214_BATCH_DRAFT}" "payslips" 214 400
+
+
+# ===========================================================================
+# Attendance, requests, people and org settings.
+#
+# Attendance is the highest-volume table in the system and the one whose
+# writes clients make constantly, so check_in/check_out/update/delete are
+# compared against the attendance rows themselves, not only the response.
+# ---------------------------------------------------------------------------
+run_case "attendance/update"               PUT  "attendance/update?id=$C214_ATT" \
+  '{"check_in":"2026-09-01 09:00:00","check_out":"2026-09-01 17:00:00"}' "attendance" 214 200
+run_case "attendance/update (unknown id)"  PUT  "attendance/update?id=99999999" \
+  '{"check_in":"2026-09-01 09:00:00"}' "attendance" 214 404
+run_case "attendance/delete"               DELETE "attendance/delete?id=$C214_ATT" '' "attendance" 214 200
+run_case "attendance/delete (unknown id)"  DELETE "attendance/delete?id=99999999" '' "attendance" 214 404
+run_case "attendance/check_in"             POST "attendance/check_in" \
+  '{"latitude":30.0211667,"longitude":31.4545278,"method":"app"}' "attendance" 214 200
+run_case "attendance/check_in (no coords)" POST "attendance/check_in" \
+  '{"method":"app"}' "attendance" 214 400
+run_case "attendance/check_out"            POST "attendance/check_out" \
+  '{"latitude":30.0211667,"longitude":31.4545278}' "attendance" 214 400
+run_case "attendance/delete_range"         DELETE "attendance/delete_range?employee_id=$C214_EMP&from=2026-09-01&to=2026-09-30" \
+  '' "attendance" 214 200
+
+run_case "requests/approve"                POST "requests/approve?id=$C214_REQ_PENDING" \
+  '{}' "requests,notifications" 214 200
+run_case "requests/reject"                 POST "requests/reject?id=$C214_REQ_PENDING" \
+  '{}' "requests,notifications" 214 200
+run_case "requests/approve (no id)"        POST "requests/approve" '{}' "requests" 214 400
+# requests/delete.php is requireAuth([EMPLOYEE]): a company_admin is refused
+# before any logic runs, so the endpoint is only reachable as its owner.
+run_case "requests/delete (admin refused)" DELETE "requests/delete?id=$C214_REQ_PENDING" '' "requests" 214 403
+run_case "requests/delete"                 DELETE "requests/delete?id=$C214_REQ_PENDING" '' "requests" emp 200
+
+run_case "complaints/create"               POST "complaints/create" \
+  '{"name":"Parity","phone":"+2010000000","message":"parity complaint"}' "complaints" 214 200
+run_case "complaints/create (no message)"  POST "complaints/create" \
+  '{"name":"Parity","phone":"+2010000000"}' "complaints" 214 400
+run_case "complaints/update"               POST "complaints/update?id=$C214_COMPLAINT" \
+  '{"reply":"parity reply","status":"done"}' "complaints" 214 200
+
+run_case "notifications/mark_read"         PUT  "notifications/mark_read?id=$C214_NOTIF_INBOX" \
+  '' "notifications" 214 200
+run_case "notifications/delete"            DELETE "notifications/delete?id=$C214_NOTIF_INBOX" \
+  '' "notifications" 214 200
+run_case "notifications/send"              POST "notifications/send" \
+  "{\"title\":\"Parity\",\"to_employee_id\":$C214_EMP,\"body\":\"parity body\"}" "notifications" 214 201
+run_case "notifications/send (no title)"   POST "notifications/send" \
+  "{\"to_employee_id\":$C214_EMP}" "notifications" 214 400
+
+run_case "company_settings/update"         PUT  "company_settings/update?setting_definition_id=$C214_SETTING" \
+  '{"values":[]}' "company_settings,company_setting_values" 214 200
+run_case "workforce_planning/save_target"  POST "workforce_planning/save_target" \
+  "{\"branch_id\":$C214_BRANCH,\"department_id\":$C214_DEPT,\"job_title_id\":$C214_TITLE,\"planned_count\":5}" \
+  "workforce_planning" 214 200
+run_case "workforce_planning (no count)"   POST "workforce_planning/save_target" \
+  "{\"branch_id\":$C214_BRANCH,\"department_id\":$C214_DEPT,\"job_title_id\":$C214_TITLE}" \
+  "workforce_planning" 214 400
+run_case "schedules/assign"                POST "schedules/assign_employee_schedule" \
+  "{\"employee_id\":$C214_EMP,\"shift_id\":$C214_SHIFT,\"dates\":[\"2026-09-10\"]}" \
+  "employee_schedules" 214 200
+run_case "schedules/generate"              POST "schedules/generate_employee_schedule" \
+  "{\"employee_id\":$C214_EMP,\"from_date\":\"2026-09-01\",\"to_date\":\"2026-09-07\"}" \
+  "employee_schedules" 214 200
 
 echo
 echo "identical=$pass  differing=$fail  accepted-divergences=$accepted"

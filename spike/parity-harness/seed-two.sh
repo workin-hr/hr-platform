@@ -35,7 +35,25 @@ esac
 echo "legacy oracle: $rev (clean)"
 PHP_DB=${PHP_DB:-workin}
 JAVA_DB=${JAVA_DB:-workin_java}
-m() { docker exec -i "$DB" mariadb -uroot -pparity "$@"; }
+# A mangled argument list makes mariadb print its usage banner and exit without
+# running anything -- the seed then "succeeds" having written nothing, and every
+# case that follows compares two databases that were never set up. It happened:
+# a double quote inside an SQL COMMENT closed the surrounding bash string, so
+# the rest of the statement arrived as stray options. Silent, and it looked like
+# noise rather than a failure.
+m() {
+  local out rc
+  out=$(docker exec -i "$DB" mariadb -uroot -pparity "$@" 2>&1); rc=$?
+  if printf '%s' "$out" | grep -q '^Usage: mariadb'; then
+    echo "FATAL: mariadb printed its usage banner instead of running SQL." >&2
+    echo "  The argument list was mangled -- most often a quote inside the SQL," >&2
+    echo "  including inside an SQL comment, closing the bash string early." >&2
+    echo "  db=$1" >&2
+    exit 6
+  fi
+  printf '%s' "$out"
+  return $rc
+}
 
 echo "waiting for the database..."
 until [ "$(docker inspect -f '{{.State.Health.Status}}' "$DB" 2>/dev/null)" = healthy ]; do sleep 3; done
@@ -144,6 +162,30 @@ for d in "$PHP_DB" "$JAVA_DB"; do
   INSERT INTO payslips (id, batch_id, employee_id)
   SELECT 999012, 999011, (SELECT id FROM employees WHERE company_id=214 AND id<>999002 ORDER BY id LIMIT 1)
   ON DUPLICATE KEY UPDATE batch_id=999011;
+
+  -- A notification IN THE CALLER'S INBOX. notification_inbox_filter() scopes an
+  -- employee token to to_employee_id = <caller> AND recipient_kind='employee'
+  -- (helpers/notifications.php:26), so a company-scoped row -- which is what
+  -- the snapshot has -- answers a not-found for mark_read and
+  -- delete. Both stacks answer 404 identically and the case proves nothing.
+  INSERT INTO notifications (id, company_id, recipient_kind, to_employee_id, title, body, is_read, created_at)
+  VALUES (999013, 214, 'employee', 999002, 'Parity fixture', 'parity body', 0, NOW())
+  ON DUPLICATE KEY UPDATE is_read=0, to_employee_id=999002, recipient_kind='employee';
+
+  -- An EMPLOYEE-role actor and a request owned by them. requests/delete.php
+  -- is requireAuth([EMPLOYEE]) -- a company_admin is refused 403, so the
+  -- company-admin actor can never exercise it.
+  INSERT INTO employees
+   (id, company_id, branch_id, first_name, last_name, phone, role, password_hash,
+    is_active, is_mobile_attendance_enabled, can_check_in_any_branch, join_request_status, token_version, created_at)
+  SELECT 999003, 214, (SELECT id FROM branches WHERE company_id=214 ORDER BY id LIMIT 1),
+   'Parity','Employee','+201999000003','employee','$HASH',1,1,0,'accepted',1,NOW()
+  ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), token_version=1, company_id=VALUES(company_id);
+
+  INSERT INTO requests (id, employee_id, request_type_id, from_date, to_date, status, created_at)
+  SELECT 999014, 999003, (SELECT id FROM request_types WHERE company_id=214 ORDER BY id LIMIT 1),
+         '2026-09-10', '2026-09-11', 'pending', NOW()
+  ON DUPLICATE KEY UPDATE status='pending', employee_id=999003;
   SET FOREIGN_KEY_CHECKS=1;"
 done
 
