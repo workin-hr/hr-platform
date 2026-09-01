@@ -50,7 +50,29 @@ docker compose up -d db php     # MariaDB :13306, PHP :18080
 ./login.sh php                  # mint a token (see the ordering note in the script)
 ./sweep.sh                      # reachability: status codes, unauthenticated
 ./sweep-auth.sh                 # parity: JSON bodies, authenticated
+
+# wider body coverage: 26 endpoints need a parameter, and answer 400 on both
+# stacks without one -- which reads as covered while nothing is compared.
+./resolve-params.sh             # resolve real ids -> client-endpoints-authed.txt
+ENDPOINTS=client-endpoints-authed.txt TOKEN_FILE=.php-token-214 \
+  DIFFS=auth-diffs-214.txt ./sweep-auth.sh
 ```
+
+`resolve-params.sh` reads ids out of the seeded snapshot rather than hardcoding
+them, because hardcoded ids stop existing after a reseed and the endpoint then
+404s on both stacks -- silent again, in exactly the way the script exists to
+prevent. Anything it cannot resolve is written to `params-unresolved.txt` and
+reported as a coverage gap rather than dropped.
+
+Two seeded employees, deliberately:
+
+| Employee | Company | For |
+|---|---|---|
+| `+201999000001` | 244 | volume -- the list endpoints |
+| `+201999000002` | 214 | breadth -- 16 of 18 resource types, so the `/one` endpoints resolve |
+
+Company 214 has no `workforce_planning` or `administrative_decisions` row, so
+those two endpoints stay uncompared and say so.
 
 ## What is deliberately not wired
 

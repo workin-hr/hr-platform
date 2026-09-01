@@ -395,7 +395,10 @@ first real module." Full reasoning and revised hypothesis-by-hypothesis
 table: `docs/migration/technical-spike-plan.md`'s "Revision Summary."
 
 - **Description**: Java 25, Spring Boot 4.x, PostgreSQL, Flyway, and
-  Next.js are chosen in `docs/tools/tool-catalog.md`/`tool-decision-matrix.md`.
+  ~~Next.js~~ are chosen in `docs/tools/tool-catalog.md`/`tool-decision-matrix.md`.
+  **Next.js was struck on 2026-09-01 (D-151)**: the admin web is JTE inside
+  the Spring application (ADR-0015). PostgreSQL remains the accepted target,
+  but its migration is Phase 2 and out of scope now.
   Of the original 6 validation hypotheses, 1 (tenant isolation) remains
   a genuine pre-implementation spike; 5 are reclassified as safe to
   adopt directly.

@@ -14,6 +14,14 @@
 | Supersedes | None |
 | Superseded By | None |
 
+> **Scope note (D-151, 2026-09-01) — not a supersession.** PostgreSQL remains
+> the accepted long-term target and this ADR's approach is unchanged. Its
+> *execution* is **Phase 2 and out of scope for the current phase, and must
+> not be advanced**: no migration, ETL, dual-write, or cutover work proceeds
+> now. The current phase is the PHP-to-Java port at parity **against the
+> existing MySQL schema**. See **ADR-0011** for the phase boundary and the
+> freeze-do-not-delete treatment of the existing Phase 2 material.
+
 ## Context
 
 The current production database is MySQL, while the target direction is PostgreSQL.

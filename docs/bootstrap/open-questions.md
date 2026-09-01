@@ -245,6 +245,95 @@ These belong with `hr-platform#22`, which owns push delivery, rather than being
 answered separately: fixing the table without the delivery half would leave the
 same dead route with a different failure mode.
 
+## Platform-Admin Web Surface Authentication (ADR-0015, Accepted)
+
+Surfaced by `docs/adr/ADR-0015-platform-admin-jte-authentication.md`, which
+**supersedes ADR-0014**. The admin web is **JTE pages inside the existing
+Spring application** — one deployment, server-side rendered, on the
+application's existing authentication and session model, per the repository
+owner's instruction of 2026-09-01.
+
+**Most of the previous entries in this section are gone, not answered.** They
+required a browser-facing application holding credentials: the BFF session
+store and its custody (**R-033**, now closed as not applicable),
+rotation-result custody, enforcing that the browser never receives a token, and
+cookie domain topology. With the surface in-process there is nothing to hold,
+so those questions have no subject.
+
+These are **implementation prerequisites**: the design is settled and none of it
+may ship until they are answered.
+
+- ~~**What is the first-time TOTP enrolment ceremony?**~~ **ANSWERED
+  2026-09-01 by [D-152]** — an **operator-assisted bootstrap flow**. A
+  password-only authenticated session may not claim the first factor. A
+  cryptographically random, short-lived, single-use enrolment token is
+  generated server-side, bound to one specific `PlatformAdmin`, and delivered
+  over a separately verified out-of-band channel; enrolment requires
+  **password *and* token**; the token is invalidated immediately on success;
+  normal access follows a successful **TOTP verification**, not merely
+  enrolment. The raw seed never leaves the protected credential store. The
+  token is hashed if persisted, short-lived, single-use, and its issuance, use
+  and revocation are audited. Existing rows migrate **unbound** and cannot
+  perform destructive operations until bound. Recovery must still not become a
+  weaker second enrolment path.
+- ~~**If the legacy PHP dashboard runs in parallel, is it MFA-gated,
+  restricted, or down?**~~ **ANSWERED 2026-09-01 by [D-152]** — it is
+  **disabled at cutover**. It must not remain reachable as an alternative
+  authentication path once the JTE admin is live; if retained for rollback it
+  stays deployed or staged but **network-inaccessible by default**, exposed
+  only as part of an explicit rollback procedure. It authenticates with the
+  shared admin password (`hr-legacy#11`) and has no second factor, so while
+  reachable it makes every control here walk-around-able.
+- **Which TOTP implementation, what recovery design, and how are the seeds
+  kept?** Unchanged by the architecture correction, because it is a recoverable
+  secret at rest either way: **application-level encryption with the key held
+  outside the database**, access restricted to the verification path, backups
+  protected to the same standard, and a defined re-encryption path for
+  rotation. An implementation and a recovery flow alone leave the seeds
+  unprotected.
+- **What does the step-up-satisfied representation look like**, with all four
+  bounds — maximum age in minutes, single use, bound to the canonical
+  operation, **and bound to the resource identifier plus a server-recomputed
+  digest of the security-relevant request parameters**? The last is not a
+  detail of the third: an approval bound to "suspend" but not to *which
+  company* is consumable by a hijacked session against a different tenant.
+- **What throttling do the password and TOTP steps get, and where is it
+  counted?** In **shared, restart-surviving state**; a process-local counter
+  meets "8 attempts / 15 minutes" while giving each worker its own budget. The
+  acceptance test is attempts through separate workers, not a count.
+- **What are the concrete session bounds** — idle timeout and a non-renewable
+  absolute cap, as numbers — and is the session id rotated on login to prevent
+  fixation? **The cap must bound the API tokens too**, not only the UI session:
+  `rotate()` issues every successor at `now + 7 days` without consulting the
+  family origin, so a family slides forever and an access token minted near the
+  cap outlives it. Java must persist or derive the origin, refuse rotation past
+  the cap, and clamp an issued access token to the family's remaining life,
+  proven by a test that advances a family beyond it.
+- **CSRF**: which state-changing JTE routes carry a synchroniser token, and
+  where exactly is the filter-chain boundary between the cookie-authenticated
+  UI and the bearer-authenticated API? This is **new** with the in-process
+  model — a cookie-authenticated server-rendered surface is exposed in a way a
+  bearer API is not, and the two models now live in one application.
+- **Session cookie flags** — `HttpOnly`, `Secure`, `SameSite` — chosen and
+  pinned by a test rather than left to defaults.
+- **Is there a global session-revocation operation?** `revokeAllForPlatformAdmin(Long)`
+  is per-administrator despite its name, and unwired. "Revoke every admin
+  session" is an ad-hoc procedure today.
+- **Does the legacy PHP dashboard's `admin`-role surface run in parallel during
+  Phase 2?** If so, do both surfaces authenticate independently?
+- **Is ADR-0005's "sessions can be listed and revoked individually" delivered
+  for this surface**, or explicitly deferred? Unimplemented on both surfaces
+  today, so this ADR does not create the gap.
+- **What retention applies to `PlatformAdminAuditEvent`?**
+
+**Identity separation is deliberately not on this list.** **D-027** made
+individual platform-admin identity a P0 requirement and **F-26** records it as
+substantially closed.
+
+**Deactivation is not on this list either.** **R-026** is closed and **D-145**
+accepted: the active-admin lookup runs per request, and the JTE controllers
+inherit it because it lives in the request path rather than in a handler.
+
 ## Session Revocation On Logout — Both Surfaces (R-027) — ANSWERED
 
 > **Answered 2026-08-31: option 1, on both surfaces — [D-149](decision-log-wave12r.md). Logout now invalidates the live access token.**

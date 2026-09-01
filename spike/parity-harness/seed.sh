@@ -65,6 +65,29 @@ SELECT 999001, 244, (SELECT id FROM branches WHERE company_id=244 LIMIT 1),
 ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash);
 SET FOREIGN_KEY_CHECKS=1;"
 
+# A SECOND employee, in a different company, purely for endpoint breadth.
+#
+# 244 has the employee volume the list endpoints want but is missing six of the
+# resource types the /one endpoints need -- requests, penalties, assets,
+# holidays, workforce_planning, administrative_decisions -- so those endpoints
+# answer 400 "id required" on both stacks and land in the not-200-on-both
+# bucket, where they read as covered while nothing has ever been compared.
+#
+# 214 carries 16 of the 18 resource types, more than any other company in the
+# snapshot. Seeding a second employee there rather than moving the first keeps
+# the volume comparison and the breadth comparison both available; neither
+# sweep disturbs the other. resolve-params.sh resolves ids against this
+# company; sweep-auth.sh takes the token via TOKEN_FILE.
+m workin -e "
+SET FOREIGN_KEY_CHECKS=0;
+INSERT INTO employees
+ (id, company_id, branch_id, first_name, last_name, phone, role, password_hash,
+  is_active, is_mobile_attendance_enabled, can_check_in_any_branch, join_request_status, token_version, created_at)
+SELECT 999002, 214, (SELECT id FROM branches WHERE company_id=214 ORDER BY id LIMIT 1),
+ 'Parity','Breadth','+201999000002','company_admin','$HASH',1,1,0,'accepted',1,NOW()
+ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), company_id=VALUES(company_id);
+SET FOREIGN_KEY_CHECKS=1;"
+
 m workin -e "SELECT (SELECT COUNT(*) FROM companies) companies,
                     (SELECT COUNT(*) FROM employees) employees,
                     (SELECT COUNT(*) FROM attendance) attendance;"

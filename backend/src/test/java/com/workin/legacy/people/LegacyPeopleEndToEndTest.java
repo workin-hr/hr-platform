@@ -392,6 +392,44 @@ class LegacyPeopleEndToEndTest {
 				.hasSize(2);
 	}
 
+	/**
+	 * {@code list.php} selects {@code e.employee_code AS employee_code}; Java's
+	 * list query did not, so the column was absent from every row. Found by the
+	 * parity harness once the authenticated sweep compared bodies against a
+	 * company that actually has a complaint.
+	 *
+	 * <p>The second half is the reason this is one assertion and not two files:
+	 * {@code update.php} re-reads the same join and selects {@code employee_name}
+	 * and {@code photo_url} but <em>not</em> {@code employee_code}. Adding the
+	 * column to the shared re-read would have fixed the list and broken update,
+	 * so the two queries stay deliberately different and this test pins both
+	 * sides of that difference.
+	 */
+	@Test
+	@Order(11)
+	@SuppressWarnings("unchecked")
+	void theComplaintsListCarriesEmployeeCodeButTheUpdateReReadDoesNot() {
+		List<Map<String, Object>> rows = (List<Map<String, Object>>) data(
+				send(COMPLAINT_LIST, HttpMethod.GET, token(ADMIN, "company_admin"), null));
+
+		assertThat(rows).hasSize(1);
+		assertThat(rows.get(0))
+				.as("list.php selects e.employee_code, so the key must be present")
+				.containsKey("employee_code");
+		assertThat(rows.get(0))
+				.containsEntry("employee_code", String.valueOf(STAFF))
+				.containsEntry("employee_name", "F L");
+
+		Map<String, Object> updated = (Map<String, Object>) data(send(COMPLAINT_UPDATE + "?id=2",
+				HttpMethod.POST, token(ADMIN, "company_admin"), "{\"reply\":\"ack\"}"));
+		assertThat(updated)
+				.as("update.php selects employee_name and photo_url only -- adding "
+						+ "employee_code here would be a divergence, not a fix")
+				.doesNotContainKey("employee_code")
+				.containsKey("employee_name")
+				.containsKey("photo_url");
+	}
+
 	@Test
 	@Order(12)
 	@SuppressWarnings("unchecked")
