@@ -902,6 +902,31 @@ is complete and no `/api/legacy/**` business route remains mapped.**
 > from PHP. As written, G3 could have been satisfied in full while every Flutter
 > request 404'd — which is precisely the state the port was in until
 > `LegacyPhpRouterFilter` landed.
+>
+> **Extended 2026-09-01.** G3 covers the **live endpoint set**, which
+> by construction excludes the paths the router does *not* serve — so the
+> unmatched-path behaviour had no gate at all. That gap was not theoretical:
+> `time/now` is excluded under O-3 as dead surface, the mobile client calls it
+> from its home screen, and Java answered it with the wrong status *and* the
+> wrong envelope while every completion gate stayed green.
+>
+> **G3 therefore also requires**, as a cutover obligation in its own right,
+> that a request to a path under `/apis/api/` which no endpoint serves answers
+> as `apis/api/index.php` does: unknown module → **404** `module_not_found`
+> naming the allow-list, allow-listed module with no action file → **501**
+> `module_not_implemented`, missing action → **404** `unknown_action`, all in
+> the D-074 envelope and all decided **before authentication**. The owner is
+> the router, not the individual endpoints, and the evidence is the
+> parity harness's unauthenticated sweep rather than any per-endpoint test.
+>
+> O-3's exclusion of the physical `time/now.php` file is unchanged and remains
+> correct — no endpoint needs building. What was missing is that "excluded"
+> was being read as "unowned", and a client-visible mismatch sat in that gap.
+>
+> The router change that satisfies this obligation, and the decision recording
+> it, are on a **separate stacked branch** and are deliberately not cited by
+> number here — a reference that resolves to nothing is worse than none. This
+> gate states the requirement; the branch that meets it carries its own record.
 
 **What enforces what.** `LegacyPhpRouteInventoryTest`'s bidirectional assertion
 is an **internal-mapping** check, not a URL-surface one: it compares the set of

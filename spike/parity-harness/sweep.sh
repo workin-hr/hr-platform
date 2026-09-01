@@ -13,8 +13,9 @@ while read -r ep; do
   p=$(curl -s -o /dev/null -m 10 -w "%{http_code}" "$PHP_BASE/$ep")
   j=$(curl -s -o /dev/null -m 10 -w "%{http_code}" "$JAVA_BASE/$ep")
   # A transport failure is curl's 000, and 000 == 000 would otherwise be
-  # counted as agreement -- letting two dead stacks certify perfect parity.
-  # It is its own verdict, and it makes the run exit non-zero.
+  # counted as agreement -- letting two stacks that never started certify
+  # perfect parity, which is the strongest-looking possible result from a
+  # validation that never ran.
   if [ "$p" = 000 ] || [ "$j" = 000 ]; then
     v=UNREACHABLE; unreachable=$((unreachable+1))
   elif [ "$p" = "$j" ]; then

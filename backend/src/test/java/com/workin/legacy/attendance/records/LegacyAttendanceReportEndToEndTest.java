@@ -32,6 +32,7 @@ import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.LegacyRuntimeOffset;
 
 /**
  * Wave 12.6.4b: `attendance/list.php`, `attendance/stats.php` and
@@ -79,7 +80,27 @@ class LegacyAttendanceReportEndToEndTest {
 	private static final long ATT_E2_FEB = 209104L;
 	private static final long ATT_OTHER_CO = 209105L;
 
-	private static final LocalDate TODAY = LocalDate.now();
+	/**
+	 * <b>The application's notion of today, not the JVM's.</b>
+	 * {@link com.workin.legacy.LegacyClock} resolves "today" against the
+	 * <em>application</em> offset — deliberately, as its own javadoc explains:
+	 * a wrong zone silently dates records a day early or late. With no
+	 * {@code is_daylight_saving} row seeded here, that offset is
+	 * {@link LegacyRuntimeOffset#DEFAULT} (UTC+2).
+	 *
+	 * <p>{@code LocalDate.now()} resolves against the JVM default instead, so
+	 * the two disagree for however many hours separate the zones. Not
+	 * theoretical: with the JVM on UTC+3 this test failed at 00:34 local on
+	 * 1 September, asserting 30 days against the endpoint's 31, because the
+	 * application was still on 31 August. It would fail in that window at every
+	 * month boundary, and CI runs at all hours.
+	 *
+	 * <p>{@code LegacyClock} itself is request-scoped and cannot be injected
+	 * here, so the offset it would resolve is named directly.
+	 */
+	private static LocalDate applicationToday() {
+		return LocalDate.now(LegacyRuntimeOffset.DEFAULT);
+	}
 
 	@Autowired
 	private TestRestTemplate restTemplate;
@@ -228,7 +249,7 @@ class LegacyAttendanceReportEndToEndTest {
 		Map<String, Object> data = dataOf(get(STATS, ADMIN_1, 200));
 		assertThat(number(data.get("present_days"))).isEqualTo(2);
 		assertThat(number(data.get("total_duration_minutes"))).isEqualTo(960);
-		assertThat(number(data.get("total_days_in_month"))).isEqualTo(TODAY.lengthOfMonth());
+		assertThat(number(data.get("total_days_in_month"))).isEqualTo(applicationToday().lengthOfMonth());
 		assertThat(number(data.get("official_holiday_days"))).isEqualTo(0);
 	}
 

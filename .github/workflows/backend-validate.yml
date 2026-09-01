@@ -10,12 +10,15 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/backend-validate.yml"
-      # The drift detectors this workflow runs live outside backend/, so a PR
-      # touching only a detector or its regression suite would otherwise skip
-      # the step that guards it and stay green.
+      # The detectors this workflow runs guard files outside backend/, so a PR
+      # touching only a detector, its regression suite, or the collection it
+      # protects would otherwise skip the step that guards it and stay green.
       - "scripts/check_legacy_modules_drift.py"
       - "scripts/test_check_legacy_modules_drift.py"
+      - "scripts/check_client_endpoints_drift.py"
+      - "scripts/test_check_client_endpoints_drift.py"
       - "scripts/check_legacy_schema_drift.py"
+      - "spike/parity-harness/client-endpoints.txt"
   push:
     branches:
       - main
@@ -25,7 +28,10 @@ on:
       - ".github/workflows/backend-validate.yml"
       - "scripts/check_legacy_modules_drift.py"
       - "scripts/test_check_legacy_modules_drift.py"
+      - "scripts/check_client_endpoints_drift.py"
+      - "scripts/test_check_client_endpoints_drift.py"
       - "scripts/check_legacy_schema_drift.py"
+      - "spike/parity-harness/client-endpoints.txt"
 
 permissions:
   contents: read
@@ -75,20 +81,18 @@ jobs:
         working-directory: .
         run: python3 scripts/check_legacy_schema_drift.py --self-test
 
-      # Same split, same reason: the allow-list decides routing status and is
-      # emitted verbatim into client-visible module_not_found bodies, so the
-      # vendored copy is compared against LegacyPhpModules by
-      # LegacyPhpModulesDriftTest (which runs here), and against the real
-      # legacy source by this script's default mode (which needs a checkout
-      # this workflow does not have).
-      # The sibling regression suite rather than --self-test: it subsumes it
-      # and additionally asserts the vendored file's own invariants (38
-      # modules, `reports` present despite having no directory, `time` absent
-      # -- which is what makes time/now a 404), and that a reorder is caught,
-      # since the order is emitted into the client-visible refusal body.
+      # Both detectors guard a vendored copy of something this repository does
+      # not contain -- the legacy module allow-list, and the clients' endpoint
+      # constants. The real comparison needs that source (an hr-legacy checkout,
+      # or initialised Flutter submodules) and cannot run here; the regression
+      # suites need nothing and prove the detectors still work.
       - name: Legacy module allow-list drift-detector regression suite
         working-directory: .
         run: python3 scripts/test_check_legacy_modules_drift.py
+
+      - name: Client endpoint-list drift-detector regression suite
+        working-directory: .
+        run: python3 scripts/test_check_client_endpoints_drift.py
 
       # ---------------------------------------------------------------
       # Phase 2 (storage migration) assets — FROZEN 2026-08-16.

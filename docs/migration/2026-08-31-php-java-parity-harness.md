@@ -94,11 +94,21 @@ first-time setup.
 
 ```sh
 cd spike/parity-harness
-docker compose up -d db          # MariaDB 11.8, port 13306
-# seed: schema, then data with FK checks off, then the Phase-1 extension table
-docker compose up -d php         # hr-legacy on port 18080
-./run-java.sh &                  # Java on port 18081, same DB, same JWT secret
+
+# PHP first: seed.sh runs `php -r password_hash(...)` inside the PHP container,
+# so seeding fails at that step if only the database is up.
+docker compose up -d db php      # MariaDB :13306 and hr-legacy :18080, loopback only
+./seed.sh                        # schema, data with FK checks off, extension table
+./run-java.sh &                  # Java :18081, same DB, same JWT secret
 ./sweep.sh                       # every client endpoint, both stacks, diffed
+./sweep-auth.sh                  # authenticated bodies, one token, same data
+
+# The MUTATION sweep needs Java on its OWN copy and cannot reconfigure a
+# running JVM, so it is a separate launch. Seed synchronously -- backgrounding
+# the compound would race the sweep's own reseed against a starting JVM.
+./seed-two.sh
+JAVA_DB=workin_java ./run-java.sh &
+./sweep-mutations.sh             # proves the split with a sentinel; exits 3 if not
 ```
 
 Three details that matter:
@@ -204,14 +214,63 @@ always **R-029** — legacy's own non-determinism — and nothing else.
 
 ### Where it landed
 
-| | First run (2026-08-31) | After the permission seed was completed |
-|---|---|---|
-| Endpoints returning **byte-identical** JSON | 37 | **39** |
-| Endpoints differing | 0 | **2** |
-| Not 200 on both (POST-only, or needing params) | 153 | 149 |
+> **SUPERSEDED — do not cite these figures.** They were produced by a version
+> of `sweep-auth.sh` that suppressed `json.load` errors, so a non-JSON body left
+> *both* comparisons empty and they compared equal. The PHP container was also
+> missing the `zip` and `calendar` extensions, so `attendance/export`,
+> `payslips/export` and `attendance/stats` failed in PHP and fell into the
+> "not 200 on both" bucket instead of being compared.
+>
+> | | |
+> |---|---|
+> | ~~Byte-identical JSON~~ | ~~37~~ |
+> | ~~Differing~~ | ~~0~~ |
+> | ~~Not 200 on both~~ | ~~153~~ |
 
-(One fix in this section was later retracted — see item 2. The counts are
-unaffected: they were measured against the number-rendering fix, which stands.)
+Re-measured 2026-09-01 with the corrected script and both extensions installed:
+
+| | |
+|---|---|
+| Endpoints returning **equal canonicalized JSON** | **39** |
+| Endpoints differing | **1** |
+| **Accepted divergence** (named decision) | **1** — `company_official_holidays/list`, D-087 |
+| **Not compared** — non-JSON (XLSX) body | **3** |
+| Not 200 on both (POST-only, or needing params) | 146 |
+
+**"Canonicalized", not "byte-identical", and the difference is real.** The
+sweep parses both responses and re-serialises them with `sort_keys=True`, so
+key order and formatting are discarded before comparison. Two responses can be
+structurally equal and differ byte-for-byte. That is the right comparison for
+this level — key order is not part of the contract, values are — but calling
+the result byte-identical claimed more than the method can support.
+
+The `not compared` row is the whole point of the correction: those three —
+`attendance/export`, `employees/template_excel`, `leave_balances/template_excel`
+— were previously counted inside the identical column, without a byte being
+compared. Comparing workbooks properly needs a reader-level comparison (D-085),
+not a byte diff, since a zip carries its own timestamps.
+
+The differing one is `company_settings/options`, which emits an extra `label`
+key in Java that PHP does not. It is recorded as a risk on the stacked branch
+that found it; no entry for it exists here, so it is described rather than
+cited by number. **R-029** (`payslips/list` tie-break ordering) is
+non-deterministic and appears in some runs and not others, which is the point
+of that entry.
+
+`company_official_holidays/list` answers **403 in PHP and 200 in Java**, and is
+a decided divergence rather than a finding: **D-087** deliberately removed the
+`require_company_settings_access()` gate that PHP applies *only* to
+COMPANY_ADMIN and HR — a gate that protects nothing, since every less
+privileged role already reads the same list, while refusing the roles that
+administer the module.
+
+It surfaced only after one-sided status differences stopped being filed under
+"not 200 on both". The harness now names the deciding record beside each
+accepted divergence, because a bare allowlist would let a real regression be
+silenced by adding a line.
+
+(One fix in this section was later retracted — see item 2. That retraction is
+about the payslip ordering claim, not these counts.)
 
 **The two differing bodies are not a regression, and the count rising is not
 either.** Seeding all seventeen `can_*` permissions moved four endpoints out of
@@ -260,15 +319,23 @@ Every case reseeds both databases first, so cases cannot contaminate each other.
 That is slow on purpose — a shared, drifting state makes a failure impossible to
 attribute.
 
-**Timestamps are normalised, not excluded.** An earlier version dropped
-`created_at`/`updated_at` from the row hash to stop sequential calls reporting a
-one-second drift as a difference — which also made "wrote no `updated_at`"
-undetectable, the very defect this section holds up as the reason for comparing
-rows at all. They are now compared as **null-or-set**, which catches a missing
-or wrong-column write, with a separate check that the two stacks' newest
-timestamp agree within a tolerance, which catches a timezone or default that is
-hours out. What remains invisible is only a sub-tolerance difference in an
-otherwise-present timestamp.
+**Only the audit timestamps are normalised, and only those three.**
+`created_at`, `updated_at` and `deleted_at` are compared as **null-or-set** —
+which catches a missing or wrong-column write — with a separate check that the
+two stacks' newest value in *every* audit column agrees within a tolerance,
+which catches a timezone or default that is hours out.
+
+Everything else temporal is compared **exactly**. That distinction is the whole
+point and an earlier version got it wrong twice over: it collapsed every
+timestamp/date column by *type*, and the response comparison blanked every
+timestamp-*shaped* string. `attendance/create`'s entire contract is `check_in`
+and `check_out`, and both were reduced to `set` on one side and `<TS>` on the
+other, so PHP could persist and return 09:00 while Java persisted a different
+day and the case still reported identical. Business dates and times are
+caller-supplied and deterministic; only the audit columns are not.
+
+What remains invisible is a sub-tolerance difference in an otherwise-present
+audit timestamp.
 
 ### First results
 
@@ -303,15 +370,52 @@ as surely as a success that differs.
 
 ### Extended results
 
+> **SUPERSEDED — do not cite these figures.** They were produced by a version
+> of the harness that collapsed **every** temporal column by type and blanked
+> every timestamp-*shaped* response string, checked only `created_at` for drift,
+> ordered every snapshot by a hard-coded `id` (so a composite-keyed junction
+> table errored, hashed empty, and matched itself), and counted a `000`
+> transport failure as agreement. `attendance/create`'s `check_in` and
+> `check_out` were therefore not compared at all, which is precisely what the
+> row diff exists for. The corrected harness has not yet published a
+> replacement figure; this row is left here rather than quietly restated so the
+> earlier claim is visibly withdrawn.
+>
+> | | |
+> |---|---|
+> | ~~Cases~~ | ~~17~~ |
+> | ~~Identical (response **and** rows)~~ | ~~17~~ |
+> | ~~Differing~~ | ~~0~~ |
+
+Re-measured 2026-09-01 with the corrected harness:
+
 | | |
 |---|---|
 | Cases | **17** |
 | Identical (response **and** rows) | **17** |
 | Differing | **0** |
+| Withheld (unreachable / reseed / login / query failure) | **0** |
 
-Writes now verified at row level: branches, departments, advances,
-administrative decisions, **payroll batches**, **leave balances** and
-**attendance**. Eight rejection cases verified alongside them.
+**The count is unchanged and its meaning is not.** Under the previous version
+several of these cases were not testing what they claimed:
+
+- `job_titles/create` omitted two fields PHP requires and was a matching **400**
+  — a rejection reported as a verified write. It now returns **201**.
+- `requests/create (wrong role)` was rejected for a missing field before it ever
+  reached the role check it exists to test. It now returns **403**.
+- `penalties/create` had the same defect, and a successful create also writes a
+  notification, which was never compared.
+- `departments/create` writes `department_branches`, which the snapshot could
+  not read at all — a composite-keyed table against a hard-coded `ORDER BY id`.
+- `attendance/create`'s `check_in` and `check_out` were normalised away on both
+  sides of the comparison.
+
+Writes covered at row level: branches, departments (with the
+`department_branches` junction), job titles, advances, administrative
+decisions, payroll batches, leave balances, penalties (with their
+`notifications`) and attendance, with rejection cases beside each. Payslip and
+payroll-calculation cases are **not** in this harness — they are added on the
+stacked branch that records their own result, and are not claimed here.
 
 ### Two traps this hit, both worth keeping
 
@@ -330,7 +434,9 @@ hash each timestamp/date column collapses to `null` or `set`, so a missing or
 wrong-column audit write is still caught; a separate check compares the two
 stacks' newest `created_at`/`updated_at` per table and fails beyond
 `TS_TOLERANCE_SECONDS` (120s), so a timezone error or a wrong default is caught
-too. In the response body, timestamp-shaped strings collapse to `<TS>`. Only a
+too. In the response body, only the audit **keys** collapse to `<TS>` — matching
+by value shape blanked `check_in` and `check_out` as well, which is the hole
+this replaced. Only a
 sub-tolerance difference in an otherwise-present timestamp goes unnoticed. What
 is compared is what each stack *chose* to write, not when it was called.
 
