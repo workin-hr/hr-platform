@@ -42,8 +42,12 @@ JAVA_DB=${JAVA_DB:-workin_java}
 # the rest of the statement arrived as stray options. Silent, and it looked like
 # noise rather than a failure.
 m() {
-  local out rc
-  out=$(docker exec -i "$DB" mariadb -uroot -pparity "$@" 2>&1); rc=$?
+  local out rc=0
+  # `|| rc=$?` is required: under `set -e` a failing command substitution aborts
+  # the function at the assignment, before the diagnostics below can print. The
+  # first version of this wrapper did exactly that and made failures LESS
+  # visible than the bare command it replaced.
+  out=$(docker exec -i "$DB" mariadb -uroot -pparity "$@" 2>&1) || rc=$?
   if printf '%s' "$out" | grep -q '^Usage: mariadb'; then
     echo "FATAL: mariadb printed its usage banner instead of running SQL." >&2
     echo "  The argument list was mangled -- most often a quote inside the SQL," >&2
@@ -51,9 +55,30 @@ m() {
     echo "  db=$1" >&2
     exit 6
   fi
+  if [ "$rc" -ne 0 ]; then
+    echo "FATAL: mariadb exited $rc (db=$1)" >&2
+    printf '%s\n' "$out" >&2
+    exit "$rc"
+  fi
   printf '%s' "$out"
-  return $rc
 }
+
+# One harness run at a time. Two concurrent runs reseed the same two databases,
+# so each drops the other's schema mid-load and the failures land far from the
+# cause -- "Unknown database 'workin' at line 244" from a statement that was
+# fine. Cost an hour to attribute, once.
+# PARITY_LOCK_HELD lets a parent that already holds the lock run this without
+# deadlocking against itself -- sweep-mutations.sh calls seed-two.sh per case.
+if [ "${PARITY_LOCK_HELD:-0}" != "1" ]; then
+exec 9> /tmp/parity-harness.lock
+if ! flock -n 9; then
+  echo "FATAL: another parity harness run holds the lock." >&2
+  echo "  Both would reseed the same databases and neither result would mean anything." >&2
+  echo "  Wait for it, or find it with:  ps -eo pid,cmd | grep -e sweep-mutations -e seed-two" >&2
+  exit 7
+fi
+export PARITY_LOCK_HELD=1
+fi
 
 echo "waiting for the database..."
 until [ "$(docker inspect -f '{{.State.Health.Status}}' "$DB" 2>/dev/null)" = healthy ]; do sleep 3; done

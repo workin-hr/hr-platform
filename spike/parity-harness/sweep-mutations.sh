@@ -18,6 +18,23 @@ JAVA_DB=workin_java
 PHP=http://localhost:18080/apis/api
 JAVA=http://localhost:18081/apis/api
 
+# One harness run at a time. Two concurrent runs reseed the same two databases,
+# so each drops the other's schema mid-load and the failures land far from the
+# cause -- "Unknown database 'workin' at line 244" from a statement that was
+# fine. Cost an hour to attribute, once.
+# PARITY_LOCK_HELD lets a parent that already holds the lock run this without
+# deadlocking against itself -- sweep-mutations.sh calls seed-two.sh per case.
+if [ "${PARITY_LOCK_HELD:-0}" != "1" ]; then
+exec 9> /tmp/parity-harness.lock
+if ! flock -n 9; then
+  echo "FATAL: another parity harness run holds the lock." >&2
+  echo "  Both would reseed the same databases and neither result would mean anything." >&2
+  echo "  Wait for it, or find it with:  ps -eo pid,cmd | grep -e sweep-mutations -e seed-two" >&2
+  exit 7
+fi
+export PARITY_LOCK_HELD=1
+fi
+
 m() { docker exec -i "$DB" mariadb -uroot -pparity -N -B "$@"; }
 
 # Java MUST be running against JAVA_DB, not the database PHP mutates.
@@ -233,6 +250,14 @@ PHONE_EMP=+201999000003
 # must NOT be reproduced -- where PHP writes and Java refuses, comparing the
 # rows and expecting them to match is self-contradictory. What keeps it honest
 # is that Java's refusal is pinned by its own test, named below.
+# Cheap pre-check: does this endpoint have a row-table waiver at all? Used to
+# decide whether the pre-snapshots are worth taking.
+accepted_row_tables_any() {  # $1=path
+  case "${1%%\?*}" in
+    advances/create) echo "advances" ;;
+  esac
+}
+
 accepted_row_tables() {  # $1=path $2=php $3=java  -> stdout: table list, or empty
   case "${1%%\?*}:$2:$3" in
     advances/create:201:403)
@@ -326,6 +351,21 @@ run_case() {
   # A token per stack, minted from that stack's own database. Both are valid
   # because the secret is shared and each database has the same employee row at
   # token_version 1 after reseeding.
+  # Java is asked for a heartbeat before tokens are minted. The reseed drops and
+  # recreates its database, and a pool that fails to recover surfaces as a login
+  # failure, which reads like a credential problem and is not one.
+  local jhealth
+  jhealth=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$JAVA/configs/get" 2>/dev/null)
+  if [ "$jhealth" != "200" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "JAVA-NOT-SERVING (configs/get=$jhealth)"
+    { echo "### $name  ($method $path)"
+      echo "    JAVA-NOT-SERVING: heartbeat returned $jhealth after reseed."
+      echo "    Verdict withheld -- this is the harness, not a parity result."
+      echo; } >> mutation-diffs.txt
+    return
+  fi
+
   local pt jt
   pt=$(mint_token "$PHP" "$phone"); jt=$(mint_token "$JAVA" "$phone")
   if [ -z "$pt" ] || [ -z "$jt" ]; then
@@ -336,6 +376,24 @@ run_case() {
     printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "LOGIN-FAILED"
     { echo "### $name  ($method $path)"; echo "    LOGIN-FAILED: php-token=${#pt} java-token=${#jt} chars"; echo; } >> mutation-diffs.txt
     return
+  fi
+
+  # Pre-call snapshots, so a case can assert a DELTA rather than only an
+  # end-state match. Proving Java wrote nothing requires knowing what it looked
+  # like before.
+  #
+  # Taken ONLY for the cases that will use them. Doing it for every case doubled
+  # the harness's connection churn around the reseed -- which drops and recreates
+  # the Java database -- and left Java's pool unable to recover, so a run of
+  # otherwise-passing cases reported LOGIN-FAILED instead.
+  declare -A pre_php pre_java
+  if [ -n "$(accepted_row_tables_any "$path")" ]; then
+    IFS=',' read -ra pretl <<< "$tables"
+    for t in "${pretl[@]}"; do
+      [ -n "$t" ] || continue
+      pre_php[$t]=$(snapshot "$PHP_DB" "$t" "")
+      pre_java[$t]=$(snapshot "$JAVA_DB" "$t" "")
+    done
   fi
 
   local pcode jcode pbody jbody
@@ -433,10 +491,28 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
   IFS=',' read -ra tl <<< "$tables"
   for t in "${tl[@]}"; do
     [ -n "$t" ] || continue
-    # A whole-table waiver is available only when the status pair was accepted.
+    # A table whose divergence is accepted is NOT skipped. Skipping it passed
+    # the case whether or not Java wrote, which contradicted the claim that an
+    # unintended Java write would still fail. Instead both halves are asserted:
+    #
+    #   Java  post == pre   -- it wrote nothing, which is the behaviour we keep
+    #   PHP   post != pre   -- it still writes, so the divergence is still real
+    #                          and the case fails if legacy ever changes
     if [ -n "$status_accepted" ] && \
        printf '%s' ",$(accepted_row_tables "$path" "$pcode" "$jcode")," | grep -q ",$t,"; then
-      printf '%-42s %-4s %-4s %s\n' "  ^ table divergence accepted" "" "" "$t ($status_accepted)"
+      local jpost ppost
+      jpost=$(snapshot "$JAVA_DB" "$t" "")
+      ppost=$(snapshot "$PHP_DB" "$t" "")
+      if [ "$jpost" != "${pre_java[$t]}" ]; then
+        statediff="$statediff $t(java-wrote-despite-refusing)"
+        continue
+      fi
+      if [ "$ppost" = "${pre_php[$t]}" ]; then
+        statediff="$statediff $t(php-no-longer-writes:divergence-gone)"
+        continue
+      fi
+      printf '%-42s %-4s %-4s %s\n' "  ^ divergence asserted" "" "" \
+        "$t: java unchanged, php wrote ($status_accepted)"
       continue
     fi
     accepted_cols=$(accepted_row_columns "$path" "$t")
@@ -623,8 +699,10 @@ run_case "job_titles/update"               PUT  "job_titles/update?id=$C214_TITL
   "{\"name\":\"Parity Title Renamed\",\"department_id\":$C214_DEPT,\"work_hours\":7}" "job_titles" 214 200
 run_case "shifts/create"                   POST "shifts/create" \
   '{"name":"Parity Shift","start_time":"09:00:00","end_time":"17:00:00"}' "shifts" 214 201
+# supplying start_time/end_time makes update() broadcast to every employee in
+# the company, so the notification rows are part of this write.
 run_case "shifts/update"                   PUT  "shifts/update?id=$C214_SHIFT" \
-  '{"name":"Parity Shift Renamed","start_time":"08:00:00","end_time":"16:00:00"}' "shifts" 214 200
+  '{"name":"Parity Shift Renamed","start_time":"08:00:00","end_time":"16:00:00"}' "shifts,notifications" 214 200
 run_case "shifts/create (no times)"        POST "shifts/create" \
   '{"name":"Parity Shift"}' "shifts" 214 400
 
@@ -814,7 +892,7 @@ run_case "workforce_planning (no count)"   POST "workforce_planning/save_target"
   "workforce_planning" 214 400
 run_case "schedules/assign"                POST "schedules/assign_employee_schedule" \
   "{\"employee_id\":$C214_EMP,\"shift_id\":$C214_SHIFT,\"dates\":[\"2026-09-10\"]}" \
-  "employee_schedules" 214 200
+  "employee_schedules,notifications" 214 200
 run_case "schedules/generate"              POST "schedules/generate_employee_schedule" \
   "{\"employee_id\":$C214_EMP,\"from_date\":\"2026-09-01\",\"to_date\":\"2026-09-07\"}" \
   "employee_schedules" 214 200
@@ -846,9 +924,14 @@ run_case "notifications/unread_count"      GET  "notifications/unread_count" '' 
 # employee_code must be digits only, and the phone must be in LOCAL format --
 # create.php validates it against country_code, so "+20..." with country "+20"
 # is rejected as not valid for the selected country.
+# insertNewEmployee() also writes an employee_shift_assignments row (the
+# payload supplies a positive shift_id) and creates or updates leave_balance
+# with the 21-day default, in the same transaction. A Java regression that
+# omitted the opening balance or stored a different effective date would be
+# invisible against `employees` alone.
 run_case "employees/create"                POST "employees/create" \
   "{\"first_name\":\"Parity\",\"last_name\":\"New\",\"country_code\":\"+20\",\"employee_code\":\"99001\",\"shift_id\":$C214_SHIFT,\"expected_daily_hours\":8,\"phone\":\"01099977701\",\"branch_id\":$C214_BRANCH,\"department_id\":$C214_DEPT,\"job_title_id\":$C214_TITLE,\"role\":\"employee\"}" \
-  "employees" 214 201
+  "employees,employee_shift_assignments,leave_balance" 214 201
 run_case "employees/create (no code)"      POST "employees/create" \
   '{"first_name":"Parity","last_name":"New"}' "employees" 214 400
 run_case "employees/update"                PUT  "employees/update?id=$C214_EMP" \
