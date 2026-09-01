@@ -108,7 +108,7 @@ public class LegacyJobTitlePhpController {
 		requireMethod(request, "DELETE");
 		LegacyRequestContext context = guard();
 		service.delete(context.companyId(), requiredId(request));
-		return LegacyApiResponse.ok(message(request, "job_title_deleted"), null);
+		return LegacyApiResponse.ok(message(request, "job_title_deactivated"), null);
 	}
 
 	private LegacyRequestContext guard() {

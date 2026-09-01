@@ -182,6 +182,13 @@ for d in "$PHP_DB" "$JAVA_DB"; do
    'Parity','Employee','+201999000003','employee','$HASH',1,1,0,'accepted',1,NOW()
   ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), token_version=1, company_id=VALUES(company_id);
 
+  -- Company 214 has no administrative_decisions row at all, so update and
+  -- delete for that module had nothing to act on and only the create half
+  -- could ever be compared.
+  INSERT INTO administrative_decisions (id, company_id, title, body, is_active, created_at)
+  VALUES (999015, 214, 'Parity fixture', 'parity body', 1, NOW())
+  ON DUPLICATE KEY UPDATE title='Parity fixture', is_active=1;
+
   INSERT INTO requests (id, employee_id, request_type_id, from_date, to_date, status, created_at)
   SELECT 999014, 999003, (SELECT id FROM request_types WHERE company_id=214 ORDER BY id LIMIT 1),
          '2026-09-10', '2026-09-11', 'pending', NOW()

@@ -113,6 +113,25 @@ snapshot() {  # $1=database $2=table $3=accepted columns (comma separated)
                   -- An acceptance without such a test would be a blind spot.
                   WHEN FIND_IN_SET(column_name, '$3') > 0
                   THEN '''<accepted-divergence>'''
+                  -- password_hash is bcrypt with a fresh random salt on every
+                  -- write, so two CORRECT implementations must differ. Reduced
+                  -- to its shape: a plaintext password, a truncated hash, or a
+                  -- different cost still fails.
+                  --
+                  -- The prefix differs too and is deliberately allowed: PHP's
+                  -- password_hash() writes $2y$ and Spring's BCrypt writes $2a$.
+                  -- Both are bcrypt and BOTH STACKS VERIFY EITHER -- measured,
+                  -- not assumed: PHP's password_verify() accepts the $2a$ hash
+                  -- Java wrote, and Java authenticates against the $2y$ hash the
+                  -- seed writes on every case in this file. So a password
+                  -- changed on one stack still works on the other during a
+                  -- shared-database cutover.
+                  WHEN column_name = 'password_hash'
+                  THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ',
+                              'WHEN LENGTH(\`', column_name, '\`) = 60 ',
+                              'AND LEFT(\`', column_name, '\`, 3) IN (''\$2a'', ''\$2b'', ''\$2y'') ',
+                              'THEN CONCAT(''bcrypt-cost-'', SUBSTRING(\`', column_name, '\`, 5, 2)) ',
+                              'ELSE CONCAT(''UNEXPECTED-SHAPE:'', LEFT(\`', column_name, '\`, 7)) END')
                   WHEN column_name = 'qr_code'
                   THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ',
                               'WHEN \`', column_name, '\` REGEXP ''^[0-9a-f]{32}$'' ',
@@ -362,7 +381,19 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
     fi
     verdict=DIFF; detail="status $pcode vs $jcode"
   fi
-  if [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ]; then verdict=DIFF; detail="response body"; fi
+  if [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ]; then
+    # A matching 5xx is compared on status and state, not on body. PHP's harness
+    # config sets DEBUG=true, so its 500 carries a file/line/stack trace while
+    # Java answers a generic envelope -- that difference is the harness's PHP
+    # configuration, not the port's contract, and production PHP with
+    # DEBUG=false would differ again. The case must still DECLARE the 5xx it
+    # expects, so this can never quietly absorb an unexpected error.
+    if [ "$pcode" = "$jcode" ] && [ "$pcode" -ge 500 ] && [ -n "$expect" ]; then
+      printf '%-42s %-4s %-4s %s\n' "  ^ 5xx body not compared" "" "" "declared expect=$expect"
+    else
+      verdict=DIFF; detail="response body"
+    fi
+  fi
 
   # State comparison runs even when the response already differed: knowing
   # whether the write also diverged is the more useful half.
@@ -461,6 +492,7 @@ C214_PAYSLIP_DRAFT=$(resolve_or_die c214_payslip_draft "SELECT id FROM payslips 
 # (helpers/notifications.php:26), so a company-scoped row -- all the snapshot
 # has -- is not found and mark_read/delete answer 404 on both stacks.
 C214_NOTIF_INBOX=$(resolve_or_die c214_notif_inbox "SELECT id FROM notifications WHERE id=999013 AND to_employee_id=999002 AND recipient_kind='employee'")
+C214_DECISION=$(resolve_or_die c214_decision "SELECT id FROM administrative_decisions WHERE id=999015 AND company_id=214")
 C214_REQ_PENDING=$(resolve_or_die c214_req_pending "SELECT id FROM requests WHERE id=999014 AND status='pending'")
 # A SECOND employee, so payslips/create has someone without a payslip in the
 # draft batch -- the fixture above already occupies the first one, and create
@@ -722,6 +754,64 @@ run_case "schedules/assign"                POST "schedules/assign_employee_sched
 run_case "schedules/generate"              POST "schedules/generate_employee_schedule" \
   "{\"employee_id\":$C214_EMP,\"from_date\":\"2026-09-01\",\"to_date\":\"2026-09-07\"}" \
   "employee_schedules" 214 200
+
+
+# ===========================================================================
+# The remaining deletes, employees, profile and company.
+#
+# Deletes were the largest single gap: every module had its create and update
+# compared while the destructive half went untested.
+# ---------------------------------------------------------------------------
+# 409 is the CORRECT answer here: the seeded branch has employees assigned,
+# and delete.php refuses rather than orphaning them. Pinned as the semantic,
+# not worked around.
+run_case "branches/delete (has employees)" DELETE "branches/delete?id=$C214_BRANCH" '' "branches,department_branches" 214 409
+run_case "departments/delete"              DELETE "departments/delete?id=$C214_DEPT" '' "departments,department_branches" 214 200
+run_case "job_titles/delete"               DELETE "job_titles/delete?id=$C214_TITLE" '' "job_titles" 214 200
+run_case "shifts/delete"                   DELETE "shifts/delete?id=$C214_SHIFT" '' "shifts" 214 200
+run_case "request_types/delete (in use)"   DELETE "request_types/delete?id=$C214_RTYPE" '' "request_types,requests" 214 409
+run_case "admin_decisions/update"          PUT  "administrative_decisions/update?id=$C214_DECISION" \
+  '{"title":"Parity Renamed"}' "administrative_decisions" 214 200
+run_case "admin_decisions/delete"          DELETE "administrative_decisions/delete?id=$C214_DECISION" \
+  '' "administrative_decisions" 214 200
+run_case "workforce_planning/create"       POST "workforce_planning/create" \
+  "{\"branch_id\":$C214_BRANCH,\"department_id\":$C214_DEPT,\"job_title_id\":$C214_TITLE,\"planned_count\":7}" \
+  "workforce_planning" 214 201
+run_case "notifications/unread_count"      GET  "notifications/unread_count" '' "notifications" 214 200
+
+# employee_code must be digits only, and the phone must be in LOCAL format --
+# create.php validates it against country_code, so "+20..." with country "+20"
+# is rejected as not valid for the selected country.
+run_case "employees/create"                POST "employees/create" \
+  "{\"first_name\":\"Parity\",\"last_name\":\"New\",\"country_code\":\"+20\",\"employee_code\":\"99001\",\"shift_id\":$C214_SHIFT,\"expected_daily_hours\":8,\"phone\":\"01099977701\",\"branch_id\":$C214_BRANCH,\"department_id\":$C214_DEPT,\"job_title_id\":$C214_TITLE,\"role\":\"employee\"}" \
+  "employees" 214 201
+run_case "employees/create (no code)"      POST "employees/create" \
+  '{"first_name":"Parity","last_name":"New"}' "employees" 214 400
+run_case "employees/update"                PUT  "employees/update?id=$C214_EMP" \
+  '{"first_name":"Parity Renamed"}' "employees" 214 200
+run_case "employees/deactivate"            DELETE "employees/deactivate?id=$C214_EMP" '' "employees" 214 200
+run_case "employees/reactivate"            PUT  "employees/reactivate?id=$C214_EMP" '' "employees" 214 200
+# 409: delete.php refuses while payroll/attendance rows still reference the
+# employee. employees/delete_preview is the endpoint that reports what blocks it.
+run_case "employees/delete (referenced)"   DELETE "employees/delete?id=$C214_EMP" '' "employees" 214 409
+run_case "employees/delete (unknown id)"   DELETE "employees/delete?id=99999999" '' "employees" 214 404
+
+run_case "profile/employee"                PUT  "profile/employee" \
+  '{"first_name":"Parity Self"}' "employees" 214 200
+run_case "profile/change_password"         POST "profile/change_password" \
+  '{"old_password":"harness-only-Pass123!","new_password":"harness-only-Pass456!"}' "employees" 214 200
+run_case "profile/change_password (wrong)" POST "profile/change_password" \
+  '{"old_password":"wrong","new_password":"harness-only-Pass456!"}' "employees" 214 401
+# R-013: register_push_token.php INSERTs a company_id column push_tokens does
+# not have, so it 500s for every caller and always has. The port reproduces
+# the failure rather than repairing the statement (D-058), so 500 on both is
+# the correct parity result -- pinned, not worked around.
+run_case "profile/register_push_token"     POST "profile/register_push_token" \
+  '{"token":"parity-token","platform":"android"}' "push_tokens" 214 500
+run_case "profile/logout"                  POST "profile/logout" '' "employees" 214 200
+
+run_case "company/update"                  PUT  "company/update" \
+  '{"company_name":"Parity Company Renamed"}' "companies" 214 200
 
 echo
 echo "identical=$pass  differing=$fail  accepted-divergences=$accepted"
