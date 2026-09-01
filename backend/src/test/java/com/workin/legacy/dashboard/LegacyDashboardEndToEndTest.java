@@ -125,7 +125,21 @@ class LegacyDashboardEndToEndTest {
 		Map<String, Object> stats = stats(ADMIN);
 
 		// Engineering: 1000 + 2000 (two contracts, same employee) + 3000; Sales: 4000.
-		assertThat((Double) stats.get("total_basic_salaries")).isEqualTo(10000.0);
+		//
+		// The wire type is the assertion, not just the magnitude. PHP casts
+		// these aggregates to (float) and json_encode writes the shortest form,
+		// so a whole total arrives as `10000` and deserializes to Integer;
+		// Jackson's default would send `10000.0` and give Double.
+		//
+		// An earlier version read this through Number.doubleValue(), which
+		// passes for both -- so it would have gone green with
+		// LegacyPhpNumberJsonConfig unregistered, which is the regression it
+		// exists to catch. Loosening an assertion to fix a ClassCastException
+		// removed the only thing it was testing.
+		assertThat(stats.get("total_basic_salaries"))
+				.as("PHP sends 10000, not 10000.0 -- the JSON type is the contract")
+				.isInstanceOf(Integer.class)
+				.isEqualTo(10000);
 	}
 
 	/**

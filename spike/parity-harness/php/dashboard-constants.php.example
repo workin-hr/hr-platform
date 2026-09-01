@@ -1,0 +1,77 @@
+<?php
+// TEMPLATE. Copy to dashboard-constants.php (git-ignored) and set local
+// values. ADMIN_PASSWORD is a LOCAL harness credential -- never reuse the
+// production dashboard password here.
+// ============================================================
+//  config/constants.php
+//  كل الثوابت في مكان واحد — عدّل هنا بس
+//
+//  Sanitized template. Copy to constants.php (already git-ignored)
+//  and fill in real values locally. Never commit the real
+//  constants.php.
+// ============================================================
+
+// ---- اسم التطبيق ----
+define('APP_NAME',        'Work In');
+define('APP_VERSION',     '1.0.0');
+define('APP_DESCRIPTION', 'نظام إدارة الموارد البشرية');
+
+// ---- قاعدة البيانات ----
+define('DB_HOST', 'db');
+define('DB_NAME', 'workin');
+define('DB_USER', 'root');
+define('DB_PASS', 'parity');
+define('DB_CHARSET', 'utf8mb4');
+
+// ---- الأمان ----
+// في الإنتاج: APP_DEBUG=false وغيّر كلمة مرور الأدمن (استخدم ADMIN_PASSWORD_HASH)
+define('APP_DEBUG',           true);
+define('ADMIN_PASSWORD', 'CHANGE_ME_LOCALLY');   // للتطوير فقط إن لم يُعرّف ADMIN_PASSWORD_HASH
+define('ADMIN_PASSWORD_HASH', 'CHANGE_ME_LOCALLY');              // password_hash('...', PASSWORD_DEFAULT)
+define('SESSION_TIMEOUT', 2592000); // 30 Days
+define('LOGIN_MAX_ATTEMPTS',  8);
+define('LOGIN_LOCKOUT_SECONDS', 900);           // 15 دقيقة بعد محاولات فاشلة
+// false = إخفاء تبويبات شركة/HR مؤقتاً (دخول الأدمن فقط). غيّرها لـ true لإظهار التبويبات لاحقاً.
+define('DASHBOARD_LOGIN_SHOW_TYPE_TABS', false);
+
+// ---- Pagination ----
+define('PAGE_SIZE_DEFAULT', 10);           // عدد الصفوف الافتراضي
+define('PAGE_SIZE_SMALL',   10);
+define('PAGE_SIZE_LARGE',   50);
+define('PAGE_SIZE_MAX',    200);           // الحد الأقصى المسموح
+
+// ---- الرفع ----
+define('UPLOAD_PATH',     __DIR__ . '/../../uploads/');
+define('UPLOAD_URL', 'CHANGE_ME_LOCALLY');
+define('UPLOAD_MAX_MB',   10);
+define('ALLOWED_IMAGES',  ['image/jpeg', 'image/png', 'image/webp']);
+define('ALLOWED_DOCS',    ['application/pdf', 'image/jpeg', 'image/png']);
+
+// ---- الأدوار ----
+define('ROLE_ADMIN', 'CHANGE_ME_LOCALLY');
+define('ROLE_HR', 'CHANGE_ME_LOCALLY');
+define('ROLE_MANAGER', 'CHANGE_ME_LOCALLY');
+define('ROLE_EMPLOYEE', 'CHANGE_ME_LOCALLY');
+
+// ---- حالات الشركة ----
+define('STATUS_ACTIVE', 'CHANGE_ME_LOCALLY');
+define('STATUS_PENDING', 'CHANGE_ME_LOCALLY');
+define('STATUS_REJECTED', 'CHANGE_ME_LOCALLY');
+define('STATUS_SUSPENDED', 'CHANGE_ME_LOCALLY');
+
+// ---- حالات الطلبات ----
+define('REQ_PENDING', 'CHANGE_ME_LOCALLY');
+define('REQ_APPROVED', 'CHANGE_ME_LOCALLY');
+define('REQ_REJECTED', 'CHANGE_ME_LOCALLY');
+
+// ---- حالات المرتبات ----
+define('PAY_DRAFT', 'CHANGE_ME_LOCALLY');
+define('PAY_FINALIZED', 'CHANGE_ME_LOCALLY');
+
+// ---- طرق البصمة ----
+define('ATTEND_APP', 'CHANGE_ME_LOCALLY');
+define('ATTEND_QR', 'CHANGE_ME_LOCALLY');
+define('ATTEND_EXCEL', 'CHANGE_ME_LOCALLY');
+
+// ---- اللغة الافتراضية ----
+define('DEFAULT_LANG', 'CHANGE_ME_LOCALLY');

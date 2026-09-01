@@ -466,6 +466,66 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Target Date | Met. The tenant decision was owed immediately because the 58 mutating endpoints were already live; it was taken and implemented on 2026-08-31. The platform-admin half, which was due before any destructive operation shipped on that surface, was closed in the same change rather than deferred. |
 | Evidence | **Fix**: `JwtAuthenticationFilter.sessionIsLive` and `RefreshTokenRepository.familyIsLive` (tenant); `PlatformAdminAuthenticationFilter.sessionIsLive` and `PlatformAdminRefreshTokenRepository.familyIsLive` (platform admin). **Regression tests**: `AuthSessionFlowTest.logoutAlsoStopsTheAccessTokenImmediately` and `PlatformAdminSessionFlowTest.logoutAlsoStopsTheAccessTokenImmediately` — each asserts the access token works before logout and is refused after it. Both were **verified to fail with the fix reverted and pass with it applied**, so they test the behaviour rather than restating it. **Original defect**: `JwtService:69` and `PlatformAdminJwtService:55` issued `sid`; neither filter read it. Write surface counted by enumerating non-auth mutating mappings outside `platformadmin`. Related: **R-026**, the same defect class, closed earlier. |
 
+## R-028: The Port Was Mapped On File Paths, Not On The URLs Clients Call
+
+| Field | Value |
+|---|---|
+| Description | Every legacy controller mapped the PHP **file** path (`/apis/api/configs/get.php`) because the endpoint inventory was built from the source tree. Both Flutter clients call the **router** path (`/apis/api/configs/get`) — `api_constants.dart` joins `https://workin.company/apis/api/` with paths like `auth/login_employee`, and none of its 266 endpoint constants ends in `.php`. `apis/.htaccess` rewrites to `index.php` only when the target does not exist, so a direct `.php` request bypasses the bootstrap those files assume and fatals. |
+| Category | Migration / API contract / Cutover readiness |
+| Probability | Was certain. Every client request at cutover would have hit an unmapped path. |
+| Impact | **Total failure of D-111's zero-client-change premise, at the routing layer, before any business logic ran.** Measured against the **190 endpoint constants the clients declare** — declaration coverage, not call-site coverage, since at least one is a dead reference: Java answered the client URL form correctly for **9**. The same endpoints with `.php` appended: 188. Verified against production — `/apis/api/configs/get` answers 200 and `/apis/api/configs/get.php` answers 500. |
+| Severity | **Was Critical.** Not a degradation but a complete outage of the mobile and desktop clients from the first request after cutover, with a rollback needed to restore service. |
+| Owner | Repository owner. |
+| Mitigation | **Fixed.** `LegacyPhpRouterFilter` ports `apis/api/index.php`'s router: a two-segment route under `/apis/api/` resolves to the `.php` file serving it. Registered at `HIGHEST_PRECEDENCE` **outside** the Spring Security chain, because the permit-list in `LegacyPhpRoutes` is written in `.php` paths and authorization must evaluate the rewritten path or it would 401 endpoints legacy serves anonymously. After the fix the sweep matches **188/190**, and `configs/get` returns byte-identical JSON from both stacks. |
+| Trigger | Any new legacy endpoint: it must be reachable in the client form, which the filter now guarantees by construction rather than per-controller. |
+| Contingency | None needed post-fix. Had it shipped, the only remedy would have been rollback — the clients are frozen and cannot be pointed at a different URL shape. |
+| Status | **Closed 2026-08-31**, mechanism and ordering recorded as **D-147**. Found by the PHP↔Java parity harness (`docs/migration/2026-08-31-php-java-parity-harness.md`) on its first sweep. Not findable by reading either codebase: the tests exercised the same file paths the controllers mapped, so they passed against a backend no client could reach. |
+| Target Date | Met, before cutover. |
+| Evidence | `LegacyPhpRouterFilter`, `LegacyPhpRouterConfig`; five regression cases in `LegacyReferenceEndToEndTest` (three fail with the filter disabled); `flutter-integration/*/lib/core/network/api_constants.dart`; production status codes recorded above; sweep results in `parity-harness/`. |
+| Last Reviewed | 2026-08-31 |
+
+> **What this says about the evidence base.** The endpoint inventory, the
+> 198-endpoint count and every wave's delivery claim were built from the PHP
+> *source tree* rather than from the URLs clients request. `LegacyLoginEndToEndTest`
+> hits `login_employee.php` and passes; it would have passed forever. A port
+> verified against its own source tree verifies the wrong contract.
+
+## R-029: Legacy's Payslip Ordering Is Non-Deterministic, So Both Systems Are Arbitrary
+
+| Field | Value |
+|---|---|
+| Description | `payslips/list.php` orders by numeric `employee_code`, then `employee_code`, then **`e.id`** — the employee id. Two payslips belonging to the same employee therefore tie on every ORDER BY column, and MariaDB returns them in whatever order the plan produces. Confirmed on the parity harness: payslips 3725 and 5714 both belong to employee 6245 (`employee_code` `3`), and PHP and Java return them in opposite order **from the same database**. |
+| Category | API contract / Parity / Client-visible behaviour |
+| Probability | Certain whenever a result page contains more than one payslip for one employee — the normal case for any multi-month query. |
+| Impact | A client rendering the list sees an arbitrary order that can differ between the two systems, and can differ between two calls to the same system if the plan changes. With `LIMIT`, an unstable sort can also change **which** rows land on a page, so pagination may skip or repeat a row. Not data loss, and no value is wrong — every field matched exactly once ordering was accounted for. |
+| Severity | Low. Legacy has always behaved this way and no client is known to depend on the order. It is recorded because the parity harness would otherwise report a permanent, unfixable difference on this endpoint, and a future reader would waste time chasing it. |
+| Owner | Repository owner. |
+| Mitigation | **None applied, deliberately.** Adding a deterministic final tie-break (`p.id`) would make Java stable and *diverge from legacy*, which **D-058** puts the burden of proof on. The correct sequence is to change `hr-legacy` first and port the change, as with every other finding of this class. |
+| Trigger | Any complaint about payslip list ordering; any client that starts depending on order; any decision to add pagination guarantees. |
+| Contingency | If a client does depend on it, the tie-break must be added to **both** systems in the same change, not to Java alone. |
+| Status | Open — recorded, not accepted. Found by the parity harness on 2026-08-31. **Correction, same day:** this entry originally claimed a Java ordering bug had been found and fixed alongside it — `p.id` where PHP uses `e.id`. That was wrong. `list()` already ended on `e.id` and always had; the line changed was in `exportRows()`, whose PHP counterpart (`data_export_helper.php:552`, inside `data_export_payslips_csv`) genuinely does end on `p.id`. The two legacy queries differ on purpose, and the 'fix' altered a correct one — reverted after independent review of PR #153 caught it. There was never a Java ordering defect here; the residual below is the whole of it. |
+| Target Date | None. Recorded for recognition rather than remediation. |
+| Evidence | `hr-legacy/apis/api/payslips/list.php:134-141` (list ends on `e.id`) and `apis/helpers/data_export_helper.php:552` (export ends on `p.id`); `LegacyPayslipStore.list()` and `.exportRows()` mirror that split. Harness measurement: same 20-row set, **0 value differences and 0 type differences** when compared keyed by id — the difference is order alone. The 12/20 positional agreement recorded earlier was attributed to a code change that could not have caused it, and is not evidence of anything. |
+| Last Reviewed | 2026-08-31 |
+
+## R-030: Legacy Accepts Out-Of-Range Payroll Months And Negative Leave Balances
+
+| Field | Value |
+|---|---|
+| Description | Two write endpoints validate less than their callers assume, and the Java port reproduces both faithfully (D-058), so this is a **legacy** defect that Phase 1 inherits rather than introduces. `payroll_batches/create` accepts `month: 13` — it returns 201 and computes a fiscal period from it (`period_from 2026-11-21`, `period_to 2026-12-20`), so the batch is real and covers **shifted dates** rather than being rejected. `leave_balances/create` accepts `total_days: -5`, persisting `remaining_days: -5.0`. |
+| Category | Data integrity / Input validation / Payroll |
+| Probability | Unknown in production, but nothing prevents it: both are plain API calls with no client-side guarantee behind them, and the desktop client is not the only possible caller. |
+| Impact | A mistyped month creates a payroll batch whose period silently does not match its label — the batch says month 13 while covering late November to late December. Anything downstream that groups or reconciles by month sees a batch that does not belong to any real month. Negative leave entitlement propagates into balance arithmetic and into whatever the client renders. Neither fails loudly; both produce plausible-looking rows. |
+| Severity | Medium. No evidence either has occurred, and both require an unusual request — but payroll data that is wrong and looks right is the expensive kind, and the absence of validation means the only thing preventing it today is that nobody has typed it. |
+| Owner | Repository owner. |
+| Mitigation | **None applied, deliberately.** Adding validation in Java alone would make the two systems answer differently for the same request, which **D-058** puts the burden of proof on — and during Phase 1 a request PHP accepts must not become an error in Java. The correct sequence is to fix `hr-legacy` first and port the change, as with every other finding of this class. |
+| Trigger | Any payroll reconciliation that finds a batch outside months 1–12; any leave report showing a negative entitlement; any decision to add input validation to the legacy API. |
+| Contingency | A read-only query over `payroll_batches` for `month NOT BETWEEN 1 AND 12`, and over `leave_balance` for `total_days < 0`, would establish whether either has already happened. Neither has been run — that needs explicit authorization for production access. |
+| Status | Open — recorded, not accepted. Found on 2026-08-31 by the parity harness's mutation sweep, which sends deliberately invalid input to both stacks and compares the outcome. Both accepted it identically, so the sweep passed on parity while surfacing the shared gap. |
+| Target Date | Before any hardening pass on the legacy write API, or sooner if a reconciliation finds an affected row. |
+| Evidence | `hr-legacy/apis/api/payroll_batches/create.php` (`required()` covers presence, not range); `leave_balances/create.php` (same); harness cases `payroll_batches (month 13)` and `leave_balances (negative days)`, both 201/201 with identical rows. |
+| Last Reviewed | 2026-08-31 |
+
 ## R-031: A Text Field Named `file` Was Accepted As A Spreadsheet Upload
 
 | Field | Value |

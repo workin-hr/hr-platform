@@ -134,7 +134,7 @@ left at its committed placeholder counts as unconfigured.
    > operator running the grep *before* making an OTP request always found
    > nothing, including when every credential was empty, and read that as a
    > pass. Do not go back to inferring configuration from an absent log line.
-2. **Send one real code.** `POST /apis/api/auth/resend_otp.php` with a phone
+2. **Send one real code.** `POST /apis/api/auth/resend_otp` with a phone
    the operator controls. Expect **200** and an actual WhatsApp message. A
    **503** means delivery failed — check the log for
    `WhatsApp delivery failed on every instance` (transport or credentials)

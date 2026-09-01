@@ -381,6 +381,31 @@ Phase 1 therefore has nothing to reproduce: a request to `/api/time/now` returns
 is counted once, in `EXPLICITLY_EXCLUDED_WITH_DECISION`, and excluded from the
 live total.
 
+> **Amended 2026-08-31 — the evidence above stands, "dead surface" does not,
+> and the 404 requirement is currently unmet.**
+>
+> Points 1–3 were re-verified and remain correct: `time` is not allow-listed and
+> PHP answers `module_not_found` before looking for an action file. But
+> *unreachable* here means unreachable **server-side**. It does not mean no
+> client calls it, which is how "dead surface" has been read since. The mobile
+> client calls it from the **home screen** — `home_provider.dart:79` →
+> `GetServerTimeUsecase` → `repository.getServerTime()` →
+> `remote_data_source.dart:179` → `ApiConstants.getServerTimeEndpoint`
+> (`'time/now'`). The chain is fully wired; the client simply absorbs PHP's 404
+> today.
+>
+> That makes this clause load-bearing rather than academic: *"must return 404
+> after cutover"*. Measured against the parity harness on 2026-08-31, Java does
+> not meet it — **401** when unauthenticated (the security chain rejects before
+> routing, where PHP's router rejects before authenticating), and a 404 in
+> **Spring's** envelope rather than PHP's when authenticated. Both are
+> properties of every unmatched `/apis/api/**` path, not of this endpoint. See
+> `docs/migration/2026-08-31-php-java-parity-harness.md`, "`time/now`, measured
+> precisely".
+>
+> The exclusion itself is unaffected — no endpoint needs building. What needs
+> building is the router's unmatched-path behaviour.
+
 The mirror-image anomaly is recorded with it: **`reports` is in
 `allowedList()` and has no directory at all.** It contributes zero endpoints, so
 it changes no count — but it is an advertised module on which every action 404s,
@@ -857,20 +882,63 @@ Three endpoints stand between the repository and G2:
 - `attendance/export.php` — binary streaming response, open per D-101;
 - `payslips/export.php` — binary streaming response, open per D-106.
 
-**G3 — Exact PHP URL and wire contract.** Every live endpoint answers on its
-literal `/apis/api/{module}/{action}.php` URL with **the response contract its
-own PHP file emits**. **Wave 12.R is complete and no `/api/legacy/**` business
-route remains mapped.**
+**G3 — Exact PHP URL and wire contract.** Every live endpoint answers on
+**the URL clients actually request** — `/apis/api/{module}/{action}`, without
+the suffix — with **the response contract its own PHP file emits**. **Wave 12.R
+is complete and no `/api/legacy/**` business route remains mapped.**
+
+> **Corrected 2026-08-31 (R-028, D-147).** This gate previously required the
+> *literal `.php`* URL, which is a file name and not a URL any client sends:
+> `api_constants.dart` joins `https://workin.company/apis/api/` with paths like
+> `auth/login_employee`, and requesting the `.php` file directly returns **500**
+> from PHP. As written, G3 could have been satisfied in full while every Flutter
+> request 404'd — which is precisely the state the port was in until
+> `LegacyPhpRouterFilter` landed.
+>
+> **Extended 2026-09-01.** G3 covers the **live endpoint set**, which
+> by construction excludes the paths the router does *not* serve — so the
+> unmatched-path behaviour had no gate at all. That gap was not theoretical:
+> `time/now` is excluded under O-3 as dead surface, the mobile client calls it
+> from its home screen, and Java answered it with the wrong status *and* the
+> wrong envelope while every completion gate stayed green.
+>
+> **G3 therefore also requires**, as a cutover obligation in its own right,
+> that a request to a path under `/apis/api/` which no endpoint serves answers
+> as `apis/api/index.php` does: unknown module → **404** `module_not_found`
+> naming the allow-list, allow-listed module with no action file → **501**
+> `module_not_implemented`, missing action → **404** `unknown_action`, all in
+> the D-074 envelope and all decided **before authentication**. The owner is
+> the router, not the individual endpoints, and the evidence is the
+> parity harness's unauthenticated sweep rather than any per-endpoint test.
+>
+> O-3's exclusion of the physical `time/now.php` file is unchanged and remains
+> correct — no endpoint needs building. What was missing is that "excluded"
+> was being read as "unowned", and a client-visible mismatch sat in that gap.
+>
+> The router change that satisfies this obligation, and the decision recording
+> it, are on a **separate stacked branch** and are deliberately not cited by
+> number here — a reference that resolves to nothing is worse than none. This
+> gate states the requirement; the branch that meets it carries its own record.
 
 **What enforces what.** `LegacyPhpRouteInventoryTest`'s bidirectional assertion
-is a **URL-surface** check and nothing more: it compares the set of mapped
-patterns against `EXPECTED_ROUTES`, at 125 routes today and 198 when G2 closes.
-It never exercises a method, a guard order, a status code, an envelope, a header
-or a body, so a route with an incompatible wire implementation still satisfies
-it. The wire contract itself is carried by each endpoint's own contract and
+is an **internal-mapping** check, not a URL-surface one: it compares the set of
+mapped controller patterns against `EXPECTED_ROUTES`, at 125 routes today and
+198 when G2 closes. It never exercises a method, a guard order, a status code,
+an envelope, a header or a body, so a route with an incompatible wire
+implementation still satisfies it.
+
+> It is also blind to the thing R-028 turned out to be. Both sides of that
+> assertion are written in `.php` paths, so it agreed with itself perfectly
+> while no client-reachable URL resolved at all. **Reachability on the client's
+> URL form is evidenced by the parity harness**
+> (`docs/migration/2026-08-31-php-java-parity-harness.md`, 188/190 measured
+> against both stacks), not by this test — an inventory of a codebase against
+> itself cannot establish a client contract. The wire contract itself is carried by each endpoint's own contract and
 end-to-end tests, with **G6** as the floor that guarantees none reaches cutover
-with zero measured evidence. Do not cite the inventory as proof of anything but
-the URL surface.
+with zero measured evidence. Do not cite the inventory as proof of the URL
+surface: it evidences the **internal controller mappings only**, and URL
+reachability must come from the parity harness. Citing it for the URL surface
+is what let R-028 through.
 
 The response contract is per-endpoint, not repository-wide (D-120). The 170
 delivered routes split **165 / 4 / 1**, and one endpoint's shape depends on a

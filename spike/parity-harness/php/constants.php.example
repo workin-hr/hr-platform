@@ -1,0 +1,61 @@
+<?php
+declare(strict_types=1);
+
+// ============================================================
+//  Application constants — DB, JWT, uploads, admin, integrations
+//
+//  TEMPLATE. Copy to constants.php (git-ignored) and fill in local
+//  values. JWT_SECRET must match the Java harness's signing secret --
+//  generate one locally, never reuse a production secret.
+// ============================================================
+
+final class AppConfig {
+    public const DB_HOST = 'db';
+    public const DB_NAME = 'workin';
+    public const DB_USER = 'root';
+    public const DB_PASS = 'parity';
+    public const DB_CHARSET = 'utf8mb4';
+
+    public const JWT_SECRET = 'CHANGE_ME_LOCALLY';
+    public const JWT_EXPIRE_HOURS = 87600; // 10 years
+
+    public const UPLOAD_PATH = __DIR__ . '/../../uploads/';
+    public const UPLOAD_URL = 'CHANGE_ME_LOCALLY';
+
+    public const DEFAULT_LIMIT = 20;
+    public const MAX_LIMIT = 100;
+
+    public const FCM_SERVER_KEY = 'CHANGE_ME_LOCALLY';
+    public const SMS_API_KEY = 'CHANGE_ME_LOCALLY';
+    public const SMS_SENDER_ID = 'HRAPP';
+
+    /** Whats360 — OTP via WhatsApp: https://pro.whats360.live/user/developers */
+    public const WHATSAPP_API_BASE = 'CHANGE_ME_LOCALLY';
+    public const WHATSAPP_API_TOKEN = 'CHANGE_ME_LOCALLY';
+    /** Primary sender instance. Used first; if it fails, fall back below. */
+    public const WHATSAPP_INSTANCE_ID = 'CHANGE_ME_LOCALLY';
+    /** Fallback sender instance. Tried only when primary fails. */
+    public const WHATSAPP_INSTANCE_ID_FALLBACK = 'CHANGE_ME_LOCALLY';
+
+    /** When true: show PHP errors and return JSON for uncaught exceptions (local/Postman only). Set false in production. */
+    public const DEBUG = true;
+}
+
+require_once __DIR__ . '/http_api.php';
+require_once __DIR__ . '/pdo.php';
+require_once __DIR__ . '/request.php';
+require_once __DIR__ . '/response.php';
+require_once __DIR__ . '/tables.php';
+require_once __DIR__ . '/columns.php';
+require_once __DIR__ . '/enums.php';
+require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/upload_slots.php';
+
+/**
+ * Allowed API modules (path segment after /api/)
+ *
+ * @return list<string>
+ */
+function app_allowed_modules(): array {
+    return ApiModule::allowedList();
+}

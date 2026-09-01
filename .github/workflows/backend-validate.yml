@@ -10,6 +10,13 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/backend-validate.yml"
+      # The detectors this workflow runs guard files outside backend/, so a PR
+      # touching only a detector, its regression suite, or the collection it
+      # protects would otherwise skip the step that guards it and stay green.
+      - "scripts/check_client_endpoints_drift.py"
+      - "scripts/test_check_client_endpoints_drift.py"
+      - "scripts/check_legacy_schema_drift.py"
+      - "spike/parity-harness/client-endpoints.txt"
   push:
     branches:
       - main
@@ -17,6 +24,10 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/backend-validate.yml"
+      - "scripts/check_client_endpoints_drift.py"
+      - "scripts/test_check_client_endpoints_drift.py"
+      - "scripts/check_legacy_schema_drift.py"
+      - "spike/parity-harness/client-endpoints.txt"
 
 permissions:
   contents: read
@@ -65,6 +76,15 @@ jobs:
       - name: Legacy schema drift-detector self-test
         working-directory: .
         run: python3 scripts/check_legacy_schema_drift.py --self-test
+
+      # Both detectors guard a vendored copy of something this repository does
+      # not contain -- the legacy module allow-list, and the clients' endpoint
+      # constants. The real comparison needs that source (an hr-legacy checkout,
+      # or initialised Flutter submodules) and cannot run here; the regression
+      # suites need nothing and prove the detectors still work.
+      - name: Client endpoint-list drift-detector regression suite
+        working-directory: .
+        run: python3 scripts/test_check_client_endpoints_drift.py
 
       # ---------------------------------------------------------------
       # Phase 2 (storage migration) assets — FROZEN 2026-08-16.
