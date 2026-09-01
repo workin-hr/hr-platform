@@ -224,6 +224,27 @@ PHONE_EMP=+201999000003
 # for requests/approve would hide a divergence in status or reply -- the
 # columns that actually carry the decision. Only the named column is
 # collapsed; everything else in the row is still compared byte for byte.
+# Tables whose ROW divergence is accepted for one case, usable ONLY where the
+# status pair is itself accepted (see the guard at the call site). That coupling
+# is the point: a row difference can only be waived as part of a divergence that
+# is already documented, never on its own.
+#
+# This is for the cases whose whole purpose is to demonstrate a divergence that
+# must NOT be reproduced -- where PHP writes and Java refuses, comparing the
+# rows and expecting them to match is self-contradictory. What keeps it honest
+# is that Java's refusal is pinned by its own test, named below.
+accepted_row_tables() {  # $1=path $2=php $3=java  -> stdout: table list, or empty
+  case "${1%%\?*}:$2:$3" in
+    advances/create:201:403)
+      # R-037: PHP inserts an advance against another tenant's employee; Java
+      # refuses, so `advances` legitimately differs by exactly that row. Java's
+      # refusal is asserted by LegacyAdvanceServiceTest
+      # #adminCreateRejectsAnEmployeeIdBelongingToAnotherCompany, so waiving the
+      # table here does not leave the behaviour unpinned.
+      echo "advances" ;;
+  esac
+}
+
 accepted_row_columns() {  # $1=path $2=table  -> stdout: column list, or empty
   case "${1%%\?*}:$2" in
     requests/approve:requests|requests/reject:requests)
@@ -247,6 +268,12 @@ accepted_mutation_divergence() {  # $1=path $2=php code $3=java code
       # Reproducing either behaviour would mean porting a tenant-isolation
       # defect, so the divergence is deliberate.
       echo "R-036"; return 0 ;;
+    advances/create:201:403)
+      # R-037: create.php resolves employee_id with no company predicate, so a
+      # company admin creates an advance against another tenant's employee.
+      # Java refuses with 403 and writes nothing. Reproducing a cross-tenant
+      # financial write is not parity worth having.
+      echo "R-037"; return 0 ;;
     advances/approve:500:404|advances/reject:500:404|advances/pay:500:404)
       # R-037: the advances actions write with WHERE id=? and NO company
       # predicate, and re-read the same way. For an id that does not exist the
@@ -348,7 +375,7 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
   pbody=$(norm /tmp/mp.json)
   jbody=$(norm /tmp/mj.json)
 
-  local verdict=ok detail=""
+  local verdict=ok detail="" status_accepted=""
   # A transport failure is curl's 000. Two of them compare equal, the missing
   # bodies normalize equal, and the untouched snapshots match -- so a mutation
   # that never executed would be counted as identical. Same hole sweep.sh had.
@@ -375,13 +402,18 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
   fi
   if [ "$pcode" != "$jcode" ]; then
     if reason=$(accepted_mutation_divergence "$path" "$pcode" "$jcode"); then
-      accepted=$((accepted+1))
-      printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "ACCEPTED ($reason)"
-      return
+      # Accepting the STATUS pair does not accept the write. The row snapshots
+      # below still run: a regression that keeps returning the approved 404 but
+      # performs an unintended write would otherwise be invisible, filed under
+      # the very risk that documents the status difference.
+      status_accepted="$reason"
+    else
+      verdict=DIFF; detail="status $pcode vs $jcode"
     fi
-    verdict=DIFF; detail="status $pcode vs $jcode"
   fi
-  if [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ]; then
+  if [ -n "$status_accepted" ] && [ "$pbody" != "$jbody" ]; then
+    : # the bodies belong to two different statuses; the acceptance covers both
+  elif [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ]; then
     # A matching 5xx is compared on status and state, not on body. PHP's harness
     # config sets DEBUG=true, so its 500 carries a file/line/stack trace while
     # Java answers a generic envelope -- that difference is the harness's PHP
@@ -401,6 +433,12 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
   IFS=',' read -ra tl <<< "$tables"
   for t in "${tl[@]}"; do
     [ -n "$t" ] || continue
+    # A whole-table waiver is available only when the status pair was accepted.
+    if [ -n "$status_accepted" ] && \
+       printf '%s' ",$(accepted_row_tables "$path" "$pcode" "$jcode")," | grep -q ",$t,"; then
+      printf '%-42s %-4s %-4s %s\n' "  ^ table divergence accepted" "" "" "$t ($status_accepted)"
+      continue
+    fi
     accepted_cols=$(accepted_row_columns "$path" "$t")
     if [ "$(snapshot "$PHP_DB" "$t" "$accepted_cols")" != "$(snapshot "$JAVA_DB" "$t" "$accepted_cols")" ]; then
       statediff="$statediff $t"
@@ -418,6 +456,11 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
   done
   if [ -n "$statediff" ]; then verdict=DIFF; detail="${detail:+$detail; }rows differ:$statediff"; fi
 
+  if [ "$verdict" = ok ] && [ -n "$status_accepted" ]; then
+    accepted=$((accepted+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "ACCEPTED ($status_accepted), rows verified"
+    return
+  fi
   if [ "$verdict" = ok ]; then
     pass=$((pass+1))
   else
@@ -493,6 +536,8 @@ C214_PAYSLIP_DRAFT=$(resolve_or_die c214_payslip_draft "SELECT id FROM payslips 
 # has -- is not found and mark_read/delete answer 404 on both stacks.
 C214_NOTIF_INBOX=$(resolve_or_die c214_notif_inbox "SELECT id FROM notifications WHERE id=999013 AND to_employee_id=999002 AND recipient_kind='employee'")
 C214_DECISION=$(resolve_or_die c214_decision "SELECT id FROM administrative_decisions WHERE id=999015 AND company_id=214")
+# An employee of a DIFFERENT company, for the cross-tenant probes. R-037.
+FOREIGN_EMP=$(resolve_or_die foreign_emp "SELECT id FROM employees WHERE company_id NOT IN (214,244) AND is_active=1 ORDER BY id LIMIT 1")
 C214_REQ_PENDING=$(resolve_or_die c214_req_pending "SELECT id FROM requests WHERE id=999014 AND status='pending'")
 # A SECOND employee, so payslips/create has someone without a payslip in the
 # draft batch -- the fixture above already occupies the first one, and create
@@ -622,6 +667,14 @@ run_case "exception_types/create (no name)" POST "attendance_exception_types/cre
 # whose ROWS are compared, not just the response, because an endpoint can
 # answer identically and still persist differently.
 # ---------------------------------------------------------------------------
+# R-037, fifth endpoint: advances/create.php resolves the employee without a
+# company predicate, so a company admin can create a financial obligation
+# against ANOTHER tenant's employee. Measured: PHP 201 and a row, Java 403 and
+# none. The status pair is registered as accepted; the row snapshot still runs,
+# so an unintended Java write would still fail the case.
+run_case "advances/create (foreign employee)" POST "advances/create" \
+  "{\"employee_id\":$FOREIGN_EMP,\"amount\":100,\"reason\":\"parity cross-tenant probe\",\"deduction_mode\":\"single_payroll_month\",\"deduction_payroll_year\":2026,\"deduction_payroll_month\":9}" \
+  "advances" 214 201
 run_case "advances/approve"                PUT  "advances/approve?id=$C214_ADV" \
   '{}' "advances,notifications" 214 200
 run_case "advances/approve (unknown id)"   PUT  "advances/approve?id=99999999" \
@@ -671,10 +724,21 @@ run_case "payroll_batches/update"          PUT  "payroll_batches/update?id=$C214
   '{"month":10,"year":2026}' "payroll_batches" 214 200
 run_case "payroll_batches/calculate"       POST "payroll_batches/calculate?id=$C214_BATCH_DRAFT" \
   '' "payroll_batches,payslips" 214 200
+# finalize does not only flip a status: it applies advance deductions
+# (updateAdvanceRemaining) and marks penalties applied_to_payroll. The seeded
+# open penalty belongs to the draft payslip's employee and falls in the batch
+# period, so this case definitely writes both tables -- comparing only
+# payroll_batches and payslips would let the two stacks disagree on payroll
+# deductions while the run stayed green.
 run_case "payroll_batches/finalize"        PUT  "payroll_batches/finalize?id=$C214_BATCH_DRAFT" \
-  '' "payroll_batches,payslips" 214 200
+  '' "payroll_batches,payslips,penalties,advances" 214 200
+# reopen against the FINALIZED snapshot batch, which is the success path. The
+# draft-batch case below is the refusal, and a refusal alone is not coverage.
+run_case "payroll_batches/reopen (finalized)" PUT  "payroll_batches/reopen?id=$C214_BATCH" \
+  '' "payroll_batches,payslips,penalties,advances" 214 200
+# reopen reverses the same side effects (restoreAdvancesAndUnmarkPenalties).
 run_case "payroll_batches/reopen"          PUT  "payroll_batches/reopen?id=$C214_BATCH_DRAFT" \
-  '' "payroll_batches,payslips" 214 400
+  '' "payroll_batches,payslips,penalties,advances" 214 400
 run_case "payroll_batches/delete"          DELETE "payroll_batches/delete?id=$C214_BATCH_DRAFT" \
   '' "payroll_batches,payslips" 214 200
 run_case "payroll_batches/calc (unknown)"  POST "payroll_batches/calculate?id=99999999" \
@@ -789,7 +853,10 @@ run_case "employees/create (no code)"      POST "employees/create" \
   '{"first_name":"Parity","last_name":"New"}' "employees" 214 400
 run_case "employees/update"                PUT  "employees/update?id=$C214_EMP" \
   '{"first_name":"Parity Renamed"}' "employees" 214 200
-run_case "employees/deactivate"            DELETE "employees/deactivate?id=$C214_EMP" '' "employees" 214 200
+# deactivate() updates the employee AND unconditionally inserts an
+# employee_deactivated notification -- a missing one, a wrong recipient, or a
+# divergent translated body would be invisible against `employees` alone.
+run_case "employees/deactivate"            DELETE "employees/deactivate?id=$C214_EMP" '' "employees,notifications" 214 200
 run_case "employees/reactivate"            PUT  "employees/reactivate?id=$C214_EMP" '' "employees" 214 200
 # 409: delete.php refuses while payroll/attendance rows still reference the
 # employee. employees/delete_preview is the endpoint that reports what blocks it.
@@ -808,7 +875,9 @@ run_case "profile/change_password (wrong)" POST "profile/change_password" \
 # the correct parity result -- pinned, not worked around.
 run_case "profile/register_push_token"     POST "profile/register_push_token" \
   '{"token":"parity-token","platform":"android"}' "push_tokens" 214 500
-run_case "profile/logout"                  POST "profile/logout" '' "employees" 214 200
+# logout deletes the caller's push token and, for an employee session,
+# deactivates them -- which notifies. Three tables, not one.
+run_case "profile/logout"                  POST "profile/logout" '' "employees,notifications,push_tokens" 214 200
 
 run_case "company/update"                  PUT  "company/update" \
   '{"company_name":"Parity Company Renamed"}' "companies" 214 200
