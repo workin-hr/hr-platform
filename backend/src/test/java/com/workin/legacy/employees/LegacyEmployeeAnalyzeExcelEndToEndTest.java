@@ -109,6 +109,22 @@ class LegacyEmployeeAnalyzeExcelEndToEndTest {
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
 	}
 
+	/**
+	 * The other direction the byte-count guard got wrong: {@code filename=""}
+	 * <em>with</em> content is {@code UPLOAD_ERR_NO_FILE} in PHP, so it is
+	 * {@code no_file_uploaded} — but {@code isEmpty()} is false for it, so Java
+	 * let it through to format validation and answered
+	 * {@code File rejected: it does not match the expected template} instead.
+	 */
+	@Test
+	void anEmptyFilenameIsNoFileUploadedEvenWithContent() {
+		ResponseEntity<Map<String, Object>> response =
+				post("employee_code,first_name\n1,Test\n".getBytes(StandardCharsets.UTF_8), "", ADMIN_1, "en");
+
+		assertThat(response.getStatusCode().value()).isEqualTo(400);
+		assertThat(response.getBody().get("message")).isEqualTo("No file uploaded");
+	}
+
 	// ------------------------------------------------------------------
 	// D-085: the four round trips
 	// ------------------------------------------------------------------
@@ -467,11 +483,24 @@ class LegacyEmployeeAnalyzeExcelEndToEndTest {
 		assertThat(response.getBody()).doesNotContainKey("data");
 	}
 
+	/**
+	 * <b>The empty-file assertion here was wrong, and the code matched it.</b>
+	 * A zero-byte file with a real filename is {@code UPLOAD_ERR_OK} in PHP --
+	 * the user did choose a file -- so legacy falls through to the format check
+	 * and answers {@code Empty or unreadable file}. This test asserted
+	 * {@code No file uploaded}, which is what Java's {@code file.isEmpty()}
+	 * guard produced, so the divergence was pinned as if it were the contract.
+	 * Measured against the running PHP; the guard is now the same three-part
+	 * filename test {@code LegacyAttendanceImportService} uses.
+	 */
 	@Test
 	void anEmptyUploadAndAMissingPartAreBothNoFileUploaded() {
 		ResponseEntity<Map<String, Object>> empty = post(new byte[0], "empty.csv", ADMIN_1, "en");
 		assertThat(empty.getStatusCode().value()).isEqualTo(400);
-		assertThat(empty.getBody().get("message")).isEqualTo("No file uploaded");
+		assertThat(empty.getBody().get("message"))
+				.as("zero bytes with a real filename is UPLOAD_ERR_OK in PHP, so it reaches "
+						+ "the format check rather than being refused as a missing upload")
+				.isEqualTo("Empty or unreadable file");
 
 		// A multipart request carrying a differently named part.
 		MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();

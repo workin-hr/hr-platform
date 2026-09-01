@@ -493,6 +493,35 @@ Excel import/analyze/template trio pattern seen in `attendance` and
 (`list.php`/`one.php`/`stats.php` use bare `requireAuth()`) not traced
 for row-level self-scoping in this pass.
 
+**`analyze_excel.php`'s upload guard is `isset($_FILES['file'])` plus
+`error === UPLOAD_ERR_OK`, and the distinction is client-visible** (R-031).
+Three request shapes that look similar answer differently, measured against
+both stacks:
+
+| multipart `file` part | answer |
+|---|---|
+| a text field (no filename) | 400 `No file uploaded` — a `$_POST` field never reaches `$_FILES` |
+| present with `filename=""` | 400 `No file uploaded` — PHP's `UPLOAD_ERR_NO_FILE` |
+| zero bytes with a real filename | 400 `Empty or unreadable file` — `UPLOAD_ERR_OK`, so it reaches the format check |
+| absent entirely | 400 `No file uploaded` |
+
+The first two both answered otherwise in Java before R-031 — the text field was
+parsed as a spreadsheet and returned **200**, and the empty filename reached the
+analyzer and returned the wrong message.
+
+**The same guard applies to the `attendance` and `employees` spreadsheet
+endpoints, and only `attendance` already had it.** `employees/analyze_excel`
+guarded on `file.isEmpty()`, which tests the *bytes* rather than the filename,
+so it was wrong in both directions and was corrected in the same change:
+
+| `employees/analyze_excel`, `file` part | PHP | Java before |
+|---|---|---|
+| zero bytes, real filename | `Empty or unreadable file` | `No file uploaded` |
+| `filename=""` with content | `No file uploaded` | `File rejected: it does not match…` |
+
+Both now match. An existing test asserted the first of those divergences as if
+it were the contract, and was corrected with the code.
+
 ## Workforce Planning (`apis/api/workforce_planning/`, 7 endpoints)
 
 Headcount-target CRUD per (company, branch, department, job_title), plus
