@@ -263,6 +263,20 @@ so those questions have no subject.
 These are **implementation prerequisites**: the design is settled and none of it
 may ship until they are answered.
 
+- **What is the first-time TOTP enrolment ceremony?** The window between an
+  account existing and its second factor being bound is a window in which a
+  password alone is sufficient, and this population is bootstrap-provisioned,
+  so someone else creates the account. Enrolment authenticated by more than the
+  password being enrolled against; a single-use, time-bounded enrolment token
+  rather than an open page; the seed shown once and never retrievable;
+  confirmation by a verified code before the factor counts as bound; no
+  destructive operations until it is. Recovery must not become a weaker second
+  enrolment path.
+- **If the legacy PHP dashboard runs in parallel, is it MFA-gated, restricted,
+  or down?** It authenticates with the shared admin password (`hr-legacy#11`)
+  and has no second factor, so leaving it reachable makes every control here
+  walk-around-able. "Both authenticate independently" is not an answer on its
+  own.
 - **Which TOTP implementation, what recovery design, and how are the seeds
   kept?** Unchanged by the architecture correction, because it is a recoverable
   secret at rest either way: **application-level encryption with the key held
@@ -282,7 +296,12 @@ may ship until they are answered.
   acceptance test is attempts through separate workers, not a count.
 - **What are the concrete session bounds** — idle timeout and a non-renewable
   absolute cap, as numbers — and is the session id rotated on login to prevent
-  fixation?
+  fixation? **The cap must bound the API tokens too**, not only the UI session:
+  `rotate()` issues every successor at `now + 7 days` without consulting the
+  family origin, so a family slides forever and an access token minted near the
+  cap outlives it. Java must persist or derive the origin, refuse rotation past
+  the cap, and clamp an issued access token to the family's remaining life,
+  proven by a test that advances a family beyond it.
 - **CSRF**: which state-changing JTE routes carry a synchroniser token, and
   where exactly is the filter-chain boundary between the cookie-authenticated
   UI and the bearer-authenticated API? This is **new** with the in-process

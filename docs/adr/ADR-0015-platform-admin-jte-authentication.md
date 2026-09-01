@@ -208,20 +208,45 @@ Design settled; none of this may ship until these are answered:
 
 1. **TOTP implementation, enrolment, recovery, and seed custody** — encryption
    under a key held outside the database, restricted access, protected backups,
-   a defined re-encryption path.
+   a defined re-encryption path. **The first-time enrolment ceremony is part of
+   this, not a detail of it**: the window between an administrator's account
+   existing and their second factor being bound is a window in which a password
+   alone is sufficient, and this population is bootstrap-provisioned with no
+   self-registration, so someone else creates the account. Required: enrolment
+   authenticated by more than the password being enrolled against, a single-use
+   time-bounded enrolment token rather than an open "set your TOTP" page, the
+   seed shown exactly once and never retrievable afterwards, confirmation by a
+   verified code before the factor is considered bound, and the account unable
+   to perform destructive operations until it is. Recovery must not become a
+   second, weaker enrolment path.
 2. **Step-up representation** with maximum age, single use, action binding
    **and** target/request-digest binding, recomputed server-side.
 3. **Throttling** for the password and TOTP steps, in shared restart-surviving
    state, validated by attempts through separate workers rather than a count.
 4. **Session bounds as numbers**: idle timeout and non-renewable absolute cap,
-   plus session-id rotation on login.
+   plus session-id rotation on login. **The cap must also bound the API tokens**,
+   not just the UI session. `PlatformAdminAuthController` still issues access
+   and refresh tokens for API clients, and `rotate()` currently issues every
+   successor at `now + 7 days` without consulting the family's origin, so a
+   family slides indefinitely and an access token minted near the cap outlives
+   it. Java must persist or derive the family origin, refuse rotation past the
+   cap, and clamp an issued access token's expiry to the family's remaining
+   life — proven by a test that advances a family beyond the cap and asserts
+   both the refusal and the clamp.
 5. **CSRF protection** on every state-changing JTE route, and an explicit,
    tested filter-chain boundary between the cookie-authenticated UI and the
    bearer-authenticated API.
 6. **Session-cookie flags** — `HttpOnly`, `Secure`, `SameSite` — chosen and
    pinned by a test.
 7. Whether the legacy PHP dashboard's `admin`-role surface runs **in parallel**
-   during Phase 2, and if so whether both authenticate independently.
+   during Phase 2, and if so whether both authenticate independently. **If it
+   does, MFA is only as strong as the weakest surface**: the PHP dashboard
+   authenticates with the shared admin password (`hr-legacy#11`) and has no
+   second factor, so leaving it reachable means every control in this ADR can
+   be walked around by logging in there instead. Running them in parallel
+   therefore requires the PHP surface to be either MFA-gated too, or restricted
+   so it cannot perform anything this surface protects, or taken down. "Both
+   authenticate independently" is not an acceptable answer on its own.
 8. Whether ADR-0005's *list and revoke sessions individually* is delivered for
    this surface or explicitly deferred. It is unimplemented on both surfaces
    today, so this ADR does not create the gap.
