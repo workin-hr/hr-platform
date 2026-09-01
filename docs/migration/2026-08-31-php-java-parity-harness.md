@@ -94,11 +94,17 @@ first-time setup.
 
 ```sh
 cd spike/parity-harness
-docker compose up -d db          # MariaDB 11.8, port 13306
-# seed: schema, then data with FK checks off, then the Phase-1 extension table
+docker compose up -d db          # MariaDB 11.8, port 13306 (loopback only)
+./seed.sh                        # schema, data with FK checks off, extension table
 docker compose up -d php         # hr-legacy on port 18080
 ./run-java.sh &                  # Java on port 18081, same DB, same JWT secret
 ./sweep.sh                       # every client endpoint, both stacks, diffed
+
+# The MUTATION sweep needs Java on its OWN copy and cannot reconfigure a
+# running JVM, so it is a separate launch. sweep-mutations.sh proves the split
+# with a sentinel and exits 3 if Java is on the wrong database.
+./seed-two.sh && JAVA_DB=workin_java ./run-java.sh &
+./sweep-mutations.sh
 ```
 
 Three details that matter:
@@ -204,15 +210,39 @@ always **R-029** — legacy's own non-determinism — and nothing else.
 
 ### Where it landed
 
+> **SUPERSEDED — do not cite these figures.** They were produced by a version
+> of `sweep-auth.sh` that suppressed `json.load` errors, so a non-JSON body left
+> *both* comparisons empty and they compared equal. The PHP container was also
+> missing the `zip` and `calendar` extensions, so `attendance/export`,
+> `payslips/export` and `attendance/stats` failed in PHP and fell into the
+> "not 200 on both" bucket instead of being compared.
+>
+> | | |
+> |---|---|
+> | ~~Byte-identical JSON~~ | ~~37~~ |
+> | ~~Differing~~ | ~~0~~ |
+> | ~~Not 200 on both~~ | ~~153~~ |
+
+Re-measured 2026-09-01 with the corrected script and both extensions installed:
+
 | | |
 |---|---|
-| Endpoints returning **byte-identical** JSON | **37** |
-| Endpoints differing | **0** |
+| Endpoints returning **byte-identical** JSON | **41** |
+| Endpoints differing | **2** |
+| **Not compared** — non-JSON (XLSX) body | **3** |
+| Not 200 on both (POST-only, or needing params) | 144 |
 
-(One fix in this section was later retracted — see item 2. The endpoint counts
-are unaffected: they were measured against the number-rendering fix, which
-stands.)
-| Not 200 on both (POST-only, or needing params) | 153 |
+The `not compared` row is the whole point of the correction: those three —
+`attendance/export`, `employees/template_excel`, `leave_balances/template_excel`
+— were previously counted inside the identical column, without a byte being
+compared. Comparing workbooks properly needs a reader-level comparison (D-085),
+not a byte diff, since a zip carries its own timestamps.
+
+The two differing are **R-032** (`company_settings/options` emits an extra
+`label` key) and **R-029** (`payslips/list` tie-break ordering).
+
+(One fix in this section was later retracted — see item 2. That retraction is
+about the payslip ordering claim, not these counts.)
 
 `payslips/list` now matches on **every value and every type** when compared
 keyed by id. Only its row *order* still differs, and that is legacy's own
@@ -320,11 +350,35 @@ as surely as a success that differs.
 > | ~~Identical (response **and** rows)~~ | ~~17~~ |
 > | ~~Differing~~ | ~~0~~ |
 
-Writes the corrected harness covers at row level: branches, departments (with
-the `department_branches` junction), advances, administrative decisions,
-**payroll batches**, **payslips**, **leave balances**, **penalties** (with the
-`notifications` they write) and **attendance**, with rejection cases beside
-each.
+Re-measured 2026-09-01 with the corrected harness:
+
+| | |
+|---|---|
+| Cases | **17** |
+| Identical (response **and** rows) | **17** |
+| Differing | **0** |
+| Withheld (unreachable / reseed / login / query failure) | **0** |
+
+**The count is unchanged and its meaning is not.** Under the previous version
+several of these cases were not testing what they claimed:
+
+- `job_titles/create` omitted two fields PHP requires and was a matching **400**
+  — a rejection reported as a verified write. It now returns **201**.
+- `requests/create (wrong role)` was rejected for a missing field before it ever
+  reached the role check it exists to test. It now returns **403**.
+- `penalties/create` had the same defect, and a successful create also writes a
+  notification, which was never compared.
+- `departments/create` writes `department_branches`, which the snapshot could
+  not read at all — a composite-keyed table against a hard-coded `ORDER BY id`.
+- `attendance/create`'s `check_in` and `check_out` were normalised away on both
+  sides of the comparison.
+
+Writes covered at row level: branches, departments (with the
+`department_branches` junction), job titles, advances, administrative
+decisions, payroll batches, leave balances, penalties (with their
+`notifications`) and attendance, with rejection cases beside each. Payslip and
+payroll-calculation cases are **not** in this harness — they are added on the
+stacked branch that records their own result, and are not claimed here.
 
 ### Two traps this hit, both worth keeping
 
@@ -343,7 +397,9 @@ hash each timestamp/date column collapses to `null` or `set`, so a missing or
 wrong-column audit write is still caught; a separate check compares the two
 stacks' newest `created_at`/`updated_at` per table and fails beyond
 `TS_TOLERANCE_SECONDS` (120s), so a timezone error or a wrong default is caught
-too. In the response body, timestamp-shaped strings collapse to `<TS>`. Only a
+too. In the response body, only the audit **keys** collapse to `<TS>` — matching
+by value shape blanked `check_in` and `check_out` as well, which is the hole
+this replaced. Only a
 sub-tolerance difference in an otherwise-present timestamp goes unnoticed. What
 is compared is what each stack *chose* to write, not when it was called.
 

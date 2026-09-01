@@ -50,7 +50,7 @@ assert_java_on_its_own_database() {
 # Row-level fingerprint of one table, ordered deterministically by primary key
 # so the comparison cannot be thrown by return order.
 #
-# Timestamp columns are excluded. The two stacks are called sequentially, so a
+# Only the three audit columns are normalised. The two stacks are called sequentially, so a
 # created_at/updated_at can legitimately differ by a second -- and if that
 # counted, every endpoint that stamps a row would report a difference and real
 # defects would drown in the noise. What is being compared is what each stack
@@ -85,7 +85,12 @@ snapshot() {  # $1=database $2=table
                   ELSE CONCAT('\`', column_name, '\`') END
              ORDER BY ordinal_position)
     FROM columns WHERE table_schema='$1' AND table_name='$2'" 2>/dev/null)
-  [ -n "$cols" ] && [ "$cols" != NULL ] || { echo "no-such-table:$2"; return; }
+  # A failed or empty schema read must not yield something that can match.
+  # `no-such-table:` is per-table text, so two failures on the SAME table
+  # compared equal -- the identical hole the row query had. Both sides now
+  # carry the database name, so a discovery failure can never look like
+  # agreement between two databases.
+  [ -n "$cols" ] && [ "$cols" != NULL ] || { echo "SCHEMA-DISCOVERY-FAILED:$1.$2"; return; }
 
   # Order by the table's ACTUAL primary key, derived rather than assumed.
   # This hard-coded `ORDER BY id`, which is wrong for a composite-keyed
@@ -149,7 +154,16 @@ pass=0; fail=0
 run_case() {
   local name="$1" method="$2" path="$3" body="$4" tables="$5"
 
-  ./seed-two.sh >/dev/null 2>&1
+  # A failed reseed leaves the PREVIOUS case's mutations in place, so this case
+  # would compare contaminated state and report whatever that happens to give.
+  # Same class as the 000 and schema-failure holes: a step that did not run must
+  # not produce a verdict.
+  if ! ./seed-two.sh >/dev/null 2>&1; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "RESEED-FAILED"
+    { echo "### $name  ($method $path)"; echo "    RESEED-FAILED: state is contaminated, verdict withheld"; echo; } >> mutation-diffs.txt
+    return
+  fi
 
   # A token per stack, minted from that stack's own database. Both are valid
   # because the secret is shared and each database has the same employee row at
@@ -157,7 +171,12 @@ run_case() {
   local pt jt
   pt=$(mint_token "$PHP"); jt=$(mint_token "$JAVA")
   if [ -z "$pt" ] || [ -z "$jt" ]; then
-    printf '%-42s SKIP (login failed: php=%s java=%s)\n' "$name" "${#pt}" "${#jt}"
+    # Counted, not skipped. A SKIP was reported and tallied as neither
+    # identical nor differing, so a run where every login failed printed a
+    # clean-looking summary describing nothing that ran.
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "LOGIN-FAILED"
+    { echo "### $name  ($method $path)"; echo "    LOGIN-FAILED: php-token=${#pt} java-token=${#jt} chars"; echo; } >> mutation-diffs.txt
     return
   fi
 
@@ -167,7 +186,7 @@ run_case() {
   jcode=$(curl -s -o /tmp/mj.json -w '%{http_code}' -X "$method" "$JAVA/$path" \
             -H "Authorization: Bearer $jt" -H 'Content-Type: application/json' -d "$body")
 
-  # Canonicalise, and blank any timestamp-shaped value for the same reason the
+  # Canonicalise, and blank the audit KEYS for the same reason the
   # row snapshot drops them: sequential calls differ by a second, and that is
   # the harness talking, not the code.
   # Scrubs by KEY, not by value shape. Matching any timestamp-shaped string
@@ -240,6 +259,8 @@ printf '%-42s %-4s %-4s %s\n' CASE PHP JAVA VERDICT
 # different data cannot silently turn every case into a 400 that then "matches".
 BRANCH=$(m "$PHP_DB" -e "SELECT id FROM branches WHERE company_id=244 LIMIT 1")
 EMP=$(m "$PHP_DB" -e "SELECT id FROM employees WHERE company_id=244 AND id<>999001 LIMIT 1")
+DEPT=$(m "$PHP_DB" -e "SELECT id FROM departments WHERE company_id=244 LIMIT 1")
+RTYPE=$(m "$PHP_DB" -e "SELECT id FROM request_types WHERE company_id=244 OR company_id IS NULL LIMIT 1")
 
 # --- cases that mutate ---------------------------------------------------
 run_case "branches/create"                 POST "branches/create" \
@@ -247,7 +268,7 @@ run_case "branches/create"                 POST "branches/create" \
 run_case "departments/create"              POST "departments/create" \
   "{\"name\":\"Parity Dept\",\"branch_ids\":[$BRANCH]}" "departments,department_branches"
 run_case "job_titles/create"               POST "job_titles/create" \
-  '{"name":"Parity Title"}' "job_titles"
+  "{\"name\":\"Parity Title\",\"department_id\":$DEPT,\"work_hours\":8}" "job_titles"
 run_case "advances/create"                 POST "advances/create" \
   "{\"employee_id\":$EMP,\"amount\":100,\"reason\":\"parity\",\"deduction_mode\":\"single_payroll_month\",\"deduction_payroll_year\":2026,\"deduction_payroll_month\":9}" \
   "advances"
@@ -262,7 +283,7 @@ run_case "departments/create (no branches)" POST "departments/create" \
 run_case "advances/create (no employee_id)" POST "advances/create" \
   '{"amount":100}' "advances"
 run_case "requests/create (wrong role)"    POST "requests/create" \
-  '{"type":"leave","from_date":"2026-09-01","to_date":"2026-09-02"}' "requests"
+  "{\"request_type_id\":$RTYPE,\"from_date\":\"2026-09-01\",\"to_date\":\"2026-09-02\"}" "requests"
 run_case "admin_decisions/create"           POST "administrative_decisions/create" \
   '{"title":"Parity","body":"parity body"}' "administrative_decisions"
 
