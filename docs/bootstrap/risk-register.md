@@ -476,7 +476,7 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Impact | **Total failure of D-111's zero-client-change premise, at the routing layer, before any business logic ran.** Measured against the **190 endpoint constants the clients declare** — declaration coverage, not call-site coverage, since at least one is a dead reference: Java answered the client URL form correctly for **9**. The same endpoints with `.php` appended: 188. Verified against production — `/apis/api/configs/get` answers 200 and `/apis/api/configs/get.php` answers 500. |
 | Severity | **Was Critical.** Not a degradation but a complete outage of the mobile and desktop clients from the first request after cutover, with a rollback needed to restore service. |
 | Owner | Repository owner. |
-| Mitigation | **Fixed.** `LegacyPhpRouterFilter` ports `apis/api/index.php`'s router: a two-segment route under `/apis/api/` resolves to the `.php` file serving it. Registered at `HIGHEST_PRECEDENCE` **outside** the Spring Security chain, because the permit-list in `LegacyPhpRoutes` is written in `.php` paths and authorization must evaluate the rewritten path or it would 401 endpoints legacy serves anonymously. After the fix the sweep matches **188/190**, and `configs/get` returns byte-identical JSON from both stacks. |
+| Mitigation | **Fixed.** `LegacyPhpRouterFilter` ports `apis/api/index.php`'s router: a two-segment route under `/apis/api/` resolves to the `.php` file serving it. Registered at `HIGHEST_PRECEDENCE` **outside** the Spring Security chain, because the permit-list in `LegacyPhpRoutes` is written in `.php` paths and authorization must evaluate the rewritten path or it would 401 endpoints legacy serves anonymously. After the fix the sweep matches **188/190**, and `configs/get` returns byte-identical JSON from both stacks. The remaining two were the same defect wearing two faces — the router had no behaviour at all for a path it does not serve — closed by **D-148**, which reproduces `index.php`'s 404/501 refusals before authentication and takes the sweep to **190/190, differing = 0**. |
 | Trigger | Any new legacy endpoint: it must be reachable in the client form, which the filter now guarantees by construction rather than per-controller. |
 | Contingency | None needed post-fix. Had it shipped, the only remedy would have been rollback — the clients are frozen and cannot be pointed at a different URL shape. |
 | Status | **Closed 2026-08-31**, mechanism and ordering recorded as **D-147**. Found by the PHP↔Java parity harness (`docs/migration/2026-08-31-php-java-parity-harness.md`) on its first sweep. Not findable by reading either codebase: the tests exercised the same file paths the controllers mapped, so they passed against a backend no client could reach. |
@@ -525,6 +525,42 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Target Date | Before any hardening pass on the legacy write API, or sooner if a reconciliation finds an affected row. |
 | Evidence | `hr-legacy/apis/api/payroll_batches/create.php` (`required()` covers presence, not range); `leave_balances/create.php` (same); harness cases `payroll_batches (month 13)` and `leave_balances (negative days)`, both 201/201 with identical rows. |
 | Last Reviewed | 2026-08-31 |
+
+## R-032: `company_settings/options` Emits A `label` Key PHP Does Not
+
+| Field | Value |
+|---|---|
+| Description | Every option row Java returns from `company_settings/options.php` carries an extra `label` key that PHP does not emit. PHP returns `{value, label_ar, label_en}`; Java returns `{value, label, label_ar, label_en}`, where `label` holds the already-resolved localized text. Affects all five option groups (`month_start_day`, `month_end_day`, `monthly_leave_accrual`, `overtime_rate`, `weekly_off_days`), so the response is 5650 bytes against PHP's 4418. |
+| Category | API contract / Parity / Response shape |
+| Probability | Certain — every call, every group. |
+| Impact | **Additive, so no client breaks today**: a Flutter model that reads `label_ar`/`label_en` ignores an unknown key, and no client is known to read `label`. It matters for three reasons anyway. It is a **response-shape divergence under D-074**, where the whole premise is that Java's body is PHP's body. It is a **28% larger payload** on a settings screen. And it is the shape a client could start depending on, at which point the divergence becomes a migration blocker rather than noise. |
+| Severity | **Low.** No known client reads the key and nothing fails. Recorded because D-058 puts the burden of proof on the change, not the port: an extra field is a deliberate-looking addition that no decision authorizes. |
+| Owner | Repository owner. |
+| Mitigation | **None yet.** The fix is to stop emitting `label` from the options serializer, or to record a decision permitting it. Not folded into the router work (**D-148**) that found it: that change is about paths nothing serves, and this is a delivered endpoint's response body. |
+| Trigger | Already present. Becomes blocking the moment any client reads `label`. |
+| Contingency | If a client has already come to depend on `label`, the parity direction reverses — PHP would need it too, or the client changed — so confirm client usage before deleting the key. |
+| Status | **Open.** |
+| Target Date | Before Phase 1 cutover; it is a response-contract item, so it belongs with the other D-074 shape checks rather than after them. |
+| Evidence | Found by the harness's authenticated sweep (Level 3) on 2026-08-31, which reported `company_settings/options` as one of two differing bodies. Keyed comparison of the parsed responses: identical top-level keys and identical group names; every group's rows differ only by the presence of `label` in Java, e.g. PHP `{'value': 'Fri', 'label_ar': 'الجمعة', 'label_en': 'Friday'}` against Java `{'value': 'Fri', 'label': 'Friday', 'label_ar': 'الجمعة', 'label_en': 'Friday'}`. The other differing body was `payslips/list`, which is **R-029** (tie-break ordering) and not a new finding: same 20 ids, all values equal, only the order of tied pairs differs. |
+| Last Reviewed | 2026-08-31 |
+
+## R-034: Malformed Percent Encoding Is Rejected By Tomcat — Reference To D-070
+
+| Field | Value |
+|---|---|
+| Description | A malformed percent sequence in a query string (`?x=%`, `?x=%zz`, a truncated `%A`) is rejected by Tomcat with **400 Bad Request** before the dispatcher, on every `/apis/**` endpoint, where PHP's `parse_str` keeps the literal `%` and serves the request. Measured with raw sockets: `GET /apis/api/phone_countries/list?x=%` is **200** in PHP and **400** in Java; `?x=%25` is 200 on both. |
+| Category | Parity / Request handling — **already decided, see D-070** |
+| Probability | Certain for that input shape, on every endpoint. |
+| Impact | The response is Tomcat's, not the D-074 envelope, and the rejection happens before any code in this repository can see it. |
+| Severity | **Not an open defect. Accepted.** |
+| Owner | Repository owner. |
+| Mitigation | **None, deliberately — and none is to be attempted.** **D-070** accepted this exact behaviour as an explicit, narrowly scoped Phase-1 divergence on 2026-08-19, with the owner's instruction recorded verbatim: *"Do not relax, replace, intercept, or bypass Tomcat request-target parsing"*, and *"Invalid percent encoding rejected by the embedded HTTP server before controller execution is outside the Phase-1 application/business compatibility contract."* |
+| Trigger | None outstanding. |
+| Contingency | Not applicable. |
+| Status | **Closed on discovery — duplicate of an accepted decision.** This entry was first written as an open pre-cutover defect proposing Tomcat connector changes, which would have driven work directly contrary to D-070. It is retained, corrected, as a pointer: the behaviour is real and someone re-measuring it should find the decision rather than re-open it. The failure was mine — I measured a divergence and recorded it without checking whether it had already been decided. |
+| Target Date | None. |
+| Evidence | Raw-socket measurement above, and **D-070** in `docs/bootstrap/decision-log.md`. Related: **D-148**, whose `safeLocale` handles the same decode failure on the one path that runs *before* Tomcat's parameter parsing — that path is inside the application, so it is the router's contract rather than the container's, and is not covered by D-070. |
+| Last Reviewed | 2026-09-01 (corrected) |
 
 ## R-031: A Text Field Named `file` Was Accepted As A Spreadsheet Upload
 

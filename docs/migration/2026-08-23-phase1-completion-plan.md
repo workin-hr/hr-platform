@@ -395,21 +395,29 @@ live total.
 > today.
 >
 > That makes this clause load-bearing rather than academic: *"must return 404
-> after cutover"*. Measured against the parity harness on 2026-08-31, Java does
-> not meet it — **401** when unauthenticated (the security chain rejects before
+> after cutover"*. Measured against the parity harness on 2026-08-31, Java did
+> not meet it — **401** when unauthenticated (the security chain rejected before
 > routing, where PHP's router rejects before authenticating), and a 404 in
-> **Spring's** envelope rather than PHP's when authenticated. Both are
-> properties of every unmatched `/apis/api/**` path, not of this endpoint. See
+> **Spring's** envelope rather than PHP's when authenticated. Both were
+> properties of every unmatched `/apis/api/**` path, not of this endpoint.
+>
+> The exclusion itself was unaffected — no endpoint needed building. What needed
+> building was the router's unmatched-path behaviour, **delivered 2026-08-31
+> (D-148)**: `LegacyPhpRouterFilter` now reproduces `index.php`'s three
+> refusals, before authentication, in PHP's envelope. `time/now` answers 404 in
+> both stacks with an identical body, so this clause is now met by measurement
+> rather than by assumption. See
 > `docs/migration/2026-08-31-php-java-parity-harness.md`, "`time/now`, measured
 > precisely".
->
-> The exclusion itself is unaffected — no endpoint needs building. What needs
-> building is the router's unmatched-path behaviour.
 
 The mirror-image anomaly is recorded with it: **`reports` is in
 `allowedList()` and has no directory at all.** It contributes zero endpoints, so
-it changes no count — but it is an advertised module on which every action 404s,
-and no document previously recorded either half of the mismatch.
+it changes no count — but it is an advertised module on which every action
+answers **501** `module_not_implemented`, not 404: the module resolves against
+the allow-list, so the router passes the 404 branch and then fails to find the
+action file. Measured 2026-08-31 against the running PHP; both this paragraph
+and the C4 row previously said 404. No document previously recorded either half
+of the mismatch.
 
 ### 2.4 `configs` is not an ordinary reference module
 
@@ -1098,7 +1106,7 @@ rewritten; this section is the correction of record.
 | **C1** | Item-12 specification §1.1's endpoint totals are arithmetically wrong. It states the 19 shared-table modules "hold **128 of the 200**" and that "Item 12 therefore delivers 20 tables and **122** endpoint files". | Summing its own per-module rows gives **133**, and Item 12 after D-4 removes `company_settings` is **127**. Both stated totals are short by exactly 5. **The per-module rows are correct and are the reliable part**; only the two totals are wrong. Item-12 scope is **127 endpoints across 19 modules**. |
 | **C2** | "199 endpoint files across 38 module directories" counted the router. | At `83c326e4` there were **198** module endpoints plus `apis/api/index.php`. `complaints/delete.php` was added later, taking the current count to **199**. The headline is right today by coincidence, not derivation. Affects `docs/legacy/existing-php-module-inventory.md` and `docs/api/existing-endpoint-inventory.md`. |
 | **C3** | `existing-endpoint-inventory.md` claims "All 199 ... endpoint files ... have now been read", but its section headings account for **195**. | The entire shortfall is one heading: "Employee Docs, Company Join Requests, HR Employees, Complaints, Schedules, Company (**16** endpoints)", where those six modules hold **20** at the current commit (19 at the pinned one). Four endpoints in that group are uncovered, and the section's prose names no `employee_docs` or `complaints` endpoint individually. **Discovery evidence debt — narrowed, not discharged, 2026-08-29** (`docs/migration/2026-08-29-c3-c8-bounded-discovery.md`). The heading is corrected to **19**, matching the inventory's own pinned source `83c326e`; the twentieth endpoint, `complaints/delete.php`, exists only in the later `d113204` tree and is counted there, not here. The eight endpoints in `employee_docs` and `complaints` — the two modules named zero times — were read, and both yielded a finding: `complaints/create.php` is a **third unauthenticated endpoint and the first that writes**, storing anonymous rows with a null `company_id` that `complaints/list.php` can never return; and `employee_docs` authenticates MANAGER but honours it on `list`/`upload` while denying it on `update`/`delete`. Neither is filed upstream — C3-a needs an owner answer before it is a defect, C3-b may be intended. **The other four modules in the heading were not re-read** and remain owed (§8.1). |
-| **C4** | 38 directories on disk ≠ the 38 names in `allowedList()`. | `time` is on disk and **not** allow-listed → unreachable, 404 (O-3, §2.3). `reports` is allow-listed and has **no directory** → advertised module, zero endpoints, every action 404s. Neither was previously recorded. Neither changes the 199. |
+| **C4** | 38 directories on disk ≠ the 38 names in `allowedList()`. | `time` is on disk and **not** allow-listed → unreachable, 404 (O-3, §2.3). `reports` is allow-listed and has **no directory** → advertised module, zero endpoints, every action **501s** (`module_not_implemented`) — the module resolves, so the router gets past the 404 branch and fails to find the action file. Measured 2026-08-31 against the running PHP; an earlier version of this row said 404. Neither was previously recorded. Neither changes the 199. |
 | **C5** | ADR-0011's "nineteen modules with no Java counterpart" is quoted as if it described Item 13. | It described the repository on 2026-08-16 and is preserved as history. Item 13's current membership is **18 modules / 71 endpoints** (§2.1–§2.2), after D-4 added `company_settings` + its two dependency tables, Wave 12.4 delivered `hr_employees`, and O-3 excluded `time`. The two numbers must never be substituted for one another. Separately, the specification's own shared-table table implies **18** modules without a counterpart, not 19 — most likely `hr_employees`, which shares the `employees` table but has no entity. Neither "19" should be quoted as a scope figure without recomputation. |
 | **C6** | The punch list's Item-12 wave table shows 12.5 as "Discovery/specification only" and 12.6 as "Not started"; its "Next, in order" section still describes 12.4 as "in discovery". | Corrected in `2026-08-17-phase1-punch-list.md` to point at this document and to state the current wave status. History and decision references are unchanged. |
 | **C7** | `hr-platform#22`'s "Phase 1 cross-cutting exit requirement" / "cutover blocker" classification contradicts the client-side evidence that push works on neither side today. | Resolved by **O-1**: FCM delivery is not a Phase-1 completion requirement (§4.8). D-082/D-089 and the Wave 12.5/12.6 discovery text are historical and are not rewritten; §4.8 is the current classification. |

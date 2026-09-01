@@ -13,6 +13,8 @@ on:
       # The detectors this workflow runs guard files outside backend/, so a PR
       # touching only a detector, its regression suite, or the collection it
       # protects would otherwise skip the step that guards it and stay green.
+      - "scripts/check_legacy_modules_drift.py"
+      - "scripts/test_check_legacy_modules_drift.py"
       - "scripts/check_client_endpoints_drift.py"
       - "scripts/test_check_client_endpoints_drift.py"
       - "scripts/check_legacy_schema_drift.py"
@@ -24,6 +26,8 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/backend-validate.yml"
+      - "scripts/check_legacy_modules_drift.py"
+      - "scripts/test_check_legacy_modules_drift.py"
       - "scripts/check_client_endpoints_drift.py"
       - "scripts/test_check_client_endpoints_drift.py"
       - "scripts/check_legacy_schema_drift.py"
@@ -82,6 +86,10 @@ jobs:
       # constants. The real comparison needs that source (an hr-legacy checkout,
       # or initialised Flutter submodules) and cannot run here; the regression
       # suites need nothing and prove the detectors still work.
+      - name: Legacy module allow-list drift-detector regression suite
+        working-directory: .
+        run: python3 scripts/test_check_legacy_modules_drift.py
+
       - name: Client endpoint-list drift-detector regression suite
         working-directory: .
         run: python3 scripts/test_check_client_endpoints_drift.py
