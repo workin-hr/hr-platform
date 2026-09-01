@@ -16,7 +16,14 @@ a `docker-compose.yml` legal at this path.
 - `hr-legacy` checked out **beside** `hr-platform` in the same parent directory.
   Override with `WORKSPACE=/path/to/parent`, or `LEGACY=` / `PLATFORM=`
   individually.
-- The Java jar built once: `(cd "$PLATFORM/backend" && ./gradlew bootJar)`.
+- **`hr-legacy` checked out at the pinned oracle revision `d113204`, clean.**
+  `seed.sh` verifies both and exits 5 otherwise — every parity number is only
+  meaningful against a known revision, and a newer, older or locally modified
+  tree gives a different answer with equal confidence.
+- The Java jar is **built by `run-java.sh`**, not assumed. `build/libs` is
+  git-ignored and survives a checkout, so reusing whatever is there can test an
+  earlier commit and attribute the result to the reviewed code. Pass
+  `SKIP_BUILD=1` to reuse deliberately.
 - Docker with the compose plugin.
 
 ## First-time setup

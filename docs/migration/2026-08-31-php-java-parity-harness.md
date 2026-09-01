@@ -231,11 +231,18 @@ Re-measured 2026-09-01 with the corrected script and both extensions installed:
 
 | | |
 |---|---|
-| Endpoints returning **byte-identical** JSON | **39** |
+| Endpoints returning **equal canonicalized JSON** | **39** |
 | Endpoints differing | **1** |
 | **Accepted divergence** (named decision) | **1** — `company_official_holidays/list`, D-087 |
 | **Not compared** — non-JSON (XLSX) body | **3** |
 | Not 200 on both (POST-only, or needing params) | 146 |
+
+**"Canonicalized", not "byte-identical", and the difference is real.** The
+sweep parses both responses and re-serialises them with `sort_keys=True`, so
+key order and formatting are discarded before comparison. Two responses can be
+structurally equal and differ byte-for-byte. That is the right comparison for
+this level — key order is not part of the contract, values are — but calling
+the result byte-identical claimed more than the method can support.
 
 The `not compared` row is the whole point of the correction: those three —
 `attendance/export`, `employees/template_excel`, `leave_balances/template_excel`

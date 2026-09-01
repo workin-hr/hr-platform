@@ -10,6 +10,27 @@ PLATFORM=${PLATFORM:-"$WORKSPACE/hr-platform"}
 DB=parity-harness-db-1
 m() { docker exec -i "$DB" mariadb -uroot -pparity "$@"; }
 
+# The legacy checkout IS the oracle. Every parity number is only meaningful
+# against a known revision of it, and nothing here verified one -- a reviewer on
+# a newer, older or locally modified tree would follow this procedure verbatim
+# and get a different answer with equal confidence.
+LEGACY_PIN=${LEGACY_PIN:-d113204}
+rev=$(git -C "$LEGACY" rev-parse --short HEAD 2>/dev/null || echo "")
+dirty=$(git -C "$LEGACY" status --porcelain 2>/dev/null | head -1)
+if [ -z "$rev" ]; then
+  echo "FATAL: $LEGACY is not a git checkout -- the oracle revision cannot be verified" >&2
+  exit 5
+fi
+case "$rev" in
+  "$LEGACY_PIN"*) : ;;
+  *) echo "FATAL: hr-legacy is at $rev, expected $LEGACY_PIN." >&2
+     echo "  Parity results are only comparable against the pinned oracle." >&2
+     echo "  Check it out, or set LEGACY_PIN=$rev deliberately." >&2
+     exit 5 ;;
+esac
+[ -z "$dirty" ] || { echo "FATAL: $LEGACY has uncommitted changes -- the oracle must be clean" >&2; exit 5; }
+echo "legacy oracle: $rev (clean)"
+
 echo "waiting for the database..."
 until [ "$(docker inspect -f '{{.State.Health.Status}}' "$DB" 2>/dev/null)" = healthy ]; do sleep 3; done
 

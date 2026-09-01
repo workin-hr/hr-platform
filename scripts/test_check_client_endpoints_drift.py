@@ -67,6 +67,20 @@ def main() -> int:
     case("ignores a value with no slash", "plainword" not in got)
     case("accepts double-quoted values", "employees/list" in got)
 
+    commented = drift.extract('''
+      static const String live = 'auth/login_employee';
+      // static const String dead = 'old/route';
+      /* static const String alsoDead = 'older/route'; */
+      static const String other = 'employees/list';  // 'ghost/route'
+    ''')
+    case("a // commented-out constant is not an endpoint", "old/route" not in commented)
+    case("a /* */ commented-out constant is not an endpoint", "older/route" not in commented)
+    case("an endpoint in a trailing comment is not an endpoint", "ghost/route" not in commented)
+    case("live constants beside comments survive",
+         commented == {"auth/login_employee", "employees/list"})
+    case("a string containing // is not treated as a comment",
+         drift.extract("static const String u = 'auth/login_employee';") == {"auth/login_employee"})
+
     case("identical sets pass", quiet(EXPECTED, EXPECTED) == 0)
     case("a client-added endpoint fails", quiet(EXPECTED, EXPECTED | {"new/one"}) == 1)
     case("a removed endpoint fails", quiet(EXPECTED | {"stale/one"}, EXPECTED) == 1)

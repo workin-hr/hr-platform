@@ -9,8 +9,11 @@ TOKEN=$(cat .php-token)
 # decision that accepted it -- a bare allowlist would let a real regression be
 # silenced by adding a line, so the reason is the point, not the entry.
 accepted_divergence() {
-  case "$1" in
-    company_official_holidays/list)
+  # Keyed on the endpoint AND the exact status pair. Keying on the endpoint
+  # alone would accept ANY future mismatch there -- a Java regression to 500
+  # would be filed under D-087 and never reported.
+  case "$1:$2:$3" in
+    company_official_holidays/list:403:200)
       # D-087: PHP applies require_company_settings_access() ONLY to
       # COMPANY_ADMIN/HR, so an EMPLOYEE lists holidays freely while an HR user
       # without the permission is refused the same data. Deliberately removed;
@@ -19,7 +22,7 @@ accepted_divergence() {
   esac
   return 1
 }
-same=0; diff=0; err=0; binary=0; accepted=0
+same=0; diff=0; err=0; binary=0; accepted=0; unreachable=0
 : > auth-diffs.txt
 while read -r ep; do
   [ -n "$ep" ] || continue
@@ -29,12 +32,20 @@ while read -r ep; do
   # in the "not 200 on both" bucket hid a genuine authenticated status
   # regression among 144 entries the document describes as POST-only or
   # parameter-dependent, while the summary understated the differences.
+  # 000 is curl failing to connect. Equal failures would otherwise land in
+  # `err` and the run would finish "differing=0" with neither stack up -- the
+  # same hole the other three sweeps had.
+  if [ "$pcode" = 000 ] || [ "$jcode" = 000 ]; then
+    unreachable=$((unreachable+1))
+    printf '%-42s php=%s java=%s UNREACHABLE\n' "$ep" "$pcode" "$jcode"
+    continue
+  fi
   if [ "$pcode" != "$jcode" ]; then
     # An accepted divergence is not a finding. Without this the same known
     # difference reappears every run and people learn to ignore the number,
     # which is worse than not reporting it. Each entry must name the decision
     # that accepted it, so "expected" is auditable rather than asserted.
-    if reason=$(accepted_divergence "$ep"); then
+    if reason=$(accepted_divergence "$ep" "$pcode" "$jcode"); then
       accepted=$((accepted+1))
       printf '%-42s php=%s java=%s ACCEPTED (%s)\n' "$ep" "$pcode" "$jcode" "$reason"
     else
@@ -67,4 +78,10 @@ while read -r ep; do
     { echo "### $ep"; echo "PHP  len=${#pn}"; echo "JAVA len=${#jn}"; } >> auth-diffs.txt
   fi
 done < client-endpoints.txt
-echo "identical=$same  differing=$diff  accepted-divergences=$accepted  not-compared-non-json=$binary  not-200-on-both=$err"
+echo "identical=$same  differing=$diff  accepted-divergences=$accepted  not-compared-non-json=$binary  not-200-on-both=$err  unreachable=$unreachable"
+if [ "$unreachable" -gt 0 ]; then
+  echo "REFUSING to report parity: $unreachable endpoint(s) unreachable." >&2
+  exit 2
+fi
+[ "$diff" -gt 0 ] && exit 1
+exit 0

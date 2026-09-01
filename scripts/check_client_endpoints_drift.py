@@ -28,8 +28,42 @@ VENDORED = ROOT / "spike/parity-harness/client-endpoints.txt"
 CONST = re.compile(r"""=\s*(['"])([A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)+)\1""")
 
 
+def strip_comments(dart: str) -> str:
+    """Removes `//` and `/* */` comments, preserving string literals.
+
+    A client retires a constant by commenting it out. Reading raw source kept
+    those as live endpoints, so the drift check accepted a stale vendored route
+    and every sweep kept probing it -- coverage counted against a URL no client
+    calls any more.
+    """
+    out, i, n = [], 0, len(dart)
+    while i < n:
+        c = dart[i]
+        if c in "\"'":
+            quote, j = c, i + 1
+            while j < n:
+                if dart[j] == "\\":
+                    j += 2
+                    continue
+                if dart[j] == quote:
+                    j += 1
+                    break
+                j += 1
+            out.append(dart[i:j]); i = j
+        elif dart.startswith("//", i):
+            j = dart.find("\n", i)
+            i = n if j < 0 else j
+        elif dart.startswith("/*", i):
+            j = dart.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+        else:
+            out.append(c); i += 1
+    return "".join(out)
+
+
 def extract(dart: str) -> set[str]:
     """Endpoint-shaped constant values: at least one `/`, no scheme, no leading slash."""
+    dart = strip_comments(dart)
     out = set()
     for _, value in CONST.findall(dart):
         if value.startswith("/") or "://" in value:

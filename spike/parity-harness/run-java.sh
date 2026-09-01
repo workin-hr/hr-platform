@@ -28,7 +28,23 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # sentinel into JAVA_DB only and checks Java can see it -- and exits 3 if not,
 # because otherwise both stacks mutate the same database and the comparison is
 # meaningless.
-exec java -jar "$PLATFORM/backend/build/libs/backend-0.0.1-SNAPSHOT.jar" \
+# Build the jar this run will test, rather than executing whatever happens to
+# be in build/libs. That directory is git-ignored and survives a checkout, so
+# the documented procedure could silently test a jar from an earlier commit and
+# attribute the result to the reviewed code. It has already happened once in
+# this harness's history, producing a false "regression" report.
+JAR="$PLATFORM/backend/build/libs/backend-0.0.1-SNAPSHOT.jar"
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  echo "building the backend jar (SKIP_BUILD=1 to reuse an existing one)..." >&2
+  (cd "$PLATFORM/backend" && ./gradlew --quiet bootJar) || {
+    echo "FATAL: bootJar failed -- refusing to run against a possibly stale jar" >&2
+    exit 4
+  }
+fi
+[ -f "$JAR" ] || { echo "FATAL: $JAR not found" >&2; exit 4; }
+echo "jar: $JAR ($(date -r "$JAR" '+%Y-%m-%d %H:%M'))" >&2
+
+exec java -jar "$JAR" \
   --spring.profiles.active=phase1-mysql \
   --server.port=18081 \
   --app.legacy-db.jdbc-url="jdbc:mariadb://127.0.0.1:13306/${JAVA_DB:-workin}" \
