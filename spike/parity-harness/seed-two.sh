@@ -14,6 +14,25 @@ WORKSPACE=${WORKSPACE:-"$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../../.." && pw
 LEGACY=${LEGACY:-"$WORKSPACE/hr-legacy"}
 PLATFORM=${PLATFORM:-"$WORKSPACE/hr-platform"}
 DB=parity-harness-db-1
+
+# The legacy checkout IS the oracle here too. seed.sh verified it and this did
+# not, so the mutation walkthrough -- which calls seed-two.sh directly -- could
+# publish a 17/17 against an unknown tree. Same check, same failure mode.
+LEGACY_PIN=${LEGACY_PIN:-d113204}
+rev=$(git -C "$LEGACY" rev-parse --short HEAD 2>/dev/null || echo "")
+dirty=$(git -C "$LEGACY" status --porcelain 2>/dev/null | head -1)
+if [ -z "$rev" ]; then
+  echo "FATAL: $LEGACY is not a git checkout -- the oracle revision cannot be verified" >&2
+  exit 5
+fi
+case "$rev" in
+  "$LEGACY_PIN"*) : ;;
+  *) echo "FATAL: hr-legacy is at $rev, expected $LEGACY_PIN." >&2
+     echo "  Parity results are only comparable against the pinned oracle." >&2
+     exit 5 ;;
+esac
+[ -z "$dirty" ] || { echo "FATAL: $LEGACY has uncommitted changes -- the oracle must be clean" >&2; exit 5; }
+echo "legacy oracle: $rev (clean)"
 PHP_DB=${PHP_DB:-workin}
 JAVA_DB=${JAVA_DB:-workin_java}
 m() { docker exec -i "$DB" mariadb -uroot -pparity "$@"; }

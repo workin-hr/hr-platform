@@ -67,6 +67,18 @@ while read -r ep; do
   # workbooks needs a reader-level comparison (D-085), not a byte diff, since
   # a zip carries its own timestamps.
   if [ -z "$pn" ] || [ -z "$jn" ]; then
+    # Only the known workbook routes are exempt. Treating EVERY parse failure
+    # as "expected binary" would swallow a real defect: a JSON endpoint
+    # returning a 200 HTML error page on one stack, or malformed bodies on
+    # both, would increment `binary` and read as an accepted exclusion.
+    case "$ep" in
+      attendance/export|payslips/export|employees/template_excel|leave_balances/template_excel) ;;
+      *)
+        diff=$((diff+1))
+        { echo "### $ep -- UNEXPECTED NON-JSON php=${#pn} java=${#jn} chars parsed"; } >> auth-diffs.txt
+        printf '%-42s php=%s java=%s UNEXPECTED-NON-JSON\n' "$ep" "$pcode" "$jcode"
+        continue ;;
+    esac
     binary=$((binary+1))
     { echo "### $ep -- NOT COMPARED (non-JSON body: php=${#pn} java=${#jn} chars parsed)"; } >> auth-diffs.txt
     continue
