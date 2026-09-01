@@ -12,6 +12,7 @@
 # each other. That is slow and deliberate: a shared, drifting state makes a
 # failure impossible to attribute.
 set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
 DB=parity-harness-db-1
 PHP_DB=workin
 JAVA_DB=workin_java
@@ -143,6 +144,30 @@ snapshot() {  # $1=database $2=table $3=accepted columns (comma separated)
                   -- seed writes on every case in this file. So a password
                   -- changed on one stack still works on the other during a
                   -- shared-database cutover.
+                  -- Stored upload URLs carry uniqid('', true), so the two
+                  -- stacks must differ in the basename. Reduced to
+                  -- <subdir>/<random>.<ext>, keeping the DIRECTORY and the
+                  -- EXTENSION, both of which are contract -- and the extension
+                  -- especially, because PHP takes it from the client filename
+                  -- while Java derives it from the sniffed type.
+                  --
+                  -- The response body was already normalised this way; the row
+                  -- was not, so every upload case reported a row difference for a
+                  -- column whose difference is by design.
+                  WHEN column_name IN ('logo_url','commercial_reg_url','photo_url','file_url')
+                  -- No REGEXP here, deliberately. A dollar anchor inside this
+                  -- double-quoted bash string begins ANSI-C quoting and
+                  -- silently truncates the generated SQL, so LEFT and
+                  -- SUBSTRING_INDEX express the same check without one.
+                  -- (This comment spells out dollar rather than using the symbol
+                  -- for exactly that reason -- the first version of it broke
+                  -- the query it was explaining.)
+                  THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ',
+                              'WHEN LEFT(\`', column_name, '\`, 9) = ''/uploads/'' ',
+                              'AND LOCATE(''.'', \`', column_name, '\`) > 0 ',
+                              'THEN CONCAT(''upload:'', SUBSTRING_INDEX(SUBSTRING(\`', column_name, '\`, 10), ''/'', 1), ',
+                              '''/<random>.'', SUBSTRING_INDEX(\`', column_name, '\`, ''.'', -1)) ',
+                              'ELSE CONCAT(''UNEXPECTED-SHAPE:'', \`', column_name, '\`) END')
                   WHEN column_name = 'password_hash'
                   THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ',
                               'WHEN LENGTH(\`', column_name, '\`) = 60 ',
@@ -150,8 +175,12 @@ snapshot() {  # $1=database $2=table $3=accepted columns (comma separated)
                               'THEN CONCAT(''bcrypt-cost-'', SUBSTRING(\`', column_name, '\`, 5, 2)) ',
                               'ELSE CONCAT(''UNEXPECTED-SHAPE:'', LEFT(\`', column_name, '\`, 7)) END')
                   WHEN column_name = 'qr_code'
+                  -- UNHEX rather than a regex, for the dollar-anchor reason
+                  -- above: 32 characters, valid hex, and already lowercase.
                   THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ',
-                              'WHEN \`', column_name, '\` REGEXP ''^[0-9a-f]{32}$'' ',
+                              'WHEN LENGTH(\`', column_name, '\`) = 32 ',
+                              'AND UNHEX(\`', column_name, '\`) IS NOT NULL ',
+                              'AND BINARY \`', column_name, '\` = LOWER(\`', column_name, '\`) ',
                               'THEN ''random-32-lower-hex'' ',
                               'ELSE CONCAT(''UNEXPECTED-SHAPE:'', \`', column_name, '\`) END')
                   ELSE CONCAT('\`', column_name, '\`') END
@@ -163,6 +192,22 @@ snapshot() {  # $1=database $2=table $3=accepted columns (comma separated)
   # carry the database name, so a discovery failure can never look like
   # agreement between two databases.
   [ -n "$cols" ] && [ "$cols" != NULL ] || { echo "SCHEMA-DISCOVERY-FAILED:$1.$2"; return; }
+  # A malformed generated query makes mariadb print its version banner or usage
+  # instead of the column list, and the banner is non-empty -- so the check
+  # above passes and the banner is then used AS the select list, failing every
+  # row query and reporting "rows differ" for every case. Happened once, from a
+  # '$' inside a double-quoted bash string being read as ANSI-C quoting.
+  case "$cols" in
+    *MariaDB*|*"Usage:"*|*"ERROR "*)
+      echo "COLUMN-QUERY-MALFORMED:$1.$2"
+      echo "FATAL: the generated column list is not SQL -- it starts:" >&2
+      echo "  A double quote or a dollar-quote sequence inside the query, INCLUDING" >&2
+      echo "  inside an SQL comment, splits the bash argument list and mariadb then" >&2
+      echo "  prints its usage banner instead of running anything. Three occurrences" >&2
+      echo "  so far, twice from a comment explaining the previous one." >&2
+      printf '  %s\n' "$(printf '%s' "$cols" | head -c 120)" >&2
+      exit 11 ;;
+  esac
 
   # Order by the table's ACTUAL primary key, derived rather than assumed.
   # This hard-coded `ORDER BY id`, which is wrong for a composite-keyed
@@ -315,6 +360,13 @@ accepted_mutation_divergence() {  # $1=path $2=php code $3=java code
       # R-037, the actual cross-tenant WRITE scenario. PHP mutates another
       # tenant's advance and answers 200; Java answers 404 and mutates nothing.
       echo "R-037"; return 0 ;;
+    employees/analyze_excel:200:200)
+      # R-038: PHP answers 200 with Content-Length: 0 -- respond() echoes
+      # json_encode() unchecked and the encode fails, so the body is empty.
+      # Java returns the analysis. Registered so the divergence is visible; the
+      # endpoint is NOT counted as covered, because an empty body is not a
+      # contract and comparing it against real output is not parity.
+      echo "R-038"; return 0 ;;
     advances/create:201:403)
       # R-037: create.php resolves employee_id with no company predicate, so a
       # company admin creates an advance against another tenant's employee.
@@ -444,12 +496,24 @@ AUDIT={'created_at','updated_at','deleted_at','decided_at'}
 # randomness needs more than one sample, so it is asserted where samples are
 # available -- LegacyBranchQrRandomnessTest -- not here.
 QR=re.compile(r'^[0-9a-f]{32}$')
+URL_KEYS={'logo_url','commercial_reg_url','photo_url','file_url'}
+UPLOAD_URL=re.compile(r'^/uploads/([^/]+)/[^/]+\\.([A-Za-z0-9]+)$')
 def scrub(v,key=None):
     if isinstance(v,dict): return {k:scrub(x,k) for k,x in v.items()}
     if isinstance(v,list): return [scrub(x,key) for x in v]
     if key in AUDIT and v is not None: return '<TS>'
     if key=='qr_code' and isinstance(v,str):
         return '<QR:random-32-lower-hex>' if QR.match(v) else '<QR:UNEXPECTED-SHAPE:'+v+'>'
+    # Stored upload URLs: uniqid('', true) on one side, random hex on the other,
+    # so the basename must differ. Reduced to <subdir>/<random>.<ext> -- the
+    # folder and the EXTENSION are kept, because both are contract: which
+    # directory the endpoint writes to, and what it decides to call the file.
+    # PHP takes the extension from the client's filename; Java derives it from
+    # the sniffed type, so a mismatched upload shows up here rather than being
+    # normalised away.
+    if key in URL_KEYS and isinstance(v,str) and v:
+        m = UPLOAD_URL.match(v)
+        return f'<UPLOAD:{m.group(1)}/<random>.{m.group(2)}>' if m else '<UPLOAD:UNEXPECTED-SHAPE:'+v+'>'
     return v
 print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii=False))" "$1" 2>/dev/null || cat "$1"; }
   pbody=$(norm /tmp/mp.json)
@@ -491,8 +555,16 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
       verdict=DIFF; detail="status $pcode vs $jcode"
     fi
   fi
+  if [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ] && [ -z "$status_accepted" ]; then
+    # A registered divergence can also be body-only: R-038's status pair is
+    # 200/200 and the difference is that one body is empty. Checked here so such
+    # an entry is matched, not only the status-pair entries above.
+    if reason=$(accepted_mutation_divergence "$path" "$pcode" "$jcode"); then
+      status_accepted="$reason"
+    fi
+  fi
   if [ -n "$status_accepted" ] && [ "$pbody" != "$jbody" ]; then
-    : # the bodies belong to two different statuses; the acceptance covers both
+    : # the bodies belong to a registered divergence; the acceptance covers both
   elif [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ]; then
     # A matching 5xx is compared on status and state, not on body. PHP's harness
     # config sets DEBUG=true, so its 500 carries a file/line/stack trace while
@@ -573,8 +645,225 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
   printf '%-42s %-4s %-4s %s %s\n' "$name" "$pcode" "$jcode" "$verdict" "$detail"
 }
 
+
+# ---------------------------------------------------------------------------
+# Multipart cases.
+#
+# These endpoints take a file part, so the JSON path above cannot reach them.
+# They also write OUTSIDE the database -- a file on disk plus a URL column --
+# so a case that compares only rows would miss half the effect.
+#
+# What is compared, per case:
+#   status                pinned from PHP, as everywhere else
+#   response body         normalised; the stored URL is reduced to its SHAPE
+#                         because uniqid('', true) makes the basename
+#                         non-deterministic by design
+#   database rows         the usual snapshot
+#   files on disk         as a SET of (subdirectory, extension, sha256), so the
+#                         random basename is ignored and the CONTENT is not
+#
+# The uploads directories are cleared before every case and PROVEN empty. A
+# failed or partial case must not leave a file that the next case then counts
+# as its own -- the reseed handles rows, nothing handled files until now.
+# ---------------------------------------------------------------------------
+
+# The PHP uploads directory is whatever the container actually has mounted, not
+# a path assumed from the checkout layout -- the compose file has been invoked
+# from more than one directory and the two disagree.
+PHP_UPLOADS=$(docker inspect parity-harness-php-1 \
+  --format '{{range .Mounts}}{{if eq .Destination "/var/www/html/uploads"}}{{.Source}}{{end}}{{end}}' 2>/dev/null)
+JAVA_UPLOADS=${JAVA_UPLOADS:-$HERE/java-uploads}
+
+if [ ! -f "$HERE/fixtures/parity.png" ]; then
+  echo "FATAL: multipart fixtures are missing. Run ./make-fixtures.sh first" >&2
+  echo "  (it needs the stack up and seeded -- the spreadsheets are the app's own" >&2
+  echo "   template output, and the punch log is keyed to a seeded employee_code)." >&2
+  exit 10
+fi
+assert_upload_dirs() {
+  if [ -z "$PHP_UPLOADS" ] || [ ! -d "$PHP_UPLOADS" ]; then
+    echo "FATAL: could not resolve the PHP uploads mount from the container." >&2
+    echo "  Without it a multipart case cannot see what PHP wrote, and would" >&2
+    echo "  report parity from the database alone." >&2
+    exit 8
+  fi
+  mkdir -p "$JAVA_UPLOADS"
+  if [ ! -w "$JAVA_UPLOADS" ]; then
+    echo "FATAL: $JAVA_UPLOADS is not writable." >&2; exit 8
+  fi
+
+  # Apache in the PHP container runs as www-data (uid 33); the bind-mounted
+  # host directory is owned by the invoking user. Without this every PHP upload
+  # answers 500 file_save_failed and the multipart cases would compare two
+  # failures -- the exact "matching errors read as parity" trap, on the one
+  # group of endpoints whose whole point is the file side effect.
+  chmod 0777 "$PHP_UPLOADS" 2>/dev/null || true
+  if ! docker exec parity-harness-php-1 sh -c 'touch /var/www/html/uploads/.probe && rm -f /var/www/html/uploads/.probe' 2>/dev/null; then
+    echo "FATAL: the PHP container cannot write to its uploads directory ($PHP_UPLOADS)." >&2
+    echo "  Every upload would fail with 500 and the comparison would be meaningless." >&2
+    exit 8
+  fi
+}
+
+# Fingerprint an uploads tree as a SET of (subdir, extension, sha256).
+#
+# The basename is uniqid('', true) on one side and a random hex on the other, so
+# comparing names would always differ; comparing CONTENT is the point. The
+# subdirectory and extension are kept because both are part of the contract --
+# which folder the endpoint writes to, and what it decides to call the file.
+upload_fingerprint() {  # $1=directory
+  [ -d "$1" ] || { echo "NO-SUCH-DIR:$1"; return; }
+  find "$1" -type f -printf '%P\n' 2>/dev/null | while read -r rel; do
+    local sub ext
+    sub=$(dirname "$rel"); [ "$sub" = "." ] && sub="(root)"
+    ext="${rel##*.}"; [ "$ext" = "$rel" ] && ext="(none)"
+    printf '%s\t%s\t%s\n' "$sub" "$ext" "$(sha256sum "$1/$rel" | cut -d" " -f1)"
+  done | sort
+}
+
+clear_uploads() {
+  # PHP's uploads are removed FROM INSIDE THE CONTAINER, as root. uploadFile()
+  # creates its subdirectory as www-data, so a host-side rm cannot delete files
+  # within it -- the guard below caught exactly that, refusing a verdict rather
+  # than letting one case's file be counted as the next case's output.
+  docker exec parity-harness-php-1 sh -c 'rm -rf /var/www/html/uploads/* /var/www/html/uploads/.[!.]* 2>/dev/null' 2>/dev/null
+  rm -rf "${JAVA_UPLOADS:?}"/* 2>/dev/null
+  # Proven, not assumed: a directory that could not be cleared makes every
+  # later case attribute a leftover file to itself.
+  local p j
+  p=$(find "$PHP_UPLOADS" -type f 2>/dev/null | wc -l)
+  j=$(find "$JAVA_UPLOADS" -type f 2>/dev/null | wc -l)
+  if [ "$p" -ne 0 ] || [ "$j" -ne 0 ]; then
+    echo "FATAL: uploads directories not empty after clearing (php=$p java=$j)." >&2
+    echo "  A multipart case cannot start from a known state, so no verdict is safe." >&2
+    exit 9
+  fi
+}
+
+
+# NAME | PATH | FIELD | FIXTURE | UPLOAD-FILENAME | EXTRA | TABLES | WHO | EXPECT
+#
+# FIELD is the multipart part name the endpoint reads ($_FILES[<field>]).
+# UPLOAD-FILENAME is sent as the part's filename and is deliberately separate
+# from the fixture path, because PHP derives the stored extension from it.
+# EXTRA is `k=v;k=v` for endpoints that read ordinary form fields alongside the
+# file -- employee_docs/upload takes employee_id and doc_type from $_POST.
+run_multipart_case() {
+  local name="$1" path="$2" field="$3" fixture="$4" upname="$5" extra="$6" tables="$7" who="${8:-244}" expect="${9:-}"
+  case "$who" in -|"") who=244 ;; esac
+  local phone; case "$who" in 214) phone=$PHONE_214 ;; emp) phone=$PHONE_EMP ;; *) phone=$PHONE_244 ;; esac
+
+  if [ ! -f "$fixture" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "NO-FIXTURE ($fixture)"
+    return
+  fi
+
+  if ! ./seed-two.sh >/dev/null 2>&1; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "RESEED-FAILED"; return
+  fi
+  clear_uploads
+
+  local jhealth
+  jhealth=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$JAVA/configs/get" 2>/dev/null)
+  if [ "$jhealth" != "200" ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "JAVA-NOT-SERVING ($jhealth)"; return
+  fi
+
+  local pt jt
+  pt=$(mint_token "$PHP" "$phone"); jt=$(mint_token "$JAVA" "$phone")
+  if [ -z "$pt" ] || [ -z "$jt" ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "LOGIN-FAILED"; return
+  fi
+
+  local -a extra_args=()
+  if [ -n "$extra" ]; then
+    local IFS=';' kv
+    for kv in $extra; do [ -n "$kv" ] && extra_args+=(-F "$kv"); done
+  fi
+
+  local pcode jcode
+  pcode=$(curl -s -o /tmp/mfp.json -w '%{http_code}' -X POST "$PHP/$path" \
+            -H "Authorization: Bearer $pt" -F "$field=@$fixture;filename=$upname" "${extra_args[@]}")
+  jcode=$(curl -s -o /tmp/mfj.json -w '%{http_code}' -X POST "$JAVA/$path" \
+            -H "Authorization: Bearer $jt" -F "$field=@$fixture;filename=$upname" "${extra_args[@]}")
+
+  local pbody jbody
+  pbody=$(norm /tmp/mfp.json); jbody=$(norm /tmp/mfj.json)
+
+  local verdict=ok detail=""
+  if [ "$pcode" = 000 ] || [ "$jcode" = 000 ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "UNREACHABLE"; return
+  fi
+  if [ -n "$expect" ] && [ "$pcode" != "$expect" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "UNEXPECTED-STATUS (case expects $expect)"
+    { echo "### $name  (POST $path, multipart $field=$upname)"
+      echo "    PHP answered $pcode; this case is declared to expect $expect."
+      echo "    PHP  $pcode $(head -c 300 <<< "$pbody")"; echo; } >> mutation-diffs.txt
+    return
+  fi
+  local mp_accepted=""
+  if [ "$pcode" != "$jcode" ]; then
+    if reason=$(accepted_mutation_divergence "$path" "$pcode" "$jcode"); then
+      mp_accepted="$reason"
+    else
+      verdict=DIFF; detail="status $pcode vs $jcode"
+    fi
+  fi
+  # A registered divergence can be body-only -- R-038's pair is 200/200 and the
+  # difference is that PHP's body is empty. The same registry serves both, so a
+  # multipart case does not need its own list.
+  if [ "$verdict" = ok ] && [ -z "$mp_accepted" ] && [ "$pbody" != "$jbody" ]; then
+    if reason=$(accepted_mutation_divergence "$path" "$pcode" "$jcode"); then
+      mp_accepted="$reason"
+    else
+      verdict=DIFF; detail="response body"
+    fi
+  fi
+
+  # The file side effect, which is the half a row snapshot cannot see.
+  local pfp jfp
+  pfp=$(upload_fingerprint "$PHP_UPLOADS"); jfp=$(upload_fingerprint "$JAVA_UPLOADS")
+  if [ "$pfp" != "$jfp" ]; then
+    verdict=DIFF
+    detail="${detail:+$detail; }files differ"
+    { echo "### $name  (POST $path, multipart $field=$upname)"
+      echo "    FILES DIFFER  (subdir / extension / sha256)"
+      echo "    PHP :"; printf '%s\n' "$pfp" | sed 's/^/      /'
+      echo "    JAVA:"; printf '%s\n' "$jfp" | sed 's/^/      /'; echo; } >> mutation-diffs.txt
+  fi
+
+  local statediff=""
+  IFS=',' read -ra tl <<< "$tables"
+  for t in "${tl[@]}"; do
+    [ -n "$t" ] || continue
+    if [ "$(snapshot "$PHP_DB" "$t" "")" != "$(snapshot "$JAVA_DB" "$t" "")" ]; then
+      statediff="$statediff $t"
+    fi
+  done
+  [ -n "$statediff" ] && { verdict=DIFF; detail="${detail:+$detail; }rows differ:$statediff"; }
+
+  if [ "$verdict" = ok ] && [ -n "$mp_accepted" ]; then
+    accepted=$((accepted+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "ACCEPTED ($mp_accepted), files+rows verified"
+    return
+  fi
+  if [ "$verdict" = ok ]; then
+    pass=$((pass+1))
+  else
+    fail=$((fail+1))
+    { echo "### $name  (POST $path, multipart $field=$upname)"
+      echo "    $detail"
+      echo "    PHP  $pcode $(head -c 260 <<< "$pbody")"
+      echo "    JAVA $jcode $(head -c 260 <<< "$jbody")"; echo; } >> mutation-diffs.txt
+  fi
+  printf '%-42s %-4s %-4s %s %s\n' "$name" "$pcode" "$jcode" "$verdict" "$detail"
+}
+
 ./seed-two.sh >/dev/null 2>&1
 assert_java_on_its_own_database
+assert_upload_dirs
 
 # The run's own result, consumed by coverage-report.sh: a case counts as
 # covering an endpoint only if it actually passed here, never because it
@@ -1019,6 +1308,48 @@ run_case "profile/logout"                  POST "profile/logout" '' "employees,n
 
 run_case "company/update"                  PUT  "company/update" \
   '{"company_name":"Parity Company Renamed"}' "companies" 214 200
+
+
+# ===========================================================================
+# Multipart uploads and spreadsheet analysis.
+#
+# The spreadsheet fixtures are the application's OWN template output, fetched
+# from PHP's template_excel endpoints, not hand-built workbooks -- D-085 makes
+# round-tripping the self-generated template the standard these readers are
+# held to, and a hand-built file would test the harness's idea of the format
+# rather than the format.
+# ---------------------------------------------------------------------------
+run_multipart_case "company/upload_logo"          "company/upload_logo" \
+  logo "$HERE/fixtures/parity.png" "logo.png" "" "companies" 214 200
+run_multipart_case "company/upload_logo (pdf)"    "company/upload_logo" \
+  logo "$HERE/fixtures/parity.pdf" "doc.pdf" "" "companies" 214 200
+run_multipart_case "company/upload_commercial_reg" "company/upload_commercial_reg" \
+  file "$HERE/fixtures/parity.pdf" "reg.pdf" "" "companies" 214 200
+run_multipart_case "employees/upload_photo"       "employees/upload_photo?id=$C214_EMP" \
+  photo "$HERE/fixtures/parity.png" "photo.png" "" "employees" 214 200
+run_multipart_case "employee_docs/upload"         "employee_docs/upload" \
+  file "$HERE/fixtures/parity.pdf" "contract.pdf" \
+  "employee_id=$C214_EMP;doc_type=contract" "employee_docs" 214 201
+
+# Rejections, which are NOT coverage of the success path but are their own
+# contract: an unrecognised type must be refused identically.
+run_multipart_case "upload_logo (unsupported type)" "company/upload_logo" \
+  logo "$HERE/fixtures/employees-template.xlsx" "sheet.xlsx" "" "companies" 214 400
+
+# The spreadsheet readers.
+run_multipart_case "employees/analyze_excel"      "employees/analyze_excel" \
+  file "$HERE/fixtures/employees-template.xlsx" "employees.xlsx" "" "employees" 214 200
+run_multipart_case "leave_balances/analyze_excel" "leave_balances/analyze_excel" \
+  file "$HERE/fixtures/leave_balances-template.xlsx" "leave.xlsx" "" "leave_balance" 214 200
+# The punch log, not the employees template: import_excel refuses the latter
+# with "Cannot detect employee id", which is a rejection and not coverage. The
+# column names come from the frozen PHP's own alias lists.
+run_multipart_case "attendance/analyze_excel"     "attendance/analyze_excel" \
+  file "$HERE/fixtures/attendance-punches.xlsx" "punches.xlsx" "" "attendance" 214 200
+run_multipart_case "attendance/import_excel"      "attendance/import_excel" \
+  file "$HERE/fixtures/attendance-punches.xlsx" "punches.xlsx" "" "attendance" 214 200
+run_multipart_case "attendance/import (wrong sheet)" "attendance/import_excel" \
+  file "$HERE/fixtures/employees-template.xlsx" "wrong.xlsx" "" "attendance" 214 400
 
 echo
 echo "identical=$pass  differing=$fail  accepted-divergences=$accepted"

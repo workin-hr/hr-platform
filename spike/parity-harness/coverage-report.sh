@@ -45,7 +45,7 @@ invocations = []
 i = 0
 while i < len(sweep_lines):
     line = sweep_lines[i]
-    if line.startswith("run_case "):
+    if line.startswith("run_case ") or line.startswith("run_multipart_case "):
         parts = [line]
         while parts[-1].rstrip().endswith("\\"):
             i += 1
@@ -55,7 +55,10 @@ while i < len(sweep_lines):
 
 declared = {}
 for inv in invocations:
-    m = re.match(r'run_case\s+"[^"]*"\s+\w+\s+"([^"?]+)', inv)
+    # run_case:           NAME METHOD "PATH" ...
+    # run_multipart_case: NAME "PATH" FIELD ...
+    m = (re.match(r'run_case\s+"[^"]*"\s+\w+\s+"([^"?]+)', inv)
+         or re.match(r'run_multipart_case\s+"[^"]*"\s+"([^"?]+)', inv))
     if not m:
         continue
     tail = re.search(r'(\d{3})\s*$', inv)
@@ -87,7 +90,13 @@ if os.path.exists(result_path):
             continue
         name, verdict = m.group(1).strip(), m.group(4)
         run_seen.add(name)
-        if verdict in ("ok", "ACCEPTED"):
+        # Only "ok" counts. An ACCEPTED case documents a DIVERGENCE -- the two
+        # stacks deliberately disagree there -- which is the opposite of
+        # evidence that the endpoint behaves identically. Where an endpoint has
+        # both (advances/approve has a normal case and a cross-tenant guard),
+        # the normal one carries the coverage; where it has only an accepted
+        # case (employees/analyze_excel, R-038), it is correctly uncovered.
+        if verdict == "ok":
             run_ok.add(name)
 else:
     print(f"NO RUN EVIDENCE at {result_path}.")
@@ -97,7 +106,8 @@ else:
 # map endpoint -> the case names that target it
 case_names = {}
 for inv in invocations:
-    m = re.match(r'run_case\s+"([^"]*)"\s+\w+\s+"([^"?]+)', inv)
+    m = (re.match(r'run_case\s+"([^"]*)"\s+\w+\s+"([^"?]+)', inv)
+         or re.match(r'run_multipart_case\s+"([^"]*)"\s+"([^"?]+)', inv))
     if m:
         case_names.setdefault(m.group(2), []).append(m.group(1))
 

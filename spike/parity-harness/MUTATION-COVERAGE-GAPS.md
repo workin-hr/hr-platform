@@ -3,44 +3,52 @@
 **Regenerate with `./coverage-report.sh` after a full `./sweep-mutations.sh` run.**
 Do not hand-edit the numbers.
 
-Coverage requires **evidence from a run**, not a declaration. An endpoint counts
-as covered only when the sweep executed a case for it, that case declared a
-**2xx**, and the run recorded it as `ok` or as an explicitly accepted
-divergence. A declared 2xx alone says only what the case intends: an
-unreachable case, a Java 500, a response or row mismatch, or a 2xx that mutated
-nothing would all have been regenerated here as covered while the sweep
-reported failure.
-
-`mutating` comes from the frozen PHP's own method guard, not from the filename.
+Coverage requires **evidence from a run**. An endpoint counts as covered only
+when the sweep executed a case for it, that case declared a **2xx**, and the run
+recorded it as `ok`. An `ACCEPTED` verdict does **not** count: it documents a
+deliberate divergence, which is the opposite of evidence that the two stacks
+agree. `mutating` comes from the frozen PHP's own method guard, not the filename.
 
 | | count |
 |---|---|
 | mutating endpoints (PHP guards a non-GET method) | **116** |
-| covered by a success-path case, verified by a run | **74** |
-| exercised only by a refusal — *not counted* | 6 |
-| no case at all | 36 |
+| covered by a success-path case, verified by a run | **81** |
+| exercised only by a refusal — *not counted* | 7 |
+| no case at all | 28 |
 | reads (GET or no method guard), excluded | 73 |
 
 A request the endpoint rejects identically on both sides is not coverage.
 
 ## Exercised only through a refusal
 
-These have a case, but only a rejecting one, so no successful mutation has been
-compared. Each needs a fixture its success path can act on.
+These have a case, but only a rejecting one. Each needs a fixture its success
+path can act on.
 
-- `attendance/check_out  (declared [400])`
-- `branches/delete  (declared [409])`
-- `employees/delete  (declared [404, 409])`
-- `profile/register_push_token  (declared [500])`
-- `request_types/delete  (declared [409])`
-- `requests/create  (declared [403])`
+- `attendance/check_out` — needs an OPEN check-in for the actor on the same day; the sweep reseeds per case, so it must be seeded rather than produced by the check_in case.
+- `branches/delete` — 409 while the branch has employees. Needs a branch with none.
+- `employees/analyze_excel` — needs a success-path fixture.
+- `employees/delete` — 409 while payroll/attendance rows reference the employee. Needs a throwaway employee with no references.
+- `profile/register_push_token` — **genuinely unreachable** — R-013: `register_push_token.php` INSERTs a `company_id` column `push_tokens` does not have, so it 500s for every caller and always has. The port reproduces the failure (D-058). There is no success path to cover.
+- `request_types/delete` — 409 while requests reference the type. Needs an unused type.
+- `requests/create` — 403 for the company-admin actor; the endpoint is for EMPLOYEE. The seeded employee actor (999003) can reach it.
 
 ## No case at all
 
-- `attendance/analyze_excel`
-- `attendance/import_excel`
+Grouped by what each actually needs, so the list is a work item rather than an
+inventory.
+
+
+### a second exception type
+
+`create` is covered; `update` and `delete` need a row that `create` would make, and cases deliberately cannot chain because each reseeds.
+
 - `attendance_exception_types/delete`
 - `attendance_exception_types/update`
+
+### OTP and company registration
+
+Needs the OTP the server generated. Reading it from the database is what a test would do, and it weakens what the flow proves, so it should be an explicit decision rather than a quiet one. Two routes also send WhatsApp/SMS; the harness holds placeholder tokens so nothing reaches a real person, which also means the send path cannot be exercised end to end. `auth/login_employee` is exercised implicitly by every case here, which mints a token from BOTH stacks before each request.
+
 - `auth/complete_company_registration`
 - `auth/forgot_password`
 - `auth/join_company`
@@ -52,46 +60,62 @@ compared. Each needs a fixture its success path can act on.
 - `auth/resend_otp`
 - `auth/reset_password`
 - `auth/verify_otp`
-- `company/upload_commercial_reg`
-- `company/upload_logo`
+
+### a pending join request
+
+The snapshot has none for the seeded companies, and creating one goes through the join flow, which is in the uncovered auth group.
+
 - `company_join_requests/accept`
 - `company_join_requests/reject`
+
+### a setting definition the snapshot lacks
+
+The seeded company's settings already exist, so `create` and `delete` need a definition row that is not in the snapshot.
+
 - `company_settings/create`
 - `company_settings/delete`
+
+### not yet classified
+
+—
+
 - `employee_docs/delete`
 - `employee_docs/update`
-- `employee_docs/upload`
-- `employees/analyze_excel`
+
+### bulk import from analysis output
+
+`import_bulk` takes `rows` in the JSON body -- the output of `analyze_excel`, not a file -- so it needs a chained fixture: the analysis result captured and replayed as a body. Not multipart, despite sitting beside the analyzers.
+
 - `employees/import_bulk`
-- `employees/upload_photo`
+
+### a second admin identity
+
+`create` makes an HR user and `update_permissions` rewrites `hr_permissions`, which every case in this file depends on for its own actor.
+
 - `hr_employees/create`
 - `hr_employees/update_permissions`
-- `leave_balances/analyze_excel`
 - `leave_balances/import_bulk`
+
+### OTP and destructive account flows
+
+`request_phone_change`/`confirm_phone_change` need an OTP; `delete_account` removes the actor the sweep authenticates as, so it needs its own throwaway employee fixture.
+
 - `profile/confirm_phone_change`
 - `profile/delete_account`
 - `profile/request_phone_change`
+
+### a second planning row
+
+`save_target` and `create` are covered; the rest need a distinct fixture row.
+
 - `workforce_planning/delete`
 - `workforce_planning/update`
 
-## What closes the largest share
+## Genuinely blocked, not merely uncovered
 
-**Multipart — eleven endpoints, one mechanism.** `analyze_excel`,
-`import_excel`, `import_bulk`, `upload_photo`, `upload_logo`,
-`upload_commercial_reg` and `employee_docs/upload` all take a file part. The
-sweep sends JSON only, so covering them needs a multipart request builder and
-committed fixture files. Highest value per unit of harness work.
-
-**Seeded fixtures.** The refusal-only list, plus several update/delete pairs,
-need a row their own create would make — and cases deliberately cannot chain,
-because each reseeds. The pattern already exists in `seed-two.sh`: an open
-penalty, a draft batch, a payslip inside it, an inbox notification, an
-EMPLOYEE-role actor with a pending request, a request type with both approval
-side-effect flags on, and an administrative decision.
-
-**OTP.** The auth group needs the OTP the server generated. Reading it from the
-database is what a test would do, but it weakens what the flow proves, so it
-should be an explicit decision rather than a quiet one.
-
-**`attendance/set_employee_attendance_method`** has no PHP file — legacy answers
-501 from the router. Listed for completeness, not as a gap the sweep can close.
+- `profile/register_push_token` — no success path exists in frozen PHP (**R-013**).
+- `attendance/set_employee_attendance_method` — no PHP file; legacy answers 501.
+- `employees/analyze_excel` — has a case, and it passes as an **accepted divergence**
+  (**R-038**): PHP answers 200 with an empty body, Java returns the analysis. Not
+  counted as covered, because comparing an empty body against real output is not
+  parity.
