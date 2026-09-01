@@ -250,8 +250,10 @@ The `not compared` row is the whole point of the correction: those three —
 compared. Comparing workbooks properly needs a reader-level comparison (D-085),
 not a byte diff, since a zip carries its own timestamps.
 
-The differing one is **R-032** (`company_settings/options` emits an extra
-`label` key). **R-029** (`payslips/list` tie-break ordering) is
+The differing one is `company_settings/options`, which emits an extra `label`
+key in Java that PHP does not. It is recorded as a risk on the stacked branch
+that found it; no entry for it exists here, so it is described rather than
+cited by number. **R-029** (`payslips/list` tie-break ordering) is
 non-deterministic and appears in some runs and not others, which is the point
 of that entry.
 

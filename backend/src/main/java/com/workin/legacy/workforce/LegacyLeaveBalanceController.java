@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyJsonBody;
@@ -21,10 +22,9 @@ import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyApiResponse;
 import com.workin.legacy.wire.LegacyMessages;
+import com.workin.legacy.wire.LegacyPostFields;
 
-import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.Part;
 
 /** All ten {@code /apis/api/leave_balances/*.php} endpoints (Wave 12.7). */
 @RestController
@@ -130,14 +130,33 @@ public class LegacyLeaveBalanceController {
 	public LegacyApiResponse analyze(HttpServletRequest request) {
 		requireMethod(request, "POST");
 		LegacyRequestContext context = companyRole();
-		Part file = part(request, "file");
-		if (file == null) {
+		// LegacyPostFields.file, not request.getPart: PHP tests
+		// isset($_FILES['file']), and a multipart part with no filename is a
+		// $_POST field there, never a $_FILES entry. getPart returns it all the
+		// same, so a text field named `file` was being parsed as a spreadsheet
+		// and answered 200 where PHP answers no_file_uploaded. The shared
+		// helper already skips parts whose getSubmittedFileName() is null, and
+		// applies PHP's field-name normalisation and last-duplicate-wins rule
+		// with it -- which is why the other four multipart endpoints go through
+		// it and this one was the outlier.
+		MultipartFile file = LegacyPostFields.file(request, "file");
+		// PHP's guard is `!isset($_FILES['file']) || error !== UPLOAD_ERR_OK`,
+		// and an empty filename is UPLOAD_ERR_NO_FILE. Spring still exposes a
+		// MultipartFile for `filename=""`, and LegacyPostFields.file only skips
+		// a *null* submitted filename, so the empty case reached the analyzer
+		// and answered `Empty or unreadable file` where PHP answers
+		// `no_file_uploaded`. Same three-part test as
+		// LegacyAttendanceImportService, and deliberately not `isEmpty()` on the
+		// bytes: a zero-byte file the user actually chose is UPLOAD_ERR_OK in
+		// PHP and must fall through to the format check.
+		if (file == null || file.getOriginalFilename() == null
+				|| file.getOriginalFilename().isEmpty()) {
 			throw new LegacyApiException(400, "no_file_uploaded");
 		}
 		int year = formOrQueryYear(request);
 		try {
 			Map<String, Object> data = spreadsheets.analyze(
-					file.getInputStream().readAllBytes(), context.companyId(), year, messages.resolveLocale(request));
+					file.getBytes(), context.companyId(), year, messages.resolveLocale(request));
 			return LegacyApiResponse.ok(message(request, "leave_balances_excel_analyzed"), data);
 		} catch (IllegalArgumentException ex) {
 			// PHP passes RuntimeException::getMessage() directly as the message key.
@@ -208,14 +227,6 @@ public class LegacyLeaveBalanceController {
 				? (int) LegacyValues.toPhpLong(form)
 				: query != null ? (int) LegacyValues.toPhpLong(query) : clock.today().getYear();
 		return year < 2000 || year > 2100 ? clock.today().getYear() : year;
-	}
-
-	private static Part part(HttpServletRequest request, String name) {
-		try {
-			return request.getPart(name);
-		} catch (IOException | ServletException ex) {
-			return null;
-		}
 	}
 
 	private static void requireMethod(HttpServletRequest request, String expected) {

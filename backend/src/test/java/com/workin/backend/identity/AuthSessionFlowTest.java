@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -65,6 +68,46 @@ class AuthSessionFlowTest extends AbstractIntegrationTest {
 
 		assertThat(sidAtLogin).isNotBlank();
 		assertThat(sidAfterRefresh).isEqualTo(sidAtLogin);
+	}
+
+	/**
+	 * R-027. {@link #logoutRevokesTheSessionIsIdempotentAndNeverDeactivatesTheAccount()}
+	 * proves logout kills the <em>refresh</em> token — which is exactly the gap,
+	 * because until this check existed nothing killed the <em>access</em> token
+	 * with it.
+	 *
+	 * <p>Logout revokes the refresh family; the access token carries that family
+	 * in its {@code sid} claim and no filter read it, so a logged-out token kept
+	 * authenticating until {@code exp} — up to
+	 * {@code app.jwt.access-token-ttl-seconds}. On this surface that covered 58
+	 * mutating endpoints, so a user who logged out, or an operator logging out a
+	 * session they believed compromised, left a token that could still create,
+	 * alter and delete payroll and organisational records.
+	 */
+	@Test
+	void logoutAlsoStopsTheAccessTokenImmediately() {
+		String phone = uniquePhone();
+		AuthResponse registered = restTemplate.postForEntity(
+				"/api/auth/register",
+				new RegisterCompanyRequest("Revocation Co", phone, "correct horse battery staple"),
+				AuthResponse.class).getBody();
+
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(registered.accessToken());
+		HttpEntity<Void> authed = new HttpEntity<>(headers);
+
+		assertThat(restTemplate.exchange("/api/tenant/me", HttpMethod.GET, authed, String.class)
+				.getStatusCode())
+				.as("the access token works before logout")
+				.isEqualTo(HttpStatus.OK);
+
+		restTemplate.postForEntity(
+				"/api/auth/logout", new RefreshTokenRequest(registered.refreshToken()), Void.class);
+
+		assertThat(restTemplate.exchange("/api/tenant/me", HttpMethod.GET, authed, String.class)
+				.getStatusCode())
+				.as("the same unexpired access token must stop working the moment the session is revoked")
+				.isEqualTo(HttpStatus.UNAUTHORIZED);
 	}
 
 	@Test

@@ -2521,12 +2521,13 @@ it reached `main`, and the honest answer is that nobody independent looked.
 | Evidence | `backend/src/main/java/com/workin/backend/security/PlatformAdminAuthenticationFilter.java`; `PlatformAdminAuthFlowTest#aTokenIssuedBeforeDeactivationStopsWorkingImmediately` — logs in, confirms the token works, deactivates the row, asserts the same unexpired token is refused. Falsified by removing the check and confirming only that test fails. An independent security review of PR #152 traced the filter chain, the `permitAll` routes, the error paths and the `phase1-mysql` profile, and found no bypass. |
 | Status | Accepted 2026-08-31. |
 
-> **Not closed by this decision**: revocation on **logout** is a separate,
-> unresolved question on both surfaces — the access token's `sid` claim is
-> issued and never read, so a logged-out token keeps working until `exp`
-> (**R-027**, `open-questions.md`, annotated on ADR-0005). D-145 makes
-> *deactivation* immediate; it does not make *logout* immediate, and those are
-> the two controls an operator is most likely to confuse.
+> **Not closed by this decision**: revocation on **logout** was a separate
+> question on both surfaces — the access token's `sid` claim was issued and
+> never read, so a logged-out token kept working until `exp` (**R-027**).
+> D-145 makes *deactivation* immediate; it did not make *logout* immediate,
+> and those are the two controls an operator is most likely to confuse.
+> **Resolved later the same day by [D-149](#d-149-logout-revokes-the-access-token-not-only-the-refresh-family)**,
+> which reads the `sid` claim on both surfaces and closes R-027.
 
 ## D-147: Legacy routes are served by porting `index.php`'s router, ahead of the security chain
 
@@ -2545,3 +2546,14 @@ it reached `main`, and the honest answer is that nobody independent looked.
 > would 401 every anonymous endpoint. R-028 records the defect; this records
 > what was chosen and what was rejected, so the next person to touch legacy
 > routing does not rediscover the ordering constraint by breaking it.
+
+## D-149: Logout revokes the access token, not only the refresh family
+
+| Field | Value |
+|---|---|
+| Decision | Both authentication filters resolve the access token's `sid` claim and refuse to authenticate when that session family is `REVOKED`. Logout, reuse-detection and identity-wide revocation therefore stop the access token already in the caller's hands, on the **tenant** and **platform-admin** surfaces alike. This accepts **one indexed lookup per authenticated request** on each surface as the standing cost. |
+| Reason | Logout previously revoked the refresh family and nothing else (**R-027**). The `sid` claim naming that family was issued by both surfaces and read by neither, so the control an operator reaches for when a token must stop working immediately did not stop it — for up to a full access-token TTL. On the tenant surface that was not theoretical: 58 live mutating endpoints sat behind it, including payslip create/update/delete, salary contracts and branch deletion. |
+| Alternatives | (a) **Accept it as the standard stateless-JWT trade** and leave R-027 recorded — defensible in the abstract, rejected here because of what the tenant write surface actually exposes and because an operator's mental model of "log the session out" is not negotiable during an incident. (b) **Shorten the access-token TTL** — shrinks the window, never closes it, and pays for the reduction in rotation traffic. (c) **Fix only the tenant surface**, where the realised exposure was — rejected: it would leave two surfaces with different revocation semantics, which is how the original inconsistency arose. |
+| Impact | Same trade **ADR-0010** makes for authorization and **D-145** makes for admin deactivation: immediate revocation over cached session state. Deliberate residual gap — a token carrying no `sid` is treated as live, so tokens minted before the claim existed keep working instead of every session being logged out on deploy; that gap ages out within one access-token TTL of the deploy. **Not in scope, deliberately**: the `phase1-mysql` compatibility chain is untouched. It authenticates PHP-format tokens, which carry no `sid` and have no session-family table behind them — PHP's own logout semantics are the parity requirement on that surface, so importing this behaviour there would be a divergence, not a fix. **Rollback** is reverting the two filter checks; the repository methods are additive and harmless if left. **Operational note**: a spike in 401s on `/api/tenant/**` or `/api/platform-admin/**` immediately after deploy would indicate the check refusing sessions it should not — the filter adds no log line of its own, so the signal is the 401 rate, not an error log. **New coupling this creates**: a `sid` naming no row at all is treated as revoked, so the lifetime of a refresh-token row is now the lifetime of the access tokens issued against it. Verified safe today — neither repository has a delete method and there is no scheduled job anywhere in `src/main/java`, so rows are never removed. But **anyone adding a purge of expired refresh tokens must exclude families newer than one access-token TTL**, or live access tokens will start failing at authentication the moment their family is swept. That constraint did not exist before this decision. |
+| Evidence | `JwtAuthenticationFilter.sessionIsLive` + `RefreshTokenRepository.familyIsLive`; `PlatformAdminAuthenticationFilter.sessionIsLive` + `PlatformAdminRefreshTokenRepository.familyIsLive`. Regression tests `AuthSessionFlowTest#logoutAlsoStopsTheAccessTokenImmediately` and `PlatformAdminSessionFlowTest#logoutAlsoStopsTheAccessTokenImmediately`, each **verified to fail with its fix reverted and pass with it applied**. Indexes confirmed present before relying on them: `refresh_tokens_family_id_idx` (V15), `platform_admin_refresh_tokens_family_id_idx` (V16). Status enum on both surfaces is exactly `ACTIVE`/`ROTATED`/`REVOKED`, so "not `REVOKED`" is a correct liveness test and rotation keeps the family live. |
+| Status | Accepted 2026-08-31. **Numbered D-149, not D-146:** PR #148 allocated D-146 to ADR-0014's acceptance first (that decision lives on PR #148's branch, not this one), and a duplicate identifier leaves every later reference ambiguous about which decision it names. Renumbered on this branch because that one was recorded first. Closes **R-027**; completes the pair begun by **D-145**, which made *deactivation* immediate but explicitly left *logout* open. |
