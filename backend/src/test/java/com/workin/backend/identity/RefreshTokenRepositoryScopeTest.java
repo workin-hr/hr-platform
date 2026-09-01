@@ -43,7 +43,17 @@ class RefreshTokenRepositoryScopeTest {
 			// The authenticated identity. Spans that identity's companies
 			// on purpose -- logout-everywhere and password change must not
 			// leave a session alive in another tenant.
-			"setStatusForIdentity");
+			"setStatusForIdentity",
+			// Same family UUID as setStatusForFamily, and reached the same
+			// way: JwtAuthenticationFilter reads it from the `sid` claim of a
+			// token whose signature this service has already verified, so
+			// possession is proven before the query runs. It returns a
+			// boolean rather than rows, so even a guessed UUID -- 122 random
+			// bits -- yields one bit about whether some family is live, and
+			// no tenant data. Does not accept a company.
+			"existsByFamilyIdAndStatusNot",
+			// Default method over the finder above; adds no query of its own.
+			"familyIsLive");
 
 	@Test
 	void everyQueryMethodHasBeenReviewedForCrossTenantReach() {

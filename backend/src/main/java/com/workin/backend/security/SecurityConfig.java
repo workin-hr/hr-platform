@@ -19,7 +19,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import com.workin.backend.identity.JwtService;
+import com.workin.backend.identity.RefreshTokenRepository;
 import com.workin.backend.platformadmin.PlatformAdminJwtService;
+import com.workin.backend.platformadmin.PlatformAdminRefreshTokenRepository;
 import com.workin.backend.platformadmin.PlatformAdminRepository;
 import com.workin.backend.tenancy.NoTenantScopeException;
 import com.workin.backend.tenancy.TenantScope;
@@ -44,6 +46,7 @@ public class SecurityConfig {
 	public SecurityFilterChain platformAdminSecurityFilterChain(
 			HttpSecurity http, PlatformAdminJwtService platformAdminJwtService,
 			PlatformAdminRepository platformAdminRepository,
+			PlatformAdminRefreshTokenRepository platformAdminRefreshTokenRepository,
 			ApiSecurityErrorHandler apiSecurityErrorHandler) throws Exception {
 		http
 			.securityMatcher("/api/platform-admin/**")
@@ -57,7 +60,8 @@ public class SecurityConfig {
 						"/api/platform-admin/logout").permitAll()
 				.anyRequest().authenticated())
 			.addFilterBefore(
-				new PlatformAdminAuthenticationFilter(platformAdminJwtService, platformAdminRepository),
+				new PlatformAdminAuthenticationFilter(
+						platformAdminJwtService, platformAdminRepository, platformAdminRefreshTokenRepository),
 				UsernamePasswordAuthenticationFilter.class);
 		return http.build();
 	}
@@ -137,6 +141,7 @@ public class SecurityConfig {
 	@Profile("!phase1-mysql")
 	public SecurityFilterChain tenantSecurityFilterChain(
 			HttpSecurity http, JwtService jwtService,
+			RefreshTokenRepository refreshTokenRepository,
 			ApiSecurityErrorHandler apiSecurityErrorHandler) throws Exception {
 		http
 			.csrf(csrf -> csrf.disable())
@@ -148,7 +153,8 @@ public class SecurityConfig {
 				.requestMatchers("/error").permitAll()
 				.requestMatchers("/api/auth/**", "/actuator/health").permitAll()
 				.anyRequest().authenticated())
-			.addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
+			.addFilterBefore(new JwtAuthenticationFilter(jwtService, refreshTokenRepository),
+				UsernamePasswordAuthenticationFilter.class);
 		return http.build();
 	}
 }
