@@ -179,6 +179,15 @@ accepted_mutation_divergence() {  # $1=path $2=php code $3=java code
       # Reproducing either behaviour would mean porting a tenant-isolation
       # defect, so the divergence is deliberate.
       echo "R-036"; return 0 ;;
+    advances/approve:500:404|advances/reject:500:404|advances/pay:500:404)
+      # R-037: the advances actions write with WHERE id=? and NO company
+      # predicate, and re-read the same way. For an id that does not exist the
+      # re-read is null and public_row(null) raises a TypeError -> 500. For an
+      # id owned by ANOTHER COMPANY the write succeeds -- measured: approve and
+      # reject changed a foreign advance's status, pay moved its remaining
+      # balance, delete removed the row. Java answers 404 and mutates nothing.
+      # Reproducing a cross-tenant write is not parity worth having.
+      echo "R-037"; return 0 ;;
   esac
   return 1
 }
@@ -385,6 +394,18 @@ C214_NOTIF=$(resolve_or_die c214_nt  "SELECT id FROM notifications WHERE company
 C214_COMPLAINT=$(resolve_or_die c214_cp "SELECT id FROM complaints WHERE company_id=214 ORDER BY id LIMIT 1")
 C214_SETTING=$(resolve_or_die c214_cs "SELECT setting_definition_id FROM company_settings WHERE company_id=214 ORDER BY id LIMIT 1")
 
+# Mutable fixtures seeded by seed-two.sh. The snapshot's own penalty is
+# applied_to_payroll=1 and its payroll batch is finalized, so cases against
+# them exercise only the refusal path -- both stacks refuse, the case passes,
+# and no mutation was ever compared.
+C214_PEN_OPEN=$(resolve_or_die c214_pen_open "SELECT id FROM penalties WHERE id=999010 AND applied_to_payroll=0")
+C214_BATCH_DRAFT=$(resolve_or_die c214_batch_draft "SELECT id FROM payroll_batches WHERE id=999011 AND status='draft'")
+C214_PAYSLIP_DRAFT=$(resolve_or_die c214_payslip_draft "SELECT id FROM payslips WHERE id=999012 AND batch_id=999011")
+# A SECOND employee, so payslips/create has someone without a payslip in the
+# draft batch -- the fixture above already occupies the first one, and create
+# would otherwise answer "already exists" rather than creating anything.
+C214_EMP2=$(resolve_or_die c214_emp2 "SELECT id FROM employees WHERE company_id=214 AND id NOT IN (999002, (SELECT employee_id FROM payslips WHERE id=999012)) ORDER BY id LIMIT 1")
+
 # --- cases that mutate ---------------------------------------------------
 run_case "branches/create"                 POST "branches/create" \
   '{"name":"Parity Branch"}' "branches" - 201
@@ -497,6 +518,85 @@ run_case "exception_types/create"          POST "attendance_exception_types/crea
   '{"name":"Parity Exception"}' "exception_types" 214 201
 run_case "exception_types/create (no name)" POST "attendance_exception_types/create" \
   '{}' "exception_types" 214 400
+
+
+# ===========================================================================
+# Money and legal obligations: the update, delete and state-transition halves.
+#
+# These are the endpoints where a divergence is not a cosmetic difference --
+# an advance that pays twice, a payroll batch that finalises on one stack and
+# not the other, a payslip whose deductions differ. Every case names the tables
+# whose ROWS are compared, not just the response, because an endpoint can
+# answer identically and still persist differently.
+# ---------------------------------------------------------------------------
+run_case "advances/approve"                PUT  "advances/approve?id=$C214_ADV" \
+  '{}' "advances,notifications" 214 200
+run_case "advances/approve (unknown id)"   PUT  "advances/approve?id=99999999" \
+  '{}' "advances" 214 500
+run_case "advances/reject"                 PUT  "advances/reject?id=$C214_ADV" \
+  '{"rejection_reason":"parity reject"}' "advances,notifications" 214 200
+run_case "advances/reject (no reason)"     PUT  "advances/reject?id=$C214_ADV" \
+  '{}' "advances" 214 400
+run_case "advances/pay"                    PUT  "advances/pay?id=$C214_ADV" \
+  '{"amount":50}' "advances" 214 200
+run_case "advances/pay (no amount)"        PUT  "advances/pay?id=$C214_ADV" \
+  '{}' "advances" 214 400
+run_case "advances/update"                 PUT  "advances/update?id=$C214_ADV" \
+  '{"amount":75,"reason":"parity updated"}' "advances" 214 200
+run_case "advances/delete"                 DELETE "advances/delete?id=$C214_ADV" \
+  '' "advances" 214 200
+
+run_case "penalties/update"                PUT  "penalties/update?id=$C214_PEN_OPEN" \
+  '{"penalty_days":2}' "penalties,notifications" 214 200
+run_case "penalties/update (applied)"      PUT  "penalties/update?id=$C214_PEN" \
+  '{"penalty_days":2}' "penalties" 214 403
+run_case "penalties/delete"                DELETE "penalties/delete?id=$C214_PEN_OPEN" \
+  '' "penalties,notifications" 214 200
+run_case "penalties/delete (unknown id)"   DELETE "penalties/delete?id=99999999" \
+  '' "penalties" 214 400
+
+run_case "leave_balances/update"           PUT  "leave_balances/update?id=$C214_LB" \
+  '{"total_days":25}' "leave_balance" 214 200
+run_case "leave_balances/delete"           DELETE "leave_balances/delete?id=$C214_LB" \
+  '' "leave_balance" 214 200
+run_case "leave_balances/generate"         POST "leave_balances/generate" \
+  '{"year":2026,"total_days":21}' "leave_balance" 214 200
+
+run_case "salary_contracts/create"         POST "salary_contracts/create" \
+  "{\"employee_id\":$C214_EMP,\"effective_from\":\"2026-09-01\",\"basic_salary\":5000}" \
+  "salary_contracts" 214 201
+run_case "salary_contracts/update"         PUT  "salary_contracts/update?id=$C214_SC" \
+  '{"basic_salary":5500}' "salary_contracts" 214 200
+run_case "salary_contracts/delete"         DELETE "salary_contracts/delete?id=$C214_SC" \
+  '' "salary_contracts" 214 200
+run_case "salary_contracts/create (no from)" POST "salary_contracts/create" \
+  "{\"employee_id\":$C214_EMP,\"basic_salary\":5000}" "salary_contracts" 214 400
+
+# Payroll state machine. calculate/finalize/reopen are the transitions where a
+# divergence strands a batch in a state the other stack cannot reach.
+run_case "payroll_batches/update"          PUT  "payroll_batches/update?id=$C214_BATCH_DRAFT" \
+  '{"month":10,"year":2026}' "payroll_batches" 214 200
+run_case "payroll_batches/calculate"       POST "payroll_batches/calculate?id=$C214_BATCH_DRAFT" \
+  '' "payroll_batches,payslips" 214 200
+run_case "payroll_batches/finalize"        PUT  "payroll_batches/finalize?id=$C214_BATCH_DRAFT" \
+  '' "payroll_batches,payslips" 214 200
+run_case "payroll_batches/reopen"          PUT  "payroll_batches/reopen?id=$C214_BATCH_DRAFT" \
+  '' "payroll_batches,payslips" 214 400
+run_case "payroll_batches/delete"          DELETE "payroll_batches/delete?id=$C214_BATCH_DRAFT" \
+  '' "payroll_batches,payslips" 214 200
+run_case "payroll_batches/calc (unknown)"  POST "payroll_batches/calculate?id=99999999" \
+  '' "payroll_batches,payslips" 214 404
+
+run_case "payslips/update"                 PUT  "payslips/update?id=$C214_PAYSLIP_DRAFT" \
+  '{"overtime_hours":3,"other_deductions":10}' "payslips" 214 200
+run_case "payslips/delete"                 DELETE "payslips/delete?id=$C214_PAYSLIP_DRAFT" \
+  '' "payslips,payroll_batches" 214 200
+run_case "payslips/update (finalized)"     PUT  "payslips/update?id=$C214_PAYSLIP" \
+  '{"other_deductions":10}' "payslips" 214 400
+run_case "payslips/create"                 POST "payslips/create" \
+  "{\"batch_id\":$C214_BATCH_DRAFT,\"employee_id\":$C214_EMP2}" "payslips" 214 201
+run_case "payslips/create (no employee)"   POST "payslips/create" \
+  "{\"batch_id\":$C214_BATCH_DRAFT}" "payslips" 214 400
 
 echo
 echo "identical=$pass  differing=$fail  accepted-divergences=$accepted"

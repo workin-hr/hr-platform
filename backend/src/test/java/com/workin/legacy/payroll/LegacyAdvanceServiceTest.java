@@ -105,7 +105,7 @@ class LegacyAdvanceServiceTest {
 	@Test
 	void approveWritesOnceScopeConfirmedEvenIfTheReReadRaces() {
 		when(store.scoped(17L, 91L)).thenReturn(Map.of("id", 91L));
-		when(store.withEmployee(91L)).thenReturn(null);
+		when(store.withEmployeeNameOnly(91L)).thenReturn(null);
 
 		assertThatThrownBy(() -> service.approve(context(0L, LegacyEmployee.Role.COMPANY_ADMIN), 91L))
 				.isInstanceOf(IllegalStateException.class);
@@ -129,7 +129,7 @@ class LegacyAdvanceServiceTest {
 
 		assertThatThrownBy(() -> service.pay(context(0L, LegacyEmployee.Role.COMPANY_ADMIN), 92L, Map.of("amount", "40.01")))
 				.isInstanceOf(LegacyApiException.class);
-		verify(store, never()).withEmployee(92L);
+		verify(store, never()).withEmployeeNameOnly(92L);
 	}
 
 	@Test

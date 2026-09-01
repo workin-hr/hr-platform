@@ -72,6 +72,25 @@ public class LegacyAdvanceStore {
 		return single("SELECT " + ADVANCE_WITH_EMPLOYEE + " FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=?", id);
 	}
 
+	/**
+	 * The re-read for {@code approve.php}, {@code reject.php} and
+	 * {@code pay.php}, which is <em>narrower</em> than every other advance
+	 * response and must stay that way.
+	 *
+	 * <p>Those three select {@code a.*} plus {@code employee_name} only. The
+	 * other endpoints -- {@code one.php}, {@code update.php}, {@code list.php}
+	 * -- go through {@code sql_advance_select_with_employee()}
+	 * ({@code functions.php:228}), which additionally emits
+	 * {@code employee_code} and {@code photo_url}. Serving all of them from one
+	 * projection made the three action responses carry two keys PHP does not
+	 * return. Found by the parity harness's mutation sweep.
+	 */
+	public Map<String, Object> withEmployeeNameOnly(long id) {
+		return single("SELECT a.*, "
+				+ "TRIM(CONCAT(COALESCE(e.first_name,''),' ',COALESCE(e.last_name,''))) AS employee_name"
+				+ " FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=?", id);
+	}
+
 	/** one.php is company scoped. */
 	public Map<String, Object> scopedWithEmployee(long companyId, long id) {
 		return single("SELECT " + ADVANCE_WITH_EMPLOYEE + " FROM advances a JOIN employees e ON e.id=a.employee_id WHERE a.id=? AND e.company_id=?", id, companyId);

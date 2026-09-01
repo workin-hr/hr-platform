@@ -59,6 +59,9 @@ class LegacyAdvancePayEndToEndTest {
 
 	private static final String PAY = "/apis/api/advances/pay.php";
 	private static final String UPDATE = "/apis/api/advances/update.php";
+	private static final String APPROVE = "/apis/api/advances/approve.php";
+	private static final String REJECT = "/apis/api/advances/reject.php";
+	private static final String ONE = "/apis/api/advances/one.php";
 
 	private static final long COMPANY_1 = 21501L;
 	private static final long ADMIN_1 = 215011L;
@@ -67,6 +70,11 @@ class LegacyAdvancePayEndToEndTest {
 	private static final long ADVANCE_1 = 2150100L;
 	private static final long ADVANCE_2 = 2150101L;
 	private static final long ADVANCE_3 = 2150102L;
+	// Dedicated rows for the projection tests. They APPROVE and REJECT, which
+	// is a state change, so they must not share a row with a test that expects
+	// it still pending -- this class seeds once and does not order its methods.
+	private static final long ADVANCE_APPROVE = 2150103L;
+	private static final long ADVANCE_REJECT = 2150104L;
 
 	@Autowired
 	private TestRestTemplate restTemplate;
@@ -186,6 +194,61 @@ class LegacyAdvancePayEndToEndTest {
 				new HttpEntity<>("{\"amount\":\"60.00\"}", headers), mapType());
 	}
 
+	/**
+	 * {@code approve.php}, {@code reject.php} and {@code pay.php} re-read the
+	 * advance with {@code a.*} plus {@code employee_name} only. Every other
+	 * advance response -- {@code one.php}, {@code update.php},
+	 * {@code list.php} -- goes through
+	 * {@code sql_advance_select_with_employee()} ({@code functions.php:228}),
+	 * which also emits {@code employee_code} and {@code photo_url}.
+	 *
+	 * <p>Java served all of them from one projection, so the three action
+	 * responses carried two keys PHP does not return. Found by the parity
+	 * harness's mutation sweep. Both halves are asserted here, because the
+	 * narrow and wide shapes are only correct relative to each other -- making
+	 * them uniform in either direction reintroduces the defect.
+	 */
+	@Test
+	void approveAndRejectReturnTheNarrowProjectionWhileOneReturnsTheWideOne() {
+		Map<String, Object> approved = dataOfPath(APPROVE, HttpMethod.PUT, "{}", 200, "?id=" + ADVANCE_APPROVE);
+		assertThat(approved)
+				.as("approve.php selects a.* and employee_name only")
+				.containsKey("employee_name")
+				.doesNotContainKey("employee_code")
+				.doesNotContainKey("photo_url");
+
+		Map<String, Object> one = dataOfPath(ONE, HttpMethod.GET, null, 200, "?id=" + ADVANCE_1);
+		assertThat(one)
+				.as("one.php goes through the wide helper")
+				.containsKey("employee_name")
+				.containsKey("employee_code")
+				.containsKey("photo_url");
+	}
+
+	@Test
+	void rejectReturnsTheNarrowProjectionToo() {
+		Map<String, Object> rejected = dataOfPath(
+				REJECT, HttpMethod.PUT, "{\"rejection_reason\":\"parity\"}", 200, "?id=" + ADVANCE_REJECT);
+		assertThat(rejected)
+				.containsKey("employee_name")
+				.doesNotContainKey("employee_code")
+				.doesNotContainKey("photo_url");
+	}
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> dataOfPath(
+			String path, HttpMethod method, String json, int expectedStatus, String query) {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(tokenFor(ADMIN_1));
+		headers.set("Accept-Language", "en");
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + path + query), method,
+				new HttpEntity<>(json, headers), mapType());
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(expectedStatus);
+		return (Map<String, Object>) response.getBody().get("data");
+	}
+
 	private Map<String, Object> send(HttpMethod method, String json, int expectedStatus, String query) {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setBearerAuth(tokenFor(ADMIN_1));
@@ -243,6 +306,10 @@ class LegacyAdvancePayEndToEndTest {
 					+ " (" + ADVANCE_2 + ", " + EMPLOYEE_1 + ", 1000.00, 1000.00, 'single_payroll_month',"
 					+ " 'approved', '2020-05-20', '2020-05-20 08:00:00'),"
 					+ " (" + ADVANCE_3 + ", " + EMPLOYEE_1 + ", 1000.00, 1000.00, 'single_payroll_month',"
+					+ " 'pending', '2020-05-20', '2020-05-20 08:00:00'),"
+					+ " (" + ADVANCE_APPROVE + ", " + EMPLOYEE_1 + ", 1000.00, 1000.00, 'single_payroll_month',"
+					+ " 'pending', '2020-05-20', '2020-05-20 08:00:00'),"
+					+ " (" + ADVANCE_REJECT + ", " + EMPLOYEE_1 + ", 1000.00, 1000.00, 'single_payroll_month',"
 					+ " 'pending', '2020-05-20', '2020-05-20 08:00:00')");
 		}
 	}

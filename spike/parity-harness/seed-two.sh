@@ -114,6 +114,39 @@ for d in "$PHP_DB" "$JAVA_DB"; do
                           can_requests=1, can_penalties=1, can_leave_balances=1;"
 done
 
+# Fixtures the MUTABLE cases need, which the snapshot does not provide.
+#
+# Company 214 has a penalty and a payroll batch, but the penalty is already
+# applied_to_payroll=1 and the batch is finalized -- so update/delete/calculate
+# against them only ever exercise the REFUSAL path. Both stacks refuse
+# identically, the case passes, and nothing was actually mutated. That is the
+# "matching errors read as parity" trap in its most expensive form, because
+# these are the payroll paths.
+#
+# Fixed ids in the 9990xx range so they cannot collide with snapshot rows, and
+# written to BOTH databases so the two stacks start from the same state.
+for d in "$PHP_DB" "$JAVA_DB"; do
+  m "$d" -e "
+  SET FOREIGN_KEY_CHECKS=0;
+  INSERT INTO penalties (id, employee_id, penalty_type, penalty_days, reason, penalty_date, applied_to_payroll, created_at)
+  SELECT 999010, (SELECT id FROM employees WHERE company_id=214 AND id<>999002 ORDER BY id LIMIT 1),
+         'absence', 1, 'parity fixture', '2026-09-01', 0, NOW()
+  ON DUPLICATE KEY UPDATE applied_to_payroll=0, penalty_days=1;
+
+  INSERT INTO payroll_batches (id, company_id, month, year, status, period_from, period_to, created_at)
+  SELECT 999011, 214, 9, 2026, 'draft', '2026-09-01', '2026-09-30', NOW()
+  ON DUPLICATE KEY UPDATE status='draft', month=9, year=2026;
+
+  -- A payslip INSIDE the draft batch. The snapshot's payslips all belong to
+  -- the finalized batch, so payslips/update and /delete against them only ever
+  -- return 'Batch already finalized' -- identical on both stacks, and no
+  -- update or delete ever compared.
+  INSERT INTO payslips (id, batch_id, employee_id)
+  SELECT 999012, 999011, (SELECT id FROM employees WHERE company_id=214 AND id<>999002 ORDER BY id LIMIT 1)
+  ON DUPLICATE KEY UPDATE batch_id=999011;
+  SET FOREIGN_KEY_CHECKS=1;"
+done
+
 echo "=== verifying the two copies start identical ==="
 for t in companies employees attendance payslips advances requests; do
   a=$(m -N -B "$PHP_DB"  -e "SELECT COUNT(*) FROM \`$t\`" 2>/dev/null || echo NA)
