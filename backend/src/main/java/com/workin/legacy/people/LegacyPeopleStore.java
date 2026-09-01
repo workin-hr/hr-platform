@@ -127,7 +127,11 @@ public class LegacyPeopleStore {
 		args.add(limit);
 		args.add(offset);
 		return jdbcTemplate.query(
-				"SELECT c.*, " + DISPLAY_NAME + " AS employee_name, e.photo_url AS photo_url"
+				// employee_code is selected by list.php and by no other complaints
+				// endpoint -- update.php re-reads the same join without it, so
+				// complaintWithEmployee() below must stay as it is.
+				"SELECT c.*, " + DISPLAY_NAME + " AS employee_name, e.photo_url AS photo_url,"
+						+ " e.employee_code AS employee_code"
 						+ " FROM complaints AS c LEFT JOIN employees AS e ON e.id = c.employee_id"
 						+ " WHERE " + String.join(" AND ", predicates)
 						+ " ORDER BY c.created_at DESC, c.id DESC LIMIT ? OFFSET ?",

@@ -3,7 +3,13 @@
 # GET only: a POST would mutate the shared database and the second stack would
 # then legitimately see different data, which proves nothing.
 set -uo pipefail
-TOKEN=$(cat .php-token)
+# The endpoint list and token are overridable so the same comparison logic can
+# run against a parameterised list (resolve-params.sh) and a different seeded
+# employee, without a second copy of this script drifting from this one.
+ENDPOINTS=${ENDPOINTS:-client-endpoints.txt}
+TOKEN_FILE=${TOKEN_FILE:-.php-token}
+DIFFS=${DIFFS:-auth-diffs.txt}
+TOKEN=$(cat "$TOKEN_FILE")
 
 # Divergences the repository has already decided to keep. Each names the
 # decision that accepted it -- a bare allowlist would let a real regression be
@@ -23,7 +29,7 @@ accepted_divergence() {
   return 1
 }
 same=0; diff=0; err=0; binary=0; accepted=0; unreachable=0
-: > auth-diffs.txt
+: > "$DIFFS"
 while read -r ep; do
   [ -n "$ep" ] || continue
   pcode=$(curl -s -m 15 -o /tmp/p.json -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "http://localhost:18080/apis/api/$ep")
@@ -45,12 +51,12 @@ while read -r ep; do
     # difference reappears every run and people learn to ignore the number,
     # which is worse than not reporting it. Each entry must name the decision
     # that accepted it, so "expected" is auditable rather than asserted.
-    if reason=$(accepted_divergence "$ep" "$pcode" "$jcode"); then
+    if reason=$(accepted_divergence "${ep%%\?*}" "$pcode" "$jcode"); then
       accepted=$((accepted+1))
       printf '%-42s php=%s java=%s ACCEPTED (%s)\n' "$ep" "$pcode" "$jcode" "$reason"
     else
       diff=$((diff+1))
-      { echo "### $ep -- STATUS DIFFERS php=$pcode java=$jcode"; } >> auth-diffs.txt
+      { echo "### $ep -- STATUS DIFFERS php=$pcode java=$jcode"; } >> "$DIFFS"
       printf '%-42s php=%s java=%s STATUS-DIFFERS\n' "$ep" "$pcode" "$jcode"
     fi
     continue
@@ -71,25 +77,25 @@ while read -r ep; do
     # as "expected binary" would swallow a real defect: a JSON endpoint
     # returning a 200 HTML error page on one stack, or malformed bodies on
     # both, would increment `binary` and read as an accepted exclusion.
-    case "$ep" in
+    case "${ep%%\?*}" in
       attendance/export|payslips/export|employees/template_excel|leave_balances/template_excel) ;;
       *)
         diff=$((diff+1))
-        { echo "### $ep -- UNEXPECTED NON-JSON php=${#pn} java=${#jn} chars parsed"; } >> auth-diffs.txt
+        { echo "### $ep -- UNEXPECTED NON-JSON php=${#pn} java=${#jn} chars parsed"; } >> "$DIFFS"
         printf '%-42s php=%s java=%s UNEXPECTED-NON-JSON\n' "$ep" "$pcode" "$jcode"
         continue ;;
     esac
     binary=$((binary+1))
-    { echo "### $ep -- NOT COMPARED (non-JSON body: php=${#pn} java=${#jn} chars parsed)"; } >> auth-diffs.txt
+    { echo "### $ep -- NOT COMPARED (non-JSON body: php=${#pn} java=${#jn} chars parsed)"; } >> "$DIFFS"
     continue
   fi
   if [ "$pn" = "$jn" ]; then
     same=$((same+1))
   else
     diff=$((diff+1))
-    { echo "### $ep"; echo "PHP  len=${#pn}"; echo "JAVA len=${#jn}"; } >> auth-diffs.txt
+    { echo "### $ep"; echo "PHP  len=${#pn}"; echo "JAVA len=${#jn}"; } >> "$DIFFS"
   fi
-done < client-endpoints.txt
+done < "$ENDPOINTS"
 echo "identical=$same  differing=$diff  accepted-divergences=$accepted  not-compared-non-json=$binary  not-200-on-both=$err  unreachable=$unreachable"
 if [ "$unreachable" -gt 0 ]; then
   echo "REFUSING to report parity: $unreachable endpoint(s) unreachable." >&2
