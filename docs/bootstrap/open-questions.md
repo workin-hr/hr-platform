@@ -263,20 +263,27 @@ so those questions have no subject.
 These are **implementation prerequisites**: the design is settled and none of it
 may ship until they are answered.
 
-- **What is the first-time TOTP enrolment ceremony?** The window between an
-  account existing and its second factor being bound is a window in which a
-  password alone is sufficient, and this population is bootstrap-provisioned,
-  so someone else creates the account. Enrolment authenticated by more than the
-  password being enrolled against; a single-use, time-bounded enrolment token
-  rather than an open page; the seed shown once and never retrievable;
-  confirmation by a verified code before the factor counts as bound; no
-  destructive operations until it is. Recovery must not become a weaker second
-  enrolment path.
-- **If the legacy PHP dashboard runs in parallel, is it MFA-gated, restricted,
-  or down?** It authenticates with the shared admin password (`hr-legacy#11`)
-  and has no second factor, so leaving it reachable makes every control here
-  walk-around-able. "Both authenticate independently" is not an answer on its
-  own.
+- ~~**What is the first-time TOTP enrolment ceremony?**~~ **ANSWERED
+  2026-09-01 by [D-152]** — an **operator-assisted bootstrap flow**. A
+  password-only authenticated session may not claim the first factor. A
+  cryptographically random, short-lived, single-use enrolment token is
+  generated server-side, bound to one specific `PlatformAdmin`, and delivered
+  over a separately verified out-of-band channel; enrolment requires
+  **password *and* token**; the token is invalidated immediately on success;
+  normal access follows a successful **TOTP verification**, not merely
+  enrolment. The raw seed never leaves the protected credential store. The
+  token is hashed if persisted, short-lived, single-use, and its issuance, use
+  and revocation are audited. Existing rows migrate **unbound** and cannot
+  perform destructive operations until bound. Recovery must still not become a
+  weaker second enrolment path.
+- ~~**If the legacy PHP dashboard runs in parallel, is it MFA-gated,
+  restricted, or down?**~~ **ANSWERED 2026-09-01 by [D-152]** — it is
+  **disabled at cutover**. It must not remain reachable as an alternative
+  authentication path once the JTE admin is live; if retained for rollback it
+  stays deployed or staged but **network-inaccessible by default**, exposed
+  only as part of an explicit rollback procedure. It authenticates with the
+  shared admin password (`hr-legacy#11`) and has no second factor, so while
+  reachable it makes every control here walk-around-able.
 - **Which TOTP implementation, what recovery design, and how are the seeds
   kept?** Unchanged by the architecture correction, because it is a recoverable
   secret at rest either way: **application-level encryption with the key held

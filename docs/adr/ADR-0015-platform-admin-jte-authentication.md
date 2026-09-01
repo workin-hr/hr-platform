@@ -240,7 +240,9 @@ the surface is secure, because the surface does not exist.
 
 ## Implementation Prerequisites
 
-Design settled; none of this may ship until these are answered:
+Design settled. Items 1 and 7 are **answered** by **D-152** and specified
+below; the rest still need answers. None of this may ship until all of them
+are both answered and implemented:
 
 1. **TOTP implementation, enrolment, recovery, and seed custody** — encryption
    under a key held outside the database, restricted access, protected backups,
@@ -264,14 +266,29 @@ Design settled; none of this may ship until these are answered:
    with no path back in, and letting the first password-authenticated session
    self-enrol means whoever reaches the login first with a stolen password
    binds the second factor to their own device and locks the real
-   administrator out. **Binding for a pre-existing row therefore requires
-   verification independent of that row's password** — an out-of-band
-   activation ceremony — and the choice of channel is an operational decision
-   for the repository owner, recorded before enforcement is switched on.
-   Required regardless of channel: existing rows migrate in an explicitly
-   unbound state, unbound accounts cannot perform destructive operations, the
-   activation credential is single-use and time-bounded, and a regression test
-   covers upgrading an existing password-only row through binding.
+   administrator out. **Settled by D-152 (2026-09-01): an
+   operator-assisted bootstrap flow.** A password-only authenticated session
+   may **not** claim the first factor. The flow is:
+
+   1. Generate a **cryptographically random, short-lived, single-use**
+      enrolment token **server-side**, associated with one specific
+      `PlatformAdmin`.
+   2. Deliver it to the known administrator over a **separately verified
+      out-of-band channel**.
+   3. Require **password *and* bootstrap token** before enrolment is allowed.
+   4. **Invalidate the token immediately** on successful enrolment.
+   5. Grant normal admin access only after a **successful TOTP verification**,
+      not merely after enrolment.
+   6. Never send or persist the raw TOTP seed anywhere except the
+      application's protected TOTP credential store.
+
+   The token is stored **hashed** if persisted at all, carries a short expiry,
+   and its **issuance, use and revocation are each audited** — extending
+   prerequisite 10's event types, not only the administrative actions.
+   Existing rows migrate in an explicitly **unbound** state and cannot perform
+   destructive operations until bound. Regression tests cover upgrading an
+   existing password-only row through the full flow, and assert that a
+   password alone — with no live token — cannot enrol.
 2. **Step-up representation** with maximum age, single use, action binding
    **and** target/request-digest binding, recomputed server-side.
 3. **Throttling** for the password and TOTP steps, in shared restart-surviving
@@ -311,23 +328,22 @@ Design settled; none of this may ship until these are answered:
    that is not covered fails the build rather than shipping unprotected.
 6. **Session-cookie flags** — `HttpOnly`, `Secure`, `SameSite` — chosen and
    pinned by a test.
-7. Whether the legacy PHP dashboard's `admin`-role surface runs **in parallel**
-   during Phase 2, and if so whether both authenticate independently. **If it
-   does, MFA is only as strong as the weakest surface**: the PHP dashboard
+7. **The legacy PHP dashboard's `admin`-role surface at cutover.** While it
+   runs in parallel, **MFA is only as strong as the weakest surface**: the PHP dashboard
    authenticates with the shared admin password (`hr-legacy#11`) and has no
    second factor, so leaving it reachable means every control in this ADR can
-   be walked around by logging in there instead. Running them in parallel
-   therefore requires the PHP surface to be either MFA-gated too, or restricted
-   so it cannot perform anything this surface protects, or taken down. "Both
-   authenticate independently" is **not** an acceptable answer: independent
-   authentication is the problem, not the mitigation, because the weaker of
-   the two independent doors is the one an attacker uses. **This is a
-   shipment gate, not an open question**: before the JTE surface performs any
-   privileged operation, the PHP platform-admin routes are disabled, or placed
-   behind equivalent identity, TOTP, throttling and target-bound step-up
-   controls, or network-restricted so they cannot reach anything this ADR
-   protects. Which of the three, and the cutover timing, is the repository
-   owner's decision; that one of them holds is not optional.
+   be walked around by logging in there instead. "Both authenticate
+   independently" is **not** an acceptable answer: independent authentication
+   is the problem, not the mitigation, because the weaker of the two doors is
+   the one an attacker uses.
+
+   **Settled by D-152 (2026-09-01): the legacy PHP admin surface is disabled
+   at cutover.** It must not remain reachable as an alternative authentication
+   path once the JTE admin is live. If it is retained for rollback it stays
+   deployed or staged but **network-inaccessible by default**, exposed only as
+   part of an explicit, deliberate rollback procedure. This is a shipment
+   gate: the JTE surface does not perform a privileged operation while the PHP
+   surface is reachable.
 8. **MFA on the bearer login, or that surface restricted.**
    `POST /api/platform-admin/login` currently returns a token pair for
    `phone` + `password` alone, which walks around the JTE surface's TOTP for
@@ -348,7 +364,7 @@ Design settled; none of this may ship until these are answered:
     `LOGOUT`, `SESSION_REUSE_REVOKED`, and the row carries only actor, type, a
     free-text detail and a timestamp — it cannot answer *who suspended which
     company, when, under which step-up approval*. Required before the surface
-    performs administrative actions: event types for those actions, a
+    performs administrative actions: event types for those actions **and for the D-152 bootstrap token's issuance, use and revocation**, a
     structured target (type and identifier) rather than prose in `detail`, a
     link to the step-up approval that authorised it, and the event written in
     the same transaction as the action so a committed change cannot exist
