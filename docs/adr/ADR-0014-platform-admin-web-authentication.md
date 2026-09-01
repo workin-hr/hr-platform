@@ -590,6 +590,18 @@ buildable:
    Decision 2 exists to prevent — signing gives integrity, not confidentiality.
    A cookie holding only an opaque handle is server-side state by definition. So
    the open question is *what* server-side store, not *whether* one.
+
+   **Choosing the store is choosing its custody, so this prerequisite is not
+   closed by naming a technology** (**R-033**). That store holds the raw
+   refresh token for every logged-in administrator, and a reader of it bypasses
+   MFA entirely — the factor was spent at login and what remains mints access
+   tokens directly. Required with the choice, not after it: **encryption at
+   rest under a key held outside the store**, access restricted to the BFF
+   runtime identity, **replicas and backups held to the same standard** as the
+   primary, reads logged as a detection surface, and a **tested mass-revocation
+   path** (see R-033's contingency — the method that looks like one is
+   per-administrator and unwired). Retrofitting these onto a chosen store is
+   the expensive order.
 3. A named TOTP implementation and a recovery design that does not weaken the
    factor it protects — **and seed custody, which is the part that is easy to
    leave undefined.** Verification requires the backend to keep each symmetric
@@ -611,7 +623,15 @@ buildable:
    dependency stays visible, but it is not outstanding work and must not be
    re-planned as such.
 7. **Concrete session bounds**: the idle timeout and the non-renewable absolute
-   family cap Decision 3 requires, as numbers.
+   family cap Decision 3 requires, as numbers — **and the cap enforced on the
+   backend family, not in the BFF**. A cookie or session-store expiry does not
+   constrain a raw refresh token stolen from that store and replayed through an
+   allowed backend channel, which is exactly the R-033 scenario the cap is
+   supposed to bound. `rotate()` today issues every successor at `now + 7 days`
+   and never consults the family's original issuance, so the family slides
+   forever and an implementation could satisfy the numeric requirement entirely
+   in the BFF. Java must **persist or derive the family origin, refuse rotation
+   past the cap, and have a test that advances a family beyond it**.
 8. The MFA-bearing login exchange Decision 4 implies — challenge/response,
    enrolment, and how a step-up-satisfied session is represented **with its
    maximum age, single-use, action-binding and target-binding rules**. The last
@@ -632,6 +652,17 @@ buildable:
     `rotate()`, a bounded grace window accepting the immediate predecessor once,
     or an endpoint returning a session's current successor. Needs a backend
     change; the BFF cannot close it alone.
+
+    **Two of those three would create a second plaintext credential store, and
+    that is a decision in itself.** The repository keeps only the token's hash
+    and cannot reconstruct the raw value, so both "idempotency key" and "return
+    the current successor" require Java to **retain the raw successor** after
+    the first call — a second copy of exactly what R-033 models for the BFF,
+    in a system R-033 does not cover. If either is chosen it inherits the same
+    controls: bounded retention, encryption under an external key, and matching
+    access and backup handling. The **bounded grace window** is the option that
+    retains nothing, and should be preferred unless there is a reason it cannot
+    work.
 
 **Identity separation is deliberately not on this list.** **D-027** made
 individual platform-admin identity a P0 requirement and **F-26** records it as

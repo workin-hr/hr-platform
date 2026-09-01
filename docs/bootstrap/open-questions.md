@@ -264,15 +264,25 @@ deciders and only the owner has approved.
   a platform-admin token" *enforced* rather than documented?** The existing
   `/api/platform-admin/login` and `/refresh` hand both tokens to any caller, so
   the wrong wiring is the path of least resistance.
-- **What server-side session store does the BFF use**, and what cookie domain
-  topology does it imply? Not *whether* one: a stateless signed cookie carrying
-  the token pair would send those tokens to the browser, which the whole design
-  exists to prevent — signing gives integrity, not confidentiality — and a
-  cookie holding only an opaque handle is server-side state by definition.
+- **What server-side session store does the BFF use, with what custody**, and
+  what cookie domain topology does it imply? Not *whether* one: a stateless
+  signed cookie carrying the token pair would send those tokens to the browser,
+  which the whole design exists to prevent — signing gives integrity, not
+  confidentiality — and a cookie holding only an opaque handle is server-side
+  state by definition. **Naming a technology does not close this** (**R-033**):
+  the store holds the raw refresh token for every logged-in administrator, and
+  a reader of it bypasses MFA entirely. Encryption at rest under a key held
+  outside the store, access restricted to the BFF runtime identity, replicas
+  and backups to the same standard, reads logged, and a tested mass-revocation
+  path are part of the choice, not follow-ups to it.
 - **What are the concrete session bounds** — the idle timeout and the
-  non-renewable absolute family cap? The 7-day refresh is *sliding* today, so a
-  session used daily never expires. Declared mandatory without numbers, the ADR
-  could be accepted with that unchanged.
+  non-renewable absolute family cap, **enforced on the backend family rather
+  than in the BFF**? The 7-day refresh is *sliding* today: `rotate()` issues
+  every successor at `now + 7 days` and never consults the family's origin, so
+  a session used daily never expires. A BFF cookie expiry does not constrain a
+  raw token stolen from the BFF store and replayed through the backend, which
+  is the scenario the cap exists to bound (**R-033**), so Java must persist or
+  derive the family origin and refuse rotation past the cap.
 - **What does the MFA-bearing login exchange look like?** `/login` takes phone
   plus password and returns the token pair immediately, so there is nowhere for
   a TOTP challenge to happen. Needs a challenge/response step, enrolment, and a
