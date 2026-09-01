@@ -207,7 +207,7 @@ What actually remains is narrower, and it is not a smaller number:
 Declaring an idle timeout and an absolute cap mandatory without numbers lets
 this ADR be accepted while the family still slides forever, or lets two
 implementations pick incompatible values. Choosing them is validation item 7
-below and blocks acceptance.
+below and blocks **implementation**, not acceptance -- this ADR is Accepted, and these are implementation prerequisites.
 
 ### 4. MFA is required, with step-up on destructive actions
 
@@ -653,16 +653,27 @@ buildable:
     or an endpoint returning a session's current successor. Needs a backend
     change; the BFF cannot close it alone.
 
-    **Two of those three would create a second plaintext credential store, and
-    that is a decision in itself.** The repository keeps only the token's hash
-    and cannot reconstruct the raw value, so both "idempotency key" and "return
-    the current successor" require Java to **retain the raw successor** after
-    the first call — a second copy of exactly what R-033 models for the BFF,
-    in a system R-033 does not cover. If either is chosen it inherits the same
-    controls: bounded retention, encryption under an external key, and matching
-    access and backup handling. The **bounded grace window** is the option that
-    retains nothing, and should be preferred unless there is a reason it cannot
-    work.
+    **Each option pays a different price, and none is free — so this stays a
+    decision rather than a recommendation.** "Idempotency key" and "return the
+    current successor" both require Java to **retain the raw successor** after
+    the first call, because the repository keeps only its hash: a second copy of
+    exactly what R-033 models for the BFF, in a system R-033 does not cover. If
+    either is chosen it inherits the same controls — bounded retention,
+    encryption under an external key, matching access and backup handling.
+
+    The **bounded grace window** retains nothing, but it is not therefore the
+    safe choice: accepting the immediate predecessor again **deliberately
+    weakens reuse detection**. Inside that window a thief holding a
+    just-rotated token can present it without tripping ADR-0005's
+    family-revocation signal, and if the legitimate BFF has already stored its
+    successor, that replay mints another successor and can take over or
+    terminate the session. Choosing it means bounding the window against the
+    theft-to-use interval it opens, and testing that a replay outside it still
+    revokes the family.
+
+    An earlier version of this text preferred the grace window on
+    plaintext-custody grounds alone. That traded a storage risk for a detection
+    risk without saying so.
 
 **Identity separation is deliberately not on this list.** **D-027** made
 individual platform-admin identity a P0 requirement and **F-26** records it as

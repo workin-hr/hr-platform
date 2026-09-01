@@ -282,7 +282,11 @@ deciders and only the owner has approved.
   a session used daily never expires. A BFF cookie expiry does not constrain a
   raw token stolen from the BFF store and replayed through the backend, which
   is the scenario the cap exists to bound (**R-033**), so Java must persist or
-  derive the family origin and refuse rotation past the cap.
+  derive the family origin and refuse rotation past the cap — **proven by a
+  test that advances a family beyond it and asserts the backend refuses**.
+  Configuration values or BFF-level coverage do not close this: the property
+  claimed is that a stolen raw token stops working at the cap, and only a test
+  at the backend boundary demonstrates it.
 - **What does the MFA-bearing login exchange look like?** `/login` takes phone
   plus password and returns the token pair immediately, so there is nowhere for
   a TOTP challenge to happen. Needs a challenge/response step, enrolment, and a
@@ -324,7 +328,19 @@ deciders and only the owner has approved.
   logs the administrator out. Needs a **backend** change and cannot be closed by
   the BFF alone: an idempotency key on `rotate()`, a bounded grace window
   accepting the immediate predecessor once, or an endpoint returning a session's
-  current successor. Listed because without it every prerequisite here can be
+  current successor.
+
+  **Each option pays a different price, so naming one does not close this.**
+  The idempotency-key and current-successor options require Java to retain the
+  **raw** successor — the repository keeps only its hash — creating a second
+  plaintext credential store that **R-033** does not model, so either inherits
+  bounded retention, encryption under an external key, and matching access and
+  backup controls. The grace window retains nothing but **deliberately weakens
+  reuse detection**: inside it a thief holding a just-rotated token can replay
+  without tripping family revocation, and if the BFF already stored its
+  successor that replay can take over or terminate the session. Choosing it
+  means bounding the window against that interval and testing that a replay
+  outside it still revokes the family. Listed because without it every prerequisite here can be
   answered while a network blip still ends a session.
 - **Which TOTP implementation, what recovery design, and how are the seeds
   kept?** The population is bootstrap-provisioned with no self-registration, so
