@@ -20,6 +20,33 @@ JAVA=http://localhost:18081/apis/api
 
 m() { docker exec -i "$DB" mariadb -uroot -pparity -N -B "$@"; }
 
+# Java MUST be running against JAVA_DB, not the database PHP mutates.
+#
+# Nothing here can reconfigure an already-running JVM, and the README's read
+# workflow starts Java against `workin`. If that JVM is still up, both stacks
+# write to `workin` and this script then compares a twice-mutated `workin`
+# against an untouched `workin_java` -- every case "differs" for a reason that
+# has nothing to do with the port, or worse, appears to agree.
+#
+# Proved rather than assumed: a sentinel is written into JAVA_DB only, and
+# Java is asked for it through configs/get, which is unauthenticated and
+# returns config rows. If Java cannot see it, Java is on the wrong database.
+assert_java_on_its_own_database() {
+  local sentinel="parity-$$-$(date +%s)"
+  m "$JAVA_DB" -e "REPLACE INTO configs (config_key, config_value) VALUES ('parity_harness_sentinel', '$sentinel')" >/dev/null 2>&1
+  local seen
+  seen=$(curl -s -m 10 "$JAVA/configs/get?config_key=parity_harness_sentinel" \
+         | python3 -c "import sys,json;print(json.load(sys.stdin).get('data',{}).get('config_value',''))" 2>/dev/null)
+  m "$JAVA_DB" -e "DELETE FROM configs WHERE config_key='parity_harness_sentinel'" >/dev/null 2>&1
+  if [ "$seen" != "$sentinel" ]; then
+    echo "FATAL: Java is not connected to '$JAVA_DB'." >&2
+    echo "  A sentinel written only to '$JAVA_DB' was not visible through $JAVA." >&2
+    echo "  Both stacks would write to the same database and this comparison would be meaningless." >&2
+    echo "  Restart Java with:  JAVA_DB=$JAVA_DB ./run-java.sh" >&2
+    exit 3
+  fi
+}
+
 # Row-level fingerprint of one table, ordered deterministically by primary key
 # so the comparison cannot be thrown by return order.
 #
@@ -59,7 +86,26 @@ snapshot() {  # $1=database $2=table
              ORDER BY ordinal_position)
     FROM columns WHERE table_schema='$1' AND table_name='$2'" 2>/dev/null)
   [ -n "$cols" ] && [ "$cols" != NULL ] || { echo "no-such-table:$2"; return; }
-  m "$1" -e "SELECT $cols FROM \`$2\` ORDER BY id" 2>/dev/null | sha256sum | cut -d' ' -f1
+
+  # Order by the table's ACTUAL primary key, derived rather than assumed.
+  # This hard-coded `ORDER BY id`, which is wrong for a composite-keyed
+  # junction like department_branches(department_id, branch_id) -- that query
+  # errors, stderr was suppressed, and BOTH stacks then hashed empty output and
+  # compared equal. A table the comparison cannot read must fail loudly, not
+  # look identical.
+  local pk
+  pk=$(m information_schema -e "
+    SELECT GROUP_CONCAT(CONCAT('\`', column_name, '\`') ORDER BY seq_in_index)
+    FROM statistics WHERE table_schema='$1' AND table_name='$2' AND index_name='PRIMARY'" 2>/dev/null)
+  [ -n "$pk" ] && [ "$pk" != NULL ] || pk="$cols"
+
+  local out rc
+  out=$(m "$1" -e "SELECT $cols FROM \`$2\` ORDER BY $pk"); rc=$?
+  if [ $rc -ne 0 ]; then
+    echo "QUERY-FAILED:$1.$2"
+    return
+  fi
+  printf '%s' "$out" | sha256sum | cut -d' ' -f1
 }
 
 # How far apart the two stacks' newest timestamp in a table may be. Sequential
@@ -142,6 +188,15 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
   jbody=$(norm /tmp/mj.json)
 
   local verdict=ok detail=""
+  # A transport failure is curl's 000. Two of them compare equal, the missing
+  # bodies normalize equal, and the untouched snapshots match -- so a mutation
+  # that never executed would be counted as identical. Same hole sweep.sh had.
+  if [ "$pcode" = 000 ] || [ "$jcode" = 000 ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "UNREACHABLE"
+    { echo "### $name  ($method $path)"; echo "    UNREACHABLE: curl could not reach php=$pcode java=$jcode"; echo; } >> mutation-diffs.txt
+    return
+  fi
   [ "$pcode" = "$jcode" ] || { verdict=DIFF; detail="status $pcode vs $jcode"; }
   if [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ]; then verdict=DIFF; detail="response body"; fi
 
@@ -176,6 +231,9 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
   printf '%-42s %-4s %-4s %s %s\n' "$name" "$pcode" "$jcode" "$verdict" "$detail"
 }
 
+./seed-two.sh >/dev/null 2>&1
+assert_java_on_its_own_database
+
 printf '%-42s %-4s %-4s %s\n' CASE PHP JAVA VERDICT
 
 # Ids resolved from the seeded snapshot rather than hardcoded, so a reseed with
@@ -187,7 +245,7 @@ EMP=$(m "$PHP_DB" -e "SELECT id FROM employees WHERE company_id=244 AND id<>9990
 run_case "branches/create"                 POST "branches/create" \
   '{"name":"Parity Branch"}' "branches"
 run_case "departments/create"              POST "departments/create" \
-  "{\"name\":\"Parity Dept\",\"branch_ids\":[$BRANCH]}" "departments"
+  "{\"name\":\"Parity Dept\",\"branch_ids\":[$BRANCH]}" "departments,department_branches"
 run_case "job_titles/create"               POST "job_titles/create" \
   '{"name":"Parity Title"}' "job_titles"
 run_case "advances/create"                 POST "advances/create" \
@@ -213,9 +271,13 @@ run_case "admin_decisions/create"           POST "administrative_decisions/creat
 # discovered one 400 at a time, so a case that fails is failing on behaviour.
 run_case "payroll_batches/create"          POST "payroll_batches/create" \
   '{"month":9,"year":2026}' "payroll_batches"
+# penalty_days omitted made this a 400 (`field_required`) on both stacks --
+# another rejection dressed up as a successful write, which is exactly the trap
+# recorded further down this file. A real create also notifies the employee, so
+# `notifications` is compared with it.
 run_case "penalties/create"                POST "penalties/create" \
-  "{\"employee_id\":$EMP,\"penalty_type\":\"absence\",\"penalty_date\":\"2026-09-01\"}" \
-  "penalties"
+  "{\"employee_id\":$EMP,\"penalty_type\":\"absence\",\"penalty_date\":\"2026-09-01\",\"penalty_days\":1}" \
+  "penalties,notifications"
 run_case "leave_balances/create"           POST "leave_balances/create" \
   "{\"employee_id\":$EMP,\"year\":2026,\"total_days\":21}" "leave_balance"
 run_case "attendance/create"               POST "attendance/create" \
@@ -226,7 +288,8 @@ run_case "attendance/create"               POST "attendance/create" \
 run_case "payroll_batches (month 13)"      POST "payroll_batches/create" \
   '{"month":13,"year":2026}' "payroll_batches"
 run_case "penalties (unknown employee)"    POST "penalties/create" \
-  '{"employee_id":99999999,"penalty_type":"absence","penalty_date":"2026-09-01"}' "penalties"
+  '{"employee_id":99999999,"penalty_type":"absence","penalty_date":"2026-09-01","penalty_days":1}' \
+  "penalties,notifications"
 run_case "attendance (unknown employee)"   POST "attendance/create" \
   '{"employee_id":99999999,"check_in":"2026-09-01 09:00:00"}' "attendance"
 run_case "leave_balances (negative days)"  POST "leave_balances/create" \

@@ -252,15 +252,23 @@ Every case reseeds both databases first, so cases cannot contaminate each other.
 That is slow on purpose — a shared, drifting state makes a failure impossible to
 attribute.
 
-**Timestamps are normalised, not excluded.** An earlier version dropped
-`created_at`/`updated_at` from the row hash to stop sequential calls reporting a
-one-second drift as a difference — which also made "wrote no `updated_at`"
-undetectable, the very defect this section holds up as the reason for comparing
-rows at all. They are now compared as **null-or-set**, which catches a missing
-or wrong-column write, with a separate check that the two stacks' newest
-timestamp agree within a tolerance, which catches a timezone or default that is
-hours out. What remains invisible is only a sub-tolerance difference in an
-otherwise-present timestamp.
+**Only the audit timestamps are normalised, and only those three.**
+`created_at`, `updated_at` and `deleted_at` are compared as **null-or-set** —
+which catches a missing or wrong-column write — with a separate check that the
+two stacks' newest value in *every* audit column agrees within a tolerance,
+which catches a timezone or default that is hours out.
+
+Everything else temporal is compared **exactly**. That distinction is the whole
+point and an earlier version got it wrong twice over: it collapsed every
+timestamp/date column by *type*, and the response comparison blanked every
+timestamp-*shaped* string. `attendance/create`'s entire contract is `check_in`
+and `check_out`, and both were reduced to `set` on one side and `<TS>` on the
+other, so PHP could persist and return 09:00 while Java persisted a different
+day and the case still reported identical. Business dates and times are
+caller-supplied and deterministic; only the audit columns are not.
+
+What remains invisible is a sub-tolerance difference in an otherwise-present
+audit timestamp.
 
 ### First results
 
@@ -295,15 +303,28 @@ as surely as a success that differs.
 
 ### Extended results
 
-| | |
-|---|---|
-| Cases | **17** |
-| Identical (response **and** rows) | **17** |
-| Differing | **0** |
+> **SUPERSEDED — do not cite these figures.** They were produced by a version
+> of the harness that collapsed **every** temporal column by type and blanked
+> every timestamp-*shaped* response string, checked only `created_at` for drift,
+> ordered every snapshot by a hard-coded `id` (so a composite-keyed junction
+> table errored, hashed empty, and matched itself), and counted a `000`
+> transport failure as agreement. `attendance/create`'s `check_in` and
+> `check_out` were therefore not compared at all, which is precisely what the
+> row diff exists for. The corrected harness has not yet published a
+> replacement figure; this row is left here rather than quietly restated so the
+> earlier claim is visibly withdrawn.
+>
+> | | |
+> |---|---|
+> | ~~Cases~~ | ~~17~~ |
+> | ~~Identical (response **and** rows)~~ | ~~17~~ |
+> | ~~Differing~~ | ~~0~~ |
 
-Writes now verified at row level: branches, departments, advances,
-administrative decisions, **payroll batches**, **leave balances** and
-**attendance**. Eight rejection cases verified alongside them.
+Writes the corrected harness covers at row level: branches, departments (with
+the `department_branches` junction), advances, administrative decisions,
+**payroll batches**, **payslips**, **leave balances**, **penalties** (with the
+`notifications` they write) and **attendance**, with rejection cases beside
+each.
 
 ### Two traps this hit, both worth keeping
 

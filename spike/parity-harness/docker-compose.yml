@@ -39,7 +39,19 @@ services:
       - ./php/constants.php:/var/www/html/apis/config/constants.php:ro
       - ./php/dashboard-constants.php:/var/www/html/dashboard/includes/constants.php:ro
       - ./php/uploads:/var/www/html/uploads
+    # zip and calendar are not optional for a faithful comparison:
+    #   - without zip, attendance/export and payslips/export answer 500
+    #     ("ZipArchive extension required") where Java answers 200, so the
+    #     XLSX endpoints cannot be compared at all;
+    #   - without calendar, attendance/stats fatals on cal_days_in_month().
+    # Both landed silently in the "not 200 on both" bucket, which is why the
+    # harness looked like it covered them. max_execution_time is raised for the
+    # same reason R-035 records: payroll for a real company exceeds PHP's 30s
+    # default and is killed mid-batch.
     command: >
-      bash -c "docker-php-ext-install pdo_mysql >/dev/null 2>&1 &&
+      bash -c "apt-get update >/dev/null 2>&1 &&
+               apt-get install -y libzip-dev >/dev/null 2>&1 &&
+               docker-php-ext-install pdo_mysql zip calendar >/dev/null 2>&1 &&
+               printf 'max_execution_time=600\nmemory_limit=512M\n' > /usr/local/etc/php/conf.d/harness.ini &&
                a2enmod rewrite >/dev/null 2>&1 &&
                apache2-foreground"
