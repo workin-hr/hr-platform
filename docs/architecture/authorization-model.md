@@ -349,7 +349,7 @@ request.
 This deliberately accepts **one indexed authorization lookup per
 request** in exchange for: immediate revocation, no stale permission
 claims, simpler security reasoning, and consistent behavior across web
-(future Next.js platform-admin surface), mobile, and desktop clients —
+(the JTE platform-admin surface, ADR-0015), mobile, and desktop clients —
 three real, independent frontends per
 `docs/api/three-frontend-api-usage-matrix.md`, none of which can be
 allowed to diverge in how fresh their authorization view is.

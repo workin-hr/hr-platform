@@ -12,7 +12,17 @@
 | Deciders | Product/business owner(s) with authority over admin-surface scope; Engineering lead for feasibility sign-off |
 | Related Issues | `hr-platform#9` (PMR-01), `hr-platform#14` (PMR-08, ADR acceptance), `hr-platform#25` (retirement follow-up), `hr-legacy#2`/`#3`/`#6` (dashboard-side security findings that this decision affects the fix location of), `hr-legacy#26` (Manager-role desktop-login parity gap, blocks retirement) |
 | Supersedes | None |
-| Superseded By | None |
+| Superseded By | None (but see the technology correction below) |
+
+> **Technology correction (2026-09-01, D-151).** This ADR's Option E — the
+> role-based split, platform-admin stays web, company/HR moves to desktop — is
+> **unchanged and still accepted**. Only the *implementation technology* of the
+> retained platform-admin web surface is corrected: it is **server-rendered JTE
+> pages inside the existing Spring application**, not Next.js. See
+> [ADR-0015](ADR-0015-platform-admin-jte-authentication.md), which supersedes
+> ADR-0014. Passages below that recommend or confirm Next.js record the
+> reasoning **as it stood at the time** and are retained for that history; they
+> are not current direction.
 
 Valid `Status` values: `Proposed`, `Accepted`, `Rejected`, `Superseded`,
 `Deferred`. New ADRs must start `Proposed`.
@@ -221,8 +231,15 @@ than the richly interactive company/HR admin surface this ADR is now
 routing to desktop instead.
 
 **Engineering sign-off received 2026-08-05** (see Validation Evidence)
-— Next.js is confirmed as the direction for this narrowed
-platform-admin web surface.
+— ~~Next.js is confirmed as the direction for this narrowed
+platform-admin web surface.~~ **Corrected 2026-09-01 (D-151): the
+direction is JTE inside the existing Spring application** — see
+[ADR-0015](ADR-0015-platform-admin-jte-authentication.md). The sign-off
+covered the *narrowing* of the surface, which stands; the technology
+choice it endorsed was corrected by the repository owner. Note that the
+paragraph immediately above already argued a handful of operational
+pages is "a much better match for JTE's minimal-operational-surface
+strength" — the correction resolves that tension in JTE's favour.
 
 ## Consequences
 
@@ -307,8 +324,12 @@ verification pass. Status as of 2026-08-05:
 1. ~~Engineering-lead sign-off on the narrowed Next.js-vs-JTE
    recommendation above~~ — **Resolved 2026-08-05**: the repository
    owner, who is also the named `Deciders` for this ADR, gave blanket
-   approval covering this recommendation. Next.js is confirmed as the
-   direction for the narrowed platform-admin web surface.
+   approval covering this recommendation. ~~Next.js is confirmed as the
+   direction for the narrowed platform-admin web surface.~~ **Superseded
+   2026-09-01 (D-151): the direction is JTE** inside the existing Spring
+   application — see
+   [ADR-0015](ADR-0015-platform-admin-jte-authentication.md). The
+   *narrowing* the sign-off approved is unaffected.
 2. ~~The Manager-role desktop-login parity gap closed before any
    dashboard retirement~~ — **Resolved 2026-08-04**: investigated and
    found not to be a retirement blocker (see Consequences); Manager-role

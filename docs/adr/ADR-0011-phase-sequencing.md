@@ -53,7 +53,9 @@ possible at any point.
    target-schema redesign, no opportunistic normalization, no cleanup of
    historical data merely because Java dislikes it. **Java adapts to storage;
    storage does not adapt to Java.**
-2. **Phase 2 — Migrate storage.** Java + MySQL → Java + PostgreSQL. This phase
+2. **Phase 2 — Migrate storage.** Java + MySQL → Java + PostgreSQL. **Out of
+   scope for the current phase and not to be advanced (D-151, 2026-09-01);**
+   the existing material is frozen, not deleted, per this ADR. This phase
    owns the target schema, Flyway, ETL, type conversion, remediation,
    reconciliation, cutover and write freeze.
 3. **Phase 3 — Modernize.** Schema redesign, removal of legacy compatibility,

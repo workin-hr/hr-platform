@@ -6,7 +6,26 @@ Modernize the current HR platform in a way that improves maintainability, reliab
 
 ## Modernization Objective
 
-Prepare an evidence-driven transition from a shared PHP and MySQL production system toward a Java, Spring Boot, PostgreSQL, Next.js, and controlled integration architecture while preserving critical business behavior and Flutter compatibility where required.
+Prepare an evidence-driven transition from a shared PHP and MySQL production
+system toward a Java, Spring Boot, and controlled integration architecture
+while preserving critical business behavior and Flutter compatibility where
+required.
+
+**Current phase scope (D-151, 2026-09-01).** The work in flight is the
+PHP-to-Java port at parity, with the admin web surface rebuilt as JTE pages
+inside the same Spring application. Two items named in the original
+objective are *not* in the current phase:
+
+- **Next.js** is not used at all. The admin portal is JTE, server-side
+  rendered in-process — see **ADR-0015**, which supersedes ADR-0014.
+- **PostgreSQL** remains the accepted long-term target (**ADR-0004**), but
+  the MySQL-to-PostgreSQL migration and its ETL are **Phase 2 and out of
+  scope now**; they are not to be advanced. The port runs against the
+  existing MySQL schema.
+
+Enhancements during the port stay limited to implementation quality,
+performance, reliability, and transactional correctness. Business behaviour
+does not change unless a separate decision explicitly approves it.
 
 ## Current System
 
@@ -20,8 +39,10 @@ Prepare an evidence-driven transition from a shared PHP and MySQL production sys
 
 - Java 25
 - Spring Boot 4.x
-- PostgreSQL latest stable release
-- Next.js 16 admin portal
+- PostgreSQL latest stable release *(long-term target, ADR-0004; the
+  migration is Phase 2 and out of scope now — D-151)*
+- JTE admin portal, server-side rendered inside the Spring application
+  *(ADR-0015, supersedes ADR-0014; Next.js is not used — D-151)*
 - Existing Flutter UI retained with compatible contract evolution
 - Multi-tenant HR platform
 - Attendance-device integration through push, polling, vendor APIs, and a local .NET edge gateway

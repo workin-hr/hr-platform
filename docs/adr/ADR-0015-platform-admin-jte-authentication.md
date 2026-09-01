@@ -44,9 +44,28 @@ The admin pages are controllers in the same application that already serves
 holds a session cookie and nothing else. There is no second service, no second
 credential store, and no token in transit to a client.
 
-`PlatformAdminAuthController`'s existing JSON/bearer contract is **unchanged**
-and remains what the API clients use. The JTE surface does not consume it over
-HTTP — it calls the same services in-process.
+`PlatformAdminAuthController`'s existing JSON/bearer contract is **not
+consumed by this surface**: the JTE controllers call the same services
+in-process rather than over HTTP.
+
+**That endpoint is nonetheless in scope for MFA, and cannot be left as-is.**
+`POST /api/platform-admin/login` today accepts `phone` and `password` and
+returns an access/refresh pair with no second factor. Left that way, it is a
+door around every control in this ADR: a stolen password authenticates there
+and the resulting bearer token is accepted by the `/api/platform-admin/**`
+chain for the same privileged operations the JTE surface gates behind TOTP.
+Requiring TOTP on the UI while leaving the API open does not produce MFA; it
+produces the appearance of it.
+
+The cost of closing it is low and was checked rather than assumed: **no client
+outside this repository calls it.** The only references are
+`SecurityConfig` and four backend tests
+(`PlatformAdminAuthFlowTest`, `PlatformAdminSessionFlowTest`,
+`PlatformAdminAuditTest`, `PlatformAdminDomainSeparationTest`) — the Flutter
+desktop and mobile clients authenticate through the tenant and legacy surfaces,
+not this one. **D-111** (zero client change) therefore does not protect this
+endpoint, and prerequisite 8 requires it be closed before privileged operations
+ship.
 
 ### 2. What ADR-0014 required that no longer applies
 
@@ -79,13 +98,30 @@ deferred**:
   shared, restart-surviving state. Legacy's 8 attempts / 15 minutes is the
   floor. A six-digit second factor without throttling is a feasible online
   search.
-- **Per-request authorization**: the active-admin lookup already enforced
-  (**R-026** closed, **D-145**), inherited by the JTE controllers because it
-  lives in the request path rather than in a handler.
+- **Per-request authorization**: the active-admin lookup enforced by **D-145**
+  (**R-026** closed) — *as a requirement*. It is **not inherited
+  automatically**, and an earlier draft of this ADR wrongly said it was.
+  `PlatformAdminAuthenticationFilter` is installed only on the stateless
+  `/api/platform-admin/**` chain and performs its lookup only after parsing an
+  `Authorization: Bearer` token, so a cookie-authenticated request on a
+  separate chain reaches no such filter and revalidates nothing. The JTE chain
+  must therefore perform its **own** per-request lookup of the authenticated
+  administrator and reject a row that has become inactive or been deleted,
+  rather than trusting the session's contents. Without it, deactivating an
+  administrator would leave their existing session working until it expired,
+  which is exactly what D-145 exists to prevent (prerequisite 9).
 - **Session invalidation** that is immediate and complete on logout, on
   administrator deactivation, and on password change.
 - **Auditability**: `PlatformAdminAuditEvent` attribution for administrative
-  actions, unchanged.
+  actions — **as a requirement, not as an existing capability.** Calling it
+  "unchanged" overstated what is implemented: `PlatformAdminAuditEventType`
+  contains only `LOGIN`, `LOGIN_FAILED`, `LOGOUT`, and
+  `SESSION_REUSE_REVOKED`, and the row carries only actor, type, a free-text
+  detail string and a timestamp. It can record *that someone logged in*; it
+  cannot record that a company was suspended, by whom, against which company,
+  or with which step-up approval. The surface this ADR describes performs
+  exactly those administrative actions, so the audit model has to grow with it
+  (prerequisite 10).
 
 ### 4. What the in-process model introduces that the BFF design did not
 
@@ -219,10 +255,36 @@ Design settled; none of this may ship until these are answered:
    verified code before the factor is considered bound, and the account unable
    to perform destructive operations until it is. Recovery must not become a
    second, weaker enrolment path.
+
+   **Existing rows are the hard case and must be solved before TOTP is
+   enforced.** `PlatformAdmin` today has exactly four columns — `id`, `phone`,
+   `passwordHash`, `active` — with no TOTP seed, and `PlatformAdminBootstrap`
+   creates the row from a phone and a password alone. Both obvious answers are
+   wrong: enforcing TOTP immediately locks out every existing administrator
+   with no path back in, and letting the first password-authenticated session
+   self-enrol means whoever reaches the login first with a stolen password
+   binds the second factor to their own device and locks the real
+   administrator out. **Binding for a pre-existing row therefore requires
+   verification independent of that row's password** — an out-of-band
+   activation ceremony — and the choice of channel is an operational decision
+   for the repository owner, recorded before enforcement is switched on.
+   Required regardless of channel: existing rows migrate in an explicitly
+   unbound state, unbound accounts cannot perform destructive operations, the
+   activation credential is single-use and time-bounded, and a regression test
+   covers upgrading an existing password-only row through binding.
 2. **Step-up representation** with maximum age, single use, action binding
    **and** target/request-digest binding, recomputed server-side.
 3. **Throttling** for the password and TOTP steps, in shared restart-surviving
    state, validated by attempts through separate workers rather than a count.
+   **Attempts against unknown identifiers must consume the same budget as
+   known ones**, and the unknown-identifier path must do the same work as the
+   known one. Today `PlatformAdminLoginService` throws immediately when
+   `findByPhone` misses and runs BCrypt only for an existing row, so an
+   unauthenticated caller can both enumerate which phone numbers are
+   administrators — by response timing — and make unlimited attempts against
+   ones that are not. Required: a shared budget keyed so a miss is counted,
+   and a dummy verification against a fixed hash on the miss path so the two
+   outcomes are not distinguishable by timing.
 4. **Session bounds as numbers**: idle timeout and non-renewable absolute cap,
    plus session-id rotation on login. **The cap must also bound the API tokens**,
    not just the UI session. `PlatformAdminAuthController` still issues access
@@ -235,7 +297,18 @@ Design settled; none of this may ship until these are answered:
    both the refusal and the clamp.
 5. **CSRF protection** on every state-changing JTE route, and an explicit,
    tested filter-chain boundary between the cookie-authenticated UI and the
-   bearer-authenticated API.
+   bearer-authenticated API. **The UI chain must carry its own
+   `securityMatcher`, and every JTE route must be proven to land on it.**
+   Failing open here is silent and severe: `SecurityConfig.tenantSecurityFilterChain()`
+   is the order-3 catch-all, declares **no** `securityMatcher`, disables CSRF,
+   and authenticates with `JwtAuthenticationFilter` — so a JTE mapping omitted
+   from the UI matcher does not 404 or 403, it is quietly served under a chain
+   that accepts a **tenant** bearer token and applies no CSRF protection at
+   all. Testing a handful of named routes cannot detect the omission, because
+   the failure is precisely the route nobody listed. Required: a test that
+   **enumerates the application's JTE controller mappings from the handler
+   registry** and asserts each resolves to the UI chain, so a newly added page
+   that is not covered fails the build rather than shipping unprotected.
 6. **Session-cookie flags** — `HttpOnly`, `Secure`, `SameSite` — chosen and
    pinned by a test.
 7. Whether the legacy PHP dashboard's `admin`-role surface runs **in parallel**
@@ -246,17 +319,72 @@ Design settled; none of this may ship until these are answered:
    be walked around by logging in there instead. Running them in parallel
    therefore requires the PHP surface to be either MFA-gated too, or restricted
    so it cannot perform anything this surface protects, or taken down. "Both
-   authenticate independently" is not an acceptable answer on its own.
-8. Whether ADR-0005's *list and revoke sessions individually* is delivered for
-   this surface or explicitly deferred. It is unimplemented on both surfaces
-   today, so this ADR does not create the gap.
-9. `PlatformAdminAuditEvent` retention.
+   authenticate independently" is **not** an acceptable answer: independent
+   authentication is the problem, not the mitigation, because the weaker of
+   the two independent doors is the one an attacker uses. **This is a
+   shipment gate, not an open question**: before the JTE surface performs any
+   privileged operation, the PHP platform-admin routes are disabled, or placed
+   behind equivalent identity, TOTP, throttling and target-bound step-up
+   controls, or network-restricted so they cannot reach anything this ADR
+   protects. Which of the three, and the cutover timing, is the repository
+   owner's decision; that one of them holds is not optional.
+8. **MFA on the bearer login, or that surface restricted.**
+   `POST /api/platform-admin/login` currently returns a token pair for
+   `phone` + `password` alone, which walks around the JTE surface's TOTP for
+   the same privileged operations. Enforcing a second factor there changes the
+   request/response flow, so the API's MFA challenge contract must be defined
+   explicitly rather than left implicit. No client outside this repository
+   calls it — only `SecurityConfig` and four backend tests — so **D-111** does
+   not constrain the change and the alternative of restricting the surface is
+   equally available. One of the two ships before privileged operations do.
+9. **Per-request active-admin revalidation on the cookie chain**, not inherited.
+   `PlatformAdminAuthenticationFilter` runs only on the bearer chain and only
+   after parsing an `Authorization` header, so the JTE chain needs its own
+   equivalent, proven by a test that deactivates an administrator mid-session
+   and asserts the next page request is refused rather than served until
+   expiry (**D-145**).
+10. **Audit coverage for administrative actions, then retention.**
+    `PlatformAdminAuditEventType` today holds only `LOGIN`, `LOGIN_FAILED`,
+    `LOGOUT`, `SESSION_REUSE_REVOKED`, and the row carries only actor, type, a
+    free-text detail and a timestamp — it cannot answer *who suspended which
+    company, when, under which step-up approval*. Required before the surface
+    performs administrative actions: event types for those actions, a
+    structured target (type and identifier) rather than prose in `detail`, a
+    link to the step-up approval that authorised it, and the event written in
+    the same transaction as the action so a committed change cannot exist
+    without its audit row. Retention is decided once there is something worth
+    retaining.
+11. **Session storage across workers, or enforced affinity.** The application
+    has no session infrastructure today — every chain is
+    `SessionCreationPolicy.STATELESS` — so introducing a server-side session
+    introduces the question with it. Default in-memory sessions break under the
+    multi-worker deployment prerequisite 3 already assumes: the same cookie is
+    authenticated on one worker and anonymous on the next, and logout cannot
+    reliably invalidate a session held in another worker's heap, which
+    silently defeats the invalidation requirement above. Spring Session JDBC on
+    the existing datasource is the default choice here — it needs no new
+    infrastructure, and the alternative of sticky affinity moves the problem
+    into the load balancer without solving invalidation. Proven by tests that
+    log in, make an authenticated request, and log out **with consecutive
+    requests served by different workers**.
+12. **TOTP codes are single-use, not just the approvals they mint.** Single use
+    currently applies to the resulting step-up approval, so within one accepted
+    time window the same six digits can mint several individually-single-use
+    approvals bound to different targets, or be replayed between the login step
+    and a step-up. Required: the last accepted time-step is recorded per
+    administrator and a code at or below it is refused, so an observed code
+    cannot be reused at all.
+13. Whether ADR-0005's *list and revoke sessions individually* is delivered for
+    this surface or explicitly deferred. It is unimplemented on both surfaces
+    today, so this ADR does not create the gap.
 
 ## Open Questions
 
-- Does the JTE surface reuse the Spring Security session infrastructure the
-  tenant chain uses, or does it get its own chain? The filter-chain boundary in
-  prerequisite 5 depends on the answer.
+None blocking. The filter-chain question an earlier draft left open is
+answered by prerequisites 5 and 11: the JTE surface gets **its own chain with
+an explicit `securityMatcher`**, ahead of the order-3 catch-all, with
+server-side sessions in shared storage — it does not reuse the tenant chain,
+which is stateless, CSRF-disabled, and authenticates tenant bearer tokens.
 
 ## Evidence
 

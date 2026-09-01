@@ -36,8 +36,8 @@ in this repository already holds itself to.
 | Flyway | Migration tooling | Approve now, install later | Needed after migration strategy is approved |
 | pgloader | Migration tooling | Evaluate during discovery | Depends on actual schema and cutover approach |
 | Node LTS | Frontend runtime | Approve now, install later | Needed only once web implementation begins |
-| pnpm | Frontend package manager | Approve now, install later | Useful for Next.js work, not bootstrap |
-| Next.js 16 | Frontend | Approve now, install later | Target admin app, not bootstrap |
+| ~~pnpm~~ | ~~Frontend package manager~~ | **Not used (D-151)** | No Node frontend: the admin web is JTE in-process (ADR-0015) |
+| ~~Next.js 16~~ | ~~Frontend~~ | **Not used (D-151)** | Superseded by JTE pages in the existing Spring app (ADR-0015) |
 | Flutter | Client | Evaluate during discovery | Compatibility and release details first. Discovery note: `hr-legacy` API-side Discovery is done, but every "Consumer" field in `docs/api/existing-endpoint-inventory.md` is explicitly marked inferred — no Flutter client source was available in that pass. This blocker is only partially resolved; the actual Flutter app still needs its own read-through before this can move to "Approve now." |
 | .NET | Gateway | Evaluate during discovery | Depends on device discovery. Discovery note: `docs/devices/*.md` (vendor capability matrix, device/firmware inventory) remain empty templates — device discovery has not happened yet. This blocker is fully unresolved, not something the `hr-legacy` software Discovery pass could address. |
 | Docker | Local infra | Approve now, install later | Not needed for Phase 0 |
@@ -49,8 +49,8 @@ in this repository already holds itself to.
 | REST Assured | API testing | Evaluate during discovery | Depends on Java API implementation approach. Discovery note: the legacy system is a REST JSON API throughout (`docs/legacy/existing-php-module-inventory.md`) and ADR-0003 assumes REST-shaped Flutter compatibility work — no evidence found this session suggesting a non-REST approach is under consideration. Recommend advancing to "Approve now, install later" unless ADR-0003 resolves toward something else. |
 | WireMock | Integration testing | Evaluate during discovery | Depends on external integration patterns |
 | Schemathesis | Contract testing | Evaluate during discovery | Depends on OpenAPI maturity |
-| Vitest | Web unit testing | Evaluate during discovery | Depends on Next.js implementation |
-| React Testing Library | Web UI testing | Evaluate during discovery | Depends on Next.js implementation |
+| ~~Vitest~~ | ~~Web unit testing~~ | **Not used (D-151)** | Was contingent on the Next.js app that is no longer built |
+| ~~React Testing Library~~ | ~~Web UI testing~~ | **Not used (D-151)** | Was contingent on the Next.js app that is no longer built |
 | Playwright | E2E testing | Evaluate during discovery | Useful later, not bootstrap |
 | k6 | Performance testing | Evaluate during discovery | Useful later for load scenarios |
 | Trivy | Security scanning | Evaluate during discovery | Depends on container and dependency scope |
