@@ -1,31 +1,32 @@
 # Mutation coverage: what is exercised, and what is not
 
-**Regenerate with `./coverage-report.sh`.** Do not hand-edit the numbers.
+**Regenerate with `./coverage-report.sh` after a full `./sweep-mutations.sh` run.**
+Do not hand-edit the numbers.
 
-Coverage is derived from the frozen PHP's own method guard and from cases that
-declare a **2xx** expected status — not from filenames, and not from the mere
-presence of a `run_case` line. Both shortcuts were wrong in both directions:
-they counted GETs such as `attendance/overall_report` as mutating, and counted
-an endpoint as covered when its only case expected a **refusal**, which this
-same document calls not-coverage.
+Coverage requires **evidence from a run**, not a declaration. An endpoint counts
+as covered only when the sweep executed a case for it, that case declared a
+**2xx**, and the run recorded it as `ok` or as an explicitly accepted
+divergence. A declared 2xx alone says only what the case intends: an
+unreachable case, a Java 500, a response or row mismatch, or a 2xx that mutated
+nothing would all have been regenerated here as covered while the sweep
+reported failure.
+
+`mutating` comes from the frozen PHP's own method guard, not from the filename.
 
 | | count |
 |---|---|
 | mutating endpoints (PHP guards a non-GET method) | **116** |
-| covered by a success-path case | **74** |
+| covered by a success-path case, verified by a run | **74** |
 | exercised only by a refusal — *not counted* | 6 |
 | no case at all | 36 |
 | reads (GET or no method guard), excluded | 73 |
 
-An endpoint counts as covered only when both stacks receive a **valid**
-request, the response and the affected rows are compared, and the fixture is
-reset between them. A request the endpoint rejects identically on both sides
-is not coverage.
+A request the endpoint rejects identically on both sides is not coverage.
 
 ## Exercised only through a refusal
 
-These have a case, but only a rejecting one, so no successful mutation has ever
-been compared. Each needs a fixture its success path can act on.
+These have a case, but only a rejecting one, so no successful mutation has been
+compared. Each needs a fixture its success path can act on.
 
 - `attendance/check_out  (declared [400])`
 - `branches/delete  (declared [409])`
@@ -81,16 +82,16 @@ been compared. Each needs a fixture its success path can act on.
 sweep sends JSON only, so covering them needs a multipart request builder and
 committed fixture files. Highest value per unit of harness work.
 
-**Seeded fixtures.** The refusal-only list above, plus several update/delete
-pairs, need a row their own create would make — and cases deliberately cannot
-chain, because each reseeds. The pattern already exists: `seed-two.sh` seeds an
-open penalty, a draft batch, a payslip inside it, an inbox notification, an
-EMPLOYEE-role actor with a pending request, and an administrative decision.
+**Seeded fixtures.** The refusal-only list, plus several update/delete pairs,
+need a row their own create would make — and cases deliberately cannot chain,
+because each reseeds. The pattern already exists in `seed-two.sh`: an open
+penalty, a draft batch, a payslip inside it, an inbox notification, an
+EMPLOYEE-role actor with a pending request, a request type with both approval
+side-effect flags on, and an administrative decision.
 
 **OTP.** The auth group needs the OTP the server generated. Reading it from the
 database is what a test would do, but it weakens what the flow proves, so it
 should be an explicit decision rather than a quiet one.
 
-**`attendance/set_employee_attendance_method`** has no PHP file at all — legacy
-answers 501 from the router. It is in the client inventory and is listed here
-for completeness, not as a gap the sweep can close.
+**`attendance/set_employee_attendance_method`** has no PHP file — legacy answers
+501 from the router. Listed for completeness, not as a gap the sweep can close.

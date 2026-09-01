@@ -254,7 +254,8 @@ PHONE_EMP=+201999000003
 # decide whether the pre-snapshots are worth taking.
 accepted_row_tables_any() {  # $1=path
   case "${1%%\?*}" in
-    advances/create) echo "advances" ;;
+    advances/create|advances/approve|advances/reject|advances/pay|advances/delete) echo "advances" ;;
+    branches/update) echo "branches" ;;
   esac
 }
 
@@ -267,8 +268,19 @@ accepted_row_tables() {  # $1=path $2=php $3=java  -> stdout: table list, or emp
       # #adminCreateRejectsAnEmployeeIdBelongingToAnotherCompany, so waiving the
       # table here does not leave the behaviour unpinned.
       echo "advances" ;;
+    advances/approve:200:404|advances/reject:200:404|advances/pay:200:404|advances/delete:200:404)
+      # R-037: PHP mutates the foreign advance, Java does not, so `advances`
+      # differs by exactly that row. The delta assertion still requires
+      # Java post == pre, so a Java write that returned 404 would fail.
+      echo "advances" ;;
+    # branches/update:200:404 is deliberately absent. R-036 is a DISCLOSURE,
+    # not a write: PHP modifies nothing and merely returns the foreign row, so
+    # `branches` must be UNCHANGED on both sides and the ordinary comparison is
+    # the right check. Adding a waiver here would hide a PHP that started
+    # writing.
   esac
 }
+
 
 accepted_row_columns() {  # $1=path $2=table  -> stdout: column list, or empty
   case "${1%%\?*}:$2" in
@@ -293,6 +305,16 @@ accepted_mutation_divergence() {  # $1=path $2=php code $3=java code
       # Reproducing either behaviour would mean porting a tenant-isolation
       # defect, so the divergence is deliberate.
       echo "R-036"; return 0 ;;
+    branches/update:200:404)
+      # R-036, the actual disclosure scenario -- not the 500 on a nonexistent id.
+      # branches/update.php re-reads WHERE id=? with no company predicate, so a
+      # foreign branch id returns THAT COMPANY'S ROW with success:true, including
+      # qr_code, while modifying nothing. Java answers 404 and discloses nothing.
+      echo "R-036"; return 0 ;;
+    advances/approve:200:404|advances/reject:200:404|advances/pay:200:404|advances/delete:200:404)
+      # R-037, the actual cross-tenant WRITE scenario. PHP mutates another
+      # tenant's advance and answers 200; Java answers 404 and mutates nothing.
+      echo "R-037"; return 0 ;;
     advances/create:201:403)
       # R-037: create.php resolves employee_id with no company predicate, so a
       # company admin creates an advance against another tenant's employee.
@@ -554,6 +576,12 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
 ./seed-two.sh >/dev/null 2>&1
 assert_java_on_its_own_database
 
+# The run's own result, consumed by coverage-report.sh: a case counts as
+# covering an endpoint only if it actually passed here, never because it
+# declared a 2xx.
+: > last-run.txt
+exec > >(tee -a last-run.txt)
+
 printf '%-42s %-4s %-4s %s\n' CASE PHP JAVA VERDICT
 
 # Ids resolved from the seeded snapshot rather than hardcoded, so a reseed with
@@ -614,7 +642,9 @@ C214_NOTIF_INBOX=$(resolve_or_die c214_notif_inbox "SELECT id FROM notifications
 C214_DECISION=$(resolve_or_die c214_decision "SELECT id FROM administrative_decisions WHERE id=999015 AND company_id=214")
 # An employee of a DIFFERENT company, for the cross-tenant probes. R-037.
 FOREIGN_EMP=$(resolve_or_die foreign_emp "SELECT id FROM employees WHERE company_id NOT IN (214,244) AND is_active=1 ORDER BY id LIMIT 1")
-C214_REQ_PENDING=$(resolve_or_die c214_req_pending "SELECT id FROM requests WHERE id=999014 AND status='pending'")
+FOREIGN_BRANCH=$(resolve_or_die foreign_branch "SELECT id FROM branches WHERE company_id NOT IN (214,244) ORDER BY id LIMIT 1")
+FOREIGN_ADV=$(resolve_or_die foreign_adv "SELECT a.id FROM advances a JOIN employees e ON e.id=a.employee_id WHERE e.company_id NOT IN (214,244) AND a.status='pending' ORDER BY a.id LIMIT 1")
+C214_REQ_PENDING=$(resolve_or_die c214_req_pending "SELECT r.id FROM requests r JOIN request_types t ON t.id=r.request_type_id WHERE r.id=999014 AND r.status='pending' AND t.deduct_balance=1 AND t.add_attendance_exception=1")
 # A SECOND employee, so payslips/create has someone without a payslip in the
 # draft batch -- the fixture above already occupies the first one, and create
 # would otherwise answer "already exists" rather than creating anything.
@@ -750,6 +780,31 @@ run_case "exception_types/create (no name)" POST "attendance_exception_types/cre
 # against ANOTHER tenant's employee. Measured: PHP 201 and a row, Java 403 and
 # none. The status pair is registered as accepted; the row snapshot still runs,
 # so an unintended Java write would still fail the case.
+# ===========================================================================
+# The cross-tenant scenarios R-036 and R-037 actually describe.
+#
+# The unknown-id cases below cover the 500-vs-404 crash; these cover the part
+# that matters -- an id that EXISTS and belongs to another company. Without
+# them the risks were documented but not guarded, and a Java regression that
+# started disclosing or mutating foreign rows would not have been detected.
+# ---------------------------------------------------------------------------
+# R-036: PHP returns the foreign branch row (success:true, "Branch updated",
+# including qr_code) while modifying nothing. No table waiver is given -- both
+# sides must leave `branches` unchanged, so a Java WRITE here still fails.
+run_case "branches/update (foreign branch)" PUT  "branches/update?id=$FOREIGN_BRANCH" \
+  '{"name":"parity cross-tenant probe"}' "branches" 214 200
+
+# R-037: PHP mutates the foreign advance; Java refuses. The delta assertion
+# requires Java post == pre, so a Java write returning 404 would fail.
+run_case "advances/approve (foreign)"      PUT  "advances/approve?id=$FOREIGN_ADV" \
+  '{}' "advances" 214 200
+run_case "advances/reject (foreign)"       PUT  "advances/reject?id=$FOREIGN_ADV" \
+  '{"rejection_reason":"parity cross-tenant probe"}' "advances" 214 200
+run_case "advances/pay (foreign)"          PUT  "advances/pay?id=$FOREIGN_ADV" \
+  '{"amount":1}' "advances" 214 200
+run_case "advances/delete (foreign)"       DELETE "advances/delete?id=$FOREIGN_ADV" \
+  '' "advances" 214 200
+
 run_case "advances/create (foreign employee)" POST "advances/create" \
   "{\"employee_id\":$FOREIGN_EMP,\"amount\":100,\"reason\":\"parity cross-tenant probe\",\"deduction_mode\":\"single_payroll_month\",\"deduction_payroll_year\":2026,\"deduction_payroll_month\":9}" \
   "advances" 214 201
@@ -857,9 +912,9 @@ run_case "attendance/delete_range"         DELETE "attendance/delete_range?emplo
   '' "attendance" 214 200
 
 run_case "requests/approve"                POST "requests/approve?id=$C214_REQ_PENDING" \
-  '{}' "requests,notifications" 214 200
+  '{}' "requests,notifications,leave_balance,attendance" 214 200
 run_case "requests/reject"                 POST "requests/reject?id=$C214_REQ_PENDING" \
-  '{}' "requests,notifications" 214 200
+  '{}' "requests,notifications,leave_balance,attendance" 214 200
 run_case "requests/approve (no id)"        POST "requests/approve" '{}' "requests" 214 400
 # requests/delete.php is requireAuth([EMPLOYEE]): a company_admin is refused
 # before any logic runs, so the endpoint is only reachable as its owner.

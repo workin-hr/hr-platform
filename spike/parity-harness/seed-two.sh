@@ -214,8 +214,18 @@ for d in "$PHP_DB" "$JAVA_DB"; do
   VALUES (999015, 214, 'Parity fixture', 'parity body', 1, NOW())
   ON DUPLICATE KEY UPDATE title='Parity fixture', is_active=1;
 
+  -- A request type with BOTH approval side effects on. approve() only touches
+  -- leave_balance and attendance when deduct_balance / add_attendance_exception
+  -- are set, and picking the company's first type left that unpinned -- the
+  -- branches that carry the payroll and attendance effects might never run, and
+  -- a divergence in them would be invisible.
+  INSERT INTO request_types (id, company_id, name, is_active, deduct_balance, counts_as_paid_leave, add_attendance_exception, exception_type_id, created_at)
+  SELECT 999016, 214, 'Parity fixture type', 1, 1, 1, 1,
+         (SELECT id FROM exception_types ORDER BY id LIMIT 1), NOW()
+  ON DUPLICATE KEY UPDATE deduct_balance=1, add_attendance_exception=1, is_active=1;
+
   INSERT INTO requests (id, employee_id, request_type_id, from_date, to_date, status, created_at)
-  SELECT 999014, 999003, (SELECT id FROM request_types WHERE company_id=214 ORDER BY id LIMIT 1),
+  SELECT 999014, 999003, 999016,
          '2026-09-10', '2026-09-11', 'pending', NOW()
   ON DUPLICATE KEY UPDATE status='pending', employee_id=999003;
   SET FOREIGN_KEY_CHECKS=1;"

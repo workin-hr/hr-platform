@@ -19,3 +19,4 @@ php/uploads/
 # The real configs, filled in from the .example templates beside them.
 php/constants.php
 php/dashboard-constants.php
+last-run.txt

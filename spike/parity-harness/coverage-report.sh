@@ -20,9 +20,9 @@ WORKSPACE=${WORKSPACE:-"$(cd "$HERE/../../.." && pwd)"}
 LEGACY=${LEGACY:-"$WORKSPACE/hr-legacy"}
 [ -d "$LEGACY/apis/api" ] || { echo "FATAL: no PHP tree at $LEGACY/apis/api" >&2; exit 2; }
 
-python3 - "$HERE" "$LEGACY" <<'PY'
+python3 - "$HERE" "$LEGACY" "${SWEEP_RESULT:-$HERE/last-run.txt}" <<'PY'
 import re, sys, os
-here, legacy = sys.argv[1], sys.argv[2]
+here, legacy, result_path = sys.argv[1], sys.argv[2], sys.argv[3]
 
 inventory = [l.strip() for l in open(f"{here}/client-endpoints.txt") if l.strip()]
 
@@ -70,8 +70,44 @@ if undeclared:
         print("   ", u[:100])
     print()
 
+# Coverage requires EVIDENCE FROM A RUN, not a declaration.
+#
+# A declared 2xx says only what the case intends. An unreachable case, a Java
+# 500, a response or row mismatch, or a 2xx that mutated nothing would all have
+# been regenerated into the gaps document as "covered" while the sweep reported
+# failure. Coverage now means: the sweep ran this case, it declared a 2xx, and
+# the run recorded it as ok (or as an explicitly accepted divergence).
+import os
+run_ok, run_seen = set(), set()
+if os.path.exists(result_path):
+    for line in open(result_path):
+        m = re.match(r'^(\S.*?)\s{2,}(\d{3}|-)\s+(\d{3}|-)\s+(ok|DIFF|ACCEPTED|UNEXPECTED-STATUS|RESEED-FAILED|LOGIN-FAILED|JAVA-NOT-SERVING|UNREACHABLE)',
+                     line.rstrip())
+        if not m:
+            continue
+        name, verdict = m.group(1).strip(), m.group(4)
+        run_seen.add(name)
+        if verdict in ("ok", "ACCEPTED"):
+            run_ok.add(name)
+else:
+    print(f"NO RUN EVIDENCE at {result_path}.")
+    print("Run ./sweep-mutations.sh (it writes last-run.txt) before trusting these numbers.")
+    print()
+
+# map endpoint -> the case names that target it
+case_names = {}
+for inv in invocations:
+    m = re.match(r'run_case\s+"([^"]*)"\s+\w+\s+"([^"?]+)', inv)
+    if m:
+        case_names.setdefault(m.group(2), []).append(m.group(1))
+
 def covered(ep):
-    return any(200 <= c < 300 for c in declared.get(ep, ()))
+    if not any(200 <= c < 300 for c in declared.get(ep, ())):
+        return False
+    names = case_names.get(ep, [])
+    if not run_seen:
+        return False              # no evidence at all -> nothing is covered
+    return any(n in run_ok for n in names)
 
 ok  = [e for e in mutating if covered(e)]
 ref = [e for e in mutating if e in declared and not covered(e)]
