@@ -1,5 +1,14 @@
 # ETL Real-Data Findings — Decision Brief (2026-08-13)
 
+> **OUT OF SCOPE — do not advance (D-151, 2026-09-01).** The repository owner
+> confirmed there is **no MySQL → PostgreSQL migration**. The current programme
+> is: port PHP to Java, convert the admin web to JTE, and verify parity against
+> the existing desktop and mobile clients. This document records Phase 2 storage
+> planning that predates that priority. It is retained because the analysis is
+> real and may resume, but no work in it should be started, and effort here
+> competes directly with the parity verification that is currently short —
+> 39 of 190 endpoints have had authenticated bodies compared.
+
 ## Status: Fully answered 2026-08-13 — D-035 and D-036; ledger back to 0 pending
 
 Q1–Q6 were answered by the repository owner on 2026-08-13, recorded

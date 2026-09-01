@@ -55,15 +55,35 @@ maintaining a second, divergent copy of these rules — see
 - `ADR-0012-phase-1-tenant-isolation.md` — tenant isolation without
   row-level security while Phase 1 runs on MySQL, with its compensating
   controls and fail-closed obligations (accepted 2026-08-16)
+- `ADR-0015-platform-admin-jte-authentication.md` — the platform-admin web
+  surface is **server-rendered JTE inside the existing Spring
+  application**, authenticated by a server-side session; no token is
+  issued to or held by the browser because there is no separate frontend.
+  Carries forward MFA/TOTP with seed custody, bounded step-up, throttling,
+  per-request authorization, session invalidation and auditability, and
+  adds CSRF and session-cookie hardening, which the in-process model makes
+  first-class (accepted 2026-09-01)
 - `ADR-0013-phase1-mysql-profile-bootstrap.md` — the `phase1-mysql`
   Spring profile that points the application at legacy MySQL, inactive
   by default and guarded by an ArchUnit profile-coverage test, becoming
   the normal runtime only at the single Phase 1 cutover (accepted
   2026-08-17 with four owner-required amendments, `docs/bootstrap/decision-log.md` D-043)
 
+## Superseded ADRs
+
+Listed here so index-driven readers and tooling do not treat them as
+active. The document is retained, not deleted: the reasoning behind the
+requirements that survived the supersession is recorded in it.
+
+- `ADR-0014-platform-admin-web-authentication.md` — **superseded by
+  ADR-0015 on 2026-09-01** (**D-151**). Designed the platform-admin
+  surface as a Next.js app with a server-side BFF holding the token pair.
+  The premise was corrected by the repository owner: the admin web is JTE
+  inside the existing Spring application. Do not implement from this ADR —
+  read `ADR-0015` instead
+
 ## Proposed ADRs
 
-None — all 13 ADRs have a recorded decision as of 2026-08-17. ADR-0006's
-Part B (final vendor protocol/connectivity detail) is the only remaining
+None. ADR-0006's Part B (final vendor protocol/connectivity detail) is a further
 open ADR sub-item, tracked within `ADR-0006-attendance-edge-gateway-direction.md`
-itself, not as a separately `Proposed` ADR.
+itself rather than as a separately `Proposed` ADR.

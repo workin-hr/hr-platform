@@ -1,0 +1,50 @@
+[
+ {
+  "id": "PRRT_kwDOTq2UMc6eEAvm",
+  "title": "Pin every JTE route to the UI filter chain"
+ },
+ {
+  "id": "PRRT_kwDOTq2UMc6eEAvx",
+  "title": "Add session-aware active-admin revalidation"
+ },
+ {
+  "id": "PRRT_kwDOTq2UMc6eEAv4",
+  "title": "Define a trusted initial TOTP binding ceremony"
+ },
+ {
+  "id": "PRRT_kwDOTq2UMc6eEAv_",
+  "title": "Prevent the parallel PHP surface from bypassing MFA"
+ },
+ {
+  "id": "PRRT_kwDOTq2UMc6eEAwC",
+  "title": "Propagate the JTE correction to every active source"
+ },
+ {
+  "id": "PRRT_kwDOTq2UMc6eEAwF",
+  "title": "Propagate the storage scope correction to its owning ADRs"
+ },
+ {
+  "id": "PRRT_kwDOTq2UMc6eEAwL",
+  "title": "Close the unchanged bearer login MFA bypass"
+ },
+ {
+  "id": "PRRT_kwDOTq2UMc6eEAwP",
+  "title": "Reject replay of an accepted TOTP code"
+ },
+ {
+  "id": "PRRT_kwDOTq2UMc6eEAwT",
+  "title": "Gate shipment on administrative-action audit coverage"
+ },
+ {
+  "id": "PRRT_kwDOTq2UMc6eEAwV",
+  "title": "Define session storage across application workers"
+ },
+ {
+  "id": "PRRT_kwDOTq2UMc6eEAwa",
+  "title": "Throttle unknown administrator identifiers"
+ },
+ {
+  "id": "PRRT_kwDOTq2UMc6eEAwd",
+  "title": "Remove ADR-0014 from the accepted index"
+ }
+]

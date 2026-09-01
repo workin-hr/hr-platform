@@ -580,6 +580,24 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Evidence | **Measured against both running stacks, not inferred.** `leave_balances/analyze_excel`, four shapes, all byte-identical after the fix: text field → 400 `No file uploaded`; `filename=""` → 400 `No file uploaded`; zero bytes with a real name → 400 **`Empty or unreadable file`**; genuine CSV → 200. `employees/analyze_excel`, five shapes, all byte-identical after the fix, including the two that diverged. Regression tests: `LegacyLeaveBalanceEndToEndTest#aTextFieldNamedFileIsNotAnUpload` (verified to fail against the pre-fix controller), `#anEmptyFilenameIsNotAnUploadEither`, `#aZeroByteFileWithARealNameFallsThroughToTheFormatCheck`, `#aRealUploadIsStillAccepted`; `LegacyEmployeeAnalyzeExcelEndToEndTest#anEmptyFilenameIsNoFileUploadedEvenWithContent`. **An existing test pinned one of the divergences as the contract** — `anEmptyUploadAndAMissingPartAreBothNoFileUploaded` asserted `No file uploaded` for a zero-byte named file, which is what Java's wrong guard produced; it now asserts PHP's `Empty or unreadable file`. Contract recorded in `docs/api/existing-endpoint-inventory.md`. |
 | Last Reviewed | 2026-08-31 (closed) |
 
+## R-033: ~~The BFF Credential Store Holds Every Live Platform-Admin Refresh Token~~ — Closed, Architecture Removed
+
+| Field | Value |
+|---|---|
+| Description | **This risk existed only under ADR-0014's Next.js + BFF design**, where a server-side BFF held the raw refresh token for every logged-in platform administrator so it could replay them. That store concentrated into one place what had previously been distributed across browsers, and a read of it — or of any replica, snapshot or backup — yielded every live platform-admin session at once. |
+| Category | Security / Credential custody — **no longer applicable** |
+| Probability | None. There is no such store. |
+| Impact | None, for the same reason. |
+| Severity | **Closed — the architecture that created it was removed**, not mitigated. **ADR-0015** supersedes ADR-0014: the platform-admin web surface is server-rendered **JTE inside the existing Spring application**, authenticated by a server-side session. No platform-admin token is issued to, stored in, or replayed by a separate frontend, so there is nothing to concentrate. |
+| Owner | Repository owner. |
+| Mitigation | Not applicable. The controls this entry required — encryption under an external key, restricted access, protected replicas and backups, read auditing, a tested global revocation path — were properties of the BFF store and retire with it. **What did not depend on the BFF is carried forward in ADR-0015**: TOTP seed custody has the same custody requirements for the same reason (a recoverable secret at rest), and session invalidation must still be immediate on logout, deactivation and password change. |
+| Trigger | None. Re-opens only if a separate frontend holding platform-admin credentials is reintroduced, which would be a new decision superseding ADR-0015. |
+| Contingency | Not applicable. Note that the **absence of a global revocation operation is a real finding independent of this risk**: `revokeAllForPlatformAdmin(Long)` is per-administrator and unwired, so "revoke every admin session" is still an ad-hoc procedure. That is carried into ADR-0015's session-invalidation requirement rather than left here. |
+| Status | **Closed 2026-09-01 — not applicable.** Raised by independent review of PR #148 against a design that was superseded before it was built. Retained rather than deleted so the reasoning survives: it is the record of why a browser-facing admin app would have needed those controls, and it should be read before anyone proposes one again. |
+| Target Date | None. |
+| Evidence | **ADR-0015** (JTE, in-process) superseding **ADR-0014** (Next.js + BFF), on the repository owner's instruction of 2026-09-01. `PlatformAdminRefreshTokenRepository.setStatusForPlatformAdmin` remains the per-administrator revocation; `revokeAllForPlatformAdmin` remains unwired and per-administrator despite its name. Related: **R-024** (signing-secret custody), which is unaffected — the signing key exists regardless of the frontend. |
+| Last Reviewed | 2026-09-01 (closed) |
+
 ## R-035: PHP Payroll Calculation Exceeds Its Own Execution Limit And Commits A Partial Batch With HTTP 200
 
 | Field | Value |

@@ -1,5 +1,14 @@
 # Invalid-Date Analysis
 
+> **OUT OF SCOPE — do not advance (D-151, 2026-09-01).** The repository owner
+> confirmed there is **no MySQL → PostgreSQL migration**. The current programme
+> is: port PHP to Java, convert the admin web to JTE, and verify parity against
+> the existing desktop and mobile clients. This document records Phase 2 storage
+> planning that predates that priority. It is retained because the analysis is
+> real and may resume, but no work in it should be started, and effort here
+> competes directly with the parity verification that is currently short —
+> 39 of 190 endpoints have had authenticated bodies compared.
+
 MySQL permits `0000-00-00` and other zero/partial dates that PostgreSQL
 rejects. This template tracks where that matters.
 
