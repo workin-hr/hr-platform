@@ -2,6 +2,7 @@ package com.workin.backend.security;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -15,6 +16,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import com.workin.backend.platformadmin.PlatformAdmin;
 import com.workin.backend.platformadmin.PlatformAdminJwtService;
+import com.workin.backend.platformadmin.PlatformAdminRefreshTokenRepository;
 import com.workin.backend.platformadmin.PlatformAdminRepository;
 
 import io.jsonwebtoken.Claims;
@@ -57,12 +59,36 @@ public class PlatformAdminAuthenticationFilter extends OncePerRequestFilter {
 
 	private final PlatformAdminJwtService platformAdminJwtService;
 	private final PlatformAdminRepository platformAdminRepository;
+	private final PlatformAdminRefreshTokenRepository platformAdminRefreshTokenRepository;
 
 	public PlatformAdminAuthenticationFilter(
 			PlatformAdminJwtService platformAdminJwtService,
-			PlatformAdminRepository platformAdminRepository) {
+			PlatformAdminRepository platformAdminRepository,
+			PlatformAdminRefreshTokenRepository platformAdminRefreshTokenRepository) {
 		this.platformAdminJwtService = platformAdminJwtService;
 		this.platformAdminRepository = platformAdminRepository;
+		this.platformAdminRefreshTokenRepository = platformAdminRefreshTokenRepository;
+	}
+
+	/**
+	 * Whether the session this token belongs to is still live (R-027).
+	 *
+	 * <p>A token with no {@code sid} is treated as live: tokens minted before
+	 * the claim existed must keep working, and the alternative is logging out
+	 * every session on deploy. That gap ages out with the tokens themselves.
+	 */
+	private boolean sessionIsLive(Claims claims) {
+		String sid = claims.get("sid", String.class);
+		if (sid == null || sid.isBlank()) {
+			return true;
+		}
+		try {
+			return platformAdminRefreshTokenRepository.familyIsLive(UUID.fromString(sid));
+		}
+		catch (IllegalArgumentException ex) {
+			// A malformed sid is not a session this service issued.
+			return false;
+		}
 	}
 
 	@Override
@@ -81,7 +107,9 @@ public class PlatformAdminAuthenticationFilter extends OncePerRequestFilter {
 				boolean active = platformAdminRepository.findById(platformAdminId)
 						.map(PlatformAdmin::isActive)
 						.orElse(false);
-				if (active) {
+				// Both halves of R-026/R-027: the admin must still be active
+				// *and* the session must not have been logged out.
+				if (active && sessionIsLive(claims)) {
 					AuthenticatedPlatformAdminPrincipal principal =
 							new AuthenticatedPlatformAdminPrincipal(platformAdminId);
 					Authentication authentication = new UsernamePasswordAuthenticationToken(

@@ -33,4 +33,19 @@ public interface PlatformAdminRefreshTokenRepository extends JpaRepository<Platf
 			@Param("platformAdminId") Long platformAdminId,
 			@Param("to") PlatformAdminSessionStatus to);
 
+	/**
+	 * Whether this session family still has a usable token (R-027).
+	 *
+	 * <p>Indexed on {@code family_id} (V16). Mirrors the tenant surface's
+	 * {@code RefreshTokenRepository.familyIsLive} -- R-027 is one defect on
+	 * two surfaces, and splitting the fix would leave the two paths with
+	 * different revocation semantics.
+	 */
+	boolean existsByFamilyIdAndStatusNot(UUID familyId, PlatformAdminSessionStatus status);
+
+	/** True while any token in this session family is not {@code REVOKED}. */
+	default boolean familyIsLive(UUID familyId) {
+		return existsByFamilyIdAndStatusNot(familyId, PlatformAdminSessionStatus.REVOKED);
+	}
+
 }
