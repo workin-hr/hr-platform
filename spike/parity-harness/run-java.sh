@@ -44,10 +44,30 @@ fi
 [ -f "$JAR" ] || { echo "FATAL: $JAR not found" >&2; exit 4; }
 echo "jar: $JAR ($(date -r "$JAR" '+%Y-%m-%d %H:%M'))" >&2
 
+# Uploads: an ABSOLUTE path the sweep also fingerprints and clears. Without
+# this Java writes to the JVM's working directory (`uploads`, relative), which
+# is not where the multipart cases look -- so every Java upload is invisible,
+# legitimate cases report "files differ", and the real files accumulate across
+# cases instead of being cleared.
+JAVA_UPLOADS=${JAVA_UPLOADS:-"$HERE/java-uploads"}
+mkdir -p "$JAVA_UPLOADS"
+
+# WhatsApp: the local stub, so the OTP flows can run at all. Without a sender
+# that reports success, both stacks answer 503, the code is never written, and
+# every OTP case compares two identical failures. Pointing at 127.0.0.1 also
+# means no request can leave the machine -- the shipped default is the real
+# pro.whats360.live host.
+WHATSAPP_BASE=${WHATSAPP_BASE:-http://127.0.0.1:18099/send-text}
+
 exec java -jar "$JAR" \
   --spring.profiles.active=phase1-mysql \
   --server.port=18081 \
   --app.legacy-db.jdbc-url="jdbc:mariadb://127.0.0.1:13306/${JAVA_DB:-workin}" \
   --app.legacy-db.username=root \
   --app.legacy-db.password=parity \
+  --app.legacy-uploads.path="$JAVA_UPLOADS" \
+  --app.legacy-uploads.url=/uploads/ \
+  --app.legacy-whatsapp.api-base="$WHATSAPP_BASE" \
+  --app.legacy-whatsapp.api-token=harness-stub-token \
+  --app.legacy-whatsapp.instance-id=harness-stub-instance \
   --app.jwt.secret="$(cat "$HERE/.jwt-secret")"

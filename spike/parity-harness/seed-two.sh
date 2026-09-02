@@ -286,6 +286,13 @@ for d in "$PHP_DB" "$JAVA_DB"; do
          'contract', '/uploads/docs/parity-fixture.pdf', NOW()
   ON DUPLICATE KEY UPDATE doc_type='contract';
 
+  -- A push token owned by the login actor. auth/login_employee deletes every
+  -- push_tokens row for the employee, and without a row to delete the case
+  -- passes whether or not Java still performs that cleanup.
+  INSERT INTO push_tokens (id, employee_id, token, platform, updated_at)
+  VALUES (999027, 999002, 'parity-fixture-push-token', 'android', NOW())
+  ON DUPLICATE KEY UPDATE token='parity-fixture-push-token';
+
   INSERT INTO requests (id, employee_id, request_type_id, from_date, to_date, status, created_at)
   SELECT 999014, 999003, 999016,
          '2026-09-10', '2026-09-11', 'pending', NOW()

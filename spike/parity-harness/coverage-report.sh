@@ -54,7 +54,11 @@ while i < len(sweep_lines):
         invocations.append(" ".join(p.rstrip().rstrip("\\").strip() for p in parts))
     i += 1
 
+# name -> the status that invocation declared, and endpoint -> its case names.
+# Keeping these per-INVOCATION is the point: an endpoint with both a success and
+# a refusal case would otherwise be credited when only the refusal passed.
 declared = {}
+case_status = {}
 for inv in invocations:
     # run_case:           NAME METHOD "PATH" ...
     # run_multipart_case: NAME "PATH" FIELD ...
@@ -74,8 +78,11 @@ for inv in invocations:
     if not m:
         continue
     tail = re.search(r'(\d{3})\s*$', inv)
+    name_m = re.match(r'run_\w*case\s+"([^"]*)"', inv)
     if tail:
         declared.setdefault(m.group(1), set()).add(int(tail.group(1)))
+        if name_m:
+            case_status[name_m.group(1)] = int(tail.group(1))
 
 assert invocations, "no run_case invocations parsed -- the parser is broken, not the sweep"
 undeclared = [i for i in invocations if not re.search(r'\d{3}\s*$', i)]
@@ -130,12 +137,21 @@ for inv in invocations:
         case_names.setdefault(m.group(2), []).append(m.group(1))
 
 def covered(ep):
-    if not any(200 <= c < 300 for c in declared.get(ep, ())):
-        return False
-    names = case_names.get(ep, [])
+    """Covered = a case that DECLARED a 2xx for this endpoint actually passed.
+
+    Checking the endpoint's declared statuses and its passing case names
+    separately was wrong: `branches/delete` has a 200 success case and a 409
+    refusal case, so a broken success path was still counted as covered because
+    the refusal passed. The verdict has to belong to the invocation that
+    declared the 2xx.
+    """
     if not run_seen:
         return False              # no evidence at all -> nothing is covered
-    return any(n in run_ok for n in names)
+    for name in case_names.get(ep, []):
+        status = case_status.get(name)
+        if status is not None and 200 <= status < 300 and name in run_ok:
+            return True
+    return False
 
 ok  = [e for e in mutating if covered(e)]
 ref = [e for e in mutating if e in declared and not covered(e)]
