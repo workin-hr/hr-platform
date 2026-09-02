@@ -59,6 +59,37 @@ def build_client(root: Path, name: str, data_source: str = DATA_SOURCE) -> None:
     (base / 'lib/data/response/things_response.dart').write_text(MODEL)
 
 
+REPORT = """# {title} client contract conformance
+
+| | count |
+|---|---|
+| API endpoint constants declared by the client | {declared} |
+| Referenced from client source (reachable) | {referenced} |
+| Distinct paths the data source actually calls | {paths} |
+| Contracts statically derived from client source | {calls} |
+| Client parsers extracted | {parsers} |
+| **Contracts replayed against PHP and Java** | **0** |
+{unused}
+"""
+
+
+def commit_report(root: Path, name: str, **overrides) -> None:
+    """The generated report, as build_report.py would write its number rows."""
+    contract = json.loads((root / f'spike/client-contract/{name}-contracts.json').read_text())
+    values = {
+        'title': name.capitalize(),
+        'declared': contract['endpoints_declared'],
+        'referenced': contract['endpoints_referenced'],
+        'paths': len({c['path'] for c in contract['calls']}),
+        'calls': len(contract['calls']),
+        'parsers': len(contract['models']),
+        'unused': '\n'.join(f'- `{e}`' for e in contract['declared_not_referenced']),
+    }
+    values.update(overrides)
+    (root / f'spike/client-contract/{name.upper()}-CONTRACT-REPORT.md').write_text(
+        REPORT.format(**values))
+
+
 def commit_contract(root: Path, name: str) -> None:
     out = subprocess.run([sys.executable, str(EXTRACTOR),
                           str(root / 'flutter-integration' / f'workin_{name}')],
@@ -89,6 +120,7 @@ def main() -> int:
         root = Path(tmp)
         build_client(root, 'desktop')
         commit_contract(root, 'desktop')
+        commit_report(root, 'desktop')
         results.append(case('a contract matching its client source passes', root, None, 1))
 
         # A client that gained a call the committed contract does not have.
@@ -107,6 +139,7 @@ def main() -> int:
 
         # And the reverse: the committed contract keeps a call the client dropped.
         commit_contract(root, 'desktop')
+        commit_report(root, 'desktop')
         build_client(root, 'desktop', DATA_SOURCE)
         results.append(case('a removed client call is reported', root, 'no longer calls'))
 
@@ -114,10 +147,53 @@ def main() -> int:
         root = Path(tmp)
         build_client(root, 'desktop')
         commit_contract(root, 'desktop')
+        commit_report(root, 'desktop')
         (root / 'flutter-integration/workin_desktop/lib/data/response/things_response.dart').write_text(
             MODEL.replace('class ThingsResponse', 'class RenamedResponse')
                  .replace('ThingsResponse.fromJson', 'RenamedResponse.fromJson'))
-        results.append(case('a renamed parser is reported', root, 'parsers changed'))
+        results.append(case('a renamed parser is reported', root, "exists only in the"))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # A field the projection used to ignore: same path, method and model.
+        root = Path(tmp)
+        build_client(root, 'desktop')
+        commit_contract(root, 'desktop')
+        commit_report(root, 'desktop')
+        changed = DATA_SOURCE.replace('requestMethod: RequestMethod.get,',
+                                      'requestMethod: RequestMethod.get,\n      query: {ApiConstants.idKey: 1},')
+        build_client(root, 'desktop', changed)
+        results.append(case('a changed request parameter is reported', root, 'changed (query_keys)'))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # And a parser that keeps its name while reading something else.
+        root = Path(tmp)
+        build_client(root, 'desktop')
+        commit_contract(root, 'desktop')
+        commit_report(root, 'desktop')
+        (root / 'flutter-integration/workin_desktop/lib/data/response/things_response.dart').write_text(
+            MODEL.replace('json.getInt(ApiConstants.idKey)', 'json.getIntOrNull(ApiConstants.idKey)'))
+        results.append(case('a parser reading with a different accessor is reported',
+                            root, 'reads different fields'))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # The half that has to work with no client checkout at all.
+        root = Path(tmp)
+        build_client(root, 'desktop')
+        commit_contract(root, 'desktop')
+        commit_report(root, 'desktop', calls=99)
+        import shutil
+        shutil.rmtree(root / 'flutter-integration')
+        results.append(case('a stale report is reported even with no client checkout',
+                            root, 'says 99'))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        build_client(root, 'desktop')
+        commit_contract(root, 'desktop')
+        import shutil
+        shutil.rmtree(root / 'flutter-integration')
+        results.append(case('a missing report is reported even with no client checkout',
+                            root, 'is missing but'))
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)

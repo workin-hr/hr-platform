@@ -16,13 +16,24 @@ muts = load('mutation-results', [])
 ups = load('upload-results', [])
 
 rows = []
+skipped = []
 for r in reads:
     rows.append((r['path'], 'GET', r['model'], r['php'], r['java'], True))
 for r in muts:
+    if 'php' not in r:
+        skipped.append((r['path'], r.get('skipped', 'withheld')))
     if 'php' in r:
         rows.append((r['path'], r['method'], r['model'], r['php'], r['java'], r.get('status_as_expected')))
 for r in ups:
-    rows.append((r['path'], 'POST (multipart)', r['model'], r['php'], r['java'], r.get('status_as_expected')))
+    # Same guard the mutation rows get: a case whose reseed failed writes only
+    # `path` and `skipped`, and reading `model`/`php`/`java` from it raised a
+    # KeyError -- so the builder crashed instead of producing the report whose
+    # verdict was deliberately withheld.
+    if 'php' in r:
+        rows.append((r['path'], 'POST (multipart)', r['model'], r['php'], r['java'],
+                     r.get('status_as_expected')))
+    else:
+        skipped.append((r['path'], r.get('skipped', 'withheld')))
 
 def verdict(php, java, declared_ok):
     if php['verdict'] != java['verdict'] or php['status'] != java['status']:
@@ -85,6 +96,16 @@ w('|---|---|---|---|---|---|')
 for path, method, model, php, java, ok in sorted(rows):
     w(f"| `{path}` | {method} | `{model}` | {php['status']} {php['verdict']} "
       f"| {java['status']} {java['verdict']} | {verdict(php, java, ok)} |")
+if skipped:
+    w('')
+    w('## Cases whose verdict was withheld')
+    w('')
+    w('A case whose database reseed failed compares contaminated state, so no')
+    w('verdict is recorded for it. These are **not** counted as verified:')
+    w('')
+    for path, why in skipped:
+        w(f'- `{path}` -- {why}')
+
 if CLIENT == 'mobile':
     w('')
     w('## Findings')

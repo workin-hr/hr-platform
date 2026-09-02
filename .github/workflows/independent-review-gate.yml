@@ -99,12 +99,23 @@ permissions:
   statuses: write
 
 concurrency:
-  # Keyed on the commit, not the pull request: two events racing on the same
-  # head must not both publish, and a new push has its own group. An
-  # issue_comment payload carries no head SHA, so it keys on the pull request
-  # number instead -- the same pull request's comments still serialise.
-  group: independent-review-gate-${{ github.event.pull_request.head.sha
-    || format('issue-{0}', github.event.issue.number) }}
+  # Keyed on the PULL REQUEST, so every event for it serialises -- push,
+  # review, comment and retarget alike.
+  #
+  # Keying on the head SHA looked tighter and was wrong: an issue_comment
+  # payload carries no SHA, so a comment run landed in a different group from a
+  # concurrent retarget run for the same pull request. The comment run could
+  # then read the standing status BEFORE the retarget published its marker,
+  # match the pre-retarget review on the unchanged SHA, and publish success
+  # after the retarget published failure. Latest status wins, so the gate would
+  # go green for a diff the reviewer never saw -- the one outcome it exists to
+  # prevent.
+  #
+  # Two pull requests sitting on the same commit still race, and harmlessly:
+  # the job below computes its answer across every open pull request at that
+  # commit, so both runs compute the same value.
+  group: independent-review-gate-pr-${{ github.event.pull_request.number
+    || github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:

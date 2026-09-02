@@ -144,8 +144,18 @@ jobs:
       # is derived purely from the pinned client checkouts, so it can drift
       # silently when the extractor or a submodule moves. Skips, loudly, when
       # the submodules are not initialised.
-      - name: Check the client contract against the client source
+      # The client submodules are SSH URLs to repositories outside this
+      # organisation, so this checkout cannot fetch them and the contract cannot
+      # be re-derived here. What CI *can* enforce is that the committed reports
+      # match the committed contracts, which is what this does without them.
+      - name: Check the client contract against the client source and reports
         run: python3 scripts/check_client_contract_drift.py
+
+      # ...and the checker's own fixtures, which do not need the submodules
+      # either. Without this the six cases could stop executing while the step
+      # above kept passing.
+      - name: Pin what the client-contract drift check catches
+        run: python3 scripts/test_check_client_contract_drift.py
 
       - name: Run actionlint
         run: actionlint -color
