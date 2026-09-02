@@ -29,6 +29,15 @@ public final class DeviceInput {
 	 */
 	private static final Pattern STAMP = Pattern.compile("^\\d{1,32}$");
 
+	/**
+	 * A device PIN. One rule for every path that handles one -- the receiver's
+	 * parser, the binding API and both {@code VARCHAR(32)} columns -- because
+	 * a PIN the API accepts but the parser rejects is the worst combination:
+	 * the binding reports success and every punch it should have matched is
+	 * quarantined as malformed instead.
+	 */
+	private static final Pattern PIN = Pattern.compile("^\\d{1,32}$");
+
 	private DeviceInput() {
 	}
 
@@ -38,6 +47,10 @@ public final class DeviceInput {
 
 	public static boolean isValidStamp(String value) {
 		return value != null && STAMP.matcher(value).matches();
+	}
+
+	public static boolean isValidPin(String value) {
+		return value != null && PIN.matcher(value).matches();
 	}
 
 	/** Stripped, bounded to {@code max}, and null rather than empty. */

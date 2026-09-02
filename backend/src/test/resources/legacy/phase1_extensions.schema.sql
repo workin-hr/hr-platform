@@ -140,12 +140,17 @@ CREATE TABLE unclaimed_device_sightings (
 
 -- Device operation log lines (OPLOG records only -- biometric template
 -- lines that share the same upload are discarded before this table).
+-- The handshake always answers OPERLOGStamp=0, so a reconnecting terminal
+-- replays operation logs it already delivered. Without a key of their own
+-- these rows would duplicate the whole history on every reconnect, so they
+-- get the same content-hash treatment the punches have.
 CREATE TABLE device_operation_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     device_id BIGINT NOT NULL,
     company_id INT UNSIGNED NOT NULL,
     received_at DATETIME NOT NULL,
-    raw_line VARCHAR(512) NOT NULL
+    raw_line VARCHAR(512) NOT NULL,
+    dedup_key CHAR(64) NOT NULL UNIQUE
 );
 
 CREATE INDEX device_operation_logs_device_idx ON device_operation_logs (device_id, received_at);

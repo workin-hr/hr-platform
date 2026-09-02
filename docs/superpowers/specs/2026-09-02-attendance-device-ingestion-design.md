@@ -201,8 +201,17 @@ possession, so *who is allowed to establish ownership* is the only real
 control:
 
 - **Pilot — accepted as built.** Supervised claiming by a tenant
-  `company_admin`/`hr` through `/api/v1/devices/**`, attributed to the
-  employee who made it.
+  `company_admin`/`hr` through `/api/v1/devices/**`. The claim, the sighting
+  cleanup and the read-back are one transaction, so a failure cannot leave a
+  serial owned by a caller who was told the claim failed — which, with no
+  unclaim path, would have needed a manual database correction.
+  **Attribution is weaker than it first looks**: legacy issues a
+  `type=company` token for a company admin, and that token identifies the
+  company rather than a person, so `registered_by_employee_id` is null for
+  those claims. An individual actor is recorded only when the caller holds an
+  employee token. Genuine per-person attribution depends on the individual
+  platform-admin identity work (F-26) that production claiming is gated on
+  anyway.
 - **Production — required, not yet built.** Tenant admins may not claim by
   serial number at all. **Platform staff pre-allocate a device to a
   company**; tenant HR then only assigns an already-owned device to one of
@@ -353,6 +362,14 @@ Three facts drive the design:
   content-hash idempotency for the duplicates that produces. The observed
   stamp is still recorded as a diagnostic and never used. A trusted bookmark
   needs the firmware's stamp encoding, which is a §4.3 question.
+- **The record cap counts records, not separators.** A batch of exactly the
+  maximum ends with a line terminator, and counting terminators would refuse
+  it — so a terminal that always fills its batch would retry the same upload
+  forever, which is the failure the cap exists to prevent rather than cause.
+- **An operation-log replay is idempotent.** Because the handshake always asks
+  a device to resume from the beginning, operation lines carry the same kind of
+  content-hash key the punches do; otherwise every reconnect would append the
+  terminal's whole history again.
 - **A byte cap does not bound the work.** A one-megabyte body of minimal
   lines is tens of thousands of records, and each becomes a statement, so one
   permitted request turns into tens of thousands of database operations that
@@ -461,6 +478,18 @@ itself) updates model, firmware and push version in the registry.
   MariaDB table that frozen PHP still reads (Q5). `attendance_source_punches`
   links each derived row to the punches that produced it.
 
+**Device rows follow the lifecycle of what they point at.** None of the five
+tables has a foreign key — they are Phase-1-owned, and the legacy dump adds its
+own constraints separately — so every lifecycle is closed in code, and each
+tolerates the tables being absent because provisioning is still open (R-023 /
+Q7). Deleting an **employee** removes their PIN binding, on both paths that
+delete one, or the identities endpoint would list a PIN against a blank
+employee and the unique key would keep that PIN from ever being reissued.
+Deleting a **branch** deactivates the devices placed in it rather than refusing
+the deletion: `branches/delete.php` answers 200 today and D-111 does not permit
+that route to start answering 409, so the terminal keeps its registration and
+history but stops ingesting into a branch that no longer exists.
+
 **A company's device data is deleted with the company.** `LegacyCompanyDelete`
 cascades through explicit table lists, and the five device tables are added to
 it (children first, tolerating a table a deployment has not provisioned).
@@ -491,8 +520,13 @@ verified first. **Migration shape**: `attendance` is 36,316 rows / 64 MB, and
 a fourth value does not change a `≤255`-value enum's one-byte storage, so the
 `ALTER` should be `ALGORITHM=INSTANT` and is trivial even if it copies.
 
-DDL sketch for `phase1_extensions.schema.sql` (Slice A tables; MariaDB
-dialect, matching `legacy_refresh_tokens`'s style):
+**`backend/src/test/resources/legacy/phase1_extensions.schema.sql` is the
+authoritative schema — provision from that file, not from this section.** What
+follows shows the three tables whose shape the design turns on; the other two
+(`employee_device_identities`, §7.2, and `device_operation_logs`, which mirrors
+`device_punches`'s content-hash key so a replayed operation log is stored once)
+live in the same file. This sketch drifted from the real schema once already,
+which is why it now says where the truth is instead of trying to be it.
 
 ```sql
 CREATE TABLE attendance_devices (
@@ -521,6 +555,10 @@ CREATE TABLE device_punches (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     device_id BIGINT NOT NULL,
     company_id INT UNSIGNED NOT NULL,
+    -- Snapshotted at ingestion, not read back through the device: a terminal
+    -- can be moved between branches, and reporting its current branch would
+    -- retroactively relabel every punch it ever sent.
+    branch_id INT UNSIGNED NOT NULL,
     employee_id INT UNSIGNED NULL,
     pin VARCHAR(32) NOT NULL,
     punched_at_local DATETIME NOT NULL,
@@ -551,8 +589,9 @@ CREATE TABLE unclaimed_device_sightings (
 );
 ```
 
-`company_id` on `device_punches` is denormalised from the device row at
-insert so every tenant-scoped read has a direct predicate. `punched_at_utc`
+`company_id` and `branch_id` on `device_punches` are both snapshotted from the
+device row at insert — the first so every tenant-scoped read has a direct
+predicate, the second so a device's history is not rewritten when it moves. `punched_at_utc`
 is derived from `punched_at_local` and the device's zone; Slice B writes
 `attendance.check_in` in legacy's runtime offset (`LegacyRuntimeOffset`,
 D-099), not in UTC, so it compares correctly with app and QR rows.
@@ -609,6 +648,10 @@ Rules, against legacy behaviour:
   employment, so a punch on a departed employee's PIN is `UNMATCHED` for
   review rather than attributed to them — a deliberate difference from the
   Excel import, which applies no such filter.
+- **An unrecognised `is_active` is refused, not read as false.** This is a new
+  JSON API rather than a PHP-coercion route, so a typo or a null would
+  otherwise deactivate the terminal and start refusing its punches — with a 200
+  to say it worked.
 - **A punch records the branch it happened at**, snapshotted from the device
   at ingestion rather than read back through the registry. A terminal can be
   moved between branches, and reporting its current branch would retroactively
@@ -638,6 +681,16 @@ server. The design compensates:
   that treats every byte as hostile, and — at the reverse proxy, not in the
   application — per-IP rate limits and soft-binding of serial to the observed
   address with alerting (not blocking, since branch addresses change).
+- **An unclaimed sighting expires.** Every syntactically valid serial sent to
+  the public routes creates a row, and only a claim removes one, so without a
+  retention window a slow distributed probe could grow that table indefinitely
+  without knowing a single real serial. Rows unseen for 30 days are pruned, and
+  only when a genuinely new serial arrives, which keeps the cost off the path a
+  real device takes every few seconds.
+- **One PIN rule everywhere.** The binding API, the receiver's parser and both
+  columns share a single definition. A PIN the API accepted but the parser
+  rejected was the worst combination available: the binding reported success
+  and every punch it should have matched was quarantined as malformed.
 - **A serial number is validated before it is used for anything.** Shape and
   length, at the entry of every device route. This is not tidiness: the
   legacy database is non-strict, so an over-long serial would be *truncated*
@@ -815,6 +868,12 @@ test that exists and passes.
   trailing space still resolves; an over-long serial is refused rather than
   registered as its prefix; and a zone that turns fractional in another season
   is refused.
+- Added by the **second review round** (D-159), which found eleven more:
+  a batch of exactly the record cap is accepted terminator and all; a replayed
+  operation log is stored once; a PIN at the API's limit still resolves a
+  punch; an over-long `PushVersion` is bounded to its column; an unrecognised
+  `is_active` is refused rather than deactivating the device; and deleting a
+  branch deactivates the terminals placed in it.
 - Not automated in this slice: the §4.3 hardware checklist (needs a real
   terminal) and a standalone simulator CLI for it.
 

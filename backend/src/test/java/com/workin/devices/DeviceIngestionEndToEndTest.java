@@ -52,6 +52,7 @@ class DeviceIngestionEndToEndTest {
 	private static final long COMPANY_SUSPENDED = 9503L;
 	private static final long BRANCH_1 = 9511L;
 	private static final long BRANCH_1B = 9514L;
+	private static final long BRANCH_DISPOSABLE = 9515L; // COMPANY_1, deleted by one test
 	private static final long BRANCH_2 = 9512L;
 
 	private static final long ADMIN_1 = 95011L;       // COMPANY_1, company_admin
@@ -416,6 +417,65 @@ class DeviceIngestionEndToEndTest {
 				.isEqualTo("RECEIVED");
 	}
 
+	/**
+	 * The cap counts records, not line terminators. A batch of exactly the
+	 * maximum ends with one, and counting separators would refuse it -- so a
+	 * device that always fills its batch would retry the same upload forever.
+	 */
+	@Test
+	void aBatchOfExactlyTheRecordCapIsAcceptedTerminatorAndAll() throws Exception {
+		long deviceId = claim(ADMIN_1, "DEV-AC", BRANCH_1, "Gate AC", "+02:00");
+
+		StringBuilder exactlyTen = new StringBuilder();
+		for (int minute = 0; minute < 10; minute++) {
+			exactlyTen.append("1001\t2024-11-01 08:%02d:00\t0\t1\r\n".formatted(minute));
+		}
+		ResponseEntity<String> accepted = devicePost("/iclock/cdata?SN=DEV-AC&table=ATTLOG&Stamp=1", exactlyTen.toString());
+
+		assertThat(accepted.getStatusCode().value()).isEqualTo(200);
+		assertThat(accepted.getBody()).isEqualTo("OK: 10");
+		assertThat(count("SELECT COUNT(*) FROM device_punches WHERE device_id = " + deviceId)).isEqualTo(10);
+	}
+
+	/**
+	 * Every handshake asks a terminal to replay its operation log, so the
+	 * replay must not duplicate what is already stored.
+	 */
+	@Test
+	void replayedOperationLogsAreStoredOnce() throws Exception {
+		long deviceId = claim(ADMIN_1, "DEV-AD", BRANCH_1, "Gate AD", "+02:00");
+		String body = "OPLOG 13\t0\t2024-03-12 11:03:28\t0\t0\t0\t0\r\nOPLOG 0\t0\t2024-03-12 11:03:48";
+
+		devicePost("/iclock/cdata?SN=DEV-AD&table=OPERLOG&Stamp=1", body);
+		devicePost("/iclock/cdata?SN=DEV-AD&table=OPERLOG&Stamp=1", body);
+
+		assertThat(count("SELECT COUNT(*) FROM device_operation_logs WHERE device_id = " + deviceId)).isEqualTo(2);
+	}
+
+	/** A PIN the binding API accepts must be one the receiver's parser also accepts. */
+	@Test
+	void aPinAtTheApiLimitStillResolvesAPunch() throws Exception {
+		long deviceId = claim(ADMIN_1, "DEV-AE", BRANCH_1, "Gate AE", "+02:00");
+		String longPin = "9".repeat(30);
+		api(HttpMethod.PUT, "/api/v1/devices/identities", ADMIN_1,
+				"{\"employee_id\":" + EMPLOYEE_1002 + ",\"pin\":\"" + longPin + "\"}", 200);
+
+		devicePost("/iclock/cdata?SN=DEV-AE&table=ATTLOG&Stamp=1", longPin + "\t2024-11-02 08:00:00\t0\t1\r\n");
+
+		assertThat(count("SELECT employee_id FROM device_punches WHERE device_id = " + deviceId + " AND pin = '" + longPin + "'"))
+				.isEqualTo(EMPLOYEE_1002);
+	}
+
+	/** A push version longer than its column must be bounded before it reaches the column. */
+	@Test
+	void anOverlongPushVersionIsBoundedToItsColumn() throws Exception {
+		long deviceId = claim(ADMIN_1, "DEV-AF", BRANCH_1, "Gate AF", "+02:00");
+
+		devicePost("/iclock/cdata?SN=DEV-AF&table=options", "~DeviceName=K40,PushVersion=" + "9".repeat(80));
+
+		assertThat(text("SELECT push_version FROM attendance_devices WHERE id = " + deviceId)).hasSize(32);
+	}
+
 	@Test
 	void aMissingSerialIsAPlainTextBadRequestNotAJsonError() {
 		ResponseEntity<String> response = deviceGet("/iclock/getrequest");
@@ -558,6 +618,32 @@ class DeviceIngestionEndToEndTest {
 		assertThat(text("SELECT employee_id FROM device_punches WHERE device_id = " + deviceId + " AND pin = '1003'")).isNull();
 	}
 
+	/** Silently reading an unrecognised value as false would deactivate the terminal. */
+	@Test
+	void anUnrecognisedIsActiveValueIsRefusedRatherThanDeactivatingTheDevice() throws Exception {
+		long deviceId = claim(ADMIN_1, "DEV-AG", BRANCH_1, "Gate AG", "+02:00");
+
+		assertThat(api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1, "{\"is_active\":\"treu\"}", 400)
+				.get("code")).isEqualTo("devices.is_active_invalid");
+		assertThat(api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1, "{\"is_active\":null}", 400)
+				.get("code")).isEqualTo("devices.is_active_invalid");
+		assertThat(count("SELECT is_active FROM attendance_devices WHERE id = " + deviceId)).isEqualTo(1);
+	}
+
+	/** Deleting a branch must stop its terminal ingesting into a branch that no longer exists. */
+	@Test
+	void deletingABranchDeactivatesTheDevicesPlacedInIt() throws Exception {
+		long deviceId = claim(ADMIN_1, "DEV-AH", BRANCH_DISPOSABLE, "Gate AH", "+02:00");
+
+		Map<String, Object> deleted = api(HttpMethod.DELETE, "/apis/api/branches/delete.php?id=" + BRANCH_DISPOSABLE,
+				ADMIN_1, null, 200);
+		assertThat(deleted.get("success")).isEqualTo(true);
+
+		assertThat(count("SELECT is_active FROM attendance_devices WHERE id = " + deviceId)).isZero();
+		assertThat(devicePost("/iclock/cdata?SN=DEV-AH&table=ATTLOG&Stamp=1", ATTLOG_TWO_PUNCHES)
+				.getStatusCode().value()).isEqualTo(403);
+	}
+
 	@Test
 	void thePunchesEndpointShowsOnlyTheCallersCompany() throws Exception {
 		long deviceId = claim(ADMIN_1, "DEV-N", BRANCH_1, "Gate N", "+02:00");
@@ -687,7 +773,8 @@ class DeviceIngestionEndToEndTest {
 					  (9511, 9501, 'Co1 HQ', 1, '2025-03-01 10:00:00'),
 					  (9512, 9502, 'Co2 HQ', 1, '2025-03-01 10:00:00'),
 					  (9513, 9503, 'Suspended HQ', 1, '2025-03-01 10:00:00'),
-					  (9514, 9501, 'Co1 Second Branch', 1, '2025-03-01 10:00:00')
+					  (9514, 9501, 'Co1 Second Branch', 1, '2025-03-01 10:00:00'),
+					  (9515, 9501, 'Co1 Disposable Branch', 1, '2025-03-01 10:00:00')
 					""");
 			st.execute("""
 					INSERT INTO employees

@@ -122,7 +122,7 @@ class ZkTecoAttlogParserTest {
 				"abc\t2024-07-28 08:00:00\t0\t1",          // PIN is not numeric
 				"1002\tyesterday\t0\t1",                   // time is not a timestamp
 				"just-one-field",                          // no tab at all
-				"1234567890123456789012345\t2024-07-28 08:00:00", // PIN longer than any firmware allows
+				"9".repeat(33) + "\t2024-07-28 08:00:00",   // PIN past the shared 32-digit limit
 				"",
 				"1003\t2024-07-28 09:00:00\t0\t1"), CAIRO);
 

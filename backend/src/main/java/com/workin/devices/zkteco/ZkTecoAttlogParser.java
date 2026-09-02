@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import com.workin.devices.DeviceAttendanceEvent;
+import com.workin.devices.DeviceInput;
 
 /**
  * {@code table=ATTLOG} bodies: one punch per line, tab-separated
@@ -25,9 +26,6 @@ import com.workin.devices.DeviceAttendanceEvent;
  * them; nothing in a line is ever interpreted as more than text or a number.
  */
 public final class ZkTecoAttlogParser {
-
-	/** Digits only, bounded: the longest PIN any documented firmware accepts is 24. */
-	private static final Pattern PIN = Pattern.compile("^\\d{1,24}$");
 
 	/** A Unix-seconds timestamp, the one alternative to the wall-clock form some firmwares send. */
 	private static final Pattern EPOCH_SECONDS = Pattern.compile("^\\d{9,11}$");
@@ -97,7 +95,7 @@ public final class ZkTecoAttlogParser {
 			return null;
 		}
 		String pin = fields[0].strip();
-		if (!PIN.matcher(pin).matches()) {
+		if (!DeviceInput.isValidPin(pin)) {
 			return null;
 		}
 		Punched punched = parseTime(fields[1].strip(), deviceZone);

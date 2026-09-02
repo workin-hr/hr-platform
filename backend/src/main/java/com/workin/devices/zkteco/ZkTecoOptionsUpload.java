@@ -16,6 +16,14 @@ public final class ZkTecoOptionsUpload {
 	/** The model/firmware columns are VARCHAR(100). */
 	private static final int MAX_VALUE = 100;
 
+	/**
+	 * {@code attendance_devices.push_version} is VARCHAR(32), narrower than
+	 * the others. Bounding it here rather than at the column keeps the
+	 * non-strict database from truncating it silently -- and a strict one from
+	 * refusing the update and making the terminal retry.
+	 */
+	private static final int MAX_PUSH_VERSION = 32;
+
 	private ZkTecoOptionsUpload() {
 	}
 
@@ -32,7 +40,8 @@ public final class ZkTecoOptionsUpload {
 			pairs.put(part.substring(0, eq).strip(), DeviceInput.bounded(part.substring(eq + 1), MAX_VALUE));
 		}
 		return new SelfDescription(
-				pairs.get("~DeviceName"), pairs.get("FirmVer"), pairs.get("PushVersion"));
+				pairs.get("~DeviceName"), pairs.get("FirmVer"),
+				DeviceInput.bounded(pairs.get("PushVersion"), MAX_PUSH_VERSION));
 	}
 
 }

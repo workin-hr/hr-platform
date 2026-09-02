@@ -38,6 +38,11 @@ public record DeviceAttendanceEvent(
 
 	public static final DateTimeFormatter SQL_DATE_TIME = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss");
 
+	/** {@code sha256(device | line)}, hex -- the idempotency key for a record that has no other identity. */
+	public static String contentKey(long deviceId, String line) {
+		return sha256(deviceId + "|" + line);
+	}
+
 	/**
 	 * {@code sha256(serial | pin | time | status)}, hex. A device that loses
 	 * the acknowledgement re-sends the batch; a factory reset resets its stamp
@@ -57,8 +62,10 @@ public record DeviceAttendanceEvent(
 		String when = punchedAtInstant != null
 				? "@" + punchedAtInstant.getEpochSecond()
 				: SQL_DATE_TIME.format(punchedAtLocal);
-		String material = serialNumber + "|" + pin + "|" + when + "|"
-				+ (statusCode == null ? "" : statusCode);
+		return sha256(serialNumber + "|" + pin + "|" + when + "|" + (statusCode == null ? "" : statusCode));
+	}
+
+	private static String sha256(String material) {
 		try {
 			byte[] digest = MessageDigest.getInstance("SHA-256").digest(material.getBytes(StandardCharsets.UTF_8));
 			return HexFormat.of().formatHex(digest);

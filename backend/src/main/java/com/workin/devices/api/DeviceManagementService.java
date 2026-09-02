@@ -10,10 +10,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Pattern;
+
+import javax.sql.DataSource;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.workin.backend.i18n.ApiException;
 import com.workin.devices.DeviceInput;
@@ -40,8 +43,6 @@ import com.workin.legacy.LegacyRuntimeOffset;
 @Service
 public class DeviceManagementService {
 
-	private static final Pattern PIN = Pattern.compile("^\\d{1,32}$");
-
 	private static final int DEFAULT_PUNCHES_PAGE = 100;
 
 	private static final int MAX_PUNCHES_PAGE = 500;
@@ -62,15 +63,18 @@ public class DeviceManagementService {
 	private final EmployeeDeviceIdentityStore identities;
 	private final DevicePunchStore punches;
 	private final LegacyClock clock;
+	private final TransactionTemplate transactions;
 
 	public DeviceManagementService(
 			AttendanceDeviceStore devices, UnclaimedDeviceSightingStore sightings,
-			EmployeeDeviceIdentityStore identities, DevicePunchStore punches, LegacyClock clock) {
+			EmployeeDeviceIdentityStore identities, DevicePunchStore punches, LegacyClock clock,
+			DataSource legacyDataSource) {
 		this.devices = devices;
 		this.sightings = sightings;
 		this.identities = identities;
 		this.punches = punches;
 		this.clock = clock;
+		this.transactions = new TransactionTemplate(new DataSourceTransactionManager(legacyDataSource));
 	}
 
 	public List<AttendanceDevice> list(long companyId) {
@@ -90,14 +94,21 @@ public class DeviceManagementService {
 		String name = requiredText(body, "name", "devices.name_required", 255);
 		long branchId = requireOwnBranch(companyId, body.get("branch_id"));
 		String zone = zoneOrDefault(body.get("device_time_zone"));
-		Optional<Long> id = devices.claim(
-				companyId, branchId, DeviceVendor.ZKTECO.code(), serialNumber, name, zone,
-				actorEmployeeId > 0 ? actorEmployeeId : null, clock.now());
-		if (id.isEmpty()) {
-			throw new ApiException(HttpStatus.CONFLICT, "devices.serial_already_claimed");
-		}
-		sightings.forget(serialNumber);
-		return require(companyId, id.get());
+		// One transaction over the insert, the sighting cleanup and the read
+		// back. Previously the insert committed on its own, so a failure in
+		// either later step answered 500 while the serial was already owned --
+		// and with no unclaim path (R-041) the caller was left needing a
+		// manual database correction for a claim they were never told about.
+		return transactions.execute(status -> {
+			Optional<Long> id = devices.claim(
+					companyId, branchId, DeviceVendor.ZKTECO.code(), serialNumber, name, zone,
+					actorEmployeeId > 0 ? actorEmployeeId : null, clock.now());
+			if (id.isEmpty()) {
+				throw new ApiException(HttpStatus.CONFLICT, "devices.serial_already_claimed");
+			}
+			sightings.forget(serialNumber);
+			return require(companyId, id.get());
+		});
 	}
 
 	public AttendanceDevice update(long companyId, long id, Map<String, Object> body) {
@@ -105,7 +116,7 @@ public class DeviceManagementService {
 		String name = body.containsKey("name") ? requiredText(body, "name", "devices.name_required", 255) : null;
 		Long branchId = body.containsKey("branch_id") ? requireOwnBranch(companyId, body.get("branch_id")) : null;
 		String zone = body.containsKey("device_time_zone") ? zoneOrDefault(body.get("device_time_zone")) : null;
-		Boolean active = body.containsKey("is_active") ? truthy(body.get("is_active")) : null;
+		Boolean active = body.containsKey("is_active") ? requiredBoolean(body.get("is_active")) : null;
 		if (name == null && branchId == null && zone == null && active == null) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "devices.nothing_to_update");
 		}
@@ -151,7 +162,7 @@ public class DeviceManagementService {
 			throw new ApiException(HttpStatus.NOT_FOUND, "devices.employee_not_found");
 		}
 		String pin = requiredText(body, "pin", "devices.pin_required", 32);
-		if (!PIN.matcher(pin).matches()) {
+		if (!DeviceInput.isValidPin(pin)) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "devices.pin_invalid");
 		}
 		String cardNo = DeviceInput.bounded(asText(body.get("card_no")), 32);
@@ -288,15 +299,24 @@ public class DeviceManagementService {
 		}
 	}
 
-	private static Boolean truthy(Object raw) {
+	/**
+	 * Strict, unlike the PHP-coercion routes: this is a new JSON API, and the
+	 * lenient reading turned every unrecognised value -- {@code null}, a typo
+	 * like {@code "treu"} -- into {@code false}, so a malformed request
+	 * silently deactivated the terminal and its punches began to be refused.
+	 */
+	private static Boolean requiredBoolean(Object raw) {
 		if (raw instanceof Boolean bool) {
 			return bool;
 		}
-		if (raw instanceof Number number) {
-			return number.longValue() != 0L;
-		}
 		String text = raw == null ? "" : String.valueOf(raw).strip().toLowerCase(Locale.ROOT);
-		return "1".equals(text) || "true".equals(text);
+		if ("true".equals(text) || "1".equals(text)) {
+			return Boolean.TRUE;
+		}
+		if ("false".equals(text) || "0".equals(text)) {
+			return Boolean.FALSE;
+		}
+		throw new ApiException(HttpStatus.BAD_REQUEST, "devices.is_active_invalid");
 	}
 
 }

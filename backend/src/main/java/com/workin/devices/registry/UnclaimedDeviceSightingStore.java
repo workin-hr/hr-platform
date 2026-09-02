@@ -29,9 +29,20 @@ public class UnclaimedDeviceSightingStore {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 	}
 
+	/**
+	 * How long a serial nobody claimed stays on record.
+	 *
+	 * <p>Every syntactically valid serial sent to the public routes creates a
+	 * row here, and a claim is the only thing that removes one -- so without
+	 * an expiry a slow, distributed probe could grow this table indefinitely
+	 * without ever knowing a real serial. Rate limiting at the edge bounds how
+	 * fast rows arrive, not how many accumulate.
+	 */
+	private static final int RETENTION_DAYS = 30;
+
 	public void record(String serialNumber, String ip, String pushVersion, String deviceType, LocalDateTime now) {
 		String stamp = DeviceAttendanceEvent.SQL_DATE_TIME.format(now);
-		jdbcTemplate.update("""
+		int affected = jdbcTemplate.update("""
 				INSERT INTO unclaimed_device_sightings
 				  (serial_number, first_seen_at, last_seen_at, last_seen_ip, push_version, device_type, hit_count)
 				VALUES (?, ?, ?, ?, ?, ?, 1)
@@ -42,6 +53,15 @@ public class UnclaimedDeviceSightingStore {
 				  device_type = COALESCE(VALUES(device_type), device_type),
 				  hit_count = hit_count + 1""",
 				serialNumber, stamp, stamp, ip, pushVersion, deviceType);
+		// MariaDB answers 1 for an insert and 2 for an update on ON DUPLICATE
+		// KEY, so this prunes only when a serial is genuinely new -- which is
+		// exactly when the table can grow, and keeps the cost off the path a
+		// real device takes every few seconds.
+		if (affected == 1) {
+			jdbcTemplate.update(
+					"DELETE FROM unclaimed_device_sightings WHERE last_seen_at < ?",
+					DeviceAttendanceEvent.SQL_DATE_TIME.format(now.minusDays(RETENTION_DAYS)));
+		}
 	}
 
 	public Optional<Map<String, Object>> lookup(String serialNumber) {

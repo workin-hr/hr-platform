@@ -253,13 +253,25 @@ public class ZkTecoAdmsService {
 	 * how punches disappear.
 	 */
 	private boolean exceedsRecordCap(String body) {
-		int lines = 1;
+		int records = 0;
+		int lineLength = 0;
 		for (int index = 0; index < body.length(); index++) {
-			if (body.charAt(index) == '\n' && ++lines > maxRecordsPerUpload) {
-				return true;
+			char character = body.charAt(index);
+			if (character == '\n') {
+				// A line's own terminator does not make it two records, and the
+				// trailing one at the end of a batch makes it none: counting
+				// separators instead would refuse a device that always sends
+				// exactly the maximum, and it would then retry that same batch
+				// forever.
+				if (lineLength > 0 && ++records > maxRecordsPerUpload) {
+					return true;
+				}
+				lineLength = 0;
+			} else if (character != '\r') {
+				lineLength++;
 			}
 		}
-		return false;
+		return lineLength > 0 && records + 1 > maxRecordsPerUpload;
 	}
 
 	private Upload tooManyRecords(AttendanceDevice device, String table) {
