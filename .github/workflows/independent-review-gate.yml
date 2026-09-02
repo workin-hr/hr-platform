@@ -121,6 +121,67 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Every round this reviewer has completed on a given head, newest
+          # last, one ISO timestamp per line.
+          #
+          # A round is EITHER a review object OR a comment carrying the
+          # reviewer's "Reviewed commit" marker, and the second half is not a
+          # convenience -- it is the only form a CLEAN round takes. Measured
+          # across this repository's history:
+          #
+          #   findings      a review object on the head, body beginning
+          #                 "Here are some automated review suggestions"
+          #   no findings   an ISSUE COMMENT, no review object at all, body
+          #                 beginning "Codex Review: Didn't find any major
+          #                 issues." followed by a varying sign-off
+          #
+          # Counting only review objects therefore turned the gate RED exactly
+          # when the reviewer found nothing wrong. #163 is the demonstrated
+          # case: a clean round on its final head, gate red, merged anyway.
+          #
+          # #155 and #156 look similar and are NOT the same thing -- their clean
+          # rounds name earlier commits (8478781b, c4ad9708) than the heads that
+          # merged, so their red gate was correct and this change leaves it red.
+          # Worth writing down because the two are indistinguishable from the
+          # status alone, and only one of them is a defect.
+          #
+          # The marker is the discriminator, not the prose: the sign-off varies
+          # ("Bravo.", "Keep it up!", "Breezy!", ":tada:"), while
+          # "**Reviewed commit:** `<sha>`" is present in every completed round
+          # and absent from every "You have reached your Codex usage limits"
+          # message. That is precisely the line R-009 draws -- a quota-blocked
+          # reviewer leaves the gate UNAVAILABLE, never satisfied -- and it is
+          # why matching on the marker rather than on "no issues" is the safe
+          # choice: a quota message can never satisfy it.
+          #
+          # The SHA is matched as a PREFIX because the marker abbreviates it,
+          # and only against this head, so a marker naming another commit does
+          # not count. Minimum seven hex characters, so a truncated or malformed
+          # marker cannot match everything.
+          #
+          # Trust boundary, stated rather than assumed: the filter is
+          # `user.login == REVIEWER`, which nobody else can forge. A repository
+          # ADMIN could edit the bot's comment body to name a different SHA --
+          # but an admin can already merge, so this grants no capability that
+          # was not already held. Review objects have the same property.
+          rounds_on_head() {  # $1=pull request number -> one timestamp per round
+            local pr="$1"
+            gh api "repos/$REPO/pulls/$pr/reviews" --paginate \
+              --jq '.[] | select(.user.login == env.REVIEWER and .commit_id == env.HEAD_SHA
+                      and .state != "DISMISSED") | .submitted_at' || true
+            gh api "repos/$REPO/issues/$pr/comments" --paginate \
+              --jq '.[] | select(.user.login == env.REVIEWER)
+                      | select(.body | test("\\*\\*Reviewed commit:\\*\\* `[0-9a-f]{7,40}`"))
+                      | [.created_at,
+                         (.body | capture("\\*\\*Reviewed commit:\\*\\* `(?<sha>[0-9a-f]{7,40})`").sha)]
+                      | @tsv' 2>/dev/null \
+              | while IFS="$(printf '\t')" read -r at sha; do
+                  # Prefix, anchored at the start: `${HEAD_SHA#$sha}` differing
+                  # from HEAD_SHA means it matched at position 0.
+                  case "$HEAD_SHA" in "$sha"*) [ -n "$sha" ] && echo "$at" ;; esac
+                done || true
+          }
+
           # A retarget changes the reviewed diff while the head SHA stays put, so
           # a review matching on commit_id alone would still look valid for a
           # diff the reviewer never saw. Fail outright and require a new round.
@@ -137,12 +198,7 @@ jobs:
             )"
             case "$standing" in
               "$RETARGET_MARKER"*)
-                newest_round="$(
-                  gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
-                    --jq '.[] | select(.user.login == env.REVIEWER and .commit_id == env.HEAD_SHA
-                            and .state != "DISMISSED") | .submitted_at' \
-                    | tail -n 1
-                )"
+                newest_round="$(rounds_on_head "$PR" | sort | tail -n 1)"
                 marked_at="${standing##*@ }"
                 if [ -z "$newest_round" ] || [ "$newest_round" \< "$marked_at" ]; then
                   echo "A base change is still outstanding on this head (marked $marked_at)"
@@ -198,12 +254,7 @@ jobs:
             # through to the success path, which would report a green gate on an
             # unreviewed head. One line per match, counted, has no page boundary
             # to trip over. (`--slurp` would also work but is not in every `gh`.)
-            count="$(
-              gh api "repos/$REPO/pulls/$pr/reviews" --paginate \
-                --jq '.[] | select(.user.login == env.REVIEWER and .commit_id == env.HEAD_SHA
-                        and .state != "DISMISSED") | .commit_id' \
-                | wc -l | tr -d '[:space:]'
-            )"
+            count="$(rounds_on_head "$pr" | wc -l | tr -d '[:space:]')"
             echo "  #$pr: $count review(s) from $REVIEWER on this head"
             if [ "$count" -eq 0 ]; then
               unreviewed="$unreviewed #$pr"
