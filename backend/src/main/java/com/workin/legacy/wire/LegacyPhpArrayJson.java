@@ -5,6 +5,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.databind.SerializationContext;
+import tools.jackson.databind.ValueSerializer;
+import tools.jackson.databind.annotation.JsonSerialize;
+
 /**
  * PHP's array-to-JSON rule, for the response maps built by keying on a
  * caller-controlled string.
@@ -37,14 +42,46 @@ import java.util.Map;
  *
  * <h2>What it deliberately does not do</h2>
  * <p>It does not touch nested values it is not given, and it does not reorder.
- * An empty map stays an object, matching {@code (object)[]}: PHP's own empty
- * array would encode as {@code []}, and the endpoints that care already cast
- * around that.
+ * An empty map is answered as {@link #EMPTY_OBJECT}, matching
+ * {@code (object)[]}: PHP's own empty array would encode as {@code []} -- which
+ * is what {@link LegacyPhpEmptyArrayJsonConfig} makes every other empty map on
+ * this surface do -- and the endpoints that care already cast around that.
  */
 public final class LegacyPhpArrayJson {
 
 	private LegacyPhpArrayJson() {
 	}
+
+	/**
+	 * PHP's {@code (object)[]}: an empty structure that must reach the client
+	 * as <code>{}</code> rather than {@code []}.
+	 *
+	 * <p>It carries its own serializer rather than relying on
+	 * {@link LegacyPhpEmptyArrayJsonConfig} being registered, because that
+	 * module is profile-scoped and this value's shape is not negotiable on any
+	 * profile: an empty bean would otherwise fail to serialise at all.
+	 */
+	@JsonSerialize(using = PhpEmptyObject.Json.class)
+	public static final class PhpEmptyObject {
+
+		private PhpEmptyObject() {
+		}
+
+		static final class Json extends ValueSerializer<PhpEmptyObject> {
+
+			@Override
+			public void serialize(
+					PhpEmptyObject value, JsonGenerator generator, SerializationContext context) {
+				generator.writeStartObject();
+				generator.writeEndObject();
+			}
+
+		}
+
+	}
+
+	/** The single instance of {@code (object)[]}; it carries no state. */
+	public static final PhpEmptyObject EMPTY_OBJECT = new PhpEmptyObject();
 
 	/**
 	 * The map as PHP would encode it: the same map when its keys are not a
@@ -54,11 +91,16 @@ public final class LegacyPhpArrayJson {
 	 * @param map insertion-ordered; the order is what decides the answer
 	 */
 	public static Object encode(Map<String, Object> map) {
-		if (map == null || map.isEmpty()) {
+		if (map == null) {
+			return null;
+		}
+		if (map.isEmpty()) {
 			// `(object)[]` -- an empty result stays an object. PHP's bare empty
 			// array would be `[]`, which is the divergence those casts exist to
-			// close, so honouring the cast is the faithful choice here.
-			return map;
+			// close, so honouring the cast is the faithful choice here. Handing
+			// the map back would no longer do it: an empty Map now renders as
+			// `[]` like every other one.
+			return EMPTY_OBJECT;
 		}
 		// `long`, not `int`: isCanonicalInteger() admits PHP's full signed
 		// 64-bit key range, so parsing back with Integer.parseInt() would throw

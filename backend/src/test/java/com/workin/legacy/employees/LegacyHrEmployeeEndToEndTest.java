@@ -243,6 +243,41 @@ class LegacyHrEmployeeEndToEndTest {
 		assertThat(scalar("SELECT COUNT(*) FROM salary_contracts WHERE employee_id = " + employeeId)).isZero();
 	}
 
+	/**
+	 * {@code create.php:136-149} reads the new row back through three LEFT JOINs
+	 * and returns {@code branch_name}, {@code department_name} and
+	 * {@code job_title_name}; {@code update_permissions.php:41} reads
+	 * {@code e.*} and returns none of them.
+	 *
+	 * <p>Both halves are asserted together because they are only correct
+	 * relative to each other: one projection serving both endpoints is what
+	 * produced the defect, and making them uniform in either direction brings it
+	 * back — {@code create} would drop three keys clients receive today, or
+	 * {@code update_permissions} would gain three PHP never sends. Same shape as
+	 * the advance projections in D-153(b). Measured against the running legacy
+	 * PHP with the parity harness.
+	 */
+	@Test
+	void createReturnsTheJoinedNamesAndUpdatePermissionsDoesNot() {
+		@SuppressWarnings("unchecked")
+		Map<String, Object> created = (Map<String, Object>) post(
+				CREATE, ADMIN_1, createBody("hr", "01012370119"), 201).get("data");
+
+		assertThat(created).containsKeys("branch_name", "department_name", "job_title_name");
+		assertThat(created.get("branch_name")).isEqualTo("Main Branch");
+		assertThat(created.get("department_name")).isEqualTo("Operations");
+		// The endpoint never writes job_title_id, so the join finds nothing --
+		// the key is still present, carrying null.
+		assertThat(created.get("job_title_name")).isNull();
+
+		@SuppressWarnings("unchecked")
+		Map<String, Object> updated = (Map<String, Object>) exchange(
+				UPDATE + "?id=" + HR_B, HttpMethod.PUT, ADMIN_1, allPermissions())
+				.getBody().get("data");
+
+		assertThat(updated).doesNotContainKeys("branch_name", "department_name", "job_title_name");
+	}
+
 	@Test
 	void aCompanyAdminCreatesAManagerToo() {
 		Map<String, Object> body = post(CREATE, ADMIN_1, createBody("manager", "01012370111"), 201);

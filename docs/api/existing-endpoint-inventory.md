@@ -458,7 +458,7 @@ open question from the schema inventory.
 | `my_team.php` | GET | Manager-only: the manager's own direct reports/branch team. |
 | `stats.php` | GET | Company-scoped; Manager branch-scoped. |
 | `upload_photo.php` | POST | Company-scoped; allows self-service (`EMPLOYEE` role) in addition to Admin/HR/Manager. |
-| `import_bulk.php` / `analyze_excel.php` / `template_excel.php` | POST/POST/GET | Bulk Excel import, dry-run analysis, and template download; not traced past the company-scoped call site in this pass (same "large helper, not fully read" caveat as the attendance Excel tooling). |
+| `import_bulk.php` / `analyze_excel.php` / `template_excel.php` | POST/POST/GET | Bulk Excel import, dry-run analysis, and template download. Traced and covered since 2026-09-02: `import_bulk` takes `rows` in a **JSON body** — the analyzer's own output posted back, not a file — and writes four tables per accepted row (`employees`, `salary_contracts`, `leave_balance`, `employee_shift_assignments`) via `employee_create_from_payload()`. It re-parses each row with `employee_excel_row_to_payload()`, so it expects the **raw sheet row** (the analyzer's `data`), unlike `leave_balances/import_bulk`, which unwraps `payload` when present. `analyze_excel` answers an empty body for a sheet with no data rows — **R-038**. |
 
 ## Profile (`apis/api/profile/`, 9 endpoints)
 

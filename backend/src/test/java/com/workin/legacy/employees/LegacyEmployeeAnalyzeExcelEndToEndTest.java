@@ -14,6 +14,9 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
@@ -244,6 +247,31 @@ class LegacyEmployeeAnalyzeExcelEndToEndTest {
 				"row_index", "status", "errors", "error_messages", "field_errors", "data", "payload");
 		// `warnings` is returned by row_to_payload() and dropped by analyze().
 		assertThat(row).doesNotContainKey("warnings");
+	}
+
+	/**
+	 * {@code employee_excel_field_errors()} returns a bare PHP array, so a row
+	 * with nothing wrong reaches the wire as {@code "field_errors":[]} -- not
+	 * <code>{}</code>, which is what a Java {@code Map} would have written.
+	 *
+	 * <p>Read from the bytes on purpose: the assertions elsewhere in this class
+	 * deserialise into a {@code Map} first, and both shapes survive that. The
+	 * populated case is asserted alongside so the rule cannot be satisfied by
+	 * always writing an array. Measured against the running legacy PHP. D-156.
+	 */
+	@Test
+	void fieldErrorsIsAnEmptyArrayOnTheWireAndAnObjectWhenPopulated() {
+		JsonNode clean = rawRow(List.of(validRow("990100", "01012340199")));
+		assertThat(clean.get("status").asString()).isEqualTo("valid");
+		assertThat(clean.get("field_errors").isArray())
+				.as("field_errors: %s", clean.get("field_errors")).isTrue();
+		assertThat(clean.get("field_errors")).isEmpty();
+
+		Map<String, String> broken = validRow("990101", "01012340198");
+		broken.put("first_name", "");
+		JsonNode invalid = rawRow(List.of(broken));
+		assertThat(invalid.get("field_errors").isObject()).isTrue();
+		assertThat(invalid.get("field_errors").get("first_name").asString()).isNotEmpty();
 	}
 
 	@Test
@@ -660,6 +688,18 @@ class LegacyEmployeeAnalyzeExcelEndToEndTest {
 				.as("analyze %s: %s", filename, response.getBody())
 				.isEqualTo(200);
 		return response.getBody();
+	}
+
+	/** The first analysed row as parsed JSON rather than a deserialised Map, for shape assertions. */
+	private JsonNode rawRow(List<Map<String, String>> rows) {
+		MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
+		parts.add("file", filePart(
+				"file", csvWithRows(download(TEMPLATE + "?format=csv"), rows), "shape.csv"));
+		ResponseEntity<String> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + ANALYZE), HttpMethod.POST,
+				new HttpEntity<>(parts, multipartHeaders(tokenFor(ADMIN_1), "ar")), String.class);
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(200);
+		return JsonMapper.builder().build().readTree(response.getBody()).get("data").get("rows").get(0);
 	}
 
 	private ResponseEntity<Map<String, Object>> post(

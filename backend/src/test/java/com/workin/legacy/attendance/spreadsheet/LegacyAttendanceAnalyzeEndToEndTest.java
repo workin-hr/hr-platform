@@ -16,6 +16,10 @@ import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
@@ -181,6 +185,26 @@ class LegacyAttendanceAnalyzeEndToEndTest {
 		assertThat(data.get("import_format")).isEqualTo("unknown");
 		assertThat((String) warnings(data).get(0)).startsWith("Unrecognized column layout.");
 		assertThat((List<?>) data.get("employees")).isEmpty();
+	}
+
+	/**
+	 * PHP writes {@code 'summary' => []} for this branch, and an empty PHP
+	 * array reaches the wire as {@code []} -- never <code>{}</code>.
+	 *
+	 * <p>This reads the bytes because the assertions above cannot see the
+	 * difference: the response is deserialised into a {@code Map} first, and by
+	 * then both shapes have become something the test would accept. Measured
+	 * against the running legacy PHP, which answers
+	 * {@code "import_format":"unknown","summary":[]}. See D-156.
+	 */
+	@Test
+	void theUnknownLayoutSummaryIsAnEmptyArrayOnTheWire() {
+		JsonNode data = rawJson(ADMIN_1, "odd.csv", csv("alpha,beta,gamma", "1,2,3", "4,5,6"))
+				.get("data");
+
+		assertThat(data.get("import_format").asString()).isEqualTo("unknown");
+		assertThat(data.get("summary").isArray()).as("summary: %s", data.get("summary")).isTrue();
+		assertThat(data.get("summary")).isEmpty();
 	}
 
 	/** A template sheet reports its row count and nothing else. */
@@ -483,6 +507,26 @@ class LegacyAttendanceAnalyzeEndToEndTest {
 		assertThat(response.getStatusCode().value()).as("%s", response.getBody())
 				.isEqualTo(expectedStatus);
 		return response.getBody();
+	}
+
+	/** The response as parsed JSON rather than a deserialised Map, for shape assertions. */
+	private JsonNode rawJson(long actor, String filename, byte[] content) {
+		MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
+		parts.add("file", new ByteArrayResource(content) {
+			@Override
+			public String getFilename() {
+				return filename;
+			}
+		});
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(tokenFor(actor));
+		headers.set("Accept-Language", "en");
+		headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+		ResponseEntity<String> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + ANALYZE), HttpMethod.POST,
+				new HttpEntity<>(parts, headers), String.class);
+		assertThat(response.getStatusCode().value()).as("%s", response.getBody()).isEqualTo(200);
+		return JsonMapper.builder().build().readTree(response.getBody());
 	}
 
 	private String tokenFor(long employeeId) {
