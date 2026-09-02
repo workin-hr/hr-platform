@@ -75,6 +75,38 @@ class ZkTecoAttlogParserTest {
 	}
 
 	/** Outside DATETIME's range the row could not be stored, so the line never becomes an event. */
+	/** SMART resolution would quietly turn this into 29 February and store a real punch on the wrong day. */
+	@Test
+	void anImpossibleCalendarDateIsMalformedRatherThanRolledBack() {
+		ZkTecoAttlogParser.Result result = ZkTecoAttlogParser.parse(SN, "5\t2024-02-30 08:00:00\t0\t1", CAIRO);
+
+		assertThat(result.events()).isEmpty();
+		assertThat(result.malformed()).isEqualTo(1);
+	}
+
+	/**
+	 * Two distinct instants share one wall clock in an autumn overlap. Keying
+	 * them by local time would collapse them onto one dedup key and silently
+	 * drop a punch.
+	 */
+	@Test
+	void twoEpochPunchesInADaylightSavingOverlapStayDistinct() {
+		java.time.ZoneId cairo = java.time.ZoneId.of("Africa/Cairo");
+		// Cairo's 2025 DST end: both instants are 23:59:59 local, an hour apart.
+		DeviceAttendanceEvent first = ZkTecoAttlogParser.parse(SN, "9\t1761857999\t0\t1", cairo).events().get(0);
+		DeviceAttendanceEvent second = ZkTecoAttlogParser.parse(SN, "9\t1761861599\t0\t1", cairo).events().get(0);
+
+		assertThat(first.punchedAtLocal()).isEqualTo(second.punchedAtLocal());
+		assertThat(first.punchedAtInstant()).isNotEqualTo(second.punchedAtInstant());
+		assertThat(first.dedupKey()).isNotEqualTo(second.dedupKey());
+	}
+
+	@Test
+	void aWallClockPunchCarriesNoInstantBecauseItHasNoOffset() {
+		assertThat(ZkTecoAttlogParser.parse(SN, "5\t2024-07-28 08:00:00\t0\t1", CAIRO)
+				.events().get(0).punchedAtInstant()).isNull();
+	}
+
 	@Test
 	void aTimestampOutsideTheDatetimeYearRangeIsMalformed() {
 		ZkTecoAttlogParser.Result result = ZkTecoAttlogParser.parse(SN, "5\t0999-07-28 08:00:00\t0\t1", CAIRO);

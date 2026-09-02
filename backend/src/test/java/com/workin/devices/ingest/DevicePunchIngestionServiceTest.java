@@ -32,8 +32,26 @@ class DevicePunchIngestionServiceTest {
 				.parse("SN", "7\t2024-01-01 10:00:00\t0\t1", CAIRO).events().get(0).punchedAtLocal();
 
 		assertThat(fromEpoch).isEqualTo(fromWallClock);
-		assertThat(DevicePunchIngestionService.toUtc(fromEpoch, CAIRO))
+		assertThat(DevicePunchIngestionService.toUtc(
+				ZkTecoAttlogParser.parse("SN", "7\t1704096000\t0\t1", CAIRO).events().get(0), CAIRO))
 				.isEqualTo(LocalDateTime.of(2024, 1, 1, 8, 0, 0));
+	}
+
+	/**
+	 * An epoch punch is an instant already, so no zone rule is applied to it
+	 * -- which is what keeps the two halves of a daylight-saving overlap
+	 * apart.
+	 */
+	@Test
+	void anEpochPunchIsStoredAtItsOwnInstantWithoutAZoneConversion() {
+		ZoneId cairo = ZoneId.of("Africa/Cairo");
+		var earlier = ZkTecoAttlogParser.parse("SN", "9\t1761857999\t0\t1", cairo).events().get(0);
+		var later = ZkTecoAttlogParser.parse("SN", "9\t1761861599\t0\t1", cairo).events().get(0);
+
+		assertThat(DevicePunchIngestionService.toUtc(earlier, cairo))
+				.isNotEqualTo(DevicePunchIngestionService.toUtc(later, cairo));
+		assertThat(DevicePunchIngestionService.toUtc(later, cairo))
+				.isEqualTo(DevicePunchIngestionService.toUtc(earlier, cairo).plusHours(1));
 	}
 
 	/**

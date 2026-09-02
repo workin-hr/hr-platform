@@ -131,10 +131,16 @@ left at its committed placeholder counts as unconfigured.
 Smoke check without side effects: `GET /iclock/getrequest` **with no `SN`**
 answers `400` with the plain-text body `ERROR: missing SN` when the receiver
 is enabled, and is not mapped (`404`) when it is not. Never send a made-up
-serial as a check — it is recorded as an unclaimed-device sighting. The
-receiver also needs the five device tables (see
-`release-cutover-and-rollback.md`, step 1) and TLS at the edge for the
-device hostname; operator steps are in
+serial as a check — it is recorded as an unclaimed-device sighting.
+
+**Turning this flag on in production has three preconditions (D-157)**, all
+gates rather than checklist items: the §4.3 hardware validation has been
+executed on a real customer terminal and recorded in `../devices/`; the five
+device tables have an approved provisioning mechanism (**R-023**, see
+`release-cutover-and-rollback.md` step 1); and device ownership is
+established by platform staff with an audited unclaim/transfer/replace path
+(**R-041**), rather than claimed by a tenant admin from a serial number. TLS
+at the edge for the device hostname is required throughout. Operator steps:
 `../devices/zkteco-adms-receiver-setup.md`.
 
 ### Pre-cutover validation

@@ -61,6 +61,16 @@ import com.workin.legacy.wire.LegacyMessages;
  * operator who needs the data back needs a database backup. Recorded rather
  * than mitigated, because legacy behaves this way today and D-058 puts the
  * burden of proof on the change.
+ *
+ * <h2>The device tables are deleted but not previewed</h2>
+ * <p>{@link #DEVICE_OWNED} extends the cascade to the Phase-1-owned device
+ * tables, which PHP knows nothing about. The <b>preview</b> is deliberately
+ * left alone: its key set and order are a client-visible contract (D-111)
+ * that the Flutter clients render, and those clients cannot be inspected from
+ * this repository (PMR-02). So a company admin deleting their company is not
+ * told how many device punches go with it, while they are told about
+ * attendance. That under-reporting is a known gap awaiting an owner decision,
+ * not an oversight.
  */
 @Service
 public class LegacyCompanyDelete {
@@ -92,6 +102,25 @@ public class LegacyCompanyDelete {
 	/** Company-scoped rows that may still reference employees; failures ignored. */
 	private static final List<String> COMPANY_OWNED_EARLY = List.of(
 			"assets", "administrative_decisions", "workforce_planning");
+
+	/**
+	 * Phase-1-owned device tables (D-156), children first.
+	 *
+	 * <p>Not part of {@code company_delete_helper.php} -- they do not exist in
+	 * PHP, so including them is not a parity divergence; leaving them out
+	 * would be a real one, because a deleted company's device registry, PIN
+	 * bindings, raw punches and operation logs would outlive it. The
+	 * globally-unique serial matters too: without this, a terminal whose
+	 * company was deleted could never be claimed again.
+	 *
+	 * <p>Deleted through {@code ignoringFailure} like the other company-scoped
+	 * batches, because a deployment that has not provisioned these tables yet
+	 * (R-023, Q7 is still open) must not have its company deletion aborted by
+	 * their absence. {@code unclaimed_device_sightings} is deliberately absent
+	 * from this list: an unclaimed serial belongs to no company.
+	 */
+	private static final List<String> DEVICE_OWNED = List.of(
+			"device_punches", "device_operation_logs", "employee_device_identities", "attendance_devices");
 
 	/** The final company-scoped batch; failures ignored. */
 	private static final List<String> COMPANY_OWNED_LATE = List.of(
@@ -195,6 +224,13 @@ public class LegacyCompanyDelete {
 			jdbcTemplate.update("UPDATE departments SET manager_id = NULL WHERE company_id = ?", companyId);
 
 			for (String table : COMPANY_OWNED_EARLY) {
+				ignoringFailure("DELETE FROM " + table + " WHERE company_id = ?", companyId);
+			}
+
+			// Before employees and branches go, though nothing here has a
+			// foreign key to either -- the ordering is for readers, not the
+			// database.
+			for (String table : DEVICE_OWNED) {
 				ignoringFailure("DELETE FROM " + table + " WHERE company_id = ?", companyId);
 			}
 

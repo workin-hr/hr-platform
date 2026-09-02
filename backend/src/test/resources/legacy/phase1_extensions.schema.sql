@@ -102,6 +102,10 @@ CREATE TABLE device_punches (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     device_id BIGINT NOT NULL,
     company_id INT UNSIGNED NOT NULL,
+    -- Snapshotted from the device at ingestion, not read back through it: a
+    -- terminal can be moved to another branch, and reporting the registry's
+    -- current branch would retroactively relabel every punch it ever sent.
+    branch_id INT UNSIGNED NOT NULL,
     employee_id INT UNSIGNED NULL,
     pin VARCHAR(32) NOT NULL,
     punched_at_local DATETIME NOT NULL,

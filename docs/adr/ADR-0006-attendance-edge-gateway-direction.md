@@ -120,6 +120,19 @@ handshake values, ATTLOG field shape, offline buffering) before the adapter
 is declared verified. Building the adapter is authorised; calling it
 verified is not, until that checklist is recorded in `docs/devices/`.
 
+**Update 2026-09-02 (D-157) — the gate is explicit.** The hardware checklist
+does **not** block merging Slice A while `app.devices.ingest.enabled` is off,
+since the code is unreachable in that state. It **does** block describing the
+adapter as hardware-verified, and it blocks enabling the receiver for any
+real customer. Its eight required checks are enumerated in that
+specification's §4.3. Two further production preconditions were set by the
+same decision and are recorded here because they gate this ADR's direction in
+practice, not only its implementation: the Phase-1-owned tables must have an
+approved provisioning mechanism (**R-023**), and device ownership in
+production must be established by platform staff rather than claimed by a
+tenant admin from a serial number (**R-041**), with an audited
+unclaim/transfer/replace path before broad rollout.
+
 ## Alternatives Considered
 
 - no local gateway

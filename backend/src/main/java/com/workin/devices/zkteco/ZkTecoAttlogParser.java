@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -49,7 +50,14 @@ public final class ZkTecoAttlogParser {
 
 	private static final int MAX_YEAR = 9999;
 
-	private static final DateTimeFormatter WALL_CLOCK = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss");
+	/**
+	 * Strict, not the default SMART resolution: SMART silently rewrites an
+	 * impossible date such as {@code 2024-02-30} to the last valid day of the
+	 * month, so a firmware fault would be stored as a real punch on a
+	 * different day -- and could collide with a genuine punch's dedup key.
+	 */
+	private static final DateTimeFormatter WALL_CLOCK =
+			DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss").withResolverStyle(ResolverStyle.STRICT);
 
 	private static final int MAX_WORK_CODE = 32;
 
@@ -92,8 +100,8 @@ public final class ZkTecoAttlogParser {
 		if (!PIN.matcher(pin).matches()) {
 			return null;
 		}
-		LocalDateTime punchedAt = parseTime(fields[1].strip(), deviceZone);
-		if (punchedAt == null) {
+		Punched punched = parseTime(fields[1].strip(), deviceZone);
+		if (punched == null) {
 			return null;
 		}
 		Integer status = fields.length > 2 ? smallInt(fields[2]) : null;
@@ -105,8 +113,8 @@ public final class ZkTecoAttlogParser {
 			workCode = workCode.substring(0, MAX_WORK_CODE);
 		}
 		return new DeviceAttendanceEvent(
-				DeviceAttendanceEvent.dedupKey(serialNumber, pin, punchedAt, status),
-				pin, punchedAt, status, verify, workCode, line);
+				DeviceAttendanceEvent.dedupKey(serialNumber, pin, punched.local(), punched.instant(), status),
+				pin, punched.local(), punched.instant(), status, verify, workCode, line);
 	}
 
 	/**
@@ -125,10 +133,16 @@ public final class ZkTecoAttlogParser {
 	 * than at the INSERT: the legacy database is non-strict, so it would store
 	 * a zero date instead of failing.
 	 */
-	static LocalDateTime parseTime(String text, ZoneId deviceZone) {
+	/** A punch's time: always a wall clock, plus the instant when the device gave one. */
+	record Punched(LocalDateTime local, Instant instant) {
+	}
+
+	static Punched parseTime(String text, ZoneId deviceZone) {
 		LocalDateTime parsed;
+		Instant instant = null;
 		if (EPOCH_SECONDS.matcher(text).matches()) {
-			parsed = LocalDateTime.ofInstant(Instant.ofEpochSecond(Long.parseLong(text)), deviceZone);
+			instant = Instant.ofEpochSecond(Long.parseLong(text));
+			parsed = LocalDateTime.ofInstant(instant, deviceZone);
 		} else {
 			try {
 				parsed = LocalDateTime.parse(text, WALL_CLOCK);
@@ -136,7 +150,7 @@ public final class ZkTecoAttlogParser {
 				return null;
 			}
 		}
-		return parsed.getYear() >= MIN_YEAR && parsed.getYear() <= MAX_YEAR ? parsed : null;
+		return parsed.getYear() >= MIN_YEAR && parsed.getYear() <= MAX_YEAR ? new Punched(parsed, instant) : null;
 	}
 
 	/** Out of range is dropped like an unparseable value, never stored. */

@@ -6,6 +6,23 @@ protocol are in
 routes are in `../api/device-endpoints.md`. Nothing here is hardware-verified
 yet — the first real terminal is what fills in §4 below.
 
+## 0. Before this is enabled for a real customer
+
+Three gates, all set by D-157, none of which the pilot satisfies by itself:
+
+- The **§4 hardware checklist below has been executed on a real customer
+  terminal** of that model, and its answers recorded in the two
+  `docs/devices/` documents. Until then the adapter is built against
+  documented protocol, not verified against hardware, and must not be
+  described as verified.
+- The **Phase-1-owned tables have an approved provisioning mechanism** on the
+  production database (**R-023**) — solved deliberately, not discovered
+  during the change.
+- **Device ownership is established by platform staff**, not claimed by a
+  tenant admin from a serial number (**R-041**), and an audited
+  unclaim/transfer/replace path exists. The tenant claim flow in §3 is a
+  pilot arrangement.
+
 ## 1. Platform prerequisites
 
 - The deployment sets `APP_DEVICES_INGEST_ENABLED=true`
@@ -73,6 +90,9 @@ documentation evidence into hardware evidence.
   (this decides whether half-hour zones can ever be supported).
 - The content type the device uses for its uploads.
 - Whether timestamps arrive as wall clock or Unix seconds.
+- How the firmware encodes `ATTLOGStamp` (the receiver never echoes it today
+  and always asks for a full re-send; a trusted bookmark needs this).
+- How many records the device puts in one upload, against the 5000-record cap.
 - HTTPS offered; TLS versions that succeed.
 - Handshake query string as logged by the receiver (`pushver`,
   `DeviceType`, `language`, `PushOptionsFlag`).

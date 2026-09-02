@@ -401,8 +401,9 @@ decision — not to quietly restore a logout that does not log the caller out.
 ## Attendance Device Ingestion (ADR-0006 Part B, D-156)
 
 Raised 2026-09-02 by `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
-§12. Q0, Q1 and Q6 were answered on 2026-09-02 and recorded in D-156; Q2,
-Q3, Q5 and Q7 remain open.
+§12. Q0, Q1 and Q6 were answered on 2026-09-02 (D-156); Q2, Q3, Q5, Q7 and
+Q8 were answered the same day (**D-157**). What remains is the work those
+answers oblige, tracked in D-157's Follow-up and in R-041 — not a question.
 
 - **Q0 — Accept D-156? — ANSWERED 2026-09-02: accepted.** ADMS push as the
   primary ZKTeco adapter, the edge gateway as fallback, conditional on the
@@ -410,30 +411,36 @@ Q3, Q5 and Q7 remain open.
 - **Q1 — Device PIN identity.** Reuse `employees.employee_code` as the
   device PIN, or add `employee_device_identities` with `UNIQUE (company_id,
   pin)` seeded from it. **ANSWERED 2026-09-02: the table.**
-- **Q2 — Device punches and the two-hour rule.** Reject a second check-in
-  within 120 minutes as the app path does (the terminal cannot show the
-  error), or debounce for a minute or two and flag `RAPID_RECHECKIN` for
-  review. Recommendation: debounce and flag.
-- **Q3 — Biometric templates.** Never accepted on the platform in Phase 1
-  (default in the design), or planned with encryption, retention and a
-  data-protection review for cross-branch enrolment sync.
-- **Q5 — `attendance.method` expansion.** When to add `'device'` to the live
-  enum that frozen PHP still reads; expand-only, proposed with Slice B after
-  confirming PHP treats unknown enum values as opaque strings.
+- **Q2 — Device punches and the two-hour rule. — ANSWERED 2026-09-02
+  (D-157): never reject.** The punch is always persisted; a short
+  duplicate/debounce window suppresses a double-read, and a rapid
+  re-check-in is flagged for review. Lands with Slice B.
+- **Q3 — Biometric templates. — ANSWERED 2026-09-02 (D-157): none in
+  Phase 1.** Attendance events and metadata only. Already enforced in Slice
+  A: `TransFlag` does not request them and the receiver discards any that
+  arrive regardless.
+- **Q5 — `attendance.method` expansion. — ANSWERED 2026-09-02 (D-157):
+  expand-only, with Slice B, and the audit it was conditional on is done.**
+  Every frozen-PHP site writes the column; exactly one reads it, rendering it
+  verbatim, so no branch depends on the value set. Two residual checks belong
+  to Slice B: the dashboard will show the literal word `device` until it is
+  given a label, and the Flutter clients could not be inspected (PMR-02) and
+  must be verified if either renders `method`.
 - **Q6 — Who claims devices in the pilot. — ANSWERED 2026-09-02: tenant
   HR/admin through the new `/api/v1/devices/**` API**, authenticated with the
   legacy JWT; platform staff use a company admin's session for the pilot until
   the JTE admin surface (ADR-0015) renders it.
-- **Q8 — Proof of possession when claiming a device** (**R-041**, raised
-  2026-09-02 by review of the Slice A implementation). A serial number is
-  printed on the unit, and the protocol offers no pairing secret, so a tenant
-  who learns an unclaimed serial can register another company's terminal to
-  themselves -- capturing its punches and denying its owner. Options: accept
-  it for a pilot whose devices platform staff install (the current position),
-  have platform staff allocate serial-to-company and let the tenant only name
-  and place it (Q6's other branch), or require a value only someone at the
-  device can read. Also needed either way: an unclaim/transfer path, which
-  Slice A deliberately does not have.
-- **Q7 — Production provisioning of Phase-1-owned MariaDB tables.** The
-  ADR-0013 open question, now on this feature's critical path: Slice A can be
-  built and tested without it and deployed only with it.
+- **Q8 — Proof of possession when claiming a device — ANSWERED 2026-09-02
+  (D-157), and the work is outstanding** (**R-041**). Pilot: supervised
+  tenant `company_admin`/`hr` claiming is acceptable. Production: tenant
+  admins may **not** claim by serial number — platform staff pre-allocate
+  device ownership to a company, and tenant HR then assigns an owned device
+  to a branch. An **audited unclaim / transfer / replace-device path is
+  required before broad production rollout**; manual database correction is
+  not acceptable long-term. Neither is built yet, and R-041 stays open until
+  both are.
+- **Q7 — Production provisioning of Phase-1-owned MariaDB tables. —
+  ANSWERED 2026-09-02 (D-157): it must be explicitly solved before device
+  ingestion is enabled in production**, not discovered at cutover. The
+  ADR-0013 open question itself (**R-023**) stays open; this makes it a
+  precondition of turning `app.devices.ingest.enabled` on.

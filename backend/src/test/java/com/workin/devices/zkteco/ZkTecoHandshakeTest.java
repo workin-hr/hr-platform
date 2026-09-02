@@ -16,12 +16,18 @@ class ZkTecoHandshakeTest {
 				null, null, stamp, null, "2026-09-02 10:00:00", "2026-09-02 10:00:00");
 	}
 
+	/**
+	 * The stamp a device sent is never returned to it: an unauthenticated
+	 * caller could otherwise set the bookmark past records the terminal still
+	 * holds, and it would drop them.
+	 */
 	@Test
-	void aClaimedDeviceGetsItsStampZoneAndOnlyTheTwoAllowedTransferFlags() {
+	void aClaimedDeviceIsAlwaysAskedToResendAndGetsOnlyTheTwoAllowedTransferFlags() {
 		String response = ZkTecoHandshake.response("SN1", Optional.of(device("+03:00", "4711")), Instant.parse("2026-09-02T08:00:00Z"));
 
 		assertThat(response).startsWith("GET OPTION FROM: SN1\r\n");
-		assertThat(response).contains("ATTLOGStamp=4711\r\n").contains("TimeZone=3\r\n").contains("Realtime=1\r\n");
+		assertThat(response).contains("ATTLOGStamp=0\r\n").doesNotContain("4711");
+		assertThat(response).contains("TimeZone=3\r\n").contains("Realtime=1\r\n");
 		assertThat(response).contains("TransFlag=TransData AttLog\tOpLog\r\n");
 		assertThat(response).doesNotContain("EnrollFP").doesNotContain("ChgFP").doesNotContain("EnrollUser")
 				.doesNotContain("UserPic").doesNotContain("Face").doesNotContain("BioData");

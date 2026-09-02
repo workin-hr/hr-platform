@@ -31,7 +31,8 @@ design section 9 of `docs/superpowers/specs/2026-09-02-attendance-device-ingesti
   `devices.punches.duplicate`, `devices.punches.unmatched`,
   `devices.punches.malformed`, `devices.punches.rejected`,
   `devices.unclaimed.hits`, `devices.biometric.discarded`,
-  `devices.stamp.rejected`, `devices.requests.rejected`, and
+  `devices.stamp.rejected`, `devices.requests.rejected`,
+  `devices.uploads.oversized` (second tag `table`), and
   `devices.uploads.discarded` (second tag `table`, drawn from a closed set so
   a caller cannot grow the registry).
 - Logs, all carrying the serial: WARN on unmatched PINs, malformed lines,
@@ -51,7 +52,11 @@ design section 9 of `docs/superpowers/specs/2026-09-02-attendance-device-ingesti
   `devices.punches.rejected` (a row the database refused — it is acknowledged
   rather than retried, so this counter is the only trace); and
   `devices.stamp.rejected` or `devices.requests.rejected` above a trickle,
-  which means something is sending values no terminal would send.
+  which means something is sending values no terminal would send; and any
+  `devices.uploads.oversized`, which is either a buffered reconnect larger
+  than the record cap (raise it, and record the real batch size on the
+  hardware checklist) or an attempt to amplify one request into many
+  statements.
 
 ## Source System
 

@@ -82,8 +82,9 @@ public class DevicePunchIngestionService {
 		for (DeviceAttendanceEvent event : events) {
 			Long employeeId = byPin.get(event.pin());
 			String state = employeeId != null ? DevicePunchStore.STATE_RECEIVED : DevicePunchStore.STATE_UNMATCHED;
-			LocalDateTime utc = toUtc(event.punchedAtLocal(), zone);
-			switch (punches.insert(device.id(), device.companyId(), employeeId, event, utc, receivedAt, state)) {
+			LocalDateTime utc = toUtc(event, zone);
+			switch (punches.insert(
+					device.id(), device.companyId(), device.branchId(), employeeId, event, utc, receivedAt, state)) {
 				case STORED -> {
 					stored++;
 					if (employeeId == null) {
@@ -114,10 +115,15 @@ public class DevicePunchIngestionService {
 	/**
 	 * The device's wall clock to an instant.
 	 *
-	 * <p>{@code punched_at_local} is the authoritative value and is stored
-	 * exactly as the device reported it; this column is the derived one, and
-	 * it is the only place a zone rule can bite. Two cases have no lossless
-	 * answer, both from daylight saving in a device's IANA zone: a wall clock
+	 * <p>A device that reported an <b>instant</b> needs no zone rule at all,
+	 * and gets none: its value is used directly, which is also what keeps the
+	 * two punches of an autumn overlap distinct.
+	 *
+	 * <p>For the wall-clock form, {@code punched_at_local} is the
+	 * authoritative value and is stored exactly as the device reported it;
+	 * this column is the derived one, and it is the only place a zone rule can
+	 * bite. Two cases have no lossless answer, both from daylight saving in a
+	 * device's IANA zone: a wall clock
 	 * inside a spring-forward gap does not exist and {@code atZone} moves it
 	 * forward by the gap, and one inside an autumn overlap is ambiguous and
 	 * {@code atZone} resolves it to the earlier offset. Both are accepted
@@ -125,6 +131,12 @@ public class DevicePunchIngestionService {
 	 * real attendance record over a calendar artefact, and the local time,
 	 * which is what pairing and the reports use, stays correct either way.
 	 */
+	static LocalDateTime toUtc(DeviceAttendanceEvent event, ZoneId zone) {
+		return event.punchedAtInstant() != null
+				? LocalDateTime.ofInstant(event.punchedAtInstant(), ZoneOffset.UTC)
+				: toUtc(event.punchedAtLocal(), zone);
+	}
+
 	static LocalDateTime toUtc(LocalDateTime punchedAtLocal, ZoneId zone) {
 		return punchedAtLocal.atZone(zone).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
 	}

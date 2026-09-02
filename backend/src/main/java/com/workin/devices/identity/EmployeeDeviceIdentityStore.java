@@ -73,12 +73,22 @@ public class EmployeeDeviceIdentityStore {
 			return resolved;
 		}
 		for (List<String> chunk : chunks(distinct)) {
+			// Joined to employees, not read alone: an explicit binding must stop
+			// resolving when its employee is deactivated, exactly as the
+			// employee_code fallback below does. Otherwise a departed person's
+			// badge would keep producing punches attributed to them, and only
+			// the unbound half of the company would behave correctly.
 			jdbcTemplate.query(
-					"SELECT pin, employee_id FROM employee_device_identities WHERE company_id = ? AND pin IN ("
+					"SELECT i.pin AS pin, i.employee_id AS employee_id FROM employee_device_identities i"
+							+ " INNER JOIN employees e ON e.id = i.employee_id AND e.company_id = i.company_id"
+							+ " WHERE i.company_id = ? AND e.is_active = 1 AND i.pin IN ("
 							+ placeholders(chunk.size()) + ")",
 					(ResultSet rs) -> {
 						while (rs.next()) {
-							resolved.put(rs.getString("pin"), rs.getLong("employee_id"));
+							String pin = normalized(rs.getString("pin"));
+							if (pin != null) {
+								resolved.put(pin, rs.getLong("employee_id"));
+							}
 						}
 						return null;
 					},
@@ -94,7 +104,16 @@ public class EmployeeDeviceIdentityStore {
 							+ "AND employee_code IN (" + placeholders(chunk.size()) + ")",
 					(ResultSet rs) -> {
 						while (rs.next()) {
-							String code = rs.getString("employee_code");
+							// The column's collation matched this row to the PIN
+							// ignoring case and trailing spaces, but JDBC returns
+							// the stored text. Keying the map by that raw value
+							// would make the caller's later lookup of the PIN miss
+							// -- the punch would be UNMATCHED for a code that did
+							// match. Normalise back to the queried form.
+							String code = normalized(rs.getString("employee_code"));
+							if (code == null) {
+								continue;
+							}
 							// Two employees sharing a code cannot be told apart,
 							// so neither is chosen -- the punches land UNMATCHED
 							// and an operator binds the PIN explicitly.
@@ -165,6 +184,15 @@ public class EmployeeDeviceIdentityStore {
 				LEFT JOIN employees e ON e.id = i.employee_id AND e.company_id = i.company_id
 				WHERE i.company_id = ?
 				ORDER BY i.employee_id""", LegacyJdbcValues.rowMapper(), companyId);
+	}
+
+	/** The comparison the database made, reproduced in Java: trim, and PINs are digits so case cannot differ. */
+	private static String normalized(String value) {
+		if (value == null) {
+			return null;
+		}
+		String trimmed = value.strip();
+		return trimmed.isEmpty() ? null : trimmed;
 	}
 
 	private static List<List<String>> chunks(Collection<String> values) {

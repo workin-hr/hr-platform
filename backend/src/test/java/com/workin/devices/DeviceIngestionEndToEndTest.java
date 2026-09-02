@@ -51,12 +51,15 @@ class DeviceIngestionEndToEndTest {
 	private static final long COMPANY_2 = 9502L;
 	private static final long COMPANY_SUSPENDED = 9503L;
 	private static final long BRANCH_1 = 9511L;
+	private static final long BRANCH_1B = 9514L;
 	private static final long BRANCH_2 = 9512L;
 
 	private static final long ADMIN_1 = 95011L;       // COMPANY_1, company_admin
 	private static final long HR_1 = 95012L;          // COMPANY_1, hr
 	private static final long EMPLOYEE_1001 = 95013L; // COMPANY_1, employee, employee_code 1001
 	private static final long EMPLOYEE_1002 = 95014L; // COMPANY_1, employee, employee_code 1002
+	private static final long EMPLOYEE_DEPARTED = 95015L; // COMPANY_1, is_active = 0, employee_code 1003
+	private static final long EMPLOYEE_TRAILING_SPACE = 95016L; // COMPANY_1, employee_code '1004 '
 	private static final long ADMIN_2 = 95021L;       // COMPANY_2, company_admin
 	private static final long ADMIN_SUSPENDED = 95031L;
 
@@ -93,6 +96,8 @@ class DeviceIngestionEndToEndTest {
 		registry.add("app.devices.ingest.enabled", () -> "true");
 		// Small on purpose so the oversized-body refusal is testable without a megabyte.
 		registry.add("app.devices.ingest.max-body-bytes", () -> "2048");
+		// Small so the record cap is reachable without a megabyte of fixture.
+		registry.add("app.devices.ingest.max-records-per-upload", () -> "10");
 	}
 
 	// ---------- the device side ----------
@@ -150,10 +155,14 @@ class DeviceIngestionEndToEndTest {
 		assertThat(text("SELECT raw_line FROM device_punches WHERE device_id = " + deviceId + " AND pin = '7777'"))
 				.isEqualTo("7777\t2024-07-28 08:05:00\t0\t1\t\t0\t0");
 		assertThat(text("SELECT last_attlog_stamp FROM attendance_devices WHERE id = " + deviceId)).isEqualTo("4711");
+		assertThat(deviceView(ADMIN_1, deviceId).get("last_attlog_stamp")).isEqualTo("4711");
 		assertThat(text("SELECT last_seen_at FROM attendance_devices WHERE id = " + deviceId)).isNotNull();
 
 		ResponseEntity<String> handshake = deviceGet("/iclock/cdata?SN=DEV-A&options=all&pushver=2.4.0");
-		assertThat(handshake.getBody()).contains("ATTLOGStamp=4711\r\n").contains("TimeZone=2\r\n");
+		// The stamp is recorded as a diagnostic but never handed back: a
+		// fabricated one would otherwise tell the terminal to drop its buffer.
+		assertThat(handshake.getBody()).contains("ATTLOGStamp=0\r\n").doesNotContain("4711");
+		assertThat(handshake.getBody()).contains("TimeZone=2\r\n");
 		assertThat(text("SELECT push_version FROM attendance_devices WHERE id = " + deviceId)).isEqualTo("2.4.0");
 		assertThat(text("SELECT last_handshake_at FROM attendance_devices WHERE id = " + deviceId)).isNotNull();
 	}
@@ -326,17 +335,85 @@ class DeviceIngestionEndToEndTest {
 	void aDeactivatedDeviceGetsANeutralHandshakeCarryingNoStampOrZone() throws Exception {
 		long deviceId = claim(ADMIN_1, "DEV-R", BRANCH_1, "Gate R", "+03:00");
 		devicePost("/iclock/cdata?SN=DEV-R&table=ATTLOG&Stamp=4242", ATTLOG_TWO_PUNCHES);
-		assertThat(deviceGet("/iclock/cdata?SN=DEV-R&options=all").getBody())
-				.contains("ATTLOGStamp=4242\r\n").contains("TimeZone=3\r\n");
+		assertThat(deviceGet("/iclock/cdata?SN=DEV-R&options=all").getBody()).contains("TimeZone=3\r\n");
 
 		api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1, "{\"is_active\":false}", 200);
 
 		ResponseEntity<String> handshake = deviceGet("/iclock/cdata?SN=DEV-R&options=all&pushver=9.9.9");
-		assertThat(handshake.getBody()).contains("ATTLOGStamp=0\r\n").contains("TimeZone=0\r\n");
+		assertThat(handshake.getBody()).contains("TimeZone=0\r\n");
 		// It is still recorded as knocking -- an operator needs to see that --
 		// but nothing new is learned from it.
 		assertThat(text("SELECT push_version FROM attendance_devices WHERE id = " + deviceId)).isNotEqualTo("9.9.9");
 		assertThat(text("SELECT last_seen_at FROM attendance_devices WHERE id = " + deviceId)).isNotNull();
+	}
+
+	/**
+	 * A fabricated punch used to be enough to move the resume bookmark. The
+	 * stamp is no longer echoed at all, so the terminal is always asked to
+	 * re-send and the fabricated value cannot cost it anything.
+	 */
+	@Test
+	void aFabricatedPunchCannotMoveTheTerminalsResumePoint() throws Exception {
+		claim(ADMIN_1, "DEV-W", BRANCH_1, "Gate W", "+02:00");
+
+		devicePost("/iclock/cdata?SN=DEV-W&table=ATTLOG&Stamp=999999999999", "1001\t2030-01-01 08:00:00\t0\t1\r\n");
+
+		assertThat(deviceGet("/iclock/cdata?SN=DEV-W&options=all").getBody())
+				.contains("ATTLOGStamp=0\r\n").doesNotContain("999999999999");
+	}
+
+	/** A byte cap does not bound the statements one request creates; a record cap does. */
+	@Test
+	void anUploadWithTooManyRecordsIsRefusedRatherThanPartlyStored() throws Exception {
+		long deviceId = claim(ADMIN_1, "DEV-X", BRANCH_1, "Gate X", "+02:00");
+
+		String many = "OPLOG 1\t0\n".repeat(30);
+		ResponseEntity<String> refused = devicePost("/iclock/cdata?SN=DEV-X&table=OPERLOG&Stamp=1", many);
+
+		assertThat(refused.getStatusCode().value()).isEqualTo(413);
+		assertThat(refused.getBody()).isEqualTo("ERROR: too many records");
+		assertThat(count("SELECT COUNT(*) FROM device_operation_logs WHERE device_id = " + deviceId)).isZero();
+	}
+
+	/** Moving a terminal must not rewrite where its past punches happened. */
+	@Test
+	void aPunchKeepsTheBranchItHappenedAtWhenTheDeviceIsMoved() throws Exception {
+		long deviceId = claim(ADMIN_1, "DEV-Y", BRANCH_1, "Gate Y", "+02:00");
+		devicePost("/iclock/cdata?SN=DEV-Y&table=ATTLOG&Stamp=1", "1001\t2024-10-01 08:00:00\t0\t1\r\n");
+		assertThat(count("SELECT branch_id FROM device_punches WHERE device_id = " + deviceId)).isEqualTo(BRANCH_1);
+
+		api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1, "{\"branch_id\":" + BRANCH_1B + "}", 200);
+
+		assertThat(count("SELECT branch_id FROM device_punches WHERE device_id = " + deviceId)).isEqualTo(BRANCH_1);
+		List<Map<String, Object>> punches = listOf(
+				api(HttpMethod.GET, "/api/v1/devices/punches?device_id=" + deviceId, ADMIN_1, null, 200), "punches");
+		assertThat(punches.get(0).get("branch_id")).isEqualTo((int) BRANCH_1);
+	}
+
+	/** A bound PIN must stop resolving when its employee is deactivated, as the code fallback already does. */
+	@Test
+	void aBindingToADeactivatedEmployeeStopsResolving() throws Exception {
+		long deviceId = claim(ADMIN_1, "DEV-Z", BRANCH_1, "Gate Z", "+02:00");
+		api(HttpMethod.PUT, "/api/v1/devices/identities", ADMIN_1,
+				"{\"employee_id\":" + EMPLOYEE_DEPARTED + ",\"pin\":\"7001\"}", 200);
+
+		devicePost("/iclock/cdata?SN=DEV-Z&table=ATTLOG&Stamp=1", "7001\t2024-10-02 08:00:00\t0\t1\r\n");
+
+		assertThat(text("SELECT processing_state FROM device_punches WHERE device_id = " + deviceId + " AND pin = '7001'"))
+				.isEqualTo("UNMATCHED");
+	}
+
+	/** The collation matches a trailing-space code, so resolution must too. */
+	@Test
+	void anEmployeeCodeStoredWithATrailingSpaceStillResolves() throws Exception {
+		long deviceId = claim(ADMIN_1, "DEV-AA", BRANCH_1, "Gate AA", "+02:00");
+
+		devicePost("/iclock/cdata?SN=DEV-AA&table=ATTLOG&Stamp=1", "1004\t2024-10-03 08:00:00\t0\t1\r\n");
+
+		assertThat(count("SELECT employee_id FROM device_punches WHERE device_id = " + deviceId + " AND pin = '1004'"))
+				.isEqualTo(EMPLOYEE_TRAILING_SPACE);
+		assertThat(text("SELECT processing_state FROM device_punches WHERE device_id = " + deviceId + " AND pin = '1004'"))
+				.isEqualTo("RECEIVED");
 	}
 
 	@Test
@@ -430,6 +507,29 @@ class DeviceIngestionEndToEndTest {
 		assertThat(api(HttpMethod.POST, "/api/v1/devices", ADMIN_1,
 				"{\"serial_number\":\"has space\",\"branch_id\":" + BRANCH_1 + ",\"name\":\"Bad serial\"}", 400)
 				.get("code")).isEqualTo("devices.serial_number_invalid");
+	}
+
+	/**
+	 * Truncating to fit would claim a serial no terminal will ever present:
+	 * the real one is refused by the receiver as overlong, so the device could
+	 * never ingest, and the prefix might belong to another unit.
+	 */
+	@Test
+	void anOverlongSerialIsRefusedRatherThanRegisteredAsItsPrefix() throws Exception {
+		String overlong = "S".repeat(65);
+		assertThat(api(HttpMethod.POST, "/api/v1/devices", ADMIN_1,
+				"{\"serial_number\":\"" + overlong + "\",\"branch_id\":" + BRANCH_1 + ",\"name\":\"Too long\"}", 400)
+				.get("code")).isEqualTo("devices.serial_number_invalid");
+		assertThat(count("SELECT COUNT(*) FROM attendance_devices WHERE serial_number LIKE 'SSS%'")).isZero();
+	}
+
+	/** Whole-hour today is not enough: Lord Howe shifts by thirty minutes in its other season. */
+	@Test
+	void aZoneThatBecomesFractionalInAnotherSeasonIsRefused() {
+		assertThat(api(HttpMethod.POST, "/api/v1/devices", ADMIN_1,
+				"{\"serial_number\":\"DEV-AB\",\"branch_id\":" + BRANCH_1
+						+ ",\"name\":\"Seasonal\",\"device_time_zone\":\"Australia/Lord_Howe\"}", 400)
+				.get("code")).isEqualTo("devices.time_zone_not_whole_hour");
 	}
 
 	/** A serial another company owns must look exactly like one nobody has ever seen. */
@@ -586,7 +686,8 @@ class DeviceIngestionEndToEndTest {
 					INSERT INTO branches (id, company_id, name, is_active, created_at) VALUES
 					  (9511, 9501, 'Co1 HQ', 1, '2025-03-01 10:00:00'),
 					  (9512, 9502, 'Co2 HQ', 1, '2025-03-01 10:00:00'),
-					  (9513, 9503, 'Suspended HQ', 1, '2025-03-01 10:00:00')
+					  (9513, 9503, 'Suspended HQ', 1, '2025-03-01 10:00:00'),
+					  (9514, 9501, 'Co1 Second Branch', 1, '2025-03-01 10:00:00')
 					""");
 			st.execute("""
 					INSERT INTO employees
@@ -599,6 +700,7 @@ class DeviceIngestionEndToEndTest {
 					  (95013, 9501, 9511, '1001', 'Punch', 'One', '+201100095013', 'employee', 1, 1, 0, 'accepted', 1, '2025-04-01 08:00:00'),
 					  (95014, 9501, 9511, '1002', 'Punch', 'Two', '+201100095014', 'employee', 1, 1, 0, 'accepted', 1, '2025-04-01 08:00:00'),
 					  (95015, 9501, 9511, '1003', 'Departed', 'One', '+201100095015', 'employee', 0, 1, 0, 'accepted', 1, '2025-04-01 08:00:00'),
+					  (95016, 9501, 9511, '1004 ', 'Spaced', 'Code', '+201100095016', 'employee', 1, 1, 0, 'accepted', 1, '2025-04-01 08:00:00'),
 					  (95021, 9502, 9512, '1001', 'Admin', 'Two', '+201100095021', 'company_admin', 1, 1, 0, 'accepted', 1, '2025-04-01 08:00:00'),
 					  (95031, 9503, 9513, NULL,   'Admin', 'Suspended', '+201100095031', 'company_admin', 1, 1, 0, 'accepted', 1, '2025-04-01 08:00:00')
 					""");

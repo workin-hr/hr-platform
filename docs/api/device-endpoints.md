@@ -21,8 +21,8 @@ type without its batch being swallowed by form parsing.
 
 | Method and path | Purpose | Answer |
 |---|---|---|
-| `GET /iclock/cdata?SN=&options=all&pushver=&DeviceType=` | Handshake: device asks for its operating options | `200`, `GET OPTION FROM: <SN>` plus `key=value` lines; `TransFlag` allows `AttLog` and `OpLog` only. An unclaimed **or deactivated** serial gets the same shape with zero stamp and zone, and an unclaimed one is recorded as a sighting |
-| `POST /iclock/cdata?SN=&table=ATTLOG&Stamp=` | Punch upload, one tab-separated line per punch | `200 OK: n` (n = lines accepted: stored, duplicate, or refused by the database); `403 ERROR: device is not registered` for an unclaimed or deactivated serial; `413` over the body cap. `Stamp` is recorded only when it is digits and the delivery carried at least one punch |
+| `GET /iclock/cdata?SN=&options=all&pushver=&DeviceType=` | Handshake: device asks for its operating options | `200`, `GET OPTION FROM: <SN>` plus `key=value` lines; `TransFlag` allows `AttLog` and `OpLog` only. **`ATTLOGStamp` is always `0`** — a device's own stamp is recorded as a diagnostic and never echoed back, since a fabricated one would tell a terminal to drop its buffer. An unclaimed **or deactivated** serial gets the same shape with a zero zone, and an unclaimed one is recorded as a sighting |
+| `POST /iclock/cdata?SN=&table=ATTLOG&Stamp=` | Punch upload, one tab-separated line per punch | `200 OK: n` (n = lines accepted: stored, duplicate, or refused by the database); `403 ERROR: device is not registered` for an unclaimed or deactivated serial; `413 ERROR: body too large` over the byte cap and `413 ERROR: too many records` over `max-records-per-upload` (refused whole, never partly stored) |
 | `POST /iclock/cdata?SN=&table=OPERLOG&Stamp=` | Operation log; may carry `USER` and template lines | `200 OK: n`; `OPLOG` lines stored, template lines discarded, `USER` lines counted only |
 | `POST /iclock/cdata?SN=&table=options` | Device describing itself | `200 OK`; `~DeviceName`, `FirmVer`, `PushVersion` recorded |
 | `POST /iclock/cdata?SN=&table=<anything else>` | Templates, photos, unknown tables | `200 OK`, discarded |
@@ -44,13 +44,21 @@ predicate on every query. Errors render the platform `{code, message}` body
 
 | Method and path | Purpose | Notes |
 |---|---|---|
-| `GET /api/v1/devices` | List the company's devices | `{ "devices": [ {id, serial_number, name, branch_id, vendor, model, firmware, push_version, device_time_zone, is_active, last_seen_at, last_handshake_at, last_seen_ip, created_at} ] }` |
+| `GET /api/v1/devices` | List the company's devices | `{ "devices": [ {id, serial_number, name, branch_id, vendor, model, firmware, push_version, device_time_zone, is_active, last_seen_at, last_handshake_at, last_seen_ip, last_attlog_stamp, created_at} ] }`. `last_attlog_stamp` is the last stamp the device reported — diagnostic only, never sent back to it |
 | `POST /api/v1/devices` | Claim a serial for a branch | body `{serial_number, branch_id, name, device_time_zone?}`; `201` with the device; `404 devices.branch_not_found` for a missing or foreign branch; `409 devices.serial_already_claimed`; `400 devices.serial_number_required`, `devices.serial_number_invalid`, `devices.name_required`, `devices.time_zone_invalid`, `devices.time_zone_not_whole_hour`. Zone defaults to the platform runtime offset (D-099) and must be a whole-hour offset — the handshake cannot express a half-hour one. Claiming is first-come and global; see R-041 |
 | `PATCH /api/v1/devices/{id}` | Rename, move branch, change zone, activate or deactivate | any of `name`, `branch_id`, `device_time_zone`, `is_active`; `404 devices.not_found` (also for another tenant's id); `400 devices.nothing_to_update` |
 | `GET /api/v1/devices/unclaimed?serial_number=` | Has this exact serial contacted the receiver? | `{serial_number, seen, claimed}` and nothing more — no timestamps, address, push version or device type. `claimed` is true only for the caller's own device; a serial owned by another company answers exactly as one never seen. No list form exists, by design. `400 devices.serial_number_query_required`, `devices.serial_number_invalid` |
 | `GET /api/v1/devices/identities` | Device PIN bindings for the company | `{ "identities": [ {employee_id, pin, card_no, source, updated_at, employee_name} ] }`. Where no binding exists a PIN falls back to the `employee_code` of an **active** employee |
 | `PUT /api/v1/devices/identities` | Bind (or rebind) an employee's PIN | body `{employee_id, pin, card_no?}`; `404 devices.employee_not_found` (also for another tenant's employee); `400 devices.pin_required`, `devices.pin_invalid`; `409 devices.pin_already_bound`, `devices.employee_already_bound` |
-| `GET /api/v1/devices/punches?device_id=&state=&limit=` | Raw punches, newest first, for shadow-mode visibility | `limit` defaults to 100, capped at 500; `state` is `RECEIVED`, `UNMATCHED`, `PAIRED` or `IGNORED` |
+| `GET /api/v1/devices/punches?device_id=&state=&limit=` | Raw punches, newest first, for shadow-mode visibility | `limit` defaults to 100, capped at 500; `state` is `RECEIVED`, `UNMATCHED`, `PAIRED` or `IGNORED`. `branch_id` is the branch the punch happened at, snapshotted at ingestion, so moving a device does not relabel its history |
+
+**The claim route is a pilot arrangement (D-157, R-041).** Supervised tenant
+claiming is accepted while devices are installed under supervision. For
+production, tenant admins will not claim by serial number at all: platform
+staff pre-allocate a device to a company and tenant HR only assigns an owned
+device to a branch. There is also **no unclaim, transfer or replace-device
+route yet** — correcting ownership today means a manual database change, and
+an audited path for it is required before broad production rollout.
 
 Finer HR permission flags (`hr_permissions.can_attendance`) are not consulted:
 the slice follows the legacy norm for new tenant-admin surface and defers

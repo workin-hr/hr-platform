@@ -195,25 +195,76 @@ boundary (`docs/devices/device-integration-architecture.md`, Device
 Authentication; `hr-legacy#9`'s guessable `company_id` is the failure mode it
 avoids).
 
-### 4.3 Hardware confirmation — the Part B acceptance test
+**Who may claim differs between pilot and production (D-157, R-041).** A
+serial number is printed on the unit and the protocol offers no proof of
+possession, so *who is allowed to establish ownership* is the only real
+control:
 
-To be executed once against a real terminal of each model in use, with the
-device's Cloud Server Setting pointed at a development receiver through a
-tunnel. Records the answers in
+- **Pilot — accepted as built.** Supervised claiming by a tenant
+  `company_admin`/`hr` through `/api/v1/devices/**`, attributed to the
+  employee who made it.
+- **Production — required, not yet built.** Tenant admins may not claim by
+  serial number at all. **Platform staff pre-allocate a device to a
+  company**; tenant HR then only assigns an already-owned device to one of
+  its branches. That removes the race rather than narrowing it, and makes
+  allocation a privileged, audited operation — which ties it to F-26
+  (individual platform-admin identity), already a P0 release gate.
+- **Recovery — required before broad rollout.** An **audited unclaim /
+  transfer / replace-device path**. Slice A has none, so a device registered
+  to the wrong company today needs a manual database change, which D-157
+  rules out as a long-term answer. Replacement is the ordinary case rather
+  than the exceptional one: a terminal that dies is swapped for a new serial,
+  and the branch's history has to survive it.
+
+### 4.3 Hardware confirmation — a hard prerequisite
+
+**Gate semantics (D-157).** This checklist does not block merging Slice A
+while `app.devices.ingest.enabled` is off — the code is unreachable in that
+state. It **does** block two things absolutely: describing the adapter as
+hardware-verified anywhere, and enabling it for any real customer.
+
+Executed once against a real **customer** terminal of each model in use,
+with its Cloud Server Setting pointed at a development receiver through a
+tunnel. Every answer is recorded in
 `docs/devices/attendance-device-model-and-firmware-inventory.md` and
-`vendor-capability-matrix.md`:
+`vendor-capability-matrix.md`, which is what turns documentation evidence
+into hardware evidence:
 
-- The `Comm -> Cloud Server Setting` (ADMS) menu exists and accepts a domain
-  name, not only an IP.
-- Whether HTTPS is offered, and which TLS versions succeed.
-- The handshake query string: `pushver`, `DeviceType`, `language`,
-  `PushOptionsFlag`.
-- ATTLOG field count and separator; whether the `STATUS` key is ever used by
-  employees; PIN length in use.
-- Behaviour when the receiver is down for ten minutes: buffered records
-  arrive on reconnect with original timestamps.
-- Behaviour on duplicate acknowledgement loss: the same batch is re-sent.
-- Device clock source (NTP or manual) and observed skew against the receiver.
+1. **Cloud Server Setting / ADMS availability** — the menu exists, and
+   accepts a domain name rather than only an IP.
+2. **HTTP vs HTTPS support** — whether TLS is offered at all, and which
+   versions succeed. An HTTP-only model is recorded with its residual
+   in-branch interception risk, per device.
+3. **Actual POST `Content-Type`** — the receiver is built to survive
+   `application/x-www-form-urlencoded`, which would otherwise have its body
+   consumed before the handler reads it; this confirms which content type
+   the firmware really sends.
+4. **Wall-clock vs epoch timestamps** — the two forms need different
+   handling, and reading one as the other shifts every punch by the device's
+   offset (§5.2).
+5. **Push protocol / version** — the `pushver`, `DeviceType`, `language` and
+   `PushOptionsFlag` the device presents on handshake.
+6. **PIN format and length** in use, against the receiver's own bound.
+7. **Offline buffering and replay** — with the receiver stopped for ten
+   minutes, buffered records arrive on reconnect carrying their original
+   timestamps.
+8. **ACK / retry behaviour** — a dropped acknowledgement causes the same
+   batch to be re-sent, and it is stored once.
+
+Two more, added by the review round (D-158) because the answers decide
+whether two deliberate compromises can be lifted:
+
+- **How the firmware encodes `ATTLOGStamp`** — the receiver currently never
+  echoes it and always asks for a full re-send, which is correct but costs
+  re-delivery. A trusted bookmark needs this.
+- **The real per-upload record count** — to confirm the 5000-record cap is
+  generous rather than something a buffered reconnect would trip.
+
+Also recorded while the device is connected: the ATTLOG field count and
+separator, whether employees ever press the in/out `STATUS` key, the device
+clock source (NTP or manual) and its observed skew, and — where a half-hour
+zone is involved — what the handshake's `TimeZone` field actually accepts
+(§3).
 
 ## 5. The Wire Contract (ZKTeco adapter)
 
@@ -232,7 +283,8 @@ Server reply (documented shape; values below are this design's choices):
 
 ```text
 GET OPTION FROM: <serial>
-ATTLOGStamp=<last acknowledged stamp, or 0 to request everything>
+ATTLOGStamp=0          always: this receiver never echoes a device's own
+                       stamp back to it -- see below
 OPERLOGStamp=<same, for operation logs>
 ErrorDelay=30          seconds before the device retries after a failure
 Delay=10               seconds between command polls -- this is the heartbeat
@@ -275,7 +327,10 @@ Three facts drive the design:
 - **What the parser emits has to fit the columns it lands in.** Status and
   verify codes are `SMALLINT` and the timestamp is a `DATETIME`; a value
   outside either is dropped at parse time, because the database is non-strict
-  and would otherwise store a clamped number or a zero date. A row the
+  and would otherwise store a clamped number or a zero date. Wall clocks are
+  parsed strictly, too: the default resolution would rewrite an impossible
+  `2024-02-30` into 29 February and store a firmware fault as a real punch on
+  a different day. A row the
   database still refuses is counted and acknowledged rather than thrown — an
   exception would make the device re-send the whole batch after every
   `ErrorDelay`, so one unstorable punch would block every good one beside it
@@ -288,6 +343,24 @@ Three facts drive the design:
 - **Timestamps are device-local wall-clock with no offset**, from a clock
   that drifts. The registry row's `device_time_zone` converts them;
   observed skew (device-reported time versus `received_at`) is a metric.
+- **The resume stamp is never trusted, and never echoed.** The `Stamp` a
+  device sends arrives on an unauthenticated request, so anyone who knows a
+  claimed serial could set it — one fabricated punch is enough to satisfy any
+  "was this delivery real" test. A far-future value returned in the next
+  handshake tells the terminal that everything up to it has been received,
+  and it drops the buffered punches it still holds. The receiver therefore
+  always answers `ATTLOGStamp=0` — "send what you have" — and relies on the
+  content-hash idempotency for the duplicates that produces. The observed
+  stamp is still recorded as a diagnostic and never used. A trusted bookmark
+  needs the firmware's stamp encoding, which is a §4.3 question.
+- **A byte cap does not bound the work.** A one-megabyte body of minimal
+  lines is tens of thousands of records, and each becomes a statement, so one
+  permitted request turns into tens of thousands of database operations that
+  proxy rate limiting cannot see. Uploads are capped by *record count* as
+  well as bytes (`app.devices.ingest.max-records-per-upload`, default 5000)
+  and refused — not truncated — above it, because silently keeping the first
+  N of a batch the device believes was delivered is how punches disappear.
+  Operation-log inserts are batched into one statement.
 - **The parameters must be read without touching the body.** On a POST,
   `@RequestParam` reads the servlet parameter map, and for a
   `application/x-www-form-urlencoded` content type the container builds that
@@ -297,7 +370,10 @@ Three facts drive the design:
   a filter ahead of the security chain and takes its parameters from the
   query string.
 - **There is no per-record identifier.** The idempotency key is
-  `sha256(serial | PIN | timestamp | STATUS)` — the synthesised key
+  `sha256(serial | PIN | time | STATUS)`, where *time* is the **instant** when
+  the device reported one and the wall clock otherwise — keying an epoch-form
+  punch by its local time would collapse the two distinct instants that share
+  a wall clock in an autumn daylight-saving overlap, silently discarding one — the synthesised key
   `device-integration-architecture.md` anticipated for vendors without a
   stable event ID. A lost acknowledgement re-sends a batch; a factory reset
   resets the stamp and re-sends everything; both are no-ops.
@@ -330,6 +406,18 @@ itself) updates model, firmware and push version in the registry.
 
 ## 6. Where It Lives In The Backend
 
+- **Layers.** Controller → service → store, as elsewhere in this codebase.
+  The controllers (`ZkTecoAdmsController`, `DeviceManagementController`) hold
+  only HTTP: where a parameter comes from, how the body is obtained, which
+  status code an outcome becomes, what the JSON looks like. The services
+  (`ZkTecoAdmsService`, `DeviceManagementService`,
+  `DevicePunchIngestionService`) hold every rule — the trust model, serial
+  validation, record caps, what a tenant may claim, how a PIN resolves — so a
+  rule is testable without a request and reusable when a second vendor
+  arrives. The stores hold SQL, with the tenant predicate on every query.
+  Beside them sit pure translators (parser, handshake renderer, operation-log
+  filter, `DeviceInput`, `QueryParameters`), which is what lets the protocol's
+  sharpest edges be unit-tested without a container.
 - **Package** `com.workin.devices` — a new root, outside both
   `com.workin.backend` (Postgres-era scan root) and `com.workin.legacy` (the
   PHP parity port). It is component-scanned **only** under the
@@ -372,6 +460,36 @@ itself) updates model, firmware and push version in the registry.
   `method='device'` requires an **expand-only** enum change on a live
   MariaDB table that frozen PHP still reads (Q5). `attendance_source_punches`
   links each derived row to the punches that produced it.
+
+**A company's device data is deleted with the company.** `LegacyCompanyDelete`
+cascades through explicit table lists, and the five device tables are added to
+it (children first, tolerating a table a deployment has not provisioned).
+Without that, a deleted company's registry, PIN bindings, punches and
+operation logs would outlive it, and the globally-unique serial would keep the
+terminal from ever being claimed again. The **preview** that endpoint returns
+is deliberately left alone: its key set is a client-visible contract (D-111)
+rendered by Flutter clients that cannot be inspected from this repository
+(PMR-02), so a company admin is told how many attendance records will go but
+not how many device punches. That under-reporting is a recorded gap awaiting
+an owner decision.
+
+**The Q5 audit is done (D-157) and the change is safe.** Every frozen-PHP
+site *writes* `attendance.method` — `check_in.php:58` and `create.php:111`
+(`?? 'app'`), `check_in_qr.php:71` (`'qr'`),
+`attendance_excel_analyzer.php:1019` and `xlsx_parser.php:615` (`'excel'`),
+`request_actions_helper.php:170` (`'app'`) — and exactly one site *reads*
+it: `dashboard/pages/employees/detail.php:82`, which renders
+`clean($a['method'])` verbatim. There is no comparison, no `switch`, no
+`WHERE method =` filter, no i18n label keyed by the value and no export
+column; the dashboard's `ATTEND_APP`/`ATTEND_QR`/`ATTEND_EXCEL` constants are
+only a form default for HR-entered rows. Old PHP and new Java therefore both
+work throughout the rollout, in either deployment order. Two residual checks
+belong to Slice B: the dashboard shows the literal word `device` until it is
+given a label, and the Flutter clients are pinned submodule references that
+no clone populates (PMR-02), so if either renders `method` it must be
+verified first. **Migration shape**: `attendance` is 36,316 rows / 64 MB, and
+a fourth value does not change a `≤255`-value enum's one-byte storage, so the
+`ALTER` should be `ALGORITHM=INSTANT` and is trivial even if it copies.
 
 DDL sketch for `phase1_extensions.schema.sql` (Slice A tables; MariaDB
 dialect, matching `legacy_refresh_tokens`'s style):
@@ -471,23 +589,31 @@ days delivers hundreds of old-timestamped records in one burst. Ordering is
 by `punched_at`, never by arrival (`device-integration-architecture.md`,
 Late-event business-rule implications).
 
-Rules to settle against legacy behaviour:
+Rules, against legacy behaviour:
 
-- **Two-hour minimum gap (Q2).** Legacy rejects a second check-in within
-  120 minutes and tells the app. A terminal cannot be told; it has already
-  said "Thank you". Recommendation for `method='device'`: a one-to-two
-  minute duplicate-punch debounce (the device has the same setting), then
-  record everything and flag `RAPID_RECHECKIN` for HR review rather than
-  discard biometric evidence.
+- **Two-hour minimum gap (Q2) — decided (D-157): a device punch is never
+  rejected.** Legacy rejects a second check-in within 120 minutes and tells
+  the app. A terminal cannot be told; it has already said "Thank you", so
+  refusing at the boundary would destroy biometric evidence of presence with
+  nothing to show the person. For `method='device'`: always persist; suppress
+  a double-read with a short duplicate/debounce window (the terminals have
+  the same setting, and `processing_state='IGNORED'` already exists for it);
+  and flag a rapid re-check-in as `RAPID_RECHECKIN` for review.
 - **Synthetic check-out.** When `LegacyAttendanceSessions` has auto-closed a
   session and a real device check-out arrives later, the device value
   replaces the synthetic one and the row is flagged `SYNTHETIC_REPLACED`.
 - **Night shifts** pair within the employee's shift window from the schedule
   module, not the calendar day.
-- **A PIN resolves only to an active employee.** A badge outlives
+- **A PIN resolves only to an active employee**, whether it was matched by
+  an explicit binding or by the `employee_code` fallback. A badge outlives
   employment, so a punch on a departed employee's PIN is `UNMATCHED` for
   review rather than attributed to them — a deliberate difference from the
   Excel import, which applies no such filter.
+- **A punch records the branch it happened at**, snapshotted from the device
+  at ingestion rather than read back through the registry. A terminal can be
+  moved between branches, and reporting its current branch would retroactively
+  relabel every punch it ever sent — which would make the out-of-home-branch
+  policy unreconstructable.
 - **Odd punch counts** leave an open session, as today, plus a review flag.
 
 ### 7.4 Events
@@ -541,7 +667,7 @@ server. The design compensates:
   `REBOOT`. Never `SHELL`; never an automatic `CLEAR LOG` — the device's
   memory is the last-resort backup. Every queued command is an audited
   action by an authenticated person.
-- **No biometric templates on the platform in Phase 1 (Q3).** `TransFlag`
+- **No biometric templates on the platform in Phase 1 — decided (D-157).** `TransFlag`
   excludes them and the adapter discards any that arrive (§5.4). Templates
   are sensitive personal data under the applicable data-protection regimes
   and `AGENTS.md` already forbids agent access to them. Cross-branch
@@ -596,24 +722,26 @@ server. The design compensates:
 |---|---|---|
 | **A — ingest and visibility** | Registry and claim API; PIN identities; `/iclock/{cdata,getrequest,devicecmd}`; raw punch log with dedup; unclaimed sightings; heartbeat; template discard; property gate; raw-punch visibility endpoint; tests in §13 (the end-to-end test plays the device). **Not in A:** in-app per-serial rate limits (the pilot relies on the edge/reverse proxy), the command queue, a standalone simulator CLI | **Open** — D-156 accepted, Q1 = identity table, Q6 = tenant API (all 2026-09-02) |
 | **B — pairing** | Pure pairing function with replay; anomaly flags; `method='device'` enum expansion; `attendance_source_punches`; HR review queue; notifications | Q2 and Q5 answered; Slice A in shadow at a pilot branch |
+| **B′ — ownership and recovery** (D-157) | Platform-mediated allocation of a device to a company, tenant assignment to a branch, and the audited unclaim / transfer / replace-device path | Required before production ingestion; closes R-041 |
 | **C — device management** | Push `USERINFO` on employee create/move; time sync; queued-command UI with audit | Slice B live |
-| **D — later** | Biometric template sync (Q3 first); Hikvision/Anviz/Suprema adapters; edge-gateway bridge for non-ADMS terminals | Separate decisions |
+| **D — later** | Hikvision/Anviz/Suprema adapters; edge-gateway bridge for non-ADMS terminals. Biometric template sync is **not** on this roadmap — D-157 rules it out for Phase 1 | Separate decisions |
 
 ## 12. Decisions Required From The Repository Owner
 
-Q0, Q1 and Q6 were decided on 2026-09-02 and recorded in D-156. Q2, Q3, Q5
-and Q7 remain open.
+Q0, Q1 and Q6 were decided on 2026-09-02 (D-156); Q2, Q3, Q5, Q7 and Q8 the
+same day (**D-157**). None remains open — what is left is the work those
+answers oblige, tracked in D-157's Follow-up, R-041 and §11's slice B′.
 
 | # | Question | Recommendation |
 |---|---|---|
 | Q0 | Accept D-156: ADMS push is the primary ZKTeco adapter; the edge gateway is a fallback | **Decided 2026-09-02: accepted**, conditional on §4.3 passing on the first real device |
 | Q1 | Device PIN identity: reuse `employee_code` (a) or a new `employee_device_identities` table (b) | **Decided 2026-09-02: (b)** |
-| Q2 | Device punches under the two-hour rule: reject like the app, or debounce and flag | Debounce and flag |
-| Q3 | Biometric templates: never in Phase 1, or planned with controls | Never in Phase 1; revisit with a data-protection review |
-| Q5 | When to expand `attendance.method` on the live table, given frozen PHP still reads it | With Slice B, expand-only, after confirming PHP treats unknown enum values as opaque strings |
+| Q2 | Device punches under the two-hour rule: reject like the app, or debounce and flag | **Decided 2026-09-02: never reject** — persist, debounce a double-read, flag a rapid re-check-in |
+| Q3 | Biometric templates: never in Phase 1, or planned with controls | **Decided 2026-09-02: none in Phase 1** — attendance events and metadata only |
+| Q5 | When to expand `attendance.method` on the live table, given frozen PHP still reads it | **Decided 2026-09-02: expand-only with Slice B**, and the audit it was conditional on is complete (§7.1) |
 | Q6 | Who claims devices during the pilot: HR through `/api/v1/devices/**`, or platform staff on the tenant's behalf | **Decided 2026-09-02: tenant HR/admin through the API**; platform staff use a company admin's session for the pilot |
-| Q7 | Production provisioning of Phase-1-owned MariaDB tables (ADR-0013 open question, now on the critical path) | Decide before Slice A deploys; does not block building it |
-| Q8 | Proof of possession when claiming a device (**R-041**): accept squatting risk for a pilot whose devices platform staff install, move allocation to platform staff, or require a value only someone at the terminal can read. An unclaim/transfer path is needed either way | Accept for the pilot, decide before it widens |
+| Q7 | Production provisioning of Phase-1-owned MariaDB tables (ADR-0013 open question, now on the critical path) | **Decided 2026-09-02: must be explicitly solved before production ingestion is enabled** (R-023) |
+| Q8 | Proof of possession when claiming a device (**R-041**) | **Decided 2026-09-02: supervised tenant claiming for the pilot; platform-mediated allocation for production, with tenant HR only assigning an owned device to a branch; an audited unclaim/transfer/replace path before broad rollout** (§4.2, slice B′) |
 
 Q4 (module inside the monolith versus a separate service) is recorded as an
 assumption in §3, not a question: the module is cheaper, and the SPI keeps
@@ -675,6 +803,18 @@ test that exists and passes.
   create a sighting, a deactivated device handshaken neutrally, a half-hour
   zone refused at claim time, the unclaimed lookup telling one tenant nothing
   about another's device, and a departed employee's PIN staying `UNMATCHED`.
+- Added by the **independent review round** on PR #162, which found ten
+  further defects — four of them P1 — each now pinned by a test: the resume
+  stamp is never echoed, so a fabricated punch cannot move a terminal's
+  bookmark; an upload above the record cap is refused rather than partly
+  stored; a punch keeps the branch it happened at when its device is moved; a
+  company's device data is deleted with the company; an impossible calendar
+  date is malformed rather than rolled back; two epoch punches sharing a wall
+  clock in a daylight-saving overlap stay distinct; an explicit binding to a
+  deactivated employee stops resolving; an `employee_code` stored with a
+  trailing space still resolves; an over-long serial is refused rather than
+  registered as its prefix; and a zone that turns fractional in another season
+  is refused.
 - Not automated in this slice: the §4.3 hardware checklist (needs a real
   terminal) and a standalone simulator CLI for it.
 

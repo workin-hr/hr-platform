@@ -54,15 +54,15 @@ public class DevicePunchStore {
 	 * anticipate.
 	 */
 	public InsertOutcome insert(
-			long deviceId, long companyId, Long employeeId, DeviceAttendanceEvent event,
+			long deviceId, long companyId, long branchId, Long employeeId, DeviceAttendanceEvent event,
 			LocalDateTime punchedAtUtc, LocalDateTime receivedAt, String state) {
 		try {
 			jdbcTemplate.update("""
 					INSERT INTO device_punches
-					  (device_id, company_id, employee_id, pin, punched_at_local, punched_at_utc, status_code,
-					   verify_code, work_code, received_at, dedup_key, raw_line, processing_state)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-					deviceId, companyId, employeeId, event.pin(),
+					  (device_id, company_id, branch_id, employee_id, pin, punched_at_local, punched_at_utc,
+					   status_code, verify_code, work_code, received_at, dedup_key, raw_line, processing_state)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+					deviceId, companyId, branchId, employeeId, event.pin(),
 					DeviceAttendanceEvent.SQL_DATE_TIME.format(event.punchedAtLocal()),
 					DeviceAttendanceEvent.SQL_DATE_TIME.format(punchedAtUtc),
 					event.statusCode(), event.verifyCode(), event.workCode(),
@@ -79,7 +79,7 @@ public class DevicePunchStore {
 	/** Newest first, always inside one company; the optional filters narrow, never widen. */
 	public List<Map<String, Object>> recentForCompany(long companyId, Long deviceId, String state, int limit) {
 		StringBuilder sql = new StringBuilder("""
-				SELECT p.id, p.device_id, d.name AS device_name, d.branch_id, p.employee_id, p.pin,
+				SELECT p.id, p.device_id, d.name AS device_name, p.branch_id, p.employee_id, p.pin,
 				       p.punched_at_local, p.punched_at_utc, p.status_code, p.verify_code, p.work_code,
 				       p.received_at, p.processing_state
 				FROM device_punches p

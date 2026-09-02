@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Controller;
 
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
@@ -45,6 +46,39 @@ class DevicesModuleIsolationTest {
 		assertThat(module().stream()
 				.filter(clazz -> clazz.isAnnotatedWith(jakarta.persistence.Entity.class))
 				.map(JavaClass::getName))
+				.isEmpty();
+	}
+
+	/**
+	 * Controllers may not reach a store directly.
+	 *
+	 * <p>The rule the module is built on: a controller owns HTTP and nothing
+	 * else, so every decision sits in a service where it can be tested without
+	 * a request and reused when a second vendor adapter arrives. A controller
+	 * that talks to a store is how that erodes -- one "just this once" query
+	 * at a time -- and the erosion is invisible in review because each step
+	 * looks small.
+	 */
+	@Test
+	void noControllerTalksToAStoreDirectly() {
+		List<JavaClass> controllers = module().stream()
+				.filter(clazz -> clazz.isMetaAnnotatedWith(Controller.class))
+				.toList();
+		// Guards the guard: with no controllers found, every assertion below
+		// would pass by describing nothing.
+		assertThat(controllers).describedAs("no device controller found -- this rule would pass vacuously")
+				.hasSizeGreaterThanOrEqualTo(2);
+
+		List<String> offenders = controllers.stream()
+				.flatMap(clazz -> clazz.getDirectDependenciesFromSelf().stream()
+						.map(dependency -> dependency.getTargetClass().getSimpleName())
+						.filter(name -> name.endsWith("Store"))
+						.map(name -> clazz.getSimpleName() + " -> " + name))
+				.distinct()
+				.toList();
+
+		assertThat(offenders)
+				.describedAs("a device controller reached a store directly; put the rule in a service instead")
 				.isEmpty();
 	}
 

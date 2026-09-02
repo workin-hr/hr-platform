@@ -26,14 +26,34 @@ public final class ZkTecoHandshake {
 
 	static final String CRLF = "\r\n";
 
+	/**
+	 * The stamp this receiver asks every device to resume from: zero, meaning
+	 * "send everything you still hold".
+	 *
+	 * <h2>Why the device's own stamp is never echoed back</h2>
+	 * <p>The stamp arrives on an unauthenticated request. Anyone who knows a
+	 * claimed serial can send one syntactically valid punch with an arbitrary
+	 * digit-only stamp, and if that value were stored and returned here, the
+	 * real terminal would be told that everything up to it had already been
+	 * received -- and would drop the buffered punches it still held. Requiring
+	 * an accompanying punch narrows that but does not close it, because the
+	 * accompanying punch is trivial to fabricate.
+	 *
+	 * <p>Answering zero costs re-delivery, not correctness: idempotency here
+	 * is a content hash rather than a bookmark, so a re-sent record collapses
+	 * onto the row that already exists. A trusted bookmark needs to know how
+	 * this firmware encodes the value, which is a §4.3 hardware question; the
+	 * observed stamp is still recorded, as a diagnostic, and never used.
+	 */
+	static final String ALWAYS_RESEND = "0";
+
 	private ZkTecoHandshake() {
 	}
 
 	public static String response(String serialNumber, Optional<AttendanceDevice> device, Instant now) {
-		String attlogStamp = device.map(AttendanceDevice::lastAttlogStamp).filter(s -> s != null && !s.isBlank()).orElse("0");
 		int timeZoneHours = device.map(d -> offsetHours(d.deviceTimeZone(), now)).orElse(0);
 		return "GET OPTION FROM: " + serialNumber + CRLF
-				+ "ATTLOGStamp=" + attlogStamp + CRLF
+				+ "ATTLOGStamp=" + ALWAYS_RESEND + CRLF
 				+ "OPERLOGStamp=0" + CRLF
 				+ "ATTPHOTOStamp=0" + CRLF
 				+ "ErrorDelay=30" + CRLF
