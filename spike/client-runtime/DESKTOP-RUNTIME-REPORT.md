@@ -72,10 +72,58 @@ parsers that write `getModel(...)!` and therefore **throw** if `data` is not a
 JSON object. D-156 changed how Java renders an empty structure, so this was the
 change most able to break the client at runtime. All three rendered.
 
+## Mutations, uploads and logout through the real UI
+
+Each of these was performed by clicking and typing in the running application,
+against Java, and verified in Java's database afterwards.
+
+| flow | request the UI produced | result |
+|---|---|---|
+| create | `POST departments/create {name, branch_ids:[292]}` | 201 `تم إنشاء القسم`, row 969 written, list refreshed with the new row first |
+| update | `PUT departments/update?id=969 {name: ... RENAMED}` | 200 `تم تحديث القسم`, list row renamed |
+| delete | `DELETE departments/delete?id=932` | 200 `تم تعطيل القسم`, `is_active` 1 -> 0, row disappears from the list |
+| upload | `POST company/upload_logo` (multipart, real GTK file chooser) | 200 `تم رفع الشعار`, file written under `java-uploads/logos/` |
+| image load | the stored `logo_url` | the current logo renders in the profile page |
+| logout | `POST profile/logout` | 200, app returns to a cleared login screen |
+
+The writes landed in `workin_java` only; the PHP copy was checked and unchanged,
+which also confirms the two databases stay isolated during a UI session.
+
+**The delete hit id 932 rather than the record just created.** The list re-sorts
+after an update, so the scripted click landed on a different row. That is a
+defect in the driving script, not in either stack -- the flow itself is verified
+by the request, the response and the row's `is_active` going to 0.
+
+## The one divergence the real client exposed
+
+`company/upload_logo` is an **accepted divergence, D-154**, and this is the first
+time it has been demonstrated with the client's own request rather than a
+harness fixture.
+
+The desktop client does not upload the file the user picked. Its image pipeline
+**compresses the selection to JPEG and writes it back over the same path**,
+keeping the original `.png` name -- verified on disk: the picked file was a
+69-byte PNG before the upload and a 618-byte JPEG afterwards, while the original
+fixture was untouched. So the client sends **JPEG bytes under a `.png`
+filename**, which is exactly the case D-154 is about:
+
+```text
+php   200  stored /uploads/logos/6a987cb5900d10.70935098.png   (extension from the FILENAME)
+java  200  stored /uploads/logos/65a8544ea4d20.24573040.jpg    (extension from the SNIFFED TYPE)
+```
+
+Classified as **accepted divergence**, not a defect: D-154 records that PHP's
+filename-derived extension is an upload-based code-execution path, deliberately
+not reproduced. Client-visible impact is none -- the app renders whatever
+`logo_url` comes back, and it rendered on both. The contract layer could not
+have found this: its fixtures name a PNG `.png` and a PDF `.pdf`, so the
+filename always agreed with the content.
+
 ## Not yet covered by this pass
 
-- create/update/delete through the UI, uploads through the file picker,
-  downloads to disk, and logout: the journey here is read-and-navigate;
+- opening a downloaded document from the profile page: the affordance is
+  present and the stored PDF is listed, but the open-in-external-viewer path was
+  not exercised;
 - the mobile client, which needs an Android emulator — `/dev/kvm` exists but
   is `root:kvm 660` and this account is not in the `kvm` group;
 - the app runs against a lockfile that differs from the shipped one:
