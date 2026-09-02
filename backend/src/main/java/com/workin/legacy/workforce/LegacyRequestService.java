@@ -180,7 +180,13 @@ public class LegacyRequestService {
 						"employee", LegacyValues.toPhpString(inserted.get("employee_name")),
 						"type", LegacyValues.toPhpString(inserted.get("request_type_name")),
 						"from", fromDate,
-						"to", toDate)));
+						"to", toDate)),
+				// notification_request_submitted_to_company() passes 'request'
+				// and the request id (notifications.php:278-291). Omitting them
+				// left reference_type and reference_id null, so the company's
+				// notification could not point back at the request it announces
+				// -- reject() on this same class already passes them.
+				"request", id);
 
 		return inserted;
 	}

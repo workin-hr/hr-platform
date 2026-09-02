@@ -224,6 +224,75 @@ for d in "$PHP_DB" "$JAVA_DB"; do
          (SELECT id FROM exception_types ORDER BY id LIMIT 1), NOW()
   ON DUPLICATE KEY UPDATE deduct_balance=1, add_attendance_exception=1, is_active=1;
 
+  -- Fixtures for the endpoints that had a case but only a REJECTING one. Each
+  -- exists because the success path needs a row the snapshot does not provide,
+  -- and cases deliberately cannot chain: every case reseeds.
+
+  -- A branch with NO employees. branches/delete answers 409 while any remain.
+  INSERT INTO branches (id, company_id, name, address, is_active, created_at)
+  VALUES (999020, 214, 'Parity Empty Branch', 'nowhere', 1, NOW())
+  ON DUPLICATE KEY UPDATE name='Parity Empty Branch', is_active=1;
+
+  -- An employee nothing references. employees/delete answers 409 while payroll
+  -- or attendance rows point at one.
+  INSERT INTO employees
+   (id, company_id, branch_id, employee_code, first_name, last_name, phone, role,
+    is_active, is_mobile_attendance_enabled, can_check_in_any_branch, join_request_status, token_version, created_at)
+  -- NOT on branch 999020: that branch exists precisely to have no employees,
+  -- and putting this one there made branches/delete's fixture unresolvable.
+  SELECT 999021, 214, (SELECT id FROM branches WHERE company_id=214 AND id<>999020 ORDER BY id LIMIT 1),
+    '99021', 'Parity', 'Disposable', '+201999000021', 'employee', 1, 1, 0, 'accepted', 1, NOW()
+  ON DUPLICATE KEY UPDATE is_active=1;
+
+  -- A request type nothing uses. request_types/delete answers 409 otherwise.
+  INSERT INTO request_types (id, company_id, name, is_active, deduct_balance, counts_as_paid_leave, add_attendance_exception, created_at)
+  VALUES (999022, 214, 'Parity Unused Type', 1, 0, 0, 0, NOW())
+  ON DUPLICATE KEY UPDATE name='Parity Unused Type', is_active=1;
+
+  -- An OPEN check-in for attendance/check_out to close. It cannot come from the
+  -- check_in case, because each case reseeds and nothing one case writes
+  -- survives into the next.
+  --
+  -- Deliberately NOT the breadth actor (999002): an open record for that
+  -- employee makes attendance/check_in answer already-checked-in, which
+  -- turned a passing case into a 400 on both stacks. A fixture that changes
+  -- another case's outcome is worse than no fixture, so this one belongs to a
+  -- different employee and the check_out case names them explicitly.
+  INSERT INTO attendance (id, employee_id, check_in, check_out, method, created_at)
+  SELECT 999023, (SELECT id FROM employees WHERE company_id=214 AND id NOT IN (999002,999003,999021) ORDER BY id LIMIT 1),
+         CONCAT(CURDATE(), ' 08:00:00'), NULL, 'app', NOW()
+  ON DUPLICATE KEY UPDATE check_in=CONCAT(CURDATE(), ' 08:00:00'), check_out=NULL;
+
+  -- A second exception type, for update and delete.
+  INSERT INTO exception_types (id, company_id, name, is_active, created_at)
+  VALUES (999024, 214, 'Parity Exception Fixture', 1, NOW())
+  ON DUPLICATE KEY UPDATE name='Parity Exception Fixture', is_active=1;
+
+  -- A workforce planning row, for update and delete.
+  -- A DIFFERENT job title from the one workforce_planning/create uses. The
+  -- first version took the same branch/department/job_title triple, which the
+  -- table treats as unique, so create then answered 500 on BOTH stacks -- a
+  -- matching error, which is the one outcome that must never read as parity.
+  INSERT INTO workforce_planning (id, company_id, branch_id, department_id, job_title_id, planned_count, created_at)
+  SELECT 999025, 214, (SELECT id FROM branches WHERE company_id=214 AND id<>999020 ORDER BY id LIMIT 1),
+         (SELECT id FROM departments WHERE company_id=214 ORDER BY id LIMIT 1),
+         (SELECT id FROM job_titles WHERE company_id=214 ORDER BY id LIMIT 1 OFFSET 1), 3, NOW()
+  ON DUPLICATE KEY UPDATE planned_count=3;
+
+  -- An employee document row, for update and delete. upload creates one, but a
+  -- case cannot chain to it.
+  INSERT INTO employee_docs (id, employee_id, doc_type, file_url, uploaded_at)
+  SELECT 999026, (SELECT id FROM employees WHERE company_id=214 AND id NOT IN (999002,999021) ORDER BY id LIMIT 1),
+         'contract', '/uploads/docs/parity-fixture.pdf', NOW()
+  ON DUPLICATE KEY UPDATE doc_type='contract';
+
+  -- A push token owned by the login actor. auth/login_employee deletes every
+  -- push_tokens row for the employee, and without a row to delete the case
+  -- passes whether or not Java still performs that cleanup.
+  INSERT INTO push_tokens (id, employee_id, token, platform, updated_at)
+  VALUES (999027, 999002, 'parity-fixture-push-token', 'android', NOW())
+  ON DUPLICATE KEY UPDATE token='parity-fixture-push-token';
+
   INSERT INTO requests (id, employee_id, request_type_id, from_date, to_date, status, created_at)
   SELECT 999014, 999003, 999016,
          '2026-09-10', '2026-09-11', 'pending', NOW()

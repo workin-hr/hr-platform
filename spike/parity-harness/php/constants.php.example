@@ -37,8 +37,20 @@ final class AppConfig {
     /** Fallback sender instance. Tried only when primary fails. */
     public const WHATSAPP_INSTANCE_ID_FALLBACK = 'CHANGE_ME_LOCALLY';
 
-    /** When true: show PHP errors and return JSON for uncaught exceptions (local/Postman only). Set false in production. */
-    public const DEBUG = true;
+    /**
+     * MUST be false in the parity harness, and the compose file pairs it with
+     * display_errors=Off.
+     *
+     * With DEBUG=true, forgot_password.php and resend_otp.php return the OTP IN
+     * THE RESPONSE BODY and respond() appends a stack trace to uncaught
+     * exceptions -- neither of which production does. Comparing against that
+     * makes Java look wrong for behaving like production: the harness reported
+     * PHP "leaking the OTP" until this was traced to its own configuration.
+     *
+     * The OTP is still readable for the OTP cases -- from otp_codes.code, where
+     * it is stored in plaintext, per stack.
+     */
+    public const DEBUG = false;
 }
 
 require_once __DIR__ . '/http_api.php';

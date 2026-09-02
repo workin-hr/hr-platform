@@ -20,3 +20,5 @@ php/uploads/
 php/constants.php
 php/dashboard-constants.php
 last-run.txt
+fixtures/
+java-uploads/

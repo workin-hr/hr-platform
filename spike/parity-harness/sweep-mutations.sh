@@ -12,6 +12,7 @@
 # each other. That is slow and deliberate: a shared, drifting state makes a
 # failure impossible to attribute.
 set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
 DB=parity-harness-db-1
 PHP_DB=workin
 JAVA_DB=workin_java
@@ -72,7 +73,11 @@ assert_java_on_its_own_database() {
 # counted, every endpoint that stamps a row would report a difference and real
 # defects would drown in the noise. What is being compared is what each stack
 # *chose* to write, not when the harness happened to call it.
-snapshot() {  # $1=database $2=table $3=accepted columns (comma separated)
+snapshot() {  # $1=database $2=table $3=accepted columns $4=server-stamped columns
+  # Defaults matter under `set -u`: a three-argument call would otherwise abort
+  # on $4, and it would abort IDENTICALLY for both databases -- so the two
+  # snapshots would compare equal and a real difference would read as agreement.
+  local _accepted="${3:-}" _stamped="${4:-}"
   # Timestamps are normalised to null/set rather than dropped.
   #
   # Dropping them was wrong: the whole argument for diffing rows is that a
@@ -105,7 +110,9 @@ snapshot() {  # $1=database $2=table $3=accepted columns (comma separated)
   cols=$(m information_schema -e "
     SELECT GROUP_CONCAT(
              CASE WHEN data_type IN ('timestamp','datetime','date')
-                   AND column_name IN ('created_at','updated_at','deleted_at','decided_at')
+                   AND (column_name IN ('created_at','updated_at','deleted_at','decided_at')
+                        OR (column_name = 'uploaded_at' AND table_name = 'employee_docs')
+                        OR (column_name = 'expires_at' AND table_name = 'otp_codes'))
                   THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ELSE ''set'' END')
                   -- qr_code is bin2hex(random_bytes(16)) in PHP and SecureRandom in
                   -- Java, so two CORRECT implementations must differ. Reduced to its
@@ -128,7 +135,11 @@ snapshot() {  # $1=database $2=table $3=accepted columns (comma separated)
                   -- LegacyRequestEndToEndTest and LegacyRequestApprovalEndToEndTest,
                   -- which both assert approver_id equals the deciding employee.
                   -- An acceptance without such a test would be a blind spot.
-                  WHEN FIND_IN_SET(column_name, '$3') > 0
+                  -- Case-scoped server-stamped columns: null/set, like the
+                  -- audit set, so a missing write still fails.
+                  WHEN FIND_IN_SET(column_name, '$_stamped') > 0
+                  THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ELSE ''set'' END')
+                  WHEN FIND_IN_SET(column_name, '$_accepted') > 0
                   THEN '''<accepted-divergence>'''
                   -- password_hash is bcrypt with a fresh random salt on every
                   -- write, so two CORRECT implementations must differ. Reduced
@@ -143,15 +154,51 @@ snapshot() {  # $1=database $2=table $3=accepted columns (comma separated)
                   -- seed writes on every case in this file. So a password
                   -- changed on one stack still works on the other during a
                   -- shared-database cutover.
+                  -- Stored upload URLs carry uniqid('', true), so the two
+                  -- stacks must differ in the basename. Reduced to
+                  -- <subdir>/<random>.<ext>, keeping the DIRECTORY and the
+                  -- EXTENSION, both of which are contract -- and the extension
+                  -- especially, because PHP takes it from the client filename
+                  -- while Java derives it from the sniffed type.
+                  --
+                  -- The response body was already normalised this way; the row
+                  -- was not, so every upload case reported a row difference for a
+                  -- column whose difference is by design.
+                  WHEN column_name IN ('logo_url','commercial_reg_url','photo_url','file_url')
+                  -- No REGEXP here, deliberately. A dollar anchor inside this
+                  -- double-quoted bash string begins ANSI-C quoting and
+                  -- silently truncates the generated SQL, so LEFT and
+                  -- SUBSTRING_INDEX express the same check without one.
+                  -- (This comment spells out dollar rather than using the symbol
+                  -- for exactly that reason -- the first version of it broke
+                  -- the query it was explaining.)
+                  THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ',
+                              'WHEN LEFT(\`', column_name, '\`, 9) = ''/uploads/'' ',
+                              'AND LOCATE(''.'', \`', column_name, '\`) > 0 ',
+                              'THEN CONCAT(''upload:'', SUBSTRING_INDEX(SUBSTRING(\`', column_name, '\`, 10), ''/'', 1), ',
+                              '''/<random>.'', SUBSTRING_INDEX(\`', column_name, '\`, ''.'', -1)) ',
+                              'ELSE CONCAT(''UNEXPECTED-SHAPE:'', \`', column_name, '\`) END')
                   WHEN column_name = 'password_hash'
                   THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ',
                               'WHEN LENGTH(\`', column_name, '\`) = 60 ',
                               'AND LEFT(\`', column_name, '\`, 3) IN (''\$2a'', ''\$2b'', ''\$2y'') ',
                               'THEN CONCAT(''bcrypt-cost-'', SUBSTRING(\`', column_name, '\`, 5, 2)) ',
                               'ELSE CONCAT(''UNEXPECTED-SHAPE:'', LEFT(\`', column_name, '\`, 7)) END')
-                  WHEN column_name = 'qr_code'
+                  -- An OTP is generated independently by each stack, so the
+                  -- two must differ. Reduced to its shape: a code of the wrong
+                  -- length, or a non-numeric one, still fails.
+                  WHEN column_name = 'code'
                   THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ',
-                              'WHEN \`', column_name, '\` REGEXP ''^[0-9a-f]{32}$'' ',
+                              'WHEN \`', column_name, '\` NOT REGEXP ''[^0-9]'' AND LENGTH(\`', column_name, '\`) > 0 ',
+                              'THEN CONCAT(''otp-'', LENGTH(\`', column_name, '\`), ''-digits'') ',
+                              'ELSE CONCAT(''UNEXPECTED-SHAPE:'', \`', column_name, '\`) END')
+                  WHEN column_name = 'qr_code'
+                  -- UNHEX rather than a regex, for the dollar-anchor reason
+                  -- above: 32 characters, valid hex, and already lowercase.
+                  THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ',
+                              'WHEN LENGTH(\`', column_name, '\`) = 32 ',
+                              'AND UNHEX(\`', column_name, '\`) IS NOT NULL ',
+                              'AND BINARY \`', column_name, '\` = LOWER(\`', column_name, '\`) ',
                               'THEN ''random-32-lower-hex'' ',
                               'ELSE CONCAT(''UNEXPECTED-SHAPE:'', \`', column_name, '\`) END')
                   ELSE CONCAT('\`', column_name, '\`') END
@@ -163,6 +210,22 @@ snapshot() {  # $1=database $2=table $3=accepted columns (comma separated)
   # carry the database name, so a discovery failure can never look like
   # agreement between two databases.
   [ -n "$cols" ] && [ "$cols" != NULL ] || { echo "SCHEMA-DISCOVERY-FAILED:$1.$2"; return; }
+  # A malformed generated query makes mariadb print its version banner or usage
+  # instead of the column list, and the banner is non-empty -- so the check
+  # above passes and the banner is then used AS the select list, failing every
+  # row query and reporting "rows differ" for every case. Happened once, from a
+  # '$' inside a double-quoted bash string being read as ANSI-C quoting.
+  case "$cols" in
+    *MariaDB*|*"Usage:"*|*"ERROR "*)
+      echo "COLUMN-QUERY-MALFORMED:$1.$2"
+      echo "FATAL: the generated column list is not SQL -- it starts:" >&2
+      echo "  A double quote or a dollar-quote sequence inside the query, INCLUDING" >&2
+      echo "  inside an SQL comment, splits the bash argument list and mariadb then" >&2
+      echo "  prints its usage banner instead of running anything. Three occurrences" >&2
+      echo "  so far, twice from a comment explaining the previous one." >&2
+      printf '  %s\n' "$(printf '%s' "$cols" | head -c 120)" >&2
+      exit 11 ;;
+  esac
 
   # Order by the table's ACTUAL primary key, derived rather than assumed.
   # This hard-coded `ORDER BY id`, which is wrong for a composite-keyed
@@ -199,7 +262,9 @@ timestamp_drift() {  # $1=table -> worst drift across audit columns, or empty
   cols=$(m information_schema -e "
     SELECT column_name FROM columns
     WHERE table_schema='$PHP_DB' AND table_name='$1'
-      AND column_name IN ('created_at','updated_at','deleted_at','decided_at')" 2>/dev/null)
+      AND (column_name IN ('created_at','updated_at','deleted_at','decided_at')
+           OR (column_name = 'uploaded_at' AND table_name = '$1')
+           OR (column_name = 'expires_at' AND table_name = 'otp_codes'))" 2>/dev/null)
   [ -n "$cols" ] || return 0
   local col a b d
   while read -r col; do
@@ -252,6 +317,28 @@ PHONE_EMP=+201999000003
 # is that Java's refusal is pinned by its own test, named below.
 # Cheap pre-check: does this endpoint have a row-table waiver at all? Used to
 # decide whether the pre-snapshots are worth taking.
+# What a registered divergence must still LOOK like. Without this the registry
+# accepts any pair of bodies for a matching endpoint/status tuple, so the very
+# regression the entry describes -- Java also going empty -- would pass.
+divergence_shape_holds() {  # $1=reason $2=php-body-file $3=java-body-file
+  case "$1" in
+    R-038)
+      # PHP must still answer with an EMPTY body, and Java must still answer
+      # with a parseable analysis carrying the columns the endpoint is for.
+      [ "$(stat -c%s "$2" 2>/dev/null || echo 1)" -eq 0 ] || return 1
+      python3 -c "
+import json,sys
+try:
+    d=json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+data=d.get('data')
+sys.exit(0 if isinstance(data,dict) and data.get('columns') else 1)" "$3" || return 1
+      ;;
+  esac
+  return 0
+}
+
 accepted_row_tables_any() {  # $1=path
   case "${1%%\?*}" in
     advances/create|advances/approve|advances/reject|advances/pay|advances/delete) echo "advances" ;;
@@ -281,6 +368,19 @@ accepted_row_tables() {  # $1=path $2=php $3=java  -> stdout: table list, or emp
   esac
 }
 
+
+# Columns a SPECIFIC case may differ on by a second, because that case's write
+# stamps them with the server clock. Case-scoped rather than column-scoped:
+# attendance.check_out is caller-supplied in attendance/create and
+# attendance/update, and only attendance/check_out stamps it with NOW().
+#
+# Collapsed to null/set, not to a constant, so "Java never wrote check_out"
+# still fails -- only the second of drift is forgiven.
+timing_columns() {  # $1=path $2=table -> stdout: column list, or empty
+  case "${1%%\?*}:$2" in
+    attendance/check_out:attendance|attendance/check_out:) echo "check_out" ;;
+  esac
+}
 
 accepted_row_columns() {  # $1=path $2=table  -> stdout: column list, or empty
   case "${1%%\?*}:$2" in
@@ -315,6 +415,21 @@ accepted_mutation_divergence() {  # $1=path $2=php code $3=java code
       # R-037, the actual cross-tenant WRITE scenario. PHP mutates another
       # tenant's advance and answers 200; Java answers 404 and mutates nothing.
       echo "R-037"; return 0 ;;
+    profile/register_push_token:500:500)
+      # R-013: the endpoint 500s for every caller on both stacks because
+      # push_tokens has no company_id column. Under the production posture
+      # (DEBUG=false, display_errors=Off) PHP's 500 body is EMPTY while Java
+      # answers its normal JSON envelope. The status and the absence of any
+      # write are what parity means here; the body of an endpoint that cannot
+      # succeed is not a contract either stack is keeping.
+      echo "R-013"; return 0 ;;
+    employees/analyze_excel:200:200)
+      # R-038: PHP answers 200 with Content-Length: 0 -- respond() echoes
+      # json_encode() unchecked and the encode fails, so the body is empty.
+      # Java returns the analysis. Registered so the divergence is visible; the
+      # endpoint is NOT counted as covered, because an empty body is not a
+      # contract and comparing it against real output is not parity.
+      echo "R-038"; return 0 ;;
     advances/create:201:403)
       # R-037: create.php resolves employee_id with no company predicate, so a
       # company admin creates an advance against another tenant's employee.
@@ -433,8 +548,16 @@ run_case() {
   # the same hole the row hash had, on the other side of the comparison.
   # Only the audit keys are nondeterministic between two sequential calls.
   norm() { python3 -c "
-import json,re,sys
-AUDIT={'created_at','updated_at','deleted_at','decided_at'}
+import json,os,re,sys
+# expires_at is NOT here on purpose. branches/generate_qr sends a
+# caller-supplied, deterministic value, so collapsing it would let Java persist
+# and return the wrong expiry while the case still passed. Only otp_codes'
+# expires_at is server-generated, and that is handled per-table in the row
+# snapshot rather than by key here.
+AUDIT={'created_at','updated_at','deleted_at','decided_at','uploaded_at'}
+# Populated per case by run_case for endpoints that stamp a business column with
+# the server clock -- attendance/check_out writes and echoes NOW().
+TIMING_KEYS=set((os.environ.get('PARITY_TIMING_KEYS') or '').split(',')) - {''}
 # Same rule the row snapshot uses: a value two CORRECT implementations must
 # disagree on is reduced to its shape, never dropped. A qr_code of the wrong
 # length, in uppercase, or non-hex still compares unequal.
@@ -444,16 +567,46 @@ AUDIT={'created_at','updated_at','deleted_at','decided_at'}
 # randomness needs more than one sample, so it is asserted where samples are
 # available -- LegacyBranchQrRandomnessTest -- not here.
 QR=re.compile(r'^[0-9a-f]{32}$')
+URL_KEYS={'logo_url','commercial_reg_url','photo_url','file_url'}
+UPLOAD_URL=re.compile(r'^/uploads/([^/]+)/[^/]+\\.([A-Za-z0-9]+)$')
 def scrub(v,key=None):
     if isinstance(v,dict): return {k:scrub(x,k) for k,x in v.items()}
     if isinstance(v,list): return [scrub(x,key) for x in v]
     if key in AUDIT and v is not None: return '<TS>'
+    # A JWT's exp comes from the current second, so two sequentially-called
+    # stacks sign different tokens. Compared by DECODED CLAIMS instead, with exp
+    # and iat reduced to present/absent -- a token missing a claim, carrying the
+    # wrong subject, or not a JWT at all still fails.
+    if key in TIMING_KEYS and v is not None: return '<TS>'
+    if key=='token' and isinstance(v,str) and v.count('.')==2:
+        try:
+            import base64
+            part=v.split('.')[1]
+            part+='='*(-len(part)%4)
+            claims=json.loads(base64.urlsafe_b64decode(part))
+            for drifting in ('exp','iat','nbf'):
+                if drifting in claims: claims[drifting]='<TS>'
+            return {'<JWT-claims>': claims}
+        except Exception:
+            return '<JWT:UNDECODABLE>'
     if key=='qr_code' and isinstance(v,str):
         return '<QR:random-32-lower-hex>' if QR.match(v) else '<QR:UNEXPECTED-SHAPE:'+v+'>'
+    # Stored upload URLs: uniqid('', true) on one side, random hex on the other,
+    # so the basename must differ. Reduced to <subdir>/<random>.<ext> -- the
+    # folder and the EXTENSION are kept, because both are contract: which
+    # directory the endpoint writes to, and what it decides to call the file.
+    # PHP takes the extension from the client's filename; Java derives it from
+    # the sniffed type, so a mismatched upload shows up here rather than being
+    # normalised away.
+    if key in URL_KEYS and isinstance(v,str) and v:
+        m = UPLOAD_URL.match(v)
+        return f'<UPLOAD:{m.group(1)}/<random>.{m.group(2)}>' if m else '<UPLOAD:UNEXPECTED-SHAPE:'+v+'>'
     return v
 print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii=False))" "$1" 2>/dev/null || cat "$1"; }
-  pbody=$(norm /tmp/mp.json)
-  jbody=$(norm /tmp/mj.json)
+  PARITY_TIMING_KEYS=$(timing_columns "$path" "") \
+    pbody=$(norm /tmp/mp.json)
+  PARITY_TIMING_KEYS=$(timing_columns "$path" "") \
+    jbody=$(norm /tmp/mj.json)
 
   local verdict=ok detail="" status_accepted=""
   # A transport failure is curl's 000. Two of them compare equal, the missing
@@ -491,25 +644,28 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
       verdict=DIFF; detail="status $pcode vs $jcode"
     fi
   fi
-  if [ -n "$status_accepted" ] && [ "$pbody" != "$jbody" ]; then
-    : # the bodies belong to two different statuses; the acceptance covers both
-  elif [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ]; then
-    # A matching 5xx is compared on status and state, not on body. PHP's harness
-    # config sets DEBUG=true, so its 500 carries a file/line/stack trace while
-    # Java answers a generic envelope -- that difference is the harness's PHP
-    # configuration, not the port's contract, and production PHP with
-    # DEBUG=false would differ again. The case must still DECLARE the 5xx it
-    # expects, so this can never quietly absorb an unexpected error.
-    if [ "$pcode" = "$jcode" ] && [ "$pcode" -ge 500 ] && [ -n "$expect" ]; then
-      printf '%-42s %-4s %-4s %s\n' "  ^ 5xx body not compared" "" "" "declared expect=$expect"
-    else
-      verdict=DIFF; detail="response body"
+  if [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ] && [ -z "$status_accepted" ]; then
+    # A registered divergence can also be body-only: R-038's status pair is
+    # 200/200 and the difference is that one body is empty. Checked here so such
+    # an entry is matched, not only the status-pair entries above.
+    if reason=$(accepted_mutation_divergence "$path" "$pcode" "$jcode"); then
+      status_accepted="$reason"
     fi
+  fi
+  if [ -n "$status_accepted" ] && [ "$pbody" != "$jbody" ]; then
+    : # the bodies belong to a registered divergence; the acceptance covers both
+  elif [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ]; then
+    # 5xx bodies ARE compared now. The blanket exemption existed because
+    # DEBUG=true made PHP append a stack trace; with DEBUG=false and
+    # display_errors=Off -- the production posture the harness is now pinned to
+    # -- those bodies are stable, so exempting them would hide a real difference
+    # in what a client is told when something fails.
+    verdict=DIFF; detail="response body"
   fi
 
   # State comparison runs even when the response already differed: knowing
   # whether the write also diverged is the more useful half.
-  local statediff="" accepted_cols=""
+  local statediff="" accepted_cols="" timing_cols=""
   IFS=',' read -ra tl <<< "$tables"
   for t in "${tl[@]}"; do
     [ -n "$t" ] || continue
@@ -538,7 +694,8 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
       continue
     fi
     accepted_cols=$(accepted_row_columns "$path" "$t")
-    if [ "$(snapshot "$PHP_DB" "$t" "$accepted_cols")" != "$(snapshot "$JAVA_DB" "$t" "$accepted_cols")" ]; then
+    timing_cols=$(timing_columns "$path" "$t")
+    if [ "$(snapshot "$PHP_DB" "$t" "$accepted_cols" "$timing_cols")" != "$(snapshot "$JAVA_DB" "$t" "$accepted_cols" "$timing_cols")" ]; then
       statediff="$statediff $t"
       continue
     fi
@@ -573,8 +730,472 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
   printf '%-42s %-4s %-4s %s %s\n' "$name" "$pcode" "$jcode" "$verdict" "$detail"
 }
 
+
+# ---------------------------------------------------------------------------
+# Multipart cases.
+#
+# These endpoints take a file part, so the JSON path above cannot reach them.
+# They also write OUTSIDE the database -- a file on disk plus a URL column --
+# so a case that compares only rows would miss half the effect.
+#
+# What is compared, per case:
+#   status                pinned from PHP, as everywhere else
+#   response body         normalised; the stored URL is reduced to its SHAPE
+#                         because uniqid('', true) makes the basename
+#                         non-deterministic by design
+#   database rows         the usual snapshot
+#   files on disk         as a SET of (subdirectory, extension, sha256), so the
+#                         random basename is ignored and the CONTENT is not
+#
+# The uploads directories are cleared before every case and PROVEN empty. A
+# failed or partial case must not leave a file that the next case then counts
+# as its own -- the reseed handles rows, nothing handled files until now.
+# ---------------------------------------------------------------------------
+
+# The PHP uploads directory is whatever the container actually has mounted, not
+# a path assumed from the checkout layout -- the compose file has been invoked
+# from more than one directory and the two disagree.
+PHP_UPLOADS=$(docker inspect parity-harness-php-1 \
+  --format '{{range .Mounts}}{{if eq .Destination "/var/www/html/uploads"}}{{.Source}}{{end}}{{end}}' 2>/dev/null)
+JAVA_UPLOADS=${JAVA_UPLOADS:-$HERE/java-uploads}
+
+# Fixtures are generated, not committed, so a fresh checkout has none. Build
+# them rather than refusing: the documented workflow goes straight from starting
+# Java to running this sweep, and an exit here would break it.
+if [ ! -f "$HERE/fixtures/parity.png" ] || [ ! -f "$HERE/fixtures/attendance-punches.xlsx" ]; then
+  echo "multipart fixtures missing -- generating them..." >&2
+  if ! "$HERE/make-fixtures.sh" >&2; then
+    echo "FATAL: could not build the multipart fixtures." >&2
+    echo "  They need the stack up and seeded: the spreadsheets are the app's own" >&2
+    echo "  template output and the punch log is keyed to a seeded employee_code." >&2
+    exit 10
+  fi
+fi
+
+# The stub the OTP cases need. Started here so the documented workflow does not
+# depend on remembering it; a stub already listening is left alone.
+if ! curl -s -m 2 -o /dev/null -X POST http://127.0.0.1:18099/send-text -d '{}' 2>/dev/null; then
+  echo "starting whatsapp-stub.py on 18099 (needed by the OTP cases)..." >&2
+  # 9>&- closes the lock descriptor in the child. Without it the stub INHERITS
+  # the flock and holds it after this run exits, so the next run refuses to
+  # start with "another parity harness run holds the lock" and no process to
+  # point at. Any long-lived child started from inside the lock needs this.
+  nohup python3 "$HERE/whatsapp-stub.py" 18099 >/dev/null 2>&1 9>&- &
+  for _ in $(seq 1 10); do
+    curl -s -m 1 -o /dev/null -X POST http://127.0.0.1:18099/send-text -d '{}' 2>/dev/null && break
+    sleep 1
+  done
+fi
+# Four occurrences of quote-in-generated-SQL so far, three from comments. This
+# is checked before a run rather than diagnosed after one.
+if [ -x "$HERE/check-sql-quoting.sh" ] && ! "$HERE/check-sql-quoting.sh" >/dev/null 2>&1; then
+  "$HERE/check-sql-quoting.sh" >&2
+  echo "FATAL: SQL quoting check failed -- see above. A run would compare nothing." >&2
+  exit 13
+fi
+assert_upload_dirs() {
+  if [ -z "$PHP_UPLOADS" ] || [ ! -d "$PHP_UPLOADS" ]; then
+    echo "FATAL: could not resolve the PHP uploads mount from the container." >&2
+    echo "  Without it a multipart case cannot see what PHP wrote, and would" >&2
+    echo "  report parity from the database alone." >&2
+    exit 8
+  fi
+  mkdir -p "$JAVA_UPLOADS"
+  if [ ! -w "$JAVA_UPLOADS" ]; then
+    echo "FATAL: $JAVA_UPLOADS is not writable." >&2; exit 8
+  fi
+
+  # Apache in the PHP container runs as www-data (uid 33); the bind-mounted
+  # host directory is owned by the invoking user. Without this every PHP upload
+  # answers 500 file_save_failed and the multipart cases would compare two
+  # failures -- the exact "matching errors read as parity" trap, on the one
+  # group of endpoints whose whole point is the file side effect.
+  chmod 0777 "$PHP_UPLOADS" 2>/dev/null || true
+  if ! docker exec parity-harness-php-1 sh -c 'touch /var/www/html/uploads/.probe && rm -f /var/www/html/uploads/.probe' 2>/dev/null; then
+    echo "FATAL: the PHP container cannot write to its uploads directory ($PHP_UPLOADS)." >&2
+    echo "  Every upload would fail with 500 and the comparison would be meaningless." >&2
+    exit 8
+  fi
+}
+
+# Fingerprint an uploads tree as a SET of (subdir, extension, sha256).
+#
+# The basename is uniqid('', true) on one side and a random hex on the other, so
+# comparing names would always differ; comparing CONTENT is the point. The
+# subdirectory and extension are kept because both are part of the contract --
+# which folder the endpoint writes to, and what it decides to call the file.
+# The first table in the list that carries an upload URL column, if any.
+first_url_table() {  # $1=comma-separated tables
+  local t
+  IFS=',' read -ra _tl <<< "$1"
+  for t in "${_tl[@]}"; do
+    [ -n "$t" ] || continue
+    case "$t" in
+      companies|employees|employee_docs) echo "$t"; return ;;
+    esac
+  done
+}
+
+# Raw URL values for that table, unnormalised, so a change is visible.
+url_values() {  # $1=database $2=table
+  local cols
+  case "$2" in
+    companies)     cols="logo_url, commercial_reg_url" ;;
+    employees)     cols="photo_url" ;;
+    employee_docs) cols="file_url" ;;
+    *) return ;;
+  esac
+  m "$1" -N -B -e "SELECT id, $cols FROM \`$2\` ORDER BY id" 2>/dev/null | sha256sum | cut -d' ' -f1
+}
+
+upload_fingerprint() {  # $1=directory
+  [ -d "$1" ] || { echo "NO-SUCH-DIR:$1"; return; }
+  find "$1" -type f -printf '%P\n' 2>/dev/null | while read -r rel; do
+    local sub ext
+    sub=$(dirname "$rel"); [ "$sub" = "." ] && sub="(root)"
+    ext="${rel##*.}"; [ "$ext" = "$rel" ] && ext="(none)"
+    printf '%s\t%s\t%s\n' "$sub" "$ext" "$(sha256sum "$1/$rel" | cut -d" " -f1)"
+  done | sort
+}
+
+clear_uploads() {
+  # PHP's uploads are removed FROM INSIDE THE CONTAINER, as root. uploadFile()
+  # creates its subdirectory as www-data, so a host-side rm cannot delete files
+  # within it -- the guard below caught exactly that, refusing a verdict rather
+  # than letting one case's file be counted as the next case's output.
+  docker exec parity-harness-php-1 sh -c 'rm -rf /var/www/html/uploads/* /var/www/html/uploads/.[!.]* 2>/dev/null' 2>/dev/null
+  rm -rf "${JAVA_UPLOADS:?}"/* 2>/dev/null
+  # Proven, not assumed: a directory that could not be cleared makes every
+  # later case attribute a leftover file to itself.
+  local p j
+  p=$(find "$PHP_UPLOADS" -type f 2>/dev/null | wc -l)
+  j=$(find "$JAVA_UPLOADS" -type f 2>/dev/null | wc -l)
+  if [ "$p" -ne 0 ] || [ "$j" -ne 0 ]; then
+    echo "FATAL: uploads directories not empty after clearing (php=$p java=$j)." >&2
+    echo "  A multipart case cannot start from a known state, so no verdict is safe." >&2
+    exit 9
+  fi
+}
+
+
+# NAME | PATH | FIELD | FIXTURE | UPLOAD-FILENAME | EXTRA | TABLES | WHO | EXPECT
+#
+# FIELD is the multipart part name the endpoint reads ($_FILES[<field>]).
+# UPLOAD-FILENAME is sent as the part's filename and is deliberately separate
+# from the fixture path, because PHP derives the stored extension from it.
+# EXTRA is `k=v;k=v` for endpoints that read ordinary form fields alongside the
+# file -- employee_docs/upload takes employee_id and doc_type from $_POST.
+run_multipart_case() {
+  local name="$1" path="$2" field="$3" fixture="$4" upname="$5" extra="$6" tables="$7" who="${8:-244}" expect="${9:-}"
+  case "$who" in -|"") who=244 ;; esac
+  local phone; case "$who" in 214) phone=$PHONE_214 ;; emp) phone=$PHONE_EMP ;; *) phone=$PHONE_244 ;; esac
+
+  if [ ! -f "$fixture" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "NO-FIXTURE ($fixture)"
+    return
+  fi
+
+  if ! ./seed-two.sh >/dev/null 2>&1; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "RESEED-FAILED"; return
+  fi
+  clear_uploads
+
+  local jhealth
+  jhealth=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$JAVA/configs/get" 2>/dev/null)
+  if [ "$jhealth" != "200" ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "JAVA-NOT-SERVING ($jhealth)"; return
+  fi
+
+  local pt jt
+  pt=$(mint_token "$PHP" "$phone"); jt=$(mint_token "$JAVA" "$phone")
+  if [ -z "$pt" ] || [ -z "$jt" ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "LOGIN-FAILED"; return
+  fi
+
+  # Raw (un-normalised) URL values, captured before the request so the write can
+  # be asserted as a change rather than only as a shape.
+  # Only for a case that expects a successful write. A rejection case (an
+  # unsupported file type) and an analyser that stores nothing both legitimately
+  # leave every URL untouched, and demanding a change there fails a case that is
+  # behaving correctly.
+  local url_table="" url_pre_php="" url_pre_java=""
+  case "$expect" in
+    2*) url_table=$(first_url_table "$tables") ;;
+  esac
+  # analyze_excel reads a spreadsheet and stores no file, so it has no URL to
+  # change even on success.
+  case "${path%%\?*}" in
+    *analyze_excel) url_table="" ;;
+  esac
+  if [ -n "$url_table" ]; then
+    url_pre_php=$(url_values "$PHP_DB" "$url_table")
+    url_pre_java=$(url_values "$JAVA_DB" "$url_table")
+  fi
+
+  local -a extra_args=()
+  if [ -n "$extra" ]; then
+    local IFS=';' kv
+    for kv in $extra; do [ -n "$kv" ] && extra_args+=(-F "$kv"); done
+  fi
+
+  local pcode jcode
+  pcode=$(curl -s -o /tmp/mfp.json -w '%{http_code}' -X POST "$PHP/$path" \
+            -H "Authorization: Bearer $pt" -F "$field=@$fixture;filename=$upname" "${extra_args[@]}")
+  jcode=$(curl -s -o /tmp/mfj.json -w '%{http_code}' -X POST "$JAVA/$path" \
+            -H "Authorization: Bearer $jt" -F "$field=@$fixture;filename=$upname" "${extra_args[@]}")
+
+  local pbody jbody
+  pbody=$(norm /tmp/mfp.json); jbody=$(norm /tmp/mfj.json)
+
+  local verdict=ok detail=""
+  if [ "$pcode" = 000 ] || [ "$jcode" = 000 ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "UNREACHABLE"; return
+  fi
+  if [ -n "$expect" ] && [ "$pcode" != "$expect" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "UNEXPECTED-STATUS (case expects $expect)"
+    { echo "### $name  (POST $path, multipart $field=$upname)"
+      echo "    PHP answered $pcode; this case is declared to expect $expect."
+      echo "    PHP  $pcode $(head -c 300 <<< "$pbody")"; echo; } >> mutation-diffs.txt
+    return
+  fi
+  local mp_accepted=""
+  if [ "$pcode" != "$jcode" ]; then
+    if reason=$(accepted_mutation_divergence "$path" "$pcode" "$jcode"); then
+      mp_accepted="$reason"
+    else
+      verdict=DIFF; detail="status $pcode vs $jcode"
+    fi
+  fi
+  # A registered divergence can be body-only -- R-038's pair is 200/200 and the
+  # difference is that PHP's body is empty. The same registry serves both, so a
+  # multipart case does not need its own list.
+  if [ "$verdict" = ok ] && [ -z "$mp_accepted" ] && [ "$pbody" != "$jbody" ]; then
+    if reason=$(accepted_mutation_divergence "$path" "$pcode" "$jcode"); then
+      # An accepted divergence is not a licence to accept ANY pair of bodies.
+      # R-038 says PHP returns nothing and Java returns the analysis; without
+      # checking both, a Java regression to an empty body would compare equal
+      # and pass, and any malformed Java body would pass too.
+      if ! divergence_shape_holds "$reason" /tmp/mfp.json /tmp/mfj.json; then
+        verdict=DIFF
+        detail="registered divergence $reason no longer holds (php=$(stat -c%s /tmp/mfp.json)B java=$(stat -c%s /tmp/mfj.json)B)"
+      else
+        mp_accepted="$reason"
+      fi
+    else
+      verdict=DIFF; detail="response body"
+    fi
+  fi
+
+  # The stored URL must actually CHANGE on both stacks.
+  #
+  # Normalising every URL in the table to <subdir>/<random>.<ext> means an old
+  # value and a newly written one reduce to the SAME string, so a Java that
+  # never performed the update -- or updated a different row -- would still
+  # compare equal. The shape check cannot see that; a before/after delta can.
+  if [ -n "$url_pre_php" ]; then
+    local url_post_php url_post_java
+    url_post_php=$(url_values "$PHP_DB" "$url_table")
+    url_post_java=$(url_values "$JAVA_DB" "$url_table")
+    if [ "$url_post_php" = "$url_pre_php" ]; then
+      verdict=DIFF; detail="${detail:+$detail; }php did not change any $url_table URL"
+    fi
+    if [ "$url_post_java" = "$url_pre_java" ]; then
+      verdict=DIFF; detail="${detail:+$detail; }java did not change any $url_table URL"
+    fi
+  fi
+
+  # The file side effect, which is the half a row snapshot cannot see.
+  local pfp jfp
+  pfp=$(upload_fingerprint "$PHP_UPLOADS"); jfp=$(upload_fingerprint "$JAVA_UPLOADS")
+  if [ "$pfp" != "$jfp" ]; then
+    verdict=DIFF
+    detail="${detail:+$detail; }files differ"
+    { echo "### $name  (POST $path, multipart $field=$upname)"
+      echo "    FILES DIFFER  (subdir / extension / sha256)"
+      echo "    PHP :"; printf '%s\n' "$pfp" | sed 's/^/      /'
+      echo "    JAVA:"; printf '%s\n' "$jfp" | sed 's/^/      /'; echo; } >> mutation-diffs.txt
+  fi
+
+  local statediff=""
+  IFS=',' read -ra tl <<< "$tables"
+  for t in "${tl[@]}"; do
+    [ -n "$t" ] || continue
+    if [ "$(snapshot "$PHP_DB" "$t" "")" != "$(snapshot "$JAVA_DB" "$t" "")" ]; then
+      statediff="$statediff $t"
+    fi
+  done
+  [ -n "$statediff" ] && { verdict=DIFF; detail="${detail:+$detail; }rows differ:$statediff"; }
+
+  if [ "$verdict" = ok ] && [ -n "$mp_accepted" ]; then
+    accepted=$((accepted+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "ACCEPTED ($mp_accepted), files+rows verified"
+    return
+  fi
+  if [ "$verdict" = ok ]; then
+    pass=$((pass+1))
+  else
+    fail=$((fail+1))
+    { echo "### $name  (POST $path, multipart $field=$upname)"
+      echo "    $detail"
+      echo "    PHP  $pcode $(head -c 260 <<< "$pbody")"
+      echo "    JAVA $jcode $(head -c 260 <<< "$jbody")"; echo; } >> mutation-diffs.txt
+  fi
+  printf '%-42s %-4s %-4s %s %s\n' "$name" "$pcode" "$jcode" "$verdict" "$detail"
+}
+
+
+# NAME | METHOD | PATH | FORM BODY | TABLES | WHO | EXPECT
+#
+# For endpoints that read $_POST rather than a JSON body. employee_docs/update
+# is one: `required($_POST, [ID, DOC_TYPE])`. Sending JSON to it answers 400 on
+# both stacks -- a matching rejection, which is not coverage.
+run_form_case() {
+  local name="$1" method="$2" path="$3" form="$4" tables="$5" who="${6:-244}" expect="${7:-}"
+  case "$who" in -|"") who=244 ;; esac
+  local phone; case "$who" in 214) phone=$PHONE_214 ;; emp) phone=$PHONE_EMP ;; *) phone=$PHONE_244 ;; esac
+
+  if ! ./seed-two.sh >/dev/null 2>&1; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "RESEED-FAILED"; return
+  fi
+  local jhealth
+  jhealth=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$JAVA/configs/get" 2>/dev/null)
+  if [ "$jhealth" != "200" ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "JAVA-NOT-SERVING ($jhealth)"; return
+  fi
+  local pt jt
+  pt=$(mint_token "$PHP" "$phone"); jt=$(mint_token "$JAVA" "$phone")
+  if [ -z "$pt" ] || [ -z "$jt" ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "LOGIN-FAILED"; return
+  fi
+
+  local pcode jcode pbody jbody
+  pcode=$(curl -s -o /tmp/mfp.json -w '%{http_code}' -X "$method" "$PHP/$path" \
+            -H "Authorization: Bearer $pt" -d "$form")
+  jcode=$(curl -s -o /tmp/mfj.json -w '%{http_code}' -X "$method" "$JAVA/$path" \
+            -H "Authorization: Bearer $jt" -d "$form")
+  pbody=$(norm /tmp/mfp.json); jbody=$(norm /tmp/mfj.json)
+
+  local verdict=ok detail=""
+  if [ "$pcode" = 000 ] || [ "$jcode" = 000 ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "UNREACHABLE"; return
+  fi
+  if [ -n "$expect" ] && [ "$pcode" != "$expect" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "UNEXPECTED-STATUS (case expects $expect)"
+    { echo "### $name  ($method $path, form)"; echo "    PHP answered $pcode; declared $expect."
+      echo "    PHP  $pcode $(head -c 260 <<< "$pbody")"; echo; } >> mutation-diffs.txt
+    return
+  fi
+  [ "$pcode" = "$jcode" ] || { verdict=DIFF; detail="status $pcode vs $jcode"; }
+  if [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ]; then verdict=DIFF; detail="response body"; fi
+
+  local statediff=""
+  IFS=',' read -ra tl <<< "$tables"
+  for t in "${tl[@]}"; do
+    [ -n "$t" ] || continue
+    [ "$(snapshot "$PHP_DB" "$t" "")" != "$(snapshot "$JAVA_DB" "$t" "")" ] && statediff="$statediff $t"
+  done
+  [ -n "$statediff" ] && { verdict=DIFF; detail="${detail:+$detail; }rows differ:$statediff"; }
+
+  if [ "$verdict" = ok ]; then pass=$((pass+1)); else
+    fail=$((fail+1))
+    { echo "### $name  ($method $path, form)"; echo "    $detail"
+      echo "    PHP  $pcode $(head -c 240 <<< "$pbody")"
+      echo "    JAVA $jcode $(head -c 240 <<< "$jbody")"; echo; } >> mutation-diffs.txt
+  fi
+  printf '%-42s %-4s %-4s %s %s\n' "$name" "$pcode" "$jcode" "$verdict" "$detail"
+}
+
+
+# NAME | PREP-PATH | PREP-BODY | ACT-PATH | ACT-BODY-TEMPLATE | TABLES | EXPECT
+#
+# The OTP flows, which cannot use the ordinary runner because the code is a
+# per-stack secret: each stack generates its own and stores it in its own
+# database. Sending one stack's code to the other would fail for a reason that
+# has nothing to do with parity, so the runner reads each code from the database
+# that stack wrote it to and substitutes it into that stack's request.
+#
+# This is the same shape as the token handling every other case already uses --
+# mint_token asks each stack for its own token for exactly this reason.
+#
+# {OTP} in the act body is replaced per stack.
+run_otp_case() {
+  local name="$1" prep_path="$2" prep_body="$3" act_path="$4" act_tpl="$5" tables="$6" expect="${7:-}"
+
+  if ! ./seed-two.sh >/dev/null 2>&1; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "RESEED-FAILED"; return
+  fi
+  local jhealth
+  jhealth=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$JAVA/configs/get" 2>/dev/null)
+  if [ "$jhealth" != "200" ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "JAVA-NOT-SERVING ($jhealth)"; return
+  fi
+
+  # Ask each stack to issue a code. A failure here is the harness (most often
+  # the WhatsApp stub being down), not a parity result, so it is reported as
+  # such rather than compared.
+  local pprep jprep
+  pprep=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$PHP/$prep_path" \
+            -H 'Content-Type: application/json' -d "$prep_body")
+  jprep=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$JAVA/$prep_path" \
+            -H 'Content-Type: application/json' -d "$prep_body")
+  if [ "$pprep" != "200" ] || [ "$jprep" != "200" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "$pprep" "$jprep" "OTP-PREP-FAILED (is whatsapp-stub.py running?)"
+    return
+  fi
+
+  local pcode jcode_otp
+  pcode=$(m "$PHP_DB"  -N -B -e "SELECT code FROM otp_codes ORDER BY id DESC LIMIT 1")
+  jcode_otp=$(m "$JAVA_DB" -N -B -e "SELECT code FROM otp_codes ORDER BY id DESC LIMIT 1")
+  if [ -z "$pcode" ] || [ -z "$jcode_otp" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "OTP-NOT-STORED (php=${pcode:-none} java=${jcode_otp:-none})"
+    return
+  fi
+
+  local pbody_req jbody_req pcode_http jcode_http
+  pbody_req=${act_tpl//\{OTP\}/$pcode}
+  jbody_req=${act_tpl//\{OTP\}/$jcode_otp}
+  pcode_http=$(curl -s -o /tmp/op.json -w '%{http_code}' -X POST "$PHP/$act_path" \
+                 -H 'Content-Type: application/json' -d "$pbody_req")
+  jcode_http=$(curl -s -o /tmp/oj.json -w '%{http_code}' -X POST "$JAVA/$act_path" \
+                 -H 'Content-Type: application/json' -d "$jbody_req")
+
+  local pb jb; pb=$(norm /tmp/op.json); jb=$(norm /tmp/oj.json)
+  local verdict=ok detail=""
+  if [ -n "$expect" ] && [ "$pcode_http" != "$expect" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "$pcode_http" "$jcode_http" "UNEXPECTED-STATUS (case expects $expect)"
+    { echo "### $name  (POST $act_path, otp flow)"; echo "    PHP answered $pcode_http; declared $expect."
+      echo "    PHP  $pcode_http $(head -c 240 <<< "$pb")"; echo; } >> mutation-diffs.txt
+    return
+  fi
+  [ "$pcode_http" = "$jcode_http" ] || { verdict=DIFF; detail="status $pcode_http vs $jcode_http"; }
+  if [ "$verdict" = ok ] && [ "$pb" != "$jb" ]; then verdict=DIFF; detail="response body"; fi
+
+  local statediff=""
+  IFS=',' read -ra tl <<< "$tables"
+  for t in "${tl[@]}"; do
+    [ -n "$t" ] || continue
+    [ "$(snapshot "$PHP_DB" "$t" "")" != "$(snapshot "$JAVA_DB" "$t" "")" ] && statediff="$statediff $t"
+  done
+  [ -n "$statediff" ] && { verdict=DIFF; detail="${detail:+$detail; }rows differ:$statediff"; }
+
+  if [ "$verdict" = ok ]; then pass=$((pass+1)); else
+    fail=$((fail+1))
+    { echo "### $name  (POST $act_path, otp flow)"; echo "    $detail"
+      echo "    PHP  $pcode_http $(head -c 240 <<< "$pb")"
+      echo "    JAVA $jcode_http $(head -c 240 <<< "$jb")"; echo; } >> mutation-diffs.txt
+  fi
+  printf '%-42s %-4s %-4s %s %s\n' "$name" "$pcode_http" "$jcode_http" "$verdict" "$detail"
+}
+
 ./seed-two.sh >/dev/null 2>&1
 assert_java_on_its_own_database
+assert_upload_dirs
 
 # The run's own result, consumed by coverage-report.sh: a case counts as
 # covering an endpoint only if it actually passed here, never because it
@@ -644,6 +1265,16 @@ C214_DECISION=$(resolve_or_die c214_decision "SELECT id FROM administrative_deci
 FOREIGN_EMP=$(resolve_or_die foreign_emp "SELECT id FROM employees WHERE company_id NOT IN (214,244) AND is_active=1 ORDER BY id LIMIT 1")
 FOREIGN_BRANCH=$(resolve_or_die foreign_branch "SELECT id FROM branches WHERE company_id NOT IN (214,244) ORDER BY id LIMIT 1")
 FOREIGN_ADV=$(resolve_or_die foreign_adv "SELECT a.id FROM advances a JOIN employees e ON e.id=a.employee_id WHERE e.company_id NOT IN (214,244) AND a.status='pending' ORDER BY a.id LIMIT 1")
+# Fixtures for the endpoints whose only case was a refusal, plus the update and
+# delete halves that needed a row their own create would have made.
+C214_BRANCH_EMPTY=$(resolve_or_die branch_empty "SELECT b.id FROM branches b WHERE b.id=999020 AND NOT EXISTS (SELECT 1 FROM employees e WHERE e.branch_id=b.id)")
+C214_EMP_FREE=$(resolve_or_die emp_free "SELECT id FROM employees WHERE id=999021 AND company_id=214")
+C214_RTYPE_UNUSED=$(resolve_or_die rtype_unused "SELECT t.id FROM request_types t WHERE t.id=999022 AND NOT EXISTS (SELECT 1 FROM requests r WHERE r.request_type_id=t.id)")
+C214_ATT_OPEN=$(resolve_or_die att_open "SELECT id FROM attendance WHERE id=999023 AND check_out IS NULL")
+C214_ATT_OPEN_EMP=$(resolve_or_die att_open_emp "SELECT employee_id FROM attendance WHERE id=999023 AND check_out IS NULL")
+C214_EXCTYPE=$(resolve_or_die exctype "SELECT id FROM exception_types WHERE id=999024 AND company_id=214")
+C214_WFP=$(resolve_or_die wfp "SELECT id FROM workforce_planning WHERE id=999025 AND company_id=214")
+C214_DOC=$(resolve_or_die doc "SELECT id FROM employee_docs WHERE id=999026")
 C214_REQ_PENDING=$(resolve_or_die c214_req_pending "SELECT r.id FROM requests r JOIN request_types t ON t.id=r.request_type_id WHERE r.id=999014 AND r.status='pending' AND t.deduct_balance=1 AND t.add_attendance_exception=1")
 # A SECOND employee, so payslips/create has someone without a payslip in the
 # draft batch -- the fixture above already occupies the first one, and create
@@ -906,8 +1537,9 @@ run_case "attendance/check_in"             POST "attendance/check_in" \
   '{"latitude":30.0211667,"longitude":31.4545278,"method":"app"}' "attendance" 214 200
 run_case "attendance/check_in (no coords)" POST "attendance/check_in" \
   '{"method":"app"}' "attendance" 214 400
-run_case "attendance/check_out"            POST "attendance/check_out" \
-  '{"latitude":30.0211667,"longitude":31.4545278}' "attendance" 214 400
+# (The refusal case that used to live here expected 400 because no check-in was
+# open. seed-two.sh now seeds one, so the success case below replaces it -- a
+# case whose expectation the fixtures invalidated is worse than no case.)
 run_case "attendance/delete_range"         DELETE "attendance/delete_range?employee_id=$C214_EMP&from=2026-09-01&to=2026-09-30" \
   '' "attendance" 214 200
 
@@ -1019,6 +1651,128 @@ run_case "profile/logout"                  POST "profile/logout" '' "employees,n
 
 run_case "company/update"                  PUT  "company/update" \
   '{"company_name":"Parity Company Renamed"}' "companies" 214 200
+
+
+# ===========================================================================
+# Multipart uploads and spreadsheet analysis.
+#
+# The spreadsheet fixtures are the application's OWN template output, fetched
+# from PHP's template_excel endpoints, not hand-built workbooks -- D-085 makes
+# round-tripping the self-generated template the standard these readers are
+# held to, and a hand-built file would test the harness's idea of the format
+# rather than the format.
+# ---------------------------------------------------------------------------
+run_multipart_case "company/upload_logo"          "company/upload_logo" \
+  logo "$HERE/fixtures/parity.png" "logo.png" "" "companies" 214 200
+run_multipart_case "company/upload_logo (pdf)"    "company/upload_logo" \
+  logo "$HERE/fixtures/parity.pdf" "doc.pdf" "" "companies" 214 200
+run_multipart_case "company/upload_commercial_reg" "company/upload_commercial_reg" \
+  file "$HERE/fixtures/parity.pdf" "reg.pdf" "" "companies" 214 200
+run_multipart_case "employees/upload_photo"       "employees/upload_photo?id=$C214_EMP" \
+  photo "$HERE/fixtures/parity.png" "photo.png" "" "employees" 214 200
+run_multipart_case "employee_docs/upload"         "employee_docs/upload" \
+  file "$HERE/fixtures/parity.pdf" "contract.pdf" \
+  "employee_id=$C214_EMP;doc_type=contract" "employee_docs" 214 201
+
+# Rejections, which are NOT coverage of the success path but are their own
+# contract: an unrecognised type must be refused identically.
+run_multipart_case "upload_logo (unsupported type)" "company/upload_logo" \
+  logo "$HERE/fixtures/employees-template.xlsx" "sheet.xlsx" "" "companies" 214 400
+
+# The spreadsheet readers.
+run_multipart_case "employees/analyze_excel"      "employees/analyze_excel" \
+  file "$HERE/fixtures/employees-template.xlsx" "employees.xlsx" "" "employees" 214 200
+run_multipart_case "leave_balances/analyze_excel" "leave_balances/analyze_excel" \
+  file "$HERE/fixtures/leave_balances-template.xlsx" "leave.xlsx" "" "leave_balance" 214 200
+# The punch log, not the employees template: import_excel refuses the latter
+# with "Cannot detect employee id", which is a rejection and not coverage. The
+# column names come from the frozen PHP's own alias lists.
+run_multipart_case "attendance/analyze_excel"     "attendance/analyze_excel" \
+  file "$HERE/fixtures/attendance-punches.xlsx" "punches.xlsx" "" "attendance" 214 200
+run_multipart_case "attendance/import_excel"      "attendance/import_excel" \
+  file "$HERE/fixtures/attendance-punches.xlsx" "punches.xlsx" "" "attendance" 214 200
+run_multipart_case "attendance/import (wrong sheet)" "attendance/import_excel" \
+  file "$HERE/fixtures/employees-template.xlsx" "wrong.xlsx" "" "attendance" 214 400
+
+
+# ===========================================================================
+# Success paths that previously had only a refusal, plus the update/delete
+# halves that needed a seeded row.
+#
+# Each refusal case is KEPT alongside its success case rather than replaced:
+# "409 while employees remain" and "200 when none do" are both contract, and
+# only the second is coverage.
+# ---------------------------------------------------------------------------
+run_case "branches/delete (empty branch)"  DELETE "branches/delete?id=$C214_BRANCH_EMPTY" \
+  '' "branches,department_branches" 214 200
+run_case "employees/delete (unreferenced)" DELETE "employees/delete?id=$C214_EMP_FREE" \
+  '' "employees" 214 200
+run_case "request_types/delete (unused)"   DELETE "request_types/delete?id=$C214_RTYPE_UNUSED" \
+  '' "request_types,requests" 214 200
+# Names the employee whose record is open, rather than defaulting to the
+# caller -- the fixture belongs to a different employee on purpose.
+run_case "attendance/check_out"            POST "attendance/check_out" \
+  "{\"employee_id\":$C214_ATT_OPEN_EMP,\"latitude\":30.0211667,\"longitude\":31.4545278}" "attendance" 214 200
+# requests/create is requireAuth([EMPLOYEE]); the company-admin actor is refused
+# 403 before any logic. The seeded employee actor can reach it.
+run_case "requests/create (as employee)"   POST "requests/create" \
+  "{\"request_type_id\":$C214_RTYPE_UNUSED,\"from_date\":\"2026-09-20\",\"to_date\":\"2026-09-21\"}" \
+  "requests,notifications" emp 201
+
+run_case "exception_types/update"          PUT  "attendance_exception_types/update?id=$C214_EXCTYPE" \
+  '{"name":"Parity Exception Renamed"}' "exception_types" 214 200
+run_case "exception_types/delete"          DELETE "attendance_exception_types/delete?id=$C214_EXCTYPE" \
+  '' "exception_types,request_types,attendance" 214 200
+run_case "workforce_planning/update"       PUT  "workforce_planning/update?id=$C214_WFP" \
+  '{"planned_count":9}' "workforce_planning" 214 200
+run_case "workforce_planning/delete"       DELETE "workforce_planning/delete?id=$C214_WFP" \
+  '' "workforce_planning" 214 200
+# $_POST, not a JSON body: required($_POST, [ID, DOC_TYPE]).
+run_form_case "employee_docs/update"       POST "employee_docs/update" \
+  "id=$C214_DOC&doc_type=id_card" "employee_docs" 214 200
+run_case "employee_docs/delete"            DELETE "employee_docs/delete?id=$C214_DOC" \
+  '' "employee_docs" 214 200
+
+
+# ===========================================================================
+# Auth and OTP.
+#
+# The OTP is a per-stack secret: each stack generates its own and stores it in
+# its own database, so run_otp_case reads each code from the database that
+# stack wrote it to. Sending one stack's code to the other would fail for a
+# reason unrelated to parity. This is the same shape as the tokens every other
+# case uses -- mint_token already asks each stack for its own.
+#
+# The codes are stored in PLAINTEXT in otp_codes.code, so no change to frozen
+# PHP is needed to read them. whatsapp-stub.py stands in for the send, without
+# which both stacks answer 503 and the code is never written -- two matching
+# failures, which is not coverage.
+# ---------------------------------------------------------------------------
+run_case "auth/forgot_password"            POST "auth/forgot_password" \
+  '{"phone":"+201999000002","type":"employee"}' "otp_codes" - 200
+run_case "auth/forgot_password (unknown)"  POST "auth/forgot_password" \
+  '{"phone":"+209999999999","type":"employee"}' "otp_codes" - 404
+run_case "auth/resend_otp"                 POST "auth/resend_otp" \
+  '{"phone":"+201999000002"}' "otp_codes" - 200
+run_case "auth/lookup_company"             POST "auth/lookup_company" \
+  '{"company_code":"EGHECH"}' "companies" - 200
+run_case "auth/login_company (bad creds)"  POST "auth/login_company" \
+  '{"phone":"+201999000002","password":"wrong"}' "companies" - 401
+run_case "auth/login_desktop (bad creds)"  POST "auth/login_desktop" \
+  '{"phone":"+201999000002","password":"wrong","login_as":"company"}' "employees,companies" - 401
+# login bumps token_version AND deletes the employee's push tokens; a seeded
+# token makes that second half observable.
+run_case "auth/login_employee"             POST "auth/login_employee" \
+  '{"phone":"+201999000002","password":"harness-only-Pass123!"}' "employees,push_tokens" - 200
+
+run_otp_case "auth/verify_otp" \
+  "auth/forgot_password" '{"phone":"+201999000002","type":"employee"}' \
+  "auth/verify_otp" '{"phone":"+201999000002","otp":"{OTP}","type":"employee"}' \
+  "otp_codes,employees" 200
+run_otp_case "auth/reset_password" \
+  "auth/forgot_password" '{"phone":"+201999000002","type":"employee"}' \
+  "auth/reset_password" '{"phone":"+201999000002","password":"harness-only-Pass789!","otp":"{OTP}","type":"employee"}' \
+  "otp_codes,employees" 200
 
 echo
 echo "identical=$pass  differing=$fail  accepted-divergences=$accepted"

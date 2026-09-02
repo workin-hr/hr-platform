@@ -3,95 +3,54 @@
 **Regenerate with `./coverage-report.sh` after a full `./sweep-mutations.sh` run.**
 Do not hand-edit the numbers.
 
-Coverage requires **evidence from a run**, not a declaration. An endpoint counts
-as covered only when the sweep executed a case for it, that case declared a
-**2xx**, and the run recorded it as `ok` or as an explicitly accepted
-divergence. A declared 2xx alone says only what the case intends: an
-unreachable case, a Java 500, a response or row mismatch, or a 2xx that mutated
-nothing would all have been regenerated here as covered while the sweep
-reported failure.
+Covered means: the sweep executed a case for this endpoint, **that case declared
+a 2xx**, and the run recorded **that case** `ok`. The verdict is bound to the
+invocation that declared the success status -- an endpoint with both a success
+and a refusal case is not credited when only the refusal passes. An `ACCEPTED`
+verdict never counts: it documents a deliberate divergence.
 
-`mutating` comes from the frozen PHP's own method guard, not from the filename.
+`mutating` comes from the frozen PHP's own method guard, not the filename.
 
 | | count |
 |---|---|
 | mutating endpoints (PHP guards a non-GET method) | **116** |
-| covered by a success-path case, verified by a run | **74** |
-| exercised only by a refusal — *not counted* | 6 |
-| no case at all | 36 |
+| covered by a success-path case, verified by a run | **98** |
+| exercised only by a refusal — *not counted* | 4 |
+| no case at all | 14 |
 | reads (GET or no method guard), excluded | 73 |
 
-A request the endpoint rejects identically on both sides is not coverage.
+## Genuinely blocked — no success path exists
+
+- `profile/register_push_token` — **R-013**: it INSERTs a `company_id` column
+  `push_tokens` does not have, so it 500s for every caller and always has. The
+  port reproduces the failure (**D-058**).
+- `attendance/set_employee_attendance_method` — no PHP file; legacy answers 501.
+- `employees/analyze_excel` — **R-038**: PHP answers 200 with an empty body,
+  Java returns the analysis. The case passes as an accepted divergence whose
+  shape is asserted on both sides, so a Java regression to an empty body fails.
 
 ## Exercised only through a refusal
 
-These have a case, but only a rejecting one, so no successful mutation has been
-compared. Each needs a fixture its success path can act on.
-
-- `attendance/check_out  (declared [400])`
-- `branches/delete  (declared [409])`
-- `employees/delete  (declared [404, 409])`
-- `profile/register_push_token  (declared [500])`
-- `request_types/delete  (declared [409])`
-- `requests/create  (declared [403])`
+- `auth/login_company` — needs a company account whose password the harness knows. The snapshot has company rows but no known credential.
+- `auth/login_desktop` — needs the same as login_company.
+- `employees/analyze_excel` — needs nothing -- **blocked**, R-038: PHP answers 200 with an empty body.
+- `profile/register_push_token` — needs nothing -- **blocked**, R-013: the endpoint 500s for every caller and always has.
 
 ## No case at all
 
-- `attendance/analyze_excel`
-- `attendance/import_excel`
-- `attendance_exception_types/delete`
-- `attendance_exception_types/update`
-- `auth/complete_company_registration`
-- `auth/forgot_password`
-- `auth/join_company`
-- `auth/login_company`
-- `auth/login_desktop`
-- `auth/login_employee`
-- `auth/lookup_company`
-- `auth/register_company`
-- `auth/resend_otp`
-- `auth/reset_password`
-- `auth/verify_otp`
-- `company/upload_commercial_reg`
-- `company/upload_logo`
-- `company_join_requests/accept`
-- `company_join_requests/reject`
-- `company_settings/create`
-- `company_settings/delete`
-- `employee_docs/delete`
-- `employee_docs/update`
-- `employee_docs/upload`
-- `employees/analyze_excel`
-- `employees/import_bulk`
-- `employees/upload_photo`
-- `hr_employees/create`
-- `hr_employees/update_permissions`
-- `leave_balances/analyze_excel`
-- `leave_balances/import_bulk`
-- `profile/confirm_phone_change`
-- `profile/delete_account`
-- `profile/request_phone_change`
-- `workforce_planning/delete`
-- `workforce_planning/update`
+Each line says what it needs, so the list is a work item.
 
-## What closes the largest share
-
-**Multipart — eleven endpoints, one mechanism.** `analyze_excel`,
-`import_excel`, `import_bulk`, `upload_photo`, `upload_logo`,
-`upload_commercial_reg` and `employee_docs/upload` all take a file part. The
-sweep sends JSON only, so covering them needs a multipart request builder and
-committed fixture files. Highest value per unit of harness work.
-
-**Seeded fixtures.** The refusal-only list, plus several update/delete pairs,
-need a row their own create would make — and cases deliberately cannot chain,
-because each reseeds. The pattern already exists in `seed-two.sh`: an open
-penalty, a draft batch, a payslip inside it, an inbox notification, an
-EMPLOYEE-role actor with a pending request, a request type with both approval
-side-effect flags on, and an administrative decision.
-
-**OTP.** The auth group needs the OTP the server generated. Reading it from the
-database is what a test would do, but it weakens what the flow proves, so it
-should be an explicit decision rather than a quiet one.
-
-**`attendance/set_employee_attendance_method`** has no PHP file — legacy answers
-501 from the router. Listed for completeness, not as a gap the sweep can close.
+- `auth/complete_company_registration` — needs follows register_company.
+- `auth/join_company` — needs a company code and an unregistered phone.
+- `auth/register_company` — needs a unique phone and company code per run, so a second run does not collide with the first.
+- `company_join_requests/accept` — needs a pending join request, which comes from auth/join_company.
+- `company_join_requests/reject` — needs a pending join request, which comes from auth/join_company.
+- `company_settings/create` — needs a setting definition the seeded company has no value for yet.
+- `company_settings/delete` — needs the same.
+- `employees/import_bulk` — needs the analyzer output replayed as a JSON body -- it takes `rows`, not a file. The capture has to happen in the generator, since cases cannot chain.
+- `hr_employees/create` — needs a unique phone per run.
+- `hr_employees/update_permissions` — needs an isolated target, so rewriting hr_permissions cannot disable the sweep’s own actor.
+- `leave_balances/import_bulk` — needs the same shape as employees/import_bulk.
+- `profile/confirm_phone_change` — needs follows request_phone_change.
+- `profile/delete_account` — needs a throwaway actor whose deletion cannot break later cases.
+- `profile/request_phone_change` — needs a second phone fixture; the OTP itself is now available through run_otp_case.
