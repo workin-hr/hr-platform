@@ -121,6 +121,22 @@ name and never its message.
 Use the same Whats360 account the frozen stack uses. A token or instance id
 left at its committed placeholder counts as unconfigured.
 
+### Attendance-device receiver (D-156)
+
+| Property | Environment variable | Required? |
+|---|---|---|
+| `app.devices.ingest.enabled` | `APP_DEVICES_INGEST_ENABLED` | No — defaults to `false`; `true` maps the unauthenticated `/iclock/**` receiver and its permit-all chain |
+| `app.devices.ingest.max-body-bytes` | — | No — defaults to 1 MiB |
+
+Smoke check without side effects: `GET /iclock/getrequest` **with no `SN`**
+answers `400` with the plain-text body `ERROR: missing SN` when the receiver
+is enabled, and is not mapped (`404`) when it is not. Never send a made-up
+serial as a check — it is recorded as an unclaimed-device sighting. The
+receiver also needs the five device tables (see
+`release-cutover-and-rollback.md`, step 1) and TLS at the edge for the
+device hostname; operator steps are in
+`../devices/zkteco-adms-receiver-setup.md`.
+
 ### Pre-cutover validation
 
 1. **Confirm it is configured at all.** Start the service and read the startup

@@ -4,6 +4,16 @@ Scope: operational support for the local .NET edge gateway candidate
 direction (ADR-0006). Nothing here should be read as confirming the gateway
 exists or is deployed — it does not, and ADR-0006 remains Proposed.
 
+**Update 2026-09-02**: ADR-0006 Part A is Accepted and Part B was resolved (D-156,
+accepted) so that the primary ZKTeco path is
+device-initiated ADMS push with no local gateway. The scenarios
+below apply to the platform-side receiver — "offline" is a terminal that has
+stopped polling `getrequest` past a threshold, "reconnect" is a burst of
+buffered `ATTLOG` records carrying their original timestamps, "firmware
+mismatch" is a handshake or field-count difference — and the gateway-specific
+steps apply only to the fallback. Detection and response detail:
+`../superpowers/specs/2026-09-02-attendance-device-ingestion-design.md` §9.
+
 ## Support Scenario (offline, reconnect, firmware mismatch, vendor outage)
 
 Describe the support scenario in concrete terms so responders can distinguish

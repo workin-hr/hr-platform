@@ -71,8 +71,10 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 
 - **How does `legacy_refresh_tokens` get created against the production legacy
   MariaDB, and who owns that step?** (**R-023**, ADR-0013 Open Questions,
-  D-043 amendment 3.) Phase 1 adds exactly one table to the legacy database and
-  nothing in the application creates it — Flyway owns no MariaDB location and
+  D-043 amendment 3.) Phase 1 adds tables to the legacy database —
+  `legacy_refresh_tokens`, and since D-156 (2026-09-02) the five
+  attendance-device tables in the same file, needed only where the device
+  receiver is enabled — and nothing in the application creates them — Flyway owns no MariaDB location and
   `hibernate.hbm2ddl.auto` is `none`. Today it exists only where a test
   container applies `phase1_extensions.schema.sql` out of band. **Resolution
   criteria**: an approved provisioning mechanism, rehearsed against a restored
@@ -395,3 +397,43 @@ control that did not do what its name says, and because it is the same trade
 ADR-0010 already makes for authorization. If that query later shows up in
 latency measurements, the answer is to measure and revisit it as its own
 decision — not to quietly restore a logout that does not log the caller out.
+
+## Attendance Device Ingestion (ADR-0006 Part B, D-156)
+
+Raised 2026-09-02 by `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
+§12. Q0, Q1 and Q6 were answered on 2026-09-02 and recorded in D-156; Q2,
+Q3, Q5 and Q7 remain open.
+
+- **Q0 — Accept D-156? — ANSWERED 2026-09-02: accepted.** ADMS push as the
+  primary ZKTeco adapter, the edge gateway as fallback, conditional on the
+  §4.3 hardware checklist passing on the customers' actual models.
+- **Q1 — Device PIN identity.** Reuse `employees.employee_code` as the
+  device PIN, or add `employee_device_identities` with `UNIQUE (company_id,
+  pin)` seeded from it. **ANSWERED 2026-09-02: the table.**
+- **Q2 — Device punches and the two-hour rule.** Reject a second check-in
+  within 120 minutes as the app path does (the terminal cannot show the
+  error), or debounce for a minute or two and flag `RAPID_RECHECKIN` for
+  review. Recommendation: debounce and flag.
+- **Q3 — Biometric templates.** Never accepted on the platform in Phase 1
+  (default in the design), or planned with encryption, retention and a
+  data-protection review for cross-branch enrolment sync.
+- **Q5 — `attendance.method` expansion.** When to add `'device'` to the live
+  enum that frozen PHP still reads; expand-only, proposed with Slice B after
+  confirming PHP treats unknown enum values as opaque strings.
+- **Q6 — Who claims devices in the pilot. — ANSWERED 2026-09-02: tenant
+  HR/admin through the new `/api/v1/devices/**` API**, authenticated with the
+  legacy JWT; platform staff use a company admin's session for the pilot until
+  the JTE admin surface (ADR-0015) renders it.
+- **Q8 — Proof of possession when claiming a device** (**R-041**, raised
+  2026-09-02 by review of the Slice A implementation). A serial number is
+  printed on the unit, and the protocol offers no pairing secret, so a tenant
+  who learns an unclaimed serial can register another company's terminal to
+  themselves -- capturing its punches and denying its owner. Options: accept
+  it for a pilot whose devices platform staff install (the current position),
+  have platform staff allocate serial-to-company and let the tenant only name
+  and place it (Q6's other branch), or require a value only someone at the
+  device can read. Also needed either way: an unclaim/transfer path, which
+  Slice A deliberately does not have.
+- **Q7 — Production provisioning of Phase-1-owned MariaDB tables.** The
+  ADR-0013 open question, now on this feature's critical path: Slice A can be
+  built and tested without it and deployed only with it.

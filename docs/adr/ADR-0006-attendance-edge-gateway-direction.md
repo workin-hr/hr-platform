@@ -7,7 +7,7 @@
 | ADR ID | ADR-0006 |
 | Title | Attendance Edge-Gateway Direction |
 | Status | Accepted |
-| Date | 2026-08-02 (Part A accepted 2026-08-05 — see `docs/bootstrap/decision-log.md` D-023. Part B — vendor-specific gateway-or-not decisions — remains genuinely `Proposed`/blocked on PMR-04 device/vendor access; the ADR format has no per-part status field, so this is the closest honest representation.) |
+| Date | 2026-08-02 (Part A accepted 2026-08-05 — see `docs/bootstrap/decision-log.md` D-023. Part B — vendor-specific gateway-or-not decisions — was `Proposed`/blocked on PMR-04 device/vendor access until **2026-09-02, when the repository owner accepted D-156** with the hardware checklist as a recorded condition; the ADR format has no per-part status field, so this is the closest honest representation.) |
 | Owners | Solution Architect |
 | Deciders | Human engineering leadership — recorded at approval time in `docs/bootstrap/decision-log.md` |
 | Related Issues | None yet |
@@ -21,8 +21,8 @@ Attendance devices may require local connectivity patterns, vendor-specific prot
 ## Decision
 
 **Part A is Accepted (2026-08-05, `docs/bootstrap/decision-log.md` D-023).
-Part B remains Proposed and blocked on PMR-04 (real vendor/hardware
-access) — it is not decided by Part A's acceptance.**
+Part B was Proposed and blocked on PMR-04 (real vendor/hardware access)
+until 2026-09-02 — see the update at the end of this section (D-156).**
 
 This decision splits the same way `docs/adr/ADR-0002-modular-monolith-baseline.md`
 did, so the strategic architectural choice is not held hostage to
@@ -54,7 +54,8 @@ behind an adapter boundary rather than baked into core business logic,
 which is a design judgment, not a fact PMR-04 discovery would change.
 
 **Part B — Vendor-specific gateway-or-not decisions: partially resolved
-2026-08-05 (corrected same day), still not `Accepted`.** **Vendor
+2026-08-05 (corrected same day); resolved 2026-09-02 — see the update at
+the end of this section.** **Vendor
 identity is decided**, directly by the product/business owner: attendance
 devices are **ZKTeco** hardware
 (`https://www.zkteco.com/en/documents`), and the adapter built for them
@@ -100,6 +101,25 @@ remaining uncertainty without blocking other modules: the ZKTeco
 adapter gets built and wired to whichever connectivity pattern its real
 protocol turns out to need, once known.
 
+**Update 2026-09-02 — Part B resolved (D-156, accepted the same day; hardware check outstanding).**
+The protocol detail that was missing on 2026-08-05 has since been obtained
+from ZKTeco's public PUSH SDK page and protocol document and cross-checked
+against four independent server implementations and a captured device
+exchange (all cited in `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md` §1.2). ZKTeco
+attendance terminals support a device-initiated HTTP push protocol (ADMS /
+PUSH SDK, configured on the terminal as *Cloud Server Setting*): the device
+dials out to a hostname and port, uploads punches in real time, polls for
+commands and buffers while offline. **Proposed:** the ZKTeco adapter is that
+push receiver; no local gateway is needed for ADMS-capable terminals, and the
+`edge-gateway/` boundary is kept as a fallback for terminals without ADMS.
+This is exactly the per-adapter choice Part A anticipated. **The repository
+owner accepted it on 2026-09-02 (D-156)**, with one recorded condition: a
+hardware confirmation on the customers' actual models (the checklist in that
+specification's §4.3: the Cloud Server Setting exists, HTTPS availability,
+handshake values, ATTLOG field shape, offline buffering) before the adapter
+is declared verified. Building the adapter is authorised; calling it
+verified is not, until that checklist is recorded in `docs/devices/`.
+
 ## Alternatives Considered
 
 - no local gateway
@@ -141,6 +161,17 @@ detail, which still requires ZKTeco's actual SDK/integration
 documentation (not yet retrieved) or physical hardware access, neither
 of which exists in this environment yet.
 
+**Update 2026-09-02**: `docs/devices/vendor-capability-matrix.md` and
+`docs/devices/attendance-device-model-and-firmware-inventory.md` are now
+populated from documentation evidence (vendor PUSH SDK page and protocol
+document, independent implementations, a captured device exchange, and a
+published security analysis of the terminal firmware), with every field's
+evidence level marked; the model and firmware fields stay unpopulated until a
+real terminal connects. This is
+documentation evidence, not hardware evidence; it was enough to propose Part
+B (D-156), which the owner accepted the same day with the hardware checklist
+as a recorded condition — not to declare the adapter verified.
+
 ### Classification (2026-08-04 revision, Part A accepted 2026-08-05)
 
 Split decision, matching the pattern used for ADR-0002. Part A doesn't
@@ -154,15 +185,19 @@ PMR-04 (hardware/vendor access) for the reasons in Decision above.
 - ~~which vendors this system integrates with~~ — **Resolved
   2026-08-05**: ZKTeco devices, all versions, per direct
   product/business-owner statement (see Decision, Part B).
-- whether ZKTeco devices need a local network gateway or connect via
-  direct cloud API/push webhook — still open; ZKTeco's public documents
-  landing page was fetched 2026-08-05 and did not contain this detail,
-  requires ZKTeco's actual SDK/integration documentation or vendor
-  support contact, not resolvable from the vendor name or that page
-  alone
+- ~~whether ZKTeco devices need a local network gateway or connect via
+  direct cloud API/push webhook~~ — **Resolved 2026-09-02 (D-156,
+  accepted)**: device-initiated ADMS push, no local gateway for
+  ADMS-capable terminals, gateway retained as fallback. The hardware checklist
+  (`docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md` §4.3) on the
+  customers' models is the recorded condition before the adapter is declared
+  verified.
 - which protocol(s) ZKTeco devices actually speak, and whether
-  persistent local services are required — still open, same dependency
-  as above
+  persistent local services are required — **documented 2026-09-02**: the
+  ADMS / PUSH SDK HTTP protocol (handshake, `ATTLOG` upload, `getrequest`
+  polling, `devicecmd` acknowledgement; specification §5). No persistent
+  local service is required for it. Hardware confirmation of the exact
+  field shapes and HTTPS support per model remains open.
 - ~~whether the architecture can be vendor-agnostic ahead of vendor
   evidence~~ — **Resolved 2026-08-04, accepted as Part A 2026-08-05**:
   yes, see `docs/devices/device-integration-architecture.md` and

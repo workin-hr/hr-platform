@@ -219,6 +219,15 @@ idempotency strategy, retry/offline-sync behavior, device
 authentication model, mock simulator, and test-scenario checklist, all
 designed without needing real hardware.
 
+**Update 2026-09-02**: the documentation half is done. ZKTeco's push
+protocol (ADMS / PUSH SDK) is documented from the vendor's own PUSH SDK
+material and independent implementations; `vendor-capability-matrix.md` and
+`attendance-device-model-and-firmware-inventory.md` are populated with
+evidence levels marked; ADR-0006 Part B is resolved (D-156, accepted
+2026-09-02) with an explicit hardware checklist as a recorded condition
+(`docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
+§4.3). What remains is that checklist on a real terminal. The bullets below describe the state before this update.
+
 - **Description**: `docs/devices/attendance-device-model-and-firmware-inventory.md`
   and `docs/devices/vendor-capability-matrix.md` remain empty templates
   — correctly so, still no real vendor/hardware access. Device vendor,

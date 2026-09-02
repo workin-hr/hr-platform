@@ -111,7 +111,12 @@ public class SecurityConfig {
 				new LegacyPhpJwtAuthenticationFilter(legacyPhpJwtService, jwtService);
 
 		http
-			.securityMatcher("/api/legacy/**", "/apis/**")
+			// /api/v1/devices/** (D-156) is new tenant-admin surface, not a PHP
+			// parity route: it authenticates with the same legacy JWT and tenant
+			// re-derivation, and -- unlike CONTROLLER_GUARDED -- stays behind
+			// anyRequest().authenticated(), because no PHP guard order exists
+			// for it to reproduce.
+			.securityMatcher("/api/legacy/**", "/apis/**", "/api/v1/devices/**")
 			.csrf(csrf -> csrf.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.exceptionHandling(exceptions -> exceptions

@@ -74,10 +74,10 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Mitigation | Populate `docs/devices/attendance-device-model-and-firmware-inventory.md` and `docs/devices/vendor-capability-matrix.md` before ADR-0006 moves past Proposed |
 | Trigger | A gateway or integration pattern is chosen for a vendor without a corresponding capability-matrix entry |
 | Contingency | Hold ADR-0006 at Proposed; request vendor-specific discovery before committing to a pattern |
-| Status | Open — Discovery not yet started |
-| Target Date | Revisit at Discovery kickoff |
-| Evidence | None yet — `docs/devices/` templates exist and are unpopulated |
-| Last Reviewed | 2026-08-02 |
+| Status | Open — documentation-level discovery completed 2026-09-02 (D-156, accepted): the connectivity pattern and protocol are documented and decided; hardware verification on the customers' actual models is the remaining step (`docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md` §4.3). |
+| Target Date | The first real terminal connected to a development receiver; before Slice A ships. |
+| Evidence | `docs/devices/vendor-capability-matrix.md` and `attendance-device-model-and-firmware-inventory.md` populated from documentation evidence (evidence level marked per field, model/firmware still `Not yet discovered`); D-156. |
+| Last Reviewed | 2026-09-02 |
 
 ## R-005: Governance Weakness
 
@@ -381,7 +381,7 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 
 | Field | Value |
 |---|---|
-| Description | Phase 1 adds exactly one table to the legacy MariaDB — `legacy_refresh_tokens` (`backend/src/test/resources/legacy/phase1_extensions.schema.sql`), authorised as a narrow exception by **D-043 amendment 3**. It does not exist in production legacy MySQL, and **nothing creates it**: Flyway owns no MariaDB location, `LegacyPersistenceConfig` sets `hibernate.hbm2ddl.auto` to `none`, and ADR-0013's Open Questions record that the provisioning mechanism for a real, non-test instance is undecided. Today the table exists only where a test container applies the extension schema out-of-band. |
+| Description | Phase 1 adds tables to the legacy MariaDB: `legacy_refresh_tokens` (`backend/src/test/resources/legacy/phase1_extensions.schema.sql`), authorised as a narrow exception by **D-043 amendment 3**, and — since **D-156** (2026-09-02) — the five attendance-device tables in the same file, required only where the device receiver is enabled and sharing this risk's treatment in full. None exists in production legacy MySQL, and **nothing creates them**: Flyway owns no MariaDB location, `LegacyPersistenceConfig` sets `hibernate.hbm2ddl.auto` to `none`, and ADR-0013's Open Questions record that the provisioning mechanism for a real, non-test instance is undecided. Today the table exists only where a test container applies the extension schema out-of-band. |
 | Category | Migration / Cutover readiness / Production safety |
 | Probability | Certain — the table is required by code that ships in the cutover. Note the failure point is **not** first login: the parity login route (`LegacyPhpLoginService`) never touches the refresh-token repository and succeeds without the table. What breaks is every path calling `LegacyRefreshTokenService.revokeAllForEmployee()` — password change and logout (`LegacyProfileService`) and **`reset_password.php` in employee mode** (`LegacyOtpAuthService.resetPassword()`; **not** `verifyOtp()`, which never touches the table, and **not** its company branch, which stops at `updateCompanyPasswordByPhone()`) — so a missing table surfaces as scattered failures in live use rather than a clean startup error. **The reset path fails partially, not cleanly**: `resetPassword()` commits the new password via `updateEmployeePasswordByPhone()` *before* calling `revokeAllForEmployee()`, and `LegacyOtpAuthService` carries no `@Transactional`. A missing or unwritable table therefore leaves the password changed, the sessions un-revoked, and the caller told the operation failed. |
 | Impact | **Nothing fails at cutover time, which is what makes this dangerous.** Login succeeds without the table, so the cutover looks clean; the failures appear afterwards, scattered across password change, logout and **employee-mode `reset_password.php`** — the paths that call `revokeAllForEmployee()`. Two nearby routes do **not** reach it and will pass with the table absent: `verifyOtp()`, which never touches the repository, and a **company-mode** reset, whose branch stops at `updateCompanyPasswordByPhone()`. An operator watching the cutover for a clean startup and a successful login gets no signal at all. More importantly, provisioning is a **DDL statement against the production legacy database** executed by an undecided mechanism, which is precisely the class of action that needs a named owner, a rehearsal against a restored copy, and a stated lock duration rather than an ad hoc `CREATE TABLE` on the night. |
@@ -393,7 +393,7 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Status | Open. Surfaced by independent review of PR #147 on 2026-08-30, which correctly rejected that PR's original claim that Phase 1 changes no tables. |
 | Target Date | Before the Phase 1 cutover window is scheduled. |
 | Evidence | `phase1_extensions.schema.sql`; `LegacyPersistenceConfig` (`hbm2ddl.auto=none`, "No Flyway ownership of any MariaDB schema"); ADR-0013 Open Questions; D-043 amendment 3; decision-log entries D-050/D-051 declining to widen the exception. |
-| Last Reviewed | 2026-08-30 |
+| Last Reviewed | 2026-09-02 — scope widened to the D-156 device tables; treatment unchanged. |
 
 ## R-024: A Signing-Secret Mismatch At Phase 1 Cutover Logs Out Every User, Twice
 
@@ -695,4 +695,40 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Status | Open — recorded 2026-09-02, on independent review of PR #161 pointing out that **D-154** established the exposure while deciding only what *Java* would do about it. Deciding not to reproduce a vulnerability is not managing it. |
 | Target Date | Determined by the exposure assessment. |
 | Evidence | `hr-legacy/apis/helpers/functions.php:641` (sniff) and `:655-656` (extension from the filename) — the two lines that disagree. `apis/config/upload_slots.php` for the four affected endpoints' subdirectories. **D-154** for the Java decision and its reasoning. Related: **R-037** and **R-036**, the other legacy defects this programme records rather than ports. |
+| Last Reviewed | 2026-09-02 |
+
+## R-040: The ZKTeco Push Protocol Identifies A Device By Serial Number Alone, Over Plain HTTP By Default
+
+| Field | Value |
+|---|---|
+| Description | The ADMS / PUSH SDK protocol D-156 adopts as the primary attendance-device path has no device authentication beyond the serial number in the query string, runs over plain HTTP unless the firmware offers HTTPS, and the terminals themselves carry documented injection, buffer-overflow and server-impersonation vulnerabilities including a root `SHELL` command handler (Kaspersky, 2024 — cited in `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md` §1.2). Anyone who learns a claimed serial number and can reach the ingest hostname can, absent controls, submit punches that flow into payroll. |
+| Category | Security / Integration boundary |
+| Probability | Medium once the receiver is public — serial numbers are printed on the units and appear in device menus and support tickets. |
+| Impact | Medium–High: fabricated or suppressed attendance for a tenant; payroll consequences. Bounded per tenant by the registry binding (a serial resolves to exactly one company and branch), so no cross-tenant write is reachable through it. |
+| Severity | Medium |
+| Owner | Repository owner; design controls owned by the attendance-device slice. |
+| Mitigation | **Implemented in Slice A** (specification §8, verified by the tests in §13): claim-before-ingest, so an unclaimed or deactivated serial is refused and stores nothing and its handshake carries neither stamp nor zone; serial numbers validated for shape and length before they can reach a query or create a row; the `ATTLOGStamp` accepted only as digits and only from a delivery that carried punches, which closes both the CR/LF injection into the handshake and the far-future value that would tell a terminal to stop uploading; metric tags drawn from a closed set; every logged value control-character-stripped and bounded; a body cap enforced ahead of the security chain; biometric template records discarded before storage. **Still to do, outside the code:** TLS at the edge, per-IP rate limiting at the reverse proxy, and soft-binding of serial to observed address with alerting. Residual risk for HTTP-only firmware is recorded per device in the inventory. |
+| Trigger | Slice A implementation; any punch accepted for an unclaimed or inactive serial; any ingest traffic for a serial from an unexpected network. |
+| Contingency | Deactivate the device row (ingest stops for that serial immediately); set `app.devices.ingest.enabled=false` (the `/iclock` surface disappears, devices buffer); review `device_punches` for the affected window before pairing. |
+| Status | Open — recorded 2026-09-02 with D-156. The in-application controls landed with Slice A after an independent review round; the edge-side ones (TLS, rate limiting) are deployment work and remain open. |
+| Target Date | Controls verified by the Slice A end-to-end tests (specification §13) before any production deployment. |
+| Evidence | Specification §1.2 (Securelist analysis; protocol documentation and independent implementations showing SN-only identity and `Encrypt=None`), §8. Related: R-004. |
+| Last Reviewed | 2026-09-02 |
+
+## R-041: A Device Serial Number Is A Public Identifier, So One Tenant Can Claim Another Tenant's Terminal
+
+| Field | Value |
+|---|---|
+| Description | Claiming a device (D-156, Q6: any `company_admin`/`hr` user, `POST /api/v1/devices`) is first-come and global, because the ADMS protocol offers no proof of possession -- a terminal cannot display a pairing code, and the serial number is printed on the unit and appears in its menus, support tickets and delivery notes. A tenant who learns a serial that has not yet been claimed can register it to their own company. |
+| Category | Security / Multi-tenancy |
+| Probability | Low. It needs a serial number and a window: a terminal that is installed and reaching the receiver but whose owner has not yet claimed it. A serial already claimed answers 409 to everyone else. |
+| Impact | High within that window, in two directions at once: the squatter receives the other company's punches (attendance data for people who are not their employees), and the rightful owner cannot claim their own device and sees no punches at all. |
+| Severity | Medium — high impact, narrow and self-announcing window. |
+| Owner | Repository owner: preventing it is a product decision, not a code fix. |
+| Mitigation | None fully prevents it while tenants do the claiming. What Slice A does carry: the claim records `registered_by_employee_id`, so the act is attributable; a serial resolves to exactly one company, so no cross-tenant read is reachable through any other route; and `GET /api/v1/devices/unclaimed` answers for a serial owned by another company exactly as for one never seen, so the API cannot be used to hunt for claimable serials. |
+| Trigger | Any report of "our device is registered to another company", or a device that reaches the receiver and cannot be claimed. |
+| Contingency | Deactivate the squatted registration (`PATCH is_active:false`) to stop ingestion immediately. **There is no unclaim or transfer path in Slice A** -- a serial claimed to the wrong company needs a manual database correction, which is itself the reason Q8 below is worth deciding before the pilot widens. |
+| Status | Open — recorded 2026-09-02 from an independent review of the Slice A implementation. Tracked as **Q8** in `open-questions.md`. |
+| Target Date | Before the pilot extends past a branch whose devices platform staff install themselves. |
+| Evidence | `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md` §4.2, §8, §12 (Q8); `DeviceManagementController.claim`; `AttendanceDeviceStore.claim`'s global unique key. Related: R-040. |
 | Last Reviewed | 2026-09-02 |
