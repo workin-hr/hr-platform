@@ -133,6 +133,13 @@ jobs:
       - name: Run ShellCheck
         run: shellcheck scripts/*.sh .agents/skills/*/scripts/*.sh
 
+      # The merge gate's own counting. It decides whether `independent-review`
+      # is green, so a regression there either stalls every merge or waves one
+      # through unreviewed; the test extracts the function from the workflow so
+      # it cannot pass against a stale copy.
+      - name: Pin what the independent-review gate counts as a round
+        run: ./scripts/test-review-gate-counting.sh
+
       - name: Run actionlint
         run: actionlint -color
 
