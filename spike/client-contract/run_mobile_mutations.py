@@ -22,6 +22,14 @@ from client_parser import Evaluator                              # noqa: E402
 from run_contract_check import PHP, JAVA, decode, request, sql   # noqa: E402
 
 HARNESS = Path(__file__).resolve().parents[1] / 'parity-harness'
+
+
+def reseed() -> bool:
+    """A failed reseed leaves the previous case's writes in place, so the next
+    case would compare contaminated state and report whatever that happens to
+    give -- a reproducible-looking parity row from stale data. Same guard the
+    mutation sweep and run_mutation_contracts.py already apply."""
+    return subprocess.run(['./seed-two.sh'], cwd=HARNESS, capture_output=True).returncode == 0
 ADMIN = '+201999000002'
 EMPLOYEE = '+201999000003'
 
@@ -67,7 +75,11 @@ def main() -> None:
     results = []
     for path, actor, query, body, expect, setup in cases:
         call = by_path.get(path)
-        subprocess.run(['./seed-two.sh'], cwd=HARNESS, capture_output=True)
+        if not reseed():
+            results.append({'path': path,
+                            'skipped': 'reseed failed; state contaminated, verdict withheld'})
+            print(f'  {path:34} RESEED-FAILED (verdict withheld)')
+            continue
         row = {'path': path, 'method': call['http_method'], 'model': call['model'],
                'actor': actor, 'expect': expect, 'query': query}
         for label, base in (('php', PHP), ('java', JAVA)):

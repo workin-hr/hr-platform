@@ -140,6 +140,13 @@ jobs:
       - name: Pin what the independent-review gate counts as a round
         run: ./scripts/test-review-gate-counting.sh
 
+      # The committed client contract is the input to the coverage reports and
+      # is derived purely from the pinned client checkouts, so it can drift
+      # silently when the extractor or a submodule moves. Skips, loudly, when
+      # the submodules are not initialised.
+      - name: Check the client contract against the client source
+        run: python3 scripts/check_client_contract_drift.py
+
       - name: Run actionlint
         run: actionlint -color
 

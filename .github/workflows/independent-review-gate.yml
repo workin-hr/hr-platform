@@ -81,6 +81,17 @@ on:
   # back, which is why dismissed reviews are also excluded from the count.
   pull_request_review:
     types: [submitted, dismissed]
+  # A CLEAN round posts an issue comment and NO review, so it raises neither of
+  # the events above. Recognising that comment in the count achieves nothing if
+  # nothing recomputes the status afterwards -- which is exactly what happened
+  # on #164: the reviewer posted its clean round, the gate would have counted
+  # it, and the standing red status was never recomputed because no event fired.
+  #
+  # `issue_comment` always runs the DEFAULT BRANCH's copy of this file, so it
+  # carries the same trust property as pull_request_target and needs no extra
+  # premise. The job below still reads no pull-request content.
+  issue_comment:
+    types: [created, edited]
 
 permissions:
   contents: read
@@ -89,8 +100,11 @@ permissions:
 
 concurrency:
   # Keyed on the commit, not the pull request: two events racing on the same
-  # head must not both publish, and a new push has its own group.
-  group: independent-review-gate-${{ github.event.pull_request.head.sha }}
+  # head must not both publish, and a new push has its own group. An
+  # issue_comment payload carries no head SHA, so it keys on the pull request
+  # number instead -- the same pull request's comments still serialise.
+  group: independent-review-gate-${{ github.event.pull_request.head.sha
+    || format('issue-{0}', github.event.issue.number) }}
   cancel-in-progress: false
 
 jobs:
@@ -99,14 +113,20 @@ jobs:
     runs-on: ubuntu-24.04
     # `edited` fires for a title or body edit too. Only a base change matters
     # here, and GitHub sets `changes.base` only for that.
-    if: github.event_name != 'pull_request_target' || github.event.action != 'edited'
-      || github.event.changes.base != null
+    # `edited` fires for a title or body edit too; only a base change matters.
+    # An issue_comment is only relevant when the issue IS a pull request.
+    if: >-
+      (github.event_name != 'pull_request_target' || github.event.action != 'edited'
+       || github.event.changes.base != null)
+      && (github.event_name != 'issue_comment' || github.event.issue.pull_request != null)
     steps:
       - name: Publish whether the named reviewer has reviewed this head
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          # Absent on issue_comment; resolved from the API below rather than
+          # trusting anything in the comment payload.
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           BASE_CHANGED: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited'
@@ -120,6 +140,14 @@ jobs:
           REVIEWER: "chatgpt-codex-connector[bot]"
         run: |
           set -euo pipefail
+
+          # issue_comment carries no head SHA. Resolve it from the pull request
+          # itself -- never from the comment, which is attacker-controlled text.
+          if [ -z "${HEAD_SHA:-}" ]; then
+            HEAD_SHA="$(gh api "repos/$REPO/pulls/$PR" --jq '.head.sha')"
+            export HEAD_SHA
+            echo "Resolved head $HEAD_SHA for #$PR from the pull request"
+          fi
 
           # Every round this reviewer has completed on a given head, newest
           # last, one ISO timestamp per line.

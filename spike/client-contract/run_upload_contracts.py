@@ -19,6 +19,14 @@ from client_parser import Evaluator                              # noqa: E402
 from run_contract_check import PHP, JAVA, decode, request, sql   # noqa: E402
 
 HARNESS = Path(__file__).resolve().parents[1] / 'parity-harness'
+
+
+def reseed() -> bool:
+    """A failed reseed leaves the previous case's writes in place, so the next
+    case would compare contaminated state and report whatever that happens to
+    give -- a reproducible-looking parity row from stale data. Same guard the
+    mutation sweep and run_mutation_contracts.py already apply."""
+    return subprocess.run(['./seed-two.sh'], cwd=HARNESS, capture_output=True).returncode == 0
 FIXTURES = HARNESS / 'fixtures'
 
 
@@ -40,7 +48,8 @@ def main() -> None:
     evaluator = Evaluator(contracts['models'])
     by_path = {c['path']: c for c in contracts['calls']}
 
-    subprocess.run(['./seed-two.sh'], cwd=HARNESS, capture_output=True)
+    if not reseed():
+        raise SystemExit('FATAL: could not seed both databases; nothing below would mean anything.')
     employee = sql('workin', 'SELECT id FROM workin.employees WHERE company_id=214 ORDER BY id LIMIT 1')
 
     cases = [
@@ -60,7 +69,11 @@ def main() -> None:
     results = []
     for path, parts, fields, expect in cases:
         call = by_path.get(path)
-        subprocess.run(['./seed-two.sh'], cwd=HARNESS, capture_output=True)
+        if not reseed():
+            results.append({'path': path,
+                            'skipped': 'reseed failed; state contaminated, verdict withheld'})
+            print(f'  {path:34} RESEED-FAILED (verdict withheld)')
+            continue
         tokens = {}
         for label, base in (('php', PHP), ('java', JAVA)):
             status, text = request(base, 'POST', 'auth/login_desktop', None, body={

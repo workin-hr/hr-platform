@@ -184,7 +184,7 @@ test hostname.
 
 - rendering, widget state, navigation between screens
 - the file picker, downloads written to disk, OS integration, auto-update
-- the four `ResponseType.bytes` endpoints (template/report downloads): the
-  client treats them as raw bytes, so there is no parser to check here
+- the 4 `ResponseType.bytes` endpoints (downloads): the client
+  treats them as raw bytes, so there is no parser to check here
 - endpoints whose request shape needs state this harness does not seed
 - anything about the mobile client, which is a separate pass

@@ -185,10 +185,12 @@ w('## What this does not cover')
 w('')
 w('- rendering, widget state, navigation between screens')
 w('- the file picker, downloads written to disk, OS integration, auto-update')
-w('- the four `ResponseType.bytes` endpoints (template/report downloads): the')
-w('  client treats them as raw bytes, so there is no parser to check here')
+bytes_calls = [x['path'] for x in c['calls'] if x.get('response_type') == 'bytes']
+if bytes_calls:
+    w(f"- the {len(bytes_calls)} `ResponseType.bytes` endpoints (downloads): the client")
+    w('  treats them as raw bytes, so there is no parser to check here')
 w('- endpoints whose request shape needs state this harness does not seed')
-w('- anything about the mobile client, which is a separate pass')
+w(f"- anything about the {'desktop' if CLIENT == 'mobile' else 'mobile'} client, which is a separate pass")
 w('')
 text = '\n'.join(lines).rstrip('\n') + '\n'
 while '\n\n\n' in text:
