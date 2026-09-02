@@ -3,8 +3,10 @@
 **This is a contract layer, not a runtime one.** It proves what the mobile
 client's own parsers would do with each stack's bytes. It verifies **nothing**
 about rendering, navigation, the file picker, downloads to disk, OS
-integration, or any other runtime UI behaviour. The real application was not
-executed -- see "Why runtime is zero" below.
+integration, or any other runtime UI behaviour, because this layer executes
+nothing -- it replays recorded bytes through the parsers. Whether the real
+application was ever run is a separate measurement: see "Runtime status for
+this client" below.
 
 ## Coverage, with the denominators kept apart
 
