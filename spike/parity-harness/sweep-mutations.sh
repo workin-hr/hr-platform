@@ -680,6 +680,13 @@ if [ ! -f "$HERE/fixtures/parity.png" ]; then
   echo "   template output, and the punch log is keyed to a seeded employee_code)." >&2
   exit 10
 fi
+# Four occurrences of quote-in-generated-SQL so far, three from comments. This
+# is checked before a run rather than diagnosed after one.
+if [ -x "$HERE/check-sql-quoting.sh" ] && ! "$HERE/check-sql-quoting.sh" >/dev/null 2>&1; then
+  "$HERE/check-sql-quoting.sh" >&2
+  echo "FATAL: SQL quoting check failed -- see above. A run would compare nothing." >&2
+  exit 13
+fi
 assert_upload_dirs() {
   if [ -z "$PHP_UPLOADS" ] || [ ! -d "$PHP_UPLOADS" ]; then
     echo "FATAL: could not resolve the PHP uploads mount from the container." >&2
@@ -861,6 +868,69 @@ run_multipart_case() {
   printf '%-42s %-4s %-4s %s %s\n' "$name" "$pcode" "$jcode" "$verdict" "$detail"
 }
 
+
+# NAME | METHOD | PATH | FORM BODY | TABLES | WHO | EXPECT
+#
+# For endpoints that read $_POST rather than a JSON body. employee_docs/update
+# is one: `required($_POST, [ID, DOC_TYPE])`. Sending JSON to it answers 400 on
+# both stacks -- a matching rejection, which is not coverage.
+run_form_case() {
+  local name="$1" method="$2" path="$3" form="$4" tables="$5" who="${6:-244}" expect="${7:-}"
+  case "$who" in -|"") who=244 ;; esac
+  local phone; case "$who" in 214) phone=$PHONE_214 ;; emp) phone=$PHONE_EMP ;; *) phone=$PHONE_244 ;; esac
+
+  if ! ./seed-two.sh >/dev/null 2>&1; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "RESEED-FAILED"; return
+  fi
+  local jhealth
+  jhealth=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$JAVA/configs/get" 2>/dev/null)
+  if [ "$jhealth" != "200" ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "JAVA-NOT-SERVING ($jhealth)"; return
+  fi
+  local pt jt
+  pt=$(mint_token "$PHP" "$phone"); jt=$(mint_token "$JAVA" "$phone")
+  if [ -z "$pt" ] || [ -z "$jt" ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "LOGIN-FAILED"; return
+  fi
+
+  local pcode jcode pbody jbody
+  pcode=$(curl -s -o /tmp/mfp.json -w '%{http_code}' -X "$method" "$PHP/$path" \
+            -H "Authorization: Bearer $pt" -d "$form")
+  jcode=$(curl -s -o /tmp/mfj.json -w '%{http_code}' -X "$method" "$JAVA/$path" \
+            -H "Authorization: Bearer $jt" -d "$form")
+  pbody=$(norm /tmp/mfp.json); jbody=$(norm /tmp/mfj.json)
+
+  local verdict=ok detail=""
+  if [ "$pcode" = 000 ] || [ "$jcode" = 000 ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "UNREACHABLE"; return
+  fi
+  if [ -n "$expect" ] && [ "$pcode" != "$expect" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "$pcode" "$jcode" "UNEXPECTED-STATUS (case expects $expect)"
+    { echo "### $name  ($method $path, form)"; echo "    PHP answered $pcode; declared $expect."
+      echo "    PHP  $pcode $(head -c 260 <<< "$pbody")"; echo; } >> mutation-diffs.txt
+    return
+  fi
+  [ "$pcode" = "$jcode" ] || { verdict=DIFF; detail="status $pcode vs $jcode"; }
+  if [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ]; then verdict=DIFF; detail="response body"; fi
+
+  local statediff=""
+  IFS=',' read -ra tl <<< "$tables"
+  for t in "${tl[@]}"; do
+    [ -n "$t" ] || continue
+    [ "$(snapshot "$PHP_DB" "$t" "")" != "$(snapshot "$JAVA_DB" "$t" "")" ] && statediff="$statediff $t"
+  done
+  [ -n "$statediff" ] && { verdict=DIFF; detail="${detail:+$detail; }rows differ:$statediff"; }
+
+  if [ "$verdict" = ok ]; then pass=$((pass+1)); else
+    fail=$((fail+1))
+    { echo "### $name  ($method $path, form)"; echo "    $detail"
+      echo "    PHP  $pcode $(head -c 240 <<< "$pbody")"
+      echo "    JAVA $jcode $(head -c 240 <<< "$jbody")"; echo; } >> mutation-diffs.txt
+  fi
+  printf '%-42s %-4s %-4s %s %s\n' "$name" "$pcode" "$jcode" "$verdict" "$detail"
+}
+
 ./seed-two.sh >/dev/null 2>&1
 assert_java_on_its_own_database
 assert_upload_dirs
@@ -933,6 +1003,16 @@ C214_DECISION=$(resolve_or_die c214_decision "SELECT id FROM administrative_deci
 FOREIGN_EMP=$(resolve_or_die foreign_emp "SELECT id FROM employees WHERE company_id NOT IN (214,244) AND is_active=1 ORDER BY id LIMIT 1")
 FOREIGN_BRANCH=$(resolve_or_die foreign_branch "SELECT id FROM branches WHERE company_id NOT IN (214,244) ORDER BY id LIMIT 1")
 FOREIGN_ADV=$(resolve_or_die foreign_adv "SELECT a.id FROM advances a JOIN employees e ON e.id=a.employee_id WHERE e.company_id NOT IN (214,244) AND a.status='pending' ORDER BY a.id LIMIT 1")
+# Fixtures for the endpoints whose only case was a refusal, plus the update and
+# delete halves that needed a row their own create would have made.
+C214_BRANCH_EMPTY=$(resolve_or_die branch_empty "SELECT b.id FROM branches b WHERE b.id=999020 AND NOT EXISTS (SELECT 1 FROM employees e WHERE e.branch_id=b.id)")
+C214_EMP_FREE=$(resolve_or_die emp_free "SELECT id FROM employees WHERE id=999021 AND company_id=214")
+C214_RTYPE_UNUSED=$(resolve_or_die rtype_unused "SELECT t.id FROM request_types t WHERE t.id=999022 AND NOT EXISTS (SELECT 1 FROM requests r WHERE r.request_type_id=t.id)")
+C214_ATT_OPEN=$(resolve_or_die att_open "SELECT id FROM attendance WHERE id=999023 AND check_out IS NULL")
+C214_ATT_OPEN_EMP=$(resolve_or_die att_open_emp "SELECT employee_id FROM attendance WHERE id=999023 AND check_out IS NULL")
+C214_EXCTYPE=$(resolve_or_die exctype "SELECT id FROM exception_types WHERE id=999024 AND company_id=214")
+C214_WFP=$(resolve_or_die wfp "SELECT id FROM workforce_planning WHERE id=999025 AND company_id=214")
+C214_DOC=$(resolve_or_die doc "SELECT id FROM employee_docs WHERE id=999026")
 C214_REQ_PENDING=$(resolve_or_die c214_req_pending "SELECT r.id FROM requests r JOIN request_types t ON t.id=r.request_type_id WHERE r.id=999014 AND r.status='pending' AND t.deduct_balance=1 AND t.add_attendance_exception=1")
 # A SECOND employee, so payslips/create has someone without a payslip in the
 # draft batch -- the fixture above already occupies the first one, and create
@@ -1195,8 +1275,9 @@ run_case "attendance/check_in"             POST "attendance/check_in" \
   '{"latitude":30.0211667,"longitude":31.4545278,"method":"app"}' "attendance" 214 200
 run_case "attendance/check_in (no coords)" POST "attendance/check_in" \
   '{"method":"app"}' "attendance" 214 400
-run_case "attendance/check_out"            POST "attendance/check_out" \
-  '{"latitude":30.0211667,"longitude":31.4545278}' "attendance" 214 400
+# (The refusal case that used to live here expected 400 because no check-in was
+# open. seed-two.sh now seeds one, so the success case below replaces it -- a
+# case whose expectation the fixtures invalidated is worse than no case.)
 run_case "attendance/delete_range"         DELETE "attendance/delete_range?employee_id=$C214_EMP&from=2026-09-01&to=2026-09-30" \
   '' "attendance" 214 200
 
@@ -1350,6 +1431,45 @@ run_multipart_case "attendance/import_excel"      "attendance/import_excel" \
   file "$HERE/fixtures/attendance-punches.xlsx" "punches.xlsx" "" "attendance" 214 200
 run_multipart_case "attendance/import (wrong sheet)" "attendance/import_excel" \
   file "$HERE/fixtures/employees-template.xlsx" "wrong.xlsx" "" "attendance" 214 400
+
+
+# ===========================================================================
+# Success paths that previously had only a refusal, plus the update/delete
+# halves that needed a seeded row.
+#
+# Each refusal case is KEPT alongside its success case rather than replaced:
+# "409 while employees remain" and "200 when none do" are both contract, and
+# only the second is coverage.
+# ---------------------------------------------------------------------------
+run_case "branches/delete (empty branch)"  DELETE "branches/delete?id=$C214_BRANCH_EMPTY" \
+  '' "branches,department_branches" 214 200
+run_case "employees/delete (unreferenced)" DELETE "employees/delete?id=$C214_EMP_FREE" \
+  '' "employees" 214 200
+run_case "request_types/delete (unused)"   DELETE "request_types/delete?id=$C214_RTYPE_UNUSED" \
+  '' "request_types,requests" 214 200
+# Names the employee whose record is open, rather than defaulting to the
+# caller -- the fixture belongs to a different employee on purpose.
+run_case "attendance/check_out"            POST "attendance/check_out" \
+  "{\"employee_id\":$C214_ATT_OPEN_EMP,\"latitude\":30.0211667,\"longitude\":31.4545278}" "attendance" 214 200
+# requests/create is requireAuth([EMPLOYEE]); the company-admin actor is refused
+# 403 before any logic. The seeded employee actor can reach it.
+run_case "requests/create (as employee)"   POST "requests/create" \
+  "{\"request_type_id\":$C214_RTYPE_UNUSED,\"from_date\":\"2026-09-20\",\"to_date\":\"2026-09-21\"}" \
+  "requests,notifications" emp 201
+
+run_case "exception_types/update"          PUT  "attendance_exception_types/update?id=$C214_EXCTYPE" \
+  '{"name":"Parity Exception Renamed"}' "exception_types" 214 200
+run_case "exception_types/delete"          DELETE "attendance_exception_types/delete?id=$C214_EXCTYPE" \
+  '' "exception_types,request_types,attendance" 214 200
+run_case "workforce_planning/update"       PUT  "workforce_planning/update?id=$C214_WFP" \
+  '{"planned_count":9}' "workforce_planning" 214 200
+run_case "workforce_planning/delete"       DELETE "workforce_planning/delete?id=$C214_WFP" \
+  '' "workforce_planning" 214 200
+# $_POST, not a JSON body: required($_POST, [ID, DOC_TYPE]).
+run_form_case "employee_docs/update"       POST "employee_docs/update" \
+  "id=$C214_DOC&doc_type=id_card" "employee_docs" 214 200
+run_case "employee_docs/delete"            DELETE "employee_docs/delete?id=$C214_DOC" \
+  '' "employee_docs" 214 200
 
 echo
 echo "identical=$pass  differing=$fail  accepted-divergences=$accepted"

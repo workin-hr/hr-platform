@@ -476,6 +476,33 @@ class LegacyRequestEndToEndTest {
 		assertThat(status(response)).isEqualTo(400);
 	}
 
+	/**
+	 * {@code notification_request_submitted_to_company()}
+	 * ({@code notifications.php:278-291}) passes {@code 'request'} and the
+	 * request id as the notification's reference. Java called the overload that
+	 * leaves both null, so the company's notification could not point back at
+	 * the request it announces -- while {@code reject()} on the same class
+	 * already passed them, which is why only one half was wrong.
+	 *
+	 * <p>Found by the parity harness: the response and the request row matched,
+	 * and only the {@code notifications} row differed.
+	 */
+	@Test
+	void createNotifiesTheCompanyWithAReferenceBackToTheRequest() {
+		Map<String, Object> body = created("""
+				{"request_type_id": %d, "from_date": "2026-05-01", "to_date": "2026-05-02"}
+				""".formatted(TYPE_1), EMPLOYEE_1A);
+		long id = ((Number) dataOf(body).get("id")).longValue();
+
+		assertThat(count(
+				"SELECT COUNT(*) FROM notifications WHERE company_id = " + COMPANY_1
+						+ " AND recipient_kind = 'company'"
+						+ " AND notification_type = 'request_submitted'"
+						+ " AND reference_type = 'request' AND reference_id = " + id))
+				.as("the company notification must reference the request it announces")
+				.isEqualTo(1);
+	}
+
 	@Test
 	void rejectNotifiesTheRequestingEmployee() {
 		long id = insertRequest(TYPE_1, EMPLOYEE_1A, "pending");
