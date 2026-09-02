@@ -127,6 +127,13 @@ for d in "$PHP_DB" "$JAVA_DB"; do
   m "$d" -e "
   UPDATE companies SET password_hash='$HASH' WHERE id=214;"
 
+  # HARNESS-ONLY IDENTITIES. 999004 and 999005 exist so the real clients can be
+  # driven at runtime; they are fixed ids in the 999xxx harness range, seeded
+  # into the local `workin`/`workin_java` databases only, and carry the shared
+  # harness password. Nothing about them is a production assumption: production
+  # neither has these rows nor needs them, and no migration or cutover step
+  # should ever create them.
+  #
   # 999002's phone is +201999000002, which the real mobile client refuses before
   # it ever sends a request: the clients validate the local part against the
   # phone_countries row for the dial code, and Egypt there is 11 digits starting
@@ -158,6 +165,7 @@ for d in "$PHP_DB" "$JAVA_DB"; do
   ON DUPLICATE KEY UPDATE can_employees=1, can_payroll=1, can_attendance=1,
                           can_requests=1, can_penalties=1, can_leave_balances=1;"
 
+  # Second harness-only identity, same range and same rules as 999004 above.
   # 999004 is a company_admin, and the endpoints the mobile app drives most --
   # requests/create among them -- are requireAuth([EMPLOYEE]), which refuses a
   # company_admin 403 before any logic runs. A refusal is not success-path
