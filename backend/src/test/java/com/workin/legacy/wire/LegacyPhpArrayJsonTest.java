@@ -93,7 +93,16 @@ class LegacyPhpArrayJsonTest {
 	/** An empty map keeps the {@code (object)[]} cast's shape. */
 	@Test
 	void anEmptyMapStaysAnObject() {
-		assertThat(LegacyPhpArrayJson.encode(new LinkedHashMap<>())).isInstanceOf(Map.class);
+		// The marker, not the map: on this surface an empty Map now renders as
+		// `[]` like PHP's empty array, so handing the map back would silently
+		// undo the `(object)[]` cast this method exists to honour.
+		assertThat(LegacyPhpArrayJson.encode(new LinkedHashMap<>()))
+				.isSameAs(LegacyPhpArrayJson.EMPTY_OBJECT);
+	}
+
+	@Test
+	void aNullMapIsStillNull() {
+		assertThat(LegacyPhpArrayJson.encode(null)).isNull();
 	}
 
 	/**

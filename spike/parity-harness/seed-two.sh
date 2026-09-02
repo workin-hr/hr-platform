@@ -116,6 +116,17 @@ for d in "$PHP_DB" "$JAVA_DB"; do
   # a COMPANY token bypasses that check entirely. Without a row here, most
   # admin endpoints answer 403 before touching any business logic, and the
   # sweep then compares two refusals and reports parity it never tested.
+  # The COMPANY credential. auth/login_company and auth/login_desktop
+  # (login_as=company) authenticate against companies.password_hash, which the
+  # snapshot carries but whose plaintext nobody knows -- so both endpoints could
+  # only ever be exercised through a 401, which is a refusal and not coverage.
+  #
+  # The row's own phone is reused rather than rewritten: company 214 is already
+  # active, otp_verified and profile_completed, so stamping the hash is the
+  # whole fixture. Changing its phone would move a value other cases compare.
+  m "$d" -e "
+  UPDATE companies SET password_hash='$HASH' WHERE id=214;"
+
   m "$d" -e "
   INSERT INTO hr_permissions
    (employee_id, can_dashboard, can_recent_activities, can_branches, can_departments,
@@ -297,6 +308,61 @@ for d in "$PHP_DB" "$JAVA_DB"; do
   SELECT 999014, 999003, 999016,
          '2026-09-10', '2026-09-11', 'pending', NOW()
   ON DUPLICATE KEY UPDATE status='pending', employee_id=999003;
+
+  -- A PENDING join request. company_join_requests/accept and /reject both
+  -- resolve an employees row with role='employee' whose join_request_status is
+  -- pending, and the snapshot has none: every seeded employee is accepted.
+  -- Placed on the company's default active branch -- the one join_company
+  -- itself picks -- and deliberately NOT on the must-stay-empty branch 999020.
+  INSERT INTO employees
+   (id, company_id, branch_id, first_name, last_name, phone, role, password_hash,
+    is_active, join_request_status, token_version, created_at)
+  SELECT 999028, 214,
+         (SELECT id FROM branches WHERE company_id=214 AND is_active=1 ORDER BY id LIMIT 1),
+         'Parity','Pending','+201999000028','employee','$HASH',0,'pending',1,NOW()
+  ON DUPLICATE KEY UPDATE join_request_status='pending', is_active=0, role='employee';
+
+  -- An HR user that is NOT the sweep's own actor. hr_employees/update_permissions
+  -- rewrites the whole hr_permissions row for its target, so pointing it at
+  -- 999002 would strip the permissions every later case authenticates with --
+  -- the case would pass and the rest of the run would fail for a reason that
+  -- looks nothing like its cause.
+  INSERT INTO employees
+   (id, company_id, branch_id, first_name, last_name, phone, role, password_hash,
+    is_active, join_request_status, token_version, created_at)
+  SELECT 999029, 214,
+         (SELECT id FROM branches WHERE company_id=214 AND is_active=1 ORDER BY id LIMIT 1),
+         'Parity','HrTarget','+201999000029','hr','$HASH',1,'accepted',1,NOW()
+  ON DUPLICATE KEY UPDATE role='hr', is_active=1;
+  INSERT INTO hr_permissions (employee_id, can_dashboard, can_employees)
+  VALUES (999029, 1, 1)
+  ON DUPLICATE KEY UPDATE can_dashboard=1, can_employees=1;
+
+  -- A setting definition company 214 has no value for. company_settings/create
+  -- refuses with already_exists when the company already holds the definition,
+  -- and 214 holds all five the snapshot ships -- so without this the endpoint
+  -- could only be exercised through that refusal.
+  INSERT INTO setting_definitions
+   (id, setting_key, label_ar, label_en, is_multi, is_required, sort_order)
+  VALUES (999040, 'parity_fixture_setting', 'parity', 'parity', 0, 0, 900)
+  ON DUPLICATE KEY UPDATE is_multi=0, is_required=0;
+  INSERT INTO setting_allowed_values
+   (id, setting_definition_id, value, label_ar, label_en, sort_order)
+  VALUES (999041, 999040, 'parity-value', 'parity', 'parity', 1)
+  ON DUPLICATE KEY UPDATE value='parity-value';
+
+  -- A company stopped between the two registration steps: OTP verified, profile
+  -- not completed. auth/complete_company_registration refuses anything else --
+  -- 403 verify_otp_first, or 400 nothing_to_update once the profile is done --
+  -- and the snapshot has no company in that state, so without this the endpoint
+  -- could only ever be exercised through one of those refusals.
+  INSERT INTO companies
+   (id, company_name, company_code, first_name, last_name, phone, country_code,
+    password_hash, status, otp_verified, profile_completed, created_at)
+  VALUES (999030, NULL, NULL, 'Parity', 'HalfRegistered', '01099911006', '+20',
+          '$HASH', 'pending', 1, 0, NOW())
+  ON DUPLICATE KEY UPDATE otp_verified=1, profile_completed=0, company_name=NULL,
+                          company_code=NULL, status='pending';
   SET FOREIGN_KEY_CHECKS=1;"
 done
 

@@ -246,7 +246,7 @@ public class LegacyHrEmployeeService {
 			throw new LegacyApiException(500, "employee_create_failed", messageOf(ex));
 		}
 
-		Map<String, Object> created = store.hrEmployeeWithPermissions(employeeId);
+		Map<String, Object> created = store.hrEmployeeWithPermissionsAndNames(employeeId);
 		if (created == null) {
 			// fail(USER_NOT_FOUND, 500) -- inside the try, so PHP's catch then
 			// rolls back a transaction that has already committed and answers

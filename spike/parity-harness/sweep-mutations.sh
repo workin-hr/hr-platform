@@ -288,6 +288,17 @@ mint_token() {
     -d "{\"phone\":\"${2:-+201999000001}\",\"password\":\"harness-only-Pass123!\"}" \
     | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('token',''))"
 }
+# A COMPANY session, which is a different auth type from an employee one:
+# profile/request_phone_change and confirm_phone_change both refuse anything
+# whose token type is not `company` with a 403 before any logic runs, so an
+# employee token cannot reach them at all. The credential is the one
+# seed-two.sh stamps on company 214.
+mint_company_token() {
+  curl -s -X POST "$1/auth/login_company" -H 'Content-Type: application/json' \
+    -d "{\"phone\":\"$COMPANY_214_PHONE\",\"password\":\"harness-only-Pass123!\"}" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('token',''))"
+}
+COMPANY_214_PHONE=01555781818
 PHONE_244=+201999000001
 PHONE_214=+201999000002
 # requests/delete.php is requireAuth([EMPLOYEE]) -- a company_admin is refused
@@ -424,11 +435,20 @@ accepted_mutation_divergence() {  # $1=path $2=php code $3=java code
       # succeed is not a contract either stack is keeping.
       echo "R-013"; return 0 ;;
     employees/analyze_excel:200:200)
-      # R-038: PHP answers 200 with Content-Length: 0 -- respond() echoes
-      # json_encode() unchecked and the encode fails, so the body is empty.
-      # Java returns the analysis. Registered so the divergence is visible; the
-      # endpoint is NOT counted as covered, because an empty body is not a
-      # contract and comparing it against real output is not parity.
+      # R-038, and it is narrower than it first looked: PHP answers 200 with
+      # Content-Length: 0 only when the sheet has a valid header row and NO
+      # DATA ROWS. Mechanism, confirmed by probing the frozen helper rather
+      # than inferred -- employee_excel_load_rows() falls into its CSV fallback
+      # when the XLSX parses to zero rows (`$format === 'xlsx' && $rawRows ===
+      # []`), re-reads the same workbook as text, and returns 12 rows of raw
+      # ZIP bytes; that malformed UTF-8 makes respond()'s unchecked
+      # json_encode() return false, so nothing is echoed.
+      #
+      # A sheet WITH a data row analyses correctly on both stacks, which is why
+      # `employees/analyze_excel (filled)` exists and is what covers this
+      # endpoint. This entry keeps the zero-row divergence visible; it does not
+      # count as coverage, and divergence_shape_holds() requires PHP's body to
+      # still be empty, so the filled case can never be swallowed by it.
       echo "R-038"; return 0 ;;
     advances/create:201:403)
       # R-037: create.php resolves employee_id with no company predicate, so a
@@ -504,7 +524,11 @@ run_case() {
   fi
 
   local pt jt
-  pt=$(mint_token "$PHP" "$phone"); jt=$(mint_token "$JAVA" "$phone")
+  if [ "$who" = company ]; then
+    pt=$(mint_company_token "$PHP"); jt=$(mint_company_token "$JAVA")
+  else
+    pt=$(mint_token "$PHP" "$phone"); jt=$(mint_token "$JAVA" "$phone")
+  fi
   if [ -z "$pt" ] || [ -z "$jt" ]; then
     # Counted, not skipped. A SKIP was reported and tallied as neither
     # identical nor differing, so a run where every login failed printed a
@@ -762,7 +786,9 @@ JAVA_UPLOADS=${JAVA_UPLOADS:-$HERE/java-uploads}
 # Fixtures are generated, not committed, so a fresh checkout has none. Build
 # them rather than refusing: the documented workflow goes straight from starting
 # Java to running this sweep, and an exit here would break it.
-if [ ! -f "$HERE/fixtures/parity.png" ] || [ ! -f "$HERE/fixtures/attendance-punches.xlsx" ]; then
+if [ ! -f "$HERE/fixtures/parity.png" ] || [ ! -f "$HERE/fixtures/attendance-punches.xlsx" ] \
+   || [ ! -s "$HERE/fixtures/employees-import-rows.json" ] \
+   || [ ! -s "$HERE/fixtures/leave_balances-import-rows.json" ]; then
   echo "multipart fixtures missing -- generating them..." >&2
   if ! "$HERE/make-fixtures.sh" >&2; then
     echo "FATAL: could not build the multipart fixtures." >&2
@@ -890,11 +916,8 @@ run_multipart_case() {
   case "$who" in -|"") who=244 ;; esac
   local phone; case "$who" in 214) phone=$PHONE_214 ;; emp) phone=$PHONE_EMP ;; *) phone=$PHONE_244 ;; esac
 
-  if [ ! -f "$fixture" ]; then
-    fail=$((fail+1))
-    printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "NO-FIXTURE ($fixture)"
-    return
-  fi
+  # Each fixture is checked below, once the `;`-separated list is split; a
+  # multi-part case's FIXTURE is not a path on its own.
 
   if ! ./seed-two.sh >/dev/null 2>&1; then
     fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "RESEED-FAILED"; return
@@ -939,11 +962,35 @@ run_multipart_case() {
     for kv in $extra; do [ -n "$kv" ] && extra_args+=(-F "$kv"); done
   fi
 
+  # FIELD, FIXTURE and UPLOAD-FILENAME may each be a `;`-separated list, for the
+  # endpoints that take more than one file part -- complete_company_registration
+  # requires both a logo and a commercial registration and refuses with 400 if
+  # either is missing, so a single-part runner could only ever reach a refusal.
+  local -a file_args=()
+  local IFS=';'
+  local -a fields=($field) fixtures=($fixture) upnames=($upname)
+  unset IFS
+  if [ "${#fields[@]}" -ne "${#fixtures[@]}" ] || [ "${#fields[@]}" -ne "${#upnames[@]}" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" \
+      "BAD-CASE (${#fields[@]} fields, ${#fixtures[@]} fixtures, ${#upnames[@]} names)"
+    return
+  fi
+  local i
+  for i in "${!fields[@]}"; do
+    if [ ! -f "${fixtures[$i]}" ]; then
+      fail=$((fail+1))
+      printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "NO-FIXTURE (${fixtures[$i]})"
+      return
+    fi
+    file_args+=(-F "${fields[$i]}=@${fixtures[$i]};filename=${upnames[$i]}")
+  done
+
   local pcode jcode
   pcode=$(curl -s -o /tmp/mfp.json -w '%{http_code}' -X POST "$PHP/$path" \
-            -H "Authorization: Bearer $pt" -F "$field=@$fixture;filename=$upname" "${extra_args[@]}")
+            -H "Authorization: Bearer $pt" "${file_args[@]}" "${extra_args[@]}")
   jcode=$(curl -s -o /tmp/mfj.json -w '%{http_code}' -X POST "$JAVA/$path" \
-            -H "Authorization: Bearer $jt" -F "$field=@$fixture;filename=$upname" "${extra_args[@]}")
+            -H "Authorization: Bearer $jt" "${file_args[@]}" "${extra_args[@]}")
 
   local pbody jbody
   pbody=$(norm /tmp/mfp.json); jbody=$(norm /tmp/mfj.json)
@@ -1123,6 +1170,10 @@ run_form_case() {
 # {OTP} in the act body is replaced per stack.
 run_otp_case() {
   local name="$1" prep_path="$2" prep_body="$3" act_path="$4" act_tpl="$5" tables="$6" expect="${7:-}"
+  # Optional 8th argument: `company` runs both halves inside a company session.
+  # The auth flows below need none -- forgot_password and verify_otp are public
+  # -- but the profile phone-change pair is company-only.
+  local who="${8:-}"
 
   if ! ./seed-two.sh >/dev/null 2>&1; then
     fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "RESEED-FAILED"; return
@@ -1136,11 +1187,23 @@ run_otp_case() {
   # Ask each stack to issue a code. A failure here is the harness (most often
   # the WhatsApp stub being down), not a parity result, so it is reported as
   # such rather than compared.
+  local pauth=() jauth=()
+  if [ "$who" = company ]; then
+    local pt jt
+    pt=$(mint_company_token "$PHP"); jt=$(mint_company_token "$JAVA")
+    if [ -z "$pt" ] || [ -z "$jt" ]; then
+      fail=$((fail+1))
+      printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "LOGIN-FAILED (company session)"
+      return
+    fi
+    pauth=(-H "Authorization: Bearer $pt"); jauth=(-H "Authorization: Bearer $jt")
+  fi
+
   local pprep jprep
   pprep=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$PHP/$prep_path" \
-            -H 'Content-Type: application/json' -d "$prep_body")
+            "${pauth[@]}" -H 'Content-Type: application/json' -d "$prep_body")
   jprep=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$JAVA/$prep_path" \
-            -H 'Content-Type: application/json' -d "$prep_body")
+            "${jauth[@]}" -H 'Content-Type: application/json' -d "$prep_body")
   if [ "$pprep" != "200" ] || [ "$jprep" != "200" ]; then
     fail=$((fail+1))
     printf '%-42s %-4s %-4s %s\n' "$name" "$pprep" "$jprep" "OTP-PREP-FAILED (is whatsapp-stub.py running?)"
@@ -1160,9 +1223,9 @@ run_otp_case() {
   pbody_req=${act_tpl//\{OTP\}/$pcode}
   jbody_req=${act_tpl//\{OTP\}/$jcode_otp}
   pcode_http=$(curl -s -o /tmp/op.json -w '%{http_code}' -X POST "$PHP/$act_path" \
-                 -H 'Content-Type: application/json' -d "$pbody_req")
+                 "${pauth[@]}" -H 'Content-Type: application/json' -d "$pbody_req")
   jcode_http=$(curl -s -o /tmp/oj.json -w '%{http_code}' -X POST "$JAVA/$act_path" \
-                 -H 'Content-Type: application/json' -d "$jbody_req")
+                 "${jauth[@]}" -H 'Content-Type: application/json' -d "$jbody_req")
 
   local pb jb; pb=$(norm /tmp/op.json); jb=$(norm /tmp/oj.json)
   local verdict=ok detail=""
@@ -1226,6 +1289,37 @@ resolve_or_die() {  # $1=label $2=sql
   fi
   printf '%s' "$v"
 }
+
+# The identities the registration cases mint. Asserted, not asserted-in-a-comment:
+# register_company answers 400 phone_already_registered and join_company 409 if
+# the number is taken, so a snapshot that ever contains one turns a success case
+# into a refusal. The case's declared 201 would catch it, but this says which
+# number and why instead of leaving a status mismatch to be diagnosed.
+REGISTER_COMPANY_PHONE=01099911002
+JOIN_COMPANY_PHONE=01099911003
+HR_CREATE_PHONE=01099911004
+PHONE_CHANGE_PHONE=01099911005
+# BOTH tables for every number, not the one the endpoint reads first: the
+# uniqueness rules cross over. join_company refuses a phone that belongs to an
+# employee (409 phone_already_used) OR to another company
+# (company_phone_exists_globally), and request_phone_change refuses one held by
+# any other company. Checking a single table per number would leave the case
+# that fails hardest -- a cross-table collision -- unasserted.
+assert_identity_free() {  # $1=label $2=phone
+  local table taken
+  for table in companies employees; do
+    taken=$(m "$PHP_DB" -N -B -e "SELECT COUNT(*) FROM \`$table\` WHERE phone='$2'")
+    if [ "${taken:-1}" != "0" ]; then
+      echo "FATAL: $1 ($2) already exists in $table -- the case would answer a" >&2
+      echo "  refusal, not the success path it declares. Pick another number." >&2
+      exit 5
+    fi
+  done
+}
+assert_identity_free register_company "$REGISTER_COMPANY_PHONE"
+assert_identity_free join_company     "$JOIN_COMPANY_PHONE"
+assert_identity_free hr_create        "$HR_CREATE_PHONE"
+assert_identity_free phone_change     "$PHONE_CHANGE_PHONE"
 
 # company 214 -- has a row for the types 244 lacks
 C214_EMP=$(resolve_or_die c214_emp   "SELECT id FROM employees WHERE company_id=214 AND id<>999002 ORDER BY id LIMIT 1")
@@ -1680,7 +1774,14 @@ run_multipart_case "upload_logo (unsupported type)" "company/upload_logo" \
   logo "$HERE/fixtures/employees-template.xlsx" "sheet.xlsx" "" "companies" 214 400
 
 # The spreadsheet readers.
-run_multipart_case "employees/analyze_excel"      "employees/analyze_excel" \
+#
+# Two employee cases, because the endpoint behaves differently by row count and
+# only one of them is coverage. The filled sheet is the app's own template plus
+# a data row keyed to the seeded company's shift, branch, department and job
+# title -- see make-fixtures.py.
+run_multipart_case "employees/analyze_excel (filled)" "employees/analyze_excel" \
+  file "$HERE/fixtures/employees-filled.xlsx" "employees.xlsx" "" "employees" 214 200
+run_multipart_case "employees/analyze_excel (empty sheet)" "employees/analyze_excel" \
   file "$HERE/fixtures/employees-template.xlsx" "employees.xlsx" "" "employees" 214 200
 run_multipart_case "leave_balances/analyze_excel" "leave_balances/analyze_excel" \
   file "$HERE/fixtures/leave_balances-template.xlsx" "leave.xlsx" "" "leave_balance" 214 200
@@ -1693,6 +1794,44 @@ run_multipart_case "attendance/import_excel"      "attendance/import_excel" \
   file "$HERE/fixtures/attendance-punches.xlsx" "punches.xlsx" "" "attendance" 214 200
 run_multipart_case "attendance/import (wrong sheet)" "attendance/import_excel" \
   file "$HERE/fixtures/employees-template.xlsx" "wrong.xlsx" "" "attendance" 214 400
+
+# Registration step 2: public, multipart, and the only case that sends two file
+# parts. It writes both URL columns on the companies row, so the runner's
+# before/after URL assertion covers the halves the row snapshot normalises.
+# The target is the half-registered company seed-two.sh provides.
+run_multipart_case "auth/complete_company_registration" "auth/complete_company_registration" \
+  "logo;commercial_reg" "$HERE/fixtures/parity.png;$HERE/fixtures/parity.pdf" "logo.png;reg.pdf" \
+  "company_id=999030;company_name=Parity Complete;main_branch_address=Cairo;company_title_id=1;company_activity_id=1;company_size_id=1;first_name=Parity;last_name=HalfRegistered" \
+  "companies" 214 201
+
+# The bulk importers. These take `rows` in a JSON body -- the analyzer's output,
+# posted back by the client -- so they are run_case, not run_multipart_case, and
+# the bodies are the captured analyses. Cases cannot chain (every case reseeds),
+# which is why the capture happens in make-fixtures.sh instead.
+#
+# employees writes four tables from one row: the employee, the contract, the
+# opening leave balance and the shift assignment. Comparing only `employees`
+# would miss three quarters of what the endpoint does.
+run_case "employees/import_bulk"           POST "employees/import_bulk" \
+  "$(cat "$HERE/fixtures/employees-import-rows.json")" \
+  "employees,salary_contracts,leave_balance,employee_shift_assignments" 214 200
+# The leave-balance sheet the template ships is pre-filled with the company's
+# own employees, so this body carries both halves of the importer: rows that
+# UPDATE an existing balance and rows that fail because the sheet left the
+# days blank. `inserted`, `updated` and `failed` are all exercised.
+run_case "leave_balances/import_bulk"      POST "leave_balances/import_bulk" \
+  "$(cat "$HERE/fixtures/leave_balances-import-rows.json")" \
+  "leave_balance" 214 200
+# An empty row object: PHP echoes it back in `failed[].data` as `[]` because
+# json_decode gives an empty array, and a Java Map would render `{}`. The
+# divergence is closed by LegacyPhpEmptyArrayJsonConfig, and this case is what
+# keeps it closed.
+# The same four tables the success case writes, not just `employees`: every row
+# fails here, so the case is also the assertion that a failed import leaves
+# nothing behind in the contract, leave-balance or shift-assignment tables.
+run_case "employees/import_bulk (empty row)" POST "employees/import_bulk" \
+  '{"rows":[{}]}' \
+  "employees,salary_contracts,leave_balance,employee_shift_assignments" 214 200
 
 
 # ===========================================================================
@@ -1760,10 +1899,72 @@ run_case "auth/login_company (bad creds)"  POST "auth/login_company" \
   '{"phone":"+201999000002","password":"wrong"}' "companies" - 401
 run_case "auth/login_desktop (bad creds)"  POST "auth/login_desktop" \
   '{"phone":"+201999000002","password":"wrong","login_as":"company"}' "employees,companies" - 401
+# The success paths. Both authenticate against companies.password_hash, which
+# seed-two.sh stamps on company 214 -- the snapshot carries a hash whose
+# plaintext nobody knows, so without the fixture these two could only ever be
+# exercised through the 401s above, which is a refusal and not coverage.
+# The phone is the row's OWN, unchanged, and comes from the same constant
+# mint_company_token uses -- a literal repeated here would go stale silently.
+run_case "auth/login_company"              POST "auth/login_company" \
+  "{\"phone\":\"$COMPANY_214_PHONE\",\"password\":\"harness-only-Pass123!\"}" "companies" - 200
+run_case "auth/login_desktop (company)"    POST "auth/login_desktop" \
+  "{\"phone\":\"$COMPANY_214_PHONE\",\"password\":\"harness-only-Pass123!\",\"login_as\":\"company\"}" \
+  "employees,companies" - 200
 # login bumps token_version AND deletes the employee's push tokens; a seeded
 # token makes that second half observable.
 run_case "auth/login_employee"             POST "auth/login_employee" \
   '{"phone":"+201999000002","password":"harness-only-Pass123!"}' "employees,push_tokens" - 200
+
+# Registration and joining. Both mint an identity, and both use a FIXED one:
+# every case reseeds from the snapshot first, so the previous run's row is gone
+# before this one starts. A per-run random phone would only make the case
+# nondeterministic -- and would hide a Java that stopped enforcing uniqueness.
+# Neither number exists in the snapshot; make-fixtures.sh asserts the same for
+# the import fixture's phone.
+run_case "auth/register_company"           POST "auth/register_company" \
+  "{\"first_name\":\"Parity\",\"last_name\":\"Register\",\"phone\":\"$REGISTER_COMPANY_PHONE\",\"password\":\"harness-only-Pass123!\",\"country_code\":\"+20\"}" \
+  "companies,otp_codes" - 201
+run_case "auth/join_company"               POST "auth/join_company" \
+  "{\"first_name\":\"Parity\",\"last_name\":\"Joiner\",\"phone\":\"$JOIN_COMPANY_PHONE\",\"password\":\"harness-only-Pass123!\",\"country_code\":\"+20\",\"company_code\":\"EGHECH\"}" \
+  "employees,notifications" - 201
+# Both sides of the join request, against the pending fixture seed-two.sh
+# provides. Accept flips the row to accepted+active; reject DELETES it, so the
+# employees comparison is what proves each did the right one.
+run_case "company_join_requests/accept"    POST "company_join_requests/accept?id=999028" \
+  '' "employees,notifications" 214 200
+run_case "company_join_requests/reject"    POST "company_join_requests/reject?id=999028" \
+  '' "employees,notifications" 214 200
+
+# HR users. create writes the employee AND its seventeen permission flags in one
+# transaction, so both tables are compared. update_permissions targets 999029,
+# never the sweep's own actor -- rewriting 999002's flags would strip the
+# permissions every later case authenticates with.
+run_case "hr_employees/create"             POST "hr_employees/create" \
+  "{\"first_name\":\"Parity\",\"last_name\":\"NewHr\",\"role\":\"hr\",\"branch_id\":$C214_BRANCH,\"phone\":\"$HR_CREATE_PHONE\",\"country_code\":\"+20\",\"password\":\"harness-only-Pass123!\"}" \
+  "employees,hr_permissions" 214 201
+run_case "hr_employees/update_permissions" PUT  "hr_employees/update_permissions?id=999029" \
+  '{"permissions":{"can_dashboard":1,"can_employees":0,"can_payroll":1}}' \
+  "hr_permissions" 214 200
+
+# Company settings. create needs a definition the company has no value for --
+# 214 holds all five the snapshot ships, so seed-two.sh adds 999040 with one
+# allowed value. delete targets definition 5, which is is_required=0.
+run_case "company_settings/create"         POST "company_settings/create" \
+  '{"setting_definition_id":999040,"values":["parity-value"]}' \
+  "company_settings,company_setting_values" 214 201
+run_case "company_settings/delete"         DELETE "company_settings/delete?setting_definition_id=5" \
+  '' "company_settings,company_setting_values" 214 200
+
+# The company profile endpoints. Both refuse a non-company token with 403
+# before any logic, so they run in a company session -- see mint_company_token.
+run_case "profile/request_phone_change"    POST "profile/request_phone_change" \
+  "{\"phone\":\"$PHONE_CHANGE_PHONE\",\"country_code\":\"+20\"}" "otp_codes" company 200
+# The employee half of delete_account: it deactivates the caller and drops their
+# push tokens. The COMPANY half is deliberately not exercised -- it hard-deletes
+# the company and cascades, which would destroy the fixture set every other case
+# depends on. 999003 is safe to deactivate because the next case reseeds.
+run_case "profile/delete_account"          DELETE "profile/delete_account" \
+  '{"password":"harness-only-Pass123!"}' "employees,push_tokens" emp 200
 
 run_otp_case "auth/verify_otp" \
   "auth/forgot_password" '{"phone":"+201999000002","type":"employee"}' \
@@ -1773,6 +1974,12 @@ run_otp_case "auth/reset_password" \
   "auth/forgot_password" '{"phone":"+201999000002","type":"employee"}' \
   "auth/reset_password" '{"phone":"+201999000002","password":"harness-only-Pass789!","otp":"{OTP}","type":"employee"}' \
   "otp_codes,employees" 200
+# Both halves of the phone change, in one company session: request issues the
+# code against the NEW number, confirm consumes it and moves companies.phone.
+run_otp_case "profile/confirm_phone_change" \
+  "profile/request_phone_change" "{\"phone\":\"$PHONE_CHANGE_PHONE\",\"country_code\":\"+20\"}" \
+  "profile/confirm_phone_change" "{\"phone\":\"$PHONE_CHANGE_PHONE\",\"country_code\":\"+20\",\"otp\":\"{OTP}\"}" \
+  "otp_codes,companies" 200 company
 
 echo
 echo "identical=$pass  differing=$fail  accepted-divergences=$accepted"

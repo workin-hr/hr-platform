@@ -843,6 +843,32 @@ public class LegacyEmployeeStore {
 	}
 
 	/**
+	 * The same row plus the three joined names, which is what
+	 * {@code hr_employees/create.php:136-149} reads back and
+	 * {@code update_permissions.php:41} does not.
+	 *
+	 * <p>Two projections for one table, and they are only correct relative to
+	 * each other: making them uniform in either direction reintroduces the
+	 * defect — {@code create} would drop three keys a client receives today, or
+	 * {@code update_permissions} would gain three PHP does not send. The same
+	 * shape as the advance projections in D-153(b). The names are selected
+	 * between {@code e.*} and the permission columns because that is where PHP
+	 * puts them, and the response preserves result-set order.
+	 */
+	public Map<String, Object> hrEmployeeWithPermissionsAndNames(long employeeId) {
+		List<Map<String, Object>> rows = jdbcTemplate.query(
+				"SELECT e.*, b.name AS branch_name, d.name AS department_name,"
+						+ " jt.name AS job_title_name, " + HR_PERMISSION_SELECT
+						+ " FROM employees AS e"
+						+ " LEFT JOIN branches AS b ON b.id = e.branch_id"
+						+ " LEFT JOIN departments AS d ON d.id = e.department_id"
+						+ " LEFT JOIN job_titles AS jt ON jt.id = e.job_title_id"
+						+ " LEFT JOIN hr_permissions AS p ON p.employee_id = e.id WHERE e.id=?",
+				ROW_MAPPER, employeeId);
+		return rows.isEmpty() ? null : rows.get(0);
+	}
+
+	/**
 	 * {@code hr_permissions_upsert_sql()}: one row per employee, every one of the
 	 * seventeen columns written on every call.
 	 *

@@ -32,4 +32,63 @@ for t in employees leave_balances; do
 done
 
 python3 "$HERE/make-fixtures.py" "$HERE" "$DB"
+
+# ---------------------------------------------------------------------------
+# The import_bulk bodies: the analyzer's OWN output, replayed.
+#
+# Both import endpoints take `rows` in a JSON body -- not a file -- and the
+# rows are what the client got back from analyze_excel and posted on. Building
+# them here by hand would test this script's idea of the analyzer's output
+# rather than the analyzer's output, so they are captured from a live call.
+#
+# Captured from PHP, deliberately: PHP is the reference, and a body captured
+# from the port would let a Java analyzer defect define the input both stacks
+# are then judged on. The same captured body is sent to both.
+#
+# What is captured differs per endpoint, because the two importers differ:
+#
+#   employees      re-parses each row with employee_excel_row_to_payload(), so
+#                  it wants the RAW sheet row -- the analyzer's `data`.
+#   leave_balances unwraps $row['payload'] when present, so it takes the
+#                  analyzer's row objects whole.
+#
+# Sending the wrong half to either would still answer 200, with every row in
+# `failed` -- a case that passes while importing nothing.
+# ---------------------------------------------------------------------------
+capture() {  # $1=endpoint $2=fixture file $3=jq-ish python expression $4..=curl args
+  local endpoint="$1" out="$2" extract="$3"; shift 3
+  local code
+  code=$(curl -s -o /tmp/parity-analysis.json -w '%{http_code}' -X POST "$PHP/$endpoint" \
+           -H "Authorization: Bearer $token" "$@")
+  if [ "$code" != "200" ] || [ ! -s /tmp/parity-analysis.json ]; then
+    echo "FATAL: $endpoint answered $code with $(stat -c%s /tmp/parity-analysis.json 2>/dev/null || echo 0) bytes." >&2
+    echo "       The import fixtures are the analyzer's output; there is nothing to replay." >&2
+    exit 4
+  fi
+  python3 -c "
+import json,sys
+analysis = json.load(open('/tmp/parity-analysis.json'))['data']
+rows = $extract
+if not rows:
+    sys.exit('FATAL: the analysis carried no rows -- the sheet reached the analyzer empty.')
+# At least one row the analyzer itself calls valid. Without this the fixture
+# could be all-invalid, both stacks would answer 200 with everything in
+# \`failed\`, and the case would pass having imported nothing -- a refusal
+# wearing a success status.
+valid = sum(1 for r in analysis['rows'] if r.get('status') == 'valid')
+if valid == 0:
+    sys.exit('FATAL: the analyzer called every row invalid: '
+             + json.dumps([r.get('errors') for r in analysis['rows']], ensure_ascii=False)[:300])
+json.dump({'rows': rows}, open(sys.argv[1],'w'), ensure_ascii=False)
+print(f'  fixtures/{sys.argv[2]}  ({len(rows)} rows, {valid} valid, from $endpoint)')
+" "$HERE/fixtures/$out" "$out"
+}
+
+capture employees/analyze_excel employees-import-rows.json \
+  "[r['data'] for r in analysis['rows']]" \
+  -F "file=@$HERE/fixtures/employees-filled.xlsx"
+capture leave_balances/analyze_excel leave_balances-import-rows.json \
+  "analysis['rows']" \
+  -F "file=@$HERE/fixtures/leave_balances-template.xlsx" -F "year=2026"
+
 echo "fixtures built."
