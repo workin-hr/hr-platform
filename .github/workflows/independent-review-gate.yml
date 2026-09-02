@@ -147,11 +147,11 @@ jobs:
           #
           # The marker is the discriminator, not the prose: the sign-off varies
           # ("Bravo.", "Keep it up!", "Breezy!", ":tada:"), while
-          # "**Reviewed commit:** `<sha>`" is present in every completed round
-          # and absent from every "You have reached your Codex usage limits"
-          # message. That is precisely the line R-009 draws -- a quota-blocked
-          # reviewer leaves the gate UNAVAILABLE, never satisfied -- and it is
-          # why matching on the marker rather than on "no issues" is the safe
+          # "**Reviewed commit:** <sha>" (the sha in markdown code) is present in
+          # every completed round and absent from every "You have reached your
+          # Codex usage limits" message. That is the line R-009 draws -- a quota-
+          # blocked reviewer leaves the gate UNAVAILABLE, never satisfied -- and
+          # it is why matching the marker rather than "no issues" is the safe
           # choice: a quota message can never satisfy it.
           #
           # The SHA is matched as a PREFIX because the marker abbreviates it,
@@ -171,9 +171,9 @@ jobs:
                       and .state != "DISMISSED") | .submitted_at' || true
             gh api "repos/$REPO/issues/$pr/comments" --paginate \
               --jq '.[] | select(.user.login == env.REVIEWER)
-                      | select(.body | test("\\*\\*Reviewed commit:\\*\\* `[0-9a-f]{7,40}`"))
+                      | select(.body | test("\\*\\*Reviewed commit:\\*\\* \\x60[0-9a-f]{7,40}\\x60"))
                       | [.created_at,
-                         (.body | capture("\\*\\*Reviewed commit:\\*\\* `(?<sha>[0-9a-f]{7,40})`").sha)]
+                         (.body | capture("\\*\\*Reviewed commit:\\*\\* \\x60(?<sha>[0-9a-f]{7,40})\\x60").sha)]
                       | @tsv' 2>/dev/null \
               | while IFS="$(printf '\t')" read -r at sha; do
                   # Prefix, anchored at the start: `${HEAD_SHA#$sha}` differing
