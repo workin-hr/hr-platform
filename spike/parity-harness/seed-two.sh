@@ -127,6 +127,51 @@ for d in "$PHP_DB" "$JAVA_DB"; do
   m "$d" -e "
   UPDATE companies SET password_hash='$HASH' WHERE id=214;"
 
+  # 999002's phone is +201999000002, which the real mobile client refuses before
+  # it ever sends a request: the clients validate the local part against the
+  # phone_countries row for the dial code, and Egypt there is 11 digits starting
+  # 010/011/012/015. That fixture can therefore never drive a runtime client run,
+  # so 999004 carries a client-valid number for exactly that purpose. Same
+  # company, same password, same permissions -- only the phone differs.
+  #
+  # Stored WITHOUT the dial code and without the leading zero, because that is
+  # literally what the client puts in the body: the phone field strips a leading
+  # 0 when a dial code is selected, and login_employee.php matches the trimmed
+  # value with no normalisation at all.
+  m "$d" -e "
+  SET FOREIGN_KEY_CHECKS=0;
+  INSERT INTO employees
+   (id, company_id, branch_id, first_name, last_name, phone, role, password_hash,
+    is_active, is_mobile_attendance_enabled, can_check_in_any_branch, join_request_status, token_version, created_at)
+  SELECT 999004, 214, (SELECT id FROM branches WHERE company_id=214 ORDER BY id LIMIT 1),
+   'Runtime','Client','1555000002','company_admin','$HASH',1,1,0,'accepted',1,NOW()
+  ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), token_version=1, company_id=VALUES(company_id);
+  SET FOREIGN_KEY_CHECKS=1;"
+
+  m "$d" -e "
+  INSERT INTO hr_permissions
+   (employee_id, can_dashboard, can_recent_activities, can_branches, can_departments,
+    can_job_titles, can_shifts, can_leave_balances, can_assets, can_advances,
+    can_workforce_planning, can_salary_calculator, can_company_settings, can_employees,
+    can_attendance, can_requests, can_payroll, can_penalties)
+  VALUES (999004, 1,1,1,1, 1,1,1,1,1, 1,1,1,1, 1,1,1,1)
+  ON DUPLICATE KEY UPDATE can_employees=1, can_payroll=1, can_attendance=1,
+                          can_requests=1, can_penalties=1, can_leave_balances=1;"
+
+  # 999004 is a company_admin, and the endpoints the mobile app drives most --
+  # requests/create among them -- are requireAuth([EMPLOYEE]), which refuses a
+  # company_admin 403 before any logic runs. A refusal is not success-path
+  # coverage, so 999005 is a plain employee with a client-valid phone.
+  m "$d" -e "
+  SET FOREIGN_KEY_CHECKS=0;
+  INSERT INTO employees
+   (id, company_id, branch_id, first_name, last_name, phone, role, password_hash,
+    is_active, is_mobile_attendance_enabled, can_check_in_any_branch, join_request_status, token_version, created_at)
+  SELECT 999005, 214, (SELECT id FROM branches WHERE company_id=214 ORDER BY id LIMIT 1),
+   'Runtime','Employee','1555000005','employee','$HASH',1,1,0,'accepted',1,NOW()
+  ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash), token_version=1, company_id=VALUES(company_id);
+  SET FOREIGN_KEY_CHECKS=1;"
+
   m "$d" -e "
   INSERT INTO hr_permissions
    (employee_id, can_dashboard, can_recent_activities, can_branches, can_departments,

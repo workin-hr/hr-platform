@@ -73,6 +73,41 @@ production host at any point.
 python3 drive-desktop.py java  # fixed click journey, screenshots to /tmp/java-*.png
 ```
 
+`drive-desktop-crud.py` runs the create -> update -> delete journey. It takes the
+id from the create response and asserts that the `update` and `delete` requests
+the app actually sent carry it, so the journey cannot silently act on some other
+row when the list re-sorts.
+
+### Mobile
+
+```sh
+export ANDROID_SDK_ROOT=~/dev/sdk/android JAVA_HOME=~/.sdkman/candidates/java/21.0.8-tem
+sdkmanager platform-tools 'platforms;android-36' 'build-tools;36.0.0' emulator \
+           'system-images;android-36;google_apis;x86_64'
+avdmanager create avd -n workin_verify -k 'system-images;android-36;google_apis;x86_64' -d pixel_6
+emulator -avd workin_verify -writable-system -no-snapshot-load -gpu swiftshader_indirect &
+
+adb root && adb remount && adb reboot && adb wait-for-device   # remount needs the reboot
+adb root && adb remount
+adb push tls/ca.crt /data/local/tmp/e6559632.0                 # openssl x509 -subject_hash_old
+adb shell 'cp /data/local/tmp/e6559632.0 /system/etc/security/cacerts/ && chmod 644 $_'
+adb shell 'echo "127.0.0.1 workin.company" >> /system/etc/hosts'
+
+python3 tls-proxy.py 8443 127.0.0.1 18081 &
+adb reverse tcp:443 tcp:8443
+
+cd workin_mobile && flutter config --jdk-dir="$JAVA_HOME" && flutter build apk --debug
+adb install -r build/app/outputs/flutter-apk/app-debug.apk
+adb shell am start -n com.app.workin/.MainActivity
+```
+
+The system CA is required because API 36 does not trust user CAs. `key.properties`
+must exist in the work copy (any throwaway keystore) or even a debug build NPEs.
+GPS must be injected with `cmd location providers set-test-provider-location`;
+`adb emu geo fix` answers `OK` without ever setting a location.
+
+`mob.sh` provides `tap`/`typ`/`key`/`shot` helpers over adb.
+
 The journey is scripted precisely so the same clicks in the same order can be
 replayed against each backend and compared. The app logs every `ENDPOINT`,
 `QUERY`, `BODY` and `Response` itself, so its own log is the evidence rather
@@ -80,6 +115,10 @@ than anything the driver asserts.
 
 ## Removing it
 
-Delete `~/dev/sdk`, `~/dev/runtime-verify` and the generated certificate. No
-system package was installed, no system file was modified, and no service was
-left running except the local TLS proxy, which stops with the shell.
+Delete `~/dev/sdk`, `~/dev/runtime-verify` and the generated certificate, and
+delete the AVD (`avdmanager delete avd -n workin_verify`), which takes the
+modified system partition, the installed CA and the hosts entry with it. Drop
+the port bridge with `adb reverse --remove tcp:443`. No system package was
+installed, no file outside those trees or the emulator was modified, and no
+service is left running except the local TLS proxy, which the launcher reaps on
+exit.

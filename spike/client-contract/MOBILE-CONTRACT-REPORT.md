@@ -115,8 +115,13 @@ from the harness, not from the client.
 
 ## Runtime status for this client
 
-**See `spike/client-runtime`** for the mobile runtime verdict and its
-remaining device-dependent gaps. This layer does not execute the app.
+**Verified separately.** The real Android application was built from
+unmodified source and executed on an emulator against the local Java
+backend through its own hardcoded URL: login, all four tabs, GPS
+check-in/check-out, request creation, a multipart photo upload through
+the real Android picker, and logout. Evidence, containment proof and the
+remaining device-dependent gaps are in
+`spike/client-runtime/MOBILE-RUNTIME-REPORT.md`.
 
 The clients are pinned read-only submodules and were **not** modified for
 either layer.
