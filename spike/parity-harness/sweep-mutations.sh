@@ -393,6 +393,50 @@ timing_columns() {  # $1=path $2=table -> stdout: column list, or empty
   esac
 }
 
+# Tables whose INSERT is DELETED AGAIN before the case ends, so no end-state
+# comparison can see it.
+#
+# company_join_requests/reject inserts a notification addressed to the pending
+# employee and then deletes that employee; the schema's fk_notification_to_employee
+# is ON DELETE CASCADE, so the notification is gone before the snapshot runs.
+# Listing `notifications` in the case therefore asserted nothing at all: a Java
+# that never sent it would finish with identical rows and be counted ok.
+#
+# AUTO_INCREMENT can see it. It advances once per insert and does not go back
+# when the row is removed, so the counter is a record that the write happened.
+# Measured: both stacks 999014 -> 999015 across the reject, with the row count
+# unchanged at 3590.
+# State the harness's OWN instrumentation destroys, re-applied after it runs.
+#
+# mint_token() logs the actor in, and auth/login_employee DELETES that
+# employee's push tokens. So for profile/delete_account -- whose contract is
+# that it deactivates the caller and drops their push tokens -- the seeded token
+# was already gone before the request, and comparing `push_tokens` proved
+# nothing whether or not Java still performed the cleanup. Seeding harder does
+# not help: the login is between the seed and the case.
+#
+# Applied identically to both databases, after both tokens are minted, so the
+# two stacks still start the request from the same state.
+post_login_fixture() {  # $1=path -> stdout: SQL, or empty
+  case "${1%%\?*}" in
+    profile/delete_account)
+      echo "INSERT INTO push_tokens (id, employee_id, token, platform, updated_at)
+            VALUES (999031, 999003, 'parity-delete-account-token', 'android', NOW())
+            ON DUPLICATE KEY UPDATE token='parity-delete-account-token';" ;;
+  esac
+}
+
+sequence_tables() {  # $1=path -> stdout: table list, or empty
+  case "${1%%\?*}" in
+    company_join_requests/reject) echo "notifications" ;;
+  esac
+}
+
+table_sequence() {  # $1=database $2=table -> the next AUTO_INCREMENT value
+  m "$1" -N -B -e "SELECT AUTO_INCREMENT FROM information_schema.TABLES
+                   WHERE TABLE_SCHEMA='$1' AND TABLE_NAME='$2'"
+}
+
 accepted_row_columns() {  # $1=path $2=table  -> stdout: column list, or empty
   case "${1%%\?*}:$2" in
     requests/approve:requests|requests/reject:requests)
@@ -539,6 +583,15 @@ run_case() {
     return
   fi
 
+  local post_login; post_login=$(post_login_fixture "$path")
+  if [ -n "$post_login" ]; then
+    if ! m "$PHP_DB" -e "$post_login" >/dev/null 2>&1 || ! m "$JAVA_DB" -e "$post_login" >/dev/null 2>&1; then
+      fail=$((fail+1))
+      printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "POST-LOGIN-FIXTURE-FAILED"
+      return
+    fi
+  fi
+
   # Pre-call snapshots, so a case can assert a DELTA rather than only an
   # end-state match. Proving Java wrote nothing requires knowing what it looked
   # like before.
@@ -554,6 +607,19 @@ run_case() {
       [ -n "$t" ] || continue
       pre_php[$t]=$(snapshot "$PHP_DB" "$t" "")
       pre_java[$t]=$(snapshot "$JAVA_DB" "$t" "")
+    done
+  fi
+
+  # Sequence counters for the tables whose insert is deleted again by the same
+  # request. Taken only for the cases that declare one.
+  local seq_tables; seq_tables=$(sequence_tables "$path")
+  declare -A seq_pre_php seq_pre_java
+  if [ -n "$seq_tables" ]; then
+    IFS=',' read -ra seqtl <<< "$seq_tables"
+    for t in "${seqtl[@]}"; do
+      [ -n "$t" ] || continue
+      seq_pre_php[$t]=$(table_sequence "$PHP_DB" "$t")
+      seq_pre_java[$t]=$(table_sequence "$JAVA_DB" "$t")
     done
   fi
 
@@ -733,6 +799,31 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
       statediff="$statediff $t(ts+${drift}s)"
     fi
   done
+  # Both halves, the same shape the accepted-divergence tables use:
+  #
+  #   php advanced             -- legacy really does perform the insert, so the
+  #                               case fails if it ever stops
+  #   java advanced by the     -- the port performs the same number of inserts
+  #   SAME amount
+  if [ -n "$seq_tables" ]; then
+    IFS=',' read -ra seqtl <<< "$seq_tables"
+    for t in "${seqtl[@]}"; do
+      [ -n "$t" ] || continue
+      local pseq jseq pdelta jdelta
+      pseq=$(table_sequence "$PHP_DB" "$t"); jseq=$(table_sequence "$JAVA_DB" "$t")
+      pdelta=$(( ${pseq:-0} - ${seq_pre_php[$t]:-0} ))
+      jdelta=$(( ${jseq:-0} - ${seq_pre_java[$t]:-0} ))
+      if [ "$pdelta" -le 0 ]; then
+        statediff="$statediff $t(php-inserted-nothing:the-write-this-asserts-is-gone)"
+      elif [ "$pdelta" -ne "$jdelta" ]; then
+        statediff="$statediff $t(inserts php=$pdelta java=$jdelta)"
+      else
+        printf '%-42s %-4s %-4s %s\n' "  ^ deleted-write asserted" "" "" \
+          "$t: both stacks inserted $pdelta row(s) before the cascade removed them"
+      fi
+    done
+  fi
+
   if [ -n "$statediff" ]; then verdict=DIFF; detail="${detail:+$detail; }rows differ:$statediff"; fi
 
   if [ "$verdict" = ok ] && [ -n "$status_accepted" ]; then
@@ -786,9 +877,19 @@ JAVA_UPLOADS=${JAVA_UPLOADS:-$HERE/java-uploads}
 # Fixtures are generated, not committed, so a fresh checkout has none. Build
 # them rather than refusing: the documented workflow goes straight from starting
 # Java to running this sweep, and an exit here would break it.
-if [ ! -f "$HERE/fixtures/parity.png" ] || [ ! -f "$HERE/fixtures/attendance-punches.xlsx" ] \
-   || [ ! -s "$HERE/fixtures/employees-import-rows.json" ] \
-   || [ ! -s "$HERE/fixtures/leave_balances-import-rows.json" ]; then
+# EVERY generated fixture a case consumes, not a sample of them. A predicate
+# naming only some of them skips the generator when one of the others is missing
+# on its own, and the case that wanted it then reports NO-FIXTURE -- the sweep
+# fails without ever testing the coverage it was extended to prove.
+PARITY_FIXTURES=(parity.png parity.pdf attendance-punches.xlsx
+                 employees-template.xlsx leave_balances-template.xlsx
+                 employees-filled.xlsx
+                 employees-import-rows.json leave_balances-import-rows.json)
+fixtures_missing=0
+for f in "${PARITY_FIXTURES[@]}"; do
+  [ -s "$HERE/fixtures/$f" ] || fixtures_missing=1
+done
+if [ "$fixtures_missing" = 1 ]; then
   echo "multipart fixtures missing -- generating them..." >&2
   if ! "$HERE/make-fixtures.sh" >&2; then
     echo "FATAL: could not build the multipart fixtures." >&2
@@ -1799,10 +1900,16 @@ run_multipart_case "attendance/import (wrong sheet)" "attendance/import_excel" \
 # parts. It writes both URL columns on the companies row, so the runner's
 # before/after URL assertion covers the halves the row snapshot normalises.
 # The target is the half-registered company seed-two.sh provides.
+#
+# Three tables, not one: completing the profile also creates the company's MAIN
+# BRANCH and two onboarding notifications. Measured on the seeded fixture --
+# branches 376 -> 377 and notifications 3590 -> 3592 on both stacks -- so a case
+# comparing only `companies` would let either side omit or duplicate those
+# writes while still reporting the endpoint covered.
 run_multipart_case "auth/complete_company_registration" "auth/complete_company_registration" \
   "logo;commercial_reg" "$HERE/fixtures/parity.png;$HERE/fixtures/parity.pdf" "logo.png;reg.pdf" \
   "company_id=999030;company_name=Parity Complete;main_branch_address=Cairo;company_title_id=1;company_activity_id=1;company_size_id=1;first_name=Parity;last_name=HalfRegistered" \
-  "companies" 214 201
+  "companies,branches,notifications" 214 201
 
 # The bulk importers. These take `rows` in a JSON body -- the analyzer's output,
 # posted back by the client -- so they are run_case, not run_multipart_case, and
@@ -1906,10 +2013,21 @@ run_case "auth/login_desktop (bad creds)"  POST "auth/login_desktop" \
 # The phone is the row's OWN, unchanged, and comes from the same constant
 # mint_company_token uses -- a literal repeated here would go stale silently.
 run_case "auth/login_company"              POST "auth/login_company" \
-  "{\"phone\":\"$COMPANY_214_PHONE\",\"password\":\"harness-only-Pass123!\"}" "companies" - 200
+  "{\"phone\":\"$COMPANY_214_PHONE\",\"password\":\"harness-only-Pass123!\"}" \
+  "companies,notifications" - 200
+# login_desktop is the one that onboards. It calls ensureCompanyOnboarding(),
+# which inserts a welcome and a pending-review notification when the company has
+# none; the snapshot's 214 had both, so the call was a no-op and the case
+# asserted nothing about it. seed-two.sh now removes those two rows, and the
+# request inserts them: measured 3588 -> 3590 on BOTH stacks.
+#
+# login_company above does NOT onboard -- measured, 3588 -> 3588 -- which is why
+# its `notifications` entry asserts the opposite: that this endpoint writes none.
+# Two adjacent company logins with opposite notification behaviour, and the
+# table list is what pins each of them.
 run_case "auth/login_desktop (company)"    POST "auth/login_desktop" \
   "{\"phone\":\"$COMPANY_214_PHONE\",\"password\":\"harness-only-Pass123!\",\"login_as\":\"company\"}" \
-  "employees,companies" - 200
+  "employees,companies,notifications" - 200
 # login bumps token_version AND deletes the employee's push tokens; a seeded
 # token makes that second half observable.
 run_case "auth/login_employee"             POST "auth/login_employee" \
@@ -1932,6 +2050,11 @@ run_case "auth/join_company"               POST "auth/join_company" \
 # employees comparison is what proves each did the right one.
 run_case "company_join_requests/accept"    POST "company_join_requests/accept?id=999028" \
   '' "employees,notifications" 214 200
+# reject inserts a notification for the pending employee and then DELETES that
+# employee; fk_notification_to_employee is ON DELETE CASCADE, so the row is gone
+# before any end-state snapshot. `notifications` stays in the list to catch a
+# stray write elsewhere in the table, but the insert itself is asserted through
+# the AUTO_INCREMENT delta -- see sequence_tables().
 run_case "company_join_requests/reject"    POST "company_join_requests/reject?id=999028" \
   '' "employees,notifications" 214 200
 
@@ -1963,6 +2086,10 @@ run_case "profile/request_phone_change"    POST "profile/request_phone_change" \
 # push tokens. The COMPANY half is deliberately not exercised -- it hard-deletes
 # the company and cascades, which would destroy the fixture set every other case
 # depends on. 999003 is safe to deactivate because the next case reseeds.
+#
+# The token this asserts is written by post_login_fixture(), not by seed-two.sh:
+# mint_token() logs 999003 in first, and that login deletes the very rows this
+# case is meant to observe being deleted.
 run_case "profile/delete_account"          DELETE "profile/delete_account" \
   '{"password":"harness-only-Pass123!"}' "employees,push_tokens" emp 200
 

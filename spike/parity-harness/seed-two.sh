@@ -304,6 +304,15 @@ for d in "$PHP_DB" "$JAVA_DB"; do
   VALUES (999027, 999002, 'parity-fixture-push-token', 'android', NOW())
   ON DUPLICATE KEY UPDATE token='parity-fixture-push-token';
 
+  -- The SAME fixture for the EMPLOYEE actor. profile/delete_account deactivates
+  -- the caller and deletes that caller's push tokens, and the caller there is
+  -- 999003, not 999002 -- so without this the push_tokens comparison passed
+  -- whether or not the cleanup still happened. Exactly the hole the token above
+  -- closes for auth/login_employee; one actor was fixed and its sibling was not.
+  INSERT INTO push_tokens (id, employee_id, token, platform, updated_at)
+  VALUES (999028, 999003, 'parity-fixture-push-token-emp', 'android', NOW())
+  ON DUPLICATE KEY UPDATE token='parity-fixture-push-token-emp';
+
   INSERT INTO requests (id, employee_id, request_type_id, from_date, to_date, status, created_at)
   SELECT 999014, 999003, 999016,
          '2026-09-10', '2026-09-11', 'pending', NOW()
@@ -350,6 +359,16 @@ for d in "$PHP_DB" "$JAVA_DB"; do
    (id, setting_definition_id, value, label_ar, label_en, sort_order)
   VALUES (999041, 999040, 'parity-value', 'parity', 'parity', 1)
   ON DUPLICATE KEY UPDATE value='parity-value';
+
+  -- Company 214 starts WITHOUT its onboarding notifications, so a company login
+  -- actually inserts them. ensureCompanyOnboarding() is idempotent by query --
+  -- it inserts only when the type is absent -- and the snapshot ships both, so
+  -- the call was a no-op and auth/login_company and auth/login_desktop asserted
+  -- nothing about it. Deleted here rather than in the case, because a case that
+  -- prepares its own state is a case that can mask the endpoint's.
+  DELETE FROM notifications
+   WHERE company_id=214 AND recipient_kind='company'
+     AND notification_type IN ('company_welcome','company_pending_review');
 
   -- A company stopped between the two registration steps: OTP verified, profile
   -- not completed. auth/complete_company_registration refuses anything else --

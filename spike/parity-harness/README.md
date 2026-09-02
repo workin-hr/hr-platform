@@ -89,6 +89,25 @@ endpoint that could otherwise only ever answer a refusal:
 | an HR user that is not the actor (999029) | `hr_employees/update_permissions` -- rewriting the actor's own flags would strip the permissions every later case authenticates with |
 | a setting definition 214 has no value for (999040) | `company_settings/create`, which answers `already_exists` for all five the snapshot ships |
 | a company stopped between the two registration steps (999030) | `auth/complete_company_registration`, which needs `otp_verified=1` and `profile_completed=0` |
+| company 214's onboarding notifications *removed* | `auth/login_desktop` as a company, whose `ensureCompanyOnboarding()` inserts only when the type is absent -- with the snapshot's rows present the call was a no-op and the case asserted nothing about it |
+| a push token for the EMPLOYEE actor (999003) | `profile/delete_account`, whose contract includes dropping the caller's push tokens |
+
+Two writes on this surface cannot be seen by comparing end state, and each has
+its own mechanism rather than a table entry that only looks like an assertion:
+
+- **A write the same request deletes again.** `company_join_requests/reject`
+  sends the employee a notification and then deletes that employee;
+  `fk_notification_to_employee` is `ON DELETE CASCADE`, so the row is gone before
+  any snapshot. `sequence_tables()` compares the table's `AUTO_INCREMENT`
+  instead, which advances per insert and does not go back -- measured, both
+  stacks 999014 to 999015 with the row count unchanged. It asserts both halves:
+  PHP advanced, and Java advanced by the same amount.
+- **State the harness's own instrumentation destroys.** `mint_token()` logs the
+  actor in, and `auth/login_employee` deletes that employee's push tokens -- so
+  for `profile/delete_account` the seeded token was already gone before the
+  request and the comparison proved nothing. `post_login_fixture()` re-applies it
+  to both databases after both tokens are minted. Seeding harder does not help:
+  the login sits between the seed and the case.
 
 Each exists because some endpoint's success path needs a row the snapshot does
 not provide, and cases deliberately cannot chain -- every case reseeds. That
