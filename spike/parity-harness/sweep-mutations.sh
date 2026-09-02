@@ -393,19 +393,53 @@ timing_columns() {  # $1=path $2=table -> stdout: column list, or empty
   esac
 }
 
-# Tables whose INSERT is DELETED AGAIN before the case ends, so no end-state
-# comparison can see it.
+# What each stack asked the WhatsApp sender to send.
 #
-# company_join_requests/reject inserts a notification addressed to the pending
-# employee and then deletes that employee; the schema's fk_notification_to_employee
-# is ON DELETE CASCADE, so the notification is gone before the snapshot runs.
-# Listing `notifications` in the case therefore asserted nothing at all: a Java
-# that never sent it would finish with identical rows and be counted ok.
+# The OTP endpoints store the code only after the send succeeds, so a case that
+# compares the response and `otp_codes` proves the send was ATTEMPTED and
+# nothing about it. A stack that built the wrong destination, or the wrong
+# message template, still stores a code and still answers 200 -- and
+# forgot_password, resend_otp, register_company and request_phone_change all go
+# through that path.
 #
-# AUTO_INCREMENT can see it. It advances once per insert and does not go back
-# when the row is removed, so the counter is a record that the write happened.
-# Measured: both stacks 999014 -> 999015 across the reject, with the row count
-# unchanged at 3590.
+# whatsapp-stub.py logs every request for exactly this reason. The log is read
+# by BYTE OFFSET rather than truncated, so a failing case leaves the evidence in
+# place and concurrent reads cannot lose a line.
+#
+# The generated code is the one thing the two stacks must differ on: each
+# generates its own, as two independent systems should. It is reduced to <OTP>
+# INSIDE the message parameter only, so the destination jid -- which is also a
+# long digit run -- is still compared exactly.
+whatsapp_log_offset() {
+  stat -c%s "$HERE/whatsapp-stub.log" 2>/dev/null || echo 0
+}
+
+whatsapp_log_since() {  # $1=byte offset -> the normalised requests made after it
+  tail -c "+$(( ${1:-0} + 1 ))" "$HERE/whatsapp-stub.log" 2>/dev/null | python3 -c "
+import re, sys, urllib.parse
+out = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    # '<timestamp> <path?query> <body>' -- the timestamp is the harness talking.
+    parts = line.split(' ', 2)
+    target = parts[1] if len(parts) > 1 else line
+    path, _, query = target.partition('?')
+    fields = urllib.parse.parse_qsl(query, keep_blank_values=True)
+    rendered = []
+    for key, value in fields:
+        if key == 'msg':
+            value = re.sub(r'[0-9]{4,6}', '<OTP>', value)
+        rendered.append(f'{key}={value}')
+    body = (parts[2] if len(parts) > 2 else '').strip()
+    if body:
+        rendered.append('body=' + re.sub(r'[0-9]{4,6}', '<OTP>', body))
+    out.append(path + ' ' + ' '.join(rendered))
+print('\\n'.join(out))
+"
+}
+
 # State the harness's OWN instrumentation destroys, re-applied after it runs.
 #
 # mint_token() logs the actor in, and auth/login_employee DELETES that
@@ -424,17 +458,6 @@ post_login_fixture() {  # $1=path -> stdout: SQL, or empty
             VALUES (999031, 999003, 'parity-delete-account-token', 'android', NOW())
             ON DUPLICATE KEY UPDATE token='parity-delete-account-token';" ;;
   esac
-}
-
-sequence_tables() {  # $1=path -> stdout: table list, or empty
-  case "${1%%\?*}" in
-    company_join_requests/reject) echo "notifications" ;;
-  esac
-}
-
-table_sequence() {  # $1=database $2=table -> the next AUTO_INCREMENT value
-  m "$1" -N -B -e "SELECT AUTO_INCREMENT FROM information_schema.TABLES
-                   WHERE TABLE_SCHEMA='$1' AND TABLE_NAME='$2'"
 }
 
 accepted_row_columns() {  # $1=path $2=table  -> stdout: column list, or empty
@@ -610,24 +633,17 @@ run_case() {
     done
   fi
 
-  # Sequence counters for the tables whose insert is deleted again by the same
-  # request. Taken only for the cases that declare one.
-  local seq_tables; seq_tables=$(sequence_tables "$path")
-  declare -A seq_pre_php seq_pre_java
-  if [ -n "$seq_tables" ]; then
-    IFS=',' read -ra seqtl <<< "$seq_tables"
-    for t in "${seqtl[@]}"; do
-      [ -n "$t" ] || continue
-      seq_pre_php[$t]=$(table_sequence "$PHP_DB" "$t")
-      seq_pre_java[$t]=$(table_sequence "$JAVA_DB" "$t")
-    done
-  fi
-
+  # Captured per stack, around each request, so the two sends can be told apart.
+  local wa_mark wa_php wa_java
   local pcode jcode pbody jbody
+  wa_mark=$(whatsapp_log_offset)
   pcode=$(curl -s -o /tmp/mp.json -w '%{http_code}' -X "$method" "$PHP/$path" \
             -H "Authorization: Bearer $pt" -H 'Content-Type: application/json' -d "$body")
+  wa_php=$(whatsapp_log_since "$wa_mark")
+  wa_mark=$(whatsapp_log_offset)
   jcode=$(curl -s -o /tmp/mj.json -w '%{http_code}' -X "$method" "$JAVA/$path" \
             -H "Authorization: Bearer $jt" -H 'Content-Type: application/json' -d "$body")
+  wa_java=$(whatsapp_log_since "$wa_mark")
 
   # Canonicalise, and blank the audit KEYS for the same reason the
   # row snapshot drops them: sequential calls differ by a second, and that is
@@ -753,6 +769,19 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
     verdict=DIFF; detail="response body"
   fi
 
+  # Compared for EVERY case, not a declared list: a case that sends nothing logs
+  # nothing on both sides and the comparison is trivially equal, while a case
+  # that starts sending -- or stops -- is caught without anyone remembering to
+  # opt it in.
+  if [ "$wa_php" != "$wa_java" ]; then
+    verdict=DIFF
+    detail="${detail:+$detail; }whatsapp request"
+    { echo "### $name  ($method $path)  whatsapp"
+      echo "    PHP  $wa_php"
+      echo "    JAVA $wa_java"
+      echo; } >> mutation-diffs.txt
+  fi
+
   # State comparison runs even when the response already differed: knowing
   # whether the write also diverged is the more useful half.
   local statediff="" accepted_cols="" timing_cols=""
@@ -799,31 +828,6 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
       statediff="$statediff $t(ts+${drift}s)"
     fi
   done
-  # Both halves, the same shape the accepted-divergence tables use:
-  #
-  #   php advanced             -- legacy really does perform the insert, so the
-  #                               case fails if it ever stops
-  #   java advanced by the     -- the port performs the same number of inserts
-  #   SAME amount
-  if [ -n "$seq_tables" ]; then
-    IFS=',' read -ra seqtl <<< "$seq_tables"
-    for t in "${seqtl[@]}"; do
-      [ -n "$t" ] || continue
-      local pseq jseq pdelta jdelta
-      pseq=$(table_sequence "$PHP_DB" "$t"); jseq=$(table_sequence "$JAVA_DB" "$t")
-      pdelta=$(( ${pseq:-0} - ${seq_pre_php[$t]:-0} ))
-      jdelta=$(( ${jseq:-0} - ${seq_pre_java[$t]:-0} ))
-      if [ "$pdelta" -le 0 ]; then
-        statediff="$statediff $t(php-inserted-nothing:the-write-this-asserts-is-gone)"
-      elif [ "$pdelta" -ne "$jdelta" ]; then
-        statediff="$statediff $t(inserts php=$pdelta java=$jdelta)"
-      else
-        printf '%-42s %-4s %-4s %s\n' "  ^ deleted-write asserted" "" "" \
-          "$t: both stacks inserted $pdelta row(s) before the cascade removed them"
-      fi
-    done
-  fi
-
   if [ -n "$statediff" ]; then verdict=DIFF; detail="${detail:+$detail; }rows differ:$statediff"; fi
 
   if [ "$verdict" = ok ] && [ -n "$status_accepted" ]; then
@@ -1087,11 +1091,18 @@ run_multipart_case() {
     file_args+=(-F "${fields[$i]}=@${fixtures[$i]};filename=${upnames[$i]}")
   done
 
+  # Captured for the same reason the other runners capture: an upload endpoint
+  # that starts notifying would otherwise do so unobserved.
+  local wa_mark wa_php wa_java
   local pcode jcode
+  wa_mark=$(whatsapp_log_offset)
   pcode=$(curl -s -o /tmp/mfp.json -w '%{http_code}' -X POST "$PHP/$path" \
             -H "Authorization: Bearer $pt" "${file_args[@]}" "${extra_args[@]}")
+  wa_php=$(whatsapp_log_since "$wa_mark")
+  wa_mark=$(whatsapp_log_offset)
   jcode=$(curl -s -o /tmp/mfj.json -w '%{http_code}' -X POST "$JAVA/$path" \
             -H "Authorization: Bearer $jt" "${file_args[@]}" "${extra_args[@]}")
+  wa_java=$(whatsapp_log_since "$wa_mark")
 
   local pbody jbody
   pbody=$(norm /tmp/mfp.json); jbody=$(norm /tmp/mfj.json)
@@ -1134,6 +1145,9 @@ run_multipart_case() {
     else
       verdict=DIFF; detail="response body"
     fi
+  fi
+  if [ "$wa_php" != "$wa_java" ]; then
+    verdict=DIFF; detail="${detail:+$detail; }whatsapp request"
   fi
 
   # The stored URL must actually CHANGE on both stacks.
@@ -1218,11 +1232,18 @@ run_form_case() {
     fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "LOGIN-FAILED"; return
   fi
 
+  # Captured here too, so a form endpoint that starts sending is caught and the
+  # shared comparison never reads an unset variable.
+  local wa_mark wa_php wa_java
   local pcode jcode pbody jbody
+  wa_mark=$(whatsapp_log_offset)
   pcode=$(curl -s -o /tmp/mfp.json -w '%{http_code}' -X "$method" "$PHP/$path" \
             -H "Authorization: Bearer $pt" -d "$form")
+  wa_php=$(whatsapp_log_since "$wa_mark")
+  wa_mark=$(whatsapp_log_offset)
   jcode=$(curl -s -o /tmp/mfj.json -w '%{http_code}' -X "$method" "$JAVA/$path" \
             -H "Authorization: Bearer $jt" -d "$form")
+  wa_java=$(whatsapp_log_since "$wa_mark")
   pbody=$(norm /tmp/mfp.json); jbody=$(norm /tmp/mfj.json)
 
   local verdict=ok detail=""
@@ -1238,6 +1259,9 @@ run_form_case() {
   fi
   [ "$pcode" = "$jcode" ] || { verdict=DIFF; detail="status $pcode vs $jcode"; }
   if [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ]; then verdict=DIFF; detail="response body"; fi
+  if [ "$wa_php" != "$wa_java" ]; then
+    verdict=DIFF; detail="${detail:+$detail; }whatsapp request"
+  fi
 
   local statediff=""
   IFS=',' read -ra tl <<< "$tables"
@@ -1323,13 +1347,24 @@ run_otp_case() {
   local pbody_req jbody_req pcode_http jcode_http
   pbody_req=${act_tpl//\{OTP\}/$pcode}
   jbody_req=${act_tpl//\{OTP\}/$jcode_otp}
+  local wa_mark wa_php wa_java
+  wa_mark=$(whatsapp_log_offset)
   pcode_http=$(curl -s -o /tmp/op.json -w '%{http_code}' -X POST "$PHP/$act_path" \
                  "${pauth[@]}" -H 'Content-Type: application/json' -d "$pbody_req")
+  wa_php=$(whatsapp_log_since "$wa_mark")
+  wa_mark=$(whatsapp_log_offset)
   jcode_http=$(curl -s -o /tmp/oj.json -w '%{http_code}' -X POST "$JAVA/$act_path" \
                  "${jauth[@]}" -H 'Content-Type: application/json' -d "$jbody_req")
+  wa_java=$(whatsapp_log_since "$wa_mark")
 
   local pb jb; pb=$(norm /tmp/op.json); jb=$(norm /tmp/oj.json)
   local verdict=ok detail=""
+  # The ACT half's send. The PREP half is a send too, and is compared by
+  # whichever case exercises that endpoint directly -- forgot_password and
+  # request_phone_change both have one.
+  if [ "$wa_php" != "$wa_java" ]; then
+    verdict=DIFF; detail="whatsapp request"
+  fi
   if [ -n "$expect" ] && [ "$pcode_http" != "$expect" ]; then
     fail=$((fail+1))
     printf '%-42s %-4s %-4s %s\n' "$name" "$pcode_http" "$jcode_http" "UNEXPECTED-STATUS (case expects $expect)"
@@ -2052,11 +2087,17 @@ run_case "company_join_requests/accept"    POST "company_join_requests/accept?id
   '' "employees,notifications" 214 200
 # reject inserts a notification for the pending employee and then DELETES that
 # employee; fk_notification_to_employee is ON DELETE CASCADE, so the row is gone
-# before any end-state snapshot. `notifications` stays in the list to catch a
-# stray write elsewhere in the table, but the insert itself is asserted through
-# the AUTO_INCREMENT delta -- see sequence_tables().
+# before any end-state snapshot -- its existence AND its contents.
+#
+# parity_notification_audit is a harness-only copy written by an AFTER INSERT
+# trigger seed-two.sh installs on both databases, so the row survives its own
+# deletion and is compared in full: type, title, body, reference_type and
+# reference_id included. Counting the inserts would have proved only that one
+# happened -- a wrong title or a missing reference would still have passed, and
+# `requests/create` (D-155) is the precedent for a notification whose defect was
+# invisible everywhere except its own row.
 run_case "company_join_requests/reject"    POST "company_join_requests/reject?id=999028" \
-  '' "employees,notifications" 214 200
+  '' "employees,notifications,parity_notification_audit" 214 200
 
 # HR users. create writes the employee AND its seventeen permission flags in one
 # transaction, so both tables are compared. update_permissions targets 999029,

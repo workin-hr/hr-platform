@@ -92,16 +92,30 @@ endpoint that could otherwise only ever answer a refusal:
 | company 214's onboarding notifications *removed* | `auth/login_desktop` as a company, whose `ensureCompanyOnboarding()` inserts only when the type is absent -- with the snapshot's rows present the call was a no-op and the case asserted nothing about it |
 | a push token for the EMPLOYEE actor (999003) | `profile/delete_account`, whose contract includes dropping the caller's push tokens |
 
-Two writes on this surface cannot be seen by comparing end state, and each has
-its own mechanism rather than a table entry that only looks like an assertion:
+Three effects on this surface cannot be seen by comparing end state, and each
+has its own mechanism rather than a table entry that only looks like an
+assertion:
 
 - **A write the same request deletes again.** `company_join_requests/reject`
   sends the employee a notification and then deletes that employee;
   `fk_notification_to_employee` is `ON DELETE CASCADE`, so the row is gone before
-  any snapshot. `sequence_tables()` compares the table's `AUTO_INCREMENT`
-  instead, which advances per insert and does not go back -- measured, both
-  stacks 999014 to 999015 with the row count unchanged. It asserts both halves:
-  PHP advanced, and Java advanced by the same amount.
+  any snapshot -- its existence *and* its contents. `seed-two.sh` installs an
+  `AFTER INSERT` trigger on both databases that copies every notification into
+  `parity_notification_audit`, so the row survives its own deletion and is
+  compared in full: type, title, body, `reference_type` and `reference_id`.
+  Counting the inserts would prove only that one happened, and **D-155** is the
+  precedent for a notification whose defect was invisible everywhere except its
+  own row.
+- **A request that leaves the process.** The OTP endpoints store the code only
+  after the send succeeds, so comparing the response and `otp_codes` proves the
+  send was *attempted* and nothing about it -- a stack building the wrong
+  destination or template still stores a code and still answers 200.
+  `whatsapp_log_since()` reads `whatsapp-stub.log` by byte offset around each
+  stack's request and compares what was sent. The generated code is the one
+  thing the two stacks must differ on, so it is reduced to `<OTP>` **inside the
+  message parameter only** -- the destination `jid`, also a long digit run, is
+  still compared exactly. Applied to every case, so an endpoint that starts or
+  stops sending is caught without anyone opting it in.
 - **State the harness's own instrumentation destroys.** `mint_token()` logs the
   actor in, and `auth/login_employee` deletes that employee's push tokens -- so
   for `profile/delete_account` the seeded token was already gone before the

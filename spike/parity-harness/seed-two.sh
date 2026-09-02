@@ -360,6 +360,30 @@ for d in "$PHP_DB" "$JAVA_DB"; do
   VALUES (999041, 999040, 'parity-value', 'parity', 'parity', 1)
   ON DUPLICATE KEY UPDATE value='parity-value';
 
+  -- An audit copy of every notification INSERT, because some of them are
+  -- deleted again by the same request that made them.
+  --
+  -- company_join_requests/reject sends the pending employee a notification and
+  -- then deletes that employee; fk_notification_to_employee is ON DELETE
+  -- CASCADE, so no end-state comparison can see the row -- not its existence
+  -- and not its contents. A counter can prove one row was inserted; only a copy
+  -- can prove the TITLE, BODY, TYPE and REFERENCE matched.
+  --
+  -- Harness-only, and applied identically to both databases, so it changes what
+  -- the harness can observe rather than what either stack does. Nothing in
+  -- frozen PHP or in the port reads this table.
+  DROP TRIGGER IF EXISTS parity_notification_audit_ins;
+  CREATE TABLE IF NOT EXISTS parity_notification_audit LIKE notifications;
+  TRUNCATE TABLE parity_notification_audit;
+  CREATE TRIGGER parity_notification_audit_ins AFTER INSERT ON notifications
+  FOR EACH ROW INSERT INTO parity_notification_audit
+    (id, company_id, recipient_kind, from_employee_id, to_employee_id, title, body,
+     notification_type, reference_type, reference_id, is_read, created_at)
+  VALUES
+    (NEW.id, NEW.company_id, NEW.recipient_kind, NEW.from_employee_id, NEW.to_employee_id,
+     NEW.title, NEW.body, NEW.notification_type, NEW.reference_type, NEW.reference_id,
+     NEW.is_read, NEW.created_at);
+
   -- Company 214 starts WITHOUT its onboarding notifications, so a company login
   -- actually inserts them. ensureCompanyOnboarding() is idempotent by query --
   -- it inserts only when the type is absent -- and the snapshot ships both, so
