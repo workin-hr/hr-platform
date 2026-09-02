@@ -107,6 +107,45 @@ Divergences the repository has decided to keep are declared in
 `accepted_mutation_divergence()`, keyed on the endpoint **and** the exact
 status pair, and must name the risk or decision that accepted them.
 
+## OTP flows
+
+```sh
+./whatsapp-stub.py 18099 &        # stands in for the send; nothing leaves the machine
+./sweep-mutations.sh              # run_otp_case reads each stack's own code
+```
+
+The OTP is a **per-stack secret**: each stack generates its own and stores it in
+its own database, so `run_otp_case` reads each code from the database that stack
+wrote it to and substitutes it into that stack's request. Sending one stack's
+code to the other would fail for a reason unrelated to parity. It is the same
+shape as `mint_token`, which already asks each stack for its own token.
+
+Nothing here touches frozen PHP:
+
+- `otp_codes.code` holds the code in **plaintext**, so the harness can read it.
+- `whatsapp-stub.py` returns the success shape both senders require (`200` with a
+  truthy `success`). Without it both stacks answer 503, the code is never
+  written, and every OTP case compares two identical failures. The stub is also
+  **safer** than the placeholder it replaces, which pointed at the real
+  `pro.whats360.live` and attempted an outbound request with a dummy token.
+
+### `DEBUG` must be false
+
+`php/constants.php` must set `AppConfig::DEBUG = false`, and the compose file
+pairs it with `display_errors=Off`. With `DEBUG=true`, `forgot_password` and
+`resend_otp` return the OTP **in the response body**, and `respond()` appends a
+stack trace to uncaught exceptions. Production does neither. The harness ran that
+way until this was traced, and it made Java look wrong for behaving like
+production.
+
+## A trap with the bind-mounted config
+
+`php/constants.php` is bind-mounted **as a file**, so the container holds its
+inode. Editing it with anything that replaces the file rather than truncating it
+-- `sed -i`, most editors' atomic-save -- orphans the mount: the host file
+changes and the container keeps reading the old inode, silently. Either write in
+place, or `docker restart parity-harness-php-1` afterwards to re-resolve.
+
 ## What is deliberately not wired
 
 - **No production credentials.** The harness generates its own JWT secret and

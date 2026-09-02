@@ -45,7 +45,8 @@ invocations = []
 i = 0
 while i < len(sweep_lines):
     line = sweep_lines[i]
-    if line.startswith("run_case ") or line.startswith("run_multipart_case "):
+    if any(line.startswith(prefix) for prefix in
+           ("run_case ", "run_multipart_case ", "run_form_case ", "run_otp_case ")):
         parts = [line]
         while parts[-1].rstrip().endswith("\\"):
             i += 1
@@ -57,8 +58,19 @@ declared = {}
 for inv in invocations:
     # run_case:           NAME METHOD "PATH" ...
     # run_multipart_case: NAME "PATH" FIELD ...
-    m = (re.match(r'run_case\s+"[^"]*"\s+\w+\s+"([^"?]+)', inv)
-         or re.match(r'run_multipart_case\s+"[^"]*"\s+"([^"?]+)', inv))
+    # run_case / run_form_case: NAME METHOD "PATH" ...
+    # run_multipart_case:        NAME "PATH" FIELD ...
+    # run_otp_case:              NAME "PREP" 'PREPBODY' "ACT" ... -- the ACT path
+    #                            is the endpoint under test; the prep path has
+    #                            its own case.
+    m = None
+    for pattern in (
+            r'run_(?:case|form_case)\s+"[^"]*"\s+\w+\s+"([^"?]+)',
+            r'run_multipart_case\s+"[^"]*"\s+"([^"?]+)',
+            r'run_otp_case\s+"[^"]*"\s+"[^"]*"\s+\S.*?\s+"([^"?]+)'):
+        m = re.match(pattern, inv)
+        if m:
+            break
     if not m:
         continue
     tail = re.search(r'(\d{3})\s*$', inv)
@@ -106,8 +118,14 @@ else:
 # map endpoint -> the case names that target it
 case_names = {}
 for inv in invocations:
-    m = (re.match(r'run_case\s+"([^"]*)"\s+\w+\s+"([^"?]+)', inv)
-         or re.match(r'run_multipart_case\s+"([^"]*)"\s+"([^"?]+)', inv))
+    m = None
+    for pattern in (
+            r'run_(?:case|form_case)\s+"([^"]*)"\s+\w+\s+"([^"?]+)',
+            r'run_multipart_case\s+"([^"]*)"\s+"([^"?]+)',
+            r'run_otp_case\s+"([^"]*)"\s+"[^"]*"\s+\S.*?\s+"([^"?]+)'):
+        m = re.match(pattern, inv)
+        if m:
+            break
     if m:
         case_names.setdefault(m.group(2), []).append(m.group(1))
 

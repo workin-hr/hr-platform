@@ -106,7 +106,7 @@ snapshot() {  # $1=database $2=table $3=accepted columns (comma separated)
   cols=$(m information_schema -e "
     SELECT GROUP_CONCAT(
              CASE WHEN data_type IN ('timestamp','datetime','date')
-                   AND column_name IN ('created_at','updated_at','deleted_at','decided_at')
+                   AND column_name IN ('created_at','updated_at','deleted_at','decided_at','expires_at')
                   THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ELSE ''set'' END')
                   -- qr_code is bin2hex(random_bytes(16)) in PHP and SecureRandom in
                   -- Java, so two CORRECT implementations must differ. Reduced to its
@@ -174,6 +174,14 @@ snapshot() {  # $1=database $2=table $3=accepted columns (comma separated)
                               'AND LEFT(\`', column_name, '\`, 3) IN (''\$2a'', ''\$2b'', ''\$2y'') ',
                               'THEN CONCAT(''bcrypt-cost-'', SUBSTRING(\`', column_name, '\`, 5, 2)) ',
                               'ELSE CONCAT(''UNEXPECTED-SHAPE:'', LEFT(\`', column_name, '\`, 7)) END')
+                  -- An OTP is generated independently by each stack, so the
+                  -- two must differ. Reduced to its shape: a code of the wrong
+                  -- length, or a non-numeric one, still fails.
+                  WHEN column_name = 'code'
+                  THEN CONCAT('CASE WHEN \`', column_name, '\` IS NULL THEN ''null'' ',
+                              'WHEN \`', column_name, '\` REGEXP ''^[0-9]+'' ',
+                              'THEN CONCAT(''otp-'', LENGTH(\`', column_name, '\`), ''-digits'') ',
+                              'ELSE CONCAT(''UNEXPECTED-SHAPE:'', \`', column_name, '\`) END')
                   WHEN column_name = 'qr_code'
                   -- UNHEX rather than a regex, for the dollar-anchor reason
                   -- above: 32 characters, valid hex, and already lowercase.
@@ -244,7 +252,7 @@ timestamp_drift() {  # $1=table -> worst drift across audit columns, or empty
   cols=$(m information_schema -e "
     SELECT column_name FROM columns
     WHERE table_schema='$PHP_DB' AND table_name='$1'
-      AND column_name IN ('created_at','updated_at','deleted_at','decided_at')" 2>/dev/null)
+      AND column_name IN ('created_at','updated_at','deleted_at','decided_at','expires_at')" 2>/dev/null)
   [ -n "$cols" ] || return 0
   local col a b d
   while read -r col; do
@@ -486,7 +494,7 @@ run_case() {
   # Only the audit keys are nondeterministic between two sequential calls.
   norm() { python3 -c "
 import json,re,sys
-AUDIT={'created_at','updated_at','deleted_at','decided_at'}
+AUDIT={'created_at','updated_at','deleted_at','decided_at','expires_at'}
 # Same rule the row snapshot uses: a value two CORRECT implementations must
 # disagree on is reduced to its shape, never dropped. A qr_code of the wrong
 # length, in uppercase, or non-hex still compares unequal.
@@ -929,6 +937,91 @@ run_form_case() {
       echo "    JAVA $jcode $(head -c 240 <<< "$jbody")"; echo; } >> mutation-diffs.txt
   fi
   printf '%-42s %-4s %-4s %s %s\n' "$name" "$pcode" "$jcode" "$verdict" "$detail"
+}
+
+
+# NAME | PREP-PATH | PREP-BODY | ACT-PATH | ACT-BODY-TEMPLATE | TABLES | EXPECT
+#
+# The OTP flows, which cannot use the ordinary runner because the code is a
+# per-stack secret: each stack generates its own and stores it in its own
+# database. Sending one stack's code to the other would fail for a reason that
+# has nothing to do with parity, so the runner reads each code from the database
+# that stack wrote it to and substitutes it into that stack's request.
+#
+# This is the same shape as the token handling every other case already uses --
+# mint_token asks each stack for its own token for exactly this reason.
+#
+# {OTP} in the act body is replaced per stack.
+run_otp_case() {
+  local name="$1" prep_path="$2" prep_body="$3" act_path="$4" act_tpl="$5" tables="$6" expect="${7:-}"
+
+  if ! ./seed-two.sh >/dev/null 2>&1; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "RESEED-FAILED"; return
+  fi
+  local jhealth
+  jhealth=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$JAVA/configs/get" 2>/dev/null)
+  if [ "$jhealth" != "200" ]; then
+    fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "JAVA-NOT-SERVING ($jhealth)"; return
+  fi
+
+  # Ask each stack to issue a code. A failure here is the harness (most often
+  # the WhatsApp stub being down), not a parity result, so it is reported as
+  # such rather than compared.
+  local pprep jprep
+  pprep=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$PHP/$prep_path" \
+            -H 'Content-Type: application/json' -d "$prep_body")
+  jprep=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$JAVA/$prep_path" \
+            -H 'Content-Type: application/json' -d "$prep_body")
+  if [ "$pprep" != "200" ] || [ "$jprep" != "200" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "$pprep" "$jprep" "OTP-PREP-FAILED (is whatsapp-stub.py running?)"
+    return
+  fi
+
+  local pcode jcode_otp
+  pcode=$(m "$PHP_DB"  -N -B -e "SELECT code FROM otp_codes ORDER BY id DESC LIMIT 1")
+  jcode_otp=$(m "$JAVA_DB" -N -B -e "SELECT code FROM otp_codes ORDER BY id DESC LIMIT 1")
+  if [ -z "$pcode" ] || [ -z "$jcode_otp" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "OTP-NOT-STORED (php=${pcode:-none} java=${jcode_otp:-none})"
+    return
+  fi
+
+  local pbody_req jbody_req pcode_http jcode_http
+  pbody_req=${act_tpl//\{OTP\}/$pcode}
+  jbody_req=${act_tpl//\{OTP\}/$jcode_otp}
+  pcode_http=$(curl -s -o /tmp/op.json -w '%{http_code}' -X POST "$PHP/$act_path" \
+                 -H 'Content-Type: application/json' -d "$pbody_req")
+  jcode_http=$(curl -s -o /tmp/oj.json -w '%{http_code}' -X POST "$JAVA/$act_path" \
+                 -H 'Content-Type: application/json' -d "$jbody_req")
+
+  local pb jb; pb=$(norm /tmp/op.json); jb=$(norm /tmp/oj.json)
+  local verdict=ok detail=""
+  if [ -n "$expect" ] && [ "$pcode_http" != "$expect" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "$pcode_http" "$jcode_http" "UNEXPECTED-STATUS (case expects $expect)"
+    { echo "### $name  (POST $act_path, otp flow)"; echo "    PHP answered $pcode_http; declared $expect."
+      echo "    PHP  $pcode_http $(head -c 240 <<< "$pb")"; echo; } >> mutation-diffs.txt
+    return
+  fi
+  [ "$pcode_http" = "$jcode_http" ] || { verdict=DIFF; detail="status $pcode_http vs $jcode_http"; }
+  if [ "$verdict" = ok ] && [ "$pb" != "$jb" ]; then verdict=DIFF; detail="response body"; fi
+
+  local statediff=""
+  IFS=',' read -ra tl <<< "$tables"
+  for t in "${tl[@]}"; do
+    [ -n "$t" ] || continue
+    [ "$(snapshot "$PHP_DB" "$t" "")" != "$(snapshot "$JAVA_DB" "$t" "")" ] && statediff="$statediff $t"
+  done
+  [ -n "$statediff" ] && { verdict=DIFF; detail="${detail:+$detail; }rows differ:$statediff"; }
+
+  if [ "$verdict" = ok ]; then pass=$((pass+1)); else
+    fail=$((fail+1))
+    { echo "### $name  (POST $act_path, otp flow)"; echo "    $detail"
+      echo "    PHP  $pcode_http $(head -c 240 <<< "$pb")"
+      echo "    JAVA $jcode_http $(head -c 240 <<< "$jb")"; echo; } >> mutation-diffs.txt
+  fi
+  printf '%-42s %-4s %-4s %s %s\n' "$name" "$pcode_http" "$jcode_http" "$verdict" "$detail"
 }
 
 ./seed-two.sh >/dev/null 2>&1
@@ -1470,6 +1563,45 @@ run_form_case "employee_docs/update"       POST "employee_docs/update" \
   "id=$C214_DOC&doc_type=id_card" "employee_docs" 214 200
 run_case "employee_docs/delete"            DELETE "employee_docs/delete?id=$C214_DOC" \
   '' "employee_docs" 214 200
+
+
+# ===========================================================================
+# Auth and OTP.
+#
+# The OTP is a per-stack secret: each stack generates its own and stores it in
+# its own database, so run_otp_case reads each code from the database that
+# stack wrote it to. Sending one stack's code to the other would fail for a
+# reason unrelated to parity. This is the same shape as the tokens every other
+# case uses -- mint_token already asks each stack for its own.
+#
+# The codes are stored in PLAINTEXT in otp_codes.code, so no change to frozen
+# PHP is needed to read them. whatsapp-stub.py stands in for the send, without
+# which both stacks answer 503 and the code is never written -- two matching
+# failures, which is not coverage.
+# ---------------------------------------------------------------------------
+run_case "auth/forgot_password"            POST "auth/forgot_password" \
+  '{"phone":"+201999000002","type":"employee"}' "otp_codes" - 200
+run_case "auth/forgot_password (unknown)"  POST "auth/forgot_password" \
+  '{"phone":"+209999999999","type":"employee"}' "otp_codes" - 404
+run_case "auth/resend_otp"                 POST "auth/resend_otp" \
+  '{"phone":"+201999000002"}' "otp_codes" - 200
+run_case "auth/lookup_company"             POST "auth/lookup_company" \
+  '{"company_code":"EGHECH"}' "companies" - 200
+run_case "auth/login_company (bad creds)"  POST "auth/login_company" \
+  '{"phone":"+201999000002","password":"wrong"}' "companies" - 401
+run_case "auth/login_desktop (bad creds)"  POST "auth/login_desktop" \
+  '{"phone":"+201999000002","password":"wrong","login_as":"company"}' "employees,companies" - 401
+run_case "auth/login_employee"             POST "auth/login_employee" \
+  '{"phone":"+201999000002","password":"harness-only-Pass123!"}' "employees" - 200
+
+run_otp_case "auth/verify_otp" \
+  "auth/forgot_password" '{"phone":"+201999000002","type":"employee"}' \
+  "auth/verify_otp" '{"phone":"+201999000002","otp":"{OTP}","type":"employee"}' \
+  "otp_codes,employees" 200
+run_otp_case "auth/reset_password" \
+  "auth/forgot_password" '{"phone":"+201999000002","type":"employee"}' \
+  "auth/reset_password" '{"phone":"+201999000002","password":"harness-only-Pass789!","otp":"{OTP}","type":"employee"}' \
+  "otp_codes,employees" 200
 
 echo
 echo "identical=$pass  differing=$fail  accepted-divergences=$accepted"

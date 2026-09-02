@@ -52,6 +52,6 @@ services:
       bash -c "apt-get update >/dev/null 2>&1 &&
                apt-get install -y libzip-dev >/dev/null 2>&1 &&
                docker-php-ext-install pdo_mysql zip calendar >/dev/null 2>&1 &&
-               printf 'max_execution_time=600\nmemory_limit=512M\n' > /usr/local/etc/php/conf.d/harness.ini &&
+               printf 'max_execution_time=600\nmemory_limit=512M\ndisplay_errors=Off\nlog_errors=On\n' > /usr/local/etc/php/conf.d/harness.ini &&
                a2enmod rewrite >/dev/null 2>&1 &&
                apache2-foreground"
