@@ -1,6 +1,6 @@
 # Attendance Device Endpoints
 
-Java-only routes added by the attendance-device slice (D-156). They are
+Java-only routes added by the attendance-device slice (D-158). They are
 **not** part of the PHP parity inventory (`existing-endpoint-inventory.md`,
 `LegacyPhpRouteInventoryTest`'s 198 `/apis/**` routes) and change no existing
 client contract (D-111). Design and rationale:
@@ -52,7 +52,7 @@ predicate on every query. Errors render the platform `{code, message}` body
 | `PUT /api/v1/devices/identities` | Bind (or rebind) an employee's PIN | body `{employee_id, pin, card_no?}`; `404 devices.employee_not_found` (also for another tenant's employee); `400 devices.pin_required`, `devices.pin_invalid` (1–32 digits, the same rule the receiver's parser applies); `409 devices.pin_already_bound`, `devices.employee_already_bound` |
 | `GET /api/v1/devices/punches?device_id=&state=&limit=` | Raw punches, newest first, for shadow-mode visibility | `limit` defaults to 100, capped at 500; `state` is `RECEIVED`, `UNMATCHED`, `PAIRED` or `IGNORED`. `branch_id` is the branch the punch happened at, snapshotted at ingestion, so moving a device does not relabel its history |
 
-**The claim route is a pilot arrangement (D-157, R-041).** Supervised tenant
+**The claim route is a pilot arrangement (D-159, R-041).** Supervised tenant
 claiming is accepted while devices are installed under supervision. For
 production, tenant admins will not claim by serial number at all: platform
 staff pre-allocate a device to a company and tenant HR only assigns an owned

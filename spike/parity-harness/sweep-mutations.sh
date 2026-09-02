@@ -288,6 +288,17 @@ mint_token() {
     -d "{\"phone\":\"${2:-+201999000001}\",\"password\":\"harness-only-Pass123!\"}" \
     | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('token',''))"
 }
+# A COMPANY session, which is a different auth type from an employee one:
+# profile/request_phone_change and confirm_phone_change both refuse anything
+# whose token type is not `company` with a 403 before any logic runs, so an
+# employee token cannot reach them at all. The credential is the one
+# seed-two.sh stamps on company 214.
+mint_company_token() {
+  curl -s -X POST "$1/auth/login_company" -H 'Content-Type: application/json' \
+    -d "{\"phone\":\"$COMPANY_214_PHONE\",\"password\":\"harness-only-Pass123!\"}" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('token',''))"
+}
+COMPANY_214_PHONE=01555781818
 PHONE_244=+201999000001
 PHONE_214=+201999000002
 # requests/delete.php is requireAuth([EMPLOYEE]) -- a company_admin is refused
@@ -382,6 +393,73 @@ timing_columns() {  # $1=path $2=table -> stdout: column list, or empty
   esac
 }
 
+# What each stack asked the WhatsApp sender to send.
+#
+# The OTP endpoints store the code only after the send succeeds, so a case that
+# compares the response and `otp_codes` proves the send was ATTEMPTED and
+# nothing about it. A stack that built the wrong destination, or the wrong
+# message template, still stores a code and still answers 200 -- and
+# forgot_password, resend_otp, register_company and request_phone_change all go
+# through that path.
+#
+# whatsapp-stub.py logs every request for exactly this reason. The log is read
+# by BYTE OFFSET rather than truncated, so a failing case leaves the evidence in
+# place and concurrent reads cannot lose a line.
+#
+# The generated code is the one thing the two stacks must differ on: each
+# generates its own, as two independent systems should. It is reduced to <OTP>
+# INSIDE the message parameter only, so the destination jid -- which is also a
+# long digit run -- is still compared exactly.
+whatsapp_log_offset() {
+  stat -c%s "$HERE/whatsapp-stub.log" 2>/dev/null || echo 0
+}
+
+whatsapp_log_since() {  # $1=byte offset -> the normalised requests made after it
+  tail -c "+$(( ${1:-0} + 1 ))" "$HERE/whatsapp-stub.log" 2>/dev/null | python3 -c "
+import re, sys, urllib.parse
+out = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    # '<timestamp> <path?query> <body>' -- the timestamp is the harness talking.
+    parts = line.split(' ', 2)
+    target = parts[1] if len(parts) > 1 else line
+    path, _, query = target.partition('?')
+    fields = urllib.parse.parse_qsl(query, keep_blank_values=True)
+    rendered = []
+    for key, value in fields:
+        if key == 'msg':
+            value = re.sub(r'[0-9]{4,6}', '<OTP>', value)
+        rendered.append(f'{key}={value}')
+    body = (parts[2] if len(parts) > 2 else '').strip()
+    if body:
+        rendered.append('body=' + re.sub(r'[0-9]{4,6}', '<OTP>', body))
+    out.append(path + ' ' + ' '.join(rendered))
+print('\\n'.join(out))
+"
+}
+
+# State the harness's OWN instrumentation destroys, re-applied after it runs.
+#
+# mint_token() logs the actor in, and auth/login_employee DELETES that
+# employee's push tokens. So for profile/delete_account -- whose contract is
+# that it deactivates the caller and drops their push tokens -- the seeded token
+# was already gone before the request, and comparing `push_tokens` proved
+# nothing whether or not Java still performed the cleanup. Seeding harder does
+# not help: the login is between the seed and the case.
+#
+# Applied identically to both databases, after both tokens are minted, so the
+# two stacks still start the request from the same state.
+post_login_fixture() {  # $1=path -> stdout: SQL, or empty
+  case "${1%%\?*}" in
+    profile/delete_account)
+      echo "INSERT INTO push_tokens (id, employee_id, token, platform, updated_at)
+            VALUES (999031, 999003, 'parity-delete-account-token', 'android', NOW())
+            ON DUPLICATE KEY UPDATE token='parity-delete-account-token';" ;;
+  esac
+}
+
 accepted_row_columns() {  # $1=path $2=table  -> stdout: column list, or empty
   case "${1%%\?*}:$2" in
     requests/approve:requests|requests/reject:requests)
@@ -424,11 +502,20 @@ accepted_mutation_divergence() {  # $1=path $2=php code $3=java code
       # succeed is not a contract either stack is keeping.
       echo "R-013"; return 0 ;;
     employees/analyze_excel:200:200)
-      # R-038: PHP answers 200 with Content-Length: 0 -- respond() echoes
-      # json_encode() unchecked and the encode fails, so the body is empty.
-      # Java returns the analysis. Registered so the divergence is visible; the
-      # endpoint is NOT counted as covered, because an empty body is not a
-      # contract and comparing it against real output is not parity.
+      # R-038, and it is narrower than it first looked: PHP answers 200 with
+      # Content-Length: 0 only when the sheet has a valid header row and NO
+      # DATA ROWS. Mechanism, confirmed by probing the frozen helper rather
+      # than inferred -- employee_excel_load_rows() falls into its CSV fallback
+      # when the XLSX parses to zero rows (`$format === 'xlsx' && $rawRows ===
+      # []`), re-reads the same workbook as text, and returns 12 rows of raw
+      # ZIP bytes; that malformed UTF-8 makes respond()'s unchecked
+      # json_encode() return false, so nothing is echoed.
+      #
+      # A sheet WITH a data row analyses correctly on both stacks, which is why
+      # `employees/analyze_excel (filled)` exists and is what covers this
+      # endpoint. This entry keeps the zero-row divergence visible; it does not
+      # count as coverage, and divergence_shape_holds() requires PHP's body to
+      # still be empty, so the filled case can never be swallowed by it.
       echo "R-038"; return 0 ;;
     advances/create:201:403)
       # R-037: create.php resolves employee_id with no company predicate, so a
@@ -504,7 +591,11 @@ run_case() {
   fi
 
   local pt jt
-  pt=$(mint_token "$PHP" "$phone"); jt=$(mint_token "$JAVA" "$phone")
+  if [ "$who" = company ]; then
+    pt=$(mint_company_token "$PHP"); jt=$(mint_company_token "$JAVA")
+  else
+    pt=$(mint_token "$PHP" "$phone"); jt=$(mint_token "$JAVA" "$phone")
+  fi
   if [ -z "$pt" ] || [ -z "$jt" ]; then
     # Counted, not skipped. A SKIP was reported and tallied as neither
     # identical nor differing, so a run where every login failed printed a
@@ -513,6 +604,15 @@ run_case() {
     printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "LOGIN-FAILED"
     { echo "### $name  ($method $path)"; echo "    LOGIN-FAILED: php-token=${#pt} java-token=${#jt} chars"; echo; } >> mutation-diffs.txt
     return
+  fi
+
+  local post_login; post_login=$(post_login_fixture "$path")
+  if [ -n "$post_login" ]; then
+    if ! m "$PHP_DB" -e "$post_login" >/dev/null 2>&1 || ! m "$JAVA_DB" -e "$post_login" >/dev/null 2>&1; then
+      fail=$((fail+1))
+      printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "POST-LOGIN-FIXTURE-FAILED"
+      return
+    fi
   fi
 
   # Pre-call snapshots, so a case can assert a DELTA rather than only an
@@ -533,11 +633,17 @@ run_case() {
     done
   fi
 
+  # Captured per stack, around each request, so the two sends can be told apart.
+  local wa_mark wa_php wa_java
   local pcode jcode pbody jbody
+  wa_mark=$(whatsapp_log_offset)
   pcode=$(curl -s -o /tmp/mp.json -w '%{http_code}' -X "$method" "$PHP/$path" \
             -H "Authorization: Bearer $pt" -H 'Content-Type: application/json' -d "$body")
+  wa_php=$(whatsapp_log_since "$wa_mark")
+  wa_mark=$(whatsapp_log_offset)
   jcode=$(curl -s -o /tmp/mj.json -w '%{http_code}' -X "$method" "$JAVA/$path" \
             -H "Authorization: Bearer $jt" -H 'Content-Type: application/json' -d "$body")
+  wa_java=$(whatsapp_log_since "$wa_mark")
 
   # Canonicalise, and blank the audit KEYS for the same reason the
   # row snapshot drops them: sequential calls differ by a second, and that is
@@ -663,6 +769,19 @@ print(json.dumps(scrub(json.load(open(sys.argv[1]))),sort_keys=True,ensure_ascii
     verdict=DIFF; detail="response body"
   fi
 
+  # Compared for EVERY case, not a declared list: a case that sends nothing logs
+  # nothing on both sides and the comparison is trivially equal, while a case
+  # that starts sending -- or stops -- is caught without anyone remembering to
+  # opt it in.
+  if [ "$wa_php" != "$wa_java" ]; then
+    verdict=DIFF
+    detail="${detail:+$detail; }whatsapp request"
+    { echo "### $name  ($method $path)  whatsapp"
+      echo "    PHP  $wa_php"
+      echo "    JAVA $wa_java"
+      echo; } >> mutation-diffs.txt
+  fi
+
   # State comparison runs even when the response already differed: knowing
   # whether the write also diverged is the more useful half.
   local statediff="" accepted_cols="" timing_cols=""
@@ -762,7 +881,19 @@ JAVA_UPLOADS=${JAVA_UPLOADS:-$HERE/java-uploads}
 # Fixtures are generated, not committed, so a fresh checkout has none. Build
 # them rather than refusing: the documented workflow goes straight from starting
 # Java to running this sweep, and an exit here would break it.
-if [ ! -f "$HERE/fixtures/parity.png" ] || [ ! -f "$HERE/fixtures/attendance-punches.xlsx" ]; then
+# EVERY generated fixture a case consumes, not a sample of them. A predicate
+# naming only some of them skips the generator when one of the others is missing
+# on its own, and the case that wanted it then reports NO-FIXTURE -- the sweep
+# fails without ever testing the coverage it was extended to prove.
+PARITY_FIXTURES=(parity.png parity.pdf attendance-punches.xlsx
+                 employees-template.xlsx leave_balances-template.xlsx
+                 employees-filled.xlsx
+                 employees-import-rows.json leave_balances-import-rows.json)
+fixtures_missing=0
+for f in "${PARITY_FIXTURES[@]}"; do
+  [ -s "$HERE/fixtures/$f" ] || fixtures_missing=1
+done
+if [ "$fixtures_missing" = 1 ]; then
   echo "multipart fixtures missing -- generating them..." >&2
   if ! "$HERE/make-fixtures.sh" >&2; then
     echo "FATAL: could not build the multipart fixtures." >&2
@@ -890,11 +1021,8 @@ run_multipart_case() {
   case "$who" in -|"") who=244 ;; esac
   local phone; case "$who" in 214) phone=$PHONE_214 ;; emp) phone=$PHONE_EMP ;; *) phone=$PHONE_244 ;; esac
 
-  if [ ! -f "$fixture" ]; then
-    fail=$((fail+1))
-    printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "NO-FIXTURE ($fixture)"
-    return
-  fi
+  # Each fixture is checked below, once the `;`-separated list is split; a
+  # multi-part case's FIXTURE is not a path on its own.
 
   if ! ./seed-two.sh >/dev/null 2>&1; then
     fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "RESEED-FAILED"; return
@@ -939,11 +1067,42 @@ run_multipart_case() {
     for kv in $extra; do [ -n "$kv" ] && extra_args+=(-F "$kv"); done
   fi
 
+  # FIELD, FIXTURE and UPLOAD-FILENAME may each be a `;`-separated list, for the
+  # endpoints that take more than one file part -- complete_company_registration
+  # requires both a logo and a commercial registration and refuses with 400 if
+  # either is missing, so a single-part runner could only ever reach a refusal.
+  local -a file_args=()
+  local IFS=';'
+  local -a fields=($field) fixtures=($fixture) upnames=($upname)
+  unset IFS
+  if [ "${#fields[@]}" -ne "${#fixtures[@]}" ] || [ "${#fields[@]}" -ne "${#upnames[@]}" ]; then
+    fail=$((fail+1))
+    printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" \
+      "BAD-CASE (${#fields[@]} fields, ${#fixtures[@]} fixtures, ${#upnames[@]} names)"
+    return
+  fi
+  local i
+  for i in "${!fields[@]}"; do
+    if [ ! -f "${fixtures[$i]}" ]; then
+      fail=$((fail+1))
+      printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "NO-FIXTURE (${fixtures[$i]})"
+      return
+    fi
+    file_args+=(-F "${fields[$i]}=@${fixtures[$i]};filename=${upnames[$i]}")
+  done
+
+  # Captured for the same reason the other runners capture: an upload endpoint
+  # that starts notifying would otherwise do so unobserved.
+  local wa_mark wa_php wa_java
   local pcode jcode
+  wa_mark=$(whatsapp_log_offset)
   pcode=$(curl -s -o /tmp/mfp.json -w '%{http_code}' -X POST "$PHP/$path" \
-            -H "Authorization: Bearer $pt" -F "$field=@$fixture;filename=$upname" "${extra_args[@]}")
+            -H "Authorization: Bearer $pt" "${file_args[@]}" "${extra_args[@]}")
+  wa_php=$(whatsapp_log_since "$wa_mark")
+  wa_mark=$(whatsapp_log_offset)
   jcode=$(curl -s -o /tmp/mfj.json -w '%{http_code}' -X POST "$JAVA/$path" \
-            -H "Authorization: Bearer $jt" -F "$field=@$fixture;filename=$upname" "${extra_args[@]}")
+            -H "Authorization: Bearer $jt" "${file_args[@]}" "${extra_args[@]}")
+  wa_java=$(whatsapp_log_since "$wa_mark")
 
   local pbody jbody
   pbody=$(norm /tmp/mfp.json); jbody=$(norm /tmp/mfj.json)
@@ -986,6 +1145,9 @@ run_multipart_case() {
     else
       verdict=DIFF; detail="response body"
     fi
+  fi
+  if [ "$wa_php" != "$wa_java" ]; then
+    verdict=DIFF; detail="${detail:+$detail; }whatsapp request"
   fi
 
   # The stored URL must actually CHANGE on both stacks.
@@ -1070,11 +1232,18 @@ run_form_case() {
     fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "LOGIN-FAILED"; return
   fi
 
+  # Captured here too, so a form endpoint that starts sending is caught and the
+  # shared comparison never reads an unset variable.
+  local wa_mark wa_php wa_java
   local pcode jcode pbody jbody
+  wa_mark=$(whatsapp_log_offset)
   pcode=$(curl -s -o /tmp/mfp.json -w '%{http_code}' -X "$method" "$PHP/$path" \
             -H "Authorization: Bearer $pt" -d "$form")
+  wa_php=$(whatsapp_log_since "$wa_mark")
+  wa_mark=$(whatsapp_log_offset)
   jcode=$(curl -s -o /tmp/mfj.json -w '%{http_code}' -X "$method" "$JAVA/$path" \
             -H "Authorization: Bearer $jt" -d "$form")
+  wa_java=$(whatsapp_log_since "$wa_mark")
   pbody=$(norm /tmp/mfp.json); jbody=$(norm /tmp/mfj.json)
 
   local verdict=ok detail=""
@@ -1090,6 +1259,9 @@ run_form_case() {
   fi
   [ "$pcode" = "$jcode" ] || { verdict=DIFF; detail="status $pcode vs $jcode"; }
   if [ "$verdict" = ok ] && [ "$pbody" != "$jbody" ]; then verdict=DIFF; detail="response body"; fi
+  if [ "$wa_php" != "$wa_java" ]; then
+    verdict=DIFF; detail="${detail:+$detail; }whatsapp request"
+  fi
 
   local statediff=""
   IFS=',' read -ra tl <<< "$tables"
@@ -1123,6 +1295,10 @@ run_form_case() {
 # {OTP} in the act body is replaced per stack.
 run_otp_case() {
   local name="$1" prep_path="$2" prep_body="$3" act_path="$4" act_tpl="$5" tables="$6" expect="${7:-}"
+  # Optional 8th argument: `company` runs both halves inside a company session.
+  # The auth flows below need none -- forgot_password and verify_otp are public
+  # -- but the profile phone-change pair is company-only.
+  local who="${8:-}"
 
   if ! ./seed-two.sh >/dev/null 2>&1; then
     fail=$((fail+1)); printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "RESEED-FAILED"; return
@@ -1136,11 +1312,23 @@ run_otp_case() {
   # Ask each stack to issue a code. A failure here is the harness (most often
   # the WhatsApp stub being down), not a parity result, so it is reported as
   # such rather than compared.
+  local pauth=() jauth=()
+  if [ "$who" = company ]; then
+    local pt jt
+    pt=$(mint_company_token "$PHP"); jt=$(mint_company_token "$JAVA")
+    if [ -z "$pt" ] || [ -z "$jt" ]; then
+      fail=$((fail+1))
+      printf '%-42s %-4s %-4s %s\n' "$name" "-" "-" "LOGIN-FAILED (company session)"
+      return
+    fi
+    pauth=(-H "Authorization: Bearer $pt"); jauth=(-H "Authorization: Bearer $jt")
+  fi
+
   local pprep jprep
   pprep=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$PHP/$prep_path" \
-            -H 'Content-Type: application/json' -d "$prep_body")
+            "${pauth[@]}" -H 'Content-Type: application/json' -d "$prep_body")
   jprep=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$JAVA/$prep_path" \
-            -H 'Content-Type: application/json' -d "$prep_body")
+            "${jauth[@]}" -H 'Content-Type: application/json' -d "$prep_body")
   if [ "$pprep" != "200" ] || [ "$jprep" != "200" ]; then
     fail=$((fail+1))
     printf '%-42s %-4s %-4s %s\n' "$name" "$pprep" "$jprep" "OTP-PREP-FAILED (is whatsapp-stub.py running?)"
@@ -1159,13 +1347,24 @@ run_otp_case() {
   local pbody_req jbody_req pcode_http jcode_http
   pbody_req=${act_tpl//\{OTP\}/$pcode}
   jbody_req=${act_tpl//\{OTP\}/$jcode_otp}
+  local wa_mark wa_php wa_java
+  wa_mark=$(whatsapp_log_offset)
   pcode_http=$(curl -s -o /tmp/op.json -w '%{http_code}' -X POST "$PHP/$act_path" \
-                 -H 'Content-Type: application/json' -d "$pbody_req")
+                 "${pauth[@]}" -H 'Content-Type: application/json' -d "$pbody_req")
+  wa_php=$(whatsapp_log_since "$wa_mark")
+  wa_mark=$(whatsapp_log_offset)
   jcode_http=$(curl -s -o /tmp/oj.json -w '%{http_code}' -X POST "$JAVA/$act_path" \
-                 -H 'Content-Type: application/json' -d "$jbody_req")
+                 "${jauth[@]}" -H 'Content-Type: application/json' -d "$jbody_req")
+  wa_java=$(whatsapp_log_since "$wa_mark")
 
   local pb jb; pb=$(norm /tmp/op.json); jb=$(norm /tmp/oj.json)
   local verdict=ok detail=""
+  # The ACT half's send. The PREP half is a send too, and is compared by
+  # whichever case exercises that endpoint directly -- forgot_password and
+  # request_phone_change both have one.
+  if [ "$wa_php" != "$wa_java" ]; then
+    verdict=DIFF; detail="whatsapp request"
+  fi
   if [ -n "$expect" ] && [ "$pcode_http" != "$expect" ]; then
     fail=$((fail+1))
     printf '%-42s %-4s %-4s %s\n' "$name" "$pcode_http" "$jcode_http" "UNEXPECTED-STATUS (case expects $expect)"
@@ -1226,6 +1425,37 @@ resolve_or_die() {  # $1=label $2=sql
   fi
   printf '%s' "$v"
 }
+
+# The identities the registration cases mint. Asserted, not asserted-in-a-comment:
+# register_company answers 400 phone_already_registered and join_company 409 if
+# the number is taken, so a snapshot that ever contains one turns a success case
+# into a refusal. The case's declared 201 would catch it, but this says which
+# number and why instead of leaving a status mismatch to be diagnosed.
+REGISTER_COMPANY_PHONE=01099911002
+JOIN_COMPANY_PHONE=01099911003
+HR_CREATE_PHONE=01099911004
+PHONE_CHANGE_PHONE=01099911005
+# BOTH tables for every number, not the one the endpoint reads first: the
+# uniqueness rules cross over. join_company refuses a phone that belongs to an
+# employee (409 phone_already_used) OR to another company
+# (company_phone_exists_globally), and request_phone_change refuses one held by
+# any other company. Checking a single table per number would leave the case
+# that fails hardest -- a cross-table collision -- unasserted.
+assert_identity_free() {  # $1=label $2=phone
+  local table taken
+  for table in companies employees; do
+    taken=$(m "$PHP_DB" -N -B -e "SELECT COUNT(*) FROM \`$table\` WHERE phone='$2'")
+    if [ "${taken:-1}" != "0" ]; then
+      echo "FATAL: $1 ($2) already exists in $table -- the case would answer a" >&2
+      echo "  refusal, not the success path it declares. Pick another number." >&2
+      exit 5
+    fi
+  done
+}
+assert_identity_free register_company "$REGISTER_COMPANY_PHONE"
+assert_identity_free join_company     "$JOIN_COMPANY_PHONE"
+assert_identity_free hr_create        "$HR_CREATE_PHONE"
+assert_identity_free phone_change     "$PHONE_CHANGE_PHONE"
 
 # company 214 -- has a row for the types 244 lacks
 C214_EMP=$(resolve_or_die c214_emp   "SELECT id FROM employees WHERE company_id=214 AND id<>999002 ORDER BY id LIMIT 1")
@@ -1680,7 +1910,14 @@ run_multipart_case "upload_logo (unsupported type)" "company/upload_logo" \
   logo "$HERE/fixtures/employees-template.xlsx" "sheet.xlsx" "" "companies" 214 400
 
 # The spreadsheet readers.
-run_multipart_case "employees/analyze_excel"      "employees/analyze_excel" \
+#
+# Two employee cases, because the endpoint behaves differently by row count and
+# only one of them is coverage. The filled sheet is the app's own template plus
+# a data row keyed to the seeded company's shift, branch, department and job
+# title -- see make-fixtures.py.
+run_multipart_case "employees/analyze_excel (filled)" "employees/analyze_excel" \
+  file "$HERE/fixtures/employees-filled.xlsx" "employees.xlsx" "" "employees" 214 200
+run_multipart_case "employees/analyze_excel (empty sheet)" "employees/analyze_excel" \
   file "$HERE/fixtures/employees-template.xlsx" "employees.xlsx" "" "employees" 214 200
 run_multipart_case "leave_balances/analyze_excel" "leave_balances/analyze_excel" \
   file "$HERE/fixtures/leave_balances-template.xlsx" "leave.xlsx" "" "leave_balance" 214 200
@@ -1693,6 +1930,50 @@ run_multipart_case "attendance/import_excel"      "attendance/import_excel" \
   file "$HERE/fixtures/attendance-punches.xlsx" "punches.xlsx" "" "attendance" 214 200
 run_multipart_case "attendance/import (wrong sheet)" "attendance/import_excel" \
   file "$HERE/fixtures/employees-template.xlsx" "wrong.xlsx" "" "attendance" 214 400
+
+# Registration step 2: public, multipart, and the only case that sends two file
+# parts. It writes both URL columns on the companies row, so the runner's
+# before/after URL assertion covers the halves the row snapshot normalises.
+# The target is the half-registered company seed-two.sh provides.
+#
+# Three tables, not one: completing the profile also creates the company's MAIN
+# BRANCH and two onboarding notifications. Measured on the seeded fixture --
+# branches 376 -> 377 and notifications 3590 -> 3592 on both stacks -- so a case
+# comparing only `companies` would let either side omit or duplicate those
+# writes while still reporting the endpoint covered.
+run_multipart_case "auth/complete_company_registration" "auth/complete_company_registration" \
+  "logo;commercial_reg" "$HERE/fixtures/parity.png;$HERE/fixtures/parity.pdf" "logo.png;reg.pdf" \
+  "company_id=999030;company_name=Parity Complete;main_branch_address=Cairo;company_title_id=1;company_activity_id=1;company_size_id=1;first_name=Parity;last_name=HalfRegistered" \
+  "companies,branches,notifications" 214 201
+
+# The bulk importers. These take `rows` in a JSON body -- the analyzer's output,
+# posted back by the client -- so they are run_case, not run_multipart_case, and
+# the bodies are the captured analyses. Cases cannot chain (every case reseeds),
+# which is why the capture happens in make-fixtures.sh instead.
+#
+# employees writes four tables from one row: the employee, the contract, the
+# opening leave balance and the shift assignment. Comparing only `employees`
+# would miss three quarters of what the endpoint does.
+run_case "employees/import_bulk"           POST "employees/import_bulk" \
+  "$(cat "$HERE/fixtures/employees-import-rows.json")" \
+  "employees,salary_contracts,leave_balance,employee_shift_assignments" 214 200
+# The leave-balance sheet the template ships is pre-filled with the company's
+# own employees, so this body carries both halves of the importer: rows that
+# UPDATE an existing balance and rows that fail because the sheet left the
+# days blank. `inserted`, `updated` and `failed` are all exercised.
+run_case "leave_balances/import_bulk"      POST "leave_balances/import_bulk" \
+  "$(cat "$HERE/fixtures/leave_balances-import-rows.json")" \
+  "leave_balance" 214 200
+# An empty row object: PHP echoes it back in `failed[].data` as `[]` because
+# json_decode gives an empty array, and a Java Map would render `{}`. The
+# divergence is closed by LegacyPhpEmptyArrayJsonConfig, and this case is what
+# keeps it closed.
+# The same four tables the success case writes, not just `employees`: every row
+# fails here, so the case is also the assertion that a failed import leaves
+# nothing behind in the contract, leave-balance or shift-assignment tables.
+run_case "employees/import_bulk (empty row)" POST "employees/import_bulk" \
+  '{"rows":[{}]}' \
+  "employees,salary_contracts,leave_balance,employee_shift_assignments" 214 200
 
 
 # ===========================================================================
@@ -1760,10 +2041,98 @@ run_case "auth/login_company (bad creds)"  POST "auth/login_company" \
   '{"phone":"+201999000002","password":"wrong"}' "companies" - 401
 run_case "auth/login_desktop (bad creds)"  POST "auth/login_desktop" \
   '{"phone":"+201999000002","password":"wrong","login_as":"company"}' "employees,companies" - 401
+# The success paths. Both authenticate against companies.password_hash, which
+# seed-two.sh stamps on company 214 -- the snapshot carries a hash whose
+# plaintext nobody knows, so without the fixture these two could only ever be
+# exercised through the 401s above, which is a refusal and not coverage.
+# The phone is the row's OWN, unchanged, and comes from the same constant
+# mint_company_token uses -- a literal repeated here would go stale silently.
+run_case "auth/login_company"              POST "auth/login_company" \
+  "{\"phone\":\"$COMPANY_214_PHONE\",\"password\":\"harness-only-Pass123!\"}" \
+  "companies,notifications" - 200
+# login_desktop is the one that onboards. It calls ensureCompanyOnboarding(),
+# which inserts a welcome and a pending-review notification when the company has
+# none; the snapshot's 214 had both, so the call was a no-op and the case
+# asserted nothing about it. seed-two.sh now removes those two rows, and the
+# request inserts them: measured 3588 -> 3590 on BOTH stacks.
+#
+# login_company above does NOT onboard -- measured, 3588 -> 3588 -- which is why
+# its `notifications` entry asserts the opposite: that this endpoint writes none.
+# Two adjacent company logins with opposite notification behaviour, and the
+# table list is what pins each of them.
+run_case "auth/login_desktop (company)"    POST "auth/login_desktop" \
+  "{\"phone\":\"$COMPANY_214_PHONE\",\"password\":\"harness-only-Pass123!\",\"login_as\":\"company\"}" \
+  "employees,companies,notifications" - 200
 # login bumps token_version AND deletes the employee's push tokens; a seeded
 # token makes that second half observable.
 run_case "auth/login_employee"             POST "auth/login_employee" \
   '{"phone":"+201999000002","password":"harness-only-Pass123!"}' "employees,push_tokens" - 200
+
+# Registration and joining. Both mint an identity, and both use a FIXED one:
+# every case reseeds from the snapshot first, so the previous run's row is gone
+# before this one starts. A per-run random phone would only make the case
+# nondeterministic -- and would hide a Java that stopped enforcing uniqueness.
+# Neither number exists in the snapshot; make-fixtures.sh asserts the same for
+# the import fixture's phone.
+run_case "auth/register_company"           POST "auth/register_company" \
+  "{\"first_name\":\"Parity\",\"last_name\":\"Register\",\"phone\":\"$REGISTER_COMPANY_PHONE\",\"password\":\"harness-only-Pass123!\",\"country_code\":\"+20\"}" \
+  "companies,otp_codes" - 201
+run_case "auth/join_company"               POST "auth/join_company" \
+  "{\"first_name\":\"Parity\",\"last_name\":\"Joiner\",\"phone\":\"$JOIN_COMPANY_PHONE\",\"password\":\"harness-only-Pass123!\",\"country_code\":\"+20\",\"company_code\":\"EGHECH\"}" \
+  "employees,notifications" - 201
+# Both sides of the join request, against the pending fixture seed-two.sh
+# provides. Accept flips the row to accepted+active; reject DELETES it, so the
+# employees comparison is what proves each did the right one.
+run_case "company_join_requests/accept"    POST "company_join_requests/accept?id=999028" \
+  '' "employees,notifications" 214 200
+# reject inserts a notification for the pending employee and then DELETES that
+# employee; fk_notification_to_employee is ON DELETE CASCADE, so the row is gone
+# before any end-state snapshot -- its existence AND its contents.
+#
+# parity_notification_audit is a harness-only copy written by an AFTER INSERT
+# trigger seed-two.sh installs on both databases, so the row survives its own
+# deletion and is compared in full: type, title, body, reference_type and
+# reference_id included. Counting the inserts would have proved only that one
+# happened -- a wrong title or a missing reference would still have passed, and
+# `requests/create` (D-155) is the precedent for a notification whose defect was
+# invisible everywhere except its own row.
+run_case "company_join_requests/reject"    POST "company_join_requests/reject?id=999028" \
+  '' "employees,notifications,parity_notification_audit" 214 200
+
+# HR users. create writes the employee AND its seventeen permission flags in one
+# transaction, so both tables are compared. update_permissions targets 999029,
+# never the sweep's own actor -- rewriting 999002's flags would strip the
+# permissions every later case authenticates with.
+run_case "hr_employees/create"             POST "hr_employees/create" \
+  "{\"first_name\":\"Parity\",\"last_name\":\"NewHr\",\"role\":\"hr\",\"branch_id\":$C214_BRANCH,\"phone\":\"$HR_CREATE_PHONE\",\"country_code\":\"+20\",\"password\":\"harness-only-Pass123!\"}" \
+  "employees,hr_permissions" 214 201
+run_case "hr_employees/update_permissions" PUT  "hr_employees/update_permissions?id=999029" \
+  '{"permissions":{"can_dashboard":1,"can_employees":0,"can_payroll":1}}' \
+  "hr_permissions" 214 200
+
+# Company settings. create needs a definition the company has no value for --
+# 214 holds all five the snapshot ships, so seed-two.sh adds 999040 with one
+# allowed value. delete targets definition 5, which is is_required=0.
+run_case "company_settings/create"         POST "company_settings/create" \
+  '{"setting_definition_id":999040,"values":["parity-value"]}' \
+  "company_settings,company_setting_values" 214 201
+run_case "company_settings/delete"         DELETE "company_settings/delete?setting_definition_id=5" \
+  '' "company_settings,company_setting_values" 214 200
+
+# The company profile endpoints. Both refuse a non-company token with 403
+# before any logic, so they run in a company session -- see mint_company_token.
+run_case "profile/request_phone_change"    POST "profile/request_phone_change" \
+  "{\"phone\":\"$PHONE_CHANGE_PHONE\",\"country_code\":\"+20\"}" "otp_codes" company 200
+# The employee half of delete_account: it deactivates the caller and drops their
+# push tokens. The COMPANY half is deliberately not exercised -- it hard-deletes
+# the company and cascades, which would destroy the fixture set every other case
+# depends on. 999003 is safe to deactivate because the next case reseeds.
+#
+# The token this asserts is written by post_login_fixture(), not by seed-two.sh:
+# mint_token() logs 999003 in first, and that login deletes the very rows this
+# case is meant to observe being deleted.
+run_case "profile/delete_account"          DELETE "profile/delete_account" \
+  '{"password":"harness-only-Pass123!"}' "employees,push_tokens" emp 200
 
 run_otp_case "auth/verify_otp" \
   "auth/forgot_password" '{"phone":"+201999000002","type":"employee"}' \
@@ -1773,6 +2142,12 @@ run_otp_case "auth/reset_password" \
   "auth/forgot_password" '{"phone":"+201999000002","type":"employee"}' \
   "auth/reset_password" '{"phone":"+201999000002","password":"harness-only-Pass789!","otp":"{OTP}","type":"employee"}' \
   "otp_codes,employees" 200
+# Both halves of the phone change, in one company session: request issues the
+# code against the NEW number, confirm consumes it and moves companies.phone.
+run_otp_case "profile/confirm_phone_change" \
+  "profile/request_phone_change" "{\"phone\":\"$PHONE_CHANGE_PHONE\",\"country_code\":\"+20\"}" \
+  "profile/confirm_phone_change" "{\"phone\":\"$PHONE_CHANGE_PHONE\",\"country_code\":\"+20\",\"otp\":\"{OTP}\"}" \
+  "otp_codes,companies" 200 company
 
 echo
 echo "identical=$pass  differing=$fail  accepted-divergences=$accepted"

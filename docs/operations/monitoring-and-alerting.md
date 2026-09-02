@@ -22,7 +22,7 @@ Useful signal categories include:
 Prefer signals tied to meaningful failure modes rather than collecting data
 only because a tool can emit it.
 
-### Attendance-device receiver (D-156)
+### Attendance-device receiver (D-158)
 
 Emitted by `com.workin.devices` when `app.devices.ingest.enabled=true`;
 design section 9 of `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`.

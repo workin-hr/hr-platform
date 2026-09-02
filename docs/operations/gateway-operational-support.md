@@ -4,7 +4,7 @@ Scope: operational support for the local .NET edge gateway candidate
 direction (ADR-0006). Nothing here should be read as confirming the gateway
 exists or is deployed — it does not, and ADR-0006 remains Proposed.
 
-**Update 2026-09-02**: ADR-0006 Part A is Accepted and Part B was resolved (D-156,
+**Update 2026-09-02**: ADR-0006 Part A is Accepted and Part B was resolved (D-158,
 accepted) so that the primary ZKTeco path is
 device-initiated ADMS push with no local gateway. The scenarios
 below apply to the platform-side receiver — "offline" is a terminal that has

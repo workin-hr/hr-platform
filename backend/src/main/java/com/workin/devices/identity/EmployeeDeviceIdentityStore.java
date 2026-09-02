@@ -22,7 +22,7 @@ import com.workin.devices.DeviceAttendanceEvent;
 import com.workin.legacy.LegacyJdbcValues;
 
 /**
- * Device PIN to employee, per company (Q1, D-156).
+ * Device PIN to employee, per company (Q1, D-158).
  *
  * <p>Resolution order: an explicit {@code employee_device_identities} row,
  * then {@code employees.employee_code} equal to the PIN -- the convention the

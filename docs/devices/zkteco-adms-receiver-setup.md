@@ -1,6 +1,6 @@
 # ZKTeco Terminal Setup — Pointing A Device At The Receiver
 
-Operator steps for the pilot (D-156, Slice A). The receiver's design and
+Operator steps for the pilot (D-158, Slice A). The receiver's design and
 protocol are in
 `../superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`; the
 routes are in `../api/device-endpoints.md`. Nothing here is hardware-verified
@@ -8,7 +8,7 @@ yet — the first real terminal is what fills in §4 below.
 
 ## 0. Before this is enabled for a real customer
 
-Three gates, all set by D-157, none of which the pilot satisfies by itself:
+Three gates, all set by D-159, none of which the pilot satisfies by itself:
 
 - The **§4 hardware checklist below has been executed on a real customer
   terminal** of that model, and its answers recorded in the two

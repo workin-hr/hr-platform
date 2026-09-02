@@ -104,7 +104,7 @@ public class LegacyCompanyDelete {
 			"assets", "administrative_decisions", "workforce_planning");
 
 	/**
-	 * Phase-1-owned device tables (D-156), children first.
+	 * Phase-1-owned device tables (D-158), children first.
 	 *
 	 * <p>Not part of {@code company_delete_helper.php} -- they do not exist in
 	 * PHP, so including them is not a parity divergence; leaving them out

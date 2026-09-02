@@ -87,7 +87,7 @@ public class DeviceManagementService {
 	 * <p>Claiming is first-come and global, which is a known limitation
 	 * (R-041): the protocol has no proof of possession, so this is a
 	 * supervised-pilot arrangement and production is to move allocation to
-	 * platform staff (D-157).
+	 * platform staff (D-159).
 	 */
 	public AttendanceDevice claim(long companyId, long actorEmployeeId, Map<String, Object> body) {
 		String serialNumber = requiredSerialNumber(body.get("serial_number"));

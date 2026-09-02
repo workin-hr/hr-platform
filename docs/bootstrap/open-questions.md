@@ -72,7 +72,7 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 - **How does `legacy_refresh_tokens` get created against the production legacy
   MariaDB, and who owns that step?** (**R-023**, ADR-0013 Open Questions,
   D-043 amendment 3.) Phase 1 adds tables to the legacy database —
-  `legacy_refresh_tokens`, and since D-156 (2026-09-02) the five
+  `legacy_refresh_tokens`, and since D-158 (2026-09-02) the five
   attendance-device tables in the same file, needed only where the device
   receiver is enabled — and nothing in the application creates them — Flyway owns no MariaDB location and
   `hibernate.hbm2ddl.auto` is `none`. Today it exists only where a test
@@ -398,28 +398,28 @@ ADR-0010 already makes for authorization. If that query later shows up in
 latency measurements, the answer is to measure and revisit it as its own
 decision — not to quietly restore a logout that does not log the caller out.
 
-## Attendance Device Ingestion (ADR-0006 Part B, D-156)
+## Attendance Device Ingestion (ADR-0006 Part B, D-158)
 
 Raised 2026-09-02 by `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
-§12. Q0, Q1 and Q6 were answered on 2026-09-02 (D-156); Q2, Q3, Q5, Q7 and
-Q8 were answered the same day (**D-157**). What remains is the work those
-answers oblige, tracked in D-157's Follow-up and in R-041 — not a question.
+§12. Q0, Q1 and Q6 were answered on 2026-09-02 (D-158); Q2, Q3, Q5, Q7 and
+Q8 were answered the same day (**D-159**). What remains is the work those
+answers oblige, tracked in D-159's Follow-up and in R-041 — not a question.
 
-- **Q0 — Accept D-156? — ANSWERED 2026-09-02: accepted.** ADMS push as the
+- **Q0 — Accept D-158? — ANSWERED 2026-09-02: accepted.** ADMS push as the
   primary ZKTeco adapter, the edge gateway as fallback, conditional on the
   §4.3 hardware checklist passing on the customers' actual models.
 - **Q1 — Device PIN identity.** Reuse `employees.employee_code` as the
   device PIN, or add `employee_device_identities` with `UNIQUE (company_id,
   pin)` seeded from it. **ANSWERED 2026-09-02: the table.**
 - **Q2 — Device punches and the two-hour rule. — ANSWERED 2026-09-02
-  (D-157): never reject.** The punch is always persisted; a short
+  (D-159): never reject.** The punch is always persisted; a short
   duplicate/debounce window suppresses a double-read, and a rapid
   re-check-in is flagged for review. Lands with Slice B.
-- **Q3 — Biometric templates. — ANSWERED 2026-09-02 (D-157): none in
+- **Q3 — Biometric templates. — ANSWERED 2026-09-02 (D-159): none in
   Phase 1.** Attendance events and metadata only. Already enforced in Slice
   A: `TransFlag` does not request them and the receiver discards any that
   arrive regardless.
-- **Q5 — `attendance.method` expansion. — ANSWERED 2026-09-02 (D-157):
+- **Q5 — `attendance.method` expansion. — ANSWERED 2026-09-02 (D-159):
   expand-only, with Slice B, and the audit it was conditional on is done.**
   Every frozen-PHP site writes the column; exactly one reads it, rendering it
   verbatim, so no branch depends on the value set. Two residual checks belong
@@ -431,7 +431,7 @@ answers oblige, tracked in D-157's Follow-up and in R-041 — not a question.
   legacy JWT; platform staff use a company admin's session for the pilot until
   the JTE admin surface (ADR-0015) renders it.
 - **Q8 — Proof of possession when claiming a device — ANSWERED 2026-09-02
-  (D-157), and the work is outstanding** (**R-041**). Pilot: supervised
+  (D-159), and the work is outstanding** (**R-041**). Pilot: supervised
   tenant `company_admin`/`hr` claiming is acceptable. Production: tenant
   admins may **not** claim by serial number — platform staff pre-allocate
   device ownership to a company, and tenant HR then assigns an owned device
@@ -440,7 +440,7 @@ answers oblige, tracked in D-157's Follow-up and in R-041 — not a question.
   not acceptable long-term. Neither is built yet, and R-041 stays open until
   both are.
 - **Q7 — Production provisioning of Phase-1-owned MariaDB tables. —
-  ANSWERED 2026-09-02 (D-157): it must be explicitly solved before device
+  ANSWERED 2026-09-02 (D-159): it must be explicitly solved before device
   ingestion is enabled in production**, not discovered at cutover. The
   ADR-0013 open question itself (**R-023**) stays open; this makes it a
   precondition of turning `app.devices.ingest.enabled` on.

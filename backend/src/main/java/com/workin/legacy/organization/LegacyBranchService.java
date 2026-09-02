@@ -233,7 +233,7 @@ public class LegacyBranchService {
 		try {
 			// A device outlives the branch it was placed in, and nothing in the
 			// schema stops that: attendance_devices.branch_id has no foreign
-			// key (D-156's tables are Phase-1-owned and deliberately
+			// key (D-158's tables are Phase-1-owned and deliberately
 			// unconstrained). Deactivating rather than deleting keeps the
 			// terminal's punch history and its registration, while stopping it
 			// ingesting into a branch that no longer exists. Deliberately not a

@@ -47,7 +47,7 @@ not be described as, comprehensive secret scanning on their own.
 
 ## Platform Security
 
-- attendance terminals are an untrusted external boundary (D-156, R-040):
+- attendance terminals are an untrusted external boundary (D-158, R-040):
   a device is identified by a serial number the platform resolves against
   its own registry, never by anything the payload asserts; nothing is
   ingested for an unclaimed or deactivated serial; biometric template

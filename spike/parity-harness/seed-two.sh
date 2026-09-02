@@ -116,6 +116,17 @@ for d in "$PHP_DB" "$JAVA_DB"; do
   # a COMPANY token bypasses that check entirely. Without a row here, most
   # admin endpoints answer 403 before touching any business logic, and the
   # sweep then compares two refusals and reports parity it never tested.
+  # The COMPANY credential. auth/login_company and auth/login_desktop
+  # (login_as=company) authenticate against companies.password_hash, which the
+  # snapshot carries but whose plaintext nobody knows -- so both endpoints could
+  # only ever be exercised through a 401, which is a refusal and not coverage.
+  #
+  # The row's own phone is reused rather than rewritten: company 214 is already
+  # active, otp_verified and profile_completed, so stamping the hash is the
+  # whole fixture. Changing its phone would move a value other cases compare.
+  m "$d" -e "
+  UPDATE companies SET password_hash='$HASH' WHERE id=214;"
+
   m "$d" -e "
   INSERT INTO hr_permissions
    (employee_id, can_dashboard, can_recent_activities, can_branches, can_departments,
@@ -293,10 +304,108 @@ for d in "$PHP_DB" "$JAVA_DB"; do
   VALUES (999027, 999002, 'parity-fixture-push-token', 'android', NOW())
   ON DUPLICATE KEY UPDATE token='parity-fixture-push-token';
 
+  -- The SAME fixture for the EMPLOYEE actor. profile/delete_account deactivates
+  -- the caller and deletes that caller's push tokens, and the caller there is
+  -- 999003, not 999002 -- so without this the push_tokens comparison passed
+  -- whether or not the cleanup still happened. Exactly the hole the token above
+  -- closes for auth/login_employee; one actor was fixed and its sibling was not.
+  INSERT INTO push_tokens (id, employee_id, token, platform, updated_at)
+  VALUES (999028, 999003, 'parity-fixture-push-token-emp', 'android', NOW())
+  ON DUPLICATE KEY UPDATE token='parity-fixture-push-token-emp';
+
   INSERT INTO requests (id, employee_id, request_type_id, from_date, to_date, status, created_at)
   SELECT 999014, 999003, 999016,
          '2026-09-10', '2026-09-11', 'pending', NOW()
   ON DUPLICATE KEY UPDATE status='pending', employee_id=999003;
+
+  -- A PENDING join request. company_join_requests/accept and /reject both
+  -- resolve an employees row with role='employee' whose join_request_status is
+  -- pending, and the snapshot has none: every seeded employee is accepted.
+  -- Placed on the company's default active branch -- the one join_company
+  -- itself picks -- and deliberately NOT on the must-stay-empty branch 999020.
+  INSERT INTO employees
+   (id, company_id, branch_id, first_name, last_name, phone, role, password_hash,
+    is_active, join_request_status, token_version, created_at)
+  SELECT 999028, 214,
+         (SELECT id FROM branches WHERE company_id=214 AND is_active=1 ORDER BY id LIMIT 1),
+         'Parity','Pending','+201999000028','employee','$HASH',0,'pending',1,NOW()
+  ON DUPLICATE KEY UPDATE join_request_status='pending', is_active=0, role='employee';
+
+  -- An HR user that is NOT the sweep's own actor. hr_employees/update_permissions
+  -- rewrites the whole hr_permissions row for its target, so pointing it at
+  -- 999002 would strip the permissions every later case authenticates with --
+  -- the case would pass and the rest of the run would fail for a reason that
+  -- looks nothing like its cause.
+  INSERT INTO employees
+   (id, company_id, branch_id, first_name, last_name, phone, role, password_hash,
+    is_active, join_request_status, token_version, created_at)
+  SELECT 999029, 214,
+         (SELECT id FROM branches WHERE company_id=214 AND is_active=1 ORDER BY id LIMIT 1),
+         'Parity','HrTarget','+201999000029','hr','$HASH',1,'accepted',1,NOW()
+  ON DUPLICATE KEY UPDATE role='hr', is_active=1;
+  INSERT INTO hr_permissions (employee_id, can_dashboard, can_employees)
+  VALUES (999029, 1, 1)
+  ON DUPLICATE KEY UPDATE can_dashboard=1, can_employees=1;
+
+  -- A setting definition company 214 has no value for. company_settings/create
+  -- refuses with already_exists when the company already holds the definition,
+  -- and 214 holds all five the snapshot ships -- so without this the endpoint
+  -- could only be exercised through that refusal.
+  INSERT INTO setting_definitions
+   (id, setting_key, label_ar, label_en, is_multi, is_required, sort_order)
+  VALUES (999040, 'parity_fixture_setting', 'parity', 'parity', 0, 0, 900)
+  ON DUPLICATE KEY UPDATE is_multi=0, is_required=0;
+  INSERT INTO setting_allowed_values
+   (id, setting_definition_id, value, label_ar, label_en, sort_order)
+  VALUES (999041, 999040, 'parity-value', 'parity', 'parity', 1)
+  ON DUPLICATE KEY UPDATE value='parity-value';
+
+  -- An audit copy of every notification INSERT, because some of them are
+  -- deleted again by the same request that made them.
+  --
+  -- company_join_requests/reject sends the pending employee a notification and
+  -- then deletes that employee; fk_notification_to_employee is ON DELETE
+  -- CASCADE, so no end-state comparison can see the row -- not its existence
+  -- and not its contents. A counter can prove one row was inserted; only a copy
+  -- can prove the TITLE, BODY, TYPE and REFERENCE matched.
+  --
+  -- Harness-only, and applied identically to both databases, so it changes what
+  -- the harness can observe rather than what either stack does. Nothing in
+  -- frozen PHP or in the port reads this table.
+  DROP TRIGGER IF EXISTS parity_notification_audit_ins;
+  CREATE TABLE IF NOT EXISTS parity_notification_audit LIKE notifications;
+  TRUNCATE TABLE parity_notification_audit;
+  CREATE TRIGGER parity_notification_audit_ins AFTER INSERT ON notifications
+  FOR EACH ROW INSERT INTO parity_notification_audit
+    (id, company_id, recipient_kind, from_employee_id, to_employee_id, title, body,
+     notification_type, reference_type, reference_id, is_read, created_at)
+  VALUES
+    (NEW.id, NEW.company_id, NEW.recipient_kind, NEW.from_employee_id, NEW.to_employee_id,
+     NEW.title, NEW.body, NEW.notification_type, NEW.reference_type, NEW.reference_id,
+     NEW.is_read, NEW.created_at);
+
+  -- Company 214 starts WITHOUT its onboarding notifications, so a company login
+  -- actually inserts them. ensureCompanyOnboarding() is idempotent by query --
+  -- it inserts only when the type is absent -- and the snapshot ships both, so
+  -- the call was a no-op and auth/login_company and auth/login_desktop asserted
+  -- nothing about it. Deleted here rather than in the case, because a case that
+  -- prepares its own state is a case that can mask the endpoint's.
+  DELETE FROM notifications
+   WHERE company_id=214 AND recipient_kind='company'
+     AND notification_type IN ('company_welcome','company_pending_review');
+
+  -- A company stopped between the two registration steps: OTP verified, profile
+  -- not completed. auth/complete_company_registration refuses anything else --
+  -- 403 verify_otp_first, or 400 nothing_to_update once the profile is done --
+  -- and the snapshot has no company in that state, so without this the endpoint
+  -- could only ever be exercised through one of those refusals.
+  INSERT INTO companies
+   (id, company_name, company_code, first_name, last_name, phone, country_code,
+    password_hash, status, otp_verified, profile_completed, created_at)
+  VALUES (999030, NULL, NULL, 'Parity', 'HalfRegistered', '01099911006', '+20',
+          '$HASH', 'pending', 1, 0, NOW())
+  ON DUPLICATE KEY UPDATE otp_verified=1, profile_completed=0, company_name=NULL,
+                          company_code=NULL, status='pending';
   SET FOREIGN_KEY_CHECKS=1;"
 done
 

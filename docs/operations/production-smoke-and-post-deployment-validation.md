@@ -121,7 +121,7 @@ name and never its message.
 Use the same Whats360 account the frozen stack uses. A token or instance id
 left at its committed placeholder counts as unconfigured.
 
-### Attendance-device receiver (D-156)
+### Attendance-device receiver (D-158)
 
 | Property | Environment variable | Required? |
 |---|---|---|
@@ -133,7 +133,7 @@ answers `400` with the plain-text body `ERROR: missing SN` when the receiver
 is enabled, and is not mapped (`404`) when it is not. Never send a made-up
 serial as a check — it is recorded as an unclaimed-device sighting.
 
-**Turning this flag on in production has three preconditions (D-157)**, all
+**Turning this flag on in production has three preconditions (D-159)**, all
 gates rather than checklist items: the §4.3 hardware validation has been
 executed on a real customer terminal and recorded in `../devices/`; the five
 device tables have an approved provisioning mechanism (**R-023**, see

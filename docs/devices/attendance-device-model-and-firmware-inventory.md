@@ -34,7 +34,7 @@ specification) is the first value to record when a real terminal connects.
   imported through `attendance/import_excel.php` (ported as
   `LegacyAttendanceImporter`). `employees.employee_code` is the de-facto
   device PIN.
-- **Decided (D-156, accepted 2026-09-02):** push callback — device-initiated ADMS /
+- **Decided (D-158, accepted 2026-09-02):** push callback — device-initiated ADMS /
   PUSH SDK over HTTP(S) to a platform hostname. See
   `vendor-capability-matrix.md` and the specification §5.
 

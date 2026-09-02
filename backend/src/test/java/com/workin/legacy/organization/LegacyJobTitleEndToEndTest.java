@@ -23,6 +23,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -430,7 +431,7 @@ class LegacyJobTitleEndToEndTest {
 
 	@Test
 	void updateRejectsEmptyUnknownNonpositiveAndMalformedInputs() {
-		assertThat(put(JOB_TITLES + "/18906", ADMIN_1, Map.of(), ApiErrorBody.class).getBody().code())
+		assertThat(putRawJson(JOB_TITLES + "/18906", ADMIN_1, "{}", ApiErrorBody.class).getBody().code())
 				.isEqualTo("nothing_to_update");
 		assertThat(put(
 				JOB_TITLES + "/18906", ADMIN_1, Map.of("is_active", 0), ApiErrorBody.class).getBody().code())
@@ -591,6 +592,22 @@ class LegacyJobTitleEndToEndTest {
 	private <T> ResponseEntity<T> put(String path, long employeeId, Map<String, Object> body, Class<T> type) {
 		return restTemplate.exchange(
 				path, HttpMethod.PUT, new HttpEntity<>(body, headersFor(tokenFor(employeeId))), type);
+	}
+
+	/**
+	 * The body as literal JSON, bypassing the shared ObjectMapper.
+	 *
+	 * <p>For an <em>empty</em> object it has to: on this profile an empty
+	 * {@code Map} serialises as {@code []}, which is PHP's rule for an empty
+	 * array (see {@code LegacyPhpEmptyArrayJsonConfig}). Spring cannot bind
+	 * {@code []} to a {@code Map} request body, so {@code Map.of()} would never
+	 * reach the handler and the case would be asserting the binding failure
+	 * rather than the "nothing to update" guard it is written for.
+	 */
+	private <T> ResponseEntity<T> putRawJson(String path, long employeeId, String json, Class<T> type) {
+		HttpHeaders headers = headersFor(tokenFor(employeeId));
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		return restTemplate.exchange(path, HttpMethod.PUT, new HttpEntity<>(json, headers), type);
 	}
 
 	private <T> ResponseEntity<T> delete(String path, long employeeId, Class<T> type) {
