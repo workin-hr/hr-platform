@@ -100,6 +100,15 @@ def commit_contract(root: Path, name: str) -> None:
     (target / f'{name}-contracts.json').write_text(out.stdout)
 
 
+def baseline(root: Path) -> None:
+    """Both clients committed, so a case exercises the field under test rather
+    than the unrelated 'the other contract is missing' rule."""
+    for name in ('desktop', 'mobile'):
+        build_client(root, name)
+        commit_contract(root, name)
+        commit_report(root, name)
+
+
 def case(label, root, expect_failure_containing=None, expect_checked=None):
     failures, checked = check(root)
     if expect_failure_containing is None:
@@ -118,10 +127,8 @@ def main() -> int:
     results = []
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        build_client(root, 'desktop')
-        commit_contract(root, 'desktop')
-        commit_report(root, 'desktop')
-        results.append(case('a contract matching its client source passes', root, None, 1))
+        baseline(root)
+        results.append(case('a contract matching its client source passes', root, None, 2))
 
         # A client that gained a call the committed contract does not have.
         drifted = DATA_SOURCE.replace('}\n', """
@@ -145,9 +152,7 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        build_client(root, 'desktop')
-        commit_contract(root, 'desktop')
-        commit_report(root, 'desktop')
+        baseline(root)
         (root / 'flutter-integration/workin_desktop/lib/data/response/things_response.dart').write_text(
             MODEL.replace('class ThingsResponse', 'class RenamedResponse')
                  .replace('ThingsResponse.fromJson', 'RenamedResponse.fromJson'))
@@ -156,9 +161,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         # A field the projection used to ignore: same path, method and model.
         root = Path(tmp)
-        build_client(root, 'desktop')
-        commit_contract(root, 'desktop')
-        commit_report(root, 'desktop')
+        baseline(root)
         changed = DATA_SOURCE.replace('requestMethod: RequestMethod.get,',
                                       'requestMethod: RequestMethod.get,\n      query: {ApiConstants.idKey: 1},')
         build_client(root, 'desktop', changed)
@@ -167,9 +170,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         # And a parser that keeps its name while reading something else.
         root = Path(tmp)
-        build_client(root, 'desktop')
-        commit_contract(root, 'desktop')
-        commit_report(root, 'desktop')
+        baseline(root)
         (root / 'flutter-integration/workin_desktop/lib/data/response/things_response.dart').write_text(
             MODEL.replace('json.getInt(ApiConstants.idKey)', 'json.getIntOrNull(ApiConstants.idKey)'))
         results.append(case('a parser reading with a different accessor is reported',
@@ -178,8 +179,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         # The half that has to work with no client checkout at all.
         root = Path(tmp)
-        build_client(root, 'desktop')
-        commit_contract(root, 'desktop')
+        baseline(root)
         commit_report(root, 'desktop', calls=99)
         import shutil
         shutil.rmtree(root / 'flutter-integration')
@@ -188,8 +188,8 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        build_client(root, 'desktop')
-        commit_contract(root, 'desktop')
+        baseline(root)
+        (root / 'spike/client-contract/DESKTOP-CONTRACT-REPORT.md').unlink()
         import shutil
         shutil.rmtree(root / 'flutter-integration')
         results.append(case('a missing report is reported even with no client checkout',
@@ -199,12 +199,23 @@ def main() -> int:
         root = Path(tmp)
         build_client(root, 'desktop')
         results.append(case('a checked-out client with no committed contract fails',
-                            root, 'is missing but'))
+                            root, 'the committed contract is required'))
 
     with tempfile.TemporaryDirectory() as tmp:
-        # No client checkout at all: the submodules are not always initialised.
-        results.append(case('an absent client checkout is skipped, not passed',
-                            Path(tmp), None, 0))
+        # The shape CI actually runs: contracts and reports committed, no
+        # submodules. The contract half is skipped and reported as such; the
+        # report half still runs.
+        root = Path(tmp)
+        baseline(root)
+        import shutil
+        shutil.rmtree(root / 'flutter-integration')
+        results.append(case('with no client checkout, the report half still runs and passes',
+                            root, None, 0))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # And a repository with no contracts at all is broken, not "nothing to do".
+        results.append(case('a repository missing both contracts fails',
+                            Path(tmp), 'the committed contract is required'))
 
     print()
     if not all(results):

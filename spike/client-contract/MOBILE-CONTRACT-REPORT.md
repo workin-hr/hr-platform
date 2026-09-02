@@ -16,7 +16,11 @@ executed -- see "Why runtime is zero" below.
 | Contracts statically derived from client source | 39 |
 | Client parsers extracted | 58 |
 | **Contracts replayed against PHP and Java** | **32** |
-| **Runtime client verified** | **0** — blocked, see below |
+| **Contracts replayed by THIS layer** | **32** |
+
+This layer replays contracts; it executes nothing. The runtime verdict for
+this client is a separate measurement with its own evidence in
+`spike/client-runtime` — see the runtime status line below.
 
 The 39 declared constants are **not** the denominator.
 Every one of them is referenced from client source.
@@ -107,21 +111,13 @@ This row is also why the case sends `app`: an earlier run of this check used
 `gps`, reported "check_in is broken in Java", and was wrong -- the value came
 from the harness, not from the client.
 
-## Why runtime is zero
+## Runtime status for this client
 
-The real application was not executed, and could not be on this machine:
+**See `spike/client-runtime`** for the mobile runtime verdict and its
+remaining device-dependent gaps. This layer does not execute the app.
 
-| requirement | state |
-|---|---|
-| Flutter/Dart SDK | not installed |
-| Linux desktop toolchain | GTK3 headers, cmake, ninja, clang absent; no root |
-| prebuilt desktop binary | none in the checkout |
-| redirect `workin.company` to a local Java | `/etc/hosts` read-only; user namespaces denied; `bwrap` denied |
-| build-time URL override | none -- `ApiConstants.baseUrl` is a hardcoded `const` |
-
-The clients are pinned read-only submodules and were **not** modified. Runtime
-verification belongs on a machine with the Flutter toolchain and control of the
-test hostname.
+The clients are pinned read-only submodules and were **not** modified for
+either layer.
 
 ## What this does not cover
 

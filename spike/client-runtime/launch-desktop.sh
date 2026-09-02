@@ -10,10 +10,18 @@ BACKEND_PORT="${1:-18081}"
 pkill -f 'bundle/workin_desktop' 2>/dev/null || true
 pkill -f 'tls-proxy.py' 2>/dev/null || true
 sleep 1
-nohup python3 "$HERE/tls-proxy.py" 8443 127.0.0.1 "$BACKEND_PORT" > /tmp/tls-proxy.log 2>&1 &
+python3 "$HERE/tls-proxy.py" 8443 127.0.0.1 "$BACKEND_PORT" > /tmp/tls-proxy.log 2>&1 &
+PROXY_PID=$!
+# The proxy's lifetime is tied to this script's. `exec`ing the application below
+# would have left it listening on 8443 after the client exited, which
+# contradicts the removal instructions and leaves a local service running after
+# verification.
+trap 'kill "$PROXY_PID" 2>/dev/null || true' EXIT INT TERM
 sleep 2
 
 # The app's own log is the evidence: HttpHelper debugPrints every ENDPOINT,
 # QUERY, BODY and Response, so the log records exactly which calls the UI made.
 export LD_PRELOAD="$WORKIN_SHIM"
-exec "$HERE/workin_desktop/build/linux/x64/debug/bundle/workin_desktop"
+# Not `exec`: the trap above has to survive the application so the proxy is
+# cleaned up when it exits.
+"${WORKIN_WORK:-$HERE}/workin_desktop/build/linux/x64/debug/bundle/workin_desktop"

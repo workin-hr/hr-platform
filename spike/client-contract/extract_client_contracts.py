@@ -86,7 +86,15 @@ def parameter_classes(root: Path, keys: dict) -> dict:
         for cls in re.finditer(r'class\s+(\w+)\s*\{', src):
             body = _class_body(src, cls.end() - 1)
             entry = {}
-            for which, label in (('body', 'toBodyMap'), ('query', 'toQueryMap')):
+            # Every name a parameter class uses to build a request map. The
+            # first two cover almost all of them; the others are rare and were
+            # silently dropped -- auth/complete_company_registration uses
+            # toMultipartBody() and was recorded as sending no fields at all,
+            # on a public onboarding endpoint that takes a logo, a commercial
+            # registration and the whole company profile.
+            for which, label in (('body', 'toBodyMap'), ('query', 'toQueryMap'),
+                                 ('body', 'toMultipartBody'), ('body', 'toMap'),
+                                 ('body', 'toJson')):
                 # Both bodies: `toQueryMap() { return {...}; }` and the
                 # arrow form `toQueryMap() => {...};`. Handling only the first
                 # silently reported such a request as having no parameters --
@@ -100,7 +108,7 @@ def parameter_classes(root: Path, keys: dict) -> dict:
                 for k in re.findall(r'ApiConstants\.(\w+Key)\s*:', inner):
                     found.append(keys.get(k, k))
                 found += re.findall(r"'(\w+)'\s*:", inner)
-                entry[which] = sorted(set(found))
+                entry[which] = sorted(set(entry.get(which, [])) | set(found))
             if entry:
                 out[cls.group(1)] = entry
     return out

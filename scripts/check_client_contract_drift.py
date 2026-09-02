@@ -155,8 +155,12 @@ def check(root: Path | None = None) -> tuple[list[str], int]:
         committed = root / f'spike/client-contract/{name}-contracts.json'
         client_present = (path / 'lib/core/network/api_constants.dart').is_file()
         if not committed.is_file():
-            if client_present:
-                failures.append(f'{committed.relative_to(root)} is missing but {name} is checked out')
+            # Required unconditionally. Gating this on the client checkout meant
+            # the authoritative inventory could be DELETED and CI would still
+            # pass, because the normal checkout has no submodules -- the one
+            # environment where the file is the only evidence there is.
+            failures.append(f'{committed.relative_to(root)} is missing; the committed contract '
+                            f'is required whether or not the {name} client is checked out')
             continue
 
         want = json.loads(committed.read_text())

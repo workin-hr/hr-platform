@@ -237,7 +237,32 @@ jobs:
             )"
             case "$standing" in
               "$RETARGET_MARKER"*)
-                newest_round="$(rounds_on_head "$PR" | sort | tail -n 1)"
+                # EVERY open pull request at this commit, not just this one.
+                #
+                # The status and the retarget marker are keyed on the SHA and so
+                # are shared, while the concurrency group is keyed on the pull
+                # request -- so a run for sibling B can see A's marker, compare
+                # it against B's own newer round, and clear an invalidation that
+                # belongs to A. Requiring the OLDEST round across all of them to
+                # postdate the marker keeps the invalidation intact whichever
+                # sibling happens to run.
+                siblings="$(
+                  gh api "repos/$REPO/commits/$HEAD_SHA/pulls" --paginate \
+                    --jq '.[] | select(.state == "open" and .head.sha == env.HEAD_SHA) | .number' \
+                    | sort -u
+                )"
+                siblings="${siblings:-$PR}"
+                newest_round=""
+                for sibling in $siblings; do
+                  round="$(rounds_on_head "$sibling" | sort | tail -n 1)"
+                  if [ -z "$round" ]; then
+                    newest_round=""
+                    break
+                  fi
+                  if [ -z "$newest_round" ] || [ "$round" \< "$newest_round" ]; then
+                    newest_round="$round"
+                  fi
+                done
                 marked_at="${standing##*@ }"
                 if [ -z "$newest_round" ] || [ "$newest_round" \< "$marked_at" ]; then
                   echo "A base change is still outstanding on this head (marked $marked_at)"

@@ -54,10 +54,19 @@ int getaddrinfo(const char *node, const char *service,
 int connect(int fd, const struct sockaddr *addr, socklen_t len) {
     static int (*real)(int, const struct sockaddr *, socklen_t);
     if (!real) real = dlsym(RTLD_NEXT, "connect");
-    if (addr && addr->sa_family == AF_INET) {
+    if (addr && addr->sa_family == AF_INET && (size_t)len >= sizeof(struct sockaddr_in)) {
         struct sockaddr_in in;
-        memcpy(&in, addr, sizeof(in) < (size_t)len ? sizeof(in) : (size_t)len);
-        if (ntohs(in.sin_port) == 443) {
+        memcpy(&in, addr, sizeof(in));
+        /*
+         * LOOPBACK ONLY. Rewriting :443 wherever it appeared would redirect any
+         * unrelated HTTPS connection the application makes to port 8443 on that
+         * remote host -- unintended outbound traffic, and the opposite of the
+         * containment this shim exists to provide. Only a connection already
+         * aimed at 127.0.0.1 (which getaddrinfo above produced for the test
+         * hostname) is moved to the local proxy's port.
+         */
+        if (ntohs(in.sin_port) == 443
+                && ntohl(in.sin_addr.s_addr) == INADDR_LOOPBACK) {
             in.sin_port = htons((uint16_t)local_port());
             return real(fd, (struct sockaddr *)&in, sizeof(in));
         }

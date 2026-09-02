@@ -81,7 +81,7 @@ against Java, and verified in Java's database afterwards.
 |---|---|---|
 | create | `POST departments/create {name, branch_ids:[292]}` | 201 `تم إنشاء القسم`, row 969 written, list refreshed with the new row first |
 | update | `PUT departments/update?id=969 {name: ... RENAMED}` | 200 `تم تحديث القسم`, list row renamed |
-| delete | `DELETE departments/delete?id=932` | 200 `تم تعطيل القسم`, `is_active` 1 -> 0, row disappears from the list |
+| delete | `DELETE departments/delete?id=969` | 200 `تم تعطيل القسم`, `is_active` 1 -> 0, row disappears from the list |
 | upload | `POST company/upload_logo` (multipart, real GTK file chooser) | 200 `تم رفع الشعار`, file written under `java-uploads/logos/` |
 | image load | the stored `logo_url` | the current logo renders in the profile page |
 | logout | `POST profile/logout` | 200, app returns to a cleared login screen |
@@ -89,10 +89,46 @@ against Java, and verified in Java's database afterwards.
 The writes landed in `workin_java` only; the PHP copy was checked and unchanged,
 which also confirms the two databases stay isolated during a UI session.
 
-**The delete hit id 932 rather than the record just created.** The list re-sorts
-after an update, so the scripted click landed on a different row. That is a
-defect in the driving script, not in either stack -- the flow itself is verified
-by the request, the response and the row's `is_active` going to 0.
+All three legs act on the **same** record. An earlier run's delete hit id 932
+instead, because the script clicked a fixed screen position and the list had
+re-sorted underneath it; that was a defect in the driving script, not in either
+stack. `drive-desktop-crud.py` now takes the id from the create response, forces
+a server refetch through the in-app refresh button before each action, and
+asserts that the `update` and `delete` requests the app actually sent carry that
+id -- the run above is the re-run, and it reports `update carried id=969` and
+`delete carried id=969`. Two things had to stop being assumed to get there: the
+kebab-menu column moves horizontally when a name grows (the rename shifted it
+from x=467 to x=410 and the delete click landed on empty canvas), so the script
+locates the glyph by its colour instead; and the app does **not** re-fetch after
+a create, it splices the new row in locally.
+
+Row 1 is the right row by the endpoint's own contract, not by luck:
+`departments/list.php` ends `ORDER BY created_at DESC, id DESC`, and the rename
+does not touch `created_at`.
+
+## A legacy behaviour the runtime run exposed (not a divergence)
+
+The departments screen has a search box. Typing in it and submitting produces
+`GET departments/list?page=1&limit=20&search=<term>` -- and **both** stacks
+return the full, unfiltered list. Checked directly against each:
+
+| request | PHP | Java |
+|---|---|---|
+| `search=Marketing` | 10 rows, unfiltered | 11 rows, unfiltered |
+| `search=RuntimeVerify` | 10 rows, unfiltered | 11 rows, unfiltered |
+
+(The row-count difference is only the extra department this journey created in
+`workin_java`; the two databases are seeded separately.)
+
+`departments/list.php` builds `$where_conditions` from `is_active`, `company_id`
+and the branch filters and never reads `search`, so the parameter is accepted and
+ignored. Java reproduces that faithfully. Classification: **existing client
+defect against legacy behaviour that the port preserves correctly** -- not a Java
+parity defect, and not something to "fix" in Java without a product decision,
+since doing so would change behaviour the PHP stack has never had.
+
+It is recorded here because it was found at runtime and it is the reason the CRUD
+driver cannot use search to isolate a row.
 
 ## The one divergence the real client exposed
 

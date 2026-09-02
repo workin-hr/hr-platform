@@ -1,6 +1,6 @@
 {
  "client": "workin_desktop",
- "parameter_classes": 166,
+ "parameter_classes": 169,
  "endpoints_declared": 183,
  "endpoints_referenced": 178,
  "declared_not_referenced": [
@@ -84,7 +84,17 @@
    "multipart": true,
    "response_type": "json",
    "query_keys": [],
-   "body_keys": [],
+   "body_keys": [
+    "commercial_reg",
+    "company_activity_id",
+    "company_code",
+    "company_id",
+    "company_name",
+    "company_size_id",
+    "company_title_id",
+    "logo",
+    "main_branch_address"
+   ],
    "model": "CompanyAuthResponse"
   },
   {
@@ -1522,7 +1532,10 @@
    "multipart": false,
    "response_type": "json",
    "query_keys": [],
-   "body_keys": [],
+   "body_keys": [
+    "body",
+    "title"
+   ],
    "model": "BaseResponse"
   },
   {
@@ -1537,7 +1550,11 @@
    "query_keys": [
     "id"
    ],
-   "body_keys": [],
+   "body_keys": [
+    "body",
+    "is_active",
+    "title"
+   ],
    "model": "BaseResponse"
   },
   {
