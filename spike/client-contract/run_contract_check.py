@@ -75,18 +75,33 @@ def decode(status: int, text: str):
 def main() -> None:
     contracts = json.loads(Path(sys.argv[1]).read_text())
     evaluator = Evaluator(contracts['models'])
+    out_path = sys.argv[2] if len(sys.argv) > 2 else 'desktop-read-results.json'
 
-    company_phone = sql('workin', "SELECT phone FROM workin.companies WHERE id=214")
-    credentials = {'phone': company_phone, 'password': 'harness-only-Pass123!',
-                   'login_as': 'company', 'country_code': '+20'}
+    # Each client authenticates the way it actually does: the desktop app opens
+    # a COMPANY session through auth/login_desktop, the mobile app an EMPLOYEE
+    # session through auth/login_employee. Using one client's session for the
+    # other would test a request neither of them sends.
+    mobile = any(c['path'] == 'auth/login_employee' for c in contracts['calls']) and \
+        not any(c['path'] == 'auth/login_desktop' for c in contracts['calls'])
+    if mobile:
+        auth_path, auth_model = 'auth/login_employee', 'EmployeeAuthResponse'
+        credentials = {'phone': '+201999000002', 'password': 'harness-only-Pass123!'}
+    else:
+        auth_path, auth_model = 'auth/login_desktop', 'CompanyAuthResponse'
+        credentials = {'phone': sql('workin', "SELECT phone FROM workin.companies WHERE id=214"),
+                       'password': 'harness-only-Pass123!',
+                       'login_as': 'company', 'country_code': '+20'}
+    if auth_model not in contracts['models']:
+        auth_model = next((c['model'] for c in contracts['calls']
+                           if c['path'] == auth_path and c['model']), None)
 
     tokens = {}
     for label, base in (('php', PHP), ('java', JAVA)):
-        status, text = request(base, 'POST', 'auth/login_desktop', None, body=credentials)
+        status, text = request(base, 'POST', auth_path, None, body=credentials)
         payload = decode(status, text)
-        verdict = evaluator.parse('CompanyAuthResponse', payload)
+        verdict = evaluator.parse(auth_model, payload) if auth_model else {'verdict': 'no model'}
         token = (payload.get('data') or {}).get('token') if isinstance(payload, dict) else None
-        print(f'  auth/login_desktop  {label:4} status={status} '
+        print(f'  {auth_path:20} {label:4} status={status} '
               f'client-parse={verdict["verdict"]} token={"yes" if token else "NO"}')
         if not token:
             raise SystemExit(f'FATAL: {label} did not return a token; '
@@ -137,13 +152,23 @@ def main() -> None:
     # profile/employee is employee-scoped: a company session is refused 401,
     # and a 401 makes the client log the user out. The desktop client reaches it
     # in its HR/employee session, so that is the session used for it.
-    employee_tokens = {}
-    employee_credentials = {'phone': '+201999000002', 'password': 'harness-only-Pass123!'}
-    for label, base in (('php', PHP), ('java', JAVA)):
-        status, text = request(base, 'POST', 'auth/login_employee', None, body=employee_credentials)
-        payload = decode(status, text)
-        if isinstance(payload, dict):
-            employee_tokens[label] = (payload.get('data') or {}).get('token')
+    #
+    # Minted ONCE, and reused when the primary session is already this employee.
+    # auth/login_employee bumps token_version, so logging in a second time as
+    # the same employee invalidates the first token -- the mobile pass then
+    # answered "Signed in from another device" on 18 of 22 endpoints, which
+    # looked like a parity result and was this harness invalidating itself.
+    if mobile:
+        employee_tokens = dict(tokens)
+    else:
+        employee_tokens = {}
+        employee_credentials = {'phone': '+201999000002', 'password': 'harness-only-Pass123!'}
+        for label, base in (('php', PHP), ('java', JAVA)):
+            status, text = request(base, 'POST', 'auth/login_employee', None,
+                                   body=employee_credentials)
+            payload = decode(status, text)
+            if isinstance(payload, dict):
+                employee_tokens[label] = (payload.get('data') or {}).get('token')
     EMPLOYEE_SESSION = {'profile/employee'}
 
     ids = {
@@ -174,8 +199,8 @@ def main() -> None:
                 verdict = evaluator.parse(call['model'], payload)
                 row[label] = {'status': status, **verdict, 'body': text[:4000]}
         results.append(row)
-    Path('desktop-read-results.json').write_text(json.dumps(results, indent=1))
-    print(f'\n{len(results)} GET contracts replayed -> desktop-read-results.json')
+    Path(out_path).write_text(json.dumps(results, indent=1))
+    print(f'\n{len(results)} GET contracts replayed -> {out_path}')
 
 
 if __name__ == '__main__':

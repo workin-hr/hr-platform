@@ -19,7 +19,8 @@ executed -- see "Why runtime is zero" below.
 | **Runtime client verified** | **0** — blocked, see below |
 
 The 183 declared constants are **not** the denominator.
-5 are declared and never referenced:
+5 are declared and never referenced by any
+screen, so they are excluded from what a client run could exercise:
 
 - `getOfficialHolidayEndpoint`
 - `getWorkforcePlanningSummaryEndpoint`
@@ -140,9 +141,9 @@ or defaulted. Nothing here asks for a Java change.
 ### 2. `company/upload_commercial_reg` -- a client defect, not a parity defect
 
 The client sends the multipart part named **`logo`**
-(`EditCompanyCommercialRegParameters.toBodyMap` -> `ApiConstants.logoKey`,
-and `HttpHelper.multipartRequest` uses each body-map key as the field name).
-The endpoint reads `UploadMultipart::FILE`, i.e. **`file`**.
+(`EditCompanyCommercialRegParameters.toBodyMap` -> `ApiConstants.logoKey`, and
+`HttpHelper.multipartRequest` uses each body-map key as the field name). The
+endpoint reads `UploadMultipart::FILE`, i.e. **`file`**.
 
 Measured with the request the client actually sends:
 
@@ -152,32 +153,15 @@ part `file`   php 200 uploaded             java 200 uploaded
 ```
 
 **Both stacks behave identically**, so the migration neither causes nor fixes
-it. Recorded as a pre-existing client/server mismatch. The client is left
-unchanged: PHP and Java do not differ here, so nothing about this is a
-migration decision.
+it. The client is left unchanged: PHP and Java do not differ here, so nothing
+about it is a migration decision.
 
-### 3. Client-visible behaviours worth knowing, identical on both stacks
-
-- **A 401 logs the user out.** `HttpHelper._handleResponse` calls
-  `changeCurrentCompany(null)` on any 401, so an endpoint that answers 401
-  where the other stack answers 403 would eject the user. None does.
-- **An empty 2xx body becomes `{}`**, not a parse error -- so a response like
-  R-038's empty body reaches the model as an absent `data`, which is a blank
-  screen for most models and a **throw** for the three that write
-  `getModel(...)!`.
-- **`attendance/list` picks its parser from `meta.full_month`.** The client
-  parses `data` as calendar days when it is true and as attendance records
-  otherwise. Both stacks agree on the flag, so both take the same branch.
-- **`payslips/one` answers the raw key `payslip_not_found`** as its message on
-  both stacks -- legacy behaviour, faithfully reproduced, shown to the user as
-  written.
-
-### 4. The three `getModel(...)!` sites are safe
+### 3. The three `getModel(...)!` sites are safe
 
 `dashboard/stats`, `employees/stats` and `configs/get` throw in the client if
 `data` is not a JSON object. Checked explicitly because **D-156** changed how
-Java renders an empty structure: `data` is an object on both stacks, and
-dashboard's eight `(object)[]` keys stay objects on both while
+Java renders an empty structure: `data` is an object on both stacks,
+dashboard's eight `(object)[]` keys stay objects on both, and
 `workforce_planning_stats` stays a list on both.
 
 ## Why runtime is zero
