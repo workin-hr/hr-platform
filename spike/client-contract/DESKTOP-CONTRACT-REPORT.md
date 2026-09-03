@@ -3,8 +3,10 @@
 **This is a contract layer, not a runtime one.** It proves what the desktop
 client's own parsers would do with each stack's bytes. It verifies **nothing**
 about rendering, navigation, the file picker, downloads to disk, OS
-integration, or any other runtime UI behaviour. The real application was not
-executed -- see "Why runtime is zero" below.
+integration, or any other runtime UI behaviour, because this layer executes
+nothing -- it replays recorded bytes through the parsers. Whether the real
+application was ever run is a separate measurement: see "Runtime status for
+this client" below.
 
 ## Coverage, with the denominators kept apart
 
@@ -16,7 +18,11 @@ executed -- see "Why runtime is zero" below.
 | Contracts statically derived from client source | 178 |
 | Client parsers extracted | 137 |
 | **Contracts replayed against PHP and Java** | **89** |
-| **Runtime client verified** | **0** — blocked, see below |
+| **Contracts replayed by THIS layer** | **89** |
+
+This layer replays contracts; it executes nothing. The runtime verdict for
+this client is a separate measurement with its own evidence in
+`spike/client-runtime` — see the runtime status line below.
 
 The 183 declared constants are **not** the denominator.
 5 are declared and never referenced by any
@@ -164,27 +170,22 @@ Java renders an empty structure: `data` is an object on both stacks,
 dashboard's eight `(object)[]` keys stay objects on both, and
 `workforce_planning_stats` stays a list on both.
 
-## Why runtime is zero
+## Runtime status for this client
 
-The real application was not executed, and could not be on this machine:
+**Verified separately.** The real desktop application was built from
+unmodified source and executed against the local Java backend through its
+own hardcoded URL: login, navigation, create/update/delete, a multipart
+upload through the real file chooser, and logout. Evidence and setup are in
+`spike/client-runtime/DESKTOP-RUNTIME-REPORT.md`.
 
-| requirement | state |
-|---|---|
-| Flutter/Dart SDK | not installed |
-| Linux desktop toolchain | GTK3 headers, cmake, ninja, clang absent; no root |
-| prebuilt desktop binary | none in the checkout |
-| redirect `workin.company` to a local Java | `/etc/hosts` read-only; user namespaces denied; `bwrap` denied |
-| build-time URL override | none -- `ApiConstants.baseUrl` is a hardcoded `const` |
-
-The clients are pinned read-only submodules and were **not** modified. Runtime
-verification belongs on a machine with the Flutter toolchain and control of the
-test hostname.
+The clients are pinned read-only submodules and were **not** modified for
+either layer.
 
 ## What this does not cover
 
 - rendering, widget state, navigation between screens
 - the file picker, downloads written to disk, OS integration, auto-update
-- the four `ResponseType.bytes` endpoints (template/report downloads): the
-  client treats them as raw bytes, so there is no parser to check here
+- the 4 `ResponseType.bytes` endpoints (downloads): the client
+  treats them as raw bytes, so there is no parser to check here
 - endpoints whose request shape needs state this harness does not seed
 - anything about the mobile client, which is a separate pass
