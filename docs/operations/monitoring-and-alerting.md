@@ -128,6 +128,9 @@ prerequisite 10 requires the audit row to be written in the same transaction as
 the action, which makes "action without audit row" a condition that cannot
 occur rather than one to alert on.
 
+| MFA encryption key missing or wrong | Enrolment and TOTP verification fail with "not configured" or a decrypt failure; login is unaffected until the surface demands a second factor | `app.platform-admin.mfa.encryption-key` unset, or rotated without re-encrypting. Seeds are unreadable without it — **losing this key loses every enrolled factor**, so it belongs in the same backup and custody regime as the database, held separately from it |
+| MFA key rotated | Rows still carry the old `seed_key_version` | Re-encrypt those rows before retiring the old key; the version column exists so this can be done incrementally rather than all at once |
+
 **Capacity note:** one row per live admin session, in a population of
 individually provisioned platform administrators (**F-26**). This is not a
 volume signal; it is a correctness one.
