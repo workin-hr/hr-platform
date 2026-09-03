@@ -46,6 +46,9 @@ class PlatformAdminBootstrapTest extends AbstractIntegrationTest {
 		JdbcTemplate jdbc = new JdbcTemplate(flywayDataSource);
 		jdbc.update("DELETE FROM platform_admin_refresh_tokens");
 		jdbc.update("DELETE FROM platform_admin_audit_events");
+		jdbc.update("DELETE FROM platform_admin_step_up_approvals");
+		jdbc.update("DELETE FROM platform_admin_mfa_bootstrap_tokens");
+		jdbc.update("DELETE FROM platform_admin_mfa");
 		jdbc.update("DELETE FROM platform_admins");
 		String phone = "+2099" + System.nanoTime() % 100_000_000L;
 		PlatformAdminBootstrap bootstrap = new PlatformAdminBootstrap(

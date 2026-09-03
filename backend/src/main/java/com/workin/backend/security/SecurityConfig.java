@@ -40,6 +40,17 @@ public class SecurityConfig {
 		return new BCryptPasswordEncoder();
 	}
 
+	/**
+	 * The platform-admin API's unauthenticated routes. Same reasoning as
+	 * {@code PlatformAdminWebSecurityConfig.PUBLIC_PATHS}: checked against the
+	 * handlers' {@code @PublicUseCase} declarations by
+	 * {@code SecurityPolicyAgreementTest}, so this list cannot drift from what
+	 * the controllers say about themselves.
+	 */
+	public static final String[] PLATFORM_ADMIN_API_PUBLIC_PATHS = {
+		"/api/platform-admin/login", "/api/platform-admin/refresh", "/api/platform-admin/logout",
+	};
+
 	@Bean
 	@Order(1)
 	@Profile("!phase1-mysql")
@@ -56,8 +67,7 @@ public class SecurityConfig {
 				.authenticationEntryPoint(apiSecurityErrorHandler)
 				.accessDeniedHandler(apiSecurityErrorHandler))
 			.authorizeHttpRequests(authorize -> authorize
-				.requestMatchers("/api/platform-admin/login", "/api/platform-admin/refresh",
-						"/api/platform-admin/logout").permitAll()
+				.requestMatchers(PLATFORM_ADMIN_API_PUBLIC_PATHS).permitAll()
 				.anyRequest().authenticated())
 			.addFilterBefore(
 				new PlatformAdminAuthenticationFilter(

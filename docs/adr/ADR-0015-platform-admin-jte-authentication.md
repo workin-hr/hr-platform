@@ -394,6 +394,56 @@ are both answered and implemented:
     this surface or explicitly deferred. It is unimplemented on both surfaces
     today, so this ADR does not create the gap.
 
+## Implementation Status
+
+Added 2026-09-03 (**D-160**), when Phase 1 closed and work on this surface
+began; updated as prerequisites closed. This section records what exists; it
+does not amend the decision or the prerequisites above.
+
+**All thirteen implementation prerequisites are now closed except 7, which is a
+deployment condition rather than a code one.**
+
+| Prerequisite | Where |
+|---|---|
+| 1 — TOTP, enrolment, recovery, seed custody | `Totp` (checked against RFC 6238's published vectors), `TotpSeedCipher` (AES-256-GCM under a key from the deployment's secret store, the administrator's id as AEAD data so a ciphertext cannot be moved between rows, a key version so rotation is incremental), and `PlatformAdminMfaService` for D-152's ceremony. **Recovery is bootstrap-token reissuance**: issuing invalidates any outstanding token immediately, a bound factor is reset to unbound, the old seed stops working, every live session is ended when the new factor binds, and issuance/revocation/reset/use are each audited. Recovery is deliberately the *same* ceremony, which is what stops it becoming a second, weaker enrolment path |
+| 2 — Step-up with all four bounds | `PlatformAdminStepUpService`. Maximum age five minutes; single use decided by the database (`consumed_at IS NULL` in the UPDATE, not a read-then-write, proven by eight concurrent attempts spending it once); bound to the canonical action and to the target; and bound to a digest of the security-relevant parameters, **recomputed server-side** from the request about to be performed. The canonical form is length-prefixed, so two adjacent attacker-controlled parameters cannot shift a boundary to collide |
+| 3 — Throttling on both steps | `PlatformAdminLoginThrottle`, in the shared service both surfaces authenticate through. Misses cost the same as hits (fixed dummy hash) and spend the same budget; the TOTP step has its own namespaced budget on the UI and the API |
+| 4 — Session bounds, both halves | 30-minute idle timeout, non-renewable 8-hour absolute cap on the UI session; a seven-day non-sliding cap on API token families, with the successor refresh token and the issued access token both clamped to the family's remaining life |
+| 5 — CSRF and a tested chain boundary | `PlatformAdminWebSecurityConfig` with its own `securityMatcher`; `PlatformAdminWebChainCoverageTest` enumerates the handler registry, and `SecurityPolicyAgreementTest` asserts the chain's `permitAll` list equals the handlers' own `@PublicUseCase` declarations in both directions |
+| 6 — Session-cookie flags | Pinned in configuration, asserted over real HTTP |
+| 8 — MFA on the bearer login | `POST /api/platform-admin/login` now requires the TOTP code with the credentials, and refuses an administrator with no bound factor outright. One request, not a challenge exchange: a challenge token would be a second credential lifecycle invented to avoid adding a field |
+| 9 — Per-request active-admin revalidation on the cookie chain | `PlatformAdminSessionRevalidationFilter` |
+| 10 — Audit coverage for administrative actions | Structured target and step-up reference; event types for the company operations and the bootstrap-token lifecycle; `recordAction(...)` is `MANDATORY`, so an action cannot commit without its audit row, while authentication events stay `REQUIRES_NEW` so they survive the 401 that follows them. **Retention: decided below** |
+| 11 — Session storage across workers | Spring Session JDBC; logout is asserted to delete the shared row |
+| 12 — TOTP codes single-use | Last accepted time step recorded per administrator; anything at or below it refused |
+| 13 — List and revoke sessions individually | **Delivered, not deferred.** `/admin/sessions` lists the caller's browser sessions and revokes them one at a time, ownership re-checked server-side. Browser sessions and API token families are listed separately because revoking one does not affect the other, and a combined list would say otherwise |
+
+### Retention (prerequisite 10)
+
+**Platform-admin audit events are retained indefinitely. There is no scheduled
+deletion, and adding one requires an explicit decision, not a job.**
+
+This surface exists because the shared admin password had no audit trail at all
+(`hr-legacy#11`, F-26). The population is a handful of individually provisioned
+administrators, so the volume is negligible and the evidential value is the
+whole point — a retention window here buys nothing and destroys the only record
+of who did what.
+
+Deliberately different from the two operational tables alongside it:
+`platform_admin_login_attempts` and `platform_admin_step_up_approvals` **are**
+purged, because rows past their window cannot affect a decision and an
+unauthenticated caller controls how many appear.
+
+### Prerequisite 7 is the one still open, and it is not code
+
+The legacy PHP admin surface must be unreachable before this surface performs a
+privileged operation (D-152). Nothing in the application can verify that, so
+administrative actions are behind `app.platform-admin.actions.enabled`, which
+**defaults to false** and is pinned closed by a test. Turning it on is a
+deliberate cutover step taken once the PHP surface is confirmed unreachable.
+
+Until then the company pages render read-only and say so.
+
 ## Open Questions
 
 None blocking. The filter-chain question an earlier draft left open is

@@ -108,6 +108,37 @@ and reviewable. Evidence may include:
 If a signal is expected but there is no evidence that it can be observed or
 routed, leave it open rather than implying coverage.
 
+## Platform-Admin Web Surface (ADR-0015)
+
+Concrete signals for the surface added in **D-160**, recorded here because the
+change introduces a runtime dependency the application did not previously have.
+
+| Failure | What an operator sees | Where |
+|---|---|---|
+| Session store unreachable | Every `/admin` request bounces to the login page and login never sticks; the API surfaces are unaffected because they stay stateless | Application log: `JdbcIndexedSessionRepository` / datasource errors on the primary datasource |
+| `spring_session` missing or unmigrated | Startup succeeds, first admin login fails with a SQL error | Flyway history missing `V46`; application log at first `/admin/login` POST |
+| Sessions accumulating | `spring_session` row count grows without bound | Spring Session's own cleanup job deletes expired rows on a schedule; a stuck job shows as rows with `expiry_time` in the past |
+| Administrator deactivated but still active | Should be impossible: the session is revalidated per request | `PlatformAdminSessionRevalidationFilter`; regression coverage in `PlatformAdminWebSessionTest` |
+| Administrator locked out by throttling | They report "invalid credentials" for a password they know is right | `platform_admin_audit_events` shows the `LOGIN_FAILED` run; `platform_admin_login_attempts` holds 8 rows inside the 15-minute window for their identifier. The lockout clears itself when the window passes, or immediately on a successful login |
+| Throttle table growing | `platform_admin_login_attempts` row count climbing steadily | An unauthenticated caller can add a row per attempt with a fresh identifier. `PlatformAdminLoginAttemptCleanup` deletes rows past the window every 10 minutes on every worker; growth despite that means the scheduler is not running |
+
+The surface performs no administrative action yet, so there is no
+administrative-action audit signal to watch. When one is added, ADR-0015
+prerequisite 10 requires the audit row to be written in the same transaction as
+the action, which makes "action without audit row" a condition that cannot
+occur rather than one to alert on.
+
+| MFA encryption key missing or wrong | Enrolment and TOTP verification fail with "not configured" or a decrypt failure; login is unaffected until the surface demands a second factor | `app.platform-admin.mfa.encryption-key` unset, or rotated without re-encrypting. Seeds are unreadable without it — **losing this key loses every enrolled factor**, so it belongs in the same backup and custody regime as the database, held separately from it |
+| MFA key rotated | Rows still carry the old `seed_key_version` | Re-encrypt those rows before retiring the old key; the version column exists so this can be done incrementally rather than all at once |
+
+| Administrative actions refused as disabled | Operators see "Administrative actions are disabled on this deployment" | `app.platform-admin.actions.enabled` is false, which is the shipped default. It is turned on only after the legacy PHP admin surface is confirmed unreachable (ADR-0015 prerequisite 7, D-152) |
+| A step-up approval minted but never spent | A `STEP_UP_APPROVED` audit row with no matching action row referencing it | Normal if an operator changed their mind; a run of them is worth looking at. Approvals expire after five minutes and are purged |
+| Audit rows growing | `platform_admin_audit_events` grows and is never trimmed | Intended. Retention is indefinite by decision (D-161) — this table is the evidence the shared-password model never had. The purged tables are `platform_admin_login_attempts` and `platform_admin_step_up_approvals` |
+
+**Capacity note:** one row per live admin session, in a population of
+individually provisioned platform administrators (**F-26**). This is not a
+volume signal; it is a correctness one.
+
 ## Open Questions
 
 - Which signals are mandatory for MVP versus optional for later phases?

@@ -43,14 +43,28 @@ public class PlatformAdminRefreshToken {
 	@Column(name = "expires_at", nullable = false)
 	private Instant expiresAt;
 
+	/**
+	 * When this family first authenticated. Copied forward on every rotation so
+	 * the absolute cap cannot be reset by rotating, and cannot be lost if
+	 * rotated rows are ever pruned (ADR-0015 prerequisite 4).
+	 */
+	@Column(name = "family_started_at", nullable = false)
+	private Instant familyStartedAt;
+
 	protected PlatformAdminRefreshToken() {
 	}
 
-	public PlatformAdminRefreshToken(Long platformAdminId, UUID familyId, String tokenHash, Instant expiresAt) {
+	public PlatformAdminRefreshToken(Long platformAdminId, UUID familyId, String tokenHash,
+			Instant expiresAt, Instant familyStartedAt) {
 		this.platformAdminId = platformAdminId;
 		this.familyId = familyId;
 		this.tokenHash = tokenHash;
 		this.expiresAt = expiresAt;
+		this.familyStartedAt = familyStartedAt;
+	}
+
+	public Instant getFamilyStartedAt() {
+		return familyStartedAt;
 	}
 
 	public Long getId() {

@@ -49,7 +49,27 @@ public class PlatformAdminJwtService {
 	}
 
 	public String issueAccessToken(Long platformAdminId, String sessionId) {
+		return issueAccessToken(platformAdminId, sessionId, Instant.MAX);
+	}
+
+	/**
+	 * Issues an access token that cannot outlive {@code notAfter}.
+	 *
+	 * <p>ADR-0015 prerequisite 4: without the clamp, an access token minted just
+	 * before a refresh-token family hits its absolute cap stays valid for its
+	 * full TTL past that cap -- so the cap bounds the ability to *refresh* while
+	 * leaving a live credential behind it, which is not a cap.
+	 */
+	public String issueAccessToken(Long platformAdminId, String sessionId, Instant notAfter) {
 		Instant now = Instant.now();
+		Instant expiry = now.plus(accessTokenTtlSeconds, ChronoUnit.SECONDS);
+		if (notAfter.isBefore(expiry)) {
+			expiry = notAfter;
+		}
+		return issueAccessToken(platformAdminId, sessionId, now, expiry);
+	}
+
+	private String issueAccessToken(Long platformAdminId, String sessionId, Instant now, Instant expiry) {
 		return Jwts.builder()
 				.subject(String.valueOf(platformAdminId))
 				.claim("sid", sessionId)
@@ -57,7 +77,7 @@ public class PlatformAdminJwtService {
 				.issuer(ISSUER)
 				.audience().add(AUDIENCE).and()
 				.issuedAt(Date.from(now))
-				.expiration(Date.from(now.plus(accessTokenTtlSeconds, ChronoUnit.SECONDS)))
+				.expiration(Date.from(expiry))
 				.signWith(signingKey)
 				.compact();
 	}
