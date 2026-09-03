@@ -85,9 +85,9 @@ public class DeviceManagementService {
 	 * Registers a serial to a branch of this company.
 	 *
 	 * <p>Claiming is first-come and global, which is a known limitation
-	 * (R-041): the protocol has no proof of possession, so this is a
+	 * (R-042): the protocol has no proof of possession, so this is a
 	 * supervised-pilot arrangement and production is to move allocation to
-	 * platform staff (D-159).
+	 * platform staff (D-165).
 	 */
 	public AttendanceDevice claim(long companyId, long actorEmployeeId, Map<String, Object> body) {
 		String serialNumber = requiredSerialNumber(body.get("serial_number"));
@@ -97,7 +97,7 @@ public class DeviceManagementService {
 		// One transaction over the insert, the sighting cleanup and the read
 		// back. Previously the insert committed on its own, so a failure in
 		// either later step answered 500 while the serial was already owned --
-		// and with no unclaim path (R-041) the caller was left needing a
+		// and with no unclaim path (R-042) the caller was left needing a
 		// manual database correction for a claim they were never told about.
 		return transactions.execute(status -> {
 			Optional<Long> id = devices.claim(

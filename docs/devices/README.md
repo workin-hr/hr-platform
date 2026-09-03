@@ -22,11 +22,11 @@ Use this area for attendance-device vendor analysis, protocol notes, certificati
   — the full design for the ZKTeco ADMS push receiver across branches,
   including the hardware checklist (§4.3) that turns documentation evidence
   into hardware evidence and the decisions the repository owner still has to
-  make (§12). Resolved ADR-0006 Part B (D-158, accepted 2026-09-02).
+  make (§12). Resolved ADR-0006 Part B (D-164, accepted 2026-09-02).
 
 ## Status
 
 Hardware access still blocks final validation only. It does not block the
 vendor-neutral core, which ADR-0006 Part A already authorises, nor building
-the ZKTeco adapter against the documented protocol, which D-158 (accepted
+the ZKTeco adapter against the documented protocol, which D-164 (accepted
 2026-09-02) authorises; it blocks declaring the adapter verified.

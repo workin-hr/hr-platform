@@ -24,7 +24,7 @@ import com.workin.legacy.auth.LegacyRequestGuard;
 import com.workin.legacy.employees.LegacyEmployee;
 
 /**
- * The tenant surface for attendance devices (Q6, D-158): claim a terminal,
+ * The tenant surface for attendance devices (Q6, D-164): claim a terminal,
  * bind PINs to employees, and see what has arrived.
  *
  * <p>This class owns authentication and presentation only -- the guard order
@@ -132,7 +132,7 @@ public class DeviceManagementController {
 		view.put("last_seen_at", device.lastSeenAt());
 		view.put("last_handshake_at", device.lastHandshakeAt());
 		view.put("last_seen_ip", device.lastSeenIp());
-		// Recorded from the device and never returned to it (D-160); surfaced
+		// Recorded from the device and never returned to it (D-166); surfaced
 		// here so "diagnostic" means an operator can actually read it.
 		view.put("last_attlog_stamp", device.lastAttlogStamp());
 		view.put("created_at", device.createdAt());

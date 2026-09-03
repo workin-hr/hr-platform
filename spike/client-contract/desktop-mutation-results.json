@@ -1,0 +1,574 @@
+[
+ {
+  "path": "attendance/create",
+  "method": "POST",
+  "model": "AttendanceResponse",
+  "expect": 201,
+  "query": {},
+  "php": {
+   "status": 201,
+   "verdict": "parses",
+   "blank_fields": [
+    "AttendanceResponse.attendanceModel.employeeCode (null for 'employee_code')",
+    "AttendanceResponse.attendanceModel.shiftName (null for 'shift_name')",
+    "AttendanceResponse.attendanceModel.expectedDurationMinutes (null for 'expected_duration_minutes')",
+    "AttendanceResponse.attendanceModel.exceptionTypeId (null for 'exception_type_id')",
+    "AttendanceResponse.attendanceModel.exceptionTypeName (null for 'exception_type_name')",
+    "AttendanceResponse.attendanceModel.date (null for 'date')",
+    "AttendanceResponse.attendanceModel.isMissing (null for 'is_missing')",
+    "AttendanceResponse.attendanceModel.isWeeklyRest (null for 'is_weekly_rest')",
+    "AttendanceResponse.attendanceModel.isOfficialHoliday (null for 'is_official_holiday')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 201,
+   "verdict": "parses",
+   "blank_fields": [
+    "AttendanceResponse.attendanceModel.employeeCode (null for 'employee_code')",
+    "AttendanceResponse.attendanceModel.shiftName (null for 'shift_name')",
+    "AttendanceResponse.attendanceModel.expectedDurationMinutes (null for 'expected_duration_minutes')",
+    "AttendanceResponse.attendanceModel.exceptionTypeId (null for 'exception_type_id')",
+    "AttendanceResponse.attendanceModel.exceptionTypeName (null for 'exception_type_name')",
+    "AttendanceResponse.attendanceModel.date (null for 'date')",
+    "AttendanceResponse.attendanceModel.isMissing (null for 'is_missing')",
+    "AttendanceResponse.attendanceModel.isWeeklyRest (null for 'is_weekly_rest')",
+    "AttendanceResponse.attendanceModel.isOfficialHoliday (null for 'is_official_holiday')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "attendance/update",
+  "method": "PUT",
+  "model": "AttendanceResponse",
+  "expect": 200,
+  "query": {
+   "id": "1571"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "AttendanceResponse.attendanceModel.employeeCode (null for 'employee_code')",
+    "AttendanceResponse.attendanceModel.shiftName (null for 'shift_name')",
+    "AttendanceResponse.attendanceModel.expectedDurationMinutes (null for 'expected_duration_minutes')",
+    "AttendanceResponse.attendanceModel.exceptionTypeId (null for 'exception_type_id')",
+    "AttendanceResponse.attendanceModel.exceptionTypeName (null for 'exception_type_name')",
+    "AttendanceResponse.attendanceModel.date (null for 'date')",
+    "AttendanceResponse.attendanceModel.isMissing (null for 'is_missing')",
+    "AttendanceResponse.attendanceModel.isWeeklyRest (null for 'is_weekly_rest')",
+    "AttendanceResponse.attendanceModel.isOfficialHoliday (null for 'is_official_holiday')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "AttendanceResponse.attendanceModel.employeeCode (null for 'employee_code')",
+    "AttendanceResponse.attendanceModel.shiftName (null for 'shift_name')",
+    "AttendanceResponse.attendanceModel.expectedDurationMinutes (null for 'expected_duration_minutes')",
+    "AttendanceResponse.attendanceModel.exceptionTypeId (null for 'exception_type_id')",
+    "AttendanceResponse.attendanceModel.exceptionTypeName (null for 'exception_type_name')",
+    "AttendanceResponse.attendanceModel.date (null for 'date')",
+    "AttendanceResponse.attendanceModel.isMissing (null for 'is_missing')",
+    "AttendanceResponse.attendanceModel.isWeeklyRest (null for 'is_weekly_rest')",
+    "AttendanceResponse.attendanceModel.isOfficialHoliday (null for 'is_official_holiday')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "attendance/delete",
+  "method": "DELETE",
+  "model": "BaseResponse",
+  "expect": 200,
+  "query": {
+   "id": "1571"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "employees/create",
+  "method": "POST",
+  "model": "EmployeeResponse",
+  "expect": 201,
+  "query": {},
+  "php": {
+   "status": 201,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeResponse.employeeModel.permissionsMap (no 'permissions' map)",
+    "EmployeeResponse.employeeModel.rawName (null for 'name')",
+    "EmployeeResponse.employeeModel.countryCode (null for 'country_code')",
+    "EmployeeResponse.employeeModel.phone (null for 'phone')",
+    "EmployeeResponse.employeeModel.nationalId (null for 'national_id')",
+    "EmployeeResponse.employeeModel.birthDate (null for 'birth_date')",
+    "EmployeeResponse.employeeModel.address (null for 'address')",
+    "EmployeeResponse.employeeModel.contractDurationMonths (null for 'contract_duration_months')",
+    "EmployeeResponse.employeeModel.basicSalary (null for 'basic_salary')",
+    "EmployeeResponse.employeeModel.grossSalary (null for 'gross_salary')"
+   ],
+   "notes": [
+    "EmployeeResponse.employeeModel.f: key expression ApiConstants.firstNameKey)?.trim( unresolved",
+    "EmployeeResponse.employeeModel.l: key expression ApiConstants.lastNameKey)?.trim( unresolved"
+   ],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 201,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeResponse.employeeModel.permissionsMap (no 'permissions' map)",
+    "EmployeeResponse.employeeModel.rawName (null for 'name')",
+    "EmployeeResponse.employeeModel.countryCode (null for 'country_code')",
+    "EmployeeResponse.employeeModel.phone (null for 'phone')",
+    "EmployeeResponse.employeeModel.nationalId (null for 'national_id')",
+    "EmployeeResponse.employeeModel.birthDate (null for 'birth_date')",
+    "EmployeeResponse.employeeModel.address (null for 'address')",
+    "EmployeeResponse.employeeModel.contractDurationMonths (null for 'contract_duration_months')",
+    "EmployeeResponse.employeeModel.basicSalary (null for 'basic_salary')",
+    "EmployeeResponse.employeeModel.grossSalary (null for 'gross_salary')"
+   ],
+   "notes": [
+    "EmployeeResponse.employeeModel.f: key expression ApiConstants.firstNameKey)?.trim( unresolved",
+    "EmployeeResponse.employeeModel.l: key expression ApiConstants.lastNameKey)?.trim( unresolved"
+   ],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "employees/update",
+  "method": "PUT",
+  "model": "EmployeeResponse",
+  "expect": 200,
+  "query": {
+   "id": "4507"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeResponse.employeeModel.permissionsMap (no 'permissions' map)",
+    "EmployeeResponse.employeeModel.rawName (null for 'name')"
+   ],
+   "notes": [
+    "EmployeeResponse.employeeModel.f: key expression ApiConstants.firstNameKey)?.trim( unresolved",
+    "EmployeeResponse.employeeModel.l: key expression ApiConstants.lastNameKey)?.trim( unresolved"
+   ],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeResponse.employeeModel.permissionsMap (no 'permissions' map)",
+    "EmployeeResponse.employeeModel.rawName (null for 'name')"
+   ],
+   "notes": [
+    "EmployeeResponse.employeeModel.f: key expression ApiConstants.firstNameKey)?.trim( unresolved",
+    "EmployeeResponse.employeeModel.l: key expression ApiConstants.lastNameKey)?.trim( unresolved"
+   ],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "employees/deactivate",
+  "method": "DELETE",
+  "model": "EmployeeResponse",
+  "expect": 200,
+  "query": {
+   "id": "4507"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeResponse.employeeModel.permissionsMap (no 'permissions' map)",
+    "EmployeeResponse.employeeModel.rawName (null for 'name')",
+    "EmployeeResponse.employeeModel.address (null for 'address')",
+    "EmployeeResponse.employeeModel.basicSalary (null for 'basic_salary')",
+    "EmployeeResponse.employeeModel.grossSalary (null for 'gross_salary')",
+    "EmployeeResponse.employeeModel.assignedShiftId (null for 'assigned_shift_id')",
+    "EmployeeResponse.employeeModel.assignedShiftName (null for 'assigned_shift_name')",
+    "EmployeeResponse.employeeModel.assignedShiftEffectiveFrom (null for 'assigned_shift_effective_from')"
+   ],
+   "notes": [
+    "EmployeeResponse.employeeModel.f: key expression ApiConstants.firstNameKey)?.trim( unresolved",
+    "EmployeeResponse.employeeModel.l: key expression ApiConstants.lastNameKey)?.trim( unresolved"
+   ],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeResponse.employeeModel.permissionsMap (no 'permissions' map)",
+    "EmployeeResponse.employeeModel.rawName (null for 'name')",
+    "EmployeeResponse.employeeModel.address (null for 'address')",
+    "EmployeeResponse.employeeModel.basicSalary (null for 'basic_salary')",
+    "EmployeeResponse.employeeModel.grossSalary (null for 'gross_salary')",
+    "EmployeeResponse.employeeModel.assignedShiftId (null for 'assigned_shift_id')",
+    "EmployeeResponse.employeeModel.assignedShiftName (null for 'assigned_shift_name')",
+    "EmployeeResponse.employeeModel.assignedShiftEffectiveFrom (null for 'assigned_shift_effective_from')"
+   ],
+   "notes": [
+    "EmployeeResponse.employeeModel.f: key expression ApiConstants.firstNameKey)?.trim( unresolved",
+    "EmployeeResponse.employeeModel.l: key expression ApiConstants.lastNameKey)?.trim( unresolved"
+   ],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "employees/reactivate",
+  "method": "PUT",
+  "model": "EmployeeResponse",
+  "expect": 200,
+  "query": {
+   "id": "4507"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeResponse.employeeModel.permissionsMap (no 'permissions' map)",
+    "EmployeeResponse.employeeModel.rawName (null for 'name')",
+    "EmployeeResponse.employeeModel.address (null for 'address')",
+    "EmployeeResponse.employeeModel.basicSalary (null for 'basic_salary')",
+    "EmployeeResponse.employeeModel.grossSalary (null for 'gross_salary')",
+    "EmployeeResponse.employeeModel.assignedShiftId (null for 'assigned_shift_id')",
+    "EmployeeResponse.employeeModel.assignedShiftName (null for 'assigned_shift_name')",
+    "EmployeeResponse.employeeModel.assignedShiftEffectiveFrom (null for 'assigned_shift_effective_from')"
+   ],
+   "notes": [
+    "EmployeeResponse.employeeModel.f: key expression ApiConstants.firstNameKey)?.trim( unresolved",
+    "EmployeeResponse.employeeModel.l: key expression ApiConstants.lastNameKey)?.trim( unresolved"
+   ],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeResponse.employeeModel.permissionsMap (no 'permissions' map)",
+    "EmployeeResponse.employeeModel.rawName (null for 'name')",
+    "EmployeeResponse.employeeModel.address (null for 'address')",
+    "EmployeeResponse.employeeModel.basicSalary (null for 'basic_salary')",
+    "EmployeeResponse.employeeModel.grossSalary (null for 'gross_salary')",
+    "EmployeeResponse.employeeModel.assignedShiftId (null for 'assigned_shift_id')",
+    "EmployeeResponse.employeeModel.assignedShiftName (null for 'assigned_shift_name')",
+    "EmployeeResponse.employeeModel.assignedShiftEffectiveFrom (null for 'assigned_shift_effective_from')"
+   ],
+   "notes": [
+    "EmployeeResponse.employeeModel.f: key expression ApiConstants.firstNameKey)?.trim( unresolved",
+    "EmployeeResponse.employeeModel.l: key expression ApiConstants.lastNameKey)?.trim( unresolved"
+   ],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "requests/approve",
+  "method": "POST",
+  "model": "BaseResponse",
+  "expect": 200,
+  "query": {
+   "id": "999014"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "requests/reject",
+  "method": "POST",
+  "model": "BaseResponse",
+  "expect": 200,
+  "query": {
+   "id": "999014"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "advances/create",
+  "method": "POST",
+  "model": "AdvanceResponse",
+  "expect": 201,
+  "query": {},
+  "php": {
+   "status": 201,
+   "verdict": "parses",
+   "blank_fields": [
+    "AdvanceResponse.advanceModel.reason (null for 'reason')",
+    "AdvanceResponse.advanceModel.rejectionReason (null for 'rejection_reason')",
+    "AdvanceResponse.advanceModel.deductionAmountPerMonth (null for 'deduction_amount_per_month')",
+    "AdvanceResponse.advanceModel.deductionPayrollYear (null for 'deduction_payroll_year')",
+    "AdvanceResponse.advanceModel.deductionPayrollMonth (null for 'deduction_payroll_month')",
+    "AdvanceResponse.advanceModel.deductionInstallmentsJson (null for 'deduction_installments_json')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 201,
+   "verdict": "parses",
+   "blank_fields": [
+    "AdvanceResponse.advanceModel.reason (null for 'reason')",
+    "AdvanceResponse.advanceModel.rejectionReason (null for 'rejection_reason')",
+    "AdvanceResponse.advanceModel.deductionAmountPerMonth (null for 'deduction_amount_per_month')",
+    "AdvanceResponse.advanceModel.deductionPayrollYear (null for 'deduction_payroll_year')",
+    "AdvanceResponse.advanceModel.deductionPayrollMonth (null for 'deduction_payroll_month')",
+    "AdvanceResponse.advanceModel.deductionInstallmentsJson (null for 'deduction_installments_json')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "advances/update",
+  "method": "PUT",
+  "model": "AdvanceResponse",
+  "expect": 200,
+  "query": {
+   "id": "32"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "AdvanceResponse.advanceModel.rejectionReason (null for 'rejection_reason')",
+    "AdvanceResponse.advanceModel.deductionAmountPerMonth (null for 'deduction_amount_per_month')",
+    "AdvanceResponse.advanceModel.deductionInstallmentsJson (null for 'deduction_installments_json')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "AdvanceResponse.advanceModel.rejectionReason (null for 'rejection_reason')",
+    "AdvanceResponse.advanceModel.deductionAmountPerMonth (null for 'deduction_amount_per_month')",
+    "AdvanceResponse.advanceModel.deductionInstallmentsJson (null for 'deduction_installments_json')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "advances/approve",
+  "method": "PUT",
+  "model": "AdvanceResponse",
+  "expect": 200,
+  "query": {
+   "id": "32"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "AdvanceResponse.advanceModel.rejectionReason (null for 'rejection_reason')",
+    "AdvanceResponse.advanceModel.employeeCode (null for 'employee_code')",
+    "AdvanceResponse.advanceModel.deductionAmountPerMonth (null for 'deduction_amount_per_month')",
+    "AdvanceResponse.advanceModel.deductionInstallmentsJson (null for 'deduction_installments_json')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "AdvanceResponse.advanceModel.rejectionReason (null for 'rejection_reason')",
+    "AdvanceResponse.advanceModel.employeeCode (null for 'employee_code')",
+    "AdvanceResponse.advanceModel.deductionAmountPerMonth (null for 'deduction_amount_per_month')",
+    "AdvanceResponse.advanceModel.deductionInstallmentsJson (null for 'deduction_installments_json')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "advances/reject",
+  "method": "PUT",
+  "model": "AdvanceResponse",
+  "expect": 200,
+  "query": {
+   "id": "32"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "AdvanceResponse.advanceModel.employeeCode (null for 'employee_code')",
+    "AdvanceResponse.advanceModel.deductionAmountPerMonth (null for 'deduction_amount_per_month')",
+    "AdvanceResponse.advanceModel.deductionInstallmentsJson (null for 'deduction_installments_json')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "AdvanceResponse.advanceModel.employeeCode (null for 'employee_code')",
+    "AdvanceResponse.advanceModel.deductionAmountPerMonth (null for 'deduction_amount_per_month')",
+    "AdvanceResponse.advanceModel.deductionInstallmentsJson (null for 'deduction_installments_json')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "payroll_batches/create",
+  "method": "POST",
+  "model": "PayrollBatchResponse",
+  "expect": 201,
+  "query": {},
+  "php": {
+   "status": 201,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 201,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "payroll_batches/calculate",
+  "method": "POST",
+  "model": "PayrollBatchResponse",
+  "expect": 200,
+  "query": {
+   "id": "999011"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "payroll_batches/finalize",
+  "method": "PUT",
+  "model": "PayrollBatchResponse",
+  "expect": 200,
+  "query": {
+   "id": "999011"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "penalties/update",
+  "method": "PUT",
+  "model": "PenaltyResponse",
+  "expect": 200,
+  "query": {
+   "id": "999010"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "PenaltyResponse.penaltyModel.employeeCode (null for 'employee_code')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "PenaltyResponse.penaltyModel.employeeCode (null for 'employee_code')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ }
+]

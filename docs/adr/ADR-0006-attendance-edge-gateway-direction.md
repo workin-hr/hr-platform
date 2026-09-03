@@ -7,7 +7,7 @@
 | ADR ID | ADR-0006 |
 | Title | Attendance Edge-Gateway Direction |
 | Status | Accepted |
-| Date | 2026-08-02 (Part A accepted 2026-08-05 — see `docs/bootstrap/decision-log.md` D-023. Part B — vendor-specific gateway-or-not decisions — was `Proposed`/blocked on PMR-04 device/vendor access until **2026-09-02, when the repository owner accepted D-158** with the hardware checklist as a recorded condition; the ADR format has no per-part status field, so this is the closest honest representation.) |
+| Date | 2026-08-02 (Part A accepted 2026-08-05 — see `docs/bootstrap/decision-log.md` D-023. Part B — vendor-specific gateway-or-not decisions — was `Proposed`/blocked on PMR-04 device/vendor access until **2026-09-02, when the repository owner accepted D-164** with the hardware checklist as a recorded condition; the ADR format has no per-part status field, so this is the closest honest representation.) |
 | Owners | Solution Architect |
 | Deciders | Human engineering leadership — recorded at approval time in `docs/bootstrap/decision-log.md` |
 | Related Issues | None yet |
@@ -22,7 +22,7 @@ Attendance devices may require local connectivity patterns, vendor-specific prot
 
 **Part A is Accepted (2026-08-05, `docs/bootstrap/decision-log.md` D-023).
 Part B was Proposed and blocked on PMR-04 (real vendor/hardware access)
-until 2026-09-02 — see the update at the end of this section (D-158).**
+until 2026-09-02 — see the update at the end of this section (D-164).**
 
 This decision splits the same way `docs/adr/ADR-0002-modular-monolith-baseline.md`
 did, so the strategic architectural choice is not held hostage to
@@ -101,7 +101,7 @@ remaining uncertainty without blocking other modules: the ZKTeco
 adapter gets built and wired to whichever connectivity pattern its real
 protocol turns out to need, once known.
 
-**Update 2026-09-02 — Part B resolved (D-158, accepted the same day; hardware check outstanding).**
+**Update 2026-09-02 — Part B resolved (D-164, accepted the same day; hardware check outstanding).**
 The protocol detail that was missing on 2026-08-05 has since been obtained
 from ZKTeco's public PUSH SDK page and protocol document and cross-checked
 against four independent server implementations and a captured device
@@ -113,14 +113,14 @@ commands and buffers while offline. **Proposed:** the ZKTeco adapter is that
 push receiver; no local gateway is needed for ADMS-capable terminals, and the
 `edge-gateway/` boundary is kept as a fallback for terminals without ADMS.
 This is exactly the per-adapter choice Part A anticipated. **The repository
-owner accepted it on 2026-09-02 (D-158)**, with one recorded condition: a
+owner accepted it on 2026-09-02 (D-164)**, with one recorded condition: a
 hardware confirmation on the customers' actual models (the checklist in that
 specification's §4.3: the Cloud Server Setting exists, HTTPS availability,
 handshake values, ATTLOG field shape, offline buffering) before the adapter
 is declared verified. Building the adapter is authorised; calling it
 verified is not, until that checklist is recorded in `docs/devices/`.
 
-**Update 2026-09-02 (D-159) — the gate is explicit.** The hardware checklist
+**Update 2026-09-02 (D-165) — the gate is explicit.** The hardware checklist
 does **not** block merging Slice A while `app.devices.ingest.enabled` is off,
 since the code is unreachable in that state. It **does** block describing the
 adapter as hardware-verified, and it blocks enabling the receiver for any
@@ -130,7 +130,7 @@ same decision and are recorded here because they gate this ADR's direction in
 practice, not only its implementation: the Phase-1-owned tables must have an
 approved provisioning mechanism (**R-023**), and device ownership in
 production must be established by platform staff rather than claimed by a
-tenant admin from a serial number (**R-041**), with an audited
+tenant admin from a serial number (**R-042**), with an audited
 unclaim/transfer/replace path before broad rollout.
 
 ## Alternatives Considered
@@ -182,7 +182,7 @@ published security analysis of the terminal firmware), with every field's
 evidence level marked; the model and firmware fields stay unpopulated until a
 real terminal connects. This is
 documentation evidence, not hardware evidence; it was enough to propose Part
-B (D-158), which the owner accepted the same day with the hardware checklist
+B (D-164), which the owner accepted the same day with the hardware checklist
 as a recorded condition — not to declare the adapter verified.
 
 ### Classification (2026-08-04 revision, Part A accepted 2026-08-05)
@@ -199,7 +199,7 @@ PMR-04 (hardware/vendor access) for the reasons in Decision above.
   2026-08-05**: ZKTeco devices, all versions, per direct
   product/business-owner statement (see Decision, Part B).
 - ~~whether ZKTeco devices need a local network gateway or connect via
-  direct cloud API/push webhook~~ — **Resolved 2026-09-02 (D-158,
+  direct cloud API/push webhook~~ — **Resolved 2026-09-02 (D-164,
   accepted)**: device-initiated ADMS push, no local gateway for
   ADMS-capable terminals, gateway retained as fallback. The hardware checklist
   (`docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md` §4.3) on the

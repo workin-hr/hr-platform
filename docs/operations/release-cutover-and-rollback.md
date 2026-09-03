@@ -53,7 +53,7 @@ what keeps the mapping honest instead.
 
 **What is not true.** Phase 1 adds tables to the legacy database:
 **`legacy_refresh_tokens`** (`backend/src/test/resources/legacy/phase1_extensions.schema.sql`),
-which does **not** exist in production legacy MySQL, and — since D-158
+which does **not** exist in production legacy MySQL, and — since D-164
 (2026-09-02) — the five attendance-device tables in the same file
 (`attendance_devices`, `employee_device_identities`, `device_punches`,
 `unclaimed_device_sightings`, `device_operation_logs`). The device tables are
@@ -193,7 +193,7 @@ negative control, because every one of these checks can otherwise pass for the
 wrong reason.
 
 **1. Provision the Phase-1-owned tables** — `legacy_refresh_tokens` and, if the
-attendance-device receiver is to be enabled, the five device tables (D-158) —
+attendance-device receiver is to be enabled, the five device tables (D-164) —
 in the production legacy database by an approved mechanism (ADR-0013 Open
 Questions — undecided). Rehearse it against a
 restored copy first, and record the mechanism, its owner and its lock duration

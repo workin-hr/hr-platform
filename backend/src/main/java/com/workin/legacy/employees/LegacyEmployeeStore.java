@@ -920,7 +920,7 @@ public class LegacyEmployeeStore {
 	}
 
 	/**
-	 * The device PIN binding (D-158), cleared on <b>both</b> paths that remove
+	 * The device PIN binding (D-164), cleared on <b>both</b> paths that remove
 	 * an employee -- the cascade above and {@code delete.php}'s direct path,
 	 * which an employee with no related records takes instead.
 	 *

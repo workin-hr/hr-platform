@@ -14,7 +14,7 @@ ADR-0008, ADR-0009) per `docs/bootstrap/decision-log.md` D-016 through
 D-025, and ADR-0010 (authorization model, all six dimensions) is
 Accepted per D-026. ADR-0006's Part B (final vendor
 protocol/connectivity detail) was the last open item until the repository
-owner accepted it on 2026-09-02 (D-158, hardware checklist recorded as a
+owner accepted it on 2026-09-02 (D-164, hardware checklist recorded as a
 condition).
 
 `scripts/validate_phase0.py::validate_adrs()` discovers real ADR files
@@ -42,7 +42,7 @@ maintaining a second, divergent copy of these rules — see
 - `ADR-0005-authentication-direction.md`
 - `ADR-0006-attendance-edge-gateway-direction.md` — **Part A** (adapter/SPI
   architectural pattern, D-023) **and Part B** (ZKTeco terminals push over
-  ADMS, edge gateway as fallback — D-158, accepted 2026-09-02 with the
+  ADMS, edge gateway as fallback — D-164, accepted 2026-09-02 with the
   hardware checklist in
   `../superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
   §4.3 as a recorded condition)

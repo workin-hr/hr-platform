@@ -1,5 +1,5 @@
 /**
- * Attendance-device ingestion (ADR-0006; D-023 core, D-158 ZKTeco adapter).
+ * Attendance-device ingestion (ADR-0006; D-023 core, D-164 ZKTeco adapter).
  *
  * <p>A third root next to {@code com.workin.backend} (the Postgres-era
  * application) and {@code com.workin.legacy} (the PHP parity port). It is

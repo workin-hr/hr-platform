@@ -1,0 +1,256 @@
+[
+ {
+  "path": "attendance/check_in",
+  "method": "POST",
+  "model": "CheckInOutResponse",
+  "actor": "+201999000002",
+  "expect": 200,
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "CheckInOutResponse.durationMinutes (null for 'duration_minutes')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "CheckInOutResponse.durationMinutes (null for 'duration_minutes')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "attendance/check_out",
+  "method": "POST",
+  "model": "CheckInOutResponse",
+  "actor": "+201999000002",
+  "expect": 200,
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "CheckInOutResponse.attendanceId (null for 'attendance_id')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "CheckInOutResponse.attendanceId (null for 'attendance_id')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "requests/create",
+  "method": "POST",
+  "model": "BaseResponse",
+  "actor": "+201999000003",
+  "expect": 201,
+  "query": {},
+  "php": {
+   "status": 201,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 201,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "complaints/create",
+  "method": "POST",
+  "model": "BaseResponse",
+  "actor": "+201999000002",
+  "expect": 200,
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "notifications/mark_read",
+  "method": "PUT",
+  "model": "BaseResponse",
+  "actor": "+201999000002",
+  "expect": 200,
+  "query": {
+   "id": "999013"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "notifications/delete",
+  "method": "DELETE",
+  "model": "BaseResponse",
+  "actor": "+201999000002",
+  "expect": 200,
+  "query": {
+   "id": "999013"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "profile/change_password",
+  "method": "POST",
+  "model": "BaseResponse",
+  "actor": "+201999000002",
+  "expect": 200,
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "auth/lookup_company",
+  "method": "POST",
+  "model": "CompanyLookupResponse",
+  "actor": null,
+  "expect": 200,
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "auth/forgot_password",
+  "method": "POST",
+  "model": "ForgetPasswordResponse",
+  "actor": null,
+  "expect": 200,
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "ForgetPasswordResponse.dataMap (no 'data' map)",
+    "ForgetPasswordResponse.otp (receiver dataMap is not a map)"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "ForgetPasswordResponse.dataMap (no 'data' map)",
+    "ForgetPasswordResponse.otp (receiver dataMap is not a map)"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "auth/resend_otp",
+  "method": "POST",
+  "model": "ResendOtpResponse",
+  "actor": null,
+  "expect": 200,
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "ResendOtpResponse.dataMap (no 'data' map)",
+    "ResendOtpResponse.otp (receiver dataMap is not a map)"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "ResendOtpResponse.dataMap (no 'data' map)",
+    "ResendOtpResponse.otp (receiver dataMap is not a map)"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ }
+]

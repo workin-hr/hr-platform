@@ -223,7 +223,7 @@ designed without needing real hardware.
 protocol (ADMS / PUSH SDK) is documented from the vendor's own PUSH SDK
 material and independent implementations; `vendor-capability-matrix.md` and
 `attendance-device-model-and-firmware-inventory.md` are populated with
-evidence levels marked; ADR-0006 Part B is resolved (D-158, accepted
+evidence levels marked; ADR-0006 Part B is resolved (D-164, accepted
 2026-09-02) with an explicit hardware checklist as a recorded condition
 (`docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
 §4.3). What remains is that checklist on a real terminal. The bullets below describe the state before this update.

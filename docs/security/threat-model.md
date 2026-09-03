@@ -105,13 +105,13 @@ render URL (Finding 3).
 - PII handling (see `docs/security/logging-and-privacy.md`)
 - Biometric data from attendance devices (see `docs/devices/`)
 - Device-gateway and vendor-integration trust boundaries (see ADR-0006 —
-  Part A Accepted, Part B accepted 2026-09-02 under D-158). The ZKTeco path is
+  Part A Accepted, Part B accepted 2026-09-02 under D-164). The ZKTeco path is
   a device-initiated push receiver whose protocol identifies a device by
   serial number alone over plain HTTP by default, on terminals with
   documented injection and server-impersonation vulnerabilities; the
   boundary and its compensating controls are designed in
   `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
-  §8 and tracked as R-040
+  §8 and tracked as R-041
 - Database migration exposure window (see `docs/migration/`)
 - Agent access boundaries (see `docs/agents/operating-model.md` Enforcement
   Layers — this is itself a threat surface: what happens if an agent's

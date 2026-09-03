@@ -1,0 +1,197 @@
+[
+ {
+  "path": "company/upload_logo",
+  "client_parts": [
+   "logo"
+  ],
+  "model": "CompanyProfileResponse",
+  "expect": 200,
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [
+    "CompanyProfileResponse.companyMap (guard: dataMap != null)",
+    "CompanyProfileResponse.employee (guard: dataMap != null)"
+   ]
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [
+    "CompanyProfileResponse.companyMap (guard: dataMap != null)",
+    "CompanyProfileResponse.employee (guard: dataMap != null)"
+   ]
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "company/upload_commercial_reg",
+  "client_parts": [
+   "logo"
+  ],
+  "model": "CompanyProfileResponse",
+  "expect": 200,
+  "php": {
+   "status": 400,
+   "verdict": "ServerException",
+   "raw": "{\"success\":false,\"message\":\"No file uploaded\"}"
+  },
+  "java": {
+   "status": 400,
+   "verdict": "ServerException",
+   "raw": "{\"success\":false,\"message\":\"No file uploaded\"}"
+  },
+  "status_as_expected": false
+ },
+ {
+  "path": "employees/upload_photo",
+  "client_parts": [
+   "photo"
+  ],
+  "model": "EmployeeResponse",
+  "expect": 200,
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeResponse.employeeModel.permissionsMap (no 'permissions' map)",
+    "EmployeeResponse.employeeModel.rawName (null for 'name')",
+    "EmployeeResponse.employeeModel.address (null for 'address')",
+    "EmployeeResponse.employeeModel.basicSalary (null for 'basic_salary')",
+    "EmployeeResponse.employeeModel.grossSalary (null for 'gross_salary')",
+    "EmployeeResponse.employeeModel.assignedShiftId (null for 'assigned_shift_id')",
+    "EmployeeResponse.employeeModel.assignedShiftName (null for 'assigned_shift_name')",
+    "EmployeeResponse.employeeModel.assignedShiftEffectiveFrom (null for 'assigned_shift_effective_from')"
+   ],
+   "notes": [
+    "EmployeeResponse.employeeModel.f: key expression ApiConstants.firstNameKey)?.trim( unresolved",
+    "EmployeeResponse.employeeModel.l: key expression ApiConstants.lastNameKey)?.trim( unresolved"
+   ],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeResponse.employeeModel.permissionsMap (no 'permissions' map)",
+    "EmployeeResponse.employeeModel.rawName (null for 'name')",
+    "EmployeeResponse.employeeModel.address (null for 'address')",
+    "EmployeeResponse.employeeModel.basicSalary (null for 'basic_salary')",
+    "EmployeeResponse.employeeModel.grossSalary (null for 'gross_salary')",
+    "EmployeeResponse.employeeModel.assignedShiftId (null for 'assigned_shift_id')",
+    "EmployeeResponse.employeeModel.assignedShiftName (null for 'assigned_shift_name')",
+    "EmployeeResponse.employeeModel.assignedShiftEffectiveFrom (null for 'assigned_shift_effective_from')"
+   ],
+   "notes": [
+    "EmployeeResponse.employeeModel.f: key expression ApiConstants.firstNameKey)?.trim( unresolved",
+    "EmployeeResponse.employeeModel.l: key expression ApiConstants.lastNameKey)?.trim( unresolved"
+   ],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "employees/analyze_excel",
+  "client_parts": [
+   "file"
+  ],
+  "model": "EmployeeExcelAnalyzeResponse",
+  "expect": 200,
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "attendance/analyze_excel",
+  "client_parts": [
+   "file"
+  ],
+  "model": "AttendanceExcelAnalyzeResponse",
+  "expect": 200,
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "AttendanceExcelAnalyzeResponse.employees[0].sheetName (default for 'sheet_name')",
+    "AttendanceExcelAnalyzeResponse.employees[0].suggestedLastName (default for 'suggested_last_name')",
+    "AttendanceExcelAnalyzeResponse.employees[0].days[0].restNote (null for 'rest_note')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "AttendanceExcelAnalyzeResponse.employees[0].sheetName (default for 'sheet_name')",
+    "AttendanceExcelAnalyzeResponse.employees[0].suggestedLastName (default for 'suggested_last_name')",
+    "AttendanceExcelAnalyzeResponse.employees[0].days[0].restNote (null for 'rest_note')"
+   ],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "leave_balances/analyze_excel",
+  "client_parts": [
+   "file"
+  ],
+  "model": "LeaveBalanceExcelAnalyzeResponse",
+  "expect": 200,
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ },
+ {
+  "path": "employee_docs/upload",
+  "client_parts": [
+   "file"
+  ],
+  "model": "EmployeeDocumentResponse",
+  "expect": 201,
+  "php": {
+   "status": 201,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "java": {
+   "status": 201,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": []
+  },
+  "status_as_expected": true
+ }
+]

@@ -38,7 +38,7 @@ CREATE INDEX legacy_refresh_tokens_family_id_idx ON legacy_refresh_tokens (famil
 CREATE INDEX legacy_refresh_tokens_employee_id_idx ON legacy_refresh_tokens (employee_id);
 
 -- Attendance-device ingestion (ADR-0006 Part A core; Part B ZKTeco adapter,
--- D-158). Design: docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md
+-- D-164). Design: docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md
 -- section 7. All five tables are Phase-1-owned: none exists in legacy MySQL,
 -- so none is part of the vendored contract and TenantFilterCoverageTest's
 -- structural exemption applies. No foreign keys to the vendored tables, on
@@ -75,7 +75,7 @@ CREATE TABLE attendance_devices (
 
 CREATE INDEX attendance_devices_company_idx ON attendance_devices (company_id, branch_id);
 
--- Device PIN -> employee, per company (Q1, D-158). A PIN is unique within a
+-- Device PIN -> employee, per company (Q1, D-164). A PIN is unique within a
 -- company and an employee holds at most one PIN. Absent a row, ingestion
 -- falls back to employees.employee_code, which is what the Excel import
 -- already treats as the device PIN.

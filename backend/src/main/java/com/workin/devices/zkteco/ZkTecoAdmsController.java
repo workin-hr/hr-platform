@@ -25,7 +25,7 @@ import com.workin.devices.zkteco.ZkTecoAdmsService.Status;
 import com.workin.devices.zkteco.ZkTecoAdmsService.Upload;
 
 /**
- * The ZKTeco ADMS / PUSH SDK receiver's HTTP surface (D-158) -- four
+ * The ZKTeco ADMS / PUSH SDK receiver's HTTP surface (D-164) -- four
  * device-facing routes, all device-initiated, all plain text.
  *
  * <p>This class owns only what is HTTP: where a parameter comes from, how the

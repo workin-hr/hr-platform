@@ -50,7 +50,7 @@ directly. No customer is known to run it.
 
 ### Local Gateway Need
 
-**Probably not required — documentation** (D-158, accepted 2026-09-02). For
+**Probably not required — documentation** (D-164, accepted 2026-09-02). For
 ADMS-capable terminals, the device-initiated push model needs no local
 component. A gateway remains the fallback for terminals that do not expose
 the Cloud Server Setting. Tie-breaker is the §4.3 hardware check, not
