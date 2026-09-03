@@ -22,9 +22,13 @@ import com.workin.legacy.companies.LegacyCompanyRepository;
 public class LegacyPlatformAdminCompanyDirectory implements PlatformAdminCompanyDirectory {
 
 	private final LegacyCompanyRepository companyRepository;
+	private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
-	public LegacyPlatformAdminCompanyDirectory(LegacyCompanyRepository companyRepository) {
+	public LegacyPlatformAdminCompanyDirectory(LegacyCompanyRepository companyRepository,
+			@org.springframework.beans.factory.annotation.Qualifier("legacyDataSource")
+			javax.sql.DataSource legacyDataSource) {
 		this.companyRepository = companyRepository;
+		this.jdbc = new org.springframework.jdbc.core.JdbcTemplate(legacyDataSource);
 	}
 
 	@Override
@@ -32,6 +36,32 @@ public class LegacyPlatformAdminCompanyDirectory implements PlatformAdminCompany
 		return this.companyRepository.findAllOrderedById(org.springframework.data.domain.Limit.of(limit)).stream()
 			.map(row -> new CompanyView(row.getId(), row.getName(), row.getStatus()))
 			.toList();
+	}
+
+	@Override
+	public java.util.Optional<CompanyDetail> detail(long companyId) {
+		return this.companyRepository.findById(companyId).map(company -> new CompanyDetail(
+				new CompanyView(company.getId(), company.getName(), company.getStatus()),
+				this.jdbc.queryForObject(
+						"SELECT rejection_reason FROM companies WHERE id = ?", String.class, companyId),
+				// Legacy's requests and advances carry no company_id, so the
+				// scope comes through employees -- the same join
+				// dashboard/pages/companies/detail.php uses. Status is lower
+				// case here and upper case on PostgreSQL.
+				count("SELECT COUNT(*) FROM requests r JOIN employees e ON e.id = r.employee_id "
+						+ "WHERE e.company_id = ? AND r.status = 'pending'", companyId),
+				count("SELECT COUNT(*) FROM advances a JOIN employees e ON e.id = a.employee_id "
+						+ "WHERE e.company_id = ? AND a.status = 'pending'", companyId)));
+	}
+
+	private long count(String sql, long companyId) {
+		Long value = this.jdbc.queryForObject(sql, Long.class, companyId);
+		return value == null ? 0L : value;
+	}
+
+	@Override
+	public boolean reject(long companyId, String reason) {
+		return this.companyRepository.reject(companyId, reason) == 1;
 	}
 
 	@Override

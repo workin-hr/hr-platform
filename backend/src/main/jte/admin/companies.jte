@@ -27,7 +27,7 @@
 			@endif
 			<table class="grid">
 				<thead>
-					<tr><th>#</th><th>Name</th><th>Status</th><th></th></tr>
+					<tr><th>#</th><th>Name</th><th>Status</th><th>Actions</th></tr>
 				</thead>
 				<tbody>
 					@for(CompanyView company : companies)
@@ -35,15 +35,21 @@
 							<td>${company.id()}</td>
 							<td>${company.name() == null ? "—" : company.name()}</td>
 							<td>${company.status()}</td>
-							<td>
+							<td class="actions">
+								<a href="/admin/companies/${company.id()}">Detail</a>
 								@if(actionsEnabled)
 									<form method="post" action="/admin/companies/confirm">
 										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 										<input type="hidden" name="companyId" value="${company.id()}">
-										@if("suspended".equals(company.status()))
+										@if("pending".equals(company.status()))
+											<button type="submit" name="action" value="COMPANY_APPROVE" class="linkish">Approve</button>
+											<button type="submit" name="action" value="COMPANY_REJECT" class="linkish danger">Reject</button>
+										@elseif("suspended".equals(company.status()))
 											<button type="submit" name="action" value="COMPANY_RESTORE" class="linkish">Restore</button>
+										@elseif("rejected".equals(company.status()))
+											<button type="submit" name="action" value="COMPANY_APPROVE" class="linkish">Approve</button>
 										@else
-											<button type="submit" name="action" value="COMPANY_SUSPEND" class="linkish">Suspend</button>
+											<button type="submit" name="action" value="COMPANY_SUSPEND" class="linkish danger">Suspend</button>
 										@endif
 									</form>
 								@endif

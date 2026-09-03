@@ -223,7 +223,75 @@ class LegacyPlatformAdminOnMySqlTest {
 			.isEqualTo(HttpStatus.OK);
 	}
 
+	@Test
+	void approveAndRejectWorkOnMySqlAndRejectRecordsWhy() {
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		String phone = "+2093" + System.nanoTime() % 100_000_000L;
+		long adminId = createPlatformAdmin(jdbc, phone);
+		String seed = enrol(adminId);
+		long pending = createCompany(jdbc);
+		jdbc.update("UPDATE companies SET status = 'pending' WHERE id = ?", pending);
+
+		String cookie = signIn(jdbc, phone, seed, adminId);
+
+		// The list offers Approve and Reject for a pending company -- the
+		// workflow the PHP dashboard exists for, and the one the first cut of
+		// this page did not have.
+		Page companies = get2("/admin/companies", cookie);
+		assertThat(companies.response().getBody()).contains("COMPANY_APPROVE", "COMPANY_REJECT");
+
+		jdbc.update("UPDATE platform_admin_mfa SET last_accepted_time_step = NULL "
+				+ "WHERE platform_admin_id = ?", adminId);
+		ResponseEntity<String> confirm = post("/admin/companies/confirm", cookie, companies.csrf(),
+				"action", "COMPANY_REJECT", "companyId", String.valueOf(pending),
+				"reason", "no commercial registration", "code", code(seed, 0));
+		Matcher approvalMatch = APPROVAL.matcher(confirm.getBody());
+		assertThat(approvalMatch.find()).isTrue();
+
+		assertThat(post("/admin/companies/apply", cookie, csrfOf(confirm),
+				"action", "COMPANY_REJECT", "companyId", String.valueOf(pending),
+				"reason", "no commercial registration", "approvalId", approvalMatch.group(1))
+				.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+
+		assertThat(jdbc.queryForObject("SELECT status FROM companies WHERE id = ?",
+				String.class, pending)).isEqualTo("rejected");
+		assertThat(jdbc.queryForObject("SELECT rejection_reason FROM companies WHERE id = ?",
+				String.class, pending))
+			.as("the same column the PHP dashboard's reject writes")
+			.isEqualTo("no commercial registration");
+	}
+
+	@Test
+	void theCompanyDetailPageCountsOutstandingWork() {
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		String phone = "+2094" + System.nanoTime() % 100_000_000L;
+		long adminId = createPlatformAdmin(jdbc, phone);
+		String seed = enrol(adminId);
+		long company = createCompany(jdbc);
+		String cookie = signIn(jdbc, phone, seed, adminId);
+
+		ResponseEntity<String> detail = get("/admin/companies/" + company, cookie);
+
+		assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(detail.getBody())
+			.as("the counts legacy's detail.php shows, over the same join through employees")
+			.contains("Pending requests", "Pending advances");
+	}
+
 	// --- helpers ------------------------------------------------------------
+
+	/** Password step, second factor, and back with a usable session cookie. */
+	private String signIn(JdbcTemplate jdbc, String phone, String seed, long adminId) {
+		Page login = get2("/admin/login", null);
+		ResponseEntity<String> afterPassword = post("/admin/login", login.cookie(), login.csrf(),
+				"phone", phone, "password", PASSWORD);
+		String pending = cookieOf(afterPassword);
+		jdbc.update("UPDATE platform_admin_mfa SET last_accepted_time_step = NULL "
+				+ "WHERE platform_admin_id = ?", adminId);
+		Page challenge = get2("/admin/mfa", pending);
+		return cookieOf(post("/admin/mfa", pending, challenge.csrf(), "code", code(seed, 0)));
+	}
+
 
 	private record Page(ResponseEntity<String> response, String cookie, Csrf csrf) {
 	}

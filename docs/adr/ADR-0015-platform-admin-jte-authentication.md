@@ -460,6 +460,17 @@ deliberate cutover step taken once the PHP surface is confirmed unreachable.
 
 Until then the company pages render read-only and say so.
 
+### What the company workflow covers (D-163)
+
+Approve, reject, suspend and restore, offered per status, plus a detail page
+showing a company's pending requests and advances -- the counts
+`dashboard/pages/companies/detail.php` shows, because outstanding work is what
+makes suspending a company a decision rather than a click. Rejecting records why,
+in the same column PHP writes; approving leaves any previous reason in place.
+
+That is the whole of ADR-0009 Option E's scope. Employees, branches, attendance
+and payroll are not coming here -- they consolidate onto the desktop client.
+
 ## Open Questions
 
 None blocking. The filter-chain question an earlier draft left open is

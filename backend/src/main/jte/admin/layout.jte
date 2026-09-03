@@ -58,7 +58,10 @@
 		table.grid th { text-align:left; font-weight:600; color:var(--muted);
 			border-bottom:1px solid var(--line); padding:.4rem .5rem; }
 		table.grid td { border-bottom:1px solid var(--line); padding:.45rem .5rem; vertical-align:top; }
-		table.grid form { margin:0; }
+		table.grid form { margin:0; display:inline; }
+		td.actions { white-space:nowrap; }
+		td.actions a { color:var(--accent); text-decoration:none; margin-right:.6rem; }
+		.linkish.danger { color:var(--danger); }
 		.badge { display:inline-block; margin-left:.4rem; padding:.05rem .4rem; border-radius:999px;
 			background:color-mix(in srgb, var(--accent) 15%, transparent); color:var(--accent);
 			font-size:.75rem; }

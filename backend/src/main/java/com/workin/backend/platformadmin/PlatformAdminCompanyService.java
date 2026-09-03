@@ -95,7 +95,12 @@ public class PlatformAdminCompanyService {
 			return Outcome.STEP_UP_REJECTED;
 		}
 
-		if (!this.companies.updateStatus(companyId, statusFor(action))) {
+		// Reject writes the reason alongside the status, as legacy's does. Every
+		// other action leaves any previous reason alone rather than clearing it.
+		boolean applied = ACTION_REJECT.equals(action)
+				? this.companies.reject(companyId, reason)
+				: this.companies.updateStatus(companyId, statusFor(action));
+		if (!applied) {
 			// Rolls back, taking the approval's consumption with it, so a
 			// mistyped id does not burn the operator's step-up.
 			throw new CompanyNotFoundException(companyId);

@@ -51,6 +51,23 @@ public class PlatformAdminCompaniesController {
 		return "admin/companies";
 	}
 
+	@AuthenticatedUseCase(reason = "One company's detail, with the counts an operator needs before "
+			+ "deciding. Read-only, and platform-scoped like the list it comes from.")
+	@GetMapping(PlatformAdminWebSecurityConfig.COMPANIES_PATH + "/{companyId}")
+	public String detail(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
+			@org.springframework.web.bind.annotation.PathVariable long companyId,
+			Model model, HttpServletRequest request) {
+		return this.companies.detail(companyId)
+			.map(detail -> {
+				PlatformAdminWebCsrf.expose(model, request);
+				model.addAttribute("currentAdminPhone", principal.phone());
+				model.addAttribute("actionsEnabled", this.companyService.actionsEnabled());
+				model.addAttribute("detail", detail);
+				return "admin/company-detail";
+			})
+			.orElseGet(() -> "redirect:" + PlatformAdminWebSecurityConfig.COMPANIES_PATH);
+	}
+
 	@AuthenticatedUseCase(reason = "Collects the second factor for one specific action against "
 			+ "one specific company. Mints nothing until the code verifies.")
 	@PostMapping(PlatformAdminWebSecurityConfig.COMPANIES_CONFIRM_PATH)
