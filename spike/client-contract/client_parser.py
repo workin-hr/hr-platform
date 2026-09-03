@@ -164,9 +164,8 @@ DEFAULTED = {
 class Evaluator:
     """Runs a model tree over a decoded response, the way the client would."""
 
-    def __init__(self, models: dict, max_list_items: int = 3):
+    def __init__(self, models: dict):
         self.models = models
-        self.max_list_items = max_list_items
 
     def parse(self, model_name: str, payload) -> dict:
         self.notes: list[str] = []
@@ -265,7 +264,11 @@ class Evaluator:
                                    f'{"absent" if key not in payload else type(value).__name__})')
                 return
             if field['nested']:
-                for index, item in enumerate(value[:self.max_list_items]):
+                # EVERY item, not a sample. The client parses the whole list, so
+                # a malformed fourth element throws in the app while a sampled
+                # check reports the endpoint compatible -- the check would be
+                # least trustworthy exactly where a response is largest.
+                for index, item in enumerate(value):
                     if not isinstance(item, dict):
                         raise ParseThrow(f'{where}[{index}]: list item is '
                                          f'{type(item).__name__}, not an object')

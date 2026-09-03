@@ -81,6 +81,17 @@ on:
   # back, which is why dismissed reviews are also excluded from the count.
   pull_request_review:
     types: [submitted, dismissed]
+  # A CLEAN round posts an issue comment and NO review, so it raises neither of
+  # the events above. Recognising that comment in the count achieves nothing if
+  # nothing recomputes the status afterwards -- which is exactly what happened
+  # on #164: the reviewer posted its clean round, the gate would have counted
+  # it, and the standing red status was never recomputed because no event fired.
+  #
+  # `issue_comment` always runs the DEFAULT BRANCH's copy of this file, so it
+  # carries the same trust property as pull_request_target and needs no extra
+  # premise. The job below still reads no pull-request content.
+  issue_comment:
+    types: [created, edited]
 
 permissions:
   contents: read
@@ -88,9 +99,23 @@ permissions:
   statuses: write
 
 concurrency:
-  # Keyed on the commit, not the pull request: two events racing on the same
-  # head must not both publish, and a new push has its own group.
-  group: independent-review-gate-${{ github.event.pull_request.head.sha }}
+  # Keyed on the PULL REQUEST, so every event for it serialises -- push,
+  # review, comment and retarget alike.
+  #
+  # Keying on the head SHA looked tighter and was wrong: an issue_comment
+  # payload carries no SHA, so a comment run landed in a different group from a
+  # concurrent retarget run for the same pull request. The comment run could
+  # then read the standing status BEFORE the retarget published its marker,
+  # match the pre-retarget review on the unchanged SHA, and publish success
+  # after the retarget published failure. Latest status wins, so the gate would
+  # go green for a diff the reviewer never saw -- the one outcome it exists to
+  # prevent.
+  #
+  # Two pull requests sitting on the same commit still race, and harmlessly:
+  # the job below computes its answer across every open pull request at that
+  # commit, so both runs compute the same value.
+  group: independent-review-gate-pr-${{ github.event.pull_request.number
+    || github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:
@@ -99,14 +124,20 @@ jobs:
     runs-on: ubuntu-24.04
     # `edited` fires for a title or body edit too. Only a base change matters
     # here, and GitHub sets `changes.base` only for that.
-    if: github.event_name != 'pull_request_target' || github.event.action != 'edited'
-      || github.event.changes.base != null
+    # `edited` fires for a title or body edit too; only a base change matters.
+    # An issue_comment is only relevant when the issue IS a pull request.
+    if: >-
+      (github.event_name != 'pull_request_target' || github.event.action != 'edited'
+       || github.event.changes.base != null)
+      && (github.event_name != 'issue_comment' || github.event.issue.pull_request != null)
     steps:
       - name: Publish whether the named reviewer has reviewed this head
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          # Absent on issue_comment; resolved from the API below rather than
+          # trusting anything in the comment payload.
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           BASE_CHANGED: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited'
@@ -120,6 +151,14 @@ jobs:
           REVIEWER: "chatgpt-codex-connector[bot]"
         run: |
           set -euo pipefail
+
+          # issue_comment carries no head SHA. Resolve it from the pull request
+          # itself -- never from the comment, which is attacker-controlled text.
+          if [ -z "${HEAD_SHA:-}" ]; then
+            HEAD_SHA="$(gh api "repos/$REPO/pulls/$PR" --jq '.head.sha')"
+            export HEAD_SHA
+            echo "Resolved head $HEAD_SHA for #$PR from the pull request"
+          fi
 
           # Every round this reviewer has completed on a given head, newest
           # last, one ISO timestamp per line.
@@ -198,7 +237,32 @@ jobs:
             )"
             case "$standing" in
               "$RETARGET_MARKER"*)
-                newest_round="$(rounds_on_head "$PR" | sort | tail -n 1)"
+                # EVERY open pull request at this commit, not just this one.
+                #
+                # The status and the retarget marker are keyed on the SHA and so
+                # are shared, while the concurrency group is keyed on the pull
+                # request -- so a run for sibling B can see A's marker, compare
+                # it against B's own newer round, and clear an invalidation that
+                # belongs to A. Requiring the OLDEST round across all of them to
+                # postdate the marker keeps the invalidation intact whichever
+                # sibling happens to run.
+                siblings="$(
+                  gh api "repos/$REPO/commits/$HEAD_SHA/pulls" --paginate \
+                    --jq '.[] | select(.state == "open" and .head.sha == env.HEAD_SHA) | .number' \
+                    | sort -u
+                )"
+                siblings="${siblings:-$PR}"
+                newest_round=""
+                for sibling in $siblings; do
+                  round="$(rounds_on_head "$sibling" | sort | tail -n 1)"
+                  if [ -z "$round" ]; then
+                    newest_round=""
+                    break
+                  fi
+                  if [ -z "$newest_round" ] || [ "$round" \< "$newest_round" ]; then
+                    newest_round="$round"
+                  fi
+                done
                 marked_at="${standing##*@ }"
                 if [ -z "$newest_round" ] || [ "$newest_round" \< "$marked_at" ]; then
                   echo "A base change is still outstanding on this head (marked $marked_at)"

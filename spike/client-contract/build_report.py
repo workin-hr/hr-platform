@@ -16,13 +16,24 @@ muts = load('mutation-results', [])
 ups = load('upload-results', [])
 
 rows = []
+skipped = []
 for r in reads:
     rows.append((r['path'], 'GET', r['model'], r['php'], r['java'], True))
 for r in muts:
+    if 'php' not in r:
+        skipped.append((r['path'], r.get('skipped', 'withheld')))
     if 'php' in r:
         rows.append((r['path'], r['method'], r['model'], r['php'], r['java'], r.get('status_as_expected')))
 for r in ups:
-    rows.append((r['path'], 'POST (multipart)', r['model'], r['php'], r['java'], r.get('status_as_expected')))
+    # Same guard the mutation rows get: a case whose reseed failed writes only
+    # `path` and `skipped`, and reading `model`/`php`/`java` from it raised a
+    # KeyError -- so the builder crashed instead of producing the report whose
+    # verdict was deliberately withheld.
+    if 'php' in r:
+        rows.append((r['path'], 'POST (multipart)', r['model'], r['php'], r['java'],
+                     r.get('status_as_expected')))
+    else:
+        skipped.append((r['path'], r.get('skipped', 'withheld')))
 
 def verdict(php, java, declared_ok):
     if php['verdict'] != java['verdict'] or php['status'] != java['status']:
@@ -44,8 +55,10 @@ w('')
 w(f"**This is a contract layer, not a runtime one.** It proves what the {CLIENT}")
 w("client's own parsers would do with each stack's bytes. It verifies **nothing**")
 w('about rendering, navigation, the file picker, downloads to disk, OS')
-w('integration, or any other runtime UI behaviour. The real application was not')
-w('executed -- see "Why runtime is zero" below.')
+w('integration, or any other runtime UI behaviour, because this layer executes')
+w('nothing -- it replays recorded bytes through the parsers. Whether the real')
+w('application was ever run is a separate measurement: see "Runtime status for')
+w('this client" below.')
 w('')
 w('## Coverage, with the denominators kept apart')
 w('')
@@ -57,7 +70,11 @@ w(f"| Distinct paths the data source actually calls | {len(callpaths)} |")
 w(f"| Contracts statically derived from client source | {len(c['calls'])} |")
 w(f"| Client parsers extracted | {len(c['models'])} |")
 w(f"| **Contracts replayed against PHP and Java** | **{len(replayed)}** |")
-w('| **Runtime client verified** | **0** — blocked, see below |')
+w(f'| **Contracts replayed by THIS layer** | **{len(replayed)}** |')
+w('')
+w('This layer replays contracts; it executes nothing. The runtime verdict for')
+w('this client is a separate measurement with its own evidence in')
+w('`spike/client-runtime` — see the runtime status line below.')
 w('')
 w(f"The {c['endpoints_declared']} declared constants are **not** the denominator.")
 if c['declared_not_referenced']:
@@ -85,6 +102,16 @@ w('|---|---|---|---|---|---|')
 for path, method, model, php, java, ok in sorted(rows):
     w(f"| `{path}` | {method} | `{model}` | {php['status']} {php['verdict']} "
       f"| {java['status']} {java['verdict']} | {verdict(php, java, ok)} |")
+if skipped:
+    w('')
+    w('## Cases whose verdict was withheld')
+    w('')
+    w('A case whose database reseed failed compares contaminated state, so no')
+    w('verdict is recorded for it. These are **not** counted as verified:')
+    w('')
+    for path, why in skipped:
+        w(f'- `{path}` -- {why}')
+
 if CLIENT == 'mobile':
     w('')
     w('## Findings')
@@ -165,30 +192,36 @@ else:
     w("dashboard's eight `(object)[]` keys stay objects on both, and")
     w('`workforce_planning_stats` stays a list on both.')
     w('')
-w('## Why runtime is zero')
+w('## Runtime status for this client')
 w('')
-w('The real application was not executed, and could not be on this machine:')
+if CLIENT == 'desktop':
+    w('**Verified separately.** The real desktop application was built from')
+    w('unmodified source and executed against the local Java backend through its')
+    w('own hardcoded URL: login, navigation, create/update/delete, a multipart')
+    w('upload through the real file chooser, and logout. Evidence and setup are in')
+    w('`spike/client-runtime/DESKTOP-RUNTIME-REPORT.md`.')
+else:
+    w('**Verified separately.** The real Android application was built from')
+    w('unmodified source and executed on an emulator against the local Java')
+    w('backend through its own hardcoded URL: login, all four tabs, GPS')
+    w('check-in/check-out, request creation, a multipart photo upload through')
+    w('the real Android picker, and logout. Evidence, containment proof and the')
+    w('remaining device-dependent gaps are in')
+    w('`spike/client-runtime/MOBILE-RUNTIME-REPORT.md`.')
 w('')
-w('| requirement | state |')
-w('|---|---|')
-w('| Flutter/Dart SDK | not installed |')
-w('| Linux desktop toolchain | GTK3 headers, cmake, ninja, clang absent; no root |')
-w('| prebuilt desktop binary | none in the checkout |')
-w('| redirect `workin.company` to a local Java | `/etc/hosts` read-only; user namespaces denied; `bwrap` denied |')
-w('| build-time URL override | none -- `ApiConstants.baseUrl` is a hardcoded `const` |')
-w('')
-w('The clients are pinned read-only submodules and were **not** modified. Runtime')
-w('verification belongs on a machine with the Flutter toolchain and control of the')
-w('test hostname.')
+w('The clients are pinned read-only submodules and were **not** modified for')
+w('either layer.')
 w('')
 w('## What this does not cover')
 w('')
 w('- rendering, widget state, navigation between screens')
 w('- the file picker, downloads written to disk, OS integration, auto-update')
-w('- the four `ResponseType.bytes` endpoints (template/report downloads): the')
-w('  client treats them as raw bytes, so there is no parser to check here')
+bytes_calls = [x['path'] for x in c['calls'] if x.get('response_type') == 'bytes']
+if bytes_calls:
+    w(f"- the {len(bytes_calls)} `ResponseType.bytes` endpoints (downloads): the client")
+    w('  treats them as raw bytes, so there is no parser to check here')
 w('- endpoints whose request shape needs state this harness does not seed')
-w('- anything about the mobile client, which is a separate pass')
+w(f"- anything about the {'desktop' if CLIENT == 'mobile' else 'mobile'} client, which is a separate pass")
 w('')
 text = '\n'.join(lines).rstrip('\n') + '\n'
 while '\n\n\n' in text:
