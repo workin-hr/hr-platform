@@ -45,6 +45,9 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 	@Autowired
 	private PlatformAdminLoginAttemptCleanup cleanup;
 
+	@Autowired
+	private com.workin.backend.platformadmin.mfa.PlatformAdminMfaService mfaServiceForTests;
+
 	@Test
 	void spendingTheBudgetRefusesEvenTheCorrectPassword() {
 		String phone = uniquePhone();
@@ -123,6 +126,7 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 		}
 		assertThat(login(phone, PASSWORD).getStatusCode()).isEqualTo(HttpStatus.OK);
 
+
 		assertThat(recordedAttempts(phone))
 			.as("a caller who proved the password was not guessing; leaving the count "
 					+ "standing locks them out after a few typos")
@@ -165,8 +169,10 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 	// --- helpers ------------------------------------------------------------
 
 	private ResponseEntity<String> login(String phone, String password) {
+		String seed = this.seeds.get(phone);
+		String code = seed == null ? null : PlatformAdminMfaTestSupport.freshCode(seed);
 		return this.restTemplate.postForEntity("/api/platform-admin/login",
-				new PlatformAdminLoginRequest(phone, password), String.class);
+				new PlatformAdminLoginRequest(phone, password, code), String.class);
 	}
 
 	private int recordedAttempts(String phone) {
@@ -176,11 +182,22 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 		return count == null ? 0 : count;
 	}
 
+	/**
+	 * Creates an administrator and enrols a second factor.
+	 *
+	 * <p>Prerequisite 8 refuses the bearer surface to an administrator with no
+	 * bound factor, so a fixture that expects a *successful* login has to enrol.
+	 * The throttle behaviour under test is unaffected -- the budget is spent
+	 * before the factor is ever consulted.
+	 */
 	private void createPlatformAdmin(String phone) {
-		new JdbcTemplate(this.flywayDataSource).update(
-				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true)",
-				phone, this.passwordEncoder.encode(PASSWORD));
+		Long id = new JdbcTemplate(this.flywayDataSource).queryForObject(
+				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true) RETURNING id",
+				Long.class, phone, this.passwordEncoder.encode(PASSWORD));
+		this.seeds.put(phone, PlatformAdminMfaTestSupport.enrol(this.mfaServiceForTests, id));
 	}
+
+	private final java.util.Map<String, String> seeds = new java.util.HashMap<>();
 
 	private static String sha256(String value) {
 		try {

@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.workin.backend.platformadmin.PlatformAdminAuditEventType;
 import com.workin.backend.platformadmin.PlatformAdminAuditService;
+import com.workin.backend.platformadmin.PlatformAdminSessionRevoker;
 import com.workin.backend.security.OpaqueTokens;
 
 /**
@@ -50,16 +51,19 @@ public class PlatformAdminMfaService {
 	private final PlatformAdminMfaBootstrapTokenRepository bootstrapTokenRepository;
 	private final PlatformAdminAuditService auditService;
 	private final TotpSeedCipher seedCipher;
+	private final PlatformAdminSessionRevoker sessionRevoker;
 
 	public PlatformAdminMfaService(
 			PlatformAdminMfaRepository mfaRepository,
 			PlatformAdminMfaBootstrapTokenRepository bootstrapTokenRepository,
 			PlatformAdminAuditService auditService,
-			TotpSeedCipher seedCipher) {
+			TotpSeedCipher seedCipher,
+			PlatformAdminSessionRevoker sessionRevoker) {
 		this.mfaRepository = mfaRepository;
 		this.bootstrapTokenRepository = bootstrapTokenRepository;
 		this.auditService = auditService;
 		this.seedCipher = seedCipher;
+		this.sessionRevoker = sessionRevoker;
 	}
 
 	/** Whether this administrator has a verified second factor. */
@@ -82,7 +86,17 @@ public class PlatformAdminMfaService {
 	@Transactional
 	public String issueBootstrapToken(long platformAdminId, long issuedBy) {
 		Instant now = Instant.now();
-		revokeOutstandingTokens(platformAdminId, now);
+		// Reissuance is the recovery path, so invalidating what was outstanding
+		// is the security-relevant half of it and is audited in its own right --
+		// "a token was replaced" is a different fact from "a token was issued",
+		// and an operator investigating a lockout needs both.
+		int revoked = revokeOutstandingTokens(platformAdminId, now);
+		if (revoked > 0) {
+			this.auditService.recordAction(issuedBy,
+					PlatformAdminAuditEventType.MFA_BOOTSTRAP_TOKEN_REVOKED,
+					"PLATFORM_ADMIN", String.valueOf(platformAdminId), null,
+					"superseded by reissue (" + revoked + ")");
+		}
 
 		String rawToken = OpaqueTokens.newToken();
 		this.bootstrapTokenRepository.save(new PlatformAdminMfaBootstrapToken(
@@ -117,14 +131,23 @@ public class PlatformAdminMfaService {
 			return Optional.empty();
 		}
 		byte[] seed = Totp.newSeed();
-		// Replaces any previous unbound enrolment for this administrator: a
-		// half-finished enrolment must not keep a seed alive that nobody holds.
+		// Replaces whatever was there. Two cases, and the second is the recovery
+		// path: an unbound row is a half-finished enrolment whose seed nobody
+		// holds, and a *bound* row means this is a recovery -- an administrator
+		// who lost their authenticator, re-authorised by a freshly issued
+		// bootstrap token. Recovery is deliberately the same ceremony rather
+		// than a second, weaker one, which is the property ADR-0015 asks for.
+		boolean wasBound = this.mfaRepository.findById(platformAdminId)
+				.map(PlatformAdminMfa::isBound).orElse(false);
 		this.mfaRepository.findById(platformAdminId).ifPresent(existing -> {
-			if (!existing.isBound()) {
-				this.mfaRepository.delete(existing);
-				this.mfaRepository.flush();
-			}
+			this.mfaRepository.delete(existing);
+			this.mfaRepository.flush();
 		});
+		if (wasBound) {
+			this.auditService.recordAction(platformAdminId, PlatformAdminAuditEventType.MFA_RESET,
+					"PLATFORM_ADMIN", String.valueOf(platformAdminId), null,
+					"factor reset for recovery");
+		}
 		this.mfaRepository.save(new PlatformAdminMfa(
 				platformAdminId, this.seedCipher.encrypt(seed, platformAdminId), Instant.now()));
 		return Optional.of(Totp.toBase32(seed));
@@ -162,6 +185,12 @@ public class PlatformAdminMfaService {
 			return false;
 		}
 		token.get().markUsed(now);
+		// A recovered factor must not leave sessions established under the old
+		// one alive, for the same reason a password change invalidates them.
+		// Done here rather than at the start of the ceremony: an abandoned
+		// recovery should not log a legitimate administrator out while their
+		// existing factor still works.
+		this.sessionRevoker.revokeEverything(platformAdminId, null);
 		this.auditService.recordAction(platformAdminId, PlatformAdminAuditEventType.MFA_BOOTSTRAP_TOKEN_USED,
 				"PLATFORM_ADMIN", String.valueOf(platformAdminId), null, null);
 		this.auditService.recordAction(platformAdminId, PlatformAdminAuditEventType.MFA_ENROLLED,

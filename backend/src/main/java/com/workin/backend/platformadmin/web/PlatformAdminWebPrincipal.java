@@ -1,6 +1,7 @@
 package com.workin.backend.platformadmin.web;
 
 import java.io.Serializable;
+import java.security.Principal;
 
 /**
  * The authenticated administrator, as held in the session.
@@ -17,7 +18,22 @@ import java.io.Serializable;
  * operation until the factor is bound.
  */
 public record PlatformAdminWebPrincipal(long platformAdminId, String phone, boolean factorBound)
-		implements Serializable {
+		implements Principal, Serializable {
+
+	/**
+	 * The administrator's id, as the session index name.
+	 *
+	 * <p>Spring Session indexes a session by {@code Authentication.getName()},
+	 * which for a non-String principal falls back to {@code toString()}. Without
+	 * this, sessions would be indexed under a debug string, and "list this
+	 * administrator's sessions" -- ADR-0015 prerequisite 13 -- would depend on
+	 * the format of a toString(). The id is stable and is what every other table
+	 * keys on.
+	 */
+	@Override
+	public String getName() {
+		return String.valueOf(this.platformAdminId);
+	}
 
 	@Override
 	public String toString() {

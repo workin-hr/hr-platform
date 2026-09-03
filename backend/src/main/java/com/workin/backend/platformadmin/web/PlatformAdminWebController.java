@@ -15,7 +15,6 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
-import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -303,15 +302,8 @@ public class PlatformAdminWebController {
 				&& authentication.getPrincipal() instanceof PlatformAdminWebPrincipal;
 	}
 
-	/**
-	 * JTE has no form taglib, so the token is an explicit template parameter
-	 * rather than something a tag emits. Making it explicit is the point: a
-	 * form that forgets it fails visibly on the first POST.
-	 */
 	private static void csrf(Model model, HttpServletRequest request) {
-		CsrfToken token = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
-		model.addAttribute("csrfParameterName", token != null ? token.getParameterName() : "_csrf");
-		model.addAttribute("csrfToken", token != null ? token.getToken() : "");
+		PlatformAdminWebCsrf.expose(model, request);
 	}
 
 }

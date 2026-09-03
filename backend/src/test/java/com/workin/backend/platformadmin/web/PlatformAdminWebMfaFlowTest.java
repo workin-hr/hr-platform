@@ -50,13 +50,6 @@ class PlatformAdminWebMfaFlowTest extends AbstractIntegrationTest {
 	private static final Pattern CSRF_INPUT = Pattern.compile(
 			"name=\"([^\"]*_csrf[^\"]*)\" value=\"([^\"]+)\"");
 
-	@DynamicPropertySource
-	static void mfaEncryptionKey(DynamicPropertyRegistry registry) {
-		byte[] key = new byte[32];
-		new SecureRandom().nextBytes(key);
-		registry.add("app.platform-admin.mfa.encryption-key",
-				() -> Base64.getEncoder().encodeToString(key));
-	}
 
 	@Autowired
 	private TestRestTemplate restTemplate;

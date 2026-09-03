@@ -14,6 +14,12 @@ public enum PlatformAdminAuditEventType {
 	MFA_BOOTSTRAP_TOKEN_USED,
 	MFA_BOOTSTRAP_TOKEN_REVOKED,
 	MFA_ENROLLED,
+	MFA_RESET,
+
+	// --- ADR-0015 prerequisite 2. The approval is minted and spent as separate
+	// events: an approval that was minted and never consumed is a signal in its
+	// own right.
+	STEP_UP_APPROVED,
 
 	// --- administrative actions on companies (ADR-0009 Option E). Declared
 	// ahead of the operations themselves so the audit contract is settled

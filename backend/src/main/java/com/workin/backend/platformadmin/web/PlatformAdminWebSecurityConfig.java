@@ -84,6 +84,34 @@ public class PlatformAdminWebSecurityConfig {
 	 */
 	public static final Duration ABSOLUTE_CAP = Duration.ofHours(8);
 
+	/** Individual session listing and revocation (ADR-0015 prerequisite 13). */
+	public static final String SESSIONS_PATH = PATH_PREFIX + "/sessions";
+
+	public static final String SESSIONS_REVOKE_PATH = SESSIONS_PATH + "/revoke";
+
+	/** Platform administration of companies (ADR-0009 Option E). */
+	public static final String COMPANIES_PATH = PATH_PREFIX + "/companies";
+
+	public static final String COMPANIES_CONFIRM_PATH = COMPANIES_PATH + "/confirm";
+
+	public static final String COMPANIES_APPLY_PATH = COMPANIES_PATH + "/apply";
+
+	/**
+	 * Every route on this surface that is reachable without authentication.
+	 *
+	 * <p>A named constant so it can be checked against the handlers' own
+	 * {@code @PublicUseCase} declarations. {@code SecurityPolicyAgreementTest}
+	 * asserts the two agree in both directions, which is the only reliable guard
+	 * against the failure this list already had once: {@code /admin/enrol/confirm}
+	 * was declared public and omitted here, and an omitted route does not 404 --
+	 * it lands on the entry point and redirects to the login page, which is also
+	 * where a successful confirmation goes. The test that should have caught it
+	 * passed.
+	 */
+	public static final String[] PUBLIC_PATHS = {
+		LOGIN_PATH, MFA_PATH, ENROL_PATH, ENROL_CONFIRM_PATH,
+	};
+
 	@Bean
 	@Order(0)
 	public SecurityFilterChain platformAdminWebSecurityFilterChain(
@@ -105,7 +133,7 @@ public class PlatformAdminWebSecurityConfig {
 			// authentication boundary.
 			.requestCache(cache -> cache.requestCache(new NullRequestCache()))
 			.authorizeHttpRequests(authorize -> authorize
-				.requestMatchers(LOGIN_PATH, MFA_PATH, ENROL_PATH, ENROL_CONFIRM_PATH).permitAll()
+				.requestMatchers(PUBLIC_PATHS).permitAll()
 				.anyRequest().authenticated())
 			.exceptionHandling(exceptions -> exceptions
 				.authenticationEntryPoint(new PlatformAdminWebLoginRedirectEntryPoint(LOGIN_PATH)))

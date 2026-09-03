@@ -137,8 +137,16 @@ public class PlatformAdminSessionService {
 
 	@Transactional
 	public void revokeAllForPlatformAdmin(Long platformAdminId) {
-		refreshTokenRepository.setStatusForPlatformAdmin(platformAdminId, PlatformAdminSessionStatus.REVOKED);
-		auditService.record(platformAdminId, PlatformAdminAuditEventType.ALL_SESSIONS_REVOKED, null);
+		int revoked = refreshTokenRepository
+				.setStatusForPlatformAdmin(platformAdminId, PlatformAdminSessionStatus.REVOKED);
+		// Only when something was actually revoked. This is now called on every
+		// MFA enrolment -- a first enrolment has no sessions to end, and an
+		// "all sessions revoked" row recording that nothing happened is worse
+		// than no row: it is the audit trail asserting an event that did not
+		// occur.
+		if (revoked > 0) {
+			auditService.record(platformAdminId, PlatformAdminAuditEventType.ALL_SESSIONS_REVOKED, null);
+		}
 	}
 
 	private void revokeFamilyForReuse(PlatformAdminRefreshToken presented) {

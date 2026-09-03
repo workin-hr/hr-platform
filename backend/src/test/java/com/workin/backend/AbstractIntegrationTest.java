@@ -34,6 +34,25 @@ public abstract class AbstractIntegrationTest {
 	protected static final String TEST_RUNTIME_DB_USERNAME = "app_runtime_test";
 	protected static final String TEST_RUNTIME_DB_PASSWORD = "app_runtime_test_password";
 
+	/**
+	 * The platform-admin TOTP seed key, generated once per JVM run.
+	 *
+	 * <p>Generated rather than written down: a base64 key literal in source is
+	 * indistinguishable from a leaked one, and the repository's secret scanner
+	 * flags it. Registered here rather than per test class so every context
+	 * shares one value -- a per-class key gives each class its own property set,
+	 * which means its own application context, which means its own connection
+	 * pools, and enough of those exhaust Postgres and fail with an unrelated
+	 * "unable to determine dialect".
+	 */
+	protected static final String TEST_MFA_ENCRYPTION_KEY = generateMfaKey();
+
+	private static String generateMfaKey() {
+		byte[] key = new byte[32];
+		new java.security.SecureRandom().nextBytes(key);
+		return java.util.Base64.getEncoder().encodeToString(key);
+	}
+
 	@ServiceConnection
 	protected static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
 
@@ -46,6 +65,7 @@ public abstract class AbstractIntegrationTest {
 		registry.add("app.jwt.secret", () -> TEST_JWT_SECRET);
 		registry.add("app.runtime-db.username", () -> TEST_RUNTIME_DB_USERNAME);
 		registry.add("app.runtime-db.password", () -> TEST_RUNTIME_DB_PASSWORD);
+		registry.add("app.platform-admin.mfa.encryption-key", () -> TEST_MFA_ENCRYPTION_KEY);
 	}
 
 }

@@ -21,6 +21,8 @@ public final class MessageKeys {
 	public static final String AUTH_INVALID_REFRESH_TOKEN = "auth.invalid_refresh_token";
 	public static final String AUTH_INVALID_CREDENTIALS = "auth.invalid_credentials";
 	public static final String AUTH_NO_ACTIVE_MEMBERSHIP = "auth.no_active_membership";
+	/** ADR-0015 prerequisite 8: the bearer surface refuses an administrator with no second factor. */
+	public static final String AUTH_MFA_NOT_ENROLLED = "auth.mfa_not_enrolled";
 	public static final String AUTH_PHONE_ALREADY_REGISTERED = "auth.phone_already_registered";
 	public static final String MEMBERS_ALREADY_PRESENT = "members.already_present";
 	public static final String MEMBERS_OWN_MEMBERSHIP = "members.own_membership";

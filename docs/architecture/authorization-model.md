@@ -439,6 +439,21 @@ an audit record's `actor` field must identify a specific platform
 administrator, not a generic shared principal, for §9's audit trail to
 mean anything at the platform-admin tier.
 
+**Status, 2026-09-03 (D-161).** The identity half of F-26 is built: individual
+`platform_admins` rows, individually attributable sessions on both surfaces,
+individual revocation (`/admin/sessions`), and audit records carrying a specific
+administrator plus a structured target and the step-up approval that authorised
+the action. TOTP with an operator-assisted enrolment ceremony (D-152) is
+enforced on both the JTE surface and the bearer login.
+
+The privileged operations themselves — approving, rejecting, suspending or
+restoring a company — are **implemented but disabled by default**
+(`app.platform-admin.actions.enabled=false`). The remaining condition is not an
+identity one: ADR-0015 prerequisite 7 requires the legacy PHP admin surface,
+which still authenticates with the shared password, to be unreachable first.
+While both surfaces are live, MFA is only as strong as the weaker door. The
+paragraph above therefore still holds in full for production.
+
 ## 8. Privilege-Escalation Protections
 
 - A tenant administrator cannot grant a permission they are not

@@ -16,11 +16,18 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+
 import com.workin.backend.AbstractIntegrationTest;
 import com.workin.backend.identity.AuthResponse;
 import com.workin.backend.identity.RegisterCompanyRequest;
 
 class PlatformAdminSessionFlowTest extends AbstractIntegrationTest {
+
+
+	@Autowired
+	private com.workin.backend.platformadmin.mfa.PlatformAdminMfaService mfaServiceForTests;
 
 	@Autowired
 	private TestRestTemplate restTemplate;
@@ -40,7 +47,7 @@ class PlatformAdminSessionFlowTest extends AbstractIntegrationTest {
 		createPlatformAdmin(phone, "correct horse battery staple");
 		return restTemplate.postForEntity(
 				"/api/platform-admin/login",
-				new PlatformAdminLoginRequest(phone, "correct horse battery staple"),
+				new PlatformAdminLoginRequest(phone, "correct horse battery staple", codeFor(phone)),
 				PlatformAdminAuthResponse.class).getBody();
 	}
 
@@ -134,7 +141,7 @@ class PlatformAdminSessionFlowTest extends AbstractIntegrationTest {
 		createPlatformAdmin(phone, "correct horse battery staple");
 		PlatformAdminAuthResponse login = restTemplate.postForEntity(
 				"/api/platform-admin/login",
-				new PlatformAdminLoginRequest(phone, "correct horse battery staple"),
+				new PlatformAdminLoginRequest(phone, "correct horse battery staple", codeFor(phone)),
 				PlatformAdminAuthResponse.class).getBody();
 		new JdbcTemplate(flywayDataSource).update(
 				"UPDATE platform_admins SET active = FALSE WHERE phone = ?", phone);
@@ -152,11 +159,13 @@ class PlatformAdminSessionFlowTest extends AbstractIntegrationTest {
 		createPlatformAdmin(phone, "correct horse battery staple");
 		PlatformAdminAuthResponse first = restTemplate.postForEntity(
 				"/api/platform-admin/login",
-				new PlatformAdminLoginRequest(phone, "correct horse battery staple"),
+				new PlatformAdminLoginRequest(phone, "correct horse battery staple", codeFor(phone)),
 				PlatformAdminAuthResponse.class).getBody();
+		PlatformAdminMfaTestSupport.allowAnotherCode(
+				new JdbcTemplate(flywayDataSource), first.platformAdminId());
 		PlatformAdminAuthResponse second = restTemplate.postForEntity(
 				"/api/platform-admin/login",
-				new PlatformAdminLoginRequest(phone, "correct horse battery staple"),
+				new PlatformAdminLoginRequest(phone, "correct horse battery staple", codeFor(phone)),
 				PlatformAdminAuthResponse.class).getBody();
 
 		platformAdminSessionService.revokeAllForPlatformAdmin(first.platformAdminId());
@@ -192,9 +201,20 @@ class PlatformAdminSessionFlowTest extends AbstractIntegrationTest {
 	}
 
 	private void createPlatformAdmin(String phone, String password) {
-		new JdbcTemplate(flywayDataSource).update(
-				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, TRUE)",
-				phone, passwordEncoder.encode(password));
+		Long id = new JdbcTemplate(flywayDataSource).queryForObject(
+				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, TRUE) RETURNING id",
+				Long.class, phone, passwordEncoder.encode(password));
+		// ADR-0015 prerequisite 8: the bearer surface refuses an administrator
+		// with no bound factor, so a fixture that intends to log in must enrol.
+		this.seeds.put(phone, PlatformAdminMfaTestSupport.enrol(this.mfaServiceForTests, id));
+	}
+
+
+	/** Seeds of the administrators this test enrolled, by phone. */
+	private final java.util.Map<String, String> seeds = new java.util.HashMap<>();
+
+	private String codeFor(String phone) {
+		return PlatformAdminMfaTestSupport.freshCode(this.seeds.get(phone));
 	}
 
 	private static String uniquePhone() {

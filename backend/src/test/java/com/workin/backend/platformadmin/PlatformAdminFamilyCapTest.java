@@ -15,6 +15,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+
 import com.workin.backend.AbstractIntegrationTest;
 
 import io.jsonwebtoken.Claims;
@@ -30,6 +33,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * bound, and it exercises the real column the real code reads.
  */
 class PlatformAdminFamilyCapTest extends AbstractIntegrationTest {
+
+
+	@Autowired
+	private com.workin.backend.platformadmin.mfa.PlatformAdminMfaService mfaServiceForTests;
 
 	private static final String PASSWORD = "correct horse battery staple";
 
@@ -130,7 +137,7 @@ class PlatformAdminFamilyCapTest extends AbstractIntegrationTest {
 
 	private PlatformAdminAuthResponse login(String phone) {
 		ResponseEntity<PlatformAdminAuthResponse> response = this.restTemplate.postForEntity(
-				"/api/platform-admin/login", new PlatformAdminLoginRequest(phone, PASSWORD),
+				"/api/platform-admin/login", new PlatformAdminLoginRequest(phone, PASSWORD, codeFor(phone)),
 				PlatformAdminAuthResponse.class);
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		return response.getBody();
@@ -145,9 +152,20 @@ class PlatformAdminFamilyCapTest extends AbstractIntegrationTest {
 	}
 
 	private void createPlatformAdmin(String phone) {
-		new JdbcTemplate(this.flywayDataSource).update(
-				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true)",
-				phone, this.passwordEncoder.encode(PASSWORD));
+		Long id = new JdbcTemplate(this.flywayDataSource).queryForObject(
+				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true) RETURNING id",
+				Long.class, phone, this.passwordEncoder.encode(PASSWORD));
+		// ADR-0015 prerequisite 8: the bearer surface refuses an administrator
+		// with no bound factor, so a fixture that intends to log in must enrol.
+		this.seeds.put(phone, PlatformAdminMfaTestSupport.enrol(this.mfaServiceForTests, id));
+	}
+
+
+	/** Seeds of the administrators this test enrolled, by phone. */
+	private final java.util.Map<String, String> seeds = new java.util.HashMap<>();
+
+	private String codeFor(String phone) {
+		return PlatformAdminMfaTestSupport.freshCode(this.seeds.get(phone));
 	}
 
 	private static String uniquePhone() {

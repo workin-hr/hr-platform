@@ -36,13 +36,6 @@ class PlatformAdminMfaServiceTest extends AbstractIntegrationTest {
 	 * practice anyway: no test can come to depend on a particular key, and
 	 * production's comes from the deployment's secret store.
 	 */
-	@DynamicPropertySource
-	static void mfaEncryptionKey(DynamicPropertyRegistry registry) {
-		byte[] key = new byte[32];
-		new SecureRandom().nextBytes(key);
-		registry.add("app.platform-admin.mfa.encryption-key",
-				() -> Base64.getEncoder().encodeToString(key));
-	}
 
 	@Autowired
 	private PlatformAdminMfaService mfaService;
@@ -204,7 +197,79 @@ class PlatformAdminMfaServiceTest extends AbstractIntegrationTest {
 			.doesNotContain(seed);
 	}
 
+	// --- recovery (ADR-0015 prerequisite 1) ---------------------------------
+
+	@Test
+	void aLostAuthenticatorIsRecoveredByReissuingTheBootstrapToken() {
+		long admin = createPlatformAdmin();
+		String firstToken = this.mfaService.issueBootstrapToken(admin, admin);
+		String firstSeed = this.mfaService.beginEnrolment(admin, firstToken).orElseThrow();
+		this.mfaService.confirmEnrolment(admin, codeFor(firstSeed));
+		assertThat(this.mfaService.isBound(admin)).isTrue();
+
+		// The authenticator is gone. An operator reissues.
+		String recoveryToken = this.mfaService.issueBootstrapToken(admin, admin);
+		String newSeed = this.mfaService.beginEnrolment(admin, recoveryToken).orElseThrow();
+
+		assertThat(newSeed).isNotEqualTo(firstSeed);
+		assertThat(this.mfaService.isBound(admin))
+			.as("a reset must leave the factor unbound until a new code verifies")
+			.isFalse();
+		assertThat(this.mfaService.confirmEnrolment(admin, codeFor(newSeed))).isTrue();
+		assertThat(this.mfaService.isBound(admin)).isTrue();
+	}
+
+	@Test
+	void theOldSeedStopsWorkingAfterRecovery() {
+		long admin = createPlatformAdmin();
+		String firstToken = this.mfaService.issueBootstrapToken(admin, admin);
+		String firstSeed = this.mfaService.beginEnrolment(admin, firstToken).orElseThrow();
+		this.mfaService.confirmEnrolment(admin, codeFor(firstSeed));
+
+		String recoveryToken = this.mfaService.issueBootstrapToken(admin, admin);
+		String newSeed = this.mfaService.beginEnrolment(admin, recoveryToken).orElseThrow();
+		this.mfaService.confirmEnrolment(admin, codeFor(newSeed));
+
+		assertThat(this.mfaService.verify(admin, codeForNextStep(firstSeed)))
+			.as("recovery that left the lost authenticator working would not be recovery")
+			.isFalse();
+	}
+
+	@Test
+	void reissuingInvalidatesThePreviousTokenAndAuditsBothFacts() {
+		long admin = createPlatformAdmin();
+		String superseded = this.mfaService.issueBootstrapToken(admin, admin);
+
+		this.mfaService.issueBootstrapToken(admin, admin);
+
+		assertThat(this.mfaService.beginEnrolment(admin, superseded))
+			.as("the previous token must die the moment a new one is issued")
+			.isEmpty();
+		assertThat(auditTypesFor(admin))
+			.contains("MFA_BOOTSTRAP_TOKEN_ISSUED", "MFA_BOOTSTRAP_TOKEN_REVOKED");
+	}
+
+	@Test
+	void aCompletedRecoveryIsAuditedAsAReset() {
+		long admin = createPlatformAdmin();
+		String token = this.mfaService.issueBootstrapToken(admin, admin);
+		String seed = this.mfaService.beginEnrolment(admin, token).orElseThrow();
+		this.mfaService.confirmEnrolment(admin, codeFor(seed));
+
+		String recoveryToken = this.mfaService.issueBootstrapToken(admin, admin);
+		this.mfaService.beginEnrolment(admin, recoveryToken);
+
+		assertThat(auditTypesFor(admin))
+			.as("a factor reset is the security event, distinct from a first enrolment")
+			.contains("MFA_RESET");
+	}
+
 	// --- helpers ------------------------------------------------------------
+
+	private static String codeForNextStep(String base32Seed) {
+		return Totp.codeAt(fromBase32(base32Seed), Totp.timeStepAt(Instant.now()) + 1);
+	}
+
 
 	/** The code an authenticator app would show right now for this seed. */
 	private static String codeFor(String base32Seed) {
