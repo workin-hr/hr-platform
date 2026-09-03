@@ -10,8 +10,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
-import com.workin.backend.identity.Company;
-import com.workin.backend.identity.CompanyRepository;
+import com.workin.backend.platformadmin.PlatformAdminCompanyDirectory;
 import com.workin.backend.platformadmin.PlatformAdminCompanyService;
 import com.workin.backend.platformadmin.stepup.PlatformAdminStepUpService;
 
@@ -32,13 +31,13 @@ import com.workin.backend.platformadmin.stepup.PlatformAdminStepUpService;
 @Controller
 public class PlatformAdminCompaniesController {
 
-	private final CompanyRepository companyRepository;
+	private final PlatformAdminCompanyDirectory companies;
 	private final PlatformAdminCompanyService companyService;
 	private final PlatformAdminStepUpService stepUpService;
 
-	public PlatformAdminCompaniesController(CompanyRepository companyRepository,
+	public PlatformAdminCompaniesController(PlatformAdminCompanyDirectory companies,
 			PlatformAdminCompanyService companyService, PlatformAdminStepUpService stepUpService) {
-		this.companyRepository = companyRepository;
+		this.companies = companies;
 		this.companyService = companyService;
 		this.stepUpService = stepUpService;
 	}
@@ -111,10 +110,7 @@ public class PlatformAdminCompaniesController {
 		PlatformAdminWebCsrf.expose(model, request);
 		model.addAttribute("currentAdminPhone", principal.phone());
 		model.addAttribute("actionsEnabled", this.companyService.actionsEnabled());
-		model.addAttribute("companies", this.companyRepository.findAll().stream()
-			.sorted(java.util.Comparator.comparing(Company::getId))
-			.limit(200)
-			.toList());
+		model.addAttribute("companies", this.companies.list(200));
 	}
 
 }

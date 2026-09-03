@@ -6,13 +6,20 @@ likely first mistake, so it comes before anything else.
 
 | Profile | Database | What it serves | Use it for |
 |---|---|---|---|
-| **`phase1-mysql`** | The existing **MariaDB/MySQL**, untouched | `/apis/**` — the legacy PHP API, byte-compatible, which the Flutter desktop and mobile clients already call | **Replacing the PHP backend without changing anything else** |
-| default (no profile) | **PostgreSQL**, with its own schema created by Flyway | `/api/**` and the platform-admin surface at `/admin/**` | The new domain: tenant identity, authorization, the platform-admin dashboard |
+| **`phase1-mysql`** | The existing **MariaDB/MySQL**, untouched | `/apis/**` — the legacy PHP API the Flutter clients already call — **and** the platform-admin surface at `/admin/**` | **Replacing the PHP backend, and its dashboard, without changing anything else** |
+| default (no profile) | **PostgreSQL**, with its own schema created by Flyway | `/api/**` and the same platform-admin surface | The new domain: tenant identity, authorization |
 
-They do not overlap. Under `phase1-mysql` there is no Flyway, no Postgres
-connection, and `/admin/**` answers **404** — the platform-admin surface does
-not exist in that mode. Under the default profile the legacy `/apis/**`
-compatibility chain is not installed.
+Under `phase1-mysql` there is no Flyway and no PostgreSQL connection. The
+legacy `/apis/**` compatibility chain is not installed under the default
+profile, and the PostgreSQL tenant chain is not installed under
+`phase1-mysql`.
+
+**The platform-admin surface runs under both.** Legacy has a platform admin web
+of its own (`dashboard/pages/companies/`), so a deployment that stays on MySQL
+needs one too. It is the same code over whichever database the profile selects;
+what is *not* carried over is how legacy authenticates it — `doAdminLogin()`
+checks one shared password held in a config constant (`hr-legacy#11`), and there
+is no admin table in the legacy schema at all.
 
 ## Running against your existing MySQL (`phase1-mysql`)
 
@@ -34,8 +41,16 @@ with these in the environment:
 | `LEGACY_WHATSAPP_API_TOKEN`, `_INSTANCE_ID` | the OTP gateway. **Unset means every OTP route answers 503**, which is legacy's own behaviour without credentials — deliberately not the silent success legacy used in dev (D-134) |
 | `SERVER_PORT` | defaults to 8080 |
 
-No migration runs. No schema changes. The application reads and writes the same
-tables the PHP application does.
+No migration runs, and no frozen table is altered. The application reads and
+writes the same tables the PHP application does.
+
+**It does need its own tables added**, once, to the same MySQL database — the
+platform-admin identity model and Spring Session. They are additive: nothing
+that PHP owns is touched. The DDL is
+`backend/src/test/resources/legacy/phase1_extensions.schema.sql`, which is also
+where Phase 1's `legacy_refresh_tokens` lives. **Nothing in the application
+creates them** — see **R-023** for the open question of who provisions that
+step, which these tables join rather than change.
 
 Verified on 2026-09-03: the packaged jar starts in this profile against MariaDB
 11.8, `POST /apis/api/auth/login_employee` returns the same envelope with a
@@ -48,9 +63,16 @@ paginated shape the clients expect.
 java -jar backend-0.0.1-SNAPSHOT.jar
 ```
 
-Needs PostgreSQL, plus `APP_PLATFORM_ADMIN_MFA_ENCRYPTION_KEY` (32 bytes,
-base64) and, to provision the first administrator,
-`APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE` / `_PASSWORD`.
+Needs PostgreSQL. Both profiles need `APP_PLATFORM_ADMIN_MFA_ENCRYPTION_KEY`
+(32 bytes, base64) and, to provision the first administrator,
+`APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE` / `_PASSWORD`, if the admin surface is to
+be used.
+
+Administrative actions on companies are refused unless
+`APP_PLATFORM_ADMIN_ACTIONS_ENABLED=true`. They ship off: ADR-0015 prerequisite
+7 requires the legacy PHP admin surface — which still authenticates with the
+shared password — to be unreachable first. While both are live, MFA is only as
+strong as the weaker door.
 
 **This currently does not start from the jar** — see **R-040**.
 `BackendApplication` excludes `DataSourceAutoConfiguration`, so nothing supplies

@@ -69,12 +69,15 @@ stored as `.php` in a directory the web server serves (**R-039**).
 Client-visible effect: a stored file may have a different extension than under
 PHP. The clients use the URL the API returns, so they follow it either way.
 
-## What is *not* served in this mode
+## The admin dashboard is served too
 
-The platform-admin dashboard (`/admin/**`) belongs to the new PostgreSQL domain
-and answers **404** under `phase1-mysql`. Nothing the Flutter clients use is
-affected — company and HR administration is the desktop client's job
-(ADR-0009 Option E), and the admin surface is for administering Workin itself.
+`/admin/**` runs under `phase1-mysql` as well, against the same MySQL database —
+the replacement for `dashboard/pages/companies/`. It needs its own tables added
+once (see the run guide); nothing PHP owns is altered.
+
+It does not affect the Flutter clients. Company and HR administration is the
+desktop client's job (ADR-0009 Option E); the admin surface administers Workin
+itself.
 
 ## Rolling back
 

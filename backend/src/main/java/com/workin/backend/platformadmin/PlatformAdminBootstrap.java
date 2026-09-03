@@ -44,15 +44,27 @@ public class PlatformAdminBootstrap implements ApplicationRunner {
 		this.bootstrapPassword = bootstrapPassword;
 	}
 
+	/**
+	 * Configuration is checked <em>before</em> the table is read, and the order
+	 * matters more than it looks.
+	 *
+	 * <p>Reading first made the {@code platform_admins} table a startup
+	 * requirement for every deployment, including ones that never use the
+	 * platform-admin surface. That was invisible while the surface was
+	 * PostgreSQL-only, because Flyway always created the table. Under
+	 * {@code phase1-mysql} the Java-owned tables are provisioned out of band
+	 * (**R-023**), so an unconfigured optional feature was failing startup over
+	 * a table nobody had asked for.
+	 */
 	@Override
 	public void run(ApplicationArguments args) {
-		if (platformAdminRepository.count() > 0) {
+		if (bootstrapPhone.isBlank() || bootstrapPassword.isBlank()) {
+			log.warn("APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE/APP_PLATFORM_ADMIN_BOOTSTRAP_PASSWORD are "
+					+ "not set -- skipping bootstrap. No platform-admin functionality is usable "
+					+ "until an administrator is created.");
 			return;
 		}
-		if (bootstrapPhone.isBlank() || bootstrapPassword.isBlank()) {
-			log.warn("No platform administrator exists yet, and APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE/"
-					+ "APP_PLATFORM_ADMIN_BOOTSTRAP_PASSWORD are not set -- skipping bootstrap. "
-					+ "No platform-admin functionality is usable until an administrator is created.");
+		if (platformAdminRepository.count() > 0) {
 			return;
 		}
 		platformAdminRepository.save(new PlatformAdmin(bootstrapPhone, passwordEncoder.encode(bootstrapPassword)));

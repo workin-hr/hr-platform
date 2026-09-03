@@ -6,8 +6,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.workin.backend.identity.Company;
-import com.workin.backend.identity.CompanyRepository;
 import com.workin.backend.platformadmin.stepup.PlatformAdminStepUpService;
 
 /**
@@ -40,17 +38,17 @@ public class PlatformAdminCompanyService {
 
 	public static final String TARGET_TYPE = "COMPANY";
 
-	private final CompanyRepository companyRepository;
+	private final PlatformAdminCompanyDirectory companies;
 	private final PlatformAdminStepUpService stepUpService;
 	private final PlatformAdminAuditService auditService;
 	private final boolean actionsEnabled;
 
 	public PlatformAdminCompanyService(
-			CompanyRepository companyRepository,
+			PlatformAdminCompanyDirectory companies,
 			PlatformAdminStepUpService stepUpService,
 			PlatformAdminAuditService auditService,
 			@Value("${app.platform-admin.actions.enabled:false}") boolean actionsEnabled) {
-		this.companyRepository = companyRepository;
+		this.companies = companies;
 		this.stepUpService = stepUpService;
 		this.auditService = auditService;
 		this.actionsEnabled = actionsEnabled;
@@ -97,14 +95,11 @@ public class PlatformAdminCompanyService {
 			return Outcome.STEP_UP_REJECTED;
 		}
 
-		Company company = this.companyRepository.findById(companyId).orElse(null);
-		if (company == null) {
+		if (!this.companies.updateStatus(companyId, statusFor(action))) {
 			// Rolls back, taking the approval's consumption with it, so a
 			// mistyped id does not burn the operator's step-up.
 			throw new CompanyNotFoundException(companyId);
 		}
-
-		company.setStatus(statusFor(action));
 		this.auditService.recordAction(platformAdminId, auditTypeFor(action),
 				TARGET_TYPE, String.valueOf(companyId), approvalId, reason);
 		return Outcome.DONE;
