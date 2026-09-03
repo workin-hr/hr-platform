@@ -1,0 +1,5206 @@
+{
+ "client": "workin_mobile",
+ "parameter_classes": 33,
+ "endpoints_declared": 39,
+ "endpoints_referenced": 39,
+ "declared_not_referenced": [],
+ "calls": [
+  {
+   "method_name": "getConfigs",
+   "parameters_class": null,
+   "returns": "ConfigsResponse",
+   "endpoint_const": "getConfigsEndpoint",
+   "path": "configs/get",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [],
+   "model": "ConfigsResponse"
+  },
+  {
+   "method_name": "getServerTime",
+   "parameters_class": null,
+   "returns": "ServerTimeResponse",
+   "endpoint_const": "getServerTimeEndpoint",
+   "path": "time/now",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [],
+   "model": "ServerTimeResponse"
+  },
+  {
+   "method_name": "getAssets",
+   "parameters_class": "GetAssetsParameters",
+   "returns": "AssetsResponse",
+   "endpoint_const": "getAssetsEndpoint",
+   "path": "assets/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "limit",
+    "page"
+   ],
+   "body_keys": [],
+   "model": "AssetsResponse"
+  },
+  {
+   "method_name": "getPhoneCountries",
+   "parameters_class": null,
+   "returns": "PhoneCountriesResponse",
+   "endpoint_const": "getPhoneCountriesEndpoint",
+   "path": "phone_countries/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [],
+   "model": "PhoneCountriesResponse"
+  },
+  {
+   "method_name": "login",
+   "parameters_class": "LoginParameters",
+   "returns": "EmployeeAuthResponse",
+   "endpoint_const": "loginEmployeeEndpoint",
+   "path": "auth/login_employee",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "password",
+    "phone"
+   ],
+   "model": "EmployeeAuthResponse"
+  },
+  {
+   "method_name": "lookupCompany",
+   "parameters_class": "LookupCompanyParameters",
+   "returns": "CompanyLookupResponse",
+   "endpoint_const": "lookupCompanyEndpoint",
+   "path": "auth/lookup_company",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "company_code"
+   ],
+   "model": "CompanyLookupResponse"
+  },
+  {
+   "method_name": "joinCompany",
+   "parameters_class": "JoinCompanyParameters",
+   "returns": "EmployeeAuthResponse",
+   "endpoint_const": "joinCompanyEndpoint",
+   "path": "auth/join_company",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "company_code",
+    "country_code",
+    "first_name",
+    "last_name",
+    "password",
+    "phone"
+   ],
+   "model": "EmployeeAuthResponse"
+  },
+  {
+   "method_name": "forgetPassword",
+   "parameters_class": "ForgetPasswordParameters",
+   "returns": "ForgetPasswordResponse",
+   "endpoint_const": "forgetPasswordEndpoint",
+   "path": "auth/forgot_password",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "phone",
+    "type"
+   ],
+   "model": "ForgetPasswordResponse"
+  },
+  {
+   "method_name": "verifyOtp",
+   "parameters_class": "VerifyOtpParameters",
+   "returns": "BaseResponse",
+   "endpoint_const": "verifyOtpEndpoint",
+   "path": "auth/verify_otp",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "otp",
+    "phone",
+    "type"
+   ],
+   "model": "BaseResponse"
+  },
+  {
+   "method_name": "resetPassword",
+   "parameters_class": "ResetPasswordParameters",
+   "returns": "BaseResponse",
+   "endpoint_const": "resetPasswordEndpoint",
+   "path": "auth/reset_password",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "otp",
+    "password",
+    "phone",
+    "type"
+   ],
+   "model": "BaseResponse"
+  },
+  {
+   "method_name": "resendOtp",
+   "parameters_class": "ResendOtpParameters",
+   "returns": "ResendOtpResponse",
+   "endpoint_const": "resendOtpEndpoint",
+   "path": "auth/resend_otp",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "phone"
+   ],
+   "model": "ResendOtpResponse"
+  },
+  {
+   "method_name": "getMyEmployeeProfile",
+   "parameters_class": null,
+   "returns": "EmployeeResponse",
+   "endpoint_const": "getMyEmployeeProfileEndpoint",
+   "path": "profile/employee",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [],
+   "model": "EmployeeResponse"
+  },
+  {
+   "method_name": "changePassword",
+   "parameters_class": "ChangePasswordParameters",
+   "returns": "BaseResponse",
+   "endpoint_const": "changePasswordEndpoint",
+   "path": "profile/change_password",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "new_password",
+    "old_password"
+   ],
+   "model": "BaseResponse"
+  },
+  {
+   "method_name": "uploadEmployeePhoto",
+   "parameters_class": "UploadEmployeePhotoParameters",
+   "returns": "EmployeeResponse",
+   "endpoint_const": "uploadEmployeePhotoEndpoint",
+   "path": "employees/upload_photo",
+   "http_method": "POST",
+   "multipart": true,
+   "response_type": "json",
+   "query_keys": [
+    "id"
+   ],
+   "body_keys": [
+    "photo"
+   ],
+   "model": "EmployeeResponse"
+  },
+  {
+   "method_name": "logout",
+   "parameters_class": "LogoutParameters",
+   "returns": "BaseResponse",
+   "endpoint_const": "logoutEndpoint",
+   "path": "profile/logout",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "token"
+   ],
+   "model": "BaseResponse"
+  },
+  {
+   "method_name": "checkIn",
+   "parameters_class": "CheckInParameters",
+   "returns": "CheckInOutResponse",
+   "endpoint_const": "checkInEndpoint",
+   "path": "attendance/check_in",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "latitude",
+    "longitude",
+    "method"
+   ],
+   "model": "CheckInOutResponse"
+  },
+  {
+   "method_name": "checkOut",
+   "parameters_class": "CheckInParameters",
+   "returns": "CheckInOutResponse",
+   "endpoint_const": "checkOutEndpoint",
+   "path": "attendance/check_out",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "latitude",
+    "longitude",
+    "method"
+   ],
+   "model": "CheckInOutResponse"
+  },
+  {
+   "method_name": "getEmployeeMonthlyAttendance",
+   "parameters_class": "GetEmployeeMonthlyAttendanceParameters",
+   "returns": "AttendanceRecordsResponse",
+   "endpoint_const": "getEmployeeMonthlyAttendanceEndpoint",
+   "path": "attendance/employee_monthly_attendance",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "id",
+    "month",
+    "year"
+   ],
+   "body_keys": [],
+   "model": "AttendanceRecordsResponse"
+  },
+  {
+   "method_name": "getAttendanceStats",
+   "parameters_class": "GetAttendanceStatsParameters",
+   "returns": "AttendanceStatsResponse",
+   "endpoint_const": "getAttendanceStatsEndpoint",
+   "path": "attendance/stats",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "branch_id",
+    "department_id",
+    "employee_id",
+    "from",
+    "to"
+   ],
+   "body_keys": [],
+   "model": "AttendanceStatsResponse"
+  },
+  {
+   "method_name": "getOfficialHolidays",
+   "parameters_class": "GetOfficialHolidaysParameters",
+   "returns": "OfficialHolidaysResponse",
+   "endpoint_const": "getOfficialHolidaysEndpoint",
+   "path": "company_official_holidays/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "from",
+    "limit",
+    "page",
+    "to"
+   ],
+   "body_keys": [],
+   "model": "OfficialHolidaysResponse"
+  },
+  {
+   "method_name": "getRequestTypes",
+   "parameters_class": "GetRequestTypesParameters",
+   "returns": "RequestTypesResponse",
+   "endpoint_const": "getRequestTypesEndpoint",
+   "path": "request_types/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "limit",
+    "page",
+    "search"
+   ],
+   "body_keys": [],
+   "model": "RequestTypesResponse"
+  },
+  {
+   "method_name": "getRequests",
+   "parameters_class": "GetRequestsParameters",
+   "returns": "RequestsResponse",
+   "endpoint_const": "getRequestsEndpoint",
+   "path": "requests/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "from",
+    "limit",
+    "page",
+    "search",
+    "status",
+    "to",
+    "type_id"
+   ],
+   "body_keys": [],
+   "model": "RequestsResponse"
+  },
+  {
+   "method_name": "createRequest",
+   "parameters_class": "CreateRequestParameters",
+   "returns": "BaseResponse",
+   "endpoint_const": "createRequestEndpoint",
+   "path": "requests/create",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "from_date",
+    "from_time",
+    "notes",
+    "request_type_id",
+    "to_date",
+    "to_time"
+   ],
+   "model": "BaseResponse"
+  },
+  {
+   "method_name": "deleteRequest",
+   "parameters_class": "DeleteRequestParameters",
+   "returns": "BaseResponse",
+   "endpoint_const": "deleteRequestEndpoint",
+   "path": "requests/delete",
+   "http_method": "DELETE",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "id"
+   ],
+   "body_keys": [],
+   "model": "BaseResponse"
+  },
+  {
+   "method_name": "getPayslips",
+   "parameters_class": "GetPayslipsParameters",
+   "returns": "PayslipsResponse",
+   "endpoint_const": "getPayslipsEndpoint",
+   "path": "payslips/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "batch_id",
+    "branch_id",
+    "department_id",
+    "employee_id",
+    "limit",
+    "month",
+    "page",
+    "search",
+    "year"
+   ],
+   "body_keys": [],
+   "model": "PayslipsResponse"
+  },
+  {
+   "method_name": "getPayslip",
+   "parameters_class": "GetPayslipParameters",
+   "returns": "PayslipResponse",
+   "endpoint_const": "getPayslipEndpoint",
+   "path": "payslips/one",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "id"
+   ],
+   "body_keys": [],
+   "model": "PayslipResponse"
+  },
+  {
+   "method_name": "getPenalties",
+   "parameters_class": "GetPenaltiesParameters",
+   "returns": "PenaltiesResponse",
+   "endpoint_const": "getPenaltiesEndpoint",
+   "path": "penalties/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "from",
+    "limit",
+    "page",
+    "search",
+    "to"
+   ],
+   "body_keys": [],
+   "model": "PenaltiesResponse"
+  },
+  {
+   "method_name": "getAdministrativeDecisions",
+   "parameters_class": "GetAdministrativeDecisionsParameters",
+   "returns": "AdministrativeDecisionsResponse",
+   "endpoint_const": "getAdministrativeDecisionsEndpoint",
+   "path": "administrative_decisions/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "limit",
+    "page"
+   ],
+   "body_keys": [],
+   "model": "AdministrativeDecisionsResponse"
+  },
+  {
+   "method_name": "getAppContent",
+   "parameters_class": "GetAppContentParameters",
+   "returns": "AppContentResponse",
+   "endpoint_const": "getAppContentEndpoint",
+   "path": "app_content/one",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "content_key"
+   ],
+   "body_keys": [],
+   "model": "AppContentResponse"
+  },
+  {
+   "method_name": "getFaqs",
+   "parameters_class": "GetFaqsParameters",
+   "returns": "FaqsResponse",
+   "endpoint_const": "getFaqsEndpoint",
+   "path": "faqs/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "platform"
+   ],
+   "body_keys": [],
+   "model": "FaqsResponse"
+  },
+  {
+   "method_name": "submitComplaint",
+   "parameters_class": "SubmitComplaintParameters",
+   "returns": "BaseResponse",
+   "endpoint_const": "submitComplaintEndpoint",
+   "path": "complaints/create",
+   "http_method": "POST",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [
+    "email",
+    "message",
+    "name",
+    "phone"
+   ],
+   "model": "BaseResponse"
+  },
+  {
+   "method_name": "getBanners",
+   "parameters_class": "GetBannersParameters",
+   "returns": "BannersResponse",
+   "endpoint_const": "getBannersEndpoint",
+   "path": "banners/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "platform"
+   ],
+   "body_keys": [],
+   "model": "BannersResponse"
+  },
+  {
+   "method_name": "getLeaveBalances",
+   "parameters_class": "GetLeaveBalancesParameters",
+   "returns": "LeaveBalancesResponse",
+   "endpoint_const": "getLeaveBalancesEndpoint",
+   "path": "leave_balances/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "employee_id",
+    "limit",
+    "page",
+    "search",
+    "year"
+   ],
+   "body_keys": [],
+   "model": "LeaveBalancesResponse"
+  },
+  {
+   "method_name": "getEmployeeMonthlySchedule",
+   "parameters_class": "GetEmployeeMonthlyScheduleParameters",
+   "returns": "SchedulesResponse",
+   "endpoint_const": "getEmployeeMonthlyScheduleEndpoint",
+   "path": "schedules/employee_monthly_schedule",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "employee_id",
+    "month",
+    "year"
+   ],
+   "body_keys": [],
+   "model": "SchedulesResponse"
+  },
+  {
+   "method_name": "getEmployeeDocuments",
+   "parameters_class": "GetEmployeeDocumentsParameters",
+   "returns": "EmployeeDocumentsResponse",
+   "endpoint_const": "getEmployeeDocumentsEndpoint",
+   "path": "employee_docs/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "employee_id"
+   ],
+   "body_keys": [],
+   "model": "EmployeeDocumentsResponse"
+  },
+  {
+   "method_name": "getNotifications",
+   "parameters_class": "GetNotificationsParameters",
+   "returns": "NotificationsResponse",
+   "endpoint_const": "getNotificationsEndpoint",
+   "path": "notifications/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "limit",
+    "page",
+    "search"
+   ],
+   "body_keys": [],
+   "model": "NotificationsResponse"
+  },
+  {
+   "method_name": "getUnreadNotificationsCount",
+   "parameters_class": null,
+   "returns": "GetUnreadNotificationsCountResponse",
+   "endpoint_const": "getUnreadNotificationsCountEndpoint",
+   "path": "notifications/unread_count",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [],
+   "body_keys": [],
+   "model": "GetUnreadNotificationsCountResponse"
+  },
+  {
+   "method_name": "markNotificationAsRead",
+   "parameters_class": "MarkNotificationAsReadParameters",
+   "returns": "BaseResponse",
+   "endpoint_const": "markNotificationAsReadEndpoint",
+   "path": "notifications/mark_read",
+   "http_method": "PUT",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "id"
+   ],
+   "body_keys": [],
+   "model": "BaseResponse"
+  },
+  {
+   "method_name": "deleteNotification",
+   "parameters_class": "DeleteNotificationParameters",
+   "returns": "BaseResponse",
+   "endpoint_const": "deleteNotificationEndpoint",
+   "path": "notifications/delete",
+   "http_method": "DELETE",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "id"
+   ],
+   "body_keys": [],
+   "model": "BaseResponse"
+  }
+ ],
+ "models": {
+  "AdministrativeDecisionModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/administrative_decision_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "title",
+     "accessor": "getStringOrNull",
+     "key": "title",
+     "key_expr": "ApiConstants.titleKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "body",
+     "accessor": "getStringOrNull",
+     "key": "body",
+     "key_expr": "ApiConstants.bodyKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "createdAt",
+     "accessor": "getDateOrNull",
+     "key": "created_at",
+     "key_expr": "ApiConstants.createdAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "AppContentModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/app_content_model.dart",
+   "fields": [
+    {
+     "field": "value",
+     "accessor": "getStringOrNull",
+     "key": "value",
+     "key_expr": "ApiConstants.valueKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "AssetModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/asset_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "assetDate",
+     "accessor": "getDateOrNull",
+     "key": "asset_date",
+     "key_expr": "ApiConstants.assetDateKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "assetText",
+     "accessor": "getStringOrNull",
+     "key": "asset_text",
+     "key_expr": "ApiConstants.assetTextKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "returnedAt",
+     "accessor": "getDateOrNull",
+     "key": "returned_at",
+     "key_expr": "ApiConstants.returnedAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "isReturned",
+     "accessor": "getBoolOrNull",
+     "key": "is_returned",
+     "key_expr": "ApiConstants.isReturnedKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "AttendanceModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/attendance_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeId",
+     "accessor": "getIntOrNull",
+     "key": "employee_id",
+     "key_expr": "ApiConstants.employeeIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "checkIn",
+     "accessor": "getDateOrNull",
+     "key": "check_in",
+     "key_expr": "ApiConstants.checkInKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "checkOut",
+     "accessor": "getDateOrNull",
+     "key": "check_out",
+     "key_expr": "ApiConstants.checkOutKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "durationMinutes",
+     "accessor": "getIntOrNull",
+     "key": "duration_minutes",
+     "key_expr": "ApiConstants.durationMinutesKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "createdAt",
+     "accessor": "getDateOrNull",
+     "key": "created_at",
+     "key_expr": "ApiConstants.createdAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "updatedAt",
+     "accessor": "getDateOrNull",
+     "key": "updated_at",
+     "key_expr": "ApiConstants.updatedAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeName",
+     "accessor": "getStringOrNull",
+     "key": "employee_name",
+     "key_expr": "ApiConstants.employeeNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeCode",
+     "accessor": "getStringOrNull",
+     "key": "employee_code",
+     "key_expr": "ApiConstants.employeeCodeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "jobTitleName",
+     "accessor": "getStringOrNull",
+     "key": "job_title_name",
+     "key_expr": "ApiConstants.jobTitleNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "branchName",
+     "accessor": "getStringOrNull",
+     "key": "branch_name",
+     "key_expr": "ApiConstants.branchNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "departmentName",
+     "accessor": "getStringOrNull",
+     "key": "department_name",
+     "key_expr": "ApiConstants.departmentNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "shiftName",
+     "accessor": "getStringOrNull",
+     "key": "shift_name",
+     "key_expr": "ApiConstants.shiftNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "expectedDurationMinutes",
+     "accessor": "getIntOrNull",
+     "key": "expected_duration_minutes",
+     "key_expr": "ApiConstants.expectedDurationMinutesKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "exceptionTypeId",
+     "accessor": "getIntOrNull",
+     "key": "exception_type_id",
+     "key_expr": "ApiConstants.exceptionTypeIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "exceptionTypeName",
+     "accessor": "getStringOrNull",
+     "key": "exception_type_name",
+     "key_expr": "ApiConstants.exceptionTypeNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "AttendanceStatsModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/attendance_stats_model.dart",
+   "fields": [
+    {
+     "field": "totalDaysInMonth",
+     "accessor": "getIntOrNull",
+     "key": "total_days_in_month",
+     "key_expr": "ApiConstants.totalDaysInMonthKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "presentDays",
+     "accessor": "getIntOrNull",
+     "key": "present_days",
+     "key_expr": "ApiConstants.presentDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "leaveDays",
+     "accessor": "getIntOrNull",
+     "key": "leave_days",
+     "key_expr": "ApiConstants.leaveDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "absentDays",
+     "accessor": "getIntOrNull",
+     "key": "absent_days",
+     "key_expr": "ApiConstants.absentDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "totalDurationMinutes",
+     "accessor": "getIntOrNull",
+     "key": "total_duration_minutes",
+     "key_expr": "ApiConstants.totalDurationMinutesKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "overtimeMinutes",
+     "accessor": "getIntOrNull",
+     "key": "overtime_minutes",
+     "key_expr": "ApiConstants.overtimeMinutesKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "BannerModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/banner_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "titleAr",
+     "accessor": "getStringOrNull",
+     "key": "title_ar",
+     "key_expr": "ApiConstants.bannerTitleArKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "titleEn",
+     "accessor": "getStringOrNull",
+     "key": "title_en",
+     "key_expr": "ApiConstants.bannerTitleEnKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "descriptionAr",
+     "accessor": "getStringOrNull",
+     "key": "description_ar",
+     "key_expr": "ApiConstants.bannerDescriptionArKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "descriptionEn",
+     "accessor": "getStringOrNull",
+     "key": "description_en",
+     "key_expr": "ApiConstants.bannerDescriptionEnKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "buttonLabelAr",
+     "accessor": "getStringOrNull",
+     "key": "button_label_ar",
+     "key_expr": "ApiConstants.bannerButtonLabelArKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "buttonLabelEn",
+     "accessor": "getStringOrNull",
+     "key": "button_label_en",
+     "key_expr": "ApiConstants.bannerButtonLabelEnKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "buttonActionValue",
+     "accessor": "getStringOrNull",
+     "key": "button_action_value",
+     "key_expr": "ApiConstants.bannerButtonActionValueKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "BaseModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/base_model.dart",
+   "fields": [
+    {
+     "field": "success",
+     "accessor": "getBoolOrNull",
+     "key": "success",
+     "key_expr": "ApiConstants.successKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "message",
+     "accessor": "getStringOrNull",
+     "key": "message",
+     "key_expr": "ApiConstants.messageKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "CompanyModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/company_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "companyName",
+     "accessor": "getStringOrNull",
+     "key": "company_name",
+     "key_expr": "ApiConstants.companyNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "firstName",
+     "accessor": "getStringOrNull",
+     "key": "first_name",
+     "key_expr": "ApiConstants.firstNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "lastName",
+     "accessor": "getStringOrNull",
+     "key": "last_name",
+     "key_expr": "ApiConstants.lastNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "countryCode",
+     "accessor": "getStringOrNull",
+     "key": "country_code",
+     "key_expr": "ApiConstants.countryCodeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "phone",
+     "accessor": "getStringOrNull",
+     "key": "phone",
+     "key_expr": "ApiConstants.phoneKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "email",
+     "accessor": "getStringOrNull",
+     "key": "email",
+     "key_expr": "ApiConstants.emailKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "rejectionReason",
+     "accessor": "getStringOrNull",
+     "key": "rejection_reason",
+     "key_expr": "ApiConstants.rejectionReasonKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "otpVerified",
+     "accessor": "getBoolOrNull",
+     "key": "otp_verified",
+     "key_expr": "ApiConstants.otpVerifiedKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "profileCompleted",
+     "accessor": "getBoolOrNull",
+     "key": "profile_completed",
+     "key_expr": "ApiConstants.profileCompletedKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "mainBranchAddress",
+     "accessor": "getStringOrNull",
+     "key": "main_branch_address",
+     "key_expr": "ApiConstants.mainBranchAddressKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "companyActivityId",
+     "accessor": "getIntOrNull",
+     "key": "company_activity_id",
+     "key_expr": "ApiConstants.companyActivityIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "companyTitleId",
+     "accessor": "getIntOrNull",
+     "key": "company_title_id",
+     "key_expr": "ApiConstants.companyTitleIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "companySizeId",
+     "accessor": "getIntOrNull",
+     "key": "company_size_id",
+     "key_expr": "ApiConstants.companySizeIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "ownerTitle",
+     "accessor": "getStringOrNull",
+     "key": "owner_title",
+     "key_expr": "ApiConstants.ownerTitleKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "activity",
+     "accessor": "getStringOrNull",
+     "key": "activity",
+     "key_expr": "ApiConstants.activityKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "createdAt",
+     "accessor": "getDateOrNull",
+     "key": "created_at",
+     "key_expr": "ApiConstants.createdAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "updatedAt",
+     "accessor": "getDateOrNull",
+     "key": "updated_at",
+     "key_expr": "ApiConstants.updatedAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "EmployeeDocumentModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/employee_document_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeId",
+     "accessor": "getIntOrNull",
+     "key": "employee_id",
+     "key_expr": "ApiConstants.employeeIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "docType",
+     "accessor": "getStringOrNull",
+     "key": "doc_type",
+     "key_expr": "ApiConstants.docTypeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "uploadedAt",
+     "accessor": "getDateOrNull",
+     "key": "uploaded_at",
+     "key_expr": "ApiConstants.uploadedAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "EmployeeModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/employee_model.dart",
+   "fields": [
+    {
+     "field": "permissionsMap",
+     "accessor": "getMap",
+     "key": "permissions",
+     "key_expr": "ApiConstants.permissionsKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "rawName",
+     "accessor": "getStringOrNull",
+     "key": "name",
+     "key_expr": "ApiConstants.nameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "f",
+     "accessor": "getStringOrNull",
+     "key": null,
+     "key_expr": "ApiConstants.firstNameKey)?.trim(",
+     "bang": false,
+     "default": null,
+     "or_else": "?? ''",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "l",
+     "accessor": "getStringOrNull",
+     "key": null,
+     "key_expr": "ApiConstants.lastNameKey)?.trim(",
+     "bang": false,
+     "default": null,
+     "or_else": "?? ''",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "companyId",
+     "accessor": "getIntOrNull",
+     "key": "company_id",
+     "key_expr": "ApiConstants.companyIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "branchId",
+     "accessor": "getIntOrNull",
+     "key": "branch_id",
+     "key_expr": "ApiConstants.branchIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "departmentId",
+     "accessor": "getIntOrNull",
+     "key": "department_id",
+     "key_expr": "ApiConstants.departmentIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "jobTitleId",
+     "accessor": "getIntOrNull",
+     "key": "job_title_id",
+     "key_expr": "ApiConstants.jobTitleIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeCode",
+     "accessor": "getStringOrNull",
+     "key": "employee_code",
+     "key_expr": "ApiConstants.employeeCodeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "countryCode",
+     "accessor": "getStringOrNull",
+     "key": "country_code",
+     "key_expr": "ApiConstants.countryCodeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "phone",
+     "accessor": "getStringOrNull",
+     "key": "phone",
+     "key_expr": "ApiConstants.phoneKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "nationalId",
+     "accessor": "getStringOrNull",
+     "key": "national_id",
+     "key_expr": "ApiConstants.nationalIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "birthDate",
+     "accessor": "getDateOrNull",
+     "key": "birth_date",
+     "key_expr": "ApiConstants.birthDateKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "address",
+     "accessor": "getStringOrNull",
+     "key": "address",
+     "key_expr": "ApiConstants.addressKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "hireDate",
+     "accessor": "getDateOrNull",
+     "key": "hire_date",
+     "key_expr": "ApiConstants.hireDateKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "contractDurationMonths",
+     "accessor": "getIntOrNull",
+     "key": "contract_duration_months",
+     "key_expr": "ApiConstants.contractDurationMonthsKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "isMobileAttendanceEnabled",
+     "accessor": "getBoolOrNull",
+     "key": "is_mobile_attendance_enabled",
+     "key_expr": "ApiConstants.isMobileAttendanceEnabledKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? true",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "departmentName",
+     "accessor": "getStringOrNull",
+     "key": "department_name",
+     "key_expr": "ApiConstants.departmentNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "basicSalary",
+     "accessor": "getNumOrNull",
+     "key": "basic_salary",
+     "key_expr": "ApiConstants.basicSalaryKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "grossSalary",
+     "accessor": "getNumOrNull",
+     "key": "gross_salary",
+     "key_expr": "ApiConstants.grossSalaryKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "isActive",
+     "accessor": "getBoolOrNull",
+     "key": "is_active",
+     "key_expr": "ApiConstants.isActiveKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "joinRequestStatus",
+     "accessor": "getStringOrNull",
+     "key": "join_request_status",
+     "key_expr": "ApiConstants.joinRequestStatusKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "createdAt",
+     "accessor": "getDateOrNull",
+     "key": "created_at",
+     "key_expr": "ApiConstants.createdAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "updatedAt",
+     "accessor": "getDateOrNull",
+     "key": "updated_at",
+     "key_expr": "ApiConstants.updatedAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "branchName",
+     "accessor": "getStringOrNull",
+     "key": "branch_name",
+     "key_expr": "ApiConstants.branchNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "branchLocationConfigured",
+     "accessor": "getBoolOrNull",
+     "key": "branch_location_configured",
+     "key_expr": "ApiConstants.branchLocationConfiguredKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "jobTitleName",
+     "accessor": "getStringOrNull",
+     "key": "job_title_name",
+     "key_expr": "ApiConstants.jobTitleNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "assignedShiftId",
+     "accessor": "getIntOrNull",
+     "key": "assigned_shift_id",
+     "key_expr": "ApiConstants.assignedShiftIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "assignedShiftName",
+     "accessor": "getStringOrNull",
+     "key": "assigned_shift_name",
+     "key_expr": "ApiConstants.assignedShiftNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "assignedShiftEffectiveFrom",
+     "accessor": "getDateOrNull",
+     "key": "assigned_shift_effective_from",
+     "key_expr": "ApiConstants.assignedShiftEffectiveFromKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "managerName",
+     "accessor": "getStringOrNull",
+     "key": "manager_name",
+     "key_expr": "ApiConstants.managerNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "companyName",
+     "accessor": "getStringOrNull",
+     "key": "company_name",
+     "key_expr": "ApiConstants.companyNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "companyTitleName",
+     "accessor": "getStringOrNull",
+     "key": "company_title_name",
+     "key_expr": "ApiConstants.companyTitleNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "EmployeeShiftSummaryModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/employee_schedule_overview_model.dart",
+   "fields": [
+    {
+     "field": "shiftId",
+     "accessor": "getIntOrNull",
+     "key": "shift_id",
+     "key_expr": "ApiConstants.shiftIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "name",
+     "accessor": "getStringOrNull",
+     "key": "name",
+     "key_expr": "ApiConstants.nameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "startTime",
+     "accessor": "getTimeOrNull",
+     "key": "start_time",
+     "key_expr": "ApiConstants.startTimeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "endTime",
+     "accessor": "getTimeOrNull",
+     "key": "end_time",
+     "key_expr": "ApiConstants.endTimeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "effectiveFrom",
+     "accessor": "getDateOrNull",
+     "key": "effective_from",
+     "key_expr": "ApiConstants.effectiveFromKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "effectiveTo",
+     "accessor": "getDateOrNull",
+     "key": "effective_to",
+     "key_expr": "ApiConstants.effectiveToKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "ScheduleOfficialHolidayModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/employee_schedule_overview_model.dart",
+   "fields": [
+    {
+     "field": "date",
+     "accessor": "getDateOrNull",
+     "key": "date",
+     "key_expr": "ApiConstants.dateKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "name",
+     "accessor": "getStringOrNull",
+     "key": "name",
+     "key_expr": "ApiConstants.nameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "WeeklyRestDayModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/employee_schedule_overview_model.dart",
+   "fields": [
+    {
+     "field": "dayOfWeek",
+     "accessor": "getIntOrNull",
+     "key": "day_of_week",
+     "key_expr": "ApiConstants.dayOfWeekKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "name",
+     "accessor": "getStringOrNull",
+     "key": "name",
+     "key_expr": "ApiConstants.nameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "FaqItemModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/faq_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getIntOrDefault",
+     "key": "id",
+     "key_expr": "'id'",
+     "bang": false,
+     "default": "0",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "faqCategoryId",
+     "accessor": "getIntOrDefault",
+     "key": "faq_category_id",
+     "key_expr": "'faq_category_id'",
+     "bang": false,
+     "default": "0",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "question",
+     "accessor": "getStringOrDefault",
+     "key": "question",
+     "key_expr": "'question'",
+     "bang": false,
+     "default": "''",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "answer",
+     "accessor": "getStringOrDefault",
+     "key": "answer",
+     "key_expr": "'answer'",
+     "bang": false,
+     "default": "''",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "FaqCategoryModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/faq_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getIntOrDefault",
+     "key": "id",
+     "key_expr": "'id'",
+     "bang": false,
+     "default": "0",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "name",
+     "accessor": "getStringOrDefault",
+     "key": "name",
+     "key_expr": "'name'",
+     "bang": false,
+     "default": "''",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "HrPermissionsModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/hr_permissions_model.dart",
+   "fields": [
+    {
+     "field": "nested",
+     "accessor": "getMap",
+     "key": "permissions",
+     "key_expr": "ApiConstants.permissionsKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "canDashboard",
+     "accessor": "getBoolOrDefault",
+     "key": "can_dashboard",
+     "key_expr": "ApiConstants.canDashboardKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canRecentActivities",
+     "accessor": "getBoolOrDefault",
+     "key": "can_recent_activities",
+     "key_expr": "ApiConstants.canRecentActivitiesKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canBranches",
+     "accessor": "getBoolOrDefault",
+     "key": "can_branches",
+     "key_expr": "ApiConstants.canBranchesKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canDepartments",
+     "accessor": "getBoolOrDefault",
+     "key": "can_departments",
+     "key_expr": "ApiConstants.canDepartmentsKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canJobTitles",
+     "accessor": "getBoolOrDefault",
+     "key": "can_job_titles",
+     "key_expr": "ApiConstants.canJobTitlesKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canShifts",
+     "accessor": "getBoolOrDefault",
+     "key": "can_shifts",
+     "key_expr": "ApiConstants.canShiftsKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canEmployees",
+     "accessor": "getBoolOrDefault",
+     "key": "can_employees",
+     "key_expr": "ApiConstants.canEmployeesKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canRequests",
+     "accessor": "getBoolOrDefault",
+     "key": "can_requests",
+     "key_expr": "ApiConstants.canRequestsKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canLeaveBalances",
+     "accessor": "getBoolOrDefault",
+     "key": "can_leave_balances",
+     "key_expr": "ApiConstants.canLeaveBalancesKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canPenalties",
+     "accessor": "getBoolOrDefault",
+     "key": "can_penalties",
+     "key_expr": "ApiConstants.canPenaltiesKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canAssets",
+     "accessor": "getBoolOrDefault",
+     "key": "can_assets",
+     "key_expr": "ApiConstants.canAssetsKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canAdvances",
+     "accessor": "getBoolOrDefault",
+     "key": "can_advances",
+     "key_expr": "ApiConstants.canAdvancesKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canWorkforcePlanning",
+     "accessor": "getBoolOrDefault",
+     "key": "can_workforce_planning",
+     "key_expr": "ApiConstants.canWorkforcePlanningKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canSalaryCalculator",
+     "accessor": "getBoolOrDefault",
+     "key": "can_salary_calculator",
+     "key_expr": "ApiConstants.canSalaryCalculatorKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canAttendance",
+     "accessor": "getBoolOrDefault",
+     "key": "can_attendance",
+     "key_expr": "ApiConstants.canAttendanceKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canPayroll",
+     "accessor": "getBoolOrDefault",
+     "key": "can_payroll",
+     "key_expr": "ApiConstants.canPayrollKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    },
+    {
+     "field": "canCompanySettings",
+     "accessor": "getBoolOrDefault",
+     "key": "can_company_settings",
+     "key_expr": "ApiConstants.canCompanySettingsKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "src",
+     "guard": null
+    }
+   ]
+  },
+  "LeaveBalanceModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/leave_balance_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeId",
+     "accessor": "getIntOrNull",
+     "key": "employee_id",
+     "key_expr": "ApiConstants.employeeIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "year",
+     "accessor": "getIntOrNull",
+     "key": "year",
+     "key_expr": "ApiConstants.yearKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "totalDays",
+     "accessor": "getNumOrNull",
+     "key": "total_days",
+     "key_expr": "ApiConstants.totalDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "usedDays",
+     "accessor": "getNumOrNull",
+     "key": "used_days",
+     "key_expr": "ApiConstants.usedDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "remainingDays",
+     "accessor": "getNumOrNull",
+     "key": "remaining_days",
+     "key_expr": "ApiConstants.remainingDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "periodFromMonth",
+     "accessor": "getIntOrNull",
+     "key": "period_from_month",
+     "key_expr": "ApiConstants.periodFromMonthKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "periodToMonth",
+     "accessor": "getIntOrNull",
+     "key": "period_to_month",
+     "key_expr": "ApiConstants.periodToMonthKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "monthlyCapDays",
+     "accessor": "getNumOrNull",
+     "key": "monthly_cap_days",
+     "key_expr": "ApiConstants.monthlyCapDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeName",
+     "accessor": "getStringOrNull",
+     "key": "employee_name",
+     "key_expr": "ApiConstants.employeeNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeCode",
+     "accessor": "getStringOrNull",
+     "key": "employee_code",
+     "key_expr": "ApiConstants.employeeCodeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "NotificationModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/notification_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "title",
+     "accessor": "getStringOrNull",
+     "key": "title",
+     "key_expr": "ApiConstants.titleKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "body",
+     "accessor": "getStringOrNull",
+     "key": "body",
+     "key_expr": "ApiConstants.bodyKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "isRead",
+     "accessor": "getBoolOrNull",
+     "key": "is_read",
+     "key_expr": "ApiConstants.isReadKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "createdAt",
+     "accessor": "getDateOrNull",
+     "key": "created_at",
+     "key_expr": "ApiConstants.createdAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "fromName",
+     "accessor": "getStringOrNull",
+     "key": "from_name",
+     "key_expr": "ApiConstants.fromNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "fromEmployeeId",
+     "accessor": "getIntOrNull",
+     "key": "from_employee_id",
+     "key_expr": "ApiConstants.fromEmployeeIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "notificationType",
+     "accessor": "getStringOrNull",
+     "key": "notification_type",
+     "key_expr": "ApiConstants.notificationTypeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "recipientKind",
+     "accessor": "getStringOrNull",
+     "key": "recipient_kind",
+     "key_expr": "ApiConstants.recipientKindKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "referenceType",
+     "accessor": "getStringOrNull",
+     "key": "reference_type",
+     "key_expr": "ApiConstants.referenceTypeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "referenceId",
+     "accessor": "getIntOrNull",
+     "key": "reference_id",
+     "key_expr": "ApiConstants.referenceIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "OfficialHolidayModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/official_holiday_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "name",
+     "accessor": "getStringOrNull",
+     "key": "name",
+     "key_expr": "ApiConstants.nameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "holidayDate",
+     "accessor": "getDateOrNull",
+     "key": "holiday_date",
+     "key_expr": "ApiConstants.holidayDateKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "PaginationModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/pagination_model.dart",
+   "fields": [
+    {
+     "field": "page",
+     "accessor": "getIntOrDefault",
+     "key": "page",
+     "key_expr": "ApiConstants.pageKey",
+     "bang": false,
+     "default": "1",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "limit",
+     "accessor": "getIntOrDefault",
+     "key": "limit",
+     "key_expr": "ApiConstants.limitKey",
+     "bang": false,
+     "default": "20",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "total",
+     "accessor": "getIntOrDefault",
+     "key": "total",
+     "key_expr": "ApiConstants.totalKey",
+     "bang": false,
+     "default": "0",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "totalPages",
+     "accessor": "getIntOrDefault",
+     "key": "total_pages",
+     "key_expr": "ApiConstants.totalPagesKey",
+     "bang": false,
+     "default": "1",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "hasNext",
+     "accessor": "getBoolOrDefault",
+     "key": "has_next",
+     "key_expr": "ApiConstants.hasNextKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "hasPrevious",
+     "accessor": "getBoolOrDefault",
+     "key": "has_previous",
+     "key_expr": "ApiConstants.hasPreviousKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "PayslipModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/payslip_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "batchId",
+     "accessor": "getIntOrNull",
+     "key": "batch_id",
+     "key_expr": "ApiConstants.batchIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeId",
+     "accessor": "getIntOrNull",
+     "key": "employee_id",
+     "key_expr": "ApiConstants.employeeIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "daysPresent",
+     "accessor": "getIntOrNull",
+     "key": "days_present",
+     "key_expr": "ApiConstants.daysPresentKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "daysAbsent",
+     "accessor": "getIntOrNull",
+     "key": "days_absent",
+     "key_expr": "ApiConstants.daysAbsentKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "daysLeave",
+     "accessor": "getIntOrNull",
+     "key": "days_leave",
+     "key_expr": "ApiConstants.daysLeaveKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "expectedWorkDays",
+     "accessor": "getIntOrNull",
+     "key": "expected_work_days",
+     "key_expr": "ApiConstants.expectedWorkDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "daysPresentRatio",
+     "accessor": "getStringOrNull",
+     "key": "days_present_ratio",
+     "key_expr": "ApiConstants.daysPresentRatioKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "overtimeHours",
+     "accessor": "getNumOrNull",
+     "key": "overtime_hours",
+     "key_expr": "ApiConstants.overtimeHoursKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "basicSalary",
+     "accessor": "getNumOrNull",
+     "key": "basic_salary",
+     "key_expr": "ApiConstants.basicSalaryKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "contractBasicSalary",
+     "accessor": "getNumOrNull",
+     "key": "contract_basic_salary",
+     "key_expr": "ApiConstants.contractBasicSalaryKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "dailyBasicRate",
+     "accessor": "getNumOrNull",
+     "key": "daily_basic_rate",
+     "key_expr": "ApiConstants.dailyBasicRateKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "salaryByPresentDays",
+     "accessor": "getNumOrNull",
+     "key": "salary_by_present_days",
+     "key_expr": "ApiConstants.salaryByPresentDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "salaryByPaidLeaveDays",
+     "accessor": "getNumOrNull",
+     "key": "salary_by_paid_leave_days",
+     "key_expr": "ApiConstants.salaryByPaidLeaveDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "allowances",
+     "accessor": "getNumOrNull",
+     "key": "allowances",
+     "key_expr": "ApiConstants.allowancesKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "overtimePay",
+     "accessor": "getNumOrNull",
+     "key": "overtime_pay",
+     "key_expr": "ApiConstants.overtimePayKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "penaltiesTotal",
+     "accessor": "getNumOrNull",
+     "key": "penalties_total",
+     "key_expr": "ApiConstants.penaltiesTotalKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "advanceDeduction",
+     "accessor": "getNumOrNull",
+     "key": "advance_deduction",
+     "key_expr": "ApiConstants.advanceDeductionKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "otherDeductions",
+     "accessor": "getNumOrNull",
+     "key": "other_deductions",
+     "key_expr": "ApiConstants.otherDeductionsKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "netSalary",
+     "accessor": "getNumOrNull",
+     "key": "net_salary",
+     "key_expr": "ApiConstants.netSalaryKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "foodAllowance",
+     "accessor": "getNumOrNull",
+     "key": "food_allowance",
+     "key_expr": "ApiConstants.foodAllowanceKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "transportAllowance",
+     "accessor": "getNumOrNull",
+     "key": "transport_allowance",
+     "key_expr": "ApiConstants.transportAllowanceKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "incentives",
+     "accessor": "getNumOrNull",
+     "key": "incentives",
+     "key_expr": "ApiConstants.incentivesKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "riskAllowance",
+     "accessor": "getNumOrNull",
+     "key": "risk_allowance",
+     "key_expr": "ApiConstants.riskAllowanceKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "insuranceDeduction",
+     "accessor": "getNumOrNull",
+     "key": "insurance_deduction",
+     "key_expr": "ApiConstants.insuranceDeductionKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "taxDeduction",
+     "accessor": "getNumOrNull",
+     "key": "tax_deduction",
+     "key_expr": "ApiConstants.taxDeductionKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "advancesDeduction",
+     "accessor": "getNumOrNull",
+     "key": "advances_deduction",
+     "key_expr": "ApiConstants.advancesDeductionKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "fundDeduction",
+     "accessor": "getNumOrNull",
+     "key": "fund_deduction",
+     "key_expr": "ApiConstants.fundDeductionKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "grossSalary",
+     "accessor": "getNumOrNull",
+     "key": "gross_salary",
+     "key_expr": "ApiConstants.grossSalaryKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "totalEntitlements",
+     "accessor": "getNumOrNull",
+     "key": "total_entitlements",
+     "key_expr": "ApiConstants.totalEntitlementsKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "totalDeductions",
+     "accessor": "getNumOrNull",
+     "key": "total_deductions",
+     "key_expr": "ApiConstants.totalDeductionsKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeName",
+     "accessor": "getStringOrNull",
+     "key": "employee_name",
+     "key_expr": "ApiConstants.employeeNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeCode",
+     "accessor": "getStringOrNull",
+     "key": "employee_code",
+     "key_expr": "ApiConstants.employeeCodeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "branchName",
+     "accessor": "getStringOrNull",
+     "key": "branch_name",
+     "key_expr": "ApiConstants.branchNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "departmentName",
+     "accessor": "getStringOrNull",
+     "key": "department_name",
+     "key_expr": "ApiConstants.departmentNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "jobTitleName",
+     "accessor": "getStringOrNull",
+     "key": "job_title_name",
+     "key_expr": "ApiConstants.jobTitleNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "PenaltyModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/penalty_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeId",
+     "accessor": "getIntOrNull",
+     "key": "employee_id",
+     "key_expr": "ApiConstants.employeeIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "penaltyType",
+     "accessor": "getStringOrNull",
+     "key": "penalty_type",
+     "key_expr": "ApiConstants.penaltyTypeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "penaltyDays",
+     "accessor": "getNumOrNull",
+     "key": "penalty_days",
+     "key_expr": "ApiConstants.penaltyDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "reason",
+     "accessor": "getStringOrNull",
+     "key": "reason",
+     "key_expr": "ApiConstants.reasonKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "penaltyDate",
+     "accessor": "getDateOrNull",
+     "key": "penalty_date",
+     "key_expr": "ApiConstants.penaltyDateKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "appliedToPayroll",
+     "accessor": "getBoolOrNull",
+     "key": "applied_to_payroll",
+     "key_expr": "ApiConstants.appliedToPayrollKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "createdAt",
+     "accessor": "getDateOrNull",
+     "key": "created_at",
+     "key_expr": "ApiConstants.createdAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeName",
+     "accessor": "getStringOrNull",
+     "key": "employee_name",
+     "key_expr": "ApiConstants.employeeNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeCode",
+     "accessor": "getStringOrNull",
+     "key": "employee_code",
+     "key_expr": "ApiConstants.employeeCodeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "RequestModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/request_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeId",
+     "accessor": "getIntOrNull",
+     "key": "employee_id",
+     "key_expr": "ApiConstants.employeeIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "requestTypeId",
+     "accessor": "getIntOrNull",
+     "key": "request_type_id",
+     "key_expr": "ApiConstants.requestTypeIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "fromDate",
+     "accessor": "getDateOrNull",
+     "key": "from_date",
+     "key_expr": "ApiConstants.fromDateKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "toDate",
+     "accessor": "getDateOrNull",
+     "key": "to_date",
+     "key_expr": "ApiConstants.toDateKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "fromTime",
+     "accessor": "getTimeOrNull",
+     "key": "from_time",
+     "key_expr": "ApiConstants.fromTimeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "toTime",
+     "accessor": "getTimeOrNull",
+     "key": "to_time",
+     "key_expr": "ApiConstants.toTimeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "notes",
+     "accessor": "getStringOrNull",
+     "key": "notes",
+     "key_expr": "ApiConstants.notesKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "reply",
+     "accessor": "getStringOrNull",
+     "key": "reply",
+     "key_expr": "ApiConstants.replyKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "decidedAt",
+     "accessor": "getDateOrNull",
+     "key": "decided_at",
+     "key_expr": "ApiConstants.decidedAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "createdAt",
+     "accessor": "getDateOrNull",
+     "key": "created_at",
+     "key_expr": "ApiConstants.createdAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "updatedAt",
+     "accessor": "getDateOrNull",
+     "key": "updated_at",
+     "key_expr": "ApiConstants.updatedAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeName",
+     "accessor": "getStringOrNull",
+     "key": "employee_name",
+     "key_expr": "ApiConstants.employeeNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "employeeCode",
+     "accessor": "getStringOrNull",
+     "key": "employee_code",
+     "key_expr": "ApiConstants.employeeCodeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "requestTypeName",
+     "accessor": "getStringOrNull",
+     "key": "request_type_name",
+     "key_expr": "ApiConstants.requestTypeNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "RequestTypeModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/request_type_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "companyId",
+     "accessor": "getIntOrNull",
+     "key": "company_id",
+     "key_expr": "ApiConstants.companyIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "name",
+     "accessor": "getStringOrNull",
+     "key": "name",
+     "key_expr": "ApiConstants.nameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "deductBalance",
+     "accessor": "getBoolOrNull",
+     "key": "deduct_balance",
+     "key_expr": "ApiConstants.deductBalanceKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "countsAsPaidLeave",
+     "accessor": "getBoolOrNull",
+     "key": "counts_as_paid_leave",
+     "key_expr": "ApiConstants.countsAsPaidLeaveKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? true",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "addAttendanceException",
+     "accessor": "getBoolOrNull",
+     "key": "add_attendance_exception",
+     "key_expr": "ApiConstants.addAttendanceExceptionKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "exceptionTypeId",
+     "accessor": "getIntOrNull",
+     "key": "exception_type_id",
+     "key_expr": "ApiConstants.exceptionTypeIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "isActive",
+     "accessor": "getBoolOrNull",
+     "key": "is_active",
+     "key_expr": "ApiConstants.isActiveKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "createdAt",
+     "accessor": "getDateOrNull",
+     "key": "created_at",
+     "key_expr": "ApiConstants.createdAtKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "ScheduleModel": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/models/schedule_model.dart",
+   "fields": [
+    {
+     "field": "id",
+     "accessor": "getInt",
+     "key": "id",
+     "key_expr": "ApiConstants.idKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "scheduleDate",
+     "accessor": "getDateOrNull",
+     "key": "schedule_date",
+     "key_expr": "ApiConstants.scheduleDateKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "shiftName",
+     "accessor": "getStringOrNull",
+     "key": "name",
+     "key_expr": "ApiConstants.nameKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? json.getStringOrNull(ApiConstants.shiftNameKey)",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "startTime",
+     "accessor": "getTimeOrNull",
+     "key": "start_time",
+     "key_expr": "ApiConstants.startTimeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "endTime",
+     "accessor": "getTimeOrNull",
+     "key": "end_time",
+     "key_expr": "ApiConstants.endTimeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "exceptionNote",
+     "accessor": "getStringOrNull",
+     "key": "exception",
+     "key_expr": "ApiConstants.scheduleExceptionKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "AdministrativeDecisionsResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/administrative_decisions/administrative_decisions_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "decisions",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "AdministrativeDecisionModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "paginationModel",
+     "accessor": "getModel",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": "??\n        PaginationModel.initial(total: decisions.length)",
+     "nested": "PaginationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "AppContentResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/app_content/app_content_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "appContentModel",
+     "accessor": "getModel",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "AppContentModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "AssetsResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/assets/assets_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "assets",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "AssetModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "paginationModel",
+     "accessor": "getModel",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": "??\n        PaginationModel.initial(total: assets.length)",
+     "nested": "PaginationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "AttendanceRecordsResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/attendance/attendance_records_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "attendanceRecords",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "AttendanceModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "meta",
+     "accessor": "getMap",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "hasOpenCheckIn",
+     "accessor": "getBoolOrDefault",
+     "key": "has_open_check_in",
+     "key_expr": "ApiConstants.hasOpenCheckInKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "meta",
+     "guard": "meta != null && meta.containsKey(ApiConstants.hasOpenCheckInKey)"
+    },
+    {
+     "field": "paginationModel",
+     "accessor": "getModel",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? PaginationModel.initial(total: attendanceRecords.length)",
+     "nested": "PaginationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "AttendanceResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/attendance/attendance_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "attendanceModel",
+     "accessor": "getModel",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "AttendanceModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "AttendanceStatsResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/attendance/attendance_stats_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "attendanceStatsModel",
+     "accessor": "getModel",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "AttendanceStatsModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "CheckInOutResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/attendance/check_in_out_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "data",
+     "accessor": "getMap",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "attendanceId",
+     "accessor": "getIntOrNull",
+     "key": "attendance_id",
+     "key_expr": "ApiConstants.attendanceIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? data?.getIntOrNull(ApiConstants.idKey)",
+     "nested": null,
+     "receiver": "data",
+     "guard": null
+    },
+    {
+     "field": "time",
+     "accessor": "getDateOrNull",
+     "key": "time",
+     "key_expr": "ApiConstants.timeKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? data?.getDateOrNull(ApiConstants.checkInKey) ?? data?.getDateOrNull(ApiConstants.checkOutKey)",
+     "nested": null,
+     "receiver": "data",
+     "guard": null
+    },
+    {
+     "field": "durationMinutes",
+     "accessor": "getIntOrNull",
+     "key": "duration_minutes",
+     "key_expr": "ApiConstants.durationMinutesKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "data",
+     "guard": null
+    }
+   ]
+  },
+  "CompanyLookupResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/authentication/company_lookup_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "dataMap",
+     "accessor": "getMap",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "companyId",
+     "accessor": "getIntOrNull",
+     "key": "company_id",
+     "key_expr": "ApiConstants.companyIdKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "dataMap",
+     "guard": null
+    },
+    {
+     "field": "companyName",
+     "accessor": "getStringOrNull",
+     "key": "company_name",
+     "key_expr": "ApiConstants.companyNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "dataMap",
+     "guard": null
+    },
+    {
+     "field": "logoUrl",
+     "accessor": "getStringOrNull",
+     "key": "logo_url",
+     "key_expr": "ApiConstants.logoUrlKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "dataMap",
+     "guard": null
+    },
+    {
+     "field": "companyStatus",
+     "accessor": "getStringOrNull",
+     "key": "company_status",
+     "key_expr": "ApiConstants.companyStatusKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? dataMap?.getStringOrNull(ApiConstants.statusKey)",
+     "nested": null,
+     "receiver": "dataMap",
+     "guard": null
+    },
+    {
+     "field": "hasActiveBranch",
+     "accessor": "getBoolOrNull",
+     "key": "has_active_branch",
+     "key_expr": "ApiConstants.hasActiveBranchKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? true",
+     "nested": null,
+     "receiver": "dataMap",
+     "guard": null
+    }
+   ]
+  },
+  "EmployeeAuthResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/authentication/employee_auth_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "dataMap",
+     "accessor": "getMap",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "token",
+     "accessor": "getStringOrNull",
+     "key": "token",
+     "key_expr": "ApiConstants.tokenKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "dataMap",
+     "guard": null
+    },
+    {
+     "field": "employeeModel",
+     "accessor": "getModel",
+     "key": "employee",
+     "key_expr": "ApiConstants.employeeKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? (dataMap != null && dataMap.containsKey(ApiConstants.idKey) ? EmployeeModel.fromJson(dataMap) : null)",
+     "nested": "EmployeeModel",
+     "receiver": "dataMap",
+     "guard": null
+    }
+   ]
+  },
+  "ForgetPasswordResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/authentication/forget_password_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "dataMap",
+     "accessor": "getMap",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "otp",
+     "accessor": "getStringOrNull",
+     "key": "otp",
+     "key_expr": "ApiConstants.otpKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "dataMap",
+     "guard": null
+    }
+   ]
+  },
+  "ResendOtpResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/authentication/resend_otp_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "dataMap",
+     "accessor": "getMap",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "otp",
+     "accessor": "getStringOrNull",
+     "key": "otp",
+     "key_expr": "ApiConstants.otpKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "dataMap",
+     "guard": null
+    }
+   ]
+  },
+  "BannersResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/banners/banners_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "banners",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "BannerModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "paginationModel",
+     "accessor": "getModel",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? PaginationModel.initial(total: banners.length)",
+     "nested": "PaginationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "BaseResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/base/base_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    }
+   ]
+  },
+  "ConfigsResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/configs/configs_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "configData",
+     "accessor": "getModel",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": true,
+     "default": null,
+     "or_else": null,
+     "nested": "ConfigData",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "ConfigData": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/configs/configs_response.dart",
+   "fields": [
+    {
+     "field": "minAndroidBuildNumber",
+     "accessor": "getIntOrDefault",
+     "key": "min_android_build_number",
+     "key_expr": "ApiConstants.minAndroidBuildNumberKey",
+     "bang": false,
+     "default": "1",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "minIosBuildNumber",
+     "accessor": "getIntOrDefault",
+     "key": "min_ios_build_number",
+     "key_expr": "ApiConstants.minIosBuildNumberKey",
+     "bang": false,
+     "default": "1",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "minWindowsBuildNumber",
+     "accessor": "getIntOrDefault",
+     "key": "min_windows_build_number",
+     "key_expr": "ApiConstants.minWindowsBuildNumberKey",
+     "bang": false,
+     "default": "1",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "minMacBuildNumber",
+     "accessor": "getIntOrDefault",
+     "key": "min_mac_build_number",
+     "key_expr": "ApiConstants.minMacBuildNumberKey",
+     "bang": false,
+     "default": "1",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "androidAppUnderMaintenance",
+     "accessor": "getBoolOrDefault",
+     "key": "android_app_under_maintenance",
+     "key_expr": "ApiConstants.androidAppUnderMaintenanceKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "iosAppUnderMaintenance",
+     "accessor": "getBoolOrDefault",
+     "key": "ios_app_under_maintenance",
+     "key_expr": "ApiConstants.iosAppUnderMaintenanceKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "windowsAppUnderMaintenance",
+     "accessor": "getBoolOrDefault",
+     "key": "windows_app_under_maintenance",
+     "key_expr": "ApiConstants.windowsAppUnderMaintenanceKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "macAppUnderMaintenance",
+     "accessor": "getBoolOrDefault",
+     "key": "mac_app_under_maintenance",
+     "key_expr": "ApiConstants.macAppUnderMaintenanceKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "websiteUrl",
+     "accessor": "getStringOrNull",
+     "key": "website_url",
+     "key_expr": "ApiConstants.websiteUrlKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "showBanners",
+     "accessor": "getBoolOrDefault",
+     "key": "show_banners",
+     "key_expr": "ApiConstants.showBannersKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "showCompliance",
+     "accessor": "getBoolOrDefault",
+     "key": "show_compliance",
+     "key_expr": "ApiConstants.showComplianceKey",
+     "bang": false,
+     "default": "false",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "attendanceExcelImportAvailableFrom",
+     "accessor": "getStringOrNull",
+     "key": "attendance_excel_import_available_from",
+     "key_expr": "ApiConstants.attendanceExcelImportAvailableFromKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "EmployeeDocumentsResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/employee_documents/employee_documents_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "employeeDocuments",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "EmployeeDocumentModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "paginationModel",
+     "accessor": "getModel",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? PaginationModel.initial(total: employeeDocuments.length)",
+     "nested": "PaginationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "EmployeeResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/employees/employee_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "employeeModel",
+     "accessor": "getModel",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "EmployeeModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "FaqsResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/faqs/faqs_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "data",
+     "accessor": "getMap",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? {}",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "LeaveBalancesResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/leave_balances/leave_balances_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "leaveBalances",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "LeaveBalanceModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "paginationModel",
+     "accessor": "getModel",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? PaginationModel.initial(total: leaveBalances.length)",
+     "nested": "PaginationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "GetUnreadNotificationsCountResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/notifications/get_unread_notifications_count_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "data",
+     "accessor": "getMap",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "count",
+     "accessor": "getIntOrNull",
+     "key": "count",
+     "key_expr": "ApiConstants.countKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? json.getIntOrNull(ApiConstants.dataKey)",
+     "nested": null,
+     "receiver": "data",
+     "guard": null
+    }
+   ]
+  },
+  "NotificationResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/notifications/notification_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "notificationModel",
+     "accessor": "getModel",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "NotificationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "NotificationsResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/notifications/notifications_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "notifications",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "NotificationModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "paginationModel",
+     "accessor": "getModel",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? PaginationModel.initial(total: notifications.length)",
+     "nested": "PaginationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "OfficialHolidaysResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/official_holidays/official_holidays_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "holidays",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "OfficialHolidayModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "PayslipResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/payslips/payslip_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "payslipModel",
+     "accessor": "getModel",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "PayslipModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "PayslipsResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/payslips/payslips_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "payslips",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "PayslipModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "paginationModel",
+     "accessor": "getModel",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? PaginationModel.initial(total: payslips.length)",
+     "nested": "PaginationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "PenaltiesResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/penalties/penalties_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "penalties",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "PenaltyModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "paginationModel",
+     "accessor": "getModel",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? PaginationModel.initial(total: penalties.length)",
+     "nested": "PaginationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "PhoneCountriesResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/phone_countries/phone_countries_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "countries",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "PhoneCountryModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "CompanyProfileResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/profile/company_profile_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "dataMap",
+     "accessor": "getMap",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "companyMap",
+     "accessor": "getMap",
+     "key": "company",
+     "key_expr": "ApiConstants.companyKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "dataMap",
+     "guard": "dataMap != null"
+    },
+    {
+     "field": "employee",
+     "accessor": "getModel",
+     "key": "employee",
+     "key_expr": "ApiConstants.employeeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "EmployeeModel",
+     "receiver": "dataMap",
+     "guard": "dataMap != null"
+    }
+   ]
+  },
+  "RequestTypesResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/request_types/request_types_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "requestTypes",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "RequestTypeModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "paginationModel",
+     "accessor": "getModel",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? PaginationModel.initial(total: requestTypes.length)",
+     "nested": "PaginationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "RequestResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/requests/request_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "requestModel",
+     "accessor": "getModel",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "RequestModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "RequestsResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/requests/requests_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "requests",
+     "accessor": "getList",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "RequestModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "paginationModel",
+     "accessor": "getModel",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? PaginationModel.initial(total: requests.length)",
+     "nested": "PaginationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "SchedulesResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/schedules/schedules_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "shiftMap",
+     "accessor": "getMap",
+     "key": "shift",
+     "key_expr": "ApiConstants.shiftKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "rawData",
+     "guard": "rawData is Map<String, dynamic>"
+    },
+    {
+     "field": "weeklyRestDays",
+     "accessor": "getList",
+     "key": "weekly_rest_days",
+     "key_expr": "ApiConstants.weeklyRestDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "WeeklyRestDayModel",
+     "receiver": "rawData",
+     "guard": "rawData is Map<String, dynamic>"
+    },
+    {
+     "field": "officialHolidays",
+     "accessor": "getList",
+     "key": "official_holidays",
+     "key_expr": "ApiConstants.officialHolidaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "ScheduleOfficialHolidayModel",
+     "receiver": "rawData",
+     "guard": "rawData is Map<String, dynamic>"
+    },
+    {
+     "field": "schedules",
+     "accessor": "getList",
+     "key": "days",
+     "key_expr": "ApiConstants.daysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "ScheduleModel",
+     "receiver": "rawData",
+     "guard": "rawData is Map<String, dynamic>"
+    },
+    {
+     "field": "paginationModel",
+     "accessor": "getModel",
+     "key": "meta",
+     "key_expr": "ApiConstants.metaKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? PaginationModel.initial(total: schedules.length)",
+     "nested": "PaginationModel",
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "ServerTimeResponse": {
+   "file": "../../flutter-integration/workin_mobile/lib/data/response/time/server_time_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "data",
+     "accessor": "getMap",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "raw",
+     "accessor": "getStringOrNull",
+     "key": "server_time",
+     "key_expr": "ApiConstants.serverTimeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "data",
+     "guard": null
+    }
+   ]
+  }
+ },
+ "keys": {
+  "activityKey": "activity",
+  "addressKey": "address",
+  "advanceDeductionKey": "advance_deduction",
+  "advancesDeductionKey": "advances_deduction",
+  "allowancesKey": "allowances",
+  "appliedToPayrollKey": "applied_to_payroll",
+  "assignedShiftEffectiveFromKey": "assigned_shift_effective_from",
+  "assignedShiftIdKey": "assigned_shift_id",
+  "assignedShiftNameKey": "assigned_shift_name",
+  "attendanceIdKey": "attendance_id",
+  "bannerAppPlatformKey": "app_platform",
+  "bannerButtonActionTypeKey": "button_action_type",
+  "bannerButtonActionValueKey": "button_action_value",
+  "bannerButtonLabelArKey": "button_label_ar",
+  "bannerButtonLabelEnKey": "button_label_en",
+  "bannerDescriptionArKey": "description_ar",
+  "bannerDescriptionEnKey": "description_en",
+  "bannerTitleArKey": "title_ar",
+  "bannerTitleEnKey": "title_en",
+  "basicSalaryKey": "basic_salary",
+  "batchIdKey": "batch_id",
+  "birthDateKey": "birth_date",
+  "bodyKey": "body",
+  "branchIdKey": "branch_id",
+  "branchNameKey": "branch_name",
+  "branchLocationConfiguredKey": "branch_location_configured",
+  "canAdvancesKey": "can_advances",
+  "canAssetsKey": "can_assets",
+  "canAttendanceKey": "can_attendance",
+  "canBranchesKey": "can_branches",
+  "canCompanySettingsKey": "can_company_settings",
+  "canDashboardKey": "can_dashboard",
+  "canDepartmentsKey": "can_departments",
+  "canEmployeesKey": "can_employees",
+  "canJobTitlesKey": "can_job_titles",
+  "canLeaveBalancesKey": "can_leave_balances",
+  "canPayrollKey": "can_payroll",
+  "canPenaltiesKey": "can_penalties",
+  "canRecentActivitiesKey": "can_recent_activities",
+  "canRequestsKey": "can_requests",
+  "canSalaryCalculatorKey": "can_salary_calculator",
+  "canShiftsKey": "can_shifts",
+  "canWorkforcePlanningKey": "can_workforce_planning",
+  "checkInKey": "check_in",
+  "checkOutKey": "check_out",
+  "hasOpenCheckInKey": "has_open_check_in",
+  "commercialRegUrlKey": "commercial_reg_url",
+  "companyActivityIdKey": "company_activity_id",
+  "companyIdKey": "company_id",
+  "companyCodeKey": "company_code",
+  "companyKey": "company",
+  "companyNameKey": "company_name",
+  "companySizeIdKey": "company_size_id",
+  "companyTitleIdKey": "company_title_id",
+  "companyTitleNameKey": "company_title_name",
+  "contentKeyKey": "content_key",
+  "contractBasicSalaryKey": "contract_basic_salary",
+  "expectedWorkDaysKey": "expected_work_days",
+  "dailyBasicRateKey": "daily_basic_rate",
+  "salaryByPresentDaysKey": "salary_by_present_days",
+  "salaryByPaidLeaveDaysKey": "salary_by_paid_leave_days",
+  "daysPresentRatioKey": "days_present_ratio",
+  "contractDurationMonthsKey": "contract_duration_months",
+  "countKey": "count",
+  "countryCodeKey": "country_code",
+  "createdAtKey": "created_at",
+  "dataKey": "data",
+  "daysAbsentKey": "days_absent",
+  "daysLeaveKey": "days_leave",
+  "daysOffKey": "days_off",
+  "daysPresentKey": "days_present",
+  "decidedAtKey": "decided_at",
+  "deductBalanceKey": "deduct_balance",
+  "countsAsPaidLeaveKey": "counts_as_paid_leave",
+  "addAttendanceExceptionKey": "add_attendance_exception",
+  "exceptionTypeIdKey": "exception_type_id",
+  "departmentIdKey": "department_id",
+  "departmentNameKey": "department_name",
+  "docTypeKey": "doc_type",
+  "durationMinutesKey": "duration_minutes",
+  "expectedDurationMinutesKey": "expected_duration_minutes",
+  "presentDaysKey": "present_days",
+  "leaveDaysKey": "leave_days",
+  "absentDaysKey": "absent_days",
+  "totalDaysInMonthKey": "total_days_in_month",
+  "totalDurationMinutesKey": "total_duration_minutes",
+  "overtimeMinutesKey": "overtime_minutes",
+  "emailKey": "email",
+  "employeeCodeKey": "employee_code",
+  "employeeIdKey": "employee_id",
+  "employeeKey": "employee",
+  "employeeNameKey": "employee_name",
+  "endTimeKey": "end_time",
+  "exceptionTypeNameKey": "exception_type_name",
+  "fileUrlKey": "file_url",
+  "firstNameKey": "first_name",
+  "foodAllowanceKey": "food_allowance",
+  "fromDateKey": "from_date",
+  "fromTimeKey": "from_time",
+  "fromEmployeeIdKey": "from_employee_id",
+  "fromKey": "from",
+  "fromNameKey": "from_name",
+  "fundDeductionKey": "fund_deduction",
+  "genderKey": "gender",
+  "grossSalaryKey": "gross_salary",
+  "hasNextKey": "has_next",
+  "hasPreviousKey": "has_previous",
+  "hireDateKey": "hire_date",
+  "idKey": "id",
+  "imageUrlKey": "image_url",
+  "incentivesKey": "incentives",
+  "insuranceDeductionKey": "insurance_deduction",
+  "iosAppUnderMaintenanceKey": "ios_app_under_maintenance",
+  "windowsAppUnderMaintenanceKey": "windows_app_under_maintenance",
+  "isActiveKey": "is_active",
+  "joinRequestStatusKey": "join_request_status",
+  "isMobileAttendanceEnabledKey": "is_mobile_attendance_enabled",
+  "isReadKey": "is_read",
+  "jobTitleIdKey": "job_title_id",
+  "jobTitleNameKey": "job_title_name",
+  "lastNameKey": "last_name",
+  "latitudeKey": "latitude",
+  "limitKey": "limit",
+  "logoUrlKey": "logo_url",
+  "longitudeKey": "longitude",
+  "macAppUnderMaintenanceKey": "mac_app_under_maintenance",
+  "websiteUrlKey": "website_url",
+  "mainBranchAddressKey": "main_branch_address",
+  "managerNameKey": "manager_name",
+  "messageKey": "message",
+  "metaKey": "meta",
+  "methodKey": "method",
+  "minAndroidBuildNumberKey": "min_android_build_number",
+  "minIosBuildNumberKey": "min_ios_build_number",
+  "minMacBuildNumberKey": "min_mac_build_number",
+  "androidAppUnderMaintenanceKey": "android_app_under_maintenance",
+  "minWindowsBuildNumberKey": "min_windows_build_number",
+  "monthKey": "month",
+  "monthlyCapDaysKey": "monthly_cap_days",
+  "holidayDateKey": "holiday_date",
+  "nameKey": "name",
+  "nationalIdKey": "national_id",
+  "netSalaryKey": "net_salary",
+  "notesKey": "notes",
+  "notificationTypeKey": "notification_type",
+  "otherDeductionsKey": "other_deductions",
+  "otpVerifiedKey": "otp_verified",
+  "overtimeHoursKey": "overtime_hours",
+  "overtimePayKey": "overtime_pay",
+  "ownerTitleKey": "owner_title",
+  "pageKey": "page",
+  "passwordKey": "password",
+  "otpKey": "otp",
+  "typeKey": "type",
+  "purposeKey": "purpose",
+  "oldPasswordKey": "old_password",
+  "newPasswordKey": "new_password",
+  "photoKey": "photo",
+  "fileKey": "file",
+  "penaltiesTotalKey": "penalties_total",
+  "penaltyDateKey": "penalty_date",
+  "penaltyDaysKey": "penalty_days",
+  "penaltyTypeKey": "penalty_type",
+  "periodFromMonthKey": "period_from_month",
+  "periodToMonthKey": "period_to_month",
+  "permissionsKey": "permissions",
+  "phoneKey": "phone",
+  "photoUrlKey": "photo_url",
+  "platformKey": "platform",
+  "profileCompletedKey": "profile_completed",
+  "reasonKey": "reason",
+  "recipientKindKey": "recipient_kind",
+  "referenceIdKey": "reference_id",
+  "referenceTypeKey": "reference_type",
+  "rejectionReasonKey": "rejection_reason",
+  "remainingDaysKey": "remaining_days",
+  "replyKey": "reply",
+  "requestTypeIdKey": "request_type_id",
+  "requestTypeNameKey": "request_type_name",
+  "riskAllowanceKey": "risk_allowance",
+  "roleKey": "role",
+  "scheduleDateKey": "schedule_date",
+  "scheduleExceptionKey": "exception",
+  "shiftKey": "shift",
+  "shiftIdKey": "shift_id",
+  "effectiveFromKey": "effective_from",
+  "effectiveToKey": "effective_to",
+  "serverTimeKey": "server_time",
+  "assetDateKey": "asset_date",
+  "assetTextKey": "asset_text",
+  "returnedAtKey": "returned_at",
+  "isReturnedKey": "is_returned",
+  "weeklyRestDaysKey": "weekly_rest_days",
+  "officialHolidaysKey": "official_holidays",
+  "daysKey": "days",
+  "dateKey": "date",
+  "dayOfWeekKey": "day_of_week",
+  "searchKey": "search",
+  "shiftNameKey": "shift_name",
+  "showBannersKey": "show_banners",
+  "showComplianceKey": "show_compliance",
+  "attendanceExcelImportAvailableFromKey": "attendance_excel_import_available_from",
+  "startTimeKey": "start_time",
+  "statusKey": "status",
+  "companyStatusKey": "company_status",
+  "hasActiveBranchKey": "has_active_branch",
+  "successKey": "success",
+  "taxDeductionKey": "tax_deduction",
+  "timeKey": "time",
+  "titleKey": "title",
+  "toDateKey": "to_date",
+  "toTimeKey": "to_time",
+  "toKey": "to",
+  "tokenKey": "token",
+  "totalDaysKey": "total_days",
+  "totalDeductionsKey": "total_deductions",
+  "totalEntitlementsKey": "total_entitlements",
+  "totalKey": "total",
+  "totalPagesKey": "total_pages",
+  "transportAllowanceKey": "transport_allowance",
+  "typeIdKey": "type_id",
+  "updatedAtKey": "updated_at",
+  "uploadedAtKey": "uploaded_at",
+  "usedDaysKey": "used_days",
+  "valueKey": "value",
+  "yearKey": "year"
+ }
+}

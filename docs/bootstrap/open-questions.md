@@ -69,12 +69,30 @@ neither is decided by that document:
 Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 §8.1 — the questions that gated Item 12's closure and the final exit gate.
 
-- **How does `legacy_refresh_tokens` get created against the production legacy
+- **How do the Java-owned tables get created against the production legacy
   MariaDB, and who owns that step?** (**R-023**, ADR-0013 Open Questions,
-  D-043 amendment 3.) Phase 1 adds tables to the legacy database —
-  `legacy_refresh_tokens`, and since D-164 (2026-09-02) the five
-  attendance-device tables in the same file, needed only where the device
-  receiver is enabled — and nothing in the application creates them — Flyway owns no MariaDB location and
+  D-043 amendment 3.) Phase 1 adds tables to the legacy database that
+  production does not have, and nothing in the application creates any of them
+  — Flyway owns no MariaDB location and `hibernate.hbm2ddl.auto` is `none`.
+  They exist only where a test container applies
+  `phase1_extensions.schema.sql` out of band. The set has grown twice:
+  `legacy_refresh_tokens` (item 9); the five attendance-device tables
+  (**D-164**), needed only where the device receiver is enabled; and the
+  platform-admin identity, MFA, step-up, audit and Spring Session tables
+  (**D-162**), needed wherever the admin surface is used.
+
+  **Resolution criteria**: an approved provisioning mechanism, rehearsed
+  against a restored copy, with the mechanism, its owner and its lock duration
+  recorded in `docs/operations/release-cutover-and-rollback.md`.
+
+  **The failure modes differ, and only one is loud.** A missing
+  `legacy_refresh_tokens` is not a startup error — the parity login route never
+  touches the table, so it surfaces later as broken password-change, logout and
+  employee-mode `reset_password.php` paths (**not** OTP verify, and **not** a
+  company-mode reset, whose branch stops at `updateCompanyPasswordByPhone()`;
+  both succeed with the table absent). The device tables fail only where the
+  receiver is enabled. The platform-admin tables fail immediately and visibly:
+  the admin surface cannot authenticate at all without them.
   `hibernate.hbm2ddl.auto` is `none`. Today it exists only where a test
   container applies `phase1_extensions.schema.sql` out of band. **Resolution
   criteria**: an approved provisioning mechanism, rehearsed against a restored

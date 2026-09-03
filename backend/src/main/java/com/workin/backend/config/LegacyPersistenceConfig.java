@@ -69,11 +69,17 @@ import com.zaxxer.hikari.HikariDataSource;
 	"com.workin.backend.tenancy",
 	"com.workin.backend.config",
 	"com.workin.backend.authorization",
-	"com.workin.backend.i18n"
+	"com.workin.backend.i18n",
+	// ADR-0015's platform-admin surface runs under both profiles. Legacy has a
+	// platform admin web of its own (dashboard/pages/companies/), so this
+	// deployment shape needs one too -- but not legacy's shared password
+	// (hr-legacy#11): the individual-identity model F-26 requires is the same
+	// code either way, over whichever database the profile selects.
+	"com.workin.backend.platformadmin"
 })
-@EntityScan("com.workin.legacy")
+@EntityScan({"com.workin.legacy", "com.workin.backend.platformadmin"})
 @EnableJpaRepositories(
-		basePackages = "com.workin.legacy",
+		basePackages = {"com.workin.legacy", "com.workin.backend.platformadmin"},
 		entityManagerFactoryRef = "legacyEntityManagerFactory",
 		transactionManagerRef = "legacyTransactionManager")
 public class LegacyPersistenceConfig {
@@ -123,7 +129,7 @@ public class LegacyPersistenceConfig {
 	public LocalContainerEntityManagerFactoryBean legacyEntityManagerFactory(DataSource legacyDataSource) {
 		LocalContainerEntityManagerFactoryBean factory = new LocalContainerEntityManagerFactoryBean();
 		factory.setDataSource(legacyDataSource);
-		factory.setPackagesToScan("com.workin.legacy");
+		factory.setPackagesToScan("com.workin.legacy", "com.workin.backend.platformadmin");
 		factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
 		Properties jpaProperties = new Properties();
 		// No Flyway ownership of this schema (amendment 3) -- Hibernate

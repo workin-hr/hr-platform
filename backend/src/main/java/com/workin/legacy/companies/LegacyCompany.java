@@ -36,8 +36,35 @@ public class LegacyCompany {
 	@Column(nullable = false)
 	private String status;
 
+	/**
+	 * Nullable: a pending signup legitimately has no name yet -- 81 of 317
+	 * production companies were unnamed and all of them pending (D-035). Mapped
+	 * now because the platform-admin surface lists companies; the entity stays
+	 * minimal otherwise, per this class's own note.
+	 *
+	 * <p>The column is {@code company_name}, not {@code name} -- PostgreSQL's
+	 * own {@code companies} table uses {@code name}, and the two are not the
+	 * same schema. That difference is exactly why the admin surface reaches
+	 * companies through {@code PlatformAdminCompanyDirectory} rather than an
+	 * entity.
+	 */
+	@Column(name = "company_name")
+	private String name;
+
 	public Long getId() {
 		return id;
+	}
+
+	public String getName() {
+		return name;
+	}
+
+	/** Written by the reject action, exactly as the PHP dashboard writes it. */
+	@Column(name = "rejection_reason")
+	private String rejectionReason;
+
+	public String getRejectionReason() {
+		return rejectionReason;
 	}
 
 	/** Raw legacy text -- {@code pending}, {@code active}, {@code rejected}, {@code suspended}. */

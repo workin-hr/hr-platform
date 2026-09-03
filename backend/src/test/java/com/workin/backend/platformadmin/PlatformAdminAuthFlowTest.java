@@ -16,6 +16,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+
 import com.workin.backend.AbstractIntegrationTest;
 
 /**
@@ -25,6 +28,10 @@ import com.workin.backend.AbstractIntegrationTest;
  * multi-membership test inserts a fixture membership row directly.
  */
 class PlatformAdminAuthFlowTest extends AbstractIntegrationTest {
+
+
+	@Autowired
+	private com.workin.backend.platformadmin.mfa.PlatformAdminMfaService mfaServiceForTests;
 
 	@Autowired
 	private TestRestTemplate restTemplate;
@@ -43,7 +50,7 @@ class PlatformAdminAuthFlowTest extends AbstractIntegrationTest {
 
 		ResponseEntity<PlatformAdminAuthResponse> response = restTemplate.postForEntity(
 				"/api/platform-admin/login",
-				new PlatformAdminLoginRequest(phone, "correct horse battery staple"),
+				new PlatformAdminLoginRequest(phone, "correct horse battery staple", codeFor(phone)),
 				PlatformAdminAuthResponse.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -59,7 +66,7 @@ class PlatformAdminAuthFlowTest extends AbstractIntegrationTest {
 
 		ResponseEntity<String> response = restTemplate.postForEntity(
 				"/api/platform-admin/login",
-				new PlatformAdminLoginRequest(phone, "wrong password"),
+				new PlatformAdminLoginRequest(phone, "wrong password", codeFor(phone)),
 				String.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -72,7 +79,7 @@ class PlatformAdminAuthFlowTest extends AbstractIntegrationTest {
 
 		ResponseEntity<String> response = restTemplate.postForEntity(
 				"/api/platform-admin/login",
-				new PlatformAdminLoginRequest(phone, "correct horse battery staple"),
+				new PlatformAdminLoginRequest(phone, "correct horse battery staple", codeFor(phone)),
 				String.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -84,7 +91,7 @@ class PlatformAdminAuthFlowTest extends AbstractIntegrationTest {
 		createPlatformAdmin(phone, "correct horse battery staple", true);
 		String token = restTemplate.postForEntity(
 				"/api/platform-admin/login",
-				new PlatformAdminLoginRequest(phone, "correct horse battery staple"),
+				new PlatformAdminLoginRequest(phone, "correct horse battery staple", codeFor(phone)),
 				PlatformAdminAuthResponse.class).getBody().accessToken();
 
 		HttpHeaders headers = new HttpHeaders();
@@ -122,7 +129,7 @@ class PlatformAdminAuthFlowTest extends AbstractIntegrationTest {
 		createPlatformAdmin(phone, "correct horse battery staple", true);
 		String token = restTemplate.postForEntity(
 				"/api/platform-admin/login",
-				new PlatformAdminLoginRequest(phone, "correct horse battery staple"),
+				new PlatformAdminLoginRequest(phone, "correct horse battery staple", codeFor(phone)),
 				PlatformAdminAuthResponse.class).getBody().accessToken();
 
 		assertThat(meWith(token).getStatusCode())
@@ -148,9 +155,21 @@ class PlatformAdminAuthFlowTest extends AbstractIntegrationTest {
 	}
 
 	private void createPlatformAdmin(String phone, String password, boolean active) {
-		new JdbcTemplate(flywayDataSource).update(
-				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, ?)",
-				phone, passwordEncoder.encode(password), active);
+		Long id = new JdbcTemplate(flywayDataSource).queryForObject(
+				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, ?) RETURNING id",
+				Long.class, phone, passwordEncoder.encode(password), active);
+		// ADR-0015 prerequisite 8: the bearer surface refuses an administrator
+		// with no bound factor, so a fixture that intends to log in must enrol.
+		this.seeds.put(phone, PlatformAdminMfaTestSupport.enrol(this.mfaServiceForTests, id));
+	}
+
+
+	/** Seeds of the administrators this test enrolled, by phone. */
+	private final java.util.Map<String, String> seeds = new java.util.HashMap<>();
+
+	/** A code the given administrator has not spent yet. */
+	private String codeFor(String phone) {
+		return PlatformAdminMfaTestSupport.freshCode(this.seeds.get(phone));
 	}
 
 	private static String uniquePhone() {

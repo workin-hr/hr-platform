@@ -47,6 +47,23 @@ import com.tngtech.archunit.core.importer.ImportOption;
  */
 class ProfileCoverageArchTest {
 
+	/**
+	 * Chains that are deliberately live under both profiles.
+	 *
+	 * <p>An explicit list rather than a relaxed rule: the guard's purpose is
+	 * that no chain becomes dual-profile by accident, and a name here is a
+	 * decision someone made. Each entry has to be safe for the same reason --
+	 * its {@code securityMatcher} cannot collide with another chain's, so
+	 * running it under both profiles cannot hand one profile's requests to the
+	 * other's chain.
+	 *
+	 * <p>{@code platformAdminSecurityFilterChain} matches
+	 * {@code /api/platform-admin/**}; the legacy chain matches {@code /apis/**}
+	 * and the tenant catch-all is not present under {@code phase1-mysql}.
+	 */
+	private static final Set<String> DUAL_PROFILE_CHAINS =
+			Set.of("platformAdminSecurityFilterChain");
+
 	private static final List<String> MIXED_PACKAGES = List.of(
 			"com.workin.backend.identity",
 			"com.workin.backend.security",
@@ -166,11 +183,13 @@ class ProfileCoverageArchTest {
 		java.util.List<String> unguardedChains = chainMethods.stream()
 				.filter(method -> !method.isAnnotationPresent(Profile.class))
 				.map(java.lang.reflect.Method::getName)
+				.filter(name -> !DUAL_PROFILE_CHAINS.contains(name))
 				.toList();
 		assertThat(unguardedChains)
-				.describedAs("every SecurityFilterChain @Bean on SecurityConfig must carry @Profile "
-						+ "-- an unguarded chain is a general-purpose fallback that stays reachable "
-						+ "under both profiles at once")
+				.describedAs("every SecurityFilterChain @Bean on SecurityConfig must carry @Profile, "
+						+ "or be named in DUAL_PROFILE_CHAINS with the reason -- an unguarded chain "
+						+ "nobody decided on is a general-purpose fallback reachable under both "
+						+ "profiles at once")
 				.isEmpty();
 
 		// The specific expectations: which direction each named chain guards.
@@ -178,10 +197,13 @@ class ProfileCoverageArchTest {
 				.filter(method -> method.getName().equals("platformAdminSecurityFilterChain"))
 				.findFirst()
 				.orElseThrow();
-		assertThat(platformAdminChain.getAnnotation(Profile.class))
-				.describedAs("platform-admin chain must not be reachable under phase1-mysql (ADR-0013 amendment 4)")
-				.isNotNull();
-		assertThat(platformAdminChain.getAnnotation(Profile.class).value()).containsExactly("!phase1-mysql");
+		assertThat(platformAdminChain.isAnnotationPresent(Profile.class))
+				.describedAs("the platform-admin API chain is deliberately dual-profile: legacy has a "
+						+ "platform admin web of its own, so the MySQL deployment needs one too. Its "
+						+ "matcher (/api/platform-admin/**) cannot collide with the legacy chain's "
+						+ "(/apis/**), which is what makes running it under both safe")
+				.isFalse();
+		assertThat(DUAL_PROFILE_CHAINS).contains("platformAdminSecurityFilterChain");
 
 		var legacyChain = java.util.Arrays.stream(securityConfig.getMethods())
 				.filter(method -> method.getName().equals("legacySecurityFilterChain"))

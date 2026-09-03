@@ -33,13 +33,51 @@ public class PlatformAdminAuditEvent {
 	@Column
 	private String detail;
 
+	/**
+	 * What the event was about -- "COMPANY", "PLATFORM_ADMIN" -- and which one.
+	 *
+	 * <p>Structured rather than prose in {@link #detail} (ADR-0015 prerequisite
+	 * 10): an audit trail that cannot be filtered by subject cannot answer the
+	 * question it exists for. Null for events whose subject is the actor
+	 * themselves, such as a login.
+	 */
+	@Column(name = "target_type", length = 64)
+	private String targetType;
+
+	@Column(name = "target_id", length = 64)
+	private String targetId;
+
+	/** The step-up approval that authorised this action, once those exist. */
+	@Column(name = "step_up_approval_id", length = 64)
+	private String stepUpApprovalId;
+
 	protected PlatformAdminAuditEvent() {
 	}
 
 	public PlatformAdminAuditEvent(Long platformAdminId, PlatformAdminAuditEventType eventType, String detail) {
+		this(platformAdminId, eventType, detail, null, null, null);
+	}
+
+	public PlatformAdminAuditEvent(Long platformAdminId, PlatformAdminAuditEventType eventType, String detail,
+			String targetType, String targetId, String stepUpApprovalId) {
 		this.platformAdminId = platformAdminId;
 		this.eventType = eventType;
 		this.detail = detail;
+		this.targetType = targetType;
+		this.targetId = targetId;
+		this.stepUpApprovalId = stepUpApprovalId;
+	}
+
+	public String getTargetType() {
+		return targetType;
+	}
+
+	public String getTargetId() {
+		return targetId;
+	}
+
+	public String getStepUpApprovalId() {
+		return stepUpApprovalId;
 	}
 
 	public Long getId() {
