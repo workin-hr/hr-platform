@@ -47,6 +47,29 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String LOGOUT_PATH = PATH_PREFIX + "/logout";
 
 	/**
+	 * The second-factor challenge. Reachable without an authenticated session on
+	 * purpose: at this point the password has passed but no security context
+	 * exists yet, so the route has to be permitted here and gated on the
+	 * session's pending marker in the controller instead. Anything else would
+	 * mean granting a context before the second factor, which is the thing the
+	 * factor exists to prevent.
+	 */
+	public static final String MFA_PATH = PATH_PREFIX + "/mfa";
+
+	/** D-152's enrolment ceremony: password and bootstrap token, no session yet. */
+	public static final String ENROL_PATH = PATH_PREFIX + "/enrol";
+
+	/**
+	 * The ceremony's second step. Named separately because the matcher below is
+	 * exact: {@code /admin/enrol} does not cover {@code /admin/enrol/confirm},
+	 * and the omission was invisible in testing -- an unpermitted route lands on
+	 * the entry point, which redirects to the login page, which is also where a
+	 * successful confirmation goes. The test now asserts the factor is bound
+	 * rather than trusting the destination.
+	 */
+	public static final String ENROL_CONFIRM_PATH = ENROL_PATH + "/confirm";
+
+	/**
 	 * Idle timeout, mirrored in {@code application.properties} where the
 	 * container reads it. ADR-0015 prerequisite 4 requires the number to exist
 	 * and be pinned by a test rather than left to a container default.
@@ -82,7 +105,7 @@ public class PlatformAdminWebSecurityConfig {
 			// authentication boundary.
 			.requestCache(cache -> cache.requestCache(new NullRequestCache()))
 			.authorizeHttpRequests(authorize -> authorize
-				.requestMatchers(LOGIN_PATH).permitAll()
+				.requestMatchers(LOGIN_PATH, MFA_PATH, ENROL_PATH, ENROL_CONFIRM_PATH).permitAll()
 				.anyRequest().authenticated())
 			.exceptionHandling(exceptions -> exceptions
 				.authenticationEntryPoint(new PlatformAdminWebLoginRedirectEntryPoint(LOGIN_PATH)))

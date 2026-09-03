@@ -126,7 +126,7 @@ class PlatformAdminSessionRevalidationFilterTest {
 	private void doFilter(MockHttpSession session) throws Exception {
 		SecurityContextHolder.clearContext();
 		SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
-				new PlatformAdminWebPrincipal(7L, "+201000000000"), null, List.of()));
+				new PlatformAdminWebPrincipal(7L, "+201000000000", true), null, List.of()));
 
 		MockHttpServletRequest request = new MockHttpServletRequest("GET", "/admin");
 		request.setSession(session);

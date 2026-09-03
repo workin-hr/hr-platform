@@ -129,7 +129,7 @@ class PlatformAdminMfaServiceTest extends AbstractIntegrationTest {
 		String token = this.mfaService.issueBootstrapToken(admin, admin);
 		String seed = this.mfaService.beginEnrolment(admin, token).orElseThrow();
 
-		assertThat(this.mfaService.confirmEnrolment(admin, token, codeFor(seed))).isTrue();
+		assertThat(this.mfaService.confirmEnrolment(admin, codeFor(seed))).isTrue();
 
 		assertThat(this.mfaService.isBound(admin)).isTrue();
 		assertThat(this.mfaService.beginEnrolment(admin, token))
@@ -143,11 +143,11 @@ class PlatformAdminMfaServiceTest extends AbstractIntegrationTest {
 		String token = this.mfaService.issueBootstrapToken(admin, admin);
 		String seed = this.mfaService.beginEnrolment(admin, token).orElseThrow();
 
-		assertThat(this.mfaService.confirmEnrolment(admin, token, "000000")).isFalse();
+		assertThat(this.mfaService.confirmEnrolment(admin, "000000")).isFalse();
 		assertThat(this.mfaService.isBound(admin)).isFalse();
 
 		// The token survives, so a mistyped code does not strand the administrator.
-		assertThat(this.mfaService.confirmEnrolment(admin, token, codeFor(seed))).isTrue();
+		assertThat(this.mfaService.confirmEnrolment(admin, codeFor(seed))).isTrue();
 	}
 
 	@Test
@@ -169,7 +169,7 @@ class PlatformAdminMfaServiceTest extends AbstractIntegrationTest {
 		String token = this.mfaService.issueBootstrapToken(admin, admin);
 		String seed = this.mfaService.beginEnrolment(admin, token).orElseThrow();
 		String code = codeFor(seed);
-		assertThat(this.mfaService.confirmEnrolment(admin, token, code)).isTrue();
+		assertThat(this.mfaService.confirmEnrolment(admin, code)).isTrue();
 
 		assertThat(this.mfaService.verify(admin, code))
 			.as("within one window the same six digits would otherwise mint several "
@@ -182,7 +182,7 @@ class PlatformAdminMfaServiceTest extends AbstractIntegrationTest {
 		long admin = createPlatformAdmin();
 		String token = this.mfaService.issueBootstrapToken(admin, admin);
 		String seed = this.mfaService.beginEnrolment(admin, token).orElseThrow();
-		this.mfaService.confirmEnrolment(admin, token, codeFor(seed));
+		this.mfaService.confirmEnrolment(admin, codeFor(seed));
 
 		assertThat(auditTypesFor(admin))
 			.as("the token's issuance and use are auditable events in their own right (D-152)")

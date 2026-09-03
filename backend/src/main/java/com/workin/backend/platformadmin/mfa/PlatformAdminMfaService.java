@@ -134,12 +134,27 @@ public class PlatformAdminMfaService {
 	 * Completes enrolment: verifies a code, binds the factor and spends the
 	 * bootstrap token, all in one transaction.
 	 *
+	 * <p>Authorised by there being an outstanding token and an unbound seed for
+	 * this administrator, both of which only {@link #beginEnrolment} can have
+	 * created, and it required the token.
+	 *
 	 * @return whether the code verified
 	 */
 	@Transactional
-	public boolean confirmEnrolment(long platformAdminId, String rawBootstrapToken, String code) {
+	public boolean confirmEnrolment(long platformAdminId, String code) {
 		Instant now = Instant.now();
-		Optional<PlatformAdminMfaBootstrapToken> token = liveToken(platformAdminId, rawBootstrapToken);
+		// Whichever token is still outstanding for this administrator -- there
+		// is at most one, because issuing revokes the rest.
+		//
+		// The raw token is deliberately NOT carried from the begin step to here.
+		// It would have to live in the session, and the session is persisted to
+		// the same database that stores the token's hash, which would undo the
+		// point of hashing it. The gate is beginEnrolment(): an unbound seed
+		// cannot exist without a live token having been presented.
+		Optional<PlatformAdminMfaBootstrapToken> token = this.bootstrapTokenRepository
+				.findByPlatformAdminIdAndUsedAtIsNullAndRevokedAtIsNull(platformAdminId).stream()
+				.filter(candidate -> candidate.isLiveAt(now))
+				.findFirst();
 		if (token.isEmpty()) {
 			return false;
 		}
