@@ -28,11 +28,37 @@ public interface PlatformAdminCompanyDirectory {
 	record CompanyView(long id, String name, String status) {
 	}
 
+	/**
+	 * One company, with the counts an operator needs before deciding.
+	 *
+	 * <p>Mirrors what the PHP dashboard's {@code detail.php} shows: the work
+	 * outstanding against a company is the thing that makes suspending it a
+	 * decision rather than a click.
+	 */
+	record CompanyDetail(CompanyView company, String rejectionReason,
+			long pendingRequests, long pendingAdvances) {
+	}
+
 	List<CompanyView> list(int limit);
+
+	java.util.Optional<CompanyDetail> detail(long companyId);
 
 	/**
 	 * @return whether a company with that id existed and was updated
 	 */
 	boolean updateStatus(long companyId, String status);
+
+	/**
+	 * Rejects a company, recording why.
+	 *
+	 * <p>Separate from {@link #updateStatus} rather than a nullable parameter on
+	 * it, because the reason is written on rejection and on nothing else. PHP
+	 * behaves the same way: approving a previously rejected company leaves the
+	 * old reason in place rather than clearing it, and a single method with an
+	 * optional argument would quietly invite the opposite.
+	 *
+	 * @return whether a company with that id existed and was updated
+	 */
+	boolean reject(long companyId, String reason);
 
 }

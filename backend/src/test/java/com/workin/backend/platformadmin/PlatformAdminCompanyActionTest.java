@@ -38,6 +38,9 @@ class PlatformAdminCompanyActionTest extends AbstractIntegrationTest {
 	private PlatformAdminStepUpService stepUpService;
 
 	@Autowired
+	private PlatformAdminCompanyDirectory directory;
+
+	@Autowired
 	private PlatformAdminMfaService mfaService;
 
 	@Autowired
@@ -153,6 +156,65 @@ class PlatformAdminCompanyActionTest extends AbstractIntegrationTest {
 		// One transaction: a committed change cannot exist without its audit row.
 		assertThat(statusOf(company)).isEqualTo("suspended");
 		assertThat(auditRow(admin.id())).isNotEmpty();
+	}
+
+	@Test
+	void rejectingACompanyRecordsWhy() {
+		Admin admin = enrolledAdmin();
+		long company = createCompany();
+		String approval = approve(admin, PlatformAdminCompanyService.ACTION_REJECT, company,
+				"incomplete commercial registration");
+
+		assertThat(this.companyService.apply(admin.id(), true,
+				PlatformAdminCompanyService.ACTION_REJECT, company,
+				"incomplete commercial registration", approval))
+			.isEqualTo(PlatformAdminCompanyService.Outcome.DONE);
+
+		assertThat(statusOf(company)).isEqualTo("rejected");
+		assertThat(new JdbcTemplate(this.flywayDataSource).queryForObject(
+				"SELECT rejection_reason FROM companies WHERE id = ?", String.class, company))
+			.as("the PHP dashboard records why a company was rejected; losing that on "
+					+ "the Java side would make the same operation mean less")
+			.isEqualTo("incomplete commercial registration");
+	}
+
+	@Test
+	void approvingAPendingCompanyActivatesItAndLeavesAnyOldReasonAlone() {
+		Admin admin = enrolledAdmin();
+		long company = createCompany();
+		new JdbcTemplate(this.flywayDataSource).update(
+				"UPDATE companies SET status = 'pending', rejection_reason = ? WHERE id = ?",
+				"an earlier rejection", company);
+		String approval = approve(admin, PlatformAdminCompanyService.ACTION_APPROVE, company, "documents verified");
+
+		assertThat(this.companyService.apply(admin.id(), true,
+				PlatformAdminCompanyService.ACTION_APPROVE, company, "documents verified", approval))
+			.isEqualTo(PlatformAdminCompanyService.Outcome.DONE);
+
+		assertThat(statusOf(company)).isEqualTo("active");
+		assertThat(new JdbcTemplate(this.flywayDataSource).queryForObject(
+				"SELECT rejection_reason FROM companies WHERE id = ?", String.class, company))
+			.as("approving does not clear the previous reason -- PHP leaves it too, and "
+					+ "clearing it would erase why the company was once rejected")
+			.isEqualTo("an earlier rejection");
+	}
+
+	@Test
+	void theDetailViewCountsOutstandingWork() {
+		long company = createCompany();
+
+		assertThat(this.directory.detail(company))
+			.get()
+			.satisfies(detail -> {
+				assertThat(detail.company().id()).isEqualTo(company);
+				assertThat(detail.pendingRequests()).isZero();
+				assertThat(detail.pendingAdvances()).isZero();
+			});
+	}
+
+	@Test
+	void theDetailViewIsEmptyForACompanyThatDoesNotExist() {
+		assertThat(this.directory.detail(987_654_321L)).isEmpty();
 	}
 
 	// --- helpers ------------------------------------------------------------

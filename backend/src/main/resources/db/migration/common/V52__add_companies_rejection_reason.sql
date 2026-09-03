@@ -1,0 +1,12 @@
+-- The reason a company was rejected.
+--
+-- Legacy has carried this since the beginning (`companies.rejection_reason`,
+-- written by dashboard/pages/companies/page.php's reject action). The
+-- PostgreSQL copy of the table was built from the columns the tenant modules
+-- needed and never included it, because nothing on this side rejected a
+-- company until the platform-admin surface did.
+--
+-- Without it the two databases disagree about the same operation: a company
+-- rejected through the Java admin on MySQL records why, and the same rejection
+-- on PostgreSQL loses it.
+ALTER TABLE companies ADD COLUMN rejection_reason TEXT;

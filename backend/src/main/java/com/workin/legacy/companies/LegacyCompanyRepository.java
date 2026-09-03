@@ -29,4 +29,16 @@ public interface LegacyCompanyRepository extends JpaRepository<LegacyCompany, Lo
 	@Modifying
 	@Query("UPDATE LegacyCompany c SET c.status = :status WHERE c.id = :id")
 	int updateStatus(@Param("id") long id, @Param("status") String status);
+
+	/**
+	 * Rejects a company and records why, in one statement.
+	 *
+	 * <p>Both columns together, matching the PHP dashboard's reject action,
+	 * which writes {@code status} and {@code rejection_reason} in a single
+	 * update. Splitting them would allow a state where a company is rejected
+	 * with no reason, or carries a reason it was never rejected for.
+	 */
+	@Modifying
+	@Query("UPDATE LegacyCompany c SET c.status = 'rejected', c.rejectionReason = :reason WHERE c.id = :id")
+	int reject(@Param("id") long id, @Param("reason") String reason);
 }

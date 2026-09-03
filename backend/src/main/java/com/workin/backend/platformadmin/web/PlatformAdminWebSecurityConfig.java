@@ -99,6 +99,17 @@ public class PlatformAdminWebSecurityConfig {
 
 	public static final String COMPANIES_CONFIRM_PATH = COMPANIES_PATH + "/confirm";
 
+	/**
+	 * One company's detail page, {@code /admin/companies/{id}}.
+	 *
+	 * <p>Its pattern would also match {@code /admin/companies/confirm} and
+	 * {@code /admin/companies/apply}, which is harmless -- all three are
+	 * authenticated, and Spring resolves the literal mappings ahead of the
+	 * variable one. Worth naming because the reverse (a literal shadowed by a
+	 * variable) is the mistake this shape usually produces.
+	 */
+	public static final String COMPANY_DETAIL_PATH = COMPANIES_PATH + "/{companyId}";
+
 	public static final String COMPANIES_APPLY_PATH = COMPANIES_PATH + "/apply";
 
 	/**

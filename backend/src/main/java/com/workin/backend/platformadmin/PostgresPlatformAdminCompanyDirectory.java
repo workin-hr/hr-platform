@@ -15,9 +15,12 @@ import com.workin.backend.identity.CompanyRepository;
 public class PostgresPlatformAdminCompanyDirectory implements PlatformAdminCompanyDirectory {
 
 	private final CompanyRepository companyRepository;
+	private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
-	public PostgresPlatformAdminCompanyDirectory(CompanyRepository companyRepository) {
+	public PostgresPlatformAdminCompanyDirectory(CompanyRepository companyRepository,
+			javax.sql.DataSource dataSource) {
 		this.companyRepository = companyRepository;
+		this.jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
 	}
 
 	@Override
@@ -27,6 +30,35 @@ public class PostgresPlatformAdminCompanyDirectory implements PlatformAdminCompa
 			.limit(limit)
 			.map(company -> new CompanyView(company.getId(), company.getName(), company.getStatus()))
 			.toList();
+	}
+
+	@Override
+	public java.util.Optional<CompanyDetail> detail(long companyId) {
+		return this.companyRepository.findById(companyId).map(company -> new CompanyDetail(
+				new CompanyView(company.getId(), company.getName(), company.getStatus()),
+				company.getRejectionReason(),
+				// company_id is on the row here, so no join through employees --
+				// the legacy schema is the one that needs it. Status is upper
+				// case on this side and lower case on legacy's; that difference
+				// is the reason these queries are not shared.
+				count("SELECT COUNT(*) FROM requests WHERE company_id = ? AND status = 'PENDING'", companyId),
+				count("SELECT COUNT(*) FROM advances WHERE company_id = ? AND status = 'PENDING'", companyId)));
+	}
+
+	private long count(String sql, long companyId) {
+		Long value = this.jdbc.queryForObject(sql, Long.class, companyId);
+		return value == null ? 0L : value;
+	}
+
+	@Override
+	public boolean reject(long companyId, String reason) {
+		return this.companyRepository.findById(companyId)
+			.map(company -> {
+				company.setStatus("rejected");
+				company.setRejectionReason(reason);
+				return true;
+			})
+			.orElse(false);
 	}
 
 	@Override

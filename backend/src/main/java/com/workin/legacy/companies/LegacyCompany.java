@@ -59,6 +59,14 @@ public class LegacyCompany {
 		return name;
 	}
 
+	/** Written by the reject action, exactly as the PHP dashboard writes it. */
+	@Column(name = "rejection_reason")
+	private String rejectionReason;
+
+	public String getRejectionReason() {
+		return rejectionReason;
+	}
+
 	/** Raw legacy text -- {@code pending}, {@code active}, {@code rejected}, {@code suspended}. */
 	public String getStatus() {
 		return status;
