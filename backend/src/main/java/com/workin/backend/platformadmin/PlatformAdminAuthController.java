@@ -41,7 +41,7 @@ public class PlatformAdminAuthController {
 		PlatformAdminSessionService.IssuedRefreshToken session = platformAdminSessionService
 				.issue(platformAdmin.getId());
 		String accessToken = platformAdminJwtService.issueAccessToken(
-				platformAdmin.getId(), session.familyId().toString());
+				platformAdmin.getId(), session.familyId().toString(), session.familyEndsAt());
 		return new PlatformAdminAuthResponse(accessToken, session.rawToken(), platformAdmin.getId());
 	}
 
@@ -51,7 +51,7 @@ public class PlatformAdminAuthController {
 		PlatformAdminSessionService.RotatedSession session = platformAdminSessionService.rotate(request.refreshToken())
 				.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, MessageKeys.AUTH_INVALID_REFRESH_TOKEN));
 		String accessToken = platformAdminJwtService.issueAccessToken(
-				session.platformAdminId(), session.familyId().toString());
+				session.platformAdminId(), session.familyId().toString(), session.familyEndsAt());
 		return new PlatformAdminAuthResponse(accessToken, session.rawToken(), session.platformAdminId());
 	}
 
