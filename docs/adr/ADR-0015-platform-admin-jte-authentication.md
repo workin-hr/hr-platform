@@ -410,13 +410,14 @@ prerequisites above.
 | 11 — session storage across workers | **Done** | Spring Session JDBC on the existing datasource, tables in `common/V46`; logout is asserted to delete the shared row, not just the local one |
 | 4 — session bounds, UI half | **Done** | 30-minute idle timeout, non-renewable 8-hour absolute cap stamped at login and enforced per request |
 | 3 — throttling in shared, restart-surviving state, with unknown identifiers consuming the same budget and doing the same work | **Done** | `PlatformAdminLoginThrottle` + `platform_admin_login_attempts` (`common/V47`); the miss path verifies against a fixed dummy hash so it costs the same, and `PlatformAdminLoginThrottleTest` proves a miss spends budget by failing eight times against a phone and only then creating that administrator |
+| 10 — audit coverage for administrative actions | **Partly done** | The model is in place: a structured target (type + id) and a step-up approval reference (`common/V49`), event types for the company operations and for D-152's bootstrap-token lifecycle, and `recordAction(...)` with `MANDATORY` propagation so an action cannot commit without its audit row -- the opposite propagation to the authentication events, which must survive the 401 that follows them. `PlatformAdminAuditActionTest` proves both directions. **What remains is the actions themselves**, and retention, which the ADR defers until there is something worth retaining |
 | 4 — the same cap bounding API token families | **Done** | The family's origin is persisted on every row (`common/V48`) and copied forward on rotation, so rotating cannot reset it and pruning rotated rows cannot lose it. `rotate()` refuses a family past origin + cap and revokes it; both the successor refresh token and the issued access token are clamped to the family's remaining life. `PlatformAdminFamilyCapTest` advances a family past the cap and asserts the refusal, and near the cap asserts both clamps |
 
 **Not built, and blocking any privileged operation:** prerequisites 1 (TOTP,
 enrolment, seed custody), 2 (step-up binding), 8 (MFA on the bearer login or
-that surface restricted), 10 (audit coverage for administrative actions), 12
-(single-use TOTP codes), and 13 (session listing/revocation, or an explicit
-deferral).
+that surface restricted), 12 (single-use TOTP codes), and 13 (session
+listing/revocation, or an explicit deferral). Prerequisite 10's model is built
+but its coverage cannot be complete until the actions exist.
 
 **The number chosen for the API family cap needs owner confirmation.** ADR-0015
 requires the cap to bound API tokens but names no figure. It is set to seven

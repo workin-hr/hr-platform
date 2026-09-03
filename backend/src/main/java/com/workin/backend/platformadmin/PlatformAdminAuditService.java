@@ -29,4 +29,32 @@ public class PlatformAdminAuditService {
 		auditEventRepository.save(new PlatformAdminAuditEvent(platformAdminId, eventType, detail));
 	}
 
+	/**
+	 * Records an administrative action, <b>in the caller's transaction</b>
+	 * (ADR-0015 prerequisite 10).
+	 *
+	 * <p>The opposite propagation to {@link #record}, on purpose. An
+	 * authentication event must survive the 401 that follows it, so it commits
+	 * separately. An administrative action must do the reverse: the ADR requires
+	 * "the event written in the same transaction as the action so a committed
+	 * change cannot exist without its audit row". With REQUIRES_NEW, a suspension
+	 * that rolled back would leave an audit row claiming it happened -- and, worse,
+	 * a suspension that committed after its audit write failed would leave none.
+	 *
+	 * <p>{@code MANDATORY}, not {@code REQUIRED}: if a caller has no transaction,
+	 * "same transaction as the action" is not a guarantee anyone can make, and
+	 * failing loudly at the first call is better than discovering it in an
+	 * incident review.
+	 *
+	 * @param targetType what the action was performed on, e.g. {@code COMPANY}
+	 * @param targetId which one
+	 * @param stepUpApprovalId the approval that authorised it, once step-up exists
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public void recordAction(Long platformAdminId, PlatformAdminAuditEventType eventType,
+			String targetType, String targetId, String stepUpApprovalId, String detail) {
+		auditEventRepository.save(new PlatformAdminAuditEvent(
+				platformAdminId, eventType, detail, targetType, targetId, stepUpApprovalId));
+	}
+
 }
