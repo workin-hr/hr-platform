@@ -409,14 +409,23 @@ prerequisites above.
 | 9 — per-request active-admin revalidation on the cookie chain | **Done** | `PlatformAdminSessionRevalidationFilter`; a deactivation mid-session is refused on the next request |
 | 11 — session storage across workers | **Done** | Spring Session JDBC on the existing datasource, tables in `common/V46`; logout is asserted to delete the shared row, not just the local one |
 | 4 — session bounds, UI half | **Done** | 30-minute idle timeout, non-renewable 8-hour absolute cap stamped at login and enforced per request |
+| 3 — throttling in shared, restart-surviving state, with unknown identifiers consuming the same budget and doing the same work | **Done** | `PlatformAdminLoginThrottle` + `platform_admin_login_attempts` (`common/V47`); the miss path verifies against a fixed dummy hash so it costs the same, and `PlatformAdminLoginThrottleTest` proves a miss spends budget by failing eight times against a phone and only then creating that administrator |
 | 4 — the same cap bounding API token families | **Not done** | `PlatformAdminSessionService.rotate()` still issues every successor at `now + 7 days` |
 
 **Not built, and blocking any privileged operation:** prerequisites 1 (TOTP,
-enrolment, seed custody), 2 (step-up binding), 3 (throttling and the
-unknown-identifier timing/budget parity), 8 (MFA on the bearer login or that
-surface restricted), 10 (audit coverage for administrative actions), 12
+enrolment, seed custody), 2 (step-up binding), 8 (MFA on the bearer login or
+that surface restricted), 10 (audit coverage for administrative actions), 12
 (single-use TOTP codes), 13 (session listing/revocation, or an explicit
-deferral).
+deferral), and the API-token half of 4.
+
+**One decision taken while implementing prerequisite 3, recorded because it is
+a trade rather than a detail:** an exhausted budget answers with the same 401
+and the same message as a wrong password. A distinct status would tell an
+attacker precisely when to back off, and it would change the bearer API's
+response contract that prerequisite 8 will revisit on its own terms. The cost
+is that a locked-out administrator is told "invalid credentials" rather than
+"try again later"; the lockout is visible to operators through the audit
+events instead. Revisit this alongside prerequisite 8.
 
 The surface therefore performs **no administrative action**. It authenticates,
 renders one page that says so, and logs out. That is deliberate: this ADR states

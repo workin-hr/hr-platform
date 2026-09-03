@@ -119,6 +119,8 @@ change introduces a runtime dependency the application did not previously have.
 | `spring_session` missing or unmigrated | Startup succeeds, first admin login fails with a SQL error | Flyway history missing `V46`; application log at first `/admin/login` POST |
 | Sessions accumulating | `spring_session` row count grows without bound | Spring Session's own cleanup job deletes expired rows on a schedule; a stuck job shows as rows with `expiry_time` in the past |
 | Administrator deactivated but still active | Should be impossible: the session is revalidated per request | `PlatformAdminSessionRevalidationFilter`; regression coverage in `PlatformAdminWebSessionTest` |
+| Administrator locked out by throttling | They report "invalid credentials" for a password they know is right | `platform_admin_audit_events` shows the `LOGIN_FAILED` run; `platform_admin_login_attempts` holds 8 rows inside the 15-minute window for their identifier. The lockout clears itself when the window passes, or immediately on a successful login |
+| Throttle table growing | `platform_admin_login_attempts` row count climbing steadily | An unauthenticated caller can add a row per attempt with a fresh identifier. `PlatformAdminLoginAttemptCleanup` deletes rows past the window every 10 minutes on every worker; growth despite that means the scheduler is not running |
 
 The surface performs no administrative action yet, so there is no
 administrative-action audit signal to watch. When one is added, ADR-0015
