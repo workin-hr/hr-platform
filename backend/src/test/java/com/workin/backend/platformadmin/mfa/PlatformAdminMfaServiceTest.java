@@ -1,6 +1,8 @@
 package com.workin.backend.platformadmin.mfa;
 
+import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 
 import javax.sql.DataSource;
@@ -10,7 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 import com.workin.backend.AbstractIntegrationTest;
 
@@ -22,12 +25,24 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Each test names the hole its step closes, because the ceremony reads like
  * ceremony until you ask what happens without each part.
  */
-@TestPropertySource(properties = {
-	// A test key. Production's comes from the deployment's secret store; the
-	// point of the property is that the key is never in the database.
-	"app.platform-admin.mfa.encryption-key=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
-})
 class PlatformAdminMfaServiceTest extends AbstractIntegrationTest {
+
+	/**
+	 * A fresh key per run, generated rather than written down.
+	 *
+	 * <p>A base64 key literal in a source file is indistinguishable from a real
+	 * leaked one -- the repository's secret scanner flagged exactly that, and it
+	 * was right to. Generating it here removes the literal, and it is better
+	 * practice anyway: no test can come to depend on a particular key, and
+	 * production's comes from the deployment's secret store.
+	 */
+	@DynamicPropertySource
+	static void mfaEncryptionKey(DynamicPropertyRegistry registry) {
+		byte[] key = new byte[32];
+		new SecureRandom().nextBytes(key);
+		registry.add("app.platform-admin.mfa.encryption-key",
+				() -> Base64.getEncoder().encodeToString(key));
+	}
 
 	@Autowired
 	private PlatformAdminMfaService mfaService;
