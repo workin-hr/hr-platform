@@ -25,6 +25,23 @@ public class PlatformAdminSessionService {
 
 	private static final Logger log = LoggerFactory.getLogger(PlatformAdminSessionService.class);
 
+	/**
+	 * How long a refresh-token family may live from its first authentication,
+	 * however often it is rotated (ADR-0015 prerequisite 4).
+	 *
+	 * <p>Equal to the configured refresh-token lifetime rather than shorter, so
+	 * this change bounds the family without shortening any single token that a
+	 * client already relies on: what it removes is the *sliding*, not the
+	 * window. An administrator who keeps refreshing now re-authenticates once a
+	 * week instead of never.
+	 *
+	 * <p>Deliberately a constant, not configuration: a property that can widen
+	 * the cap is a property that can remove it, and this is the highest-privilege
+	 * surface in the system.
+	 */
+	public static final Duration FAMILY_ABSOLUTE_CAP = Duration.ofDays(7);
+
+
 	private final PlatformAdminRefreshTokenRepository refreshTokenRepository;
 	private final PlatformAdminRepository platformAdminRepository;
 	private final PlatformAdminAuditService auditService;
@@ -53,22 +70,6 @@ public class PlatformAdminSessionService {
 				now));
 		return new IssuedRefreshToken(rawToken, familyId, now.plus(FAMILY_ABSOLUTE_CAP));
 	}
-
-	/**
-	 * How long a refresh-token family may live from its first authentication,
-	 * however often it is rotated (ADR-0015 prerequisite 4).
-	 *
-	 * <p>Equal to the configured refresh-token lifetime rather than shorter, so
-	 * this change bounds the family without shortening any single token that a
-	 * client already relies on: what it removes is the *sliding*, not the
-	 * window. An administrator who keeps refreshing now re-authenticates once a
-	 * week instead of never.
-	 *
-	 * <p>Deliberately a constant, not configuration: a property that can widen
-	 * the cap is a property that can remove it, and this is the highest-privilege
-	 * surface in the system.
-	 */
-	public static final Duration FAMILY_ABSOLUTE_CAP = Duration.ofDays(7);
 
 	@Transactional
 	public Optional<RotatedSession> rotate(String presentedToken) {
