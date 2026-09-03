@@ -654,6 +654,7 @@ public class LegacyEmployeeStore {
 	 * a transaction and with no manager cleanup (D-077).
 	 */
 	public void deleteEmployeeUnscopedOfAnyTransaction(long employeeId, long companyId) {
+		deleteDeviceIdentity(employeeId, companyId);
 		jdbcTemplate.update("DELETE FROM employees WHERE id = ? AND company_id = ?", employeeId, companyId);
 	}
 
@@ -914,7 +915,31 @@ public class LegacyEmployeeStore {
 
 	/** The cascade's final statement, whose row count the helper requires to be exactly 1. */
 	public int deleteEmployeeScoped(long employeeId, long companyId) {
+		deleteDeviceIdentity(employeeId, companyId);
 		return jdbcTemplate.update("DELETE FROM employees WHERE id = ? AND company_id = ?", employeeId, companyId);
+	}
+
+	/**
+	 * The device PIN binding (D-164), cleared on <b>both</b> paths that remove
+	 * an employee -- the cascade above and {@code delete.php}'s direct path,
+	 * which an employee with no related records takes instead.
+	 *
+	 * <p>Deliberately outside {@link #CASCADE_TABLES}: that list is the PHP
+	 * helper's contract (D-078) and this table does not exist in PHP. Leaving
+	 * the row behind would orphan it -- the identities endpoint would show a
+	 * PIN against a blank employee, and the unique employee key would stay
+	 * taken so the PIN could never be reissued. Failures are ignored for the
+	 * same reason the company cascade ignores them: a deployment may not have
+	 * provisioned these tables yet (R-023 / Q7).
+	 */
+	private void deleteDeviceIdentity(long employeeId, long companyId) {
+		try {
+			jdbcTemplate.update(
+					"DELETE FROM employee_device_identities WHERE company_id = ? AND employee_id = ?",
+					companyId, employeeId);
+		} catch (RuntimeException ignored) {
+			// See the javadoc: an absent table must not block employee deletion.
+		}
 	}
 
 	/** The tables the cascade clears, in order, after {@code notifications}. */

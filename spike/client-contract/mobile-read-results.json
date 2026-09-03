@@ -1,0 +1,671 @@
+[
+ {
+  "path": "configs/get",
+  "model": "ConfigsResponse",
+  "method_name": "getConfigs",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":{\"min_android_build_number\":\"11\",\"min_ios_build_number\":\"10\",\"min_windows_build_number\":\"12\",\"min_mac_build_number\":\"1\",\"android_app_under_maintenance\":\"false\",\"ios_app_under_maintenance\":\"false\",\"windows_app_under_maintenance\":\"false\",\"mac_app_under_maintenance\":\"false\",\"website_url\":\"https://workin.company/workin.html\",\"show_banners\":\"true\",\"show_compliance\":\"false\",\"is_daylight_saving\":\"true\",\"attendance_excel_import_available_from\":\"2026-07-01\",\"support_whatsapp\":\"201000217811\",\"server_time\":\"2026-09-02 20:15:06\",\"server_timezone\":\"Etc/GMT-3\"}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":{\"min_android_build_number\":\"11\",\"min_ios_build_number\":\"10\",\"min_windows_build_number\":\"12\",\"min_mac_build_number\":\"1\",\"android_app_under_maintenance\":\"false\",\"ios_app_under_maintenance\":\"false\",\"windows_app_under_maintenance\":\"false\",\"mac_app_under_maintenance\":\"false\",\"website_url\":\"https://workin.company/workin.html\",\"show_banners\":\"true\",\"show_compliance\":\"false\",\"is_daylight_saving\":\"true\",\"attendance_excel_import_available_from\":\"2026-07-01\",\"support_whatsapp\":\"201000217811\",\"server_time\":\"2026-09-02 20:15:06\",\"server_timezone\":\"Etc/GMT-3\"}}"
+  }
+ },
+ {
+  "path": "time/now",
+  "model": "ServerTimeResponse",
+  "method_name": "getServerTime",
+  "query": {},
+  "php": {
+   "status": 404,
+   "verdict": "ServerException",
+   "logs_out": false,
+   "raw": "{\"success\":false,\"message\":\"Module 'time' not found. Available: administrative_decisions, advances, app_content, faqs, attendance, auth, banners, branches, company, company_settings, company_official_"
+  },
+  "java": {
+   "status": 404,
+   "verdict": "ServerException",
+   "logs_out": false,
+   "raw": "{\"success\":false,\"message\":\"Module 'time' not found. Available: administrative_decisions, advances, app_content, faqs, attendance, auth, banners, branches, company, company_settings, company_official_"
+  }
+ },
+ {
+  "path": "assets/list",
+  "model": "AssetsResponse",
+  "method_name": "getAssets",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":23,\"company_id\":214,\"employee_id\":6737,\"asset_date\":\"2026-07-29\",\"asset_end_date\":null,\"asset_text\":\"1000\",\"returned_at\":\"2026-07-29\",\"is_returned\":0,\"created_at\":\"2026-07-29 13:21:22\",\"updated_at\":\"2026-07-29 13:21:22\",\"employee_name\":\"\u0645\u062d\u0645\u062f \u0627\u0646\u064a\u0633\",\"employee_code\":\"04\",\"photo_url\":null}],\"meta\":{\"page\":1,\"limit\":20,\"total\":1,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":23,\"company_id\":214,\"employee_id\":6737,\"asset_date\":\"2026-07-29\",\"asset_end_date\":null,\"asset_text\":\"1000\",\"returned_at\":\"2026-07-29\",\"is_returned\":0,\"created_at\":\"2026-07-29 13:21:22\",\"updated_at\":\"2026-07-29 13:21:22\",\"employee_name\":\"\u0645\u062d\u0645\u062f \u0627\u0646\u064a\u0633\",\"employee_code\":\"04\",\"photo_url\":null}],\"meta\":{\"page\":1,\"limit\":20,\"total\":1,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  }
+ },
+ {
+  "path": "phone_countries/list",
+  "model": "PhoneCountriesResponse",
+  "method_name": "getPhoneCountries",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [
+    "PhoneCountriesResponse.countries[0]: model PhoneCountryModel not extracted; fields unchecked",
+    "PhoneCountriesResponse.countries[1]: model PhoneCountryModel not extracted; fields unchecked",
+    "PhoneCountriesResponse.countries[2]: model PhoneCountryModel not extracted; fields unchecked"
+   ],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":1,\"country_code\":\"+20\",\"name\":\"Egypt\",\"name_ar\":\"\u0645\u0635\u0631\",\"name_en\":\"Egypt\",\"flag_emoji\":\"\ud83c\uddea\ud83c\uddec\",\"phone_length\":11,\"phone_prefixes\":[\"010\",\"011\",\"012\",\"015\"],\"example_number\":\"01000000000\",\"sort_order\":1,\"is_active\":1},{\"id\":2,\"country_code\":\"+966\",\"name\":\"Saudi Arabia\",\"name_ar\":\"\u0627\u0644\u0645\u0645\u0644\u0643\u0629 \u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u0627\u0644\u0633\u0639\u0648\u062f\u064a\u0629\",\"name_en\":\"Saudi Arabia\",\"flag_emoji\":\"\ud83c\uddf8\ud83c\udde6\",\"phone_length\":10,\"phone_prefixes\":[\"05\"],\"example_number\":\"0500000000\",\"sort_order\":2,\"is_active\":1},{\"id\":3,\"country_code\":\"+971\",\"name\":\"United Arab Emirates\",\"name_ar\":\"\u0627\u0644\u0625\u0645\u0627\u0631\u0627\u062a \u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u0627\u0644\u0645\u062a\u062d\u062f\u0629\",\"name_en\":\"United Arab Emirates\",\"flag_emoji\":\"\ud83c\udde6\ud83c\uddea\",\"phone_length\":10,\"phone_prefixes\":[\"050\",\"052\",\"054\",\"055\",\"056\",\"058\"],\"example_number\":\"0500000000\",\"sort_order\":3,\"is_active\":1},{\"id\":4,\"country_code\":\"+218\",\"name\":\"Libya\",\"name_ar\":\"\u0644\u064a\u0628\u064a\u0627\",\"name_en\":\"Libya\",\"flag_emoji\":\"\ud83c\uddf1\ud83c\uddfe\",\"phone_length\":10,\"phone_prefixes\":[\"091\",\"092\",\"093\",\"094\",\"095\",\"096\"],\"example_number\":\"0910000000\",\"sort_order\":4,\"is_active\":1}]}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [
+    "PhoneCountriesResponse.countries[0]: model PhoneCountryModel not extracted; fields unchecked",
+    "PhoneCountriesResponse.countries[1]: model PhoneCountryModel not extracted; fields unchecked",
+    "PhoneCountriesResponse.countries[2]: model PhoneCountryModel not extracted; fields unchecked"
+   ],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":1,\"country_code\":\"+20\",\"name\":\"Egypt\",\"name_ar\":\"\u0645\u0635\u0631\",\"name_en\":\"Egypt\",\"flag_emoji\":\"\ud83c\uddea\ud83c\uddec\",\"phone_length\":11,\"phone_prefixes\":[\"010\",\"011\",\"012\",\"015\"],\"example_number\":\"01000000000\",\"sort_order\":1,\"is_active\":1},{\"id\":2,\"country_code\":\"+966\",\"name\":\"Saudi Arabia\",\"name_ar\":\"\u0627\u0644\u0645\u0645\u0644\u0643\u0629 \u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u0627\u0644\u0633\u0639\u0648\u062f\u064a\u0629\",\"name_en\":\"Saudi Arabia\",\"flag_emoji\":\"\ud83c\uddf8\ud83c\udde6\",\"phone_length\":10,\"phone_prefixes\":[\"05\"],\"example_number\":\"0500000000\",\"sort_order\":2,\"is_active\":1},{\"id\":3,\"country_code\":\"+971\",\"name\":\"United Arab Emirates\",\"name_ar\":\"\u0627\u0644\u0625\u0645\u0627\u0631\u0627\u062a \u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u0627\u0644\u0645\u062a\u062d\u062f\u0629\",\"name_en\":\"United Arab Emirates\",\"flag_emoji\":\"\ud83c\udde6\ud83c\uddea\",\"phone_length\":10,\"phone_prefixes\":[\"050\",\"052\",\"054\",\"055\",\"056\",\"058\"],\"example_number\":\"0500000000\",\"sort_order\":3,\"is_active\":1},{\"id\":4,\"country_code\":\"+218\",\"name\":\"Libya\",\"name_ar\":\"\u0644\u064a\u0628\u064a\u0627\",\"name_en\":\"Libya\",\"flag_emoji\":\"\ud83c\uddf1\ud83c\uddfe\",\"phone_length\":10,\"phone_prefixes\":[\"091\",\"092\",\"093\",\"094\",\"095\",\"096\"],\"example_number\":\"0910000000\",\"sort_order\":4,\"is_active\":1}]}"
+  }
+ },
+ {
+  "path": "profile/employee",
+  "model": "EmployeeResponse",
+  "method_name": "getMyEmployeeProfile",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeResponse.employeeModel.permissionsMap (no 'permissions' map)",
+    "EmployeeResponse.employeeModel.rawName (null for 'name')",
+    "EmployeeResponse.employeeModel.departmentId (null for 'department_id')",
+    "EmployeeResponse.employeeModel.jobTitleId (null for 'job_title_id')",
+    "EmployeeResponse.employeeModel.employeeCode (null for 'employee_code')",
+    "EmployeeResponse.employeeModel.countryCode (null for 'country_code')",
+    "EmployeeResponse.employeeModel.nationalId (null for 'national_id')",
+    "EmployeeResponse.employeeModel.birthDate (null for 'birth_date')",
+    "EmployeeResponse.employeeModel.address (null for 'address')",
+    "EmployeeResponse.employeeModel.hireDate (null for 'hire_date')",
+    "EmployeeResponse.employeeModel.contractDurationMonths (null for 'contract_duration_months')",
+    "EmployeeResponse.employeeModel.departmentName (null for 'department_name')",
+    "EmployeeResponse.employeeModel.basicSalary (null for 'basic_salary')",
+    "EmployeeResponse.employeeModel.grossSalary (null for 'gross_salary')",
+    "EmployeeResponse.employeeModel.jobTitleName (null for 'job_title_name')",
+    "EmployeeResponse.employeeModel.assignedShiftId (null for 'assigned_shift_id')",
+    "EmployeeResponse.employeeModel.assignedShiftName (null for 'assigned_shift_name')",
+    "EmployeeResponse.employeeModel.assignedShiftEffectiveFrom (null for 'assigned_shift_effective_from')",
+    "EmployeeResponse.employeeModel.managerName (null for 'manager_name')"
+   ],
+   "notes": [
+    "EmployeeResponse.employeeModel.f: key expression ApiConstants.firstNameKey)?.trim( unresolved",
+    "EmployeeResponse.employeeModel.l: key expression ApiConstants.lastNameKey)?.trim( unresolved"
+   ],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Employee profile\",\"data\":{\"id\":999002,\"company_id\":214,\"branch_id\":292,\"department_id\":null,\"job_title_id\":null,\"employee_code\":null,\"expected_daily_hours\":null,\"first_name\":\"Parity\",\"last_name\":\"Breadth\",\"phone\":\"+201999000002\",\"country_code\":null,\"role\":\"company_admin\",\"national_id\":null,\"birth_date\":null,\"gender\":null,\"address\":null,\"photo_url\":null,\"hire_date\":null,\"contract_duration_months\":null,\"is_active\":1,\"is_mobile_attendance_enabled\":1,\"can_check_in_any_branch\":0,\"join_request_status\":\"accepted\",\"created_at\":\"2026-09-02 20:08:53\",\"updated_at\":\"2026-09-02 20:15:04\",\"branch_name\":\"Egypt Hengchang Cosmatics\",\"branch_location_configured\":1,\"department_name\":null,\"job_title_name\":null,\"company_name\":\"Egypt Hengchang Cosmatics\",\"logo_url\":\"/uploads/logos/6a69c1a7156614.94879984.jpeg\",\"company_title_name\":\"\u0635\u0627\u062d\u0628 \u0639\u0645\u0644\",\"manager_name\":\"\"}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeResponse.employeeModel.permissionsMap (no 'permissions' map)",
+    "EmployeeResponse.employeeModel.rawName (null for 'name')",
+    "EmployeeResponse.employeeModel.departmentId (null for 'department_id')",
+    "EmployeeResponse.employeeModel.jobTitleId (null for 'job_title_id')",
+    "EmployeeResponse.employeeModel.employeeCode (null for 'employee_code')",
+    "EmployeeResponse.employeeModel.countryCode (null for 'country_code')",
+    "EmployeeResponse.employeeModel.nationalId (null for 'national_id')",
+    "EmployeeResponse.employeeModel.birthDate (null for 'birth_date')",
+    "EmployeeResponse.employeeModel.address (null for 'address')",
+    "EmployeeResponse.employeeModel.hireDate (null for 'hire_date')",
+    "EmployeeResponse.employeeModel.contractDurationMonths (null for 'contract_duration_months')",
+    "EmployeeResponse.employeeModel.departmentName (null for 'department_name')",
+    "EmployeeResponse.employeeModel.basicSalary (null for 'basic_salary')",
+    "EmployeeResponse.employeeModel.grossSalary (null for 'gross_salary')",
+    "EmployeeResponse.employeeModel.jobTitleName (null for 'job_title_name')",
+    "EmployeeResponse.employeeModel.assignedShiftId (null for 'assigned_shift_id')",
+    "EmployeeResponse.employeeModel.assignedShiftName (null for 'assigned_shift_name')",
+    "EmployeeResponse.employeeModel.assignedShiftEffectiveFrom (null for 'assigned_shift_effective_from')",
+    "EmployeeResponse.employeeModel.managerName (null for 'manager_name')"
+   ],
+   "notes": [
+    "EmployeeResponse.employeeModel.f: key expression ApiConstants.firstNameKey)?.trim( unresolved",
+    "EmployeeResponse.employeeModel.l: key expression ApiConstants.lastNameKey)?.trim( unresolved"
+   ],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Employee profile\",\"data\":{\"id\":999002,\"company_id\":214,\"branch_id\":292,\"department_id\":null,\"job_title_id\":null,\"employee_code\":null,\"expected_daily_hours\":null,\"first_name\":\"Parity\",\"last_name\":\"Breadth\",\"phone\":\"+201999000002\",\"country_code\":null,\"role\":\"company_admin\",\"national_id\":null,\"birth_date\":null,\"gender\":null,\"address\":null,\"photo_url\":null,\"hire_date\":null,\"contract_duration_months\":null,\"is_active\":1,\"is_mobile_attendance_enabled\":1,\"can_check_in_any_branch\":0,\"join_request_status\":\"accepted\",\"created_at\":\"2026-09-02 20:08:54\",\"updated_at\":\"2026-09-02 20:15:04\",\"branch_name\":\"Egypt Hengchang Cosmatics\",\"branch_location_configured\":1,\"department_name\":null,\"job_title_name\":null,\"company_name\":\"Egypt Hengchang Cosmatics\",\"logo_url\":\"/uploads/logos/6a69c1a7156614.94879984.jpeg\",\"company_title_name\":\"\u0635\u0627\u062d\u0628 \u0639\u0645\u0644\",\"manager_name\":\"\"}}"
+  }
+ },
+ {
+  "path": "attendance/employee_monthly_attendance",
+  "model": "AttendanceRecordsResponse",
+  "method_name": "getEmployeeMonthlyAttendance",
+  "query": {
+   "month": "9",
+   "year": "2026",
+   "id": "4507"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "AttendanceRecordsResponse.attendanceRecords[0].checkOut (null for 'check_out')",
+    "AttendanceRecordsResponse.attendanceRecords[0].employeeName (null for 'employee_name')",
+    "AttendanceRecordsResponse.attendanceRecords[0].employeeCode (null for 'employee_code')",
+    "AttendanceRecordsResponse.attendanceRecords[0].jobTitleName (null for 'job_title_name')",
+    "AttendanceRecordsResponse.attendanceRecords[0].branchName (null for 'branch_name')",
+    "AttendanceRecordsResponse.attendanceRecords[0].departmentName (null for 'department_name')",
+    "AttendanceRecordsResponse.attendanceRecords[0].shiftName (null for 'shift_name')",
+    "AttendanceRecordsResponse.attendanceRecords[0].expectedDurationMinutes (null for 'expected_duration_minutes')",
+    "AttendanceRecordsResponse.attendanceRecords[0].exceptionTypeId (null for 'exception_type_id')",
+    "AttendanceRecordsResponse.attendanceRecords[0].exceptionTypeName (null for 'exception_type_name')",
+    "AttendanceRecordsResponse.paginationModel.page (default for 'page')",
+    "AttendanceRecordsResponse.paginationModel.limit (default for 'limit')",
+    "AttendanceRecordsResponse.paginationModel.total (default for 'total')",
+    "AttendanceRecordsResponse.paginationModel.totalPages (default for 'total_pages')",
+    "AttendanceRecordsResponse.paginationModel.hasNext (default for 'has_next')",
+    "AttendanceRecordsResponse.paginationModel.hasPrevious (default for 'has_previous')"
+   ],
+   "notes": [],
+   "branch_unresolved": [
+    "AttendanceRecordsResponse.hasOpenCheckIn (guard: meta != null && meta.containsKey(ApiConstants.hasOpenCheckInKey))"
+   ],
+   "body": "{\"success\":true,\"message\":\"Attendance summary\",\"data\":[{\"id\":999023,\"employee_id\":4507,\"check_in\":\"2026-09-02 08:00:00\",\"check_out\":null,\"method\":\"app\",\"exception_type_id\":null,\"latitude\":null,\"longitude\":null,\"created_at\":\"2026-09-02 20:08:54\",\"updated_at\":\"2026-09-02 20:08:54\",\"duration_minutes\":0}],\"meta\":{\"has_open_check_in\":true,\"full_month\":false}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "AttendanceRecordsResponse.attendanceRecords[0].checkOut (null for 'check_out')",
+    "AttendanceRecordsResponse.attendanceRecords[0].employeeName (null for 'employee_name')",
+    "AttendanceRecordsResponse.attendanceRecords[0].employeeCode (null for 'employee_code')",
+    "AttendanceRecordsResponse.attendanceRecords[0].jobTitleName (null for 'job_title_name')",
+    "AttendanceRecordsResponse.attendanceRecords[0].branchName (null for 'branch_name')",
+    "AttendanceRecordsResponse.attendanceRecords[0].departmentName (null for 'department_name')",
+    "AttendanceRecordsResponse.attendanceRecords[0].shiftName (null for 'shift_name')",
+    "AttendanceRecordsResponse.attendanceRecords[0].expectedDurationMinutes (null for 'expected_duration_minutes')",
+    "AttendanceRecordsResponse.attendanceRecords[0].exceptionTypeId (null for 'exception_type_id')",
+    "AttendanceRecordsResponse.attendanceRecords[0].exceptionTypeName (null for 'exception_type_name')",
+    "AttendanceRecordsResponse.paginationModel.page (default for 'page')",
+    "AttendanceRecordsResponse.paginationModel.limit (default for 'limit')",
+    "AttendanceRecordsResponse.paginationModel.total (default for 'total')",
+    "AttendanceRecordsResponse.paginationModel.totalPages (default for 'total_pages')",
+    "AttendanceRecordsResponse.paginationModel.hasNext (default for 'has_next')",
+    "AttendanceRecordsResponse.paginationModel.hasPrevious (default for 'has_previous')"
+   ],
+   "notes": [],
+   "branch_unresolved": [
+    "AttendanceRecordsResponse.hasOpenCheckIn (guard: meta != null && meta.containsKey(ApiConstants.hasOpenCheckInKey))"
+   ],
+   "body": "{\"success\":true,\"message\":\"Attendance summary\",\"data\":[{\"id\":999023,\"employee_id\":4507,\"check_in\":\"2026-09-02 08:00:00\",\"check_out\":null,\"method\":\"app\",\"exception_type_id\":null,\"latitude\":null,\"longitude\":null,\"created_at\":\"2026-09-02 20:08:54\",\"updated_at\":\"2026-09-02 20:08:54\",\"duration_minutes\":0}],\"meta\":{\"has_open_check_in\":true,\"full_month\":false}}"
+  }
+ },
+ {
+  "path": "attendance/stats",
+  "model": "AttendanceStatsResponse",
+  "method_name": "getAttendanceStats",
+  "query": {
+   "branch_id": "292",
+   "employee_id": "4507"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Operation successful\",\"data\":{\"total_days_in_month\":30,\"present_days\":1,\"leave_days\":0,\"official_holiday_days\":0,\"absent_days\":1,\"total_duration_minutes\":0,\"overtime_minutes\":0}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Operation successful\",\"data\":{\"total_days_in_month\":30,\"present_days\":1,\"leave_days\":0,\"official_holiday_days\":0,\"absent_days\":1,\"total_duration_minutes\":0,\"overtime_minutes\":0}}"
+  }
+ },
+ {
+  "path": "company_official_holidays/list",
+  "model": "OfficialHolidaysResponse",
+  "method_name": "getOfficialHolidays",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":71,\"company_id\":214,\"name\":\"\u062b\u0648\u0631\u0629 23 \u064a\u0648\u0644\u064a\u0648\",\"holiday_date\":\"2026-07-22\",\"created_at\":\"2026-07-20 13:52:43\"},{\"id\":83,\"company_id\":214,\"name\":\"\u0627\u0644\u0645\u0648\u0644\u062f \u0627\u0644\u0646\u0628\u0648\u064a \u0627\u0644\u0634\u0631\u064a\u0641\",\"holiday_date\":\"2026-08-27\",\"created_at\":\"2026-08-02 13:55:35\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":2,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":71,\"company_id\":214,\"name\":\"\u062b\u0648\u0631\u0629 23 \u064a\u0648\u0644\u064a\u0648\",\"holiday_date\":\"2026-07-22\",\"created_at\":\"2026-07-20 13:52:43\"},{\"id\":83,\"company_id\":214,\"name\":\"\u0627\u0644\u0645\u0648\u0644\u062f \u0627\u0644\u0646\u0628\u0648\u064a \u0627\u0644\u0634\u0631\u064a\u0641\",\"holiday_date\":\"2026-08-27\",\"created_at\":\"2026-08-02 13:55:35\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":2,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  }
+ },
+ {
+  "path": "request_types/list",
+  "model": "RequestTypesResponse",
+  "method_name": "getRequestTypes",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "RequestTypesResponse.requestTypes[0].exceptionTypeId (null for 'exception_type_id')",
+    "RequestTypesResponse.requestTypes[2].exceptionTypeId (null for 'exception_type_id')"
+   ],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":999022,\"company_id\":214,\"name\":\"Parity Unused Type\",\"is_active\":1,\"deduct_balance\":0,\"counts_as_paid_leave\":0,\"add_attendance_exception\":0,\"exception_type_id\":null,\"created_at\":\"2026-09-02 20:08:54\"},{\"id\":999016,\"company_id\":214,\"name\":\"Parity fixture type\",\"is_active\":1,\"deduct_balance\":1,\"counts_as_paid_leave\":1,\"add_attendance_exception\":1,\"exception_type_id\":1,\"created_at\":\"2026-09-02 20:08:54\"},{\"id\":177,\"company_id\":214,\"name\":\"\u0633\u0644\u0641\u0629 \u0645\u0646 \u0627\u0644\u0631\u0627\u062a\u0628\",\"is_active\":1,\"deduct_balance\":0,\"counts_as_paid_leave\":0,\"add_attendance_exception\":0,\"exception_type_id\":null,\"created_at\":\"2026-07-29 13:11:16\"},{\"id\":176,\"company_id\":214,\"name\":\"\u0627\u062c\u0627\u0632\u0629 \u0628\u062f\u0648\u0646 \u0627\u0630\u0646\",\"is_active\":1,\"deduct_balance\":0,\"counts_as_paid_leave\":0,\"add_attendance_exception\":0,\"exception_type_id\":null,\"created_at\":\"2026-07-29 13:09:54\"},{\"id\":175,\"company_id\":214,\"name\":\"\u0628\u0627\u0644\u062e\u0635\u0645\",\"is_active\":1,\"deduct_balance\":0,\"counts_as_paid_leave\":0,\"add_attendance_exception\":0,\"exception_type_id\":null,\"created_at\":\"2026-07-29 13:06:31\"},{\"id\":174,\"company_id\":214,\"name\":\"\u0627\u062c\u0627\u0632\u0629 \u0633\u0646\u0648\u0649\",\"is_active\":1,\"deduct_balance\":1,\"counts_as_paid_leave\":1,\"add_attendance_exception\":0,\"exception_type_id\":null,\"created_at\":\"2026-07-29 13:05:34\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":6,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "RequestTypesResponse.requestTypes[0].exceptionTypeId (null for 'exception_type_id')",
+    "RequestTypesResponse.requestTypes[2].exceptionTypeId (null for 'exception_type_id')"
+   ],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":999022,\"company_id\":214,\"name\":\"Parity Unused Type\",\"is_active\":1,\"deduct_balance\":0,\"counts_as_paid_leave\":0,\"add_attendance_exception\":0,\"exception_type_id\":null,\"created_at\":\"2026-09-02 20:08:54\"},{\"id\":999016,\"company_id\":214,\"name\":\"Parity fixture type\",\"is_active\":1,\"deduct_balance\":1,\"counts_as_paid_leave\":1,\"add_attendance_exception\":1,\"exception_type_id\":1,\"created_at\":\"2026-09-02 20:08:54\"},{\"id\":177,\"company_id\":214,\"name\":\"\u0633\u0644\u0641\u0629 \u0645\u0646 \u0627\u0644\u0631\u0627\u062a\u0628\",\"is_active\":1,\"deduct_balance\":0,\"counts_as_paid_leave\":0,\"add_attendance_exception\":0,\"exception_type_id\":null,\"created_at\":\"2026-07-29 13:11:16\"},{\"id\":176,\"company_id\":214,\"name\":\"\u0627\u062c\u0627\u0632\u0629 \u0628\u062f\u0648\u0646 \u0627\u0630\u0646\",\"is_active\":1,\"deduct_balance\":0,\"counts_as_paid_leave\":0,\"add_attendance_exception\":0,\"exception_type_id\":null,\"created_at\":\"2026-07-29 13:09:54\"},{\"id\":175,\"company_id\":214,\"name\":\"\u0628\u0627\u0644\u062e\u0635\u0645\",\"is_active\":1,\"deduct_balance\":0,\"counts_as_paid_leave\":0,\"add_attendance_exception\":0,\"exception_type_id\":null,\"created_at\":\"2026-07-29 13:06:31\"},{\"id\":174,\"company_id\":214,\"name\":\"\u0627\u062c\u0627\u0632\u0629 \u0633\u0646\u0648\u0649\",\"is_active\":1,\"deduct_balance\":1,\"counts_as_paid_leave\":1,\"add_attendance_exception\":0,\"exception_type_id\":null,\"created_at\":\"2026-07-29 13:05:34\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":6,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  }
+ },
+ {
+  "path": "requests/list",
+  "model": "RequestsResponse",
+  "method_name": "getRequests",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "RequestsResponse.requests[0].fromTime (null for 'from_time')",
+    "RequestsResponse.requests[0].toTime (null for 'to_time')",
+    "RequestsResponse.requests[0].notes (null for 'notes')",
+    "RequestsResponse.requests[0].reply (null for 'reply')",
+    "RequestsResponse.requests[0].decidedAt (null for 'decided_at')",
+    "RequestsResponse.requests[0].employeeCode (null for 'employee_code')",
+    "RequestsResponse.requests[1].fromTime (null for 'from_time')",
+    "RequestsResponse.requests[1].toTime (null for 'to_time')",
+    "RequestsResponse.requests[1].reply (null for 'reply')",
+    "RequestsResponse.requests[2].fromTime (null for 'from_time')",
+    "RequestsResponse.requests[2].toTime (null for 'to_time')"
+   ],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":999014,\"employee_id\":999003,\"request_type_id\":999016,\"from_date\":\"2026-09-10\",\"to_date\":\"2026-09-11\",\"from_time\":null,\"to_time\":null,\"notes\":null,\"status\":\"pending\",\"reply\":null,\"approver_id\":null,\"decided_at\":null,\"created_at\":\"2026-09-02 20:08:54\",\"updated_at\":\"2026-09-02 20:08:54\",\"employee_name\":\"Parity Employee\",\"photo_url\":null,\"employee_code\":null,\"request_type_name\":\"Parity fixture type\"},{\"id\":187,\"employee_id\":4507,\"request_type_id\":177,\"from_date\":\"2026-07-30\",\"to_date\":\"2026-07-30\",\"from_time\":null,\"to_time\":null,\"notes\":\"\u0661\u0660\u0660\u0660 \u062c\u0646\u064a\u0647\u0627\",\"status\":\"approved\",\"reply\":null,\"approver_id\":null,\"decided_at\":\"2026-07-29 13:15:34\",\"created_at\":\"2026-07-29 13:13:37\",\"updated_at\":\"2026-07-29 13:15:34\",\"employee_name\":\"Mina samer\",\"photo_url\":null,\"employee_code\":\"01\",\"request_type_name\":\"\u0633\u0644\u0641\u0629 \u0645\u0646 \u0627\u0644\u0631\u0627\u062a\u0628\"},{\"id\":186,\"employee_id\":4507,\"request_type_id\":177,\"from_date\":\"2026-07-29\",\"to_date\":\"2026-07-29\",\"from_time\":null,\"to_time\":null,\"notes\":\"\u0645\u062d\u062a\u0627\u062c \u0661\u0660\u0660\u0660\",\"status\":\"rejected\",\"reply\":\"\u0645\u0641\u064a\u0634 \u0641\u0644\u0648\u0633\",\"approver_id\":null,\"decided_at\":\"2026-07-29 13:15:28\",\"created_at\":\"2026-07-29 13:12:34\",\"updated_at\":\"2026-07-29 13:15:28\",\"employee_name\":\"Mina samer\",\"photo_url\":null,\"employee_code\":\"01\",\"request_type_name\":\"\u0633\u0644\u0641\u0629 \u0645\u0646 \u0627\u0644\u0631\u0627\u062a\u0628\"},{\"id\":185,\"employee_id\":4507,\"request_type_id\":174,\"from_date\":\"2026-07-30\",\"to_date\":\"2026-07-30\",\"from_time\":null,\"to_time\":null,\"notes\":\"\u0627\u0644\u0645\u0648\u0638\u0641 \u0627\u0644\u0628\u062f\u064a\u0644 \u0627\u062d\u0645\u062f\",\"status\":\"approved\",\"reply\":null,\"approver_id\":null,\"decided_at\":\"2026-07-29 13:11:35\",\"created_at\":\"2026-07-29 13:10:59\",\"updated_at\":\"2026-07-29 13:11:35\",\"employee_name\":\"Mina samer\",\"photo_url\":null,\"employee_code\":\"01\",\"request_type_name\":\"\u0627\u062c\u0627\u0632\u0629 \u0633\u0646\u0648\u0649\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":4,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "RequestsResponse.requests[0].fromTime (null for 'from_time')",
+    "RequestsResponse.requests[0].toTime (null for 'to_time')",
+    "RequestsResponse.requests[0].notes (null for 'notes')",
+    "RequestsResponse.requests[0].reply (null for 'reply')",
+    "RequestsResponse.requests[0].decidedAt (null for 'decided_at')",
+    "RequestsResponse.requests[0].employeeCode (null for 'employee_code')",
+    "RequestsResponse.requests[1].fromTime (null for 'from_time')",
+    "RequestsResponse.requests[1].toTime (null for 'to_time')",
+    "RequestsResponse.requests[1].reply (null for 'reply')",
+    "RequestsResponse.requests[2].fromTime (null for 'from_time')",
+    "RequestsResponse.requests[2].toTime (null for 'to_time')"
+   ],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":999014,\"employee_id\":999003,\"request_type_id\":999016,\"from_date\":\"2026-09-10\",\"to_date\":\"2026-09-11\",\"from_time\":null,\"to_time\":null,\"notes\":null,\"status\":\"pending\",\"reply\":null,\"approver_id\":null,\"decided_at\":null,\"created_at\":\"2026-09-02 20:08:54\",\"updated_at\":\"2026-09-02 20:08:54\",\"employee_name\":\"Parity Employee\",\"photo_url\":null,\"employee_code\":null,\"request_type_name\":\"Parity fixture type\"},{\"id\":187,\"employee_id\":4507,\"request_type_id\":177,\"from_date\":\"2026-07-30\",\"to_date\":\"2026-07-30\",\"from_time\":null,\"to_time\":null,\"notes\":\"\u0661\u0660\u0660\u0660 \u062c\u0646\u064a\u0647\u0627\",\"status\":\"approved\",\"reply\":null,\"approver_id\":null,\"decided_at\":\"2026-07-29 13:15:34\",\"created_at\":\"2026-07-29 13:13:37\",\"updated_at\":\"2026-07-29 13:15:34\",\"employee_name\":\"Mina samer\",\"photo_url\":null,\"employee_code\":\"01\",\"request_type_name\":\"\u0633\u0644\u0641\u0629 \u0645\u0646 \u0627\u0644\u0631\u0627\u062a\u0628\"},{\"id\":186,\"employee_id\":4507,\"request_type_id\":177,\"from_date\":\"2026-07-29\",\"to_date\":\"2026-07-29\",\"from_time\":null,\"to_time\":null,\"notes\":\"\u0645\u062d\u062a\u0627\u062c \u0661\u0660\u0660\u0660\",\"status\":\"rejected\",\"reply\":\"\u0645\u0641\u064a\u0634 \u0641\u0644\u0648\u0633\",\"approver_id\":null,\"decided_at\":\"2026-07-29 13:15:28\",\"created_at\":\"2026-07-29 13:12:34\",\"updated_at\":\"2026-07-29 13:15:28\",\"employee_name\":\"Mina samer\",\"photo_url\":null,\"employee_code\":\"01\",\"request_type_name\":\"\u0633\u0644\u0641\u0629 \u0645\u0646 \u0627\u0644\u0631\u0627\u062a\u0628\"},{\"id\":185,\"employee_id\":4507,\"request_type_id\":174,\"from_date\":\"2026-07-30\",\"to_date\":\"2026-07-30\",\"from_time\":null,\"to_time\":null,\"notes\":\"\u0627\u0644\u0645\u0648\u0638\u0641 \u0627\u0644\u0628\u062f\u064a\u0644 \u0627\u062d\u0645\u062f\",\"status\":\"approved\",\"reply\":null,\"approver_id\":null,\"decided_at\":\"2026-07-29 13:11:35\",\"created_at\":\"2026-07-29 13:10:59\",\"updated_at\":\"2026-07-29 13:11:35\",\"employee_name\":\"Mina samer\",\"photo_url\":null,\"employee_code\":\"01\",\"request_type_name\":\"\u0627\u062c\u0627\u0632\u0629 \u0633\u0646\u0648\u0649\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":4,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  }
+ },
+ {
+  "path": "payslips/list",
+  "model": "PayslipsResponse",
+  "method_name": "getPayslips",
+  "query": {
+   "branch_id": "292",
+   "employee_id": "4507",
+   "month": "9",
+   "year": "2026"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Payslips\",\"data\":[{\"id\":999012,\"batch_id\":999011,\"employee_id\":4507,\"days_present\":1,\"days_absent\":1,\"days_leave\":0,\"overtime_hours\":\"0.0\",\"basic_salary\":\"0.00\",\"allowances\":\"0.00\",\"overtime_pay\":\"0.00\",\"penalties_total\":266.67,\"advance_deduction\":\"0.00\",\"other_deductions\":\"0.00\",\"food_allowance\":\"0.00\",\"risk_allowance\":\"0.00\",\"transport_allowance\":\"0.00\",\"incentives\":\"0.00\",\"insurance_deduction\":\"0.00\",\"tax_deduction\":\"0.00\",\"advances_deduction\":\"0.00\",\"fund_deduction\":\"0.00\",\"gross_salary\":8000,\"total_entitlements\":266.67,\"total_deductions\":266.67,\"net_salary\":0,\"contract_basic_salary\":8000,\"employee_name\":\"Mina samer\",\"photo_url\":null,\"employee_code\":\"01\",\"branch_name\":\"Egypt Hengchang Cosmatics\",\"department_name\":\"\u0627\u0644\u0645\u0648\u0627\u0631\u062f \u0627\u0644\u0628\u0634\u0631\u064a\u0629\",\"job_title_name\":\"\u0645\u062f\u064a\u0631\",\"period_from\":\"2026-09-01\",\"period_to\":\"2026-09-30\",\"expected_work_days\":22,\"expected_work_days_due\":2,\"month_days\":30,\"official_holiday_days\":0,\"earned_weekly_rest_days\":0,\"void_weekly_rest_days\":0,\"present_details\":[{\"date\":\"2026-09-02\",\"day_type\":\"attendance\",\"label\":\"Attendance\"}],\"daily_basic_rate\":266.67,\"absence_cost\":266.67,\"salary_by_present_days\":266.67,\"salary_by_paid_leave_days\":0,\"penalty_days\":1,\"days_present_ratio\":\"1\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":1,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Payslips\",\"data\":[{\"id\":999012,\"batch_id\":999011,\"employee_id\":4507,\"days_present\":1,\"days_absent\":1,\"days_leave\":0,\"overtime_hours\":\"0.0\",\"basic_salary\":\"0.00\",\"allowances\":\"0.00\",\"overtime_pay\":\"0.00\",\"penalties_total\":266.67,\"advance_deduction\":\"0.00\",\"other_deductions\":\"0.00\",\"food_allowance\":\"0.00\",\"risk_allowance\":\"0.00\",\"transport_allowance\":\"0.00\",\"incentives\":\"0.00\",\"insurance_deduction\":\"0.00\",\"tax_deduction\":\"0.00\",\"advances_deduction\":\"0.00\",\"fund_deduction\":\"0.00\",\"gross_salary\":8000,\"contract_basic_salary\":8000,\"employee_name\":\"Mina samer\",\"photo_url\":null,\"employee_code\":\"01\",\"branch_name\":\"Egypt Hengchang Cosmatics\",\"department_name\":\"\u0627\u0644\u0645\u0648\u0627\u0631\u062f \u0627\u0644\u0628\u0634\u0631\u064a\u0629\",\"job_title_name\":\"\u0645\u062f\u064a\u0631\",\"period_from\":\"2026-09-01\",\"period_to\":\"2026-09-30\",\"expected_work_days\":22,\"expected_work_days_due\":2,\"month_days\":30,\"official_holiday_days\":0,\"earned_weekly_rest_days\":0,\"void_weekly_rest_days\":0,\"present_details\":[{\"label\":\"Attendance\",\"day_type\":\"attendance\",\"date\":\"2026-09-02\"}],\"daily_basic_rate\":266.67,\"absence_cost\":266.67,\"salary_by_present_days\":266.67,\"salary_by_paid_leave_days\":0,\"penalty_days\":1,\"days_present_ratio\":\"1\",\"total_entitlements\":266.67,\"total_deductions\":266.67,\"net_salary\":0}],\"meta\":{\"page\":1,\"limit\":20,\"total\":1,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  }
+ },
+ {
+  "path": "payslips/one",
+  "model": "PayslipResponse",
+  "method_name": "getPayslip",
+  "query": {
+   "id": "6262"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "PayslipResponse.payslipModel.branchName (null for 'branch_name')",
+    "PayslipResponse.payslipModel.departmentName (null for 'department_name')",
+    "PayslipResponse.payslipModel.jobTitleName (null for 'job_title_name')"
+   ],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Payslip\",\"data\":{\"id\":6262,\"batch_id\":96,\"employee_id\":4507,\"days_present\":2,\"days_absent\":26,\"days_leave\":1,\"overtime_hours\":\"0.0\",\"basic_salary\":\"1523.80\",\"allowances\":\"0.00\",\"overtime_pay\":\"0.00\",\"penalties_total\":0,\"advance_deduction\":\"0.00\",\"other_deductions\":\"0.00\",\"food_allowance\":\"0.00\",\"risk_allowance\":\"0.00\",\"transport_allowance\":\"0.00\",\"incentives\":\"0.00\",\"insurance_deduction\":\"514.29\",\"tax_deduction\":\"0.00\",\"advances_deduction\":\"0.00\",\"fund_deduction\":\"0.00\",\"gross_salary\":8000,\"total_entitlements\":1066.58,\"total_deductions\":514.29,\"net_salary\":552.29,\"contract_basic_salary\":8000,\"employee_name\":\"Mina samer\",\"employee_code\":\"01\",\"month\":7,\"year\":\"2026\",\"period_from\":\"2026-07-01\",\"period_to\":\"2026-07-31\",\"expected_work_days\":21,\"expected_work_days_due\":21,\"month_days\":30,\"official_holiday_days\":0,\"earned_weekly_rest_days\":0,\"void_weekly_rest_days\":9,\"present_details\":[{\"date\":\"2026-07-18\",\"day_type\":\"attendance\",\"label\":\"Attendance\"},{\"date\":\"2026-07-29\",\"day_type\":\"attendance\",\"label\":\"Attendance\"}],\"daily_basic_rate\":266.67,\"absence_cost\":6933.42,\"salary_by_present_days\":1066.58,\"salary_by_paid_leave_days\":0,\"penalty_days\":0,\"days_present_ratio\":\"2\"}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "PayslipResponse.payslipModel.branchName (null for 'branch_name')",
+    "PayslipResponse.payslipModel.departmentName (null for 'department_name')",
+    "PayslipResponse.payslipModel.jobTitleName (null for 'job_title_name')"
+   ],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Payslip\",\"data\":{\"id\":6262,\"batch_id\":96,\"employee_id\":4507,\"days_present\":2,\"days_absent\":26,\"days_leave\":1,\"overtime_hours\":\"0.0\",\"basic_salary\":\"1523.80\",\"allowances\":\"0.00\",\"overtime_pay\":\"0.00\",\"penalties_total\":0,\"advance_deduction\":\"0.00\",\"other_deductions\":\"0.00\",\"food_allowance\":\"0.00\",\"risk_allowance\":\"0.00\",\"transport_allowance\":\"0.00\",\"incentives\":\"0.00\",\"insurance_deduction\":\"514.29\",\"tax_deduction\":\"0.00\",\"advances_deduction\":\"0.00\",\"fund_deduction\":\"0.00\",\"gross_salary\":8000,\"contract_basic_salary\":8000,\"employee_name\":\"Mina samer\",\"employee_code\":\"01\",\"month\":7,\"year\":\"2026\",\"period_from\":\"2026-07-01\",\"period_to\":\"2026-07-31\",\"expected_work_days\":21,\"expected_work_days_due\":21,\"month_days\":30,\"official_holiday_days\":0,\"earned_weekly_rest_days\":0,\"void_weekly_rest_days\":9,\"present_details\":[{\"label\":\"Attendance\",\"day_type\":\"attendance\",\"date\":\"2026-07-18\"},{\"label\":\"Attendance\",\"day_type\":\"attendance\",\"date\":\"2026-07-29\"}],\"daily_basic_rate\":266.67,\"absence_cost\":6933.42,\"salary_by_present_days\":1066.58,\"salary_by_paid_leave_days\":0,\"penalty_days\":0,\"days_present_ratio\":\"2\",\"total_entitlements\":1066.58,\"total_deductions\":514.29,\"net_salary\":552.29}}"
+  }
+ },
+ {
+  "path": "penalties/list",
+  "model": "PenaltiesResponse",
+  "method_name": "getPenalties",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":999010,\"employee_id\":4507,\"penalty_type\":\"absence\",\"penalty_days\":\"1.0\",\"reason\":\"parity fixture\",\"penalty_date\":\"2026-09-01\",\"applied_to_payroll\":0,\"created_at\":\"2026-09-02 20:08:54\",\"employee_name\":\"Mina samer\",\"photo_url\":null,\"employee_code\":\"01\"},{\"id\":41,\"employee_id\":6737,\"penalty_type\":\"\u063a\u064a\u0627\u0628 \u0628\u062f\u0648\u0646 \u0627\u0630\u0646\",\"penalty_days\":\"2.0\",\"reason\":\"\u063a\u064a\u0627\u0628 \u0628\u062f\u0648\u0646 \u0627\u0630\u0646\",\"penalty_date\":\"2026-07-29\",\"applied_to_payroll\":1,\"created_at\":\"2026-07-29 13:20:21\",\"employee_name\":\"\u0645\u062d\u0645\u062f \u0627\u0646\u064a\u0633\",\"photo_url\":null,\"employee_code\":\"04\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":2,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":999010,\"employee_id\":4507,\"penalty_type\":\"absence\",\"penalty_days\":\"1.0\",\"reason\":\"parity fixture\",\"penalty_date\":\"2026-09-01\",\"applied_to_payroll\":0,\"created_at\":\"2026-09-02 20:08:54\",\"employee_name\":\"Mina samer\",\"photo_url\":null,\"employee_code\":\"01\"},{\"id\":41,\"employee_id\":6737,\"penalty_type\":\"\u063a\u064a\u0627\u0628 \u0628\u062f\u0648\u0646 \u0627\u0630\u0646\",\"penalty_days\":\"2.0\",\"reason\":\"\u063a\u064a\u0627\u0628 \u0628\u062f\u0648\u0646 \u0627\u0630\u0646\",\"penalty_date\":\"2026-07-29\",\"applied_to_payroll\":1,\"created_at\":\"2026-07-29 13:20:21\",\"employee_name\":\"\u0645\u062d\u0645\u062f \u0627\u0646\u064a\u0633\",\"photo_url\":null,\"employee_code\":\"04\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":2,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  }
+ },
+ {
+  "path": "administrative_decisions/list",
+  "model": "AdministrativeDecisionsResponse",
+  "method_name": "getAdministrativeDecisions",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":999015,\"company_id\":214,\"title\":\"Parity fixture\",\"body\":\"parity body\",\"is_active\":1,\"created_at\":\"2026-09-02 20:08:54\",\"updated_at\":null}],\"meta\":{\"page\":1,\"limit\":20,\"total\":1,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":999015,\"company_id\":214,\"title\":\"Parity fixture\",\"body\":\"parity body\",\"is_active\":1,\"created_at\":\"2026-09-02 20:08:54\",\"updated_at\":null}],\"meta\":{\"page\":1,\"limit\":20,\"total\":1,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  }
+ },
+ {
+  "path": "app_content/one",
+  "model": "AppContentResponse",
+  "method_name": "getAppContent",
+  "query": {
+   "content_key": "compliance"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Content\",\"data\":{\"value\":\"Introduction\\r\\n\\r\\nAt Workin, we are committed to full compliance with all applicable laws, regulations, and industry standards within the Arab Republic of Egypt and any international requirements applicable to our services, users, or partners.\\r\\n\\r\\nThis Compliance Policy aims to ensure that our platform is used legally, securely, and fairly while protecting the rights of users, companies, and service providers, and preventing misuse, unlawful activity, or violations of intellectual property or employment regulations.\\r\\n\\r\\nBy using our website or application, you agree to fully comply with all policies, regulations, and instructions related to Workin services.\\r\\n\\r\\nClause One :- Compliance with Laws and Regulations\\r\\n\\r\\nWorkin complies with all applicable laws and regulations, including but not limited to :-\\r\\n\\r\\nData protection and privacy laws.\\r\\nLabor and employment laws.\\r\\nAnti-fraud and cybercrime laws.\\r\\nIntellectual property and copyright laws.\\r\\nE-commerce and electronic payment regulations.\\r\\nAny other applicable legal or regulatory requirements.\\r\\n\\r\\nUsers and companies also agree to use the platform lawfully and refrain from any activity that violates laws, public order, or public morals.\\r\\n\\r\\nClause Two :- Account and Identity Verification\\r\\n\\r\\nWe may take measures to verify the identity of users or companies in order to maintain platform security and prevent fraud or misuse, including :-\\r\\n\\r\\nVerifying phone numbers or email addresses.\\r\\nRequesting official documents to verify identity.\\r\\nReviewing business or employment information.\\r\\nSuspending or restricting suspicious accounts pending verification.\\r\\n\\r\\nWe reserve the right to reject or suspend accounts containing inaccurate, misleading, or fraudulent information.\\r\\n\\r\\nClause Three :- Permitted and Prohibited Use\\r\\n\\r\\nUsers agree not to use the application or website for any of the following activities :-\\r\\n\\r\\nPublishing false or misleading information.\\r\\nImpersonating individuals, companies, or official entities.\\r\\nUploading unlawful, offensive, or inappropriate content.\\r\\nAttempting to hack, disrupt, or interfere with application systems or servers.\\r\\nSending spam or unauthorized advertisements.\\r\\nCollecting user data unlawfully.\\r\\nMisusing attendance, payroll, or reporting systems.\\r\\nUsing the platform for fraudulent or illegal activities.\\r\\n\\r\\nWorkin reserves the right to remove content or suspend violating accounts without prior notice when necessary.\\r\\n\\r\\nClause Four :- Employment and Corporate Compliance\\r\\n\\r\\nCompanies are responsible for the accuracy of employment, administrative, and financial data entered into the system, including :-\\r\\n\\r\\nEmployee information.\\r\\nSalaries and payments.\\r\\nAttendance and departure records.\\r\\nVacations and absences.\\r\\nContracts and employment documents.\\r\\n\\r\\nCompanies also agree not to use the system in any way that violates employee rights or applicable labor laws.\\r\\n\\r\\nClause Five :- Fraud Prevention and Misuse\\r\\n\\r\\nWe may monitor activities within the application or website for purposes including :-\\r\\n\\r\\nDetecting unauthorized use.\\r\\nPreventing fraud or hacking attempts.\\r\\nProtecting users and companies.\\r\\nImproving system and service security.\\r\\n\\r\\nWe reserve the right to suspend or terminate accounts involved in suspicious or unlawful activities.\\r\\n\\r\\nClause Six :- Intellectual Property\\r\\n\\r\\nAll rights related to the website, application, designs, logos, systems, and software content belong to Workin or its licensors.\\r\\n\\r\\nNo part of the platform may be copied, reproduced, modified, or sold without prior written consent.\\r\\n\\r\\nClause Seven :- Cooperation with Legal Authorities\\r\\n\\r\\nWe may cooperate with governmental, judicial, or regulatory authorities when legally required, including :-\\r\\n\\r\\nProviding legally requested information.\\r\\nComplying with court orders or official requests.\\r"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Content\",\"data\":{\"value\":\"Introduction\\r\\n\\r\\nAt Workin, we are committed to full compliance with all applicable laws, regulations, and industry standards within the Arab Republic of Egypt and any international requirements applicable to our services, users, or partners.\\r\\n\\r\\nThis Compliance Policy aims to ensure that our platform is used legally, securely, and fairly while protecting the rights of users, companies, and service providers, and preventing misuse, unlawful activity, or violations of intellectual property or employment regulations.\\r\\n\\r\\nBy using our website or application, you agree to fully comply with all policies, regulations, and instructions related to Workin services.\\r\\n\\r\\nClause One :- Compliance with Laws and Regulations\\r\\n\\r\\nWorkin complies with all applicable laws and regulations, including but not limited to :-\\r\\n\\r\\nData protection and privacy laws.\\r\\nLabor and employment laws.\\r\\nAnti-fraud and cybercrime laws.\\r\\nIntellectual property and copyright laws.\\r\\nE-commerce and electronic payment regulations.\\r\\nAny other applicable legal or regulatory requirements.\\r\\n\\r\\nUsers and companies also agree to use the platform lawfully and refrain from any activity that violates laws, public order, or public morals.\\r\\n\\r\\nClause Two :- Account and Identity Verification\\r\\n\\r\\nWe may take measures to verify the identity of users or companies in order to maintain platform security and prevent fraud or misuse, including :-\\r\\n\\r\\nVerifying phone numbers or email addresses.\\r\\nRequesting official documents to verify identity.\\r\\nReviewing business or employment information.\\r\\nSuspending or restricting suspicious accounts pending verification.\\r\\n\\r\\nWe reserve the right to reject or suspend accounts containing inaccurate, misleading, or fraudulent information.\\r\\n\\r\\nClause Three :- Permitted and Prohibited Use\\r\\n\\r\\nUsers agree not to use the application or website for any of the following activities :-\\r\\n\\r\\nPublishing false or misleading information.\\r\\nImpersonating individuals, companies, or official entities.\\r\\nUploading unlawful, offensive, or inappropriate content.\\r\\nAttempting to hack, disrupt, or interfere with application systems or servers.\\r\\nSending spam or unauthorized advertisements.\\r\\nCollecting user data unlawfully.\\r\\nMisusing attendance, payroll, or reporting systems.\\r\\nUsing the platform for fraudulent or illegal activities.\\r\\n\\r\\nWorkin reserves the right to remove content or suspend violating accounts without prior notice when necessary.\\r\\n\\r\\nClause Four :- Employment and Corporate Compliance\\r\\n\\r\\nCompanies are responsible for the accuracy of employment, administrative, and financial data entered into the system, including :-\\r\\n\\r\\nEmployee information.\\r\\nSalaries and payments.\\r\\nAttendance and departure records.\\r\\nVacations and absences.\\r\\nContracts and employment documents.\\r\\n\\r\\nCompanies also agree not to use the system in any way that violates employee rights or applicable labor laws.\\r\\n\\r\\nClause Five :- Fraud Prevention and Misuse\\r\\n\\r\\nWe may monitor activities within the application or website for purposes including :-\\r\\n\\r\\nDetecting unauthorized use.\\r\\nPreventing fraud or hacking attempts.\\r\\nProtecting users and companies.\\r\\nImproving system and service security.\\r\\n\\r\\nWe reserve the right to suspend or terminate accounts involved in suspicious or unlawful activities.\\r\\n\\r\\nClause Six :- Intellectual Property\\r\\n\\r\\nAll rights related to the website, application, designs, logos, systems, and software content belong to Workin or its licensors.\\r\\n\\r\\nNo part of the platform may be copied, reproduced, modified, or sold without prior written consent.\\r\\n\\r\\nClause Seven :- Cooperation with Legal Authorities\\r\\n\\r\\nWe may cooperate with governmental, judicial, or regulatory authorities when legally required, including :-\\r\\n\\r\\nProviding legally requested information.\\r\\nComplying with court orders or official requests.\\r"
+  }
+ },
+ {
+  "path": "faqs/list",
+  "model": "FaqsResponse",
+  "method_name": "getFaqs",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Operation successful\",\"data\":{\"categories\":[{\"id\":2,\"name\":\"How the Work-In HR management software works.\",\"name_ar\":\"\u0643\u064a\u0641 \u064a\u0639\u0645\u0644 \u0628\u0631\u0646\u0627\u0645\u062c \u0648\u0648\u0631\u0643 \u0627\u0646 \u0644\u0627\u062f\u0627\u0631\u0647 \u0627\u0644\u0645\u0648\u0627\u0631\u062f \u0627\u0644\u0628\u0634\u0631\u064a\u0647\",\"name_en\":\"How the Work-In HR management software works.\",\"sort_order\":1,\"items\":[{\"id\":1,\"faq_category_id\":2,\"question\":\"How Does WorkIn Simplify Human Resources Management for Companies?\",\"answer\":\"WorkIn Operating Modes\\r\\n\\r\\nWorkIn is designed with flexibility at its core, allowing companies to choose the operating model that best matches their business environment, organizational culture, and HR policies. Instead of forcing a single workflow, WorkIn offers multiple operating modes to meet the diverse needs of modern organizations.\\r\\n\\r\\n1. A Complete Replacement for Traditional Time Attendance Devices\\r\\n\\r\\nCompanies can use WorkIn as a complete alternative to traditional fingerprint attendance devices. Employees simply record their attendance through the WorkIn Mobile App, while management gains access to a comprehensive dashboard that displays real-time attendance data and workforce activity.\\r\\n\\r\\nThe system provides instant insights into:\\r\\n\\r\\nEmployee check-in and check-out records.\\r\\nLate arrivals and early departures.\\r\\nActual working hours.\\r\\nLive attendance statistics and analytical reports that support faster and more informed decision-making.\\r\\n2. Full Integration with Traditional Fingerprint Attendance Devices\\r\\n\\r\\nFor companies that already use fingerprint attendance devices, WorkIn integrates seamlessly without requiring any changes to the existing infrastructure.\\r\\n\\r\\nSimply upload the Excel file exported from the attendance device, and WorkIn automatically processes, filters, and analyzes the data within minutes\u2014eliminating manual calculations and reducing administrative effort.\\r\\n\\r\\nOnce the data has been processed, the system generates a wide range of professional reports, including:\\r\\n\\r\\nA detailed attendance record for each employee.\\r\\nA consolidated dashboard covering the entire workforce.\\r\\nTotal working days.\\r\\nTotal leave days.\\r\\nMonthly working hours.\\r\\nComprehensive summaries and analytics that enable HR teams to review attendance data quickly and accurately.\\r\\n\\r\\nThis automated process significantly reduces manual work, minimizes human error, and saves valuable time for HR departments.\\r\\n\\r\\n3. A Professional Alternative to Excel for HR Management\\r\\n\\r\\nBeyond attendance management, WorkIn serves as a complete Human Resources Management System (HRMS), replacing traditional Excel spreadsheets with a centralized and intelligent platform for employee administration.\\r\\n\\r\\nThe system securely organizes all employee records and HR documents in one centralized database, making information easy to access, manage, and update while improving operational efficiency.\\r\\n\\r\\nWorkIn also provides more than 20 professional HR reports covering key workforce management functions, along with a smart notification system that helps HR teams stay ahead of important deadlines, including:\\r\\n\\r\\nEmployment contract expiration reminders.\\r\\nCompany asset return reminders.\\r\\nNotifications for expiring employee documents.\\r\\nAlerts for scheduled HR procedures and recurring administrative tasks.\\r\\n\\r\\nTo ensure fast access to information, WorkIn includes an advanced search engine and powerful filtering tools, allowing HR professionals to locate employee records and generate reports within seconds\u2014even in organizations with thousands of employees.\\r\\n\\r\\nWith its flexibility, automation, and comprehensive reporting capabilities, WorkIn empowers organizations to streamline HR operations, improve accuracy, and make better workforce decisions.\",\"question_ar\":\"\u0643\u064a\u0641 \u064a\u0639\u0645\u0644 \u0646\u0638\u0627\u0645 WorkIn \u0644\u0625\u062f\u0627\u0631\u0629 \u0627\u0644\u0645\u0648\u0627\u0631\u062f \u0627\u0644\u0628\u0634\u0631\u064a\u0629 \u062f\u0627\u062e\u0644 \u0627\u0644\u0634\u0631\u0643\u0627\u062a\u061f\",\"question_en\":\"How Does WorkIn Simplify Human Resources Management for Companies?\",\"answer_ar\":\"\u0623\u0646\u0638\u0645\u0629 \u0627\u0644\u062a\u0634\u063a\u064a\u0644 \u0627\u0644\u0645\u0631\u0646\u0629 \u0641\u064a WorkIn\\r\\n\\r\\n\u0635\u064f\u0645\u0645 WorkIn \u0644\u064a\u062a\u0648\u0627\u0641\u0642 \u0645\u0639 \u0627\u062d\u062a\u064a\u0627\u062c\u0627\u062a \u0627\u0644\u0634\u0631\u0643\u0627\u062a \u0627\u0644\u0645\u062e\u062a\u0644\u0641\u0629\u060c \u0644\u0630\u0644\u0643 \u0644\u0627 "
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Operation successful\",\"data\":{\"categories\":[{\"id\":2,\"name\":\"How the Work-In HR management software works.\",\"name_ar\":\"\u0643\u064a\u0641 \u064a\u0639\u0645\u0644 \u0628\u0631\u0646\u0627\u0645\u062c \u0648\u0648\u0631\u0643 \u0627\u0646 \u0644\u0627\u062f\u0627\u0631\u0647 \u0627\u0644\u0645\u0648\u0627\u0631\u062f \u0627\u0644\u0628\u0634\u0631\u064a\u0647\",\"name_en\":\"How the Work-In HR management software works.\",\"sort_order\":1,\"items\":[{\"id\":1,\"faq_category_id\":2,\"question\":\"How Does WorkIn Simplify Human Resources Management for Companies?\",\"answer\":\"WorkIn Operating Modes\\r\\n\\r\\nWorkIn is designed with flexibility at its core, allowing companies to choose the operating model that best matches their business environment, organizational culture, and HR policies. Instead of forcing a single workflow, WorkIn offers multiple operating modes to meet the diverse needs of modern organizations.\\r\\n\\r\\n1. A Complete Replacement for Traditional Time Attendance Devices\\r\\n\\r\\nCompanies can use WorkIn as a complete alternative to traditional fingerprint attendance devices. Employees simply record their attendance through the WorkIn Mobile App, while management gains access to a comprehensive dashboard that displays real-time attendance data and workforce activity.\\r\\n\\r\\nThe system provides instant insights into:\\r\\n\\r\\nEmployee check-in and check-out records.\\r\\nLate arrivals and early departures.\\r\\nActual working hours.\\r\\nLive attendance statistics and analytical reports that support faster and more informed decision-making.\\r\\n2. Full Integration with Traditional Fingerprint Attendance Devices\\r\\n\\r\\nFor companies that already use fingerprint attendance devices, WorkIn integrates seamlessly without requiring any changes to the existing infrastructure.\\r\\n\\r\\nSimply upload the Excel file exported from the attendance device, and WorkIn automatically processes, filters, and analyzes the data within minutes\u2014eliminating manual calculations and reducing administrative effort.\\r\\n\\r\\nOnce the data has been processed, the system generates a wide range of professional reports, including:\\r\\n\\r\\nA detailed attendance record for each employee.\\r\\nA consolidated dashboard covering the entire workforce.\\r\\nTotal working days.\\r\\nTotal leave days.\\r\\nMonthly working hours.\\r\\nComprehensive summaries and analytics that enable HR teams to review attendance data quickly and accurately.\\r\\n\\r\\nThis automated process significantly reduces manual work, minimizes human error, and saves valuable time for HR departments.\\r\\n\\r\\n3. A Professional Alternative to Excel for HR Management\\r\\n\\r\\nBeyond attendance management, WorkIn serves as a complete Human Resources Management System (HRMS), replacing traditional Excel spreadsheets with a centralized and intelligent platform for employee administration.\\r\\n\\r\\nThe system securely organizes all employee records and HR documents in one centralized database, making information easy to access, manage, and update while improving operational efficiency.\\r\\n\\r\\nWorkIn also provides more than 20 professional HR reports covering key workforce management functions, along with a smart notification system that helps HR teams stay ahead of important deadlines, including:\\r\\n\\r\\nEmployment contract expiration reminders.\\r\\nCompany asset return reminders.\\r\\nNotifications for expiring employee documents.\\r\\nAlerts for scheduled HR procedures and recurring administrative tasks.\\r\\n\\r\\nTo ensure fast access to information, WorkIn includes an advanced search engine and powerful filtering tools, allowing HR professionals to locate employee records and generate reports within seconds\u2014even in organizations with thousands of employees.\\r\\n\\r\\nWith its flexibility, automation, and comprehensive reporting capabilities, WorkIn empowers organizations to streamline HR operations, improve accuracy, and make better workforce decisions.\",\"question_ar\":\"\u0643\u064a\u0641 \u064a\u0639\u0645\u0644 \u0646\u0638\u0627\u0645 WorkIn \u0644\u0625\u062f\u0627\u0631\u0629 \u0627\u0644\u0645\u0648\u0627\u0631\u062f \u0627\u0644\u0628\u0634\u0631\u064a\u0629 \u062f\u0627\u062e\u0644 \u0627\u0644\u0634\u0631\u0643\u0627\u062a\u061f\",\"question_en\":\"How Does WorkIn Simplify Human Resources Management for Companies?\",\"answer_ar\":\"\u0623\u0646\u0638\u0645\u0629 \u0627\u0644\u062a\u0634\u063a\u064a\u0644 \u0627\u0644\u0645\u0631\u0646\u0629 \u0641\u064a WorkIn\\r\\n\\r\\n\u0635\u064f\u0645\u0645 WorkIn \u0644\u064a\u062a\u0648\u0627\u0641\u0642 \u0645\u0639 \u0627\u062d\u062a\u064a\u0627\u062c\u0627\u062a \u0627\u0644\u0634\u0631\u0643\u0627\u062a \u0627\u0644\u0645\u062e\u062a\u0644\u0641\u0629\u060c \u0644\u0630\u0644\u0643 \u0644\u0627 "
+  }
+ },
+ {
+  "path": "banners/list",
+  "model": "BannersResponse",
+  "method_name": "getBanners",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "BannersResponse.paginationModel (no 'meta' object)"
+   ],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Operation successful\",\"data\":[{\"id\":1,\"image_url\":\"/uploads/banners/img1.jpg\",\"app_platform\":\"both\",\"title_ar\":\"\u0644\u0648\u062d\u0629 \u0627\u0644\u062a\u062d\u0643\u0645\",\"title_en\":\"Dashboard\",\"description_ar\":\"\u0625\u062d\u0635\u0627\u0626\u064a\u0627\u062a \u0648\u0646\u0638\u0631\u0629 \u0639\u0627\u0645\u0629 \u0639\u0644\u0649 \u0627\u0644\u0645\u0648\u0627\u0631\u062f \u0627\u0644\u0628\u0634\u0631\u064a\u0629.\",\"description_en\":\"HR statistics and overview.\",\"button_label_ar\":\"\u0627\u0644\u062f\u0627\u0634\u0628\u0648\u0631\u062f\",\"button_label_en\":\"Dashboard\",\"button_action_type\":\"internal_route\",\"button_action_value\":\"dashboard\"},{\"id\":2,\"image_url\":\"/uploads/banners/img2.jpg\",\"app_platform\":\"both\",\"title_ar\":\"\u062f\u0644\u064a\u0644 \u0627\u0644\u0627\u0633\u062a\u062e\u062f\u0627\u0645\",\"title_en\":\"User guide\",\"description_ar\":\"\u062a\u0639\u0631\u0651\u0641 \u0639\u0644\u0649 \u0645\u064a\u0632\u0627\u062a \u0627\u0644\u062a\u0637\u0628\u064a\u0642 \u062e\u0637\u0648\u0629 \u0628\u062e\u0637\u0648\u0629.\",\"description_en\":\"Learn the app features step by step.\",\"button_label_ar\":\"\u0627\u0642\u0631\u0623 \u0627\u0644\u062f\u0644\u064a\u0644\",\"button_label_en\":\"Read guide\",\"button_action_type\":\"internal_route\",\"button_action_value\":\"app_how_to_use\"}]}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "BannersResponse.paginationModel (no 'meta' object)"
+   ],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Operation successful\",\"data\":[{\"id\":1,\"image_url\":\"/uploads/banners/img1.jpg\",\"app_platform\":\"both\",\"title_ar\":\"\u0644\u0648\u062d\u0629 \u0627\u0644\u062a\u062d\u0643\u0645\",\"title_en\":\"Dashboard\",\"description_ar\":\"\u0625\u062d\u0635\u0627\u0626\u064a\u0627\u062a \u0648\u0646\u0638\u0631\u0629 \u0639\u0627\u0645\u0629 \u0639\u0644\u0649 \u0627\u0644\u0645\u0648\u0627\u0631\u062f \u0627\u0644\u0628\u0634\u0631\u064a\u0629.\",\"description_en\":\"HR statistics and overview.\",\"button_label_ar\":\"\u0627\u0644\u062f\u0627\u0634\u0628\u0648\u0631\u062f\",\"button_label_en\":\"Dashboard\",\"button_action_type\":\"internal_route\",\"button_action_value\":\"dashboard\"},{\"id\":2,\"image_url\":\"/uploads/banners/img2.jpg\",\"app_platform\":\"both\",\"title_ar\":\"\u062f\u0644\u064a\u0644 \u0627\u0644\u0627\u0633\u062a\u062e\u062f\u0627\u0645\",\"title_en\":\"User guide\",\"description_ar\":\"\u062a\u0639\u0631\u0651\u0641 \u0639\u0644\u0649 \u0645\u064a\u0632\u0627\u062a \u0627\u0644\u062a\u0637\u0628\u064a\u0642 \u062e\u0637\u0648\u0629 \u0628\u062e\u0637\u0648\u0629.\",\"description_en\":\"Learn the app features step by step.\",\"button_label_ar\":\"\u0627\u0642\u0631\u0623 \u0627\u0644\u062f\u0644\u064a\u0644\",\"button_label_en\":\"Read guide\",\"button_action_type\":\"internal_route\",\"button_action_value\":\"app_how_to_use\"}]}"
+  }
+ },
+ {
+  "path": "leave_balances/list",
+  "model": "LeaveBalancesResponse",
+  "method_name": "getLeaveBalances",
+  "query": {
+   "employee_id": "4507",
+   "year": "2026"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":3205,\"employee_id\":4507,\"year\":\"2026\",\"period_from_month\":1,\"period_to_month\":12,\"monthly_cap_days\":\"2.00\",\"total_days\":\"15.0\",\"used_days\":\"1.0\",\"remaining_days\":\"14.0\",\"employee_name\":\"Mina samer\",\"photo_url\":null,\"employee_code\":\"01\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":1,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":[{\"id\":3205,\"employee_id\":4507,\"year\":\"2026\",\"period_from_month\":1,\"period_to_month\":12,\"monthly_cap_days\":\"2.00\",\"total_days\":\"15.0\",\"used_days\":\"1.0\",\"remaining_days\":\"14.0\",\"employee_name\":\"Mina samer\",\"photo_url\":null,\"employee_code\":\"01\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":1,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  }
+ },
+ {
+  "path": "schedules/employee_monthly_schedule",
+  "model": "SchedulesResponse",
+  "method_name": "getEmployeeMonthlySchedule",
+  "query": {
+   "employee_id": "4507",
+   "month": "9",
+   "year": "2026"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "SchedulesResponse.paginationModel (no 'meta' object)"
+   ],
+   "notes": [],
+   "branch_unresolved": [
+    "SchedulesResponse.shiftMap (guard: rawData is Map<String, dynamic>)",
+    "SchedulesResponse.weeklyRestDays (guard: rawData is Map<String, dynamic>)",
+    "SchedulesResponse.officialHolidays (guard: rawData is Map<String, dynamic>)",
+    "SchedulesResponse.schedules (guard: rawData is Map<String, dynamic>)"
+   ],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":{\"shift\":{\"shift_id\":208,\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"effective_from\":\"2026-07-18\",\"effective_to\":null},\"weekly_rest_days\":[{\"day_of_week\":5,\"name\":\"Friday\"},{\"day_of_week\":6,\"name\":\"Saturday\"}],\"official_holidays\":[],\"days\":[{\"id\":0,\"schedule_date\":\"2026-09-01\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-02\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-03\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-04\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-05\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-06\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-07\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-08\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-09\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-10\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-11\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-12\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-13\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-14\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-15\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-16\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-17\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-18\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-19\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-20\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-21\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-22\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-23\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-24\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-25\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-26\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-27\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-28\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-29\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-30\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null}]}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "SchedulesResponse.paginationModel (no 'meta' object)"
+   ],
+   "notes": [],
+   "branch_unresolved": [
+    "SchedulesResponse.shiftMap (guard: rawData is Map<String, dynamic>)",
+    "SchedulesResponse.weeklyRestDays (guard: rawData is Map<String, dynamic>)",
+    "SchedulesResponse.officialHolidays (guard: rawData is Map<String, dynamic>)",
+    "SchedulesResponse.schedules (guard: rawData is Map<String, dynamic>)"
+   ],
+   "body": "{\"success\":true,\"message\":\"ok\",\"data\":{\"shift\":{\"shift_id\":208,\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"effective_from\":\"2026-07-18\",\"effective_to\":null},\"weekly_rest_days\":[{\"day_of_week\":5,\"name\":\"Friday\"},{\"day_of_week\":6,\"name\":\"Saturday\"}],\"official_holidays\":[],\"days\":[{\"id\":0,\"schedule_date\":\"2026-09-01\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-02\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-03\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-04\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-05\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-06\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-07\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-08\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-09\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-10\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-11\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-12\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-13\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-14\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-15\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-16\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-17\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-18\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-19\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-20\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-21\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-22\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-23\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-24\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-25\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-26\",\"name\":null,\"start_time\":null,\"end_time\":null,\"exception\":\"Weekly rest\"},{\"id\":0,\"schedule_date\":\"2026-09-27\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-28\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-29\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null},{\"id\":0,\"schedule_date\":\"2026-09-30\",\"name\":\"\u0635\u0628\u0627\u062d\u0649\",\"start_time\":\"09:00:00\",\"end_time\":\"17:00:00\",\"exception\":null}]}}"
+  }
+ },
+ {
+  "path": "employee_docs/list",
+  "model": "EmployeeDocumentsResponse",
+  "method_name": "getEmployeeDocuments",
+  "query": {
+   "employee_id": "4507"
+  },
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeDocumentsResponse.employeeDocuments[0].employeeId (null for 'employee_id')",
+    "EmployeeDocumentsResponse.employeeDocuments[1].employeeId (null for 'employee_id')"
+   ],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Documents\",\"data\":[{\"id\":999027,\"doc_type\":\"contract\",\"file_url\":\"/uploads/docs/6a985827812448.31637114.pdf\",\"uploaded_at\":\"2026-09-02 20:08:55\"},{\"id\":999026,\"doc_type\":\"contract\",\"file_url\":\"/uploads/docs/parity-fixture.pdf\",\"uploaded_at\":\"2026-09-02 20:08:54\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":2,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "EmployeeDocumentsResponse.employeeDocuments[0].employeeId (null for 'employee_id')",
+    "EmployeeDocumentsResponse.employeeDocuments[1].employeeId (null for 'employee_id')"
+   ],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Documents\",\"data\":[{\"id\":999027,\"doc_type\":\"contract\",\"file_url\":\"/uploads/docs/65a8317215138.52668540.pdf\",\"uploaded_at\":\"2026-09-02 20:08:55\"},{\"id\":999026,\"doc_type\":\"contract\",\"file_url\":\"/uploads/docs/parity-fixture.pdf\",\"uploaded_at\":\"2026-09-02 20:08:54\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":2,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  }
+ },
+ {
+  "path": "notifications/list",
+  "model": "NotificationsResponse",
+  "method_name": "getNotifications",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "NotificationsResponse.notifications[0].fromName (null for 'from_name')",
+    "NotificationsResponse.notifications[0].fromEmployeeId (null for 'from_employee_id')",
+    "NotificationsResponse.notifications[0].referenceType (null for 'reference_type')",
+    "NotificationsResponse.notifications[0].referenceId (null for 'reference_id')"
+   ],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Notifications\",\"data\":[{\"id\":999013,\"company_id\":214,\"recipient_kind\":\"employee\",\"from_employee_id\":null,\"to_employee_id\":999002,\"title\":\"Parity fixture\",\"body\":\"parity body\",\"notification_type\":\"general\",\"reference_type\":null,\"reference_id\":null,\"is_read\":0,\"created_at\":\"2026-09-02 20:08:54\",\"from_phone\":null,\"from_name\":\"\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":1,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [
+    "NotificationsResponse.notifications[0].fromName (null for 'from_name')",
+    "NotificationsResponse.notifications[0].fromEmployeeId (null for 'from_employee_id')",
+    "NotificationsResponse.notifications[0].referenceType (null for 'reference_type')",
+    "NotificationsResponse.notifications[0].referenceId (null for 'reference_id')"
+   ],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Notifications\",\"data\":[{\"id\":999013,\"company_id\":214,\"recipient_kind\":\"employee\",\"from_employee_id\":null,\"to_employee_id\":999002,\"title\":\"Parity fixture\",\"body\":\"parity body\",\"notification_type\":\"general\",\"reference_type\":null,\"reference_id\":null,\"is_read\":0,\"created_at\":\"2026-09-02 20:08:54\",\"from_phone\":null,\"from_name\":\"\"}],\"meta\":{\"page\":1,\"limit\":20,\"total\":1,\"total_pages\":1,\"has_next\":false,\"has_previous\":false}}"
+  }
+ },
+ {
+  "path": "notifications/unread_count",
+  "model": "GetUnreadNotificationsCountResponse",
+  "method_name": "getUnreadNotificationsCount",
+  "query": {},
+  "php": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Unread count\",\"data\":{\"count\":1}}"
+  },
+  "java": {
+   "status": 200,
+   "verdict": "parses",
+   "blank_fields": [],
+   "notes": [],
+   "branch_unresolved": [],
+   "body": "{\"success\":true,\"message\":\"Unread count\",\"data\":{\"count\":1}}"
+  }
+ }
+]

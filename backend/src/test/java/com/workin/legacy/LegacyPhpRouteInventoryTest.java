@@ -192,6 +192,19 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	/**
+	 * D-164: the attendance-device receiver is default-closed. This context
+	 * never sets {@code app.devices.ingest.enabled}, so no {@code /iclock}
+	 * route may exist in it -- the flag, not a deployment's luck, decides
+	 * whether the unauthenticated device surface is mapped at all.
+	 */
+	@Test
+	void theDeviceReceiverIsAbsentWhenItsFlagIsUnset() {
+		assertThat(handlerMapping.getHandlerMethods().keySet().stream()
+				.flatMap(info -> info.getPatternValues().stream()))
+				.noneMatch(pattern -> pattern.startsWith("/iclock"));
+	}
+
+	/**
 	 * The completion plan's §5 G3 partitions the delivered routes by response
 	 * shape -- 122 envelope-only, 2 download-only, 1 conditional -- and that
 	 * table has already been corrected twice for missing a live download route.

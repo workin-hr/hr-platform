@@ -22,6 +22,42 @@ Useful signal categories include:
 Prefer signals tied to meaningful failure modes rather than collecting data
 only because a tool can emit it.
 
+### Attendance-device receiver (D-164)
+
+Emitted by `com.workin.devices` when `app.devices.ingest.enabled=true`;
+design section 9 of `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`.
+
+- Metrics (Micrometer counters, tag `vendor`): `devices.punches.stored`,
+  `devices.punches.duplicate`, `devices.punches.unmatched`,
+  `devices.punches.malformed`, `devices.punches.rejected`,
+  `devices.unclaimed.hits`, `devices.biometric.discarded`,
+  `devices.stamp.rejected`, `devices.requests.rejected`,
+  `devices.uploads.oversized` (second tag `table`), and
+  `devices.uploads.discarded` (second tag `table`, drawn from a closed set so
+  a caller cannot grow the registry).
+- Logs, all carrying the serial: WARN on unmatched PINs, malformed lines,
+  template lines discarded, unknown tables; INFO on command results; ERROR
+  with the cause when the receiver fails (the device retries after its
+  `ErrorDelay`, so an ERROR here repeats until fixed).
+- Liveness is data, not a metric yet: `attendance_devices.last_seen_at` is
+  advanced by every command poll (about every 10 seconds). "Device offline"
+  is that column older than a threshold for an active device; until a gauge
+  exists, a scheduled query is the alert source.
+- Meaningful failure modes: a claimed device silent beyond the threshold
+  (site network or power); `devices.unclaimed.hits` rising (a terminal
+  pointed at the receiver and not yet claimed — or a probe); a sustained
+  `devices.punches.unmatched` rate (PINs nobody bound, or a badge still in
+  use after the employee left); any `devices.biometric.discarded` (a firmware
+  ignoring `TransFlag`; record it in the inventory); any
+  `devices.punches.rejected` (a row the database refused — it is acknowledged
+  rather than retried, so this counter is the only trace); and
+  `devices.stamp.rejected` or `devices.requests.rejected` above a trickle,
+  which means something is sending values no terminal would send; and any
+  `devices.uploads.oversized`, which is either a buffered reconnect larger
+  than the record cap (raise it, and record the real batch size on the
+  hardware checklist) or an attempt to amplify one request into many
+  statements.
+
 ## Source System
 
 Identify where the signal comes from.

@@ -51,9 +51,14 @@ what keeps the mapping honest instead.
 > says nothing about MariaDB. The real setting is `none`, which is stronger for
 > this purpose — but the citation was wrong and is corrected here.
 
-**What is not true.** Phase 1 adds exactly one table to the legacy database:
+**What is not true.** Phase 1 adds tables to the legacy database:
 **`legacy_refresh_tokens`** (`backend/src/test/resources/legacy/phase1_extensions.schema.sql`),
-which does **not** exist in production legacy MySQL. It is new infrastructure
+which does **not** exist in production legacy MySQL, and — since D-164
+(2026-09-02) — the five attendance-device tables in the same file
+(`attendance_devices`, `employee_device_identities`, `device_punches`,
+`unclaimed_device_sightings`, `device_operation_logs`). The device tables are
+additive and referenced by nothing in PHP; they share the provisioning gate
+described below and the same orphan-and-leave rollback treatment. It is new infrastructure
 this application owns, authorised as a deliberate, narrow exception by **D-043
 amendment 3** — narrow enough that D-050/D-051 later declined to spend a second
 schema exception on an unrelated problem rather than widen it.
@@ -187,8 +192,10 @@ These are the concrete steps G11's rehearsal is missing. Each names its own
 negative control, because every one of these checks can otherwise pass for the
 wrong reason.
 
-**1. Provision `legacy_refresh_tokens`** in the production legacy database by an
-approved mechanism (ADR-0013 Open Questions — undecided). Rehearse it against a
+**1. Provision the Phase-1-owned tables** — `legacy_refresh_tokens` and, if the
+attendance-device receiver is to be enabled, the five device tables (D-164) —
+in the production legacy database by an approved mechanism (ADR-0013 Open
+Questions — undecided). Rehearse it against a
 restored copy first, and record the mechanism, its owner and its lock duration
 here.
 

@@ -70,14 +70,29 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 §8.1 — the questions that gated Item 12's closure and the final exit gate.
 
 - **How do the Java-owned tables get created against the production legacy
-  MariaDB, and who owns that step?** *(Widened 2026-09-03: the platform-admin
-  surface now runs under `phase1-mysql` too, so `phase1_extensions.schema.sql`
-  adds the platform-admin identity, MFA, step-up, audit and Spring Session
-  tables alongside `legacy_refresh_tokens`. Same unresolved question, more
-  tables, and a louder failure mode — the admin surface cannot authenticate at
-  all without them, where a missing `legacy_refresh_tokens` surfaces late.)* (**R-023**, ADR-0013 Open Questions,
-  D-043 amendment 3.) Phase 1 adds exactly one table to the legacy database and
-  nothing in the application creates it — Flyway owns no MariaDB location and
+  MariaDB, and who owns that step?** (**R-023**, ADR-0013 Open Questions,
+  D-043 amendment 3.) Phase 1 adds tables to the legacy database that
+  production does not have, and nothing in the application creates any of them
+  — Flyway owns no MariaDB location and `hibernate.hbm2ddl.auto` is `none`.
+  They exist only where a test container applies
+  `phase1_extensions.schema.sql` out of band. The set has grown twice:
+  `legacy_refresh_tokens` (item 9); the five attendance-device tables
+  (**D-164**), needed only where the device receiver is enabled; and the
+  platform-admin identity, MFA, step-up, audit and Spring Session tables
+  (**D-162**), needed wherever the admin surface is used.
+
+  **Resolution criteria**: an approved provisioning mechanism, rehearsed
+  against a restored copy, with the mechanism, its owner and its lock duration
+  recorded in `docs/operations/release-cutover-and-rollback.md`.
+
+  **The failure modes differ, and only one is loud.** A missing
+  `legacy_refresh_tokens` is not a startup error — the parity login route never
+  touches the table, so it surfaces later as broken password-change, logout and
+  employee-mode `reset_password.php` paths (**not** OTP verify, and **not** a
+  company-mode reset, whose branch stops at `updateCompanyPasswordByPhone()`;
+  both succeed with the table absent). The device tables fail only where the
+  receiver is enabled. The platform-admin tables fail immediately and visibly:
+  the admin surface cannot authenticate at all without them.
   `hibernate.hbm2ddl.auto` is `none`. Today it exists only where a test
   container applies `phase1_extensions.schema.sql` out of band. **Resolution
   criteria**: an approved provisioning mechanism, rehearsed against a restored
@@ -400,3 +415,50 @@ control that did not do what its name says, and because it is the same trade
 ADR-0010 already makes for authorization. If that query later shows up in
 latency measurements, the answer is to measure and revisit it as its own
 decision — not to quietly restore a logout that does not log the caller out.
+
+## Attendance Device Ingestion (ADR-0006 Part B, D-164)
+
+Raised 2026-09-02 by `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
+§12. Q0, Q1 and Q6 were answered on 2026-09-02 (D-164); Q2, Q3, Q5, Q7 and
+Q8 were answered the same day (**D-165**). What remains is the work those
+answers oblige, tracked in D-165's Follow-up and in R-042 — not a question.
+
+- **Q0 — Accept D-164? — ANSWERED 2026-09-02: accepted.** ADMS push as the
+  primary ZKTeco adapter, the edge gateway as fallback, conditional on the
+  §4.3 hardware checklist passing on the customers' actual models.
+- **Q1 — Device PIN identity.** Reuse `employees.employee_code` as the
+  device PIN, or add `employee_device_identities` with `UNIQUE (company_id,
+  pin)` seeded from it. **ANSWERED 2026-09-02: the table.**
+- **Q2 — Device punches and the two-hour rule. — ANSWERED 2026-09-02
+  (D-165): never reject.** The punch is always persisted; a short
+  duplicate/debounce window suppresses a double-read, and a rapid
+  re-check-in is flagged for review. Lands with Slice B.
+- **Q3 — Biometric templates. — ANSWERED 2026-09-02 (D-165): none in
+  Phase 1.** Attendance events and metadata only. Already enforced in Slice
+  A: `TransFlag` does not request them and the receiver discards any that
+  arrive regardless.
+- **Q5 — `attendance.method` expansion. — ANSWERED 2026-09-02 (D-165):
+  expand-only, with Slice B, and the audit it was conditional on is done.**
+  Every frozen-PHP site writes the column; exactly one reads it, rendering it
+  verbatim, so no branch depends on the value set. Two residual checks belong
+  to Slice B: the dashboard will show the literal word `device` until it is
+  given a label, and the Flutter clients could not be inspected (PMR-02) and
+  must be verified if either renders `method`.
+- **Q6 — Who claims devices in the pilot. — ANSWERED 2026-09-02: tenant
+  HR/admin through the new `/api/v1/devices/**` API**, authenticated with the
+  legacy JWT; platform staff use a company admin's session for the pilot until
+  the JTE admin surface (ADR-0015) renders it.
+- **Q8 — Proof of possession when claiming a device — ANSWERED 2026-09-02
+  (D-165), and the work is outstanding** (**R-042**). Pilot: supervised
+  tenant `company_admin`/`hr` claiming is acceptable. Production: tenant
+  admins may **not** claim by serial number — platform staff pre-allocate
+  device ownership to a company, and tenant HR then assigns an owned device
+  to a branch. An **audited unclaim / transfer / replace-device path is
+  required before broad production rollout**; manual database correction is
+  not acceptable long-term. Neither is built yet, and R-042 stays open until
+  both are.
+- **Q7 — Production provisioning of Phase-1-owned MariaDB tables. —
+  ANSWERED 2026-09-02 (D-165): it must be explicitly solved before device
+  ingestion is enabled in production**, not discovered at cutover. The
+  ADR-0013 open question itself (**R-023**) stays open; this makes it a
+  precondition of turning `app.devices.ingest.enabled` on.

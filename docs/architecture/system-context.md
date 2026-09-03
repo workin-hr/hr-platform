@@ -42,7 +42,10 @@ settled — or less settled — than the ADRs it summarizes.
   PHP to Java against the existing MySQL schema
 - local .NET edge gateway for attendance integration scenarios where
   needed — explicitly a candidate direction pending vendor and device
-  discovery, see ADR-0006 (Attendance Edge-Gateway Direction)
+  discovery, see ADR-0006 (Attendance Edge-Gateway Direction) — **update
+  2026-09-02**: D-164 (accepted) makes device-initiated ADMS push the
+  primary ZKTeco path and the gateway a fallback; see
+  `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
 
 ## Open Context Questions
 

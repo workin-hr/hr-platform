@@ -59,6 +59,11 @@ import com.zaxxer.hikari.HikariDataSource;
 @Profile("phase1-mysql")
 @ComponentScan({
 	"com.workin.legacy",
+	// Attendance-device ingestion (ADR-0006, D-164): a Phase-1 module that
+	// persists through legacyDataSource with JdbcTemplate -- no entities, so
+	// it is deliberately absent from @EntityScan/@EnableJpaRepositories.
+	// Reached only here, never by BackendApplication's (empty) scan root.
+	"com.workin.devices",
 	"com.workin.backend.identity",
 	"com.workin.backend.security",
 	"com.workin.backend.tenancy",
