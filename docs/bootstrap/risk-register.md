@@ -696,3 +696,18 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Target Date | Determined by the exposure assessment. |
 | Evidence | `hr-legacy/apis/helpers/functions.php:641` (sniff) and `:655-656` (extension from the filename) — the two lines that disagree. `apis/config/upload_slots.php` for the four affected endpoints' subdirectories. **D-154** for the Java decision and its reasoning. Related: **R-037** and **R-036**, the other legacy defects this programme records rather than ports. |
 | Last Reviewed | 2026-09-02 |
+
+## R-040: The Application Cannot Be Started From Its Jar
+
+| Field | Value |
+|---|---|
+| Description | `BackendApplication` excludes `DataSourceAutoConfiguration`, so Spring Boot never contributes a `JdbcConnectionDetails` bean from `spring.datasource.*`. `PostgresPersistenceConfig` requires one. The only implementation anywhere in the repository is Testcontainers' `@ServiceConnection` in `AbstractIntegrationTest`. Running `backend-*.jar` against a real Postgres therefore fails at startup with *"Parameter 0 of method flywayDataSource ... required a bean of type 'JdbcConnectionDetails' that could not be found"*. |
+| Category | **Deployment / release readiness** |
+| How it was found | Attempting the runtime verification of the platform-admin surface, 2026-09-03. It was not found by any test, and could not have been: every test supplies the missing bean through Testcontainers, so the suite is green precisely because it never exercises the deployment path. |
+| Probability | Certain. It is not intermittent — the jar cannot start this way at all. |
+| Impact | Blocks deployment outright. Nothing ships until a `JdbcConnectionDetails` source exists for a real environment. |
+| Severity | **High**, and cheap to fix — it is a missing bean, not a design fault. What earns the rating is that the test suite structurally cannot detect it. |
+| Mitigation | Supply connection details in production configuration, and add a check that actually starts the packaged artifact against a database rather than a context that gets its datasource injected. `infrastructure/` is still an empty Phase-0 boundary, which is where this belongs. |
+| Interim | The runtime verification used a **test-scoped** `LiveVerifyDataSourceConfig` behind a `live-verify` profile. Deliberately not production code: fixing it there would have closed the symptom and hidden the gap under a verification task. |
+| Owner | Deployment / cutover work |
+| Status | **Open.** Related: **D-161**, `docs/operations/platform-admin-runtime-verification.md`. |

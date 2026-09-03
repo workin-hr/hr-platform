@@ -224,3 +224,17 @@ jte {
 	generate()
 	binaryStaticContent = true
 }
+
+// `bootTestRun` starts the real application on the test runtime classpath. It
+// has to be told which main class: test sources contain other `main` methods
+// (the legacy spreadsheet fixture generator among them) and the plugin
+// otherwise picks one arbitrarily.
+//
+// This is how the application is started for manual runtime verification,
+// because it cannot currently be started from the jar at all: BackendApplication
+// excludes DataSourceAutoConfiguration, so nothing supplies JdbcConnectionDetails
+// outside Testcontainers. See LiveVerifyDataSourceConfig, and treat that as a
+// deployment gap to close in the cutover work rather than a fix.
+tasks.named('bootTestRun') {
+	mainClass = 'com.workin.backend.BackendApplication'
+}
