@@ -4,7 +4,6 @@ import java.time.Duration;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -28,13 +27,19 @@ import com.workin.backend.platformadmin.PlatformAdminRepository;
  * enumerates the handler registry instead of testing a list of routes someone
  * remembered to write down (prerequisite 5).
  *
+ * <p><b>Active under both profiles.</b> Legacy has a platform admin web of its
+ * own (`dashboard/pages/companies/`), so the MySQL deployment shape needs one
+ * too. What is deliberately not carried over is how legacy authenticates it:
+ * `doAdminLogin()` checks a single shared password held in a config constant
+ * (`hr-legacy#11`), which F-26/D-027 rejected. The identity model here is the
+ * same on either database; only the schema the entities map to differs.
+ *
  * <p>Ordered ahead of every existing chain. It does not overlap them --
  * {@code /admin/**} against {@code /api/platform-admin/**}, {@code /apis/**} and
  * the catch-all -- but ordering it first makes precedence a property of the
  * configuration rather than of the paths happening not to collide.
  */
 @Configuration
-@Profile("!phase1-mysql")
 public class PlatformAdminWebSecurityConfig {
 
 	/** Every route this surface owns. Referenced by the coverage test. */

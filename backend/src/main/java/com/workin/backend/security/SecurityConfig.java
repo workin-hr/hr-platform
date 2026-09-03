@@ -51,9 +51,14 @@ public class SecurityConfig {
 		"/api/platform-admin/login", "/api/platform-admin/refresh", "/api/platform-admin/logout",
 	};
 
+	/**
+	 * Unprofiled: the platform-admin API is available under both profiles, for
+	 * the same reason its UI is. Its matcher ({@code /api/platform-admin/**})
+	 * cannot collide with the legacy chain's ({@code /apis/**}), so ordering it
+	 * first is safe on either.
+	 */
 	@Bean
 	@Order(1)
-	@Profile("!phase1-mysql")
 	public SecurityFilterChain platformAdminSecurityFilterChain(
 			HttpSecurity http, PlatformAdminJwtService platformAdminJwtService,
 			PlatformAdminRepository platformAdminRepository,

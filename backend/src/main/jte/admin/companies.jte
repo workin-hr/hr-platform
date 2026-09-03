@@ -1,10 +1,10 @@
 @import java.util.List
-@import com.workin.backend.identity.Company
+@import com.workin.backend.platformadmin.PlatformAdminCompanyDirectory.CompanyView
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
 @param boolean actionsEnabled
-@param List<Company> companies
+@param List<CompanyView> companies
 @param String error = null
 @template.admin.layout(
 	title = "Companies",
@@ -30,17 +30,17 @@
 					<tr><th>#</th><th>Name</th><th>Status</th><th></th></tr>
 				</thead>
 				<tbody>
-					@for(Company company : companies)
+					@for(CompanyView company : companies)
 						<tr>
-							<td>${company.getId()}</td>
-							<td>${company.getName() == null ? "—" : company.getName()}</td>
-							<td>${company.getStatus()}</td>
+							<td>${company.id()}</td>
+							<td>${company.name() == null ? "—" : company.name()}</td>
+							<td>${company.status()}</td>
 							<td>
 								@if(actionsEnabled)
 									<form method="post" action="/admin/companies/confirm">
 										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="companyId" value="${company.getId()}">
-										@if("suspended".equals(company.getStatus()))
+										<input type="hidden" name="companyId" value="${company.id()}">
+										@if("suspended".equals(company.status()))
 											<button type="submit" name="action" value="COMPANY_RESTORE" class="linkish">Restore</button>
 										@else
 											<button type="submit" name="action" value="COMPANY_SUSPEND" class="linkish">Suspend</button>

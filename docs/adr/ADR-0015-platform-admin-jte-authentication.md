@@ -434,6 +434,22 @@ Deliberately different from the two operational tables alongside it:
 purged, because rows past their window cannot affect a decision and an
 unauthenticated caller controls how many appear.
 
+### The surface runs on MySQL as well (D-162)
+
+ADR-0015 does not say which database backs this surface, and the first
+implementation assumed the PostgreSQL domain. It now runs under **both**
+profiles: against MariaDB under `phase1-mysql`, against PostgreSQL by default.
+Legacy has a platform admin web of its own, so a MySQL deployment without one
+would be a regression against PHP rather than a deferral.
+
+Nothing about the security model changes. What legacy is *not* allowed to
+contribute is its authentication: a single shared password in a config constant
+(`hr-legacy#11`), with no admin table in the schema at all.
+
+The one thing that could not be shared is the company mapping — PostgreSQL's
+`companies` has `name`, legacy's has `company_name` — which the surface reaches
+through `PlatformAdminCompanyDirectory`, one implementation per profile.
+
 ### Prerequisite 7 is the one still open, and it is not code
 
 The legacy PHP admin surface must be unreachable before this surface performs a
