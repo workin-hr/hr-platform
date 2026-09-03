@@ -2,6 +2,12 @@ plugins {
 	id 'java'
 	id 'org.springframework.boot' version '4.1.1'
 	id 'io.spring.dependency-management' version '1.1.7'
+	// ADR-0015: the platform-admin surface is server-rendered JTE inside this
+	// application. Templates are *precompiled* into Java sources at build time
+	// rather than resolved from disk at runtime, so the deployed jar carries no
+	// template directory and a template that does not compile fails the build
+	// instead of the first request that renders it.
+	id 'gg.jte.gradle' version '3.2.4'
 }
 
 group = 'com.workin'
@@ -62,6 +68,16 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	// ADR-0015 prerequisite 11. The application is otherwise entirely
+	// SessionCreationPolicy.STATELESS; the admin UI is the first surface that
+	// needs a server-side session, and an in-memory one breaks under the
+	// multi-worker deployment prerequisite 3 already assumes -- the same cookie
+	// authenticates on one worker and is anonymous on the next, and logout
+	// cannot invalidate a session living in another worker's heap. JDBC on the
+	// existing datasource needs no new infrastructure.
+	implementation 'org.springframework.boot:spring-boot-starter-session-jdbc'
+	implementation 'gg.jte:jte-spring-boot-starter-4:3.2.4'
+	implementation 'gg.jte:jte:3.2.4'
 	implementation 'org.flywaydb:flyway-database-postgresql'
 	implementation 'io.micrometer:micrometer-tracing-bridge-otel'
 	implementation 'io.opentelemetry:opentelemetry-exporter-logging'
@@ -199,4 +215,12 @@ tasks.register('phase2Test', Test) {
 	}
 	environment 'DOCKER_HOST', 'unix:///var/run/docker.sock'
 	environment 'DOCKER_API_VERSION', '1.55'
+}
+
+// Precompile the JTE templates. `generate()` emits Java sources into the normal
+// compile path, so template errors are build errors and the runtime needs no
+// template files present.
+jte {
+	generate()
+	binaryStaticContent = true
 }

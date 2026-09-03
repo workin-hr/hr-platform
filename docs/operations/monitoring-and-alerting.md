@@ -108,6 +108,28 @@ and reviewable. Evidence may include:
 If a signal is expected but there is no evidence that it can be observed or
 routed, leave it open rather than implying coverage.
 
+## Platform-Admin Web Surface (ADR-0015)
+
+Concrete signals for the surface added in **D-160**, recorded here because the
+change introduces a runtime dependency the application did not previously have.
+
+| Failure | What an operator sees | Where |
+|---|---|---|
+| Session store unreachable | Every `/admin` request bounces to the login page and login never sticks; the API surfaces are unaffected because they stay stateless | Application log: `JdbcIndexedSessionRepository` / datasource errors on the primary datasource |
+| `spring_session` missing or unmigrated | Startup succeeds, first admin login fails with a SQL error | Flyway history missing `V46`; application log at first `/admin/login` POST |
+| Sessions accumulating | `spring_session` row count grows without bound | Spring Session's own cleanup job deletes expired rows on a schedule; a stuck job shows as rows with `expiry_time` in the past |
+| Administrator deactivated but still active | Should be impossible: the session is revalidated per request | `PlatformAdminSessionRevalidationFilter`; regression coverage in `PlatformAdminWebSessionTest` |
+
+The surface performs no administrative action yet, so there is no
+administrative-action audit signal to watch. When one is added, ADR-0015
+prerequisite 10 requires the audit row to be written in the same transaction as
+the action, which makes "action without audit row" a condition that cannot
+occur rather than one to alert on.
+
+**Capacity note:** one row per live admin session, in a population of
+individually provisioned platform administrators (**F-26**). This is not a
+volume signal; it is a correctness one.
+
 ## Open Questions
 
 - Which signals are mandatory for MVP versus optional for later phases?

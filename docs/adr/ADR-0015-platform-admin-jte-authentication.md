@@ -394,6 +394,36 @@ are both answered and implemented:
     this surface or explicitly deferred. It is unimplemented on both surfaces
     today, so this ADR does not create the gap.
 
+## Implementation Status
+
+Added 2026-09-03 (**D-160**), when Phase 1 closed and work on this surface
+began. This section records what exists; it does not amend the decision or the
+prerequisites above.
+
+**Built:**
+
+| Prerequisite | State | Where |
+|---|---|---|
+| 5 — CSRF on every state-changing route, and a tested chain boundary | **Done** | `PlatformAdminWebSecurityConfig` carries its own `securityMatcher`; `PlatformAdminWebChainCoverageTest` enumerates the handler registry and asserts every admin mapping resolves to that chain, plus that the chain does not swallow unrelated paths |
+| 6 — session-cookie flags pinned by a test | **Done** | `application.properties`; asserted in `PlatformAdminWebSessionTest` |
+| 9 — per-request active-admin revalidation on the cookie chain | **Done** | `PlatformAdminSessionRevalidationFilter`; a deactivation mid-session is refused on the next request |
+| 11 — session storage across workers | **Done** | Spring Session JDBC on the existing datasource, tables in `common/V46`; logout is asserted to delete the shared row, not just the local one |
+| 4 — session bounds, UI half | **Done** | 30-minute idle timeout, non-renewable 8-hour absolute cap stamped at login and enforced per request |
+| 4 — the same cap bounding API token families | **Not done** | `PlatformAdminSessionService.rotate()` still issues every successor at `now + 7 days` |
+
+**Not built, and blocking any privileged operation:** prerequisites 1 (TOTP,
+enrolment, seed custody), 2 (step-up binding), 3 (throttling and the
+unknown-identifier timing/budget parity), 8 (MFA on the bearer login or that
+surface restricted), 10 (audit coverage for administrative actions), 12
+(single-use TOTP codes), 13 (session listing/revocation, or an explicit
+deferral).
+
+The surface therefore performs **no administrative action**. It authenticates,
+renders one page that says so, and logs out. That is deliberate: this ADR states
+that none of it may ship until every prerequisite is answered and implemented,
+and shipping the company operations first would be the exact failure the
+prerequisite list exists to prevent.
+
 ## Open Questions
 
 None blocking. The filter-chain question an earlier draft left open is
