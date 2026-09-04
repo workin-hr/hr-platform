@@ -5,6 +5,10 @@
 .gh-token
 .env
 .env.*
+# Templates carry no values and are the documentation for what a real .env
+# needs; ignoring them means a fresh checkout has nothing to copy from.
+!.env.example
+!*.env.example
 *.log
 *.pem
 __pycache__/
