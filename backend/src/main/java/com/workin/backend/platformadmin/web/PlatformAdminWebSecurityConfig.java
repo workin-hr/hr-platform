@@ -113,6 +113,20 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String COMPANIES_APPLY_PATH = COMPANIES_PATH + "/apply";
 
 	/**
+	 * Platform content the clients read but cannot write -- dial codes first
+	 * (ADR-0016). Authenticated like every other page here; the write side is
+	 * gated again in the service by the surface flag and a bound second
+	 * factor.
+	 */
+	public static final String PHONE_COUNTRIES_PATH = PATH_PREFIX + "/phone_countries";
+
+	public static final String FAQS_PATH = PATH_PREFIX + "/faqs";
+
+	public static final String BANNERS_PATH = PATH_PREFIX + "/banners";
+
+	public static final String NOTIFICATIONS_PATH = PATH_PREFIX + "/notifications";
+
+	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
 	 * <p>A named constant so it can be checked against the handlers' own
@@ -127,6 +141,29 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String[] PUBLIC_PATHS = {
 		LOGIN_PATH, MFA_PATH, ENROL_PATH, ENROL_CONFIRM_PATH,
 	};
+
+	/**
+	 * The stylesheets and scripts the admin pages load, served from
+	 * {@code classpath:/static/admin/assets/} and copied from the PHP
+	 * dashboard so the two look the same (ADR-0016).
+	 *
+	 * <p>Deliberately <b>not</b> in {@link #PUBLIC_PATHS}: that list is
+	 * handler routes, checked against their own {@code @PublicUseCase}
+	 * declarations in both directions, and a pattern with no handler behind
+	 * it would read there as a stale entry -- the exact signal that list
+	 * exists to raise.
+	 *
+	 * <p>Why a public prefix under {@code /admin} at all, when this chain's
+	 * whole point is that nothing here is reachable unauthenticated: a
+	 * stylesheet is not a secret, and the alternative -- the previous
+	 * layout's several hundred lines of inlined CSS -- does not scale to the
+	 * dashboard's copied 2,500. The exposure is bounded by there being no
+	 * handler under the prefix: it resolves against the static resource
+	 * classpath only, and Spring's firewall rejects a traversal attempt
+	 * before matching. {@code PlatformAdminAssetsExposureTest} holds both
+	 * halves of that.
+	 */
+	public static final String ASSETS_PATTERN = PATH_PREFIX + "/assets/**";
 
 	@Bean
 	@Order(0)
@@ -149,6 +186,7 @@ public class PlatformAdminWebSecurityConfig {
 			// authentication boundary.
 			.requestCache(cache -> cache.requestCache(new NullRequestCache()))
 			.authorizeHttpRequests(authorize -> authorize
+				.requestMatchers(ASSETS_PATTERN).permitAll()
 				.requestMatchers(PUBLIC_PATHS).permitAll()
 				.anyRequest().authenticated())
 			.exceptionHandling(exceptions -> exceptions

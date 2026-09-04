@@ -1,3 +1,4 @@
+@import java.util.function.Function
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
@@ -6,11 +7,21 @@
 @param String reason
 @param String approvalId = null
 @param String error = null
+@param String currentPage
+@param String lang
+@param boolean isAdmin
+@param Function<String, String> t
+@param Function<String, Boolean> available
 @template.admin.layout(
 	title = "Confirm action",
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	currentPage = currentPage,
+	lang = lang,
+	isAdmin = isAdmin,
+	t = t,
+	available = available,
 	body = @`
 		<div class="login-wrap">
 			<div class="card">

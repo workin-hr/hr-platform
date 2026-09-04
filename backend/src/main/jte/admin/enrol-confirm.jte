@@ -1,11 +1,22 @@
+@import java.util.function.Function
 @param String csrfParameterName
 @param String csrfToken
 @param String seed
 @param String phone
+@param String currentPage
+@param String lang
+@param boolean isAdmin
+@param Function<String, String> t
+@param Function<String, Boolean> available
 @template.admin.layout(
 	title = "Confirm two-factor",
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
+	currentPage = currentPage,
+	lang = lang,
+	isAdmin = isAdmin,
+	t = t,
+	available = available,
 	body = @`
 		<div class="login-wrap">
 			<div class="card">

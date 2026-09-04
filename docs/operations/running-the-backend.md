@@ -62,6 +62,25 @@ skip it, the application still starts and logs one `ERROR` line per missing
 table naming what it disables — so read the first seconds of the log rather than
 treating a successful startup as proof.
 
+### The admin surface
+
+`/admin` serves the platform-administration pages ported from the PHP
+dashboard (**ADR-0016**), in the dashboard's own design and both languages.
+Live today: companies, dial codes, FAQs, banners and the platform
+broadcast. The sidebar shows every dashboard page, with the ones still to
+be ported greyed out — it reads what is actually routable rather than a
+hand-kept list.
+
+Two flags decide whether it can change anything:
+
+| Setting | Effect |
+|---|---|
+| `APP_PLATFORM_ADMIN_ACTIONS_ENABLED` | Defaults to **false**. While false the pages render read-only. ADR-0015 prerequisite 7 keeps it off until the PHP admin surface is unreachable |
+| A bound second factor on the signed-in administrator | Without it, every write is refused and the page says so. Bootstrap an administrator, then enrol their TOTP |
+
+Both are enforced in the service, not the template, so a hand-crafted POST
+is refused the same way a hidden button is.
+
 Verified on 2026-09-03: the packaged jar starts in this profile against MariaDB
 11.8, `POST /apis/api/auth/login_employee` returns the same envelope with a
 usable token, and an authenticated `GET /apis/api/requests/list` returns the

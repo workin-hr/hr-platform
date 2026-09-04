@@ -693,7 +693,8 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Mitigation | None applied, and none belongs in a parity pull request. The options, in increasing order of disruption: serve `/uploads` with PHP execution disabled (a web-server config change, no code change, and it neutralises the code-execution half outright); or derive the extension from the sniffed type as the Java port does (a one-line change to `functions.php:655-656`, but a change to frozen code). |
 | Trigger | **Settle the exposure question first.** If `/uploads` executes PHP and the endpoints are reachable, this is an incident rather than a cutover item. Otherwise it closes when PHP stops serving these routes. |
 | Contingency | A read-only listing of `/uploads` for entries whose extension is outside the allowlist would show whether this has been exercised. Anything found should be treated as potentially attacker-placed. |
-| Status | Open — recorded 2026-09-02, on independent review of PR #161 pointing out that **D-154** established the exposure while deciding only what *Java* would do about it. Deciding not to reproduce a vulnerability is not managing it. |
+| Second instance, same defect | **The PHP dashboard has its own copy.** `company_dashboard_upload()` (`dashboard/includes/company_helper.php:75-124`) sniffs with `mime_content_type()` against `ALLOWED_IMAGES` — JPEG, PNG, WebP — and then takes the stored extension from `pathinfo($_FILES[...]['name'], PATHINFO_EXTENSION)`, validated against its own list of `jpg, jpeg, png, webp, **pdf**`. The two lists disagree: a file whose bytes sniff as `image/png` but which is named `x.pdf` is accepted by the first check and stored as `.pdf`. Found 2026-09-04 while porting the banners page under **ADR-0016**, by sweeping the class rather than the one path already recorded. The dashboard's upload root is the same served webroot, so the exposure is the same shape; its extension allowlist happens to exclude executable types today, which bounds it — but nothing states that as an invariant, and the API's list did not exclude them. |
+| Status | Open — recorded 2026-09-02, on independent review of PR #161 pointing out that **D-154** established the exposure while deciding only what *Java* would do about it. Deciding not to reproduce a vulnerability is not managing it. Widened 2026-09-04 to the dashboard's own upload helper, which the banners page uses; the Java port of that page reuses `LegacyFileUploads` and so inherits D-154's fix rather than growing a second copy of the defect. |
 | Target Date | Determined by the exposure assessment. |
 | Evidence | `hr-legacy/apis/helpers/functions.php:641` (sniff) and `:655-656` (extension from the filename) — the two lines that disagree. `apis/config/upload_slots.php` for the four affected endpoints' subdirectories. **D-154** for the Java decision and its reasoning. Related: **R-037** and **R-036**, the other legacy defects this programme records rather than ports. |
 | Last Reviewed | 2026-09-02 |
@@ -730,4 +731,42 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Status | **Open.** Recorded 2026-09-04. Related: **ADR-0008**, **R-024**, **R-025**. |
 | Target Date | Before the cutover window is scheduled. |
 | Evidence | `backend/src/main/resources/application.properties` (`logging.structured.format.console`, `management.tracing.sampling.probability=1.0`, and the absence of any `management.endpoints.web.exposure` setting); `backend/build.gradle` (`opentelemetry-exporter-logging`, no Prometheus registry); `docs/operations/monitoring-and-alerting.md`; the trigger table in `docs/operations/release-cutover-and-rollback.md`. |
+| Last Reviewed | 2026-09-04 |
+
+## R-044: The Dashboard Port Multiplies The Authenticated Surface, Including A Deliberate Cross-Tenant Path
+
+| Field | Value |
+|---|---|
+| Description | **ADR-0016** ports the whole PHP dashboard to JTE for all three audiences. That means two new authentication paths this application has never had — company owner (`companies.password_hash`) and HR/Manager (`employees` where `role IN ('hr','manager')`) — and roughly thirty new authenticated routes, each of which must apply the tenant scoping the `/apis/**` port already has. It also means reproducing the dashboard's **platform-admin-acting-as-a-company** mode: PHP puts the selected company in `$_SESSION['company_id']` and `getCurrentCompanyId()` returns it for an admin session exactly as it does for a company one, so the same page code reads another tenant's data by design. |
+| Category | **Security / AuthN/AuthZ / Tenant isolation** |
+| How it was found | Recorded with ADR-0016 on 2026-09-04, when the scope decision was taken -- before the pages exist, so the control is designed rather than retrofitted. |
+| Probability | The surface will exist; whether a scoping mistake ships is the open question. Judged **likely without a mechanical guard**, because the failure is silent: a page that forgets its company predicate returns data and looks correct. |
+| Impact | A missing predicate on any one of ~30 pages discloses or mutates another company's data. This is the same class as **R-012**, **R-036** and **R-037** -- all of which were found in legacy by a harness rather than by reading -- and here it would be a defect this repository introduced rather than one it inherited. |
+| Severity | **High.** The port's whole value is replacing PHP without changing behaviour; a cross-tenant leak would be a behaviour change of the worst kind, on a surface that by then has no PHP to fall back to (the VPS runs Java and MySQL only). |
+| Owner | Repository owner. |
+| Mitigation | Three, in order of reliability. **(1)** The admin's company selection is explicit state on the session with its own audit event, never an implicit default -- an admin session with no company selected must not silently read tenant data. **(2)** Every new page's data access goes through a scoped store the way `PlatformAdminCompanyDirectory` already does, not through the tenant-scoped API services, whose `context.companyId()` means something different for an admin. **(3)** A coverage test in the shape of `TenantFilterCoverageTest`, asserting that every admin page's queries carry a company predicate, so a forgotten one fails the build rather than a review. |
+| Trigger | The first company-scoped page landing on this surface. |
+| Contingency | The pages are behind authentication and can be withdrawn individually; a page found unscoped is removed from `AdminNav` (its item flipped back to unimplemented) rather than the deployment being rolled back. |
+| Status | **Open.** Recorded 2026-09-04 with **ADR-0016**, before any of the surface it describes exists. Related: **R-012**, **R-036**, **R-037**, **ADR-0015**. |
+| Target Date | Before the first company-scoped admin page merges. |
+| Evidence | `hr-legacy/dashboard/includes/auth.php` (`isAdmin()`, `isCompany()`, `isHr()`, `getCurrentCompanyId()` returning the session's company for an admin); ADR-0016; `AdminNav` for the page inventory. |
+| Last Reviewed | 2026-09-04 |
+
+## R-045: The Dashboard's Broadcast Sends One INSERT Per Employee, In One Request, Untransacted
+
+| Field | Value |
+|---|---|
+| Description | `dashboard_notification_broadcast_all_employees()` selects every active employee and then loops, calling `dashboard_notification_insert()` once per row. There is no batching, no transaction, and no limit. `all_companies` and `everyone` do the same over their own populations, and `everyone` runs both. |
+| Category | **Performance / Data integrity** -- a legacy defect, recorded not ported |
+| How it was found | Reading the dispatcher on 2026-09-04 while porting the page under **ADR-0016**, and measured against the legacy snapshot rather than estimated. |
+| Probability | Certain to be slow; whether it times out depends on the population and the host's `max_execution_time`. |
+| Impact | **2,838 active employees in the snapshot**, so a single "all employees" broadcast is 2,838 individual round trips in one HTTP request, and it grows with the customer base. PHP's default execution limit is 30 seconds. Exceeding it kills the request **after** an unknown number of rows have already committed -- each insert is its own implicit transaction -- so some employees get the notification, some do not, and the operator sees a failed request with no way to tell how far it got. Re-sending duplicates whatever landed. This is the same shape as **R-035**, on a different endpoint. |
+| Severity | Medium in PHP: it degrades rather than corrupts, and the worst case is a partial, duplicated broadcast rather than lost data. |
+| Owner | Repository owner. |
+| Java disposition | **Not reproduced.** The port uses a single `INSERT ... SELECT` inside one transaction: the same rows, the same order, one statement. This is a deliberate divergence from the dashboard's implementation and **not** from its behaviour -- the resulting table state is identical, and the parity programme's faithful-reproduction rule governs the `/apis/**` wire contract, not the dashboard's internals. A set-based insert cannot half-commit, which is the whole of the defect. |
+| Legacy disposition | Open and unmitigated in production for as long as the PHP dashboard serves. Since the owner's plan removes PHP entirely at cutover, this closes itself then. |
+| Mitigation | None applied to `hr-legacy` -- it is frozen. Operators should avoid the mass audiences on large populations until cutover. |
+| Trigger | Any use of the `all_employees`, `all_companies` or `everyone` audiences. |
+| Status | **Open** in legacy, **not applicable** in Java. Recorded 2026-09-04 with **ADR-0016**. Related: **R-035** (the same shape in payroll). |
+| Evidence | `hr-legacy/dashboard/pages/notifications/helper.php:205-220` (the loop) and `:337-365` (the audiences that reach it); counts measured against the parity harness snapshot. |
 | Last Reviewed | 2026-09-04 |

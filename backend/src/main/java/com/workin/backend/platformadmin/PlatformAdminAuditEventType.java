@@ -28,5 +28,22 @@ public enum PlatformAdminAuditEventType {
 	COMPANY_APPROVED,
 	COMPANY_REJECTED,
 	COMPANY_SUSPENDED,
-	COMPANY_UNSUSPENDED
+	COMPANY_UNSUSPENDED,
+
+	// --- platform content the mobile and desktop clients read but cannot
+	// write: dial codes, FAQs, banners, broadcast notifications (ADR-0016).
+	// One triple for all of them, with the table in the audit row's target
+	// type, rather than a pair of constants per table -- the interesting
+	// question of any such row is which record changed, and the target
+	// already answers it.
+	//
+	// Deliberately NOT behind step-up, unlike the company actions above.
+	// Step-up exists for irreversible lifecycle changes to a tenant; a TOTP
+	// prompt per FAQ edit would make the page unusable and push an operator
+	// back to editing MySQL by hand, which is the outcome with no audit trail
+	// at all. They stay behind the surface flag, a bound second factor on the
+	// session, and this record.
+	CONTENT_CREATED,
+	CONTENT_UPDATED,
+	CONTENT_DELETED
 }
