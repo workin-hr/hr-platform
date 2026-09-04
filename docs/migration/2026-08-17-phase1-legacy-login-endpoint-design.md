@@ -116,7 +116,7 @@ exception.
 
 ## Built — refresh-token state machine
 
-- **`legacy_refresh_tokens`**, `backend/src/test/resources/legacy/phase1_extensions.schema.sql`
+- **`legacy_refresh_tokens`**, `backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql`
   — a *new* file, deliberately not folded into the vendored
   `mysql_workin.schema.sql`: this table is Phase 1's own infrastructure,
   not part of the legacy contract, and mixing the two would make
@@ -157,7 +157,7 @@ exception.
   `theVendoredLegacySchemaAppliesToARealMariaDbUnmodified` hardcoded an
   exact global `information_schema.tables` count (42) against the shared
   MariaDB instance, to prove the vendored legacy schema applies
-  unmodified. `phase1_extensions.schema.sql` legitimately adds a 43rd
+  unmodified. `phase1_extensions.sql` legitimately adds a 43rd
   table to that same shared instance, which a raw count can't
   distinguish from the legacy contract itself changing. Rewritten to
   check the vendored schema's own 42 `CREATE TABLE` names specifically

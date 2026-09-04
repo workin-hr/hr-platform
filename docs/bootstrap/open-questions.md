@@ -71,7 +71,7 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 
 - **How do the Java-owned tables get created against the production legacy
   MariaDB, and who owns that step?** *(Widened 2026-09-03: the platform-admin
-  surface now runs under `phase1-mysql` too, so `phase1_extensions.schema.sql`
+  surface now runs under `phase1-mysql` too, so `phase1_extensions.sql`
   adds the platform-admin identity, MFA, step-up, audit and Spring Session
   tables alongside `legacy_refresh_tokens`. Same unresolved question, more
   tables, and a louder failure mode — the admin surface cannot authenticate at
@@ -79,7 +79,7 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
   D-043 amendment 3.) Phase 1 adds exactly one table to the legacy database and
   nothing in the application creates it — Flyway owns no MariaDB location and
   `hibernate.hbm2ddl.auto` is `none`. Today it exists only where a test
-  container applies `phase1_extensions.schema.sql` out of band. **Resolution
+  container applies `phase1_extensions.sql` out of band. **Resolution
   criteria**: an approved provisioning mechanism, rehearsed against a restored
   copy, with the mechanism, its owner and its lock duration recorded in
   `docs/operations/release-cutover-and-rollback.md`. Note the failure mode is

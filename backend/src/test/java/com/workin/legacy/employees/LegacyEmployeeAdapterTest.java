@@ -129,7 +129,7 @@ class LegacyEmployeeAdapterTest extends AbstractLegacyMySqlTest {
 	 * <p>Checked against the vendored schema's own {@code CREATE TABLE}
 	 * names, not a raw {@code information_schema.tables} count. The
 	 * shared MariaDB instance ({@code AbstractLegacyMySqlTest}) now also
-	 * applies {@code phase1_extensions.schema.sql} -- new Phase 1
+	 * applies {@code phase1_extensions.sql} -- new Phase 1
 	 * infrastructure (e.g. {@code legacy_refresh_tokens}) that is
 	 * legitimately not part of the legacy contract. A global count can't
 	 * tell that apart from the contract itself changing; asserting the

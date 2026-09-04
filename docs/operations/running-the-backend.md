@@ -47,10 +47,20 @@ writes the same tables the PHP application does.
 **It does need its own tables added**, once, to the same MySQL database — the
 platform-admin identity model and Spring Session. They are additive: nothing
 that PHP owns is touched. The DDL is
-`backend/src/test/resources/legacy/phase1_extensions.schema.sql`, which is also
-where Phase 1's `legacy_refresh_tokens` lives. **Nothing in the application
-creates them** — see **R-023** for the open question of who provisions that
-step, which these tables join rather than change.
+`backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql`, which is also
+where Phase 1's `legacy_refresh_tokens` lives, and it ships inside the jar so
+you can extract the copy that matches the code you deployed:
+
+```bash
+unzip -p backend.jar db/phase1-mysql/phase1_extensions.sql > phase1_extensions.sql
+```
+
+**Nothing in the application creates them.** The step-by-step runbook is
+`docs/operations/provisioning-phase1-tables.md`; **R-023** tracks it as an open
+cutover prerequisite until it has actually been run against production. If you
+skip it, the application still starts and logs one `ERROR` line per missing
+table naming what it disables — so read the first seconds of the log rather than
+treating a successful startup as proof.
 
 Verified on 2026-09-03: the packaged jar starts in this profile against MariaDB
 11.8, `POST /apis/api/auth/login_employee` returns the same envelope with a

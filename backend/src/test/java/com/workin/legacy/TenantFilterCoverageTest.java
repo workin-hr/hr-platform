@@ -51,7 +51,7 @@ import jakarta.persistence.Table;
  * <p><b>Phase-1-owned tables are structurally exempt, not
  * hand-exempted.</b> A table absent from the vendored schema (e.g.
  * {@code legacy_refresh_tokens}, added only by {@code
- * phase1_extensions.schema.sql}) is not part of Item 12's tenant-owned
+ * phase1_extensions.sql}) is not part of Item 12's tenant-owned
  * inventory at all, so it is skipped — the same way {@code
  * LegacyRefreshToken}'s own javadoc already documents, now enforced by
  * the guard itself rather than by that javadoc being trusted.
@@ -214,7 +214,7 @@ class TenantFilterCoverageTest {
 
 			if (columns == null) {
 				// Not in the vendored contract at all -- a Phase-1-owned
-				// addition (phase1_extensions.schema.sql), structurally
+				// addition (phase1_extensions.sql), structurally
 				// out of Item 12's tenant-owned inventory. It must still
 				// carry no tenancy filter of its own invention.
 				if (filtersOn(clazz).length > 0) {
