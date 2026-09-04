@@ -12,7 +12,7 @@
 -- extract the DDL that matches the deployed code rather than a file
 -- from a branch that may have moved on:
 --
---   unzip -p backend.jar db/phase1-mysql/phase1_extensions.sql
+--   unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/phase1_extensions.sql
 --
 -- The MariaDB test container applies this same file
 -- (AbstractLegacyMySqlTest), so the schema the suite proves the adapter

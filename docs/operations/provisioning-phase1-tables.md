@@ -42,7 +42,7 @@ the jar, which is the copy to prefer — it matches the deployed code
 rather than whatever a branch has since become:
 
 ```bash
-unzip -p backend.jar db/phase1-mysql/phase1_extensions.sql > phase1_extensions.sql
+unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/phase1_extensions.sql > phase1_extensions.sql
 ```
 
 It is deliberately **not** idempotent. `CREATE TABLE IF NOT EXISTS`

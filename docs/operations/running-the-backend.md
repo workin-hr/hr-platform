@@ -52,7 +52,7 @@ where Phase 1's `legacy_refresh_tokens` lives, and it ships inside the jar so
 you can extract the copy that matches the code you deployed:
 
 ```bash
-unzip -p backend.jar db/phase1-mysql/phase1_extensions.sql > phase1_extensions.sql
+unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/phase1_extensions.sql > phase1_extensions.sql
 ```
 
 **Nothing in the application creates them.** The step-by-step runbook is
