@@ -50,7 +50,7 @@ echo "data (foreign keys deferred)..."
 } | m workin
 
 echo "phase 1 extension table..."
-m workin < "$PLATFORM"/backend/src/test/resources/legacy/phase1_extensions.schema.sql
+m workin < "$PLATFORM"/backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql
 
 echo "parity test employee..."
 HASH=$(docker exec "$DB" true && docker exec parity-harness-php-1 \

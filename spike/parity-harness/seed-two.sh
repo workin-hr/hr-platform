@@ -94,7 +94,7 @@ for d in "$PHP_DB" "$JAVA_DB"; do
     cat "$LEGACY"/mysql_workin.data.sql
     echo "SET FOREIGN_KEY_CHECKS=1; SET UNIQUE_CHECKS=1;"
   } | m "$d"
-  m "$d" < "$PLATFORM"/backend/src/test/resources/legacy/phase1_extensions.schema.sql
+  m "$d" < "$PLATFORM"/backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql
 done
 
 echo "=== parity test employee (same id and hash in both) ==="
