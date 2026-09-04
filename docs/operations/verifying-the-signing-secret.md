@@ -28,11 +28,23 @@ compared. So both sides print a *fingerprint* instead:
 HMAC-SHA256(secret, "workin-jwt-secret-fingerprint-v1"), first 16 hex characters
 ```
 
-This is the construction an SSH host key fingerprint uses, and it is safe
-to log for the same reason: HMAC is a pseudo-random function, so the
-digest reveals nothing about the key, and 64 bits is far too short to
-serve as a signature while being long enough that two different secrets
-will not collide in practice.
+**Why it is safe to log.** On its face a digest of a secret under a
+public label is an offline oracle -- anyone holding it can test candidate
+secrets. It costs nothing here because **every access token this
+application issues is already a stronger oracle over the same key**:
+`HMAC-SHA256(secret, header + "." + payload)`, both halves known, handed
+to every client. Someone who could brute-force the secret from this
+fingerprint could do it faster from any token they already hold, with no
+log access at all.
+
+What the deployment actually depends on is that an HS256 signing key has
+enough entropy to resist that -- true of any correctly generated one, and
+`JwtSecretStartupCheck` enforces the floor by refusing to start on the
+known placeholder.
+
+Truncating to 64 bits is a legibility choice, not a security one: short
+enough to compare by eye, long enough that two real secrets will not
+collide.
 
 **Java** prints it at every startup:
 

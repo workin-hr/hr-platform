@@ -30,11 +30,28 @@ import org.springframework.stereotype.Component;
  * eye.
  *
  * <p>The fingerprint is {@code HMAC-SHA256(secret, FINGERPRINT_LABEL)}
- * truncated to 16 hex characters -- the same construction an SSH host
- * key fingerprint uses, and safe to log for the same reason: HMAC is a
- * pseudo-random function, so the digest reveals nothing about the key,
- * and 64 bits is far too short to be useful as a signature while being
- * long enough that two different secrets will not collide in practice.
+ * truncated to 16 hex characters.
+ *
+ * <p><b>Why logging this is safe.</b> It is a digest of a secret under a
+ * label published in this repository, so on its face it is an offline
+ * oracle: anyone holding it can test candidate secrets. The reason that
+ * costs nothing here is that <b>every access token this application
+ * issues is already a stronger oracle over the same key</b> --
+ * {@code HMAC-SHA256(secret, header + "." + payload)} with both halves
+ * known and the whole thing handed to every client. An attacker who can
+ * brute-force the secret from this line could brute-force it from any
+ * token they hold, faster, without needing log access at all. The
+ * marginal exposure is therefore zero, and the property the deployment
+ * actually depends on is that an HS256 signing key has enough entropy to
+ * resist that -- which {@link #PLACEHOLDER_SECRET} above exists to
+ * enforce the floor of.
+ *
+ * <p>Note this is <i>not</i> the SSH host key fingerprint argument, which
+ * an earlier version of this comment claimed: those digest a
+ * <i>public</i> key, where confidentiality is not a property at all.
+ * Truncating to 64 bits is a legibility choice, not a security one --
+ * it is short enough to compare by eye and long enough that two real
+ * secrets will not collide.
  * Print it on both stacks and compare; equal means the transition is
  * transparent in both directions. See
  * {@code docs/operations/verifying-the-signing-secret.md} for the PHP
