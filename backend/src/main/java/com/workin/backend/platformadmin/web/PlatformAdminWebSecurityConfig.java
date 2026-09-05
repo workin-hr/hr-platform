@@ -135,6 +135,10 @@ public class PlatformAdminWebSecurityConfig {
 
 	public static final String DEPARTMENTS_PATH = PATH_PREFIX + "/departments";
 
+	public static final String JOB_TITLES_PATH = PATH_PREFIX + "/job_titles";
+
+	public static final String SHIFTS_PATH = PATH_PREFIX + "/shifts";
+
 	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
