@@ -6,7 +6,7 @@
 @param String currentAdminPhone = null
 @param String currentPage = ""
 @param String lang = "ar"
-@param boolean isAdmin = true
+@param com.workin.backend.platformadmin.web.DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 @param String flash = null
@@ -36,7 +36,7 @@
 	</main>
 @else
 	<div class="shell">
-		@template.admin.sidebar(currentPage = currentPage, lang = lang, isAdmin = isAdmin,
+		@template.admin.sidebar(currentPage = currentPage, lang = lang, session = session,
 				csrfParameterName = csrfParameterName, csrfToken = csrfToken, t = t,
 				available = available)
 		<main class="main">

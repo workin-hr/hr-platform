@@ -1,9 +1,10 @@
 @import com.workin.backend.platformadmin.web.AdminIcons
 @import com.workin.backend.platformadmin.web.AdminNav
+@import com.workin.backend.platformadmin.web.DashboardSession
 @import java.util.function.Function
 @param String currentPage
 @param String lang
-@param boolean isAdmin
+@param DashboardSession session
 @param String csrfParameterName
 @param String csrfToken
 @param Function<String, String> t
@@ -20,7 +21,10 @@
 			<span class="nav-item-leading">$unsafe{AdminIcons.of(AdminNav.HOME.icon())}<span
 					class="nav-label">${t.apply(AdminNav.HOME.labelKey())}</span></span>
 		</a>
-		@for(AdminNav.Group group : AdminNav.GROUPS)
+		@for(AdminNav.Group group : AdminNav.groups(session))
+			<%-- A group whose every page this session may not see is not
+			     rendered at all, header included. --%>
+			@if(!group.items().isEmpty())
 			<details class="nav-group" data-nav-group="${group.icon()}"
 			         open="${AdminNav.isOpen(group, currentPage)}">
 				<summary class="nav-group-toggle${AdminNav.isOpen(group, currentPage) ? " active" : ""}">
@@ -30,28 +34,30 @@
 				</summary>
 				<div class="nav-group-items-wrap">
 					<div class="nav-group-items">
+						<%-- The permission filter has already run: AdminNav.groups()
+						     returns only what this session may see. What is left to
+						     decide here is whether the page has been ported. --%>
 						@for(AdminNav.Item item : group.items())
-							@if(!item.adminOnly() || isAdmin)
-								@if(available.apply(item.page()))
-									<a href="${item.href()}"
-									   class="nav-link nav-sublink${AdminNav.isCurrent(item, currentPage) ? " active" : ""}">
-										<span class="nav-item-leading">$unsafe{AdminIcons.of(item.icon())}<span
-												class="nav-label">${t.apply(item.labelKey())}</span></span>
-									</a>
-								@else
-									<%-- Not yet ported. Shown, not hidden: a sidebar that omits half
-									     the product looks finished when it is not. --%>
-									<span class="nav-link nav-sublink is-unported" aria-disabled="true"
-									      title="${t.apply("loading")}">
-										<span class="nav-item-leading">$unsafe{AdminIcons.of(item.icon())}<span
-												class="nav-label">${t.apply(item.labelKey())}</span></span>
-									</span>
-								@endif
+							@if(available.apply(item.page()))
+								<a href="${item.href()}"
+								   class="nav-link nav-sublink${AdminNav.isCurrent(item, currentPage) ? " active" : ""}">
+									<span class="nav-item-leading">$unsafe{AdminIcons.of(item.icon())}<span
+											class="nav-label">${t.apply(item.labelKey())}</span></span>
+								</a>
+							@else
+								<%-- Not yet ported. Shown, not hidden: a sidebar that omits half
+								     the product looks finished when it is not. --%>
+								<span class="nav-link nav-sublink is-unported" aria-disabled="true"
+								      title="${t.apply("loading")}">
+									<span class="nav-item-leading">$unsafe{AdminIcons.of(item.icon())}<span
+											class="nav-label">${t.apply(item.labelKey())}</span></span>
+								</span>
 							@endif
 						@endfor
 					</div>
 				</div>
 			</details>
+			@endif
 		@endfor
 	</nav>
 	<footer class="sidebar-footer">

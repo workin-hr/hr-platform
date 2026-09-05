@@ -1556,7 +1556,7 @@ def validate_edit_audit_log_tests(failures: list[str]) -> None:
 
 
 def validate_legacy_drift_gates(failures: list[str]) -> None:
-    """The two hr-legacy drift gates, plus the tests that pin what they catch.
+    """The three hr-legacy drift gates, plus the tests that pin what they catch.
 
     Both compare this application against the PHP it reproduces rather than
     against itself, and both run from a committed inventory so they still mean
@@ -1567,6 +1567,9 @@ def validate_legacy_drift_gates(failures: list[str]) -> None:
     _run_regression_script("scripts/check_legacy_message_drift.py", "Legacy message drift", failures)
     _run_regression_script("scripts/test_check_legacy_message_drift.py",
                            "Legacy message-drift check regression tests", failures)
+    _run_regression_script("scripts/check_dashboard_message_drift.py", "Dashboard message drift", failures)
+    _run_regression_script("scripts/test_check_dashboard_message_drift.py",
+                           "Dashboard message-drift check regression tests", failures)
 
 
 def _validate_single_adr_cli(target_arg: str) -> int:

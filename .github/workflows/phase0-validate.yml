@@ -178,6 +178,15 @@ jobs:
       - name: Pin what the legacy message-drift check catches
         run: python3 scripts/test_check_legacy_message_drift.py
 
+      # And the dashboard's own catalog, which is a different file in a
+      # different shape. Its strings render in the JTE templates, so a missing
+      # one is a sidebar entry reading "nav_guide_videos".
+      - name: Check the JTE catalog against the committed dashboard messages
+        run: python3 scripts/check_dashboard_message_drift.py
+
+      - name: Pin what the dashboard message-drift check catches
+        run: python3 scripts/test_check_dashboard_message_drift.py
+
       - name: Run actionlint
         run: actionlint -color
 

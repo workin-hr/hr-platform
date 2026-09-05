@@ -9,7 +9,7 @@
 @param String error = null
 @param String currentPage
 @param String lang
-@param boolean isAdmin
+@param com.workin.backend.platformadmin.web.DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 <%-- Table markup follows dashboard/pages/companies/page.php: .data-table-card
@@ -23,7 +23,7 @@
 	currentAdminPhone = currentAdminPhone,
 	currentPage = currentPage,
 	lang = lang,
-	isAdmin = isAdmin,
+	session = session,
 	t = t,
 	available = available,
 	body = @`

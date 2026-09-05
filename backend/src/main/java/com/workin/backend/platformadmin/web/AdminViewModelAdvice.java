@@ -13,8 +13,8 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 
 /**
  * Supplies every admin page with the four things its layout needs -- the
- * label lookup, the language, whether the viewer is a platform admin, and
- * which sidebar entry is current -- so no controller has to remember to.
+ * label lookup, the language, who is looking, and which sidebar entry is
+ * current -- so no controller has to remember to.
  *
  * <p>Scoped to this package, not to a list of controller classes. A
  * {@code @ControllerAdvice} with no selector at all would apply to the API
@@ -104,14 +104,24 @@ public class AdminViewModelAdvice {
 	}
 
 	/**
-	 * Every session this surface currently issues is a platform admin's.
-	 * Company and HR sessions are a separate, later step (ADR-0016); the
-	 * flag exists so the sidebar's admin-only entries are already gated
-	 * when they arrive rather than being retrofitted then.
+	 * Who is looking, as the sidebar and every page need it.
+	 *
+	 * <p>Every session this surface currently issues is a platform
+	 * administrator's, so this is always {@link DashboardSession#admin}. It is
+	 * a session object rather than an {@code isAdmin} boolean because
+	 * {@link AdminNav} and {@link DashboardAccess} answer per audience, and a
+	 * boolean cannot carry the company filter or an HR employee's permission
+	 * set. When the owner and HR logins arrive (ADR-0016) this is the one
+	 * method that changes; nothing downstream of it has to.
+	 *
+	 * <p>The filter is read through {@link DashboardOrgScope}, so
+	 * {@code ?company_id=} already works for an administrator on any page that
+	 * consults {@code session.companyId()}.
 	 */
-	@ModelAttribute("isAdmin")
-	public boolean isAdmin() {
-		return true;
+	@ModelAttribute("session")
+	public DashboardSession session(HttpServletRequest request) {
+		HttpSession httpSession = request.getSession(false);
+		return DashboardSession.admin(DashboardOrgScope.current(httpSession));
 	}
 
 }

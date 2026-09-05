@@ -1,0 +1,1564 @@
+# Every message hr-legacy's dashboard/includes/lang.php defines, as
+# "<locale>\t<key>\t<value>", sorted by locale then key.
+#
+# GENERATED -- refresh with:
+#   python3 scripts/check_dashboard_message_drift.py --refresh
+#
+# Committed so the drift gate can run where hr-legacy is not checked out,
+# which includes CI. Without it a string added to the dashboard would render
+# in the JTE port as its own key -- "nav_guide_videos" in a sidebar -- with
+# every check green.
+en	absent_today	Absent Today
+en	account_complete_profile	Complete your company profile
+en	account_holder	Account holder
+en	account_pending_review	Your account is pending review
+en	account_rejected	Company account rejected
+en	account_suspended	Company account suspended
+en	account_verify_phone	Please verify your phone number first
+en	action_external_url	External URL
+en	action_internal_route	In-app screen
+en	action_none	None
+en	action_whatsapp	WhatsApp
+en	actions	Actions
+en	activate	Activate
+en	active_companies	Active Companies
+en	activity_attendance	Attendance
+en	activity_checkin	Check-in
+en	activity_checkin_at	Check-in at %s
+en	activity_datetime	Date & time
+en	activity_departure	Check-out
+en	activity_departure_at	Check-out at %s
+en	activity_description	Details
+en	activity_kind	Activity type
+en	activity_request	Request
+en	activity_request_of	Request: %s
+en	actual	Actual
+en	actual_count	Actual count
+en	add	Add
+en	add_administrative_decision	Add administrative decision
+en	add_advance	Add advance
+en	add_asset	Add asset
+en	add_at_least_one_holiday_date	Add at least one holiday date
+en	add_attendance	Add Record
+en	add_attendance_exception	Add attendance exception
+en	add_banner	Add banner
+en	add_branch	Add branch
+en	add_company	Add company
+en	add_country	Add country
+en	add_department	Add department
+en	add_employee	Add employee
+en	add_exception_type	Add exception type
+en	add_faq_category	Add category
+en	add_faq_question	Add question
+en	add_guide_video	Add guide video
+en	add_holiday_date	Add date
+en	add_hr_user	Add HR user
+en	add_hr_user_desc	Create an HR account with selected permissions
+en	add_job_title	Add job title
+en	add_leave_balance	Add leave balance
+en	add_official_holiday	Add official holiday
+en	add_penalty	Add Penalty
+en	add_request_type	Add request type
+en	add_setting_option	Add option
+en	add_shift	Add shift
+en	add_workforce	Add plan
+en	address	Address
+en	admin	Admin
+en	admin_broadcast_section	System broadcast (platform admin)
+en	admin_complaints_empty_sub	No new complaints or suggestions right now
+en	admin_panel	Admin Panel
+en	admin_reply	Reply
+en	administrative_decisions_search_placeholder	Search by title or decision text…
+en	advance	Advance
+en	advance_amount	Advance Amount
+en	advance_deduction	Registered Advances (Loans)
+en	advance_reason	Reason
+en	advances	Advances
+en	advances_deduction	Medical Insurance
+en	advances_deduction_label	Medical Insurance
+en	advances_search_placeholder	Search by name or employee code
+en	age_fifty_plus	50+
+en	age_forties	40–49
+en	age_thirties	30–39
+en	age_twenties	20–29
+en	age_under_20	Under 20
+en	all	All
+en	all_categories	All categories
+en	all_recipients	All recipients
+en	allowances	Allowances
+en	already_exists	Already exists
+en	answer_ar	Answer (AR)
+en	answer_en	Answer (EN)
+en	app_content_last_updated	Last updated
+en	app_content_save_section	Save this section
+en	app_desc	HR Management System
+en	app_name	Work In
+en	app_platform	Visible on
+en	applied_payroll	Applied to Payroll
+en	approval_trail	Approval Trail
+en	approve	Approve
+en	approved_ok	Approved ✓
+en	approver	Approver
+en	article_body	Article Body
+en	article_title	Article Title
+en	articles	Articles
+en	asset	Asset
+en	asset_date	Receipt date
+en	asset_end_date	End date
+en	asset_text	Asset
+en	assets	Assets
+en	assets_search_placeholder	Search by name or employee code
+en	att_absent_days	Absent days
+en	att_aggregate_report	Aggregate Report
+en	att_check_in_time	Check-in
+en	att_check_out_time	Check-out
+en	att_day	Day
+en	att_days_in_period	Days in period
+en	att_delete_range	Bulk delete
+en	att_exception_days	Exception days
+en	att_overtime_shortage	Overtime / Shortage
+en	att_paid_rest_hours	Total paid rest hours
+en	att_present_days	Present days
+en	att_range_delete_confirm	All company fingerprints in the selected period will be permanently deleted. Continue?
+en	att_range_deleted	Deleted {count} attendance records for the selected period.
+en	att_records	Attendance Records
+en	att_search_placeholder	Search by name or employee code
+en	att_total_work_hours	Total working hours
+en	attendance	Attendance
+en	attendance_report	Attendance Report
+en	back	Back
+en	back_to_profile	Back to profile
+en	banner_action_route_placeholder	e.g. employees or dashboard
+en	banner_action_url_placeholder	https://example.com
+en	banner_action_whatsapp_placeholder	1012345678
+en	banner_image	Banner image
+en	banner_image_required	Please choose a banner image
+en	banner_preview	Preview
+en	banner_upload_hint	JPG, PNG, or WebP — saved to the banners folder
+en	banner_whatsapp_number	WhatsApp number
+en	banners	Banners
+en	basic_salary	Basic Salary
+en	birth_date	Birth Date
+en	branch	Branch
+en	branch_attendance_radius	Max check-in distance (m)
+en	branch_generate_qr	Generate attendance QR
+en	branch_no_location	No location
+en	branch_open_map	Open map
+en	branch_qr_active	Current code is active
+en	branch_qr_create	Generate code
+en	branch_qr_expired	Code expired — generate a new one
+en	branch_qr_expires_at	Valid until
+en	branch_qr_generated_ok	Attendance QR generated
+en	branch_qr_invalid_expiry	Invalid or past expiry date
+en	branch_qr_none	No code yet — set expiry and generate
+en	branch_qr_regenerate	Generate new code
+en	branches	Branches
+en	branches_clear_all	Clear selection
+en	branches_search	Search branches...
+en	branches_select_all	Select all
+en	branches_select_hint	You can select multiple branches
+en	branches_selected_label	selected
+en	branches_selected_label_plural	branches selected
+en	button_action_type	Button action
+en	button_action_value	URL or screen key
+en	button_label_ar	Button label (AR)
+en	button_label_en	Button label (EN)
+en	calculate	Auto Calculate
+en	cancel	Cancel
+en	change_password	Change Password
+en	change_password_intro	You will be signed out automatically after changing your password.
+en	chart_age	Employees by Age
+en	chart_att_dept	Attendance % by Department
+en	chart_daily_att	Daily Attendance (7 days)
+en	chart_emp_branch	Employees by Branch
+en	chart_emp_dept	Employees by Department
+en	chart_gender	Employees by Gender
+en	chart_new_monthly	New Employees per Month
+en	chart_pen_dept	Penalties by Department
+en	chart_salary_dept	Salaries by Department
+en	chart_unknown	Unknown
+en	chart_workforce	Workforce Planning vs Actual
+en	check_in	Check In
+en	check_out	Check Out
+en	checked_in_today	Today's Attendance
+en	choose_file	Choose file
+en	choose_option	— Select —
+en	close	Close
+en	comment	Comment
+en	commercial_reg	Commercial Registration
+en	commercial_reg_optional	Commercial Registration (optional)
+en	companies	Companies
+en	company	Company
+en	company_activity	Company activity
+en	company_code	Company code
+en	company_code_hint	5–32 letters or digits (English letters and numbers only)
+en	company_code_invalid	Invalid company code
+en	company_code_taken	This company code is already taken
+en	company_data	Company details
+en	company_email	Company Email
+en	company_logo	Company Logo
+en	company_name	Company Name
+en	company_phone	Company Phone
+en	company_settings_exception_types	Attendance exception types
+en	company_settings_general	General settings
+en	company_settings_official_holidays	Official holidays
+en	company_settings_request_types	Request types
+en	company_settings_users	Users & permissions
+en	company_size	Company size
+en	company_title	Your role
+en	complaint_mark_resolved	Mark resolved
+en	complaint_mark_resolved_confirm	Mark this complaint as resolved (done)?
+en	complaint_msg	Message
+en	complaint_source	Complaint source
+en	complaint_source_company_to_admin	Company → Platform Admin
+en	complaint_source_company_to_admin_hint	Complaints and suggestions sent by companies to the platform admin.
+en	complaint_source_employee_to_company	Employee → Company
+en	complaint_source_employee_to_company_hint	Employee complaints directed to their companies (company inbox).
+en	complaint_submitter	Submitter
+en	complaints	Complaints & Suggestions
+en	complaints_search_placeholder	Search name, phone, or message…
+en	config_android_maintenance	Android
+en	config_attendance_excel_import_from	Attendance Excel import — available from
+en	config_attendance_excel_import_from_hint	Y-m-d date. Upload is blocked in apps and API until this day.
+en	config_group_features	App features
+en	config_group_general	General
+en	config_group_maintenance	App in maintenance mode
+en	config_group_versions	Minimum Build number
+en	config_ios_maintenance	iOS
+en	config_is_daylight_saving	Daylight saving (UTC+3)
+en	config_is_daylight_saving_hint	When off, UTC+2 is used.
+en	config_mac_maintenance	Mac
+en	config_min_android_build	Android
+en	config_min_ios_build	iOS
+en	config_min_mac_build	Mac
+en	config_min_windows_build	Windows
+en	config_show_banners	Show banners
+en	config_show_compliance	Show compliance
+en	config_show_export_fingerprints_sheet	Show export fingerprints sheet
+en	config_show_export_fingerprints_sheet_hint	Shows the export fingerprints sheet button in attendance
+en	config_show_export_overall_sheet	Show export overall sheet
+en	config_show_export_overall_sheet_hint	Shows the export overall sheet button in attendance
+en	config_support_whatsapp	Technical support WhatsApp
+en	config_support_whatsapp_hint	Digits with country code, no symbols (e.g. 2010xxxxxxxx)
+en	config_website_url	Website URL
+en	config_windows_maintenance	Windows
+en	confirm_action	Are you sure you want to perform this action?
+en	confirm_approve_advance	Approve this advance?
+en	confirm_broadcast	Send this notification to a large number of recipients?
+en	confirm_delete	Are you sure? This cannot be undone!
+en	confirm_password	Confirm Password
+en	contact_whatsapp	WhatsApp
+en	content	Content
+en	contract_basic_salary	Contract basic salary
+en	contract_duration	Contract Duration
+en	contract_duration_unit	Contract duration unit
+en	country_code	Country code
+en	country_egypt	Egypt (+20)
+en	country_libya	Libya (+218)
+en	country_name_egypt	Egypt
+en	country_name_libya	Libya
+en	country_name_saudi	Saudi Arabia
+en	country_name_uae	United Arab Emirates
+en	country_saudi	Saudi Arabia (+966)
+en	country_uae	UAE (+971)
+en	counts_as_paid_leave	Counts as paid day (no salary deduction)
+en	create_payroll_batch	Create Payroll Batch
+en	create_run	Create Payroll Batch
+en	created_at	Added On
+en	currency_egp	EGP
+en	current_logo	Current logo kept if unchanged
+en	daily_basic_rate	Daily salary
+en	date	Date
+en	days_absent	Absent
+en	days_leave	Leave
+en	days_off	Days Off
+en	days_present	Present
+en	deactivate	Deactivate
+en	decision_body	Decision text
+en	decision_reply	Reply
+en	decision_status_active	Published (visible to employees)
+en	decision_status_inactive	Unpublished
+en	decision_title	Decision title
+en	deduct_balance	Deduct leave balance
+en	deductions	Deductions
+en	deducts_balance	Deducts Balance
+en	delete	Delete
+en	deleted_ok	Deleted successfully
+en	department	Department
+en	departments	Departments
+en	description_ar	Description (Arabic)
+en	description_en	Description (English)
+en	details	Details
+en	duration_hours	Duration (hrs)
+en	edit	Edit
+en	edit_administrative_decision	Edit administrative decision
+en	edit_attendance	Edit Record
+en	edit_banner	Edit banner
+en	edit_country	Edit country
+en	edit_employee	Edit employee
+en	edit_exception_type	Edit exception type
+en	edit_faq_category	Edit category
+en	edit_faq_question	Edit question
+en	edit_guide_video	Edit guide video
+en	edit_official_holiday	Edit official holiday
+en	edit_permissions	Edit permissions
+en	edit_profile	Edit profile
+en	edit_profile_title	Edit profile
+en	edit_request_type	Edit request type
+en	edit_setting_definition	Edit setting
+en	edit_setting_option	Edit option
+en	egp	EGP
+en	email	Email
+en	emp_code	Employee Code
+en	employee	Employee
+en	employee_all_branches	All company branches
+en	employee_branch_optional_hint	If you assign a branch, the employee must check in from that branch only. If no branch is set, they may check in from any company branch.
+en	employee_code_invalid	Employee code must contain digits only (at least one digit)
+en	employee_complaints	Employee Complaints
+en	employee_complaints_empty_sub	No new employee complaints right now
+en	employee_complaints_sub	new complaint(s) pending review
+en	employee_logo	Employee Photo
+en	employee_mobile_login_hint	The phone number and password are what the employee uses to log in to the mobile app. If either is left empty, the employee will not be able to log in.
+en	employee_name	Employee Name
+en	employee_picker_placeholder	Search employee name or code...
+en	employees	Employees
+en	end_time	End Time
+en	entitlements	Entitlements
+en	error_auth	Wrong password
+en	error_csrf	Session expired — refresh the page and try again
+en	error_db	Database error
+en	error_invalid_country	Invalid country code
+en	error_invalid_phone	Phone number is not valid for the selected country
+en	error_logo_required	Please upload a company logo
+en	error_password_min	Password must be at least 6 characters
+en	error_password_mismatch	Passwords do not match
+en	error_phone_registered	Phone number is already registered
+en	error_required	This field is required
+en	exception	Exception
+en	exception_type	Exception type
+en	exception_type_name	Exception type name
+en	export_csv	Export CSV
+en	faq_categories	FAQ categories
+en	faq_category	Category
+en	faq_category_not_found	Category not found
+en	faq_delete_category_confirm	Deleting the category will remove all its questions. Continue?
+en	faq_items_count	Questions
+en	faq_questions	Questions & answers
+en	filter	Filter
+en	filter_all	All
+en	filter_all_companies	All companies
+en	filter_attendance	Attendance
+en	filter_job_title	Job title
+en	filter_requests	Requests
+en	finalize	Finalize
+en	first	First
+en	first_name	First name
+en	flag_emoji	Flag
+en	food_allowance	Food Allowance
+en	from_date	From Date
+en	from_time	From Time
+en	full_name	Full Name
+en	fund_deduction	Funds
+en	gender	Gender
+en	gender_female	Female
+en	gender_male	Male
+en	gender_other	Other
+en	guide_video_file	Video file
+en	guide_video_hint	Upload the file to uploads/guide_videos then enter its name (e.g. intro.mp4). Optional thumbnail: same basename as an image (intro.jpg).
+en	hire_date	Hire Date
+en	holiday_date_already_added	This date is already in the list
+en	home_subtitle	Manage employees, requests & attendance
+en	hour_unit	hour
+en	hours_worked	Hours
+en	housing	Housing
+en	hr_permissions_hint	Select modules this user can access
+en	hr_users_search_placeholder	Search by employee code or name
+en	image_url	Image URL
+en	incentives	Incentives
+en	installments	Installments
+en	insufficient_leave_balance	Insufficient leave balance
+en	insurance_deduction	Insurance Deduction
+en	is_active	Active
+en	is_read	Read
+en	is_returned	Returned
+en	job_details	Job details
+en	job_title	Job Title
+en	job_titles	Job Titles
+en	job_titles_count	Job titles
+en	join_accept_edit_hint	After approval, employee edit opens to complete profile and shift
+en	join_accept_failed	Could not accept — request may no longer be pending
+en	join_reject_failed	Could not reject the request
+en	join_request_status	Request status
+en	join_requests	Company join requests
+en	join_requests_empty_sub	All join requests have been reviewed
+en	join_requests_sub	new request(s) pending review
+en	language	Language
+en	last	Last
+en	last_name	Last name
+en	latitude	Latitude
+en	leave_balance	Leave Balance
+en	leave_balances	Leave Balances
+en	leave_balances_search_placeholder	Search by name or employee code
+en	leave_report	Leave Report
+en	loading	Loading...
+en	location	Location
+en	login_btn	Sign in
+en	login_company_id	Company ID (optional)
+en	login_feat_br_desc	Branches, departments, and shifts
+en	login_feat_br_title	Multi-branch support
+en	login_feat_dec_desc	Unified data for better management
+en	login_feat_dec_title	Decision support
+en	login_feat_hr_desc	Employees, requests, leave, and assets in one place
+en	login_feat_hr_title	Full HR management
+en	login_feat_perf_desc	Quick UI and smooth experience
+en	login_feat_perf_title	Fast performance
+en	login_feat_rep_desc	KPIs and dashboards for decisions
+en	login_feat_rep_title	Smart reports & analytics
+en	login_feat_sec_desc	Fine-grained control by role and company
+en	login_feat_sec_title	Secure, flexible access
+en	login_fill_required	Please fill in the required fields first
+en	login_forgot	Forgot password?
+en	login_hero_desc	An integrated platform for HR, attendance, and payroll — with flexible permissions and reports that support your decisions.
+en	login_hero_headline	Toward a smarter workplace
+en	login_hr	HR
+en	login_locked	Too many attempts — try again later
+en	login_password_ph	Enter your password
+en	login_remember	Remember me
+en	login_tab_company	Company
+en	login_title	Login
+en	login_version	Version
+en	login_welcome_back	Welcome back
+en	login_welcome_sub	Sign in to continue to your account
+en	logout	Sign out
+en	longitude	Longitude
+en	main_branch	Main Branch
+en	main_branch_address	Main branch address
+en	manager	Direct Manager
+en	mandatory	Mandatory
+en	mark_applied	Mark Applied
+en	mark_paid	Mark Paid
+en	mark_returned	Mark returned
+en	medical_insurance_deduction	Medical Insurance
+en	menu	Menu
+en	method	Method
+en	method_app	App
+en	method_excel	Excel
+en	method_qr	QR
+en	minute_unit	minute
+en	mobile_attendance	Mobile attendance
+en	mobile_attendance_enabled	Allow check-in/out from mobile app
+en	modified	Modified
+en	month	Month
+en	month_end	Month End Day
+en	month_start	Month Start Day
+en	monthly_net	This Month Net
+en	months	Months
+en	name_ar	Name (AR)
+en	name_en	Name (EN)
+en	national_id	National ID
+en	nav_activities	Activity log
+en	nav_administrative_decisions	Administrative decisions
+en	nav_advances	Advances
+en	nav_app_content	App content
+en	nav_assets	Assets
+en	nav_attendance	Attendance
+en	nav_banners	Banners
+en	nav_branches	Branches & Depts
+en	nav_branches_shifts	Organization
+en	nav_change_password	Change password
+en	nav_comms_content	Communications & content
+en	nav_companies	Companies
+en	nav_company_settings	Company settings
+en	nav_complaints	Employee Complaints
+en	nav_complaints_admin	Complaints & Suggestions
+en	nav_content	Content
+en	nav_employee_requests	Employee Requests
+en	nav_employees	Employees
+en	nav_faqs	FAQs
+en	nav_fingerprints	Attendance
+en	nav_guide_videos	Guide videos
+en	nav_home	Home
+en	nav_hr_affairs	Employee Affairs
+en	nav_join_requests	Join requests
+en	nav_leave_balances	Leave Balances
+en	nav_notifications	Notifications
+en	nav_payroll	Payroll Batches
+en	nav_penalties	Penalties
+en	nav_phone_countries	Countries
+en	nav_profile	Profile
+en	nav_reports	Reports
+en	nav_requests	Requests
+en	nav_salaries_wages	Salaries & Wages
+en	nav_salary_calculator	Tax & Insurance Calculator
+en	nav_setting_templates	Company options
+en	nav_settings	Settings
+en	nav_support	Complaints & Suggestions
+en	nav_system_settings	System settings
+en	nav_workforce_planning	Workforce Planning
+en	net_salary	Net Salary
+en	new_password	New Password
+en	next	Next
+en	no	No
+en	no_data	No data found
+en	no_exception	No exception
+en	no_file_chosen	No file chosen
+en	notif_audience	Recipients
+en	notif_audience_all_companies	All companies
+en	notif_audience_all_employees	All employees
+en	notif_audience_branch	Employees in a branch
+en	notif_audience_company_employees	All employees in a specific company
+en	notif_audience_company_inbox	Specific company
+en	notif_audience_department	Employees in a department
+en	notif_audience_everyone	Everyone (companies + employees)
+en	notif_audience_my_company	All company employees
+en	notif_audience_one_employee	Specific employee
+en	notif_body	Message
+en	notif_schema_required	Run the notifications inbox migration on the database first.
+en	notif_search_placeholder	Search title or message…
+en	notif_select_audience	Select recipient type
+en	notif_select_company	Select company
+en	notif_title	Title
+en	notifications	Notifications
+en	of	of
+en	official_holiday_date	Holiday date
+en	official_holiday_date_exists	This date is already an official holiday
+en	official_holiday_dates	Holiday dates
+en	official_holiday_name	Holiday name
+en	official_holiday_name_placeholder	e.g. Eid Al-Adha
+en	old_password	Current Password
+en	open_complaints	Open employee complaints
+en	optional	Optional
+en	other_fixed_deductions	Other Fixed Deductions
+en	otp_verified	OTP Verified
+en	overtime_hours	Overtime Hours
+en	overtime_pay	Overtime Pay
+en	page	Page
+en	password	Password
+en	password_confirm_field_hint	Re-enter your password
+en	password_field_hint	At least 6 characters
+en	password_field_hint_optional	At least 6 characters (optional)
+en	password_optional	Password (leave blank to keep)
+en	payroll	Payroll Batches
+en	payroll_batch_detail	Payroll batch details
+en	payroll_days_present	Days present
+en	payroll_draft	Payroll Drafts
+en	payroll_report	Payroll Report
+en	payroll_run	Payroll Batch
+en	penalties	Penalties
+en	penalties_search_placeholder	Search by name or employee code
+en	penalty	Penalty
+en	penalty_amount	Amount
+en	penalty_date	Penalty Date
+en	penalty_days	Penalty days
+en	penalty_days_invalid	Invalid penalty days value
+en	penalty_days_unit	days
+en	penalty_deduction	Other Fixed Deductions
+en	penalty_half_day	Half day
+en	penalty_one_day	1 day
+en	penalty_quarter_day	Quarter day
+en	penalty_reason	Reason
+en	penalty_report	Penalties Report
+en	penalty_type	Penalty Type
+en	pending_advances	Pending Advances
+en	pending_approval	Pending Approval
+en	pending_requests	Pending Requests
+en	per_page	per page
+en	period_from	Period From
+en	period_to	Period To
+en	perm_advances	Advances
+en	perm_assets	Assets
+en	perm_attendance	Attendance
+en	perm_branches	Branches
+en	perm_company_settings	Company settings
+en	perm_dashboard	Dashboard
+en	perm_departments	Departments
+en	perm_employees	Employees
+en	perm_job_titles	Job titles
+en	perm_leave_balances	Leave balances
+en	perm_payroll	Payroll
+en	perm_penalties	Penalties
+en	perm_recent_activities	Recent activities
+en	perm_requests	Requests
+en	perm_salary_calculator	Salary calculator
+en	perm_shifts	Shifts
+en	perm_workforce	Workforce planning
+en	permissions_used_count	Permissions
+en	personal_data	Personal Data
+en	phone	Phone
+en	phone_exists	Phone number already in use
+en	phone_length	Phone digits
+en	phone_length_invalid	Invalid phone digit count
+en	phone_prefix_invalid	Prefix is longer than required digit count
+en	phone_prefixes	Number prefixes
+en	phone_prefixes_hint	e.g. 010, 011, 012, 015 — leave empty for length-only validation
+en	pick_branch	Pick branch
+en	pick_department	Pick department
+en	planned	Planned
+en	planned_count	Planned count
+en	platform_both	Desktop & mobile
+en	platform_desktop	Desktop app
+en	platform_mobile	Mobile app
+en	prev	Prev
+en	profile_account	Account details
+en	profile_account_status	Account status
+en	profile_edit_intro	Update your details and save changes.
+en	profile_intro	Overview of your account and company details.
+en	profile_joined_at	Join date
+en	profile_preferences	Preferences
+en	question_ar	Question (AR)
+en	question_en	Question (EN)
+en	reactivate	Reactivate
+en	recent_activities	Recent Activities
+en	recent_activities_sub	Latest check-in, check-out & requests
+en	recipient	Recipient
+en	recipient_company	Company
+en	recipient_employee	Employee
+en	reg_date	Registration Date
+en	reject	Reject
+en	rejected_ok	Rejected
+en	rejection_reason	Rejection Reason
+en	rejection_reason_required	Enter rejection reason
+en	remaining	Remaining
+en	remaining_days	Remaining
+en	remove_holiday_date	Remove
+en	reopen	Reopen
+en	reply	Reply
+en	reply_required	Enter a reply before approving or rejecting
+en	reports	Reports
+en	request_date	Request Date
+en	request_notes	Notes
+en	request_type	Request Type
+en	request_type_in_use	Cannot delete this request type because employees already submitted requests of this type.
+en	request_type_name	Request type
+en	requests	Requests
+en	requests_search_placeholder	Search by name or employee code
+en	reset	Reset
+en	resignations_year	Resignations (YTD)
+en	results_count	Results: %d
+en	risk_allowance	Risk Allowance
+en	role	Role
+en	role_admin	Company Admin
+en	role_employee	Employee
+en	role_hr	HR
+en	role_manager	Manager
+en	rows	rows
+en	salary_allowances_note	Allowances may be exempt up to (30%) of the insured subscription wage as provided by law.
+en	salary_breakdown	Salary breakdown
+en	salary_by_paid_leave	Paid leave salary
+en	salary_by_work_days	Salary by work days
+en	salary_calc_btn	Calculate tax
+en	salary_data	Salary Data
+en	salary_employee_si	Social insurance
+en	salary_employer_si	Employer social insurance
+en	salary_employer_si_hint	Monthly (18.75% of SI base)
+en	salary_gross_hint	Enter monthly salary before tax
+en	salary_gross_monthly	Total monthly salary (EGP)
+en	salary_income_tax	Income tax
+en	salary_martyrs	Martyrs fund tax
+en	salary_monthly	Monthly
+en	salary_net_final	Final net salary
+en	salary_note_age	Social insurance differs for some age groups (e.g. under 18 or over 60) under Egyptian insurance law.
+en	salary_note_approx	This is an approximate estimate, not a detailed income tax calculation, as rules vary by case under the law.
+en	salary_notes_title	Important notes
+en	salary_other_non_taxable	Other amounts not subject to income tax (EGP/month)
+en	salary_other_non_taxable_hint	e.g. medical insurance or group work benefits
+en	salary_si_base	Social insurance base
+en	salary_si_hint	SI is 11% of subscription wage. Min base EGP 2,700, max EGP 16,700. If blank, monthly salary is used within these limits.
+en	salary_total_deductions	Total monthly deductions
+en	salary_yearly	Yearly
+en	save	Save
+en	saved_ok	Saved successfully ✓
+en	search	Search
+en	section	Section
+en	sections	Sections
+en	select	Select
+en	select_at_least_one_branch	Select at least one branch
+en	select_branch	Select branch
+en	select_company_first	Select a company in the filter or form
+en	select_company_first_branches	Select company first
+en	select_company_first_department	Select company first
+en	select_company_first_employees	Select company first
+en	select_department	Select department
+en	send_all_companies	Send to all companies
+en	send_all_companies_hint	One inbox notification per active or pending company.
+en	send_all_employees_system	Send to all employees
+en	send_all_employees_system_hint	Notify every active employee in all companies.
+en	send_notification	Send notification
+en	send_to_all	Send to All
+en	send_to_all_hint	Notify all active employees in the company.
+en	send_to_company_inbox	Send to company
+en	send_to_company_inbox_hint	Shows for the company admin when logged in as company.
+en	send_to_one	Send to One
+en	send_to_one_hint	Notify a single employee.
+en	sent_ok	Sent ✓
+en	setting_definition_key	Technical key
+en	setting_definition_key_readonly	The technical key is fixed and cannot be changed.
+en	setting_option_companies_using	Companies using
+en	setting_option_in_use_delete_blocked	Cannot delete: option is used by {count} company/companies
+en	setting_option_in_use_edit_blocked	Cannot change the code: option is used by {count} company/companies
+en	setting_option_in_use_warning	This option is used by {count} company/companies — only labels can be edited; delete is blocked
+en	setting_option_multi	Multi-select
+en	setting_option_required	Required
+en	setting_option_value	Value (code)
+en	setting_option_value_exists	This value already exists for this setting
+en	setting_option_value_hint	Stable code stored in the system (e.g. sat or fingerprint). Labels are shown to users when set.
+en	setting_option_value_locked_hint	Code is locked because companies use this option. You can still edit labels and sort order.
+en	setting_option_value_too_long	Option value is too long
+en	setting_templates_hint	Manage option values available to companies. If an option is in use: only labels and sort order can be edited; delete is blocked.
+en	settings	Settings
+en	settings_items_count	settings
+en	settings_save_all	Save settings
+en	share	Share
+en	shift	Shift
+en	shift_effective_from	Shift effective from
+en	shift_name	Shift Name
+en	shifts	Shifts
+en	sort_order	Sort Order
+en	start_time	Start Time
+en	status	Status
+en	status_active	Active
+en	status_approved	Approved
+en	status_closed	Closed
+en	status_done	Done
+en	status_draft	Draft
+en	status_finalized	Finalized
+en	status_in_review	In Review
+en	status_inactive	Inactive
+en	status_open	Open
+en	status_paid	Paid
+en	status_pending	Pending
+en	status_rejected	Rejected
+en	status_suspended	Suspended
+en	still_working	Still Working
+en	suspend	Suspend
+en	target_all	Everyone
+en	target_audience	Target Audience
+en	target_company	Companies Only
+en	target_employee	Employees Only
+en	tax_deduction	Tax Deduction
+en	title_ar	Title (Arabic)
+en	title_en	Title (English)
+en	to_date	To Date
+en	to_time	To Time
+en	total_basic_salaries	Total Basic Salaries
+en	total_branches	Total Branches
+en	total_companies	Total Companies
+en	total_days	Total
+en	total_deductions	Total deductions
+en	total_employees	Total Employees
+en	total_entitlements	Total entitlements
+en	total_gross_salaries	Total Gross Salaries
+en	total_net	Total Net
+en	total_penalties	Total Penalties
+en	total_penalties_amount	Total Penalties Amount
+en	transport	Transport
+en	transport_allowance	Transport Allowance
+en	turnover_annual	Annual Turnover Rate
+en	turnover_monthly	Monthly Turnover Rate
+en	turnover_new_3mo	New Employee Turnover (3 Months)
+en	unapplied_penalties	Unapplied Penalties
+en	unauthorized	You are not allowed to do this
+en	update_banner	Update banner
+en	upload_commercial_hint	PDF or image (optional)
+en	upload_logo_hint	Image (JPG, PNG, WebP)
+en	used_days	Used
+en	view_all	View all
+en	view_all_activities	View all activities
+en	view_all_admin_complaints	View all complaints & suggestions
+en	view_all_employee_complaints	View all employee complaints
+en	view_all_join	View all join requests
+en	view_file	View file
+en	weekly_off_clear_all	Clear all
+en	weekly_off_days_clear_hint	Tap a day to turn it on or off. Leave all unselected if you have no weekly rest days.
+en	weekly_off_preset_friday	Friday only
+en	weekly_off_preset_weekend	Fri & Sat
+en	weekly_off_quick_pick	Quick pick
+en	weekly_off_selected_count	Selected rest days: {days}
+en	weekly_off_selected_none	No rest days selected
+en	welcome_greeting	Welcome
+en	work_hours	Work hours
+en	work_hours_optional	Work hours (optional)
+en	work_tenure	Work tenure
+en	workforce_item	Plan
+en	workforce_planning	Workforce Planning
+en	workforce_search_placeholder	Search by job title
+en	year	Year
+en	years	Years
+en	yes	Yes
+ar	absent_today	غايبين اليوم
+ar	account_complete_profile	أكمل ملف الشركة
+ar	account_holder	مسؤول الحساب
+ar	account_pending_review	حسابك قيد المراجعة
+ar	account_rejected	تم رفض حساب الشركة
+ar	account_suspended	تم تعليق حساب الشركة
+ar	account_verify_phone	يرجى تأكيد رقم الهاتف أولاً
+ar	action_external_url	رابط خارجي
+ar	action_internal_route	شاشة داخل التطبيق
+ar	action_none	بدون
+ar	action_whatsapp	واتساب
+ar	actions	الإجراءات
+ar	activate	تفعيل
+ar	active_companies	شركات نشطة
+ar	activity_attendance	حضور
+ar	activity_checkin	حضور
+ar	activity_checkin_at	الحضور في %s
+ar	activity_datetime	التاريخ والوقت
+ar	activity_departure	انصراف
+ar	activity_departure_at	الانصراف في %s
+ar	activity_description	التفاصيل
+ar	activity_kind	نوع النشاط
+ar	activity_request	طلب
+ar	activity_request_of	طلب: %s
+ar	actual	فعلي
+ar	actual_count	العدد الفعلي
+ar	add	إضافة
+ar	add_administrative_decision	إضافة قرار إداري
+ar	add_advance	إضافة سلفة
+ar	add_asset	إضافة عهدة
+ar	add_at_least_one_holiday_date	أضف تاريخ إجازة واحداً على الأقل
+ar	add_attendance	إضافة بصمة
+ar	add_attendance_exception	يُضاف كاستثناء حضور
+ar	add_banner	إضافة بانر
+ar	add_branch	إضافة فرع
+ar	add_company	إضافة شركة
+ar	add_country	إضافة دولة
+ar	add_department	إضافة قسم
+ar	add_employee	إضافة موظف
+ar	add_exception_type	إضافة نوع استثناء
+ar	add_faq_category	إضافة قسم
+ar	add_faq_question	إضافة سؤال
+ar	add_guide_video	إضافة فيديو شرح
+ar	add_holiday_date	إضافة تاريخ
+ar	add_hr_user	إضافة مستخدم HR
+ar	add_hr_user_desc	إنشاء حساب موارد بشرية بصلاحيات محددة
+ar	add_job_title	إضافة مسمى وظيفي
+ar	add_leave_balance	إضافة رصيد إجازة
+ar	add_official_holiday	إضافة إجازة رسمية
+ar	add_penalty	إضافة جزاء
+ar	add_request_type	إضافة نوع طلب
+ar	add_setting_option	إضافة قيمة
+ar	add_shift	إضافة وردية
+ar	add_workforce	إضافة تخطيط
+ar	address	العنوان
+ar	admin	أدمن
+ar	admin_broadcast_section	بث النظام (مدير المنصة)
+ar	admin_complaints_empty_sub	لا توجد شكاوى أو مقترحات جديدة حالياً
+ar	admin_panel	لوحة التحكم
+ar	admin_reply	الرد
+ar	administrative_decisions_search_placeholder	ابحث بالعنوان أو نص القرار…
+ar	advance	سلفة
+ar	advance_amount	مبلغ السلفة
+ar	advance_deduction	سلف مسجّلة
+ar	advance_reason	السبب
+ar	advances	السلف
+ar	advances_deduction	تأمين طبي
+ar	advances_deduction_label	تأمين طبي
+ar	advances_search_placeholder	ابحث بالاسم أو كود الموظف
+ar	age_fifty_plus	50+
+ar	age_forties	40–49
+ar	age_thirties	30–39
+ar	age_twenties	20–29
+ar	age_under_20	أقل من 20
+ar	all	الكل
+ar	all_categories	كل الأقسام
+ar	all_recipients	كل المستلمين
+ar	allowances	البدلات
+ar	already_exists	مسجل مسبقاً
+ar	answer_ar	الإجابة بالعربي
+ar	answer_en	الإجابة بالإنجليزي
+ar	app_content_last_updated	آخر تحديث
+ar	app_content_save_section	حفظ هذا القسم
+ar	app_desc	نظام إدارة الموارد البشرية
+ar	app_name	Work In
+ar	app_platform	يظهر على
+ar	applied_payroll	طُبّق على مرتب
+ar	approval_trail	مسار الموافقات
+ar	approve	قبول
+ar	approved_ok	تم القبول ✓
+ar	approver	المعتمد
+ar	article_body	محتوى المقال
+ar	article_title	عنوان المقال
+ar	articles	المقالات
+ar	asset	عهدة
+ar	asset_date	تاريخ استلام العهدة
+ar	asset_end_date	تاريخ انتهاء العهدة
+ar	asset_text	العهدة
+ar	assets	العهد
+ar	assets_search_placeholder	ابحث بالاسم أو كود الموظف
+ar	att_absent_days	عدد أيام الغياب
+ar	att_aggregate_report	التقرير الإجمالي
+ar	att_check_in_time	بصمة الدخول
+ar	att_check_out_time	بصمة الخروج
+ar	att_day	اليوم
+ar	att_days_in_period	عدد أيام الفترة
+ar	att_delete_range	حذف متعدد
+ar	att_exception_days	عدد أيام الاستثناءات
+ar	att_overtime_shortage	الإضافي / النقص
+ar	att_paid_rest_hours	إجمالي ساعات الراحات المدفوعة
+ar	att_present_days	عدد أيام الحضور
+ar	att_range_delete_confirm	سيتم حذف كل بصمات الشركة في الفترة المحددة نهائياً. هل أنت متأكد؟
+ar	att_range_deleted	تم حذف {count} بصمة في الفترة المحددة.
+ar	att_records	سجلات البصمات
+ar	att_search_placeholder	ابحث بالاسم أو كود الموظف
+ar	att_total_work_hours	إجمالي ساعات العمل
+ar	attendance	الحضور والانصراف
+ar	attendance_report	تقرير الحضور
+ar	back	رجوع
+ar	back_to_profile	العودة للملف
+ar	banner_action_route_placeholder	مثال: employees أو dashboard
+ar	banner_action_url_placeholder	https://example.com
+ar	banner_action_whatsapp_placeholder	1012345678
+ar	banner_image	صورة البانر
+ar	banner_image_required	يرجى اختيار صورة للبانر
+ar	banner_preview	معاينة
+ar	banner_upload_hint	JPG أو PNG أو WebP — تُرفع إلى مجلد البانرات
+ar	banner_whatsapp_number	رقم واتساب
+ar	banners	البانرات
+ar	basic_salary	الراتب الأساسي
+ar	birth_date	تاريخ الميلاد
+ar	branch	الفرع
+ar	branch_attendance_radius	أقصى مسافة لتسجيل الحضور (متر)
+ar	branch_generate_qr	إنشاء رمز QR للحضور
+ar	branch_no_location	لا يوجد موقع
+ar	branch_open_map	فتح الخريطة
+ar	branch_qr_active	الرمز الحالي ساري
+ar	branch_qr_create	إنشاء الرمز
+ar	branch_qr_expired	الرمز منتهي — أنشئ رمزاً جديداً
+ar	branch_qr_expires_at	صلاحية الرمز حتى
+ar	branch_qr_generated_ok	تم إنشاء رمز QR للحضور
+ar	branch_qr_invalid_expiry	تاريخ الصلاحية غير صالح أو في الماضي
+ar	branch_qr_none	لا يوجد رمز — حدد تاريخ الصلاحية ثم أنشئ
+ar	branch_qr_regenerate	إنشاء رمز جديد
+ar	branches	الفروع
+ar	branches_clear_all	إلغاء التحديد
+ar	branches_search	بحث عن فرع...
+ar	branches_select_all	تحديد الكل
+ar	branches_select_hint	يمكن اختيار أكثر من فرع
+ar	branches_selected_label	فرع محدد
+ar	branches_selected_label_plural	فروع محددة
+ar	button_action_type	إجراء الزر
+ar	button_action_value	الرابط أو مفتاح الشاشة
+ar	button_label_ar	نص الزر (عربي)
+ar	button_label_en	نص الزر (إنجليزي)
+ar	calculate	احتساب تلقائي
+ar	cancel	إلغاء
+ar	change_password	تغيير كلمة السر
+ar	change_password_intro	بعد تغيير كلمة السر سيتم تسجيل خروجك تلقائياً.
+ar	chart_age	توزيع الموظفين حسب العمر
+ar	chart_att_dept	نسب الحضور حسب القسم
+ar	chart_daily_att	نسب الحضور اليومي
+ar	chart_emp_branch	توزيع العاملين حسب الفروع
+ar	chart_emp_dept	توزيع العاملين حسب الأقسام
+ar	chart_gender	توزيع الموظفين حسب الجنس
+ar	chart_new_monthly	الموظفون الجدد شهرياً
+ar	chart_pen_dept	الجزاءات حسب القسم
+ar	chart_salary_dept	توزيع المرتبات حسب الأقسام
+ar	chart_unknown	غير محدد
+ar	chart_workforce	نسب استكمال الوظائف
+ar	check_in	دخول
+ar	check_out	خروج
+ar	checked_in_today	الحضور اليوم
+ar	choose_file	اختر ملف
+ar	choose_option	— اختر —
+ar	close	إغلاق
+ar	comment	تعليق
+ar	commercial_reg	السجل التجاري
+ar	commercial_reg_optional	السجل التجاري (اختياري)
+ar	companies	الشركات
+ar	company	الشركة
+ar	company_activity	نشاط الشركة
+ar	company_code	كود الشركة
+ar	company_code_hint	5–32 حرفاً أو رقماً (حروف إنجليزية وأرقام فقط)
+ar	company_code_invalid	كود الشركة غير صالح
+ar	company_code_taken	كود الشركة مستخدم بالفعل
+ar	company_data	بيانات الشركة
+ar	company_email	إيميل الشركة
+ar	company_logo	لوجو الشركة
+ar	company_name	اسم الشركة
+ar	company_phone	تليفون الشركة
+ar	company_settings_exception_types	أنواع استثناءات الحضور
+ar	company_settings_general	إعدادات عامة
+ar	company_settings_official_holidays	الإجازات الرسمية
+ar	company_settings_request_types	أنواع الطلبات
+ar	company_settings_users	المستخدمون والصلاحيات
+ar	company_size	حجم الشركة
+ar	company_title	الصفة
+ar	complaint_mark_resolved	تم الحل
+ar	complaint_mark_resolved_confirm	تأكيد إنهاء الشكوى وتحويلها إلى «تم»؟
+ar	complaint_msg	الرسالة
+ar	complaint_source	نوع الشكوى
+ar	complaint_source_company_to_admin	شركة ← إدارة المنصة
+ar	complaint_source_company_to_admin_hint	شكاوى ومقترحات ترسلها الشركة لإدارة المنصة.
+ar	complaint_source_employee_to_company	موظف ← شركة
+ar	complaint_source_employee_to_company_hint	شكاوى الموظفين الموجهة لشركاتهم (صندوق الشركة).
+ar	complaint_submitter	مقدّم الطلب
+ar	complaints	الشكاوى والمقترحات
+ar	complaints_search_placeholder	بحث بالاسم أو الهاتف أو الرسالة…
+ar	config_android_maintenance	أندرويد
+ar	config_attendance_excel_import_from	رفع Excel للحضور — متاح من
+ar	config_attendance_excel_import_from_hint	تاريخ Y-m-d. قبل هذا التاريخ يُرفض الرفع من التطبيق والـ API.
+ar	config_group_features	ميزات التطبيق
+ar	config_group_general	عام
+ar	config_group_maintenance	التطبيق في وضع الصيانة
+ar	config_group_versions	الحد الأدنى لرقم ال Build
+ar	config_ios_maintenance	iOS
+ar	config_is_daylight_saving	التوقيت الصيفي (UTC+3)
+ar	config_is_daylight_saving_hint	عند التعطيل يُستخدم UTC+2.
+ar	config_mac_maintenance	ماك
+ar	config_min_android_build	أندرويد
+ar	config_min_ios_build	iOS
+ar	config_min_mac_build	ماك
+ar	config_min_windows_build	ويندوز
+ar	config_show_banners	إظهار البانرات
+ar	config_show_compliance	إظهار الامتثال
+ar	config_show_export_fingerprints_sheet	إظهار تصدير شيت البصمات
+ar	config_show_export_fingerprints_sheet_hint	يظهر زر تصدير شيت البصمات داخل شاشة البصمات
+ar	config_show_export_overall_sheet	إظهار تصدير الشيت الإجمالي
+ar	config_show_export_overall_sheet_hint	يظهر زر تصدير الشيت الإجمالي داخل شاشة البصمات
+ar	config_support_whatsapp	واتساب الدعم الفني
+ar	config_support_whatsapp_hint	رقم مع كود الدولة بدون رموز (مثال: 2010xxxxxxxx)
+ar	config_website_url	رابط الموقع
+ar	config_windows_maintenance	ويندوز
+ar	confirm_action	هل أنت متأكد من تنفيذ هذا الإجراء؟
+ar	confirm_approve_advance	هل تريد قبول هذه السلفة؟
+ar	confirm_broadcast	إرسال هذا الإشعار لعدد كبير من المستلمين؟
+ar	confirm_delete	هل تريد الحذف؟ لا يمكن التراجع!
+ar	confirm_password	تأكيد كلمة السر
+ar	contact_whatsapp	واتساب
+ar	content	المحتوى
+ar	contract_basic_salary	الراتب الأساسي
+ar	contract_duration	مدة العقد
+ar	contract_duration_unit	وحدة مدة العقد
+ar	country_code	كود الدولة
+ar	country_egypt	مصر (+20)
+ar	country_libya	ليبيا (+218)
+ar	country_name_egypt	مصر
+ar	country_name_libya	ليبيا
+ar	country_name_saudi	المملكة العربية السعودية
+ar	country_name_uae	الإمارات العربية المتحدة
+ar	country_saudi	السعودية (+966)
+ar	country_uae	الإمارات (+971)
+ar	counts_as_paid_leave	يُحسب يوم مدفوع (لا يُخصم من المرتب)
+ar	create_payroll_batch	إنشاء دفعة رواتب
+ar	create_run	إنشاء دفعة رواتب
+ar	created_at	تاريخ الإضافة
+ar	currency_egp	ج.م
+ar	current_logo	اللوجو الحالي محفوظ
+ar	daily_basic_rate	راتب اليوم
+ar	date	التاريخ
+ar	days_absent	غائب
+ar	days_leave	إجازة
+ar	days_off	أيام الراحة
+ar	days_present	حاضر
+ar	deactivate	إيقاف
+ar	decision_body	نص القرار
+ar	decision_reply	الرد
+ar	decision_status_active	منشور (يظهر للموظفين)
+ar	decision_status_inactive	غير منشور
+ar	decision_title	عنوان القرار
+ar	deduct_balance	يخصم من رصيد الإجازات
+ar	deductions	الخصومات
+ar	deducts_balance	يخصم من الرصيد
+ar	delete	حذف
+ar	deleted_ok	تم الحذف
+ar	department	القسم
+ar	departments	الأقسام
+ar	description_ar	الوصف (عربي)
+ar	description_en	الوصف (إنجليزي)
+ar	details	تفاصيل
+ar	duration_hours	عدد الساعات
+ar	edit	تعديل
+ar	edit_administrative_decision	تعديل قرار إداري
+ar	edit_attendance	تعديل بصمة
+ar	edit_banner	تعديل البانر
+ar	edit_country	تعديل دولة
+ar	edit_employee	تعديل موظف
+ar	edit_exception_type	تعديل نوع استثناء
+ar	edit_faq_category	تعديل القسم
+ar	edit_faq_question	تعديل السؤال
+ar	edit_guide_video	تعديل فيديو الشرح
+ar	edit_official_holiday	تعديل إجازة رسمية
+ar	edit_permissions	تعديل الصلاحيات
+ar	edit_profile	تعديل الملف الشخصي
+ar	edit_profile_title	تعديل الملف الشخصي
+ar	edit_request_type	تعديل نوع طلب
+ar	edit_setting_definition	تعديل الإعداد
+ar	edit_setting_option	تعديل قيمة
+ar	egp	جنية
+ar	email	البريد الإلكتروني
+ar	emp_code	كود الموظف
+ar	employee	موظف
+ar	employee_all_branches	جميع فروع الشركة
+ar	employee_branch_optional_hint	إذا حدّدت فرعاً، يجب على الموظف تسجيل حضوره من هذا الفرع فقط. إذا لم تحدّد فرعاً، يمكنه تسجيل بصمته من أي فرع تابع للشركة.
+ar	employee_code_invalid	كود الموظف يجب أن يكون أرقاماً فقط (رقم واحد على الأقل)
+ar	employee_complaints	شكاوي الموظفين
+ar	employee_complaints_empty_sub	لا توجد شكاوى موظفين جديدة حالياً
+ar	employee_complaints_sub	شكاوى جديدة في انتظار المراجعة
+ar	employee_logo	صورة الموظف
+ar	employee_mobile_login_hint	رقم الهاتف وكلمة المرور هما بيانات تسجيل دخول الموظف في تطبيق الموبايل. إذا تُرك أحدهما فارغاً لن يتمكن الموظف من تسجيل الدخول.
+ar	employee_name	اسم الموظف
+ar	employee_picker_placeholder	ابحث باسم الموظف أو الكود...
+ar	employees	الموظفين
+ar	end_time	وقت النهاية
+ar	entitlements	الاستحقاقات
+ar	error_auth	كلمة السر غلط
+ar	error_csrf	انتهت صلاحية الجلسة — حدّث الصفحة وحاول مرة أخرى
+ar	error_db	خطأ في قاعدة البيانات
+ar	error_invalid_country	كود الدولة غير صالح
+ar	error_invalid_phone	رقم الهاتف غير صالح لهذه الدولة
+ar	error_logo_required	يرجى رفع لوجو الشركة
+ar	error_password_min	كلمة المرور 6 أحرف على الأقل
+ar	error_password_mismatch	كلمة السر غير متطابقة
+ar	error_phone_registered	رقم الهاتف مسجّل مسبقاً
+ar	error_required	هذا الحقل مطلوب
+ar	exception	الاستثناء
+ar	exception_type	نوع الاستثناء
+ar	exception_type_name	اسم نوع الاستثناء
+ar	export_csv	تصدير CSV
+ar	faq_categories	أقسام الأسئلة
+ar	faq_category	القسم
+ar	faq_category_not_found	القسم غير موجود
+ar	faq_delete_category_confirm	حذف القسم سيحذف كل أسئلته. متأكد؟
+ar	faq_items_count	عدد الأسئلة
+ar	faq_questions	الأسئلة والإجابات
+ar	filter	فلتر
+ar	filter_all	الكل
+ar	filter_all_companies	كل الشركات
+ar	filter_attendance	الحضور والانصراف
+ar	filter_job_title	المسمى الوظيفي
+ar	filter_requests	الطلبات
+ar	finalize	اعتماد
+ar	first	الأول
+ar	first_name	الاسم الأول
+ar	flag_emoji	علم الدولة
+ar	food_allowance	بدل طعام
+ar	from_date	من تاريخ
+ar	from_time	من وقت
+ar	full_name	الاسم الكامل
+ar	fund_deduction	الصناديق
+ar	gender	الجنس
+ar	gender_female	أنثى
+ar	gender_male	ذكر
+ar	gender_other	أخرى
+ar	guide_video_file	ملف الفيديو
+ar	guide_video_hint	ارفع الملف إلى uploads/guide_videos ثم اكتب اسمه هنا (مثل intro.mp4). يمكن وضع صورة مصغرة بنفس الاسم (intro.jpg).
+ar	hire_date	تاريخ التعيين
+ar	holiday_date_already_added	هذا التاريخ مُضاف مسبقاً
+ar	home_subtitle	إدارة الموظفين والطلبات والحضور
+ar	hour_unit	ساعة
+ar	hours_worked	الساعات
+ar	housing	بدل السكن
+ar	hr_permissions_hint	حدد الصلاحيات التي يمكن لهذا المستخدم الوصول إليها
+ar	hr_users_search_placeholder	ابحث بكود الموظف أو الاسم
+ar	image_url	رابط الصورة
+ar	incentives	حوافز
+ar	installments	عدد الأقساط
+ar	insufficient_leave_balance	رصيد الإجازات غير كافٍ
+ar	insurance_deduction	التأمينات
+ar	is_active	منشور
+ar	is_read	مقروء
+ar	is_returned	تم الإرجاع
+ar	job_details	بيانات الوظيفة
+ar	job_title	المسمى الوظيفي
+ar	job_titles	المسميات الوظيفية
+ar	job_titles_count	المسميات
+ar	join_accept_edit_hint	بعد القبول سيتم فتح تعديل الموظف لإكمال البيانات والوردية
+ar	join_accept_failed	تعذر قبول الطلب — تأكد أنه لا يزال قيد الانتظار
+ar	join_reject_failed	تعذر رفض الطلب
+ar	join_request_status	حالة الطلب
+ar	join_requests	طلبات الانضمام للشركة
+ar	join_requests_empty_sub	جميع طلبات الانضمام تمت مراجعتها
+ar	join_requests_sub	طلب جديد في انتظار المراجعة
+ar	language	اللغة
+ar	last	الأخير
+ar	last_name	الاسم الأخير
+ar	latitude	خط العرض
+ar	leave_balance	رصيد الإجازة
+ar	leave_balances	أرصدة الإجازات
+ar	leave_balances_search_placeholder	ابحث بالاسم أو كود الموظف
+ar	leave_report	تقرير الإجازات
+ar	loading	جاري التحميل...
+ar	location	الموقع
+ar	login_btn	تسجيل الدخول
+ar	login_company_id	معرف الشركة (اختياري)
+ar	login_feat_br_desc	فروع، أقسام، وورديات منظمة
+ar	login_feat_br_title	فروع وبيئات متعددة
+ar	login_feat_dec_desc	بيانات موحدة لإدارة أفضل
+ar	login_feat_dec_title	دعم اتخاذ القرار
+ar	login_feat_hr_desc	موظفون، طلبات، إجازات، وأصول في مكان واحد
+ar	login_feat_hr_title	إدارة شاملة للموارد البشرية
+ar	login_feat_perf_desc	واجهة سريعة وتجربة سلسة
+ar	login_feat_perf_title	سرعة وأداء عالي
+ar	login_feat_rep_desc	مؤشرات ولوحات تدعم القرار
+ar	login_feat_rep_title	تقارير وتحليلات ذكية
+ar	login_feat_sec_desc	تحكم دقيق حسب الدور والشركة
+ar	login_feat_sec_title	صلاحيات آمنة ومرنة
+ar	login_fill_required	املأ الحقول المطلوبة أولاً
+ar	login_forgot	نسيت كلمة المرور؟
+ar	login_hero_desc	منصة متكاملة لإدارة الموارد البشرية والحضور والرواتب — بصلاحيات مرنة وتقارير تدعم قراراتك.
+ar	login_hero_headline	نحو بيئة عمل أكثر ذكاءً
+ar	login_hr	موارد بشرية
+ar	login_locked	تم تعليق المحاولات مؤقتاً — حاول بعد قليل
+ar	login_password_ph	أدخل كلمة المرور
+ar	login_remember	تذكرني
+ar	login_tab_company	شركة
+ar	login_title	تسجيل الدخول
+ar	login_version	الإصدار
+ar	login_welcome_back	مرحباً بك مجدداً
+ar	login_welcome_sub	قم بتسجيل الدخول للمتابعة إلى حسابك
+ar	logout	تسجيل خروج
+ar	longitude	خط الطول
+ar	main_branch	فرع رئيسي
+ar	main_branch_address	عنوان الفرع الرئيسي
+ar	manager	المدير المباشر
+ar	mandatory	إجباري
+ar	mark_applied	تطبيق
+ar	mark_paid	سدّد
+ar	mark_returned	تسجيل إرجاع
+ar	medical_insurance_deduction	تأمين طبي
+ar	menu	القائمة
+ar	method	الطريقة
+ar	method_app	تطبيق
+ar	method_excel	إكسل
+ar	method_qr	QR
+ar	minute_unit	دقيقة
+ar	mobile_attendance	حضور وانصراف الموبايل
+ar	mobile_attendance_enabled	السماح بتسجيل الحضور والانصراف من تطبيق الموبايل
+ar	modified	معدّل
+ar	month	الشهر
+ar	month_end	يوم نهاية الشهر
+ar	month_start	يوم بداية الشهر
+ar	monthly_net	صافي هذا الشهر
+ar	months	أشهر
+ar	name_ar	الاسم بالعربي
+ar	name_en	الاسم بالإنجليزي
+ar	national_id	الرقم القومي
+ar	nav_activities	سجل الأنشطة
+ar	nav_administrative_decisions	القرارات الإدارية
+ar	nav_advances	السلف
+ar	nav_app_content	محتوى التطبيق
+ar	nav_assets	العهد
+ar	nav_attendance	الحضور
+ar	nav_banners	البانرات
+ar	nav_branches	الفروع والأقسام
+ar	nav_branches_shifts	الهيكل التنظيمي
+ar	nav_change_password	تغيير كلمة السر
+ar	nav_comms_content	التواصل والمحتوى
+ar	nav_companies	الشركات
+ar	nav_company_settings	إعدادات الشركة
+ar	nav_complaints	شكاوي الموظفين
+ar	nav_complaints_admin	الشكاوى والمقترحات
+ar	nav_content	المحتوى
+ar	nav_employee_requests	طلبات الموظفين
+ar	nav_employees	الموظفين
+ar	nav_faqs	الأسئلة الشائعة
+ar	nav_fingerprints	البصمات
+ar	nav_guide_videos	فيديوهات الشرح
+ar	nav_home	الرئيسية
+ar	nav_hr_affairs	شؤون العاملين
+ar	nav_join_requests	طلبات الانضمام
+ar	nav_leave_balances	رصيد الإجازات
+ar	nav_notifications	الإشعارات
+ar	nav_payroll	دفعات الرواتب
+ar	nav_penalties	الجزاءات
+ar	nav_phone_countries	الدول
+ar	nav_profile	الملف الشخصي
+ar	nav_reports	التقارير
+ar	nav_requests	الطلبات
+ar	nav_salaries_wages	الرواتب والأجور
+ar	nav_salary_calculator	حاسبة الضرائب والتأمينات
+ar	nav_setting_templates	خيارات الشركات
+ar	nav_settings	الإعدادات
+ar	nav_support	الشكاوى والمقترحات
+ar	nav_system_settings	إعدادات النظام
+ar	nav_workforce_planning	تخطيط القوة العاملة
+ar	net_salary	الصافي
+ar	new_password	كلمة السر الجديدة
+ar	next	التالي
+ar	no	لا
+ar	no_data	لا توجد بيانات
+ar	no_exception	بدون استثناء
+ar	no_file_chosen	لم يُختر ملف
+ar	notif_audience	المستهدفون
+ar	notif_audience_all_companies	كل الشركات
+ar	notif_audience_all_employees	كل الموظفين
+ar	notif_audience_branch	موظفو فرع معين
+ar	notif_audience_company_employees	كل موظفي شركة معينة
+ar	notif_audience_company_inbox	شركة معينة
+ar	notif_audience_department	موظفو قسم معين
+ar	notif_audience_everyone	الجميع (شركات + موظفين)
+ar	notif_audience_my_company	كل موظفي الشركة
+ar	notif_audience_one_employee	موظف محدد
+ar	notif_body	الرسالة
+ar	notif_schema_required	شغّل migration الإشعارات على قاعدة البيانات أولاً.
+ar	notif_search_placeholder	بحث بالعنوان أو الرسالة…
+ar	notif_select_audience	اختر نوع الإرسال
+ar	notif_select_company	اختر الشركة
+ar	notif_title	العنوان
+ar	notifications	الإشعارات
+ar	of	من
+ar	official_holiday_date	تاريخ الإجازة
+ar	official_holiday_date_exists	هذا التاريخ مُسجَّل مسبقاً كإجازة رسمية
+ar	official_holiday_dates	تواريخ الإجازة
+ar	official_holiday_name	اسم الإجازة
+ar	official_holiday_name_placeholder	مثال: عيد الأضحى
+ar	old_password	كلمة السر الحالية
+ar	open_complaints	شكاوي الموظفين المفتوحة
+ar	optional	اختياري
+ar	other_fixed_deductions	خصومات ثابتة أخرى
+ar	otp_verified	OTP مؤكد
+ar	overtime_hours	ساعات أوفرتايم
+ar	overtime_pay	الأوفرتايم
+ar	page	صفحة
+ar	password	كلمة السر
+ar	password_confirm_field_hint	أعد إدخال كلمة المرور
+ar	password_field_hint	٦ أحرف على الأقل
+ar	password_field_hint_optional	٦ أحرف على الأقل (اختياري)
+ar	password_optional	كلمة المرور (اتركها فارغة لعدم التغيير)
+ar	payroll	دفعات الرواتب
+ar	payroll_batch_detail	تفاصيل دفعة الرواتب
+ar	payroll_days_present	أيام الحضور
+ar	payroll_draft	مرتبات مسودة
+ar	payroll_report	تقرير المرتبات
+ar	payroll_run	دفعة رواتب
+ar	penalties	الجزاءات
+ar	penalties_search_placeholder	ابحث بالاسم أو كود الموظف
+ar	penalty	جزاء
+ar	penalty_amount	المبلغ
+ar	penalty_date	تاريخ الجزاء
+ar	penalty_days	أيام الجزاء
+ar	penalty_days_invalid	قيمة أيام الجزاء غير صالحة
+ar	penalty_days_unit	أيام
+ar	penalty_deduction	خصومات ثابتة أخرى
+ar	penalty_half_day	نص يوم
+ar	penalty_one_day	يوم
+ar	penalty_quarter_day	ربع يوم
+ar	penalty_reason	السبب
+ar	penalty_report	تقرير الجزاءات
+ar	penalty_type	نوع الجزاء
+ar	pending_advances	سلف معلقة
+ar	pending_approval	تنتظر موافقة
+ar	pending_requests	طلبات معلقة
+ar	per_page	لكل صفحة
+ar	period_from	بداية الفترة
+ar	period_to	نهاية الفترة
+ar	perm_advances	السلف
+ar	perm_assets	العهد
+ar	perm_attendance	الحضور
+ar	perm_branches	الفروع
+ar	perm_company_settings	إعدادات الشركة
+ar	perm_dashboard	لوحة التحكم
+ar	perm_departments	الأقسام
+ar	perm_employees	الموظفون
+ar	perm_job_titles	المسميات
+ar	perm_leave_balances	رصيد الإجازات
+ar	perm_payroll	الرواتب
+ar	perm_penalties	الجزاءات
+ar	perm_recent_activities	آخر الأنشطة
+ar	perm_requests	الطلبات
+ar	perm_salary_calculator	حاسبة الرواتب
+ar	perm_shifts	الورديات
+ar	perm_workforce	تخطيط القوة العاملة
+ar	permissions_used_count	الصلاحيات
+ar	personal_data	البيانات الشخصية
+ar	phone	التليفون
+ar	phone_exists	رقم الهاتف مستخدم مسبقاً
+ar	phone_length	عدد أرقام الهاتف
+ar	phone_length_invalid	عدد أرقام الهاتف غير صالح
+ar	phone_prefix_invalid	بادئة الرقم أطول من العدد المطلوب
+ar	phone_prefixes	بادئات الرقم
+ar	phone_prefixes_hint	مثال: 010, 011, 012, 015 — اتركه فارغاً إذا لا يوجد قيد للبادئة
+ar	pick_branch	اختر الفرع
+ar	pick_department	اختر القسم
+ar	planned	مخطط
+ar	planned_count	العدد المخطط
+ar	platform_both	الديسكتوب والموبايل
+ar	platform_desktop	تطبيق الديسكتوب
+ar	platform_mobile	تطبيق الموبايل
+ar	prev	السابق
+ar	profile_account	بيانات الحساب
+ar	profile_account_status	حالة الحساب
+ar	profile_edit_intro	حدّث بياناتك ثم احفظ التغييرات.
+ar	profile_intro	نظرة عامة على بيانات حسابك وشركتك.
+ar	profile_joined_at	تاريخ الانضمام
+ar	profile_preferences	التفضيلات
+ar	question_ar	السؤال بالعربي
+ar	question_en	السؤال بالإنجليزي
+ar	reactivate	تفعيل
+ar	recent_activities	آخر الأنشطة
+ar	recent_activities_sub	أحدث تسجيلات الحضور والانصراف والطلبات
+ar	recipient	المستلم
+ar	recipient_company	الشركة
+ar	recipient_employee	موظف
+ar	reg_date	تاريخ التسجيل
+ar	reject	رفض
+ar	rejected_ok	تم الرفض
+ar	rejection_reason	سبب الرفض
+ar	rejection_reason_required	اكتب سبب الرفض
+ar	remaining	المتبقي
+ar	remaining_days	المتبقي
+ar	remove_holiday_date	إزالة
+ar	reopen	إعادة فتح
+ar	reply	رد
+ar	reply_required	اكتب الرد قبل القبول أو الرفض
+ar	reports	التقارير
+ar	request_date	تاريخ الطلب
+ar	request_notes	ملاحظات
+ar	request_type	نوع الطلب
+ar	request_type_in_use	لا يمكن حذف نوع الطلب لأنه مستخدم في طلبات موظفين موجودة.
+ar	request_type_name	نوع الطلب
+ar	requests	الطلبات
+ar	requests_search_placeholder	ابحث بالاسم أو كود الموظف
+ar	reset	إعادة تعيين
+ar	resignations_year	استقالات هذا العام
+ar	results_count	النتائج: %d
+ar	risk_allowance	بدل مخاطر
+ar	role	الدور
+ar	role_admin	أدمن شركة
+ar	role_employee	موظف
+ar	role_hr	HR
+ar	role_manager	مدير
+ar	rows	صف
+ar	salary_allowances_note	تُعفى البدلات بنسبة تصل إلى (30%) من أجر اشتراك المؤمن عليه طبقًا للقوانين.
+ar	salary_breakdown	تفصيل الراتب
+ar	salary_by_paid_leave	راتب الإجازات المدفوعة
+ar	salary_by_work_days	الراتب حسب أيام العمل
+ar	salary_calc_btn	احسب الضريبة
+ar	salary_data	بيانات المرتب
+ar	salary_employee_si	التأمين الاجتماعي
+ar	salary_employer_si	تأمين اجتماعي لصاحب العمل
+ar	salary_employer_si_hint	شهري (18.75% من أساس التأمين الاجتماعي)
+ar	salary_gross_hint	أدخل راتبك الشهري قبل الضرائب
+ar	salary_gross_monthly	الراتب الشهري الإجمالي (جنيه مصري)
+ar	salary_income_tax	الضريبة المستحقة
+ar	salary_martyrs	ضريبة صندوق الشهداء والمصابين
+ar	salary_monthly	شهري
+ar	salary_net_final	الراتب الصافي النهائي
+ar	salary_note_age	تختلف التأمينات الاجتماعية لبعض الفئات العمرية كما نصّ عليه قانون التأمينات والمعاشات المصري؛ على سبيل المثال: الفئات دون 18 عامًا، أو فوق 60 عامًا.
+ar	salary_note_approx	تعمل هذه الحسابة كحساب تقريبي وليس حسابًا تفصيليًا لضريبة الدخل، وذلك لتغيّر احتساب الضريبة طبقًا للحالات المختلفة كما نصّ عليه القانون.
+ar	salary_notes_title	ملاحظات هامة جدًا
+ar	salary_other_non_taxable	مبالغ أخرى لا تخضع لضريبة الدخل (جنيه/شهر)
+ar	salary_other_non_taxable_hint	مثال على ذلك: التأمين الطبي، أو مميزات العمل الجماعي.
+ar	salary_si_base	أساس التأمين الاجتماعي
+ar	salary_si_hint	تُحسب التأمينات بنسبة 11% من أجر الاشتراك، بحد أدنى 2,700 جنيه وأقصى 16,700 جنيه شهريًا. عند ترك الحقل فارغًا يُعتمد الراتب الشهري مع مراعاة الحدين.
+ar	salary_total_deductions	إجمالي الخصومات الشهرية
+ar	salary_yearly	سنوي
+ar	save	حفظ
+ar	saved_ok	تم الحفظ بنجاح ✓
+ar	search	بحث
+ar	section	القسم
+ar	sections	الأقسام
+ar	select	اختر
+ar	select_at_least_one_branch	اختر فرعاً واحداً على الأقل
+ar	select_branch	اختر الفرع
+ar	select_company_first	اختر شركة من الفلتر أو من النموذج
+ar	select_company_first_branches	اختر الشركة أولاً
+ar	select_company_first_department	اختر الشركة أولاً
+ar	select_company_first_employees	اختر الشركة أولاً
+ar	select_department	اختر القسم
+ar	send_all_companies	إرسال لكل الشركات
+ar	send_all_companies_hint	إشعار واحد في صندوق كل شركة نشطة أو قيد المراجعة.
+ar	send_all_employees_system	إرسال لكل الموظفين
+ar	send_all_employees_system_hint	إشعار لكل موظف نشط في كل الشركات.
+ar	send_notification	إرسال إشعار
+ar	send_to_all	إرسال للجميع
+ar	send_to_all_hint	إشعار لكل الموظفين النشطين في الشركة (تطبيق الموظف لاحقاً).
+ar	send_to_company_inbox	إرسال للشركة
+ar	send_to_company_inbox_hint	يظهر لمدير الشركة عند تسجيل الدخول كشركة.
+ar	send_to_one	إرسال لموظف محدد
+ar	send_to_one_hint	إشعار لموظف واحد فقط.
+ar	sent_ok	تم الإرسال ✓
+ar	setting_definition_key	المفتاح التقني
+ar	setting_definition_key_readonly	المفتاح التقني ثابت ولا يمكن تغييره.
+ar	setting_option_companies_using	شركات تستخدمها
+ar	setting_option_in_use_delete_blocked	لا يمكن الحذف: القيمة مستخدمة من {count} شركة
+ar	setting_option_in_use_edit_blocked	لا يمكن تغيير الكود: القيمة مستخدمة من {count} شركة
+ar	setting_option_in_use_warning	هذه القيمة مستخدمة من {count} شركة — يمكن تعديل الاسم فقط، والحذف غير متاح
+ar	setting_option_multi	اختيار متعدد
+ar	setting_option_required	مطلوب
+ar	setting_option_value	القيمة (الكود)
+ar	setting_option_value_exists	هذه القيمة موجودة مسبقاً في نفس الإعداد
+ar	setting_option_value_hint	كود ثابت يُخزَّن في النظام (مثل sat أو fingerprint). لا يظهر للمستخدم إن وُجدت تسمية.
+ar	setting_option_value_locked_hint	الكود مقفول لأن شركات تستخدم هذه القيمة. يمكنك تعديل الاسم والترتيب فقط.
+ar	setting_option_value_too_long	قيمة الخيار طويلة جداً
+ar	setting_templates_hint	إدارة القيم المتاحة للشركات في إعدادات الشركة. لو القيمة مستخدمة: يمكن تعديل الاسم والترتيب فقط، والحذف غير متاح.
+ar	settings	الإعدادات
+ar	settings_items_count	إعدادات
+ar	settings_save_all	حفظ الإعدادات
+ar	share	مشاركة
+ar	shift	الوردية
+ar	shift_effective_from	تاريخ سريان الوردية
+ar	shift_name	اسم الوردية
+ar	shifts	الورديات
+ar	sort_order	الترتيب
+ar	start_time	وقت البداية
+ar	status	الحالة
+ar	status_active	نشط
+ar	status_approved	موافق
+ar	status_closed	مغلق
+ar	status_done	تم
+ar	status_draft	مسودة
+ar	status_finalized	معتمد
+ar	status_in_review	قيد المراجعة
+ar	status_inactive	غير نشط
+ar	status_open	مفتوح
+ar	status_paid	مدفوع
+ar	status_pending	في الانتظار
+ar	status_rejected	مرفوض
+ar	status_suspended	موقوف
+ar	still_working	لسه شغال
+ar	suspend	إيقاف
+ar	target_all	الجميع
+ar	target_audience	الجمهور المستهدف
+ar	target_company	الشركات فقط
+ar	target_employee	الموظفين فقط
+ar	tax_deduction	الضرائب
+ar	title_ar	العنوان (عربي)
+ar	title_en	العنوان (إنجليزي)
+ar	to_date	إلى تاريخ
+ar	to_time	إلى وقت
+ar	total_basic_salaries	إجمالي المرتبات الأساسية
+ar	total_branches	عدد الفروع
+ar	total_companies	إجمالي الشركات
+ar	total_days	الإجمالي
+ar	total_deductions	إجمالي الاستقطاعات
+ar	total_employees	إجمالي الموظفين
+ar	total_entitlements	إجمالي الاستحقاقات
+ar	total_gross_salaries	إجمالي المرتبات الشاملة
+ar	total_net	إجمالي الصافي
+ar	total_penalties	إجمالي الجزاءات
+ar	total_penalties_amount	مقدار الجزاءات
+ar	transport	بدل المواصلات
+ar	transport_allowance	بدل انتقال
+ar	turnover_annual	معدل الدوران السنوي
+ar	turnover_monthly	معدل الدوران الشهري
+ar	turnover_new_3mo	دوران الموظفين الجدد (3 شهور)
+ar	unapplied_penalties	جزاءات لم تطبق
+ar	unauthorized	غير مصرح لك بهذا الإجراء
+ar	update_banner	تحديث البانر
+ar	upload_commercial_hint	PDF أو صورة (اختياري)
+ar	upload_logo_hint	صورة (JPG, PNG, WebP)
+ar	used_days	المستخدم
+ar	view_all	عرض الكل
+ar	view_all_activities	عرض جميع الأنشطة
+ar	view_all_admin_complaints	عرض جميع الشكاوى والمقترحات
+ar	view_all_employee_complaints	عرض جميع شكاوي الموظفين
+ar	view_all_join	عرض جميع طلبات الانضمام
+ar	view_file	عرض الملف
+ar	weekly_off_clear_all	مسح الكل
+ar	weekly_off_days_clear_hint	اضغط على اليوم لتفعيله أو إلغائه. اترك الكل غير محدد إذا لم تكن هناك أيام راحة أسبوعية.
+ar	weekly_off_preset_friday	الجمعة فقط
+ar	weekly_off_preset_weekend	الجمعة والسبت
+ar	weekly_off_quick_pick	اختيار سريع
+ar	weekly_off_selected_count	أيام الراحة المحددة: {days}
+ar	weekly_off_selected_none	لم يُحدَّد أي يوم راحة
+ar	welcome_greeting	مرحباً بك
+ar	work_hours	ساعات العمل
+ar	work_hours_optional	ساعات العمل (اختياري)
+ar	work_tenure	مدة العمل
+ar	workforce_item	تخطيط
+ar	workforce_planning	تخطيط القوة العاملة
+ar	workforce_search_placeholder	ابحث بالمسمى الوظيفي
+ar	year	السنة
+ar	years	سنوات
+ar	yes	نعم

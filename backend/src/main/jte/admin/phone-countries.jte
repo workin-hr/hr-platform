@@ -10,7 +10,7 @@
 @param String errorKey = null
 @param String currentPage
 @param String lang
-@param boolean isAdmin
+@param com.workin.backend.platformadmin.web.DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 <%-- dashboard/pages/phone_countries/page.php: a table of the existing rows
@@ -22,7 +22,7 @@
 	currentAdminPhone = currentAdminPhone,
 	currentPage = currentPage,
 	lang = lang,
-	isAdmin = isAdmin,
+	session = session,
 	t = t,
 	available = available,
 	body = @`
