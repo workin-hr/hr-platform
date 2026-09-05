@@ -12,6 +12,7 @@
 @param String flash = null
 @param String flashType = "success"
 @param java.util.List<String> pageStyles = java.util.List.of()
+@param java.util.List<String> pageScripts = java.util.List.of()
 <%-- The page's own wrapper class, beside the shared .content. Nearly every
      dashboard page uses hr-page, so that is the default; the two detail pages
      use a bare class="content" and pass "" for it. --%>
@@ -69,6 +70,11 @@
 	<script src="/admin/_assets/sidebar.js"></script>
 	<script src="/admin/_assets/row-actions.js"></script>
 	<script src="/admin/_assets/crud.js"></script>
+	<%-- $pageScripts in dashboard/includes/layout.php: after the shared ones,
+	     so a page's script can rely on them having run. --%>
+@for(String pageScript : pageScripts)
+	<script src="/admin/_assets/${pageScript}"></script>
+@endfor
 @endif
 </body>
 </html>

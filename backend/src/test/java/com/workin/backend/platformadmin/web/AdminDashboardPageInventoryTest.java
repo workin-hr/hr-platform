@@ -109,11 +109,16 @@ class AdminDashboardPageInventoryTest {
 	 * <p>Listed rather than counted so that porting one is a visible deletion
 	 * from this file, and so that a page cannot quietly stop being served
 	 * without the test noticing.
+	 *
+	 * <p>{@code company_settings}, {@code profile} and {@code change_password}
+	 * are a different kind of remaining: legacy gates all three to a company
+	 * owner or an HR employee, and every session on this surface is a platform
+	 * administrator. They are not portable here without relaxing a guard, and
+	 * belong to the audience ADR-0016 and R-044 still have open.
 	 */
 	private static final Set<String> NOT_YET_PORTED = Set.of(
-			"app_content", "attendance", "change_password",
-			"company_settings", "content", "guide_videos",
-			"payroll", "profile", "setting_templates", "settings");
+			"attendance", "change_password", "company_settings", "content",
+			"guide_videos", "payroll", "profile");
 
 	@Test
 	void everyServedPageIsEitherALegacyPageOrDeclaredJavaOnly() {

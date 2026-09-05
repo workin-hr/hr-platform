@@ -101,6 +101,56 @@ class AdminLayoutWiringTest {
 	}
 
 	@Test
+	void everyMessageKeyAControllerCanEmitResolvesInACatalogue() throws IOException {
+		// A missing key does not fail: the translator answers with the key
+		// itself, so the user is shown "actions_disabled" and everything stays
+		// green. That is exactly how two controllers came to invent spellings
+		// of admin_actions_disabled and mfa_required_for_actions that did not
+		// exist, and it is why this reads the sources rather than trusting them.
+		Set<String> known = new java.util.TreeSet<>();
+		known.addAll(keysOf(Path.of("src/main/resources/i18n/admin-messages.properties")));
+		known.addAll(keysOf(Path.of("src/main/resources/i18n/admin-own.properties")));
+		assertThat(known).as("both catalogues should have loaded").hasSizeGreaterThan(50);
+
+		Pattern emitted = Pattern.compile("->\\s*\"([a-z][a-z0-9_]{3,})\"");
+		List<String> unresolved = new ArrayList<>();
+		try (var paths = Files.list(
+				Path.of("src/main/java/com/workin/backend/platformadmin/web"))) {
+			for (Path source : paths.toList()) {
+				if (!source.toString().endsWith("Controller.java")) {
+					continue;
+				}
+				Matcher matcher = emitted.matcher(
+						Files.readString(source, StandardCharsets.UTF_8));
+				while (matcher.find()) {
+					String key = matcher.group(1);
+					// Only strings that look like message keys, not paths or
+					// view names -- those never contain an underscore-free word
+					// this pattern would catch alone.
+					if (!known.contains(key) && key.contains("_")) {
+						unresolved.add(fileName(source) + " -> " + key);
+					}
+				}
+			}
+		}
+		assertThat(unresolved)
+				.as("a key no catalogue defines reaches the user as its own name")
+				.isEmpty();
+	}
+
+	private static Set<String> keysOf(Path properties) throws IOException {
+		Set<String> keys = new java.util.TreeSet<>();
+		for (String line : Files.readAllLines(properties, StandardCharsets.UTF_8)) {
+			String trimmed = line.trim();
+			int equals = trimmed.indexOf('=');
+			if (!trimmed.isEmpty() && !trimmed.startsWith("#") && equals > 0) {
+				keys.add(trimmed.substring(0, equals).trim());
+			}
+		}
+		return keys;
+	}
+
+	@Test
 	void noControllerSetsTheAdminPhoneItselfAnyMore() throws IOException {
 		// One authority. Fourteen controllers forgot this and six set it, which
 		// is exactly the split a cross-cutting value gets when each page owns a

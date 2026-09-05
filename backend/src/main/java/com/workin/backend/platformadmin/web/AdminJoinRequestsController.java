@@ -118,8 +118,8 @@ public class AdminJoinRequestsController {
 	 */
 	private static String messageFor(JoinRequestAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
-			case ACTIONS_DISABLED -> "actions_disabled";
-			case FACTOR_NOT_BOUND -> "factor_not_bound";
+			case ACTIONS_DISABLED -> "admin_actions_disabled";
+			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			default -> "join_accept_failed";
 		};
 	}

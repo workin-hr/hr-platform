@@ -190,6 +190,22 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String ACTIVITIES_PATH = PATH_PREFIX + "/activities";
 
 	/**
+	 * Platform settings, in three tabs. Administrator-only, because every table
+	 * behind it is platform-level and has no {@code company_id} -- the guard is
+	 * the tenancy model rather than an addition to it.
+	 */
+	public static final String SETTINGS_PATH = PATH_PREFIX + "/settings";
+
+	/**
+	 * Two legacy routes that only redirect into a tab of the page above. Kept
+	 * as routes because they are routes -- a bookmark or a link from the app
+	 * reaches them, and the committed page manifest lists both.
+	 */
+	public static final String APP_CONTENT_PATH = PATH_PREFIX + "/app_content";
+
+	public static final String SETTING_TEMPLATES_PATH = PATH_PREFIX + "/setting_templates";
+
+	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
 	 * <p>A named constant so it can be checked against the handlers' own
