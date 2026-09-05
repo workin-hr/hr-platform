@@ -28,6 +28,8 @@ import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetColumns;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetLookups;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetReader;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeImporter;
+import com.workin.legacy.employees.spreadsheet.LegacyEmployeeBulkUpdater;
+import com.workin.legacy.employees.spreadsheet.LegacyEmployeeUpdateAnalyzer;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeTemplate;
 import com.workin.legacy.notifications.LegacyNotifications;
 import com.workin.legacy.wire.LegacyApiException;
@@ -78,6 +80,8 @@ public class LegacyEmployeeService {
 	private final LegacyFileUploads fileUploads;
 	private final LegacyEmployeeSpreadsheetAnalyzer spreadsheetAnalyzer;
 	private final LegacyEmployeeImporter importer;
+	private final LegacyEmployeeUpdateAnalyzer updateAnalyzer;
+	private final LegacyEmployeeBulkUpdater bulkUpdater;
 	/**
 	 * {@code password_hash($p, PASSWORD_BCRYPT)}. The shared bean is the same
 	 * encoder legacy login already verifies with; it writes the {@code $2a$}
@@ -91,7 +95,8 @@ public class LegacyEmployeeService {
 			LegacyEmployeeStore store, LegacyNotifications notifications,
 			LegacyHrPermissionEnforcer permissionEnforcer, LegacyPhoneNumbers phoneNumbers,
 			LegacyClock clock, LegacyFileUploads fileUploads, PasswordEncoder bcrypt,
-			LegacyEmployeeSpreadsheetAnalyzer spreadsheetAnalyzer, LegacyEmployeeImporter importer) {
+			LegacyEmployeeSpreadsheetAnalyzer spreadsheetAnalyzer, LegacyEmployeeImporter importer,
+			LegacyEmployeeUpdateAnalyzer updateAnalyzer, LegacyEmployeeBulkUpdater bulkUpdater) {
 		this.store = store;
 		this.notifications = notifications;
 		this.permissionEnforcer = permissionEnforcer;
@@ -100,6 +105,8 @@ public class LegacyEmployeeService {
 		this.fileUploads = fileUploads;
 		this.bcrypt = bcrypt;
 		this.spreadsheetAnalyzer = spreadsheetAnalyzer;
+		this.updateAnalyzer = updateAnalyzer;
+		this.bulkUpdater = bulkUpdater;
 		this.importer = importer;
 	}
 
@@ -1031,17 +1038,24 @@ public class LegacyEmployeeService {
 		String format = LegacyValues.mbStrToLower(
 				LegacyValues.phpTrim(rawFormat == null ? "xlsx" : LegacyValues.toPhpString(rawFormat)));
 
+		// `?purpose=update`, with `?mode=` as the older spelling PHP still
+		// accepts. Anything else -- absent, empty, a typo -- is the create
+		// template, the same one-sided test `format` gets above.
+		Object rawPurpose = query.value("purpose") != null ? query.value("purpose") : query.value("mode");
+		boolean forUpdate = "update".equals(LegacyValues.mbStrToLower(
+				LegacyValues.phpTrim(rawPurpose == null ? "" : LegacyValues.toPhpString(rawPurpose))));
+
 		LegacyEmployeeSpreadsheetLookups lookups = lookups(context.companyId());
 		List<String> headers = LegacyEmployeeSpreadsheetColumns.templateHeaders(
 				lookups.firstShiftName(), lookups.firstBranchName(),
 				lookups.firstDepartmentName(), lookups.firstJobTitleName(),
-				clock.todayAsString());
+				clock.todayAsString(), forUpdate);
 
 		boolean csv = "csv".equals(format);
 		return new Template(
 				csv ? LegacyEmployeeTemplate.csv(headers) : LegacyEmployeeTemplate.xlsx(headers),
 				csv ? LegacyEmployeeTemplate.CSV_CONTENT_TYPE : LegacyEmployeeTemplate.XLSX_CONTENT_TYPE,
-				LegacyEmployeeTemplate.filename(clock.todayAsString(), csv));
+				LegacyEmployeeTemplate.filename(clock.todayAsString(), csv, forUpdate));
 	}
 
 	/**
@@ -1131,6 +1145,54 @@ public class LegacyEmployeeService {
 		}
 		// Lookups are built once for the whole batch, not once per row.
 		return importer.importRows(context.companyId(), rows, lookups(context.companyId()));
+	}
+
+	/**
+	 * {@code employees/analyze_excel_update.php}: the same upload guard and the
+	 * same structure check as the create sheet, then the <em>update</em>
+	 * analyzer.
+	 *
+	 * <p>Shares {@link #analyzeSpreadsheet}'s three-part file test rather than
+	 * re-deriving it: the difference between "no file" and "empty file" was
+	 * measured against running PHP once and must not be re-guessed here.
+	 */
+	public Map<String, Object> analyzeSpreadsheetForUpdate(
+			LegacyRequestContext context, MultipartFile file, boolean arabic) {
+		if (file == null || file.getOriginalFilename() == null
+				|| file.getOriginalFilename().isEmpty()) {
+			throw new LegacyApiException(400, "no_file_uploaded");
+		}
+		byte[] content;
+		try {
+			content = file.getBytes();
+		} catch (java.io.IOException ex) {
+			throw new LegacyApiException(400, "no_file_uploaded");
+		}
+		try {
+			return updateAnalyzer.analyze(content, context.companyId(), arabic, lookups(context.companyId()));
+		} catch (LegacyEmployeeSpreadsheetReader.LegacySpreadsheetException ex) {
+			throw new LegacyApiException(400, ex.getMessage());
+		}
+	}
+
+	/**
+	 * {@code employees/update_bulk.php}: reviewed rows, applied one at a time.
+	 *
+	 * <p>Identical presence guard to the import path, and identical status
+	 * behaviour after it: every row-level problem is reported inside the result
+	 * with a 200, and only the message key moves when nothing was updated.
+	 */
+	public Map<String, Object> updateSpreadsheetRows(
+			LegacyRequestContext context, Map<String, Object> body) {
+		Object raw = body.get("rows");
+		if (!LegacyPhpArray.isArray(raw)) {
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "rows"));
+		}
+		LegacyPhpArray rows = raw == null ? LegacyPhpArray.empty() : LegacyPhpArray.of(raw);
+		if (rows.isEmpty()) {
+			throw new LegacyApiException(400, "field_required", null, Map.of("field", "rows"));
+		}
+		return bulkUpdater.updateRows(context.companyId(), rows, lookups(context.companyId()));
 	}
 
 	/**

@@ -72,11 +72,16 @@ public class LegacyAttendanceImporter {
 	 * @param mappings the decoded {@code mappings} field, keyed by sheet code
 	 * @param now legacy's current instant, for the punch parser's fallback and
 	 *        for a created employee's default {@code hire_date}
+	 * @param sheetLayout the client's {@code sheet_layout} field -- the same
+	 *        value the preview was analysed under, so the import reads the
+	 *        sheet the operator was shown
 	 */
 	public static Map<String, Object> importPunchLog(
 			byte[] content, long companyId, LegacyAttendanceImportStore store,
-			Map<String, Object> mappings, LocalDateTime now, ZoneOffset offset) {
-		LegacyAttendanceImportReader.Loaded loaded = LegacyAttendanceImportReader.loadRows(content);
+			Map<String, Object> mappings, LocalDateTime now, ZoneOffset offset, Object sheetLayout) {
+		LegacyAttendanceImportReader.Prepared prepared =
+				LegacyAttendanceImportReader.prepareRecords(content, sheetLayout, now);
+		LegacyAttendanceImportReader.Loaded loaded = prepared.loaded();
 
 		if (!"punch_log".equals(loaded.format())) {
 			if ("template".equals(loaded.format())) {
@@ -88,10 +93,7 @@ public class LegacyAttendanceImporter {
 			return result(0, 0, List.of("Unsupported file format"));
 		}
 
-		List<LegacyAttendanceImportReader.Punch> punches =
-				LegacyAttendanceImportReader.extractPunches(loaded.rows(), loaded.keys(), now);
-		List<LegacyAttendanceImportReader.DayRecord> records =
-				LegacyAttendanceImportReader.groupPunches(punches);
+		List<LegacyAttendanceImportReader.DayRecord> records = prepared.records();
 
 		long inserted = 0;
 		long skipped = 0;

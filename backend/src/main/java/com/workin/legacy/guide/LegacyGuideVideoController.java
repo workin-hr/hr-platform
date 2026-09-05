@@ -5,7 +5,6 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.legacy.auth.LegacyRequestGuard;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.wire.LegacyApiResponse;
@@ -21,6 +20,8 @@ import jakarta.servlet.http.HttpServletRequest;
  * pinned submodule commit does not call it; the build five commits later
  * does, which is why the client repositories had to be read rather than
  * assumed unchanged.
+ * <p>Authorisation: {@code requireAuth()} with no role list. The content is
+ * the same for every tenant, so there is nothing to scope.
  */
 @RestController
 @RequestMapping("/apis/api/guide_videos")
@@ -39,8 +40,6 @@ public class LegacyGuideVideoController {
 		this.requestGuard = requestGuard;
 	}
 
-	@AuthenticatedUseCase(reason = "The platform's guide videos. PHP calls requireAuth() with no "
-			+ "role check, and the content is the same for every tenant -- there is nothing to scope.")
 	@RequestMapping("/list.php")
 	public LegacyApiResponse list(HttpServletRequest request) {
 		if (!"GET".equals(request.getMethod())) {

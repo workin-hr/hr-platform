@@ -14,6 +14,7 @@ import com.workin.legacy.LegacyPagination;
 import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
+import com.workin.legacy.payroll.LegacyPayrollFiscalSettings;
 import com.workin.legacy.attendance.calendar.LegacyAttendancePeriodStats;
 import com.workin.legacy.attendance.calendar.LegacyAttendanceRangeCalendar;
 import com.workin.legacy.attendance.calendar.LegacyAttendanceWorkedMinutes;
@@ -47,10 +48,14 @@ public class LegacyAttendanceReportService {
 	private final LegacyEmployeeStore employeeStore;
 	private final LegacyClock clock;
 
+	/** month/year label a fiscal period here, not a calendar month. */
+	private final LegacyPayrollFiscalSettings fiscalSettings;
+
 	public LegacyAttendanceReportService(
 			LegacyAttendanceReportStore store, LegacyAttendanceRangeCalendar rangeCalendar,
 			LegacyAttendanceWorkedMinutes workedMinutes, LegacyAttendancePeriodStats periodStats,
-			LegacyAttendanceSessions sessions, LegacyEmployeeStore employeeStore, LegacyClock clock) {
+			LegacyAttendanceSessions sessions, LegacyEmployeeStore employeeStore, LegacyClock clock,
+			LegacyPayrollFiscalSettings fiscalSettings) {
 		this.store = store;
 		this.rangeCalendar = rangeCalendar;
 		this.workedMinutes = workedMinutes;
@@ -58,6 +63,7 @@ public class LegacyAttendanceReportService {
 		this.sessions = sessions;
 		this.employeeStore = employeeStore;
 		this.clock = clock;
+		this.fiscalSettings = fiscalSettings;
 	}
 
 	/** What the controller writes back as `data` plus `meta`. */
@@ -286,29 +292,46 @@ public class LegacyAttendanceReportService {
 		}
 		String employeeName = displayName(employee);
 
-		int month = (int) (query.value("month") != null
-				? LegacyValues.toPhpLong(query.value("month")) : today.getMonthValue());
-		int year = (int) (query.value("year") != null
-				? LegacyValues.toPhpLong(query.value("year")) : today.getYear());
+		// Absent, zero or out of range all mean "the current period" -- and the
+		// current period is the fiscal one, not the calendar one. A company
+		// whose month runs 26th-to-25th is in February's period on 3 March, and
+		// defaulting to date('n') would answer for March.
+		int month = (int) LegacyValues.toPhpLong(query.value("month"));
+		int year = (int) LegacyValues.toPhpLong(query.value("year"));
+		if (year < 2000 || month < 1 || month > 12) {
+			LegacyPayrollFiscalSettings.FiscalMonth current =
+					fiscalSettings.fiscalMonthContainingDate(context.companyId(), null, today);
+			year = current.year();
+			month = current.month();
+		}
+		String[] bounds = fiscalSettings.fiscalPeriodBounds(context.companyId(), year, month);
+		int[] fiscalDays = fiscalSettings.fiscalDaySettings(context.companyId());
+		// An unset end day means "the period's own last day", resolved here
+		// because only now is the period known.
+		int monthEndDay = fiscalDays[1] > 0
+				? fiscalDays[1] : java.time.LocalDate.parse(bounds[1]).getDayOfMonth();
+
 		boolean fullMonth = truthyFlag(query, "full_month");
 
 		if (fullMonth) {
 			List<Map<String, Object>> calendar = rangeCalendar.buildEmployeeMonthlyCalendar(
 					context.companyId(), targetEmployeeId, month, year, weeklyRestLabel, today);
-			Map<String, Object> meta = new LinkedHashMap<>();
+			// array_merge($period_meta, [...]) -- the period keys come first,
+			// and month/year are no longer appended after them: the merge would
+			// overwrite the period's own values with the same numbers, but the
+			// key order a client receives is the merged one.
+			Map<String, Object> meta = periodMeta(bounds, month, year, fiscalDays[0], monthEndDay);
 			meta.put("has_open_check_in", false);
 			meta.put("full_month", true);
 			meta.put("employee_id", targetEmployeeId);
 			meta.put("employee_name", employeeName);
-			meta.put("month", month);
-			meta.put("year", year);
 			return new MonthlyAttendance(calendar, meta);
 		}
 
-		List<Map<String, Object>> rows = store.monthRows(targetEmployeeId, month, year);
+		List<Map<String, Object>> rows = store.periodRows(targetEmployeeId, bounds[0], bounds[1]);
 		int closed = sessions.autoCloseStaleOpenSessions(context.companyId(), targetEmployeeId, weeklyRestLabel);
 		if (closed > 0) {
-			rows = store.monthRows(targetEmployeeId, month, year);
+			rows = store.periodRows(targetEmployeeId, bounds[0], bounds[1]);
 		}
 
 		for (Map<String, Object> row : rows) {
@@ -327,7 +350,7 @@ public class LegacyAttendanceReportService {
 		}
 
 		boolean hasOpenCheckIn = sessions.findOpenSession(targetEmployeeId, false, weeklyRestLabel) != null;
-		Map<String, Object> meta = new LinkedHashMap<>();
+		Map<String, Object> meta = periodMeta(bounds, month, year, fiscalDays[0], monthEndDay);
 		meta.put("has_open_check_in", hasOpenCheckIn);
 		meta.put("full_month", false);
 		// `public_rows()` strips password_hash/token_version; attendance rows
@@ -338,6 +361,23 @@ public class LegacyAttendanceReportService {
 	// ------------------------------------------------------------------
 	// shared helpers
 	// ------------------------------------------------------------------
+
+	/**
+	 * {@code $period_meta}: the fiscal window a month/year pair resolves to,
+	 * so a client can label the screen without re-deriving the company's
+	 * settings for itself. Ordered as PHP builds it.
+	 */
+	private static Map<String, Object> periodMeta(
+			String[] bounds, int month, int year, int monthStartDay, int monthEndDay) {
+		Map<String, Object> meta = new LinkedHashMap<>();
+		meta.put("period_from", bounds[0]);
+		meta.put("period_to", bounds[1]);
+		meta.put("month", month);
+		meta.put("year", year);
+		meta.put("month_start_day", monthStartDay);
+		meta.put("month_end_day", monthEndDay);
+		return meta;
+	}
 
 	private static String displayName(Map<String, Object> employee) {
 		String first = LegacyValues.toPhpString(employee.get("first_name"));

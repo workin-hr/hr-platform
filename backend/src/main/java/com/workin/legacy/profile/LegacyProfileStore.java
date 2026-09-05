@@ -163,6 +163,23 @@ public class LegacyProfileStore {
 	}
 
 	/**
+	 * {@code logout.php}'s deactivation, which is <em>not</em> the one above:
+	 * it bumps {@code token_version} in the same statement, so the JWT the
+	 * departing employee still holds stops authenticating immediately rather
+	 * than at its own expiry.
+	 *
+	 * <p>{@code delete_account.php} sets only {@code is_active}, so the two
+	 * stay separate methods. Merging them would silently start revoking
+	 * sessions on a path legacy leaves alone.
+	 */
+	public void deactivateAndRevokeSessions(long employeeId, long companyId) {
+		jdbcTemplate.update(
+				"UPDATE employees SET is_active = 0, token_version = token_version + 1"
+						+ " WHERE id = ? AND company_id = ?",
+				employeeId, companyId);
+	}
+
+	/**
 	 * {@code register_push_token.php}'s upsert. Only {@code token} and
 	 * {@code platform} are refreshed on a duplicate key; the owning ids are
 	 * not, because they are the key.

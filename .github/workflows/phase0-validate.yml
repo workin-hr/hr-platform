@@ -157,6 +157,27 @@ jobs:
       - name: Pin what the client-contract drift check catches
         run: python3 scripts/test_check_client_contract_drift.py
 
+      # hr-legacy is a separate repository, not a submodule, so this checkout
+      # cannot see it. What CI enforces is the half that needs no sibling: the
+      # Java route inventory against the committed one. A route added to PHP
+      # without being ported reaches a client as a 404 from Java, and before
+      # this gate existed every other check stayed green while that was true.
+      - name: Check the Java route inventory against the committed legacy routes
+        run: python3 scripts/check_legacy_route_drift.py
+
+      - name: Pin what the legacy route-drift check catches
+        run: python3 scripts/test_check_legacy_route_drift.py
+
+      # Same gate, one level down: a route can exist and still answer with the
+      # wrong words. Java's catalog falls back to the key itself, so a message
+      # PHP defines and Java does not reaches the user's screen as
+      # "employees_updated" with every other check green.
+      - name: Check the Java message catalog against the committed legacy messages
+        run: python3 scripts/check_legacy_message_drift.py
+
+      - name: Pin what the legacy message-drift check catches
+        run: python3 scripts/test_check_legacy_message_drift.py
+
       - name: Run actionlint
         run: actionlint -color
 

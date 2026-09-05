@@ -180,6 +180,93 @@ class LegacyEmployeeTemplateEndToEndTest {
 	}
 
 	@Test
+	void purposeUpdateServesTheBulkEditSheetUnderItsOwnFilename() {
+		ResponseEntity<byte[]> response = download(TEMPLATE + "?purpose=update", ADMIN_1, HttpMethod.GET);
+
+		assertThat(response.getStatusCode().value()).isEqualTo(200);
+		assertThat(response.getHeaders().getFirst("Content-Disposition"))
+				.isEqualTo("attachment; filename=\"employees_update_template_" + today() + ".xlsx\"");
+
+		List<List<String>> matrix = LegacyXlsxReader.readFirstSheet(response.getBody());
+		// Same sheet shape -- the group row, the same 28 columns in the same
+		// order -- because analyze_excel_update reads a file this template
+		// produced.
+		assertThat(matrix).hasSize(2);
+		assertThat(LegacyEmployeeSpreadsheetColumns.isSalaryGroupRow(matrix.get(0))).isTrue();
+		assertThat(matrix.get(1)).hasSize(28);
+		assertThat(normalized(matrix.get(1))).containsExactlyElementsOf(expectedKeys());
+
+		List<String> headers = matrix.get(1);
+		// Only the captions differ: every column but the code is now optional,
+		// and each carries the "leave empty to skip" line.
+		assertThat(headers.get(0)).isEqualTo("كود الموظف (اجباري)\nلازم يكون موجود في النظام\nمثال: 1001");
+		assertThat(headers.subList(1, headers.size()))
+				.allSatisfy(header -> assertThat(header).contains("فاضي = بدون تعديل"));
+		assertThat(headers.subList(1, headers.size()))
+				.noneMatch(header -> header.contains("(اجباري)"));
+	}
+
+	@Test
+	void theUpdateSheetCarriesNoExampleButTheEmployeeCode() {
+		// `$example !== '' && (!$forUpdate || $col['key'] === EMPLOYEE_CODE)`.
+		// An example left in a cell of the update sheet would be read as an
+		// edit, so only the code -- the lookup key, never written -- keeps one.
+		List<String> update = LegacyXlsxReader.readFirstSheet(
+				download(TEMPLATE + "?purpose=update", ADMIN_1, HttpMethod.GET).getBody()).get(1);
+		List<String> create = LegacyXlsxReader.readFirstSheet(
+				download(TEMPLATE, ADMIN_1, HttpMethod.GET).getBody()).get(1);
+
+		assertThat(update.stream().filter(header -> header.contains("مثال:")).count()).isEqualTo(1);
+		assertThat(update.get(0)).contains("مثال: 1001");
+		// The create sheet is the control: it does carry them, so the assertion
+		// above cannot pass because the examples were dropped everywhere.
+		assertThat(create.stream().filter(header -> header.contains("مثال:")).count()).isGreaterThan(10);
+	}
+
+	@Test
+	void modeIsTheOlderSpellingAndAnythingElseIsTheCreateTemplate() {
+		// `$_GET['purpose'] ?? $_GET['mode'] ?? ''`, then strtolower(trim(...))
+		// === 'update'. `purpose` wins when both are present, including when it
+		// is present and empty -- `??` is a null coalesce, not an empty check.
+		record Case(String query, boolean forUpdate) {
+		}
+		for (Case example : List.of(
+				new Case("?mode=update", true),
+				new Case("?purpose=UPDATE", true),
+				new Case("?purpose=%20update%20", true),
+				new Case("?purpose=update&mode=create", true),
+				new Case("?purpose=", false),
+				new Case("?purpose=&mode=update", false),
+				new Case("?purpose=updates", false),
+				new Case("?purpose=create", false),
+				new Case("?mode=", false))) {
+			String disposition = download(TEMPLATE + example.query(), ADMIN_1, HttpMethod.GET)
+					.getHeaders().getFirst("Content-Disposition");
+			assertThat(disposition).as("Content-Disposition for '%s'", example.query())
+					.isEqualTo("attachment; filename=\"employees"
+							+ (example.forUpdate() ? "_update" : "") + "_template_" + today() + ".xlsx\"");
+		}
+	}
+
+	@Test
+	void theUpdateTemplateHasACsvBranchToo() {
+		ResponseEntity<byte[]> csv = download(
+				TEMPLATE + "?purpose=update&format=csv", ADMIN_1, HttpMethod.GET);
+
+		assertThat(csv.getHeaders().getFirst("Content-Disposition"))
+				.isEqualTo("attachment; filename=\"employees_update_template_" + today() + ".csv\"");
+		assertThat(csv.getBody()[0]).isEqualTo((byte) 0xEF);
+
+		List<List<String>> records = LegacyCsvReader.read(csv.getBody());
+		assertThat(records).hasSize(2);
+		// employee_excel_template_group_row() takes no $forUpdate, so the group
+		// row is byte-for-byte the create sheet's.
+		assertThat(LegacyEmployeeSpreadsheetColumns.isSalaryGroupRow(records.get(0))).isTrue();
+		assertThat(normalized(records.get(1))).containsExactlyElementsOf(expectedKeys());
+		assertThat(records.get(1).get(1)).contains("فاضي = بدون تعديل");
+	}
+
+	@Test
 	void thereIsNoMethodGuardOnThisEndpointAlone() {
 		// template_excel.php has no REQUEST_METHOD check, so every method
 		// downloads the template. The auth guards still run.

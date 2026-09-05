@@ -108,12 +108,14 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/departments/list.php", "/apis/api/departments/one.php",
 			"/apis/api/departments/update.php",
 			"/apis/api/employees/analyze_excel.php", "/apis/api/employees/create.php",
+			"/apis/api/employees/analyze_excel_update.php",
 			"/apis/api/employees/deactivate.php", "/apis/api/employees/delete.php",
 			"/apis/api/employees/delete_preview.php", "/apis/api/employees/import_bulk.php",
 			"/apis/api/employees/list.php", "/apis/api/employees/my_team.php",
 			"/apis/api/employees/one.php", "/apis/api/employees/reactivate.php",
 			"/apis/api/employees/stats.php", "/apis/api/employees/template_excel.php",
 			"/apis/api/employees/update.php", "/apis/api/employees/upload_photo.php",
+			"/apis/api/employees/update_bulk.php",
 			"/apis/api/guide_videos/list.php",
 			"/apis/api/hr_employees/create.php", "/apis/api/hr_employees/list.php",
 			"/apis/api/hr_employees/update_permissions.php",
@@ -195,8 +197,8 @@ class LegacyPhpRouteInventoryTest {
 	 * derived so that growing it is a deliberate edit with a reason attached.
 	 */
 	@Test
-	void deliveredRouteCountIsTwoHundred() {
-		assertThat(EXPECTED_ROUTES).hasSize(200).doesNotHaveDuplicates();
+	void deliveredRouteCountIsTwoHundredAndTwo() {
+		assertThat(EXPECTED_ROUTES).hasSize(202).doesNotHaveDuplicates();
 	}
 
 	/**
@@ -275,8 +277,9 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(EXPECTED_ROUTES).containsAll(DOWNLOAD_ONLY_ROUTES).containsAll(CONDITIONAL_ROUTES);
 		assertThat(EXPECTED_ROUTES.size() - DOWNLOAD_ONLY_ROUTES.size() - CONDITIONAL_ROUTES.size())
 				.as("envelope-only routes: the completion plan's 193/4/1 partition, "
-						+ "plus guide_videos/list and time/now, which are both envelope-only")
-				.isEqualTo(195);
+						+ "plus guide_videos/list, time/now, employees/analyze_excel_update and "
+						+ "employees/update_bulk, all four envelope-only")
+				.isEqualTo(197);
 	}
 
 	@Test

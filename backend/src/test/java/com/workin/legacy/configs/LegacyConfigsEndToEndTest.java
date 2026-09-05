@@ -131,7 +131,7 @@ class LegacyConfigsEndToEndTest {
 	void theKeyOrderIsTheRowOrderWithTheClockAppended() {
 		assertThat(data(json(GET)).keySet())
 				.containsExactly("min_app_version", "maintenance_mode", "is_daylight_saving",
-						"server_time", "server_timezone");
+						"server_time", "server_unix", "server_timezone");
 	}
 
 	@Test

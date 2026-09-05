@@ -7,7 +7,6 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.auth.LegacyRequestGuard;
 import com.workin.legacy.LegacyRuntimeOffset;
@@ -33,6 +32,8 @@ import jakarta.servlet.http.HttpServletRequest;
  * configured offset. Computing the epoch by treating the offset-shifted local
  * time as UTC would answer two or three hours wrong, and the client uses it to
  * decide whether a check-in is late.
+ * <p>Authorisation: {@code requireAuth()} with no role list -- any
+ * authenticated user, as PHP has it.
  */
 @RestController
 @RequestMapping("/apis/api/time")
@@ -55,8 +56,6 @@ public class LegacyTimeController {
 		this.requestGuard = requestGuard;
 	}
 
-	@AuthenticatedUseCase(reason = "The server clock the mobile attendance UI trusts over the "
-			+ "handset's. PHP calls requireAuth() with no role check: any authenticated user.")
 	@RequestMapping("/now.php")
 	public LegacyApiResponse now(HttpServletRequest request) {
 		if (!"GET".equals(request.getMethod())) {

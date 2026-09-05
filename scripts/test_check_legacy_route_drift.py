@@ -56,13 +56,24 @@ def build_inventory(root: pathlib.Path, routes: list[str]) -> pathlib.Path:
     return path
 
 
-def run(php_routes: list[str], java_routes: list[str]) -> int:
+def build_committed(root: pathlib.Path, routes: list[str]) -> pathlib.Path:
+    path = root / "legacy-php-routes.txt"
+    path.write_text("# generated\n" + "".join(f"/apis/api/{r}\n" for r in routes), encoding="utf-8")
+    return path
+
+
+def run(php_routes: list[str], java_routes: list[str],
+        committed_routes: list[str] | None = None) -> int:
+    """committed defaults to mirroring PHP, which is the state after --refresh."""
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         api = build_php(root, php_routes)
         inventory = build_inventory(root, java_routes)
+        committed = build_committed(
+            root, php_routes if committed_routes is None else committed_routes)
         argv = sys.argv
-        sys.argv = ["check", "--legacy-api", str(api), "--inventory", str(inventory)]
+        sys.argv = ["check", "--legacy-api", str(api), "--inventory", str(inventory),
+                    "--committed", str(committed)]
         try:
             return drift.main()
         finally:
@@ -84,17 +95,75 @@ def test_java_only_route_is_not_a_failure() -> None:
           run(["a/list.php"], ["a/list.php", "z/extra.php"]) == 0)
 
 
-def test_missing_legacy_tree_fails_rather_than_passes() -> None:
+def test_missing_legacy_tree_still_checks_against_the_committed_inventory() -> None:
+    """CI has no hr-legacy. The gate must still catch an unported route there."""
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         inventory = build_inventory(root, ["a/list.php"])
+        committed = build_committed(root, ["a/list.php", "b/new.php"])
         argv = sys.argv
-        sys.argv = ["check", "--legacy-api", str(root / "nope"), "--inventory", str(inventory)]
+        sys.argv = ["check", "--legacy-api", str(root / "nope"),
+                    "--inventory", str(inventory), "--committed", str(committed)]
         try:
             code = drift.main()
         finally:
             sys.argv = argv
-    check("an absent hr-legacy checkout exits 2, not 0", code == 2, str(code))
+    check("without hr-legacy, a route missing from Java still fails", code == 1, str(code))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        inventory = build_inventory(root, ["a/list.php"])
+        committed = build_committed(root, ["a/list.php"])
+        argv = sys.argv
+        sys.argv = ["check", "--legacy-api", str(root / "nope"),
+                    "--inventory", str(inventory), "--committed", str(committed)]
+        try:
+            code = drift.main()
+        finally:
+            sys.argv = argv
+    check("without hr-legacy, a matching inventory passes", code == 0, str(code))
+
+
+def test_missing_committed_inventory_fails_rather_than_passes() -> None:
+    """A gate that passes when its input is missing is worse than no gate."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        api = build_php(root, ["a/list.php"])
+        inventory = build_inventory(root, ["a/list.php"])
+        argv = sys.argv
+        sys.argv = ["check", "--legacy-api", str(api), "--inventory", str(inventory),
+                    "--committed", str(root / "absent.txt")]
+        try:
+            code = drift.main()
+        finally:
+            sys.argv = argv
+    check("an absent committed inventory exits 2, not 0", code == 2, str(code))
+
+
+def test_a_stale_committed_inventory_fails_when_hr_legacy_is_present() -> None:
+    check("hr-legacy having a route the committed list lacks fails",
+          run(["a/list.php", "b/new.php"], ["a/list.php", "b/new.php"],
+              committed_routes=["a/list.php"]) == 1)
+    check("the committed list having a route hr-legacy dropped fails",
+          run(["a/list.php"], ["a/list.php", "b/gone.php"],
+              committed_routes=["a/list.php", "b/gone.php"]) == 1)
+
+
+def test_refresh_rewrites_the_committed_inventory() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        api = build_php(root, ["a/list.php", "b/new.php"])
+        committed = build_committed(root, ["a/list.php"])
+        argv = sys.argv
+        sys.argv = ["check", "--legacy-api", str(api), "--committed", str(committed), "--refresh"]
+        try:
+            code = drift.main()
+        finally:
+            sys.argv = argv
+        written = drift.committed_routes(str(committed))
+    check("--refresh exits 0", code == 0, str(code))
+    check("--refresh writes every PHP route",
+          written == {"/apis/api/a/list.php", "/apis/api/b/new.php"}, str(written))
 
 
 def test_non_php_files_and_stray_dirs_are_ignored() -> None:
@@ -125,7 +194,10 @@ def main() -> int:
     test_matching_sets_pass()
     test_php_only_route_fails()
     test_java_only_route_is_not_a_failure()
-    test_missing_legacy_tree_fails_rather_than_passes()
+    test_missing_legacy_tree_still_checks_against_the_committed_inventory()
+    test_missing_committed_inventory_fails_rather_than_passes()
+    test_a_stale_committed_inventory_fails_when_hr_legacy_is_present()
+    test_refresh_rewrites_the_committed_inventory()
     test_non_php_files_and_stray_dirs_are_ignored()
     test_inventory_parsing_ignores_unrelated_strings()
     print()
