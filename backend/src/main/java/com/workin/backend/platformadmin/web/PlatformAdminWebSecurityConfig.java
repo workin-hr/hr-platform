@@ -147,6 +147,8 @@ public class PlatformAdminWebSecurityConfig {
 
 	public static final String ASSETS_PATH = PATH_PREFIX + "/assets";
 
+	public static final String ADVANCES_PATH = PATH_PREFIX + "/advances";
+
 	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
