@@ -149,6 +149,9 @@ public class PlatformAdminWebSecurityConfig {
 
 	public static final String ADVANCES_PATH = PATH_PREFIX + "/advances";
 
+	public static final String ADMINISTRATIVE_DECISIONS_PATH =
+			PATH_PREFIX + "/administrative_decisions";
+
 	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
