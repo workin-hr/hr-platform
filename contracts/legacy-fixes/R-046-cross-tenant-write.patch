@@ -1,8 +1,8 @@
 diff --git a/dashboard/includes/hr_helper.php b/dashboard/includes/hr_helper.php
-index 8121add..c9830a9 100644
+index 8121add..95f01c2 100644
 --- a/dashboard/includes/hr_helper.php
 +++ b/dashboard/includes/hr_helper.php
-@@ -43,6 +43,93 @@ function hr_render_company_filter(int $companyId, string $page): void
+@@ -43,6 +43,94 @@ function hr_render_company_filter(int $companyId, string $page): void
      org_render_company_filter($companyId, $page);
  }
  
@@ -23,7 +23,7 @@ index 8121add..c9830a9 100644
 +
 +    $sql = match ($table) {
 +        // company_id مباشرة على الصف
-+        'assets', 'complaints', 'workforce_planning' =>
++        'assets', 'complaints', 'workforce_planning', 'employees' =>
 +            "SELECT `company_id` FROM `$table` WHERE id = ? LIMIT 1",
 +        // عبر الموظف
 +        'leave_balance', 'penalties', 'advances', 'requests' =>
@@ -69,6 +69,7 @@ index 8121add..c9830a9 100644
 +        'requests'      => 'requests',
 +        'complaints'    => 'complaints',
 +        'workforce_planning' => 'workforce_planning',
++        'employees'     => 'employees',
 +        default         => 'index',
 +    };
 +
@@ -216,6 +217,19 @@ index b537b12..c02c865 100644
      $postCid = $resolveWpCompanyId();
  
      if ($action === 'add_wp') {
+diff --git a/dashboard/pages/employees/page.php b/dashboard/pages/employees/page.php
+--- a/dashboard/pages/employees/page.php
++++ b/dashboard/pages/employees/page.php
+@@ -11,6 +11,9 @@
+ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+     $action = $_POST['action'] ?? '';
+     $id     = (int) ($_POST['id'] ?? 0);
++    // R-053: save_edit و deactivate و reactivate و delete كلها تكتب بالـid وحده.
++    // save_edit تقدر تكتب password_hash، و delete تحذف بالتتابع من 14 جدولاً.
++    hr_verify_post_row('employees', $id, hr_resolve_company_id());
+ 
+     if ($action === 'add_employee') {
+         $cid = $isComp ? $compId : (int) ($_POST['company_id'] ?? hr_resolve_company_id());
 diff --git a/dashboard/pages/leave_balances/page.php b/dashboard/pages/leave_balances/page.php
 --- a/dashboard/pages/leave_balances/page.php
 +++ b/dashboard/pages/leave_balances/page.php

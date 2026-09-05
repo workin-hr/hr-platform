@@ -48,7 +48,7 @@ function check(string $name, string $got, string $want) {
 
 // A real row and its true owner, plus a company that does not own it.
 $tables = ['leave_balance', 'penalties', 'advances', 'requests', 'assets', 'complaints',
-    'workforce_planning'];
+    'workforce_planning', 'employees'];
 foreach ($tables as $t) {
     $id = (int) dbValue("SELECT MIN(id) FROM `$t`");
     if ($id <= 0) { printf("SKIP %s (no rows)\n", $t); continue; }

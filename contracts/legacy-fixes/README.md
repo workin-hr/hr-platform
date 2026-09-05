@@ -11,7 +11,7 @@ repository's.
 
 | Patch | Risk | Verified |
 |---|---|---|
-| `R-046-cross-tenant-write.patch` | **R-046** — HR dashboard pages wrote by row id with no tenant check | `R-046-verification.php`, 38 assertions against a copy of production |
+| `R-046-cross-tenant-write.patch` | **R-046** — HR dashboard pages wrote by row id with no tenant check | `R-046-verification.php`, 43 assertions against a copy of production |
 
 ## Applying R-046
 
@@ -21,8 +21,8 @@ git apply --check contracts/legacy-fixes/R-046-cross-tenant-write.patch   # dry 
 git apply          contracts/legacy-fixes/R-046-cross-tenant-write.patch
 ```
 
-It touches eight files: one helper pair in
-`dashboard/includes/hr_helper.php`, one guard call at the top of six pages'
+It touches nine files: one helper pair in
+`dashboard/includes/hr_helper.php`, one guard call at the top of seven pages'
 POST blocks, and a rebinding of `complaints`' three existing guards so they
 cover HR sessions as well as company owners.
 
@@ -34,7 +34,17 @@ calls and read them as row guards; they are foreign-key checks inside
 Its `delete_wp` action had no tenant check of any kind — not even the
 `$cid > 0` one its sibling `edit_wp` carries — so a company-scoped session
 could delete another company's row by posting its id. R-046 therefore covers
-**seven** of the eight HR pages, not six.
+**seven** of the eight HR pages it names, not six.
+
+`employees` was added on 2026-09-05 as well, and carries the heaviest
+consequences in this patch — it is tracked separately as **R-053** because
+R-046's page table never named it. All four of its write paths take the row id
+from the POST body with no tenant check: `save_edit` can write
+`password_hash`, which is the credential `login_employee.php` verifies, and
+`delete` is a hard delete from which fourteen tables cascade. It ships here
+rather than in a patch of its own because it is the same defect, the same
+guard and the same file set, and a live account-takeover path should not wait
+for a second review cycle.
 
 ## Verifying it
 
