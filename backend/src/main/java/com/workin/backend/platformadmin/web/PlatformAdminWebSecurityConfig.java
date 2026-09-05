@@ -133,6 +133,8 @@ public class PlatformAdminWebSecurityConfig {
 	 */
 	public static final String BRANCHES_PATH = PATH_PREFIX + "/branches";
 
+	public static final String DEPARTMENTS_PATH = PATH_PREFIX + "/departments";
+
 	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
