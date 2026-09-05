@@ -127,6 +127,18 @@ are different claims, and only the second is worth anything at a cutover.
 | `profile/logout`, employee, `platform=android` | Deactivated, `token_version` bumped, the token issued a moment earlier now 401 |
 | Message catalog in the jar | All six corrected entries present at `BOOT-INF/classes/legacy/lang/en.properties` |
 
+Re-checked on the same day after the four org pages landed:
+
+| Checked | Result |
+|---|---|
+| `/admin/{branches,departments,job_titles,shifts}` | 302 to the login, not 404 — mapped in the shipped jar |
+| Their JTE templates | Precompiled into the jar as `Jte{branches,branchform,departments,jobtitles,shifts}Generated.class` — a template missing from the jar fails at request time, not at startup |
+| Startup against the production copy | Clean, all 10 Phase 1 tables present, with 486 branches / 1,211 departments / 2,158 job titles / 400 shifts in the seeded data |
+
+Their behaviour is proved by the end-to-end tests, which run against a real
+MariaDB on the same schema; what this adds is that the pages exist **in the
+artifact that ships**, which no test in the suite can tell you.
+
 The fixture was a throwaway company and two employees at ids far above the
 live maxima, removed afterwards; the company and employee counts were
 verified identical before and after. Do the same if you repeat this —
