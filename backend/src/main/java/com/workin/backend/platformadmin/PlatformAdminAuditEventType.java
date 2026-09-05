@@ -45,5 +45,15 @@ public enum PlatformAdminAuditEventType {
 	// session, and this record.
 	CONTENT_CREATED,
 	CONTENT_UPDATED,
-	CONTENT_DELETED
+	CONTENT_DELETED,
+
+	// The org pages -- branches, departments, job titles, shifts. Separate
+	// from CONTENT_* above because the target is one tenant's own data rather
+	// than platform-wide content: an auditor asking "what did an administrator
+	// change inside this customer's company" wants these and not the FAQ edits
+	// in the same answer. Gated the same way (surface flag, bound factor, this
+	// record) and not behind step-up, for the same reason.
+	ORG_CREATED,
+	ORG_UPDATED,
+	ORG_DELETED
 }

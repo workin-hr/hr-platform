@@ -127,6 +127,13 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String NOTIFICATIONS_PATH = PATH_PREFIX + "/notifications";
 
 	/**
+	 * The org pages. Each is one company's own data, reachable by the
+	 * administrator across companies through the session filter -- the
+	 * cross-tenant mode <b>R-044</b> covers.
+	 */
+	public static final String BRANCHES_PATH = PATH_PREFIX + "/branches";
+
+	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
 	 * <p>A named constant so it can be checked against the handlers' own

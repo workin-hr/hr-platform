@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 
 import org.springframework.context.MessageSource;
+import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ModelAttribute;
 
@@ -101,6 +102,32 @@ public class AdminViewModelAdvice {
 		}
 		String tail = path.substring(path.lastIndexOf('/') + 1);
 		return tail.isEmpty() ? "index" : tail;
+	}
+
+	/**
+	 * The CSRF token's field name and value, for every page in this package.
+	 *
+	 * <p>Here rather than in each controller for the reason this advice exists
+	 * at all: a page that forgets renders its forms with an empty token, and
+	 * the symptom is a 403 on submit that looks like a permissions problem.
+	 * Four pages had already forgotten -- FAQs, banners, notifications and
+	 * dial codes -- because {@code PlatformAdminWebCsrf.expose()} is a call a
+	 * new controller has to remember to make.
+	 *
+	 * <p>The older controllers still call it themselves; a model attribute set
+	 * by a controller wins over one from an advice, so those keep working
+	 * unchanged.
+	 */
+	@ModelAttribute("csrfParameterName")
+	public String csrfParameterName(HttpServletRequest request) {
+		CsrfToken token = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
+		return token == null ? "_csrf" : token.getParameterName();
+	}
+
+	@ModelAttribute("csrfToken")
+	public String csrfToken(HttpServletRequest request) {
+		CsrfToken token = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
+		return token == null ? "" : token.getToken();
 	}
 
 	/**
