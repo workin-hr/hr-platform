@@ -11,6 +11,11 @@
 @param Function<String, Boolean> available
 @param String flash = null
 @param String flashType = "success"
+@param java.util.List<String> pageStyles = java.util.List.of()
+<%-- The page's own wrapper class, beside the shared .content. Nearly every
+     dashboard page uses hr-page, so that is the default; the two detail pages
+     use a bare class="content" and pass "" for it. --%>
+@param String contentClass = "hr-page"
 @param Content body
 <%-- The dashboard's shell, class for class (dashboard/includes/layout.php), so
      the stylesheets copied from it apply unchanged. Assets are served from
@@ -26,6 +31,13 @@
 	<link rel="stylesheet" href="/admin/_assets/app-ui.css">
 	<link rel="stylesheet" href="/admin/_assets/sidebar.css">
 	<link rel="stylesheet" href="/admin/_assets/admin-extra.css">
+	<%-- $pageStyles in dashboard/includes/layout.php: the per-page stylesheets,
+	     appended after the shared ones so a page's own rules win. Naming them
+	     on the template is what keeps a copied class name and the file that
+	     styles it from drifting apart. --%>
+@for(String pageStyle : pageStyles)
+	<link rel="stylesheet" href="/admin/_assets/${pageStyle}">
+@endfor
 </head>
 <body class="lang-${lang}">
 @if(currentAdminPhone == null)
@@ -49,7 +61,7 @@
 			@endif
 			<%-- .content is what the dashboard's stylesheets pad and scroll; a body
 			     placed straight into .main overflows it (.main is overflow:hidden). --%>
-			<div class="content hr-page">
+			<div class="content${contentClass.isEmpty() ? "" : " " + contentClass}">
 				${body}
 			</div>
 		</main>

@@ -166,6 +166,14 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String EMPLOYEE_DETAIL_PATH = PATH_PREFIX + "/employee_detail";
 
 	/**
+	 * The payroll group. {@code salary_calculator} is the one page on this
+	 * surface that reads and writes nothing at all -- an estimate computed from
+	 * the form's own numbers -- so it is authenticated and permission-gated
+	 * like the rest and has no company to scope.
+	 */
+	public static final String SALARY_CALCULATOR_PATH = PATH_PREFIX + "/salary_calculator";
+
+	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
 	 * <p>A named constant so it can be checked against the handlers' own

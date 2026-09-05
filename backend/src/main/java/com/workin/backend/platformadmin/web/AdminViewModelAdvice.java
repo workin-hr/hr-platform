@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 
 import org.springframework.context.MessageSource;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -149,6 +150,25 @@ public class AdminViewModelAdvice {
 	public DashboardSession session(HttpServletRequest request) {
 		HttpSession httpSession = request.getSession(false);
 		return DashboardSession.admin(DashboardOrgScope.current(httpSession));
+	}
+
+	/**
+	 * The signed-in administrator's phone, which the layout shows in the topbar
+	 * -- and, more consequentially, uses to decide whether to render the shell
+	 * at all. A null here is the login, MFA and enrolment case, where there is
+	 * no principal yet and the bare {@code auth-shell} is right.
+	 *
+	 * <p><b>Here rather than on each controller (R-058).</b> It was on six of
+	 * them and missing from fourteen, and the fourteen rendered with no sidebar
+	 * and no page title. Nothing failed: the parameter is declared on the
+	 * templates without a default, so a missing model entry is null and the
+	 * layout quietly takes the other branch. A cross-cutting value that every
+	 * page needs and any page can forget belongs in the advice that already
+	 * supplies the rest of them.
+	 */
+	@ModelAttribute("currentAdminPhone")
+	public String currentAdminPhone(@AuthenticationPrincipal PlatformAdminWebPrincipal principal) {
+		return principal == null ? null : principal.phone();
 	}
 
 }
