@@ -182,6 +182,14 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String JOIN_REQUESTS_PATH = PATH_PREFIX + "/join_requests";
 
 	/**
+	 * The recent-activity feed. Read-only, and gated by its own permission
+	 * ({@code can_recent_activities}) rather than by the pages whose rows it
+	 * shows -- though each half of the feed is gated again by that page's
+	 * permission, so a session may see one half and not the other.
+	 */
+	public static final String ACTIVITIES_PATH = PATH_PREFIX + "/activities";
+
+	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
 	 * <p>A named constant so it can be checked against the handlers' own

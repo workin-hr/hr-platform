@@ -44,8 +44,13 @@ public class EmployeeStore {
 	static final String NAME_SQL =
 			"TRIM(CONCAT(COALESCE(e.first_name,''), ' ', COALESCE(e.last_name,'')))";
 
-	/** {@code dashboard_employee_code_sql()}: the id stands in for a blank code. */
-	private static final String CODE_SQL =
+	/**
+	 * {@code dashboard_employee_code_sql()}: the id stands in for a blank code.
+	 *
+	 * <p>Package-visible for the same reason as {@link #NAME_SQL}: the activity
+	 * feed reads it off the same table.
+	 */
+	static final String CODE_SQL =
 			"COALESCE(NULLIF(TRIM(e.employee_code), ''), CAST(e.id AS CHAR))";
 
 	private static final String LATEST_SHIFT =
