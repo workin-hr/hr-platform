@@ -143,6 +143,8 @@ public class PlatformAdminWebSecurityConfig {
 
 	public static final String REQUESTS_PATH = PATH_PREFIX + "/requests";
 
+	public static final String PENALTIES_PATH = PATH_PREFIX + "/penalties";
+
 	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
