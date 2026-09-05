@@ -139,6 +139,8 @@ public class PlatformAdminWebSecurityConfig {
 
 	public static final String SHIFTS_PATH = PATH_PREFIX + "/shifts";
 
+	public static final String LEAVE_BALANCES_PATH = PATH_PREFIX + "/leave_balances";
+
 	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
