@@ -93,6 +93,19 @@ public class JobTitleStore {
 		return rows.isEmpty() ? null : rows.get(0);
 	}
 
+	/**
+	 * The company that owns this row -- authoritative for an edit, because the
+	 * posted {@code company_id} is the operator's and can name any company.
+	 */
+	public Long companyOf(long id) {
+		if (id <= 0) {
+			return null;
+		}
+		java.util.List<Long> found = this.jdbcTemplate.queryForList(
+				"SELECT company_id FROM job_titles WHERE id = ?", Long.class, id);
+		return found.isEmpty() ? null : found.get(0);
+	}
+
 	public boolean belongsTo(long id, long companyId) {
 		if (id <= 0 || companyId <= 0) {
 			return false;

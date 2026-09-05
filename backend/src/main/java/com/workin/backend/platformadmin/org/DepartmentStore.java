@@ -112,6 +112,19 @@ public class DepartmentStore {
 				Long.class, departmentId);
 	}
 
+	/**
+	 * The company that owns this row -- authoritative for an edit, because the
+	 * posted {@code company_id} is the operator's and can name any company.
+	 */
+	public Long companyOf(long id) {
+		if (id <= 0) {
+			return null;
+		}
+		java.util.List<Long> found = this.jdbcTemplate.queryForList(
+				"SELECT company_id FROM departments WHERE id = ?", Long.class, id);
+		return found.isEmpty() ? null : found.get(0);
+	}
+
 	public boolean belongsTo(long id, long companyId) {
 		if (id <= 0 || companyId <= 0) {
 			return false;

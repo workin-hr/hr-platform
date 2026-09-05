@@ -145,6 +145,8 @@ public class PlatformAdminWebSecurityConfig {
 
 	public static final String PENALTIES_PATH = PATH_PREFIX + "/penalties";
 
+	public static final String ASSETS_PATH = PATH_PREFIX + "/assets";
+
 	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
@@ -163,6 +165,15 @@ public class PlatformAdminWebSecurityConfig {
 
 	/**
 	 * The stylesheets and scripts the admin pages load, served from
+	 * <p>The prefix is {@code /admin/_assets/**}, with the underscore, and that
+	 * is load-bearing. It was {@code /admin/assets/**} until the dashboard's own
+	 * {@code assets} page was ported: Spring's {@code /**} matches zero segments,
+	 * so {@code /admin/assets} matched the permitAll rule and the page answered
+	 * without a session. A leading underscore cannot be a page name -- they come
+	 * from {@code dashboard/pages/*} -- so this closes the collision for every
+	 * future page rather than for that one.
+	 *
+	 * <p>Served from
 	 * {@code classpath:/static/admin/assets/} and copied from the PHP
 	 * dashboard so the two look the same (ADR-0016).
 	 *
@@ -182,7 +193,7 @@ public class PlatformAdminWebSecurityConfig {
 	 * before matching. {@code PlatformAdminAssetsExposureTest} holds both
 	 * halves of that.
 	 */
-	public static final String ASSETS_PATTERN = PATH_PREFIX + "/assets/**";
+	public static final String ASSETS_PATTERN = PATH_PREFIX + "/_assets/**";
 
 	@Bean
 	@Order(0)

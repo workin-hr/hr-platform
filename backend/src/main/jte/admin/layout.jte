@@ -14,7 +14,7 @@
 @param Content body
 <%-- The dashboard's shell, class for class (dashboard/includes/layout.php), so
      the stylesheets copied from it apply unchanged. Assets are served from
-     /admin/assets/**, the one prefix under /admin that is permitAll -- see
+     /admin/_assets/**, the one prefix under /admin that is permitAll -- see
      PlatformAdminWebSecurityConfig, where the exception is stated and tested. --%>
 <!DOCTYPE html>
 <html lang="${lang}" dir="${"ar".equals(lang) ? "rtl" : "ltr"}">
@@ -22,10 +22,10 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>${title} — ${t.apply("app_name")}</title>
-	<link rel="stylesheet" href="/admin/assets/style.css">
-	<link rel="stylesheet" href="/admin/assets/app-ui.css">
-	<link rel="stylesheet" href="/admin/assets/sidebar.css">
-	<link rel="stylesheet" href="/admin/assets/admin-extra.css">
+	<link rel="stylesheet" href="/admin/_assets/style.css">
+	<link rel="stylesheet" href="/admin/_assets/app-ui.css">
+	<link rel="stylesheet" href="/admin/_assets/sidebar.css">
+	<link rel="stylesheet" href="/admin/_assets/admin-extra.css">
 </head>
 <body class="lang-${lang}">
 @if(currentAdminPhone == null)
@@ -54,9 +54,9 @@
 			</div>
 		</main>
 	</div>
-	<script src="/admin/assets/sidebar.js"></script>
-	<script src="/admin/assets/row-actions.js"></script>
-	<script src="/admin/assets/crud.js"></script>
+	<script src="/admin/_assets/sidebar.js"></script>
+	<script src="/admin/_assets/row-actions.js"></script>
+	<script src="/admin/_assets/crud.js"></script>
 @endif
 </body>
 </html>

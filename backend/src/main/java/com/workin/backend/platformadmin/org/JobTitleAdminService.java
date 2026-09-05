@@ -104,6 +104,15 @@ public class JobTitleAdminService {
 		return companyId;
 	}
 
+	/** The company that owns an existing row; refused when it has none. */
+	private long ownerOf(long id) {
+		Long owner = this.store.companyOf(id);
+		if (owner == null) {
+			throw new RefusedException(Refusal.FOREIGN_ROW);
+		}
+		return owner;
+	}
+
 	/**
 	 * {@code (int) ($_POST['department_id'] ?? 0) ?: null} then the ownership
 	 * check.
@@ -154,7 +163,10 @@ public class JobTitleAdminService {
 			long postedCompanyId, Long departmentId, String rawName, String rawWorkHours,
 			boolean active) {
 		gate(factorBound);
-		long companyId = assertWritable(session, postedCompanyId, id);
+		assertWritable(session, postedCompanyId, id);
+		// The row's own company, not the posted one -- see
+		// DepartmentAdminService#saveEdit for why the two differ.
+		long companyId = ownerOf(id);
 		Long department = department(departmentId, companyId);
 		String name = rawName == null ? "" : rawName.trim();
 		BigDecimal workHours = JobTitle.workHours(rawWorkHours);

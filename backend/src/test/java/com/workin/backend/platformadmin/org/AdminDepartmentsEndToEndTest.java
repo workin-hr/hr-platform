@@ -241,6 +241,58 @@ class AdminDepartmentsEndToEndTest {
 	}
 
 	@Test
+	void anUnfilteredAdministratorCannotAttachAnotherCompanysBranches() {
+		// The department's own company is authoritative on an edit. The form
+		// carries company_id and an administrator may post any value, so
+		// validating the branches against *that* would let this edit link a
+		// company-A department to company-B branches -- tenant ownership
+		// changed through an editable foreign key.
+		post("/admin/departments", this.cookie, page("/admin/departments?action=add", this.cookie).csrf(),
+				"action", "add", "company_id", String.valueOf(this.companyA), "name", "Fixed",
+				"branch_ids", String.valueOf(this.branchA1));
+		long id = this.jdbc.queryForObject(
+				"SELECT id FROM departments WHERE name = 'Fixed'", Long.class);
+		body("/admin/departments?company_id=");
+
+		assertThat(post("/admin/departments", this.cookie,
+				page("/admin/departments?action=edit&id=" + id, this.cookie).csrf(),
+				"action", "save_edit", "id", String.valueOf(id),
+				"company_id", String.valueOf(this.companyB), "name", "Fixed",
+				"branch_ids", String.valueOf(this.branchB1), "is_active", "1")
+				.getHeaders().getLocation()).asString()
+				.contains("error=select_at_least_one_branch");
+
+		assertThat(this.jdbc.queryForList(
+				"SELECT branch_id FROM department_branches WHERE department_id = ?", Long.class, id))
+				.as("still linked to its own company's branch")
+				.containsExactly(this.branchA1);
+		assertThat(this.jdbc.queryForObject(
+				"SELECT company_id FROM departments WHERE id = " + id, Long.class))
+				.isEqualTo(this.companyA);
+	}
+
+	@Test
+	void anEditMayStillChangeBranchesWithinTheSameCompany() {
+		// Immutable company, not immutable branch set.
+		post("/admin/departments", this.cookie, page("/admin/departments?action=add", this.cookie).csrf(),
+				"action", "add", "company_id", String.valueOf(this.companyA), "name", "Movable2",
+				"branch_ids", String.valueOf(this.branchA1));
+		long id = this.jdbc.queryForObject(
+				"SELECT id FROM departments WHERE name = 'Movable2'", Long.class);
+		body("/admin/departments?company_id=");
+
+		post("/admin/departments", this.cookie,
+				page("/admin/departments?action=edit&id=" + id, this.cookie).csrf(),
+				"action", "save_edit", "id", String.valueOf(id),
+				"company_id", String.valueOf(this.companyA), "name", "Movable2",
+				"branch_ids", String.valueOf(this.branchA2), "is_active", "1");
+
+		assertThat(this.jdbc.queryForList(
+				"SELECT branch_id FROM department_branches WHERE department_id = ?", Long.class, id))
+				.containsExactly(this.branchA2);
+	}
+
+	@Test
 	void deleteDeactivatesAndLeavesTheBranchLinksAlone() {
 		post("/admin/departments", this.cookie, page("/admin/departments?action=add", this.cookie).csrf(),
 				"action", "add", "company_id", String.valueOf(this.companyA), "name", "Closing",

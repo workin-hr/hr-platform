@@ -105,6 +105,15 @@ public class DepartmentAdminService {
 		return companyId;
 	}
 
+	/** The company that owns an existing row; refused when it has none. */
+	private long ownerOf(long id) {
+		Long owner = this.store.companyOf(id);
+		if (owner == null) {
+			throw new RefusedException(Refusal.FOREIGN_ROW);
+		}
+		return owner;
+	}
+
 	/**
 	 * {@code org_department_validate_branches_for_company()}: at least one, and
 	 * every one of them this company's.
@@ -157,7 +166,13 @@ public class DepartmentAdminService {
 			DashboardSession session, long adminId, boolean factorBound, long id,
 			long postedCompanyId, String rawName, List<Long> branchIds, boolean active) {
 		gate(factorBound);
-		long companyId = assertWritable(session, postedCompanyId, id);
+		assertWritable(session, postedCompanyId, id);
+		// The row's own company, not the posted one. An administrator's form
+		// carries company_id and nothing checks it against the row, so
+		// validating the branches against it would let an edit attach a
+		// department to another company's branches -- a cross-tenant link
+		// through an editable foreign key.
+		long companyId = ownerOf(id);
 		String name = requireName(rawName);
 		assertBranches(branchIds, companyId);
 

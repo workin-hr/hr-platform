@@ -16,7 +16,7 @@ import com.workin.backend.AbstractIntegrationTest;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * {@code /admin/assets/**} is the one prefix on this chain that answers
+ * {@code /admin/_assets/**} is the one prefix on this chain that answers
  * without a session. This holds both halves of that bargain: the assets are
  * actually reachable, and the exception reaches nothing else.
  *
@@ -46,7 +46,7 @@ class PlatformAdminAssetsExposureTest extends AbstractIntegrationTest {
 	@Test
 	void aStylesheetIsServedWithoutASession() {
 		ResponseEntity<String> response =
-				this.restTemplate.getForEntity(url("/admin/assets/style.css"), String.class);
+				this.restTemplate.getForEntity(url("/admin/_assets/style.css"), String.class);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).isNotBlank();
@@ -54,7 +54,7 @@ class PlatformAdminAssetsExposureTest extends AbstractIntegrationTest {
 
 	@Test
 	void theSidebarScriptIsServedWithoutASession() {
-		assertThat(this.restTemplate.getForEntity(url("/admin/assets/sidebar.js"), String.class).getStatusCode())
+		assertThat(this.restTemplate.getForEntity(url("/admin/_assets/sidebar.js"), String.class).getStatusCode())
 				.isEqualTo(HttpStatus.OK);
 	}
 
@@ -67,7 +67,7 @@ class PlatformAdminAssetsExposureTest extends AbstractIntegrationTest {
 
 	@Test
 	void aMissingAssetIsNotFoundRatherThanRedirected() {
-		assertThat(this.restTemplate.getForEntity(url("/admin/assets/nothing-here.css"), String.class).getStatusCode())
+		assertThat(this.restTemplate.getForEntity(url("/admin/_assets/nothing-here.css"), String.class).getStatusCode())
 				.isEqualTo(HttpStatus.NOT_FOUND);
 	}
 
@@ -80,7 +80,7 @@ class PlatformAdminAssetsExposureTest extends AbstractIntegrationTest {
 	@Test
 	void traversalOutOfTheAssetPrefixDoesNotReachAProtectedPage() {
 		ResponseEntity<String> response =
-				this.restTemplate.getForEntity(url("/admin/assets/../companies"), String.class);
+				this.restTemplate.getForEntity(url("/admin/_assets/../companies"), String.class);
 
 		assertThat(response.getStatusCode()).isNotEqualTo(HttpStatus.OK);
 	}

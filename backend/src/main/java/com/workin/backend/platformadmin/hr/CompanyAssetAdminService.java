@@ -11,26 +11,24 @@ import com.workin.backend.platformadmin.PlatformAdminAuditEventType;
 import com.workin.backend.platformadmin.PlatformAdminAuditService;
 import com.workin.backend.platformadmin.web.DashboardSession;
 import com.workin.legacy.LegacyClock;
-import com.workin.legacy.payroll.LegacyPenaltyDays;
 
 /**
- * The write half of {@code dashboard/pages/penalties/page.php}.
+ * The write half of {@code dashboard/pages/assets/page.php}.
  *
- * <p>The rule that makes this page different: a penalty {@code applied_to_payroll}
- * is <b>frozen</b>. Legacy refuses to edit it, and rightly -- payroll has
- * already deducted against those days, and changing them would leave a payslip
- * that no longer agrees with the row it was computed from. Deleting one is
- * still allowed, which is legacy's choice and not obviously the right one; it
- * is reproduced rather than tightened, because tightening it would refuse an
- * operation operators may rely on and this port is not the place to decide
- * that.
+ * <p>The same shape as the penalties page, one rule lighter: an asset marked
+ * returned is <b>frozen</b> against editing, but there is no value whitelist --
+ * an asset is a piece of text and a pair of dates.
  *
- * <p>R-046: {@code mark_applied} and {@code delete_penalty} wrote by id alone.
+ * <p>The edit writes {@code company_id} from the chosen employee, so the
+ * employee is checked on every write. Without that, changing
+ * {@code employee_id} on an edit would carry the row into another company.
+ *
+ * <p>R-046: {@code mark_returned} and {@code delete_asset} wrote by id alone.
  * Both are guarded here.
  */
 @Service
 @Profile("phase1-mysql")
-public class PenaltyAdminService {
+public class CompanyAssetAdminService {
 
 	public enum Refusal {
 
@@ -43,11 +41,8 @@ public class PenaltyAdminService {
 		/** {@code error_db}: the row or the employee belongs to another company. */
 		FOREIGN_ROW,
 
-		/** {@code error_required}: no employee, no type, or an already-applied row. */
-		INVALID,
-
-		/** {@code penalty_days_invalid}: not one of the seven allowed values. */
-		BAD_DAYS
+		/** {@code error_required}: no employee, no text, or an already-returned row. */
+		INVALID
 	}
 
 	public static class RefusedException extends RuntimeException {
@@ -64,7 +59,7 @@ public class PenaltyAdminService {
 		}
 	}
 
-	private final PenaltyStore store;
+	private final CompanyAssetStore store;
 
 	private final PlatformAdminAuditService auditService;
 
@@ -72,7 +67,7 @@ public class PenaltyAdminService {
 
 	private final boolean actionsEnabled;
 
-	public PenaltyAdminService(PenaltyStore store, PlatformAdminAuditService auditService,
+	public CompanyAssetAdminService(CompanyAssetStore store, PlatformAdminAuditService auditService,
 			LegacyClock clock,
 			@Value("${app.platform-admin.actions.enabled:false}") boolean actionsEnabled) {
 		this.store = store;
@@ -142,81 +137,73 @@ public class PenaltyAdminService {
 		}
 	}
 
-	/** {@code dashboard_penalty_days_resolve()}: one of seven values, or refused. */
-	private static BigDecimal days(String raw) {
-		Double normalized = LegacyPenaltyDays.normalize(phpFloat(raw));
-		if (normalized == null) {
-			throw new RefusedException(Refusal.BAD_DAYS);
-		}
-		return BigDecimal.valueOf(normalized);
-	}
-
 	@Transactional
 	public long add(
 			DashboardSession session, long adminId, boolean factorBound, long employeeId,
-			String penaltyType, String rawDays, String reason, String penaltyDate) {
+			String assetText, String assetDate, String assetEndDate) {
 		gate(factorBound);
-		String type = penaltyType == null ? "" : penaltyType.trim();
-		if (employeeId <= 0 || type.isEmpty()) {
+		String text = assetText == null ? "" : assetText.trim();
+		if (employeeId <= 0 || text.isEmpty()) {
 			throw new RefusedException(Refusal.INVALID);
 		}
 		long companyId = assertEmployeeVisible(session, employeeId);
-		BigDecimal penaltyDays = days(rawDays);
 
 		long id = this.store.insert(
-				employeeId, type, penaltyDays, blankToNull(reason), dateOrToday(penaltyDate));
+				companyId, employeeId, dateOrToday(assetDate), blankToNull(assetEndDate), text);
 		audit(adminId, PlatformAdminAuditEventType.ORG_CREATED, id,
-				"penalty created for employee " + employeeId + " in company " + companyId);
+				"asset assigned to employee " + employeeId + " in company " + companyId);
 		return companyId;
 	}
 
 	/**
-	 * {@code edit_penalty}: refused outright once the row has reached payroll.
+	 * Refused once the asset is back: there is nothing left to correct.
 	 *
-	 * <p>Legacy checks that <b>before</b> anything else about the payload, so
-	 * an applied row cannot be edited even with a valid form.
+	 * <h2>The company is immutable</h2>
+	 * <p>The edit may reassign the asset to a different employee, but only
+	 * within the company that already owns the row -- and the company written
+	 * is the row's existing one, not the new employee's.
+	 *
+	 * <p>Checking the employee against the <em>session</em> instead is not
+	 * enough, and that is a hole this had until it was pointed out: an
+	 * administrator with no company filter satisfies any session check, so
+	 * posting an employee from another company would have carried the asset
+	 * there. The row's own company is the only thing that cannot be widened by
+	 * how the operator happens to be looking at the page.
 	 */
 	@Transactional
 	public long saveEdit(
 			DashboardSession session, long adminId, boolean factorBound, long id, long employeeId,
-			String penaltyType, String rawDays, String reason, String penaltyDate) {
+			String assetText, String assetDate, String assetEndDate) {
 		gate(factorBound);
 		long companyId = assertRowVisible(session, id);
 
-		Boolean applied = this.store.appliedToPayroll(id);
-		if (applied == null || applied) {
+		Boolean returned = this.store.isReturned(id);
+		if (returned == null || returned) {
 			throw new RefusedException(Refusal.INVALID);
 		}
 
-		String type = penaltyType == null ? "" : penaltyType.trim();
-		if (employeeId <= 0 || type.isEmpty()) {
+		String text = assetText == null ? "" : assetText.trim();
+		if (employeeId <= 0 || text.isEmpty()) {
 			throw new RefusedException(Refusal.INVALID);
 		}
-		// Against the row's company, not the session's: an administrator with
-		// no filter satisfies any session check, so checking the session would
-		// let a posted employee from elsewhere carry the penalty out of the
-		// company that owns it. A penalty has no company column -- it is
-		// whichever company its employee is in -- so reassigning the employee
-		// *is* moving the row.
 		assertEmployeeInCompany(employeeId, companyId);
-		BigDecimal penaltyDays = days(rawDays);
 
-		this.store.update(
-				id, employeeId, type, penaltyDays, blankToNull(reason), dateOrToday(penaltyDate));
+		this.store.update(id, companyId, employeeId,
+				dateOrToday(assetDate), blankToNull(assetEndDate), text);
 		audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, id,
-				"penalty updated in company " + companyId);
+				"asset updated in company " + companyId);
 		return companyId;
 	}
 
 	@Transactional
-	public long markApplied(
+	public long markReturned(
 			DashboardSession session, long adminId, boolean factorBound, long id) {
 		gate(factorBound);
 		long companyId = assertRowVisible(session, id);
 
-		this.store.markApplied(id);
+		this.store.markReturned(id, this.clock.today().toString());
 		audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, id,
-				"penalty marked applied to payroll in company " + companyId);
+				"asset marked returned in company " + companyId);
 		return companyId;
 	}
 
@@ -227,11 +214,11 @@ public class PenaltyAdminService {
 
 		this.store.delete(id);
 		audit(adminId, PlatformAdminAuditEventType.ORG_DELETED, id,
-				"penalty deleted in company " + companyId);
+				"asset deleted in company " + companyId);
 		return companyId;
 	}
 
-	/** {@code $_POST['penalty_date'] ?? date('Y-m-d')}: absent means today. */
+	/** {@code $_POST['asset_date'] ?? date('Y-m-d')}: absent means today. */
 	private String dateOrToday(String raw) {
 		return raw == null || raw.isBlank() ? this.clock.today().toString() : raw.trim();
 	}
@@ -241,38 +228,8 @@ public class PenaltyAdminService {
 		return trimmed.isEmpty() ? null : trimmed;
 	}
 
-	/** {@code (float) $raw}: the leading number, 0 for anything else. */
-	private static double phpFloat(String raw) {
-		if (raw == null) {
-			return 0d;
-		}
-		String trimmed = raw.trim();
-		int end = 0;
-		if (end < trimmed.length() && (trimmed.charAt(end) == '+' || trimmed.charAt(end) == '-')) {
-			end++;
-		}
-		while (end < trimmed.length() && Character.isDigit(trimmed.charAt(end))) {
-			end++;
-		}
-		if (end < trimmed.length() && trimmed.charAt(end) == '.') {
-			end++;
-			while (end < trimmed.length() && Character.isDigit(trimmed.charAt(end))) {
-				end++;
-			}
-		}
-		String number = trimmed.substring(0, end);
-		if (number.isEmpty() || "+".equals(number) || "-".equals(number) || ".".equals(number)) {
-			return 0d;
-		}
-		try {
-			return Double.parseDouble(number);
-		} catch (NumberFormatException ex) {
-			return 0d;
-		}
-	}
-
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
-		this.auditService.recordAction(adminId, type, "penalty", String.valueOf(id), null, detail);
+		this.auditService.recordAction(adminId, type, "asset", String.valueOf(id), null, detail);
 	}
 
 }

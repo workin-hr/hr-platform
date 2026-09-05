@@ -6,7 +6,7 @@
 @param Function<String, String> t
 <%-- Standalone, not through admin/layout: the dashboard's login has its own
      full-page design (hero panel beside the card) rather than the signed-in
-     shell, and its stylesheet is the one copied to /admin/assets/login.css.
+     shell, and its stylesheet is the one copied to /admin/_assets/login.css.
      Markup follows hr-legacy/dashboard/pages/login/page.php class for class.
 
      One deliberate difference: PHP's admin tab hides the phone field, because
@@ -20,7 +20,7 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>${t.apply("login_btn")} — ${t.apply("app_name")}</title>
-	<link rel="stylesheet" href="/admin/assets/login.css">
+	<link rel="stylesheet" href="/admin/_assets/login.css">
 </head>
 <body class="login-body${error != null ? " login-shake" : ""}">
 <div class="login-page">

@@ -236,6 +236,31 @@ class AdminJobTitlesEndToEndTest {
 	}
 
 	@Test
+	void anUnfilteredAdministratorCannotAttachAnotherCompanysDepartment() {
+		// Same invariant as the departments page: the job title's own company
+		// decides which departments it may point at, not the posted company_id.
+		post("/admin/job_titles", this.cookie, page("/admin/job_titles?action=add", this.cookie).csrf(),
+				"action", "add", "company_id", String.valueOf(this.companyA), "name", "Fixed",
+				"department_id", String.valueOf(this.departmentA), "work_hours", "8");
+		long id = this.jdbc.queryForObject(
+				"SELECT id FROM job_titles WHERE name = 'Fixed'", Long.class);
+		body("/admin/job_titles?company_id=");
+
+		assertThat(post("/admin/job_titles", this.cookie,
+				page("/admin/job_titles?action=edit&id=" + id, this.cookie).csrf(),
+				"action", "save_edit", "id", String.valueOf(id),
+				"company_id", String.valueOf(this.companyB), "name", "Fixed",
+				"department_id", String.valueOf(this.departmentB), "work_hours", "8",
+				"is_active", "1")
+				.getHeaders().getLocation()).asString()
+				.contains("error=select_company_first_department");
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT department_id FROM job_titles WHERE id = " + id, Long.class))
+				.as("still its own company's department").isEqualTo(this.departmentA);
+	}
+
+	@Test
 	void theDepartmentFilterNarrows() {
 		post("/admin/job_titles", this.cookie, page("/admin/job_titles?action=add", this.cookie).csrf(),
 				"action", "add", "company_id", String.valueOf(this.companyA), "name", "In Dept",

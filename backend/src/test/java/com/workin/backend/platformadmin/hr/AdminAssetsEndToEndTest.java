@@ -36,21 +36,21 @@ import com.workin.backend.platformadmin.mfa.PlatformAdminMfaService;
 import com.workin.backend.platformadmin.mfa.Totp;
 
 /**
- * {@code /admin/penalties} over real HTTP against a real MariaDB.
+ * {@code /admin/assets} over real HTTP against a real MariaDB.
  *
- * <p>Two rules carry this page. Penalty days are a <b>seven-value whitelist</b>
- * shared with payroll's own, so anything else is refused rather than rounded --
- * these days become money. And a penalty {@code applied_to_payroll} is
- * <b>frozen</b>: a payslip has already been computed from it, so editing it
- * would leave the two disagreeing.
+ * <p>The penalties page's shape, one rule lighter: an asset marked returned is
+ * frozen against editing, and there is no value whitelist. What it adds is a
+ * {@code company_id} of its own that the edit <b>writes</b> from the chosen
+ * employee -- so an edit that changed the employee could carry the row into
+ * another company, and the test for that is the one worth having.
  *
- * <p>And <b>R-046</b>: {@code mark_applied} and {@code delete_penalty} wrote by
+ * <p>And <b>R-046</b>: {@code mark_returned} and {@code delete_asset} wrote by
  * id alone.
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @ActiveProfiles("phase1-mysql")
-class AdminPenaltiesEndToEndTest {
+class AdminAssetsEndToEndTest {
 
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
 
@@ -113,11 +113,11 @@ class AdminPenaltiesEndToEndTest {
 		this.restTemplate.getRestTemplate().setRequestFactory(new JdkClientHttpRequestFactory(
 				HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build()));
 		this.jdbc = new JdbcTemplate(this.legacyDataSource);
-		this.jdbc.update("DELETE FROM penalties");
+		this.jdbc.update("DELETE FROM assets");
 		this.jdbc.update("DELETE FROM employees WHERE id > 990000");
 		this.jdbc.update("DELETE FROM platform_admin_audit_events");
 
-		String phone = "+2097" + System.nanoTime() % 100_000_000L;
+		String phone = "+2098" + System.nanoTime() % 100_000_000L;
 		this.jdbc.update("INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, 1)",
 				phone, this.passwordEncoder.encode(PASSWORD));
 		long adminId = this.jdbc.queryForObject(
@@ -144,213 +144,209 @@ class AdminPenaltiesEndToEndTest {
 	}
 
 	@Test
-	void addingAPenaltyWritesItUnappliedAgainstTheEmployeesCompany() {
-		post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "add_penalty", "employee_id", String.valueOf(this.employeeA),
-				"penalty_type", "Lateness", "penalty_days", "0.5",
-				"reason", "third time", "penalty_date", "2026-03-02");
+	void assigningAnAssetWritesItUnreturnedAgainstTheEmployeesCompany() {
+		post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "add_asset", "employee_id", String.valueOf(this.employeeA),
+				"asset_text", "Laptop", "asset_date", "2026-03-02", "asset_end_date", "2026-09-02");
 
 		Map<String, Object> row = this.jdbc.queryForMap(
-				"SELECT employee_id, penalty_type, penalty_days, reason, penalty_date,"
-						+ " applied_to_payroll FROM penalties");
+				"SELECT company_id, employee_id, asset_text, asset_end_date, is_returned FROM assets");
+		assertThat(row.get("company_id").toString()).isEqualTo(String.valueOf(this.companyA));
 		assertThat(row.get("employee_id").toString()).isEqualTo(String.valueOf(this.employeeA));
-		assertThat(row.get("penalty_type")).isEqualTo("Lateness");
-		assertThat(((java.math.BigDecimal) row.get("penalty_days"))
-				.compareTo(new java.math.BigDecimal("0.5"))).isZero();
-		assertThat(row.get("reason")).isEqualTo("third time");
-		assertThat(row.get("applied_to_payroll"))
-				.as("a new penalty has not reached payroll").isEqualTo(Boolean.FALSE);
+		assertThat(row.get("asset_text")).isEqualTo("Laptop");
+		assertThat(row.get("is_returned")).as("still out on loan").isEqualTo(Boolean.FALSE);
 	}
 
 	@Test
-	void everyAllowedDayValueIsAcceptedAndNothingElseIs() {
-		// Shared with payroll's own whitelist, because these days become money.
-		for (String allowed : List.of("0.25", "0.5", "1", "2", "3", "4", "5")) {
-			this.jdbc.update("DELETE FROM penalties");
-			post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-					"action", "add_penalty", "employee_id", String.valueOf(this.employeeA),
-					"penalty_type", "T", "penalty_days", allowed);
-			assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM penalties", Integer.class))
-					.as("allowed value %s", allowed).isEqualTo(1);
-		}
-		this.jdbc.update("DELETE FROM penalties");
-		for (String rejected : List.of("0", "0.75", "1.5", "6", "-1", "abc", "")) {
-			assertThat(post("/admin/penalties", this.cookie,
-					page("/admin/penalties", this.cookie).csrf(),
-					"action", "add_penalty", "employee_id", String.valueOf(this.employeeA),
-					"penalty_type", "T", "penalty_days", rejected)
-					.getHeaders().getLocation()).asString()
-					.as("rejected value '%s'", rejected).contains("error=penalty_days_invalid");
-		}
-		assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM penalties", Integer.class)).isZero();
-	}
+	void anEmptyEndDateIsStoredAsNullNotAnEmptyString() {
+		post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "add_asset", "employee_id", String.valueOf(this.employeeA),
+				"asset_text", "Phone", "asset_end_date", "");
 
-	@Test
-	void anEmptyTypeOrNoEmployeeIsRefused() {
-		assertThat(post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "add_penalty", "employee_id", String.valueOf(this.employeeA),
-				"penalty_type", "   ", "penalty_days", "1")
-				.getHeaders().getLocation()).asString().contains("error=error_required");
-		assertThat(post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "add_penalty", "employee_id", "0",
-				"penalty_type", "Lateness", "penalty_days", "1")
-				.getHeaders().getLocation()).asString().contains("error=error_required");
-		assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM penalties", Integer.class)).isZero();
+		assertThat(this.jdbc.queryForObject("SELECT asset_end_date FROM assets", String.class))
+				.as("an open-ended loan has no end date, not a blank one").isNull();
 	}
 
 	@Test
 	void anAbsentDateBecomesToday() {
-		post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "add_penalty", "employee_id", String.valueOf(this.employeeA),
-				"penalty_type", "Lateness", "penalty_days", "1");
+		post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "add_asset", "employee_id", String.valueOf(this.employeeA),
+				"asset_text", "Phone");
 
-		assertThat(this.jdbc.queryForObject(
-				"SELECT penalty_date FROM penalties", String.class))
+		assertThat(this.jdbc.queryForObject("SELECT asset_date FROM assets", String.class))
 				.isEqualTo(java.time.LocalDate.now(java.time.ZoneOffset.ofHours(2)).toString());
 	}
 
 	@Test
-	void markingAppliedFreezesTheRowAgainstEditing() {
-		long id = seedPenalty(this.employeeA, "Lateness", "1", false);
-
-		post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "mark_applied", "id", String.valueOf(id));
-		assertThat(this.jdbc.queryForObject(
-				"SELECT applied_to_payroll FROM penalties WHERE id = " + id, Boolean.class)).isTrue();
-
-		// A payslip has been computed from these days; changing them would
-		// leave the two disagreeing, so legacy refuses and so does this.
-		assertThat(post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "edit_penalty", "id", String.valueOf(id),
-				"employee_id", String.valueOf(this.employeeA),
-				"penalty_type", "Changed", "penalty_days", "5")
+	void anEmptyTextOrNoEmployeeIsRefused() {
+		assertThat(post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "add_asset", "employee_id", String.valueOf(this.employeeA),
+				"asset_text", "   ")
 				.getHeaders().getLocation()).asString().contains("error=error_required");
-		assertThat(this.jdbc.queryForObject(
-				"SELECT penalty_type FROM penalties WHERE id = " + id, String.class))
-				.isEqualTo("Lateness");
+		assertThat(post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "add_asset", "employee_id", "0", "asset_text", "Laptop")
+				.getHeaders().getLocation()).asString().contains("error=error_required");
+		assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM assets", Integer.class)).isZero();
 	}
 
 	@Test
-	void anUnappliedPenaltyCanStillBeEdited() {
-		long id = seedPenalty(this.employeeA, "Lateness", "1", false);
+	void markingReturnedStampsTheDateAndFreezesTheRow() {
+		long id = seedAsset(this.employeeA, this.companyA, "Laptop", false);
 
-		post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "edit_penalty", "id", String.valueOf(id),
-				"employee_id", String.valueOf(this.employeeA),
-				"penalty_type", "Absence", "penalty_days", "2", "penalty_date", "2026-04-01");
+		post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "mark_returned", "id", String.valueOf(id));
 
 		Map<String, Object> row = this.jdbc.queryForMap(
-				"SELECT penalty_type, penalty_days FROM penalties WHERE id = " + id);
-		assertThat(row.get("penalty_type")).isEqualTo("Absence");
-		assertThat(((java.math.BigDecimal) row.get("penalty_days"))
-				.compareTo(new java.math.BigDecimal("2"))).isZero();
+				"SELECT is_returned, returned_at FROM assets WHERE id = " + id);
+		assertThat(row.get("is_returned")).isEqualTo(Boolean.TRUE);
+		assertThat(row.get("returned_at")).isNotNull();
+
+		// Nothing left to correct about a loan that has ended.
+		assertThat(post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "edit_asset", "id", String.valueOf(id),
+				"employee_id", String.valueOf(this.employeeA), "asset_text", "Changed")
+				.getHeaders().getLocation()).asString().contains("error=error_required");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT asset_text FROM assets WHERE id = " + id, String.class)).isEqualTo("Laptop");
 	}
 
 	@Test
-	void anEditCannotMoveAPenaltyToAnotherCompany() {
-		long id = seedPenalty(this.employeeA, "Lateness", "1", false);
-		body("/admin/penalties?company_id=" + this.companyA);
+	void anAssetStillOutCanBeEdited() {
+		long id = seedAsset(this.employeeA, this.companyA, "Laptop", false);
 
-		assertThat(post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "edit_penalty", "id", String.valueOf(id),
-				"employee_id", String.valueOf(this.employeeB),
-				"penalty_type", "Lateness", "penalty_days", "1")
+		post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "edit_asset", "id", String.valueOf(id),
+				"employee_id", String.valueOf(this.employeeA), "asset_text", "Laptop and dock",
+				"asset_date", "2026-04-01");
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT asset_text FROM assets WHERE id = " + id, String.class))
+				.isEqualTo("Laptop and dock");
+	}
+
+	@Test
+	void anEditCannotCarryTheAssetIntoAnotherCompany() {
+		// The edit writes company_id from the chosen employee, so a foreign one
+		// would move the row. This is what makes the employee check on every
+		// write load-bearing rather than defensive.
+		long id = seedAsset(this.employeeA, this.companyA, "Laptop", false);
+		body("/admin/assets?company_id=" + this.companyA);
+
+		assertThat(post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "edit_asset", "id", String.valueOf(id),
+				"employee_id", String.valueOf(this.employeeB), "asset_text", "Laptop")
+				.getHeaders().getLocation()).asString().contains("error=error_db");
+
+		Map<String, Object> row = this.jdbc.queryForMap(
+				"SELECT company_id, employee_id FROM assets WHERE id = " + id);
+		assertThat(row.get("company_id").toString()).isEqualTo(String.valueOf(this.companyA));
+		assertThat(row.get("employee_id").toString()).isEqualTo(String.valueOf(this.employeeA));
+	}
+
+	@Test
+	void anUnfilteredAdministratorStillCannotMoveTheAssetBetweenCompanies() {
+		// The case the filtered test above does not reach, and the one that was
+		// actually open: with no company filter an administrator satisfies every
+		// session-based check, so the employee has to be checked against the
+		// *row's* company instead.
+		long id = seedAsset(this.employeeA, this.companyA, "Laptop", false);
+		body("/admin/assets?company_id=");
+
+		assertThat(post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "edit_asset", "id", String.valueOf(id),
+				"employee_id", String.valueOf(this.employeeB), "asset_text", "Laptop")
+				.getHeaders().getLocation()).asString().contains("error=error_db");
+
+		Map<String, Object> row = this.jdbc.queryForMap(
+				"SELECT company_id, employee_id FROM assets WHERE id = " + id);
+		assertThat(row.get("company_id").toString()).isEqualTo(String.valueOf(this.companyA));
+		assertThat(row.get("employee_id").toString()).isEqualTo(String.valueOf(this.employeeA));
+	}
+
+	@Test
+	void anEditMayStillReassignWithinTheSameCompany() {
+		// Immutable company, not immutable employee: the page's own purpose is
+		// to move an asset from one person to another.
+		long other = createEmployee(this.companyA, "A300", "Other", "Alpha");
+		long id = seedAsset(this.employeeA, this.companyA, "Laptop", false);
+		body("/admin/assets?company_id=");
+
+		post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "edit_asset", "id", String.valueOf(id),
+				"employee_id", String.valueOf(other), "asset_text", "Laptop");
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT employee_id FROM assets WHERE id = " + id, Long.class)).isEqualTo(other);
+		assertThat(this.jdbc.queryForObject(
+				"SELECT company_id FROM assets WHERE id = " + id, Long.class))
+				.isEqualTo(this.companyA);
+	}
+
+	@Test
+	void theReturnedFilterNarrowsBothWays() {
+		seedAsset(this.employeeA, this.companyA, "OutOnLoan", false);
+		seedAsset(this.employeeA, this.companyA, "GivenBack", true);
+
+		assertThat(body("/admin/assets?returned=0")).contains("OutOnLoan").doesNotContain("GivenBack");
+		assertThat(body("/admin/assets?returned=1")).contains("GivenBack").doesNotContain("OutOnLoan");
+		assertThat(body("/admin/assets")).contains("OutOnLoan").contains("GivenBack");
+	}
+
+	@Test
+	void theSearchMatchesTheAssetTextAsWellAsTheEmployee() {
+		seedAsset(this.employeeA, this.companyA, "Dell Latitude", false);
+		seedAsset(this.employeeA, this.companyA, "Company car", false);
+
+		assertThat(body("/admin/assets?search=Latitude"))
+				.contains("Dell Latitude").doesNotContain("Company car");
+		assertThat(body("/admin/assets?search=Aya")).contains("Dell Latitude");
+	}
+
+	@Test
+	void markingReturnedOutsideTheCurrentFilterIsRefused() {
+		long betaAsset = seedAsset(this.employeeB, this.companyB, "Beta laptop", false);
+		seedAsset(this.employeeA, this.companyA, "Alpha laptop", false);
+		body("/admin/assets?company_id=" + this.companyA);
+
+		assertThat(post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "mark_returned", "id", String.valueOf(betaAsset))
 				.getHeaders().getLocation()).asString().contains("error=error_db");
 		assertThat(this.jdbc.queryForObject(
-				"SELECT employee_id FROM penalties WHERE id = " + id, Long.class))
-				.isEqualTo(this.employeeA);
-	}
-
-	@Test
-	void anUnfilteredAdministratorStillCannotMoveThePenaltyBetweenCompanies() {
-		// A penalty has no company column -- it is whichever company its
-		// employee is in -- so reassigning the employee *is* moving the row.
-		long id = seedPenalty(this.employeeA, "Lateness", "1", false);
-		body("/admin/penalties?company_id=");
-
-		assertThat(post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "edit_penalty", "id", String.valueOf(id),
-				"employee_id", String.valueOf(this.employeeB),
-				"penalty_type", "Lateness", "penalty_days", "1")
-				.getHeaders().getLocation()).asString().contains("error=error_db");
-		assertThat(this.jdbc.queryForObject(
-				"SELECT employee_id FROM penalties WHERE id = " + id, Long.class))
-				.isEqualTo(this.employeeA);
-	}
-
-	@Test
-	void anAppliedPenaltyCanStillBeDeleted() {
-		// Legacy allows it, and it is not obviously right -- but tightening it
-		// here would refuse an operation operators may rely on, and this port
-		// is not the place to decide that.
-		long id = seedPenalty(this.employeeA, "Lateness", "1", true);
-		post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "delete_penalty", "id", String.valueOf(id));
-		assertThat(this.jdbc.queryForObject(
-				"SELECT COUNT(*) FROM penalties WHERE id = " + id, Integer.class)).isZero();
-	}
-
-	@Test
-	void theAppliedFilterNarrowsBothWays() {
-		seedPenalty(this.employeeA, "Unapplied", "1", false);
-		seedPenalty(this.employeeA, "Applied", "1", true);
-
-		assertThat(body("/admin/penalties?applied=0")).contains("Unapplied").doesNotContain("Applied<");
-		assertThat(body("/admin/penalties?applied=1")).contains("Applied");
-		assertThat(body("/admin/penalties")).contains("Unapplied").contains("Applied");
-	}
-
-	// ------------------------------------------------------------------
-	// R-046
-	// ------------------------------------------------------------------
-
-	@Test
-	void markingAppliedOutsideTheCurrentFilterIsRefused() {
-		long betaPenalty = seedPenalty(this.employeeB, "Beta", "1", false);
-		seedPenalty(this.employeeA, "Alpha", "1", false);
-		body("/admin/penalties?company_id=" + this.companyA);
-
-		assertThat(post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "mark_applied", "id", String.valueOf(betaPenalty))
-				.getHeaders().getLocation()).asString().contains("error=error_db");
-		assertThat(this.jdbc.queryForObject(
-				"SELECT applied_to_payroll FROM penalties WHERE id = " + betaPenalty, Boolean.class))
-				.isFalse();
+				"SELECT is_returned FROM assets WHERE id = " + betaAsset, Boolean.class)).isFalse();
 	}
 
 	@Test
 	void deletingOutsideTheCurrentFilterIsRefused() {
-		long betaPenalty = seedPenalty(this.employeeB, "Beta", "1", false);
-		seedPenalty(this.employeeA, "Alpha", "1", false);
-		body("/admin/penalties?company_id=" + this.companyA);
+		long betaAsset = seedAsset(this.employeeB, this.companyB, "Beta laptop", false);
+		seedAsset(this.employeeA, this.companyA, "Alpha laptop", false);
+		body("/admin/assets?company_id=" + this.companyA);
 
-		assertThat(post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "delete_penalty", "id", String.valueOf(betaPenalty))
+		assertThat(post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "delete_asset", "id", String.valueOf(betaAsset))
 				.getHeaders().getLocation()).asString().contains("error=error_db");
 		assertThat(this.jdbc.queryForObject(
-				"SELECT COUNT(*) FROM penalties WHERE id = " + betaPenalty, Integer.class)).isEqualTo(1);
+				"SELECT COUNT(*) FROM assets WHERE id = " + betaAsset, Integer.class)).isEqualTo(1);
 	}
 
 	@Test
 	void anUnfilteredAdministratorReachesEveryCompany() {
-		long betaPenalty = seedPenalty(this.employeeB, "Beta", "1", false);
-		body("/admin/penalties?company_id=");
+		long betaAsset = seedAsset(this.employeeB, this.companyB, "Beta laptop", false);
+		body("/admin/assets?company_id=");
 
-		post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "mark_applied", "id", String.valueOf(betaPenalty));
+		post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "mark_returned", "id", String.valueOf(betaAsset));
 		assertThat(this.jdbc.queryForObject(
-				"SELECT applied_to_payroll FROM penalties WHERE id = " + betaPenalty, Boolean.class))
-				.isTrue();
+				"SELECT is_returned FROM assets WHERE id = " + betaAsset, Boolean.class)).isTrue();
 	}
 
 	@Test
 	void everyWriteLeavesAnAuditRow() {
-		post("/admin/penalties", this.cookie, page("/admin/penalties", this.cookie).csrf(),
-				"action", "add_penalty", "employee_id", String.valueOf(this.employeeA),
-				"penalty_type", "Lateness", "penalty_days", "1");
+		post("/admin/assets", this.cookie, page("/admin/assets", this.cookie).csrf(),
+				"action", "add_asset", "employee_id", String.valueOf(this.employeeA),
+				"asset_text", "Laptop");
 
 		assertThat(this.jdbc.queryForList(
-				"SELECT event_type FROM platform_admin_audit_events WHERE target_type = 'penalty'"))
+				"SELECT event_type FROM platform_admin_audit_events WHERE target_type = 'asset'"))
 				.singleElement()
 				.satisfies(row -> assertThat(row.get("event_type")).isEqualTo("ORG_CREATED"));
 	}
@@ -358,9 +354,18 @@ class AdminPenaltiesEndToEndTest {
 	@Test
 	void anAnonymousRequestNeverReachesThePage() {
 		ResponseEntity<String> response = this.restTemplate.exchange(
-				"/admin/penalties", HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), String.class);
+				"/admin/assets", HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), String.class);
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
 		assertThat(response.getHeaders().getLocation()).asString().contains("/admin/login");
+	}
+
+	private long seedAsset(long employeeId, long companyId, String text, boolean returned) {
+		this.jdbc.update("INSERT INTO assets (company_id, employee_id, asset_date, asset_text,"
+				+ " is_returned, created_at) VALUES (?, ?, '2026-03-02', ?, ?, NOW())",
+				companyId, employeeId, text, returned ? 1 : 0);
+		return this.jdbc.queryForObject(
+				"SELECT MAX(id) FROM assets WHERE employee_id = ? AND asset_text = ?", Long.class,
+				employeeId, text);
 	}
 
 	private long createEmployee(long companyId, String code, String first, String last) {
@@ -376,15 +381,6 @@ class AdminPenaltiesEndToEndTest {
 				+ " VALUES (?, ?, ?, ?, ?, ?, 'employee', 1, 1, 0, 'accepted', 1, NOW(), NOW())",
 				id, companyId, branchId, code, first, last);
 		return id;
-	}
-
-	private long seedPenalty(long employeeId, String type, String days, boolean applied) {
-		this.jdbc.update("INSERT INTO penalties (employee_id, penalty_type, penalty_days,"
-				+ " penalty_date, applied_to_payroll, created_at)"
-				+ " VALUES (?, ?, ?, '2026-03-02', ?, NOW())",
-				employeeId, type, new java.math.BigDecimal(days), applied ? 1 : 0);
-		return this.jdbc.queryForObject(
-				"SELECT MAX(id) FROM penalties WHERE employee_id = ?", Long.class, employeeId);
 	}
 
 	private record Csrf(String name, String value) {
@@ -485,7 +481,7 @@ class AdminPenaltiesEndToEndTest {
 	}
 
 	private static void applySchema(String resource) throws Exception {
-		String sql = new String(AdminPenaltiesEndToEndTest.class.getClassLoader()
+		String sql = new String(AdminAssetsEndToEndTest.class.getClassLoader()
 				.getResourceAsStream(resource).readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
 		try (java.sql.Connection connection = java.sql.DriverManager.getConnection(
 				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
