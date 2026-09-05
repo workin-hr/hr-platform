@@ -924,3 +924,56 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Trigger | A POST to the employees page carrying another company's employee id. |
 | Status | **Open** in legacy until the patch is applied; **closed by construction** in Java. Recorded 2026-09-05. Related: **R-046** (same defect, eight other pages), **R-051** (supplies the ids), **D-176**. |
 | Evidence | `hr-legacy/dashboard/pages/employees/page.php:11-13` (the ungated POST block), `:111-166` (`save_edit`, including `password_hash` at `:163-165` and the three unchecked foreign keys at `:157-159`), `:173-183` (the three quick actions), `:140` (the owner lookup used only for uniqueness); `apis/api/auth/login_employee.php:59`; the fourteen cascading foreign keys in the vendored schema. |
+
+## R-054: A Duplicate Employee Code Shows The User A Translation Key
+
+| Field | Value |
+|---|---|
+| Description | Both write paths on the employees page refuse a duplicate code with `flash(__('employee_code_already_exists'), 'error')`. That key is not defined in `dashboard/includes/lang.php`. It exists only in the API catalogue, which the dashboard does not read. |
+| Category | **Presentation**, a legacy defect, not reproduced |
+| How it was found | Checking every message key against the catalogue before writing the port's template on 2026-09-05 -- the check that exists because an earlier wave invented nine keys that did not exist. |
+| What actually happens | `__()` falls back to returning the key itself, so the user is shown the literal string `employee_code_already_exists` where a sentence should be. Nothing errors and nothing is logged; the write is correctly refused. |
+| Impact | Cosmetic, but on a path an ordinary user reaches by typing a code someone already has. Both locales are affected, since neither has the key. |
+| Probability | Every duplicate-code attempt. |
+| Severity | **Low.** |
+| Owner | Repository owner. |
+| Java disposition | **Not reproduced.** The port refuses with `already_exists`, which the dashboard catalogue does define (`lang.php:235`, "Already exists" / "مسجل مسبقاً"). Adding the legacy key instead was not an option worth taking: `check_dashboard_message_drift.py` compares the two catalogues in both directions, so a key the Java side has and `hr-legacy` does not is itself a gate failure -- correctly, because that is how the catalogues drift apart. |
+| Legacy disposition | Open. A one-line addition to `lang.php`, but not bundled into the R-046 patch, which is reserved for the cross-tenant write. |
+| Trigger | Saving an employee whose code is already used in that company. |
+| Status | **Open** in legacy, **closed by divergence** in Java. Recorded 2026-09-05. Related: **R-053** (the same page), the silent-key-fallback class this repository already has three gates for. |
+| Evidence | `hr-legacy/dashboard/pages/employees/page.php:40` and `:141`, against `dashboard/includes/lang.php` (no such key; `already_exists` at `:235`). |
+
+## R-055: Adding An Employee Without A Branch Crashes The Page
+
+| Field | Value |
+|---|---|
+| Description | `employees.branch_id` is `int(10) unsigned NOT NULL` with a foreign key to `branches`. Neither write path requires it: `add_employee`'s guard checks the company, the shift, the first name and the code, and `_employee_form.php`'s `<select name="branch_id">` carries no `required` attribute. Both paths then write `'branch_id' => $bid ?: null`, so an unselected branch becomes an explicit `NULL`. |
+| Category | **Availability**, a legacy defect, not reproduced |
+| How it was found | Writing the port's E2E tests on 2026-09-05. Several posted no branch, on the reasonable assumption that a column legacy never validates is optional, and the inserts failed. |
+| What actually happens | **Measured, not assumed.** Non-strict `sql_mode` does not rescue this the way it rescues an out-of-range enum (**R-048**): against the production copy's own settings, `INSERT INTO t (id) VALUES (NULL)` on a `NOT NULL` column raises **error 1048, "Column 'id' cannot be null"**. Non-strict mode substitutes an implicit default only for multi-row inserts; a single-row insert of an explicit `NULL` is an error in either mode. `run()` does not catch it, so the request dies on an uncaught `PDOException`. |
+| Impact | The employee is not created and the response is lost. Nothing is corrupted -- the create path runs inside `dbTransaction()`, so the salary contract, leave balance and shift assignment do not survive a failed insert either. |
+| Probability | Every add or edit submitted with the branch left unselected, which the form permits. |
+| Severity | **Low.** No data loss and no cross-tenant reach; a bad response to an ordinary omission. |
+| Owner | Repository owner. |
+| Java disposition | **Not reproduced.** The port requires a branch on both write paths and refuses with `error_required`. This tightens what the form accepts without narrowing what can exist: the column is `NOT NULL`, so no employee without a branch has ever been storable. The same reasoning as **R-050** -- where the schema states an invariant the page does not enforce, the port enforces it rather than copying the crash. |
+| Legacy disposition | Open. The minimal fix is one `required` attribute plus the server-side check beside the three already there; not bundled into the R-046 patch, which is reserved for the cross-tenant write. |
+| Trigger | Submitting the employee form with no branch selected. |
+| Status | **Open** in legacy, **closed by divergence** in Java. Recorded 2026-09-05. Related: **R-050** (same shape on a different table), **R-053** (same page), **R-035**. |
+| Evidence | The column definition in the vendored schema; `hr-legacy/dashboard/pages/employees/page.php:30` (the guard, which omits the branch), `:69` and `:157` (both writes), `dashboard/pages/employees/_employee_form.php:170` (the select, not required); error 1048 reproduced against the restored production copy under its own `sql_mode`. |
+
+## R-056: Uncommitted hr-legacy Edits Change Leave-Balance Behaviour Two Different Ways
+
+| Field | Value |
+|---|---|
+| Description | `hr-legacy`'s working tree carries edits that are not in any commit, and they touch the same two files the R-046 patch does. They are **two distinct changes**, not one: (1) `leave_balances/page.php` changes the new-balance default from **21 days to 15**, in both the server-side fallback and the form's `value` attribute; (2) `employees/page.php` **removes** the `dbInsert('leave_balance', ...)` that opens a 21-day balance for every new employee inside `add_employee`'s transaction. |
+| Category | **Process / porting hazard**, plus a pending product decision |
+| How it was found | Regenerating the R-046 patch on 2026-09-05. A `git diff` of the guarded files picked up hunks that had nothing to do with the guard, twice -- once on `leave_balances` and again on `employees`. |
+| Why the two are recorded together but counted apart | They point in different directions and the second may moot the first. If automatic creation is gone, the 21-vs-15 default only ever applies to a balance someone adds by hand on the `leave_balances` page. If automatic creation stays, the two must agree or a new employee's opening balance depends on which page created it. **Adopting one without the other is a third outcome, and probably not one anybody intends.** |
+| What the port does | Neither. It reproduces **HEAD (`d113204`)**: `add_employee` opens a 21-day balance in the same transaction as the insert, and `AdminEmployeesEndToEndTest` asserts the 21. Confirmed as the contract by the repository owner on 2026-09-05 -- the frozen baseline is the reproducible source of truth, and uncommitted working-tree state is not to be adopted silently. |
+| The hazard, stated plainly | These edits are invisible to anything reproducible. A fresh clone does not have them, the parity harness does not run them, and no gate compares against them -- but a patch generated with `git diff` picks them up and ships them under an unrelated commit message. That has now been caught by hand twice, both times only because the diff was read line by line. The R-046 patch's two clean hunks are built from `git show HEAD:` copies for exactly this reason. |
+| What is needed | An explicit decision, before the port changes: **is the target 15 days, or no automatic balance at all, or neither?** Whichever it is, it belongs in a commit on `hr-legacy` rather than a working tree, so the port, the parity harness and the patch generator all see the same thing. |
+| Probability | Certain to recur on any page whose file already carries one of these edits, every time a patch is generated from a diff. |
+| Severity | **Medium** as a process risk. Nothing is wrong in either codebase today; what is wrong is that a behaviour change can reach a shipped patch without ever being decided. |
+| Owner | Repository owner. |
+| Status | **Open**, blocking nothing, pending an explicit decision. Recorded 2026-09-05. Related: **D-178** (which records HEAD as the port's source), **R-046** (the patch these hunks kept contaminating). |
+| Evidence | `git status` in `hr-legacy` showing both files modified with no corresponding commit; `git diff -- dashboard/pages/leave_balances/page.php dashboard/pages/employees/page.php` against `git show d113204:` for each. |

@@ -156,6 +156,8 @@ public class PlatformAdminWebSecurityConfig {
 
 	public static final String WORKFORCE_PLANNING_PATH = PATH_PREFIX + "/workforce_planning";
 
+	public static final String EMPLOYEES_PATH = PATH_PREFIX + "/employees";
+
 	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
