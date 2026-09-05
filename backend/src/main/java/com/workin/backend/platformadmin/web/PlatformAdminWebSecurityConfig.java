@@ -159,6 +159,13 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String EMPLOYEES_PATH = PATH_PREFIX + "/employees";
 
 	/**
+	 * Legacy routes this as {@code employee_detail.php} through a rewrite in
+	 * {@code dashboard/.htaccess}, which is why the committed route inventory
+	 * -- {@code /apis/**} only -- never listed it.
+	 */
+	public static final String EMPLOYEE_DETAIL_PATH = PATH_PREFIX + "/employee_detail";
+
+	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
 	 * <p>A named constant so it can be checked against the handlers' own
