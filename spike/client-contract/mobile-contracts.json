@@ -234,6 +234,7 @@
    "response_type": "json",
    "query_keys": [],
    "body_keys": [
+    "platform",
     "token"
    ],
    "model": "BaseResponse"
@@ -1871,6 +1872,30 @@
      "nested": null,
      "receiver": "json",
      "guard": null
+    },
+    {
+     "field": "monthStartDay",
+     "accessor": "getIntOrNull",
+     "key": "month_start_day",
+     "key_expr": "ApiConstants.monthStartDayKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "monthEndDay",
+     "accessor": "getIntOrNull",
+     "key": "month_end_day",
+     "key_expr": "ApiConstants.monthEndDayKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
     }
    ]
   },
@@ -2792,6 +2817,42 @@
      "guard": null
     },
     {
+     "field": "officialHolidayDays",
+     "accessor": "getIntOrNull",
+     "key": "official_holiday_days",
+     "key_expr": "ApiConstants.officialHolidayDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "earnedWeeklyRestDays",
+     "accessor": "getIntOrNull",
+     "key": "earned_weekly_rest_days",
+     "key_expr": "ApiConstants.earnedWeeklyRestDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "voidWeeklyRestDays",
+     "accessor": "getIntOrNull",
+     "key": "void_weekly_rest_days",
+     "key_expr": "ApiConstants.voidWeeklyRestDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
      "field": "daysPresentRatio",
      "accessor": "getStringOrNull",
      "key": "days_present_ratio",
@@ -2868,6 +2929,18 @@
      "accessor": "getNumOrNull",
      "key": "salary_by_paid_leave_days",
      "key_expr": "ApiConstants.salaryByPaidLeaveDaysKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "absenceCost",
+     "accessor": "getNumOrNull",
+     "key": "absence_cost",
+     "key_expr": "ApiConstants.absenceCostKey",
      "bang": false,
      "default": null,
      "or_else": null,
@@ -3788,6 +3861,54 @@
      "guard": "meta != null && meta.containsKey(ApiConstants.hasOpenCheckInKey)"
     },
     {
+     "field": "periodFrom",
+     "accessor": "getDateOrNull",
+     "key": "period_from",
+     "key_expr": "ApiConstants.periodFromKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "meta",
+     "guard": null
+    },
+    {
+     "field": "periodTo",
+     "accessor": "getDateOrNull",
+     "key": "period_to",
+     "key_expr": "ApiConstants.periodToKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "meta",
+     "guard": null
+    },
+    {
+     "field": "periodMonth",
+     "accessor": "getIntOrNull",
+     "key": "month",
+     "key_expr": "ApiConstants.monthKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "meta",
+     "guard": null
+    },
+    {
+     "field": "periodYear",
+     "accessor": "getIntOrNull",
+     "key": "year",
+     "key_expr": "ApiConstants.yearKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "meta",
+     "guard": null
+    },
+    {
      "field": "paginationModel",
      "accessor": "getModel",
      "key": "meta",
@@ -4335,6 +4456,30 @@
      "accessor": "getStringOrNull",
      "key": "attendance_excel_import_available_from",
      "key_expr": "ApiConstants.attendanceExcelImportAvailableFromKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "raw",
+     "accessor": "getStringOrNull",
+     "key": "server_time",
+     "key_expr": "ApiConstants.serverTimeKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "unixSeconds",
+     "accessor": "getIntOrNull",
+     "key": "server_unix",
+     "key_expr": "ApiConstants.serverUnixKey",
      "bang": false,
      "default": null,
      "or_else": null,
@@ -4971,6 +5116,18 @@
      "nested": null,
      "receiver": "data",
      "guard": null
+    },
+    {
+     "field": "unix",
+     "accessor": "getIntOrNull",
+     "key": "server_unix",
+     "key_expr": "ApiConstants.serverUnixKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "data",
+     "guard": null
     }
    ]
   }
@@ -5047,6 +5204,10 @@
   "daysLeaveKey": "days_leave",
   "daysOffKey": "days_off",
   "daysPresentKey": "days_present",
+  "officialHolidayDaysKey": "official_holiday_days",
+  "earnedWeeklyRestDaysKey": "earned_weekly_rest_days",
+  "voidWeeklyRestDaysKey": "void_weekly_rest_days",
+  "absenceCostKey": "absence_cost",
   "decidedAtKey": "decided_at",
   "deductBalanceKey": "deduct_balance",
   "countsAsPaidLeaveKey": "counts_as_paid_leave",
@@ -5141,6 +5302,10 @@
   "penaltyTypeKey": "penalty_type",
   "periodFromMonthKey": "period_from_month",
   "periodToMonthKey": "period_to_month",
+  "periodFromKey": "period_from",
+  "periodToKey": "period_to",
+  "monthStartDayKey": "month_start_day",
+  "monthEndDayKey": "month_end_day",
   "permissionsKey": "permissions",
   "phoneKey": "phone",
   "photoUrlKey": "photo_url",
@@ -5164,6 +5329,7 @@
   "effectiveFromKey": "effective_from",
   "effectiveToKey": "effective_to",
   "serverTimeKey": "server_time",
+  "serverUnixKey": "server_unix",
   "assetDateKey": "asset_date",
   "assetTextKey": "asset_text",
   "returnedAtKey": "returned_at",

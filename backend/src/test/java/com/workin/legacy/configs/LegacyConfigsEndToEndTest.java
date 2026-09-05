@@ -60,7 +60,7 @@ class LegacyConfigsEndToEndTest {
 		MARIADB.start();
 		try {
 			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
+			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the configs fixture", ex);
@@ -131,7 +131,7 @@ class LegacyConfigsEndToEndTest {
 	void theKeyOrderIsTheRowOrderWithTheClockAppended() {
 		assertThat(data(json(GET)).keySet())
 				.containsExactly("min_app_version", "maintenance_mode", "is_daylight_saving",
-						"server_time", "server_timezone");
+						"server_time", "server_unix", "server_timezone");
 	}
 
 	@Test

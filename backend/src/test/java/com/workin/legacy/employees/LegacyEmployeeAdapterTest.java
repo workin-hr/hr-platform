@@ -129,17 +129,19 @@ class LegacyEmployeeAdapterTest extends AbstractLegacyMySqlTest {
 	 * <p>Checked against the vendored schema's own {@code CREATE TABLE}
 	 * names, not a raw {@code information_schema.tables} count. The
 	 * shared MariaDB instance ({@code AbstractLegacyMySqlTest}) now also
-	 * applies {@code phase1_extensions.schema.sql} -- new Phase 1
+	 * applies {@code phase1_extensions.sql} -- new Phase 1
 	 * infrastructure (e.g. {@code legacy_refresh_tokens}) that is
 	 * legitimately not part of the legacy contract. A global count can't
 	 * tell that apart from the contract itself changing; asserting the
-	 * vendored file's own 42 table names are exactly the tables present
+	 * vendored file's own 44 table names are exactly the tables present
 	 * can.
 	 */
 	@Test
 	void theVendoredLegacySchemaAppliesToARealMariaDbUnmodified() throws Exception {
 		List<String> vendoredTableNames = vendoredTableNames();
-		assertThat(vendoredTableNames).hasSize(42);
+		// 42 at the frozen snapshot, plus guide_videos and otp_request_logs,
+		// which production added and the vendored schema was refreshed from.
+		assertThat(vendoredTableNames).hasSize(44);
 
 		try (Connection connection = connect(); Statement st = connection.createStatement();
 				ResultSet rs = st.executeQuery(
@@ -151,7 +153,7 @@ class LegacyEmployeeAdapterTest extends AbstractLegacyMySqlTest {
 			rs.next();
 			assertThat(rs.getInt(1))
 					.describedAs("every vendored table name must exist in the applied schema, unmodified")
-					.isEqualTo(42);
+					.isEqualTo(44);
 		}
 	}
 

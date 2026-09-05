@@ -403,6 +403,242 @@ public final class LegacyAttendanceImportReader {
 		return records;
 	}
 
+	/**
+	 * {@code attendance_excel_normalize_sheet_layout()}: the client's
+	 * {@code sheet_layout} field, folded to one of three values.
+	 *
+	 * <p>The empty string is not "invalid" -- it is the auto-detect the
+	 * endpoint has always used, and an unrecognised value lands there too
+	 * rather than failing. That is deliberate on legacy's side: a client
+	 * sending a layout name this build does not know keeps working, it just
+	 * stops being told what the sheet is.
+	 */
+	public static String normalizeSheetLayout(Object raw) {
+		String value = LegacyValues.mbStrToLower(
+				LegacyValues.phpTrim(raw == null ? "" : LegacyValues.toPhpString(raw)));
+		return switch (value) {
+			case "four_columns", "4", "four", "daily", "in_out" -> "four_columns";
+			case "two_columns", "2", "two", "punches", "punch_log" -> "two_columns";
+			default -> "";
+		};
+	}
+
+	/**
+	 * {@code attendance_import_resolve_daily_columns()}: the first four
+	 * non-blank columns are code, date, time-in, time-out <em>by position</em>.
+	 * Their headers are not read at all, because the device exports this shape
+	 * with whatever labels its firmware is set to.
+	 *
+	 * <p>The first 25 rows carrying a code are the sample. A code that is not
+	 * all digits fails immediately; an unparseable date or time only fails when
+	 * <em>no</em> row in the sample was usable, and which of the two messages
+	 * comes back is decided by what the scan saw on the way.
+	 */
+	public static String[] resolveDailyColumns(
+			List<String> keys, List<Map<String, Object>> rows, LocalDateTime now) {
+		List<String> present = nonEmptyKeys(keys);
+		if (present.size() < 4) {
+			throw new LegacyAttendanceImportException("attendance_excel_must_have_four_columns");
+		}
+		String colCode = present.get(0);
+		String colDate = present.get(1);
+		String colIn = present.get(2);
+		String colOut = present.get(3);
+
+		int checked = 0;
+		boolean sawInvalidDate = false;
+		boolean sawInvalidTime = false;
+		for (Map<String, Object> row : rows) {
+			String code = sheetCode(row.get(colCode));
+			if (code.isEmpty()) {
+				continue;
+			}
+			if (!DIGITS.matcher(code).matches()) {
+				throw new LegacyAttendanceImportException("attendance_excel_code_must_be_digits");
+			}
+			if (LegacyAttendancePunchDateTimeParser.parsePunchDate(row.get(colDate), now) == null) {
+				sawInvalidDate = true;
+				continue;
+			}
+			Object rawIn = row.get(colIn);
+			Object rawOut = row.get(colOut);
+			boolean inEmpty = cellEmpty(rawIn);
+			boolean outEmpty = cellEmpty(rawOut);
+			if (inEmpty && outEmpty) {
+				continue;
+			}
+			int[] inParts = inEmpty ? null : LegacyAttendancePunchDateTimeParser.parsePunchTimeParts(rawIn, now);
+			int[] outParts = outEmpty ? null : LegacyAttendancePunchDateTimeParser.parsePunchTimeParts(rawOut, now);
+			if ((!inEmpty && inParts == null) || (!outEmpty && outParts == null)) {
+				sawInvalidTime = true;
+				continue;
+			}
+			if (inParts == null) {
+				// Out-only rows do not count towards the sample: the extractor
+				// skips them too, so a sheet of them has nothing to import.
+				continue;
+			}
+			checked++;
+			if (checked >= 25) {
+				break;
+			}
+		}
+
+		if (checked == 0) {
+			if (sawInvalidDate) {
+				throw new LegacyAttendanceImportException("attendance_excel_date_column_invalid");
+			}
+			if (sawInvalidTime) {
+				throw new LegacyAttendanceImportException("attendance_excel_time_column_invalid");
+			}
+			throw new LegacyAttendanceImportException("attendance_excel_no_valid_punch_rows");
+		}
+		return new String[] {colCode, colDate, colIn, colOut};
+	}
+
+	/** {@code attendance_import_cell_empty()}. */
+	static boolean cellEmpty(Object raw) {
+		return raw == null
+				|| (raw instanceof CharSequence text && LegacyValues.phpTrim(text.toString()).isEmpty());
+	}
+
+	/**
+	 * {@code attendance_import_extract_daily_records()}: a four-column daily
+	 * sheet turned into the same {@link DayRecord}s a grouped punch log
+	 * produces, so everything downstream is unaware which shape it came from.
+	 *
+	 * <p>The key is {@code code|date} and the assignment is a plain
+	 * {@code $byEmployeeDay[$key] = ...}, not an append -- a second row for the
+	 * same employee and day <b>replaces</b> the first rather than merging with
+	 * it. Last row in the sheet wins.
+	 *
+	 * <p>A check-out earlier than its check-in is an overnight shift and moves
+	 * to the next day. Note {@code punch_count} counts the two cells, so it
+	 * stays 2 for such a day even though it spans a midnight.
+	 */
+	public static List<DayRecord> extractDailyRecords(
+			List<Map<String, Object>> rows, List<String> keys, LocalDateTime now) {
+		String[] columns = resolveDailyColumns(keys, rows, now);
+		String colCode = columns[0];
+		String colDate = columns[1];
+		String colIn = columns[2];
+		String colOut = columns[3];
+
+		Map<String, DayRecord> byEmployeeDay = new LinkedHashMap<>();
+		for (Map<String, Object> row : rows) {
+			String code = sheetCode(row.get(colCode));
+			if (code.isEmpty() || !DIGITS.matcher(code).matches()) {
+				continue;
+			}
+			java.time.LocalDate date = LegacyAttendancePunchDateTimeParser.parsePunchDate(row.get(colDate), now);
+			if (date == null) {
+				continue;
+			}
+
+			Object rawIn = row.get(colIn);
+			Object rawOut = row.get(colOut);
+			int[] inParts = cellEmpty(rawIn)
+					? null : LegacyAttendancePunchDateTimeParser.parsePunchTimeParts(rawIn, now);
+			int[] outParts = cellEmpty(rawOut)
+					? null : LegacyAttendancePunchDateTimeParser.parsePunchTimeParts(rawOut, now);
+			if (inParts == null) {
+				continue;
+			}
+
+			LocalDateTime checkIn = date.atTime(inParts[0], inParts[1], inParts[2]);
+			LocalDateTime checkOut = outParts == null
+					? null : date.atTime(outParts[0], outParts[1], outParts[2]);
+			if (checkOut != null && checkOut.isBefore(checkIn)) {
+				checkOut = checkOut.plusDays(1);
+			}
+
+			boolean complete = checkOut != null && checkOut.isAfter(checkIn);
+			int actualMinutes = complete
+					? (int) Math.round(java.time.Duration.between(checkIn, checkOut).getSeconds() / 60d)
+					: 0;
+			String dateStr = date.format(DATE);
+			byEmployeeDay.put(code + "|" + dateStr, new DayRecord(
+					code,
+					"",
+					dateStr,
+					checkIn.format(DATE_TIME),
+					complete ? checkOut.format(DATE_TIME) : null,
+					1 + (checkOut == null ? 0 : 1),
+					actualMinutes,
+					complete));
+		}
+
+		List<DayRecord> records = new ArrayList<>(byEmployeeDay.values());
+		records.sort((left, right) -> {
+			int byCode = phpCompare(left.sheetCode(), right.sheetCode());
+			return byCode != 0 ? byCode : phpCompare(left.date(), right.date());
+		});
+		return records;
+	}
+
+	/** {@code attendance_import_records_punch_count()}. */
+	public static int recordsPunchCount(List<DayRecord> records) {
+		int total = 0;
+		for (DayRecord record : records) {
+			total += record.punchCount();
+		}
+		return total;
+	}
+
+	/** {@code ['loaded' => ..., 'records' => ..., 'total_punches' => ...]}. */
+	public record Prepared(Loaded loaded, List<DayRecord> records, int totalPunches) {
+	}
+
+	/**
+	 * {@code attendance_import_prepare_records()}: the step both
+	 * {@code analyze_excel} and {@code import_excel} now go through, so a
+	 * client's {@code sheet_layout} means the same thing to the preview and to
+	 * the import that follows it.
+	 *
+	 * <p>A declared layout <b>overrides</b> detection rather than confirming
+	 * it: the loaded format is rewritten to {@code punch_log} whichever way
+	 * {@code detect_format()} read the headers. That is the point of the field
+	 * -- a device export whose headers look like the attendance template is
+	 * exactly the sheet an operator needs to be able to force.
+	 *
+	 * <p>An empty sheet is decided here rather than by the loader, because the
+	 * XLS branch can return rows-but-no-format; a load with no rows is
+	 * {@code empty} regardless of what the header scan concluded.
+	 */
+	public static Prepared prepareRecords(byte[] content, Object sheetLayout, LocalDateTime now) {
+		Loaded loaded = loadRows(content);
+		String layout = normalizeSheetLayout(sheetLayout);
+
+		if ("empty".equals(loaded.format()) || loaded.rows().isEmpty()) {
+			Loaded asEmpty = "empty".equals(loaded.format())
+					? loaded : new Loaded("empty", loaded.rows(), loaded.keys());
+			return new Prepared(asEmpty, List.of(), 0);
+		}
+
+		if ("four_columns".equals(layout)) {
+			List<DayRecord> records = extractDailyRecords(loaded.rows(), loaded.keys(), now);
+			return new Prepared(
+					new Loaded("punch_log", loaded.rows(), loaded.keys()),
+					records,
+					recordsPunchCount(records));
+		}
+
+		if ("two_columns".equals(layout)) {
+			List<Punch> punches = extractPunches(loaded.rows(), loaded.keys(), now);
+			return new Prepared(
+					new Loaded("punch_log", loaded.rows(), loaded.keys()),
+					groupPunches(punches),
+					punches.size());
+		}
+
+		if (!"punch_log".equals(loaded.format())) {
+			return new Prepared(loaded, List.of(), 0);
+		}
+
+		List<Punch> punches = extractPunches(loaded.rows(), loaded.keys(), now);
+		return new Prepared(loaded, groupPunches(punches), punches.size());
+	}
+
 	/** {@code attendance_import_sheet_code()} -> {@code normalize_employee_code()}. */
 	public static String sheetCode(Object code) {
 		String value = LegacyValues.phpTrim(code == null ? "" : LegacyValues.toPhpString(code));

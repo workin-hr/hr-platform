@@ -113,6 +113,67 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String COMPANIES_APPLY_PATH = COMPANIES_PATH + "/apply";
 
 	/**
+	 * Platform content the clients read but cannot write -- dial codes first
+	 * (ADR-0016). Authenticated like every other page here; the write side is
+	 * gated again in the service by the surface flag and a bound second
+	 * factor.
+	 */
+	public static final String PHONE_COUNTRIES_PATH = PATH_PREFIX + "/phone_countries";
+
+	public static final String FAQS_PATH = PATH_PREFIX + "/faqs";
+
+	public static final String BANNERS_PATH = PATH_PREFIX + "/banners";
+
+	public static final String NOTIFICATIONS_PATH = PATH_PREFIX + "/notifications";
+
+	/**
+	 * The org pages. Each is one company's own data, reachable by the
+	 * administrator across companies through the session filter -- the
+	 * cross-tenant mode <b>R-044</b> covers.
+	 */
+	public static final String BRANCHES_PATH = PATH_PREFIX + "/branches";
+
+	public static final String DEPARTMENTS_PATH = PATH_PREFIX + "/departments";
+
+	public static final String JOB_TITLES_PATH = PATH_PREFIX + "/job_titles";
+
+	public static final String SHIFTS_PATH = PATH_PREFIX + "/shifts";
+
+	public static final String LEAVE_BALANCES_PATH = PATH_PREFIX + "/leave_balances";
+
+	public static final String REQUESTS_PATH = PATH_PREFIX + "/requests";
+
+	public static final String PENALTIES_PATH = PATH_PREFIX + "/penalties";
+
+	public static final String ASSETS_PATH = PATH_PREFIX + "/assets";
+
+	public static final String ADVANCES_PATH = PATH_PREFIX + "/advances";
+
+	public static final String ADMINISTRATIVE_DECISIONS_PATH =
+			PATH_PREFIX + "/administrative_decisions";
+
+	public static final String COMPLAINTS_PATH = PATH_PREFIX + "/complaints";
+
+	public static final String WORKFORCE_PLANNING_PATH = PATH_PREFIX + "/workforce_planning";
+
+	public static final String EMPLOYEES_PATH = PATH_PREFIX + "/employees";
+
+	/**
+	 * Legacy routes this as {@code employee_detail.php} through a rewrite in
+	 * {@code dashboard/.htaccess}, which is why the committed route inventory
+	 * -- {@code /apis/**} only -- never listed it.
+	 */
+	public static final String EMPLOYEE_DETAIL_PATH = PATH_PREFIX + "/employee_detail";
+
+	/**
+	 * The payroll group. {@code salary_calculator} is the one page on this
+	 * surface that reads and writes nothing at all -- an estimate computed from
+	 * the form's own numbers -- so it is authenticated and permission-gated
+	 * like the rest and has no company to scope.
+	 */
+	public static final String SALARY_CALCULATOR_PATH = PATH_PREFIX + "/salary_calculator";
+
+	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
 	 * <p>A named constant so it can be checked against the handlers' own
@@ -127,6 +188,38 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String[] PUBLIC_PATHS = {
 		LOGIN_PATH, MFA_PATH, ENROL_PATH, ENROL_CONFIRM_PATH,
 	};
+
+	/**
+	 * The stylesheets and scripts the admin pages load, served from
+	 * <p>The prefix is {@code /admin/_assets/**}, with the underscore, and that
+	 * is load-bearing. It was {@code /admin/assets/**} until the dashboard's own
+	 * {@code assets} page was ported: Spring's {@code /**} matches zero segments,
+	 * so {@code /admin/assets} matched the permitAll rule and the page answered
+	 * without a session. A leading underscore cannot be a page name -- they come
+	 * from {@code dashboard/pages/*} -- so this closes the collision for every
+	 * future page rather than for that one.
+	 *
+	 * <p>Served from
+	 * {@code classpath:/static/admin/assets/} and copied from the PHP
+	 * dashboard so the two look the same (ADR-0016).
+	 *
+	 * <p>Deliberately <b>not</b> in {@link #PUBLIC_PATHS}: that list is
+	 * handler routes, checked against their own {@code @PublicUseCase}
+	 * declarations in both directions, and a pattern with no handler behind
+	 * it would read there as a stale entry -- the exact signal that list
+	 * exists to raise.
+	 *
+	 * <p>Why a public prefix under {@code /admin} at all, when this chain's
+	 * whole point is that nothing here is reachable unauthenticated: a
+	 * stylesheet is not a secret, and the alternative -- the previous
+	 * layout's several hundred lines of inlined CSS -- does not scale to the
+	 * dashboard's copied 2,500. The exposure is bounded by there being no
+	 * handler under the prefix: it resolves against the static resource
+	 * classpath only, and Spring's firewall rejects a traversal attempt
+	 * before matching. {@code PlatformAdminAssetsExposureTest} holds both
+	 * halves of that.
+	 */
+	public static final String ASSETS_PATTERN = PATH_PREFIX + "/_assets/**";
 
 	@Bean
 	@Order(0)
@@ -149,6 +242,7 @@ public class PlatformAdminWebSecurityConfig {
 			// authentication boundary.
 			.requestCache(cache -> cache.requestCache(new NullRequestCache()))
 			.authorizeHttpRequests(authorize -> authorize
+				.requestMatchers(ASSETS_PATTERN).permitAll()
 				.requestMatchers(PUBLIC_PATHS).permitAll()
 				.anyRequest().authenticated())
 			.exceptionHandling(exceptions -> exceptions

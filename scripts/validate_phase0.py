@@ -1555,6 +1555,23 @@ def validate_edit_audit_log_tests(failures: list[str]) -> None:
     _run_regression_script("scripts/test_edit_audit_log.py", "Edit/Write audit-log hook regression tests", failures)
 
 
+def validate_legacy_drift_gates(failures: list[str]) -> None:
+    """The three hr-legacy drift gates, plus the tests that pin what they catch.
+
+    Both compare this application against the PHP it reproduces rather than
+    against itself, and both run from a committed inventory so they still mean
+    something where hr-legacy is not checked out."""
+    _run_regression_script("scripts/check_legacy_route_drift.py", "Legacy route drift", failures)
+    _run_regression_script("scripts/test_check_legacy_route_drift.py",
+                           "Legacy route-drift check regression tests", failures)
+    _run_regression_script("scripts/check_legacy_message_drift.py", "Legacy message drift", failures)
+    _run_regression_script("scripts/test_check_legacy_message_drift.py",
+                           "Legacy message-drift check regression tests", failures)
+    _run_regression_script("scripts/check_dashboard_message_drift.py", "Dashboard message drift", failures)
+    _run_regression_script("scripts/test_check_dashboard_message_drift.py",
+                           "Dashboard message-drift check regression tests", failures)
+
+
 def _validate_single_adr_cli(target_arg: str) -> int:
     """Single-ADR CLI mode: `validate_phase0.py --validate-adr <file>`.
 
@@ -1610,6 +1627,7 @@ def main() -> int:
     validate_adr_dynamic_tests(failures)
     validate_governance_check_tests(failures)
     validate_edit_audit_log_tests(failures)
+    validate_legacy_drift_gates(failures)
     if failures:
         print("Phase 0 validation failed:")
         for item in failures:

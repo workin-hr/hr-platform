@@ -81,10 +81,15 @@ public class LegacyAttendanceAnalyzer {
 	 *
 	 * @param now the reference instant for punch parsing -- the same clock the
 	 *        import uses, so a relative punch value resolves identically
+	 * @param sheetLayout the client's {@code sheet_layout} field, which forces
+	 *        the reading of the sheet instead of letting the headers decide
 	 */
 	public Map<String, Object> analyze(
-			byte[] content, long companyId, LocalDateTime now, String weeklyRestLabel) {
-		LegacyAttendanceImportReader.Loaded loaded = LegacyAttendanceImportReader.loadRows(content);
+			byte[] content, long companyId, LocalDateTime now, String weeklyRestLabel,
+			Object sheetLayout) {
+		LegacyAttendanceImportReader.Prepared prepared =
+				LegacyAttendanceImportReader.prepareRecords(content, sheetLayout, now);
+		LegacyAttendanceImportReader.Loaded loaded = prepared.loaded();
 
 		if ("empty".equals(loaded.format())) {
 			Map<String, Object> summary = new LinkedHashMap<>();
@@ -103,10 +108,7 @@ public class LegacyAttendanceAnalyzer {
 					"Template format detected — import will use row-by-row check-in/check-out columns."));
 		}
 
-		List<LegacyAttendanceImportReader.Punch> punches =
-				LegacyAttendanceImportReader.extractPunches(loaded.rows(), loaded.keys(), now);
-		List<LegacyAttendanceImportReader.DayRecord> records =
-				LegacyAttendanceImportReader.groupPunches(punches);
+		List<LegacyAttendanceImportReader.DayRecord> records = prepared.records();
 
 		// Group by sheet code, keeping the first non-empty name seen.
 		Map<String, Group> byEmployee = new LinkedHashMap<>();
@@ -217,7 +219,9 @@ public class LegacyAttendanceAnalyzer {
 
 		dates.sort(Comparator.naturalOrder());
 		Map<String, Object> summary = new LinkedHashMap<>();
-		summary.put("total_punches", punches.size());
+		// The prepared count, not a re-derivation: on the four-column path the
+		// punches were never a list, they are the two cells of each day.
+		summary.put("total_punches", prepared.totalPunches());
 		summary.put("total_employees", employeesOut.size());
 		summary.put("matched_employees", matched);
 		summary.put("unknown_employees", unknown);

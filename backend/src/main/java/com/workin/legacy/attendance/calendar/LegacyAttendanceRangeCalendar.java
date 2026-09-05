@@ -39,13 +39,18 @@ public class LegacyAttendanceRangeCalendar {
 	private final LegacyWeeklyRestCredit weeklyRestCredit;
 	private final LegacyAttendanceWorkedMinutes workedMinutes;
 
+	/** For the monthly wrapper's bounds, which are a fiscal period rather than a calendar month. */
+	private final com.workin.legacy.payroll.LegacyPayrollFiscalSettings fiscalSettings;
+
 	public LegacyAttendanceRangeCalendar(
 			DataSource legacyDataSource, LegacyAttendanceCalendar calendar,
-			LegacyWeeklyRestCredit weeklyRestCredit, LegacyAttendanceWorkedMinutes workedMinutes) {
+			LegacyWeeklyRestCredit weeklyRestCredit, LegacyAttendanceWorkedMinutes workedMinutes,
+			com.workin.legacy.payroll.LegacyPayrollFiscalSettings fiscalSettings) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 		this.calendar = calendar;
 		this.weeklyRestCredit = weeklyRestCredit;
 		this.workedMinutes = workedMinutes;
+		this.fiscalSettings = fiscalSettings;
 	}
 
 	private record AttendanceRow(
@@ -112,13 +117,24 @@ public class LegacyAttendanceRangeCalendar {
 		return days;
 	}
 
-	/** {@code attendance_build_employee_monthly_calendar()}: a thin month-bounds wrapper. */
+	/**
+	 * {@code attendance_build_employee_monthly_calendar()}: a thin
+	 * fiscal-period-bounds wrapper.
+	 *
+	 * <p>It used to be a <em>calendar</em>-month wrapper -- {@code
+	 * sprintf('%04d-%02d-01')} to {@code date('Y-m-t')}. hr-legacy changed it
+	 * to {@code payroll_fiscal_period_bounds()}, so a company whose month runs
+	 * 26th-to-25th now gets a calendar covering exactly that window rather
+	 * than the 1st to the 31st. For a company on the default 1st-to-last-day
+	 * settings the two are identical, which is why the change is easy to miss
+	 * and worth stating: {@code month} and {@code year} label a fiscal period
+	 * here, not a calendar month.
+	 */
 	public List<Map<String, Object>> buildEmployeeMonthlyCalendar(
 			long companyId, long employeeId, int month, int year, String weeklyRestLabel, LocalDate today) {
-		java.time.YearMonth yearMonth = java.time.YearMonth.of(year, month);
-		String from = yearMonth.atDay(1).toString();
-		String to = yearMonth.atEndOfMonth().toString();
-		return buildEmployeeRangeCalendar(companyId, employeeId, from, to, false, weeklyRestLabel, today);
+		String[] bounds = fiscalSettings.fiscalPeriodBounds(companyId, year, month);
+		return buildEmployeeRangeCalendar(
+				companyId, employeeId, bounds[0], bounds[1], false, weeklyRestLabel, today);
 	}
 
 	private Map<String, Object> buildDay(

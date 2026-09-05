@@ -1,0 +1,86 @@
+.emp-form-section {
+  margin-bottom: 20px;
+}
+
+.emp-form-section__title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  border-bottom: 2px solid var(--border, #e8e6e0);
+  padding-bottom: 8px;
+}
+
+.emp-login-credentials__hint {
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+.emp-login-credentials__grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.1fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px 16px;
+  width: 100%;
+}
+
+.emp-login-credentials__grid label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.emp-login-credentials__grid input,
+.emp-login-credentials__grid select {
+  width: 100%;
+}
+
+.emp-login-credentials__password .form-hint {
+  display: block;
+  margin-top: 6px;
+}
+
+@media (max-width: 768px) {
+  .emp-login-credentials__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.emp-form-subtitle {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.org-form-grid-wrap .org-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+}
+
+.emp-salary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px 32px;
+}
+
+.emp-salary-grid .emp-form-subtitle {
+  margin-bottom: 14px;
+}
+
+.emp-salary-grid .form-row {
+  margin-bottom: 14px;
+}
+
+.emp-salary-grid .form-row:last-child {
+  margin-bottom: 0;
+}
+
+.modal--employee-form {
+  width: min(920px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+@media (max-width: 640px) {
+  .org-form-grid-wrap .org-form-grid,
+  .emp-salary-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -65,7 +65,7 @@ class LegacyJobTitleEndToEndTest {
 		MARIADB.start();
 		try {
 			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
+			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the Wave 12.3c job-title fixture", ex);

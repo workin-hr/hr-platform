@@ -1,5 +1,31 @@
 -- Phase 1 extension schema -- NOT part of the legacy contract.
 --
+-- THIS IS THE PROVISIONING ARTIFACT. It is the one definition of the
+-- tables Phase 1 adds to the existing MariaDB, and it is applied by hand
+-- before cutover -- ADR-0013 gives Flyway no ownership of any MariaDB
+-- schema, so nothing creates these at runtime. See
+-- docs/operations/provisioning-phase1-tables.md for the runbook, and
+-- R-023 for why an unprovisioned database is a cutover blocker rather
+-- than a startup error.
+--
+-- It ships inside the jar (src/main/resources) so an operator can
+-- extract the DDL that matches the deployed code rather than a file
+-- from a branch that may have moved on:
+--
+--   unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/phase1_extensions.sql
+--
+-- The MariaDB test container applies this same file
+-- (AbstractLegacyMySqlTest), so the schema the suite proves the adapter
+-- against is byte-identical to the schema an operator runs. That
+-- property is the whole reason it lives here and not in test resources,
+-- where it used to: a provisioning script only tests exercise is a
+-- script nothing keeps honest.
+--
+-- Deliberately NOT idempotent -- no CREATE TABLE IF NOT EXISTS. A table
+-- that already exists with the wrong columns would pass that check
+-- silently, which is the failure this file exists to prevent. Verify
+-- first (scripts/verify-phase1-tables.sql, read-only), then apply.
+--
 -- Unlike mysql_workin.schema.sql (vendored, drift-checked byte-identical
 -- against hr-legacy by scripts/check_legacy_schema_drift.py), the tables
 -- here do not exist in production legacy MySQL. They are new

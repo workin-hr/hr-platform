@@ -1,0 +1,48 @@
+/* ============================================================
+   assets/org-pages.css — مشترك (4 صفحات)
+   branches · departments · job_titles · shifts
+   ============================================================ */
+
+.org-page .page-toolbar { margin-bottom: 16px; }
+.org-page .page-toolbar .toolbar-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.org-page .data-table-card {
+  background: #fff;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.org-page .data-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.org-page .data-table-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e1e1c;
+}
+.org-page .data-table-card .table-wrap {
+  border: none;
+  border-radius: 0;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.org-page .data-table-empty {
+  text-align: center !important;
+  padding: 28px 16px !important;
+  color: #888780;
+}
+.org-page .data-table-empty-state {
+  padding: 48px 24px;
+  text-align: center;
+  color: #888780;
+  background: #fff;
+  border: 1px solid #e8e6e0;
+  border-radius: 12px;
+}
+
+.org-page .tbl .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: center; }
+.org-page .tbl .actions .inline-form { display: inline; margin: 0; }

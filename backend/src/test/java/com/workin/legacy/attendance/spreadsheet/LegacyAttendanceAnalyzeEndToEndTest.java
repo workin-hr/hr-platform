@@ -79,7 +79,7 @@ class LegacyAttendanceAnalyzeEndToEndTest {
 		MARIADB.start();
 		try {
 			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
+			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the analyze fixture", ex);
@@ -425,6 +425,176 @@ class LegacyAttendanceAnalyzeEndToEndTest {
 	// Helpers
 	// ------------------------------------------------------------------
 
+	/**
+	 * The four-column daily sheet, which auto-detection reads as
+	 * {@code unknown} -- four columns is neither the two-column punch log nor
+	 * the template's header set.
+	 */
+	@Test
+	void fourColumnsForcesADailySheetThatDetectionWouldRefuse() {
+		assign(EMPLOYEE_1, SHIFT_1, "2026-01-01");
+		byte[] sheet = csv("code,date,in,out", EMPLOYEE_1 + ",26/04/2026,09:00,17:00");
+
+		// Without the field it is unrecognised.
+		assertThat(dataOf(post(ADMIN_1, "daily.csv", sheet, 200)).get("import_format"))
+				.isEqualTo("unknown");
+
+		Map<String, Object> data = dataOf(post(ADMIN_1, "daily.csv", sheet, "four_columns", 200));
+		assertThat(data.get("import_format")).isEqualTo("punch_log");
+
+		Map<String, Object> summary = summary(data);
+		// Two cells, so two punches -- the count is the record's punch_count,
+		// not a punch list that never existed on this path.
+		assertThat(number(summary.get("total_punches"))).isEqualTo(2L);
+		assertThat(number(summary.get("total_days"))).isEqualTo(1L);
+		assertThat(number(summary.get("matched_employees"))).isEqualTo(1L);
+		assertThat(summary.get("date_from")).isEqualTo("2026-04-26");
+		assertThat(summary.get("date_to")).isEqualTo("2026-04-26");
+
+		Map<String, Object> day = days(employees(data).get(0)).get(0);
+		assertThat(day.get("check_in")).isEqualTo("2026-04-26 09:00:00");
+		assertThat(day.get("check_out")).isEqualTo("2026-04-26 17:00:00");
+		assertThat(number(day.get("actual_minutes"))).isEqualTo(480L);
+
+		assertThat(query("SELECT id FROM attendance")).isEmpty();
+	}
+
+	@Test
+	void anOvernightRowRollsTheCheckOutToTheNextDay() {
+		assign(EMPLOYEE_1, SHIFT_1, "2026-01-01");
+		Map<String, Object> data = dataOf(post(ADMIN_1, "daily.csv",
+				csv("code,date,in,out", EMPLOYEE_1 + ",26/04/2026,22:00,06:30"), "four_columns", 200));
+
+		Map<String, Object> day = days(employees(data).get(0)).get(0);
+		// The day is still the 26th; only the check-out crosses midnight.
+		assertThat(day.get("date")).isEqualTo("2026-04-26");
+		assertThat(day.get("check_in")).isEqualTo("2026-04-26 22:00:00");
+		assertThat(day.get("check_out")).isEqualTo("2026-04-27 06:30:00");
+		assertThat(number(day.get("actual_minutes"))).isEqualTo(510L);
+	}
+
+	@Test
+	void aSecondRowForTheSameDayReplacesTheFirstRatherThanMerging() {
+		// `$byEmployeeDay[$key] = [...]` is an assignment, not an append.
+		assign(EMPLOYEE_1, SHIFT_1, "2026-01-01");
+		Map<String, Object> data = dataOf(post(ADMIN_1, "daily.csv", csv("code,date,in,out",
+				EMPLOYEE_1 + ",26/04/2026,09:00,13:00",
+				EMPLOYEE_1 + ",26/04/2026,14:00,18:00"), "four_columns", 200));
+
+		assertThat(number(summary(data).get("total_days"))).isEqualTo(1L);
+		Map<String, Object> day = days(employees(data).get(0)).get(0);
+		assertThat(day.get("check_in")).isEqualTo("2026-04-26 14:00:00");
+		assertThat(day.get("check_out")).isEqualTo("2026-04-26 18:00:00");
+	}
+
+	@Test
+	void aRowWithNoCheckOutIsAnIncompleteDayAndOneOfItsPunchesIsMissing() {
+		assign(EMPLOYEE_1, SHIFT_1, "2026-01-01");
+		Map<String, Object> data = dataOf(post(ADMIN_1, "daily.csv",
+				csv("code,date,in,out", EMPLOYEE_1 + ",26/04/2026,09:00,"), "four_columns", 200));
+
+		assertThat(number(summary(data).get("total_punches"))).isEqualTo(1L);
+		Map<String, Object> day = days(employees(data).get(0)).get(0);
+		assertThat(day.get("check_in")).isEqualTo("2026-04-26 09:00:00");
+		assertThat(day.get("check_out")).isNull();
+		assertThat(day.get("status")).isEqualTo("incomplete");
+		assertThat(number(day.get("punch_count"))).isEqualTo(1L);
+		assertThat(number(day.get("actual_minutes"))).isZero();
+	}
+
+	@Test
+	void anOutOnlyRowIsSkippedEntirely() {
+		// `if ($inParts === null) continue;` -- and it does not count towards
+		// the 25-row sample either, so a sheet of them has no valid rows at all.
+		assertThat(post(ADMIN_1, "daily.csv",
+				csv("code,date,in,out", EMPLOYEE_1 + ",26/04/2026,,17:00"), "four_columns", 400)
+				.get("message"))
+				.isEqualTo("No valid punch rows were found in the file.");
+	}
+
+	@Test
+	void twoColumnsForcesThePunchLogReadingOfATemplateLookingSheet() {
+		assign(EMPLOYEE_1, SHIFT_1, "2026-01-01");
+		// Three columns, one of them a template alias: detection calls this
+		// `template` and the analysis would stop at a row count.
+		byte[] sheet = csv("employee_code,check_in_date,ignored",
+				EMPLOYEE_1 + ",26/04/2026 09:00,x", EMPLOYEE_1 + ",26/04/2026 17:00,x");
+		assertThat(dataOf(post(ADMIN_1, "punch.csv", sheet, 200)).get("import_format"))
+				.isEqualTo("template");
+
+		// two_columns cannot rescue it: the forced reading still needs exactly
+		// two non-blank columns, and this sheet has three.
+		assertThat(post(ADMIN_1, "punch.csv", sheet, "two_columns", 400).get("message"))
+				.isEqualTo("Only two columns are required: employee code, and punch date/time.");
+	}
+
+	@Test
+	void everySpellingOfTheTwoLayoutsIsAccepted() {
+		assign(EMPLOYEE_1, SHIFT_1, "2026-01-01");
+		byte[] daily = csv("code,date,in,out", EMPLOYEE_1 + ",26/04/2026,09:00,17:00");
+
+		for (String spelling : List.of("four_columns", "4", "four", "daily", "in_out",
+				"FOUR_COLUMNS", " four_columns ")) {
+			assertThat(dataOf(post(ADMIN_1, "daily.csv", daily, spelling, 200)).get("import_format"))
+					.as("layout '%s'", spelling)
+					.isEqualTo("punch_log");
+		}
+		// And an unknown value is auto-detect, not an error: a client sending a
+		// layout this build does not know keeps working.
+		for (String ignored : List.of("", "columns", "five", "0")) {
+			assertThat(dataOf(post(ADMIN_1, "daily.csv", daily, ignored, 200)).get("import_format"))
+					.as("layout '%s'", ignored)
+					.isEqualTo("unknown");
+		}
+	}
+
+	@Test
+	void twoColumnsOnAPunchLogIsTheSameAnswerAutoDetectionGives() {
+		assign(EMPLOYEE_1, SHIFT_1, "2026-01-01");
+		for (String spelling : List.of("two_columns", "2", "two", "punches", "punch_log")) {
+			Map<String, Object> data = dataOf(post(ADMIN_1, "punch.csv", punchCsv(), spelling, 200));
+			assertThat(data.get("import_format")).as("layout '%s'", spelling).isEqualTo("punch_log");
+			assertThat(number(summary(data).get("total_punches"))).as("layout '%s'", spelling).isEqualTo(2L);
+		}
+	}
+
+	@Test
+	void aDailySheetWithFewerThanFourColumnsSaysSo() {
+		assertThat(post(ADMIN_1, "daily.csv", csv("code,date,in", EMPLOYEE_1 + ",26/04/2026,09:00"),
+				"four_columns", 400).get("message"))
+				.isEqualTo("Four columns are required: employee code, date, check-in time, and check-out time.");
+	}
+
+	@Test
+	void anUnreadableDateColumnAndAnUnreadableTimeColumnHaveDistinctMessages() {
+		assertThat(post(ADMIN_1, "daily.csv",
+				csv("code,date,in,out", EMPLOYEE_1 + ",not a date,09:00,17:00"), "four_columns", 400)
+				.get("message"))
+				.isEqualTo("The date column is invalid. Please use a date such as 26/04/2026.");
+
+		assertThat(post(ADMIN_1, "daily.csv",
+				csv("code,date,in,out", EMPLOYEE_1 + ",26/04/2026,not a time,also not"), "four_columns", 400)
+				.get("message"))
+				.isEqualTo("The check-in or check-out time column is invalid. Please use a time such as 08:15.");
+
+		// A non-numeric code fails on the code before either of those is reached.
+		assertThat(post(ADMIN_1, "daily.csv",
+				csv("code,date,in,out", "A12,26/04/2026,09:00,17:00"), "four_columns", 400)
+				.get("message"))
+				.isEqualTo("Employee codes must be digits only (no letters).");
+	}
+
+	@Test
+	void aDeclaredLayoutDoesNotResurrectAnEmptyFile() {
+		// prepare_records decides `empty` before the layout branches, so a
+		// header-only sheet is still the empty shape.
+		Map<String, Object> data = dataOf(post(ADMIN_1, "daily.csv", csv("code,date,in,out"),
+				"four_columns", 200));
+		assertThat(data.get("import_format")).isEqualTo("empty");
+		assertThat(number(summary(data).get("total_punches"))).isZero();
+		assertThat(warnings(data)).containsExactly("File is empty");
+	}
+
 	private static byte[] csv(String... lines) {
 		return String.join("\n", lines).getBytes(StandardCharsets.UTF_8);
 	}
@@ -480,6 +650,12 @@ class LegacyAttendanceAnalyzeEndToEndTest {
 	}
 
 	private Map<String, Object> post(long actor, String filename, byte[] content, int expectedStatus) {
+		return post(actor, filename, content, null, expectedStatus);
+	}
+
+	/** The same upload with a {@code sheet_layout} field beside the file. */
+	private Map<String, Object> post(
+			long actor, String filename, byte[] content, String sheetLayout, int expectedStatus) {
 		MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
 		parts.add("file", new ByteArrayResource(content) {
 			@Override
@@ -487,6 +663,9 @@ class LegacyAttendanceAnalyzeEndToEndTest {
 				return filename;
 			}
 		});
+		if (sheetLayout != null) {
+			parts.add("sheet_layout", sheetLayout);
+		}
 		return send(actor, HttpMethod.POST, parts, expectedStatus);
 	}
 

@@ -1,0 +1,5 @@
+# The production dump carries real customer data -- names, phone numbers,
+# salaries for 3,783 employees. It is a local artifact and must never be
+# committed. Take a fresh one rather than sharing this file.
+01-production.sql
+*.sql.gz

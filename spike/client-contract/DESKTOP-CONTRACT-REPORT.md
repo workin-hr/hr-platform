@@ -12,11 +12,11 @@ this client" below.
 
 | | count |
 |---|---|
-| API endpoint constants declared by the client | 183 |
-| Referenced from client source (reachable) | 178 |
-| Distinct paths the data source actually calls | 177 |
-| Contracts statically derived from client source | 178 |
-| Client parsers extracted | 137 |
+| API endpoint constants declared by the client | 187 |
+| Referenced from client source (reachable) | 182 |
+| Distinct paths the data source actually calls | 179 |
+| Contracts statically derived from client source | 180 |
+| Client parsers extracted | 141 |
 | **Contracts replayed against PHP and Java** | **89** |
 | **Contracts replayed by THIS layer** | **89** |
 
@@ -24,7 +24,7 @@ This layer replays contracts; it executes nothing. The runtime verdict for
 this client is a separate measurement with its own evidence in
 `spike/client-runtime` — see the runtime status line below.
 
-The 183 declared constants are **not** the denominator.
+The 187 declared constants are **not** the denominator.
 5 are declared and never referenced by any
 screen, so they are excluded from what a client run could exercise:
 
@@ -33,6 +33,18 @@ screen, so they are excluded from what a client run could exercise:
 - `loginCompanyEndpoint`
 - `saveWorkforcePlanningEndpoint`
 - `setEmployeeAttendanceMethodEndpoint`
+
+> **The client-side counts above were refreshed on 2026-09-05 against the
+> current desktop client; the replay counts below were not.** The client grew
+> four endpoints (`guide_videos/list`, `employees/update_bulk`,
+> `employees/analyze_excel_update`, `complaints/delete`), four parsers, and
+> new fields on `ConfigData`, `OverallAttendanceReportModel` and
+> `PayslipModel`. Each was checked against the Java implementation by hand and
+> is served; none has been *replayed* through this layer, because a replay
+> needs both stacks up and PHP is not deployed locally. So the 89 is the
+> number of contracts this layer has actually replayed, not the number
+> verified -- and the gap between 89 and 180 is the honest measure of what
+> replay still owes.
 
 ## Verdicts
 

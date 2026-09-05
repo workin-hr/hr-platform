@@ -1,14 +1,25 @@
 @import java.util.List
 @import com.workin.backend.platformadmin.web.PlatformAdminSessionInventory.BrowserSession
+@import java.util.function.Function
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
 @param List<BrowserSession> sessions
+@param String currentPage
+@param String lang
+@param com.workin.backend.platformadmin.web.DashboardSession session
+@param Function<String, String> t
+@param Function<String, Boolean> available
 @template.admin.layout(
 	title = "Sessions",
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	currentPage = currentPage,
+	lang = lang,
+	session = session,
+	t = t,
+	available = available,
 	body = @`
 		<div class="card">
 			<h1>Your sessions</h1>

@@ -108,12 +108,15 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/departments/list.php", "/apis/api/departments/one.php",
 			"/apis/api/departments/update.php",
 			"/apis/api/employees/analyze_excel.php", "/apis/api/employees/create.php",
+			"/apis/api/employees/analyze_excel_update.php",
 			"/apis/api/employees/deactivate.php", "/apis/api/employees/delete.php",
 			"/apis/api/employees/delete_preview.php", "/apis/api/employees/import_bulk.php",
 			"/apis/api/employees/list.php", "/apis/api/employees/my_team.php",
 			"/apis/api/employees/one.php", "/apis/api/employees/reactivate.php",
 			"/apis/api/employees/stats.php", "/apis/api/employees/template_excel.php",
 			"/apis/api/employees/update.php", "/apis/api/employees/upload_photo.php",
+			"/apis/api/employees/update_bulk.php",
+			"/apis/api/guide_videos/list.php",
 			"/apis/api/hr_employees/create.php", "/apis/api/hr_employees/list.php",
 			"/apis/api/hr_employees/update_permissions.php",
 			"/apis/api/job_titles/create.php", "/apis/api/job_titles/delete.php",
@@ -161,7 +164,8 @@ class LegacyPhpRouteInventoryTest {
 			"/apis/api/schedules/generate_employee_schedule.php",
 			"/apis/api/shifts/create.php", "/apis/api/shifts/delete.php",
 			"/apis/api/shifts/list.php", "/apis/api/shifts/one.php",
-			"/apis/api/shifts/update.php");
+			"/apis/api/shifts/update.php",
+			"/apis/api/time/now.php");
 
 	@Autowired
 	@Qualifier("requestMappingHandlerMapping")
@@ -186,9 +190,15 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(mapped).containsExactlyElementsOf(EXPECTED_ROUTES.stream().sorted().toList());
 	}
 
+	/**
+	 * 198 at the completion of Item 13, plus the two routes hr-legacy added
+	 * afterwards -- {@code guide_videos/list} and {@code time/now}, both of
+	 * which the Flutter clients now call. The number is asserted rather than
+	 * derived so that growing it is a deliberate edit with a reason attached.
+	 */
 	@Test
-	void deliveredRouteCountIsNowOneHundredNinetyEight() {
-		assertThat(EXPECTED_ROUTES).hasSize(198).doesNotHaveDuplicates();
+	void deliveredRouteCountIsTwoHundredAndTwo() {
+		assertThat(EXPECTED_ROUTES).hasSize(202).doesNotHaveDuplicates();
 	}
 
 	/**
@@ -266,8 +276,10 @@ class LegacyPhpRouteInventoryTest {
 		assertThat(CONDITIONAL_ROUTES).hasSize(1);
 		assertThat(EXPECTED_ROUTES).containsAll(DOWNLOAD_ONLY_ROUTES).containsAll(CONDITIONAL_ROUTES);
 		assertThat(EXPECTED_ROUTES.size() - DOWNLOAD_ONLY_ROUTES.size() - CONDITIONAL_ROUTES.size())
-				.as("envelope-only routes, per the completion plan's 193/4/1 partition")
-				.isEqualTo(193);
+				.as("envelope-only routes: the completion plan's 193/4/1 partition, "
+						+ "plus guide_videos/list, time/now, employees/analyze_excel_update and "
+						+ "employees/update_bulk, all four envelope-only")
+				.isEqualTo(197);
 	}
 
 	@Test

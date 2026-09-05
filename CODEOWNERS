@@ -11,3 +11,8 @@
 /.agents/ @workin-hr/platform-owners
 /.specify/ @workin-hr/platform-owners
 /backend/ @workin-hr/platform-owners
+
+# The generated inventories the two hr-legacy drift gates compare against.
+# A change here is a claim that PHP changed, so it needs the same review as
+# the code that has to match it.
+/contracts/ @workin-hr/platform-owners @workin-hr/qa

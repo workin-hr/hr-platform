@@ -369,6 +369,48 @@ public class LegacyEmployeeController {
 				message(request, nothingInserted ? "employees_import_failed" : "employees_imported"), result);
 	}
 
+	/**
+	 * {@code employees/analyze_excel_update.php}: POST, admin/HR, then the
+	 * uploaded sheet analyzed against the <em>existing</em> employees without
+	 * writing anything.
+	 *
+	 * <p>Same shape as {@code analyze_excel.php} and a different meaning: here
+	 * an empty cell means "leave that field alone", so a row is valid when its
+	 * employee code resolves and nothing that <em>was</em> filled in is wrong.
+	 */
+	@RequestMapping("/analyze_excel_update.php")
+	public LegacyApiResponse analyzeExcelUpdate(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = administrative();
+		boolean arabic = "ar".equals(messages.resolveLocale(request));
+		Map<String, Object> analysis = employeeService.analyzeSpreadsheetForUpdate(
+				context, multipartFile(request, "file"), arabic);
+		return LegacyApiResponse.ok(message(request, "employees_excel_analyzed"), analysis);
+	}
+
+	/**
+	 * {@code employees/update_bulk.php}: POST, admin/HR, then the reviewed rows
+	 * applied one at a time.
+	 *
+	 * <p>Always 200 once the rows have passed the presence check. A partially
+	 * successful batch is the normal outcome and is reported as
+	 * {@code employees_updated} with a {@code failed} list; only a batch where
+	 * <em>nothing</em> was updated and something failed switches the message to
+	 * {@code employees_update_failed}. The status never moves.
+	 */
+	@RequestMapping("/update_bulk.php")
+	public LegacyApiResponse updateBulk(HttpServletRequest request) {
+		requireMethod(request, "POST");
+		LegacyRequestContext context = administrative();
+		Map<String, Object> result = employeeService.updateSpreadsheetRows(
+				context, LegacyJsonBody.read(request));
+
+		boolean nothingUpdated = LegacyValues.toPhpLong(result.get("updated")) == 0
+				&& !((List<?>) result.get("failed")).isEmpty();
+		return LegacyApiResponse.ok(
+				message(request, nothingUpdated ? "employees_update_failed" : "employees_updated"), result);
+	}
+
 	@RequestMapping("/template_excel.php")
 	public void templateExcel(HttpServletRequest request, HttpServletResponse response) throws IOException {
 		LegacyRequestContext context = administrative();

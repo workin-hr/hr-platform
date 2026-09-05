@@ -18,6 +18,7 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
+import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetErrors;
 
 import com.workin.legacy.LegacyJdbcValues;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -277,6 +278,32 @@ public class LegacyEmployeeStore {
 	 * {@code 'rejected'} (NULL counting as {@code 'accepted'}), so a rejected
 	 * join request never blocks a real hire.
 	 */
+	/**
+	 * {@code employee_excel_employees_by_code()}: every employee of one
+	 * company, keyed by normalized employee code.
+	 *
+	 * <p>Rows whose code normalizes to empty are dropped rather than keyed on
+	 * {@code ""} -- PHP {@code continue}s past them, so a sheet row with a
+	 * blank code must not match them.
+	 *
+	 * <p>A later duplicate wins, as PHP's assignment does. The column has a
+	 * per-company unique index, so that is a tie that should not arise; it is
+	 * reproduced rather than guarded because a divergence here would only
+	 * surface on data the schema says cannot exist.
+	 */
+	public Map<String, Map<String, Object>> employeesByCode(long companyId) {
+		Map<String, Map<String, Object>> byCode = new LinkedHashMap<>();
+		for (Map<String, Object> row : this.jdbcTemplate.queryForList(
+				"SELECT * FROM employees WHERE company_id=?", companyId)) {
+			String code = LegacyEmployeeSpreadsheetErrors.normalizeEmployeeCode(
+					row.get("employee_code") == null ? "" : String.valueOf(row.get("employee_code")));
+			if (!code.isEmpty()) {
+				byCode.put(code, row);
+			}
+		}
+		return byCode;
+	}
+
 	public boolean phoneExistsGlobally(String phone, Long excludeEmployeeId) {
 		String digits = LegacyPhoneNumbers.digitsOnly(phone == null ? "" : phone.trim());
 		if (digits.isEmpty()) {

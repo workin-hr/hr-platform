@@ -72,6 +72,7 @@ company_settings/one
 company_settings/options
 company_settings/update
 complaints/create
+complaints/delete
 complaints/list
 complaints/update
 configs/get
@@ -86,6 +87,7 @@ employee_docs/list
 employee_docs/update
 employee_docs/upload
 employees/analyze_excel
+employees/analyze_excel_update
 employees/create
 employees/deactivate
 employees/delete
@@ -97,8 +99,10 @@ employees/reactivate
 employees/stats
 employees/template_excel
 employees/update
+employees/update_bulk
 employees/upload_photo
 faqs/list
+guide_videos/list
 hr_employees/create
 hr_employees/list
 hr_employees/update_permissions

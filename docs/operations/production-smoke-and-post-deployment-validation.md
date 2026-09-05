@@ -10,87 +10,76 @@ validation is broader and may include delayed or manual confirmation. Neither
 should rely on assumed behavior; each check needs a pass condition, an owner,
 and evidence.
 
-## Check
+## The Phase 1 Cutover Smoke Checklist
 
-Describe the exact behavior being verified. Prefer checks tied to observable
-system behavior rather than internal hope statements.
+*Filled 2026-09-04, replacing the template that stood here. Run at step 7
+of `docs/operations/release-cutover-and-rollback.md` against the jar
+directly, and again at step 9 through the real routing path. The same
+list both times — a check that passes directly and fails through the
+router has told you the routing is wrong, which is worth knowing
+separately.*
 
-Examples:
+### Two constraints that shape every check
 
-- application health endpoint returns expected status
-- authentication path works for an approved test account
-- a critical HR workflow can be completed end to end
-- a migration validation query shows expected row counts or invariants
-- alerts remain quiet for expected conditions after release
-- a scheduled integration or background process completes successfully
+**This runs against production, with real customer data.** Three legacy
+routes are destructive and must never be used as smoke checks on a real
+account:
 
-## Type (production smoke test / post-deployment validation)
+| Route | What it actually does |
+|---|---|
+| `profile/logout` | Deletes push tokens, **deactivates the employee**, and notifies the company that they left |
+| Password change | Replaces the credential — the user can no longer log in |
+| `reset_password` | Same, and commits the new password *before* the session revocation that may fail |
 
-Classify each item as one of:
+Legacy's "logout" is an account deactivation. Running it against a live
+employee to test a table would disable that person and send their
+employer a departure notice.
 
-- `production smoke test`: a fast check run immediately after deployment or
-  cutover to detect obvious release failure
-- `post-deployment validation`: a follow-up check that may require time,
-  real traffic, scheduled execution, or manual confirmation
+**Use a dedicated account** — a real employee row in a real company,
+created for this purpose and known to be nobody's. `spike/parity-harness/seed-two.sh`
+documents the shape; do not reuse its ids, which are harness-only.
 
-If a check serves both purposes, record when it runs in each mode rather than
-blurring the distinction.
+**Every check needs a negative control.** The lesson of R-023 is a check
+that passes for the wrong reason: login succeeds whether or not
+`legacy_refresh_tokens` exists, so a login-only smoke test certifies a
+deployment whose logout and password reset are broken.
 
-## Trigger (on every deploy, scheduled, manual)
+### The checks
 
-State exactly when the check runs and what causes it to run.
+| # | Check | Pass condition | Negative control — why it can't pass for the wrong reason |
+|---|---|---|---|
+| 1 | Startup log | `Phase 1 schema check: all 10 owned tables are present`, the fingerprint line, and `WhatsApp OTP delivery is configured` | These are three distinct lines. A missing one is a real gap, not a logging quirk |
+| 2 | Health endpoint | 200 | Confirms the process is up and nothing more — never treat it as a release check |
+| 3 | Login as the test account | 200, the same envelope shape, a usable token | Repeat with a **wrong password**: must be the same 401 PHP gives, not a 500 |
+| 4 | Authenticated read (`requests/list`) | 200, paginated shape | Repeat with **no token**: must be 401. A route that answers 200 unauthenticated is a filter-chain failure |
+| 5 | **Token refresh** | 200, a new token, and the old one no longer accepted | This is the only check that writes to `legacy_refresh_tokens`. Without it R-023 is untested — see the destructive-routes table for why logout is not the way to test it |
+| 6 | Tenant scoping | A read scoped to the test account's company returns only that company's rows | Request a **known id from another company**: must be 404/403, not that row. Proves the scope filter is live, not that the query happened to return the right thing |
+| 7 | `/admin/login` renders | 200, the login form | Request `/admin/companies` **unauthenticated**: must redirect to login, not render |
+| 8 | An OTP route | An OTP actually arrives | Not `otp_delivery_failed`. See the R-015 section below |
 
-Typical triggers:
+Checks 1–4 and 7 are non-destructive and can run against production
+unchanged. Check 5 writes refresh-token rows for the test account only.
+Check 6 reads another company's id but must not return it — that is the
+point.
 
-- on every production deploy
-- after maintenance-window exit
-- after a migration step completes
-- after feature-flag enablement
-- scheduled after a defined observation period
-- manual confirmation by an operator or business owner
-- on rollback completion
+### After the traffic move
 
-## Pass Criteria
+Re-run all of it (step 9). Then watch, rather than check, for the first
+hours:
 
-The pass condition must be observable and reviewable.
+- error rate and latency against the PHP baseline
+- any `otp_delivery_failed`
+- any missing-table error
+- 401 rate — a rise means the signing secrets differ after all
 
-Good pass criteria examples:
+The rollback triggers in `release-cutover-and-rollback.md` are written
+against exactly these signals.
 
-- HTTP endpoint responds with the expected status and payload shape
-- no blocking errors appear in release-critical monitoring within the agreed
-  observation window
-- a validation query returns expected invariants with zero critical mismatch
-- a critical workflow completes without customer-visible failure
-- no compatibility regression is observed in the monitored client path
+### Not covered here
 
-Avoid vague criteria such as `looks normal` or `seems healthy`.
-
-## Owner
-
-Record the human role responsible for running or reviewing the check, such as:
-
-- release owner
-- operations owner
-- QA or test owner
-- engineering owner
-- migration owner
-- customer-support or product owner for business-facing confirmation
-
-Agents may help prepare the checklist, but humans own production validation.
-
-## Evidence
-
-Link the proof that the check ran and passed or failed. Evidence may include:
-
-- deployment log or release record
-- smoke-test output
-- dashboard screenshot or metric link
-- alert history
-- migration validation result
-- manual test note with timestamp and owner
-- customer-support confirmation for externally visible behavior
-
-If evidence is not retained automatically, define how it will be recorded.
+Push notifications (FCM) do not work in legacy either (**F-08**,
+`hr-platform#22`), so there is nothing to smoke and nothing lost. Device
+attendance ingestion is not in this cutover.
 
 ## WhatsApp OTP Delivery (R-015) — Required Before Auth Cutover
 

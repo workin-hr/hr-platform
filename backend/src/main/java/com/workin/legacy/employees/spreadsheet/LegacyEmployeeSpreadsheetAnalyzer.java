@@ -367,7 +367,12 @@ public class LegacyEmployeeSpreadsheetAnalyzer {
 	}
 
 	/** {@code employee_department_valid_for_branch()}. */
-	private boolean departmentValidForBranch(Long departmentId, Long branchId, long companyId) {
+	/**
+	 * Package-private: the update analyzer applies the same rule, and two
+	 * copies of "is this department reachable from this branch" is how the two
+	 * sheets would start disagreeing about the same data.
+	 */
+	boolean departmentValidForBranch(Long departmentId, Long branchId, long companyId) {
 		if (departmentId == null || departmentId <= 0) {
 			return true;
 		}
@@ -377,7 +382,8 @@ public class LegacyEmployeeSpreadsheetAnalyzer {
 		return store.departmentBelongsToCompany(departmentId, companyId);
 	}
 
-	private static Map<String, String> salaryKeys() {
+	/** Package-private: the update analyzer reads the same map, in the same order. */
+	static Map<String, String> salaryKeys() {
 		Map<String, String> keys = new LinkedHashMap<>();
 		keys.put("salary_basic", "basic");
 		keys.put("salary_transport", "transport");
