@@ -103,6 +103,24 @@ Administrative actions on companies are refused unless
 shared password — to be unreachable first. While both are live, MFA is only as
 strong as the weaker door.
 
+The same flag also gates the **org pages** — branches, departments, job titles
+and shifts. That is stricter than the PHP dashboard, whose only gate is the
+section permission, and it is deliberate: an administrator writing *inside a
+customer's company* is at least as sensitive as editing a FAQ (**D-171**,
+**D-175**). The owner's decision on 2026-09-05 is that the flag **may be
+enabled on the VPS** so those flows work, with the other two controls
+**unchanged**:
+
+| Control | On the VPS |
+|---|---|
+| `APP_PLATFORM_ADMIN_ACTIONS_ENABLED` | **true** — required for branch and department management |
+| Bound second factor on the session | **required**, unchanged (D-152) |
+| Audit row in the same transaction | **required**, unchanged (`ORG_CREATED` / `ORG_UPDATED` / `ORG_DELETED`) |
+
+So enabling the flag opens the pages; it does not relax what happens once they
+are open. An administrator who has not completed the enrolment ceremony still
+cannot write, and every write is still recorded against their id.
+
 **This currently does not start from the jar** — see **R-040**.
 `BackendApplication` excludes `DataSourceAutoConfiguration`, so nothing supplies
 `JdbcConnectionDetails` from `spring.datasource.*`; the only implementation is

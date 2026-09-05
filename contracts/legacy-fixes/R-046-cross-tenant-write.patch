@@ -1,0 +1,215 @@
+diff --git a/dashboard/includes/hr_helper.php b/dashboard/includes/hr_helper.php
+index 8121add..55bc9a7 100644
+--- a/dashboard/includes/hr_helper.php
++++ b/dashboard/includes/hr_helper.php
+@@ -43,6 +43,92 @@ function hr_render_company_filter(int $companyId, string $page): void
+     org_render_company_filter($companyId, $page);
+ }
+ 
++/**
++ * الجدول ← الشركة المالكة للصف (R-046).
++ *
++ * جداول شؤون العاملين ترتبط بالشركة بطريقتين: بعضها يحمل company_id مباشرة،
++ * وبعضها يصل إليها عبر employee_id. الخريطة هنا في مكان واحد حتى لا تتكرر
++ * الاستعلامات في كل صفحة.
++ *
++ * @return int|null معرّف الشركة، أو null إذا لم يوجد الصف
++ */
++function hr_row_company_id(string $table, int $id): ?int
++{
++    if ($id <= 0) {
++        return null;
++    }
++
++    $sql = match ($table) {
++        // company_id مباشرة على الصف
++        'assets', 'complaints' =>
++            "SELECT `company_id` FROM `$table` WHERE id = ? LIMIT 1",
++        // عبر الموظف
++        'leave_balance', 'penalties', 'advances', 'requests' =>
++            "SELECT e.company_id
++             FROM `$table` t
++             JOIN employees e ON e.id = t.employee_id
++             WHERE t.id = ? LIMIT 1",
++        default => null,
++    };
++
++    if ($sql === null) {
++        // جدول غير معروف: نرفض بدلاً من السماح.
++        return null;
++    }
++
++    $value = dbValue($sql, [$id]);
++
++    return $value === null ? null : (int) $value;
++}
++
++/**
++ * يرفض أي كتابة على صف يخص شركة أخرى (R-046).
++ *
++ * نفس قاعدة org_verify_post_row() و$decisionRowAllowed() الموجودتين بالفعل:
++ *
++ * - جلسة مقيّدة بشركة (مالك أو HR): الصف لازم يكون تبع شركته.
++ * - مدير المنصة مع فلتر شركة: الصف لازم يكون تبع الشركة المفلترة.
++ * - مدير المنصة بدون فلتر: مسموح — ده معنى "كل الشركات".
++ *
++ * تُستدعى مرة واحدة أعلى بلوك الـPOST، فتغطي كل الإجراءات في الصفحة.
++ */
++function hr_verify_post_row(string $table, int $id, int $cid): void
++{
++    if ($id <= 0) {
++        return;
++    }
++
++    $page = match ($table) {
++        'leave_balance' => 'leave_balances',
++        'penalties'     => 'penalties',
++        'assets'        => 'assets',
++        'advances'      => 'advances',
++        'requests'      => 'requests',
++        'complaints'    => 'complaints',
++        default         => 'index',
++    };
++
++    $rowCid = hr_row_company_id($table, $id);
++    if ($rowCid === null) {
++        flash(__('error_db'), 'error');
++        hr_redirect($page, $cid);
++    }
++
++    if (hr_is_scoped_company()) {
++        if ($rowCid !== (int) (getCurrentCompanyId() ?? 0)) {
++            flash(__('error_db'), 'error');
++            hr_redirect($page, $cid);
++        }
++
++        return;
++    }
++
++    if ($cid > 0 && $rowCid !== $cid) {
++        flash(__('error_db'), 'error');
++        hr_redirect($page, $cid);
++    }
++}
++
+ function hr_post_company_id(): int
+ {
+     if (hr_is_scoped_company()) {
+diff --git a/dashboard/pages/advances/page.php b/dashboard/pages/advances/page.php
+index c6280f7..2f9deb5 100644
+--- a/dashboard/pages/advances/page.php
++++ b/dashboard/pages/advances/page.php
+@@ -26,6 +26,9 @@ $listQuery = hr_list_query_params([
+ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage) {
+     $action = $_POST['action'] ?? '';
+     $id = (int) ($_POST['id'] ?? 0);
++    // R-046: كل إجراءات الصفحة تأخذ id من الـPOST؛ هذا يمنع الكتابة
++    // على صف يخص شركة أخرى قبل الوصول لأي منها.
++    hr_verify_post_row('advances', $id, $cid);
+ 
+     if ($action === 'add_advance') {
+         $eid = (int) ($_POST['employee_id'] ?? 0);
+diff --git a/dashboard/pages/assets/page.php b/dashboard/pages/assets/page.php
+index dd5f0e6..6382c61 100644
+--- a/dashboard/pages/assets/page.php
++++ b/dashboard/pages/assets/page.php
+@@ -23,6 +23,9 @@ $listQuery = hr_list_query_params([
+ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage) {
+     $action = $_POST['action'] ?? '';
+     $id = (int) ($_POST['id'] ?? 0);
++    // R-046: كل إجراءات الصفحة تأخذ id من الـPOST؛ هذا يمنع الكتابة
++    // على صف يخص شركة أخرى قبل الوصول لأي منها.
++    hr_verify_post_row('assets', $id, $cid);
+ 
+     if ($action === 'add_asset') {
+         $eid = (int) ($_POST['employee_id'] ?? 0);
+diff --git a/dashboard/pages/complaints/page.php b/dashboard/pages/complaints/page.php
+index 34b02d7..92b57ff 100644
+--- a/dashboard/pages/complaints/page.php
++++ b/dashboard/pages/complaints/page.php
+@@ -9,6 +9,10 @@ if (!HrAccess::canViewPage('complaints')) {
+ 
+ $isComp = isCompany();
+ $scopedCompanyId = $isComp ? (int) (getCurrentCompanyId() ?? 0) : 0;
++// R-046: $isComp يحكم العرض والاستعلام ولا يجب تغييره، لكن حراسات الكتابة
++// أسفل كانت معلّقة عليه وحده — فجلسة HR كانت تتخطاها بالكامل. هذا المتغير
++// للحراسات فقط: أي جلسة مقيّدة بشركة (مالك أو HR) تُقيَّد بشركتها.
++$writeScopedCompanyId = org_is_scoped_company() ? (int) (getCurrentCompanyId() ?? 0) : 0;
+ 
+ $filters = complaints_list_filters();
+ $cid = (int) $filters['company_id'];
+@@ -27,8 +31,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+     $id = (int) ($_POST['id'] ?? 0);
+ 
+     if ($action === 'reply' && $id) {
+-        if ($isComp) {
+-            $check = (int) dbValue('SELECT COUNT(*) FROM complaints WHERE id=? AND company_id=?', [$id, $scopedCompanyId]);
++        if ($writeScopedCompanyId > 0) {
++            $check = (int) dbValue('SELECT COUNT(*) FROM complaints WHERE id=? AND company_id=?', [$id, $writeScopedCompanyId]);
+             if (!$check) {
+                 flash(__('error_db'), 'error');
+                 header('Location: complaints.php');
+@@ -45,10 +49,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+         if (!in_array($newStatus, ['pending', 'done', 'closed'], true)) {
+             flash(__('error_required'), 'error');
+         } else {
+-            if ($isComp) {
++            if ($writeScopedCompanyId > 0) {
+                 $check = (int) dbValue(
+                     "SELECT COUNT(*) FROM complaints WHERE id=? AND company_id=? AND source='employee'",
+-                    [$id, $scopedCompanyId]
++                    [$id, $writeScopedCompanyId]
+                 );
+                 if (!$check) {
+                     flash(__('error_db'), 'error');
+@@ -60,8 +64,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+             flash(__('saved_ok'));
+         }
+     } elseif ($action === 'delete' && $id) {
+-        if ($isComp) {
+-            $check = (int) dbValue('SELECT COUNT(*) FROM complaints WHERE id=? AND company_id=?', [$id, $scopedCompanyId]);
++        if ($writeScopedCompanyId > 0) {
++            $check = (int) dbValue('SELECT COUNT(*) FROM complaints WHERE id=? AND company_id=?', [$id, $writeScopedCompanyId]);
+             if (!$check) {
+                 flash(__('error_db'), 'error');
+                 header('Location: complaints.php');
+diff --git a/dashboard/pages/penalties/page.php b/dashboard/pages/penalties/page.php
+index 68abdb9..c4a6d5f 100644
+--- a/dashboard/pages/penalties/page.php
++++ b/dashboard/pages/penalties/page.php
+@@ -27,6 +27,9 @@ $listQuery = hr_list_query_params([
+ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage) {
+     $action = $_POST['action'] ?? '';
+     $id = (int) ($_POST['id'] ?? 0);
++    // R-046: كل إجراءات الصفحة تأخذ id من الـPOST؛ هذا يمنع الكتابة
++    // على صف يخص شركة أخرى قبل الوصول لأي منها.
++    hr_verify_post_row('penalties', $id, $cid);
+     if ($action === 'add_penalty') {
+         $eid = (int) ($_POST['employee_id'] ?? 0);
+         $penaltyType = trim((string) ($_POST['penalty_type'] ?? ''));
+diff --git a/dashboard/pages/requests/page.php b/dashboard/pages/requests/page.php
+index 8019461..35fc0c2 100644
+--- a/dashboard/pages/requests/page.php
++++ b/dashboard/pages/requests/page.php
+@@ -27,6 +27,9 @@ $listQuery = hr_list_query_params([
+ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+     $action = $_POST['action'] ?? '';
+     $id = (int) ($_POST['id'] ?? 0);
++    // R-046: كل إجراءات الصفحة تأخذ id من الـPOST؛ هذا يمنع الكتابة
++    // على صف يخص شركة أخرى قبل الوصول لأي منها.
++    hr_verify_post_row('requests', $id, $cid);
+     $comment = trim((string) ($_POST['comment'] ?? ''));
+ 
+     if ($action === 'approve' && $id) {
+--- a/dashboard/pages/leave_balances/page.php
++++ b/dashboard/pages/leave_balances/page.php
+@@ -16,6 +16,9 @@
+     $action = $_POST['action'] ?? '';
+     $id = (int) ($_POST['id'] ?? 0);
+     $postCid = hr_post_company_id();
++    // R-046: كل إجراءات الصفحة تأخذ id من الـPOST؛ هذا يمنع الكتابة
++    // على صف يخص شركة أخرى قبل الوصول لأي منها.
++    hr_verify_post_row('leave_balance', $id, $cid);
+ 
+     if ($action === 'add_leave') {
+         $eid = (int) ($_POST['employee_id'] ?? 0);
