@@ -79,29 +79,15 @@ public class AdminBranchesController {
 		return VIEW;
 	}
 
-	/**
-	 * {@code dbFind()} then the visibility test the page performs on the row.
-	 *
-	 * <p>Legacy's two tests are not the same. For a scoped session the row must
-	 * belong to that company. For an administrator the row must match the
-	 * <em>current filter</em> when one is set -- so filtering to company 3 and
-	 * then following an edit link for a branch of company 9 shows nothing,
-	 * rather than silently editing a company the operator is not looking at.
-	 * With no filter set, any row is reachable, which is what "all companies"
-	 * means.
-	 */
-	private Branch visible(DashboardSession session, DashboardListFilters filters, Long id) {
+	/** {@code dbFind()} then {@link DashboardOrgScope#canOpenRow}. */
+	private Branch visible(
+			DashboardSession session, DashboardListFilters filters, Long id) {
 		if (id == null || id <= 0) {
 			return null;
 		}
 		Branch row = this.store.find(id);
-		if (row == null) {
-			return null;
-		}
-		if (session.isScopedToOneCompany()) {
-			return row.companyId() == session.companyId() ? row : null;
-		}
-		return filters.companyId() > 0 && row.companyId() != filters.companyId() ? null : row;
+		return row != null && DashboardOrgScope.canOpenRow(session, filters, row.companyId())
+				? row : null;
 	}
 
 	@AuthenticatedUseCase(reason = "Creates, edits, deactivates a branch or regenerates its "

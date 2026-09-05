@@ -62,18 +62,14 @@ public class AdminJobTitlesController {
 		return VIEW;
 	}
 
-	private JobTitle visible(DashboardSession session, DashboardListFilters filters, Long id) {
+	private JobTitle visible(
+			DashboardSession session, DashboardListFilters filters, Long id) {
 		if (id == null || id <= 0) {
 			return null;
 		}
 		JobTitle row = this.store.find(id);
-		if (row == null) {
-			return null;
-		}
-		if (session.isScopedToOneCompany()) {
-			return row.companyId() == session.companyId() ? row : null;
-		}
-		return filters.companyId() > 0 && row.companyId() != filters.companyId() ? null : row;
+		return row != null && DashboardOrgScope.canOpenRow(session, filters, row.companyId())
+				? row : null;
 	}
 
 	@AuthenticatedUseCase(reason = "Creates, edits or deactivates a job title. Gated by the "

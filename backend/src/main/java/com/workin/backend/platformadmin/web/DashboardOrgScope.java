@@ -101,6 +101,40 @@ public final class DashboardOrgScope {
 	}
 
 	/**
+	 * Whether a row of {@code rowCompanyId} may be opened by this session under
+	 * the filter currently in force -- the rule every org and HR page applies
+	 * to a row id that arrived in a URL.
+	 *
+	 * <p>The two halves are not the same test, and the difference is the point:
+	 *
+	 * <ul>
+	 * <li>a <b>scoped</b> session may open only its own company's rows, full
+	 *     stop. This is the check that stops a crafted id in a link from
+	 *     reaching another company's data;</li>
+	 * <li>an <b>administrator</b> may open any row, <em>except</em> one outside
+	 *     the company they have filtered to. Filtered to company 3 and
+	 *     following an edit link for company 9's row shows nothing -- not
+	 *     because it is forbidden, but because silently editing a company the
+	 *     operator is not looking at is how the wrong row gets changed. With no
+	 *     filter set, every row is reachable, which is what "all companies"
+	 *     means.</li>
+	 * </ul>
+	 *
+	 * <p>One method rather than one per page. It was four identical copies
+	 * across the org controllers and would have been twenty by the time the
+	 * remaining pages landed; a tenant rule with twenty copies is a tenant rule
+	 * with nineteen chances to drift, and the direction it drifts is another
+	 * company's row on screen.
+	 */
+	public static boolean canOpenRow(
+			DashboardSession session, DashboardListFilters filters, long rowCompanyId) {
+		if (session.isScopedToOneCompany()) {
+			return rowCompanyId == session.companyId();
+		}
+		return filters.companyId() <= 0 || rowCompanyId == filters.companyId();
+	}
+
+	/**
 	 * {@code (int) $raw} for the shapes a query parameter arrives in, then
 	 * {@code > 0}.
 	 *

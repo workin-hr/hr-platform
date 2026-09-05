@@ -138,6 +138,52 @@ class DashboardOrgScopeTest {
 	}
 
 	@Test
+	void aScopedSessionMayOpenOnlyItsOwnCompanysRows() {
+		// The check that stops a crafted id in a link from reaching another
+		// company's data. It is the same rule for an owner and for HR.
+		DashboardListFilters unfiltered = filters(7L, false);
+		for (DashboardSession scoped : List.of(OWNER, HR)) {
+			assertThat(DashboardOrgScope.canOpenRow(scoped, unfiltered, 7L)).isTrue();
+			assertThat(DashboardOrgScope.canOpenRow(scoped, unfiltered, 9L)).isFalse();
+		}
+		// And the filter cannot widen it: a scoped session's own company is the
+		// only answer, whatever the filter field happens to hold.
+		assertThat(DashboardOrgScope.canOpenRow(OWNER, filters(9L, true), 9L)).isFalse();
+	}
+
+	@Test
+	void anAdministratorMayOpenAnyRowWhileUnfiltered() {
+		// That is what "all companies" means, and it is R-044's widening.
+		assertThat(DashboardOrgScope.canOpenRow(ADMIN, filters(0L, false), 9L)).isTrue();
+		assertThat(DashboardOrgScope.canOpenRow(ADMIN, filters(0L, false), 7L)).isTrue();
+	}
+
+	@Test
+	void anAdministratorMayNotOpenARowOutsideTheCurrentFilter() {
+		// Not because it is forbidden -- clearing the filter reaches it -- but
+		// because silently editing a company the operator is not looking at is
+		// how the wrong row gets changed.
+		DashboardListFilters toCompanyThree = filters(3L, false);
+		assertThat(DashboardOrgScope.canOpenRow(ADMIN, toCompanyThree, 3L)).isTrue();
+		assertThat(DashboardOrgScope.canOpenRow(ADMIN, toCompanyThree, 9L)).isFalse();
+	}
+
+	@Test
+	void aRowWithNoCompanyIsNeverOpenable() {
+		// company_id is NOT NULL on every table this rule guards, so 0 means a
+		// row the caller could not identify -- which must not be treated as
+		// "matches the unfiltered administrator".
+		assertThat(DashboardOrgScope.canOpenRow(OWNER, filters(7L, true), 0L)).isFalse();
+		// The administrator unfiltered is the one case where it is reachable,
+		// and it is reachable only because no row can hold it.
+		assertThat(DashboardOrgScope.canOpenRow(ADMIN, filters(0L, false), 0L)).isTrue();
+	}
+
+	private static DashboardListFilters filters(long companyId, boolean scoped) {
+		return new DashboardListFilters(companyId, "", "all", 0L, 0L, 1, 10, scoped);
+	}
+
+	@Test
 	void readingTheFilterNeverCreatesASession() {
 		// current() is called while rendering, on requests that may be
 		// anonymous; creating a session there would issue a cookie to a

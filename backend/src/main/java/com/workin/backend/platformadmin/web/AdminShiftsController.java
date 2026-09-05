@@ -61,18 +61,14 @@ public class AdminShiftsController {
 		return VIEW;
 	}
 
-	private Shift visible(DashboardSession session, DashboardListFilters filters, Long id) {
+	private Shift visible(
+			DashboardSession session, DashboardListFilters filters, Long id) {
 		if (id == null || id <= 0) {
 			return null;
 		}
 		Shift row = this.store.find(id);
-		if (row == null) {
-			return null;
-		}
-		if (session.isScopedToOneCompany()) {
-			return row.companyId() == session.companyId() ? row : null;
-		}
-		return filters.companyId() > 0 && row.companyId() != filters.companyId() ? null : row;
+		return row != null && DashboardOrgScope.canOpenRow(session, filters, row.companyId())
+				? row : null;
 	}
 
 	@AuthenticatedUseCase(reason = "Creates, edits or deactivates a shift. Gated by the surface "

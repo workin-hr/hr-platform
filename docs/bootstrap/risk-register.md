@@ -772,3 +772,23 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Status | **Open** in legacy, **not applicable** in Java. Recorded 2026-09-04 with **ADR-0016**. Related: **R-035** (the same shape in payroll). |
 | Evidence | `hr-legacy/dashboard/pages/notifications/helper.php:205-220` (the loop) and `:337-365` (the audiences that reach it); counts measured against the parity harness snapshot. |
 | Last Reviewed | 2026-09-04 |
+
+## R-046: The Dashboard's HR Pages Write By Row Id With No Tenant Check
+
+| Field | Value |
+|---|---|
+| Description | On seven of the eight HR dashboard pages, the **edit, mark and delete** actions take a row id straight from the POST body and write with `WHERE id = ?` and no company scoping. `dbUpdate()` and `dbDelete()` scope by id alone (`query.php:113-120`, `:140-143`), so the id is the entire authorization. Any authenticated company owner, or any HR employee holding that page's permission, can change or delete **another company's** row by posting its id. |
+| Category | **Security -- cross-tenant write**, a legacy defect found while porting |
+| How it was found | Reading `leave_balances/page.php` on 2026-09-05 to port it under **ADR-0016**, then sweeping the sibling pages for the same shape. |
+| Why it reads as an oversight, not a decision | The **create** paths on the same pages are careful. `leave_balances` looks up the employee's `company_id` and checks it twice; `assets` does the same (`if ($cid > 0 && $empCid !== $cid)`). `advances` even re-reads the row before approving it -- `SELECT status FROM advances WHERE id = ?` -- and checks its **status** while never looking at its company. They thought to re-read the row and checked the wrong column. |
+| Probability | Reachable by every company owner and by any HR with the page's permission. `leave_balance.id`, `penalties.id` and the rest are platform-wide auto-increments, so a neighbouring tenant's ids are adjacent integers rather than something to be guessed. No CSRF or referer obstacle: the operator is legitimately authenticated and the form is their own. |
+| Impact | Silent corruption of another tenant's records. A deleted `penalties` or `leave_balance` row is **gone** -- `dbDelete()` is a hard delete on these pages, unlike the org pages' `dbSoftDelete()` -- with no audit trail on the dashboard to show who did it. `mark_applied` on another company's penalty alters what their payroll deducts. |
+| Severity | **High.** Cross-tenant write, no audit, and partly irreversible. |
+| Owner | Repository owner. **This is live in production today**, in the PHP that is serving customers -- not a port question. |
+| Pages affected | `leave_balances`, `penalties`, `assets`, `advances`, `administrative_decisions`, `requests`, `complaints`. `workforce_planning` is the only HR page that guards its writes. |
+| Java disposition | **Not reproduced.** Each ported page checks that the row belongs to the company being acted on before writing, the way the org pages already do through `DashboardOrgScope.canOpenRow()` and each service's `assertWritable()`. This is a deliberate divergence and the only behaviour it changes is refusing an operation that should never have succeeded. Recorded here rather than decided silently, because the parity rule is to reproduce legacy and this is an explicit exception to it: **never import a missing authorization check.** |
+| Legacy disposition | Open in production for as long as the PHP dashboard serves. The owner's plan removes PHP at cutover, which closes it -- but the exposure is live until then. |
+| Mitigation | None applied to `hr-legacy`, which is frozen. Until cutover the practical containment is that the dashboard's HR pages are reached only by trusted operators; that is not a control, it is the absence of one. |
+| Trigger | Any authenticated dashboard session posting an `id` its own company does not own. |
+| Status | **Open** in legacy, **closed by divergence** in Java. Recorded 2026-09-05. Related: **R-044** (the administrator's deliberate cross-tenant path, which this is not), **ADR-0016**. |
+| Evidence | `hr-legacy/dashboard/pages/leave_balances/page.php:42-49` (`edit_leave`, `delete_leave`, no check), `pages/penalties/page.php:105-108` (`mark_applied`, `delete_penalty`), `pages/advances/page.php:106-122` (re-reads the row, checks `status` and not `company_id`), against `includes/query.php:113-120` and `:140-143`. |

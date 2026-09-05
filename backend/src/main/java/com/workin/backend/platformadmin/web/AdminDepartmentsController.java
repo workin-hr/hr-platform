@@ -70,19 +70,15 @@ public class AdminDepartmentsController {
 		return VIEW;
 	}
 
-	/** The same visibility rule as branches: see {@code AdminBranchesController}. */
-	private Department visible(DashboardSession session, DashboardListFilters filters, Long id) {
+	/** {@code dbFind()} then {@link DashboardOrgScope#canOpenRow}. */
+	private Department visible(
+			DashboardSession session, DashboardListFilters filters, Long id) {
 		if (id == null || id <= 0) {
 			return null;
 		}
 		Department row = this.store.find(id);
-		if (row == null) {
-			return null;
-		}
-		if (session.isScopedToOneCompany()) {
-			return row.companyId() == session.companyId() ? row : null;
-		}
-		return filters.companyId() > 0 && row.companyId() != filters.companyId() ? null : row;
+		return row != null && DashboardOrgScope.canOpenRow(session, filters, row.companyId())
+				? row : null;
 	}
 
 	@AuthenticatedUseCase(reason = "Creates, edits or deactivates a department and the branches "
