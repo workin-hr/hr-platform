@@ -38,7 +38,6 @@ public class AdminFaqsController {
 	@GetMapping(PlatformAdminWebSecurityConfig.FAQS_PATH)
 	public String list(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
 			Model model, @RequestParam(required = false) String error) {
-		model.addAttribute("currentAdminPhone", principal.phone());
 		model.addAttribute("categories", this.service.categories());
 		model.addAttribute("items", this.service.items());
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());

@@ -38,7 +38,6 @@ public class AdminNotificationsController {
 	public String list(@AuthenticationPrincipal PlatformAdminWebPrincipal principal, Model model,
 			@RequestParam(required = false) String error,
 			@RequestParam(required = false) Integer sent) {
-		model.addAttribute("currentAdminPhone", principal.phone());
 		model.addAttribute("audiences", BroadcastAudience.values());
 		model.addAttribute("reach", this.service.reachOfAllEmployees());
 		model.addAttribute("recent", this.service.recent());

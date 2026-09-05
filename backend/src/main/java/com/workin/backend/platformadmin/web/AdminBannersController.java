@@ -41,7 +41,6 @@ public class AdminBannersController {
 	@GetMapping(PlatformAdminWebSecurityConfig.BANNERS_PATH)
 	public String list(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
 			Model model, @RequestParam(required = false) String error) {
-		model.addAttribute("currentAdminPhone", principal.phone());
 		model.addAttribute("banners", this.service.list());
 		model.addAttribute("routes", Banner.INTERNAL_ROUTES);
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());

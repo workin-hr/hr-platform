@@ -20,6 +20,7 @@
 	session = session,
 	t = t,
 	available = available,
+	contentClass = "",
 	body = @`
 		<div class="card">
 			<h1>${detail.company().name() == null ? "Unnamed company" : detail.company().name()}</h1>

@@ -24,6 +24,7 @@
 	session = session,
 	t = t,
 	available = available,
+	contentClass = "",
 	body = @`
 		<div class="toolbar page-toolbar">
 			<a href="/admin/employees" class="btn btn-outline btn-sm">← ${t.apply("back")}</a>

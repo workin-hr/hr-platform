@@ -30,6 +30,7 @@
 	session = session,
 	t = t,
 	available = available,
+	pageStyles = java.util.List.of("hr-pages.css", "banners.css"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>

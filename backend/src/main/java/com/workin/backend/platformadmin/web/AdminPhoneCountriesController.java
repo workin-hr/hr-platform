@@ -90,7 +90,6 @@ public class AdminPhoneCountriesController {
 	}
 
 	private void render(Model model, PlatformAdminWebPrincipal principal, String errorKey) {
-		model.addAttribute("currentAdminPhone", principal.phone());
 		model.addAttribute("countries", this.service.list());
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("factorBound", principal.factorBound());
