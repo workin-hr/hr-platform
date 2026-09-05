@@ -11,6 +11,7 @@ repository's.
 
 | Patch | Risk | Verified |
 |---|---|---|
+| `R-059-attendance-cross-tenant-write.patch` | **R-059** — the attendance page wrote, deleted and inserted with no tenant check | `R-059-verification.php`, 18 assertions against a copy of production |
 | `R-057-detail-read-guard.patch` | **R-057** — the employee detail page had no section guard and no tenant scoping for HR | `R-057-verification.php`, 12 assertions against a copy of production |
 | `R-046-cross-tenant-write.patch` | **R-046** — HR dashboard pages wrote by row id with no tenant check | `R-046-verification.php`, 43 assertions against a copy of production |
 
@@ -96,4 +97,46 @@ docker run --rm --network host \
   -v "$PWD/contracts/legacy-fixes:/t:ro" \
   -e DBPORT=13307 -e DBNAME=workin -e DBUSER=... -e DBPASS=... \
   php:8.3-cli sh -c "docker-php-ext-install pdo_mysql >/dev/null && php /t/R-057-verification.php"
+```
+
+## Applying R-059
+
+**Apply R-046 first.** This patch edits `hr_row_company_id()` and
+`hr_verify_post_row()`, which R-046 introduces -- on a pristine `d113204` it
+does not apply, and that is checked rather than assumed:
+
+```bash
+cd hr-legacy
+git apply --check contracts/legacy-fixes/R-059-attendance-cross-tenant-write.patch  # fails
+git apply         contracts/legacy-fixes/R-046-cross-tenant-write.patch
+git apply         contracts/legacy-fixes/R-059-attendance-cross-tenant-write.patch  # applies
+```
+
+Three files. `attendance` has **no `company_id` column**: a row's owning
+company comes from `employee_id` alone, so the table joins the "via the
+employee" arm of the ownership map beside `leave_balance`, `penalties`,
+`advances` and `requests`.
+
+Two of the four fixes are the familiar shape -- `edit_attendance` and
+`delete` wrote by row id with no tenant predicate. The third is not, and is
+why this needed its own patch rather than a line in R-046's: `add_attendance`
+took `employee_id` from the POST, so the key that *decides* the new row's
+owner was attacker-chosen. R-046's pages all carry their own `company_id`,
+resolved server-side, and never had that problem. The fourth is
+`exception_type_id`, a second company-scoped key written on both paths and
+validated by the API's `exception_type_validate_id_for_company()` but by
+neither page action.
+
+`delete_range` in the same POST block was already guarded correctly. The
+patch closes the asymmetry rather than inventing a rule, and the verification
+asserts that its predicate and the new ones are the same.
+
+Verified the same way as R-046 and R-057, read-only, in a read-only
+transaction:
+
+```bash
+docker run --rm --network host \
+  -v "$PWD/contracts/legacy-fixes:/t:ro" \
+  -e DBPORT=13307 -e DBNAME=workin -e DBUSER=... -e DBPASS=... \
+  php:8.3-cli sh -c "docker-php-ext-install pdo_mysql >/dev/null && php /t/R-059-verification.php"
 ```

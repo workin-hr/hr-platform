@@ -1015,3 +1015,37 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Trigger | Opening any ported org or HR page in a browser. |
 | Status | **Open**, being fixed. Recorded 2026-09-05. Related: **D-179** (the port that surfaced it). |
 | Evidence | `admin/layout.jte` lines 14-15 and the `currentAdminPhone == null` branch; the fourteen controllers above, none of which contain the string; `static/admin/_assets/` against the `$pageStyles` declarations in `hr-legacy/dashboard/pages/*/page.php`. |
+
+## R-059: The Attendance Page Writes, Deletes And Inserts With No Tenant Check
+
+| Field | Value |
+|---|---|
+| Description | `dashboard/pages/attendance/page.php`'s POST block has four actions. `edit_attendance` calls `dbUpdate('attendance', [...], $id)` and `delete` calls `dbDelete('attendance', $id)` -- both resolve to `WHERE id=?` with no tenant predicate. `add_attendance` calls `dbInsert('attendance', ['employee_id' => $addEid, ...])` with `$addEid` taken straight from the POST. `exception_type_id` is written on both the edit and the insert path with no company check. Only `delete_range`, in the same block, is guarded. |
+| Category | **Security -- cross-tenant write**, a legacy defect found while porting |
+| Why it is not just another R-046 page | `attendance` has **no `company_id` column**. Its owning company comes from `employee_id` alone. So two of the four failures are R-046's shape -- writing to a row by id -- but `add_attendance` is the *insert* side: the foreign key that **decides** the new row's owner is attacker-chosen. Every table R-046 covers carries its own `company_id`, resolved server-side, so that failure could not arise there and R-046's guard does not address it. |
+| How it was found | The D-176 pre-check before porting the attendance domain, 2026-09-05. |
+| What actually happens | `dbUpdate` and `dbDelete` were read and confirmed to build `UPDATE ... WHERE id=?` and `DELETE ... WHERE id=?` with no scoping of their own, so all four paths are reachable rather than theoretical. Any session that may open the page can edit or delete any company's attendance row by posting its id, and can insert attendance against any company's employee. |
+| Impact | **Measured against the production copy: 44,756 attendance rows for 1,664 employees across 95 companies, and 173 exception types across 53 companies.** Attendance is the input to payroll, so a forged or altered row changes what another company pays. That makes this a data-integrity and financial finding, not only a disclosure one -- unlike **R-057**, where the damage was reading. |
+| The asymmetry | `delete_range` resolves the company, forces it to the session's own for a scoped session, and joins through `employees.company_id`. The pattern was known to the author and applied to one action in four. |
+| What it does not have | No **R-057**-class audience gap: this page uses `hr_is_scoped_company()`, not `isCompany()`, so an HR session is scoped wherever a company owner is. |
+| Probability | Certain for anyone who can open the page; ids are sequential and **R-051** hands out valid cross-tenant ones on adjacent pages. |
+| Severity | **High.** Comparable to **R-053**, and worse in one respect: this one writes. |
+| Owner | Repository owner. |
+| Java disposition | **Not reproduced.** The port validates the row through the same ownership rule and holds both foreign keys to the row's own company, as `workforce_planning` does for its three. |
+| Legacy disposition | **Open.** Patched as `R-059-attendance-cross-tenant-write.patch`, which **depends on R-046** -- it edits the helper R-046 introduces, and does not apply to a pristine `d113204`. Both directions of that ordering are checked, not assumed. |
+| Trigger | Any session posting `action=edit_attendance`, `action=delete` or `action=add_attendance` with another company's row or employee id. |
+| Status | **Open** in legacy, **closed by construction** in Java. Recorded 2026-09-05. Related: **R-046** (the row-guard shape and the helper this builds on), **R-053** (same severity band), **R-051** (supplies the ids), **D-176** (the invariant). |
+| Evidence | `dashboard/pages/attendance/page.php:26-92`; `dashboard/includes/query.php:113-143` (`dbUpdate`, `dbDelete`, `dbInsert` do no scoping); `attendance` table definition, which has no `company_id`; `apis/api/attendance/create.php:44-53`, where the API validates both keys correctly; counts from the restored production copy under a read-only transaction. |
+
+## R-060: An In-Flight Fiscal-Period Feature Sits Uncommitted In hr-legacy
+
+| Field | Value |
+|---|---|
+| Description | `hr-legacy`'s working tree carries an unfinished feature that replaces calendar-month boundaries with **fiscal-period** ones, across eleven files. `apis/helpers/payroll_calculation.php` gains `payroll_fiscal_month_containing_date()` beside the existing `payroll_fiscal_period_bounds()`; `apis/api/attendance/stats.php` and `apis/api/attendance/employee_monthly_attendance.php` are rewritten to resolve `month`/`year` through it, and to default an employee query to the current *fiscal* month rather than `date('Y-m-01')`. `apis/api/payroll_batches/fiscal_period.php`, `apis/api/employees/create.php`, `apis/helpers/employee_create_helper.php`, `apis/api/auth/login_employee.php`, `apis/api/profile/employee.php` and `apis/config/response.php` participate. |
+| Category | **Port-source ambiguity**, the same class as **R-056** and materially larger |
+| Why it matters | Two of the fourteen `/apis/attendance` routes are mid-rewrite, and the feature's centre of gravity is `payroll_calculation.php` -- which the **payroll** domain, the next one scheduled, is built on. Porting those routes from `d113204` means encoding calendar-month behaviour the owner is actively replacing, and guarantees a re-port. |
+| What is *not* affected | The schema is unchanged for this feature: the diff on `mysql_workin.schema.sql` is a dump-format change, with no fiscal columns added. `dashboard/pages/attendance/page.php` is pristine, and eleven of the fourteen attendance API routes are pristine, so the dashboard port and **R-059** stand on `d113204` with no ambiguity at all. |
+| Decision needed | Whether the attendance and payroll ports target `d113204`'s calendar-month behaviour or the working tree's fiscal-period behaviour. If the latter, the feature needs to be committed first so there is a reproducible source to port from -- the same requirement **D-178** settled for `employees`. |
+| Owner | Repository owner. |
+| Status | **Open**, blocking `stats.php` and `employee_monthly_attendance.php` only. Everything else in the attendance domain proceeds against `d113204`. Recorded 2026-09-05. Related: **R-056** (the first working-tree discrepancy, still open), **D-178** (which established that HEAD is the contract). |
+| Evidence | `git status` and `git diff` in `hr-legacy` against `d113204`; `payroll_fiscal_month_containing_date` absent at HEAD and present in the working tree; per-route diff sizes, with `stats.php` at +17/-3 and `employee_monthly_attendance.php` at +43/-35. |
