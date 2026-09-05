@@ -1,8 +1,8 @@
 diff --git a/dashboard/includes/hr_helper.php b/dashboard/includes/hr_helper.php
-index 8121add..55bc9a7 100644
+index 8121add..c9830a9 100644
 --- a/dashboard/includes/hr_helper.php
 +++ b/dashboard/includes/hr_helper.php
-@@ -43,6 +43,92 @@ function hr_render_company_filter(int $companyId, string $page): void
+@@ -43,6 +43,93 @@ function hr_render_company_filter(int $companyId, string $page): void
      org_render_company_filter($companyId, $page);
  }
  
@@ -23,7 +23,7 @@ index 8121add..55bc9a7 100644
 +
 +    $sql = match ($table) {
 +        // company_id مباشرة على الصف
-+        'assets', 'complaints' =>
++        'assets', 'complaints', 'workforce_planning' =>
 +            "SELECT `company_id` FROM `$table` WHERE id = ? LIMIT 1",
 +        // عبر الموظف
 +        'leave_balance', 'penalties', 'advances', 'requests' =>
@@ -68,6 +68,7 @@ index 8121add..55bc9a7 100644
 +        'advances'      => 'advances',
 +        'requests'      => 'requests',
 +        'complaints'    => 'complaints',
++        'workforce_planning' => 'workforce_planning',
 +        default         => 'index',
 +    };
 +
@@ -201,15 +202,30 @@ index 8019461..35fc0c2 100644
      $comment = trim((string) ($_POST['comment'] ?? ''));
  
      if ($action === 'approve' && $id) {
---- a/dashboard/pages/leave_balances/page.php
-+++ b/dashboard/pages/leave_balances/page.php
-@@ -16,6 +16,9 @@
+diff --git a/dashboard/pages/workforce_planning/page.php b/dashboard/pages/workforce_planning/page.php
+index b537b12..c02c865 100644
+--- a/dashboard/pages/workforce_planning/page.php
++++ b/dashboard/pages/workforce_planning/page.php
+@@ -57,6 +57,9 @@ $validateWpPayload = static function (int $companyId) use ($resolveWpCompanyId):
+ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage) {
      $action = $_POST['action'] ?? '';
      $id = (int) ($_POST['id'] ?? 0);
-     $postCid = hr_post_company_id();
++    // R-046: edit_wp تفحص الشركة فقط لما $cid > 0، و delete_wp لا تفحص أصلًا؛
++    // هذا يمنع الكتابة أو الحذف على صف يخص شركة أخرى قبل الوصول لأي إجراء.
++    hr_verify_post_row('workforce_planning', $id, $cid);
+     $postCid = $resolveWpCompanyId();
+ 
+     if ($action === 'add_wp') {
+diff --git a/dashboard/pages/leave_balances/page.php b/dashboard/pages/leave_balances/page.php
+--- a/dashboard/pages/leave_balances/page.php
++++ b/dashboard/pages/leave_balances/page.php
+@@ -15,6 +15,9 @@
+ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canManage) {
+     $action = $_POST['action'] ?? '';
+     $id = (int) ($_POST['id'] ?? 0);
 +    // R-046: كل إجراءات الصفحة تأخذ id من الـPOST؛ هذا يمنع الكتابة
 +    // على صف يخص شركة أخرى قبل الوصول لأي منها.
 +    hr_verify_post_row('leave_balance', $id, $cid);
+     $postCid = hr_post_company_id();
  
      if ($action === 'add_leave') {
-         $eid = (int) ($_POST['employee_id'] ?? 0);

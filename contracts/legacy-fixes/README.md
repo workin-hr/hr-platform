@@ -11,7 +11,7 @@ repository's.
 
 | Patch | Risk | Verified |
 |---|---|---|
-| `R-046-cross-tenant-write.patch` | **R-046** — HR dashboard pages wrote by row id with no tenant check | `R-046-verification.php`, 33 assertions against a copy of production |
+| `R-046-cross-tenant-write.patch` | **R-046** — HR dashboard pages wrote by row id with no tenant check | `R-046-verification.php`, 38 assertions against a copy of production |
 
 ## Applying R-046
 
@@ -21,10 +21,20 @@ git apply --check contracts/legacy-fixes/R-046-cross-tenant-write.patch   # dry 
 git apply          contracts/legacy-fixes/R-046-cross-tenant-write.patch
 ```
 
-It touches seven files and adds 113 lines: one helper pair in
-`dashboard/includes/hr_helper.php`, one guard call at the top of five pages'
+It touches eight files: one helper pair in
+`dashboard/includes/hr_helper.php`, one guard call at the top of six pages'
 POST blocks, and a rebinding of `complaints`' three existing guards so they
 cover HR sessions as well as company owners.
+
+`workforce_planning` was added on 2026-09-05, after the first version of this
+patch shipped. It was missed because the original sweep matched the page's
+`org_branch_belongs_to_company()` / `org_department_belongs_to_company()`
+calls and read them as row guards; they are foreign-key checks inside
+`$validateWpPayload()` and say nothing about who owns the row being written.
+Its `delete_wp` action had no tenant check of any kind — not even the
+`$cid > 0` one its sibling `edit_wp` carries — so a company-scoped session
+could delete another company's row by posting its id. R-046 therefore covers
+**seven** of the eight HR pages, not six.
 
 ## Verifying it
 

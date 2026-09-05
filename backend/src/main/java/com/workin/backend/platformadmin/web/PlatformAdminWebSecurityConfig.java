@@ -152,6 +152,10 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String ADMINISTRATIVE_DECISIONS_PATH =
 			PATH_PREFIX + "/administrative_decisions";
 
+	public static final String COMPLAINTS_PATH = PATH_PREFIX + "/complaints";
+
+	public static final String WORKFORCE_PLANNING_PATH = PATH_PREFIX + "/workforce_planning";
+
 	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
