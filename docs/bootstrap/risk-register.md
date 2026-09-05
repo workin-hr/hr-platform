@@ -1053,3 +1053,22 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Owner | Repository owner. |
 | Status | **Open**, blocking `stats.php` and `employee_monthly_attendance.php` only. Everything else in the attendance domain proceeds against `d113204`. Recorded 2026-09-05. Related: **R-056** (the first working-tree discrepancy, still open), **D-178** (which established that HEAD is the contract). |
 | Evidence | `git status` and `git diff` in `hr-legacy` against `d113204`; `payroll_fiscal_month_containing_date` absent at HEAD and present in the working tree; per-route diff sizes, with `stats.php` at +17/-3 and `employee_monthly_attendance.php` at +43/-35. |
+
+## R-061: Two Tenant Rules Disagree About Whether An Administrator's Filter Binds
+
+| Field | Value |
+|---|---|
+| Description | The dashboard enforces tenancy on writes through two different functions, and they disagree for one audience. `hr_verify_post_row()` -- the guard **R-046** introduced and which every patched HR page now calls -- ends with `if ($cid > 0 && $rowCid !== $cid) { refuse; }`, so an administrator **with a company filter set** is confined to it. `home_can_manage_join_employee()`, which the join-requests page and the home page use, begins with `if (isAdmin()) { return true; }` and never consults the filter at all. |
+| Category | **Consistency -- tenant enforcement**, a legacy divergence found while porting |
+| How it was found | Porting `join_requests` on 2026-09-06. A test asserted that a filtered administrator could not accept another company's request; it failed, and the failure was correct -- the port faithfully reproduces `home_can_manage_join_employee()`, and the test had been written to the other function's rule. |
+| Is it a vulnerability | **No, and it should not be filed as one.** A platform administrator is cross-company by design (**R-044**); the filter is a view convenience, not an authorisation boundary. Both functions check the permission and both compare against the row's own `company_id` for a scoped session, so **D-176** holds on either path. What differs is only whether a filter an administrator set on themselves also binds them. |
+| Why record it then | Because the two pages behave differently for the same person doing the same kind of thing, and nothing says so. A reader who learns the rule from `hr_verify_post_row()` will assume it holds everywhere, and a later change that started treating the filter as a boundary would leave this page quietly not honouring it. It is also the kind of difference that looks like a bug in a review and costs someone an afternoon. |
+| Impact | An administrator who has filtered the dashboard to company A can still accept or reject company B's join request from the join-requests page, where the same administrator could not edit company B's penalty row. Nothing is exposed that the administrator could not reach by clearing the filter. |
+| Probability | Certain; it is the current behaviour of both surfaces. |
+| Severity | **Low.** Consistency and comprehensibility, not access. |
+| Owner | Repository owner. |
+| Java disposition | **Reproduced deliberately**, and pinned in both directions by `AdminJoinRequestsEndToEndTest`: one test asserts an administrator acts across companies with a filter set, another asserts the scoped-session branch still refuses another company's row. The second is dormant while every session on this surface is an administrator's, and is asserted against the service rather than over HTTP for that reason. |
+| Legacy disposition | **Open, and not urgent.** If the two rules should agree, the change is to `home_can_manage_join_employee()` -- adding the filter check `hr_verify_post_row()` already has -- and it wants its own patch and its own decision, because it changes what an administrator can do rather than closing a hole. |
+| Trigger | An administrator with `?company_id=` set, acting on another company's join request. |
+| Status | **Open** in legacy, **reproduced by construction** in Java. Recorded 2026-09-06. Related: **R-046** (which introduced the stricter rule), **R-044** (why an administrator is cross-company at all), **D-176** (satisfied on both paths). |
+| Evidence | `dashboard/pages/home/home_service.php::home_can_manage_join_employee` lines 8-12; `dashboard/includes/hr_helper.php::hr_verify_post_row` final clause; `AdminJoinRequestsEndToEndTest#anAdministratorActsAcrossCompaniesEvenWithAFilterSet` and `#theScopedSessionBranchRefusesAnotherCompanysRow`. |

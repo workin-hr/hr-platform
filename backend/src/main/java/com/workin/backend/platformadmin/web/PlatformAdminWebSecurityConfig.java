@@ -174,6 +174,14 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String SALARY_CALCULATOR_PATH = PATH_PREFIX + "/salary_calculator";
 
 	/**
+	 * Requests to join a company. Gated by the employees permission rather than
+	 * one of its own, because a join request is an {@code employees} row and
+	 * accepting or rejecting one writes to that table -- rejecting deletes from
+	 * it.
+	 */
+	public static final String JOIN_REQUESTS_PATH = PATH_PREFIX + "/join_requests";
+
+	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
 	 * <p>A named constant so it can be checked against the handlers' own

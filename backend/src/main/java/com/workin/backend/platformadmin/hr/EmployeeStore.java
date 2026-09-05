@@ -33,8 +33,15 @@ public class EmployeeStore {
 		this.jdbcTemplate = jdbcTemplate;
 	}
 
-	/** {@code dashboard_employee_display_name_sql()}, split-name branch. */
-	private static final String NAME_SQL =
+	/**
+	 * {@code dashboard_employee_display_name_sql()}, split-name branch.
+	 *
+	 * <p>Package-visible because {@link JoinRequestStore} reads the same
+	 * column pair off the same table: a join request is an {@code employees}
+	 * row, so two spellings of one name would be two spellings of the same
+	 * bug.
+	 */
+	static final String NAME_SQL =
 			"TRIM(CONCAT(COALESCE(e.first_name,''), ' ', COALESCE(e.last_name,'')))";
 
 	/** {@code dashboard_employee_code_sql()}: the id stands in for a blank code. */

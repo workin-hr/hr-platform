@@ -112,7 +112,7 @@ class AdminDashboardPageInventoryTest {
 	 */
 	private static final Set<String> NOT_YET_PORTED = Set.of(
 			"activities", "app_content", "attendance", "change_password",
-			"company_settings", "content", "guide_videos", "join_requests",
+			"company_settings", "content", "guide_videos",
 			"payroll", "profile", "setting_templates", "settings");
 
 	@Test
