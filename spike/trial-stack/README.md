@@ -105,3 +105,30 @@ Phase 1 schema check: all 10 owned tables are present.
 JWT signing secret fingerprint: <16 hex>
 WhatsApp OTP delivery is configured        (or the ERROR saying it is not)
 ```
+
+## The smoke test this stack has actually passed
+
+Run on 2026-09-05 against the full production copy (386 companies, 3,783
+employees), on the image built from the commit that added it. Recorded
+because "the stack starts" and "the stack serves what the clients ask for"
+are different claims, and only the second is worth anything at a cutover.
+
+| Checked | Result |
+|---|---|
+| Startup | `Started BackendApplication in 6.8s`, all 10 Phase 1 tables present |
+| Every route the clients call, incl. the four newest | 401, not 404 — mapped in the shipped jar |
+| `configs/get` key order | `server_time`, `server_unix`, `server_timezone` — PHP's order |
+| `show_export_*` flags | Present in the production data, so the desktop export buttons resolve |
+| `template_excel` | `employees_template_…xlsx`; with `?purpose=update`, `employees_update_template_…xlsx`, 28 columns, exactly one example, "فاضي = بدون تعديل" captions |
+| `analyze_excel` on a 4-column sheet | `unknown` without `sheet_layout`, `punch_log` with it — 4 punches, 2 days, the overnight row rolled to 06:30 the next morning |
+| `import_excel` with `sheet_layout` | 2 rows written, `method = 'excel'`, the overnight row spanning the midnight |
+| `profile/logout`, admin, no platform | Account **stays active** — the role gate |
+| `profile/logout`, employee, `platform=desktop` | Account **stays active** |
+| `profile/logout`, employee, `platform=android` | Deactivated, `token_version` bumped, the token issued a moment earlier now 401 |
+| Message catalog in the jar | All six corrected entries present at `BOOT-INF/classes/legacy/lang/en.properties` |
+
+The fixture was a throwaway company and two employees at ids far above the
+live maxima, removed afterwards; the company and employee counts were
+verified identical before and after. Do the same if you repeat this —
+**this database is a copy of real customer data**, and a test row left in it
+is a row someone later mistakes for real.
