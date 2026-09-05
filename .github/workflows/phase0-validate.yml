@@ -168,6 +168,18 @@ jobs:
       - name: Pin what the legacy route-drift check catches
         run: python3 scripts/test_check_legacy_route_drift.py
 
+      # The other surface. hr-legacy is not beside this checkout, so what runs
+      # here is the manifest's own integrity; the Java half -- every page the
+      # handler mapping really serves, against that manifest -- is enforced by
+      # AdminDashboardPageInventoryTest in the backend suite. Source greps were
+      # tried first and were wrong in both directions: they miss a class-level
+      # @RequestMapping prefix and an array-valued mapping.
+      - name: Check the dashboard page manifest
+        run: python3 scripts/check_dashboard_page_drift.py
+
+      - name: Pin what the dashboard page-drift check catches
+        run: python3 scripts/test_check_dashboard_page_drift.py
+
       # Same gate, one level down: a route can exist and still answer with the
       # wrong words. Java's catalog falls back to the key itself, so a message
       # PHP defines and Java does not reaches the user's screen as
