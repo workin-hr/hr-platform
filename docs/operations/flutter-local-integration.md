@@ -114,7 +114,7 @@ The token is at **`data.token`** — not `access_token`:
   "message": "Login successful",
   "data": {
     "company": { "id": 1, "company_name": "مجموعة الأفق 1", "...": "..." },
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    "token": "<a JWT — three base64 segments separated by dots>"
   }
 }
 ```
