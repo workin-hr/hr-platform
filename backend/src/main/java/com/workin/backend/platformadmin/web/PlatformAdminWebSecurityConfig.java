@@ -147,6 +147,8 @@ public class PlatformAdminWebSecurityConfig {
 
 	public static final String ATTENDANCE_PATH = PATH_PREFIX + "/attendance";
 
+	public static final String PAYROLL_PATH = PATH_PREFIX + "/payroll";
+
 	public static final String ASSETS_PATH = PATH_PREFIX + "/assets";
 
 	public static final String ADVANCES_PATH = PATH_PREFIX + "/advances";

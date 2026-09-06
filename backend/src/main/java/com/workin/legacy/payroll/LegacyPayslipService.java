@@ -330,6 +330,26 @@ public class LegacyPayslipService {
 				.toList();
 	}
 
+	/**
+	 * {@code payroll_enrich_payslip_rows()} for a caller that has already
+	 * selected its rows.
+	 *
+	 * <p>PHP's own function is a bare loop over {@code payroll_enrich_payslip_row()},
+	 * and the dashboard's payslip table calls it with the rows
+	 * {@code payroll_paginate_payslips()} returned. Sharing {@link #enrich} here
+	 * is therefore the faithful reading, not a shortcut: unlike {@code finalize},
+	 * where the dashboard and the API genuinely differ, this is one function with
+	 * two callers on both sides.
+	 */
+	public List<Map<String, Object>> enrichRows(
+			List<Map<String, Object>> rows, long companyId, String presentLabel,
+			String weeklyRestLabel, String officialHolidayFallbackLabel) {
+		return rows.stream()
+				.map(row -> enrich(row, companyId, presentLabel, weeklyRestLabel,
+						officialHolidayFallbackLabel))
+				.toList();
+	}
+
 	private Map<String, Object> enrich(
 			Map<String, Object> source, long companyId, String presentLabel, String weeklyRestLabel,
 			String officialHolidayFallbackLabel) {

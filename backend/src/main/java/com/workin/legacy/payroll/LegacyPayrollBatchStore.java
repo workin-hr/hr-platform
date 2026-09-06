@@ -158,7 +158,15 @@ public class LegacyPayrollBatchStore {
 				finalizedStatus, periodFrom, periodTo, batchId, finalizedStatus);
 	}
 
-	/** {@code delete.php}: payslips first, batch second -- no FK cascade in this schema. */
+	/**
+	 * {@code delete.php}: payslips first, batch second.
+	 *
+	 * <p>The explicit first statement is redundant on this schema —
+	 * {@code fk_payslip_payroll_batche} is {@code ON DELETE CASCADE} — and is
+	 * kept because it makes the intent local to the reader and correct on a
+	 * schema without the cascade. An earlier version of this comment said the
+	 * cascade did not exist, which is wrong.
+	 */
 	public void deleteWithPayslips(long batchId) {
 		jdbc.update("DELETE FROM payslips WHERE batch_id=?", batchId);
 		jdbc.update("DELETE FROM payroll_batches WHERE id=?", batchId);
