@@ -1,7 +1,6 @@
 package com.workin.backend.platformadmin.hr;
 
 import java.math.BigDecimal;
-import java.time.Year;
 import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -78,7 +77,6 @@ public class EmployeeAdminService {
 	private static final Pattern CODE_FORMAT = Pattern.compile("^[0-9]{1,64}$");
 
 	/** The opening balance legacy grants every new employee. */
-	private static final int OPENING_LEAVE_DAYS = 21;
 
 	private final EmployeeStore store;
 
@@ -280,7 +278,6 @@ public class EmployeeAdminService {
 				&& command.salary().basic().compareTo(BigDecimal.ZERO) > 0) {
 			this.store.insertSalaryContract(id, command.salary(), hireDate);
 		}
-		this.store.insertOpeningLeaveBalance(id, Year.now().getValue(), OPENING_LEAVE_DAYS);
 		this.store.syncShiftAssignment(id, command.shiftId(), shiftEffective);
 
 		audit(adminId, PlatformAdminAuditEventType.ORG_CREATED, id,

@@ -373,17 +373,6 @@ public class EmployeeStore {
 	}
 
 	/**
-	 * The 21-day balance legacy opens for every new employee, inside the same
-	 * transaction as the insert.
-	 */
-	public void insertOpeningLeaveBalance(long employeeId, int year, int totalDays) {
-		this.jdbcTemplate.update(
-				"INSERT INTO leave_balance (employee_id, year, total_days, used_days)"
-						+ " VALUES (?, ?, ?, 0)",
-				employeeId, year, totalDays);
-	}
-
-	/**
 	 * {@code employee_sync_shift_assignment()}: a no-op when the employee
 	 * already has that shift from that date, so re-saving a form does not pile
 	 * up identical rows.

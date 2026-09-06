@@ -7,6 +7,7 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 
 import com.workin.legacy.LegacyClock;
+import com.workin.legacy.LegacyLeavePolicy;
 import com.workin.legacy.LegacyPagination;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
@@ -132,7 +133,7 @@ public class LegacyLeaveBalanceService {
 		if (year <= 0) {
 			throw new LegacyApiException(400, "field_required", null, Map.of("field", "year"));
 		}
-		store.generate(context.companyId(), year, store.defaultAnnualLeaveDays(context.companyId()));
+		store.generate(context.companyId(), year, LegacyLeavePolicy.DEFAULT_ANNUAL_LEAVE_DAYS);
 	}
 
 	public Map<String, Object> stats(LegacyRequestContext context, LegacyQueryParameters query) {

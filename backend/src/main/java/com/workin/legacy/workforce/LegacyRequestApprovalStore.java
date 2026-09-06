@@ -13,7 +13,6 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 import com.workin.legacy.LegacyJdbcValues;
-import com.workin.legacy.LegacyValues;
 
 /**
  * Connection-scoped persistence for {@code request_approve()}.
@@ -117,30 +116,6 @@ public class LegacyRequestApprovalStore {
 			statement.setInt(4, days);
 			statement.executeUpdate();
 		}
-	}
-
-	/** First non-empty selected {@code monthly_leave_accrual}, else 21.0. */
-	public double defaultAnnualLeaveDays(Connection connection, long companyId) throws SQLException {
-		try (PreparedStatement statement = connection.prepareStatement("""
-				SELECT sav.value
-				FROM setting_definitions sd
-				JOIN company_settings cs
-				  ON cs.setting_definition_id = sd.id AND cs.company_id = ?
-				JOIN company_setting_values csv ON csv.company_setting_id = cs.id
-				JOIN setting_allowed_values sav ON sav.id = csv.setting_allowed_value_id
-				WHERE sd.setting_key = 'monthly_leave_accrual'
-				ORDER BY sav.sort_order ASC, sav.id ASC""")) {
-			statement.setLong(1, companyId);
-			try (ResultSet rs = statement.executeQuery()) {
-				while (rs.next()) {
-					String raw = rs.getString(1);
-					if (raw != null && !raw.isEmpty()) {
-						return LegacyValues.toPhpDecimal(raw).doubleValue();
-					}
-				}
-			}
-		}
-		return 21.0d;
 	}
 
 	/** {@code exception_type_resolve_for_company()} on the caller-owned D-100 connection. */

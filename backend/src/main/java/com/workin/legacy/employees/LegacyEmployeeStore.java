@@ -570,32 +570,6 @@ public class LegacyEmployeeStore {
 				amounts.get("penalty_deduction"), effectiveFrom);
 	}
 
-	/** {@code create.php}'s {@code SELECT id FROM leave_balance WHERE employee_id=? AND year=?}. */
-	public boolean leaveBalanceExists(long employeeId, long year) {
-		return count("SELECT COUNT(*) FROM leave_balance WHERE employee_id=? AND year=?", employeeId, year) > 0;
-	}
-
-	/** The update branch of {@code create.php}'s leave-balance upsert -- {@code used_days} untouched. */
-	public void updateLeaveBalance(
-			long employeeId, long year, Object totalDays, long fromMonth, long toMonth, Object monthlyCap) {
-		jdbcTemplate.update(
-				"""
-				UPDATE leave_balance SET total_days=?, period_from_month=?, period_to_month=?, monthly_cap_days=?
-				WHERE employee_id=? AND year=?""",
-				totalDays, fromMonth, toMonth, monthlyCap, employeeId, year);
-	}
-
-	/** The insert branch, which seeds {@code used_days} at 0. */
-	public void insertLeaveBalance(
-			long employeeId, long year, Object totalDays, long fromMonth, long toMonth, Object monthlyCap) {
-		jdbcTemplate.update(
-				"""
-				INSERT INTO leave_balance (
-					employee_id, year, total_days, used_days, period_from_month, period_to_month, monthly_cap_days
-				) VALUES (?, ?, ?, 0, ?, ?, ?)""",
-				employeeId, year, totalDays, fromMonth, toMonth, monthlyCap);
-	}
-
 	/** {@code create.php}'s shift-assignment INSERT, appended rather than replacing anything. */
 	public void insertShiftAssignment(long employeeId, long shiftId, String effectiveFrom) {
 		jdbcTemplate.update(

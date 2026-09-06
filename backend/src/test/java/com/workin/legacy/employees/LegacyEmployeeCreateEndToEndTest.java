@@ -153,16 +153,11 @@ class LegacyEmployeeCreateEndToEndTest {
 		assertThat(contract.get("penalty_deduction")).isEqualTo("0.00");
 		assertThat(contract.get("effective_from")).isEqualTo("2024-03-01");
 
-		// The leave balance: year from the hire date, 21 days, nothing used.
-		Map<String, Object> leave = single(
-				"SELECT year, total_days, used_days, period_from_month, period_to_month, monthly_cap_days"
-				+ " FROM leave_balance WHERE employee_id = " + id);
-		assertThat(leave.get("year")).isEqualTo("2024");
-		assertThat(leave.get("total_days")).isEqualTo("21.0");
-		assertThat(leave.get("used_days")).isEqualTo("0.0");
-		assertThat(leave.get("period_from_month")).isEqualTo("1");
-		assertThat(leave.get("period_to_month")).isEqualTo("12");
-		assertThat(leave.get("monthly_cap_days")).isNull();
+		// No leave balance. Creating an employee used to open one at 21 days
+		// for the hire date's year, honouring leave_opening_* overrides;
+		// hr-legacy 505004f deleted that block outright, so the row a caller
+		// used to get for free now has to be created explicitly.
+		assertThat(count("SELECT COUNT(*) FROM leave_balance WHERE employee_id = " + id)).isZero();
 
 		assertThat(count("SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = " + id)).isOne();
 		// A password plus a phone means a stored bcrypt hash.
@@ -351,43 +346,6 @@ class LegacyEmployeeCreateEndToEndTest {
 		}
 	}
 
-	@Test
-	void theLeaveYearReproducesPhpsDateOfStrtotime() throws Exception {
-		// LegacyPhpDateYear's grammar, proven end to end and in the database.
-		assertThat(leaveYearFor("6500", "01012340041", "2026-08-21")).isEqualTo("2026");
-		assertThat(leaveYearFor("6501", "01012340042", "2026-08-21 12:30:00")).isEqualTo("2026");
-		assertThat(leaveYearFor("6502", "01012340043", "2026/08/21")).isEqualTo("2026");
-		assertThat(leaveYearFor("6503", "01012340044", "2026-8-1")).isEqualTo("2026");
-
-		// '0000-00-00' is year -1 in PHP, which a YEAR(4) column stores as 0000.
-		assertThat(leaveYearFor("6504", "01012340045", "0000-00-00")).isEqualTo("0000");
-		assertThat(hireDateFor("6504")).isEqualTo("0000-00-00");
-
-		// The forms MariaDB will not store as a date still produce a real leave
-		// year, because strtotime() reads them. The two columns disagree, and
-		// that disagreement is what PHP does.
-		assertThat(leaveYearFor("6505", "01012340046", "21 Aug 2026")).isEqualTo("2026");
-		assertThat(hireDateFor("6505")).isEqualTo("0000-00-00");
-		assertThat(leaveYearFor("6506", "01012340047", "08/21/2026")).isEqualTo("2026");
-		assertThat(leaveYearFor("6507", "01012340048", "21-08-2026")).isEqualTo("2026");
-		// Day overflow rolls forward rather than failing.
-		assertThat(leaveYearFor("6508", "01012340049", "2026-02-30")).isEqualTo("2026");
-	}
-
-	@Test
-	void theRelativeKeywordsFollowTheLegacyClock() throws Exception {
-		String currentYear = String.valueOf(java.time.LocalDate.now(java.time.ZoneOffset.ofHours(2)).getYear());
-		String tomorrowYear = String.valueOf(
-				java.time.LocalDate.now(java.time.ZoneOffset.ofHours(2)).plusDays(1).getYear());
-		String yesterdayYear = String.valueOf(
-				java.time.LocalDate.now(java.time.ZoneOffset.ofHours(2)).minusDays(1).getYear());
-
-		assertThat(leaveYearFor("6520", "01012340060", "now")).isEqualTo(currentYear);
-		assertThat(leaveYearFor("6521", "01012340061", "today")).isEqualTo(currentYear);
-		assertThat(leaveYearFor("6522", "01012340062", "tomorrow")).isEqualTo(tomorrowYear);
-		assertThat(leaveYearFor("6523", "01012340063", "yesterday")).isEqualTo(yesterdayYear);
-	}
-
 	/**
 	 * A whitespace-only hire_date is NOT in the failure family above.
 	 *
@@ -415,44 +373,48 @@ class LegacyEmployeeCreateEndToEndTest {
 				+ " WHERE employee_code = '6701' AND hire_date = '0000-00-00'"))
 				.isEqualTo(1);
 
-		// ...and the leave year came from date(Y, strtotime("   ")), which is
-		// the current year rather than year zero.
-		//
-		// The oracle is the APPLICATION clock, not the database. PHP computes
-		// this with date(), under the offset applyRuntimeTimezoneFromConfigs()
-		// installs -- +02:00 unless configs.is_daylight_saving says otherwise,
-		// and this fixture seeds no such row, so +02:00 is the measured path.
-		// YEAR(CURRENT_DATE) would be MariaDB's clock, and D-083 is precisely
-		// the open item saying those two cannot yet be assumed equal.
-		int applicationClockYear = java.time.LocalDate.now(java.time.ZoneOffset.ofHours(2)).getYear();
+		// The leave year this used to assert came from date(Y, strtotime("   "))
+		// and no longer exists: creation opens no balance at all.
 		assertThat(count("SELECT COUNT(*) FROM leave_balance lb"
 				+ " JOIN employees e ON e.id = lb.employee_id"
-				+ " WHERE e.employee_code = '6701' AND lb.year = " + applicationClockYear))
-				.isEqualTo(1);
+				+ " WHERE e.employee_code = '6701'")).isZero();
 	}
+	/**
+	 * An unparseable hire_date is no longer a failure at all.
+	 *
+	 * <p>It used to be a 500. {@code date('Y', strtotime($hire_date))} was the
+	 * only strtotime() in create.php, it fed the opening leave balance, and
+	 * under strict_types=1 {@code date('Y', false)} raised a TypeError from
+	 * inside the transaction -- so the employee, salary and leave rows all
+	 * disappeared with it.
+	 *
+	 * <p>hr-legacy 505004f deleted the opening-balance block, and the only
+	 * expression that could throw went with it. The value now travels
+	 * untouched to a DATE column that stores it as the zero date under the
+	 * Phase-1 sql_mode of "", and the create succeeds.
+	 */
 	@Test
-	void anUnparseableHireDateRollsTheWholeCreateBackWithPhpsTypeError() throws Exception {
-		// strtotime() returns false, date('Y', false) raises a TypeError under
-		// strict_types=1, and because the expression sits inside the
-		// transaction the employee, salary and leave rows all disappear.
-		for (String rejected : List.of("invalid text", "2026-13-45", "2026-12-32", "1")) {
-			Map<String, Object> body = validBody("66" + Math.abs(rejected.hashCode() % 90 + 10),
-					"010123401" + String.format("%02d", Math.abs(rejected.hashCode() % 90 + 10)));
-			body.put("hire_date", rejected);
+	void anUnparseableHireDateNowSucceedsAndStoresTheZeroDate() throws Exception {
+		for (String accepted : List.of("invalid text", "2026-13-45", "2026-12-32", "1")) {
+			String code = "66" + Math.abs(accepted.hashCode() % 90 + 10);
+			Map<String, Object> body = validBody(code,
+					"010123401" + String.format("%02d", Math.abs(accepted.hashCode() % 90 + 10)));
+			body.put("hire_date", accepted);
 			body.put("salary", Map.of("basic", 8888));
 
 			ResponseEntity<Map<String, Object>> response = post(body, ADMIN_1);
 			assertThat(response.getStatusCode().value())
-					.describedAs("hire_date %s", rejected).isEqualTo(500);
-			assertThat(response.getBody().get("message")).isEqualTo("Failed to create employee: {error}");
-			assertThat((String) response.getBody().get("data"))
-					.contains("date(): Argument #2 ($timestamp) must be of type ?int, false given");
+					.describedAs("hire_date %s", accepted).isEqualTo(201);
+			assertThat(count("SELECT COUNT(*) FROM employees WHERE employee_code = '" + code
+					+ "' AND hire_date = '0000-00-00'")).isEqualTo(1);
 		}
-		// Nothing was written by any of them.
-		assertThat(count("SELECT COUNT(*) FROM salary_contracts WHERE basic_salary = 8888.00")).isZero();
-		assertThat(count(
-				"SELECT COUNT(*) FROM employees WHERE company_id = " + COMPANY_1
-				+ " AND employee_code LIKE '66%'")).isZero();
+		// The salary contract rides along, where it used to be rolled back.
+		assertThat(count("SELECT COUNT(*) FROM salary_contracts WHERE basic_salary = 8888.00"))
+				.isEqualTo(4);
+		// And still no leave balance: creation stopped opening one entirely.
+		assertThat(count("SELECT COUNT(*) FROM leave_balance lb"
+				+ " JOIN employees e ON e.id = lb.employee_id"
+				+ " WHERE e.company_id = " + COMPANY_1 + " AND e.employee_code LIKE '66%'")).isZero();
 	}
 
 	@Test
@@ -615,35 +577,6 @@ class LegacyEmployeeCreateEndToEndTest {
 	}
 
 	@Test
-	void theLeaveBalanceHonoursItsOverrides() throws Exception {
-		Map<String, Object> body = validBody("6300", "01012340035");
-		body.put("hire_date", "2023-07-15");
-		body.put("leave_opening_year", 2025);
-		body.put("leave_opening_days", 30);
-		body.put("period_from_month", 4);
-		body.put("period_to_month", 9);
-		body.put("monthly_cap_days", 2.5);
-
-		long id = ((Number) data(post(body, ADMIN_1)).get("id")).longValue();
-		Map<String, Object> leave = single(
-				"SELECT year, total_days, period_from_month, period_to_month, monthly_cap_days"
-				+ " FROM leave_balance WHERE employee_id = " + id);
-		assertThat(leave.get("year")).isEqualTo("2025");
-		assertThat(leave.get("total_days")).isEqualTo("30.0");
-		assertThat(leave.get("period_from_month")).isEqualTo("4");
-		assertThat(leave.get("period_to_month")).isEqualTo("9");
-		assertThat(leave.get("monthly_cap_days")).isEqualTo("2.50");
-
-		// Without a hire date the year comes from today, and without a salary
-		// block there is no contract at all.
-		Map<String, Object> defaults = validBody("6301", "01012340036");
-		long defaultId = ((Number) data(post(defaults, ADMIN_1)).get("id")).longValue();
-		assertThat(single("SELECT year FROM leave_balance WHERE employee_id = " + defaultId).get("year"))
-				.isEqualTo(String.valueOf(java.time.LocalDate.now(java.time.ZoneOffset.ofHours(2)).getYear()));
-		assertThat(count("SELECT COUNT(*) FROM salary_contracts WHERE employee_id = " + defaultId)).isZero();
-	}
-
-	@Test
 	void theGuardStackAppliesBeforeAnyOfIt() {
 		ResponseEntity<Map<String, Object>> unauthenticated = restTemplate.exchange(
 				URI.create(restTemplate.getRootUri() + CREATE), HttpMethod.POST,
@@ -659,18 +592,6 @@ class LegacyEmployeeCreateEndToEndTest {
 				new ParameterizedTypeReference<Map<String, Object>>() { });
 		assertThat(wrongMethod.getStatusCode().value()).isEqualTo(405);
 		assertThat(wrongMethod.getBody().get("message")).isEqualTo("Invalid method");
-	}
-
-	private String leaveYearFor(String code, String phone, String hireDate) throws Exception {
-		Map<String, Object> body = validBody(code, phone);
-		body.put("hire_date", hireDate);
-		long id = ((Number) data(post(body, ADMIN_1)).get("id")).longValue();
-		return (String) single("SELECT year FROM leave_balance WHERE employee_id = " + id).get("year");
-	}
-
-	private static String hireDateFor(String employeeCode) throws Exception {
-		return (String) single("SELECT hire_date FROM employees WHERE employee_code = '" + employeeCode + "'")
-				.get("hire_date");
 	}
 
 	private String mobileFlagFor(String code, String phone, Object flag) throws Exception {

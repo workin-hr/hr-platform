@@ -286,10 +286,12 @@ class AdminEmployeesEndToEndTest {
 		assertThat(((Number) row.get("company_id")).longValue()).isEqualTo(this.companyA);
 		assertThat(row.get("role")).isEqualTo("employee");
 
+		// hr-legacy 505004f deleted the dbInsert that opened a 21-day balance
+		// here, so a new employee starts with none.
 		assertThat(this.jdbc.queryForObject(
-				"SELECT total_days FROM leave_balance WHERE employee_id = " + id, Integer.class))
-				.as("legacy opens every new employee with 21 days")
-				.isEqualTo(21);
+				"SELECT COUNT(*) FROM leave_balance WHERE employee_id = " + id, Integer.class))
+				.as("creation no longer opens a leave balance")
+				.isZero();
 		assertThat(this.jdbc.queryForObject(
 				"SELECT shift_id FROM employee_shift_assignments WHERE employee_id = " + id,
 				Long.class))

@@ -115,8 +115,10 @@ class LegacyEmployeeImportPostCommitTest {
 		assertThat(employeeId).isPositive();
 		assertThat(scalar("SELECT COUNT(*) FROM salary_contracts WHERE employee_id = " + employeeId))
 				.isEqualTo(1);
+		// No leave balance: 505004f removed that insert, so it is no longer
+		// among the writes the committed transaction leaves behind.
 		assertThat(scalar("SELECT COUNT(*) FROM leave_balance WHERE employee_id = " + employeeId))
-				.isEqualTo(1);
+				.isZero();
 		assertThat(scalar("SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = " + employeeId))
 				.isEqualTo(1);
 

@@ -11,7 +11,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import com.workin.legacy.LegacyClock;
-import com.workin.legacy.LegacyPhpDateYear;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.employees.LegacyEmployeeStore;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
@@ -240,12 +239,6 @@ public class LegacyEmployeeCreateHelper {
 					store.insertSalaryContract(
 							newEmployeeId, salaryAmounts(body.get("salary")), hireDate);
 				}
-
-				// date('Y', strtotime($hire_date)) runs *inside* the transaction
-				// here, so an unparseable hire date rolls this row back and
-				// becomes employee_create_failed -- not the 500 create.php gives.
-				long leaveYear = LegacyPhpDateYear.of(hireDate, clock.today());
-				store.insertLeaveBalance(newEmployeeId, leaveYear, 21.0d, 1L, 12L, null);
 
 				if (shiftId != null) {
 					store.insertShiftAssignment(newEmployeeId, shiftId, shiftEffective);

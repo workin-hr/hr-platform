@@ -14,7 +14,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyPagination;
 import com.workin.legacy.LegacyPhpArray;
-import com.workin.legacy.LegacyPhpDateYear;
 import com.workin.legacy.LegacyQueryParameters;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
@@ -379,23 +378,6 @@ public class LegacyEmployeeService {
 			store.insertSalaryContract(employeeId, salaryAmounts(salary), hireDate);
 		}
 
-		long leaveYear = body.get("leave_opening_year") != null
-				? LegacyValues.toPhpLong(body.get("leave_opening_year"))
-				: LegacyPhpDateYear.of(hireDate, clock.today());
-		Object leaveTotal = body.get("leave_opening_days") != null
-				? LegacyValues.toPhpDecimal(body.get("leave_opening_days")).doubleValue()
-				: 21.0;
-		long fromMonth = monthOrDefault(body.get("period_from_month"), 1);
-		long toMonth = monthOrDefault(body.get("period_to_month"), 12);
-		Object monthlyCap = body.get("monthly_cap_days") != null && !"".equals(body.get("monthly_cap_days"))
-				? LegacyValues.toPhpDecimal(body.get("monthly_cap_days")).doubleValue()
-				: null;
-		if (store.leaveBalanceExists(employeeId, leaveYear)) {
-			store.updateLeaveBalance(employeeId, leaveYear, leaveTotal, fromMonth, toMonth, monthlyCap);
-		} else {
-			store.insertLeaveBalance(employeeId, leaveYear, leaveTotal, fromMonth, toMonth, monthlyCap);
-		}
-
 		if (shiftId != null) {
 			store.insertShiftAssignment(employeeId, shiftId, shiftEffectiveFrom);
 		}
@@ -547,9 +529,6 @@ public class LegacyEmployeeService {
 	}
 
 	/** {@code isset($x) && $x !== '' ? (int) $x : $default} for the leave period months. */
-	private static long monthOrDefault(Object raw, long defaultValue) {
-		return raw == null || "".equals(raw) ? defaultValue : LegacyValues.toPhpLong(raw);
-	}
 
 	/**
 	 * A body value bound straight to a PDO parameter. D-071 measured what that

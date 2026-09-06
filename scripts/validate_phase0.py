@@ -1570,6 +1570,10 @@ def validate_legacy_drift_gates(failures: list[str]) -> None:
     _run_regression_script("scripts/check_dashboard_message_drift.py", "Dashboard message drift", failures)
     _run_regression_script("scripts/test_check_dashboard_message_drift.py",
                            "Dashboard message-drift check regression tests", failures)
+    _run_regression_script("scripts/check_legacy_product_defaults_drift.py",
+                           "Legacy product-default drift", failures)
+    _run_regression_script("scripts/test_check_legacy_product_defaults_drift.py",
+                           "Legacy product-default drift check regression tests", failures)
 
 
 def _validate_single_adr_cli(target_arg: str) -> int:

@@ -173,23 +173,6 @@ public class LegacyLeaveBalanceStore {
 			  AND lb.id IS NULL""", year, defaultDays, year, companyId);
 	}
 
-	public double defaultAnnualLeaveDays(long companyId) {
-		List<String> values = jdbc.queryForList("""
-			SELECT sav.value
-			FROM setting_definitions sd
-			JOIN company_settings cs ON cs.setting_definition_id=sd.id AND cs.company_id=?
-			JOIN company_setting_values csv ON csv.company_setting_id=cs.id
-			JOIN setting_allowed_values sav ON sav.id=csv.setting_allowed_value_id
-			WHERE sd.setting_key='monthly_leave_accrual'
-			ORDER BY sav.sort_order ASC, sav.id ASC""", String.class, companyId);
-		for (String value : values) {
-			if (value != null && !value.isEmpty()) {
-				return LegacyValues.toPhpDecimal(value).doubleValue();
-			}
-		}
-		return 21.0d;
-	}
-
 	public Map<String, Object> stats(Filter filter) {
 		List<Object> binds = new ArrayList<>();
 		String sql = "SELECT COUNT(DISTINCT lb.employee_id) AS employees_count, "
