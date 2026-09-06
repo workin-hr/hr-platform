@@ -23,6 +23,7 @@ Wired into: scripts/validate_phase0.py's script/test-sibling rule.
 from __future__ import annotations
 
 import pathlib
+import subprocess
 import sys
 import tempfile
 
@@ -39,15 +40,35 @@ def check(name: str, condition: bool, detail: str = "") -> None:
         FAILURES.append(name)
 
 
-def build_php(root: pathlib.Path, messages: dict[str, dict[str, str]], raw: str = "") -> pathlib.Path:
-    """A lang directory; `raw` is appended verbatim, for odd value shapes."""
-    lang = root / "apis" / "lang"
+def render_php(entries: dict[str, str], raw: str = "") -> str:
+    body = "".join(
+        "    '" + key + "' => '" + value.replace("\\", "\\\\").replace("'", "\\'") + "',\n"
+        for key, value in entries.items())
+    return "<?php\nreturn [\n" + body + raw + "];\n"
+
+
+def build_php(root: pathlib.Path, messages: dict[str, dict[str, str]], raw: str = "",
+              uncommitted: dict[str, dict[str, str]] | None = None) -> pathlib.Path:
+    """A fixture hr-legacy whose lang files live in a commit.
+
+    The script reads HEAD rather than the filesystem (R-063), so the fixture
+    has to be a real repository -- and that lets these tests cover the case
+    that caused the risk: a message present on disk and in no commit.
+    """
+    repo = root / "hr-legacy"
+    lang = repo / "apis" / "lang"
     lang.mkdir(parents=True, exist_ok=True)
     for locale, entries in messages.items():
-        body = "".join(
-            "    '" + key + "' => '" + value.replace("\\", "\\\\").replace("'", "\\'") + "',\n"
-            for key, value in entries.items())
-        (lang / f"{locale}.php").write_text("<?php\nreturn [\n" + body + raw + "];\n", encoding="utf-8")
+        (lang / f"{locale}.php").write_text(render_php(entries, raw), encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture"], check=True)
+    for locale, entries in (uncommitted or {}).items():
+        merged = dict(messages.get(locale, {}))
+        merged.update(entries)
+        (lang / f"{locale}.php").write_text(render_php(merged, raw), encoding="utf-8")
     return lang
 
 
@@ -60,8 +81,18 @@ def build_java(root: pathlib.Path, messages: dict[str, dict[str, str]]) -> pathl
     return lang
 
 
-def run(legacy: str, java: str, committed: str, refresh: bool = False) -> int:
+def run(legacy: str, java: str, committed: str, refresh: bool = False,
+        diverges: dict[str, str] | None = None) -> int:
+    """Drive the real main() over a fixture.
+
+    DIVERGES_FROM_BASELINE is swapped out because it names real messages in
+    this repository's catalogue (R-063); left in place it would report every
+    one of them as settled against a two-key fixture. Cases that mean to
+    exercise the guard pass their own.
+    """
     argv = sys.argv
+    real_diverges = drift.DIVERGES_FROM_BASELINE
+    drift.DIVERGES_FROM_BASELINE = diverges or {}
     sys.argv = ["check_legacy_message_drift.py",
                 "--legacy-lang", legacy, "--java-lang", java, "--committed", committed]
     if refresh:
@@ -70,6 +101,7 @@ def run(legacy: str, java: str, committed: str, refresh: bool = False) -> int:
         return drift.main()
     finally:
         sys.argv = argv
+        drift.DIVERGES_FROM_BASELINE = real_diverges
 
 
 BOTH = {"en": {"ok": "Done"}, "ar": {"ok": "تم"}}
@@ -220,6 +252,38 @@ def test_an_empty_value_is_kept() -> None:
               parsed["ar"] == {"blank": ""}, str(parsed["ar"]))
 
 
+def test_an_uncommitted_message_is_not_a_baseline_message() -> None:
+    """R-063, the case that caused all of this.
+
+    A message added to hr-legacy's working tree and committed nowhere must not
+    reach the inventory. Reading the filesystem put five such messages in, and
+    one reworded value, and this application shipped them.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        legacy = build_php(root, BOTH, uncommitted={"en": {"wip": "Draft"},
+                                                    "ar": {"wip": "مسودة"}})
+        parsed = drift.php_messages(str(legacy))
+        check("a message on disk and in no commit is not a baseline message",
+              "wip" not in parsed["en"] and "ok" in parsed["en"],
+              repr(sorted(parsed["en"])))
+
+
+def test_a_named_divergence_that_no_longer_diverges_fails() -> None:
+    """The exemption list has to stay honest, or it becomes a hiding place."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        legacy = build_php(root, BOTH)
+        java = build_java(root, BOTH)
+        committed = root / "messages.txt"
+        run(str(legacy), str(java), str(committed), refresh=True)
+        # "ok" is defined identically on both sides, so naming it as a
+        # divergence is stale the moment it is written.
+        code = run(str(legacy), str(java), str(committed),
+                   diverges={"ok": "not actually divergent"})
+        check("a named divergence that no longer diverges fails", code == 1, f"exit {code}")
+
+
 def main() -> int:
     test_matching_catalogs_pass()
     test_a_key_missing_from_java_fails()
@@ -233,6 +297,8 @@ def main() -> int:
     test_refresh_needs_hr_legacy()
     test_properties_comments_and_blanks_are_ignored()
     test_an_empty_value_is_kept()
+    test_an_uncommitted_message_is_not_a_baseline_message()
+    test_a_named_divergence_that_no_longer_diverges_fails()
     print()
     if FAILURES:
         print(f"{len(FAILURES)} FAILURE(S): {FAILURES}")

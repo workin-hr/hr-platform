@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -43,6 +44,23 @@ LOCALES = ("en", "ar")
 # admin-messages.properties is English; the Arabic file carries the _ar suffix,
 # which is Spring's own convention and not ours to change.
 JAVA_FILES = {"en": "admin-messages.properties", "ar": "admin-messages_ar.properties"}
+
+# Labels this application ships that hr-legacy's HEAD does not define, pending
+# R-063. Named rather than left to pass silently: the inventory is HEAD-derived
+# now, so without this list the gate would report them, and with an unexplained
+# exemption it would hide them.
+#
+# All five belong to `guide_videos`, a page that exists only in hr-legacy's
+# working tree and was deliberately not ported. They are unused labels here --
+# no Java page renders them -- and they resolve when that page is either
+# committed there or withdrawn.
+DIVERGES_FROM_BASELINE: dict[str, str] = {
+    "nav_guide_videos": "R-063: guide_videos exists in no hr-legacy commit.",
+    "add_guide_video": "R-063: guide_videos exists in no hr-legacy commit.",
+    "edit_guide_video": "R-063: guide_videos exists in no hr-legacy commit.",
+    "guide_video_file": "R-063: guide_videos exists in no hr-legacy commit.",
+    "guide_video_hint": "R-063: guide_videos exists in no hr-legacy commit.",
+}
 
 COMMITTED_HEADER = """\
 # Every message hr-legacy's dashboard/includes/lang.php defines, as
@@ -90,12 +108,30 @@ def unquote_php(literal: str) -> str:
     return "".join(out)
 
 
+def php_source(lang_file: str) -> str | None:
+    """lang.php as **HEAD** has it, or None when it is not there.
+
+    Read from the commit, not the filesystem. R-063: reading the working tree
+    let untracked surfaces into the committed route and page inventories, and
+    it did the same here -- five labels for the `guide_videos` page, which
+    exists in no hr-legacy commit, were generated into this catalogue and then
+    into the shipped properties files. A catalogue built from uncommitted files
+    describes one machine rather than a contract.
+    """
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(lang_file))))
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        return None
+    blob = subprocess.run(
+        ["git", "-C", repo, "show", "HEAD:dashboard/includes/lang.php"],
+        capture_output=True, text=True, check=False)
+    return blob.stdout if blob.returncode == 0 else None
+
+
 def php_messages(lang_file: str) -> dict[str, dict[str, str]]:
-    """`{locale: {key: value}}` from lang.php, or `{}` when it is absent."""
-    if not os.path.isfile(lang_file):
+    """`{locale: {key: value}}` from lang.php at HEAD, or `{}` when absent."""
+    text = php_source(lang_file)
+    if text is None:
         return {}
-    with open(lang_file, encoding="utf-8") as handle:
-        text = handle.read()
 
     found: dict[str, dict[str, str]] = {locale: {} for locale in LOCALES}
     for match in ENTRY.finditer(text):
@@ -174,7 +210,17 @@ def write_committed(path: str, messages: dict[str, dict[str, str]]) -> None:
 
 
 def compare(expected: dict[str, str], actual: dict[str, str], locale: str,
-            expected_name: str, actual_name: str) -> list[str]:
+            expected_name: str, actual_name: str,
+            ignore: dict[str, str] | None = None) -> list[str]:
+    """Every way the two sides disagree, minus the named divergences.
+
+    `ignore` is only ever DIVERGES_FROM_BASELINE, and only on the Java side: a
+    label the baseline does not define cannot make the committed inventory
+    stale, but it does have to stay visible.
+    """
+    if ignore:
+        expected = {k: v for k, v in expected.items() if k not in ignore}
+        actual = {k: v for k, v in actual.items() if k not in ignore}
     problems = []
     for key in sorted(set(expected) - set(actual)):
         problems.append(f"  [{locale}] {key}: in {expected_name}, missing from {actual_name}")
@@ -222,7 +268,8 @@ def main() -> int:
     problems = []
     for locale in LOCALES:
         problems += compare(committed.get(locale, {}), java[locale], locale,
-                            "hr-legacy", "the JTE catalog")
+                            "hr-legacy", "the JTE catalog",
+                            ignore=DIVERGES_FROM_BASELINE)
     print("dashboard catalog  " + "   ".join(f"{loc}: {len(java[loc])}" for loc in LOCALES))
     if problems:
         print(f"\nFAIL: {len(problems)} dashboard message(s) drifted from hr-legacy:",
@@ -249,6 +296,28 @@ def main() -> int:
                   "messages match the committed inventory.")
     else:
         print("hr-legacy not checked out: comparing against the committed inventory only.")
+
+    # The named list has to stay honest in both directions. An entry that no
+    # longer diverges -- because the label was finally committed in hr-legacy,
+    # or dropped here -- is a stale exemption, and a stale exemption is how a
+    # list like this turns into a place to hide things.
+    if php:
+        settled = [key for key in sorted(DIVERGES_FROM_BASELINE)
+                   if not any(key in java[locale] and key not in php[locale]
+                              for locale in LOCALES)]
+        if settled:
+            print(f"\nFAIL: {len(settled)} named divergence(s) no longer diverge:",
+                  file=sys.stderr)
+            for key in settled:
+                print(f"  {key}", file=sys.stderr)
+            print("\nRemove them from DIVERGES_FROM_BASELINE and refresh the inventory.",
+                  file=sys.stderr)
+            status = 1
+        elif DIVERGES_FROM_BASELINE:
+            print(f"note: {len(DIVERGES_FROM_BASELINE)} label(s) diverge from the "
+                  "committed baseline (R-063):")
+            for key, reason in sorted(DIVERGES_FROM_BASELINE.items()):
+                print(f"  {key}\n      {reason}")
 
     if status == 0:
         print("OK: the dashboard catalog matches hr-legacy.")

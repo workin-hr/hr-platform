@@ -18,6 +18,7 @@ Wired into: scripts/validate_phase0.py's script/test-sibling rule.
 from __future__ import annotations
 
 import pathlib
+import subprocess
 import sys
 import tempfile
 
@@ -34,9 +35,24 @@ def check(name: str, condition: bool, detail: str = "") -> None:
         FAILURES.append(name)
 
 
-def build_php(root: pathlib.Path, entries: str) -> pathlib.Path:
-    path = root / "lang.php"
+def build_php(root: pathlib.Path, entries: str, uncommitted: str = "") -> pathlib.Path:
+    """A fixture hr-legacy whose lang.php lives in a commit.
+
+    The script reads HEAD rather than the filesystem (R-063), so the fixture
+    has to be a real repository at the real path -- and that lets these tests
+    cover the case that caused the risk: a label on disk and in no commit.
+    """
+    repo = root / "hr-legacy"
+    path = repo / "dashboard" / "includes" / "lang.php"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("<?php\nreturn [\n" + entries + "];\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture"], check=True)
+    if uncommitted:
+        path.write_text("<?php\nreturn [\n" + entries + uncommitted + "];\n", encoding="utf-8")
     return path
 
 
@@ -49,8 +65,18 @@ def build_java(root: pathlib.Path, messages: dict[str, dict[str, str]]) -> pathl
     return lang
 
 
-def run(legacy: str, java: str, committed: str, refresh: bool = False) -> int:
+def run(legacy: str, java: str, committed: str, refresh: bool = False,
+        diverges: dict[str, str] | None = None) -> int:
+    """Drive the real main() over a fixture.
+
+    DIVERGES_FROM_BASELINE is swapped out because it names real labels in this
+    repository's catalogue (R-063); left in place it would report every one of
+    them as settled against a two-key fixture. Cases that mean to exercise the
+    guard pass their own.
+    """
     argv = sys.argv
+    real_diverges = drift.DIVERGES_FROM_BASELINE
+    drift.DIVERGES_FROM_BASELINE = diverges or {}
     sys.argv = ["check_dashboard_message_drift.py",
                 "--legacy-lang", legacy, "--java-lang", java, "--committed", committed]
     if refresh:
@@ -59,6 +85,7 @@ def run(legacy: str, java: str, committed: str, refresh: bool = False) -> int:
         return drift.main()
     finally:
         sys.argv = argv
+        drift.DIVERGES_FROM_BASELINE = real_diverges
 
 
 ONE = "    'nav_home' => ['ar' => 'الرئيسية', 'en' => 'Home'],\n"
@@ -187,8 +214,43 @@ def test_the_real_repository_catalog_matches() -> None:
     if not pathlib.Path(drift.LEGACY_LANG).is_file():
         print("SKIP the real repository's dashboard catalog (no hr-legacy checkout)")
         return
+    # The one case that must keep the real DIVERGES_FROM_BASELINE: it is
+    # checking this repository, where those labels genuinely diverge (R-063).
     check("the real repository's dashboard catalog matches lang.php",
-          run(drift.LEGACY_LANG, drift.JAVA_LANG, drift.COMMITTED) == 0)
+          run(drift.LEGACY_LANG, drift.JAVA_LANG, drift.COMMITTED,
+              diverges=drift.DIVERGES_FROM_BASELINE) == 0)
+
+
+def test_an_uncommitted_label_is_not_a_baseline_label() -> None:
+    """R-063, the case that caused all of this.
+
+    A label added to hr-legacy's working tree and committed nowhere must not
+    reach the inventory. Reading the filesystem put five `guide_videos` labels
+    in, for a page that exists in no commit, and they shipped.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        legacy = build_php(
+            root, ONE,
+            uncommitted="    'nav_guide_videos' => ['ar' => 'ف', 'en' => 'Guide videos'],\n")
+        parsed = drift.php_messages(str(legacy))
+        check("a label on disk and in no commit is not a baseline label",
+              "nav_guide_videos" not in parsed["en"] and "nav_home" in parsed["en"],
+              repr(sorted(parsed["en"])))
+
+
+def test_a_named_divergence_that_no_longer_diverges_fails() -> None:
+    """The exemption list has to stay honest, or it becomes a hiding place."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        legacy = str(build_php(root, ONE))
+        java = str(build_java(root, {"en": {"nav_home": "Home"}, "ar": {"nav_home": "الرئيسية"}}))
+        committed = str(root / "messages.txt")
+        run(legacy, java, committed, refresh=True)
+        # nav_home is defined identically on both sides, so naming it as a
+        # divergence is stale the moment it is written.
+        code = run(legacy, java, committed, diverges={"nav_home": "not actually divergent"})
+        check("a named divergence that no longer diverges fails", code == 1, f"exit {code}")
 
 
 def main() -> int:
@@ -202,6 +264,8 @@ def main() -> int:
     test_missing_committed_inventory_fails_rather_than_passes()
     test_a_stale_inventory_fails_when_hr_legacy_is_present()
     test_refresh_needs_hr_legacy()
+    test_an_uncommitted_label_is_not_a_baseline_label()
+    test_a_named_divergence_that_no_longer_diverges_fails()
     test_the_real_repository_catalog_matches()
     print()
     if FAILURES:

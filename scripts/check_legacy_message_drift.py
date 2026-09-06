@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -47,6 +48,36 @@ JAVA_LANG = os.path.join(REPO_ROOT, "backend", "src", "main", "resources", "lega
 COMMITTED = os.path.join(REPO_ROOT, "contracts", "legacy-php-messages.txt")
 
 LOCALES = ("en", "ar")
+
+# Messages this application ships that hr-legacy's HEAD does not define, or
+# defines differently. Pending R-063.
+#
+# Named rather than left to pass silently. The inventory is HEAD-derived now,
+# so without this list the gate would report each one, and with an unexplained
+# exemption it would hide them. Each entry is a decision the owner still owes.
+#
+# The first five arrived with the two routes already sitting in
+# check_legacy_route_drift.py's AWAITING_BASELINE -- a ported route needs its
+# messages -- so they resolve when those routes do. The sixth is different in
+# kind and is the reason this list exists at all: it is not a new key but a
+# **changed value** on a live authentication path, so this application answers
+# a 403 with wording that appears in no commit.
+DIVERGES_FROM_BASELINE: dict[str, str] = {
+    "employees_updated":
+        "R-063: arrived with /apis/api/employees/update_bulk.php, itself untracked.",
+    "employees_update_failed":
+        "R-063: arrived with /apis/api/employees/update_bulk.php, itself untracked.",
+    "attendance_excel_must_have_four_columns":
+        "R-063: arrived with /apis/api/employees/analyze_excel_update.php, itself untracked.",
+    "attendance_excel_date_column_invalid":
+        "R-063: arrived with /apis/api/employees/analyze_excel_update.php, itself untracked.",
+    "attendance_excel_time_column_invalid":
+        "R-063: arrived with /apis/api/employees/analyze_excel_update.php, itself untracked.",
+    "employee_account_not_active":
+        "R-063: value only, not the key. HEAD says 'Your employee account is not "
+        "active. Contact HR.'; this application ships hr-legacy's working-tree "
+        "rewording. Neither is silently correct -- the owner picks one.",
+}
 
 COMMITTED_HEADER = """\
 # Every message hr-legacy's apis/lang/{en,ar}.php defines, as
@@ -79,15 +110,33 @@ ENTRY = re.compile(
 ENTRY_START = re.compile(r"^\s*'([a-z0-9_]+)'\s*=>", re.M)
 
 
+def php_lang_source(lang_dir: str, locale: str) -> str | None:
+    """One lang file as **HEAD** has it, or None when it is not there.
+
+    Read from the commit, not the filesystem. R-063: reading the working tree
+    let untracked surfaces into the committed route and page inventories, and
+    it did the same to this one -- five messages here exist in no hr-legacy
+    commit, and one committed message has a working-tree wording that this
+    application now ships. A catalogue generated from uncommitted files
+    describes one machine rather than a contract.
+    """
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(lang_dir)))
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        return None
+    blob = subprocess.run(
+        ["git", "-C", repo, "show", f"HEAD:apis/lang/{locale}.php"],
+        capture_output=True, text=True, check=False)
+    return blob.stdout if blob.returncode == 0 else None
+
+
 def php_messages(lang_dir: str) -> dict[str, dict[str, str]]:
-    """`{locale: {key: value}}` from hr-legacy, or `{}` when it is absent."""
+    """`{locale: {key: value}}` from hr-legacy at HEAD, or `{}` when absent."""
     found: dict[str, dict[str, str]] = {}
     for locale in LOCALES:
         path = os.path.join(lang_dir, f"{locale}.php")
-        if not os.path.isfile(path):
+        text = php_lang_source(lang_dir, locale)
+        if text is None:
             return {}
-        with open(path, encoding="utf-8") as handle:
-            text = handle.read()
         entries = {}
         for key, single, double in ENTRY.findall(text):
             entries[key] = unescape_single(single) if single or not double else unescape_double(double)
@@ -204,7 +253,17 @@ def write_committed(path: str, messages: dict[str, dict[str, str]]) -> None:
 
 
 def compare(expected: dict[str, str], actual: dict[str, str], locale: str,
-            expected_name: str, actual_name: str) -> list[str]:
+            expected_name: str, actual_name: str,
+            ignore: dict[str, str] | None = None) -> list[str]:
+    """Every way the two sides disagree, minus the named divergences.
+
+    `ignore` is only ever DIVERGES_FROM_BASELINE, and only on the Java side of
+    the comparison: a message the baseline does not define cannot make the
+    committed inventory stale, but it does have to stay visible.
+    """
+    if ignore:
+        expected = {k: v for k, v in expected.items() if k not in ignore}
+        actual = {k: v for k, v in actual.items() if k not in ignore}
     problems = []
     for key in sorted(set(expected) - set(actual)):
         problems.append(f"  [{locale}] {key}: in {expected_name}, missing from {actual_name}")
@@ -254,7 +313,8 @@ def main() -> int:
     problems = []
     for locale in LOCALES:
         problems += compare(committed.get(locale, {}), java[locale], locale,
-                            "hr-legacy", "the Java catalog")
+                            "hr-legacy", "the Java catalog",
+                            ignore=DIVERGES_FROM_BASELINE)
     counts = "   ".join(f"{locale}: {len(java[locale])}" for locale in LOCALES)
     print(f"java catalog  {counts}")
     if problems:
@@ -284,6 +344,32 @@ def main() -> int:
             print(f"hr-legacy present: its {total} messages match the committed inventory.")
     else:
         print("hr-legacy not checked out: comparing against the committed inventory only.")
+
+    # The named list has to stay honest in both directions. An entry that no
+    # longer diverges -- because the message was finally committed in
+    # hr-legacy, or dropped here -- is a stale exemption, and a stale exemption
+    # is how a list like this turns into a place to hide things.
+    if php:
+        settled = []
+        for key, reason in sorted(DIVERGES_FROM_BASELINE.items()):
+            if any(key in java[locale]
+                   and (key not in php[locale] or php[locale][key] != java[locale][key])
+                   for locale in LOCALES):
+                continue
+            settled.append(key)
+        if settled:
+            print(f"\nFAIL: {len(settled)} named divergence(s) no longer diverge:",
+                  file=sys.stderr)
+            for key in settled:
+                print(f"  {key}", file=sys.stderr)
+            print("\nRemove them from DIVERGES_FROM_BASELINE and refresh the inventory.",
+                  file=sys.stderr)
+            status = 1
+        elif DIVERGES_FROM_BASELINE:
+            print(f"note: {len(DIVERGES_FROM_BASELINE)} message(s) diverge from the "
+                  "committed baseline (R-063):")
+            for key, reason in sorted(DIVERGES_FROM_BASELINE.items()):
+                print(f"  {key}\n      {reason}")
 
     if status == 0:
         print("OK: the message catalog matches hr-legacy.")
