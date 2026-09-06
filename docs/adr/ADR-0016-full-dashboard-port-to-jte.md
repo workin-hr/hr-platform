@@ -7,6 +7,7 @@
 | ADR ID | ADR-0016 |
 | Title | The whole PHP dashboard ports to JTE, for all three audiences |
 | Status | Accepted |
+| Amended | **2026-09-06** — scope narrowed to the platform-admin audience; the company-owner and HR web logins are withdrawn. See *Amendment* below and **D-192**. |
 | Date | 2026-09-04 |
 | Owners | Solution Architect (primary), Product (scope decision) |
 | Deciders | Repository owner |
@@ -155,16 +156,13 @@ have frozen that content permanently.
 
 ### Not yet ported
 
-The eighteen company-scoped pages (`employees`, `branches`, `departments`,
-`job_titles`, `shifts`, `requests`, `leave_balances`, `penalties`,
-`administrative_decisions`, `assets`, `advances`, `workforce_planning`,
-`salary_calculator`, `attendance`, `payroll`, `complaints`,
-`company_settings`, `activities`), plus `home`, `app_content`,
-`setting_templates`, `settings`, `profile` and `change_password`.
+*Refreshed 2026-09-06.* Thirty-two of the thirty-five pages are ported. The
+three that remain -- `company_settings`, `profile` and `change_password` --
+are **out of scope** rather than outstanding: see the Amendment below.
 
-The company and HR **login paths** are also outstanding. Until they exist,
-`AdminViewModelAdvice.isAdmin()` is hardcoded true and the sidebar's
-admin-only gating is present but untested against a non-admin session.
+The company and HR **login paths** are withdrawn, not outstanding.
+`AdminViewModelAdvice.isAdmin()` stays hardcoded true because on this surface
+it is now true by construction: every session is a platform administrator.
 
 ### The gate on the next stage
 
@@ -173,6 +171,12 @@ Everything shipped so far is platform-level: one tenant-independent
 catalogue each. The moment a page reads a company's employees, the
 admin-acting-as-a-company path exists, and that is the one this ADR
 identifies as its largest risk.
+
+*Discharged 2026-09-06.* All three controls now exist: the selected company
+is explicit session state (`DashboardOrgScope`), every page reads through a
+scoped store, and `AdminTenantGuardCoverageTest` fails the build when a
+session-taking service method does not resolve and check the row's owning
+company. R-044 is closed by **D-192**.
 
 ## Alternatives Considered
 
@@ -238,17 +242,51 @@ against the PHP dashboard rather than inferred from the markup.
 
 ## Open Questions
 
-1. **Where the admin's selected company lives.** PHP keeps it in
-   `$_SESSION['company_id']`. This surface needs it to be explicit,
-   audited, and impossible to reach by default — the shape is not yet
-   decided, and R-044's first mitigation depends on it.
-2. **Whether company and HR sessions share the platform admin's session
-   store and timeouts**, or get their own. They have different risk
-   profiles: a platform admin can reach every tenant.
-3. **What happens to `hr_permissions`.** The dashboard gates HR pages
-   through `HrAccess`, which reads a flag legacy never enforced
-   consistently (**R-010**). Reproducing it faithfully reproduces the
-   hole; not reproducing it changes behaviour. Needs a decision before
-   the HR audience lands.
+1. ~~**Where the admin's selected company lives.**~~ **Answered.**
+   `DashboardOrgScope` holds it as explicit session state, set only by an
+   explicit filter or after a write, and `DashboardOrgScopeTest` pins the
+   rule. R-044's first mitigation rests on it.
+2. ~~**Whether company and HR sessions share the platform admin's session
+   store and timeouts.**~~ **Moot** as of the 2026-09-06 amendment: there are
+   no company or HR sessions on this surface.
+3. ~~**What happens to `hr_permissions`.**~~ **Moot** for this surface, for
+   the same reason — the dilemma was whether to reproduce **R-010**'s
+   inconsistently-enforced flag for an HR audience that no longer lands here.
+   `DashboardAccess` still models the permission map, because it is what
+   decides which pages a *scoped* session may open, and R-010 remains open
+   against legacy and the desktop client.
 4. **Whether the copied CSS gets a drift check** if `hr-legacy` is ever
    unfrozen.
+
+## Amendment 2026-09-06: The Company-Owner And HR Web Audiences Are Withdrawn
+
+**Decided by the repository owner on 2026-09-06.** This ADR's scope narrows
+to the **platform-admin audience only**. `doCompanyLogin()` and `doHrLogin()`
+return to being retirement targets, as ADR-0009 Option E had them, and the
+three pages legacy gates away from a platform administrator —
+`company_settings`, `profile`, `change_password` — are not ported.
+
+**What changed since the original decision.** The scope was taken on
+2026-09-04 on the strength of "everything PHP has", against a specific
+danger: four pages whose write side existed in the PHP dashboard and nowhere
+else, which switching PHP off would have frozen permanently. That reasoning
+does not reach these three. Every capability on them has a ported API route —
+`company_settings/*`, `attendance_exception_types/*`,
+`company_official_holidays/*`, `request_types/*` and
+`hr_employees/{create,list,update_permissions}` for the settings page,
+`profile/company.php` and `profile/employee.php` for the profile,
+`profile/change_password.php` for the password change — all 202 routes are
+ported and parity-verified, and the Flutter desktop client already carries
+the screens. **Nothing is lost at cutover by not porting them**, which was
+not true of the four that drove the original scope.
+
+**What it costs.** A company owner or HR employee administers their company
+through the desktop client, not a browser. That is what ADR-0009 Option E
+decided on 2026-08-04 and this restores.
+
+**What it avoids.** Two authentication paths this application has never had,
+against `companies.password_hash` and `employees.role`, and roughly thirty
+authenticated routes for an audience already served — the largest new
+security surface in the programme, spent duplicating capability that exists.
+
+Recorded as **D-192**; **R-044** closes with it.

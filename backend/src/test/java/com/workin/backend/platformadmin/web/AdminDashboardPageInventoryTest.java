@@ -110,18 +110,30 @@ class AdminDashboardPageInventoryTest {
 	 * from this file, and so that a page cannot quietly stop being served
 	 * without the test noticing.
 	 *
-	 * <p>{@code guide_videos} is here because {@code hr-legacy} committed it in
-	 * {@code 505004f}. It was the surface R-063 was waiting on: previously it
-	 * existed only in that repository's working tree, so there was nothing to
-	 * port from. Now there is, and it is ordinary remaining work.
-	 *
-	 * <p>{@code company_settings}, {@code profile} and {@code change_password}
-	 * are a different kind of remaining: legacy gates all three to a company
-	 * owner or an HR employee, and every session on this surface is a platform
-	 * administrator. They are not portable here without relaxing a guard, and
-	 * belong to the audience ADR-0016 and R-044 still have open.
+	 * <p>Empty as of D-191: every page ADR-0016 still covers is served.
 	 */
-	private static final Set<String> NOT_YET_PORTED = Set.of(
+	private static final Set<String> NOT_YET_PORTED = Set.of();
+
+	/**
+	 * Legacy pages this surface will never serve, by decision rather than by
+	 * backlog.
+	 *
+	 * <p>**D-192** narrowed ADR-0016 to the platform-admin audience. These three
+	 * are the only pages legacy gates *away from* a platform administrator --
+	 * {@code profile} and {@code change_password} open with
+	 * {@code if (isAdmin()) redirect}, {@code company_settings} with
+	 * {@code if (!isCompany() && !isHr()) redirect} -- so serving them here would
+	 * mean either relaxing a guard legacy applies or building the company-owner
+	 * and HR web logins, which that decision withdrew. Every capability on them
+	 * has a ported API route and a screen in the desktop client, so nothing is
+	 * lost at cutover.
+	 *
+	 * <p>Kept as its own list rather than folded into {@link #NOT_YET_PORTED}
+	 * so that "nobody has got to it yet" and "we decided not to" stay different
+	 * statements. A page appearing here later should be a decision someone
+	 * records, not a backlog item that quietly stopped moving.
+	 */
+	private static final Set<String> OUT_OF_SCOPE = Set.of(
 			"change_password", "company_settings", "profile");
 
 	@Test
@@ -141,10 +153,26 @@ class AdminDashboardPageInventoryTest {
 		Set<String> remaining = new TreeSet<>(legacyPages());
 		remaining.removeAll(servedPages());
 		remaining.removeAll(SERVED_UNDER_ANOTHER_PATH);
+		Set<String> declared = new TreeSet<>(NOT_YET_PORTED);
+		declared.addAll(OUT_OF_SCOPE);
 		assertThat(remaining)
 				.as("porting a page should delete it from NOT_YET_PORTED; losing one "
-						+ "should fail here rather than pass quietly")
-				.containsExactlyElementsOf(new TreeSet<>(NOT_YET_PORTED));
+						+ "should fail here rather than pass quietly. A page that is neither "
+						+ "served nor declared in one of the two lists is unaccounted for.")
+				.containsExactlyElementsOf(declared);
+	}
+
+	@Test
+	void theTwoUnservedListsSayDifferentThings() {
+		// A page is either work not done or work decided against, never both --
+		// and OUT_OF_SCOPE must stay a decision someone recorded rather than a
+		// place backlog goes to be forgotten.
+		assertThat(NOT_YET_PORTED)
+				.as("a page cannot be both unstarted and out of scope")
+				.doesNotContainAnyElementsOf(OUT_OF_SCOPE);
+		assertThat(OUT_OF_SCOPE)
+				.as("D-192's three, and nothing that has quietly joined them")
+				.containsExactlyInAnyOrder("change_password", "company_settings", "profile");
 	}
 
 	@Test
@@ -158,10 +186,13 @@ class AdminDashboardPageInventoryTest {
 		// 35: guide_videos became a real surface when hr-legacy committed it in
 		// 505004f, which is what R-063 was waiting for.
 		assertThat(legacy).as("the committed manifest").hasSize(35);
-		assertThat(portedLegacy).hasSize(legacy.size() - NOT_YET_PORTED.size());
+		assertThat(portedLegacy)
+				.hasSize(legacy.size() - NOT_YET_PORTED.size() - OUT_OF_SCOPE.size());
 		assertThat(NOT_YET_PORTED).doesNotHaveDuplicates();
-		// The two sets may not overlap: a page cannot be both ported and not.
+		// Neither list may overlap the served set: a page cannot be both ported
+		// and not, nor both ported and decided against.
 		assertThat(NOT_YET_PORTED).doesNotContainAnyElementsOf(portedLegacy);
+		assertThat(OUT_OF_SCOPE).doesNotContainAnyElementsOf(portedLegacy);
 	}
 
 	/** Distinct first path segments under {@code /admin}, as Spring resolves them. */
