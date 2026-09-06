@@ -3003,3 +3003,17 @@ it reached `main`, and the honest answer is that nobody independent looked.
 | One thing that was not a defect | Arabic content posted over HTTP arrived corrupted in the first test run. The cause was the test harness, not the application: `FormHttpMessageConverter` writes ISO-8859-1 when the content type carries no charset, where a browser posts UTF-8 because the page declares it. The harness now sends the charset a real client would. |
 | Rollback | Delete the three controllers; `AdminPageAvailability` reads the handler mapping, so the sidebar entries mute themselves. Nothing schema-level changes. |
 | Related | **D-179** (`pageStyles`, extended here), **D-180** (the inventory these three are deleted from), **R-044** (the audience `company_settings` waits for). |
+
+## D-183: The Migration Contract Is Derived From A Commit, Not A Working Tree
+
+| Field | Value |
+|---|---|
+| Decision | Generate both committed inventories from `git show HEAD:` / `git ls-tree HEAD` in `hr-legacy` rather than from its filesystem, and fail when this application serves a route the committed contract does not contain. A working-tree-only legacy surface does not define the migration contract. |
+| Why | **R-063.** Reading the filesystem let four untracked surfaces into the committed inventories and then into this application, where their parity claims cannot be re-derived from any checkout. A manifest generated from uncommitted files describes one machine rather than a contract, and the completion figures it produces -- "202 of 202", "35 pages" -- are about that machine. |
+| The direction that was missing | `check_legacy_route_drift.py` compared *committed minus Java* and never *Java minus committed*. So a route this application served that the contract omitted produced no output at all. That silence is precisely how three routes ported from untracked files went unnoticed, and it is now a failure. |
+| Effect on the numbers | The route inventory is **199** and the page manifest **34**. Neither is a regression: they are the first figures measured against something a second machine can reproduce. The application still serves 202 routes; the three beyond the contract are named in `AWAITING_BASELINE` with the decision each waits on. |
+| Why a named list rather than an exemption | An unexplained exemption would restore the silence this change removes. Each entry carries its reason and names R-063, and the sibling test asserts both -- so the list cannot quietly become a place to hide unported or over-ported routes. |
+| `guide_videos` needs no entry | It is absent from the HEAD-derived page manifest, so it is simply not a surface this application owes. It was deliberately not ported for the same reason its API route should not have been. |
+| Testing | Both fixture suites build real git repositories instead of bare directories, which is closer to what the scripts do and lets each cover the originating case directly: a file present on disk and in no commit is not a surface. The route suite's "a route only Java has does not fail" case was inverted to assert the new, stricter rule, with a comment saying why the premise changed. |
+| Rollback | Revert the two scripts to their filesystem readers and refresh; the inventories return to describing whatever is on disk. |
+| Related | **R-063** (the risk), **D-178** (which made `d113204` the source of truth), **D-180** (which made inventories enumeration-derived in the first place). |

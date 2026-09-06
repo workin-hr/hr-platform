@@ -18,6 +18,7 @@ Wired into: scripts/validate_phase0.py's script/test-sibling rule.
 from __future__ import annotations
 
 import pathlib
+import subprocess
 import sys
 import tempfile
 
@@ -34,9 +35,26 @@ def check(name: str, condition: bool, detail: str = "") -> None:
         FAILURES.append(name)
 
 
-def build_php(root: pathlib.Path, routes: list[str]) -> pathlib.Path:
-    api = root / "apis" / "api"
+def build_php(root: pathlib.Path, routes: list[str],
+              uncommitted: list[str] | None = None) -> pathlib.Path:
+    """A fixture hr-legacy whose routes live in a commit.
+
+    The script reads HEAD rather than the filesystem (R-063), so the fixture
+    has to be a real repository -- and that lets these tests cover the case
+    that caused the risk: a file present on disk and in no commit.
+    """
+    repo = root / "hr-legacy"
+    api = repo / "apis" / "api"
     for route in routes:
+        resource, action = route.split("/")
+        (api / resource).mkdir(parents=True, exist_ok=True)
+        (api / resource / action).write_text("<?php\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture"], check=True)
+    for route in uncommitted or []:
         resource, action = route.split("/")
         (api / resource).mkdir(parents=True, exist_ok=True)
         (api / resource / action).write_text("<?php\n", encoding="utf-8")
@@ -91,8 +109,11 @@ def test_php_only_route_fails() -> None:
 
 def test_java_only_route_is_not_a_failure() -> None:
     """One-directional by design -- a Java-only route has a different owner."""
-    check("a route only Java has does not fail",
-          run(["a/list.php"], ["a/list.php", "z/extra.php"]) == 0)
+    # Changed by R-063: a route this application serves that the contract does
+    # not contain is now a failure. It used to pass, and that silence is how
+    # three routes ported from untracked files went unnoticed.
+    check("a route only Java has now fails",
+          run(["a/list.php"], ["a/list.php", "z/extra.php"]) == 1)
 
 
 def test_missing_legacy_tree_still_checks_against_the_committed_inventory() -> None:
@@ -210,3 +231,22 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def test_head_is_the_source_not_the_working_tree() -> None:
+    """A file on disk and in no commit is not a route (R-063)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        api = build_php(root, ["a/list.php"], uncommitted=["z/untracked.php"])
+        found = drift.php_routes(str(api))
+        check("a committed route is found", "/apis/api/a/list.php" in found)
+        check("an untracked route is not a route",
+              "/apis/api/z/untracked.php" not in found)
+
+
+def test_a_route_awaiting_a_baseline_decision_is_named_not_hidden() -> None:
+    """AWAITING_BASELINE keeps the gate green and says why, per entry."""
+    check("every awaiting entry carries a reason",
+          all(reason.strip() for reason in drift.AWAITING_BASELINE.values()))
+    check("and each names the risk it waits on",
+          all("R-063" in reason for reason in drift.AWAITING_BASELINE.values()))

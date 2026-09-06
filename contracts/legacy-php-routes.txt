@@ -100,7 +100,6 @@
 /apis/api/employee_docs/update.php
 /apis/api/employee_docs/upload.php
 /apis/api/employees/analyze_excel.php
-/apis/api/employees/analyze_excel_update.php
 /apis/api/employees/create.php
 /apis/api/employees/deactivate.php
 /apis/api/employees/delete.php
@@ -113,10 +112,8 @@
 /apis/api/employees/stats.php
 /apis/api/employees/template_excel.php
 /apis/api/employees/update.php
-/apis/api/employees/update_bulk.php
 /apis/api/employees/upload_photo.php
 /apis/api/faqs/list.php
-/apis/api/guide_videos/list.php
 /apis/api/hr_employees/create.php
 /apis/api/hr_employees/list.php
 /apis/api/hr_employees/update_permissions.php

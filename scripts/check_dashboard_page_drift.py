@@ -22,6 +22,7 @@ array-valued mappings, and it has been wrong in both directions.
 import argparse
 import os
 import re
+import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,21 +49,45 @@ HEADER = """\
 REWRITE = re.compile(r'^RewriteRule\s+\^([a-z][a-z0-9_]*)\\?\.php\$\s+pages/', re.M)
 
 
+def git_files(repo: str) -> list[str]:
+    """Every path under dashboard/ that HEAD contains."""
+    listing = subprocess.run(
+        ["git", "-C", repo, "ls-tree", "-r", "--name-only", "HEAD", "dashboard/"],
+        capture_output=True, text=True, check=False)
+    return listing.stdout.splitlines() if listing.returncode == 0 else []
+
+
+def git_show(repo: str, path: str) -> str:
+    blob = subprocess.run(["git", "-C", repo, "show", f"HEAD:{path}"],
+                          capture_output=True, text=True, check=False)
+    return blob.stdout if blob.returncode == 0 else ""
+
+
 def legacy_pages() -> set[str]:
-    if not os.path.isdir(DASHBOARD):
+    """Every page hr-legacy serves **at HEAD**.
+
+    Read from the commit, not the filesystem. Reading the working tree put
+    `guide_videos` -- a directory that exists in no commit -- into this
+    committed manifest, and the same mistake in the route inventory put three
+    untracked endpoints into the application (R-063). A manifest generated from
+    uncommitted files describes one machine rather than a contract.
+    """
+    repo = os.path.dirname(os.path.abspath(DASHBOARD))
+    if not os.path.isdir(os.path.join(repo, ".git")):
         return set()
+    files = git_files(repo)
+    if not files:
+        return set()
+
     pages = set()
-    if os.path.isfile(os.path.join(DASHBOARD, "index.php")):
+    if "dashboard/index.php" in files:
         pages.add("index")
-    pages_dir = os.path.join(DASHBOARD, "pages")
-    for name in os.listdir(pages_dir):
-        if os.path.isfile(os.path.join(pages_dir, name, "page.php")):
-            pages.add(name)
-    htaccess = os.path.join(DASHBOARD, ".htaccess")
-    if os.path.isfile(htaccess):
-        with open(htaccess, encoding="utf-8") as handle:
-            for name in REWRITE.findall(handle.read()):
-                pages.add(name)
+    for path in files:
+        parts = path.split("/")
+        if len(parts) == 4 and parts[1] == "pages" and parts[3] == "page.php":
+            pages.add(parts[2])
+    for name in REWRITE.findall(git_show(repo, "dashboard/.htaccess")):
+        pages.add(name)
     return pages
 
 

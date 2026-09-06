@@ -26,6 +26,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import pathlib
+import subprocess
 import sys
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
@@ -42,8 +43,16 @@ def load(dashboard: pathlib.Path, committed: pathlib.Path):
     return module
 
 
-def build(root: pathlib.Path, pages, index=True, htaccess=None, assets_only=()):
-    dashboard = root / "dashboard"
+def build(root: pathlib.Path, pages, index=True, htaccess=None, assets_only=(),
+          uncommitted=()):
+    """A fixture hr-legacy whose pages live in a commit.
+
+    The script reads HEAD rather than the filesystem (R-063), so the fixture
+    is a real repository -- which also lets these tests cover the case that
+    caused the risk: a page directory present on disk and in no commit.
+    """
+    repo = root / "hr-legacy"
+    dashboard = repo / "dashboard"
     (dashboard / "pages").mkdir(parents=True)
     if index:
         (dashboard / "index.php").write_text("<?php\n", encoding="utf-8")
@@ -55,8 +64,18 @@ def build(root: pathlib.Path, pages, index=True, htaccess=None, assets_only=()):
         directory = dashboard / "pages" / name
         directory.mkdir()
         (directory / "assets").mkdir()
+        (directory / "assets" / "style.css").write_text("/* */\n", encoding="utf-8")
     if htaccess is not None:
         (dashboard / ".htaccess").write_text(htaccess, encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture"], check=True)
+    for name in uncommitted:
+        directory = dashboard / "pages" / name
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "page.php").write_text("<?php\n", encoding="utf-8")
     return dashboard
 
 
@@ -81,8 +100,8 @@ def _(root):
 def _(root):
     dashboard = build(root, ["employees"])
     module = load(dashboard, root / "manifest.txt")
-    pages = module.legacy_pages()
-    assert "index" in pages
+    assert "index" in module.legacy_pages()
+    (root / "b").mkdir()
     dashboard2 = build(root / "b", ["employees"], index=False)
     module2 = load(dashboard2, root / "manifest.txt")
     return "index" not in module2.legacy_pages()
@@ -137,6 +156,14 @@ def _(root):
     sys.argv = ["check_dashboard_page_drift.py"]
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
         return module.main() == 0
+
+
+@case("a page directory on disk and in no commit is not a page (R-063)")
+def _(root):
+    dashboard = build(root, ["employees"], uncommitted=["guide_videos"])
+    module = load(dashboard, root / "manifest.txt")
+    pages = module.legacy_pages()
+    return "employees" in pages and "guide_videos" not in pages
 
 
 def main() -> int:

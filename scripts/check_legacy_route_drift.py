@@ -44,6 +44,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -72,19 +73,46 @@ ROUTE_IN_INVENTORY = re.compile(r'"(/apis/api/[a-z0-9_]+/[a-z0-9_]+\.php)"')
 # reason, so the list cannot quietly become a place to hide unported routes.
 EXEMPT: dict[str, str] = {}
 
+# Routes this application serves that HEAD does not contain, pending R-063.
+#
+# These were ported from files that exist only in hr-legacy's working tree, so
+# there is no committed source to diff a parity claim against. They are named
+# here rather than left to pass silently: the inventory is HEAD-derived now, so
+# without this list the gate would report them, and with an unexplained
+# exemption it would hide them. Each entry is a decision the owner still owes --
+# commit the file in hr-legacy, or withdraw the route from this application.
+AWAITING_BASELINE: dict[str, str] = {
+    "/apis/api/guide_videos/list.php":
+        "R-063: hr-legacy has apis/api/guide_videos/ untracked; no committed source.",
+    "/apis/api/employees/analyze_excel_update.php":
+        "R-063: untracked in hr-legacy; no committed source.",
+    "/apis/api/employees/update_bulk.php":
+        "R-063: untracked in hr-legacy; no committed source.",
+}
+
 
 def php_routes(api_dir: str) -> set[str]:
-    """Every `<resource>/<action>.php` under hr-legacy's apis/api."""
+    """Every `<resource>/<action>.php` hr-legacy serves **at HEAD**.
+
+    Read from the commit, not the filesystem. Reading the working tree let
+    three untracked endpoints into this committed inventory and then into the
+    application, where their parity claims cannot be re-derived from any
+    checkout -- R-063. A manifest generated from uncommitted files describes
+    one machine, not a contract.
+    """
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(api_dir)))
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        return set()
+    listing = subprocess.run(
+        ["git", "-C", repo, "ls-tree", "-r", "--name-only", "HEAD", "apis/api/"],
+        capture_output=True, text=True, check=False)
+    if listing.returncode != 0:
+        return set()
     found = set()
-    if not os.path.isdir(api_dir):
-        return found
-    for resource in sorted(os.listdir(api_dir)):
-        resource_dir = os.path.join(api_dir, resource)
-        if not os.path.isdir(resource_dir):
-            continue
-        for entry in sorted(os.listdir(resource_dir)):
-            if entry.endswith(".php"):
-                found.add(f"/apis/api/{resource}/{entry}")
+    for line in listing.stdout.splitlines():
+        parts = line.strip().split("/")
+        if len(parts) == 4 and parts[3].endswith(".php"):
+            found.add("/apis/api/" + parts[2] + "/" + parts[3])
     return found
 
 
@@ -175,6 +203,23 @@ def main() -> int:
             print(f"hr-legacy present: its {len(php)} routes match the committed inventory.")
     else:
         print("hr-legacy not checked out: comparing against the committed inventory only.")
+
+    # The direction this gate did not check, and the one R-063 slipped through:
+    # a route this application serves that the committed contract does not
+    # contain. Silence here is what let three of them ship.
+    extra = sorted(java - committed - set(AWAITING_BASELINE))
+    if extra:
+        print(f"\nFAIL: {len(extra)} route(s) this application serves that the committed "
+              "inventory does not contain:", file=sys.stderr)
+        for route in extra:
+            print(f"  {route}", file=sys.stderr)
+        print("\nCommit its source in hr-legacy and refresh, or add it to "
+              "AWAITING_BASELINE with the decision it is waiting on.", file=sys.stderr)
+        status = 1
+    elif AWAITING_BASELINE:
+        print(f"note: {len(AWAITING_BASELINE)} route(s) await a baseline decision (R-063):")
+        for route, reason in sorted(AWAITING_BASELINE.items()):
+            print(f"  {route}\n      {reason}")
 
     if status == 0:
         print("OK: every legacy route is in the Java inventory.")
