@@ -122,8 +122,7 @@ class AdminDashboardPageInventoryTest {
 	 * belong to the audience ADR-0016 and R-044 still have open.
 	 */
 	private static final Set<String> NOT_YET_PORTED = Set.of(
-			"attendance", "change_password", "company_settings", "guide_videos",
-			"payroll", "profile");
+			"change_password", "company_settings", "guide_videos", "payroll", "profile");
 
 	@Test
 	void everyServedPageIsEitherALegacyPageOrDeclaredJavaOnly() {
