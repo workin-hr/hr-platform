@@ -237,8 +237,16 @@ public class LegacyPayrollAttendanceFigures {
 		return count;
 	}
 
-	/** {@code payroll_expected_work_days()} ({@code payroll_calculation.php:214-217}). */
-	private int expectedWorkDays(long companyId, long employeeId, String from, String to) {
+	/**
+	 * {@code payroll_expected_work_days()} ({@code payroll_calculation.php:214-217}).
+	 *
+	 * <p>Public because the dashboard's attendance aggregate needs this exact
+	 * figure -- it is one of the three helpers whose behaviour is genuinely
+	 * shared with payroll. The rest of that page's arithmetic is not: see
+	 * {@code AttendanceStore.aggregate()} for what differs and why it is
+	 * deliberately not routed through {@link #attendanceDisplay}.
+	 */
+	public int expectedWorkDays(long companyId, long employeeId, String from, String to) {
 		return Math.max(0, expectedWorkDaysUntil(companyId, employeeId, from, to, to));
 	}
 

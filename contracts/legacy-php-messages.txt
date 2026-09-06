@@ -1,0 +1,835 @@
+# Every message hr-legacy's apis/lang/{en,ar}.php defines, as
+# "<locale>\t<key>\t<value>", sorted by locale then key.
+#
+# GENERATED -- refresh with:
+#   python3 scripts/check_legacy_message_drift.py --refresh
+#
+# Committed so the drift gate can run where hr-legacy is not checked out,
+# which includes CI. Without it a key PHP defines and Java does not would
+# reach the user's screen as the raw key, with every check green -- see the
+# script's own docstring for the time that happened.
+en	account_deactivated_enter_code	Your account is deactivated. Enter company code.
+en	account_not_linked_message	Your account is no longer linked to a company. Enter company code.
+en	advance_requested	Advance requested
+en	advances	Advances
+en	all_complaints	All complaints
+en	already_checked_in	Already checked in. Please check out first.
+en	already_decided	A decision has already been made on this request
+en	already_exists	Record already exists
+en	approval_timeline	Approval timeline
+en	approve_advance	Advance approved
+en	attendance_excel_analyzed	Attendance file analyzed
+en	attendance_excel_code_must_be_digits	Employee codes must be digits only (no letters).
+en	attendance_excel_date_column_invalid	The date column is invalid. Please use a date such as 26/04/2026.
+en	attendance_excel_datetime_column_invalid	The punch date/time column is invalid. Please use a date with time.
+en	attendance_excel_import_not_yet_available	Will be available on {date}.
+en	attendance_excel_must_have_four_columns	Four columns are required: employee code, date, check-in time, and check-out time.
+en	attendance_excel_must_have_two_columns	Only two columns are required: employee code, and punch date/time.
+en	attendance_excel_no_matched_employees	No matching employees found in the system — nothing to import.
+en	attendance_excel_no_valid_punch_rows	No valid punch rows were found in the file.
+en	attendance_excel_time_column_invalid	The check-in or check-out time column is invalid. Please use a time such as 08:15.
+en	attendance_method_updated	Attendance method updated
+en	attendance_punches_or_exception	Enter check-in/check-out and/or an exception type
+en	attendance_range_deleted	Deleted {count} attendance records for the selected period.
+en	attendance_record_updated	Attendance record updated
+en	attendance_records	Attendance records
+en	attendance_report	Attendance report
+en	attendance_summary	Attendance summary
+en	banner_created	Banner created
+en	banner_deleted	Banner deleted
+en	banners	Banners
+en	batch_already_finalized	Batch already finalized
+en	batch_id_required	batch_id required
+en	batch_not_finalized	Batch is not finalized
+en	batch_not_found	Batch not found
+en	batch_reopened	Batch reopened successfully
+en	branch_created	Branch created
+en	branch_deactivated	Branch deactivated
+en	branch_deleted	Branch deleted
+en	branch_has_employees_cannot_delete	Cannot delete this branch because it has employees assigned. Remove or reassign employees first.
+en	branch_id_required	branch_id required
+en	branch_location_not_configured	Your branch is not set up for mobile attendance. Contact your company to configure the branch location.
+en	branch_not_found	Branch not found
+en	branch_updated	Branch updated
+en	branches	Branches
+en	broadcast_sent	Broadcast sent
+en	bulk_leave_set	Bulk leave balance set for {count} employees
+en	can_only_cancel_pending	Can only cancel pending requests
+en	cannot_delete_approved_advance	Cannot delete an approved advance
+en	cannot_delete_employee_has_records	Cannot delete employee because there are related records
+en	cannot_delete_non_pending_advance	Cannot delete non-pending advance
+en	cannot_detect_csv_columns	Cannot detect employee id (or national id column) or check_in columns in CSV
+en	cannot_edit_non_pending_advance	Cannot edit non-pending advance
+en	check_in_recorded	Check-in recorded
+en	check_out_recorded	Check-out recorded
+en	companies	Companies
+en	company_account_deleted	Company account permanently deleted
+en	company_account_not_active	Company account is not active
+en	company_approved	Company approved
+en	company_code_invalid	Company code must be at least 5 letters or digits (English letters and numbers only)
+en	company_code_not_found	No company found with this code
+en	company_code_taken	This company code is already taken
+en	company_delete_preview	Company delete preview
+en	company_no_active_branch_for_join	This company cannot accept join requests yet because it has no active branch. Please contact the company administrator.
+en	company_not_registered	No company registered with this phone, register now
+en	company_pending_admin	Your company is pending admin approval
+en	company_profile	Company profile
+en	company_registered_verify_otp	Company registered. Verify OTP.
+en	company_registration_completed	Company profile completed. You can sign in now.
+en	company_rejected	Your company registration was rejected: {reason}
+en	company_rejected_admin	Company rejected
+en	company_related_advances	Advances
+en	company_related_assets	Assets
+en	company_related_attendance	Attendance records
+en	company_related_branches	Branches
+en	company_related_departments	Departments
+en	company_related_employees	Employees
+en	company_related_holidays	Official holidays
+en	company_related_job_titles	Job titles
+en	company_related_notifications	Notifications
+en	company_related_payroll_batches	Payroll batches
+en	company_related_payslips	Payslips
+en	company_related_penalties	Penalties
+en	company_related_requests	Requests
+en	company_related_settings	Company settings
+en	company_related_shifts	Shifts
+en	company_suspended	Your company account is suspended
+en	company_suspended_admin	Company suspended
+en	complaint_deleted	Complaint deleted
+en	complaint_submitted	Complaint submitted
+en	complaints	Complaints
+en	complete_company_profile_first	Please complete your company profile (logo, company details, and commercial register / tax card / company insurance print) before signing in.
+en	content	Content
+en	content_updated	Content updated
+en	csv_absence_cost	Absence Cost
+en	csv_absent_day	Absence
+en	csv_absent_days_count	Absent days
+en	csv_advance_deduction	Advances
+en	csv_advances_deduction	Medical Insurance
+en	csv_allowances	Allowances
+en	csv_attendance_present_day	Attendance
+en	csv_branch	Branch
+en	csv_check_in	Check-in
+en	csv_check_out	Check-out
+en	csv_contract_basic_salary	Contract Basic Salary
+en	csv_daily_basic_rate	Daily Basic Rate
+en	csv_date	Date
+en	csv_day	Day
+en	csv_days_absent	Days Absent
+en	csv_days_leave	Days Leave
+en	csv_days_present	Days Present
+en	csv_department	Department
+en	csv_effective_present_days	Effective Present Days
+en	csv_emp_code	Employee Code
+en	csv_employee_name	Employee Name
+en	csv_exception	Exception Type
+en	csv_exception_days	Exception Days
+en	csv_exception_days_count	Exception days
+en	csv_food_allowance	Food Allowance
+en	csv_fund_deduction	Funds
+en	csv_gross_salary	Gross Salary
+en	csv_hours_worked	Total work hours
+en	csv_incentives	Incentives
+en	csv_insurance_deduction	Insurance Deduction
+en	csv_job	Job
+en	csv_job_title	Job Title
+en	csv_medical_insurance	Medical Insurance
+en	csv_month_days	Salary by attendance
+en	csv_net_salary	Total Salary
+en	csv_official_holiday_days	Official Holiday Days
+en	csv_other_deductions	Other Deductions
+en	csv_overtime_hours	Overtime Hours
+en	csv_overtime_hours_display	Overtime hours
+en	csv_overtime_minutes	Overtime Minutes (+/-)
+en	csv_overtime_pay	Overtime amount
+en	csv_paid_rest_days	Calculated rest days
+en	csv_penalties	Penalties
+en	csv_penalties_total	Penalties
+en	csv_penalty_days	Penalty Days
+en	csv_risk_allowance	Risk Allowance
+en	csv_row_number	#
+en	csv_salary_by_attendance	Earned Salary
+en	csv_salary_by_paid_leave	Salary by Paid Leave
+en	csv_salary_by_work_days	Salary by Work Days
+en	csv_serial	Serial
+en	csv_tax_deduction	Tax Deduction
+en	csv_the_employee	Employee
+en	csv_total_days_in_month	Total days in month
+en	csv_total_deductions	Total Deductions
+en	csv_total_entitlements	Total Entitlements
+en	csv_total_work_minutes	Total Work Minutes
+en	csv_transport_allowance	Transport Allowance
+en	csv_void_weekly_rest_days	Unearned weekly rest (not credited)
+en	csv_working_days	Working days
+en	dashboard_stats	Dashboard stats
+en	decision_recorded	Decision recorded
+en	department_assignments_required	Select at least one department and job title assignment.
+en	department_created	Department created
+en	department_deactivated	Department deactivated
+en	department_not_found	Department not found
+en	department_updated	Department updated
+en	departments	Departments
+en	document_deleted	Document deleted
+en	document_updated	Document updated
+en	document_uploaded	Document uploaded
+en	documents	Documents
+en	employee_account_not_active	Your account is inactive. Ask HR to reactivate it from the desktop app, then sign in again.
+en	employee_branch_required	You must be assigned to a branch to record attendance from the app
+en	employee_code_already_exists	Employee code is already used in this company
+en	employee_code_invalid	Employee code must contain digits only (at least one digit)
+en	employee_create_failed	Failed to create employee: {error}
+en	employee_created	Employee created
+en	employee_deactivated	Employee deactivated
+en	employee_delete_preview	Employee delete preview
+en	employee_deleted	Employee deleted successfully
+en	employee_deleted_with_related	Employee and related records deleted successfully
+en	employee_id_required	Employee id required
+en	employee_not_branch	Employee not assigned to this branch
+en	employee_not_found	Employee not found
+en	employee_profile	Employee profile
+en	employee_reactivated	Employee reactivated
+en	employee_related_advances	Advances
+en	employee_related_attendance	Attendance records
+en	employee_related_complaints	Complaints
+en	employee_related_documents	Documents
+en	employee_related_hr_permissions	HR permissions
+en	employee_related_leave_balance	Leave balances
+en	employee_related_notifications	Notifications
+en	employee_related_payslips	Payslips
+en	employee_related_penalties	Penalties
+en	employee_related_push_tokens	Push notification tokens
+en	employee_related_requests	Requests
+en	employee_related_salary_contracts	Salary contracts
+en	employee_related_schedules	Schedule records
+en	employee_related_shift_assignments	Shift assignments
+en	employee_updated	Employee updated
+en	employees	Employees
+en	employees_excel_analyzed	Employee file analyzed
+en	employees_excel_invalid_template	File rejected: it does not match the employee template. {reason}
+en	employees_import_failed	Could not import employees
+en	employees_imported	Imported {inserted} employees
+en	employees_update_failed	Could not update employees
+en	employees_updated	Updated {updated} employees
+en	empty_file	File is empty
+en	error_with_message	Error: {message}
+en	field_required	Field '{field}' is required
+en	file_save_failed	Could not save the file on the server. Check that the uploads folder is writable by the web server.
+en	forbidden	Forbidden
+en	forbidden_insufficient_role	Forbidden — insufficient role
+en	from_to_dates_required	from and to dates required
+en	gps_coordinates_required	Location is required to record attendance. Enable GPS and try again.
+en	hr_user_created	HR user created
+en	hr_users	HR users
+en	id_required	id required
+en	imported_csv	Imported {count} records from CSV
+en	imported_xlsx	Imported {inserted} records from XLSX
+en	incorrect_password	Incorrect password
+en	insufficient_leave_balance	Insufficient leave balance
+en	insufficient_leave_deduction	Insufficient leave balance for this deduction
+en	invalid_branch_ids	Invalid or non-company branch ids
+en	invalid_branch_location	Invalid location link or coordinates. Use a full Google Maps link or valid latitude and longitude.
+en	invalid_date	Invalid date
+en	invalid_decision	Invalid decision
+en	invalid_employee	Invalid employee
+en	invalid_expired_otp	Invalid or expired OTP
+en	invalid_file_type	Invalid file type
+en	invalid_filter_value	Invalid filter value
+en	invalid_id	Invalid ID
+en	invalid_inactive_company_code	Invalid or inactive company code
+en	invalid_input	Invalid input
+en	invalid_method	Invalid method
+en	invalid_or_expired_otp	Invalid or expired OTP
+en	invalid_phone_number	Phone number is not valid for the selected country
+en	invalid_phone_password	Invalid phone or password
+en	invalid_qr	Invalid or expired QR code
+en	invalid_role	Invalid role
+en	invalid_setting_key	Invalid or unsupported setting key
+en	job_title_created	Job title created
+en	job_title_deactivated	Job title deactivated
+en	job_title_not_found	Job title not found
+en	job_title_updated	Job title updated
+en	job_titles	Job titles
+en	join_request_accepted	Join request accepted
+en	join_request_rejected	Join request rejected
+en	joined_company_wait_hr	Your join request is under review. Please wait for the company to approve it.
+en	key_required	key required
+en	latest_versions	Latest versions
+en	leave_balance	Leave balance
+en	leave_balance_adjusted	Leave balance adjusted
+en	leave_balance_set	Leave balance set
+en	leave_balances	Leave balances
+en	leave_balances_excel_analyzed	Leave balances file analyzed
+en	leave_balances_import_failed	Leave balances import failed
+en	leave_balances_imported	Leave balances saved (inserted: {inserted}, updated: {updated})
+en	leave_report	Leave report
+en	login_successful	Login successful
+en	logo_uploaded	Logo uploaded
+en	marked_as_read	Marked as read
+en	mobile_attendance_disabled	Mobile attendance is not enabled for this employee
+en	module_not_found	Module '{module}' not found. Available: {list}
+en	module_not_implemented	Module '{module}' not implemented yet
+en	multiple_accounts_same_phone	This phone is linked to multiple companies. Contact HR.
+en	my_requests	My requests
+en	my_team	My team
+en	no_file_uploaded	No file uploaded
+en	no_image	No image
+en	no_image_uploaded	No image uploaded
+en	no_open_check_in	No open check-in found
+en	not_authorized	Not authorized
+en	not_found	Not found
+en	nothing_to_update	Nothing to update
+en	notif_attendance_imported_body	{count} attendance records were imported from file.
+en	notif_attendance_imported_title	Attendance import
+en	notif_company_pending_body	Your company account is under review. You will get a response within 24 hours.
+en	notif_company_pending_title	Account under review
+en	notif_company_welcome_body	Your company account has been created successfully.
+en	notif_company_welcome_title	Welcome to WorkIn
+en	notif_employee_deactivated_body	Your company deactivated your account.
+en	notif_employee_deactivated_title	Account deactivated
+en	notif_employee_join_accepted_body	The company accepted your join request.
+en	notif_employee_join_accepted_title	Join request accepted
+en	notif_employee_left_company_body	{employee} left the company. Their account was deactivated automatically.
+en	notif_employee_left_company_title	Employee left company
+en	notif_employee_removed_body	Your record was removed from {company}.
+en	notif_employee_removed_title	Account removed
+en	notif_job_title_changed_body	Your job title was changed to: {title}.
+en	notif_job_title_changed_title	Job title updated
+en	notif_join_request_accepted_body	Your join request to {company} has been accepted. You can now use the app as an employee.
+en	notif_join_request_received_body	{employee} submitted a new join request. Review it from join requests.
+en	notif_join_request_received_title	New join request
+en	notif_join_request_rejected_body	Your join request was rejected. You can apply to another company with a new request.
+en	notif_join_request_submitted_body	Your join request was sent to {company}. The company is reviewing it and will notify you once approved.
+en	notif_join_request_submitted_title	Join request sent
+en	notif_penalty_issued_body	A penalty was recorded on {date}.
+en	notif_penalty_issued_title	New penalty
+en	notif_request_submitted_body	{employee} submitted a {type} request from {from} to {to}.
+en	notif_request_submitted_title	New employee request
+en	notif_schedule_assigned_body	A new shift/schedule was assigned to you.
+en	notif_schedule_assigned_title	Work schedule updated
+en	notif_shift_time_changed_body	Shift {shift} hours were updated to {start} - {end}.
+en	notif_shift_time_changed_title	Shift hours changed
+en	notification	Notification
+en	notification_deleted	Notification deleted
+en	notification_not_found	Notification not found
+en	notification_sent	Notification sent
+en	notifications	Notifications
+en	ok	ok
+en	old_password_incorrect	Old password is incorrect
+en	only_employees_cancel_requests	Only employees can cancel requests
+en	only_employees_request_advances	Only employees can request advances
+en	only_employees_submit_requests	Only employees can submit requests
+en	only_managers_endpoint	Only managers can use this endpoint
+en	otp_delivery_failed	We could not send the verification code right now. Please try again in a moment, or contact support if the problem continues.
+en	otp_resent	OTP resent
+en	otp_sent	OTP sent successfully
+en	otp_sent_password_reset	OTP sent for password reset
+en	otp_too_many_requests	Too many verification code requests. Please try again later.
+en	otp_verified_success	OTP verified successfully
+en	otp_verified_successfully	OTP verified successfully
+en	out_of_range	You are outside the allowed attendance zone. Distance from branch: {dist} m, allowed range: {radius} m
+en	password_changed	Password changed successfully
+en	password_min_length	Password must be at least 6 characters
+en	password_reset_success	Password reset successfully
+en	password_reset_successful	Password reset successful
+en	payment_exceeds_remaining	Payment amount exceeds remaining balance
+en	payroll_batch_created	Payroll batch created
+en	payroll_batches	Payroll batches
+en	payroll_calculated	Payroll calculated for {count} employees
+en	payroll_finalized	Payroll finalized
+en	payroll_report	Payroll report
+en	payslip	Payslip
+en	payslip_updated	Payslip updated
+en	payslips	Payslips
+en	penalties	Penalties
+en	penalties_report	Penalties report
+en	penalty_added	Penalty added
+en	penalty_deleted	Penalty deleted
+en	permissions_updated	Permissions updated
+en	phone_already_exists	Phone already exists
+en	phone_already_registered	Phone already registered
+en	phone_already_used_try_login	This phone number is already registered. Log in with your account or use a different number.
+en	phone_changed	Phone number updated successfully
+en	phone_is_company_admin_try_login	This number is registered as the company admin account. Log in as company or use a different number.
+en	phone_not_found	Phone not found
+en	phone_registered_in_company	Phone already registered in this company
+en	phone_same_as_current	This is already your current phone number. Enter a different one.
+en	photo_uploaded	Photo uploaded
+en	platform_invalid	platform must be android, ios, windows, or mac
+en	platform_not_configured	Platform '{platform}' not configured
+en	please_wait_before_resending	A verification code was already sent via WhatsApp. Wait about one minute before requesting a new code, or use the previous code if you received it.
+en	profile_updated	Profile updated
+en	push_token_registered	Push token registered
+en	qr_check_in_recorded	QR Check-in recorded
+en	qr_generated	QR generated
+en	reject_advance	Advance rejected
+en	reply_saved	Reply saved
+en	request_approved	Your request has been approved
+en	request_approved_msg	Your request ({type}) has been approved
+en	request_cancelled	Request cancelled
+en	request_detail	Request detail
+en	request_not_found	Request not found
+en	request_rejected	Your request has been rejected
+en	request_rejected_msg	Your request ({type}) has been rejected
+en	request_submitted	Request submitted
+en	request_type_created	Request type created
+en	request_type_deactivated	Request type deactivated
+en	request_type_in_use	Cannot delete this request type because employees already submitted requests of this type.
+en	request_type_not_available	Request type not available
+en	request_types	Request types
+en	requests	Requests
+en	routing_use_path_only	Use the URL path /api/{module}/{endpoint}. Do not pass "action" in the query string or form.
+en	salary_contract_saved	Salary contract saved
+en	salary_history	Salary history
+en	salary_updated	Salary updated
+en	schedule	Schedule
+en	schedule_assigned	Schedule assigned
+en	schedule_generated	Work schedule generated
+en	schedule_weekly_rest	Weekly rest
+en	session_replaced	Signed in from another device. Your session here was ended.
+en	setting_saved	Setting saved
+en	settings	Settings
+en	shift_created	Shift created
+en	shift_deleted	Shift deleted
+en	shift_end_must_be_after_start	End time must be different from start time (overnight shifts are allowed, e.g. 5:00 PM to 5:00 AM).
+en	shift_exceeds_max_hours	Shift duration cannot exceed 16 hours.
+en	shift_not_assigned	No shift is assigned to this employee
+en	shift_not_found	Shift not found
+en	shift_updated	Shift updated
+en	shifts	Shifts
+en	sms_otp_password_reset	Workin: Your password reset code is {otp}. Valid for 10 minutes.
+en	sms_otp_resend	Your verification code is ({otp})\nDo not share it with anyone
+en	sms_otp_verify	Your verification code is ({otp})\nDo not share it with anyone
+en	stats	Stats
+en	status_active	active
+en	status_company_inactive	company_inactive
+en	status_deactivated	deactivated
+en	status_not_found	not_found
+en	success	Operation successful
+en	system_banner_created	System banner created
+en	today_attendance	Today attendance
+en	token_generated	Token generated
+en	turnover_report	Turnover report
+en	type_updated	Type updated
+en	unauthorized	Unauthorized
+en	unauthorized_invalid_token	Unauthorized — invalid or expired token
+en	unauthorized_no_token	Unauthorized — no token
+en	unknown_action	Unknown action
+en	unread_count	Unread count
+en	user_not_found	User not found
+en	verify_otp_first	Please verify your OTP first
+en	version_check	Version check
+en	version_updated	Version updated
+ar	account_deactivated_enter_code	تم تعطيل حسابك. أدخل رمز الشركة.
+ar	account_not_linked_message	حسابك لم يعد مرتبطاً بشركة. أدخل رمز الشركة.
+ar	advance_requested	تم طلب السلفة
+ar	advances	السلف
+ar	all_complaints	كل الشكاوى
+ar	already_checked_in	تم تسجيل الدخول مسبقاً. سجّل الخروج أولاً.
+ar	already_decided	تم اتخاذ قرار مسبق بشأن هذا الطلب
+ar	already_exists	السجل موجود بالفعل
+ar	approval_timeline	مسار الموافقات
+ar	approve_advance	تم الموافقة علي السلفة
+ar	attendance_excel_analyzed	تم تحليل ملف البصمات
+ar	attendance_excel_code_must_be_digits	كود الموظف يجب أن يكون أرقاماً فقط بدون حروف.
+ar	attendance_excel_date_column_invalid	عمود التاريخ غير صالح. يُرجى استخدام تاريخاً مثل 26/04/2026.
+ar	attendance_excel_datetime_column_invalid	عمود تاريخ ووقت البصمة غير صالح. يُرجى استخدام تاريخاً مع الوقت.
+ar	attendance_excel_import_not_yet_available	سوف تكون متاحة يوم {date}.
+ar	attendance_excel_must_have_four_columns	المطلوب أربعة أعمدة: كود الموظف، التاريخ، وقت الحضور، ووقت الانصراف.
+ar	attendance_excel_must_have_two_columns	المطلوب عمودان فقط: كود الموظف، وتاريخ ووقت البصمة.
+ar	attendance_excel_no_matched_employees	لا يوجد موظفين مطابقين في النظام — لن يتم استيراد أي بيانات.
+ar	attendance_excel_no_valid_punch_rows	لا توجد صفوف بصمات صالحة في الملف.
+ar	attendance_excel_time_column_invalid	عمود وقت الحضور أو الانصراف غير صالح. يُرجى استخدام وقتاً مثل 08:15.
+ar	attendance_method_updated	تم تحديث طريقة الحضور
+ar	attendance_punches_or_exception	أدخل وقت الدخول/الخروج و/أو نوع الاستثناء
+ar	attendance_range_deleted	تم حذف {count} بصمة في الفترة المحددة.
+ar	attendance_record_updated	تم تحديث سجل الحضور
+ar	attendance_records	سجلات الحضور
+ar	attendance_report	تقرير الحضور
+ar	attendance_summary	ملخص الحضور
+ar	banner_created	تم إنشاء اللافتة
+ar	banner_deleted	تم حذف اللافتة
+ar	banners	اللافتات
+ar	batch_already_finalized	تم إغلاق الدفعة مسبقاً
+ar	batch_id_required	batch_id مطلوب
+ar	batch_not_finalized	الدفعة غير مغلقة
+ar	batch_not_found	الدفعة غير موجودة
+ar	batch_reopened	تم إعادة فتح الدفعة بنجاح
+ar	branch_created	تم إنشاء الفرع
+ar	branch_deactivated	تم تعطيل الفرع
+ar	branch_deleted	تم حذف الفرع
+ar	branch_has_employees_cannot_delete	لا يمكن حذف هذا الفرع لأنه يضم موظفين. احذف الموظفين أو انقلهم لفرع آخر أولاً.
+ar	branch_id_required	branch_id مطلوب
+ar	branch_location_not_configured	فرعك غير مهيأ لتسجيل الحضور. تواصل مع الشركة لإضافة موقع الفرع.
+ar	branch_not_found	الفرع غير موجود
+ar	branch_updated	تم تحديث الفرع
+ar	branches	الفروع
+ar	broadcast_sent	تم الإرسال للجميع
+ar	bulk_leave_set	تم تعيين رصيد الإجازة لـ {count} موظف
+ar	can_only_cancel_pending	يمكن إلغاء الطلبات المعلّقة فقط
+ar	cannot_delete_approved_advance	لا يمكن حذف سلفة تمت الموافقة عليها
+ar	cannot_delete_employee_has_records	لا يمكن حذف الموظف لوجود سجلات مرتبطة به
+ar	cannot_delete_non_pending_advance	لا يمكن حذف سلفة غير معلقة
+ar	cannot_detect_csv_columns	تعذّر اكتشاف عمود معرّف الموظف (id) أو check_in في CSV
+ar	cannot_edit_non_pending_advance	لا يمكن تعديل سلفة غير معلقة
+ar	check_in_recorded	تم تسجيل الدخول
+ar	check_out_recorded	تم تسجيل الخروج
+ar	companies	الشركات
+ar	company_account_deleted	تم حذف حساب الشركة نهائياً
+ar	company_account_not_active	حساب الشركة غير مفعّل
+ar	company_approved	تمت الموافقة على الشركة
+ar	company_code_invalid	كود الشركة يجب أن يكون 5 أحرف أو أرقام على الأقل (حروف إنجليزية وأرقام فقط)
+ar	company_code_not_found	لا توجد شركة بهذا الكود
+ar	company_code_taken	كود الشركة مستخدم بالفعل
+ar	company_delete_preview	معاينة حذف الشركة
+ar	company_no_active_branch_for_join	لا يمكن إرسال طلب انضمام لهذه الشركة حالياً لأنه لا يوجد فرع نشط. تواصل مع مسؤول الشركة.
+ar	company_not_registered	لم يتم تسجيل شركة بهذا الرقم، سجلها الآن
+ar	company_pending_admin	شركتك بانتظار موافقة الإدارة
+ar	company_profile	ملف الشركة
+ar	company_registered_verify_otp	تم تسجيل الشركة. أكمل التحقق برمز OTP.
+ar	company_registration_completed	تم إكمال ملف الشركة. يمكنك تسجيل الدخول الآن.
+ar	company_rejected	تم رفض تسجيل شركتك: {reason}
+ar	company_rejected_admin	تم رفض الشركة
+ar	company_related_advances	السلف
+ar	company_related_assets	الأصول
+ar	company_related_attendance	سجلات الحضور
+ar	company_related_branches	الفروع
+ar	company_related_departments	الأقسام
+ar	company_related_employees	الموظفون
+ar	company_related_holidays	الإجازات الرسمية
+ar	company_related_job_titles	المسميات الوظيفية
+ar	company_related_notifications	الإشعارات
+ar	company_related_payroll_batches	دفعات الرواتب
+ar	company_related_payslips	كشوف المرتبات
+ar	company_related_penalties	الجزاءات
+ar	company_related_requests	الطلبات
+ar	company_related_settings	إعدادات الشركة
+ar	company_related_shifts	الورديات
+ar	company_suspended	تم تعليق حساب شركتك
+ar	company_suspended_admin	تم تعليق الشركة
+ar	complaint_deleted	تم حذف الشكوى
+ar	complaint_submitted	تم إرسال الشكوى
+ar	complaints	الشكاوى
+ar	complete_company_profile_first	يرجى إكمال بيانات الشركة (الشعار وتفاصيل الشركة ومستند السجل التجاري أو البطاقة الضريبية أو برنت تأمينات الشركة) قبل تسجيل الدخول.
+ar	content	المحتوى
+ar	content_updated	تم تحديث المحتوى
+ar	csv_absence_cost	تكلفة الغياب
+ar	csv_absent_day	غياب
+ar	csv_absent_days_count	عدد أيام الغياب
+ar	csv_advance_deduction	سلف
+ar	csv_advances_deduction	تأمين طبي
+ar	csv_allowances	البدلات
+ar	csv_attendance_present_day	حضور
+ar	csv_branch	الفرع
+ar	csv_check_in	وقت الدخول
+ar	csv_check_out	وقت الخروج
+ar	csv_contract_basic_salary	الراتب الأساسي بالعقد
+ar	csv_daily_basic_rate	المعدل اليومي
+ar	csv_date	التاريخ
+ar	csv_day	اليوم
+ar	csv_days_absent	أيام الغياب
+ar	csv_days_leave	أيام الإجازة
+ar	csv_days_present	أيام الحضور
+ar	csv_department	القسم
+ar	csv_effective_present_days	أيام الحضور الفعلية
+ar	csv_emp_code	كود الموظف
+ar	csv_employee_name	اسم الموظف
+ar	csv_exception	نوع الاستثناء
+ar	csv_exception_days	أيام الاستثناء
+ar	csv_exception_days_count	عدد أيام الاستثناءات
+ar	csv_food_allowance	بدل طعام
+ar	csv_fund_deduction	صناديق
+ar	csv_gross_salary	الراتب الشامل
+ar	csv_hours_worked	إجمالي ساعات العمل
+ar	csv_incentives	حوافز
+ar	csv_insurance_deduction	خصم التأمين
+ar	csv_job	الوظيفة
+ar	csv_job_title	المسمى الوظيفي
+ar	csv_medical_insurance	تأمين طبي
+ar	csv_month_days	الراتب حسب الحضور
+ar	csv_net_salary	اجمالي المرتب
+ar	csv_official_holiday_days	أيام العطل الرسمية
+ar	csv_other_deductions	خصومات أخرى
+ar	csv_overtime_hours	ساعات إضافية
+ar	csv_overtime_hours_display	ساعات الإضافي
+ar	csv_overtime_minutes	دقائق الإضافي (+/-)
+ar	csv_overtime_pay	مبلغ الإضافي
+ar	csv_paid_rest_days	عدد أيام الراحات المحتسبة
+ar	csv_penalties	الجزاءات
+ar	csv_penalties_total	الجزاءات
+ar	csv_penalty_days	أيام الجزاءات
+ar	csv_risk_allowance	بدل مخاطر
+ar	csv_row_number	#
+ar	csv_salary_by_attendance	المرتب المستحق
+ar	csv_salary_by_paid_leave	الراتب حسب الإجازات المدفوعة
+ar	csv_salary_by_work_days	الراتب حسب أيام العمل
+ar	csv_serial	التسلسل
+ar	csv_tax_deduction	خصم الضريبة
+ar	csv_the_employee	الموظف
+ar	csv_total_days_in_month	عدد أيام الشهر
+ar	csv_total_deductions	إجمالي الخصومات
+ar	csv_total_entitlements	إجمالي المستحقات
+ar	csv_total_work_minutes	إجمالي دقائق العمل
+ar	csv_transport_allowance	بدل انتقال
+ar	csv_void_weekly_rest_days	راحات أسبوعية غير مكتسبة (غير محتسبة)
+ar	csv_working_days	عدد أيام العمل
+ar	dashboard_stats	إحصائيات لوحة التحكم
+ar	decision_recorded	تم تسجيل القرار
+ar	department_assignments_required	يجب اختيار إدارة/قسم ومسمى وظيفي واحد على الأقل.
+ar	department_created	تم إنشاء القسم
+ar	department_deactivated	تم تعطيل القسم
+ar	department_not_found	القسم غير موجود
+ar	department_updated	تم تحديث القسم
+ar	departments	الأقسام
+ar	document_deleted	تم حذف المستند
+ar	document_updated	تم تحديث المستند
+ar	document_uploaded	تم رفع المستند
+ar	documents	المستندات
+ar	employee_account_not_active	حسابك غير نشط. تواصل مع شؤون الموظفين لتفعيل الحساب من تطبيق سطح المكتب ثم سجّل الدخول مرة أخرى.
+ar	employee_branch_required	يجب ربطك بفرع لتسجيل الحضور من التطبيق
+ar	employee_code_already_exists	كود الموظف مستخدم بالفعل في هذه الشركة
+ar	employee_code_invalid	كود الموظف يجب أن يكون أرقاماً فقط (رقم واحد على الأقل)
+ar	employee_create_failed	فشل إنشاء الموظف: {error}
+ar	employee_created	تم إنشاء الموظف
+ar	employee_deactivated	تم تعطيل الموظف
+ar	employee_delete_preview	معاينة حذف الموظف
+ar	employee_deleted	تم حذف الموظف بنجاح
+ar	employee_deleted_with_related	تم حذف الموظف وجميع السجلات المرتبطة به بنجاح
+ar	employee_id_required	معرّف الموظف مطلوب
+ar	employee_not_branch	الموظف غير مرتبط بهذا الفرع
+ar	employee_not_found	الموظف غير موجود
+ar	employee_profile	ملف الموظف
+ar	employee_reactivated	تم إعادة تفعيل الموظف
+ar	employee_related_advances	السلف
+ar	employee_related_attendance	سجلات الحضور
+ar	employee_related_complaints	الشكاوى
+ar	employee_related_documents	المستندات
+ar	employee_related_hr_permissions	صلاحيات الموارد البشرية
+ar	employee_related_leave_balance	أرصدة الإجازات
+ar	employee_related_notifications	الإشعارات
+ar	employee_related_payslips	كشوف المرتبات
+ar	employee_related_penalties	الجزاءات
+ar	employee_related_push_tokens	رموز الإشعارات
+ar	employee_related_requests	الطلبات
+ar	employee_related_salary_contracts	عقود المرتب
+ar	employee_related_schedules	سجلات الجدول
+ar	employee_related_shift_assignments	تعيينات الورديات
+ar	employee_updated	تم تحديث الموظف
+ar	employees	الموظفون
+ar	employees_excel_analyzed	تم تحليل ملف الموظفين
+ar	employees_excel_invalid_template	تم رفض الملف لأنه غير مطابق لقالب الموظفين. {reason}
+ar	employees_import_failed	تعذر استيراد الموظفين
+ar	employees_imported	تم استيراد {inserted} موظف
+ar	employees_update_failed	تعذر تعديل الموظفين
+ar	employees_updated	تم تعديل {updated} موظف
+ar	empty_file	الملف فارغ
+ar	error_with_message	خطأ: {message}
+ar	field_required	الحقل '{field}' مطلوب
+ar	file_save_failed	تعذّر حفظ الملف على الخادم. تأكد أن مجلد الرفع (uploads) قابل للكتابة من قبل خادم الويب.
+ar	forbidden	غير مسموح
+ar	forbidden_insufficient_role	غير مسموح — صلاحية غير كافية
+ar	from_to_dates_required	تاريخا من وإلى مطلوبان
+ar	gps_coordinates_required	الموقع مطلوب لتسجيل الحضور. فعّل GPS وحاول مرة أخرى.
+ar	hr_user_created	تم إنشاء مستخدم الموارد البشرية
+ar	hr_users	مستخدمو الموارد البشرية
+ar	id_required	المعرف مطلوب
+ar	imported_csv	تم استيراد {count} سجل من CSV
+ar	imported_xlsx	تم استيراد {inserted} سجل من XLSX
+ar	incorrect_password	كلمة المرور غير صحيحة
+ar	insufficient_leave_balance	رصيد إجازة غير كافٍ
+ar	insufficient_leave_deduction	رصيد إجازة غير كافٍ لهذا الخصم
+ar	invalid_branch_ids	فروع غير صالحة أو غير مرتبطة بالشركة
+ar	invalid_branch_location	رابط الموقع غير صالح أو الإحداثيات خارج النطاق. استخدم رابط Google Maps كامل أو أدخل خط العرض والطول صحيحين.
+ar	invalid_date	تاريخ غير صالح
+ar	invalid_decision	قرار غير صالح
+ar	invalid_employee	موظف غير صالح
+ar	invalid_expired_otp	رمز التحقق غير صالح أو منتهي الصلاحية
+ar	invalid_file_type	نوع الملف غير صالح
+ar	invalid_filter_value	قيمة فلتر غير صالحة
+ar	invalid_id	رقم المعرف غير صالح
+ar	invalid_inactive_company_code	رمز شركة غير صالح أو غير مفعّل
+ar	invalid_input	إدخال غير صالح
+ar	invalid_method	طريقة غير صالحة
+ar	invalid_or_expired_otp	رمز OTP غير صالح أو منتهٍ
+ar	invalid_phone_number	رقم الهاتف غير صالح لهذه الدولة
+ar	invalid_phone_password	رقم الهاتف أو كلمة المرور غير صحيحة
+ar	invalid_qr	رمز QR غير صالح أو منتهٍ
+ar	invalid_role	دور غير صالح
+ar	invalid_setting_key	مفتاح الإعداد غير صالح أو غير مدعوم
+ar	job_title_created	تم إنشاء المسمى الوظيفي
+ar	job_title_deactivated	تم تعطيل المسمى الوظيفي
+ar	job_title_not_found	المسمى الوظيفي غير موجود
+ar	job_title_updated	تم تحديث المسمى الوظيفي
+ar	job_titles	المسميات الوظيفية
+ar	join_request_accepted	تم قبول طلب الانضمام
+ar	join_request_rejected	تم رفض طلب الانضمام
+ar	joined_company_wait_hr	طلب انضمامك قيد المراجعة. يرجى انتظار موافقة الشركة.
+ar	key_required	المفتاح مطلوب
+ar	latest_versions	أحدث الإصدارات
+ar	leave_balance	رصيد الإجازة
+ar	leave_balance_adjusted	تم تعديل رصيد الإجازة
+ar	leave_balance_set	تم تعيين رصيد الإجازة
+ar	leave_balances	أرصدة الإجازات
+ar	leave_balances_excel_analyzed	تم تحليل ملف أرصدة الإجازات
+ar	leave_balances_import_failed	فشل استيراد أرصدة الإجازات
+ar	leave_balances_imported	تم حفظ أرصدة الإجازات (إضافة: {inserted}، تحديث: {updated})
+ar	leave_report	تقرير الإجازات
+ar	login_successful	تم تسجيل الدخول بنجاح
+ar	logo_uploaded	تم رفع الشعار
+ar	marked_as_read	تم التعليم كمقروء
+ar	mobile_attendance_disabled	تسجيل الحضور من الموبيل غير مفعّل لهذا الموظف
+ar	module_not_found	الوحدة '{module}' غير موجودة. المتاح: {list}
+ar	module_not_implemented	الوحدة '{module}' غير مُنفَّذة بعد
+ar	multiple_accounts_same_phone	رقم الهاتف مرتبط بأكثر من شركة. تواصل مع الموارد البشرية.
+ar	my_requests	طلباتي
+ar	my_team	فريقي
+ar	no_file_uploaded	لم يُرفع ملف
+ar	no_image	لا توجد صورة
+ar	no_image_uploaded	لم تُرفع صورة
+ar	no_open_check_in	لا يوجد تسجيل دخول مفتوح
+ar	not_authorized	غير مصرح لك بالقيام بهذا الإجراء
+ar	not_found	غير موجود
+ar	nothing_to_update	لا يوجد شيء للتحديث
+ar	notif_attendance_imported_body	تم استيراد {count} سجل حضور من ملف البصمة/الإكسل.
+ar	notif_attendance_imported_title	استيراد حضور
+ar	notif_company_pending_body	حساب شركتك قيد المراجعة وسيتم الرد خلال 24 ساعة كحد أقصى.
+ar	notif_company_pending_title	الحساب قيد المراجعة
+ar	notif_company_welcome_body	تم إنشاء حساب شركتك بنجاح. نتمنى لك تجربة ممتعة.
+ar	notif_company_welcome_title	مرحباً بك في وورك إن
+ar	notif_employee_deactivated_body	قامت الشركة بإيقاف حسابك في النظام.
+ar	notif_employee_deactivated_title	تم إيقاف حسابك
+ar	notif_employee_join_accepted_body	وافقت الشركة على انضمامك. يمكنك الآن استخدام النظام.
+ar	notif_employee_join_accepted_title	تم قبول انضمامك
+ar	notif_employee_left_company_body	قام {employee} بتسجيل الخروج من الشركة. تم إيقاف حسابه تلقائياً.
+ar	notif_employee_left_company_title	موظف غادر الشركة
+ar	notif_employee_removed_body	تم حذف سجلك من شركة {company}.
+ar	notif_employee_removed_title	تم حذف حسابك
+ar	notif_job_title_changed_body	تم تغيير مسماك الوظيفي إلى: {title}.
+ar	notif_job_title_changed_title	تحديث المسمى الوظيفي
+ar	notif_join_request_accepted_body	تم قبول طلب انضمامك إلى {company}. يمكنك الآن استخدام التطبيق كموظف.
+ar	notif_join_request_received_body	قدّم {employee} طلب انضمام جديد. راجعه من طلبات الانضمام.
+ar	notif_join_request_received_title	طلب انضمام جديد
+ar	notif_join_request_rejected_body	تم رفض طلب انضمامك. يمكنك التقديم لشركة أخرى بطلب جديد.
+ar	notif_join_request_submitted_body	تم إرسال طلب انضمامك إلى {company}. الشركة تراجع الطلب حالياً وسيتم إخطارك عند الموافقة.
+ar	notif_join_request_submitted_title	تم إرسال طلب الانضمام
+ar	notif_penalty_issued_body	تم تسجيل جزاء عليك بتاريخ {date}.
+ar	notif_penalty_issued_title	جزاء جديد
+ar	notif_request_submitted_body	قدّم {employee} طلب {type} من {from} إلى {to}.
+ar	notif_request_submitted_title	طلب موظف جديد
+ar	notif_schedule_assigned_body	تم تعيين وردية/جدول عمل جديد لك. راجع جدولك.
+ar	notif_schedule_assigned_title	تحديث جدول العمل
+ar	notif_shift_time_changed_body	تم تحديث مواعيد الوردية {shift} إلى {start} - {end}.
+ar	notif_shift_time_changed_title	تغيير مواعيد الوردية
+ar	notification	إشعار
+ar	notification_deleted	تم حذف الإشعار
+ar	notification_not_found	الإشعار غير موجود
+ar	notification_sent	تم إرسال الإشعار
+ar	notifications	الإشعارات
+ar	ok	تم
+ar	old_password_incorrect	كلمة المرور القديمة غير صحيحة
+ar	only_employees_cancel_requests	الموظفون فقط يمكنهم إلغاء الطلبات
+ar	only_employees_request_advances	الموظفون فقط يمكنهم طلب السلف
+ar	only_employees_submit_requests	الموظفون فقط يمكنهم تقديم الطلبات
+ar	only_managers_endpoint	هذا المسار للمديرين فقط
+ar	otp_delivery_failed	تعذّر إرسال رمز التحقق الآن. حاول مرة أخرى بعد لحظات، وإذا استمرت المشكلة تواصل مع الدعم.
+ar	otp_resent	تم إعادة إرسال رمز OTP
+ar	otp_sent	تم إرسال رمز التحقق بنجاح
+ar	otp_sent_password_reset	تم إرسال رمز OTP لإعادة تعيين كلمة المرور
+ar	otp_too_many_requests	تم تجاوز الحد المسموح لطلبات رمز التحقق. حاول مرة أخرى لاحقًا.
+ar	otp_verified_success	تم التحقق من الرمز بنجاح
+ar	otp_verified_successfully	تم التحقق من الرمز بنجاح
+ar	out_of_range	أنت خارج نطاق الحضور المسموح. بعدك عن موقع الفرع: {dist} م، والنطاق المسموح: {radius} م
+ar	password_changed	تم تغيير كلمة المرور بنجاح
+ar	password_min_length	كلمة المرور يجب أن تكون 6 أحرف على الأقل
+ar	password_reset_success	تم إعادة تعيين كلمة المرور بنجاح
+ar	password_reset_successful	تم إعادة تعيين كلمة المرور بنجاح
+ar	payment_exceeds_remaining	مبلغ السداد يتجاوز الرصيد المتبقي
+ar	payroll_batch_created	تم إنشاء دفعة الراتب
+ar	payroll_batches	دفعات الرواتب
+ar	payroll_calculated	تم احتساب رواتب {count} موظف
+ar	payroll_finalized	تم إغلاق الرواتب
+ar	payroll_report	تقرير الرواتب
+ar	payslip	قسيمة الراتب
+ar	payslip_created	تم إنشاء قسيمة الراتب
+ar	payslip_deleted	تم حذف قسيمة الراتب
+ar	payslip_not_found	قسيمة الراتب غير موجودة
+ar	payslip_updated	تم تحديث قسيمة الراتب
+ar	payslips	قسائم الرواتب
+ar	penalties	الجزاءات
+ar	penalties_report	تقرير الجزاءات
+ar	penalty_added	تمت إضافة الجزاء
+ar	penalty_deleted	تم حذف الجزاء
+ar	permissions_updated	تم تحديث الصلاحيات
+ar	phone_already_exists	رقم الهاتف مستخدم بالفعل
+ar	phone_already_registered	رقم الهاتف مسجّل مسبقاً
+ar	phone_already_used_try_login	رقم الهاتف مسجّل مسبقاً. سجّل الدخول بحسابك أو استخدم رقم هاتف آخر.
+ar	phone_changed	تم تحديث رقم الهاتف بنجاح
+ar	phone_is_company_admin_try_login	هذا الرقم مسجّل كحساب مدير الشركة. سجّل الدخول كشركة أو استخدم رقم هاتف آخر.
+ar	phone_not_found	رقم الهاتف غير موجود
+ar	phone_registered_in_company	الهاتف مسجّل مسبقاً في هذه الشركة
+ar	phone_same_as_current	هذا هو رقم هاتفك الحالي. أدخل رقمًا جديدًا مختلفًا.
+ar	photo_uploaded	تم رفع الصورة
+ar	platform_invalid	يجب أن تكون المنصة android أو ios أو windows أو mac
+ar	platform_not_configured	المنصة '{platform}' غير مُعدّة
+ar	please_wait_before_resending	تم إرسال رمز تحقق بالفعل إلى واتساب. انتظر دقيقة تقريبًا قبل طلب رمز جديد، أو استخدم الرمز السابق إن وصلك.
+ar	profile_updated	تم تحديث الملف
+ar	push_token_registered	تم تسجيل رمز الإشعارات
+ar	qr_check_in_recorded	تم تسجيل الدخول عبر QR
+ar	qr_generated	تم إنشاء رمز QR
+ar	reject_advance	تم رفض السلفة
+ar	reply_saved	تم حفظ الرد
+ar	request_approved	تمت الموافقة على طلبك
+ar	request_approved_msg	تمت الموافقة على طلبك ({type})
+ar	request_cancelled	تم إلغاء الطلب
+ar	request_detail	تفاصيل الطلب
+ar	request_not_found	الطلب غير موجود
+ar	request_rejected	تم رفض طلبك
+ar	request_rejected_msg	تم رفض طلبك ({type})
+ar	request_submitted	تم تقديم الطلب
+ar	request_type_created	تم إنشاء نوع الطلب
+ar	request_type_deactivated	تم تعطيل نوع الطلب
+ar	request_type_in_use	لا يمكن حذف نوع الطلب لأنه مستخدم في طلبات موظفين موجودة.
+ar	request_type_not_available	نوع الطلب غير متاح
+ar	request_types	أنواع الطلبات
+ar	requests	الطلبات
+ar	routing_use_path_only	استخدم مسار الرابط ‎/api/{الوحدة}/{النقطة}‎ فقط. لا تمرّر المعامل ‎action‎ في الاستعلام أو النموذج.
+ar	salary_contract_saved	تم حفظ عقد الراتب
+ar	salary_history	سجل الرواتب
+ar	salary_updated	تم تحديث الراتب
+ar	schedule	الجدول
+ar	schedule_assigned	تم تعيين الجدول
+ar	schedule_generated	تم إنشاء جدول العمل
+ar	schedule_weekly_rest	إجازة أسبوعية
+ar	session_replaced	تم تسجيل الدخول من جهاز آخر. تم إنهاء جلستك هنا.
+ar	setting_saved	تم حفظ الإعداد
+ar	settings	الإعدادات
+ar	shift_created	تم إنشاء الوردية
+ar	shift_deleted	تم حذف الوردية
+ar	shift_end_must_be_after_start	يجب أن يختلف وقت الانتهاء عن وقت البداية (الورديات الليلية مسموحة، مثال: 5 مساءً إلى 5 صباحاً).
+ar	shift_exceeds_max_hours	مدة الوردية لا يجوز أن تتجاوز 16 ساعة.
+ar	shift_not_assigned	لا توجد وردية معيّنة لهذا الموظف
+ar	shift_not_found	الوردية غير موجودة
+ar	shift_updated	تم تحديث الوردية
+ar	shifts	الورديات
+ar	sms_otp_password_reset	Workin: رمز إعادة تعيين كلمة المرور {otp}. صالح لمدة 10 دقائق.
+ar	sms_otp_resend	رمز التحقق الخاص بك هو ({otp})\nلا تشاركه مع أي شخص
+ar	sms_otp_verify	رمز التحقق الخاص بك هو ({otp})\nلا تشاركه مع أي شخص
+ar	stats	الإحصائيات
+ar	status_active	active
+ar	status_company_inactive	company_inactive
+ar	status_deactivated	deactivated
+ar	status_not_found	not_found
+ar	success	تمت العملية بنجاح
+ar	system_banner_created	تم إنشاء لافتة النظام
+ar	today_attendance	حضور اليوم
+ar	token_generated	تم إنشاء الرمز
+ar	turnover_report	تقرير دوران الموظفين
+ar	type_updated	تم تحديث النوع
+ar	unauthorized	غير مصرّح
+ar	unauthorized_invalid_token	غير مصرّح — رمز غير صالح أو منتهٍ
+ar	unauthorized_no_token	غير مصرّح — لا يوجد رمز
+ar	unknown_action	إجراء غير معروف
+ar	unread_count	عدد غير المقروء
+ar	user_not_found	المستخدم غير موجود
+ar	verify_otp_first	يرجى التحقق من OTP أولاً
+ar	version_check	التحقق من الإصدار
+ar	version_updated	تم تحديث الإصدار

@@ -11,6 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import com.workin.legacy.payroll.LegacyPayrollFiscalSettings;
 import com.workin.legacy.LegacyJdbcValues;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.attendance.location.LegacyAttendanceLocation;
@@ -52,14 +53,18 @@ public class LegacyPhpLoginService {
 	private final PasswordEncoder passwordEncoder;
 	private final LegacyPhpJwtService jwtService;
 	private final LegacyAttendanceLocation attendanceLocation;
+	/** month_start_day / month_end_day on the returned employee row. */
+	private final LegacyPayrollFiscalSettings fiscalSettings;
 
 	public LegacyPhpLoginService(
 			DataSource legacyDataSource, PasswordEncoder passwordEncoder, LegacyPhpJwtService jwtService,
-			LegacyAttendanceLocation attendanceLocation) {
+			LegacyAttendanceLocation attendanceLocation,
+			LegacyPayrollFiscalSettings fiscalSettings) {
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 		this.passwordEncoder = passwordEncoder;
 		this.jwtService = jwtService;
 		this.attendanceLocation = attendanceLocation;
+		this.fiscalSettings = fiscalSettings;
 	}
 
 	/**
@@ -108,6 +113,7 @@ public class LegacyPhpLoginService {
 				authenticated.employeeId(), authenticated.companyId(), authenticated.role(), version);
 
 		attendanceLocation.attachBranchLocationConfiguredFlag(employee, authenticated.companyId());
+		fiscalSettings.attachCompanyFiscalMonth(employee, authenticated.companyId());
 		employee.remove("password_hash");
 		employee.remove("token_version");
 		return new LoginResult(token, employee);

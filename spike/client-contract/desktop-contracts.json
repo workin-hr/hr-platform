@@ -1,8 +1,8 @@
 {
  "client": "workin_desktop",
- "parameter_classes": 169,
- "endpoints_declared": 183,
- "endpoints_referenced": 178,
+ "parameter_classes": 172,
+ "endpoints_declared": 187,
+ "endpoints_referenced": 182,
  "declared_not_referenced": [
   "getOfficialHolidayEndpoint",
   "getWorkforcePlanningSummaryEndpoint",
@@ -967,14 +967,16 @@
   },
   {
    "method_name": "downloadEmployeesTemplateExcel",
-   "parameters_class": null,
+   "parameters_class": "DownloadEmployeesTemplateExcelParameters",
    "returns": "List<int>",
    "endpoint_const": "downloadEmployeesTemplateExcelEndpoint",
    "path": "employees/template_excel",
    "http_method": "GET",
    "multipart": false,
    "response_type": "bytes",
-   "query_keys": [],
+   "query_keys": [
+    "purpose"
+   ],
    "body_keys": [],
    "model": null
   },
@@ -982,8 +984,8 @@
    "method_name": "analyzeEmployeesExcel",
    "parameters_class": "AnalyzeEmployeesExcelParameters",
    "returns": "EmployeeExcelAnalyzeResponse",
-   "endpoint_const": "analyzeEmployeesExcelEndpoint",
-   "path": "employees/analyze_excel",
+   "endpoint_const": "analyzeEmployeesExcelUpdateEndpoint",
+   "path": "employees/analyze_excel_update",
    "http_method": "POST",
    "multipart": true,
    "response_type": "json",
@@ -997,8 +999,8 @@
    "method_name": "importEmployeesBulk",
    "parameters_class": "ImportEmployeesBulkParameters",
    "returns": "EmployeeImportBulkResponse",
-   "endpoint_const": "importEmployeesBulkEndpoint",
-   "path": "employees/import_bulk",
+   "endpoint_const": "updateEmployeesBulkEndpoint",
+   "path": "employees/update_bulk",
    "http_method": "POST",
    "multipart": false,
    "response_type": "json",
@@ -1179,7 +1181,8 @@
     "employee_id",
     "from",
     "search",
-    "to"
+    "to",
+    "type"
    ],
    "body_keys": [],
    "model": null
@@ -1195,7 +1198,8 @@
    "response_type": "json",
    "query_keys": [],
    "body_keys": [
-    "file"
+    "file",
+    "sheet_layout"
    ],
    "model": "AttendanceExcelAnalyzeResponse"
   },
@@ -1211,7 +1215,8 @@
    "query_keys": [],
    "body_keys": [
     "file",
-    "mappings"
+    "mappings",
+    "sheet_layout"
    ],
    "model": "BaseResponse"
   },
@@ -2408,6 +2413,21 @@
    "model": "BaseResponse"
   },
   {
+   "method_name": "deleteComplaint",
+   "parameters_class": "DeleteComplaintParameters",
+   "returns": "BaseResponse",
+   "endpoint_const": "deleteComplaintEndpoint",
+   "path": "complaints/delete",
+   "http_method": "DELETE",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "id"
+   ],
+   "body_keys": [],
+   "model": "BaseResponse"
+  },
+  {
    "method_name": "getBanners",
    "parameters_class": "GetBannersParameters",
    "returns": "BannersResponse",
@@ -2436,6 +2456,21 @@
    ],
    "body_keys": [],
    "model": "FaqsResponse"
+  },
+  {
+   "method_name": "getGuideVideos",
+   "parameters_class": "GetGuideVideosParameters",
+   "returns": "GuideVideosResponse",
+   "endpoint_const": "getGuideVideosEndpoint",
+   "path": "guide_videos/list",
+   "http_method": "GET",
+   "multipart": false,
+   "response_type": "json",
+   "query_keys": [
+    "platform"
+   ],
+   "body_keys": [],
+   "model": "GuideVideosResponse"
   },
   {
    "method_name": "getCompanySettings",
@@ -6632,6 +6667,47 @@
     }
    ]
   },
+  "GuideVideoModel": {
+   "file": "../../flutter-integration/workin_desktop/lib/data/models/guide_video_model.dart",
+   "fields": [
+    {
+     "field": "rawUrl",
+     "accessor": "getStringOrNull",
+     "key": "video_url",
+     "key_expr": "'video_url'",
+     "bang": false,
+     "default": null,
+     "or_else": "?? json.getStringOrNull('url')\n            ?? ''",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "id",
+     "accessor": "getIntOrDefault",
+     "key": "id",
+     "key_expr": "'id'",
+     "bang": false,
+     "default": "0",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "title",
+     "accessor": "getStringOrDefault",
+     "key": "title",
+     "key_expr": "'title'",
+     "bang": false,
+     "default": "''",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
   "HrPermissionsModel": {
    "file": "../../flutter-integration/workin_desktop/lib/data/models/hr_permissions_model.dart",
    "fields": [
@@ -7517,6 +7593,76 @@
     }
    ]
   },
+  "OverallPaidRestDetailModel": {
+   "file": "../../flutter-integration/workin_desktop/lib/data/models/overall_attendance_report_model.dart",
+   "fields": [
+    {
+     "field": "label",
+     "accessor": "getStringOrNull",
+     "key": "label",
+     "key_expr": "ApiConstants.labelKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? ''",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "value",
+     "accessor": "getIntOrNull",
+     "key": "value",
+     "key_expr": "ApiConstants.valueKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? 0",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "OverallPresentDayDetailModel": {
+   "file": "../../flutter-integration/workin_desktop/lib/data/models/overall_attendance_report_model.dart",
+   "fields": [
+    {
+     "field": "date",
+     "accessor": "getStringOrNull",
+     "key": "date",
+     "key_expr": "ApiConstants.dateKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? ''",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "dayType",
+     "accessor": "getStringOrNull",
+     "key": "day_type",
+     "key_expr": "ApiConstants.dayTypeKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? ''",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "label",
+     "accessor": "getStringOrNull",
+     "key": "label",
+     "key_expr": "ApiConstants.labelKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? ''",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
   "OverallAttendanceReportModel": {
    "file": "../../flutter-integration/workin_desktop/lib/data/models/overall_attendance_report_model.dart",
    "fields": [
@@ -7569,6 +7715,30 @@
      "guard": null
     },
     {
+     "field": "branchName",
+     "accessor": "getStringOrNull",
+     "key": "branch_name",
+     "key_expr": "ApiConstants.branchNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "departmentName",
+     "accessor": "getStringOrNull",
+     "key": "department_name",
+     "key_expr": "ApiConstants.departmentNameKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
      "field": "totalDaysInMonth",
      "accessor": "getInt",
      "key": "total_days_in_month",
@@ -7593,6 +7763,18 @@
      "guard": null
     },
     {
+     "field": "presentDetails",
+     "accessor": "getList",
+     "key": "present_details",
+     "key_expr": "ApiConstants.presentDetailsKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "OverallPresentDayDetailModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
      "field": "absentDays",
      "accessor": "getInt",
      "key": "absent_days",
@@ -7601,6 +7783,18 @@
      "default": null,
      "or_else": null,
      "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "absentDetails",
+     "accessor": "getList",
+     "key": "absent_details",
+     "key_expr": "ApiConstants.absentDetailsKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "OverallPresentDayDetailModel",
      "receiver": "json",
      "guard": null
     },
@@ -7625,6 +7819,18 @@
      "default": null,
      "or_else": null,
      "nested": "AttendanceExceptionDetailModel",
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "paidRestDetails",
+     "accessor": "getList",
+     "key": "paid_rest_details",
+     "key_expr": "ApiConstants.paidRestDetailsKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "OverallPaidRestDetailModel",
      "receiver": "json",
      "guard": null
     },
@@ -8233,6 +8439,18 @@
      "default": null,
      "or_else": null,
      "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "presentDetails",
+     "accessor": "getList",
+     "key": "present_details",
+     "key_expr": "ApiConstants.presentDetailsKey",
+     "bang": false,
+     "default": null,
+     "or_else": null,
+     "nested": "OverallPresentDayDetailModel",
      "receiver": "json",
      "guard": null
     },
@@ -10838,6 +11056,30 @@
      "guard": null
     },
     {
+     "field": "showExportFingerprintsSheet",
+     "accessor": "getBoolOrDefault",
+     "key": "show_export_fingerprints_sheet",
+     "key_expr": "ApiConstants.showExportFingerprintsSheetKey",
+     "bang": false,
+     "default": "true",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
+     "field": "showExportOverallSheet",
+     "accessor": "getBoolOrDefault",
+     "key": "show_export_overall_sheet",
+     "key_expr": "ApiConstants.showExportOverallSheetKey",
+     "bang": false,
+     "default": "true",
+     "or_else": null,
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    },
+    {
      "field": "attendanceExcelImportAvailableFrom",
      "accessor": "getStringOrNull",
      "key": "attendance_excel_import_available_from",
@@ -11217,7 +11459,7 @@
      "key": "inserted",
      "key_expr": "'inserted'",
      "bang": false,
-     "default": "0",
+     "default": "data.getIntOrDefault('updated', 0)",
      "or_else": null,
      "nested": null,
      "receiver": "data",
@@ -11339,6 +11581,31 @@
   },
   "FaqsResponse": {
    "file": "../../flutter-integration/workin_desktop/lib/data/response/faqs/faqs_response.dart",
+   "fields": [
+    {
+     "field": "baseModel",
+     "accessor": "sameObject",
+     "key": null,
+     "bang": false,
+     "nested": "BaseModel",
+     "guard": null
+    },
+    {
+     "field": "data",
+     "accessor": "getMap",
+     "key": "data",
+     "key_expr": "ApiConstants.dataKey",
+     "bang": false,
+     "default": null,
+     "or_else": "?? {}",
+     "nested": null,
+     "receiver": "json",
+     "guard": null
+    }
+   ]
+  },
+  "GuideVideosResponse": {
+   "file": "../../flutter-integration/workin_desktop/lib/data/response/guide_videos/guide_videos_response.dart",
    "fields": [
     {
      "field": "baseModel",
@@ -12608,6 +12875,7 @@
   "keyKey": "key",
   "contentKeyKey": "content_key",
   "valueKey": "value",
+  "videosKey": "videos",
   "valuesKey": "values",
   "optionsKey": "options",
   "labelKey": "label",
@@ -12660,6 +12928,7 @@
   "clearCheckOutKey": "clear_check_out",
   "clearExceptionTypeKey": "clear_exception_type",
   "mappingsKey": "mappings",
+  "sheetLayoutKey": "sheet_layout",
   "rowsKey": "rows",
   "importFormatKey": "import_format",
   "summaryKey": "summary",
@@ -12716,6 +12985,8 @@
   "websiteUrlKey": "website_url",
   "showBannersKey": "show_banners",
   "showComplianceKey": "show_compliance",
+  "showExportFingerprintsSheetKey": "show_export_fingerprints_sheet",
+  "showExportOverallSheetKey": "show_export_overall_sheet",
   "attendanceExcelImportAvailableFromKey": "attendance_excel_import_available_from",
   "supportWhatsappKey": "support_whatsapp",
   "logoUrlKey": "logo_url",
@@ -12727,6 +12998,9 @@
   "scheduleExceptionKey": "exception",
   "expectedDurationMinutesKey": "expected_duration_minutes",
   "presentDaysKey": "present_days",
+  "presentDetailsKey": "present_details",
+  "absentDetailsKey": "absent_details",
+  "dayTypeKey": "day_type",
   "absentDaysKey": "absent_days",
   "totalDaysInMonthKey": "total_days_in_month",
   "totalDurationMinutesKey": "total_duration_minutes",
@@ -12734,8 +13008,10 @@
   "exceptionDaysKey": "exception_days",
   "paidRestMinutesKey": "paid_rest_minutes",
   "paidRestDaysKey": "paid_rest_days",
+  "paidRestDetailsKey": "paid_rest_details",
   "exceptionDetailsKey": "exception_details",
   "exceptionNameKey": "exception_name",
+  "voidWeeklyRestDaysKey": "void_weekly_rest_days",
   "attendanceIdKey": "attendance_id",
   "isMissingKey": "is_missing",
   "isWeeklyRestKey": "is_weekly_rest",

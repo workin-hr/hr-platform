@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
@@ -31,6 +32,7 @@ import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.employees.LegacyEmployeeStore;
 
 /**
  * Wave 12.4, slice 8: {@code employees/import_bulk.php} over real HTTP.
@@ -49,6 +51,18 @@ class LegacyEmployeeImportBulkEndToEndTest {
 	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
 
 	private static final String IMPORT = "/apis/api/employees/import_bulk.php";
+
+	/**
+	 * Forces a failure *after* the employee insert, which no input can do any
+	 * more. Until hr-legacy 505004f the helper computed a leave year with
+	 * date('Y', strtotime($hire_date)) inside the transaction, so an
+	 * unparseable hire date failed mid-row; that block is gone, and with it the
+	 * only data-driven mid-transaction failure. The per-row transaction it
+	 * proved is still there, so the trigger moves to a spy rather than the
+	 * coverage being dropped.
+	 */
+	@org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+	private LegacyEmployeeStore storeSpy;
 
 	private static final long COMPANY_1 = 19801L;
 	private static final long COMPANY_2 = 19802L;
@@ -86,7 +100,7 @@ class LegacyEmployeeImportBulkEndToEndTest {
 		MARIADB.start();
 		try {
 			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
+			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the import_bulk fixture", ex);
@@ -312,52 +326,61 @@ class LegacyEmployeeImportBulkEndToEndTest {
 
 	@Test
 	void aRowThatFailsInTheDatabaseRollsBackOnlyItself() {
-		// An unparseable hire_date survives row_to_payload untouched, and the
-		// helper's leave-balance year comes from date('Y', strtotime($hire_date))
-		// *inside* the transaction -- so strtotime() returning false rolls this
-		// row back after its employee insert has already run. A genuine
-		// mid-transaction failure, and the one create.php answers with a 500
-		// while the batch answers with a row.
-		Map<String, Object> bad = validRow("8191", "01012350191");
-		bad.put("hire_date", "not-a-date");
+		// The failure is injected at the salary insert, which runs after the
+		// employee insert and inside the same per-row transaction.
+		// salary_basic reaches the helper as a double, so match on the number.
+		Mockito.doThrow(new org.springframework.dao.DataIntegrityViolationException("boom"))
+				.when(storeSpy).insertSalaryContract(Mockito.anyLong(),
+						Mockito.argThat(a -> a != null
+								&& a.get("basic_salary") instanceof Number n
+								&& n.doubleValue() == 7777.0d),
+						Mockito.anyString());
+		try {
+			Map<String, Object> bad = validRow("8191", "01012350191");
+			bad.put("salary_basic", "7777");
 
-		long before = employeeCount(COMPANY_1);
-		Map<String, Object> body = importRows(ADMIN_1,
-				validRow("8190", "01012350190"), bad, validRow("8192", "01012350192"));
+			long before = employeeCount(COMPANY_1);
+			Map<String, Object> body = importRows(ADMIN_1,
+					validRow("8190", "01012350190"), bad, validRow("8192", "01012350192"));
 
-		Map<String, Object> data = dataOf(body);
-		assertThat(number(data.get("inserted"))).isEqualTo(2);
-		List<Map<String, Object>> failed = failedOf(data);
-		assertThat(failed).hasSize(1);
-		assertThat(failed.get(0).get("row_index")).isEqualTo(2);
-		// Classified, never leaked: no SQL, column or index text reaches here.
-		assertThat(failed.get(0).get("errors")).isEqualTo(List.of("employee_create_failed"));
-		assertThat((String) ((List<?>) failed.get(0).get("error_messages")).get(0))
-				.isEqualTo("تعذّر إنشاء الموظف. راجع البيانات وحاول مرة أخرى")
-				.doesNotContain("hire_date").doesNotContain("strtotime").doesNotContain("SQL");
+			Map<String, Object> data = dataOf(body);
+			assertThat(number(data.get("inserted"))).isEqualTo(2);
+			List<Map<String, Object>> failed = failedOf(data);
+			assertThat(failed).hasSize(1);
+			assertThat(failed.get(0).get("row_index")).isEqualTo(2);
+			// Classified, never leaked: no SQL, column or index text reaches here.
+			assertThat(failed.get(0).get("errors")).isEqualTo(List.of("employee_create_failed"));
+			assertThat((String) ((List<?>) failed.get(0).get("error_messages")).get(0))
+					.isEqualTo("تعذّر إنشاء الموظف. راجع البيانات وحاول مرة أخرى")
+					.doesNotContain("salary").doesNotContain("boom").doesNotContain("SQL");
 
-		// Two rows committed, the failed one absent, and the batch did not roll
-		// back around it -- so there is no transaction spanning the batch.
-		assertThat(employeeCount(COMPANY_1)).isEqualTo(before + 2);
-		assertThat(countByCode(COMPANY_1, "8190")).isEqualTo(1);
-		assertThat(countByCode(COMPANY_1, "8191")).isZero();
-		assertThat(countByCode(COMPANY_1, "8192")).isEqualTo(1);
+			// Two rows committed, the failed one absent, and the batch did not
+			// roll back around it -- so there is no transaction spanning the batch.
+			assertThat(employeeCount(COMPANY_1)).isEqualTo(before + 2);
+			assertThat(countByCode(COMPANY_1, "8190")).isEqualTo(1);
+			assertThat(countByCode(COMPANY_1, "8191")).isZero();
+			assertThat(countByCode(COMPANY_1, "8192")).isEqualTo(1);
+		} finally {
+			Mockito.reset(storeSpy);
+		}
 	}
 
 	@Test
-	void aFailedRowLeavesNoSalaryLeaveOrShiftBehind() {
-		Map<String, Object> bad = validRow("8195", "01012350195");
-		bad.put("hire_date", "not-a-date");
-
-		importRows(ADMIN_1, bad);
-		assertThat(countByCode(COMPANY_1, "8195")).isZero();
-		// The whole row rolled back, so nothing downstream of the insert exists.
-		assertThat(scalar("SELECT COUNT(*) FROM salary_contracts sc"
-				+ " JOIN employees e ON e.id = sc.employee_id WHERE e.employee_code = '8195'")).isZero();
-		assertThat(scalar("SELECT COUNT(*) FROM leave_balance lb"
-				+ " JOIN employees e ON e.id = lb.employee_id WHERE e.employee_code = '8195'")).isZero();
-		assertThat(scalar("SELECT COUNT(*) FROM employee_shift_assignments a"
-				+ " JOIN employees e ON e.id = a.employee_id WHERE e.employee_code = '8195'")).isZero();
+	void aFailedRowLeavesNoSalaryOrShiftBehind() {
+		Mockito.doThrow(new org.springframework.dao.DataIntegrityViolationException("boom"))
+				.when(storeSpy).insertShiftAssignment(
+						Mockito.anyLong(), Mockito.anyLong(), Mockito.anyString());
+		try {
+			importRows(ADMIN_1, validRow("8195", "01012350195"));
+			assertThat(countByCode(COMPANY_1, "8195")).isZero();
+			// The whole row rolled back, so nothing downstream of the insert exists.
+			assertThat(scalar("SELECT COUNT(*) FROM salary_contracts sc"
+					+ " JOIN employees e ON e.id = sc.employee_id WHERE e.employee_code = '8195'")).isZero();
+			assertThat(scalar("SELECT COUNT(*) FROM employee_shift_assignments a"
+					+ " JOIN employees e ON e.id = a.employee_id WHERE e.employee_code = '8195'")).isZero();
+		} finally {
+			Mockito.reset(storeSpy);
+		}
 	}
 
 	// ------------------------------------------------------------------
@@ -365,7 +388,7 @@ class LegacyEmployeeImportBulkEndToEndTest {
 	// ------------------------------------------------------------------
 
 	@Test
-	void oneImportedRowWritesTheEmployeeSalaryLeaveAndShift() {
+	void oneImportedRowWritesTheEmployeeSalaryAndShiftButNoLeave() {
 		Map<String, Object> data = dataOf(importRows(ADMIN_1, validRow("8200", "01012350200")));
 		long employeeId = idsOf(data).get(0);
 
@@ -395,15 +418,11 @@ class LegacyEmployeeImportBulkEndToEndTest {
 		assertThat(salary.get("housing_allowance")).isEqualTo("0.00");
 		assertThat(salary.get("effective_from")).isEqualTo("2024-03-01");
 
-		// The leave balance is always written, with the helper's own defaults.
-		Map<String, Object> leave = row("SELECT * FROM leave_balance WHERE employee_id = " + employeeId);
-		assertThat(String.valueOf(leave.get("year"))).isEqualTo("2024");
-		// decimal(5,1), so the helper's 21.0 default reads back at one place.
-		assertThat(leave.get("total_days")).isEqualTo("21.0");
-		assertThat(leave.get("used_days")).isEqualTo("0.0");
-		assertThat(leave.get("period_from_month")).isEqualTo(1L);
-		assertThat(leave.get("period_to_month")).isEqualTo(12L);
-		assertThat(leave.get("monthly_cap_days")).isNull();
+		// No leave balance. The helper used to write one unconditionally at 21
+		// days for the hire date's year; hr-legacy 505004f removed that insert,
+		// so an imported employee now starts with no balance at all.
+		assertThat(scalar("SELECT COUNT(*) FROM leave_balance WHERE employee_id = " + employeeId))
+				.isZero();
 
 		Map<String, Object> assignment = row(
 				"SELECT * FROM employee_shift_assignments WHERE employee_id = " + employeeId);
@@ -413,7 +432,7 @@ class LegacyEmployeeImportBulkEndToEndTest {
 	}
 
 	@Test
-	void aRowWithNoSalaryCellsWritesNoContractButStillWritesLeave() {
+	void aRowWithNoSalaryCellsStillWritesTheContract() {
 		Map<String, Object> noSalary = validRow("8210", "01012350210");
 		noSalary.put("salary_transport", "");
 		noSalary.put("salary_insurance_deduction", "");
@@ -428,7 +447,7 @@ class LegacyEmployeeImportBulkEndToEndTest {
 		assertThat(salary.get("basic_salary")).isEqualTo("5000.00");
 		assertThat(salary.get("transport_allowance")).isEqualTo("0.00");
 		assertThat(scalar("SELECT COUNT(*) FROM leave_balance WHERE employee_id = " + employeeId))
-				.isEqualTo(1);
+				.isZero();
 	}
 
 	// ------------------------------------------------------------------

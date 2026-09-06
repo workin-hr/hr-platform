@@ -1,0 +1,92 @@
+# Trial stack: the Java backend and its own MariaDB, on one machine.
+#
+# The database seeds itself from ./seed the FIRST time it starts and never
+# again -- MariaDB's entrypoint runs /docker-entrypoint-initdb.d only when
+# the data directory is empty, and the data directory is a named volume, so
+# it survives `down` and `up` and every restart. To reseed deliberately you
+# have to remove the volume, which is the point: it cannot happen by
+# accident.
+#
+# This is a TRIAL environment, not production. The owner's PHP on Hostinger
+# remains the live system; this holds a point-in-time copy that drifts from
+# it. See README.md.
+
+services:
+  db:
+    image: mariadb:11.8
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD in .env}
+      MARIADB_DATABASE: ${DB_NAME:-workin}
+      MARIADB_USER: ${DB_USER:?set DB_USER in .env}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    # Production runs non-strict -- that is how its 24 zero-date rows came to
+    # exist. A strict server would reject data the live system holds, so the
+    # trial would fail on rows that are fine in production.
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --sql-mode=
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./seed:/docker-entrypoint-initdb.d:ro
+    # Loopback only. The app reaches the database over the compose network
+    # and needs no published port at all; this one exists so you can attach a
+    # client from the VPS itself. It is deliberately NOT 0.0.0.0 -- the
+    # Hostinger database is currently reachable from the whole internet, and
+    # this stack does not repeat that.
+    ports:
+      - "127.0.0.1:${DB_PUBLISHED_PORT:-13307}:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # Seeding a 9.7 MB dump takes a while on a small VPS, and the app must
+      # not be told the database is ready halfway through it.
+      start_period: 180s
+
+  app:
+    build:
+      context: ../..
+      dockerfile: spike/trial-stack/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: phase1-mysql
+      SERVER_PORT: 8080
+      LEGACY_DB_JDBC_URL: jdbc:mariadb://db:3306/${DB_NAME:-workin}
+      LEGACY_DB_USERNAME: ${DB_USER}
+      LEGACY_DB_PASSWORD: ${DB_PASSWORD}
+      # Must equal the PHP deployment's AppConfig::JWT_SECRET, or every token
+      # already on a user's device stops working. Compare the fingerprint the
+      # app logs at startup against PHP's -- see
+      # docs/operations/verifying-the-signing-secret.md.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      # Read eagerly by the PostgreSQL profile's properties and unused here.
+      APP_RUNTIME_DB_USERNAME: unused
+      APP_RUNTIME_DB_PASSWORD: unused
+      APP_LEGACY_UPLOADS_PATH: /app/uploads
+      APP_LEGACY_UPLOADS_URL: /uploads/
+      APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE: ${ADMIN_PHONE:-}
+      APP_PLATFORM_ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Defaults to false. Turn it on only once the PHP admin surface is
+      # unreachable (ADR-0015 prerequisite 7) -- on a trial box, whenever you
+      # want to exercise the write paths.
+      APP_PLATFORM_ADMIN_ACTIONS_ENABLED: ${ADMIN_ACTIONS_ENABLED:-false}
+      # Unset means every OTP route answers 503, which is the legacy
+      # behaviour without credentials. Leave it unset on a trial box holding
+      # real customer phone numbers: with it set, a password-reset test sends
+      # a real WhatsApp message to a real person.
+      LEGACY_WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN:-}
+      LEGACY_WHATSAPP_INSTANCE_ID: ${WHATSAPP_INSTANCE_ID:-}
+    volumes:
+      - app-uploads:/app/uploads
+    ports:
+      - "${APP_PUBLISHED_PORT:-8080}:8080"
+
+volumes:
+  db-data:
+  app-uploads:

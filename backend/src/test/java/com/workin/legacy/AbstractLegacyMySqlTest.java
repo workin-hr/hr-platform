@@ -39,7 +39,7 @@ public abstract class AbstractLegacyMySqlTest {
 		MARIADB.start();
 		try {
 			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
+			applySchema("db/phase1-mysql/phase1_extensions.sql");
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not apply the legacy schema", ex);
 		}
@@ -48,7 +48,7 @@ public abstract class AbstractLegacyMySqlTest {
 	/**
 	 * Applies one schema file's statements. Called once for the vendored,
 	 * drift-checked legacy contract and once for
-	 * {@code phase1_extensions.schema.sql} -- new Phase 1 infrastructure
+	 * {@code phase1_extensions.sql} -- new Phase 1 infrastructure
 	 * that is not part of that contract and must never be folded into the
 	 * vendored file, or {@code check_legacy_schema_drift.py} would start
 	 * comparing tables hr-legacy was never asked about.

@@ -1,0 +1,101 @@
+/* pages/banners/assets/banners.css */
+
+.banner-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+@media (max-width: 640px) {
+  .banner-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+#bannerModal .modal {
+  max-width: 720px;
+  width: calc(100% - 32px);
+}
+
+.banner-form-row--image {
+  margin-bottom: 12px;
+}
+
+.banner-form-row--image .form-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #888;
+}
+
+.banner-image-preview {
+  margin-top: 10px;
+}
+
+.banner-form-row--image .banner-image-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 140px;
+  border-radius: 8px;
+  border: 1px solid #e0ded8;
+  object-fit: contain;
+}
+
+#bannerModal .form-footer--end {
+  justify-content: flex-end;
+}
+
+.banners-table-card .table-wrap {
+  overflow-x: auto;
+}
+
+.banners-table-card .tbl {
+  min-width: 720px;
+}
+
+.banners-table__thumb {
+  display: block;
+  width: 72px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid #e0ded8;
+}
+
+.banner-phone-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.banner-phone-row select {
+  flex: 0 0 auto;
+  min-width: 120px;
+  max-width: 42%;
+  padding: 8px 10px;
+  border: 1px solid #e0ded8;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+}
+
+.banner-phone-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #e0ded8;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.banner-phone-row select:focus,
+.banner-phone-row input:focus {
+  outline: none;
+  border-color: #4a90d9;
+}
+
+.banners-table__preview {
+  width: 80px;
+}

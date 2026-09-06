@@ -63,6 +63,13 @@ maintaining a second, divergent copy of these rules — see
   per-request authorization, session invalidation and auditability, and
   adds CSRF and session-cookie hardening, which the in-process model makes
   first-class (accepted 2026-09-01)
+- `ADR-0016-full-dashboard-port-to-jte.md` — the **whole** PHP dashboard is
+  reproduced in JTE inside the backend: the same pages, the same design
+  (its stylesheets copied verbatim, its 772 labels converted), and all
+  three login audiences. Supersedes ADR-0009 Option E in scope, after the
+  owner's decision to run the VPS on Java and MySQL with no PHP turned
+  every unported capability into a permanent loss — four admin pages
+  write data no API endpoint can (accepted 2026-09-04)
 - `ADR-0013-phase1-mysql-profile-bootstrap.md` — the `phase1-mysql`
   Spring profile that points the application at legacy MySQL, inactive
   by default and guarded by an ArchUnit profile-coverage test, becoming

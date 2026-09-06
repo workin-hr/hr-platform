@@ -1,5 +1,7 @@
 package com.workin.backend.requests;
 
+import com.workin.legacy.LegacyLeavePolicy;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -15,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.workin.backend.attendance.Attendance;
 import com.workin.backend.attendance.AttendanceRepository;
 import com.workin.backend.authorization.ResourceScopeService;
-import com.workin.backend.companysettings.CompanySettingsService;
 import com.workin.backend.employees.EmployeeRepository;
 import com.workin.backend.tenancy.AuthorizationContext;
 import com.workin.backend.tenancy.TenantSessionVariable;
@@ -31,11 +32,12 @@ import com.workin.backend.tenancy.TenantSessionVariable;
  *   day attributed to the from-date's year -- the multi-year quirk is
  *   ported, not fixed.</li>
  *   <li>Insufficient balance is a 422 only when a balance row exists;
- *   a missing row passes the check and the side effect auto-creates
- *   it at the company's monthly_leave_accrual setting (21.0 when
- *   unset -- legacy's MONTHLY_LEAVE_ACCRUAL fallback, now read via
- *   CompanySettingsService.effective), possibly into negative
- *   remaining.</li>
+ *   a missing row passes the check and the side effect auto-creates it
+ *   at {@link com.workin.legacy.LegacyLeavePolicy}'s fixed annual
+ *   entitlement, possibly into negative remaining. Until hr-legacy
+ *   505004f this read the company's monthly_leave_accrual setting with
+ *   a 21.0 fallback; that setting still exists and is still editable,
+ *   but no longer decides the annual figure.</li>
  *   <li>Attendance exceptions: one row per calendar day in the range,
  *   skipping days that already hold any attendance row; rows use the
  *   new attendance convention (UTC-midnight check-in, null
@@ -52,7 +54,6 @@ public class RequestService {
 	private final LeaveBalanceRepository leaveBalanceRepository;
 	private final AttendanceRepository attendanceRepository;
 	private final EmployeeRepository employeeRepository;
-	private final CompanySettingsService companySettingsService;
 	private final ResourceScopeService resourceScopeService;
 	private final TenantSessionVariable tenantSessionVariable;
 
@@ -62,7 +63,6 @@ public class RequestService {
 			LeaveBalanceRepository leaveBalanceRepository,
 			AttendanceRepository attendanceRepository,
 			EmployeeRepository employeeRepository,
-			CompanySettingsService companySettingsService,
 			ResourceScopeService resourceScopeService,
 			TenantSessionVariable tenantSessionVariable) {
 		this.leaveRequestRepository = leaveRequestRepository;
@@ -70,7 +70,6 @@ public class RequestService {
 		this.leaveBalanceRepository = leaveBalanceRepository;
 		this.attendanceRepository = attendanceRepository;
 		this.employeeRepository = employeeRepository;
-		this.companySettingsService = companySettingsService;
 		this.resourceScopeService = resourceScopeService;
 		this.tenantSessionVariable = tenantSessionVariable;
 	}
@@ -215,9 +214,12 @@ public class RequestService {
 			return;
 		}
 		LeaveBalance created = new LeaveBalance(employeeId, companyId, year);
-		// monthly_leave_accrual with its 21.0 fallback -- the constant now
-		// lives in one place, CompanySettingsService.effective.
-		created.applySettings(companySettingsService.effective(companyId).monthlyLeaveAccrual(), null, null, null);
+		// A fixed product default since hr-legacy 505004f. It used to be the
+		// monthly_leave_accrual company setting with a 21.0 fallback; that
+		// setting still exists and is still editable, but nothing reads it for
+		// the annual entitlement any more.
+		created.applySettings(BigDecimal.valueOf(LegacyLeavePolicy.DEFAULT_ANNUAL_LEAVE_DAYS),
+				null, null, null);
 		created.addUsedDays(days);
 		leaveBalanceRepository.save(created);
 	}

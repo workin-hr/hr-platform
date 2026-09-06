@@ -187,7 +187,8 @@ public class LegacyAttendanceController {
 					messages.translate(locale, "notif_attendance_imported_title", null),
 					messages.translate(locale, "notif_attendance_imported_body",
 							Map.of("count", String.valueOf(inserted))),
-				});
+				},
+				request.getParameter("sheet_layout"));
 
 		String countText = String.valueOf(outcome.inserted());
 		return LegacyApiResponse.ok(
@@ -256,7 +257,8 @@ public class LegacyAttendanceController {
 		String locale = messages.resolveLocale(request);
 		Map<String, Object> analysis = importService.analyze(
 				context, multipartFile(request, "file"),
-				messages.translate(locale, "schedule_weekly_rest", null));
+				messages.translate(locale, "schedule_weekly_rest", null),
+				request.getParameter("sheet_layout"));
 		return LegacyApiResponse.ok(
 				messages.translate(locale, "attendance_excel_analyzed", null), analysis);
 	}

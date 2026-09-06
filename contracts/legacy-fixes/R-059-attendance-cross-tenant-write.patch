@@ -1,0 +1,110 @@
+--- a/dashboard/includes/hr_helper.php
++++ b/dashboard/includes/hr_helper.php
+@@ -62,8 +62,8 @@
+         // company_id مباشرة على الصف
+         'assets', 'complaints', 'workforce_planning', 'employees' =>
+             "SELECT `company_id` FROM `$table` WHERE id = ? LIMIT 1",
+-        // عبر الموظف
+-        'leave_balance', 'penalties', 'advances', 'requests' =>
++        // عبر الموظف — attendance ليس له company_id أصلاً (R-059)
++        'leave_balance', 'penalties', 'advances', 'requests', 'attendance' =>
+             "SELECT e.company_id
+              FROM `$table` t
+              JOIN employees e ON e.id = t.employee_id
+@@ -107,6 +107,7 @@
+         'complaints'    => 'complaints',
+         'workforce_planning' => 'workforce_planning',
+         'employees'     => 'employees',
++        'attendance'    => 'attendance',
+         default         => 'index',
+     };
+ 
+--- a/dashboard/includes/payroll_helper.php
++++ b/dashboard/includes/payroll_helper.php
+@@ -23,3 +23,40 @@
+ {
+     org_redirect($page, $companyId);
+ }
++
++/**
++ * الموظف يخص الشركة دي؟ (R-059)
++ *
++ * جدول attendance ملوش company_id: ملكيته للشركة بتيجي من employee_id وحده.
++ * يعني إدخال صف بـemployee_id جاي من الـPOST من غير فحص = كتابة على موظف
++ * شركة تانية. نفس أسلوب org_branch_belongs_to_company().
++ */
++function payroll_employee_belongs_to_company(int $employeeId, int $companyId): bool
++{
++    if ($employeeId <= 0 || $companyId <= 0) {
++        return false;
++    }
++
++    return (int) dbValue(
++        'SELECT COUNT(*) FROM employees WHERE id=? AND company_id=?',
++        [$employeeId, $companyId]
++    ) > 0;
++}
++
++/**
++ * نوع الاستثناء يخص الشركة دي؟ (R-059)
++ *
++ * exception_types ليها company_id، والـAPI بيفحصها عبر
++ * exception_type_validate_id_for_company(). الصفحة ما كانتش بتفحص.
++ */
++function payroll_exception_type_belongs_to_company(int $typeId, int $companyId): bool
++{
++    if ($typeId <= 0 || $companyId <= 0) {
++        return false;
++    }
++
++    return (int) dbValue(
++        'SELECT COUNT(*) FROM exception_types WHERE id=? AND company_id=?',
++        [$typeId, $companyId]
++    ) > 0;
++}
+--- a/dashboard/pages/attendance/page.php
++++ b/dashboard/pages/attendance/page.php
+@@ -28,7 +28,21 @@
+     $id = (int) ($_POST['id'] ?? 0);
+     $exceptionTypeId = (int) ($_POST['exception_type_id'] ?? 0) ?: null;
+ 
++    // R-059: كل إجراء هنا بياخد id أو employee_id من الـPOST. الصف نفسه
++    // ملوش company_id — ملكيته بتيجي من الموظف — فالفحص لازم يعدي على
++    // employees. delete_range كان محروس أصلاً؛ الباقي لأ.
++    hr_verify_post_row('attendance', $id, $cid);
++
++    // R-059: نوع الاستثناء بيتكتب على الصف زي أي عمود، فلازم يكون تبع نفس
++    // الشركة. الـAPI بيفحصه بـexception_type_validate_id_for_company().
++    $rowCid = $id > 0 ? (int) hr_row_company_id('attendance', $id) : 0;
++
+     if ($action === 'edit_attendance' && $id) {
++        if ($exceptionTypeId !== null
++            && !payroll_exception_type_belongs_to_company($exceptionTypeId, $rowCid)) {
++            flash(__('error_db'), 'error');
++            payroll_redirect('attendance', $cid);
++        }
+         dbUpdate('attendance', [
+             'check_in'           => $_POST['check_in'],
+             'check_out'          => $_POST['check_out'] ?: null,
+@@ -77,6 +91,21 @@
+         }
+     } elseif ($action === 'add_attendance') {
+         $addEid = (int) ($_POST['employee_id'] ?? 0);
++        // R-059: employee_id هو اللي بيحدد الشركة المالكة للصف الجديد، وجاي
++        // من الـPOST. من غير الفحص ده أي جلسة تقدر تضيف حضور على موظف شركة
++        // تانية — والحضور ده أساس حساب الرواتب.
++        $addCid = hr_is_scoped_company()
++            ? (int) (getCurrentCompanyId() ?? 0)
++            : ($cid > 0 ? $cid : (int) dbValue('SELECT company_id FROM employees WHERE id=?', [$addEid]));
++        if ($addEid && !payroll_employee_belongs_to_company($addEid, $addCid)) {
++            flash(__('error_db'), 'error');
++            payroll_redirect('attendance', $cid);
++        }
++        if ($exceptionTypeId !== null
++            && !payroll_exception_type_belongs_to_company($exceptionTypeId, $addCid)) {
++            flash(__('error_db'), 'error');
++            payroll_redirect('attendance', $cid);
++        }
+         if ($addEid) {
+             dbInsert('attendance', [
+                 'employee_id'       => $addEid,

@@ -1,0 +1,117 @@
+# The VPS: Java and MariaDB, no PHP, no rollback to it.
+#
+#   cd deploy && docker compose -f compose.prod.yaml --env-file .env.prod up -d
+#
+# The same image as local and integration. Only the profile and the injected
+# configuration differ, so production is not the first environment to run what
+# it runs.
+#
+# Every value below comes from .env.prod, which is NOT in the repository. The
+# `:?` forms make a missing one fail at `docker compose up` with the variable
+# named, rather than at 3am with a stack trace.
+
+name: workin-prod
+
+services:
+  db:
+    image: mariadb:11.8
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD in .env.prod}
+      MARIADB_DATABASE: ${DB_NAME:-workin}
+      MARIADB_USER: ${DB_USER:?set DB_USER in .env.prod}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env.prod}
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --sql-mode=
+    volumes:
+      - db-data:/var/lib/mysql
+      # NO seed directory. Production's data arrives by restoring a real dump
+      # as a deliberate, supervised step -- never by a file this compose mounts,
+      # which would run on any first start and could not be reviewed first.
+    # Loopback only. The live Hostinger database is currently reachable from the
+    # whole internet; this stack does not repeat that. Attach a client over an
+    # SSH tunnel.
+    ports:
+      - "127.0.0.1:${DB_PUBLISHED_PORT:-13306}:3306"
+    healthcheck:
+      # Over TCP, so the entrypoint's temporary --skip-networking server cannot
+      # be mistaken for the real one. Production mounts no seed, so there is no
+      # seeded table to require -- only a real connection.
+      test:
+        - CMD-SHELL
+        - >-
+          mariadb -h 127.0.0.1 -u"$$MARIADB_USER" -p"$$MARIADB_PASSWORD"
+          -e 'SELECT 1' >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 300s
+    # A database that dies mid-write on an OOM is worse than one that slows
+    # down. Sized on the VPS, not guessed here.
+    deploy:
+      resources:
+        limits:
+          memory: ${DB_MEMORY_LIMIT:-1g}
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: ${APP_IMAGE:-workin-backend:local-build}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      LEGACY_DB_JDBC_URL: jdbc:mariadb://db:3306/${DB_NAME:-workin}
+      LEGACY_DB_USERNAME: ${DB_USER}
+      LEGACY_DB_PASSWORD: ${DB_PASSWORD}
+
+      # R-024. This MUST equal the PHP deployment's AppConfig::JWT_SECRET or
+      # every token already on a user's device stops working -- and they are
+      # logged out twice, once at cutover and again when the refresh is
+      # rejected. The application logs a fingerprint of it at startup; compare
+      # that against PHP's before opening the window.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env.prod}
+
+      LEGACY_WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN:?set WHATSAPP_API_TOKEN in .env.prod}
+      LEGACY_WHATSAPP_INSTANCE_ID: ${WHATSAPP_INSTANCE_ID:?set WHATSAPP_INSTANCE_ID in .env.prod}
+
+      APP_PLATFORM_ADMIN_MFA_ENCRYPTION_KEY: ${ADMIN_MFA_KEY:?set ADMIN_MFA_KEY in .env.prod}
+      APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE: ${ADMIN_PHONE:-}
+      APP_PLATFORM_ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_PASSWORD:-}
+
+      # ADR-0015 prerequisite 7: OFF until the legacy PHP admin surface is
+      # confirmed unreachable. Turning it on earlier reopens the hole the whole
+      # MFA and step-up design exists to close, because an attacker walks around
+      # it by logging into the weaker surface instead.
+      APP_PLATFORM_ADMIN_ACTIONS_ENABLED: ${ADMIN_ACTIONS_ENABLED:-false}
+
+      APP_LEGACY_UPLOADS_PATH: /app/uploads
+      APP_LEGACY_UPLOADS_URL: ${UPLOADS_URL:-/uploads/}
+    volumes:
+      # Employee documents and company logos the legacy PHP wrote and the
+      # clients still fetch. A named volume, so a redeploy does not take them.
+      - app-uploads:/app/uploads
+    # Loopback only: TLS terminates at a reverse proxy on the host. The prod
+    # profile sets server.forward-headers-strategy=native, which TRUSTS
+    # forwarded headers -- and that is only safe because the proxy is the sole
+    # route to this port. R-049 (the per-IP OTP cap is keyed on a spoofable
+    # header) stays open; this binding is what keeps it unreachable from the
+    # internet meanwhile.
+    ports:
+      - "127.0.0.1:${APP_PUBLISHED_PORT:-8080}:8080"
+    deploy:
+      resources:
+        limits:
+          memory: ${APP_MEMORY_LIMIT:-1g}
+    # The JVM reads this as its heap ceiling via MaxRAMPercentage in the
+    # Dockerfile, so the limit above actually bounds the heap.
+    stop_grace_period: 40s
+
+volumes:
+  db-data:
+  app-uploads:

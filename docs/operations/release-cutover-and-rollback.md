@@ -52,7 +52,7 @@ what keeps the mapping honest instead.
 > this purpose — but the citation was wrong and is corrected here.
 
 **What is not true.** Phase 1 adds exactly one table to the legacy database:
-**`legacy_refresh_tokens`** (`backend/src/test/resources/legacy/phase1_extensions.schema.sql`),
+**`legacy_refresh_tokens`** (`backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql`),
 which does **not** exist in production legacy MySQL. It is new infrastructure
 this application owns, authorised as a deliberate, narrow exception by **D-043
 amendment 3** — narrow enough that D-050/D-051 later declined to spend a second
@@ -64,7 +64,7 @@ Questions record that how `legacy_refresh_tokens` gets created against a real,
 non-test MariaDB instance is undecided, and `LegacyPersistenceConfig` says a
 persistent instance *"needs its own, separately-approved provisioning mechanism
 first."* Today the table exists only where a test container applies
-`phase1_extensions.schema.sql` out-of-band.
+`phase1_extensions.sql` out-of-band.
 
 **Rollback treatment.** The change is purely additive and PHP has no reference
 to the table anywhere, so a rollback does not need to reverse it: the table is
@@ -215,7 +215,7 @@ against a live employee to test a table would disable that person's account and
 send their employer a departure notice. Use this instead, in order:
 
 1. **On the cutover database, read-only:** `SHOW CREATE TABLE legacy_refresh_tokens`.
-   Confirm it exists and its shape matches `phase1_extensions.schema.sql` —
+   Confirm it exists and its shape matches `phase1_extensions.sql` —
    columns, the `token_hash` unique key, the status check constraint, both
    indexes. This is the only step that touches production, and it mutates
    nothing.
@@ -341,123 +341,166 @@ it is how a cheap rollback stops being attempted.
 
 ## Cutover Step
 
-Record the release as an ordered sequence of concrete steps. Each step should
-be specific enough that a reviewer can see what happens before customer
-traffic is affected, while customer traffic is affected, and after the release
-is considered live.
+*Filled 2026-09-04, replacing the template that stood here — the absence
+of this section is half of **R-025**, which observes that every token
+check can pass while the rollback is impossible because there is nothing
+to roll back to.*
 
-For each step, capture:
+Two facts shape the whole sequence. **The database is shared and
+unchanged**: both stacks read and write the same MariaDB, so there is no
+data migration, no backfill, and no dual-write window. And **clients do
+not change** (**D-111**): the Flutter apps keep calling `/apis/**` with
+the tokens they already hold. The cutover is therefore one action —
+moving traffic from PHP to the jar — wrapped in checks.
 
-- step name
-- purpose
-- preconditions
-- execution owner
-- expected outcome
-- whether the step is reversible
-- evidence or validation check that confirms success
+### Unknowns that must be filled before this is executable
 
-Typical step classes include:
+Three facts are not recorded anywhere in this repository and cannot be
+invented here. Fill them in during the rehearsal, in this table:
 
-- pre-release verification
-- maintenance-window entry, if one exists
-- deployment or rollout action
-- configuration or feature-toggle change
-- migration or compatibility action
-- smoke validation
-- customer or stakeholder notification
-- maintenance-window exit
+| Fact | Why the procedure needs it | Value |
+|---|---|---|
+| How the jar is deployed and restarted | Steps 5 and 9, and the rollback's time cost | *(unfilled)* |
+| What routes traffic to PHP today, and the exact command that reverses it | Step 8 **is** this, and the rollback is its inverse | *(unfilled)* |
+| Whether PHP keeps running alongside or is stopped | Decides whether rollback is a routing change (seconds) or a redeploy (minutes to hours) | *(unfilled)* |
+
+The third is the one that matters most and is cheapest to get right:
+**leave PHP running and untouched**. Phase 1's accepted risk profile
+rests on a rollback that is a routing change. Stopping PHP at cutover
+converts it into a redeploy of an artifact nobody has deployed in months,
+which is precisely the failure R-025 describes.
+
+### The sequence
+
+| # | Step | Reversible | Confirms |
+|---|---|---|---|
+| 1 | Provision the Phase 1 tables | Yes — `DROP TABLE` | `docs/operations/provisioning-phase1-tables.md`; then the startup check logs *all 10 owned tables are present* |
+| 2 | Confirm runtime grants on the new tables | n/a | The application's own principal can write, not just the operator who created them (see "Required pre-cutover verification" above) |
+| 3 | Compare signing-secret fingerprints | n/a | `docs/operations/verifying-the-signing-secret.md`. **Unequal means stop** |
+| 4 | Provision the WhatsApp credentials and send one real OTP | Yes — remove the config | **R-015**. Startup logs *WhatsApp OTP delivery is configured*, and one real send arrives. A 503 here is indistinguishable to a user from the platform being down |
+| 5 | Deploy the jar **without routing traffic to it** | Yes — stop it | It starts, the schema check is clean, the fingerprint matches step 3 |
+| 6 | Token exchange in both directions | n/a | A Java-minted token is accepted by PHP and vice versa (**R-024**) |
+| 7 | Smoke the jar directly, not through the routing layer | n/a | `docs/operations/production-smoke-and-post-deployment-validation.md` |
+| 8 | **Move traffic to the jar** | Yes — this is the rollback | Customer traffic is now served by Java |
+| 9 | Smoke again through the real path | n/a | The same checks, now through whatever step 8 changed |
+| 10 | Watch | n/a | See "Rollback Trigger" |
+
+Steps 1–7 touch no customer traffic. Step 8 is the only customer-visible
+moment, and it is a routing change — not a deploy, not a migration, not a
+restart.
+
+### The point of no easy return
+
+There is **no** irreversible step in this sequence, which is unusual and
+worth stating plainly, because the instinct to treat a cutover as
+one-way is what makes people hesitate to reverse it.
+
+- The tables are additive and PHP references none of them. After a
+  rollback they sit orphaned and harmless, and leaving them means a
+  second attempt needs no DDL.
+- Every row Java writes to a legacy table is legacy-shaped — that is what
+  the entire parity programme established — so PHP reads its own data
+  back unchanged.
+- Sessions survive in both directions **provided step 3 passed**. That
+  condition is the whole reason step 3 precedes step 8.
+
+The one class of action that is not reversible is a **platform-admin
+company action** — approving or rejecting a company writes a status a
+rollback does not undo. Those are behind `app.platform-admin.actions.enabled`,
+which defaults to false, and ADR-0015 prerequisite 7 keeps them off until
+the PHP admin surface is disabled. Do not enable them during a cutover
+window.
 
 ## Sequence / Dependencies
 
-Document dependencies between steps rather than assuming they are obvious.
-
-At minimum, identify:
-
-- which steps must finish before the next may start
-- which steps require human approval before continuing
-- which systems, environments, or teams the release depends on
-- which checks must pass before customer traffic or production data is exposed
-- which steps can safely pause and which create a point of no easy return
-
-If there is a point after which rollback becomes materially harder, mark it
-explicitly.
+- **1 → 5.** The jar starts without the tables but the schema check
+  reports them missing; deploying first means reading an alarming log for
+  a gap you already planned to close.
+- **3 → 8.** Hard gate. Moving traffic on a mismatched secret logs out
+  every user, and rolling back logs them out again.
+- **4 → 8.** Soft gate, and a judgement call: without it every OTP route
+  answers 503, so registration, password reset and phone change are dead
+  while login still works. If cutover proceeds without it, say so
+  deliberately rather than discovering it.
+- **6 → 8.** The fingerprint proves the values match; the exchange proves
+  both stacks use them the same way.
+- **7 → 8.** Smoking after the traffic move confuses "the build is
+  broken" with "the routing is wrong". Smoke the jar first, directly.
+- **Human approval before step 8.** Everything before it is preparation
+  and individually reversible; step 8 is the release.
 
 ## Rollback Trigger
 
-Define the conditions that force a stop, rollback, or human re-evaluation.
-Triggers should be observable and should not rely on vague judgment alone.
+Roll back — reverse step 8 — on any of:
 
-Examples of valid trigger types:
+| Trigger | Observed as |
+|---|---|
+| Authentication failing broadly | A rise in 401s across clients, or reports of users logged out |
+| Any smoke check in step 9 failing | The check's own pass condition |
+| An `/apis/**` route answering differently than PHP did | Client error reports; a 500 where PHP returned a domain error |
+| Error rate or latency clearly worse than the PHP baseline | `docs/operations/monitoring-and-alerting.md` |
+| `otp_delivery_failed` in the logs | R-015 — the credentials are wrong or missing |
+| A missing-table error from any route | R-023 — step 1 was incomplete |
 
-- smoke test failure
-- migration validation failure
-- elevated error rate or failed health check
-- contract incompatibility observed by a consumer or Flutter client
-- missing or incorrect customer communication
-- monitoring or alert-routing gap discovered during rollout
-- inability to complete a required release step within the approved window
-
-For each trigger, capture:
-
-- trigger condition
-- who is allowed to declare it
-- whether rollout pauses or immediately rolls back
-- what evidence confirms the trigger was real
+**Do not debug in front of customer traffic.** Reversing step 8 costs
+seconds if PHP is still running, and the jar's logs remain readable
+afterwards. The one case where rolling back does *not* help is a signing
+secret mismatch discovered after step 8: the forced logout has already
+happened and rolling back repeats it. That case is a forward-fix decision
+plus a customer communication.
 
 ## Rollback Procedure
 
-The rollback procedure should describe how the release returns to a safe
-state, not merely state that rollback is possible.
+1. Reverse step 8. Traffic returns to PHP.
+2. Confirm PHP is serving: run the same smoke checks against it.
+3. Leave the Phase 1 tables in place. They are inert under PHP, and
+   dropping them only makes a second attempt more expensive.
+4. Leave the jar running but unrouted if you can — its logs are the
+   evidence for what went wrong.
+5. Record what triggered it here, and in `docs/operations/incident-response.md`
+   if customers were affected.
 
-For each rollback path, capture:
+**Time-box the rolled-back state.** PHP carries three cross-tenant defects
+Java does not — **R-037** (one company can create, approve, reject,
+part-pay and delete another company's advances), **R-036** and **R-039**.
+Java scopes all of them. So the cutover closes a live vulnerability and a
+rollback re-opens it. This does **not** change the rollback decision: an
+unavailable platform is worse than an authorization defect that has been
+live for years, and hesitating here is how a bad release stays live. It
+does mean the rolled-back state has a cost that accrues, so fix forward
+on a schedule rather than settling back into PHP indefinitely.
 
-- initiating trigger
-- rollback owner
-- rollback steps in order
-- whether data rollback is required, prohibited, or not yet discovered
-- validation steps proving the rollback succeeded
-- follow-up communication required after rollback
-
-If a full rollback is not possible, say so plainly and describe the fallback
-containment plan instead.
+**This procedure is not verified.** No rehearsal has been performed —
+that is exactly what **R-025** records. Its first execution must be
+against a non-production environment, not a real cutover.
 
 ## Owner
 
-Record the responsible human roles for:
-
-- release owner
-- execution owner for each cutover step
-- rollback decision-maker
-- operations owner
-- communication owner
-- migration owner, if database-affecting work is involved
-
-Agents may prepare this plan, but only humans may approve and execute the
-final cutover decision.
+Repository owner, for every step. Steps 1, 3 and 4 need production
+credentials and access that only the owner holds; step 8 is the release
+decision.
 
 ## Evidence
 
-Link the artifacts that justify and validate the plan. Relevant evidence may
-include:
+| Step | Evidence it produces |
+|---|---|
+| 1 | The provisioning query's output before and after; the startup check's *all 10 owned tables are present* |
+| 3 | Two fingerprints, recorded as equal — the values themselves, never the secrets |
+| 4 | One delivered OTP message |
+| 5 | Startup log: schema check clean, fingerprint matching, WhatsApp configured |
+| 6 | Two accepted tokens, one per direction |
+| 7, 9 | The smoke checklist's results |
+| 8 | The timestamp traffic moved |
 
-- release-readiness review
-- test results
-- migration validation queries or dry-run results
-- smoke-test checklist
-- monitoring and alert-routing definition
-- customer communication draft
-- change request or approved specification
-- risk acceptance record for any residual risk
-
-If no evidence exists yet, leave the section incomplete rather than inserting
-fictional examples.
+Attach these to the release-readiness packet
+(`docs/operations/release-readiness.md`). The go/no-go decision is a
+human one and is recorded there, not here.
 
 ## Open Questions
 
-- Which release types require a maintenance window versus live rollout?
-- Which changes are safely reversible, and which require forward-fix-only
-  handling?
-- What is the latest safe decision point for aborting before customer impact?
-- Which rollback steps depend on data-migration behavior that Discovery has
-  not yet evidenced?
-- Which human roles must be present during a high-risk cutover?
+1. The three unknowns in the table above.
+2. Whether the rollback rehearsal (**R-025**) happens on a dedicated
+   environment or a restored copy. There is no non-production environment
+   recorded in this repository — that gap is itself part of the risk.
+3. Whether cutover proceeds before **R-015** is closed, accepting that
+   registration and password reset are dead until it is.

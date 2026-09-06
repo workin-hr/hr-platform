@@ -91,7 +91,7 @@ class LegacyAttendanceImportEndToEndTest {
 		MARIADB.start();
 		try {
 			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
+			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the import fixture", ex);
@@ -733,22 +733,29 @@ class LegacyAttendanceImportEndToEndTest {
 	}
 
 	/**
-	 * An encrypted workbook is the <em>two-column</em> failure, not the
-	 * unreadable-file one.
+	 * An encrypted workbook is the <em>unsupported-format</em> failure.
 	 *
-	 * <p>That is measured, and it is not the shape one would guess.
-	 * {@code SimpleXLS} abandons the globals substream on {@code FILEPASS} but
-	 * never records an error, so {@code parseFile()} still reports success and
-	 * {@code rows()} simply finds no sheet. An empty sheet has no columns, and
-	 * the punch-log resolver rejects that with its own message key long before
-	 * anything decides the file was unreadable.
+	 * <p>{@code SimpleXLS} abandons the globals substream on {@code FILEPASS}
+	 * but never records an error, so {@code parseFile()} still reports success
+	 * and {@code rows()} simply finds no sheet. The XLS branch of
+	 * {@code load_rows()} then labels that no-row load {@code punch_log},
+	 * because an empty key list detects as {@code unknown} and the branch
+	 * rewrites {@code unknown} to {@code punch_log}.
+	 *
+	 * <p>It used to reach the punch-column resolver in that state and come back
+	 * as the two-column message -- measured, and not the shape one would guess.
+	 * {@code prepare_records()} now settles emptiness before any layout branch
+	 * runs, on the rows rather than on the label, so a load with no rows is
+	 * {@code empty} whatever the header scan concluded. That is the more
+	 * honest answer for a file nothing could be read out of, and it is the
+	 * change this expectation tracks.
 	 */
 	@Test
 	void anEncryptedWorkbookFailsAsAnEmptySheet() {
 		Map<String, Object> body = post(ADMIN_1, "locked.xls", fixture("encrypted.xls"), null, 400);
 
 		assertThat(body.get("message"))
-				.isEqualTo("Only two columns are required: employee code, and punch date/time.");
+				.isEqualTo("Cannot detect employee id (or national id column) or check_in columns in CSV");
 		// The key is absent, not present and null. `fail($key, 400)` passes no
 		// $data at all, and D-074's envelope omits the key rather than sending
 		// `"data": null` -- which `get("data") == null` would not have caught.
@@ -795,6 +802,81 @@ class LegacyAttendanceImportEndToEndTest {
 	// ------------------------------------------------------------------
 
 	/** Two employees, three punches: a full day for one, a lone punch for the other. */
+	/**
+	 * The import honours {@code sheet_layout} exactly as the preview did, so a
+	 * four-column daily sheet an operator was shown a preview of is the sheet
+	 * that gets written.
+	 */
+	@Test
+	void fourColumnsImportsADailySheetDetectionWouldRefuse() {
+		byte[] sheet = csv("code,date,in,out",
+				EMPLOYEE_1 + ",26/04/2026,08:03,17:11",
+				EMPLOYEE_2 + ",26/04/2026,09:00,");
+
+		// Without the field the same bytes are an unrecognised sheet.
+		assertThat(post(ADMIN_1, "daily.csv", sheet, null, 400).get("message"))
+				.isEqualTo("Cannot detect employee id (or national id column) or check_in columns in CSV");
+		assertThat(query("SELECT id FROM attendance")).isEmpty();
+
+		Map<String, Object> body = post(ADMIN_1, "daily.csv", sheet, null, "four_columns", 200);
+		assertThat(number(dataOf(body).get("inserted"))).isEqualTo(2L);
+
+		List<Map<String, Object>> rows = query(
+				"SELECT employee_id, check_in, check_out, method FROM attendance ORDER BY employee_id");
+		assertThat(rows).hasSize(2);
+		assertThat(timestamp(rows.get(0).get("check_in"))).isEqualTo("2026-04-26 08:03:00");
+		assertThat(timestamp(rows.get(0).get("check_out"))).isEqualTo("2026-04-26 17:11:00");
+		assertThat(rows.get(0).get("method")).isEqualTo("excel");
+		// The out-less row is imported as a check-in with no check-out.
+		assertThat(timestamp(rows.get(1).get("check_in"))).isEqualTo("2026-04-26 09:00:00");
+		assertThat(rows.get(1).get("check_out")).isNull();
+	}
+
+	@Test
+	void anOvernightDailyRowIsWrittenAcrossTheMidnight() {
+		Map<String, Object> body = post(ADMIN_1, "daily.csv",
+				csv("code,date,in,out", EMPLOYEE_1 + ",26/04/2026,22:00,06:30"),
+				null, "four_columns", 200);
+		assertThat(number(dataOf(body).get("inserted"))).isEqualTo(1L);
+
+		List<Map<String, Object>> rows = query("SELECT check_in, check_out FROM attendance");
+		assertThat(timestamp(rows.get(0).get("check_in"))).isEqualTo("2026-04-26 22:00:00");
+		assertThat(timestamp(rows.get(0).get("check_out"))).isEqualTo("2026-04-27 06:30:00");
+	}
+
+	@Test
+	void aDailySheetFailureRollsBackEverythingBeforeIt() {
+		// Row 1 is importable, row 2's code is not digits -- and the code check
+		// is raised from the column resolver, before any insert. Nothing is
+		// written, which is the transaction boundary the endpoint promises.
+		assertThat(post(ADMIN_1, "daily.csv", csv("code,date,in,out",
+				EMPLOYEE_1 + ",26/04/2026,08:03,17:11",
+				"A12,26/04/2026,09:00,17:00"), null, "four_columns", 400).get("message"))
+				.isEqualTo("Employee codes must be digits only (no letters).");
+		assertThat(query("SELECT id FROM attendance")).isEmpty();
+	}
+
+	@Test
+	void aDeclaredLayoutIsIgnoredOnAnEmptyFile() {
+		assertThat(post(ADMIN_1, "daily.csv", csv("code,date,in,out"), null, "four_columns", 400)
+				.get("message"))
+				.isEqualTo("Cannot detect employee id (or national id column) or check_in columns in CSV");
+		assertThat(query("SELECT id FROM attendance")).isEmpty();
+	}
+
+	@Test
+	void twoColumnsImportsThePunchLogTheSameWayAutoDetectionDoes() {
+		Map<String, Object> body = post(ADMIN_1, "punch.csv", punchCsv(), null, "punch_log", 200);
+		assertThat(number(dataOf(body).get("inserted"))).isEqualTo(2L);
+		assertThat(query("SELECT id FROM attendance")).hasSize(2);
+	}
+
+	@Test
+	void anUnknownLayoutValueFallsBackToDetectionRatherThanFailing() {
+		Map<String, Object> body = post(ADMIN_1, "punch.csv", punchCsv(), null, "sideways", 200);
+		assertThat(number(dataOf(body).get("inserted"))).isEqualTo(2L);
+	}
+
 	private static byte[] punchCsv() {
 		return csv("code,datetime",
 				EMPLOYEE_1 + ",26/04/2026 08:03",
@@ -909,6 +991,13 @@ class LegacyAttendanceImportEndToEndTest {
 
 	private Map<String, Object> post(
 			long employeeId, String filename, byte[] content, String mappings, int expectedStatus) {
+		return post(employeeId, filename, content, mappings, null, expectedStatus);
+	}
+
+	/** The same upload with a {@code sheet_layout} field beside the file. */
+	private Map<String, Object> post(
+			long employeeId, String filename, byte[] content, String mappings, String sheetLayout,
+			int expectedStatus) {
 		MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
 		ByteArrayResource file = new ByteArrayResource(content) {
 			@Override
@@ -919,6 +1008,9 @@ class LegacyAttendanceImportEndToEndTest {
 		parts.add("file", file);
 		if (mappings != null) {
 			parts.add("mappings", mappings);
+		}
+		if (sheetLayout != null) {
+			parts.add("sheet_layout", sheetLayout);
 		}
 		return send(employeeId, parts, expectedStatus);
 	}

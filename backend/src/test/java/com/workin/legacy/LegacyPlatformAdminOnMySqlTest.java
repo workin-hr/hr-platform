@@ -74,7 +74,7 @@ class LegacyPlatformAdminOnMySqlTest {
 		MARIADB.start();
 		try {
 			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
+			applySchema("db/phase1-mysql/phase1_extensions.sql");
 		}
 		catch (Exception ex) {
 			throw new IllegalStateException("could not apply the legacy schema", ex);

@@ -69,7 +69,6 @@ public class PlatformAdminWebController {
 	public String home(@AuthenticationPrincipal PlatformAdminWebPrincipal principal, Model model,
 			HttpServletRequest request) {
 		csrf(model, request);
-		model.addAttribute("currentAdminPhone", principal.phone());
 		model.addAttribute("factorBound", principal.factorBound());
 		return "admin/home";
 	}

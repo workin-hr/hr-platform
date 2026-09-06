@@ -11,3 +11,13 @@
 /.agents/ @workin-hr/platform-owners
 /.specify/ @workin-hr/platform-owners
 /backend/ @workin-hr/platform-owners
+
+# The container stack: the image every developer runs and production ships.
+# A change here alters what is built and what config reaches a live process,
+# so it gets owner review like the code it packages.
+/deploy/ @workin-hr/platform-owners
+
+# The generated inventories the two hr-legacy drift gates compare against.
+# A change here is a claim that PHP changed, so it needs the same review as
+# the code that has to match it.
+/contracts/ @workin-hr/platform-owners @workin-hr/qa

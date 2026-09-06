@@ -75,7 +75,7 @@ class LegacyEmployeeImportPostCommitTest {
 		MARIADB.start();
 		try {
 			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
+			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the post-commit fixture", ex);
@@ -115,8 +115,10 @@ class LegacyEmployeeImportPostCommitTest {
 		assertThat(employeeId).isPositive();
 		assertThat(scalar("SELECT COUNT(*) FROM salary_contracts WHERE employee_id = " + employeeId))
 				.isEqualTo(1);
+		// No leave balance: 505004f removed that insert, so it is no longer
+		// among the writes the committed transaction leaves behind.
 		assertThat(scalar("SELECT COUNT(*) FROM leave_balance WHERE employee_id = " + employeeId))
-				.isEqualTo(1);
+				.isZero();
 		assertThat(scalar("SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = " + employeeId))
 				.isEqualTo(1);
 

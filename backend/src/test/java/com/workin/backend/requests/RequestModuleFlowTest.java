@@ -2,6 +2,8 @@ package com.workin.backend.requests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workin.legacy.LegacyLeavePolicy;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -41,7 +43,7 @@ import com.workin.backend.identity.RegisterCompanyRequest;
  * read in full at the pinned Discovery commit and ported exactly:
  * inclusive day count attributed to the from-date's year; 422
  * insufficient-balance only when a balance row exists; a missing row
- * auto-creates at the 21.0-day fallback -- possibly into negative
+ * auto-creates at the fixed annual entitlement -- possibly into negative
  * remaining (quirk locked in below); per-day attendance-exception
  * rows that skip days already holding any attendance row, normalized
  * to the new midnight/method-null convention.
@@ -306,8 +308,18 @@ class RequestModuleFlowTest extends AbstractIntegrationTest {
 		assertThat(used).isEqualByComparingTo("0.0");
 	}
 
+	/**
+	 * The monthly_leave_accrual setting no longer decides the annual figure.
+	 *
+	 * <p>It used to: an auto-created balance opened at whatever the company
+	 * had configured, falling back to 21.0. hr-legacy 505004f replaced both
+	 * readers with the fixed AppConfig::DEFAULT_ANNUAL_LEAVE_DAYS, and at HEAD
+	 * the setting's only remaining appearance in PHP is the enum case naming
+	 * it. It is still stored and still editable, which is exactly why this
+	 * test sets it to something conspicuous and then proves it did not leak.
+	 */
 	@Test
-	void configuredAccrualDrivesAutoCreatedBalances() {
+	void theConfiguredAccrualNoLongerDrivesAutoCreatedBalances() {
 		AuthResponse admin = registerCompanyAdmin();
 		Long employeeId = createEmployee(admin.companyId());
 		restTemplate.exchange(
@@ -322,7 +334,9 @@ class RequestModuleFlowTest extends AbstractIntegrationTest {
 
 		Map<String, Object> row = jdbc().queryForMap(
 				"SELECT total_days, used_days FROM leave_balances WHERE employee_id = ?", employeeId);
-		assertThat((BigDecimal) row.get("total_days")).isEqualByComparingTo("15.5");
+		// 15.0, the product default -- not the 15.5 just configured.
+		assertThat((BigDecimal) row.get("total_days"))
+				.isEqualByComparingTo(BigDecimal.valueOf(LegacyLeavePolicy.DEFAULT_ANNUAL_LEAVE_DAYS));
 		assertThat((BigDecimal) row.get("used_days")).isEqualByComparingTo("3.0");
 	}
 
@@ -333,7 +347,7 @@ class RequestModuleFlowTest extends AbstractIntegrationTest {
 		RequestTypeView type = createRequestType(admin.accessToken(), "Annual leave", true, false, null);
 		// 30 days inclusive, no balance row: legacy's insufficiency check
 		// passes when no row exists, then the side effect auto-creates
-		// total=21.0/used=30 -- negative remaining, ported deliberately.
+		// total=15.0/used=30 -- negative remaining, ported deliberately.
 		Long id = createRequest(admin.accessToken(), employeeId, type.id(),
 				LocalDate.of(2026, 6, 1), LocalDate.of(2026, 6, 30)).getBody().id();
 
@@ -342,9 +356,12 @@ class RequestModuleFlowTest extends AbstractIntegrationTest {
 		Map<String, Object> row = jdbc().queryForMap(
 				"SELECT total_days, used_days, remaining_days, year FROM leave_balances WHERE employee_id = ?",
 				employeeId);
-		assertThat((BigDecimal) row.get("total_days")).isEqualByComparingTo("21.0");
+		assertThat((BigDecimal) row.get("total_days"))
+				.isEqualByComparingTo(BigDecimal.valueOf(LegacyLeavePolicy.DEFAULT_ANNUAL_LEAVE_DAYS));
 		assertThat((BigDecimal) row.get("used_days")).isEqualByComparingTo("30.0");
-		assertThat((BigDecimal) row.get("remaining_days")).isEqualByComparingTo("-9.0");
+		// 15 - 30. The entitlement dropped from 21 to 15, so the same request
+		// now overdraws by 15 days rather than 9.
+		assertThat((BigDecimal) row.get("remaining_days")).isEqualByComparingTo("-15.0");
 		assertThat(((Number) row.get("year")).intValue()).isEqualTo(2026);
 	}
 

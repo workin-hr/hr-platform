@@ -112,7 +112,7 @@ class LegacyAttendanceReportEndToEndTest {
 		MARIADB.start();
 		try {
 			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
+			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the attendance report fixture", ex);
@@ -241,6 +241,101 @@ class LegacyAttendanceReportEndToEndTest {
 	// ------------------------------------------------------------------
 	// stats.php
 	// ------------------------------------------------------------------
+
+	/**
+	 * month/year name a fiscal period, not a calendar month.
+	 *
+	 * <p>The company here runs 26th-to-25th, so the two genuinely differ and a
+	 * calendar reading cannot pass by coincidence. Until hr-legacy 505004f
+	 * stats.php had no month/year branch at all and this port faithfully had
+	 * none either, so both assertions below would previously have answered for
+	 * *today's* month -- which is what makes them regression tests rather than
+	 * restatements.
+	 */
+	@Test
+	void monthAndYearSelectTheFiscalPeriodRatherThanTheCalendarMonth() throws Exception {
+		configureFiscalMonth(26, 25);
+		try {
+			// January 2020's fiscal period is 2019-12-26..2020-01-25, which
+			// covers the 2020-01-09 holiday. Today's month covers no holiday at
+			// all, so this fails on the old behaviour whatever today happens to
+			// be.
+			Map<String, Object> january = dataOf(get(STATS + "?month=1&year=2020", ADMIN_1, 200));
+			assertThat(number(january.get("official_holiday_days")))
+					.as("the fiscal period covers the 2020-01-09 holiday")
+					.isEqualTo(1);
+
+			// March's period starts 2020-02-26, so total_days_in_month is
+			// February's 29 -- not March's 31, which is what a calendar reading
+			// of the same query would produce.
+			Map<String, Object> march = dataOf(get(STATS + "?month=3&year=2020", ADMIN_1, 200));
+			assertThat(number(march.get("total_days_in_month")))
+					.as("date_from_filter is 2020-02-26, so the month length is February's")
+					.isEqualTo(29);
+		} finally {
+			clearFiscalMonth();
+		}
+	}
+
+	/**
+	 * An explicit date_from or date_to disables both fiscal branches.
+	 *
+	 * <p>The source checks them first, so a caller who names a range gets that
+	 * range even with month/year alongside it.
+	 */
+	@Test
+	void anExplicitRangeStillWinsOverMonthAndYear() throws Exception {
+		configureFiscalMonth(26, 25);
+		try {
+			Map<String, Object> data = dataOf(get(
+					STATS + "?month=3&year=2020&date_from=2020-01-01&date_to=2020-01-31", ADMIN_1, 200));
+			assertThat(number(data.get("total_days_in_month")))
+					.as("the named range wins, so the month length is January's")
+					.isEqualTo(31);
+			assertThat(number(data.get("official_holiday_days"))).isEqualTo(1);
+		} finally {
+			clearFiscalMonth();
+		}
+	}
+
+	/**
+	 * A 26th-to-25th fiscal month, through the setting chain
+	 * {@code payroll_fiscal_day_settings()} reads.
+	 *
+	 * <p><b>Both</b> days are required to make a period that spans two calendar
+	 * months. With only a start day, {@code payroll_fiscal_period_bounds()}
+	 * defaults the end day to the month's own last day, so start &lt;= end and
+	 * it takes the same-month branch: setting 26 alone yields 2020-01-26 to
+	 * 2020-01-31, not the 2019-12-26 to 2020-01-25 the test is after.
+	 */
+	private static void configureFiscalMonth(int startDay, int endDay) throws Exception {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute("SET SESSION sql_mode = ''");
+			fiscalSetting(st, 90901, "month_start_day", startDay, 90902, 90903, 90904);
+			fiscalSetting(st, 90911, "month_end_day", endDay, 90912, 90913, 90914);
+		}
+	}
+
+	private static void fiscalSetting(Statement st, long definitionId, String key, int value,
+			long allowedId, long companySettingId, long valueId) throws Exception {
+		st.execute("INSERT INTO setting_definitions (id, setting_key) VALUES ("
+				+ definitionId + ", '" + key + "')");
+		st.execute("INSERT INTO setting_allowed_values (id, setting_definition_id, value, sort_order)"
+				+ " VALUES (" + allowedId + ", " + definitionId + ", '" + value + "', 1)");
+		st.execute("INSERT INTO company_settings (id, company_id, setting_definition_id) VALUES ("
+				+ companySettingId + ", " + COMPANY_1 + ", " + definitionId + ")");
+		st.execute("INSERT INTO company_setting_values (id, company_setting_id, setting_allowed_value_id)"
+				+ " VALUES (" + valueId + ", " + companySettingId + ", " + allowedId + ")");
+	}
+
+	private static void clearFiscalMonth() throws Exception {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute("DELETE FROM company_setting_values WHERE id IN (90904, 90914)");
+			st.execute("DELETE FROM company_settings WHERE id IN (90903, 90913)");
+			st.execute("DELETE FROM setting_allowed_values WHERE id IN (90902, 90912)");
+			st.execute("DELETE FROM setting_definitions WHERE id IN (90901, 90911)");
+		}
+	}
 
 	@Test
 	void theAggregateBranchWithNoDateBoundCountsEveryRow() {

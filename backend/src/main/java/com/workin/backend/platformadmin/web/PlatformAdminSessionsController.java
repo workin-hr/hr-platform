@@ -36,7 +36,6 @@ public class PlatformAdminSessionsController {
 	public String sessions(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
 			Model model, HttpServletRequest request) {
 		PlatformAdminWebCsrf.expose(model, request);
-		model.addAttribute("currentAdminPhone", principal.phone());
 		model.addAttribute("sessions", this.inventory.browserSessions(
 				principal.platformAdminId(), currentSessionId(request)));
 		return "admin/sessions";

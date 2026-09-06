@@ -1,0 +1,20 @@
+diff --git a/dashboard/pages/employees/detail.php b/dashboard/pages/employees/detail.php
+index be91b93..e8c46e2 100644
+--- a/dashboard/pages/employees/detail.php
++++ b/dashboard/pages/employees/detail.php
+@@ -1,8 +1,13 @@
+ <?php
+ require_once __DIR__ . '/../../includes/auth.php';
+ requireLogin();
+-$isComp = isCompany();
+-$compId = getCurrentCompanyId();
++// R-057: هذه الصفحة كانت تكتفي بـrequireLogin() بينما page.php تفحص القسم،
++// فأي جلسة HR بلا أي صلاحية كانت تفتحها.
++hr_require_section('employees');
++// R-057: isCompany() هي علم مالك الشركة فقط، فجلسة HR ما كانتش بتدخل الشرط
++// أصلاً وتقرأ موظفي أي شركة. أي جلسة مقيّدة بشركة تُقيَّد هنا كذلك.
++$isComp = hr_is_scoped_company();
++$compId = (int) (getCurrentCompanyId() ?? 0);
+ $eid = (int)($_GET['id'] ?? 0);
+ if (!$eid) { header('Location: employees.php'); exit; }
+ 

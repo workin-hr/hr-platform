@@ -1,0 +1,49 @@
+# Every page hr-legacy's dashboard serves, one per line, sorted.
+#
+# GENERATED -- refresh with:
+#   python3 scripts/check_dashboard_page_drift.py --write
+#
+# A page is a routable URL under /dashboard/, not a directory:
+#   - index                     dashboard/index.php, the home page
+#   - <name>                    dashboard/pages/<name>/page.php, via the
+#                               .htaccess rewrite ^([a-z][a-z0-9_]*)\.php$
+#   - company_detail            rewritten to pages/companies/detail.php
+#   - employee_detail           rewritten to pages/employees/detail.php
+#
+# Directories under pages/ that carry no page.php (home, org, reports) are
+# asset or helper directories and are deliberately absent.
+activities
+administrative_decisions
+advances
+app_content
+assets
+attendance
+banners
+branches
+change_password
+companies
+company_detail
+company_settings
+complaints
+content
+departments
+employee_detail
+employees
+faqs
+guide_videos
+index
+job_titles
+join_requests
+leave_balances
+login
+notifications
+payroll
+penalties
+phone_countries
+profile
+requests
+salary_calculator
+setting_templates
+settings
+shifts
+workforce_planning

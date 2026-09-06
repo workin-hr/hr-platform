@@ -47,10 +47,39 @@ writes the same tables the PHP application does.
 **It does need its own tables added**, once, to the same MySQL database — the
 platform-admin identity model and Spring Session. They are additive: nothing
 that PHP owns is touched. The DDL is
-`backend/src/test/resources/legacy/phase1_extensions.schema.sql`, which is also
-where Phase 1's `legacy_refresh_tokens` lives. **Nothing in the application
-creates them** — see **R-023** for the open question of who provisions that
-step, which these tables join rather than change.
+`backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql`, which is also
+where Phase 1's `legacy_refresh_tokens` lives, and it ships inside the jar so
+you can extract the copy that matches the code you deployed:
+
+```bash
+unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/phase1_extensions.sql > phase1_extensions.sql
+```
+
+**Nothing in the application creates them.** The step-by-step runbook is
+`docs/operations/provisioning-phase1-tables.md`; **R-023** tracks it as an open
+cutover prerequisite until it has actually been run against production. If you
+skip it, the application still starts and logs one `ERROR` line per missing
+table naming what it disables — so read the first seconds of the log rather than
+treating a successful startup as proof.
+
+### The admin surface
+
+`/admin` serves the platform-administration pages ported from the PHP
+dashboard (**ADR-0016**), in the dashboard's own design and both languages.
+Live today: companies, dial codes, FAQs, banners and the platform
+broadcast. The sidebar shows every dashboard page, with the ones still to
+be ported greyed out — it reads what is actually routable rather than a
+hand-kept list.
+
+Two flags decide whether it can change anything:
+
+| Setting | Effect |
+|---|---|
+| `APP_PLATFORM_ADMIN_ACTIONS_ENABLED` | Defaults to **false**. While false the pages render read-only. ADR-0015 prerequisite 7 keeps it off until the PHP admin surface is unreachable |
+| A bound second factor on the signed-in administrator | Without it, every write is refused and the page says so. Bootstrap an administrator, then enrol their TOTP |
+
+Both are enforced in the service, not the template, so a hand-crafted POST
+is refused the same way a hidden button is.
 
 Verified on 2026-09-03: the packaged jar starts in this profile against MariaDB
 11.8, `POST /apis/api/auth/login_employee` returns the same envelope with a
@@ -73,6 +102,24 @@ Administrative actions on companies are refused unless
 7 requires the legacy PHP admin surface — which still authenticates with the
 shared password — to be unreachable first. While both are live, MFA is only as
 strong as the weaker door.
+
+The same flag also gates the **org pages** — branches, departments, job titles
+and shifts. That is stricter than the PHP dashboard, whose only gate is the
+section permission, and it is deliberate: an administrator writing *inside a
+customer's company* is at least as sensitive as editing a FAQ (**D-171**,
+**D-175**). The owner's decision on 2026-09-05 is that the flag **may be
+enabled on the VPS** so those flows work, with the other two controls
+**unchanged**:
+
+| Control | On the VPS |
+|---|---|
+| `APP_PLATFORM_ADMIN_ACTIONS_ENABLED` | **true** — required for branch and department management |
+| Bound second factor on the session | **required**, unchanged (D-152) |
+| Audit row in the same transaction | **required**, unchanged (`ORG_CREATED` / `ORG_UPDATED` / `ORG_DELETED`) |
+
+So enabling the flag opens the pages; it does not relax what happens once they
+are open. An administrator who has not completed the enrolment ceremony still
+cannot write, and every write is still recorded against their id.
 
 **This currently does not start from the jar** — see **R-040**.
 `BackendApplication` excludes `DataSourceAutoConfiguration`, so nothing supplies

@@ -45,22 +45,20 @@ public class PlatformAdminCompaniesController {
 	@AuthenticatedUseCase(reason = "Platform-wide oversight: the list of companies this "
 			+ "surface administers. Read-only, and the only population it can act on.")
 	@GetMapping(PlatformAdminWebSecurityConfig.COMPANIES_PATH)
-	public String companies(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
-			Model model, HttpServletRequest request) {
-		render(model, request, principal);
+	public String companies(Model model, HttpServletRequest request) {
+		render(model, request);
 		return "admin/companies";
 	}
 
 	@AuthenticatedUseCase(reason = "One company's detail, with the counts an operator needs before "
 			+ "deciding. Read-only, and platform-scoped like the list it comes from.")
 	@GetMapping(PlatformAdminWebSecurityConfig.COMPANIES_PATH + "/{companyId}")
-	public String detail(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
+	public String detail(
 			@org.springframework.web.bind.annotation.PathVariable long companyId,
 			Model model, HttpServletRequest request) {
 		return this.companies.detail(companyId)
 			.map(detail -> {
 				PlatformAdminWebCsrf.expose(model, request);
-				model.addAttribute("currentAdminPhone", principal.phone());
 				model.addAttribute("actionsEnabled", this.companyService.actionsEnabled());
 				model.addAttribute("detail", detail);
 				return "admin/company-detail";
@@ -77,7 +75,6 @@ public class PlatformAdminCompaniesController {
 			@RequestParam(required = false) String code,
 			Model model, HttpServletRequest request) {
 		PlatformAdminWebCsrf.expose(model, request);
-		model.addAttribute("currentAdminPhone", principal.phone());
 		model.addAttribute("action", action);
 		model.addAttribute("companyId", companyId);
 		model.addAttribute("reason", reason);
@@ -114,7 +111,7 @@ public class PlatformAdminCompaniesController {
 		if (outcome == PlatformAdminCompanyService.Outcome.DONE) {
 			return "redirect:" + PlatformAdminWebSecurityConfig.COMPANIES_PATH;
 		}
-		render(model, request, principal);
+		render(model, request);
 		model.addAttribute("error", switch (outcome) {
 			case SURFACE_DISABLED -> "Administrative actions are disabled on this deployment.";
 			case SECOND_FACTOR_NOT_BOUND -> "Bind a second factor before performing this action.";
@@ -123,9 +120,8 @@ public class PlatformAdminCompaniesController {
 		return "admin/companies";
 	}
 
-	private void render(Model model, HttpServletRequest request, PlatformAdminWebPrincipal principal) {
+	private void render(Model model, HttpServletRequest request) {
 		PlatformAdminWebCsrf.expose(model, request);
-		model.addAttribute("currentAdminPhone", principal.phone());
 		model.addAttribute("actionsEnabled", this.companyService.actionsEnabled());
 		model.addAttribute("companies", this.companies.list(200));
 	}

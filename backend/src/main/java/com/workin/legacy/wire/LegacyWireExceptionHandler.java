@@ -33,6 +33,13 @@ import com.workin.legacy.organization.LegacyBranchController;
 			"com.workin.legacy.payroll",
 			"com.workin.legacy.companies",
 			"com.workin.legacy.configs",
+			// Added with the two routes hr-legacy grew after the first sweep
+			// (guide_videos/list, time/now). Omitting a package here is R-007's
+			// exact shape: the route maps, every request test passes, and a
+			// LegacyApiException from it answers a raw 500 instead of the D-074
+			// envelope. LegacyPhpRouteInventoryTest is what catches it.
+			"com.workin.legacy.guide",
+			"com.workin.legacy.time",
 			"com.workin.legacy.reference",
 			"com.workin.legacy.dashboard",
 			"com.workin.legacy.settings",

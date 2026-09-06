@@ -90,7 +90,7 @@ class LegacyOtpAuthEndToEndTest {
 		MARIADB.start();
 		try {
 			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
+			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the OTP fixture", ex);
@@ -263,34 +263,99 @@ class LegacyOtpAuthEndToEndTest {
 	// ---------------- R-014 ----------------
 
 	/**
-	 * <b>R-014.</b> The third check in {@code otp_assert_can_send()} reads as a
-	 * per-IP cap, but against the frozen schema it counts every OTP row created
-	 * in the last hour, for every phone. Twenty rows and the twenty-first
-	 * caller -- a different phone, a different client -- is refused.
+	 * <b>R-014, now closed by the schema.</b> The third check in
+	 * {@code otp_assert_can_send()} reads as a per-IP cap. Against the schema
+	 * frozen at {@code d113204} it was not one: {@code otp_count_recent_sends()}
+	 * drops any predicate whose column is absent, and with no
+	 * {@code ip_address} and no {@code purpose} the query collapsed to "every
+	 * OTP the platform issued in the last hour". Twenty rows and the
+	 * twenty-first caller -- a different phone, a different client -- was
+	 * refused.
 	 *
-	 * <p>Asserted here rather than described, because a reader who only sees
-	 * the code will conclude it is per-IP.
+	 * <p>Production has since added {@code otp_codes.ip_address},
+	 * {@code purpose} and {@code user_agent}, and the {@code otp_request_logs}
+	 * table. {@link com.workin.legacy.auth.otp.LegacyOtpSchema} probes for
+	 * exactly that and the predicates come back, so the cap is per-IP as it
+	 * always read. The port needed no change -- it was written to work either
+	 * way, and this is the branch it was written for.
+	 *
+	 * <p>Asserted rather than described, in both directions: that twenty other
+	 * phones no longer refuse an unrelated one, and that the phone's own
+	 * cooldown still does. Without the second half this would pass just as well
+	 * if the limiter had stopped working altogether.
 	 */
 	@Test
 	@Order(9)
-	void thePerIpCapIsActuallyAPlatformWideCap() throws Exception {
+	void thePerIpCapNoLongerRefusesUnrelatedPhones() throws Exception {
 		recorder().clear();
 		clearOtps();
 		for (int i = 0; i < 20; i++) {
 			seedOtpRow("0100000" + String.format("%04d", i));
 		}
 
-		ResponseEntity<Map<String, Object>> refused =
-				post(RESEND_OTP, null, "{\"phone\":\"01055550000\"}");
-		assertThat(refused.getStatusCode().value())
-				.as("a phone with no history of its own, refused by other phones' volume")
-				.isEqualTo(429);
-		assertThat(refused.getBody().get("message").toString())
-				.contains("Too many verification code requests");
+		ResponseEntity<Map<String, Object>> allowed =
+				post(RESEND_OTP, null, "{\"phone\":\"" + STAFF_PHONE + "\"}");
+		assertThat(allowed.getStatusCode().value())
+				.as("twenty other phones' volume must not refuse this one any more")
+				.isEqualTo(200);
+
+		// The negative control: the limiter is still there. The same phone
+		// immediately again hits its own cooldown.
+		assertThat(post(RESEND_OTP, null, "{\"phone\":\"" + STAFF_PHONE + "\"}")
+				.getStatusCode().value())
+				.as("its own cooldown still applies -- the limiter did not simply stop")
+				.isEqualTo(400);
+	}
+
+	/**
+	 * <b>R-014 regression guard.</b> The defect was never in this SQL -- it was
+	 * that the schema lacked the columns the predicates name, so
+	 * {@code countRecentSends()} dropped them one by one until a per-IP query
+	 * had become {@code COUNT(*)} over the whole table.
+	 *
+	 * <p>This proves the predicates are doing work, by counting rows that
+	 * differ from the request in exactly one dimension and showing each is
+	 * excluded:
+	 *
+	 * <ul>
+	 * <li>forty sends from a <b>different IP</b> -- twice the per-IP cap of
+	 *     twenty -- do not refuse this caller;</li>
+	 * <li>forty sends for a <b>different purpose</b> from the same phone do
+	 *     not refuse it either.</li>
+	 * </ul>
+	 *
+	 * <p>Either predicate silently disappearing collapses the count back to a
+	 * global hourly total and turns both of these into 429. That is precisely
+	 * how the production defect presented, and it presented with no code
+	 * change and no failing test -- which is why the guard is written against
+	 * volume that would trip a global cap rather than against the SQL.
+	 */
+	@Test
+	@Order(10)
+	void theLimiterCannotSilentlyCollapseBackToAGlobalCount() throws Exception {
+		recorder().clear();
+		clearOtps();
+
+		// Twice the per-IP cap, all from an address this caller does not use.
+		for (int i = 0; i < 40; i++) {
+			seedRequestLog("0111000" + String.format("%04d", i), "verify_phone", "203.0.113.99");
+		}
+		assertThat(post(RESEND_OTP, null, "{\"phone\":\"" + STAFF_PHONE + "\"}")
+				.getStatusCode().value())
+				.as("another IP's volume must not refuse this caller -- if it does, "
+						+ "the ip_address predicate has been dropped")
+				.isEqualTo(200);
 
 		clearOtps();
-		assertThat(post(RESEND_OTP, null, "{\"phone\":\"01055550000\"}").getStatusCode().value())
-				.as("and it recovers the moment the global count drops")
+
+		// Twice the per-purpose cap, same phone, a purpose this request is not.
+		for (int i = 0; i < 40; i++) {
+			seedRequestLog(STAFF_PHONE, "password_reset", "203.0.113.1");
+		}
+		assertThat(post(RESEND_OTP, null, "{\"phone\":\"" + STAFF_PHONE + "\"}")
+				.getStatusCode().value())
+				.as("another purpose's volume must not refuse this one -- if it does, "
+						+ "the purpose predicate has been dropped")
 				.isEqualTo(200);
 	}
 
@@ -558,8 +623,21 @@ class LegacyOtpAuthEndToEndTest {
 		}
 	}
 
+	/**
+	 * Both tables, because the limiter reads both.
+	 *
+	 * <p>Against the schema frozen at {@code d113204} there was only
+	 * {@code otp_codes}: {@code otp_request_logs} did not exist, so
+	 * {@code otp_request_logs_ready()} was false and every count came from
+	 * {@code otp_codes}. Production has since created that table, and
+	 * {@code otp_count_recent_sends()} now prefers it -- so clearing only
+	 * {@code otp_codes} resets the rows a test can see while leaving the rows
+	 * the limiter actually counts, and every "fresh phone" case fails on a
+	 * cooldown it cannot observe.
+	 */
 	private static void clearOtps() {
 		execute("DELETE FROM otp_codes");
+		execute("DELETE FROM otp_request_logs");
 	}
 
 	private static void expireOtps(String phone) {
@@ -570,6 +648,16 @@ class LegacyOtpAuthEndToEndTest {
 	private static void seedOtpRow(String phone) {
 		execute("INSERT INTO otp_codes (phone, code, expires_at) VALUES ('" + phone
 				+ "', '1111', DATE_ADD(NOW(), INTERVAL 10 MINUTE))");
+	}
+
+	/**
+	 * A row in the table the limiter actually counts once the schema has it.
+	 * {@code otp_codes} is the code store; {@code otp_request_logs} is the
+	 * send ledger, and {@code countRecentSends()} prefers it.
+	 */
+	private static void seedRequestLog(String phone, String purpose, String ip) {
+		execute("INSERT INTO otp_request_logs (phone, purpose, ip_address, created_at) VALUES ('"
+				+ phone + "', '" + purpose + "', '" + ip + "', NOW())");
 	}
 
 	private static long activeOtpCount(String phone) {

@@ -1,0 +1,41 @@
+/* The handful of classes this application adds on top of the dashboard's
+   copied stylesheets. Kept in its own file so a future re-copy of
+   style.css / app-ui.css / sidebar.css from hr-legacy cannot silently drop
+   them, and so what is ours stays visibly distinct from what is theirs. */
+
+/* Sidebar entries for pages that exist in the PHP dashboard but not here
+   yet. Shown rather than hidden, so the remaining work is visible; muted
+   and unclickable, so nobody takes one for a working link. */
+.nav-link.is-unported {
+	opacity: .45;
+	cursor: not-allowed;
+	pointer-events: none;
+}
+
+.nav-link.is-unported::after {
+	content: "…";
+	margin-inline-start: auto;
+	font-size: .85em;
+}
+
+/* Login, MFA and enrolment render without the shell -- no session yet, so
+   no sidebar. */
+.auth-shell {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 100vh;
+	padding: 1.5rem;
+}
+
+.auth-shell .login-wrap {
+	width: 100%;
+	max-width: 23rem;
+}
+
+/* The signed-in identity in the topbar, opposite the page title. */
+.topbar .who {
+	margin-inline-start: auto;
+	color: var(--muted, #5b6876);
+	font-size: .875rem;
+}

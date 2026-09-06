@@ -5,108 +5,76 @@ Covers both monitoring ownership and alert routing. See
 Baseline) for the architecture-level observability decision this operates
 under.
 
-## Signal (log, trace, metric, alert)
+## What This Deployment Actually Emits
 
-Record the observable signal needed to detect, diagnose, or confirm system
-behavior.
+*Filled 2026-09-04 against the configured application, replacing the
+template that stood here. It describes what exists, not what a
+well-instrumented service would have — the difference between the two is
+recorded as **R-043**.*
 
-Useful signal categories include:
+| Signal | Where it comes from | Where it goes |
+|---|---|---|
+| Structured JSON logs | `logging.structured.format.console=logstash` | stdout |
+| Correlation ids | `traceId`/`spanId` in every line (**ADR-0008**) | the same log line |
+| Traces | Micrometer Tracing, **sampled at 1.0** | `opentelemetry-exporter-logging` — i.e. **into the log**, not to a collector |
+| Health | `/actuator/health`, `permitAll` | HTTP, status only (details default to `never`) |
 
-- logs for event detail and audit trail
-- traces for request or workflow path analysis
-- metrics for rates, latency, errors, and saturation
-- alerts for human attention when conditions exceed defined thresholds
-- migration validation outputs for cutover and rollback confidence
-- business or workflow health indicators for customer-visible success paths
+That is the complete list. There is **no metrics endpoint exposed, no
+Prometheus, no dashboard, no log aggregation, and no alert routing**
+configured anywhere in this repository.
 
-Prefer signals tied to meaningful failure modes rather than collecting data
-only because a tool can emit it.
+### Two things to fix before cutover
 
-## Source System
+**Trace sampling is at 100% and exports to the log.** Every request
+produces span output into stdout. That is right for the local
+verification it was set up for and wrong for production: it multiplies
+log volume by request rate for data nobody is collecting. Either lower
+`management.tracing.sampling.probability` or point the exporter at a real
+collector — but decide, rather than shipping 1.0 by default.
 
-Identify where the signal comes from.
+**`/actuator/health` is `permitAll`.** That is the standard arrangement
+and is safe as configured, because health details default to `never` and
+the endpoint returns only `UP`/`DOWN`. It becomes an information
+disclosure the moment someone sets `management.endpoint.health.show-details`,
+which exposes database connectivity and component internals to
+unauthenticated callers. Do not set it without also restricting the
+matcher in `SecurityConfig`.
 
-Examples:
+## The Signals The Rollback Depends On
 
-- application service
-- background job or scheduler
-- database or migration process
-- edge gateway or integration adapter
-- authentication or access-control component
-- API gateway or ingress
-- customer-impact workflow check
+`docs/operations/release-cutover-and-rollback.md` triggers a rollback on
+observations like "a rise in 401s" and "error rate clearly worse than the
+PHP baseline". **Nothing currently measures either.** Until that changes,
+those triggers are satisfied by a human watching logs, which is a real
+answer for a supervised cutover window and not an answer at all for the
+days after it.
 
-If the source system does not exist yet because implementation has not begun,
-describe the planned boundary rather than inventing a deployed component name.
+| Trigger | What would have to be watched | Available today |
+|---|---|---|
+| Broad authentication failure | 401 rate on `/apis/**` | No — log inspection only |
+| Error rate above the PHP baseline | 5xx rate, and a baseline nobody has recorded | No, and no baseline exists |
+| `otp_delivery_failed` | The literal string; logged at `ERROR` | Yes, by grep |
+| Missing Phase 1 table | `Phase 1 schema check: ... MISSING` at startup | Yes, by grep, once per boot |
+| Latency regression | Request duration percentiles | No |
 
-## Ownership (who watches it)
+The two that *are* available are the two that were deliberately given
+loud, greppable, single-line signatures. The rest need instrumentation
+that does not exist.
 
-Record the human role or team responsible for noticing, reviewing, or acting
-on the signal.
+**The minimum honest position for the cutover window**: a human tails the
+log for the string `ERROR`, and the release is supervised rather than
+monitored. Say that out loud in the go/no-go rather than implying
+coverage that is not there.
 
-Ownership may differ by signal type:
+## Ownership, Routing And Severity
 
-- engineering owner for service-level diagnostics
-- operations owner for deployment or availability signals
-- migration owner for cutover and validation signals
-- security owner for security-relevant anomalies
-- support or product owner for customer-impact indicators
+Unfilled, and blocked on the same gap: routing an alert requires an alert.
+Repository owner is the de facto and only responder.
 
-If a signal has no clear human owner, treat that as an operational gap.
-
-## Alert Routing (who gets paged, and how)
-
-Define how a signal reaches a human when action is required.
-
-Capture:
-
-- which conditions generate an alert versus being retained only for diagnosis
-- who receives the alert first
-- how it is delivered
-- who is next if the first owner does not respond
-- which incidents require broader stakeholder escalation
-
-Possible routing paths include:
-
-- paging or on-call tool
-- email
-- chat or operations channel
-- ticketing system
-- manual escalation by a release or incident owner
-
-Do not invent a live paging tool or support rota that has not been approved.
-
-## Severity Classification
-
-Classify the importance of the signal or alert so response urgency is clear.
-
-Severity should be based on impact, not gut feel. Useful dimensions include:
-
-- customer-facing outage or degraded workflow
-- security or data-integrity risk
-- migration or rollback risk
-- operational degradation with no immediate customer impact
-- informational signal for trend analysis only
-
-If the repository later adopts named severity levels, this document should map
-signals to those levels explicitly.
-
-## Evidence
-
-Link the artifacts that prove the monitoring and alerting definition is real
-and reviewable. Evidence may include:
-
-- dashboard or metric definition
-- alert rule
-- log or trace field definition
-- sample alert payload
-- ownership record
-- escalation-path record
-- release-readiness packet showing the required signals for a change
-- incident evidence showing that the signal helped detect or resolve an issue
-
-If a signal is expected but there is no evidence that it can be observed or
-routed, leave it open rather than implying coverage.
+When alerting does exist, the two signals worth paging on first are the
+ones with no workaround — a broad authentication failure (every user
+locked out) and `otp_delivery_failed` (nobody can register or reset a
+password). Everything else can wait for business hours.
 
 ## Platform-Admin Web Surface (ADR-0015)
 
