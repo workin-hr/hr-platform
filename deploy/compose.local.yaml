@@ -34,8 +34,16 @@ services:
       # Seeded on FIRST START ONLY: MariaDB runs this directory when the data
       # directory is empty, and the data directory is a named volume. To reseed
       # after pulling a new seed:  docker compose -f compose.local.yaml down -v
+      # ONE script, not two. dev-seed.sql is a COMPLETE dump: the build script
+      # applies phase1_extensions.sql before dumping (it has to -- the sanitiser
+      # deletes from platform_admins), so the Phase 1 tables are already in it.
+      # Mounting the extensions again made MariaDB run CREATE TABLE
+      # legacy_refresh_tokens a second time, which is not idempotent: the init
+      # failed with ERROR 1050, the container went unhealthy and the app never
+      # started. scripts/check_dev_seed_sanitised.py now asserts the seed
+      # carries those tables, so a seed built without them fails the gate rather
+      # than a developer's first run.
       - ./seed/dev-seed.sql:/docker-entrypoint-initdb.d/01-dev-seed.sql:ro
-      - ../backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql:/docker-entrypoint-initdb.d/02-phase1-extensions.sql:ro
     # Published so a developer can attach a SQL client, and bound to loopback so
     # it is not on their network. Nothing here needs a published port to reach
     # the app -- that goes over the compose network.

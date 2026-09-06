@@ -27,8 +27,16 @@ services:
       - db-data:/var/lib/mysql
       # The same sanitised seed local uses. Reseed with `down -v`, which is a
       # normal thing to do here and never a thing to do in production.
+      # ONE script, not two. dev-seed.sql is a COMPLETE dump: the build script
+      # applies phase1_extensions.sql before dumping (it has to -- the sanitiser
+      # deletes from platform_admins), so the Phase 1 tables are already in it.
+      # Mounting the extensions again made MariaDB run CREATE TABLE
+      # legacy_refresh_tokens a second time, which is not idempotent: the init
+      # failed with ERROR 1050, the container went unhealthy and the app never
+      # started. scripts/check_dev_seed_sanitised.py now asserts the seed
+      # carries those tables, so a seed built without them fails the gate rather
+      # than a developer's first run.
       - ./seed/dev-seed.sql:/docker-entrypoint-initdb.d/01-dev-seed.sql:ro
-      - ../backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql:/docker-entrypoint-initdb.d/02-phase1-extensions.sql:ro
     ports:
       - "127.0.0.1:${DB_PUBLISHED_PORT:-13306}:3306"
     healthcheck:

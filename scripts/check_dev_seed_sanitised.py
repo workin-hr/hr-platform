@@ -270,6 +270,31 @@ def check_exception_lists_current(schema: str, findings: list[str]) -> None:
             )
 
 
+# The compose files mount dev-seed.sql as the ONLY init script, so the seed has
+# to stand alone. It did not once: the Phase 1 tables were in it AND
+# phase1_extensions.sql was mounted beside it, MariaDB ran a non-idempotent
+# CREATE TABLE twice, and the database never came up. Removing the second mount
+# fixed that and created this requirement, so it is checked rather than assumed.
+PHASE1_TABLES = (
+    "legacy_refresh_tokens",
+    "platform_admins",
+    "platform_admin_mfa",
+    "platform_admin_audit_events",
+)
+
+
+def check_seed_is_self_sufficient(seed: str, findings: list[str]) -> None:
+    for table in PHASE1_TABLES:
+        if f"CREATE TABLE `{table}`" not in seed:
+            fail(
+                f"deploy/seed/dev-seed.sql does not create `{table}`. It is mounted as the "
+                f"only init script, so a seed missing a Phase 1 table leaves the application "
+                f"unable to start. Rebuild it with scripts/build_dev_seed.sh, which applies "
+                f"phase1_extensions.sql before dumping",
+                findings,
+            )
+
+
 def check_sentinels(seed: str, findings: list[str]) -> None:
     if SENTINEL_PASSWORD_HASH not in seed:
         fail(
@@ -313,6 +338,7 @@ def main() -> int:
 
     check_value_shapes(seed, findings)
     check_sentinels(seed, findings)
+    check_seed_is_self_sufficient(seed, findings)
 
     if findings:
         for finding in findings:
