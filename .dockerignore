@@ -1,0 +1,38 @@
+# What the Docker build is allowed to see.
+#
+# This file is a security control before it is a performance one. The build
+# context is everything `docker build` uploads to the daemon, and anything in
+# it can be baked into a layer by a single careless COPY -- including layers of
+# an image somebody later pushes to a registry. The repository root holds a
+# production database dump; without this file it would be in every build
+# context, one `COPY . .` away from being published.
+#
+# Deny by default, then allow back only what the build needs. An exclusion list
+# would have to anticipate every future secret; an allowlist only has to
+# anticipate the build.
+*
+
+# The backend build: the wrapper, its build files, and the sources.
+!backend/gradlew
+!backend/gradle
+!backend/settings.gradle
+!backend/build.gradle
+!backend/gradle.properties
+!backend/src
+
+# Never, even though `*` already excludes them -- these are the paths where
+# being wrong is unrecoverable, so they are stated rather than inferred. A
+# later `!backend/**` written in a hurry would otherwise silently re-admit
+# whatever landed under an allowed prefix.
+backend/build
+backend/.gradle
+**/*.env
+**/.env
+**/.env.*
+!**/.env.example
+**/seed/*.sql
+**/*.sql.gz
+**/*.pem
+**/*.key
+**/id_rsa*
+.git

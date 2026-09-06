@@ -185,7 +185,15 @@ SPIKE_DIR_NAME = "spike"
 #   every architecture ADR this depends on reaching Accepted (D-016
 #   through D-026) and the Migration-Readiness Gate's minimum conditions
 #   being satisfied.
-PHASE1_UNLOCKED_DIRS = {"backend"}
+# - "deploy": docs/bootstrap/decision-log-wave12r.md D-193 (2026-09-06)
+#   lifts the lock for the container stack that packages Phase 1 -- a
+#   Dockerfile, the three profiles' compose files and the sanitised
+#   development seed. Opened deliberately rather than worked around: the
+#   forbidden names include `Dockerfile` and `docker-compose.yml`
+#   precisely so that shipping one is a recorded decision, and naming a
+#   file `compose.yaml` to slip past that check would defeat the rule
+#   while appearing to honour it.
+PHASE1_UNLOCKED_DIRS = {"backend", "deploy"}
 
 # This is a fast, narrow, five-pattern check, not comprehensive secret
 # scanning. Gitleaks (run in .github/workflows/phase0-validate.yml with its
@@ -1592,6 +1600,13 @@ def validate_legacy_drift_gates(failures: list[str]) -> None:
                            "Legacy product-default drift", failures)
     _run_regression_script("scripts/test_check_legacy_product_defaults_drift.py",
                            "Legacy product-default drift check regression tests", failures)
+    # The dev seed is derived from real customer data and committed permanently,
+    # so this runs in the same place as every other gate rather than being a
+    # thing somebody remembers to run before regenerating it.
+    _run_regression_script("scripts/check_dev_seed_sanitised.py",
+                           "Development seed sanitisation", failures)
+    _run_regression_script("scripts/test_check_dev_seed_sanitised.py",
+                           "Development seed sanitisation check regression tests", failures)
 
 
 def _validate_single_adr_cli(target_arg: str) -> int:
