@@ -14,7 +14,7 @@ cd deploy
 docker compose -f compose.local.yaml up --build
 ```
 
-First run takes a few minutes: it builds the backend and restores a 9.6 MB
+First run takes a few minutes: it builds the backend and restores a 9.2 MB
 seed. After that it is seconds.
 
 When it is up:
@@ -34,6 +34,10 @@ docker exec -it workin-local-db-1 \
   mariadb -uworkin -pworkin-local workin \
   -e "SELECT phone, company_name FROM companies LIMIT 5"
 ```
+
+**Flutter developers**: there is a step-by-step guide with the emulator
+networking, the cleartext-HTTP change both apps need, and one account per role
+at [`docs/operations/flutter-local-integration.md`](../docs/operations/flutter-local-integration.md).
 
 ### The data is real in shape and fake in content
 
