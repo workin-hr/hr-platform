@@ -120,7 +120,7 @@ public class AdminAttendanceController {
 		Long exceptionType = AttendanceAdminService.exceptionTypeOrNull(exceptionTypeId);
 
 		try {
-			long wrote = switch (action) {
+			switch (action) {
 				case "add_attendance" -> this.service.add(
 						session, adminId, bound, employeeId, checkIn, checkOut, exceptionType);
 				case "edit_attendance" -> this.service.saveEdit(
@@ -128,11 +128,15 @@ public class AdminAttendanceController {
 				case "delete" -> this.service.delete(session, adminId, bound, id);
 				case "delete_range" -> this.service.deleteRange(
 						session, adminId, bound, companyId, from, to,
-						this.clock.today().toString()).companyId();
+						this.clock.today().toString());
 				default -> throw new AttendanceAdminService.RefusedException(
 						AttendanceAdminService.Refusal.INVALID);
-			};
-			DashboardOrgScope.rememberAfterWrite(session, request, wrote);
+			}
+			// `payroll_redirect('attendance', $cid)` passes the filter already in
+			// force, not the company just written to -- so unlike its sibling
+			// pages, which pass `hr_post_company_id()`, this one never moves an
+			// unfiltered administrator's filter. DashboardOrgScope.rememberAfterWrite
+			// is therefore deliberately not called here.
 			return "redirect:" + PATH;
 		} catch (AttendanceAdminService.RefusedException refused) {
 			return "redirect:" + PATH + "?error=" + messageKey(refused);

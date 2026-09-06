@@ -323,6 +323,28 @@ class AdminAttendanceEndToEndTest {
 	}
 
 	@Test
+	void aWriteDoesNotMoveAnUnfilteredAdministratorsFilter() {
+		// `payroll_redirect('attendance', $cid)` passes the filter already in
+		// force, not the company just written to. Its sibling pages pass
+		// `hr_post_company_id()` and do move the filter, so it would have been
+		// easy to give this page the same behaviour by reflex. Adding a punch
+		// for company A must leave an unfiltered administrator able to add one
+		// for company B on the very next request.
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "add_attendance", "employee_id", String.valueOf(this.employeeA),
+				"check_in", "2026-03-02 09:00:00");
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "add_attendance", "employee_id", String.valueOf(this.employeeB),
+				"check_in", "2026-03-02 09:00:00");
+
+		assertThat(this.jdbc.queryForObject("SELECT COUNT(*) FROM attendance a"
+				+ " JOIN employees e ON e.id = a.employee_id WHERE e.company_id = " + this.companyB,
+				Integer.class))
+				.as("R-044: the first write must not have narrowed the session to company A")
+				.isEqualTo(1);
+	}
+
+	@Test
 	void theSameRequestUnderTheSameFilterSucceedsOnTheSessionsOwnRow() {
 		// The control for the two refusals below. Identical session state --
 		// same filter, same action, same field set -- with the row's owner as
