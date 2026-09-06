@@ -81,14 +81,7 @@ EXEMPT: dict[str, str] = {}
 # without this list the gate would report them, and with an unexplained
 # exemption it would hide them. Each entry is a decision the owner still owes --
 # commit the file in hr-legacy, or withdraw the route from this application.
-AWAITING_BASELINE: dict[str, str] = {
-    "/apis/api/guide_videos/list.php":
-        "R-063: hr-legacy has apis/api/guide_videos/ untracked; no committed source.",
-    "/apis/api/employees/analyze_excel_update.php":
-        "R-063: untracked in hr-legacy; no committed source.",
-    "/apis/api/employees/update_bulk.php":
-        "R-063: untracked in hr-legacy; no committed source.",
-}
+AWAITING_BASELINE: dict[str, str] = {}
 
 
 def php_routes(api_dir: str) -> set[str]:

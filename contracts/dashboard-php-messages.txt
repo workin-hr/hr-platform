@@ -50,6 +50,7 @@ en	add_employee	Add employee
 en	add_exception_type	Add exception type
 en	add_faq_category	Add category
 en	add_faq_question	Add question
+en	add_guide_video	Add guide video
 en	add_holiday_date	Add date
 en	add_hr_user	Add HR user
 en	add_hr_user_desc	Create an HR account with selected permissions
@@ -298,6 +299,7 @@ en	edit_employee	Edit employee
 en	edit_exception_type	Edit exception type
 en	edit_faq_category	Edit category
 en	edit_faq_question	Edit question
+en	edit_guide_video	Edit guide video
 en	edit_official_holiday	Edit official holiday
 en	edit_permissions	Edit permissions
 en	edit_profile	Edit profile
@@ -361,6 +363,8 @@ en	gender	Gender
 en	gender_female	Female
 en	gender_male	Male
 en	gender_other	Other
+en	guide_video_file	Video file
+en	guide_video_hint	Upload the file to uploads/guide_videos then enter its name (e.g. intro.mp4). Optional thumbnail: same basename as an image (intro.jpg).
 en	hire_date	Hire Date
 en	holiday_date_already_added	This date is already in the list
 en	home_subtitle	Manage employees, requests & attendance
@@ -472,6 +476,7 @@ en	nav_employee_requests	Employee Requests
 en	nav_employees	Employees
 en	nav_faqs	FAQs
 en	nav_fingerprints	Attendance
+en	nav_guide_videos	Guide videos
 en	nav_home	Home
 en	nav_hr_affairs	Employee Affairs
 en	nav_join_requests	Join requests
@@ -822,6 +827,7 @@ ar	add_employee	إضافة موظف
 ar	add_exception_type	إضافة نوع استثناء
 ar	add_faq_category	إضافة قسم
 ar	add_faq_question	إضافة سؤال
+ar	add_guide_video	إضافة فيديو شرح
 ar	add_holiday_date	إضافة تاريخ
 ar	add_hr_user	إضافة مستخدم HR
 ar	add_hr_user_desc	إنشاء حساب موارد بشرية بصلاحيات محددة
@@ -1070,6 +1076,7 @@ ar	edit_employee	تعديل موظف
 ar	edit_exception_type	تعديل نوع استثناء
 ar	edit_faq_category	تعديل القسم
 ar	edit_faq_question	تعديل السؤال
+ar	edit_guide_video	تعديل فيديو الشرح
 ar	edit_official_holiday	تعديل إجازة رسمية
 ar	edit_permissions	تعديل الصلاحيات
 ar	edit_profile	تعديل الملف الشخصي
@@ -1133,6 +1140,8 @@ ar	gender	الجنس
 ar	gender_female	أنثى
 ar	gender_male	ذكر
 ar	gender_other	أخرى
+ar	guide_video_file	ملف الفيديو
+ar	guide_video_hint	ارفع الملف إلى uploads/guide_videos ثم اكتب اسمه هنا (مثل intro.mp4). يمكن وضع صورة مصغرة بنفس الاسم (intro.jpg).
 ar	hire_date	تاريخ التعيين
 ar	holiday_date_already_added	هذا التاريخ مُضاف مسبقاً
 ar	home_subtitle	إدارة الموظفين والطلبات والحضور
@@ -1244,6 +1253,7 @@ ar	nav_employee_requests	طلبات الموظفين
 ar	nav_employees	الموظفين
 ar	nav_faqs	الأسئلة الشائعة
 ar	nav_fingerprints	البصمات
+ar	nav_guide_videos	فيديوهات الشرح
 ar	nav_home	الرئيسية
 ar	nav_hr_affairs	شؤون العاملين
 ar	nav_join_requests	طلبات الانضمام

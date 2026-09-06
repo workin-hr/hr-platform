@@ -54,13 +54,7 @@ JAVA_FILES = {"en": "admin-messages.properties", "ar": "admin-messages_ar.proper
 # working tree and was deliberately not ported. They are unused labels here --
 # no Java page renders them -- and they resolve when that page is either
 # committed there or withdrawn.
-DIVERGES_FROM_BASELINE: dict[str, str] = {
-    "nav_guide_videos": "R-063: guide_videos exists in no hr-legacy commit.",
-    "add_guide_video": "R-063: guide_videos exists in no hr-legacy commit.",
-    "edit_guide_video": "R-063: guide_videos exists in no hr-legacy commit.",
-    "guide_video_file": "R-063: guide_videos exists in no hr-legacy commit.",
-    "guide_video_hint": "R-063: guide_videos exists in no hr-legacy commit.",
-}
+DIVERGES_FROM_BASELINE: dict[str, str] = {}
 
 COMMITTED_HEADER = """\
 # Every message hr-legacy's dashboard/includes/lang.php defines, as

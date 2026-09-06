@@ -110,10 +110,10 @@ class AdminDashboardPageInventoryTest {
 	 * from this file, and so that a page cannot quietly stop being served
 	 * without the test noticing.
 	 *
-	 * <p>{@code guide_videos} is absent from this list because it is absent
-	 * from the manifest: the manifest is generated from {@code HEAD} now, and
-	 * that page exists only in {@code hr-legacy}'s working tree (R-063). It is
-	 * not remaining work here until it is a committed surface there.
+	 * <p>{@code guide_videos} is here because {@code hr-legacy} committed it in
+	 * {@code 505004f}. It was the surface R-063 was waiting on: previously it
+	 * existed only in that repository's working tree, so there was nothing to
+	 * port from. Now there is, and it is ordinary remaining work.
 	 *
 	 * <p>{@code company_settings}, {@code profile} and {@code change_password}
 	 * are a different kind of remaining: legacy gates all three to a company
@@ -122,7 +122,8 @@ class AdminDashboardPageInventoryTest {
 	 * belong to the audience ADR-0016 and R-044 still have open.
 	 */
 	private static final Set<String> NOT_YET_PORTED = Set.of(
-			"attendance", "change_password", "company_settings", "payroll", "profile");
+			"attendance", "change_password", "company_settings", "guide_videos",
+			"payroll", "profile");
 
 	@Test
 	void everyServedPageIsEitherALegacyPageOrDeclaredJavaOnly() {
@@ -155,10 +156,9 @@ class AdminDashboardPageInventoryTest {
 		portedLegacy.retainAll(served);
 		portedLegacy.addAll(SERVED_UNDER_ANOTHER_PATH);
 
-		// 34, not 35: the manifest is HEAD-derived, so guide_videos -- which is
-		// untracked in hr-legacy -- is no longer counted as a surface this
-		// application owes (R-063).
-		assertThat(legacy).as("the committed manifest").hasSize(34);
+		// 35: guide_videos became a real surface when hr-legacy committed it in
+		// 505004f, which is what R-063 was waiting for.
+		assertThat(legacy).as("the committed manifest").hasSize(35);
 		assertThat(portedLegacy).hasSize(legacy.size() - NOT_YET_PORTED.size());
 		assertThat(NOT_YET_PORTED).doesNotHaveDuplicates();
 		// The two sets may not overlap: a page cannot be both ported and not.

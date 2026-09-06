@@ -30,6 +30,7 @@ departments
 employee_detail
 employees
 faqs
+guide_videos
 index
 job_titles
 join_requests

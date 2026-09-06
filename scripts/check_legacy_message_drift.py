@@ -62,22 +62,7 @@ LOCALES = ("en", "ar")
 # kind and is the reason this list exists at all: it is not a new key but a
 # **changed value** on a live authentication path, so this application answers
 # a 403 with wording that appears in no commit.
-DIVERGES_FROM_BASELINE: dict[str, str] = {
-    "employees_updated":
-        "R-063: arrived with /apis/api/employees/update_bulk.php, itself untracked.",
-    "employees_update_failed":
-        "R-063: arrived with /apis/api/employees/update_bulk.php, itself untracked.",
-    "attendance_excel_must_have_four_columns":
-        "R-063: arrived with /apis/api/employees/analyze_excel_update.php, itself untracked.",
-    "attendance_excel_date_column_invalid":
-        "R-063: arrived with /apis/api/employees/analyze_excel_update.php, itself untracked.",
-    "attendance_excel_time_column_invalid":
-        "R-063: arrived with /apis/api/employees/analyze_excel_update.php, itself untracked.",
-    "employee_account_not_active":
-        "R-063: value only, not the key. HEAD says 'Your employee account is not "
-        "active. Contact HR.'; this application ships hr-legacy's working-tree "
-        "rewording. Neither is silently correct -- the owner picks one.",
-}
+DIVERGES_FROM_BASELINE: dict[str, str] = {}
 
 COMMITTED_HEADER = """\
 # Every message hr-legacy's apis/lang/{en,ar}.php defines, as

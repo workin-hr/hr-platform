@@ -20,11 +20,14 @@ en	approval_timeline	Approval timeline
 en	approve_advance	Advance approved
 en	attendance_excel_analyzed	Attendance file analyzed
 en	attendance_excel_code_must_be_digits	Employee codes must be digits only (no letters).
+en	attendance_excel_date_column_invalid	The date column is invalid. Please use a date such as 26/04/2026.
 en	attendance_excel_datetime_column_invalid	The punch date/time column is invalid. Please use a date with time.
 en	attendance_excel_import_not_yet_available	Will be available on {date}.
+en	attendance_excel_must_have_four_columns	Four columns are required: employee code, date, check-in time, and check-out time.
 en	attendance_excel_must_have_two_columns	Only two columns are required: employee code, and punch date/time.
 en	attendance_excel_no_matched_employees	No matching employees found in the system — nothing to import.
 en	attendance_excel_no_valid_punch_rows	No valid punch rows were found in the file.
+en	attendance_excel_time_column_invalid	The check-in or check-out time column is invalid. Please use a time such as 08:15.
 en	attendance_method_updated	Attendance method updated
 en	attendance_punches_or_exception	Enter check-in/check-out and/or an exception type
 en	attendance_range_deleted	Deleted {count} attendance records for the selected period.
@@ -170,7 +173,7 @@ en	document_deleted	Document deleted
 en	document_updated	Document updated
 en	document_uploaded	Document uploaded
 en	documents	Documents
-en	employee_account_not_active	Your employee account is not active. Contact HR.
+en	employee_account_not_active	Your account is inactive. Ask HR to reactivate it from the desktop app, then sign in again.
 en	employee_branch_required	You must be assigned to a branch to record attendance from the app
 en	employee_code_already_exists	Employee code is already used in this company
 en	employee_code_invalid	Employee code must contain digits only (at least one digit)
@@ -205,6 +208,8 @@ en	employees_excel_analyzed	Employee file analyzed
 en	employees_excel_invalid_template	File rejected: it does not match the employee template. {reason}
 en	employees_import_failed	Could not import employees
 en	employees_imported	Imported {inserted} employees
+en	employees_update_failed	Could not update employees
+en	employees_updated	Updated {updated} employees
 en	empty_file	File is empty
 en	error_with_message	Error: {message}
 en	field_required	Field '{field}' is required
@@ -426,11 +431,14 @@ ar	approval_timeline	مسار الموافقات
 ar	approve_advance	تم الموافقة علي السلفة
 ar	attendance_excel_analyzed	تم تحليل ملف البصمات
 ar	attendance_excel_code_must_be_digits	كود الموظف يجب أن يكون أرقاماً فقط بدون حروف.
+ar	attendance_excel_date_column_invalid	عمود التاريخ غير صالح. يُرجى استخدام تاريخاً مثل 26/04/2026.
 ar	attendance_excel_datetime_column_invalid	عمود تاريخ ووقت البصمة غير صالح. يُرجى استخدام تاريخاً مع الوقت.
 ar	attendance_excel_import_not_yet_available	سوف تكون متاحة يوم {date}.
+ar	attendance_excel_must_have_four_columns	المطلوب أربعة أعمدة: كود الموظف، التاريخ، وقت الحضور، ووقت الانصراف.
 ar	attendance_excel_must_have_two_columns	المطلوب عمودان فقط: كود الموظف، وتاريخ ووقت البصمة.
 ar	attendance_excel_no_matched_employees	لا يوجد موظفين مطابقين في النظام — لن يتم استيراد أي بيانات.
 ar	attendance_excel_no_valid_punch_rows	لا توجد صفوف بصمات صالحة في الملف.
+ar	attendance_excel_time_column_invalid	عمود وقت الحضور أو الانصراف غير صالح. يُرجى استخدام وقتاً مثل 08:15.
 ar	attendance_method_updated	تم تحديث طريقة الحضور
 ar	attendance_punches_or_exception	أدخل وقت الدخول/الخروج و/أو نوع الاستثناء
 ar	attendance_range_deleted	تم حذف {count} بصمة في الفترة المحددة.
@@ -576,7 +584,7 @@ ar	document_deleted	تم حذف المستند
 ar	document_updated	تم تحديث المستند
 ar	document_uploaded	تم رفع المستند
 ar	documents	المستندات
-ar	employee_account_not_active	حسابك كموظف غير مفعّل. تواصل مع الموارد البشرية.
+ar	employee_account_not_active	حسابك غير نشط. تواصل مع شؤون الموظفين لتفعيل الحساب من تطبيق سطح المكتب ثم سجّل الدخول مرة أخرى.
 ar	employee_branch_required	يجب ربطك بفرع لتسجيل الحضور من التطبيق
 ar	employee_code_already_exists	كود الموظف مستخدم بالفعل في هذه الشركة
 ar	employee_code_invalid	كود الموظف يجب أن يكون أرقاماً فقط (رقم واحد على الأقل)
@@ -611,6 +619,8 @@ ar	employees_excel_analyzed	تم تحليل ملف الموظفين
 ar	employees_excel_invalid_template	تم رفض الملف لأنه غير مطابق لقالب الموظفين. {reason}
 ar	employees_import_failed	تعذر استيراد الموظفين
 ar	employees_imported	تم استيراد {inserted} موظف
+ar	employees_update_failed	تعذر تعديل الموظفين
+ar	employees_updated	تم تعديل {updated} موظف
 ar	empty_file	الملف فارغ
 ar	error_with_message	خطأ: {message}
 ar	field_required	الحقل '{field}' مطلوب
