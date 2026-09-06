@@ -1072,3 +1072,22 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Trigger | An administrator with `?company_id=` set, acting on another company's join request. |
 | Status | **Open** in legacy, **reproduced by construction** in Java. Recorded 2026-09-06. Related: **R-046** (which introduced the stricter rule), **R-044** (why an administrator is cross-company at all), **D-176** (satisfied on both paths). |
 | Evidence | `dashboard/pages/home/home_service.php::home_can_manage_join_employee` lines 8-12; `dashboard/includes/hr_helper.php::hr_verify_post_row` final clause; `AdminJoinRequestsEndToEndTest#anAdministratorActsAcrossCompaniesEvenWithAFilterSet` and `#theScopedSessionBranchRefusesAnotherCompanysRow`. |
+
+## R-063: Four Ported Surfaces Have No Source In Any hr-legacy Commit
+
+| Field | Value |
+|---|---|
+| Description | Both committed inventories are generated from `hr-legacy`'s **working tree**, not from a commit, so both include files that are untracked there. Four entries exist in no commit at all: the dashboard page `guide_videos`, and the routes `/apis/api/guide_videos/list.php`, `/apis/api/employees/analyze_excel_update.php` and `/apis/api/employees/update_bulk.php`. The Java port serves all four. |
+| Category | **Port-source integrity**, the same family as **R-056** and **R-060** and more consequential than either |
+| How it was found | Pre-checking `guide_videos` as a candidate for porting on 2026-09-06. `git status` showed the whole directory untracked -- four paths -- yet the page manifest listed it, because the manifest generator reads the filesystem. Checking every inventory entry against `HEAD` then found three more. |
+| Why it matters | **D-178** settled that `d113204` is the reproducible source of truth. A fresh clone of `hr-legacy` at that commit does not contain these four files, so there is nothing to port them from, nothing to diff a parity claim against, and the drift gates would report the opposite drift on a clean checkout -- routes the Java side serves that "hr-legacy does not have". The `/apis/**` figure of 202 of 202 and the dashboard's 35 pages are therefore measured against a working tree that only exists on this machine. |
+| What is not wrong | The ported code itself works and is tested; this is not a correctness defect in what was built. `LegacyGuideVideoController` and the two employees routes answer, and their tests pass. The problem is that their **specification** is unversioned, so nobody can re-derive or review the parity claim, and a second machine cannot reproduce the inventories. |
+| Impact | Four of 237 surfaces. Small in count, but it silently weakens the guarantee the inventories exist to provide: a manifest that includes uncommitted work reports completeness against a moving target. |
+| Probability | Certain; it is the current state. |
+| Severity | **Medium.** Nothing is broken today, and nothing can be verified about these four tomorrow. |
+| Owner | Repository owner. |
+| Decision needed | Commit these files in `hr-legacy` -- which is the obvious resolution and makes the inventories honest with no change here -- or decide they are out of baseline, in which case the Java side is serving surfaces the contract does not include and the inventories should be regenerated from `HEAD` rather than the filesystem. |
+| Disposition here | **Recorded, not worked around.** The four ports stay as they are: removing a served route is a larger decision than adding a manifest line, and is not one to take while the source is merely unversioned rather than known-unwanted. `guide_videos` is left unported on the dashboard side for the same reason its API route should not have been -- there is no committed source to port from. |
+| Suggested hardening once decided | Generate both inventories from `git show HEAD:` rather than the filesystem, so an uncommitted file cannot enter a committed manifest again. That is a change to two scripts and would have made this visible on the day it happened. |
+| Status | **Open**. Recorded 2026-09-06. Related: **D-178** (which set the baseline), **D-180** (the inventories this affects), **R-056** and **R-060** (the other working-tree divergences). |
+| Evidence | `git ls-tree HEAD dashboard/pages/guide_videos/` and `apis/api/guide_videos/` both empty; `git status --short` showing four untracked `guide_video` paths; `contracts/legacy-dashboard-pages.txt:33`; `contracts/legacy-php-routes.txt:119`; each of the 202 routes and 35 pages checked against `HEAD` with `git cat-file -e`. |

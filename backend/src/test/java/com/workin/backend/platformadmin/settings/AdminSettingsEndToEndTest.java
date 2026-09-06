@@ -601,6 +601,18 @@ class AdminSettingsEndToEndTest {
 	}
 
 	@Test
+	void theContentAliasRedirectsAndDoesNotCheckForAnAdministrator() {
+		// Legacy's content/page.php calls requireLogin() and redirects, with no
+		// isAdmin() -- unlike app_content and setting_templates, which check.
+		// The asymmetry is kept; the page it lands on refuses a
+		// non-administrator either way.
+		ResponseEntity<String> response = get("/admin/content", this.cookie);
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+		assertThat(response.getHeaders().getLocation().toString())
+				.contains("/admin/settings?tab=app_content");
+	}
+
+	@Test
 	void thePageIsUnreachableWithoutASession() {
 		assertThat(get(PATH, null).getStatusCode()).isEqualTo(HttpStatus.FOUND);
 		assertThat(get("/admin/app_content", null).getStatusCode()).isEqualTo(HttpStatus.FOUND);

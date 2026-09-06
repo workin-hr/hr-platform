@@ -110,6 +110,10 @@ class AdminDashboardPageInventoryTest {
 	 * from this file, and so that a page cannot quietly stop being served
 	 * without the test noticing.
 	 *
+	 * <p>{@code guide_videos} is a third kind again: it exists in no
+	 * {@code hr-legacy} commit at all, only in that repository's working tree,
+	 * so there is no committed source to port from -- see R-063.
+	 *
 	 * <p>{@code company_settings}, {@code profile} and {@code change_password}
 	 * are a different kind of remaining: legacy gates all three to a company
 	 * owner or an HR employee, and every session on this surface is a platform
@@ -117,7 +121,7 @@ class AdminDashboardPageInventoryTest {
 	 * belong to the audience ADR-0016 and R-044 still have open.
 	 */
 	private static final Set<String> NOT_YET_PORTED = Set.of(
-			"attendance", "change_password", "company_settings", "content",
+			"attendance", "change_password", "company_settings",
 			"guide_videos", "payroll", "profile");
 
 	@Test

@@ -206,6 +206,15 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String SETTING_TEMPLATES_PATH = PATH_PREFIX + "/setting_templates";
 
 	/**
+	 * A third alias into the same page, and the one that is <b>not</b>
+	 * administrator-gated: legacy's {@code content/page.php} calls
+	 * {@code requireLogin()} and redirects, where its two siblings check
+	 * {@code isAdmin()} first. Reproduced, because the page it lands on does
+	 * the checking either way.
+	 */
+	public static final String CONTENT_PATH = PATH_PREFIX + "/content";
+
+	/**
 	 * Every route on this surface that is reachable without authentication.
 	 *
 	 * <p>A named constant so it can be checked against the handlers' own
