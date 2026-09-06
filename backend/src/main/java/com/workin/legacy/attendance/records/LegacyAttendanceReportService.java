@@ -183,14 +183,38 @@ public class LegacyAttendanceReportService {
 		String dateFromParam = LegacyValues.toPhpString(query.value("date_from"));
 		String dateToParam = LegacyValues.toPhpString(query.value("date_to"));
 
-		String referenceDate = hasDateFrom ? dateFromParam : (hasDateTo ? dateToParam : today.toString());
-		String dateFromFilter = hasDateFrom
-				? dateFromParam
-				: phpDateOrEpoch(referenceDate, today).withDayOfMonth(1).toString();
+		// month/year name a *fiscal* period, not a calendar one, and the order of
+		// these three branches is the source's: an explicit month/year wins even
+		// when an employee is named, and only then does a named employee fall
+		// back to the period containing today. An explicit date_from or date_to
+		// disables both and takes the calendar path.
+		int month = (int) LegacyValues.toPhpLong(query.value("month"));
+		int year = (int) LegacyValues.toPhpLong(query.value("year"));
+
+		String dateFromFilter;
+		String dateToFilter;
+		if (!hasDateFrom && !hasDateTo && year >= 2000 && month >= 1 && month <= 12) {
+			String[] bounds = fiscalSettings.fiscalPeriodBounds(context.companyId(), year, month);
+			dateFromFilter = bounds[0];
+			dateToFilter = bounds[1];
+		} else if (targetEmployeeId > 0 && !hasDateFrom && !hasDateTo) {
+			// A company whose month runs 26th-to-25th is in February's period on
+			// 3 March; the calendar path below would answer for March.
+			LegacyPayrollFiscalSettings.FiscalMonth current =
+					fiscalSettings.fiscalMonthContainingDate(context.companyId(), null, today);
+			dateFromFilter = current.periodFrom();
+			dateToFilter = current.periodTo();
+		} else {
+			String referenceDate = hasDateFrom ? dateFromParam : (hasDateTo ? dateToParam : today.toString());
+			dateFromFilter = hasDateFrom
+					? dateFromParam
+					: phpDateOrEpoch(referenceDate, today).withDayOfMonth(1).toString();
+			LocalDate fromParsed = phpDateOrEpoch(dateFromFilter, today);
+			dateToFilter = hasDateTo
+					? dateToParam
+					: fromParsed.withDayOfMonth(fromParsed.lengthOfMonth()).toString();
+		}
 		LocalDate dateFromFilterParsed = phpDateOrEpoch(dateFromFilter, today);
-		String dateToFilter = hasDateTo
-				? dateToParam
-				: dateFromFilterParsed.withDayOfMonth(dateFromFilterParsed.lengthOfMonth()).toString();
 
 		if (targetEmployeeId > 0) {
 			Map<String, Object> employee = employeeStore.findOne(targetEmployeeId, context.companyId());
