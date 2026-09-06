@@ -70,7 +70,11 @@ import com.zaxxer.hikari.HikariDataSource;
 	// deployment shape needs one too -- but not legacy's shared password
 	// (hr-legacy#11): the individual-identity model F-26 requires is the same
 	// code either way, over whichever database the profile selects.
-	"com.workin.backend.platformadmin"
+	"com.workin.backend.platformadmin",
+	// The API description. Not persistence, but this list is where the
+	// phase1-mysql profile decides what exists at all, and a document that
+	// omits the only surface this profile serves would describe nothing.
+	"com.workin.backend.openapi"
 })
 @EntityScan({"com.workin.legacy", "com.workin.backend.platformadmin"})
 @EnableJpaRepositories(

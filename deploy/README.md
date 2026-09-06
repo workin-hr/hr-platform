@@ -22,8 +22,14 @@ When it is up:
 | What | Where |
 |---|---|
 | API | `http://localhost:8080/apis/...` |
+| Swagger UI | `http://localhost:8080/swagger-ui.html` |
 | Health | `http://localhost:8080/actuator/health` |
 | MariaDB | `127.0.0.1:13306`, user `workin`, password `workin-local` |
+
+Swagger UI opens on the client API — the 202 legacy routes, with each route's
+verbs pruned to what its handler actually accepts and the `.php` suffix dropped,
+because that is the URL clients call. It is published under `local` and
+`integration` and switched off under `prod`.
 
 Every account in the seed has the password **`devpassword`**. Pick any company
 or employee phone number out of the database and sign in as them.

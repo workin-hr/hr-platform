@@ -72,6 +72,27 @@ class ProfileCoverageArchTest {
 			"com.workin.backend.authorization");
 
 	/**
+	 * The rest of {@link LegacyPersistenceConfig}'s scan: packages where
+	 * <em>every</em> class is meant to be live under both profiles, so there is
+	 * nothing for the sweep above to find. A name here is a decision, and
+	 * {@link #everyScannedPackageIsAccountedFor()} makes it one that cannot be
+	 * skipped -- a package added to the scan is otherwise a package the guard
+	 * silently stops covering.
+	 */
+	private static final Set<String> WHOLLY_DUAL_PROFILE_PACKAGES = Set.of(
+			// The legacy adapter itself. Reachable only under phase1-mysql,
+			// because LegacyPersistenceConfig is what scans it.
+			"com.workin.legacy",
+			// The i18n filter and message catalog: no persistence, no profile.
+			"com.workin.backend.i18n",
+			// ADR-0015's admin surface runs over whichever database the profile
+			// selects -- same code either way (D-192).
+			"com.workin.backend.platformadmin",
+			// The API description. It describes whatever is mapped, which is a
+			// different set under each profile and correct under both (D-194).
+			"com.workin.backend.openapi");
+
+	/**
 	 * Cross-cutting by ADR-0013's own inventory -- reused as-is under
 	 * both profiles, never guarded. {@code SecurityConfig} is handled
 	 * separately (its profile-gating is per-{@code @Bean}, not
@@ -225,6 +246,49 @@ class ProfileCoverageArchTest {
 						+ "with no re-validation through LegacyTenantContextService")
 				.isNotNull();
 		assertThat(tenantChain.getAnnotation(Profile.class).value()).containsExactly("!phase1-mysql");
+	}
+
+	/**
+	 * The guard's own blind spot, closed.
+	 *
+	 * <p>{@link #everyPostgresOnlyBeanInAMixedPackageCarriesTheProfileGuard()}
+	 * sweeps a hand-written list of packages, and the scan it protects is a
+	 * different hand-written list in another file. Add a package to the scan
+	 * and forget this one, and the sweep keeps passing over the packages it
+	 * already knew about while the new one is uncovered -- the same shape of
+	 * false confidence that let {@code tenantSecurityFilterChain} ship
+	 * unguarded. So every scanned package must be classified, one way or the
+	 * other, before it can be scanned at all.
+	 */
+	@Test
+	void everyScannedPackageIsAccountedFor() {
+		String[] scanned = LegacyPersistenceConfig.class
+				.getAnnotation(org.springframework.context.annotation.ComponentScan.class)
+				.value();
+
+		assertThat(scanned)
+				.describedAs("LegacyPersistenceConfig declares no @ComponentScan packages -- "
+						+ "this guard would pass vacuously")
+				.isNotEmpty();
+
+		List<String> unclassified = java.util.Arrays.stream(scanned)
+				.filter(pkg -> !MIXED_PACKAGES.contains(pkg))
+				.filter(pkg -> !WHOLLY_DUAL_PROFILE_PACKAGES.contains(pkg))
+				.toList();
+
+		assertThat(unclassified)
+				.describedAs("packages in LegacyPersistenceConfig's @ComponentScan that are in neither "
+						+ "MIXED_PACKAGES (swept for missing @Profile guards) nor "
+						+ "WHOLLY_DUAL_PROFILE_PACKAGES (declared safe, with the reason) -- an "
+						+ "unclassified package is one this guard does not cover and nobody decided "
+						+ "not to cover")
+				.isEmpty();
+
+		assertThat(WHOLLY_DUAL_PROFILE_PACKAGES)
+				.describedAs("a package declared wholly dual-profile that is no longer scanned is a "
+						+ "stale exemption -- remove it rather than leaving it to cover a package "
+						+ "somebody might add back for a different reason")
+				.allSatisfy(pkg -> assertThat(scanned).contains(pkg));
 	}
 
 	/**

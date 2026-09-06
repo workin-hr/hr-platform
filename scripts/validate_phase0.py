@@ -1582,11 +1582,14 @@ def validate_edit_audit_log_tests(failures: list[str]) -> None:
 
 
 def validate_legacy_drift_gates(failures: list[str]) -> None:
-    """The three hr-legacy drift gates, plus the tests that pin what they catch.
+    """The drift gates, plus the tests that pin what each of them catches.
 
-    Both compare this application against the PHP it reproduces rather than
-    against itself, and both run from a committed inventory so they still mean
-    something where hr-legacy is not checked out."""
+    Most compare this application against the PHP it reproduces rather than
+    against itself, and all run from a committed inventory so they still mean
+    something where hr-legacy is not checked out. The last two compare the
+    application against artifacts derived from it -- the development seed and
+    the published API description -- which drift the same way and are caught in
+    the same place."""
     _run_regression_script("scripts/check_legacy_route_drift.py", "Legacy route drift", failures)
     _run_regression_script("scripts/test_check_legacy_route_drift.py",
                            "Legacy route-drift check regression tests", failures)
@@ -1607,6 +1610,14 @@ def validate_legacy_drift_gates(failures: list[str]) -> None:
                            "Development seed sanitisation", failures)
     _run_regression_script("scripts/test_check_dev_seed_sanitised.py",
                            "Development seed sanitisation check regression tests", failures)
+    # The published OpenAPI document is generated from the controllers but
+    # pruned from a committed file. If a handler's method guard changes and that
+    # file does not, the document keeps telling client developers a route
+    # accepts a verb it answers 405 to -- with every other gate green.
+    _run_regression_script("scripts/check_openapi_route_methods_drift.py",
+                           "OpenAPI route-method drift", failures)
+    _run_regression_script("scripts/test_check_openapi_route_methods_drift.py",
+                           "OpenAPI route-method drift check regression tests", failures)
 
 
 def _validate_single_adr_cli(target_arg: str) -> int:

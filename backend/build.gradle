@@ -76,6 +76,13 @@ dependencies {
 	// cannot invalidate a session living in another worker's heap. JDBC on the
 	// existing datasource needs no new infrastructure.
 	implementation 'org.springframework.boot:spring-boot-starter-session-jdbc'
+	// The published API description. springdoc 2.8.6 is the latest release and
+	// targets Spring Boot 3.x, while this project is on 4.1.1 -- that pairing is
+	// unsupported by the maintainers and was verified by running it rather than
+	// assumed: the application starts, serves /v3/api-docs and renders the UI.
+	// Pinned exactly, because the next Boot upgrade is where an unsupported
+	// pairing breaks, and a floating version would make that a surprise.
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6'
 	implementation 'gg.jte:jte-spring-boot-starter-4:3.2.4'
 	implementation 'gg.jte:jte:3.2.4'
 	implementation 'org.flywaydb:flyway-database-postgresql'
