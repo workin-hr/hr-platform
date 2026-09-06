@@ -69,6 +69,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+        # Restart the app whenever the database is recreated or restarted.
+        # Without this, changing anything in the db service leaves the app
+        # running with a connection pool pointing at a container that no longer
+        # exists, and the first thing a developer sees is a wall of
+        # "Failed to validate connection ... Connection.setNetworkTimeout
+        # cannot be called on a closed connection". Hikari does recover on its
+        # own, but a stack that greets you with red text it will quietly fix is
+        # a stack you stop trusting.
+        restart: true
     environment:
       # One name. The profile group in application.properties pulls in
       # phase1-mysql, so there is no second name to forget.
@@ -77,6 +86,9 @@ services:
       LEGACY_DB_USERNAME: workin
       LEGACY_DB_PASSWORD: workin-local
       APP_LEGACY_UPLOADS_PATH: /app/uploads
+      # Raise to DEBUG when chasing something; INFO by default so the
+      # foreground log stays readable.
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
       # A platform administrator to sign in as. Optional: unset simply means no
       # administrator exists yet, not a startup failure.
       APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE: ${ADMIN_PHONE:-+201000000001}

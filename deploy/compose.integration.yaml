@@ -58,6 +58,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+        # Same reasoning as compose.local.yaml: a recreated database otherwise
+        # leaves the app holding a pool of dead connections.
+        restart: true
     environment:
       SPRING_PROFILES_ACTIVE: integration
       LEGACY_DB_JDBC_URL: jdbc:mariadb://db:3306/${DB_NAME:-workin}
