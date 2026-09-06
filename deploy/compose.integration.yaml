@@ -38,7 +38,12 @@ services:
       # compose calls the database ready, the temp server then shuts down for
       # the real start, and the app connects into that gap and dies. Forcing
       # TCP fails for the whole of that phase, which is exactly what is wanted.
-      test: ["CMD-SHELL", "mariadb -h 127.0.0.1 -u\"$$MARIADB_USER\" -p\"$$MARIADB_PASSWORD\" -e 'SELECT 1 FROM companies LIMIT 1' \"$$MARIADB_DATABASE\" >/dev/null 2>&1"]
+      test:
+        - CMD-SHELL
+        - >-
+          mariadb -h 127.0.0.1 -u"$$MARIADB_USER" -p"$$MARIADB_PASSWORD"
+          -e 'SELECT 1 FROM companies LIMIT 1' "$$MARIADB_DATABASE"
+          >/dev/null 2>&1
       interval: 10s
       timeout: 5s
       retries: 60

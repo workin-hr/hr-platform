@@ -111,6 +111,22 @@ Before the first production start, work through the pre-deployment list in
 (the signing secret must match PHP's, or every user is logged out twice) and
 **R-025** (the rollback target has never been shown to be restorable).
 
+## Before you push a change here
+
+CI runs `yamllint -s .` over the whole repository, and `validate_phase0.py`
+does not. yamllint is not always installable locally (PEP 668 blocks a plain
+`pip install` on Debian-derived systems), so run it the way CI would:
+
+```sh
+docker run --rm -v "$PWD:/data" -w /data python:3.12-slim \
+  sh -c "pip install --quiet yamllint && yamllint -s --no-warnings ."
+```
+
+The `--no-warnings` matters: the Flutter submodules carry warnings and are not
+checked out in CI, so without it you will chase findings CI never sees. This
+directory's compose files were pushed once with a 171-character healthcheck
+line and CI caught it, which is the failure this note exists to prevent.
+
 ## Why this directory is unlocked
 
 `Dockerfile` and `docker-compose.yml` are forbidden filenames outside `spike/`

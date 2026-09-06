@@ -39,7 +39,11 @@ services:
       # Over TCP, so the entrypoint's temporary --skip-networking server cannot
       # be mistaken for the real one. Production mounts no seed, so there is no
       # seeded table to require -- only a real connection.
-      test: ["CMD-SHELL", "mariadb -h 127.0.0.1 -u\"$$MARIADB_USER\" -p\"$$MARIADB_PASSWORD\" -e 'SELECT 1' >/dev/null 2>&1"]
+      test:
+        - CMD-SHELL
+        - >-
+          mariadb -h 127.0.0.1 -u"$$MARIADB_USER" -p"$$MARIADB_PASSWORD"
+          -e 'SELECT 1' >/dev/null 2>&1
       interval: 10s
       timeout: 5s
       retries: 30
