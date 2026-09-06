@@ -107,9 +107,10 @@ The implementation handoff and PR evidence must list:
 - Claude runtime entrypoint: `CLAUDE.md`, which imports this file.
 - Agent roles and permissions: `.claude/agents/`, `.codex/agents/`, and
   `docs/agents/responsibility-matrix.md`.
-- Repository-writing automation: `.github/workflows/`. The Claude Code
-  Action is configured in `claude-assistant.yml` and scoped by that
-  workflow's `permissions:` block plus `.claude/settings.json`.
+- Repository-writing automation: `.github/workflows/`. No workflow currently
+  writes to the repository on an agent's behalf; the global rule that such
+  automation is an implementer and never a reviewer stands for whatever is
+  added next.
 - Reusable procedures: `.agents/skills/`; the complete checked catalog is
   `docs/agents/skill-catalog.md`. `.claude/skills/speckit-*` are upstream
   integration copies, not a second repository-authored source.
