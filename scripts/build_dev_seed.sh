@@ -14,7 +14,6 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCHEMA="$REPO_ROOT/backend/src/test/resources/legacy/mysql_workin.schema.sql"
 SANITISER="$REPO_ROOT/deploy/seed/sanitise.sql"
 OUTPUT="$REPO_ROOT/deploy/seed/dev-seed.sql"
 GATE="$REPO_ROOT/scripts/check_dev_seed_sanitised.py"

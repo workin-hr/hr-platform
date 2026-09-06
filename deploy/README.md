@@ -123,9 +123,18 @@ docker run --rm -v "$PWD:/data" -w /data python:3.12-slim \
 ```
 
 The `--no-warnings` matters: the Flutter submodules carry warnings and are not
-checked out in CI, so without it you will chase findings CI never sees. This
-directory's compose files were pushed once with a 171-character healthcheck
-line and CI caught it, which is the failure this note exists to prevent.
+checked out in CI, so without it you will chase findings CI never sees.
+
+CI also runs ShellCheck, which is not installed here either:
+
+```sh
+docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck-alpine:stable \
+  shellcheck scripts/*.sh .agents/skills/*/scripts/*.sh
+```
+
+Both notes are here because both were learned the hard way on this directory:
+a 171-character healthcheck line and an unused shell variable each passed every
+local check and failed the PR.
 
 ## Why this directory is unlocked
 
