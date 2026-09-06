@@ -1,0 +1,123 @@
+name: Claude Assistant
+
+# An on-demand implementer, invoked by a human writing `@claude` on an issue or
+# a pull request. It is not a reviewer and not a gate.
+#
+# What this workflow is NOT, stated first because the distinction is the whole
+# reason it is safe to add:
+#   - it does NOT publish the `independent-review` status, and nothing here can.
+#     D-121 makes `chatgpt-codex-connector[bot]` the reviewer whose round
+#     discharges AGENTS.md's mandatory workflow, and D-125 makes that status a
+#     required check. A Claude run is work *submitted into* that gate, never a
+#     way through it;
+#   - it does NOT approve, merge, or mark anything reviewed. AGENTS.md's
+#     "implementers cannot approve or merge their own work" applies to it
+#     exactly as to any other implementer;
+#   - it does NOT run on its own. Every invocation is a human typing the
+#     trigger phrase, so there is no unattended agent writing to this
+#     repository.
+#
+# Supply chain:
+#   - `anthropics/claude-code-action` is the official action (the third-party
+#     `claude-code-github-action` forks were considered and rejected: an
+#     unaffiliated maintainer, and a mutable tag, holding an API key and write
+#     access to this repository);
+#   - it is pinned to an immutable commit SHA like every other action here, with
+#     the tag it resolves to in a comment. `.github/dependabot.yml` already
+#     watches the `github-actions` ecosystem at `/`, so the pin is maintained
+#     rather than frozen;
+#   - `actions/checkout` is pinned to the same SHA the other workflows use.
+#
+# Event choice, and why it avoids the privileged `*_target` trigger variant:
+#   `issue_comment` and `pull_request_review_comment` always execute the
+#   workflow file from the default branch, never the version in a contributor's
+#   branch, so a pull request cannot rewrite this file and have its own version
+#   run with these permissions. The privileged variant would grant the same
+#   thing while additionally exposing untrusted pull-request code to these
+#   credentials -- the hazard D-122 reasons through for the review gate, and
+#   which `validate_workflow_safety()` forbids outright everywhere else. There
+#   is no reason to reach for it here.
+#
+#   (The literal trigger name is deliberately not spelled out above: that
+#   validator matches the raw file text, so naming it even in a comment would
+#   trip the ban. Erring toward a false positive is the right bias for that
+#   check, so this comment works around it rather than loosening it.)
+#
+# Operator note (AGENTS.md, "Configuration, build, CI, or deployment"):
+#   if `ANTHROPIC_API_KEY` is absent or invalid the job fails with an
+#   authentication error and posts nothing; the symptom a user sees is an
+#   `@claude` mention that never receives a reply. Check this workflow's run
+#   log in the Actions tab. Nothing else in CI depends on it, so a failure here
+#   never blocks a merge.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [assigned]
+
+# Least privilege, and deliberately short of what a reviewer would need:
+# `statuses: write` is absent, so this workflow cannot publish a commit status
+# at all -- including `independent-review`.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: claude-assistant-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  respond:
+    # Only when a human actually asked. Bots are excluded rather than filtered
+    # later: the action's own `allowed_bots` defaults to empty, and this keeps
+    # a bot comment from even starting a run.
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'issues' && github.event.action == 'assigned')
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository (immutable action reference)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # The action needs history to branch from and to read prior context.
+          fetch-depth: 0
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636  # v1.0.217
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          trigger_phrase: "@claude"
+          # One comment that updates in place, rather than a new comment per
+          # turn -- these threads already carry review discussion.
+          use_sticky_comment: "true"
+          # The same deny-list the terminal sessions run under: no reading or
+          # writing .env, credentials, keys or keystores, and no force-push,
+          # merge, hard reset or branch deletion. Keeping one file as the source
+          # avoids the two drifting, which is the failure this repository's
+          # inventory rules exist to prevent.
+          settings: ".claude/settings.json"
+          # Folded (`>-`), so these lines join into the single argument the
+          # flag expects while each source line stays inside yamllint's 160.
+          # Deliberately short: CLAUDE.md imports AGENTS.md and Claude Code
+          # reads it on its own, so this carries only what a CI run needs on
+          # top of that.
+          claude_args: >-
+            --system-prompt-append "This is a non-interactive CI run in the
+            hr-platform repository: nobody can answer a question mid-run, so
+            state assumptions in your reply rather than waiting on one. AGENTS.md is canonical; obey its mandatory
+            change-propagation table rather than editing code alone. Never
+            hand-edit contracts/*.txt -- they are generated, so refresh them
+            with their scripts. Run python3 scripts/validate_phase0.py and the
+            scripts/check_*.py drift gates before handing work back. You are an
+            implementer, not a reviewer: never approve, merge, or state that a
+            change has been reviewed, and never touch the independent-review
+            status, which belongs to chatgpt-codex-connector[bot] under D-121."
