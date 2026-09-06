@@ -122,6 +122,8 @@ public class PlatformAdminWebSecurityConfig {
 
 	public static final String FAQS_PATH = PATH_PREFIX + "/faqs";
 
+	public static final String GUIDE_VIDEOS_PATH = PATH_PREFIX + "/guide_videos";
+
 	public static final String BANNERS_PATH = PATH_PREFIX + "/banners";
 
 	public static final String NOTIFICATIONS_PATH = PATH_PREFIX + "/notifications";

@@ -152,6 +152,38 @@ public class LegacyGuideVideoService {
 		}
 	}
 
+	/**
+	 * {@code faq_parse_video_filenames()}: split on whitespace, commas and
+	 * semicolons, {@code basename()} each part, drop {@code .} and {@code ..},
+	 * keep only what matches {@link #SAFE_VIDEO_NAME}, and de-duplicate.
+	 *
+	 * <p>Public because the dashboard's write path needs the identical rule:
+	 * this is the only thing standing between a typed-in filename and a path
+	 * leaving the media directory, and a second copy of it in the admin surface
+	 * would be a second thing to get wrong. PHP shares the function the same
+	 * way -- {@code guide_videos_sanitize_filename()} calls it and takes the
+	 * first result.
+	 */
+	public static List<String> parseVideoFilenames(String raw) {
+		if (raw == null || raw.trim().isEmpty()) {
+			return List.of();
+		}
+		List<String> names = new java.util.ArrayList<>();
+		for (String part : raw.trim().split("[\\s,;]+")) {
+			String name = basename(part);
+			if (name.isEmpty() || ".".equals(name) || "..".equals(name)) {
+				continue;
+			}
+			if (!SAFE_VIDEO_NAME.matcher(name).matches()) {
+				continue;
+			}
+			if (!names.contains(name)) {
+				names.add(name);
+			}
+		}
+		return List.copyOf(names);
+	}
+
 	/** {@code basename(str_replace('\\', '/', trim($name)))}. */
 	private static String basename(String value) {
 		if (value == null) {

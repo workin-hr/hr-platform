@@ -27,9 +27,20 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * every request, so that bean cannot itself read back through
  * LocaleContextHolder (self-referential -- StackOverflowError) and
  * needs a plain, non-ThreadLocal source of truth instead.
+ *
+ * <p><b>One past {@code HIGHEST_PRECEDENCE}, not at it, and the single
+ * step matters.</b> This filter reads {@code lang} with
+ * {@code request.getParameter()}, and the first {@code getParameter()}
+ * call makes the container parse the request -- query string and form
+ * body together -- fixing the body's charset for the rest of it. Spring
+ * Boot's {@code OrderedCharacterEncodingFilter}, which is what sets that
+ * charset to UTF-8, sits at {@code HIGHEST_PRECEDENCE} as well, so at
+ * equal order the two ran in an undefined sequence; when this one won,
+ * every non-ASCII form field arrived decoded as ISO-8859-1 and an Arabic
+ * title posted from an admin form was stored as mojibake. See R-067.
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class LocaleResolutionFilter extends OncePerRequestFilter {
 
 	public static final String RESOLVED_LOCALE_ATTRIBUTE = LocaleResolutionFilter.class.getName() + ".RESOLVED_LOCALE";
