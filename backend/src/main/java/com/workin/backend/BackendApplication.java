@@ -6,6 +6,7 @@ import org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoCo
 import org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration;
 import org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
 import org.springframework.context.annotation.Import;
 
 import com.workin.backend.config.LegacyPersistenceConfig;
@@ -38,7 +39,18 @@ import com.workin.bootstrap.NoScanMarker;
 			DataSourceAutoConfiguration.class,
 			DataJpaRepositoriesAutoConfiguration.class,
 			HibernateJpaAutoConfiguration.class,
-			FlywayAutoConfiguration.class
+			FlywayAutoConfiguration.class,
+			// Every filter chain here authenticates for itself -- the legacy
+			// surface against a bearer token, the admin surface against
+			// platform_admins -- and nothing injects an AuthenticationManager
+			// or a UserDetailsService. Left on, Boot supplies a default `user`
+			// account anyway and PRINTS ITS PASSWORD in the startup log,
+			// production included. It is unreachable today, measured: HTTP Basic
+			// with those credentials changes no status code on any route. But
+			// "unreachable today" is one `.httpBasic()` away from a live account
+			// whose password is in the log, so the default is removed rather
+			// than relied upon to stay unreachable.
+			UserDetailsServiceAutoConfiguration.class
 		})
 @Import({PostgresPersistenceConfig.class, LegacyPersistenceConfig.class})
 public class BackendApplication {
