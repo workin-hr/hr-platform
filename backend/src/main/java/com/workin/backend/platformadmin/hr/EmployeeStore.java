@@ -1,6 +1,8 @@
 package com.workin.backend.platformadmin.hr;
 
 import java.math.BigDecimal;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -63,6 +65,19 @@ public class EmployeeStore {
 			"(SELECT sc.basic_salary FROM salary_contracts sc WHERE sc.employee_id = e.id"
 					+ " ORDER BY sc.effective_from DESC, sc.id DESC LIMIT 1) AS basic_salary";
 
+	/**
+	 * {@code contract_duration_months} is read with {@code getLong} and
+	 * {@code wasNull}, the same way {@link com.workin.legacy.LegacyJdbcValues}
+	 * reads every numeric column, and not with a cast.
+	 *
+	 * <p>It was {@code (Integer) rs.getObject(...)}, which threw
+	 * {@code ClassCastException} -- a 500 on the whole employees page -- for
+	 * every row where the column is not null: it is {@code int(10) unsigned},
+	 * whose range does not fit a signed {@code int}, so the driver boxes it as
+	 * a {@code Long}. The suite did not catch it because no fixture ever set
+	 * the column, so the cast never ran; 1,448 of the seed's 3,783 employees
+	 * have a value, and the page failed on the first real data it saw.
+	 */
 	private static final RowMapper<Employee> MAPPER = (rs, rowNum) -> new Employee(
 			rs.getLong("id"),
 			rs.getLong("company_id"),
@@ -75,12 +90,18 @@ public class EmployeeStore {
 			rs.getString("hire_date"),
 			rs.getString("created_at"),
 			rs.getString("photo_url"),
-			(Integer) rs.getObject("contract_duration_months"),
+			nullableLong(rs, "contract_duration_months"),
 			rs.getString("branch_name"),
 			rs.getString("department_name"),
 			rs.getString("job_title_name"),
 			rs.getString("shift_name"),
 			rs.getBigDecimal("basic_salary"));
+
+	/** {@code getLong} returns 0 for SQL NULL, so its own result is not the oracle. */
+	private static Long nullableLong(ResultSet rs, String column) throws SQLException {
+		long value = rs.getLong(column);
+		return rs.wasNull() ? null : value;
+	}
 
 	/**
 	 * @param filters the list filters, whose {@code companyId} is already the

@@ -14,11 +14,17 @@ import java.math.BigDecimal;
  * <p>Neither the shift nor the salary is a column here. Both are the latest
  * row of a history table, picked per employee by a correlated subquery, so an
  * employee with no assignment or no contract shows nothing rather than a zero.
+ *
+ * <p>{@code contractDurationMonths} is a {@code Long} and not an {@code Integer}
+ * because {@code employees.contract_duration_months} is {@code int(10)
+ * unsigned}: its range does not fit a signed {@code int}, so MariaDB
+ * Connector/J hands back a {@code Long}. The same reason
+ * {@link com.workin.legacy.LegacyJdbcValues} reads every numeric column as one.
  */
 public record Employee(
 		long id, long companyId, String companyName, String employeeCode, String employeeName,
 		String phone, String countryCode, boolean active, String hireDate, String createdAt,
-		String photoUrl, Integer contractDurationMonths, String branchName, String departmentName,
+		String photoUrl, Long contractDurationMonths, String branchName, String departmentName,
 		String jobTitleName, String shiftName, BigDecimal basicSalary) {
 
 	public String branchLabel() {

@@ -193,6 +193,21 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void theListRendersAnEmployeeWhoHasAContractDuration() {
+		// Every other fixture here leaves contract_duration_months NULL, and
+		// that is why the whole page answered 500 against real data without
+		// one test failing: the column is int(10) unsigned, whose range does
+		// not fit a signed int, so MariaDB Connector/J boxes it as a Long and
+		// the row mapper's cast to Integer threw. 1,448 of the development
+		// seed's 3,783 employees carry a value.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update(
+				"UPDATE employees SET contract_duration_months = 12 WHERE id = ?", id);
+
+		assertThat(body("/admin/employees")).contains("1001", "Aya");
+	}
+
+	@Test
 	void onlyTheLatestShiftAndContractAreShown() {
 		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
 		long later = createShift(this.companyA, "Alpha Night", true);
