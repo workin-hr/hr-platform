@@ -102,6 +102,33 @@ class LegacyUploadServingTest {
 	}
 
 	@Test
+	void aGuideVideoAndItsPosterAreServed() throws Exception {
+		// The first version of the handler served images and PDFs only, so
+		// every video LegacyGuideVideoService listed answered 404 while the
+		// file sat on disk beside a poster that did serve.
+		put("guide_videos/intro.mp4", "video-bytes");
+		put("guide_videos/intro.jpg", "poster-bytes");
+
+		assertThat(this.restTemplate.getForEntity("/uploads/guide_videos/intro.mp4", String.class)
+			.getBody()).isEqualTo("video-bytes");
+		assertThat(this.restTemplate.getForEntity("/uploads/guide_videos/intro.jpg", String.class)
+			.getBody()).isEqualTo("poster-bytes");
+	}
+
+	/**
+	 * The served set is composed from the writers rather than restated, and this
+	 * is what keeps it that way: a new video type or a new stored image type
+	 * fails here until the handler can serve it.
+	 */
+	@Test
+	void everyExtensionAWriterCanProduceIsServed() {
+		assertThat(LegacyUploadServing.SERVED)
+			.containsAll(LegacyFileUploads.STORED_EXTENSIONS)
+			.containsAll(com.workin.legacy.guide.LegacyGuideVideoService.VIDEO_EXTENSIONS)
+			.containsAll(com.workin.legacy.guide.LegacyGuideVideoService.POSTER_EXTENSIONS);
+	}
+
+	@Test
 	void anExtensionThisSystemNeverWritesIsNotServed() throws Exception {
 		// Frozen PHP names a stored file from the client-supplied filename, so
 		// its /uploads tree can hold one whose extension has nothing to do with

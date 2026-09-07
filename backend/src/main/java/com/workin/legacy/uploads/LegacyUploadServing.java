@@ -35,20 +35,31 @@ import org.springframework.web.servlet.resource.PathResourceResolver;
 public class LegacyUploadServing implements WebMvcConfigurer {
 
 	/**
-	 * The extensions {@link LegacyFileUploads} itself can write, derived from
-	 * the sniffed content type.
+	 * Everything this system puts a URL to, and nothing else.
 	 *
-	 * <p>Anything else is refused rather than served. The frozen PHP names a
-	 * stored file from the <em>client-supplied</em> filename, so its
+	 * <p>Composed from the two places that produce one rather than written out:
+	 * {@link LegacyFileUploads#STORED_EXTENSIONS}, which the upload path derives
+	 * from the <em>sniffed</em> content type, and the guide videos and their
+	 * posters, whose filenames come from the dashboard and are validated against
+	 * a pattern. A hand-kept third list is how these come apart, and they did --
+	 * the first version of this class served the image and PDF half only, so
+	 * every guide video the API listed answered 404.
+	 *
+	 * <p>Anything outside the union is refused rather than served. The frozen
+	 * PHP names a stored file from the <em>client-supplied</em> filename, so its
 	 * {@code /uploads} tree can hold a file whose extension has nothing to do
 	 * with its bytes -- the upload-naming risk the register carries, and the
-	 * reason this port derives the extension from the type instead. Serving
-	 * such a file inline from this application's own origin would turn a
-	 * planted {@code .html} into script on the admin's origin. Refusing it
-	 * costs nothing legitimate: every file this system writes has one of these
-	 * five extensions.
+	 * reason this port derives the extension from the type instead. Serving such
+	 * a file inline from this application's own origin would turn a planted
+	 * {@code .html} into script on the admin's origin.
 	 */
-	private static final List<String> SERVED = List.of("jpg", "jpeg", "png", "webp", "pdf");
+	static final List<String> SERVED = java.util.stream.Stream.of(
+			LegacyFileUploads.STORED_EXTENSIONS,
+			com.workin.legacy.guide.LegacyGuideVideoService.VIDEO_EXTENSIONS,
+			com.workin.legacy.guide.LegacyGuideVideoService.POSTER_EXTENSIONS)
+		.flatMap(List::stream)
+		.distinct()
+		.toList();
 
 	private final Path uploadPath;
 

@@ -128,19 +128,20 @@
 									${t.apply(row.returned() ? "yes" : "no")}</span>
 							</td>
 							<td class="col-actions">
-								<%-- Once the asset is back the row is frozen against
-									     editing: there is nothing left to correct about the
-									     loan. --%>
-								@template.admin.rowActions(rowId = row.id(), t = t, items = @`
-									@if(canWrite && !row.returned())
-										<form method="POST" class="row-actions__form" role="none">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="mark_returned">
-											<input type="hidden" name="id" value="${row.id()}">
-											<button type="submit" role="menuitem" class="row-actions__item">${t.apply("is_returned")}</button>
-										</form>
-									@endif
-									@if(canWrite)
+								<%-- The dash belongs beside the row, not inside a popover the
+								     reader has to open to be told there is nothing in it. --%>
+								@if(canWrite)
+									<%-- Once the asset is back the row is frozen against editing:
+									     there is nothing left to correct about the loan. --%>
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										@if(!row.returned())
+											<form method="POST" class="row-actions__form" role="none">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="mark_returned">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item">${t.apply("is_returned")}</button>
+											</form>
+										@endif
 										<form method="POST" class="row-actions__form" role="none"
 										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -148,10 +149,10 @@
 											<input type="hidden" name="id" value="${row.id()}">
 											<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
 										</form>
-									@else
-										<span class="text-muted">—</span>
-									@endif
-								`)
+									`)
+								@else
+									<span class="text-muted">—</span>
+								@endif
 							</td>
 						</tr>
 					@endfor

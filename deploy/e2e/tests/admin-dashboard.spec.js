@@ -447,6 +447,97 @@ test.describe.serial('the platform-admin dashboard', () => {
 		}
 	});
 
+	test('the pager windows, carries the filters, and keeps the page size', async ({ page }) => {
+		test.setTimeout(180_000);
+		await nextWindow();
+		await signIn(page);
+
+		// Sixteen pages emitted one link per page under a class no stylesheet
+		// defines -- 378 bare numbers on the employees list. What replaced it
+		// is shared, so it is checked once, here, rather than trusted.
+		await page.goto('/admin/employees', { waitUntil: 'domcontentloaded' });
+		const pager = page.locator('.pager-wrap').first();
+		await expect(pager, 'the dashboard component, not the invented one').toHaveCount(1);
+		await expect(page.locator('.pager'), 'and not the class nothing styles').toHaveCount(0);
+
+		const numbered = await pager.locator('.pager-pages .pager-btn').count();
+		expect(numbered, 'a window of pages, not all of them').toBeLessThanOrEqual(7);
+		await expect(pager.locator('.pager-dots').first(), 'with an ellipsis for the rest')
+			.toBeVisible();
+		await expect(pager.locator('.pager-summary'), 'and a count of what is shown')
+			.toContainText(/\d/);
+
+		// per_page travels with the page links. Legacy drops it, so choosing
+		// 100 and turning the page silently returned you to 10.
+		await page.goto('/admin/employees?per_page=25', { waitUntil: 'domcontentloaded' });
+		const next = pager.locator('.pager-pages .pager-btn').nth(1);
+		await expect(next).toHaveAttribute('href', /per_page=25/);
+		await expect(page.locator('.pager-size-select'), 'the selector says what is on screen')
+			.toHaveValue('25');
+
+		// A size the presets do not list is still represented, rather than the
+		// box reading "10" over a 200-row page.
+		await page.goto('/admin/employees?per_page=200', { waitUntil: 'domcontentloaded' });
+		await expect(page.locator('.pager-size-select')).toHaveValue('200');
+
+		// A page past the end returns no rows while reporting the last page --
+		// dbPaginate's own behaviour, deliberately kept. What must not happen
+		// is the summary printing an impossible range under the empty table.
+		await page.goto('/admin/employees?page=9999', { waitUntil: 'domcontentloaded' });
+		const summary = await page.locator('.pager-summary').first().innerText();
+		expect(summary, 'no reversed range on an out-of-range page').not.toMatch(/\d+\s*–\s*\d/);
+
+		// The page's own filters survive the size form, which submits its own
+		// hidden inputs rather than the address bar.
+		await page.goto('/admin/employees?filter_job_title=1&date_from=2020-01-01',
+			{ waitUntil: 'domcontentloaded' });
+		const hidden = page.locator('.pager-size input[type="hidden"]');
+		const names = await hidden.evaluateAll((els) => els.map((e) => e.name));
+		expect(names, 'the job-title filter is carried').toContain('filter_job_title');
+		expect(names, 'and so is the date range').toContain('date_from');
+	});
+
+	test('a row-action menu opens from the keyboard and has no empty triggers', async ({ page }) => {
+		test.setTimeout(180_000);
+		await nextWindow();
+		await signIn(page);
+
+		await page.goto('/admin/employees', { waitUntil: 'domcontentloaded' });
+		const trigger = page.locator('.row-actions__trigger').first();
+		await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+		// The open was bound to `mousedown`, which a keyboard never fires: Enter
+		// on a <button> dispatches `click` alone. Every menu was unreachable
+		// without a mouse, and the stacked buttons it replaced were not.
+		await trigger.focus();
+		await page.keyboard.press('Enter');
+		await expect(trigger, 'Enter opens it').toHaveAttribute('aria-expanded', 'true');
+		const menuId = await trigger.getAttribute('aria-controls');
+		await expect(page.locator(`#${menuId}`), 'and the menu it names is the one shown')
+			.toBeVisible();
+
+		await page.keyboard.press('Escape');
+		await expect(trigger, 'Escape closes it').toHaveAttribute('aria-expanded', 'false');
+
+		// Two tables on one page, two independent id sequences: without a
+		// per-table prefix both emitted row-actions-menu-1 and each trigger's
+		// aria-controls named the other's menu as often as its own.
+		await page.goto('/admin/faqs', { waitUntil: 'domcontentloaded' });
+		const ids = await page.locator('.row-actions__menu').evaluateAll(
+			(els) => els.map((e) => e.id));
+		expect(new Set(ids).size, 'every menu on the page has its own id').toBe(ids.length);
+
+		// A trigger with nothing behind it opens an empty popover. Every menu
+		// rendered must have at least one item in it.
+		for (const path of ['/admin/employees', '/admin/faqs', '/admin/banners',
+			'/admin/phone_countries', '/admin/assets', '/admin/penalties']) {
+			await page.goto(path, { waitUntil: 'domcontentloaded' });
+			const empty = await page.locator('.row-actions__menu').evaluateAll(
+				(els) => els.filter((e) => e.querySelectorAll('[role="menuitem"]').length === 0).length);
+			expect(empty, `${path}: no menu opens onto nothing`).toBe(0);
+		}
+	});
+
 	test('logout ends the session, server-side', async ({ page }) => {
 		await nextWindow();
 		await signIn(page);

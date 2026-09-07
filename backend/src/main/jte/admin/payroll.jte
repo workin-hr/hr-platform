@@ -430,8 +430,14 @@
 					</tbody>
 				</table>
 				</div>
+				<%-- The month and the year, which are this page's whole filter and
+				     which the size selector was dropping. --%>
+				!{java.util.SequencedMap<String, String> batchCarry =
+						new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+				!{if (month > 0) { batchCarry.put("month", String.valueOf(month)); }}
+				!{if (year > 0) { batchCarry.put("year", String.valueOf(year)); }}
 				@template.admin.pager(basePath = "/admin/payroll", result = batchResult,
-						carry = filters.asQueryParameters(), t = t)
+						carry = batchCarry, t = t)
 			</div>
 		@endif
 	`)

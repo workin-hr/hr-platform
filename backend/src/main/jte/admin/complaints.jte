@@ -174,8 +174,17 @@
 				</tbody>
 			</table>
 			</div>
+			<%-- The page's own filters as well as the shared ones. Without them
+			     the size selector's hidden inputs carry only company and search,
+			     so changing the page size silently widened the result set. --%>
+			!{java.util.SequencedMap<String, String> carry =
+					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+			!{if (!"all".equals(source) && !source.isEmpty()) { carry.put("source", source); }}
+			!{if (!"all".equals(status) && !status.isEmpty()) { carry.put("status", status); }}
+			!{if (!dateFrom.isEmpty()) { carry.put("date_from", dateFrom); }}
+			!{if (!dateTo.isEmpty()) { carry.put("date_to", dateTo); }}
 			@template.admin.pager(basePath = "/admin/complaints", result = result,
-					carry = filters.asQueryParameters(), t = t)
+					carry = carry, t = t)
 		@if(canWrite)
 			<%-- The reply used to be a text box and a status select inside every
 			     row, which is what kept this page's actions out of the menu.

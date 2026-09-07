@@ -6,6 +6,15 @@
 // else takes it as text, which is how the subject line names the row.
 (function () {
   function fill(dialog, trigger) {
+    // Reset first. Closing a native <dialog> does not clear its form, and
+    // fill() only writes the fields that declare data-dialog-field -- so a
+    // rejection reason typed for one row, then cancelled, was still in the box
+    // when the dialog opened for the next one, and would have been submitted
+    // against that employee.
+    const form = dialog.querySelector('form');
+    if (form && typeof form.reset === 'function') {
+      form.reset();
+    }
     dialog.querySelectorAll('[data-dialog-field]').forEach(function (target) {
       const key = target.getAttribute('data-dialog-field');
       const value = trigger.getAttribute('data-dialog-' + key);
@@ -33,17 +42,11 @@
     }
     event.preventDefault();
 
-    // The ⋮ menu is portaled to the body while open and closes on outside
-    // clicks; close it first so it does not sit above the backdrop.
-    const menu = trigger.closest('.row-actions');
-    if (menu) {
-      menu.classList.remove('is-open');
-      const opener = menu.querySelector('.row-actions__trigger');
-      if (opener) {
-        opener.setAttribute('aria-expanded', 'false');
-      }
-    }
-    document.body.click();
+    // The ⋮ menu is portaled to the body while open; close it first so it does
+    // not sit above the backdrop. row-actions.js owns the unportaling, so it is
+    // asked to do it rather than half-done here and finished with a synthetic
+    // body click.
+    document.dispatchEvent(new CustomEvent('row-actions:close'));
 
     fill(dialog, trigger);
     dialog.showModal();

@@ -7,11 +7,14 @@ import java.util.function.Function;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.MessageSource;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ModelAttribute;
+
+import com.workin.legacy.LegacyClock;
 
 /**
  * Supplies every admin page with the four things its layout needs -- the
@@ -50,9 +53,41 @@ public class AdminViewModelAdvice {
 
 	private final AdminPageAvailability availability;
 
-	public AdminViewModelAdvice(MessageSource messageSource, AdminPageAvailability availability) {
+	/**
+	 * Legacy's clock, absent under the PostgreSQL profile.
+	 *
+	 * <p>An {@link ObjectProvider} rather than a constructor parameter for the
+	 * reason the rest of this surface uses one: this advice serves both
+	 * profiles and {@link LegacyClock} reads the legacy database.
+	 */
+	private final ObjectProvider<LegacyClock> clock;
+
+	public AdminViewModelAdvice(MessageSource messageSource, AdminPageAvailability availability,
+			ObjectProvider<LegacyClock> clock) {
 		this.messageSource = messageSource;
 		this.availability = availability;
+		this.clock = clock;
+	}
+
+	/**
+	 * Today, as legacy reckons it.
+	 *
+	 * <p>{@code date('Y-m-d')} in this product is neither UTC nor the JVM
+	 * default: PHP sets the timezone from {@code configs.is_daylight_saving}
+	 * before any request runs, and every {@code CURDATE()} the pages compare
+	 * against is evaluated on a connection set to the same offset (D-083,
+	 * D-099). A page reading the JVM clock disagrees with its own SQL for two
+	 * hours a day -- an employee hired "today" would not appear in today's
+	 * cohort, and a tenure would tick over a day early.
+	 *
+	 * <p>Cross-cutting and easy to forget, so it comes from here rather than
+	 * from each page -- R-058's rule, and {@code AdminClockUsageTest} keeps a
+	 * new page from reaching for {@code LocalDate.now()} instead.
+	 */
+	@ModelAttribute("today")
+	public java.time.LocalDate today() {
+		LegacyClock legacyClock = this.clock.getIfAvailable();
+		return legacyClock == null ? java.time.LocalDate.now() : legacyClock.today();
 	}
 
 	/**

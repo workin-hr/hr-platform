@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
+import com.workin.legacy.LegacyClock;
 import com.workin.backend.platformadmin.hr.ActivityStore;
 
 /**
@@ -34,8 +35,12 @@ public class AdminActivitiesController {
 
 	private final ActivityStore store;
 
-	public AdminActivitiesController(ActivityStore store) {
+	/** Legacy's clock, not the JVM's -- see {@link AdminViewModelAdvice#today()}. */
+	private final LegacyClock clock;
+
+	public AdminActivitiesController(ActivityStore store, LegacyClock clock) {
 		this.store = store;
+		this.clock = clock;
 	}
 
 	@AuthenticatedUseCase(reason = "A read-only feed of recent attendance punches and requests, "
@@ -62,7 +67,7 @@ public class AdminActivitiesController {
 		}
 
 		String selectedKind = KINDS.contains(kind) ? kind : "all";
-		LocalDate today = LocalDate.now();
+		LocalDate today = this.clock.today();
 		String from = blank(dateFrom) ? today.withDayOfMonth(1).toString() : dateFrom.trim();
 		String to = blank(dateTo) ? today.toString() : dateTo.trim();
 

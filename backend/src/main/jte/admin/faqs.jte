@@ -77,9 +77,16 @@
 									${t.apply(category.active() ? "status_active" : "status_inactive")}</span></td>
 								<td class="col-actions">
 									<%-- The confirm names the item count: deleting a category
-										     cascades, and the number is the part that surprises. --%>
-									@template.admin.rowActions(rowId = category.id(), t = t, items = @`
-										@if(canWrite)
+									     cascades, and the number is the part that surprises.
+
+									     The menu prefix is not decoration: category ids and item
+									     ids come from independent sequences and routinely collide,
+									     so without one both tables would emit
+									     row-actions-menu-1 and each trigger's aria-controls
+									     would name the other's menu as often as its own. --%>
+									@if(canWrite)
+										@template.admin.rowActions(rowId = category.id(), t = t,
+												menuPrefix = "faq-category-menu", items = @`
 											<form method="post" class="row-actions__form"
 											      onsubmit="return confirm('${t.apply("faq_delete_category_confirm")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -87,8 +94,10 @@
 												<input type="hidden" name="id" value="${category.id()}">
 												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
 											</form>
-										@endif
-									`)
+										`)
+									@else
+										<span class="text-muted">—</span>
+									@endif
 								</td>
 							</tr>
 						@endfor
@@ -141,8 +150,9 @@
 								<td><span class="badge ${item.active() ? "badge-green" : "badge-gray"}">
 									${t.apply(item.active() ? "status_active" : "status_inactive")}</span></td>
 								<td class="col-actions">
-									@template.admin.rowActions(rowId = item.id(), t = t, items = @`
-										@if(canWrite)
+									@if(canWrite)
+										@template.admin.rowActions(rowId = item.id(), t = t,
+												menuPrefix = "faq-item-menu", items = @`
 											<form method="post" class="row-actions__form"
 											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -150,8 +160,10 @@
 												<input type="hidden" name="id" value="${item.id()}">
 												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
 											</form>
-										@endif
-									`)
+										`)
+									@else
+										<span class="text-muted">—</span>
+									@endif
 								</td>
 							</tr>
 						@endfor

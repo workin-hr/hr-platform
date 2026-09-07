@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import com.workin.legacy.dashboard.LegacyTurnover;
+
 /**
  * {@code pages/home/home_service.php}'s queries.
  *
@@ -259,8 +261,14 @@ public class HomeStore {
 	}
 
 	/**
-	 * {@code home_get_turnover_rates()}: three percentages, each rounded to two
-	 * places as PHP rounds them.
+	 * {@code home_get_turnover_rates()}: three percentages.
+	 *
+	 * <p>The arithmetic is {@link LegacyTurnover}'s, not a second copy of it --
+	 * the rate formula, the two-place rounding and the {@code strtotime}
+	 * three-month step all come from there. What is local is the SQL, because
+	 * every query in that class requires a company and this page's
+	 * administrator view has none; legacy splits it the same way and for the
+	 * same reason.
 	 *
 	 * @param monthly  departures this calendar month over the average headcount
 	 * @param annual   the same over the calendar year
@@ -303,16 +311,18 @@ public class HomeStore {
 		return new Turnover(
 				rateForPeriod(companyId, today.withDayOfMonth(1), today),
 				rateForPeriod(companyId, today.withDayOfYear(1), today),
-				newHireRate(companyId, today.minusMonths(3), today));
+				// strtotime('-3 months'), not minusMonths: PHP keeps the day of
+				// the month and lets it roll into the next one when the target
+				// month is shorter -- 31 May goes to 3 March, where Java clamps
+				// to 28 February and quietly widens the cohort by three days.
+				newHireRate(companyId, LegacyTurnover.minusThreeMonthsPhpStyle(today), today));
 	}
 
 	private double rateForPeriod(long companyId, LocalDate from, LocalDate to) {
-		long start = countAtStart(companyId, from);
-		long hires = countNewHires(companyId, from, to);
-		long departures = countDepartures(companyId, from, to, false, null);
-		// end = max(0, start + hires - departures); average of the two ends.
-		double average = (start + Math.max(0, start + hires - departures)) / 2.0;
-		return average <= 0 ? 0d : round2(departures / average * 100);
+		return LegacyTurnover.rateFromCounts(
+				(int) countAtStart(companyId, from),
+				(int) countNewHires(companyId, from, to),
+				(int) countDepartures(companyId, from, to, false, null));
 	}
 
 	/**
@@ -331,7 +341,7 @@ public class HomeStore {
 				companyId, from, to);
 		long departures = countDepartures(companyId, from, to, true, 90);
 		double average = (cohort + stillActive) / 2.0;
-		return average <= 0 ? 0d : round2(departures / average * 100);
+		return average <= 0 ? 0d : LegacyTurnover.round2(departures / average * 100);
 	}
 
 	/**
@@ -390,11 +400,6 @@ public class HomeStore {
 		java.util.Collections.addAll(args, (Object[]) dates);
 		Long value = this.jdbcTemplate.queryForObject(sql, Long.class, args.toArray());
 		return value == null ? 0L : value;
-	}
-
-	/** PHP's {@code round($n, 2)}. */
-	private static double round2(double value) {
-		return Math.round(value * 100.0) / 100.0;
 	}
 
 	/**

@@ -23,6 +23,14 @@ import org.springframework.stereotype.Service;
  * it the rate. The port keeps that rather than introducing a real termination
  * date, because a client comparing the two systems would otherwise see
  * different percentages for the same data.
+ *
+ * <p>The three {@code static} members below are {@code public} because the
+ * dashboard's home page needs the same arithmetic over a different scope --
+ * legacy has its own copies in {@code home_service.php} for the same reason,
+ * since this file's queries all require a company and the platform view has
+ * none. What must not be copied is the arithmetic: the 90-day window's start
+ * in particular is {@code strtotime}, not {@code minusMonths}, and rederiving
+ * it is how the two pages come to disagree.
  */
 @Service
 public class LegacyTurnover {
@@ -99,7 +107,7 @@ public class LegacyTurnover {
 	 * <p>Reproduced by landing on the first of the target month and adding
 	 * {@code day - 1} days, which rolls for exactly the same reason PHP does.
 	 */
-	static LocalDate minusThreeMonthsPhpStyle(LocalDate date) {
+	public static LocalDate minusThreeMonthsPhpStyle(LocalDate date) {
 		LocalDate firstOfTargetMonth = date.withDayOfMonth(1).minusMonths(3);
 		return firstOfTargetMonth.plusDays(date.getDayOfMonth() - 1L);
 	}
@@ -174,7 +182,7 @@ public class LegacyTurnover {
 	 * average -- it produces a smaller one, which <em>raises</em> the reported
 	 * rate rather than lowering it.
 	 */
-	static double rateFromCounts(int start, int newHires, int departures) {
+	public static double rateFromCounts(int start, int newHires, int departures) {
 		int end = Math.max(0, start + newHires - departures);
 		double average = (start + end) / 2.0;
 		if (average <= 0.0) {
@@ -184,7 +192,7 @@ public class LegacyTurnover {
 	}
 
 	/** {@code round($x, 2)} -- half away from zero, which for a non-negative rate is HALF_UP. */
-	private static double round2(double value) {
+	public static double round2(double value) {
 		return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP).doubleValue();
 	}
 }

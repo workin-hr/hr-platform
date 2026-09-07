@@ -130,19 +130,21 @@
 									${t.apply(row.appliedToPayroll() ? "yes" : "no")}</span>
 							</td>
 							<td class="col-actions">
-								<%-- Once payroll has deducted against a penalty its days
-									     are frozen: a payslip has already been computed from
-									     them. Legacy refuses the edit; so does this. --%>
-								@template.admin.rowActions(rowId = row.id(), t = t, items = @`
-									@if(canWrite && !row.appliedToPayroll())
-										<form method="POST" class="row-actions__form" role="none">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="mark_applied">
-											<input type="hidden" name="id" value="${row.id()}">
-											<button type="submit" role="menuitem" class="row-actions__item">${t.apply("applied_payroll")}</button>
-										</form>
-									@endif
-									@if(canWrite)
+								<%-- The dash belongs beside the row, not inside a popover the
+								     reader has to open to be told there is nothing in it. --%>
+								@if(canWrite)
+									<%-- Once payroll has deducted against a penalty its days are
+									     frozen: a payslip has already been computed from them.
+									     Legacy refuses the edit; so does this. --%>
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										@if(!row.appliedToPayroll())
+											<form method="POST" class="row-actions__form" role="none">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="mark_applied">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item">${t.apply("applied_payroll")}</button>
+											</form>
+										@endif
 										<form method="POST" class="row-actions__form" role="none"
 										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -150,10 +152,10 @@
 											<input type="hidden" name="id" value="${row.id()}">
 											<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
 										</form>
-									@else
-										<span class="text-muted">—</span>
-									@endif
-								`)
+									`)
+								@else
+									<span class="text-muted">—</span>
+								@endif
 							</td>
 						</tr>
 					@endfor

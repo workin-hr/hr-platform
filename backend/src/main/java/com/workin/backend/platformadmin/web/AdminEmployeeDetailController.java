@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
+import com.workin.legacy.LegacyClock;
 import com.workin.backend.platformadmin.hr.Employee;
 import com.workin.backend.platformadmin.hr.EmployeeDetailStore;
 import com.workin.backend.platformadmin.hr.EmployeeStore;
@@ -38,9 +39,14 @@ public class AdminEmployeeDetailController {
 
 	private final EmployeeDetailStore detailStore;
 
-	public AdminEmployeeDetailController(EmployeeStore store, EmployeeDetailStore detailStore) {
+	/** Legacy's clock, not the JVM's -- see {@link AdminViewModelAdvice#today()}. */
+	private final LegacyClock clock;
+
+	public AdminEmployeeDetailController(EmployeeStore store, EmployeeDetailStore detailStore,
+			LegacyClock clock) {
 		this.store = store;
 		this.detailStore = detailStore;
+		this.clock = clock;
 	}
 
 	@AuthenticatedUseCase(reason = "One employee's record for a chosen month: salary, leave, "
@@ -79,8 +85,8 @@ public class AdminEmployeeDetailController {
 			return "redirect:" + PlatformAdminWebSecurityConfig.EMPLOYEES_PATH + "?error=no_data";
 		}
 
-		LocalDate today = LocalDate.now();
-		int selectedMonth = clampMonth(asInt(month, today.getMonthValue()));
+		LocalDate today = this.clock.today();
+		int selectedMonth = clampMonth(asInt(month, today.getMonthValue()), today);
 		int selectedYear = asInt(year, today.getYear());
 
 		model.addAttribute("detail",
@@ -115,9 +121,9 @@ public class AdminEmployeeDetailController {
 	 * port keeps the request from reaching SQL with a nonsense month but does
 	 * not change what a valid one returns.
 	 */
-	private static int clampMonth(int month) {
+	private static int clampMonth(int month, java.time.LocalDate today) {
 		if (month < 1 || month > 12) {
-			return LocalDate.now().getMonthValue();
+			return today.getMonthValue();
 		}
 		return month;
 	}

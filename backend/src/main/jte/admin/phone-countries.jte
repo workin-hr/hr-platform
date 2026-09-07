@@ -84,8 +84,10 @@
 									</span>
 								</td>
 								<td class="col-actions">
-									@template.admin.rowActions(rowId = country.id(), t = t, items = @`
-										@if(actionsEnabled && factorBound)
+									<%-- A trigger with nothing behind it opens an empty popover,
+									     so the trigger takes the same guard its only item has. --%>
+									@if(actionsEnabled && factorBound)
+										@template.admin.rowActions(rowId = country.id(), t = t, items = @`
 											<form method="post" class="row-actions__form"
 											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -93,8 +95,10 @@
 												<input type="hidden" name="id" value="${country.id()}">
 												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
 											</form>
-										@endif
-									`)
+										`)
+									@else
+										<span class="text-muted">—</span>
+									@endif
 								</td>
 							</tr>
 						@endfor

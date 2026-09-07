@@ -40,10 +40,14 @@ public class HomeService {
 
 	private final ComplaintStore complaintStore;
 
-	public HomeService(HomeStore store, ActivityStore activityStore, ComplaintStore complaintStore) {
+	private final com.workin.legacy.LegacyClock clock;
+
+	public HomeService(HomeStore store, ActivityStore activityStore, ComplaintStore complaintStore,
+			com.workin.legacy.LegacyClock clock) {
 		this.store = store;
 		this.activityStore = activityStore;
 		this.complaintStore = complaintStore;
+		this.clock = clock;
 	}
 
 	/**
@@ -117,7 +121,10 @@ public class HomeService {
 		if (!DashboardAccess.can(session, DashboardAccess.PERM_DASHBOARD)) {
 			return new HomeStore.Turnover(0, 0, 0);
 		}
-		return this.store.turnover(session.companyId(), java.time.LocalDate.now());
+		// Legacy's clock, not the JVM's: the windows are compared against dates
+		// the database evaluates under the configured offset (D-083/D-099), and
+		// around local midnight the two disagree by a day.
+		return this.store.turnover(session.companyId(), this.clock.today());
 	}
 
 	/**
@@ -131,7 +138,7 @@ public class HomeService {
 		if (!DashboardAccess.can(session, DashboardAccess.PERM_RECENT_ACTIVITIES)) {
 			return java.util.List.of();
 		}
-		java.time.LocalDate today = java.time.LocalDate.now();
+		java.time.LocalDate today = this.clock.today();
 		return this.activityStore.list(
 				session.companyId(), "all",
 				today.minusDays(30).toString(), today.toString(), limit, 0,

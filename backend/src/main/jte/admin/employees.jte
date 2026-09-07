@@ -32,12 +32,13 @@
 @param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
+<%-- Today as legacy reckons it, supplied by AdminViewModelAdvice: the JVM
+     default zone is not the one CURDATE() runs in, so a tenure computed here
+     would tick over up to three hours before the database agrees. One value
+     for the page, so it cannot disagree with itself across midnight. --%>
+@param java.time.LocalDate today
 !{boolean canWrite = canManage && actionsEnabled && factorBound;}
 !{boolean arabic = "ar".equals(lang);}
-<%-- Today, read once: the tenure column would otherwise ask the clock
-     per row, and a page rendered across midnight would disagree with
-     itself. --%>
-!{java.time.LocalDate today = java.time.LocalDate.now();}
 !{int colCount = showCompanyColumn ? 14 : 13;}
 <%-- dashboard/pages/employees/page.php. --%>
 @template.admin.layout(
@@ -350,7 +351,16 @@
 				</tbody>
 			</table>
 			</div>
+			<%-- Plus this page's own three. DashboardListFilters carries branch
+			     and department because four pages share them; the job title and
+			     the hire-date range are employees' alone, and the size selector
+			     dropped them. --%>
+			!{java.util.SequencedMap<String, String> carry =
+					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+			!{if (filterJobTitle > 0) { carry.put("filter_job_title", String.valueOf(filterJobTitle)); }}
+			!{if (!dateFrom.isEmpty()) { carry.put("date_from", dateFrom); }}
+			!{if (!dateTo.isEmpty()) { carry.put("date_to", dateTo); }}
 			@template.admin.pager(basePath = "/admin/employees", result = result,
-					carry = filters.asQueryParameters(), t = t)
+					carry = carry, t = t)
 		</div>
 	`)

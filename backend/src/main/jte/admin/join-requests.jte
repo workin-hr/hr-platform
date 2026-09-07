@@ -95,34 +95,36 @@
 					</td>
 					<td>${row.createdAt() == null ? "—" : row.createdAt().toString().replace("T", " ")}</td>
 					<td class="col-actions">
-						<%-- Rejecting deletes the employee row, so the confirm
+						<%-- The dash belongs beside the row, not inside a popover the
+						     reader has to open to be told there is nothing in it. --%>
+						@if((row.pending() && canWrite) || row.accepted())
+							<%-- Rejecting deletes the employee row, so the confirm
 							     is not decoration. --%>
-						@template.admin.rowActions(rowId = row.id(), t = t, items = @`
-							<div class="actions">
-							@if(row.pending() && canWrite)
-								<form method="POST" class="row-actions__form" role="none" action="/admin/join_requests">
-									<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-									<input type="hidden" name="action" value="accept_join">
-									<input type="hidden" name="id" value="${row.id()}">
-									<input type="hidden" name="redirect_status" value="${status}">
-									<button type="submit" role="menuitem" class="row-actions__item row-actions__item--success">${t.apply("approve")}</button>
-								</form>
-								<form method="POST" class="row-actions__form" role="none" action="/admin/join_requests"
-								      onsubmit="return confirm('${t.apply("confirm_action")}')">
-									<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-									<input type="hidden" name="action" value="reject_join">
-									<input type="hidden" name="id" value="${row.id()}">
-									<input type="hidden" name="redirect_status" value="${status}">
-									<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("reject")}</button>
-								</form>
-							@elseif(row.accepted())
-								<a href="/admin/employees?action=edit&id=${row.id()}"
-								   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
-							@else
-								<span class="text-muted">—</span>
-							@endif
-							</div>
-						`)
+							@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+								@if(row.pending() && canWrite)
+									<form method="POST" class="row-actions__form" role="none" action="/admin/join_requests">
+										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+										<input type="hidden" name="action" value="accept_join">
+										<input type="hidden" name="id" value="${row.id()}">
+										<input type="hidden" name="redirect_status" value="${status}">
+										<button type="submit" role="menuitem" class="row-actions__item row-actions__item--success">${t.apply("approve")}</button>
+									</form>
+									<form method="POST" class="row-actions__form" role="none" action="/admin/join_requests"
+									      onsubmit="return confirm('${t.apply("confirm_action")}')">
+										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+										<input type="hidden" name="action" value="reject_join">
+										<input type="hidden" name="id" value="${row.id()}">
+										<input type="hidden" name="redirect_status" value="${status}">
+										<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("reject")}</button>
+									</form>
+								@else
+									<a href="/admin/employees?action=edit&id=${row.id()}"
+									   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
+								@endif
+							`)
+						@else
+							<span class="text-muted">—</span>
+						@endif
 					</td>
 				</tr>
 				@endfor

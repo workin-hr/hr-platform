@@ -43,10 +43,17 @@ public record EmployeeRequest(
 		return (int) java.time.temporal.ChronoUnit.DAYS.between(from, to) + 1;
 	}
 
-	/** The year a deduction lands in: the <em>from</em> date's, not today's. */
-	public static int yearOf(String fromDate) {
+	/**
+	 * The year a deduction lands in: the <em>from</em> date's, not today's.
+	 *
+	 * @param today legacy's today, used only when the request carries no
+	 *     readable from-date. Passed in rather than read here because
+	 *     {@code date('Y')} in this product is the configured timezone's, and
+	 *     on 31 December the JVM default answers a different year
+	 */
+	public static int yearOf(String fromDate, java.time.LocalDate today) {
 		java.time.LocalDate from = date(fromDate);
-		return from == null ? java.time.LocalDate.now().getYear() : from.getYear();
+		return from == null ? today.getYear() : from.getYear();
 	}
 
 	static java.time.LocalDate date(String raw) {

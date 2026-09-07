@@ -84,11 +84,20 @@
 				@endif
 			</div>
 			<%-- Which rows these are, out of how many. A pager without it makes
-			     the reader count. --%>
+			     the reader count.
+
+			     The range is shown only when the page has rows. dbPaginate()
+			     takes the offset from the *requested* page and clamps only the
+			     reported page number (DashboardPage's own note), so ?page=99 of
+			     a three-page list returns nothing while `from` stays at 981 --
+			     which printed "showing 981-22 of 22" under an empty table. The
+			     total is still worth saying, so only the range drops. --%>
 			<p class="pager-summary">
-				${t.apply("pager_showing")}
-				<b>${result.from()}</b>&#8211;<b>${result.to()}</b>
-				${t.apply("of")}
+				@if(!result.isEmpty())
+					${t.apply("pager_showing")}
+					<b>${result.from()}</b>&#8211;<b>${result.to()}</b>
+					${t.apply("of")}
+				@endif
 				<b>${result.total()}</b>
 			</p>
 		</div>
@@ -96,9 +105,21 @@
 			@for(Map.Entry<String, String> entry : carry.entrySet())
 				<input type="hidden" name="${entry.getKey()}" value="${entry.getValue()}">
 			@endfor
+			<%-- The server accepts any size from 1 to PAGE_SIZE_MAX, so a
+			     bookmarked ?per_page=200 served 200 rows while the box read
+			     "10 per page" -- no option matched, and the browser fell back
+			     to the first. The active size joins the presets when it is not
+			     one of them, in order, so the control always says what is on
+			     the screen. --%>
+			!{java.util.List<Integer> sizes = new java.util.ArrayList<>(
+					java.util.List.of(10, 25, 50, 100));}
+			!{if (!sizes.contains(result.perPage())) {
+				sizes.add(result.perPage());
+				java.util.Collections.sort(sizes);
+			}}
 			<select name="per_page" class="pager-size-select" onchange="this.form.submit()"
 					aria-label="${t.apply("per_page")}">
-				@for(int size : new int[] {10, 25, 50, 100})
+				@for(int size : sizes)
 					<option value="${size}" selected="${size == result.perPage()}">
 						${size} ${t.apply("per_page")}
 					</option>

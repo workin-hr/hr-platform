@@ -211,9 +211,39 @@ class AdminLayoutWiringTest {
 				.isEmpty();
 	}
 
+	/**
+	 * The PostgreSQL profile's case: no legacy clock in the context, and the
+	 * advice falls back rather than failing to start.
+	 */
+	private static org.springframework.beans.factory.ObjectProvider<com.workin.legacy.LegacyClock>
+			noClock() {
+		return new org.springframework.beans.factory.ObjectProvider<>() {
+			@Override
+			public com.workin.legacy.LegacyClock getObject() {
+				throw new org.springframework.beans.factory.NoSuchBeanDefinitionException(
+						com.workin.legacy.LegacyClock.class);
+			}
+
+			@Override
+			public com.workin.legacy.LegacyClock getObject(Object... args) {
+				return getObject();
+			}
+
+			@Override
+			public com.workin.legacy.LegacyClock getIfAvailable() {
+				return null;
+			}
+
+			@Override
+			public com.workin.legacy.LegacyClock getIfUnique() {
+				return null;
+			}
+		};
+	}
+
 	@Test
 	void theAdviceSuppliesThePhoneAndTolerantlyOmitsItBeforeSignIn() {
-		AdminViewModelAdvice advice = new AdminViewModelAdvice(null, null);
+		AdminViewModelAdvice advice = new AdminViewModelAdvice(null, null, noClock());
 		assertThat(advice.currentAdminPhone(
 				new PlatformAdminWebPrincipal(7L, "+201000000000", true)))
 				.isEqualTo("+201000000000");

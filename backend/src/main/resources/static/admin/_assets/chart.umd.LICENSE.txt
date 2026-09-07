@@ -1,0 +1,34 @@
+Chart.js v4.4.7
+https://www.chartjs.org
+Copyright (c) 2014-2024 Chart.js Contributors
+
+The bundle beside this notice (chart.umd.js) is the upstream UMD build,
+vendored rather than loaded from a CDN so that the admin dashboard draws
+without reaching a third party -- see the note at the top of home.js. The
+bundle's own banner names the licence; this file carries its text, which
+redistribution requires.
+
+Chart.js also embeds Chart.js Kurkle Color (https://github.com/kurkle/color),
+Copyright (c) 2018-2021 Jukka Kurkela, under the same licence.
+
+-----------------------------------------------------------
+The MIT License (MIT)
+-----------------------------------------------------------
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
