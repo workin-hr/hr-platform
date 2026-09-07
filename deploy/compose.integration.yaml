@@ -82,6 +82,11 @@ services:
       APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE: ${ADMIN_PHONE:-}
       APP_PLATFORM_ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_PASSWORD:-}
       APP_LEGACY_UPLOADS_PATH: /app/uploads
+      # `native` only when a reverse proxy is the sole route to this port.
+      # Needed for the admin dashboard, whose session cookie is `secure`
+      # unconditionally: without TLS in front there is no admin session, and
+      # without this the redirects behind that TLS carry the wrong scheme.
+      SERVER_FORWARD_HEADERS_STRATEGY: ${FORWARD_HEADERS_STRATEGY:-none}
       # Left unset: the seed's numbers are synthetic, but the habit of running a
       # shared environment with live messaging credentials is the one that
       # eventually sends a real message to a real person.
