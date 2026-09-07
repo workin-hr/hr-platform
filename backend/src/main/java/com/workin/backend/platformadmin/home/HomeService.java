@@ -74,7 +74,50 @@ public class HomeService {
 		put(charts, "chart_emp_dept", this.store.employeesByDepartment(companyId));
 		put(charts, "chart_emp_branch", this.store.employeesByBranch(companyId));
 		put(charts, "chart_salary_dept", this.store.salaryByDepartment(companyId));
+		put(charts, "chart_att_dept", this.store.attendanceByDepartment(companyId));
+		put(charts, "chart_pen_dept", this.store.penaltiesByDepartment(companyId));
 		return charts;
+	}
+
+	/**
+	 * The active banners, in the order the clients render them.
+	 *
+	 * <p>No permission gate and no company scope: they are platform content
+	 * every audience sees, and the page that administers them is already behind
+	 * its own permission.
+	 */
+	public java.util.List<com.workin.backend.platformadmin.content.Banner> banners() {
+		return this.store.banners();
+	}
+
+	/**
+	 * Planned headcount against actual, as two series over one label set.
+	 *
+	 * <p>Separate from {@link #charts} because that map is one series per key
+	 * and this chart is two; widening the map's value type for one entry would
+	 * make every other caller carry the shape it does not use.
+	 *
+	 * @return planned first, then actual; both empty when there is nothing to draw
+	 */
+	public java.util.List<HomeChart> workforcePlanning(DashboardSession session) {
+		if (!DashboardAccess.can(session, DashboardAccess.PERM_DASHBOARD)) {
+			return java.util.List.of(HomeChart.EMPTY, HomeChart.EMPTY);
+		}
+		return this.store.workforcePlanning(session.companyId());
+	}
+
+	/**
+	 * The three turnover percentages the dashboard prints beside the counts.
+	 *
+	 * <p>Today is read once and passed down, so the monthly, annual and 90-day
+	 * windows are all measured against the same date -- three calls to the
+	 * clock could straddle midnight and produce a set that does not add up.
+	 */
+	public HomeStore.Turnover turnover(DashboardSession session) {
+		if (!DashboardAccess.can(session, DashboardAccess.PERM_DASHBOARD)) {
+			return new HomeStore.Turnover(0, 0, 0);
+		}
+		return this.store.turnover(session.companyId(), java.time.LocalDate.now());
 	}
 
 	/**

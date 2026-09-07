@@ -93,6 +93,31 @@ an expression in the page after each capture and prints what it returns, which
 is how you learn that a table is 813px wide inside a 1130px card instead of
 guessing from the picture.
 
+## Measuring against production
+
+`prod-shots.mjs` captures one full-page screenshot per dashboard page from the
+live PHP surface, and `headers-prod.mjs` captures each page's rendered `<th>`
+list. `headers-local.mjs` captures the same headers from this application, so
+the two can be diffed -- which is how **D-199** and **D-200** measured column
+parity. Diffing rendered headers rather than counting patterns in the source
+matters: the source heuristic gave wrong answers on four pages.
+
+Both production tools install a route guard that allows **GET only**, plus the
+single login POST, and abort anything else with a line on stdout. Neither holds
+a credential: the password comes from a file named by `PROD_SECRET_FILE`, which
+is the operator's to provide.
+
+They are a read-only evidence check, and `AGENTS.md` requires the repository
+owner's explicit authorization for each one -- so they are run by hand, on
+request, and never from CI or a script. Their output is production data: real
+names, phone numbers and salaries. It stays outside the repository.
+
+```sh
+PROD_SECRET_FILE=~/secret PROD_MANIFEST=pages.txt PROD_HEADERS_OUT=prod.json \
+  node headers-prod.mjs
+LOCAL_MANIFEST=pages.txt LOCAL_HEADERS_OUT=local.json node headers-local.mjs
+```
+
 ## Reports
 
 `report/index.html` after a run (`npx playwright show-report report`), with

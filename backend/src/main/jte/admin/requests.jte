@@ -25,13 +25,14 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled && factorBound;}
-!{int colCount = showCompanyColumn ? 10 : 9;}
+!{int colCount = showCompanyColumn ? 14 : 13;}
 <%-- dashboard/pages/requests/page.php. --%>
 @template.admin.layout(
 	title = t.apply("nav_employee_requests"),
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -109,6 +110,12 @@
 						<th>${t.apply("request_type")}</th>
 						<th>${t.apply("from_date")}</th>
 						<th>${t.apply("to_date")}</th>
+						<%-- A part-day request carries a time as well as a date, and
+						     legacy gives each its own column. --%>
+						<th>${t.apply("from_time")}</th>
+						<th>${t.apply("to_time")}</th>
+						<th>${t.apply("request_notes")}</th>
+						<th>${t.apply("admin_reply")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("reg_date")}</th>
 						<th>${t.apply("actions")}</th>
@@ -132,6 +139,12 @@
 							</td>
 							<td>${row.fromDate() == null ? "—" : row.fromDate()}</td>
 							<td>${row.toDate() == null ? "—" : row.toDate()}</td>
+							<td class="text-muted" dir="ltr">${row.fromTime() == null || row.fromTime().isBlank()
+								? "—" : row.fromTime()}</td>
+							<td class="text-muted" dir="ltr">${row.toTime() == null || row.toTime().isBlank()
+								? "—" : row.toTime()}</td>
+							<td class="text-muted tbl-clip" title="${row.notes() == null ? "" : row.notes()}">${row.notes() == null || row.notes().isBlank() ? "—" : row.notes()}</td>
+							<td class="text-muted tbl-clip" title="${row.reply() == null ? "" : row.reply()}">${row.reply() == null || row.reply().isBlank() ? "—" : row.reply()}</td>
 							<td>
 								<span class="badge ${"approved".equals(row.status()) ? "badge-green"
 									: "rejected".equals(row.status()) ? "badge-red" : "badge-gray"}">

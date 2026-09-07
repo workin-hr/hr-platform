@@ -14,7 +14,8 @@ public record EmployeeRequest(
 		long id, long employeeId, long companyId, String companyName, String employeeCode,
 		String employeeName, String requestTypeName, boolean deductBalance,
 		boolean addAttendanceException, Long exceptionTypeId, String status, String fromDate,
-		String toDate, String notes, String reply, String decidedAt, String createdAt) {
+		String toDate, String fromTime, String toTime, String notes, String reply,
+		String decidedAt, String createdAt) {
 
 	/** {@code substr((string) $row['created_at'], 0, 10)}. */
 	public String createdDate() {

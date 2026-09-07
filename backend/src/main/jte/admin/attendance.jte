@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.AttendanceDisplay
 @import com.workin.backend.platformadmin.hr.AttendanceRecord
 @import com.workin.backend.platformadmin.hr.Employee
 @import com.workin.backend.platformadmin.web.DashboardListFilters
@@ -28,6 +29,7 @@
 @param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
+!{boolean arabic = "ar".equals(lang);}
 !{boolean canWrite = canManage && actionsEnabled && factorBound;}
 <%-- The range, as a map: the pager needs it in every page link AND as hidden
      inputs in the page-size form, and one source keeps those from drifting. --%>
@@ -45,6 +47,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -128,6 +131,7 @@
 						<th>${t.apply("emp_code")}</th>
 						<th>${t.apply("employee_name")}</th>
 						<th>${t.apply("date")}</th>
+						<th>${t.apply("att_day")}</th>
 						<th>${t.apply("att_check_in_time")}</th>
 						<th>${t.apply("att_check_out_time")}</th>
 						<th>${t.apply("hours_worked")}</th>
@@ -144,6 +148,10 @@
 							<td class="bold">${row.employeeName()}</td>
 							<td>${row.checkIn() == null || row.checkIn().length() < 10
 								? "—" : row.checkIn().substring(0, 10)}</td>
+							<%-- Whether a punch fell on a Friday is the difference between
+							     an absence and a weekend; legacy puts it in its own column
+							     rather than leaving the reader to work it out from a date. --%>
+							<td class="text-muted">${AttendanceDisplay.dayName(row.checkIn(), arabic)}</td>
 							<td>${row.checkIn() == null ? "—" : row.checkIn()}</td>
 							<td>${row.checkOut() == null ? "—" : row.checkOut()}</td>
 							<td>${row.workedMinutes() == null
@@ -169,7 +177,7 @@
 						</tr>
 					@endfor
 					@if(result.isEmpty())
-						<tr><td colspan="9" class="data-table-empty">${t.apply("no_data")}</td></tr>
+						<tr><td colspan="10" class="data-table-empty">${t.apply("no_data")}</td></tr>
 					@endif
 				</tbody>
 			</table>
@@ -188,6 +196,7 @@
 			<table class="tbl">
 				<thead>
 					<tr>
+						<th>#</th>
 						<th>${t.apply("emp_code")}</th>
 						<th>${t.apply("employee_name")}</th>
 						<th>${t.apply("job_title")}</th>
@@ -197,11 +206,14 @@
 						<th>${t.apply("att_exception_days")}</th>
 						<th>${t.apply("att_total_work_hours")}</th>
 						<th>${t.apply("att_paid_rest_hours")}</th>
+						<th>${t.apply("att_overtime_shortage")}</th>
 					</tr>
 				</thead>
 				<tbody>
-					@for(AttendanceRecord.AggregateRow row : aggregateResult.data())
+					@for(int index = 0; index < aggregateResult.data().size(); index++)
+						!{AttendanceRecord.AggregateRow row = aggregateResult.data().get(index);}
 						<tr>
+							<td class="text-muted">${aggregateResult.from() + index}</td>
 							<td class="text-muted">${row.empCode()}</td>
 							<td class="bold">${row.employeeName()}</td>
 							<td>${row.jobTitleName().isEmpty() ? "—" : row.jobTitleName()}</td>
@@ -213,10 +225,18 @@
 								+ (row.totalMinutes() % 60 < 10 ? "0" : "") + (row.totalMinutes() % 60)}</td>
 							<td>${(row.paidRestMinutes() / 60) + ":"
 								+ (row.paidRestMinutes() % 60 < 10 ? "0" : "") + (row.paidRestMinutes() % 60)}</td>
+							<%-- Signed: the column is overtime AND shortfall, and a
+							     negative hour count is the half a payroll clerk is
+							     looking for. --%>
+							<td class="${row.overtimeMinutes() < 0 ? "text-red" : "text-green"}" dir="ltr">${
+								(row.overtimeMinutes() < 0 ? "-" : "")
+								+ (Math.abs(row.overtimeMinutes()) / 60) + ":"
+								+ (Math.abs(row.overtimeMinutes()) % 60 < 10 ? "0" : "")
+								+ (Math.abs(row.overtimeMinutes()) % 60)}</td>
 						</tr>
 					@endfor
 					@if(aggregateResult.isEmpty())
-						<tr><td colspan="9" class="data-table-empty">${t.apply("no_data")}</td></tr>
+						<tr><td colspan="11" class="data-table-empty">${t.apply("no_data")}</td></tr>
 					@endif
 				</tbody>
 			</table>

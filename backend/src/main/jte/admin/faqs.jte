@@ -24,6 +24,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -54,6 +55,7 @@
 				<table class="tbl">
 					<thead>
 						<tr>
+							<th>#</th>
 							<th>${t.apply("name_ar")}</th>
 							<th>${t.apply("name_en")}</th>
 							<th>${t.apply("sort_order")}</th>
@@ -63,8 +65,10 @@
 						</tr>
 					</thead>
 					<tbody>
-						@for(Faq.Category category : categories)
+						@for(int index = 0; index < categories.size(); index++)
+							!{Faq.Category category = categories.get(index);}
 							<tr>
+								<td class="text-muted">${index + 1}</td>
 								<td>${category.nameAr()}</td>
 								<td>${category.nameEn()}</td>
 								<td>${category.sortOrder()}</td>
@@ -89,7 +93,7 @@
 							</tr>
 						@endfor
 						@if(categories.isEmpty())
-							<tr><td colspan="6" class="data-table-empty">${t.apply("no_data")}</td></tr>
+							<tr><td colspan="7" class="data-table-empty">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>
@@ -110,20 +114,29 @@
 				<table class="tbl">
 					<thead>
 						<tr>
+							<th>#</th>
 							<th>${t.apply("faq_category")}</th>
 							<th>${t.apply("question_ar")}</th>
-							<th>${t.apply("answer_ar")}</th>
+							<th>${t.apply("question_en")}</th>
+							<th>${t.apply("sort_order")}</th>
 							<th>${t.apply("app_platform")}</th>
 							<th>${t.apply("status")}</th>
 							<th class="col-actions"><span class="sr-only">${t.apply("actions")}</span></th>
 						</tr>
 					</thead>
 					<tbody>
-						@for(Faq.Item item : items)
+						@for(int index = 0; index < items.size(); index++)
+							!{Faq.Item item = items.get(index);}
 							<tr>
+								<td class="text-muted">${index + 1}</td>
 								<td>${arabic ? item.categoryNameAr() : item.categoryNameEn()}</td>
-								<td>${arabic ? item.questionAr() : item.questionEn()}</td>
-								<td>${arabic ? item.answerAr() : item.answerEn()}</td>
+								<%-- Both languages, as legacy shows them: this page is where
+								     somebody checks that the Arabic and the English say the
+								     same thing, and one column cannot answer that. The answer
+								     is long, so it rides in the title. --%>
+								<td class="tbl-clip" title="${item.answerAr()}">${item.questionAr()}</td>
+								<td class="tbl-clip" title="${item.answerEn()}">${item.questionEn()}</td>
+								<td>${item.sortOrder()}</td>
 								<td><span class="badge badge-blue">${item.platform().stored()}</span></td>
 								<td><span class="badge ${item.active() ? "badge-green" : "badge-gray"}">
 									${t.apply(item.active() ? "status_active" : "status_inactive")}</span></td>
@@ -143,7 +156,7 @@
 							</tr>
 						@endfor
 						@if(items.isEmpty())
-							<tr><td colspan="6" class="data-table-empty">${t.apply("no_data")}</td></tr>
+							<tr><td colspan="8" class="data-table-empty">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>

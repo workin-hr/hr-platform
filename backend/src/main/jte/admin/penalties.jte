@@ -24,13 +24,14 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled && factorBound;}
-!{int colCount = showCompanyColumn ? 9 : 8;}
+!{int colCount = showCompanyColumn ? 10 : 9;}
 <%-- dashboard/pages/penalties/page.php. --%>
 @template.admin.layout(
 	title = t.apply("nav_penalties"),
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -104,6 +105,7 @@
 						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
 						<th>${t.apply("penalty_type")}</th>
 						<th>${t.apply("penalty_days")}</th>
+						<th>${t.apply("penalty_reason")}</th>
 						<th>${t.apply("penalty_date")}</th>
 						<th>${t.apply("applied_payroll")}</th>
 						<th>${t.apply("actions")}</th>
@@ -121,6 +123,7 @@
 							@endif
 							<td>${row.penaltyType()}</td>
 							<td><span class="badge badge-gray">${row.daysDisplay()}</span></td>
+							<td class="text-muted tbl-clip" title="${row.reason() == null ? "" : row.reason()}">${row.reason() == null || row.reason().isBlank() ? "—" : row.reason()}</td>
 							<td>${row.penaltyDate() == null ? "—" : row.penaltyDate()}</td>
 							<td>
 								<span class="badge ${row.appliedToPayroll() ? "badge-green" : "badge-gray"}">

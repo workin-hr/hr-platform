@@ -239,3 +239,92 @@
 		to   { opacity: 1; transform: none; }
 	}
 }
+
+/* —— Two-line table cells ——
+   Legacy folds the employee code under the name and the department and job
+   title under the branch, which is how its employees table carries fourteen
+   columns without scrolling. `emp-tbl-*` are the dashboard's own class names
+   (employee_helper.php); `tbl-sub` is this application's, for the same shape
+   on other tables. */
+.tbl-sub {
+	margin-top: 2px;
+	font-size: 11px;
+	color: var(--app-text-muted, #6b7280);
+	line-height: 1.4;
+}
+
+.emp-tbl-avatar,
+.emp-tbl-photo {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 34px;
+	height: 34px;
+	border-radius: 50%;
+	object-fit: cover;
+	flex-shrink: 0;
+}
+
+.emp-tbl-avatar {
+	background: linear-gradient(135deg, #e6f1fb 0%, #dce9f8 100%);
+	color: #185fa5;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: .02em;
+}
+
+/* Free-text columns -- a reason, a reply, a decision body -- are as long as
+   somebody typed. Legacy clips them and puts the whole of it in the title
+   attribute; without a width they push every other column off the table. */
+.tbl-clip {
+	max-width: 18ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* —— Second-factor state in the topbar ——
+   `.admin-badge` is the dashboard's own (style.css); it has no warning
+   variant because the PHP surface has no second factor to be missing. */
+.admin-badge--warn {
+	background: #fdf1dc;
+	color: #8a5b00;
+	text-decoration: none;
+}
+
+.admin-badge--warn:hover {
+	background: #f8e4bd;
+}
+
+.home-panel--enrol {
+	border-inline-start: 3px solid #e0a800;
+}
+
+.home-panel--enrol .home-panel-body > p {
+	margin: 8px 0 14px;
+	max-width: 68ch;
+	line-height: 1.7;
+	color: var(--app-text-muted, #6b7280);
+}
+
+/* —— Turnover rates ——
+   Percentages, not headcounts. Their own row, and three across at most: a rate
+   sitting in the sixteen-card grid reads as one more count, which is how
+   "2.01" gets mistaken for two people. */
+.home-stats-grid--rates {
+	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+	max-width: 900px;
+}
+
+/* The placeholder img-fallback.js puts where a banner preview would be. */
+.tbl-photo-missing {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 64px;
+	height: 36px;
+	border-radius: 6px;
+	background: #f1f2f4;
+	color: var(--app-text-muted, #6b7280);
+	font-size: 12px;
+}

@@ -20,6 +20,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -50,23 +51,33 @@
 				<table class="tbl">
 					<thead>
 						<tr>
+							<th>#</th>
 							<th>${t.apply("country_code")}</th>
 							<th>${t.apply("name_ar")}</th>
 							<th>${t.apply("name_en")}</th>
+							<%-- Its own column in legacy, not a prefix on the code: an
+							     emoji flag beside a dial code reads as one token and
+							     neither can be scanned down the column. --%>
+							<th>${t.apply("flag_emoji")}</th>
 							<th>${t.apply("phone_length")}</th>
 							<th>${t.apply("phone_prefixes")}</th>
+							<th>${t.apply("sort_order")}</th>
 							<th>${t.apply("status")}</th>
 							<th class="col-actions"><span class="sr-only">${t.apply("actions")}</span></th>
 						</tr>
 					</thead>
 					<tbody>
-						@for(PhoneCountry country : countries)
+						@for(int index = 0; index < countries.size(); index++)
+							!{PhoneCountry country = countries.get(index);}
 							<tr>
-								<td>${country.flagEmoji()} ${country.countryCode()}</td>
+								<td class="text-muted">${index + 1}</td>
+								<td dir="ltr">${country.countryCode()}</td>
 								<td>${country.nameAr()}</td>
 								<td>${country.nameEn()}</td>
+								<td>${country.flagEmoji()}</td>
 								<td>${country.phoneLength()}</td>
-								<td>${String.join(", ", country.prefixes())}</td>
+								<td class="text-muted" dir="ltr">${String.join(", ", country.prefixes())}</td>
+								<td>${country.sortOrder()}</td>
 								<td>
 									<span class="badge ${country.active() ? "badge-green" : "badge-gray"}">
 										${t.apply(country.active() ? "status_active" : "status_inactive")}
@@ -88,7 +99,7 @@
 							</tr>
 						@endfor
 						@if(countries.isEmpty())
-							<tr><td colspan="7" class="data-table-empty">${t.apply("no_data")}</td></tr>
+							<tr><td colspan="10" class="data-table-empty">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>

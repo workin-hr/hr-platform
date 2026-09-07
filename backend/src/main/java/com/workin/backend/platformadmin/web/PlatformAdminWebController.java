@@ -105,6 +105,11 @@ public class PlatformAdminWebController {
 		model.addAttribute("charts", translateChartLabels(homeService.charts(scoped), model));
 		model.addAttribute("activities", homeService.recentActivities(scoped, 5));
 		model.addAttribute("complaints", homeService.openComplaints(scoped, filters, 4));
+		model.addAttribute("turnover", homeService.turnover(scoped));
+		model.addAttribute("banners", homeService.banners());
+		java.util.List<HomeChart> planning = homeService.workforcePlanning(scoped);
+		model.addAttribute("planned", planning.get(0));
+		model.addAttribute("actual", planning.get(1));
 		return "admin/home";
 	}
 

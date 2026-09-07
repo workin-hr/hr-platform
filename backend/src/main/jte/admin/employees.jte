@@ -1,6 +1,7 @@
 @import java.util.List
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.hr.Employee
+@import com.workin.backend.platformadmin.hr.EmployeeDisplay
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -32,13 +33,19 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled && factorBound;}
-!{int colCount = showCompanyColumn ? 11 : 10;}
+!{boolean arabic = "ar".equals(lang);}
+<%-- Today, read once: the tenure column would otherwise ask the clock
+     per row, and a page rendered across midnight would disagree with
+     itself. --%>
+!{java.time.LocalDate today = java.time.LocalDate.now();}
+!{int colCount = showCompanyColumn ? 14 : 13;}
 <%-- dashboard/pages/employees/page.php. --%>
 @template.admin.layout(
 	title = t.apply("employees"),
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -246,16 +253,25 @@
 			<div class="table-wrap">
 			<table class="tbl">
 				<thead>
+					<%-- The columns legacy renders, in legacy's order. Six of them
+					     were selected by the store and shown by nothing: the avatar,
+					     the basic salary, the hire and created dates, the length of
+					     service and the contract duration. Code lives under the name
+					     and department/job title under the branch, as two-line cells,
+					     which is how the page fits fourteen columns. --%>
 					<tr>
 						<th>#</th>
-						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
-						<th>${t.apply("emp_code")}</th>
-						<th>${t.apply("employees")}</th>
+						<th>${t.apply("employee_logo")}</th>
+						<th>${t.apply("employee_name")}</th>
 						<th>${t.apply("phone")}</th>
+						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
 						<th>${t.apply("branch")}</th>
-						<th>${t.apply("department")}</th>
-						<th>${t.apply("job_title")}</th>
 						<th>${t.apply("shift")}</th>
+						<th class="col-center">${t.apply("basic_salary")}</th>
+						<th>${t.apply("hire_date")}</th>
+						<th>${t.apply("created_at")}</th>
+						<th>${t.apply("work_tenure")}</th>
+						<th>${t.apply("contract_duration")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("actions")}</th>
 					</tr>
@@ -264,17 +280,37 @@
 					@for(int index = 0; index < result.data().size(); index++)
 						!{Employee row = result.data().get(index);}
 						<tr>
-							<td>${result.from() + index}</td>
+							<td class="text-muted">${result.from() + index}</td>
+							<td>
+								@if(row.photoUrl() == null || row.photoUrl().isBlank())
+									<span class="emp-tbl-avatar" aria-hidden="true">${EmployeeDisplay.initials(row.employeeName())}</span>
+								@else
+									<img src="${row.photoUrl()}" alt="" class="emp-tbl-photo"
+									     width="40" height="40" loading="lazy"
+									     data-fallback-initials="${EmployeeDisplay.initials(row.employeeName())}">
+								@endif
+							</td>
+							<td>
+								<div class="bold">${row.employeeName()}</div>
+								<div class="tbl-sub">${row.employeeCode() == null || row.employeeCode().isBlank()
+									? "—" : row.employeeCode()}</div>
+							</td>
+							<td class="text-muted" dir="ltr">${row.phoneLabel()}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
-							<td>${row.employeeCode()}</td>
-							<td class="bold">${row.employeeName()}</td>
-							<td>${row.phoneLabel()}</td>
-							<td class="text-muted">${row.branchLabel()}</td>
-							<td class="text-muted">${row.departmentLabel()}</td>
-							<td class="text-muted">${row.jobTitleLabel()}</td>
+							<td>
+								<div class="bold">${row.branchLabel()}</div>
+								<div class="tbl-sub">${row.departmentLabel()}${
+									"—".equals(row.departmentLabel()) || "—".equals(row.jobTitleLabel())
+										? "" : " · "}${"—".equals(row.jobTitleLabel()) ? "" : row.jobTitleLabel()}</div>
+							</td>
 							<td class="text-muted">${row.shiftLabel()}</td>
+							<td class="col-center" dir="ltr">${EmployeeDisplay.basicSalary(row.basicSalary())}</td>
+							<td class="text-muted">${EmployeeDisplay.date(row.hireDate())}</td>
+							<td class="text-muted">${EmployeeDisplay.date(row.createdAt())}</td>
+							<td class="text-muted">${EmployeeDisplay.workTenure(row.hireDate(), arabic, today)}</td>
+							<td class="text-muted">${EmployeeDisplay.contractDuration(row.contractDurationMonths(), arabic)}</td>
 							<td>
 								<span class="badge ${row.active() ? "badge-green" : "badge-red"}">
 									${t.apply(row.active() ? "status_active" : "status_inactive")}</span>

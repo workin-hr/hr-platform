@@ -31,6 +31,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -102,7 +103,7 @@
 						<th>${t.apply("emp_code")}</th>
 						<th>${t.apply("employee_name")}</th>
 						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
-						<th>${t.apply("asset")}</th>
+						<th>${t.apply("asset_text")}</th>
 						<th>${t.apply("asset_date")}</th>
 						<th>${t.apply("asset_end_date")}</th>
 						<th>${t.apply("is_returned")}</th>

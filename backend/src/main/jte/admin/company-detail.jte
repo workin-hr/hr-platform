@@ -3,6 +3,7 @@
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
+@param boolean factorBound = false
 @param boolean actionsEnabled
 @param CompanyDetail detail
 @param String currentPage
@@ -15,6 +16,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,

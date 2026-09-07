@@ -171,4 +171,18 @@ public class AdminViewModelAdvice {
 		return principal == null ? null : principal.phone();
 	}
 
+	/**
+	 * Whether this session has cleared its second factor.
+	 *
+	 * <p>Here for R-058's reason, and because it is the one piece of session
+	 * state that changes what a page may do: an unbound administrator can read
+	 * every list and write nothing. The topbar says so on every page, and links
+	 * to enrolment when it is missing -- D-152 migrates existing rows unbound,
+	 * so reaching enrolment cannot depend on landing on one particular page.
+	 */
+	@ModelAttribute("factorBound")
+	public boolean factorBound(@AuthenticationPrincipal PlatformAdminWebPrincipal principal) {
+		return principal != null && principal.factorBound();
+	}
+
 }

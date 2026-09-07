@@ -106,7 +106,9 @@ class PlatformAdminWebMfaFlowTest extends AbstractIntegrationTest {
 
 		ResponseEntity<String> home = get("/admin", cookieValueOf(verified));
 		assertThat(home.getStatusCode()).isEqualTo(HttpStatus.OK);
-		assertThat(home.getBody()).contains("bound");
+		// The topbar carries the state on every page. Asserted on the attribute
+		// rather than on the label, which is translated and defaults to Arabic.
+		assertThat(home.getBody()).contains("data-factor-bound=\"true\"");
 	}
 
 	@Test
@@ -162,7 +164,8 @@ class PlatformAdminWebMfaFlowTest extends AbstractIntegrationTest {
 		assertThat(home.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(home.getBody())
 			.as("D-152: existing rows migrate unbound and must be able to reach enrolment")
-			.contains("Set up two-factor authentication");
+			.contains("data-factor-bound=\"false\"")
+			.contains("href=\"/admin/enrol\"");
 	}
 
 	// --- D-152's ceremony through the UI ------------------------------------

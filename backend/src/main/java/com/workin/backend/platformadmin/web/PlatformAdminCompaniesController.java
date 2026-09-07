@@ -2,6 +2,7 @@ package com.workin.backend.platformadmin.web;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -12,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.PlatformAdminCompanyDirectory;
 import com.workin.backend.platformadmin.PlatformAdminCompanyService;
+import com.workin.backend.platformadmin.companies.CompanyDirectoryStore;
+import com.workin.backend.platformadmin.companies.CompanyListFilters;
 import com.workin.backend.platformadmin.stepup.PlatformAdminStepUpService;
 
 /**
@@ -35,11 +38,22 @@ public class PlatformAdminCompaniesController {
 	private final PlatformAdminCompanyService companyService;
 	private final PlatformAdminStepUpService stepUpService;
 
+	/**
+	 * The dashboard's company directory, which exists only under
+	 * {@code phase1-mysql}. An {@link ObjectProvider} because this controller
+	 * serves both profiles and the bean is absent on the other one, where the
+	 * page falls back to the narrow list {@link PlatformAdminCompanyDirectory}
+	 * can answer over either database.
+	 */
+	private final ObjectProvider<CompanyDirectoryStore> directory;
+
 	public PlatformAdminCompaniesController(PlatformAdminCompanyDirectory companies,
-			PlatformAdminCompanyService companyService, PlatformAdminStepUpService stepUpService) {
+			PlatformAdminCompanyService companyService, PlatformAdminStepUpService stepUpService,
+			ObjectProvider<CompanyDirectoryStore> directory) {
 		this.companies = companies;
 		this.companyService = companyService;
 		this.stepUpService = stepUpService;
+		this.directory = directory;
 	}
 
 	@AuthenticatedUseCase(reason = "Platform-wide oversight: the list of companies this "
@@ -123,7 +137,20 @@ public class PlatformAdminCompaniesController {
 	private void render(Model model, HttpServletRequest request) {
 		PlatformAdminWebCsrf.expose(model, request);
 		model.addAttribute("actionsEnabled", this.companyService.actionsEnabled());
-		model.addAttribute("companies", this.companies.list(200));
+		CompanyDirectoryStore store = this.directory.getIfAvailable();
+		if (store == null) {
+			// The narrow list. 200 is the cap this page has always had here;
+			// the directory below pages instead, as the dashboard does.
+			model.addAttribute("companies", this.companies.list(200));
+			return;
+		}
+		CompanyListFilters filters = CompanyListFilters.read(request);
+		model.addAttribute("companies", java.util.List.of());
+		model.addAttribute("filters", filters);
+		model.addAttribute("result", store.list(filters));
+		model.addAttribute("activities", store.activities());
+		model.addAttribute("titles", store.titles());
+		model.addAttribute("sizes", store.sizes());
 	}
 
 }

@@ -21,13 +21,14 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled && factorBound;}
-!{int colCount = showCompanyColumn ? 6 : 5;}
+!{int colCount = showCompanyColumn ? 7 : 6;}
 <%-- dashboard/pages/administrative_decisions/page.php. --%>
 @template.admin.layout(
 	title = t.apply("nav_administrative_decisions"),
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -130,6 +131,7 @@
 						<th>#</th>
 						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
 						<th>${t.apply("decision_title")}</th>
+						<th>${t.apply("decision_body")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("reg_date")}</th>
 						<th>${t.apply("actions")}</th>
@@ -146,6 +148,7 @@
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
 							<td class="bold">${row.title()}</td>
+							<td class="text-muted tbl-clip" title="${row.body() == null ? "" : row.body()}">${row.body() == null || row.body().isBlank() ? "—" : row.body()}</td>
 							<td>
 								<span class="badge ${row.active() ? "badge-green" : "badge-gray"}">
 									${t.apply(row.active() ? "decision_status_active" : "decision_status_inactive")}</span>

@@ -46,6 +46,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -357,6 +358,7 @@
 				<table class="tbl">
 					<thead>
 						<tr>
+							<th>#</th>
 							@if(showCompanyColumn)
 								<th>${t.apply("company")}</th>
 							@endif
@@ -371,8 +373,10 @@
 						</tr>
 					</thead>
 					<tbody>
-						@for(PayrollRecord.BatchRow row : batchResult.data())
+						@for(int index = 0; index < batchResult.data().size(); index++)
+							!{PayrollRecord.BatchRow row = batchResult.data().get(index);}
 							<tr>
+								<td class="text-muted">${batchResult.from() + index}</td>
 								@if(showCompanyColumn)
 									<td>${row.companyName()}</td>
 								@endif
@@ -421,7 +425,7 @@
 							</tr>
 						@endfor
 						@if(batchResult.isEmpty())
-							<tr><td colspan="${showCompanyColumn ? 9 : 8}" class="data-table-empty">${t.apply("no_data")}</td></tr>
+							<tr><td colspan="${showCompanyColumn ? 10 : 9}" class="data-table-empty">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>

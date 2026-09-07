@@ -25,6 +25,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -55,20 +56,33 @@
 				<table class="tbl">
 					<thead>
 						<tr>
-							<th>${t.apply("banner_image")}</th>
+							<th>#</th>
+							<th>${t.apply("banner_preview")}</th>
+							<%-- Both titles: this page is where somebody checks that the
+							     Arabic and the English banner say the same thing, and one
+							     column chosen by the viewer's language cannot show that. --%>
 							<th>${t.apply("title_ar")}</th>
+							<th>${t.apply("title_en")}</th>
 							<th>${t.apply("app_platform")}</th>
 							<th>${t.apply("button_action_type")}</th>
 							<th>${t.apply("sort_order")}</th>
 							<th>${t.apply("status")}</th>
+							<th>${t.apply("reg_date")}</th>
 							<th class="col-actions"><span class="sr-only">${t.apply("actions")}</span></th>
 						</tr>
 					</thead>
 					<tbody>
-						@for(Banner banner : banners)
+						@for(int index = 0; index < banners.size(); index++)
+							!{Banner banner = banners.get(index);}
 							<tr>
-								<td><img src="${banner.imageUrl()}" alt="" class="tbl-photo" width="64" height="36"></td>
-								<td>${arabic ? banner.titleAr() : banner.titleEn()}</td>
+								<td class="text-muted">${index + 1}</td>
+								<%-- A banner whose file is gone: the placeholder, not the
+								     browser's broken-image icon (img-fallback.js). --%>
+								<td><img src="${banner.imageUrl()}" alt="" class="tbl-photo" width="64" height="36"
+								         data-fallback-initials="—" data-fallback-class="tbl-photo-missing"></td>
+								<td>${banner.titleAr() == null || banner.titleAr().isBlank() ? "—" : banner.titleAr()}</td>
+								<td class="text-muted">${banner.titleEn() == null || banner.titleEn().isBlank()
+									? "—" : banner.titleEn()}</td>
 								<td><span class="badge badge-blue">${banner.platform().stored()}</span></td>
 								<td>
 									${banner.buttonActionType().stored()}
@@ -79,6 +93,7 @@
 								<td>${banner.sortOrder()}</td>
 								<td><span class="badge ${banner.active() ? "badge-green" : "badge-gray"}">
 									${t.apply(banner.active() ? "status_active" : "status_inactive")}</span></td>
+								<td class="text-muted">${banner.createdDate()}</td>
 								<td class="col-actions">
 									@template.admin.rowActions(rowId = banner.id(), t = t, items = @`
 										@if(canWrite)
@@ -95,7 +110,7 @@
 							</tr>
 						@endfor
 						@if(banners.isEmpty())
-							<tr><td colspan="7" class="data-table-empty">${t.apply("no_data")}</td></tr>
+							<tr><td colspan="10" class="data-table-empty">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>

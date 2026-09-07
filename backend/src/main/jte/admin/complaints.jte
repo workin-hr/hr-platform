@@ -23,13 +23,14 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled && factorBound;}
-!{int colCount = showCompanyColumn ? 8 : 7;}
+!{int colCount = showCompanyColumn ? 10 : 9;}
 <%-- dashboard/pages/complaints/page.php. --%>
 @template.admin.layout(
 	title = t.apply(session.isCompany() ? "nav_complaints" : "nav_complaints_admin"),
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -110,8 +111,10 @@
 						<th>${t.apply("complaint_submitter")}</th>
 						<th>${t.apply("phone")}</th>
 						<th>${t.apply("complaint_msg")}</th>
+						<th>${t.apply("admin_reply")}</th>
 						<th>${t.apply("complaint_source")}</th>
 						<th>${t.apply("status")}</th>
+						<th>${t.apply("date")}</th>
 						<th>${t.apply("actions")}</th>
 					</tr>
 				</thead>
@@ -125,7 +128,8 @@
 							@endif
 							<td class="bold">${row.name() == null ? "—" : row.name()}</td>
 							<td class="text-muted">${row.phone() == null ? "—" : row.phone()}</td>
-							<td>${row.message() == null ? "—" : row.message()}</td>
+							<td class="tbl-clip" title="${row.message() == null ? "" : row.message()}">${row.message() == null || row.message().isBlank() ? "—" : row.message()}</td>
+							<td class="text-muted tbl-clip" title="${row.reply() == null ? "" : row.reply()}">${row.reply() == null || row.reply().isBlank() ? "—" : row.reply()}</td>
 							<td>
 								<span class="badge badge-gray" title="${t.apply(row.fromEmployee()
 									? "complaint_source_employee_to_company_hint"
@@ -139,6 +143,7 @@
 									: "closed".equals(row.status()) ? "badge-gray" : "badge-blue"}">
 									${t.apply("status_" + row.status())}</span>
 							</td>
+							<td class="text-muted">${row.createdDate()}</td>
 							<td class="col-actions">
 								@if(canWrite)
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`

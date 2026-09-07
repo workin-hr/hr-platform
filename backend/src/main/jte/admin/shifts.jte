@@ -29,6 +29,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -141,8 +142,8 @@
 				<thead>
 					<tr>
 						<th>#</th>
+						<th>${t.apply("shift_name")}</th>
 						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
-						<th>${t.apply("shift")}</th>
 						<th>${t.apply("start_time")}</th>
 						<th>${t.apply("end_time")}</th>
 						<th>${t.apply("employees")}</th>
@@ -155,11 +156,11 @@
 					@for(int index = 0; index < result.data().size(); index++)
 						!{Shift row = result.data().get(index);}
 						<tr>
-							<td>${result.from() + index}</td>
+							<td class="text-muted">${result.from() + index}</td>
+							<td class="bold">${row.name()}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
-							<td class="bold">${row.name()}</td>
 							<td><span class="badge badge-gray">${row.startForInput()}</span></td>
 							<td><span class="badge badge-gray">${row.endForInput()}</span></td>
 							<td><span class="badge badge-blue">${row.employeeCount()}</span></td>

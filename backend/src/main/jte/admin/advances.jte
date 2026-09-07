@@ -24,13 +24,14 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled && factorBound;}
-!{int colCount = showCompanyColumn ? 9 : 8;}
+!{int colCount = showCompanyColumn ? 11 : 10;}
 <%-- dashboard/pages/advances/page.php. --%>
 @template.admin.layout(
 	title = t.apply("nav_advances"),
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -106,6 +107,8 @@
 						<th>${t.apply("advance_amount")}</th>
 						<th>${t.apply("remaining")}</th>
 						<th>${t.apply("request_date")}</th>
+						<th>${t.apply("advance_reason")}</th>
+						<th>${t.apply("rejection_reason")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("actions")}</th>
 					</tr>
@@ -123,6 +126,11 @@
 							<td class="bold">${row.amountDisplay()}</td>
 							<td><span class="badge badge-blue">${row.remainingDisplay()}</span></td>
 							<td>${row.requestDate() == null ? "—" : row.requestDate()}</td>
+							<%-- Both reasons are free text and can be long; the cell
+							     shows the start and the title carries the whole of it,
+							     as legacy does. --%>
+							<td class="text-muted tbl-clip" title="${row.reason() == null ? "" : row.reason()}">${row.reason() == null || row.reason().isBlank() ? "—" : row.reason()}</td>
+							<td class="text-muted tbl-clip" title="${row.rejectionReason() == null ? "" : row.rejectionReason()}">${row.rejectionReason() == null || row.rejectionReason().isBlank() ? "—" : row.rejectionReason()}</td>
 							<td>
 								<span class="badge ${row.isApproved() ? "badge-green"
 									: row.isRejected() ? "badge-red" : "badge-gray"}">

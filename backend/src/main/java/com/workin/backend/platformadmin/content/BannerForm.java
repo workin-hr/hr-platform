@@ -57,7 +57,8 @@ public final class BannerForm {
 				trimToNull(titleAr), trimToNull(titleEn),
 				trimToNull(descriptionAr), trimToNull(descriptionEn),
 				trimToNull(buttonLabelAr), trimToNull(buttonLabelEn),
-				action, value), null);
+				// A row being written has no created_at yet; the database sets it.
+				action, value, null), null);
 	}
 
 	/** @return the value to store, or null when the submitted one fails its type's rule */
