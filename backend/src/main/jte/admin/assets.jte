@@ -125,8 +125,8 @@
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_assets")} (${result.total()})</h2>
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>#</th>
@@ -158,28 +158,30 @@
 									${t.apply(row.returned() ? "yes" : "no")}</span>
 							</td>
 							<td class="col-actions">
-								@if(canWrite && !row.returned())
-									<%-- Once the asset is back the row is frozen against
+								<%-- Once the asset is back the row is frozen against
 									     editing: there is nothing left to correct about the
 									     loan. --%>
-									<form method="POST" class="inline-form">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="mark_returned">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-outline btn-sm">${t.apply("is_returned")}</button>
-									</form>
-								@endif
-								@if(canWrite)
-									<form method="POST" class="inline-form"
-									      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="delete_asset">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-									</form>
-								@else
-									<span class="text-muted">—</span>
-								@endif
+								@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+									@if(canWrite && !row.returned())
+										<form method="POST" class="row-actions__form" role="none">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="mark_returned">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem" class="row-actions__item">${t.apply("is_returned")}</button>
+										</form>
+									@endif
+									@if(canWrite)
+										<form method="POST" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete_asset">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+									@else
+										<span class="text-muted">—</span>
+									@endif
+								`)
 							</td>
 						</tr>
 					@endfor
@@ -189,13 +191,10 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/assets?page=${page}&returned=${returned}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			!{java.util.SequencedMap<String, String> carry =
+					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+			!{carry.put("returned", returned);}
+			@template.admin.pager(basePath = "/admin/assets", result = result,
+					carry = carry, t = t)
 		</div>
 	`)

@@ -39,3 +39,28 @@
 	color: var(--muted, #5b6876);
 	font-size: .875rem;
 }
+
+/* The pager's row count. app-ui.css carries the whole pager component; this
+   one line is the port's addition, because the PHP has no equivalent -- it
+   shows page buttons and leaves the reader to work out which rows those are. */
+.pager-summary {
+	margin: 0;
+	margin-inline-start: auto;
+	padding-inline: 4px;
+	color: var(--app-text-muted, #6b7280);
+	font-size: 13px;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+
+.pager-summary b {
+	color: var(--app-text, #1a1d24);
+	font-weight: 600;
+}
+
+/* The pager's own numerals, so page buttons do not shift width between
+   "1" and "8" and the row goes still while you page through it. */
+.pager-btn,
+.pager-size-select {
+	font-variant-numeric: tabular-nums;
+}

@@ -74,13 +74,15 @@
 									${t.apply(row.active() ? "status_active" : "status_inactive")}</span></td>
 								<td class="col-actions">
 									@if(canWrite)
-										<form method="post" class="row-actions__form"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete">
-											<input type="hidden" name="id" value="${row.id()}">
-											<button type="submit" class="btn btn-sm btn-red">${t.apply("delete")}</button>
-										</form>
+										@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+											<form method="post" class="row-actions__form"
+											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="delete">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+											</form>
+										`)
 									@else
 										<span class="text-muted">—</span>
 									@endif

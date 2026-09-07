@@ -115,8 +115,8 @@
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_leave_balances")} (${result.total()})</h2>
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>#</th>
@@ -180,13 +180,10 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/leave_balances?page=${page}&year=${year}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			!{java.util.SequencedMap<String, String> carry =
+					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+			!{carry.put("year", String.valueOf(year));}
+			@template.admin.pager(basePath = "/admin/leave_balances", result = result,
+					carry = carry, t = t)
 		</div>
 	`)

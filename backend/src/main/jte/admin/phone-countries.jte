@@ -67,15 +67,17 @@
 									</span>
 								</td>
 								<td class="col-actions">
-									@if(actionsEnabled && factorBound)
-										<form method="post" class="row-actions__form"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete">
-											<input type="hidden" name="id" value="${country.id()}">
-											<button type="submit" class="btn btn-sm btn-red">${t.apply("delete")}</button>
-										</form>
-									@endif
+									@template.admin.rowActions(rowId = country.id(), t = t, items = @`
+										@if(actionsEnabled && factorBound)
+											<form method="post" class="row-actions__form"
+											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="delete">
+												<input type="hidden" name="id" value="${country.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+											</form>
+										@endif
+									`)
 								</td>
 							</tr>
 						@endfor

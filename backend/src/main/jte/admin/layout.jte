@@ -31,6 +31,10 @@
 	<link rel="stylesheet" href="/admin/_assets/style.css">
 	<link rel="stylesheet" href="/admin/_assets/app-ui.css">
 	<link rel="stylesheet" href="/admin/_assets/sidebar.css">
+	<%-- After the copied sheets, not before: the @font-face blocks would
+	     work anywhere, but the family override is a `body` rule at the same
+	     specificity as style.css's, so it only wins by coming later. --%>
+	<link rel="stylesheet" href="/admin/_assets/fonts.css">
 	<link rel="stylesheet" href="/admin/_assets/admin-extra.css">
 	<%-- $pageStyles in dashboard/includes/layout.php: the per-page stylesheets,
 	     appended after the shared ones so a page's own rules win. Naming them

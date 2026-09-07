@@ -63,8 +63,8 @@
 		<div class="data-table-head">
 			<h2 class="data-table-title">${t.apply("nav_join_requests")} (${items.size()})</h2>
 		</div>
-		<div class="data-table-wrap">
-		<table class="data-table">
+		<div class="table-wrap">
+		<table class="tbl">
 			<thead>
 				<tr>
 					<th>#</th>
@@ -94,32 +94,34 @@
 					</td>
 					<td>${row.createdAt() == null ? "—" : row.createdAt().toString().replace("T", " ")}</td>
 					<td class="col-actions">
-						<div class="actions">
-						@if(row.pending() && canWrite)
-							<form method="POST" class="inline-form" action="/admin/join_requests">
-								<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-								<input type="hidden" name="action" value="accept_join">
-								<input type="hidden" name="id" value="${row.id()}">
-								<input type="hidden" name="redirect_status" value="${status}">
-								<button type="submit" class="btn btn-green btn-sm">${t.apply("approve")}</button>
-							</form>
-							<%-- Rejecting deletes the employee row, so the confirm
+						<%-- Rejecting deletes the employee row, so the confirm
 							     is not decoration. --%>
-							<form method="POST" class="inline-form" action="/admin/join_requests"
-							      onsubmit="return confirm('${t.apply("confirm_action")}')">
-								<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-								<input type="hidden" name="action" value="reject_join">
-								<input type="hidden" name="id" value="${row.id()}">
-								<input type="hidden" name="redirect_status" value="${status}">
-								<button type="submit" class="btn btn-red btn-sm">${t.apply("reject")}</button>
-							</form>
-						@elseif(row.accepted())
-							<a href="/admin/employees?action=edit&id=${row.id()}"
-							   class="btn btn-blue btn-sm">${t.apply("edit")}</a>
-						@else
-							<span class="text-muted">—</span>
-						@endif
-						</div>
+						@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+							<div class="actions">
+							@if(row.pending() && canWrite)
+								<form method="POST" class="row-actions__form" role="none" action="/admin/join_requests">
+									<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+									<input type="hidden" name="action" value="accept_join">
+									<input type="hidden" name="id" value="${row.id()}">
+									<input type="hidden" name="redirect_status" value="${status}">
+									<button type="submit" role="menuitem" class="row-actions__item row-actions__item--success">${t.apply("approve")}</button>
+								</form>
+								<form method="POST" class="row-actions__form" role="none" action="/admin/join_requests"
+								      onsubmit="return confirm('${t.apply("confirm_action")}')">
+									<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+									<input type="hidden" name="action" value="reject_join">
+									<input type="hidden" name="id" value="${row.id()}">
+									<input type="hidden" name="redirect_status" value="${status}">
+									<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("reject")}</button>
+								</form>
+							@elseif(row.accepted())
+								<a href="/admin/employees?action=edit&id=${row.id()}"
+								   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
+							@else
+								<span class="text-muted">—</span>
+							@endif
+							</div>
+						`)
 					</td>
 				</tr>
 				@endfor

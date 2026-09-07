@@ -57,8 +57,8 @@
 				</div>
 			</summary>
 			<div class="setting-templates-panel__body">
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>${t.apply("setting_option_value")}</th>
@@ -87,28 +87,30 @@
 							@endif
 						</td>
 						<td class="col-actions">
-							<div class="actions">
-								<button type="button" class="btn btn-sm btn-outline" data-setting-option-edit
-								        data-option-id="${option.id()}"
-								        data-definition-id="${definition.id()}"
-								        data-value="${option.value()}"
-								        data-label-ar="${option.labelAr()}"
-								        data-label-en="${option.labelEn()}"
-								        data-sort-order="${option.sortOrder()}"
-								        data-in-use="${option.inUse()}">${t.apply("edit")}</button>
-								<%-- Offered only when nothing depends on it. The
+							<%-- Offered only when nothing depends on it. The
 								     service refuses either way; hiding the button
 								     keeps the page from inviting a refusal. --%>
-								@if(!option.inUse() && canWrite)
-									<form method="POST" action="/admin/settings" class="inline-form"
-									      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="delete_option">
-										<input type="hidden" name="id" value="${option.id()}">
-										<button type="submit" class="btn btn-red btn-sm">${t.apply("delete")}</button>
-									</form>
-								@endif
-							</div>
+							@template.admin.rowActions(rowId = option.id(), t = t, items = @`
+								<div class="actions">
+									<button type="button" role="menuitem" class="row-actions__item" data-setting-option-edit
+									        data-option-id="${option.id()}"
+									        data-definition-id="${definition.id()}"
+									        data-value="${option.value()}"
+									        data-label-ar="${option.labelAr()}"
+									        data-label-en="${option.labelEn()}"
+									        data-sort-order="${option.sortOrder()}"
+									        data-in-use="${option.inUse()}">${t.apply("edit")}</button>
+									@if(!option.inUse() && canWrite)
+										<form method="POST" action="/admin/settings" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete_option">
+											<input type="hidden" name="id" value="${option.id()}">
+											<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+									@endif
+								</div>
+							`)
 						</td>
 					</tr>
 					@endfor

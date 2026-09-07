@@ -126,8 +126,8 @@
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_advances")} (${result.total()})</h2>
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>#</th>
@@ -205,13 +205,10 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/advances?page=${page}&status=${status}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			!{java.util.SequencedMap<String, String> carry =
+					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+			!{carry.put("status", status);}
+			@template.admin.pager(basePath = "/admin/advances", result = result,
+					carry = carry, t = t)
 		</div>
 	`)

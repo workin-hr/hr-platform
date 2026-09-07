@@ -101,8 +101,8 @@
 					${t.apply(session.isCompany() ? "nav_complaints" : "nav_complaints_admin")}
 					(${result.total()})</h2>
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>#</th>
@@ -179,13 +179,7 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/complaints?page=${page}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			@template.admin.pager(basePath = "/admin/complaints", result = result,
+					carry = filters.asQueryParameters(), t = t)
 		</div>
 	`)

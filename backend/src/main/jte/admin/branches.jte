@@ -129,8 +129,8 @@
 					<a href="/admin/branches?action=add" class="btn btn-blue">+ ${t.apply("add_branch")}</a>
 				@endif
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>#</th>
@@ -174,20 +174,22 @@
 							<td>${row.createdDate()}</td>
 							<td class="col-actions">
 								@if(canManage)
-									<a href="/admin/branches?action=edit&id=${row.id()}"
-									   class="btn btn-outline btn-sm">${t.apply("edit")}</a>
-									<a href="/admin/branches?action=qr&id=${row.id()}"
-									   class="btn btn-outline btn-sm">${t.apply("branch_generate_qr")}</a>
-									@if(canWrite)
-										<form method="POST" class="inline-form"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete">
-											<input type="hidden" name="id" value="${row.id()}">
-											<input type="hidden" name="company_id" value="${row.companyId()}">
-											<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-										</form>
-									@endif
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<a href="/admin/branches?action=edit&id=${row.id()}"
+										   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
+										<a href="/admin/branches?action=qr&id=${row.id()}"
+										   role="menuitem" class="row-actions__item">${t.apply("branch_generate_qr")}</a>
+										@if(canWrite)
+											<form method="POST" class="row-actions__form" role="none"
+											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="delete">
+												<input type="hidden" name="id" value="${row.id()}">
+												<input type="hidden" name="company_id" value="${row.companyId()}">
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+											</form>
+										@endif
+									`)
 								@else
 									<span class="text-muted">—</span>
 								@endif
@@ -200,13 +202,7 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/branches?page=${page}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			@template.admin.pager(basePath = "/admin/branches", result = result,
+					carry = filters.asQueryParameters(), t = t)
 		</div>
 	`)

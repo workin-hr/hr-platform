@@ -150,8 +150,8 @@
 					<div class="data-table-head">
 						<h2 class="data-table-title">${t.apply("payroll_batch_detail")}</h2>
 					</div>
-					<div class="data-table-scroll">
-					<table class="data-table">
+					<div class="table-wrap">
+					<table class="tbl">
 						<thead>
 							<tr>
 								<th>${t.apply("employees")}</th>
@@ -186,8 +186,8 @@
 			     stored but not shown here -- it surfaces in the totals strip
 			     above and the list's total_net. That is the source's behaviour. --%>
 			<div class="data-table-card">
-				<div class="data-table-scroll">
-				<table class="data-table">
+				<div class="table-wrap">
+				<table class="tbl">
 					<thead>
 						<tr>
 							<th>${t.apply("employee")}</th>
@@ -253,8 +253,10 @@
 								<td class="col-center bold">${cell.apply(row, "net_salary")}</td>
 								<td class="col-actions">
 									@if(canWrite && !currentBatch.finalized())
-										<a class="btn btn-sm"
-										   href="/admin/payroll?action=edit_detail&id=${cell.apply(row, "id")}&run_id=${viewRunId}">${t.apply("edit")}</a>
+										@template.admin.rowActions(rowId = cell.apply(row, "id"), t = t, items = @`
+											<a role="menuitem" class="row-actions__item"
+											   href="/admin/payroll?action=edit_detail&id=${cell.apply(row, "id")}&run_id=${viewRunId}">${t.apply("edit")}</a>
+										`)
 									@else
 										<span class="text-muted">—</span>
 									@endif
@@ -267,14 +269,12 @@
 					</tbody>
 				</table>
 				</div>
-				@if(detailResult.pages() > 1)
-					<div class="pager">
-						@for(int page = 1; page <= detailResult.pages(); page++)
-							<a href="/admin/payroll?run_id=${viewRunId}&page=${page}"
-							   class="pager__link${page == detailResult.page() ? " is-current" : ""}">${page}</a>
-						@endfor
-					</div>
-				@endif
+				<%-- The run this table belongs to travels with every page link and with
+				     the size form; without it, turning the page loses the batch. --%>
+				!{java.util.SequencedMap<String, String> detailCarry = new java.util.LinkedHashMap<>();}
+				!{detailCarry.put("run_id", String.valueOf(viewRunId));}
+				@template.admin.pager(basePath = "/admin/payroll", result = detailResult,
+						carry = detailCarry, t = t)
 			</div>
 		@else
 			<div class="toolbar page-toolbar page-toolbar-filters">
@@ -353,8 +353,8 @@
 				<div class="data-table-head">
 					<h2 class="data-table-title">${t.apply("nav_payroll")}</h2>
 				</div>
-				<div class="data-table-scroll">
-				<table class="data-table">
+				<div class="table-wrap">
+				<table class="tbl">
 					<thead>
 						<tr>
 							@if(showCompanyColumn)
@@ -384,37 +384,39 @@
 								<td class="bold">${row.totalNet().toPlainString()}</td>
 								<td><span class="badge ${"finalized".equals(row.status()) ? "badge-green" : "badge-yellow"}">${t.apply("status_" + row.status())}</span></td>
 								<td class="col-actions">
-									<a class="btn btn-sm" href="/admin/payroll?run_id=${row.id()}">${t.apply("edit")}</a>
-									@if(canWrite)
-										@if(!"finalized".equals(row.status()))
-											<form method="POST" class="inline-form">
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<a role="menuitem" class="row-actions__item" href="/admin/payroll?run_id=${row.id()}">${t.apply("edit")}</a>
+										@if(canWrite)
+											@if(!"finalized".equals(row.status()))
+												<form method="POST" class="row-actions__form" role="none">
+													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+													<input type="hidden" name="action" value="calculate">
+													<input type="hidden" name="id" value="${row.id()}">
+													<button type="submit" role="menuitem" class="row-actions__item">${t.apply("calculate")}</button>
+												</form>
+												<form method="POST" class="row-actions__form" role="none">
+													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+													<input type="hidden" name="action" value="finalize">
+													<input type="hidden" name="id" value="${row.id()}">
+													<button type="submit" role="menuitem" class="row-actions__item">${t.apply("finalize")}</button>
+												</form>
+											@else
+												<form method="POST" class="row-actions__form" role="none">
+													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+													<input type="hidden" name="action" value="reopen">
+													<input type="hidden" name="id" value="${row.id()}">
+													<button type="submit" role="menuitem" class="row-actions__item">${t.apply("reopen")}</button>
+												</form>
+											@endif
+											<form method="POST" class="row-actions__form" role="none"
+											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-												<input type="hidden" name="action" value="calculate">
+												<input type="hidden" name="action" value="delete_run">
 												<input type="hidden" name="id" value="${row.id()}">
-												<button type="submit" class="btn btn-sm">${t.apply("calculate")}</button>
-											</form>
-											<form method="POST" class="inline-form">
-												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-												<input type="hidden" name="action" value="finalize">
-												<input type="hidden" name="id" value="${row.id()}">
-												<button type="submit" class="btn btn-sm">${t.apply("finalize")}</button>
-											</form>
-										@else
-											<form method="POST" class="inline-form">
-												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-												<input type="hidden" name="action" value="reopen">
-												<input type="hidden" name="id" value="${row.id()}">
-												<button type="submit" class="btn btn-sm">${t.apply("reopen")}</button>
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
 											</form>
 										@endif
-										<form method="POST" class="inline-form"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete_run">
-											<input type="hidden" name="id" value="${row.id()}">
-											<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-										</form>
-									@endif
+									`)
 								</td>
 							</tr>
 						@endfor
@@ -424,14 +426,8 @@
 					</tbody>
 				</table>
 				</div>
-				@if(batchResult.pages() > 1)
-					<div class="pager">
-						@for(int page = 1; page <= batchResult.pages(); page++)
-							<a href="/admin/payroll?page=${page}${filters.asQueryTail()}"
-							   class="pager__link${page == batchResult.page() ? " is-current" : ""}">${page}</a>
-						@endfor
-					</div>
-				@endif
+				@template.admin.pager(basePath = "/admin/payroll", result = batchResult,
+						carry = filters.asQueryParameters(), t = t)
 			</div>
 		@endif
 	`)

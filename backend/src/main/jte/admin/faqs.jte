@@ -66,17 +66,19 @@
 								<td><span class="badge ${category.active() ? "badge-green" : "badge-gray"}">
 									${t.apply(category.active() ? "status_active" : "status_inactive")}</span></td>
 								<td class="col-actions">
-									@if(canWrite)
-										<%-- The confirm names the item count: deleting a category
+									<%-- The confirm names the item count: deleting a category
 										     cascades, and the number is the part that surprises. --%>
-										<form method="post" class="row-actions__form"
-										      onsubmit="return confirm('${t.apply("faq_delete_category_confirm")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete_category">
-											<input type="hidden" name="id" value="${category.id()}">
-											<button type="submit" class="btn btn-sm btn-red">${t.apply("delete")}</button>
-										</form>
-									@endif
+									@template.admin.rowActions(rowId = category.id(), t = t, items = @`
+										@if(canWrite)
+											<form method="post" class="row-actions__form"
+											      onsubmit="return confirm('${t.apply("faq_delete_category_confirm")}')">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="delete_category">
+												<input type="hidden" name="id" value="${category.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+											</form>
+										@endif
+									`)
 								</td>
 							</tr>
 						@endfor
@@ -129,15 +131,17 @@
 								<td><span class="badge ${item.active() ? "badge-green" : "badge-gray"}">
 									${t.apply(item.active() ? "status_active" : "status_inactive")}</span></td>
 								<td class="col-actions">
-									@if(canWrite)
-										<form method="post" class="row-actions__form"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete_item">
-											<input type="hidden" name="id" value="${item.id()}">
-											<button type="submit" class="btn btn-sm btn-red">${t.apply("delete")}</button>
-										</form>
-									@endif
+									@template.admin.rowActions(rowId = item.id(), t = t, items = @`
+										@if(canWrite)
+											<form method="post" class="row-actions__form"
+											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="delete_item">
+												<input type="hidden" name="id" value="${item.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+											</form>
+										@endif
+									`)
 								</td>
 							</tr>
 						@endfor

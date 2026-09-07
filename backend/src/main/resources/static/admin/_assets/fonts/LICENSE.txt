@@ -1,0 +1,12 @@
+IBM Plex Sans Arabic
+Copyright © 2017 IBM Corp. with Reserved Font Name "Plex".
+
+Licensed under the SIL Open Font License, Version 1.1.
+https://openfontlicense.org
+https://github.com/IBM/plex
+
+The .woff2 files beside this notice are the `arabic` and `latin` subsets, as
+served by Google Fonts for IBM Plex Sans Arabic v15, at weights 400, 500, 600
+and 700. They are vendored rather than linked so that the admin surface renders
+identically without reaching a third party -- see the note at the top of
+../fonts.css.

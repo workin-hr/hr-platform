@@ -29,7 +29,12 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled && factorBound;}
-!{String rangeTail = "&from=" + from + "&to=" + to;}
+<%-- The range, as a map: the pager needs it in every page link AND as hidden
+     inputs in the page-size form, and one source keeps those from drifting. --%>
+!{java.util.SequencedMap<String, String> carry =
+		new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+!{carry.put("from", from);}
+!{carry.put("to", to);}
 <%-- dashboard/pages/attendance/page.php.
 
      Two tables over one range. They do not agree on worked time and are not
@@ -147,8 +152,8 @@
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("att_records")}</h2>
 			</div>
-			<div class="data-table-scroll">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>#</th>
@@ -180,13 +185,15 @@
 							<td>${row.exceptionName() == null ? "—" : row.exceptionName()}</td>
 							<td class="col-actions">
 								@if(canWrite)
-									<form method="POST" class="inline-form"
-									      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="delete">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-									</form>
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<form method="POST" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+									`)
 								@else
 									<span class="text-muted">—</span>
 								@endif
@@ -199,14 +206,8 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/attendance?page=${page}${rangeTail}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			@template.admin.pager(basePath = "/admin/attendance", result = result,
+					carry = carry, t = t)
 		</div>
 
 		<%-- The same range, per employee. Its hours come from raw SQL rather
@@ -215,8 +216,8 @@
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("att_aggregate_report")}</h2>
 			</div>
-			<div class="data-table-scroll">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>${t.apply("emp_code")}</th>
@@ -252,13 +253,8 @@
 				</tbody>
 			</table>
 			</div>
-			@if(aggregateResult.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= aggregateResult.pages(); page++)
-						<a href="/admin/attendance?agg_page=${page}${rangeTail}${filters.asQueryTail()}"
-						   class="pager__link${page == aggregateResult.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			@template.admin.pager(basePath = "/admin/attendance", result = aggregateResult,
+					carry = carry, t = t,
+					pageParam = "agg_page")
 		</div>
 	`)

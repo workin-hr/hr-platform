@@ -140,8 +140,8 @@
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_penalties")} (${result.total()})</h2>
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>#</th>
@@ -173,28 +173,30 @@
 									${t.apply(row.appliedToPayroll() ? "yes" : "no")}</span>
 							</td>
 							<td class="col-actions">
-								@if(canWrite && !row.appliedToPayroll())
-									<%-- Once payroll has deducted against a penalty its days
+								<%-- Once payroll has deducted against a penalty its days
 									     are frozen: a payslip has already been computed from
 									     them. Legacy refuses the edit; so does this. --%>
-									<form method="POST" class="inline-form">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="mark_applied">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-outline btn-sm">${t.apply("applied_payroll")}</button>
-									</form>
-								@endif
-								@if(canWrite)
-									<form method="POST" class="inline-form"
-									      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="delete_penalty">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-									</form>
-								@else
-									<span class="text-muted">—</span>
-								@endif
+								@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+									@if(canWrite && !row.appliedToPayroll())
+										<form method="POST" class="row-actions__form" role="none">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="mark_applied">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem" class="row-actions__item">${t.apply("applied_payroll")}</button>
+										</form>
+									@endif
+									@if(canWrite)
+										<form method="POST" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete_penalty">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+									@else
+										<span class="text-muted">—</span>
+									@endif
+								`)
 							</td>
 						</tr>
 					@endfor
@@ -204,13 +206,10 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/penalties?page=${page}&applied=${applied}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			!{java.util.SequencedMap<String, String> carry =
+					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+			!{carry.put("applied", applied);}
+			@template.admin.pager(basePath = "/admin/penalties", result = result,
+					carry = carry, t = t)
 		</div>
 	`)
