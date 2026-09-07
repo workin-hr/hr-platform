@@ -83,62 +83,16 @@
 			</form>
 		</div>
 
-		@if(canWrite)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("add_penalty")}</h2>
-				</div>
-				<form method="POST" class="account-form org-form">
-					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-					<input type="hidden" name="action" value="add_penalty">
-					<div class="form-row">
-						<label for="employee_id">${t.apply("employee_name")}</label>
-						<select id="employee_id" name="employee_id" required>
-							<option value="0">—</option>
-							@for(com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption option : employeeOptions)
-								<option value="${option.id()}">${option.companyName() == null
-									? option.code() + " — " + option.name()
-									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
-							@endfor
-						</select>
-					</div>
-					<div class="form-row">
-						<label for="penalty_type">${t.apply("penalty_type")}</label>
-						<input type="text" id="penalty_type" name="penalty_type" required maxlength="255">
-					</div>
-					<%-- Seven allowed values, shared with payroll's own whitelist:
-					     a quarter day through five days. Anything else is refused
-					     rather than rounded. --%>
-					<div class="form-row">
-						<label for="penalty_days">${t.apply("penalty_days")}</label>
-						<select id="penalty_days" name="penalty_days" required>
-							<option value="0.25">0.25</option>
-							<option value="0.5">0.5</option>
-							<option value="1" selected="true">1</option>
-							<option value="2">2</option>
-							<option value="3">3</option>
-							<option value="4">4</option>
-							<option value="5">5</option>
-						</select>
-					</div>
-					<div class="form-row">
-						<label for="penalty_date">${t.apply("penalty_date")}</label>
-						<input type="date" id="penalty_date" name="penalty_date">
-					</div>
-					<div class="form-row">
-						<label for="reason">${t.apply("penalty_reason")}</label>
-						<input type="text" id="reason" name="reason" maxlength="500">
-					</div>
-					<div class="account-form__footer">
-						<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
-					</div>
-				</form>
-			</div>
-		@endif
 
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_penalties")} (${result.total()})</h2>
+				<div class="data-table-head__actions">
+					@if(canWrite)
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('penModal')">+ ${t.apply("add_penalty")}</button>
+					@endif
+				</div>
 			</div>
 			<div class="table-wrap">
 			<table class="tbl">
@@ -211,5 +165,66 @@
 			!{carry.put("applied", applied);}
 			@template.admin.pager(basePath = "/admin/penalties", result = result,
 					carry = carry, t = t)
+		@if(canWrite)
+			<%-- Legacy opens this form in a modal, behind the "+" button above.
+			     Rendered inline it sat open over the table on every visit, whether
+			     or not anyone was adding anything. Same form, same fields, same
+			     POST; .modal-bg is position:fixed, so it lives at the end of the
+			     document and out of the reading order. --%>
+			<div class="modal-bg" id="penModal">
+				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="penModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="penModal-title">${t.apply("add_penalty")}</h2>
+					<form method="POST" class="account-form org-form">
+					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+					<input type="hidden" name="action" value="add_penalty">
+					<div class="org-form-grid">
+					<div class="form-row">
+						<label for="employee_id">${t.apply("employee_name")}</label>
+						<select id="employee_id" name="employee_id" required>
+							<option value="0">—</option>
+							@for(com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption option : employeeOptions)
+								<option value="${option.id()}">${option.companyName() == null
+									? option.code() + " — " + option.name()
+									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
+							@endfor
+						</select>
+					</div>
+					<div class="form-row">
+						<label for="penalty_type">${t.apply("penalty_type")}</label>
+						<input type="text" id="penalty_type" name="penalty_type" required maxlength="255">
+					</div>
+					<%-- Seven allowed values, shared with payroll's own whitelist:
+					     a quarter day through five days. Anything else is refused
+					     rather than rounded. --%>
+					<div class="form-row">
+						<label for="penalty_days">${t.apply("penalty_days")}</label>
+						<select id="penalty_days" name="penalty_days" required>
+							<option value="0.25">0.25</option>
+							<option value="0.5">0.5</option>
+							<option value="1" selected="true">1</option>
+							<option value="2">2</option>
+							<option value="3">3</option>
+							<option value="4">4</option>
+							<option value="5">5</option>
+						</select>
+					</div>
+					<div class="form-row">
+						<label for="penalty_date">${t.apply("penalty_date")}</label>
+						<input type="date" id="penalty_date" name="penalty_date">
+					</div>
+					<div class="form-row">
+						<label for="reason">${t.apply("penalty_reason")}</label>
+						<input type="text" id="reason" name="reason" maxlength="500">
+					</div>
+					</div>
+					<div class="account-form__footer">
+						<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
+					</div>
+				</form>
+				</div>
+			</div>
+		@endif
 		</div>
 	`)

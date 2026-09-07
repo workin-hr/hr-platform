@@ -45,12 +45,54 @@
 			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
-		@if(canWrite)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("nav_notifications")}</h2>
+
+		<div class="data-table-card">
+			<div class="data-table-head">
+				<h2 class="data-table-title">${t.apply("recent_activities")}</h2>
+				<div class="data-table-head__actions">
+					@if(canWrite)
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('notifModal')">+ ${t.apply("nav_notifications")}</button>
+					@endif
 				</div>
-				<form method="post"
+			</div>
+			<div class="table-wrap">
+				<table class="tbl">
+					<thead>
+						<tr>
+							<th>${t.apply("notif_title")}</th>
+							<th>${t.apply("notif_body")}</th>
+							<th>${t.apply("notif_audience")}</th>
+							<th>${t.apply("date")}</th>
+						</tr>
+					</thead>
+					<tbody>
+						@for(BroadcastStore.SentBroadcast broadcast : recent)
+							<tr>
+								<td>${broadcast.title()}</td>
+								<td>${broadcast.body()}</td>
+								<td>${broadcast.recipients()}</td>
+								<td>${broadcast.sentAt()}</td>
+							</tr>
+						@endfor
+						@if(recent.isEmpty())
+							<tr><td colspan="4" class="data-table-empty">${t.apply("no_data")}</td></tr>
+						@endif
+					</tbody>
+				</table>
+			</div>
+		@if(canWrite)
+			<%-- Legacy opens this form in a modal, behind the "+" button above.
+			     Rendered inline it sat open over the table on every visit, whether
+			     or not anyone was adding anything. Same form, same fields, same
+			     POST; .modal-bg is position:fixed, so it lives at the end of the
+			     document and out of the reading order. --%>
+			<div class="modal-bg" id="notifModal">
+				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="notifModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="notifModal-title">${t.apply("nav_notifications")}</h2>
+					<form method="post"
 				      onsubmit="return confirm('${t.apply("confirm_broadcast")}')">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<div class="form-row">
@@ -78,37 +120,8 @@
 					</div>
 					<button type="submit" class="btn btn-blue">${t.apply("send_notification")}</button>
 				</form>
+				</div>
 			</div>
 		@endif
-
-		<div class="data-table-card">
-			<div class="data-table-head">
-				<h2 class="data-table-title">${t.apply("recent_activities")}</h2>
-			</div>
-			<div class="table-wrap">
-				<table class="tbl">
-					<thead>
-						<tr>
-							<th>${t.apply("notif_title")}</th>
-							<th>${t.apply("notif_body")}</th>
-							<th>${t.apply("notif_audience")}</th>
-							<th>${t.apply("date")}</th>
-						</tr>
-					</thead>
-					<tbody>
-						@for(BroadcastStore.SentBroadcast broadcast : recent)
-							<tr>
-								<td>${broadcast.title()}</td>
-								<td>${broadcast.body()}</td>
-								<td>${broadcast.recipients()}</td>
-								<td>${broadcast.sentAt()}</td>
-							</tr>
-						@endfor
-						@if(recent.isEmpty())
-							<tr><td colspan="4" class="data-table-empty">${t.apply("no_data")}</td></tr>
-						@endif
-					</tbody>
-				</table>
-			</div>
 		</div>
 	`)

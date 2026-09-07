@@ -43,6 +43,12 @@
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("faq_categories")} (${categories.size()})</h2>
+				<div class="data-table-head__actions">
+					@if(canWrite)
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('faqCatModal')">+ ${t.apply("add")}</button>
+					@endif
+				</div>
 			</div>
 			<div class="table-wrap">
 				<table class="tbl">
@@ -88,26 +94,17 @@
 					</tbody>
 				</table>
 			</div>
-			@if(canWrite)
-				<form method="post">
-					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-					<input type="hidden" name="action" value="add_category">
-					<div class="form-row">
-						<label>${t.apply("name_ar")}<input type="text" name="nameAr" required></label>
-						<label>${t.apply("name_en")}<input type="text" name="nameEn" required></label>
-						<label>${t.apply("sort_order")}<input type="number" name="sortOrder" value="0"></label>
-						<label class="login-remember">
-							<input type="checkbox" name="isActive" value="1" checked>
-							<span>${t.apply("status_active")}</span></label>
-					</div>
-					<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
-				</form>
-			@endif
 		</div>
 
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("faq_questions")} (${items.size()})</h2>
+				<div class="data-table-head__actions">
+					@if(canWrite && !categories.isEmpty())
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('faqItemModal')">+ ${t.apply("add")}</button>
+					@endif
+				</div>
 			</div>
 			<div class="table-wrap">
 				<table class="tbl">
@@ -151,8 +148,46 @@
 					</tbody>
 				</table>
 			</div>
-			@if(canWrite && !categories.isEmpty())
-				<form method="post">
+		</div>
+		@if(canWrite)
+			<%-- Legacy opens this in a modal (faqCatAddModal / faqItemAddModal),
+			     behind the "+" button on the table above. Rendered inline it sat
+			     open under the table on every visit -- a stack of full-width
+			     boxes with no heading of its own. --%>
+			<div class="modal-bg" id="faqCatModal">
+				<div class="modal" role="dialog" aria-modal="true"
+						aria-labelledby="faqCatModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="faqCatModal-title">${t.apply("faq_categories")}</h2>
+					<form method="post">
+					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+					<input type="hidden" name="action" value="add_category">
+					<div class="form-row">
+						<label>${t.apply("name_ar")}<input type="text" name="nameAr" required></label>
+						<label>${t.apply("name_en")}<input type="text" name="nameEn" required></label>
+						<label>${t.apply("sort_order")}<input type="number" name="sortOrder" value="0"></label>
+						<label class="login-remember">
+							<input type="checkbox" name="isActive" value="1" checked>
+							<span>${t.apply("status_active")}</span></label>
+					</div>
+					<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+				</form>
+				</div>
+			</div>
+		@endif
+		@if(canWrite && !categories.isEmpty())
+			<%-- Legacy opens this in a modal (faqCatAddModal / faqItemAddModal),
+			     behind the "+" button on the table above. Rendered inline it sat
+			     open under the table on every visit -- a stack of full-width
+			     boxes with no heading of its own. --%>
+			<div class="modal-bg" id="faqItemModal">
+				<div class="modal" role="dialog" aria-modal="true"
+						aria-labelledby="faqItemModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="faqItemModal-title">${t.apply("faq_questions")}</h2>
+					<form method="post">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add_item">
 					<div class="form-row">
@@ -185,6 +220,7 @@
 					</div>
 					<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
 				</form>
-			@endif
-		</div>
+				</div>
+			</div>
+		@endif
 	`)

@@ -47,6 +47,12 @@
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_guide_videos")} (${videos.size()})</h2>
+				<div class="data-table-head__actions">
+					@if(canWrite)
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('gvModal')">+ ${t.apply("add_guide_video")}</button>
+					@endif
+				</div>
 			</div>
 			<div class="table-wrap">
 				<table class="tbl">
@@ -130,11 +136,19 @@
 				</table>
 			</div>
 
-			@if(canWrite)
-				<form method="post">
+		</div>
+		@if(canWrite)
+			<%-- Legacy opens this in a modal (gvAddModal), behind the "+" button
+			     above. Rendered inline it sat open under the table on every
+			     visit. --%>
+			<div class="modal-bg" id="gvModal">
+				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="gvModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="gvModal-title">${t.apply("add_guide_video")}</h2>
+					<form method="post">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add">
-					<h3>${t.apply("add_guide_video")}</h3>
 					<div class="form-row">
 						<label>${t.apply("title_ar")}
 							<input type="text" name="title_ar" required></label>
@@ -151,6 +165,7 @@
 					<p class="text-muted">${t.apply("guide_video_hint")}</p>
 					<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
 				</form>
-			@endif
-		</div>
+				</div>
+			</div>
+		@endif
 	`)

@@ -76,44 +76,16 @@
 			</form>
 		</div>
 
-		@if(canWrite)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("add_leave_balance")}</h2>
-				</div>
-				<form method="POST" class="account-form org-form">
-					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-					<input type="hidden" name="action" value="add_leave">
-					<div class="form-row">
-						<label for="employee_id">${t.apply("employee_name")}</label>
-						<select id="employee_id" name="employee_id" required>
-							<option value="0">—</option>
-							@for(LeaveBalance.EmployeeOption option : employeeOptions)
-								<option value="${option.id()}">${option.companyName() == null
-									? option.code() + " — " + option.name()
-									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
-							@endfor
-						</select>
-					</div>
-					<div class="form-row">
-						<label for="add_year">${t.apply("year")}</label>
-						<input type="number" id="add_year" name="year" value="${year}" required>
-					</div>
-					<div class="form-row">
-						<label for="add_total">${t.apply("total_days")}</label>
-						<input type="number" id="add_total" name="total_days" step="0.5" min="0"
-						       value="15" required>
-					</div>
-					<div class="account-form__footer">
-						<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
-					</div>
-				</form>
-			</div>
-		@endif
 
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_leave_balances")} (${result.total()})</h2>
+				<div class="data-table-head__actions">
+					@if(canWrite)
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('leaveModal')">+ ${t.apply("add_leave_balance")}</button>
+					@endif
+				</div>
 			</div>
 			<div class="table-wrap">
 			<table class="tbl">
@@ -196,6 +168,49 @@
 							<input type="number" name="used_days" step="0.5" min="0"
 							       data-dialog-field="used"></label>
 					`)
+		@endif
+		@if(canWrite)
+			<%-- Legacy opens this form in a modal, behind the "+" button above.
+			     Rendered inline it sat open over the table on every visit, whether
+			     or not anyone was adding anything. Same form, same fields, same
+			     POST; .modal-bg is position:fixed, so it lives at the end of the
+			     document and out of the reading order. --%>
+			<div class="modal-bg" id="leaveModal">
+				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="leaveModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="leaveModal-title">${t.apply("add_leave_balance")}</h2>
+					<form method="POST" class="account-form org-form">
+					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+					<input type="hidden" name="action" value="add_leave">
+					<div class="org-form-grid">
+					<div class="form-row">
+						<label for="employee_id">${t.apply("employee_name")}</label>
+						<select id="employee_id" name="employee_id" required>
+							<option value="0">—</option>
+							@for(LeaveBalance.EmployeeOption option : employeeOptions)
+								<option value="${option.id()}">${option.companyName() == null
+									? option.code() + " — " + option.name()
+									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
+							@endfor
+						</select>
+					</div>
+					<div class="form-row">
+						<label for="add_year">${t.apply("year")}</label>
+						<input type="number" id="add_year" name="year" value="${year}" required>
+					</div>
+					<div class="form-row">
+						<label for="add_total">${t.apply("total_days")}</label>
+						<input type="number" id="add_total" name="total_days" step="0.5" min="0"
+						       value="15" required>
+					</div>
+					</div>
+					<div class="account-form__footer">
+						<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
+					</div>
+				</form>
+				</div>
+			</div>
 		@endif
 		</div>
 	`)

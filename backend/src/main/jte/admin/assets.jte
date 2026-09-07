@@ -83,47 +83,16 @@
 			</form>
 		</div>
 
-		@if(canWrite)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("add_asset")}</h2>
-				</div>
-				<form method="POST" class="account-form org-form">
-					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-					<input type="hidden" name="action" value="add_asset">
-					<div class="form-row">
-						<label for="employee_id">${t.apply("employee_name")}</label>
-						<select id="employee_id" name="employee_id" required>
-							<option value="0">—</option>
-							@for(com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption option : employeeOptions)
-								<option value="${option.id()}">${option.companyName() == null
-									? option.code() + " — " + option.name()
-									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
-							@endfor
-						</select>
-					</div>
-					<div class="form-row">
-						<label for="asset_text">${t.apply("asset")}</label>
-						<input type="text" id="asset_text" name="asset_text" required maxlength="500">
-					</div>
-					<div class="form-row">
-						<label for="asset_date">${t.apply("asset_date")}</label>
-						<input type="date" id="asset_date" name="asset_date">
-					</div>
-					<div class="form-row">
-						<label for="asset_end_date">${t.apply("asset_end_date")}</label>
-						<input type="date" id="asset_end_date" name="asset_end_date">
-					</div>
-					<div class="account-form__footer">
-						<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
-					</div>
-				</form>
-			</div>
-		@endif
 
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_assets")} (${result.total()})</h2>
+				<div class="data-table-head__actions">
+					@if(canWrite)
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('assetModal')">+ ${t.apply("add_asset")}</button>
+					@endif
+				</div>
 			</div>
 			<div class="table-wrap">
 			<table class="tbl">
@@ -196,5 +165,51 @@
 			!{carry.put("returned", returned);}
 			@template.admin.pager(basePath = "/admin/assets", result = result,
 					carry = carry, t = t)
+		@if(canWrite)
+			<%-- Legacy opens this form in a modal, behind the "+" button above.
+			     Rendered inline it sat open over the table on every visit, whether
+			     or not anyone was adding anything. Same form, same fields, same
+			     POST; .modal-bg is position:fixed, so it lives at the end of the
+			     document and out of the reading order. --%>
+			<div class="modal-bg" id="assetModal">
+				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="assetModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="assetModal-title">${t.apply("add_asset")}</h2>
+					<form method="POST" class="account-form org-form">
+					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+					<input type="hidden" name="action" value="add_asset">
+					<div class="org-form-grid">
+					<div class="form-row">
+						<label for="employee_id">${t.apply("employee_name")}</label>
+						<select id="employee_id" name="employee_id" required>
+							<option value="0">—</option>
+							@for(com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption option : employeeOptions)
+								<option value="${option.id()}">${option.companyName() == null
+									? option.code() + " — " + option.name()
+									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
+							@endfor
+						</select>
+					</div>
+					<div class="form-row">
+						<label for="asset_text">${t.apply("asset")}</label>
+						<input type="text" id="asset_text" name="asset_text" required maxlength="500">
+					</div>
+					<div class="form-row">
+						<label for="asset_date">${t.apply("asset_date")}</label>
+						<input type="date" id="asset_date" name="asset_date">
+					</div>
+					<div class="form-row">
+						<label for="asset_end_date">${t.apply("asset_end_date")}</label>
+						<input type="date" id="asset_end_date" name="asset_end_date">
+					</div>
+					</div>
+					<div class="account-form__footer">
+						<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
+					</div>
+				</form>
+				</div>
+			</div>
+		@endif
 		</div>
 	`)

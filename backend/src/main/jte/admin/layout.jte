@@ -77,6 +77,9 @@
 	<%-- Opens a row action's dialog and fills it from the row that asked.
 	     Shared, because four list pages need one. --%>
 	<script src="/admin/_assets/row-dialog.js"></script>
+	<%-- Escape, a focus trap and focus restore for the copied modal,
+	     which crud.js opens and closes with a class and nothing else. --%>
+	<script src="/admin/_assets/modal-a11y.js"></script>
 	<%-- $pageScripts in dashboard/includes/layout.php: after the shared ones,
 	     so a page's script can rely on them having run. --%>
 @for(String pageScript : pageScripts)

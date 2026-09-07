@@ -410,6 +410,43 @@ test.describe.serial('the platform-admin dashboard', () => {
 		expect(rowFingerprint('advances', target.id)).not.toBe(before);
 	});
 
+	test('an add form is a modal behind a button, not a form open over the table', async ({ page }) => {
+		test.setTimeout(180_000);
+		await nextWindow();
+		await signIn(page);
+
+		// Eleven pages rendered their add form inline and permanently expanded.
+		// What changed is presentation, so what is checked is presentation: the
+		// form must not be on the page until it is asked for, and the POST it
+		// carries must still be the one it carried before.
+		for (const [path, modalId] of [
+			['/admin/advances', 'advModal'],
+			['/admin/penalties', 'penModal'],
+			['/admin/faqs', 'faqCatModal'],
+		]) {
+			await page.goto(path, { waitUntil: 'domcontentloaded' });
+			const modal = page.locator(`#${modalId}`);
+			await expect(modal, `${path}: the modal exists`).toHaveCount(1);
+			await expect(modal, `${path}: and is closed on arrival`).toBeHidden();
+
+			// The form is intact -- same action, same CSRF token -- so this is a
+			// change of where it lives and not of what it does.
+			await expect(modal.locator('form input[name="action"]')).toHaveCount(1);
+			await expect(modal.locator('form input[name="_csrf"]'),
+				`${path}: the CSRF token came with it`).toHaveCount(1);
+
+			await page.locator(`[onclick="crudOpenAdd('${modalId}')"]`).click();
+			await expect(modal, `${path}: the button opens it`).toBeVisible();
+
+			// Escape and focus restore are the port's addition; crud.js closes
+			// on a click and nothing else.
+			await page.keyboard.press('Escape');
+			await expect(modal, `${path}: Escape closes it`).toBeHidden();
+			await expect(page.locator(`[onclick="crudOpenAdd('${modalId}')"]`),
+				`${path}: and focus goes back to the button that opened it`).toBeFocused();
+		}
+	});
+
 	test('logout ends the session, server-side', async ({ page }) => {
 		await nextWindow();
 		await signIn(page);

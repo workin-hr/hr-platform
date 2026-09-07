@@ -107,50 +107,18 @@
 			</form>
 		</div>
 
-		@if(canWrite)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("add_attendance")}</h2>
-				</div>
-				<form method="POST" class="account-form org-form">
-					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-					<input type="hidden" name="action" value="add_attendance">
-					<div class="form-row">
-						<label for="employee_id">${t.apply("employee_name")}</label>
-						<select id="employee_id" name="employee_id" required>
-							<option value="0">—</option>
-							@for(AttendanceRecord.EmployeeOption option : employeeOptions)
-								<option value="${option.id()}">${option.label()}</option>
-							@endfor
-						</select>
-					</div>
-					<div class="form-row">
-						<label for="check_in">${t.apply("att_check_in_time")}</label>
-						<input type="datetime-local" id="check_in" name="check_in" required>
-					</div>
-					<div class="form-row">
-						<label for="check_out">${t.apply("att_check_out_time")}</label>
-						<input type="datetime-local" id="check_out" name="check_out">
-					</div>
-					<div class="form-row">
-						<label for="exception_type_id">${t.apply("exception")}</label>
-						<select id="exception_type_id" name="exception_type_id">
-							<option value="0">—</option>
-							@for(AttendanceRecord.ExceptionTypeOption option : exceptionTypes)
-								<option value="${option.id()}">${option.name()}</option>
-							@endfor
-						</select>
-					</div>
-					<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
-				</form>
-			</div>
-		@endif
 
 		<%-- Punch by punch. The hours column is the engine's answer, and an
 		     em dash where it has none, never a zero. --%>
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("att_records")}</h2>
+				<div class="data-table-head__actions">
+					@if(canWrite)
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('attModal')">+ ${t.apply("add_attendance")}</button>
+					@endif
+				</div>
 			</div>
 			<div class="table-wrap">
 			<table class="tbl">
@@ -256,5 +224,50 @@
 			@template.admin.pager(basePath = "/admin/attendance", result = aggregateResult,
 					carry = carry, t = t,
 					pageParam = "agg_page")
+		@if(canWrite)
+			<%-- Legacy opens this form in a modal, behind the "+" button above.
+			     Rendered inline it sat open over the table on every visit, whether
+			     or not anyone was adding anything. Same form, same fields, same
+			     POST; .modal-bg is position:fixed, so it lives at the end of the
+			     document and out of the reading order. --%>
+			<div class="modal-bg" id="attModal">
+				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="attModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="attModal-title">${t.apply("add_attendance")}</h2>
+					<form method="POST" class="account-form org-form">
+					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+					<input type="hidden" name="action" value="add_attendance">
+					<div class="form-row">
+						<label for="employee_id">${t.apply("employee_name")}</label>
+						<select id="employee_id" name="employee_id" required>
+							<option value="0">—</option>
+							@for(AttendanceRecord.EmployeeOption option : employeeOptions)
+								<option value="${option.id()}">${option.label()}</option>
+							@endfor
+						</select>
+					</div>
+					<div class="form-row">
+						<label for="check_in">${t.apply("att_check_in_time")}</label>
+						<input type="datetime-local" id="check_in" name="check_in" required>
+					</div>
+					<div class="form-row">
+						<label for="check_out">${t.apply("att_check_out_time")}</label>
+						<input type="datetime-local" id="check_out" name="check_out">
+					</div>
+					<div class="form-row">
+						<label for="exception_type_id">${t.apply("exception")}</label>
+						<select id="exception_type_id" name="exception_type_id">
+							<option value="0">—</option>
+							@for(AttendanceRecord.ExceptionTypeOption option : exceptionTypes)
+								<option value="${option.id()}">${option.name()}</option>
+							@endfor
+						</select>
+					</div>
+					<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+				</form>
+				</div>
+			</div>
+		@endif
 		</div>
 	`)

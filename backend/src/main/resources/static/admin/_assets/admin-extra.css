@@ -193,3 +193,49 @@
 		to   { opacity: 1; transform: none; }
 	}
 }
+
+/* —— The add/edit modal ——
+   `crud.js` and `.modal-bg` are the dashboard's own and stay as copied. What
+   is missing from them is the keyboard: legacy's modal closes on a click and
+   nothing else. These rules and modal-a11y.js are the port's addition. */
+.modal-bg.open {
+	/* Above the ⋮ menu, which portals itself to the body at z-index 10000. */
+	z-index: 11000;
+}
+
+.modal .org-form-grid {
+	margin-bottom: 4px;
+}
+
+.modal .account-form__footer {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 18px;
+	padding-top: 14px;
+	border-top: 1px solid var(--app-border, #e2e6ef);
+}
+
+/* The close button is positioned at the inline start, which is the left in
+   RTL and the right in LTR -- `left: 16px` in the copy only holds for RTL. */
+[dir="ltr"] .modal-close {
+	left: auto;
+	right: 16px;
+}
+
+.modal-close:focus-visible {
+	outline: none;
+	border-radius: 8px;
+	box-shadow: var(--app-focus-ring, 0 0 0 4px rgba(24, 95, 165, .12));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.modal-bg.open .modal {
+		animation: modalIn .18s cubic-bezier(.22, 1, .36, 1);
+	}
+
+	@keyframes modalIn {
+		from { opacity: 0; transform: translateY(8px) scale(.99); }
+		to   { opacity: 1; transform: none; }
+	}
+}
