@@ -28,12 +28,17 @@
 		<input type="hidden" name="company_id"
 		       value="${branch != null ? branch.companyId() : filters.companyId()}">
 
-		<div class="form-row">
+		<%-- "_branch_form.php" wraps its rows in this grid and marks the wide
+		     ones "org-form-span-2". Without the wrapper every field is a
+		     full-width band, which is what this form rendered as: the grid is
+		     two columns, collapsing to one below 520px. --%>
+		<div class="org-form-grid">
+		<div class="form-row org-form-span-2">
 			<label for="name">${t.apply("branch")}</label>
 			<input type="text" id="name" name="name" required maxlength="255"
 			       value="${branch == null ? "" : branch.name()}">
 		</div>
-		<div class="form-row">
+		<div class="form-row org-form-span-2">
 			<label for="address">${t.apply("address")}</label>
 			<input type="text" id="address" name="address" maxlength="500"
 			       value="${branch == null || branch.address() == null ? "" : branch.address()}">
@@ -48,16 +53,16 @@
 			<input type="text" id="lng" name="lng" inputmode="decimal"
 			       value="${branch == null || branch.longitude() == null ? "" : branch.longitude().toPlainString()}">
 		</div>
-		<div class="form-row">
+		<div class="form-row org-form-span-2">
 			<label for="radius_meters">${t.apply("branch_attendance_radius")}</label>
 			<input type="number" id="radius_meters" name="radius_meters" min="1" max="5000"
 			       value="${branch == null ? 200 : branch.radiusMeters()}">
 		</div>
 		@if(branch != null)
-			<%-- Always sent, never a bare checkbox: `(int) ($_POST['is_active'] ?? 1)`
+			<%-- Always sent, never a bare checkbox: "(int) ($_POST['is_active'] ?? 1)"
 			     reads an absent field as active, so an unchecked box that simply
 			     vanished would silently reactivate a deactivated branch. --%>
-			<div class="form-row">
+			<div class="form-row org-form-span-2">
 				<label for="is_active">${t.apply("status")}</label>
 				<select id="is_active" name="is_active">
 					<option value="1" selected="${branch.active()}">${t.apply("status_active")}</option>
@@ -65,6 +70,7 @@
 				</select>
 			</div>
 		@endif
+		</div>
 
 		<div class="account-form__footer">
 			<a href="/admin/branches" class="btn btn-gray">${t.apply("cancel")}</a>

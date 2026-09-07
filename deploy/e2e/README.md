@@ -53,6 +53,11 @@ would pick them up.
 | `E2E_TLS_DIR` | `$TMPDIR/workin-e2e-tls-<uid>` | where the run's key and certificate live |
 | `E2E_REGENERATE_ENV` | unset | new `.env.<profile>-e2e` |
 
+Any `docker compose` command that includes `e2e/compose.proxy.yaml` needs
+`E2E_TLS_DIR` exported — compose interpolates across the merged files, so even
+`build app` fails without it. `run.sh` sets it; driving compose by hand does
+not.
+
 `E2E_SEED_PROD` restores the seed with `mariadb <` rather than by mounting it,
 because `compose.prod.yaml` mounts no seed **on purpose**: production data
 arrives by a supervised restore that a human reviews, never by a file that runs

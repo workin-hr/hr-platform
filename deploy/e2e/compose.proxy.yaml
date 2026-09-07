@@ -6,6 +6,12 @@
 # Same project name, so it joins the integration network and reaches `app`
 # directly. Nothing here changes the application; it only puts in front of it
 # the proxy a real deployment has.
+#
+# EVERY compose invocation that includes this file needs `E2E_TLS_DIR` in the
+# environment -- interpolation happens across the merged files, so even
+# `docker compose ... build app` fails without it. `run.sh` sets it; if you are
+# driving compose by hand, export it first. It is `:?` rather than defaulted on
+# purpose: a default would silently start nginx against an empty directory.
 
 name: workin-integration
 

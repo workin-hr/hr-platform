@@ -98,12 +98,16 @@
 					<input type="hidden" name="company_id"
 					       value="${editRow != null ? editRow.companyId() : filters.companyId()}">
 
-					<div class="form-row">
+					<%-- The rows are a grid in legacy (_department_form.php), with the wide ones
+					     marked "org-form-span-2". Without the wrapper every field is a
+					     full-width band. --%>
+					<div class="org-form-grid">
+					<div class="form-row org-form-span-2">
 						<label for="name">${t.apply("department")}</label>
 						<input type="text" id="name" name="name" required maxlength="255"
 						       value="${editRow == null ? "" : editRow.name()}">
 					</div>
-					<div class="form-row">
+					<div class="form-row org-form-span-2">
 						<label>${t.apply("branches")}</label>
 						<%-- At least one is required, and every one must belong to the
 						     same company. The service checks both; the picker only
@@ -123,7 +127,7 @@
 						@endif
 					</div>
 					@if(editRow != null)
-						<div class="form-row">
+						<div class="form-row org-form-span-2">
 							<label for="is_active">${t.apply("status")}</label>
 							<select id="is_active" name="is_active">
 								<option value="1" selected="${editRow.active()}">${t.apply("status_active")}</option>
@@ -131,6 +135,8 @@
 							</select>
 						</div>
 					@endif
+										</div>
+
 					<div class="account-form__footer">
 						<a href="/admin/departments" class="btn btn-gray">${t.apply("cancel")}</a>
 						@if(canWrite)
