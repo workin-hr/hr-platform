@@ -141,32 +141,22 @@
 							</td>
 							<td class="col-actions">
 								@if(canWrite)
-									<%-- The reply carries a status of its own. Legacy writes
-									     it unvalidated and a value outside the enum lands as
-									     an empty string under production's sql_mode, so the
-									     choices here are the only three (R-048). --%>
-									<form method="POST" class="inline-form">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="reply">
-										<input type="hidden" name="id" value="${row.id()}">
-										<input type="text" name="reply" class="inline-input"
-										       value="${row.reply() == null ? "" : row.reply()}"
-										       placeholder="${t.apply("admin_reply")}"
-										       aria-label="${t.apply("admin_reply")}">
-										<select name="status" aria-label="${t.apply("status")}">
-											<option value="pending" selected="${"pending".equals(row.status())}">${t.apply("status_pending")}</option>
-											<option value="done" selected="${"done".equals(row.status())}">${t.apply("status_done")}</option>
-											<option value="closed" selected="${"closed".equals(row.status())}">${t.apply("status_closed")}</option>
-										</select>
-										<button type="submit" class="btn btn-outline btn-sm">${t.apply("save")}</button>
-									</form>
-									<form method="POST" class="inline-form"
-									      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="delete">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-									</form>
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<button type="button" role="menuitem" class="row-actions__item"
+												data-dialog="complaint-reply"
+												data-dialog-id="${row.id()}"
+												data-dialog-subject="${row.name() == null || row.name().isEmpty() ? row.phone() : row.name()}"
+												data-dialog-reply="${row.reply() == null ? "" : row.reply()}"
+												data-dialog-status="${row.status()}">${t.apply("admin_reply")}</button>
+										<form method="POST" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem"
+													class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+									`)
 								@else
 									<span class="text-muted">—</span>
 								@endif
@@ -181,5 +171,28 @@
 			</div>
 			@template.admin.pager(basePath = "/admin/complaints", result = result,
 					carry = filters.asQueryParameters(), t = t)
+		@if(canWrite)
+			<%-- The reply used to be a text box and a status select inside every
+			     row, which is what kept this page's actions out of the menu.
+			     One dialog for the page; the trigger carries the row's current
+			     reply and status in.
+
+			     The status is unvalidated in legacy, and a value outside the
+			     enum lands as an empty string under production's sql_mode, so
+			     the choices here are the only three (R-048). --%>
+			@template.admin.rowDialog(id = "complaint-reply", action = "reply",
+					title = t.apply("admin_reply"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
+					fields = @`
+						<label>${t.apply("admin_reply")}
+							<textarea name="reply" rows="4" data-dialog-field="reply"></textarea></label>
+						<label>${t.apply("status")}
+							<select name="status" data-dialog-field="status">
+								<option value="pending">${t.apply("status_pending")}</option>
+								<option value="done">${t.apply("status_done")}</option>
+								<option value="closed">${t.apply("status_closed")}</option>
+							</select></label>
+					`)
+		@endif
 		</div>
 	`)

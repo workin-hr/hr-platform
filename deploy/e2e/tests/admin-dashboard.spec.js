@@ -209,9 +209,18 @@ test.describe.serial('the platform-admin dashboard', () => {
 
 		// The page's own content, not just a 200: the layout renders for every
 		// route, so asserting the shell would pass on an empty page.
-		await expect(page.locator('.content')).toContainText('Signed in');
 		await expect(page.locator('.content')).toContainText(PHONE);
-		await expect(page.locator('.content')).toContainText('bound');
+		// Counts, not placeholders. A stat card with no number is the shape
+		// this page had before it read anything.
+		const cards = page.locator('.home-stat-card');
+		expect(await cards.count(), 'the overview renders its stat cards').toBeGreaterThan(8);
+		await expect(cards.first().locator('.num')).toHaveText(/\d/);
+		// The charts draw client-side; a canvas with no width means Chart.js
+		// never ran, which a status code cannot tell you.
+		const canvas = page.locator('.home-chart-card canvas').first();
+		await expect(canvas).toBeVisible();
+		expect(await canvas.evaluate((node) => node.width),
+			'Chart.js sized the canvas, so it ran').toBeGreaterThan(0);
 		await shot(page, '04-dashboard');
 	});
 
@@ -357,6 +366,48 @@ test.describe.serial('the platform-admin dashboard', () => {
 
 		// Put the seed back the way it was found.
 		exec(`UPDATE companies SET status = '${target.status}' WHERE id = ${target.id}`);
+	});
+
+	test('a row action that needs typing opens a dialog, and the dialog writes', async ({ page }) => {
+		test.setTimeout(120_000);
+		await nextWindow();
+		await signIn(page);
+
+		// Four list pages used to carry a text or number box inside every row.
+		// The field is in a modal now, and what matters is that the modal still
+		// writes what the row form wrote -- a dialog that opens and does
+		// nothing is the failure mode worth catching.
+		const target = rows(`SELECT a.id, a.employee_id FROM advances a
+		                     WHERE a.status = 'pending' ORDER BY a.id LIMIT 1`)[0];
+		test.skip(!target, 'the seed holds no pending advance');
+		const before = rowFingerprint('advances', target.id);
+
+		await page.goto('/admin/advances?status=pending');
+		const trigger = page.locator(`[data-dialog="advance-reject"][data-dialog-id="${target.id}"]`);
+		await expect(trigger, 'the row offers the action').toHaveCount(1);
+		// The menu is closed until its trigger is used, which is the point of it.
+		await expect(trigger).toBeHidden();
+
+		await page.locator(`tr:has([data-dialog-id="${target.id}"]) .row-actions__trigger`).click();
+		await trigger.click();
+
+		const dialog = page.locator('#advance-reject');
+		await expect(dialog, 'the dialog is open, not merely present').toBeVisible();
+		await expect(dialog.locator('[data-dialog-field="id"]'))
+			.toHaveValue(String(target.id));
+		await expect(dialog.locator('.row-dialog__subject'),
+			'and names the row it came from').not.toBeEmpty();
+
+		const reason = `refused by the e2e run ${Date.now()}`;
+		await dialog.locator('textarea[name="rejection_reason"]').fill(reason);
+		await dialog.locator('button[type="submit"]:not([formmethod])').click();
+		await page.waitForLoadState('domcontentloaded');
+
+		const after = rows(`SELECT status, rejection_reason FROM advances WHERE id = ${target.id}`)[0];
+		expect(after.status, 'the dialog submitted the same action the row form did')
+			.toBe('rejected');
+		expect(after.rejection_reason, 'with the text typed into it').toBe(reason);
+		expect(rowFingerprint('advances', target.id)).not.toBe(before);
 	});
 
 	test('logout ends the session, server-side', async ({ page }) => {

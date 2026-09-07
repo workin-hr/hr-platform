@@ -64,3 +64,132 @@
 .pager-size-select {
 	font-variant-numeric: tabular-nums;
 }
+
+/* —— Home page: the port's own additions to the copied home.css ——
+   The stat cards are links here, because every count on this surface has a
+   page behind it. Legacy renders them as plain divs, so the affordance is
+   ours and lives in this file rather than in the copy. */
+.home-stat-card--link {
+	text-decoration: none;
+	color: inherit;
+	transition: transform .16s var(--app-ease, ease), box-shadow .16s var(--app-ease, ease),
+		border-color .16s var(--app-ease, ease);
+}
+
+.home-stat-card--link:hover {
+	transform: translateY(-2px);
+	border-color: #c5d4e8;
+	box-shadow: var(--app-shadow, 0 12px 28px rgba(15, 35, 70, .07));
+}
+
+.home-stat-card--link:focus-visible {
+	outline: none;
+	box-shadow: var(--app-focus-ring, 0 0 0 4px rgba(24, 95, 165, .12));
+}
+
+/* The tinted icon chip. Legacy writes these as inline `style` attributes on
+   every card; naming them is what lets one card be a link and keeps the
+   colours in a stylesheet rather than in the markup. */
+.home-stat-card .ico--blue   { background: #e6f1fb; color: #185fa5; }
+.home-stat-card .ico--green  { background: #eaf3de; color: #3b6d11; }
+.home-stat-card .ico--yellow { background: #faeeda; color: #854f0b; }
+.home-stat-card .ico--red    { background: #fcebeb; color: #a32d2d; }
+.home-stat-card .ico--violet { background: #f3e8ff; color: #7c3aed; }
+.home-stat-card .ico--gray   { background: #f1efe8; color: #5f5e5a; }
+
+/* A number is read, compared and scanned down a column of cards. */
+.home-stat-card .num {
+	font-variant-numeric: tabular-nums;
+	letter-spacing: -.02em;
+}
+
+/* Chart.js needs a sized box; the card is a grid item with no intrinsic
+   height, so without this the canvas collapses to nothing. */
+.home-chart-card .chart-box {
+	position: relative;
+	height: 240px;
+}
+
+.home-chart-card.wide .chart-box {
+	height: 260px;
+}
+
+/* —— Row-action dialog ——
+   Four list pages used to carry a text or number box in the actions column,
+   which is what kept them out of the ⋮ menu. The field moved here. Native
+   <dialog>, so the focus trap, Escape, the backdrop and the inertness of the
+   page behind it are the browser's. */
+.row-dialog {
+	width: min(28rem, calc(100vw - 2rem));
+	padding: 0;
+	border: 1px solid var(--app-border, #e2e6ef);
+	border-radius: var(--app-radius-lg, 14px);
+	box-shadow: 0 24px 48px rgba(15, 23, 42, .18);
+	background: var(--app-surface, #fff);
+	color: var(--app-text, #1a1d24);
+}
+
+.row-dialog::backdrop {
+	background: rgba(15, 23, 42, .45);
+	backdrop-filter: blur(2px);
+}
+
+.row-dialog__head {
+	padding: 18px 20px 0;
+}
+
+.row-dialog__head h3 {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 700;
+}
+
+.row-dialog__subject {
+	margin: 4px 0 0;
+	color: var(--app-text-muted, #6b7280);
+	font-size: 13px;
+}
+
+/* Empty when the trigger named no subject; an empty line of padding reads as
+   a rendering fault. */
+.row-dialog__subject:empty {
+	display: none;
+}
+
+.row-dialog__body {
+	display: grid;
+	gap: 12px;
+	padding: 16px 20px;
+}
+
+.row-dialog__body label {
+	display: block;
+	font-size: 12px;
+	font-weight: 600;
+	color: #374151;
+}
+
+.row-dialog__body input,
+.row-dialog__body textarea,
+.row-dialog__body select {
+	width: 100%;
+	margin-top: 6px;
+}
+
+.row-dialog__foot {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 0 20px 18px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.row-dialog[open] {
+		animation: rowDialogIn .18s cubic-bezier(.22, 1, .36, 1);
+	}
+
+	@keyframes rowDialogIn {
+		from { opacity: 0; transform: translateY(6px) scale(.99); }
+		to   { opacity: 1; transform: none; }
+	}
+}

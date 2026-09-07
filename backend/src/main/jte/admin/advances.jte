@@ -160,39 +160,38 @@
 									${t.apply("status_" + row.status())}</span>
 							</td>
 							<td class="col-actions">
-								@if(canWrite && row.isPending())
-									<form method="POST" class="inline-form"
-									      onsubmit="return confirm('${t.apply("confirm_approve_advance")}')">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="approve">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-outline btn-sm">${t.apply("approve")}</button>
-									</form>
-									<%-- A rejection must say why: the reason is not optional. --%>
-									<form method="POST" class="inline-form">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="reject">
-										<input type="hidden" name="id" value="${row.id()}">
-										<input type="text" name="rejection_reason" class="inline-input" required
-										       placeholder="${t.apply("rejection_reason")}"
-										       aria-label="${t.apply("rejection_reason")}">
-										<button type="submit" class="btn btn-outline btn-sm">${t.apply("reject")}</button>
-									</form>
-								@endif
 								@if(canWrite)
-									<form method="POST" class="inline-form">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="mark_paid">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-outline btn-sm">${t.apply("remaining")}: 0</button>
-									</form>
-									<form method="POST" class="inline-form"
-									      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="delete_advance">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-									</form>
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										@if(row.isPending())
+											<form method="POST" class="row-actions__form" role="none"
+											      onsubmit="return confirm('${t.apply("confirm_approve_advance")}')">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="approve">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem"
+														class="row-actions__item row-actions__item--success">${t.apply("approve")}</button>
+											</form>
+											<button type="button" role="menuitem" class="row-actions__item"
+													data-dialog="advance-reject"
+													data-dialog-id="${row.id()}"
+													data-dialog-subject="${row.employeeName()}">${t.apply("reject")}</button>
+										@endif
+										<form method="POST" class="row-actions__form" role="none">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="mark_paid">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem"
+													class="row-actions__item">${t.apply("remaining")}: 0</button>
+										</form>
+										<form method="POST" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete_advance">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem"
+													class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+									`)
 								@else
 									<span class="text-muted">—</span>
 								@endif
@@ -210,5 +209,17 @@
 			!{carry.put("status", status);}
 			@template.admin.pager(basePath = "/admin/advances", result = result,
 					carry = carry, t = t)
+		@if(canWrite)
+			<%-- A rejection must say why: the reason is not optional, and it used
+			     to be a required text box inside every row of the table. --%>
+			@template.admin.rowDialog(id = "advance-reject", action = "reject",
+					title = t.apply("reject"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("reject"),
+					submitVariant = "danger",
+					fields = @`
+						<label>${t.apply("rejection_reason")}
+							<textarea name="rejection_reason" rows="3" required></textarea></label>
+					`)
+		@endif
 		</div>
 	`)

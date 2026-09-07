@@ -1,0 +1,509 @@
+/* ============================================================
+   pages/home/assets/style.css — الصفحة الرئيسية
+   يعتمد على html[dir] و body.lang-* للاتجاه (RTL/LTR)
+   ============================================================ */
+
+.home-page {
+  direction: inherit;
+}
+
+/* —— Welcome —— */
+.home-welcome {
+  margin-bottom: 20px;
+  animation: appFadeUp .5s cubic-bezier(.22, 1, .36, 1) .05s both;
+}
+.home-welcome h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0;
+  color: #1a1d24;
+  letter-spacing: -.02em;
+}
+
+/* —— Banner carousel —— */
+.home-banner-wrap {
+  position: relative;
+  margin-bottom: 24px;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #1e293b;
+  min-height: 260px;
+  animation: appFadeUp .55s cubic-bezier(.22, 1, .36, 1) .08s both;
+}
+.home-banner-track {
+  display: flex;
+  direction: ltr;
+  transition: transform .5s cubic-bezier(.22, 1, .36, 1);
+}
+.home-banner-slide {
+  min-width: 100%;
+  position: relative;
+  min-height: 260px;
+  /* اتجاه المحتوى من لغة الموقع (السلايدر نفسه يبقى LTR للتمرير) */
+  direction: rtl;
+}
+html[dir="ltr"] .home-banner-slide {
+  direction: ltr;
+}
+.home-banner-media {
+  position: absolute;
+  inset: 0;
+}
+.home-banner-media img {
+  width: 100%;
+  height: 100%;
+  min-height: 260px;
+  object-fit: cover;
+  display: block;
+}
+.home-banner-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to inline-start,
+    rgba(15, 23, 42, .15) 0%,
+    transparent 40%
+  );
+  pointer-events: none;
+}
+.home-banner-content {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inset-inline-end: auto;
+  z-index: 2;
+  width: 30%;
+  min-width: 260px;
+  max-width: 30%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding-block: 32px;
+  padding-inline: 28px 32px;
+  text-align: start;
+  color: #fff;
+  box-sizing: border-box;
+  pointer-events: none;
+  background: rgba(15, 23, 42, .18);
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+  border-inline-end: 1px solid rgba(255, 255, 255, .06);
+}
+@media (max-width: 720px) {
+  .home-banner-content {
+    width: 55%;
+    max-width: 55%;
+    min-width: 0;
+    padding-inline: 20px;
+  }
+}
+.home-banner-content a {
+  pointer-events: auto;
+}
+.home-banner-content h3 {
+  margin: 0 0 8px;
+  font-size: clamp(20px, 2.5vw, 30px);
+  font-weight: 700;
+  line-height: 1.25;
+  max-width: 100%;
+}
+.home-banner-content p {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.55;
+  opacity: .92;
+  max-width: 100%;
+}
+.home-banner-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: 1.5px solid rgba(255, 255, 255, .85);
+  border-radius: 12px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  background: transparent;
+  transition: background .25s, border-color .25s, transform .2s;
+}
+.home-banner-cta:hover {
+  background: rgba(255, 255, 255, .12);
+  border-color: #fff;
+  transform: translateY(-1px);
+}
+.home-banner-cta svg {
+  flex-shrink: 0;
+}
+/* سهم باتجاه القراءة: يسار في العربية، يمين في الإنجليزية */
+[dir="ltr"] .home-icon-back {
+  transform: scaleX(-1);
+}
+.home-banner-dots {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 3;
+}
+.home-banner-dots button {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: rgba(255, 255, 255, .35);
+  transition: background .2s, transform .2s;
+}
+.home-banner-dots button.active {
+  background: #3b82f6;
+  transform: scale(1.15);
+}
+
+/* —— Panels —— */
+.home-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+@media (max-width: 960px) {
+  .home-panels { grid-template-columns: 1fr; }
+}
+.home-panel {
+  background: #fff;
+  border: 1px solid #ebe8e2;
+  border-radius: 16px;
+  padding: 0;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .04);
+  animation: appFadeUp .55s cubic-bezier(.22, 1, .36, 1) .12s both;
+}
+.home-panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 20px 16px;
+  padding-inline: 20px;
+  border-bottom: 1px solid #f0eeea;
+}
+.home-panel-head-text {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
+}
+.home-panel-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #e8f1fc;
+  color: #185fa5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.home-panel-head-text h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+}
+.home-panel-head-text p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+.home-panel-body {
+  flex: 1;
+  padding: 0 20px;
+  overflow: auto;
+}
+
+/* Activities — قائمة مثل سجل الأنشطة */
+.home-activity-row {
+  display: grid;
+  width: 100%;
+  column-gap: 32px;
+  row-gap: 4px;
+  align-items: start;
+  padding: 16px 0;
+  border-bottom: 1px solid #eeeeee;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "main time";
+}
+.home-activity-row:last-child {
+  border-bottom: none;
+  padding-bottom: 8px;
+}
+.home-activity-main {
+  grid-area: main;
+  min-width: 0;
+  text-align: start;
+}
+.home-activity-side {
+  grid-area: time;
+  justify-self: end;
+  font-size: 12px;
+  font-weight: 400;
+  color: #9ca3af;
+  white-space: nowrap;
+  line-height: 1.5;
+  padding-top: 2px;
+  text-align: end;
+}
+html[dir="ltr"] .home-activity-row {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "time main";
+}
+html[dir="ltr"] .home-activity-side {
+  justify-self: start;
+  text-align: start;
+}
+.home-activity-line1 {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.home-activity-line1 strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+  line-height: 1.35;
+}
+.home-activity-badge {
+  display: inline-block;
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.home-activity-badge.departure {
+  background: #e6f4ea;
+  color: #137333;
+}
+.home-activity-badge.checkin {
+  background: #e8f1fc;
+  color: #185fa5;
+}
+.home-activity-badge.request {
+  background: #faeeda;
+  color: #854f0b;
+}
+.home-activity-detail {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.45;
+}
+
+/* Join requests */
+.home-join-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: #f7f6f3;
+  border-radius: 14px;
+}
+.home-join-row:last-child {
+  margin-bottom: 0;
+}
+.home-join-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+.home-join-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: linear-gradient(145deg, #94a3b8, #64748b);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f1f5f9;
+}
+.home-join-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.home-join-avatar svg {
+  width: 26px;
+  height: 26px;
+}
+.home-join-meta {
+  min-width: 0;
+  text-align: start;
+}
+.home-join-meta strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+}
+.home-join-meta span {
+  display: block;
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+.home-join-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.home-join-actions form {
+  margin: 0;
+}
+.home-join-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform .15s, opacity .15s;
+}
+.home-join-btn:hover {
+  transform: scale(1.05);
+}
+.home-join-btn--ok {
+  background: #e6f4ea;
+  color: #137333;
+}
+.home-join-btn--no {
+  background: #fce8e8;
+  color: #c5221f;
+}
+
+/* Empty states */
+.home-panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 36px 16px;
+  color: #6b7280;
+  font-size: 13px;
+}
+.home-panel-empty--join strong {
+  display: block;
+  margin-top: 12px;
+  font-size: 15px;
+  color: #111827;
+}
+.home-panel-empty--join p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #9ca3af;
+}
+
+.home-panel-footer {
+  padding: 14px 20px 18px;
+  text-align: center;
+  border-top: 1px solid #f0eeea;
+}
+.home-panel-footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #185fa5;
+  text-decoration: none;
+}
+.home-panel-footer a:hover {
+  text-decoration: underline;
+}
+
+/* Stats & charts (unchanged structure) */
+.home-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.home-stat-card {
+  background: #fff;
+  border: 1px solid #e8e6e0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+.home-stat-card .num {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.home-stat-card .lbl {
+  font-size: 11px;
+  color: var(--gray);
+  margin-top: 4px;
+  font-weight: 500;
+}
+.home-stat-card .ico {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.home-charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+@media (max-width: 1000px) {
+  .home-charts-grid { grid-template-columns: 1fr; }
+}
+.home-chart-card {
+  background: #fff;
+  border: 1px solid #e8e6e0;
+  border-radius: 12px;
+  padding: 16px;
+}
+.home-chart-card h4 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+.home-chart-card .chart-box {
+  height: 240px;
+  position: relative;
+}
+.home-chart-card.wide {
+  grid-column: 1 / -1;
+}

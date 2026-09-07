@@ -74,6 +74,9 @@
 	<script src="/admin/_assets/sidebar.js"></script>
 	<script src="/admin/_assets/row-actions.js"></script>
 	<script src="/admin/_assets/crud.js"></script>
+	<%-- Opens a row action's dialog and fills it from the row that asked.
+	     Shared, because four list pages need one. --%>
+	<script src="/admin/_assets/row-dialog.js"></script>
 	<%-- $pageScripts in dashboard/includes/layout.php: after the shared ones,
 	     so a page's script can rely on them having run. --%>
 @for(String pageScript : pageScripts)

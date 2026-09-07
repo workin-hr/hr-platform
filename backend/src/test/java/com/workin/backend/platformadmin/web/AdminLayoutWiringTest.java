@@ -45,13 +45,19 @@ class AdminLayoutWiringTest {
 	 *
 	 * <p>{@code login}, {@code mfa},
 	 * {@code enrol} and {@code enrol-confirm} render before there is a session
-	 * and carry {@code login.css} through the shared set. {@code home},
-	 * {@code sessions}, {@code company-confirm} and the two detail pages are
-	 * the cases where legacy names none either -- checked against
-	 * {@code $pageStyles} in the PHP, not assumed.
+	 * and carry {@code login.css} through the shared set. {@code sessions},
+	 * {@code company-confirm} and the two detail pages are the cases where
+	 * legacy names none either -- checked against {@code $pageStyles} in the
+	 * PHP, not assumed.
+	 *
+	 * <p>{@code home} used to be here and is not any more. It was exempt while
+	 * it rendered a "signed in" panel and nothing else; legacy's
+	 * {@code index.php} has always named {@code pages/home/assets/style.css},
+	 * and now that the page is the overview legacy serves, so does this one
+	 * (D-198).
 	 */
 	private static final Set<String> NO_PAGE_STYLES = Set.of(
-			"login", "mfa", "enrol", "enrol-confirm", "home", "sessions",
+			"login", "mfa", "enrol", "enrol-confirm", "sessions",
 			"company-confirm", "company-detail", "employee-detail");
 
 	@Test

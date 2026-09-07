@@ -138,35 +138,36 @@
 									${t.apply("status_" + row.status())}</span>
 							</td>
 							<td>${row.createdDate()}</td>
+							<%-- Approving is not a status change alone: it deducts leave
+							     and can write one attendance row per day of the span, which
+							     is why it asks before it runs. --%>
 							<td class="col-actions">
-								@if(canWrite && row.isPending())
-									<%-- Approving is not a status change alone: it deducts leave
-									     and can write one attendance row per day of the span. --%>
-									<form method="POST" class="inline-form">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="approve">
-										<input type="hidden" name="id" value="${row.id()}">
-										<input type="text" name="comment" class="inline-input"
-										       placeholder="${t.apply("reply")}" aria-label="${t.apply("reply")}">
-										<button type="submit" class="btn btn-outline btn-sm">${t.apply("approve")}</button>
-									</form>
-									<form method="POST" class="inline-form">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="reject">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-outline btn-sm">${t.apply("reject")}</button>
-									</form>
-								@endif
 								@if(canWrite)
-									<form method="POST" class="inline-form"
-									      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="delete">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-									</form>
-								@endif
-								@if(!canWrite)
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										@if(row.isPending())
+											<button type="button" role="menuitem"
+													class="row-actions__item row-actions__item--success"
+													data-dialog="request-approve"
+													data-dialog-id="${row.id()}"
+													data-dialog-subject="${row.employeeName()}">${t.apply("approve")}</button>
+											<form method="POST" class="row-actions__form" role="none">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="reject">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem"
+														class="row-actions__item">${t.apply("reject")}</button>
+											</form>
+										@endif
+										<form method="POST" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem"
+													class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+									`)
+								@else
 									<span class="text-muted">—</span>
 								@endif
 							</td>
@@ -183,5 +184,18 @@
 			!{carry.put("status", status);}
 			@template.admin.pager(basePath = "/admin/requests", result = result,
 					carry = carry, t = t)
+		@if(canWrite)
+			<%-- The comment box used to sit in every row. It is optional -- legacy
+			     accepts an empty one -- so the dialog exists to say what approving
+			     does, not to demand text. --%>
+			@template.admin.rowDialog(id = "request-approve", action = "approve",
+					title = t.apply("approve"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("approve"),
+					submitVariant = "blue",
+					fields = @`
+						<label>${t.apply("reply")}
+							<textarea name="comment" rows="3"></textarea></label>
+					`)
+		@endif
 		</div>
 	`)
