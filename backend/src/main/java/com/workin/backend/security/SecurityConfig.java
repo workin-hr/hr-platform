@@ -5,6 +5,7 @@ import java.util.function.Function;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -93,6 +94,44 @@ public class SecurityConfig {
 	 * compatibility chain does the same. Company-active checks remain at the same
 	 * controller guard points as the frozen source.
 	 */
+	/**
+	 * The stored uploads, which are public and say so here.
+	 *
+	 * <p>They were reachable by no chain at all, which is a different thing
+	 * from being public: nothing decided it, and nothing wrote a security
+	 * header on the response. The frozen stack serves {@code /uploads} from the
+	 * webroot with no session, and the clients fetch these URLs directly from
+	 * ordinary response bodies, so requiring authentication would break every
+	 * client -- the change **D-111** forbids. What this adds over "matches
+	 * nothing" is the standard header set and a rule a reviewer can see.
+	 *
+	 * <p>Order 4, after every other chain. The matchers cannot overlap --
+	 * {@code /admin/**}, {@code /api/**} and {@code /apis/**} do not match
+	 * {@code /uploads/**} -- so the position only decides which one wins if a
+	 * later change makes them, and an API matcher broadening over the uploads
+	 * should take them with it rather than leave them public by accident.
+	 *
+	 * @see com.workin.legacy.uploads.LegacyUploadServing which serves them, and
+	 *     refuses any extension this system does not itself write
+	 */
+	@Bean
+	@Order(4)
+	@Profile("phase1-mysql")
+	public SecurityFilterChain legacyUploadsSecurityFilterChain(HttpSecurity http,
+			@Value("${app.legacy-uploads.url:/uploads/}") String uploadUrl) throws Exception {
+		String prefix = uploadUrl.startsWith("/")
+				? (uploadUrl.endsWith("/") ? uploadUrl : uploadUrl + "/")
+				// Served elsewhere; the matcher still needs a value, and one
+				// this application never routes is the right one.
+				: "/__uploads-served-elsewhere/";
+		http
+			.securityMatcher(prefix + "**")
+			.csrf(csrf -> csrf.disable())
+			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+			.authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll());
+		return http.build();
+	}
+
 	@Bean
 	@Order(2)
 	@Profile("phase1-mysql")
