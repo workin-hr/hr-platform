@@ -23,10 +23,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.LegacyMariaDb;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetColumns;
 import com.workin.legacy.spreadsheet.LegacyCsvReader;
 import com.workin.legacy.spreadsheet.LegacySpreadsheetFormat;
@@ -56,7 +56,8 @@ import com.workin.legacy.spreadsheet.LegacyXlsxReader;
 @ActiveProfiles("phase1-mysql")
 class LegacyEmployeeTemplateEndToEndTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	/**
 	 * The date legacy would print. {@link com.workin.legacy.LegacyClock} is
@@ -89,10 +90,7 @@ class LegacyEmployeeTemplateEndToEndTest {
 	private JwtService jwtService;
 
 	static {
-		MARIADB.start();
 		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the template_excel fixture", ex);
@@ -468,29 +466,8 @@ class LegacyEmployeeTemplateEndToEndTest {
 				""".formatted(id, companyId, branchId, code, firstName, phone, role));
 	}
 
-	private static void applySchema(String resourceName) throws Exception {
-		String schema = readResource(resourceName);
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-		}
-	}
-
 	private static Connection connect() throws Exception {
 		return DriverManager.getConnection(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-	}
-
-	private static String readResource(String name) throws Exception {
-		try (InputStream stream =
-				LegacyEmployeeTemplateEndToEndTest.class.getClassLoader().getResourceAsStream(name)) {
-			if (stream == null) {
-				throw new IllegalStateException("missing test resource " + name);
-			}
-			return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-		}
 	}
 
 }

@@ -16,9 +16,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
+import com.workin.legacy.LegacyMariaDb;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
@@ -54,11 +54,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 @ActiveProfiles("phase1-mysql")
 class AdminDashboardPageInventoryTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
-
-	static {
-		MARIADB.start();
-	}
+	/** An empty database of this class's own: it creates its own tables. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.emptyDatabase();
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {

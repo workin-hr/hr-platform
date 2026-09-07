@@ -26,10 +26,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.LegacyMariaDb;
 
 /**
  * G6 evidence for {@code attendance/export.php} (Wave 12.6.6d).
@@ -48,7 +48,8 @@ import com.workin.backend.identity.JwtService;
 @ActiveProfiles("phase1-mysql")
 class LegacyAttendanceExportEndToEndTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	private static final String EXPORT = "/apis/api/attendance/export.php";
 	private static final String XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -69,10 +70,7 @@ class LegacyAttendanceExportEndToEndTest {
 	private JwtService jwtService;
 
 	static {
-		MARIADB.start();
 		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the attendance export fixture", ex);
@@ -322,28 +320,8 @@ class LegacyAttendanceExportEndToEndTest {
 		}
 	}
 
-	private static void applySchema(String resourceName) throws Exception {
-		String schema = readResource(resourceName);
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-		}
-	}
-
 	private static Connection connect() throws Exception {
 		return DriverManager.getConnection(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
 	}
 
-	private static String readResource(String name) throws Exception {
-		try (InputStream in = LegacyAttendanceExportEndToEndTest.class.getClassLoader()
-				.getResourceAsStream(name)) {
-			if (in == null) {
-				throw new IllegalStateException("missing test resource: " + name);
-			}
-			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-		}
-	}
 }

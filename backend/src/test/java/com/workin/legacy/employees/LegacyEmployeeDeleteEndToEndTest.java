@@ -28,10 +28,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.LegacyMariaDb;
 
 /**
  * {@code employees/delete_preview.php} and {@code employees/delete.php} over
@@ -48,7 +48,8 @@ import com.workin.backend.identity.JwtService;
 @ActiveProfiles("phase1-mysql")
 class LegacyEmployeeDeleteEndToEndTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	private static final String PREVIEW = "/apis/api/employees/delete_preview.php";
 	private static final String DELETE = "/apis/api/employees/delete.php";
@@ -71,10 +72,7 @@ class LegacyEmployeeDeleteEndToEndTest {
 	private LegacyEmployeeStore storeSpy;
 
 	static {
-		MARIADB.start();
 		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the Wave 12.4 delete fixture", ex);
@@ -465,17 +463,6 @@ class LegacyEmployeeDeleteEndToEndTest {
 		}
 	}
 
-	private static void applySchema(String resourceName) throws Exception {
-		String schema = readResource(resourceName);
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-		}
-	}
-
 	private static void seed() throws Exception {
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
 			st.execute("SET SESSION sql_mode = ''");
@@ -516,16 +503,6 @@ class LegacyEmployeeDeleteEndToEndTest {
 
 	private static Connection connect() throws Exception {
 		return DriverManager.getConnection(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-	}
-
-	private static String readResource(String name) throws Exception {
-		try (InputStream stream =
-				LegacyEmployeeDeleteEndToEndTest.class.getClassLoader().getResourceAsStream(name)) {
-			if (stream == null) {
-				throw new IllegalStateException("missing test resource " + name);
-			}
-			return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-		}
 	}
 
 }

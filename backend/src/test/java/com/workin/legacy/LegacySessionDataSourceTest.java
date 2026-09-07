@@ -18,7 +18,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -37,14 +36,14 @@ import com.zaxxer.hikari.HikariDataSource;
  */
 class LegacySessionDataSourceTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** An empty database of this class's own: it creates its own tables. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.emptyDatabase();
 
 	private static HikariDataSource pool;
 	private static LegacySessionDataSource dataSource;
 
 	@BeforeAll
 	static void start() throws Exception {
-		MARIADB.start();
 		try (Connection connection = raw(); Statement st = connection.createStatement()) {
 			st.execute("SET SESSION sql_mode = ''");
 			st.execute("""

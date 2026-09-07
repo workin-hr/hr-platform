@@ -36,10 +36,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.LegacyMariaDb;
 
 /**
  * Wave 12.6.4's clear endpoint: {@code attendance/analyze_excel.php}.
@@ -57,7 +57,8 @@ import com.workin.backend.identity.JwtService;
 @ActiveProfiles("phase1-mysql")
 class LegacyAttendanceAnalyzeEndToEndTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	private static final String ANALYZE = "/apis/api/attendance/analyze_excel.php";
 	private static final String CONFIG_KEY = "attendance_excel_import_available_from";
@@ -76,10 +77,7 @@ class LegacyAttendanceAnalyzeEndToEndTest {
 	private JwtService jwtService;
 
 	static {
-		MARIADB.start();
 		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the analyze fixture", ex);
@@ -777,30 +775,9 @@ class LegacyAttendanceAnalyzeEndToEndTest {
 				+ "', 1, '2025-04-01 08:00:00')");
 	}
 
-	private static void applySchema(String resourceName) throws Exception {
-		String schema = readResource(resourceName);
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-		}
-	}
-
 	private static Connection connect() throws Exception {
 		return DriverManager.getConnection(
 				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-	}
-
-	private static String readResource(String name) throws Exception {
-		try (InputStream stream = LegacyAttendanceAnalyzeEndToEndTest.class.getClassLoader()
-				.getResourceAsStream(name)) {
-			if (stream == null) {
-				throw new IllegalStateException("missing test resource " + name);
-			}
-			return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-		}
 	}
 
 }

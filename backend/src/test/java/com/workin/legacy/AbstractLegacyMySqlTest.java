@@ -8,8 +8,6 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 
-import org.testcontainers.containers.MariaDBContainer;
-
 /**
  * A real MariaDB running the real legacy schema — the Phase 1 substrate
  * shared by every test that needs it.
@@ -33,42 +31,15 @@ import org.testcontainers.containers.MariaDBContainer;
  */
 public abstract class AbstractLegacyMySqlTest {
 
-	protected static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
-
-	static {
-		MARIADB.start();
-		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
-		} catch (Exception ex) {
-			throw new IllegalStateException("could not apply the legacy schema", ex);
-		}
-	}
-
 	/**
-	 * Applies one schema file's statements. Called once for the vendored,
-	 * drift-checked legacy contract and once for
-	 * {@code phase1_extensions.sql} -- new Phase 1 infrastructure
-	 * that is not part of that contract and must never be folded into the
-	 * vendored file, or {@code check_legacy_schema_drift.py} would start
-	 * comparing tables hr-legacy was never asked about.
+	 * One database for this whole hierarchy, inside the JVM's single MariaDB.
+	 *
+	 * <p>Shared by every subclass, which is this class's long-standing contract
+	 * -- see the note above about distinct ids. What changed is only that the
+	 * <em>container</em> is now shared with the rest of the suite as well
+	 * ({@link LegacyMariaDb}), instead of this class starting a second one.
 	 */
-	private static void applySchema(String resourceName) throws Exception {
-		String schema = readResource(resourceName);
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			// One statement per `;` at end of line. Splitting on that is
-			// sufficient because neither schema file contains routines,
-			// triggers or views -- independently inventoried as zero of
-			// each for the vendored file (ADR-0004), and not used by the
-			// Phase 1 extension file by construction -- which is also why
-			// no DELIMITER handling is needed.
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-		}
-	}
+	protected static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	protected static Connection connect() throws Exception {
 		return DriverManager.getConnection(
