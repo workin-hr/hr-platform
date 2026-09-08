@@ -18,16 +18,15 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MariaDBContainer;
 
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import com.workin.backend.BackendApplication;
+import com.workin.legacy.LegacyMariaDb;
 
 /**
  * {@code apis/api/index.php}'s behaviour for a path no endpoint serves.
@@ -41,23 +40,27 @@ import com.workin.backend.BackendApplication;
  * of {@code index.php}, before any action file -- and therefore before any
  * {@code requireAuth()} -- runs. Java's security chain sits in front of the
  * dispatcher, so an <em>unauthenticated</em> request for an unknown path
- * answered <b>401</b>. {@code time/now} is exactly that path, and the mobile
+ * answered <b>401</b>. {@code time/now} was exactly that path, and the mobile
  * client calls it from its home screen.</li>
+ * </ol>
+ *
+ * <p><b>{@code time/now} is no longer the example.</b> hr-legacy has since
+ * added it and this application serves it, so it is a real route and cannot
+ * stand in for an unknown one. The cases below use {@code chronometer}, which
+ * exists in neither stack. That substitution is the whole maintenance cost of
+ * this test and is worth naming: an "unknown module" fixture is only unknown
+ * until someone implements it, and a test that silently starts exercising a
+ * real endpoint proves nothing about refusals.
  * <li><b>Shape.</b> The body was Spring's
  * {@code {timestamp,status,error,path}}, not the {@code {success,message}}
  * envelope every client here parses (D-074).</li>
- * </ol>
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@ActiveProfiles("phase1-mysql")
 class LegacyPhpRouterRefusalTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
-
-	static {
-		MARIADB.start();
-	}
+	/** An empty database of this class's own: it creates its own tables. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.emptyDatabase();
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {
@@ -102,8 +105,8 @@ class LegacyPhpRouterRefusalTest {
 	 */
 	@Test
 	void anUnknownModuleIs404WithNoCredentialsRatherThan401() {
-		assertThat(get("/apis/api/time/now", "en").getStatusCode().value()).isEqualTo(404);
-		assertThat(get("/apis/api/time/now.php", "en").getStatusCode().value()).isEqualTo(404);
+		assertThat(get("/apis/api/chronometer/now", "en").getStatusCode().value()).isEqualTo(404);
+		assertThat(get("/apis/api/chronometer/now.php", "en").getStatusCode().value()).isEqualTo(404);
 	}
 
 	/** {@code reports} is allow-listed and has no directory at all (C4). */
@@ -189,10 +192,10 @@ class LegacyPhpRouterRefusalTest {
 	 */
 	@Test
 	void aMalformedQueryEscapeDoesNotReplaceTheRefusalWithA500() throws IOException {
-		String response = rawGet("/apis/api/time/now?lang=%", "en");
+		String response = rawGet("/apis/api/chronometer/now?lang=%", "en");
 
 		assertThat(response).as("raw request must not 500").startsWith("HTTP/1.1 404");
-		assertThat(response).contains("Module 'time' not found");
+		assertThat(response).contains("Module 'chronometer' not found");
 	}
 
 	/**
@@ -204,7 +207,7 @@ class LegacyPhpRouterRefusalTest {
 	 */
 	@Test
 	void aValidLangSurvivesAMalformedParameterBesideIt() throws IOException {
-		assertThat(rawGet("/apis/api/time/now?lang=ar&x=%", "en"))
+		assertThat(rawGet("/apis/api/chronometer/now?lang=ar&x=%", "en"))
 				.as("lang=ar must still be honoured when an unrelated pair is malformed")
 				.contains("\u0627\u0644\u0648\u062d\u062f\u0629");
 	}
@@ -222,14 +225,14 @@ class LegacyPhpRouterRefusalTest {
 	 */
 	@Test
 	void aMalformedLangOverridesTheHeaderRatherThanDisappearing() throws IOException {
-		assertThat(rawGet("/apis/api/time/now?lang=%", "ar"))
+		assertThat(rawGet("/apis/api/chronometer/now?lang=%", "ar"))
 				.as("a malformed lang is a non-Arabic value and must beat the Arabic header, "
 						+ "the same way ?lang=xx does")
-				.contains("Module 'time' not found");
+				.contains("Module 'chronometer' not found");
 
 		// The control that makes the assertion above mean something: with no
 		// lang at all, the same header does select Arabic.
-		assertThat(rawGet("/apis/api/time/now", "ar"))
+		assertThat(rawGet("/apis/api/chronometer/now", "ar"))
 				.as("with no lang, the Arabic header wins")
 				.contains("\u0627\u0644\u0648\u062d\u062f\u0629");
 	}
@@ -255,7 +258,7 @@ class LegacyPhpRouterRefusalTest {
 	 */
 	@Test
 	void aPercentEncodedLangNameSurvivesTheRepair() throws IOException {
-		assertThat(rawGet("/apis/api/time/now?l%61ng=ar&x=%", "en"))
+		assertThat(rawGet("/apis/api/chronometer/now?l%61ng=ar&x=%", "en"))
 				.as("the parameter name is percent-decoded, so l%61ng is lang and selects Arabic")
 				.contains("\u0627\u0644\u0648\u062d\u062f\u0629");
 	}

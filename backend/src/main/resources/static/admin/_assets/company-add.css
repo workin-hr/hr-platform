@@ -1,0 +1,273 @@
+.hr-page > .toolbar.page-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.company-tbl-logo,
+.company-current-logo img {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid #e8e6e0;
+  background: #f5f5f3;
+}
+
+.company-current-logo {
+  margin-bottom: 8px;
+}
+
+.modal--company-add {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.company-add-section {
+  border: 0;
+  margin: 0 0 20px;
+  padding: 0;
+}
+
+.company-add-section legend {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e1e1c;
+  margin-bottom: 12px;
+  padding: 0;
+  width: 100%;
+}
+
+.company-add-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+}
+
+.company-add-span-2 {
+  grid-column: 1 / -1;
+}
+
+.company-add-phone {
+  grid-column: 1 / -1;
+}
+
+.phone-input-group {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.phone-input-group select {
+  flex: 0 1 280px;
+  min-width: 220px;
+  max-width: 100%;
+}
+
+.phone-input-group input {
+  flex: 1;
+  min-width: 0;
+}
+
+.company-add-form .form-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #888;
+  font-weight: 400;
+}
+
+.company-add-upload.form-row {
+  display: block;
+}
+
+.company-file-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.company-file-upload__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #5f5e5a;
+}
+
+.company-file-upload__box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px dashed #d8d6d0;
+  border-radius: 12px;
+  background: #fafaf8;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.company-file-upload__box:hover,
+.company-file-upload__box:focus-within {
+  border-color: #3b82c4;
+  background: #f4f8fc;
+}
+
+.company-file-upload__preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #eceae4;
+  overflow: hidden;
+}
+
+.company-file-upload--logo .company-file-upload__preview img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid #e8e6e0;
+}
+
+.company-file-upload--commercial .company-file-upload__preview img {
+  width: 100%;
+  max-height: 120px;
+  object-fit: contain;
+  padding: 8px;
+}
+
+.company-file-upload__doc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 12px;
+  text-align: center;
+}
+
+.company-file-upload__doc--empty {
+  opacity: 0.72;
+}
+
+.company-file-upload__doc-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: #eef4fb;
+  color: #2563a8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.company-file-upload__doc-badge--muted {
+  background: #f0efeb;
+  color: #888;
+}
+
+.company-file-upload__doc-name {
+  font-size: 12px;
+  color: #5f5e5a;
+  word-break: break-word;
+}
+
+.company-file-upload__footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.company-file-upload__pick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid #d8d6d0;
+  background: #fff;
+  color: #1e1e1c;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.company-file-upload__pick:hover {
+  border-color: #3b82c4;
+  color: #3b82c4;
+}
+
+.company-file-upload__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: #888;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.company-file-upload__view {
+  font-size: 11px;
+  font-weight: 600;
+  color: #3b82c4;
+  text-decoration: none;
+}
+
+.company-file-upload__view:hover {
+  text-decoration: underline;
+}
+
+.company-file-upload__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.company-add-form input[type="file"] {
+  font-size: 12px;
+  padding: 6px 0;
+  border: none;
+  background: transparent;
+}
+
+.company-add-upload .company-current-logo {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 560px) {
+  .company-add-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .company-add-span-2,
+  .company-add-phone {
+    grid-column: auto;
+  }
+
+  .phone-input-group {
+    flex-direction: column;
+  }
+
+  .phone-input-group select {
+    max-width: none;
+    width: 100%;
+  }
+}

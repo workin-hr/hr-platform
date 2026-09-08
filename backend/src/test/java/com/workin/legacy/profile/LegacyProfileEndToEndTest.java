@@ -27,12 +27,11 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
+import com.workin.legacy.LegacyMariaDb;
 import com.workin.legacy.LegacyRuntimeOffset;
 import com.workin.legacy.auth.LegacyPhpJwtService;
 
@@ -45,11 +44,11 @@ import com.workin.legacy.auth.LegacyPhpJwtService;
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@ActiveProfiles("phase1-mysql")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class LegacyProfileEndToEndTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	private static final String EMPLOYEE = "/apis/api/profile/employee.php";
 	private static final String COMPANY = "/apis/api/profile/company.php";
@@ -82,10 +81,7 @@ class LegacyProfileEndToEndTest {
 	private PasswordEncoder passwordEncoder;
 
 	static {
-		MARIADB.start();
 		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the profile fixture", ex);
@@ -417,6 +413,120 @@ class LegacyProfileEndToEndTest {
 		assertThat(companyNotifications()).hasSize(1);
 	}
 
+	/**
+	 * The deactivation is not the only thing the logout does: it bumps
+	 * {@code token_version} in the same statement, so the JWT the leaver is
+	 * still holding stops authenticating at once rather than at its expiry.
+	 */
+	@Test
+	@Order(22)
+	void theLeaversStillValidTokenStopsWorkingImmediately() throws Exception {
+		long notifications = maxNotificationId();
+		reactivate(LEAVER);
+		long before = tokenVersion(LEAVER);
+		String token = employeeToken(LEAVER);
+
+		assertThat(send(LOGOUT, HttpMethod.POST, token, "{}").getStatusCode().value()).isEqualTo(200);
+		deleteNotificationsAfter(notifications);
+
+		assertThat(tokenVersion(LEAVER)).isEqualTo(before + 1);
+		// And the token issued before it is refused rather than downgraded.
+		// (The deactivation would refuse it too; the assertion above is what
+		// pins the bump itself.)
+		assertThat(send(EMPLOYEE, HttpMethod.GET, token, null).getStatusCode().value()).isEqualTo(401);
+	}
+
+	/**
+	 * An HR session logging out is <b>not</b> deactivated, whatever its
+	 * platform.
+	 *
+	 * <p>{@code $is_regular_employee} gates the whole block on the
+	 * {@code EMPLOYEE} role, so the desktop app's own logout no longer locks
+	 * the HR user out of the account they were using. Without that test the
+	 * session type alone would deactivate them.
+	 */
+	@Test
+	@Order(22)
+	void anHrLogoutDeactivatesNobodyEvenOnAnEmployeeSession() throws Exception {
+		long notificationsBefore = companyNotifications().size();
+
+		assertThat(send(LOGOUT, HttpMethod.POST, employeeToken(HR), "{}")
+				.getStatusCode().value()).isEqualTo(200);
+
+		assertThat(isActive(HR)).isEqualTo(1);
+		assertThat(companyNotifications()).hasSize((int) notificationsBefore);
+	}
+
+	/**
+	 * The platform gate: a regular employee logging out of a client that names
+	 * a non-mobile platform keeps their account.
+	 */
+	@Test
+	@Order(22)
+	void aNamedDesktopPlatformLeavesTheAccountActive() throws Exception {
+		reactivate(LEAVER);
+		long notificationsBefore = companyNotifications().size();
+
+		assertThat(send(LOGOUT, HttpMethod.POST, employeeToken(LEAVER),
+				"{\"platform\":\"desktop\"}").getStatusCode().value()).isEqualTo(200);
+
+		assertThat(isActive(LEAVER)).isEqualTo(1);
+		assertThat(companyNotifications()).hasSize((int) notificationsBefore);
+	}
+
+	/**
+	 * Every mobile spelling deactivates, and so does an absent field -- the
+	 * clients that predate {@code platform} are the mobile app, so its absence
+	 * cannot be read as "not mobile".
+	 */
+	@Test
+	@Order(22)
+	void everyMobilePlatformAndAnAbsentOneDeactivate() throws Exception {
+		long notifications = maxNotificationId();
+		for (String body : List.of("{\"platform\":\"mobile\"}", "{\"platform\":\"android\"}",
+				"{\"platform\":\"ios\"}", "{\"platform\":\"IOS\"}", "{\"platform\":\" android \"}",
+				"{}", "{\"platform\":\"\"}")) {
+			reactivate(LEAVER);
+			assertThat(send(LOGOUT, HttpMethod.POST, employeeToken(LEAVER), body)
+					.getStatusCode().value()).as("body %s", body).isEqualTo(200);
+			assertThat(isActive(LEAVER)).as("body %s", body).isZero();
+		}
+		deleteNotificationsAfter(notifications);
+	}
+
+	/** An unrecognised platform is not mobile, so it does not deactivate. */
+	@Test
+	@Order(22)
+	void anUnrecognisedPlatformIsNotTreatedAsMobile() throws Exception {
+		for (String platform : List.of("web", "windows", "tablet", "mobil")) {
+			reactivate(LEAVER);
+			assertThat(send(LOGOUT, HttpMethod.POST, employeeToken(LEAVER),
+					"{\"platform\":\"" + platform + "\"}").getStatusCode().value())
+					.as("platform %s", platform).isEqualTo(200);
+			assertThat(isActive(LEAVER)).as("platform %s", platform).isEqualTo(1);
+		}
+		reactivate(LEAVER);
+	}
+
+	/**
+	 * The push token named in the body is deleted whatever the platform, and
+	 * whatever the role. That half of the endpoint sits above every gate.
+	 */
+	@Test
+	@Order(22)
+	void theNamedPushTokenIsDroppedEvenWhenNothingIsDeactivated() throws Exception {
+		reactivate(LEAVER);
+		seedPushToken(LEAVER, "desktop-token");
+		long before = pushTokenCount();
+
+		assertThat(send(LOGOUT, HttpMethod.POST, employeeToken(LEAVER),
+				"{\"token\":\"desktop-token\",\"platform\":\"desktop\"}")
+				.getStatusCode().value()).isEqualTo(200);
+
+		assertThat(pushTokenCount()).isEqualTo(before - 1);
+		assertThat(isActive(LEAVER)).as("and the account survived").isEqualTo(1);
+	}
+
 	// ---------------- profile/delete_account*.php ----------------
 
 	/** The preview is company-sessions-only, and 401 rather than 403 otherwise. */
@@ -499,10 +609,15 @@ class LegacyProfileEndToEndTest {
 				new HttpEntity<>(body, headers), new ParameterizedTypeReference<Map<String, Object>>() { });
 	}
 
+	/**
+	 * The token a login would have issued, carrying the row's <em>current</em>
+	 * {@code token_version} rather than a fixed 1 -- logout bumps it, and a
+	 * stale version is refused with 401 by {@code requireEmployeeSessionValid()}.
+	 */
 	private String employeeToken(long employeeId) {
 		String role = employeeId == ADMIN ? "company_admin" : employeeId == HR ? "hr" : "employee";
 		long company = employeeId == DOOMED_STAFF ? DOOMED_COMPANY : COMPANY_ID;
-		return legacyPhpJwtService.issueEmployeeToken(employeeId, company, role, 1L);
+		return legacyPhpJwtService.issueEmployeeToken(employeeId, company, role, tokenVersion(employeeId));
 	}
 
 	private String companyToken() {
@@ -536,6 +651,34 @@ class LegacyProfileEndToEndTest {
 
 	private static String phoneOf(long employeeId) {
 		return scalar("SELECT phone FROM employees WHERE id = " + employeeId);
+	}
+
+	private static long tokenVersion(long employeeId) {
+		return Long.parseLong(scalar("SELECT token_version FROM employees WHERE id = " + employeeId));
+	}
+
+	/** Puts the leaver back the way an HR reactivation would, for the next case. */
+	private static void reactivate(long employeeId) throws Exception {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute("UPDATE employees SET is_active = 1 WHERE id = " + employeeId);
+		}
+	}
+
+	private static long maxNotificationId() {
+		String value = scalar("SELECT COALESCE(MAX(id), 0) FROM notifications");
+		return Long.parseLong(value);
+	}
+
+	/**
+	 * Drops the notifications a case created, so the ordered cases after it
+	 * still see the fixture they were written against. A logout that
+	 * deactivates writes one every time, and several of these cases log out
+	 * repeatedly on purpose.
+	 */
+	private static void deleteNotificationsAfter(long id) throws Exception {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute("DELETE FROM notifications WHERE id > " + id);
+		}
 	}
 
 	private static long isActive(long employeeId) {
@@ -625,27 +768,8 @@ class LegacyProfileEndToEndTest {
 				+ role + "', 1, 1, '2019-04-01 08:00:00')");
 	}
 
-	private static void applySchema(String resourceName) throws Exception {
-		String schema = readResource(resourceName);
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-		}
-	}
-
 	private static Connection connect() throws Exception {
 		return DriverManager.getConnection(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
 	}
 
-	private static String readResource(String name) throws Exception {
-		try (InputStream in = LegacyProfileEndToEndTest.class.getClassLoader().getResourceAsStream(name)) {
-			if (in == null) {
-				throw new IllegalStateException("missing test resource: " + name);
-			}
-			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-		}
-	}
 }

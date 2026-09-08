@@ -5,24 +5,42 @@ Covers both monitoring ownership and alert routing. See
 Baseline) for the architecture-level observability decision this operates
 under.
 
-## Signal (log, trace, metric, alert)
+## What This Deployment Actually Emits
 
-Record the observable signal needed to detect, diagnose, or confirm system
-behavior.
+*Filled 2026-09-04 against the configured application, replacing the
+template that stood here. It describes what exists, not what a
+well-instrumented service would have — the difference between the two is
+recorded as **R-043**.*
 
-Useful signal categories include:
+| Signal | Where it comes from | Where it goes |
+|---|---|---|
+| Structured JSON logs | `logging.structured.format.console=logstash` | stdout |
+| Correlation ids | `traceId`/`spanId` in every line (**ADR-0008**) | the same log line |
+| Traces | Micrometer Tracing, **sampled at 1.0** | `opentelemetry-exporter-logging` — i.e. **into the log**, not to a collector |
+| Health | `/actuator/health`, `permitAll` | HTTP, status only (details default to `never`) |
 
-- logs for event detail and audit trail
-- traces for request or workflow path analysis
-- metrics for rates, latency, errors, and saturation
-- alerts for human attention when conditions exceed defined thresholds
-- migration validation outputs for cutover and rollback confidence
-- business or workflow health indicators for customer-visible success paths
+That is the complete list. There is **no metrics endpoint exposed, no
+Prometheus, no dashboard, no log aggregation, and no alert routing**
+configured anywhere in this repository.
 
-Prefer signals tied to meaningful failure modes rather than collecting data
-only because a tool can emit it.
+### Two things to fix before cutover
 
-### Attendance-device receiver (D-158)
+**Trace sampling is at 100% and exports to the log.** Every request
+produces span output into stdout. That is right for the local
+verification it was set up for and wrong for production: it multiplies
+log volume by request rate for data nobody is collecting. Either lower
+`management.tracing.sampling.probability` or point the exporter at a real
+collector — but decide, rather than shipping 1.0 by default.
+
+**`/actuator/health` is `permitAll`.** That is the standard arrangement
+and is safe as configured, because health details default to `never` and
+the endpoint returns only `UP`/`DOWN`. It becomes an information
+disclosure the moment someone sets `management.endpoint.health.show-details`,
+which exposes database connectivity and component internals to
+unauthenticated callers. Do not set it without also restricting the
+matcher in `SecurityConfig`.
+
+### Attendance-device receiver (D-213)
 
 Emitted by `com.workin.devices` when `app.devices.ingest.enabled=true`;
 design section 9 of `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`.
@@ -60,89 +78,70 @@ design section 9 of `docs/superpowers/specs/2026-09-02-attendance-device-ingesti
 
 ## Source System
 
-Identify where the signal comes from.
+## The Signals The Rollback Depends On
 
-Examples:
+`docs/operations/release-cutover-and-rollback.md` triggers a rollback on
+observations like "a rise in 401s" and "error rate clearly worse than the
+PHP baseline". **Nothing currently measures either.** Until that changes,
+those triggers are satisfied by a human watching logs, which is a real
+answer for a supervised cutover window and not an answer at all for the
+days after it.
 
-- application service
-- background job or scheduler
-- database or migration process
-- edge gateway or integration adapter
-- authentication or access-control component
-- API gateway or ingress
-- customer-impact workflow check
+| Trigger | What would have to be watched | Available today |
+|---|---|---|
+| Broad authentication failure | 401 rate on `/apis/**` | No — log inspection only |
+| Error rate above the PHP baseline | 5xx rate, and a baseline nobody has recorded | No, and no baseline exists |
+| `otp_delivery_failed` | The literal string; logged at `ERROR` | Yes, by grep |
+| Missing Phase 1 table | `Phase 1 schema check: ... MISSING` at startup | Yes, by grep, once per boot |
+| Latency regression | Request duration percentiles | No |
 
-If the source system does not exist yet because implementation has not begun,
-describe the planned boundary rather than inventing a deployed component name.
+The two that *are* available are the two that were deliberately given
+loud, greppable, single-line signatures. The rest need instrumentation
+that does not exist.
 
-## Ownership (who watches it)
+**The minimum honest position for the cutover window**: a human tails the
+log for the string `ERROR`, and the release is supervised rather than
+monitored. Say that out loud in the go/no-go rather than implying
+coverage that is not there.
 
-Record the human role or team responsible for noticing, reviewing, or acting
-on the signal.
+## Ownership, Routing And Severity
 
-Ownership may differ by signal type:
+Unfilled, and blocked on the same gap: routing an alert requires an alert.
+Repository owner is the de facto and only responder.
 
-- engineering owner for service-level diagnostics
-- operations owner for deployment or availability signals
-- migration owner for cutover and validation signals
-- security owner for security-relevant anomalies
-- support or product owner for customer-impact indicators
+When alerting does exist, the two signals worth paging on first are the
+ones with no workaround — a broad authentication failure (every user
+locked out) and `otp_delivery_failed` (nobody can register or reset a
+password). Everything else can wait for business hours.
 
-If a signal has no clear human owner, treat that as an operational gap.
+## Platform-Admin Web Surface (ADR-0015)
 
-## Alert Routing (who gets paged, and how)
+Concrete signals for the surface added in **D-160**, recorded here because the
+change introduces a runtime dependency the application did not previously have.
 
-Define how a signal reaches a human when action is required.
+| Failure | What an operator sees | Where |
+|---|---|---|
+| Session store unreachable | Every `/admin` request bounces to the login page and login never sticks; the API surfaces are unaffected because they stay stateless | Application log: `JdbcIndexedSessionRepository` / datasource errors on the primary datasource |
+| `spring_session` missing or unmigrated | Startup succeeds, first admin login fails with a SQL error | Flyway history missing `V46`; application log at first `/admin/login` POST |
+| Sessions accumulating | `spring_session` row count grows without bound | Spring Session's own cleanup job deletes expired rows on a schedule; a stuck job shows as rows with `expiry_time` in the past |
+| Administrator deactivated but still active | Should be impossible: the session is revalidated per request | `PlatformAdminSessionRevalidationFilter`; regression coverage in `PlatformAdminWebSessionTest` |
+| Administrator locked out by throttling | They report "invalid credentials" for a password they know is right | `platform_admin_audit_events` shows the `LOGIN_FAILED` run; `platform_admin_login_attempts` holds 8 rows inside the 15-minute window for their identifier. The lockout clears itself when the window passes, or immediately on a successful login |
+| Every login attempt shares one `client_key` | `platform_admin_login_attempts` shows one address for all of them | A proxy is in front and `server.forward-headers-strategy` is `none`, so every caller looks like the proxy and one guesser can lock out everyone. Set `FORWARD_HEADERS_STRATEGY=native` -- and only with the port closed to everything but the proxy (`running-the-backend.md`) |
+| `client_key` values vary implausibly | Many distinct addresses, few real callers | The reverse: `native` with no proxy in front, so `X-Forwarded-For` is attacker-controlled and the miss budget is unspendable. Set it back to `none` until a proxy is the sole route (**R-049**) |
+| Throttle table growing | `platform_admin_login_attempts` row count climbing steadily | An unauthenticated caller can add a row per attempt with a fresh identifier. `PlatformAdminLoginAttemptCleanup` deletes rows past the window every 10 minutes on every worker; growth despite that means the scheduler is not running |
 
-Capture:
+The surface performs no administrative action yet, so there is no
+administrative-action audit signal to watch. When one is added, ADR-0015
+prerequisite 10 requires the audit row to be written in the same transaction as
+the action, which makes "action without audit row" a condition that cannot
+occur rather than one to alert on.
 
-- which conditions generate an alert versus being retained only for diagnosis
-- who receives the alert first
-- how it is delivered
-- who is next if the first owner does not respond
-- which incidents require broader stakeholder escalation
+| Administrative actions refused as disabled | Operators see "Administrative actions are disabled on this deployment" | `app.platform-admin.actions.enabled` is false, which is the shipped default. It is turned on only after the legacy PHP admin surface is confirmed unreachable (ADR-0015 prerequisite 7, D-152) |
+| Audit rows growing | `platform_admin_audit_events` grows and is never trimmed | Intended. Retention is indefinite by decision (D-161) — this table is the evidence the shared-password model never had. The purged tables are `platform_admin_login_attempts` and `platform_admin_step_up_approvals` |
 
-Possible routing paths include:
-
-- paging or on-call tool
-- email
-- chat or operations channel
-- ticketing system
-- manual escalation by a release or incident owner
-
-Do not invent a live paging tool or support rota that has not been approved.
-
-## Severity Classification
-
-Classify the importance of the signal or alert so response urgency is clear.
-
-Severity should be based on impact, not gut feel. Useful dimensions include:
-
-- customer-facing outage or degraded workflow
-- security or data-integrity risk
-- migration or rollback risk
-- operational degradation with no immediate customer impact
-- informational signal for trend analysis only
-
-If the repository later adopts named severity levels, this document should map
-signals to those levels explicitly.
-
-## Evidence
-
-Link the artifacts that prove the monitoring and alerting definition is real
-and reviewable. Evidence may include:
-
-- dashboard or metric definition
-- alert rule
-- log or trace field definition
-- sample alert payload
-- ownership record
-- escalation-path record
-- release-readiness packet showing the required signals for a change
-- incident evidence showing that the signal helped detect or resolve an issue
-
-If a signal is expected but there is no evidence that it can be observed or
-routed, leave it open rather than implying coverage.
+**Capacity note:** one row per live admin session, in a population of
+individually provisioned platform administrators (**F-26**). This is not a
+volume signal; it is a correctness one.
 
 ## Open Questions
 

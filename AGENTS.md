@@ -92,6 +92,10 @@ The implementation handoff and PR evidence must list:
 - Planning agents are read-only unless explicitly assigned a documentation task.
 - Review agents are always read-only.
 - Implementers cannot approve or merge their own work.
+- Automation that writes to this repository is an implementer, never a
+  reviewer. It cannot discharge the independent-review gate, which D-121
+  reserves for `chatgpt-codex-connector[bot]`, and it runs only when a
+  human invokes it.
 - Agents may access a production database only when the user explicitly authorizes a specific read-only evidence or compatibility check.
 - Production database access is strictly read-only: enforce a read-only transaction and use only non-mutating queries such as `SELECT` or `SHOW`. Never insert, update, delete, replace, repair, migrate, or otherwise change production data, schema, routines, permissions, or configuration. A session setting used solely to enforce read-only transaction mode is allowed.
 - Never print, log, commit, or otherwise expose production credentials. Access to biometric data, private keys, and unrestricted organization tokens remains prohibited.
@@ -103,6 +107,10 @@ The implementation handoff and PR evidence must list:
 - Claude runtime entrypoint: `CLAUDE.md`, which imports this file.
 - Agent roles and permissions: `.claude/agents/`, `.codex/agents/`, and
   `docs/agents/responsibility-matrix.md`.
+- Repository-writing automation: `.github/workflows/`. No workflow currently
+  writes to the repository on an agent's behalf; the global rule that such
+  automation is an implementer and never a reviewer stands for whatever is
+  added next.
 - Reusable procedures: `.agents/skills/`; the complete checked catalog is
   `docs/agents/skill-catalog.md`. `.claude/skills/speckit-*` are upstream
   integration copies, not a second repository-authored source.

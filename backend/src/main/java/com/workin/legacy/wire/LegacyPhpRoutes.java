@@ -146,6 +146,11 @@ public final class LegacyPhpRoutes {
 		"/apis/api/auth/login_company.php",
 		"/apis/api/auth/login_desktop.php",
 		"/apis/api/configs/get.php",
+		// Routes hr-legacy grew after the first sweep. Listed literally, not
+		// as a prefix: these two modules have one endpoint each, and a
+		// wildcard would pre-authorise routes nobody has written yet.
+		"/apis/api/guide_videos/list.php",
+		"/apis/api/time/now.php",
 		"/apis/api/phone_countries/list.php",
 		"/apis/api/app_content/one.php",
 		"/apis/api/banners/list.php",

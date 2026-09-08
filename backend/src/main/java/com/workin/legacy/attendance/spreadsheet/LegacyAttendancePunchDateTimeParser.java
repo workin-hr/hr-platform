@@ -133,7 +133,134 @@ public final class LegacyAttendancePunchDateTimeParser {
 			"m/d/Y H:i:s",
 			"m/d/Y H:i");
 
+	/**
+	 * {@code $formats} in {@code attendance_import_parse_punch_date()} -- eight
+	 * date-only shapes, in its order. Shorter than the datetime list and not a
+	 * subset of it: {@code d.m.Y} and the two-digit-year pair appear only here.
+	 */
+	private static final List<String> DATE_FORMATS = List.of(
+			"d/m/Y", "d-m-Y", "Y-m-d", "Y/m/d", "d.m.Y", "m/d/Y", "d/m/y", "d-m-y");
+
+	/** {@code preg_match('/^(\d{1,4}[\/.-]\d{1,2}[\/.-]\d{1,4})/', $text, $m)}. */
+	private static final Pattern DATE_HEAD =
+			Pattern.compile("^(\\d{1,4}[/.-]\\d{1,2}[/.-]\\d{1,4})");
+
+	/** {@code /(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:\s*(AM|PM))?/i} -- unanchored, as PHP has it. */
+	private static final Pattern TIME_IN_TEXT = Pattern.compile(
+			"(\\d{1,2}):(\\d{2})(?::(\\d{2}))?(?:\\.\\d+)?(?:\\s*(AM|PM))?",
+			Pattern.CASE_INSENSITIVE);
+
 	private LegacyAttendancePunchDateTimeParser() {
+	}
+
+	/**
+	 * {@code attendance_import_parse_punch_date()}: the day a four-column
+	 * daily sheet's date cell names, with any time on it discarded.
+	 *
+	 * <p>Not {@link #parse}-then-truncate. It runs its own eight date-only
+	 * formats over the <em>leading</em> date of the cell first, so
+	 * {@code 03/04/2026 evening shift} is 3 April rather than a strtotime
+	 * guess, and only falls back to the datetime parser when none of them fit.
+	 */
+	public static LocalDate parsePunchDate(Object raw, LocalDateTime now) {
+		if (raw == null) {
+			return null;
+		}
+
+		Double serial = numericValue(raw);
+		if (serial != null && serial > 1000d) {
+			// PHP returns from inside this branch either way: a serial that
+			// will not convert is null, not a string to try the formats on.
+			LocalDateTime parsed = parseSerialString(LegacyXlsxReader.excelSerialToDateTime(serial));
+			return parsed == null ? null : parsed.toLocalDate();
+		}
+
+		String text = LegacyValues.phpTrim(LegacyValues.toPhpString(raw));
+		if (text.isEmpty()) {
+			return null;
+		}
+		text = text.replace(LRM, "").replace(RLM, "").replace(BOM, "");
+		text = LegacyValues.phpTrim(text).replace('\\', '/');
+		if (DOTTED_DATE_PREFIX.matcher(text).find()) {
+			text = DOTTED_DATE_HEAD.matcher(text).replaceFirst("$1-$2-$3");
+		}
+
+		String datePart = text;
+		java.util.regex.Matcher head = DATE_HEAD.matcher(text);
+		if (head.find()) {
+			datePart = head.group(1);
+		}
+
+		for (String format : DATE_FORMATS) {
+			LocalDateTime parsed = createFromFormat(format, datePart);
+			if (parsed != null) {
+				return parsed.toLocalDate();
+			}
+		}
+
+		// The fallback is handed the transformed $text, not the raw cell.
+		LocalDateTime fallback = parse(text, now);
+		return fallback == null ? null : fallback.toLocalDate();
+	}
+
+	/**
+	 * {@code attendance_import_parse_punch_time_parts()}: {@code {h, i, s}} as
+	 * a three-element array, or {@code null}.
+	 *
+	 * <p>Every numeric cell is an Excel time fraction here, with no {@code >
+	 * 1000} gate -- a time-only column holds {@code 0.34375} for 08:15, and a
+	 * whole serial contributes only its fractional part. {@code 86400} rounds
+	 * to midnight rather than to hour 24, which is PHP's own wrap.
+	 */
+	public static int[] parsePunchTimeParts(Object raw, LocalDateTime now) {
+		if (raw == null) {
+			return null;
+		}
+
+		Double serial = numericValue(raw);
+		if (serial != null) {
+			if (serial < 0) {
+				return null;
+			}
+			double fraction = serial < 1 ? serial : serial - Math.floor(serial);
+			int seconds = (int) Math.round(fraction * 86400);
+			if (seconds >= 86400) {
+				seconds = 0;
+			}
+			return new int[] {seconds / 3600, (seconds % 3600) / 60, seconds % 60};
+		}
+
+		String text = LegacyValues.phpTrim(LegacyValues.toPhpString(raw));
+		text = text.replace(LRM, "").replace(RLM, "").replace(BOM, "");
+		if (text.isEmpty()) {
+			return null;
+		}
+
+		java.util.regex.Matcher time = TIME_IN_TEXT.matcher(text);
+		if (time.find()) {
+			int hour = Integer.parseInt(time.group(1));
+			int minute = Integer.parseInt(time.group(2));
+			int second = time.group(3) == null || time.group(3).isEmpty()
+					? 0 : Integer.parseInt(time.group(3));
+			String meridiem = time.group(4) == null
+					? "" : time.group(4).toUpperCase(java.util.Locale.ROOT);
+			if ("PM".equals(meridiem) && hour < 12) {
+				hour += 12;
+			}
+			if ("AM".equals(meridiem) && hour == 12) {
+				hour = 0;
+			}
+			// An out-of-range component is a rejection here, not a roll -- so a
+			// 25:00 cell is skipped rather than silently becoming 01:00.
+			if (hour > 23 || minute > 59 || second > 59) {
+				return null;
+			}
+			return new int[] {hour, minute, second};
+		}
+
+		LocalDateTime parsed = parse(text, now);
+		return parsed == null
+				? null : new int[] {parsed.getHour(), parsed.getMinute(), parsed.getSecond()};
 	}
 
 	/**
@@ -207,7 +334,10 @@ public final class LegacyAttendancePunchDateTimeParser {
 		int year = -1;
 		int month = -1;
 		int day = -1;
-		int hour24 = -1;
+		// `'!' . $format` resets every unspecified field to the epoch, so a
+		// format carrying no hour token -- every entry in DATE_FORMATS -- means
+		// midnight rather than "no hour given".
+		int hour24 = 0;
 		int hour12 = -1;
 		int minute = 0;
 		int second = 0;
@@ -242,6 +372,16 @@ public final class LegacyAttendancePunchDateTimeParser {
 							}
 						}
 					}
+					cursor = read[1];
+				}
+				case 'y' -> {
+					int[] read = readDigits(value, cursor, 1, 2);
+					if (read == null) {
+						return null;
+					}
+					// PHP's own pivot for a two-digit year: 00-69 is this
+					// century, 70-99 the last one.
+					year = read[0] + (read[0] < 70 ? 2000 : 1900);
 					cursor = read[1];
 				}
 				case 'i', 's' -> {

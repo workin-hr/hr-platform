@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import org.testcontainers.containers.MariaDBContainer;
 
 /**
  * The insert helper returns the key its own statement generated.
@@ -33,12 +32,12 @@ import org.testcontainers.containers.MariaDBContainer;
  */
 class LegacyGeneratedKeysTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** An empty database of this class's own: it creates its own tables. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.emptyDatabase();
 
 	private static JdbcTemplate jdbcTemplate;
 
 	static {
-		MARIADB.start();
 		// A REAL pool, deliberately. DriverManagerDataSource opens a fresh
 		// connection per operation, so the old two-call form would always meet a
 		// virgin session and return 0 -- the failure would show, but for the

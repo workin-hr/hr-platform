@@ -185,7 +185,15 @@ SPIKE_DIR_NAME = "spike"
 #   every architecture ADR this depends on reaching Accepted (D-016
 #   through D-026) and the Migration-Readiness Gate's minimum conditions
 #   being satisfied.
-PHASE1_UNLOCKED_DIRS = {"backend"}
+# - "deploy": docs/bootstrap/decision-log-wave12r.md D-193 (2026-09-06)
+#   lifts the lock for the container stack that packages Phase 1 -- a
+#   Dockerfile, the three profiles' compose files and the sanitised
+#   development seed. Opened deliberately rather than worked around: the
+#   forbidden names include `Dockerfile` and `docker-compose.yml`
+#   precisely so that shipping one is a recorded decision, and naming a
+#   file `compose.yaml` to slip past that check would defeat the rule
+#   while appearing to honour it.
+PHASE1_UNLOCKED_DIRS = {"backend", "deploy"}
 
 # This is a fast, narrow, five-pattern check, not comprehensive secret
 # scanning. Gitleaks (run in .github/workflows/phase0-validate.yml with its
@@ -1485,6 +1493,24 @@ def validate_workflow_safety(failures: list[str], root: Path | None = None) -> N
                     "pull-request content; a checkout withdraws that premise",
                     failures,
                 )
+        # Only the review gate may publish a commit status. `independent-review`
+        # is a required check (D-125), so any other workflow holding
+        # `statuses: write` could write to a gate it is not the reviewer for --
+        # including the Claude Code Action, whose "cannot become a gate"
+        # property (D-187) is exactly this permission being absent.
+        #
+        # Comments are stripped first. Two workflows here explain in prose that
+        # they do *not* take this permission, and a raw substring match would
+        # fail them for saying so -- the same false positive the trigger ban
+        # above produces.
+        if re.search(r"^\s*statuses:\s*write\s*$", _without_comments(text), re.MULTILINE):
+            if relative != REVIEW_GATE_WORKFLOW:
+                fail(
+                    f"{relative} grants 'statuses: write'. Only {REVIEW_GATE_WORKFLOW} may "
+                    "publish a commit status: independent-review is a required check and "
+                    "belongs to the named reviewer (D-121, D-125)",
+                    failures,
+                )
         if not re.search(r"^permissions:\s*$", text, re.MULTILINE):
             fail(
                 f"{path.relative_to(ROOT)} does not declare an explicit top-level "
@@ -1555,6 +1581,45 @@ def validate_edit_audit_log_tests(failures: list[str]) -> None:
     _run_regression_script("scripts/test_edit_audit_log.py", "Edit/Write audit-log hook regression tests", failures)
 
 
+def validate_legacy_drift_gates(failures: list[str]) -> None:
+    """The drift gates, plus the tests that pin what each of them catches.
+
+    Most compare this application against the PHP it reproduces rather than
+    against itself, and all run from a committed inventory so they still mean
+    something where hr-legacy is not checked out. The last two compare the
+    application against artifacts derived from it -- the development seed and
+    the published API description -- which drift the same way and are caught in
+    the same place."""
+    _run_regression_script("scripts/check_legacy_route_drift.py", "Legacy route drift", failures)
+    _run_regression_script("scripts/test_check_legacy_route_drift.py",
+                           "Legacy route-drift check regression tests", failures)
+    _run_regression_script("scripts/check_legacy_message_drift.py", "Legacy message drift", failures)
+    _run_regression_script("scripts/test_check_legacy_message_drift.py",
+                           "Legacy message-drift check regression tests", failures)
+    _run_regression_script("scripts/check_dashboard_message_drift.py", "Dashboard message drift", failures)
+    _run_regression_script("scripts/test_check_dashboard_message_drift.py",
+                           "Dashboard message-drift check regression tests", failures)
+    _run_regression_script("scripts/check_legacy_product_defaults_drift.py",
+                           "Legacy product-default drift", failures)
+    _run_regression_script("scripts/test_check_legacy_product_defaults_drift.py",
+                           "Legacy product-default drift check regression tests", failures)
+    # The dev seed is derived from real customer data and committed permanently,
+    # so this runs in the same place as every other gate rather than being a
+    # thing somebody remembers to run before regenerating it.
+    _run_regression_script("scripts/check_dev_seed_sanitised.py",
+                           "Development seed sanitisation", failures)
+    _run_regression_script("scripts/test_check_dev_seed_sanitised.py",
+                           "Development seed sanitisation check regression tests", failures)
+    # The published OpenAPI document is generated from the controllers but
+    # pruned from a committed file. If a handler's method guard changes and that
+    # file does not, the document keeps telling client developers a route
+    # accepts a verb it answers 405 to -- with every other gate green.
+    _run_regression_script("scripts/check_openapi_route_methods_drift.py",
+                           "OpenAPI route-method drift", failures)
+    _run_regression_script("scripts/test_check_openapi_route_methods_drift.py",
+                           "OpenAPI route-method drift check regression tests", failures)
+
+
 def _validate_single_adr_cli(target_arg: str) -> int:
     """Single-ADR CLI mode: `validate_phase0.py --validate-adr <file>`.
 
@@ -1610,6 +1675,7 @@ def main() -> int:
     validate_adr_dynamic_tests(failures)
     validate_governance_check_tests(failures)
     validate_edit_audit_log_tests(failures)
+    validate_legacy_drift_gates(failures)
     if failures:
         print("Phase 0 validation failed:")
         for item in failures:

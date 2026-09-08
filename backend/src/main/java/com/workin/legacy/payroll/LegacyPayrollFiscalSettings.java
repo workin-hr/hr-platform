@@ -1,5 +1,6 @@
 package com.workin.legacy.payroll;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import javax.sql.DataSource;
@@ -98,6 +99,105 @@ public class LegacyPayrollFiscalSettings {
 		long startDay = startVals.isEmpty() ? 1 : LegacyValues.toPhpLong(startVals.get(0));
 		long endDay = endVals.isEmpty() ? 0 : LegacyValues.toPhpLong(endVals.get(0));
 		return computeBounds(year, month, startDay, endDay);
+	}
+
+	/**
+	 * {@code payroll_fiscal_day_settings()}: the two configured days, clamped.
+	 *
+	 * <p>The clamping is not symmetric, and the asymmetry is the point. The
+	 * start day is forced into 1..31, so an unset or nonsensical value becomes
+	 * 1. The end day keeps <b>0</b> as a distinct value meaning "unset", and is
+	 * only clamped when it is positive -- callers use that zero to mean "the
+	 * month's own last day", which cannot be decided until the month is known.
+	 *
+	 * @return {@code [startDay, endDay]}, where {@code endDay} may be 0
+	 */
+	public int[] fiscalDaySettings(long companyId) {
+		List<String> startVals = forCompany(companyId, Key.MONTH_START_DAY);
+		List<String> endVals = forCompany(companyId, Key.MONTH_END_DAY);
+		long rawStart = startVals.isEmpty() ? 1 : LegacyValues.toPhpLong(startVals.get(0));
+		long rawEnd = endVals.isEmpty() ? 0 : LegacyValues.toPhpLong(endVals.get(0));
+		return new int[] {clampStartDay(rawStart), clampEndDay(rawEnd)};
+	}
+
+	/**
+	 * {@code employee_row_attach_company_fiscal_month(&$employee, $company_id)}.
+	 *
+	 * <p>Writes {@code month_start_day} and {@code month_end_day} onto an
+	 * employee row so the mobile client can label its attendance screen with
+	 * the company's own month boundaries instead of the calendar's.
+	 *
+	 * <p><b>A non-positive company id writes nothing at all</b>, and the keys
+	 * are then absent rather than null -- PHP returns early, and the client
+	 * distinguishes an absent key from a null one.
+	 *
+	 * <p>{@code month_end_day} is written raw, including 0. PHP does not
+	 * resolve the "unset means the month's last day" default here, because at
+	 * this point there is no month to resolve it against; the caller that
+	 * knows the period does that.
+	 */
+	public void attachCompanyFiscalMonth(java.util.Map<String, Object> employee, long companyId) {
+		if (companyId <= 0) {
+			return;
+		}
+		int[] days = fiscalDaySettings(companyId);
+		employee.put("month_start_day", (long) days[0]);
+		employee.put("month_end_day", (long) days[1]);
+	}
+
+	/** {@code max(1, min(31, $start))} -- anything unusable becomes the 1st. */
+	static int clampStartDay(long raw) {
+		return (int) Math.max(1, Math.min(31, raw));
+	}
+
+	/**
+	 * {@code $end > 0 ? max(1, min(31, $end)) : $end} -- zero is preserved,
+	 * because it means "the period's own last day" and only the caller that
+	 * knows the period can resolve it.
+	 */
+	static int clampEndDay(long raw) {
+		return raw > 0 ? (int) Math.max(1, Math.min(31, raw)) : 0;
+	}
+
+	/** {@code payroll_fiscal_month_containing_date()}'s answer. */
+	public record FiscalMonth(
+			int year, int month, String periodFrom, String periodTo, int monthStartDay, int monthEndDay) {
+	}
+
+	/**
+	 * {@code payroll_fiscal_month_containing_date()}: which fiscal month a date
+	 * falls in.
+	 *
+	 * <p>A fiscal month whose start day is not the 1st spans two calendar
+	 * months, so the calendar month a date sits in is <em>not</em> its fiscal
+	 * month. The 3rd of March under a start day of 26 belongs to the fiscal
+	 * month labelled February. This walks one step in whichever direction the
+	 * date falls outside the bounds -- one step is always enough, because a
+	 * fiscal month is at most one calendar month long.
+	 *
+	 * @param ymd the date to place, or null for today
+	 */
+	public FiscalMonth fiscalMonthContainingDate(long companyId, String ymd, LocalDate today) {
+		String date = ymd != null && !ymd.trim().isEmpty() ? ymd.trim() : today.toString();
+		LocalDate parsed = LocalDate.parse(date);
+		int year = parsed.getYear();
+		int month = parsed.getMonthValue();
+
+		String[] bounds = fiscalPeriodBounds(companyId, year, month);
+		if (date.compareTo(bounds[0]) < 0) {
+			LocalDate previous = parsed.withDayOfMonth(1).minusMonths(1);
+			year = previous.getYear();
+			month = previous.getMonthValue();
+			bounds = fiscalPeriodBounds(companyId, year, month);
+		} else if (date.compareTo(bounds[1]) > 0) {
+			LocalDate next = parsed.withDayOfMonth(1).plusMonths(1);
+			year = next.getYear();
+			month = next.getMonthValue();
+			bounds = fiscalPeriodBounds(companyId, year, month);
+		}
+
+		int[] days = fiscalDaySettings(companyId);
+		return new FiscalMonth(year, month, bounds[0], bounds[1], days[0], days[1]);
 	}
 
 	/**

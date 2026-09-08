@@ -1,0 +1,103 @@
+# The shared integration environment: what the mobile and desktop clients point
+# at when they are not running the stack themselves.
+#
+#   cd deploy && docker compose -f compose.integration.yaml --env-file .env.integration up -d
+#
+# Holds the same sanitised seed as local, so no real customer is ever on it.
+# Takes its secrets from the environment like production does, because it is
+# reachable by more than one person: a shared box with a committed signing
+# secret is a box anyone can mint tokens for.
+
+name: workin-integration
+
+services:
+  db:
+    image: mariadb:11.8
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?set DB_ROOT_PASSWORD in .env.integration}
+      MARIADB_DATABASE: ${DB_NAME:-workin}
+      MARIADB_USER: ${DB_USER:?set DB_USER in .env.integration}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env.integration}
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --sql-mode=
+    volumes:
+      - db-data:/var/lib/mysql
+      # The same sanitised seed local uses. Reseed with `down -v`, which is a
+      # normal thing to do here and never a thing to do in production.
+      # ONE script, not two. dev-seed.sql is a COMPLETE dump: the build script
+      # applies phase1_extensions.sql before dumping (it has to -- the sanitiser
+      # deletes from platform_admins), so the Phase 1 tables are already in it.
+      # Mounting the extensions again made MariaDB run CREATE TABLE
+      # legacy_refresh_tokens a second time, which is not idempotent: the init
+      # failed with ERROR 1050, the container went unhealthy and the app never
+      # started. scripts/check_dev_seed_sanitised.py now asserts the seed
+      # carries those tables, so a seed built without them fails the gate rather
+      # than a developer's first run.
+      - ./seed/dev-seed.sql:/docker-entrypoint-initdb.d/01-dev-seed.sql:ro
+    ports:
+      - "127.0.0.1:${DB_PUBLISHED_PORT:-13306}:3306"
+    healthcheck:
+      # Over TCP (-h 127.0.0.1), and requiring a seeded table -- both halves
+      # matter. While the seed loads, MariaDB's entrypoint runs a TEMPORARY
+      # server with --skip-networking: a socket-based check passes against it,
+      # compose calls the database ready, the temp server then shuts down for
+      # the real start, and the app connects into that gap and dies. Forcing
+      # TCP fails for the whole of that phase, which is exactly what is wanted.
+      test:
+        - CMD-SHELL
+        - >-
+          mariadb -h 127.0.0.1 -u"$$MARIADB_USER" -p"$$MARIADB_PASSWORD"
+          -e 'SELECT 1 FROM companies LIMIT 1' "$$MARIADB_DATABASE"
+          >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 300s
+
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: ${APP_IMAGE:-workin-backend:local-build}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+        # Same reasoning as compose.local.yaml: a recreated database otherwise
+        # leaves the app holding a pool of dead connections.
+        restart: true
+    environment:
+      SPRING_PROFILES_ACTIVE: integration
+      LEGACY_DB_JDBC_URL: jdbc:mariadb://db:3306/${DB_NAME:-workin}
+      LEGACY_DB_USERNAME: ${DB_USER}
+      LEGACY_DB_PASSWORD: ${DB_PASSWORD}
+      # Required, and deliberately NOT production's: a token minted here must
+      # not be accepted there, and different secrets are the only thing that
+      # guarantees it.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env.integration}
+      # The dashboard's one password (ADR-0018). A bcrypt hash of it lives in
+      # platform_admins; change the value and restart to rotate it.
+      APP_PLATFORM_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      APP_LEGACY_UPLOADS_PATH: /app/uploads
+      # `native` only when a reverse proxy is the sole route to this port.
+      # Needed for the admin dashboard, whose session cookie is `secure`
+      # unconditionally: without TLS in front there is no admin session, and
+      # without this the redirects behind that TLS carry the wrong scheme.
+      SERVER_FORWARD_HEADERS_STRATEGY: ${FORWARD_HEADERS_STRATEGY:-none}
+      # Left unset: the seed's numbers are synthetic, but the habit of running a
+      # shared environment with live messaging credentials is the one that
+      # eventually sends a real message to a real person.
+      LEGACY_WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN:-}
+      LEGACY_WHATSAPP_INSTANCE_ID: ${WHATSAPP_INSTANCE_ID:-}
+    volumes:
+      - app-uploads:/app/uploads
+    ports:
+      - "${APP_PUBLISHED_PORT:-8080}:8080"
+    stop_grace_period: 30s
+
+volumes:
+  db-data:
+  app-uploads:

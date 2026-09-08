@@ -10,6 +10,7 @@ import javax.sql.DataSource;
 import org.springframework.stereotype.Service;
 
 import com.workin.legacy.LegacyClock;
+import com.workin.legacy.LegacyLeavePolicy;
 import com.workin.legacy.LegacyPhpStrtotime;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.notifications.LegacyPushDelivery;
@@ -80,7 +81,7 @@ public class LegacyRequestApprovalService {
 
 				if (deductBalance) {
 					double defaultDays = balance == null
-							? store.defaultAnnualLeaveDays(connection, companyId)
+							? LegacyLeavePolicy.DEFAULT_ANNUAL_LEAVE_DAYS
 							: 0.0d;
 					store.applyLeaveDeduction(
 							connection, balance, employeeId, span.year(), span.days(), defaultDays);

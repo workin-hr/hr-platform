@@ -261,13 +261,27 @@ public class LegacyAttendanceReportStore {
 		return count == null ? 0L : count;
 	}
 
-	/** {@code employee_monthly_attendance.php}'s raw fetch: every column, plus the raw duration. */
-	public List<Map<String, Object>> monthRows(long employeeId, int month, int year) {
+	/**
+	 * {@code employee_monthly_attendance.php}'s raw fetch: every column, plus
+	 * the raw duration, over the <b>fiscal</b> period.
+	 *
+	 * <p>hr-legacy changed this from {@code MONTH(check_in) = ? AND
+	 * YEAR(check_in) = ?} to a date range, because month and year now label a
+	 * fiscal period that can straddle two calendar months. The two agree
+	 * exactly when a company's period starts on the 1st and ends on the last
+	 * day, which is the default -- so this reads as a no-op change until a
+	 * company configures anything else, and then it is the whole behaviour.
+	 *
+	 * <p>{@code DATE(check_in)} rather than {@code check_in}: the bounds are
+	 * dates and the column is a datetime, so comparing them directly would
+	 * drop every punch after midnight on the closing day.
+	 */
+	public List<Map<String, Object>> periodRows(long employeeId, String periodFrom, String periodTo) {
 		return jdbcTemplate.query("""
 				SELECT *, TIMESTAMPDIFF(MINUTE, check_in, check_out) AS duration_minutes
 				FROM attendance
-				WHERE employee_id = ? AND MONTH(check_in) = ? AND YEAR(check_in) = ?
-				ORDER BY check_in ASC""", rowMapper(), employeeId, month, year);
+				WHERE employee_id = ? AND DATE(check_in) BETWEEN ? AND ?
+				ORDER BY check_in ASC""", rowMapper(), employeeId, periodFrom, periodTo);
 	}
 
 	private static RowMapper<Map<String, Object>> rowMapper() {

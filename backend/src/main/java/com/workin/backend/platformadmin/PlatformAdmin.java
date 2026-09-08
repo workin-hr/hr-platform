@@ -52,6 +52,11 @@ public class PlatformAdmin {
 		return passwordHash;
 	}
 
+	/** Rotation only: {@link PlatformAdminBootstrap} re-encodes the configured password. */
+	public void setPasswordHash(String passwordHash) {
+		this.passwordHash = passwordHash;
+	}
+
 	public boolean isActive() {
 		return active;
 	}

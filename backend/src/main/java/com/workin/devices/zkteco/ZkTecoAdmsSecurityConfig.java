@@ -5,7 +5,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -18,10 +17,15 @@ import org.springframework.security.web.SecurityFilterChain;
  * inactive serial is refused there. This chain exists so that decision is
  * explicit rather than the accident of a request matching no chain at all,
  * and so the legacy JWT filter never runs against a terminal's requests.
- * Created together with the controller, under the same flag.
+ * Created together with the controller, under the same flag -- and under that
+ * flag alone. It used to carry a {@code phase1-mysql} profile guard as well,
+ * which ADR-0017 retired along with the PostgreSQL half that profile existed
+ * to keep apart. Left in place, that guard would have been a hole of the
+ * quietest kind: the controller is conditioned on the flag only, so
+ * {@code /iclock/**} would have been mapped with this chain absent and a
+ * device's request falling through to whichever chain matched next.
  */
 @Configuration
-@Profile("phase1-mysql")
 @ConditionalOnProperty(name = "app.devices.ingest.enabled", havingValue = "true")
 public class ZkTecoAdmsSecurityConfig {
 

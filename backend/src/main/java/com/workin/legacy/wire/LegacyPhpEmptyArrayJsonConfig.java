@@ -14,7 +14,6 @@ import tools.jackson.databind.type.MapType;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 
 /**
  * Renders an empty structure the way PHP's {@code json_encode} does:
@@ -53,13 +52,12 @@ import org.springframework.context.annotation.Profile;
  * PDO is configured {@code FETCH_ASSOC}, so no row arrives as an object either.
  *
  * <h2>Scope</h2>
- * <p>Registered only under {@code phase1-mysql}, for the same reason
- * {@link LegacyPhpNumberJsonConfig} is: on that profile the served surface is
- * the legacy contract, and PHP's rendering is a compatibility obligation rather
- * than a house style. The platform's own API keeps Jackson's defaults.
+ * <p>Scoped to the legacy wire format, for the same reason
+ * {@link LegacyPhpNumberJsonConfig} is: what this application serves at
+ * {@code /apis/**} is the legacy contract, and PHP's rendering is a
+ * compatibility obligation rather than a house style.
  */
 @Configuration
-@Profile("phase1-mysql")
 public class LegacyPhpEmptyArrayJsonConfig {
 
 	/**

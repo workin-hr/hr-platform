@@ -7,6 +7,7 @@
 | ADR ID | ADR-0013 |
 | Title | Phase 1 MySQL-Profile Application Bootstrap |
 | Status | Accepted |
+| Amended | **2026-09-08** — by ADR-0017: the profile split is removed and this configuration is the application's only persistence |
 | Date | 2026-08-17 (accepted 2026-08-17, with amendments — see `docs/bootstrap/decision-log.md` D-043) |
 | Owners | Solution Architect |
 | Deciders | Repository owner — recorded in `docs/bootstrap/decision-log.md` D-043 |
@@ -163,7 +164,7 @@ Replace what it did with two explicit, mutually exclusive, profile-gated
   gets created against a real, non-test MariaDB instance is explicitly
   **not decided by this ADR** and needs its own, separately-approved
   mechanism before `phase1-mysql` can run against anything beyond a test
-  container that applies `phase1_extensions.schema.sql` directly. This
+  container that applies `phase1_extensions.sql` directly. This
   does not block the login endpoint or this ADR's own scope, since every
   environment `phase1-mysql` runs in today (tests, the end-to-end proof
   this ADR requires) already applies that file outside the application.
@@ -297,7 +298,7 @@ equivalent.
 - **How `legacy_refresh_tokens` gets created against a real MariaDB instance
   is unresolved** — this ADR deliberately does not introduce Flyway
   ownership of any MariaDB schema. `phase1-mysql` is provably runnable only
-  against environments that apply `phase1_extensions.schema.sql` outside the
+  against environments that apply `phase1_extensions.sql` outside the
   application (currently: test containers). Running `phase1-mysql` against
   a real, persistent MariaDB instance needs a separately-approved schema-
   provisioning mechanism first.

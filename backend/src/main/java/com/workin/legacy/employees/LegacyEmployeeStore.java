@@ -18,6 +18,7 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
+import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetErrors;
 
 import com.workin.legacy.LegacyJdbcValues;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -277,6 +278,32 @@ public class LegacyEmployeeStore {
 	 * {@code 'rejected'} (NULL counting as {@code 'accepted'}), so a rejected
 	 * join request never blocks a real hire.
 	 */
+	/**
+	 * {@code employee_excel_employees_by_code()}: every employee of one
+	 * company, keyed by normalized employee code.
+	 *
+	 * <p>Rows whose code normalizes to empty are dropped rather than keyed on
+	 * {@code ""} -- PHP {@code continue}s past them, so a sheet row with a
+	 * blank code must not match them.
+	 *
+	 * <p>A later duplicate wins, as PHP's assignment does. The column has a
+	 * per-company unique index, so that is a tie that should not arise; it is
+	 * reproduced rather than guarded because a divergence here would only
+	 * surface on data the schema says cannot exist.
+	 */
+	public Map<String, Map<String, Object>> employeesByCode(long companyId) {
+		Map<String, Map<String, Object>> byCode = new LinkedHashMap<>();
+		for (Map<String, Object> row : this.jdbcTemplate.queryForList(
+				"SELECT * FROM employees WHERE company_id=?", companyId)) {
+			String code = LegacyEmployeeSpreadsheetErrors.normalizeEmployeeCode(
+					row.get("employee_code") == null ? "" : String.valueOf(row.get("employee_code")));
+			if (!code.isEmpty()) {
+				byCode.put(code, row);
+			}
+		}
+		return byCode;
+	}
+
 	public boolean phoneExistsGlobally(String phone, Long excludeEmployeeId) {
 		String digits = LegacyPhoneNumbers.digitsOnly(phone == null ? "" : phone.trim());
 		if (digits.isEmpty()) {
@@ -541,32 +568,6 @@ public class LegacyEmployeeStore {
 				amounts.get("risk_allowance"), amounts.get("incentives"), amounts.get("insurance_deduction"),
 				amounts.get("tax_deduction"), amounts.get("advances_deduction"), amounts.get("fund_deduction"),
 				amounts.get("penalty_deduction"), effectiveFrom);
-	}
-
-	/** {@code create.php}'s {@code SELECT id FROM leave_balance WHERE employee_id=? AND year=?}. */
-	public boolean leaveBalanceExists(long employeeId, long year) {
-		return count("SELECT COUNT(*) FROM leave_balance WHERE employee_id=? AND year=?", employeeId, year) > 0;
-	}
-
-	/** The update branch of {@code create.php}'s leave-balance upsert -- {@code used_days} untouched. */
-	public void updateLeaveBalance(
-			long employeeId, long year, Object totalDays, long fromMonth, long toMonth, Object monthlyCap) {
-		jdbcTemplate.update(
-				"""
-				UPDATE leave_balance SET total_days=?, period_from_month=?, period_to_month=?, monthly_cap_days=?
-				WHERE employee_id=? AND year=?""",
-				totalDays, fromMonth, toMonth, monthlyCap, employeeId, year);
-	}
-
-	/** The insert branch, which seeds {@code used_days} at 0. */
-	public void insertLeaveBalance(
-			long employeeId, long year, Object totalDays, long fromMonth, long toMonth, Object monthlyCap) {
-		jdbcTemplate.update(
-				"""
-				INSERT INTO leave_balance (
-					employee_id, year, total_days, used_days, period_from_month, period_to_month, monthly_cap_days
-				) VALUES (?, ?, ?, 0, ?, ?, ?)""",
-				employeeId, year, totalDays, fromMonth, toMonth, monthlyCap);
 	}
 
 	/** {@code create.php}'s shift-assignment INSERT, appended rather than replacing anything. */
@@ -920,7 +921,7 @@ public class LegacyEmployeeStore {
 	}
 
 	/**
-	 * The device PIN binding (D-158), cleared on <b>both</b> paths that remove
+	 * The device PIN binding (D-213), cleared on <b>both</b> paths that remove
 	 * an employee -- the cascade above and {@code delete.php}'s direct path,
 	 * which an employee with no related records takes instead.
 	 *

@@ -5,6 +5,10 @@
 .gh-token
 .env
 .env.*
+# Templates carry no values and are the documentation for what a real .env
+# needs; ignoring them means a fresh checkout has nothing to copy from.
+!.env.example
+!*.env.example
 *.log
 *.pem
 __pycache__/
@@ -26,8 +30,15 @@ __pycache__/
 .superpowers/
 
 # Legacy upload target: runtime and test artifacts, never source.
-backend/uploads/
-uploads/
+#
+# Anchored with a leading slash. Unanchored, `uploads/` matches a directory of
+# that name at any depth -- including the source package
+# `backend/src/main/java/com/workin/legacy/uploads/`, whose existing files are
+# tracked only because they predate this rule. A new file added there was
+# silently invisible to `git status`, which is how a class can be written,
+# compiled, tested and then not committed.
+/backend/uploads/
+/uploads/
 
 # Third-party agent skills installed by `npx skills` (see skills-lock.json).
 # Local tooling, not repository content.

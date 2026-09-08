@@ -24,23 +24,22 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.core.io.ByteArrayResource;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.LegacyMariaDb;
 
 /** Focused parity regressions for Wave 12.7 leave balances. */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@ActiveProfiles("phase1-mysql")
 class LegacyLeaveBalanceEndToEndTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	private static final long COMPANY = 21701L;
 	private static final long BRANCH_A = 21711L;
@@ -59,10 +58,7 @@ class LegacyLeaveBalanceEndToEndTest {
 	private JwtService jwtService;
 
 	static {
-		MARIADB.start();
 		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare leave-balance fixture", ex);
@@ -179,6 +175,67 @@ class LegacyLeaveBalanceEndToEndTest {
 				.isEqualTo(200);
 	}
 
+	/**
+	 * generate.php opens balances at the fixed entitlement, not at the
+	 * company's configured accrual.
+	 *
+	 * <p>Until hr-legacy 505004f it read monthly_leave_accrual and fell back to
+	 * 21.0. This seeds that setting to a conspicuous 30 and proves the value
+	 * does not reach the generated rows: at HEAD the only thing that decides
+	 * the annual figure is AppConfig::DEFAULT_ANNUAL_LEAVE_DAYS, whose value
+	 * this port pins with check_legacy_product_defaults_drift.py.
+	 *
+	 * <p>Under the old rule every assertion below would read 30.0.
+	 */
+	@Test
+	void generateOpensBalancesAtTheFixedEntitlementAndIgnoresTheAccrualSetting() throws Exception {
+		configureMonthlyLeaveAccrual("30");
+		int freshYear = YEAR + 1;
+
+		ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+				URI.create(restTemplate.getRootUri() + "/apis/api/leave_balances/generate.php"),
+				HttpMethod.POST, new HttpEntity<>(Map.of("year", freshYear), jsonHeaders()),
+				new org.springframework.core.ParameterizedTypeReference<Map<String, Object>>() { });
+		assertThat(response.getStatusCode().value())
+				.as("generate: %s", response.getBody()).isEqualTo(200);
+
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			ResultSet rs = st.executeQuery(
+					"SELECT DISTINCT total_days FROM leave_balance lb"
+					+ " JOIN employees e ON e.id = lb.employee_id"
+					+ " WHERE e.company_id = " + COMPANY + " AND lb.year = " + freshYear);
+			List<String> totals = new ArrayList<>();
+			while (rs.next()) {
+				totals.add(rs.getString(1));
+			}
+			assertThat(totals).as("every generated row opens at the product default")
+					.containsExactly("15.0");
+		}
+	}
+
+	private HttpHeaders jsonHeaders() {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setBearerAuth(tokenFor(ADMIN));
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		headers.set("Accept-Language", "en");
+		return headers;
+	}
+
+	/** The setting_definitions -> company_settings -> allowed-value chain the old lookup walked. */
+	private static void configureMonthlyLeaveAccrual(String value) throws Exception {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute("SET SESSION sql_mode = ''");
+			st.execute("INSERT INTO setting_definitions (id, setting_key)"
+					+ " VALUES (99001, 'monthly_leave_accrual')");
+			st.execute("INSERT INTO setting_allowed_values (id, setting_definition_id, value, sort_order)"
+					+ " VALUES (99002, 99001, '" + value + "', 1)");
+			st.execute("INSERT INTO company_settings (id, company_id, setting_definition_id)"
+					+ " VALUES (99003, " + COMPANY + ", 99001)");
+			st.execute("INSERT INTO company_setting_values (id, company_setting_id, setting_allowed_value_id)"
+					+ " VALUES (99004, 99003, 99002)");
+		}
+	}
+
 	private ResponseEntity<Map<String, Object>> postMultipart(MultiValueMap<String, Object> parts) {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setBearerAuth(tokenFor(ADMIN));
@@ -253,27 +310,8 @@ class LegacyLeaveBalanceEndToEndTest {
 				+ " 'accepted', '+2010" + id + "', '" + name + "', 'Test', '2025-01-20 09:00:00')");
 	}
 
-	private static void applySchema(String resourceName) throws Exception {
-		String schema = readResource(resourceName);
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-		}
-	}
-
 	private static Connection connect() throws Exception {
 		return DriverManager.getConnection(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
 	}
 
-	private static String readResource(String resourceName) throws Exception {
-		try (InputStream stream = LegacyLeaveBalanceEndToEndTest.class.getClassLoader().getResourceAsStream(resourceName)) {
-			if (stream == null) {
-				throw new IllegalStateException("missing test resource " + resourceName);
-			}
-			return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-		}
-	}
 }

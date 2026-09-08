@@ -1,6 +1,6 @@
 # ZKTeco Terminal Setup — Pointing A Device At The Receiver
 
-Operator steps for the pilot (D-158, Slice A). The receiver's design and
+Operator steps for the pilot (D-213, Slice A). The receiver's design and
 protocol are in
 `../superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`; the
 routes are in `../api/device-endpoints.md`. Nothing here is hardware-verified
@@ -8,7 +8,7 @@ yet — the first real terminal is what fills in §4 below.
 
 ## 0. Before this is enabled for a real customer
 
-Three gates, all set by D-159, none of which the pilot satisfies by itself:
+Three gates, all set by D-214, none of which the pilot satisfies by itself:
 
 - The **§4 hardware checklist below has been executed on a real customer
   terminal** of that model, and its answers recorded in the two
@@ -19,7 +19,7 @@ Three gates, all set by D-159, none of which the pilot satisfies by itself:
   production database (**R-023**) — solved deliberately, not discovered
   during the change.
 - **Device ownership is established by platform staff**, not claimed by a
-  tenant admin from a serial number (**R-041**), and an audited
+  tenant admin from a serial number (**R-072**), and an audited
   unclaim/transfer/replace path exists. The tenant claim flow in §3 is a
   pilot arrangement.
 
@@ -32,7 +32,7 @@ Three gates, all set by D-159, none of which the pilot satisfies by itself:
   `/iclock/**` to the application. Per-IP rate limiting belongs at this edge
   for the pilot.
 - The five Phase-1 tables from
-  `backend/src/test/resources/legacy/phase1_extensions.schema.sql` exist on
+  `backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql` exist on
   the target MariaDB — the same provisioning gate `legacy_refresh_tokens`
   sits behind (ADR-0013 open question; specification §12 Q7).
 
@@ -113,4 +113,4 @@ documentation evidence into hardware evidence.
 | Punch times off by whole hours | Wrong `device_time_zone` or wrong device clock | Fix the zone on the device row; set the device clock |
 | Receiver logs "uploaded table FINGERTMP ... discarded" | Firmware ignored `TransFlag` | Expected; nothing stored. Record the firmware |
 | `last_seen_at` stale | Device offline or power-cycled | Site check; the terminal is buffering |
-| Claiming answers `409`, and the device is not in your list | The serial is registered to another company — either a genuine mix-up or a squatted claim (**R-041**) | There is **no unclaim or transfer path**: deactivating stops ingestion, but correcting the owner needs a database change. Escalate; do not re-issue the serial |
+| Claiming answers `409`, and the device is not in your list | The serial is registered to another company — either a genuine mix-up or a squatted claim (**R-072**) | There is **no unclaim or transfer path**: deactivating stops ingestion, but correcting the owner needs a database change. Escalate; do not re-issue the serial |

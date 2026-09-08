@@ -14,3 +14,13 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+  # The end-to-end suite's only dependency is Playwright, but it drives a real
+  # browser against a real deployment -- a stale browser engine is exactly the
+  # kind of thing that makes a green run mean less than it looks.
+  - package-ecosystem: npm
+    directory: "/deploy/e2e"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies

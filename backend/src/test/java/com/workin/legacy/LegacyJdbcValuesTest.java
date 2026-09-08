@@ -12,7 +12,6 @@ import java.util.Map;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.MariaDBContainer;
 
 /**
  * {@link LegacyJdbcValues} against a real MariaDB, under the Phase-1 SQL mode.
@@ -23,7 +22,8 @@ import org.testcontainers.containers.MariaDBContainer;
  */
 class LegacyJdbcValuesTest {
 
-	private static final MariaDBContainer<?> DB = new MariaDBContainer<>("mariadb:11.8");
+	/** An empty database of this class's own: it creates its own tables. */
+	private static final LegacyMariaDb.Handle DB = LegacyMariaDb.emptyDatabase();
 
 	private static Map<String, Object> normalRow;
 	private static Map<String, Object> nullRow;
@@ -32,7 +32,6 @@ class LegacyJdbcValuesTest {
 
 	@BeforeAll
 	static void seedAndRead() throws Exception {
-		DB.start();
 		try (Connection c = connect(); Statement st = c.createStatement()) {
 			st.execute("SET SESSION sql_mode=''");
 			st.execute("""

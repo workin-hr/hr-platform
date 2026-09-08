@@ -1,0 +1,44 @@
+# The TLS terminator, added to the integration stack for an E2E run:
+#
+#   docker compose -f compose.integration.yaml -f e2e/compose.proxy.yaml \
+#     --env-file .env.integration up -d
+#
+# Same project name, so it joins the integration network and reaches `app`
+# directly. Nothing here changes the application; it only puts in front of it
+# the proxy a real deployment has.
+#
+# EVERY compose invocation that includes this file needs `E2E_TLS_DIR` in the
+# environment -- interpolation happens across the merged files, so even
+# `docker compose ... build app` fails without it. `run.sh` sets it; if you are
+# driving compose by hand, export it first. It is `:?` rather than defaulted on
+# purpose: a default would silently start nginx against an empty directory.
+
+name: workin-integration
+
+services:
+  proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+    volumes:
+      - ./e2e/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Outside the repository, and not merely git-ignored: a private key has
+      # no business in a source tree. validate_phase0's secret scan walks the
+      # working tree rather than the index, which is the correct behaviour --
+      # it is there to catch a key BEFORE somebody commits it -- so the answer
+      # is to put the key somewhere else, not to teach the scan to look away.
+      # run.sh creates the directory and exports the variable.
+      - ${E2E_TLS_DIR:?set by deploy/e2e/run.sh}:/etc/nginx/tls:ro
+    ports:
+      - "127.0.0.1:${E2E_HTTPS_PORT:-8443}:8443"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget -q -O /dev/null --no-check-certificate
+          https://127.0.0.1:8443/actuator/health || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 30

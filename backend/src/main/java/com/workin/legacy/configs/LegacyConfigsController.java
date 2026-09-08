@@ -98,6 +98,14 @@ public class LegacyConfigsController {
 
 		Map<String, Object> configs = new LinkedHashMap<>(configsStore.all());
 		configs.put("server_time", clock.now().format(PHP_DATETIME));
+		// Between the two, not after them: PHP assigns server_time, server_unix,
+		// server_timezone in that order, and the response is a JSON object whose
+		// key order is part of the bytes a client receives.
+		//
+		// time() -- real epoch seconds, derived from the same instant
+		// server_time renders rather than from a second clock read that could
+		// land on the next second.
+		configs.put("server_unix", clock.now().toEpochSecond(clock.offset()));
 		configs.put("server_timezone", LegacyRuntimeOffset.zoneId(clock.offset()));
 		return LegacyApiResponse.ok(message(request), configs);
 	}

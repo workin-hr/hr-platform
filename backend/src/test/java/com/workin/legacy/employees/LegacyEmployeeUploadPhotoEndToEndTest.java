@@ -28,16 +28,15 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.LegacyMariaDb;
 
 /**
  * {@code employees/upload_photo.php} over real HTTP against real MariaDB, with
@@ -51,10 +50,10 @@ import com.workin.backend.identity.JwtService;
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@ActiveProfiles("phase1-mysql")
 class LegacyEmployeeUploadPhotoEndToEndTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	private static final String UPLOAD = "/apis/api/employees/upload_photo.php";
 
@@ -77,10 +76,7 @@ class LegacyEmployeeUploadPhotoEndToEndTest {
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not create the test upload directory", ex);
 		}
-		MARIADB.start();
 		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("legacy/phase1_extensions.schema.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the Wave 12.4 upload fixture", ex);
@@ -375,17 +371,6 @@ class LegacyEmployeeUploadPhotoEndToEndTest {
 		}
 	}
 
-	private static void applySchema(String resourceName) throws Exception {
-		String schema = readResource(resourceName);
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-		}
-	}
-
 	private static void seed() throws Exception {
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
 			st.execute("SET SESSION sql_mode = ''");
@@ -425,16 +410,6 @@ class LegacyEmployeeUploadPhotoEndToEndTest {
 
 	private static Connection connect() throws Exception {
 		return DriverManager.getConnection(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-	}
-
-	private static String readResource(String name) throws Exception {
-		try (InputStream stream =
-				LegacyEmployeeUploadPhotoEndToEndTest.class.getClassLoader().getResourceAsStream(name)) {
-			if (stream == null) {
-				throw new IllegalStateException("missing test resource " + name);
-			}
-			return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-		}
 	}
 
 }

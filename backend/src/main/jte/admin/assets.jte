@@ -1,0 +1,253 @@
+@import java.util.List
+@import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.CompanyAsset
+@import com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption
+@import com.workin.backend.platformadmin.web.DashboardListFilters
+@import com.workin.backend.platformadmin.web.DashboardPage
+@import com.workin.backend.platformadmin.web.DashboardSession
+@param String csrfParameterName
+@param String csrfToken
+@param String currentAdminPhone
+@param DashboardPage<CompanyAsset> result
+@param DashboardListFilters filters
+@param List<EmployeeOption> employeeOptions
+@param String returned
+@param String dateFrom
+@param String dateTo
+@param boolean showCompanyColumn
+@param boolean canManage
+@param boolean actionsEnabled
+@param String errorKey = null
+@param String currentPage
+@param String lang
+@param DashboardSession session
+@param Function<String, String> t
+@param Function<String, Boolean> available
+!{boolean canWrite = canManage && actionsEnabled;}
+!{int colCount = showCompanyColumn ? 9 : 8;}
+<%-- dashboard/pages/assets/page.php. --%>
+@template.admin.layout(
+	title = t.apply("nav_assets"),
+	csrfParameterName = csrfParameterName,
+	csrfToken = csrfToken,
+	currentAdminPhone = currentAdminPhone,
+	currentPage = currentPage,
+	lang = lang,
+	session = session,
+	t = t,
+	available = available,
+	pageStyles = java.util.List.of("hr-pages.css", "leave-balance-form.css"),
+	body = @`
+		@if(errorKey != null)
+			<div class="flash flash-error">${t.apply(errorKey)}</div>
+		@endif
+		@if(canManage && !actionsEnabled)
+			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
+		@endif
+
+		<div class="toolbar page-toolbar page-toolbar-filters">
+			<form method="GET" class="toolbar-form toolbar-form--labeled">
+				@if(!session.isScopedToOneCompany())
+					<div class="filter-field">
+						<label class="filter-field__label" for="as_company">${t.apply("company")}</label>
+						<input type="number" id="as_company" name="company_id" min="0"
+						       placeholder="${t.apply("filter_all")}"
+						       value="${filters.companyId() > 0 ? String.valueOf(filters.companyId()) : ""}">
+					</div>
+				@endif
+				<div class="filter-field">
+					<label class="filter-field__label" for="as_search">${t.apply("search")}</label>
+					<input type="search" id="as_search" name="search"
+					       placeholder="${t.apply("assets_search_placeholder")}"
+					       value="${filters.search()}">
+				</div>
+				<div class="filter-field">
+					<label class="filter-field__label" for="as_returned">${t.apply("is_returned")}</label>
+					<select id="as_returned" name="returned">
+						<option value="all" selected="${"all".equals(returned)}">${t.apply("filter_all")}</option>
+						<option value="0" selected="${"0".equals(returned)}">${t.apply("no")}</option>
+						<option value="1" selected="${"1".equals(returned)}">${t.apply("yes")}</option>
+					</select>
+				</div>
+				<div class="filter-field">
+					<label class="filter-field__label" for="as_from">${t.apply("from_date")}</label>
+					<input type="date" id="as_from" name="date_from" value="${dateFrom}">
+				</div>
+				<div class="filter-field">
+					<label class="filter-field__label" for="as_to">${t.apply("to_date")}</label>
+					<input type="date" id="as_to" name="date_to" value="${dateTo}">
+				</div>
+				<button type="submit" class="btn btn-blue">${t.apply("search")}</button>
+			</form>
+		</div>
+
+
+		<div class="data-table-card">
+			<div class="data-table-head">
+				<h2 class="data-table-title">${t.apply("nav_assets")} (${result.total()})</h2>
+				<div class="data-table-head__actions">
+					@if(canWrite)
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('assetModal')">+ ${t.apply("add_asset")}</button>
+					@endif
+				</div>
+			</div>
+			<div class="table-wrap">
+			<table class="tbl">
+				<thead>
+					<tr>
+						<th>#</th>
+						<th>${t.apply("emp_code")}</th>
+						<th>${t.apply("employee_name")}</th>
+						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
+						<th>${t.apply("asset_text")}</th>
+						<th>${t.apply("asset_date")}</th>
+						<th>${t.apply("asset_end_date")}</th>
+						<th>${t.apply("is_returned")}</th>
+						<th>${t.apply("actions")}</th>
+					</tr>
+				</thead>
+				<tbody>
+					@for(int index = 0; index < result.data().size(); index++)
+						!{CompanyAsset row = result.data().get(index);}
+						<tr>
+							<td>${result.from() + index}</td>
+							<td class="text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
+							<td class="bold">${row.employeeName()}</td>
+							@if(showCompanyColumn)
+								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
+							@endif
+							<td class="bold">${row.assetText()}</td>
+							<td>${row.assetDate() == null ? "—" : row.assetDate()}</td>
+							<td>${row.assetEndDate() == null ? "—" : row.assetEndDate()}</td>
+							<td>
+								<span class="badge ${row.returned() ? "badge-green" : "badge-gray"}">
+									${t.apply(row.returned() ? "yes" : "no")}</span>
+							</td>
+							<td class="col-actions">
+								<%-- The dash belongs beside the row, not inside a popover the
+								     reader has to open to be told there is nothing in it. --%>
+								@if(canWrite)
+									<%-- Once the asset is back the row is frozen against editing:
+									     there is nothing left to correct about the loan. --%>
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										@if(!row.returned())
+											<%-- D-210: saveEdit existed with no way in, so an asset
+											     could be marked returned or deleted but never
+											     corrected. Behind the same returned guard. --%>
+											<button type="button" role="menuitem" class="row-actions__item"
+													data-dialog="asset-edit"
+													data-dialog-id="${row.id()}"
+													data-dialog-subject="${row.employeeName()}"
+													data-dialog-employee_id="${row.employeeId()}"
+													data-dialog-asset_text="${row.assetText()}"
+													data-dialog-asset_date="${row.assetDate() == null ? "" : row.assetDate()}"
+													data-dialog-asset_end_date="${row.assetEndDate() == null ? "" : row.assetEndDate()}">${t.apply("edit")}</button>
+											<form method="POST" class="row-actions__form" role="none">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="mark_returned">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item">${t.apply("is_returned")}</button>
+											</form>
+										@endif
+										<form method="POST" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete_asset">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+									`)
+								@else
+									<span class="text-muted">—</span>
+								@endif
+							</td>
+						</tr>
+					@endfor
+					@if(result.isEmpty())
+						<tr><td colspan="${colCount}" class="data-table-empty">${t.apply("no_data")}</td></tr>
+					@endif
+				</tbody>
+			</table>
+			</div>
+			!{java.util.SequencedMap<String, String> carry =
+					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+			!{carry.put("returned", returned);}
+			@template.admin.pager(basePath = "/admin/assets", result = result,
+					carry = carry, t = t)
+		@if(canWrite)
+			@template.admin.rowDialog(id = "asset-edit", action = "edit_asset",
+					title = t.apply("edit"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
+					fields = @`
+						<div class="form-row">
+							<label>${t.apply("employee_name")}
+								<select name="employee_id" required data-dialog-field="employee_id">
+									@for(EmployeeOption option : employeeOptions)
+										<option value="${option.id()}">${option.companyName() == null
+											? option.code() + " — " + option.name()
+											: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
+									@endfor
+								</select></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("asset")}
+								<input type="text" name="asset_text" required maxlength="500"
+								       data-dialog-field="asset_text"></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("date")}
+								<input type="date" name="asset_date" data-dialog-field="asset_date"></label>
+							<label>${t.apply("to_date")}
+								<input type="date" name="asset_end_date"
+								       data-dialog-field="asset_end_date"></label>
+						</div>
+					`)
+
+			<%-- Legacy opens this form in a modal, behind the "+" button above.
+			     Rendered inline it sat open over the table on every visit, whether
+			     or not anyone was adding anything. Same form, same fields, same
+			     POST; .modal-bg is position:fixed, so it lives at the end of the
+			     document and out of the reading order. --%>
+			<div class="modal-bg" id="assetModal">
+				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="assetModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="assetModal-title">${t.apply("add_asset")}</h2>
+					<form method="POST">
+					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+					<input type="hidden" name="action" value="add_asset">
+					<div class="org-form-grid">
+					<div class="form-row">
+						<label for="employee_id">${t.apply("employee_name")}</label>
+						<select id="employee_id" name="employee_id" required>
+							<option value="0">—</option>
+							@for(EmployeeOption option : employeeOptions)
+								<option value="${option.id()}">${option.companyName() == null
+									? option.code() + " — " + option.name()
+									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
+							@endfor
+						</select>
+					</div>
+					<div class="form-row">
+						<label for="asset_text">${t.apply("asset")}</label>
+						<input type="text" id="asset_text" name="asset_text" required maxlength="500">
+					</div>
+					<div class="form-row">
+						<label for="asset_date">${t.apply("asset_date")}</label>
+						<input type="date" id="asset_date" name="asset_date">
+					</div>
+					<div class="form-row">
+						<label for="asset_end_date">${t.apply("asset_end_date")}</label>
+						<input type="date" id="asset_end_date" name="asset_end_date">
+					</div>
+					</div>
+					<div class="form-footer">
+						<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
+					</div>
+				</form>
+				</div>
+			</div>
+		@endif
+		</div>
+	`)

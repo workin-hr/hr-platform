@@ -79,6 +79,53 @@ public final class LegacyEmployeeSpreadsheetColumns {
 		return COLUMNS;
 	}
 
+	/**
+	 * {@code employee_excel_columns_meta(true)}: the same 28 columns as
+	 * {@link #columns()}, re-labelled for the bulk-update sheet.
+	 *
+	 * <p>Only {@code employee_code} stays required, and it gains a different
+	 * hint -- on the update sheet the code has to already exist rather than be
+	 * free. Every other column becomes optional and its label is rewritten,
+	 * because on this sheet an empty cell means "leave this field alone", and a
+	 * column still captioned "required" would read as "you must fill this in".
+	 *
+	 * <p>The rewrite is a string substitution on the label, exactly as PHP
+	 * does it, rather than a second hand-maintained set of captions: the two
+	 * sheets would drift apart on the first caption someone edited.
+	 */
+	public static List<Column> updateColumns() {
+		List<Column> updated = new ArrayList<>(COLUMNS.size());
+		for (Column column : COLUMNS) {
+			if (EMPLOYEE_CODE_KEY.equals(column.key())) {
+				updated.add(new Column(column.key(), true,
+						"كود الموظف (اجباري)\nلازم يكون موجود في النظام",
+						"Employee code (required)\nMust already exist in the system",
+						column.groupAr(), column.groupEn(), column.aliases()));
+				continue;
+			}
+			updated.add(new Column(column.key(), false,
+					updateOptionalLabelAr(column.labelAr()),
+					updateOptionalLabelEn(column.labelEn()),
+					column.groupAr(), column.groupEn(), column.aliases()));
+		}
+		return List.copyOf(updated);
+	}
+
+	private static final String EMPLOYEE_CODE_KEY = "employee_code";
+
+	/** {@code preg_replace('/\s*\(اجباري\)/u', ' (اختياري)', $label)}, then the suffix. */
+	static String updateOptionalLabelAr(String label) {
+		String rewritten = label == null ? "" : label.replaceAll("\\s*\\(اجباري\\)", " (اختياري)");
+		return rewritten.contains("فاضي") ? rewritten : rewritten + "\nفاضي = بدون تعديل";
+	}
+
+	/** The same, case-insensitively on {@code (required)}, with the English suffix. */
+	static String updateOptionalLabelEn(String label) {
+		String rewritten = label == null ? "" : label.replaceAll("(?i)\\s*\\(required\\)", " (optional)");
+		return rewritten.toLowerCase(java.util.Locale.ROOT).contains("leave empty")
+				? rewritten : rewritten + "\nLeave empty to skip";
+	}
+
 	@SuppressWarnings("unchecked")
 	private static List<Column> load() {
 		ClassPathResource resource = new ClassPathResource("legacy/spreadsheet/employee_columns.json");
@@ -255,6 +302,19 @@ public final class LegacyEmployeeSpreadsheetColumns {
 	 */
 	public static List<String> templateHeaders(
 			String shiftName, String branchName, String departmentName, String jobTitleName, String today) {
+		return templateHeaders(shiftName, branchName, departmentName, jobTitleName, today, false);
+	}
+
+	/**
+	 * @param forUpdate {@code ?purpose=update} -- the bulk-edit template, whose
+	 *        captions say "optional / leave empty to skip" rather than
+	 *        "required". Only the labels differ: the column set, its order and
+	 *        the examples are the same sheet, because the update flow reads a
+	 *        file produced by this same template.
+	 */
+	public static List<String> templateHeaders(
+			String shiftName, String branchName, String departmentName, String jobTitleName,
+			String today, boolean forUpdate) {
 		Map<String, String> withLookups = new LinkedHashMap<>(EXAMPLES);
 		withLookups.put("shift_name", orDefault(shiftName, "صباحي"));
 		withLookups.put("branch_name", orDefault(branchName, "الفرع الرئيسي"));
@@ -262,11 +322,19 @@ public final class LegacyEmployeeSpreadsheetColumns {
 		withLookups.put("job_title_name", orDefault(jobTitleName, "موظف"));
 		withLookups.put("hire_date", today);
 
-		List<String> headers = new ArrayList<>(COLUMNS.size());
-		for (Column column : COLUMNS) {
+		List<Column> columns = forUpdate ? updateColumns() : COLUMNS;
+		List<String> headers = new ArrayList<>(columns.size());
+		for (Column column : columns) {
 			String label = column.labelAr();
 			String example = LegacyValues.phpTrim(withLookups.getOrDefault(column.key(), ""));
-			headers.add(example.isEmpty() ? label : label + "\nمثال: " + example);
+			// `$example !== '' && (!$forUpdate || $col['key'] === EMPLOYEE_CODE)`.
+			// The update sheet drops every example but the code's: a filled-in
+			// example cell there would be read as an edit, and an operator who
+			// left one in place would silently overwrite a real name with
+			// "محمد".
+			boolean showExample = !example.isEmpty()
+					&& (!forUpdate || EMPLOYEE_CODE_KEY.equals(column.key()));
+			headers.add(showExample ? label + "\nمثال: " + example : label);
 		}
 		return List.copyOf(headers);
 	}

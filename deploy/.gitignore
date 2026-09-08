@@ -1,0 +1,10 @@
+# The filled-in environment files. The `env.*.example` templates ARE tracked;
+# the copies made from them hold real secrets and must never be.
+.env
+.env.*
+
+# Any raw database dump that finds its way here. deploy/seed/dev-seed.sql is
+# the one SQL file in this tree that is meant to be committed, and it is
+# allowed back explicitly in deploy/seed/.gitignore.
+*.sql
+*.sql.gz

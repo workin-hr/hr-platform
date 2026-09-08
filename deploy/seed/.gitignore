@@ -1,0 +1,13 @@
+# deploy/.gitignore excludes *.sql from this whole tree, because the failure
+# mode worth preventing is a raw production dump being committed by accident.
+#
+# These two are the deliberate exceptions:
+#
+#   sanitise.sql   the transform, which is the reviewable artifact
+#   dev-seed.sql   its output, which has passed
+#                  scripts/check_dev_seed_sanitised.py
+#
+# Nothing else. A dump dropped in this directory to run the build script stays
+# untracked, which is the point.
+!sanitise.sql
+!dev-seed.sql

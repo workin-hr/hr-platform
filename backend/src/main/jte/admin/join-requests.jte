@@ -1,0 +1,134 @@
+@import java.util.List
+@import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.JoinRequest
+@import com.workin.backend.platformadmin.web.DashboardListFilters
+@import com.workin.backend.platformadmin.web.DashboardSession
+@param String csrfParameterName
+@param String csrfToken
+@param String currentAdminPhone
+@param List<JoinRequest> items
+@param DashboardListFilters filters
+@param String status
+@param List<String> statuses
+@param boolean canManage
+@param boolean actionsEnabled
+@param String errorKey = null
+@param String currentPage
+@param String lang
+@param DashboardSession session
+@param Function<String, String> t
+@param Function<String, Boolean> available
+!{boolean canWrite = canManage && actionsEnabled;}
+<%-- dashboard/pages/join_requests/page.php. A join request is an employees
+     row that has not been admitted yet, so this page's permission and its
+     stylesheet are the employees page's. --%>
+@template.admin.layout(
+	title = t.apply("nav_join_requests"),
+	csrfParameterName = csrfParameterName,
+	csrfToken = csrfToken,
+	currentAdminPhone = currentAdminPhone,
+	currentPage = currentPage,
+	lang = lang,
+	session = session,
+	t = t,
+	available = available,
+	pageStyles = java.util.List.of("hr-pages.css"),
+	body = @`
+	@if(errorKey != null)
+		<div class="flash flash-error">${t.apply(errorKey)}</div>
+	@endif
+
+	<div class="page-toolbar page-toolbar-filters">
+		<form method="GET" class="toolbar-form toolbar-form--labeled">
+			<div class="filter-field">
+				<label class="filter-field__label" for="join-status">${t.apply("status")}</label>
+				<%-- "rejected" is offered and is always empty: rejecting deletes
+				     the employee row rather than setting the status, here and in
+				     the API alike. Legacy offers it, so the port does. --%>
+				<select id="join-status" name="status" onchange="this.form.submit()">
+					@for(String option : statuses)
+						<option value="${option}" selected="${status.equals(option)}">
+							${t.apply("pending".equals(option) ? "status_pending"
+								: "accepted".equals(option) ? "status_approved"
+								: "rejected".equals(option) ? "status_rejected" : "filter_all")}
+						</option>
+					@endfor
+				</select>
+			</div>
+		</form>
+	</div>
+
+	<div class="data-table-card">
+		<div class="data-table-head">
+			<h2 class="data-table-title">${t.apply("nav_join_requests")} (${items.size()})</h2>
+		</div>
+		<div class="table-wrap">
+		<table class="tbl">
+			<thead>
+				<tr>
+					<th>#</th>
+					<th>${t.apply("employee_name")}</th>
+					<th>${t.apply("phone")}</th>
+					<th>${t.apply("join_request_status")}</th>
+					<th>${t.apply("request_date")}</th>
+					<th>${t.apply("actions")}</th>
+				</tr>
+			</thead>
+			<tbody>
+			@if(items.isEmpty())
+				<tr><td colspan="6" class="text-muted">${t.apply("join_requests_empty_sub")}</td></tr>
+			@else
+				@for(int i = 0; i < items.size(); i++)
+				!{JoinRequest row = items.get(i);}
+				<tr>
+					<td>${i + 1}</td>
+					<td class="bold">${row.label()}</td>
+					<td>${row.phone() == null || row.phone().isBlank() ? "—" : row.phone()}</td>
+					<td>
+						<span class="badge ${"approved".equals(row.badge()) ? "badge-green"
+							: "rejected".equals(row.badge()) ? "badge-red" : "badge-blue"}">
+							${t.apply("approved".equals(row.badge()) ? "status_approved"
+								: "rejected".equals(row.badge()) ? "status_rejected" : "status_pending")}
+						</span>
+					</td>
+					<td>${row.createdAt() == null ? "—" : row.createdAt().toString().replace("T", " ")}</td>
+					<td class="col-actions">
+						<%-- The dash belongs beside the row, not inside a popover the
+						     reader has to open to be told there is nothing in it. --%>
+						@if((row.pending() && canWrite) || row.accepted())
+							<%-- Rejecting deletes the employee row, so the confirm
+							     is not decoration. --%>
+							@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+								@if(row.pending() && canWrite)
+									<form method="POST" class="row-actions__form" role="none" action="/admin/join_requests">
+										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+										<input type="hidden" name="action" value="accept_join">
+										<input type="hidden" name="id" value="${row.id()}">
+										<input type="hidden" name="redirect_status" value="${status}">
+										<button type="submit" role="menuitem" class="row-actions__item row-actions__item--success">${t.apply("approve")}</button>
+									</form>
+									<form method="POST" class="row-actions__form" role="none" action="/admin/join_requests"
+									      onsubmit="return confirm('${t.apply("confirm_action")}')">
+										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+										<input type="hidden" name="action" value="reject_join">
+										<input type="hidden" name="id" value="${row.id()}">
+										<input type="hidden" name="redirect_status" value="${status}">
+										<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("reject")}</button>
+									</form>
+								@else
+									<a href="/admin/employees?action=edit&id=${row.id()}"
+									   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
+								@endif
+							`)
+						@else
+							<span class="text-muted">—</span>
+						@endif
+					</td>
+				</tr>
+				@endfor
+			@endif
+			</tbody>
+		</table>
+		</div>
+	</div>
+`)

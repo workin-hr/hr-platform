@@ -8,6 +8,7 @@ import java.util.Map;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import com.workin.legacy.payroll.LegacyPayrollFiscalSettings;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.attendance.location.LegacyAttendanceLocation;
 import com.workin.legacy.auth.LegacyRequestContext;
@@ -16,6 +17,7 @@ import com.workin.legacy.auth.LegacyRequestGuard;
 import com.workin.legacy.auth.otp.LegacyOtpAuthStore;
 import com.workin.legacy.auth.otp.LegacyOtpService;
 import com.workin.legacy.authorization.LegacyHrPermissionRows;
+import com.workin.legacy.employees.LegacyEmployee;
 import com.workin.legacy.employees.LegacyEmployeeStore;
 import com.workin.legacy.notifications.LegacyNotifications;
 import com.workin.legacy.phone.LegacyPhoneNumbers;
@@ -44,6 +46,8 @@ public class LegacyProfileService {
 	private final LegacyEmployeeStore employeeStore;
 	private final LegacyHrPermissionRows permissionRows;
 	private final LegacyAttendanceLocation attendanceLocation;
+	/** month_start_day / month_end_day on the returned employee row. */
+	private final LegacyPayrollFiscalSettings fiscalSettings;
 	private final LegacyCompanyDelete companyDelete;
 	private final LegacyNotifications notifications;
 	private final PasswordEncoder passwordEncoder;
@@ -61,7 +65,8 @@ public class LegacyProfileService {
 			PasswordEncoder passwordEncoder, LegacyMessages messages,
 			LegacyPhoneNumbers phoneNumbers, LegacyOtpService otpService,
 			LegacyOtpAuthStore otpAuthStore, LegacyRequestGuard requestGuard,
-			LegacyRefreshTokenService refreshTokens) {
+			LegacyRefreshTokenService refreshTokens,
+			LegacyPayrollFiscalSettings fiscalSettings) {
 		this.store = store;
 		this.employeeStore = employeeStore;
 		this.permissionRows = permissionRows;
@@ -75,6 +80,7 @@ public class LegacyProfileService {
 		this.otpAuthStore = otpAuthStore;
 		this.requestGuard = requestGuard;
 		this.refreshTokens = refreshTokens;
+		this.fiscalSettings = fiscalSettings;
 	}
 
 	// ---------------- profile/employee.php ----------------
@@ -190,6 +196,7 @@ public class LegacyProfileService {
 		permissionRows.attach(employee);
 		employeeStore.attachLatestSalaryContract(employee);
 		attendanceLocation.attachBranchLocationConfiguredFlag(employee, companyId);
+		fiscalSettings.attachCompanyFiscalMonth(employee, companyId);
 		return employee;
 	}
 
@@ -269,10 +276,26 @@ public class LegacyProfileService {
 	// ---------------- profile/logout.php ----------------
 
 	/**
-	 * {@code logout.php}, which does considerably more than log out: for an
-	 * employee-type session it <b>deactivates the account</b>, notifies the
-	 * company, and drops every push token the employee owns. Re-joining needs
-	 * the company code again.
+	 * {@code logout.php}, which does considerably more than log out: for a
+	 * <em>regular employee</em> leaving the <em>mobile app</em> it
+	 * <b>deactivates the account</b>, notifies the company, and drops every
+	 * push token the employee owns. Re-joining needs the company code again.
+	 *
+	 * <h2>Three conditions, not one</h2>
+	 * <p>The deactivation used to hang on the session type alone. It now needs
+	 * all of:
+	 * <ul>
+	 * <li>an employee-app session -- {@code employee}, or any type that is not
+	 *     {@code company} but carries an employee id;</li>
+	 * <li>the {@code EMPLOYEE} role, so an HR, manager or admin session is
+	 *     never deactivated by its own logout;</li>
+	 * <li>a mobile {@code platform}, or none at all -- an absent field is
+	 *     still the mobile case, because the older clients that predate the
+	 *     field are the mobile app.</li>
+	 * </ul>
+	 * <p>A desktop client that names its platform is therefore left active,
+	 * which is the point: {@code platform=desktop} is how the HR desktop app
+	 * logs out without locking its own user out of the account.
 	 *
 	 * <p>The notification is sent only when the row was active <em>before</em>
 	 * the update, so a repeated logout notifies once. The name falls back from
@@ -296,14 +319,25 @@ public class LegacyProfileService {
 			store.deletePushToken(LegacyValues.toPhpString(token), context.employeeId());
 		}
 
-		if (!"employee".equals(context.authType()) || context.employeeId() <= 0 || context.companyId() <= 0) {
+		Object rawPlatform = body == null ? null : body.get("platform");
+		String platform = LegacyValues.mbStrToLower(LegacyValues.phpTrim(
+				rawPlatform == null ? "" : LegacyValues.toPhpString(rawPlatform)));
+
+		boolean employeeAppSession = "employee".equals(context.authType())
+				|| (!"company".equals(context.authType()) && context.employeeId() > 0);
+		boolean regularEmployee = context.role() == LegacyEmployee.Role.EMPLOYEE;
+		boolean mobileClient = MOBILE_PLATFORMS.contains(platform);
+
+		if (!employeeAppSession || !regularEmployee
+				|| context.employeeId() <= 0 || context.companyId() <= 0
+				|| !(mobileClient || platform.isEmpty())) {
 			return;
 		}
 
 		Map<String, Object> employee = store.employeeForLogout(context.employeeId(), context.companyId());
 		boolean wasActive = employee != null && LegacyValues.toPhpLong(employee.get("is_active")) == 1;
 
-		store.deactivate(context.employeeId(), context.companyId());
+		store.deactivateAndRevokeSessions(context.employeeId(), context.companyId());
 
 		if (wasActive) {
 			notifications.toCompany(context.companyId(), context.employeeId(), EMPLOYEE_LEFT_COMPANY,
@@ -319,6 +353,10 @@ public class LegacyProfileService {
 		// surface for the same D-111 reason as the two password paths.
 		refreshTokens.revokeAllForEmployee(context.employeeId());
 	}
+
+	/** {@code in_array($platform, ['mobile', 'android', 'ios'], true)}. */
+	private static final java.util.Set<String> MOBILE_PLATFORMS =
+			java.util.Set.of("mobile", "android", "ios");
 
 	private static String leaverName(Map<String, Object> employee, long employeeId) {
 		String name = LegacyValues.phpTrim(LegacyValues.toPhpString(employee.get("employee_name")));

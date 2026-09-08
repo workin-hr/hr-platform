@@ -14,7 +14,7 @@ ADR-0008, ADR-0009) per `docs/bootstrap/decision-log.md` D-016 through
 D-025, and ADR-0010 (authorization model, all six dimensions) is
 Accepted per D-026. ADR-0006's Part B (final vendor
 protocol/connectivity detail) was the last open item until the repository
-owner accepted it on 2026-09-02 (D-158, hardware checklist recorded as a
+owner accepted it on 2026-09-02 (D-213, hardware checklist recorded as a
 condition).
 
 `scripts/validate_phase0.py::validate_adrs()` discovers real ADR files
@@ -42,7 +42,7 @@ maintaining a second, divergent copy of these rules — see
 - `ADR-0005-authentication-direction.md`
 - `ADR-0006-attendance-edge-gateway-direction.md` — **Part A** (adapter/SPI
   architectural pattern, D-023) **and Part B** (ZKTeco terminals push over
-  ADMS, edge gateway as fallback — D-158, accepted 2026-09-02 with the
+  ADMS, edge gateway as fallback — D-213, accepted 2026-09-02 with the
   hardware checklist in
   `../superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
   §4.3 as a recorded condition)
@@ -56,7 +56,8 @@ maintaining a second, divergent copy of these rules — see
   describe a model Phase 1 does not have** — see ADR-0011, ADR-0012
 - `ADR-0011-phase-sequencing.md` — implementation, then storage, then
   modernization; strict legacy API contract parity and full 38-module
-  replacement in Phase 1 (accepted 2026-08-16)
+  replacement in Phase 1 (accepted 2026-08-16). **Phase 2, the storage
+  migration, is superseded by ADR-0017**; Phase 1's contract stands
 - `ADR-0012-phase-1-tenant-isolation.md` — tenant isolation without
   row-level security while Phase 1 runs on MySQL, with its compensating
   controls and fail-closed obligations (accepted 2026-08-16)
@@ -67,14 +68,36 @@ maintaining a second, divergent copy of these rules — see
   Carries forward MFA/TOTP with seed custody, bounded step-up, throttling,
   per-request authorization, session invalidation and auditability, and
   adds CSRF and session-cookie hardening, which the in-process model makes
-  first-class (accepted 2026-09-01)
+  first-class (accepted 2026-09-01). **Its authentication model is superseded
+  by ADR-0018**; the surface, session, CSRF and audit decisions stand
+- `ADR-0016-full-dashboard-port-to-jte.md` — the **whole** PHP dashboard is
+  reproduced in JTE inside the backend: the same pages, the same design
+  (its stylesheets copied verbatim, its 772 labels converted), and all
+  three login audiences. Supersedes ADR-0009 Option E in scope, after the
+  owner's decision to run the VPS on Java and MySQL with no PHP turned
+  every unported capability into a permanent loss — four admin pages
+  write data no API endpoint can (accepted 2026-09-04)
 - `ADR-0013-phase1-mysql-profile-bootstrap.md` — the `phase1-mysql`
   Spring profile that points the application at legacy MySQL, inactive
   by default and guarded by an ArchUnit profile-coverage test, becoming
   the normal runtime only at the single Phase 1 cutover (accepted
-  2026-08-17 with four owner-required amendments, `docs/bootstrap/decision-log.md` D-043)
+  2026-08-17 with four owner-required amendments, `docs/bootstrap/decision-log.md` D-043).
+  **Amended by ADR-0017**: the profile split is gone and this configuration
+  is the application's only persistence
+- `ADR-0018-one-administrator-one-password.md` — the dashboard signs in the
+  way PHP's does: one administrator, one password, no phone and no second
+  factor, with Java's guards behind the form -- a bcrypt hash, a per-client
+  miss budget, session rotation, CSRF, audit. TOTP, step-up approvals and the
+  bearer API are removed (accepted 2026-09-08, owner's choice)
+- `ADR-0017-mysql-is-the-production-database.md` — MySQL is the production
+  database and stays so; the PostgreSQL domain, Flyway, the ETL and the
+  profile split are removed rather than left dormant. Supersedes ADR-0004
+  and ADR-0011's Phase 2 (accepted 2026-09-08)
 
 ## Superseded ADRs
+
+- `ADR-0004-mysql-to-postgresql-migration-approach.md` — superseded by
+  ADR-0017: there is no migration to PostgreSQL
 
 Listed here so index-driven readers and tooling do not treat them as
 active. The document is retained, not deleted: the reasoning behind the

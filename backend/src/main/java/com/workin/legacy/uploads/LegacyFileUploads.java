@@ -131,6 +131,14 @@ public class LegacyFileUploads {
 	}
 
 	/** Maps a detected, allowlisted MIME type to its stored extension -- see {@link #store}'s note. */
+	/**
+	 * Every extension {@link #store} can write, which is the image and PDF half
+	 * of what {@code LegacyUploadServing} must serve. Derived from the switch
+	 * below rather than restated, so the two cannot disagree.
+	 */
+	public static final java.util.List<String> STORED_EXTENSIONS =
+			java.util.List.of("jpg", "png", "webp", "pdf");
+
 	private static String extensionForMimeType(String mimeType) {
 		return switch (mimeType) {
 			case "image/jpeg" -> "jpg";

@@ -2,10 +2,13 @@ package com.workin.backend;
 
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
+
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import com.workin.legacy.LegacyMariaDb;
 
 /**
  * Shared real-Postgres integration test base, mirroring the H2 spike's
@@ -31,21 +34,37 @@ import org.testcontainers.containers.PostgreSQLContainer;
 public abstract class AbstractIntegrationTest {
 
 	protected static final String TEST_JWT_SECRET = "test-only-secret-not-used-in-production-000000000000";
-	protected static final String TEST_RUNTIME_DB_USERNAME = "app_runtime_test";
-	protected static final String TEST_RUNTIME_DB_PASSWORD = "app_runtime_test_password";
 
-	@ServiceConnection
-	protected static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
+	/** The dashboard's one password (ADR-0018); the bootstrap provisions the row from it. */
+	protected static final String TEST_ADMIN_PASSWORD = "correct horse battery staple";
 
-	static {
-		POSTGRES.start();
-	}
+
+	/** A database of this class's own, inside the suite's one MariaDB. */
+	protected static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {
 		registry.add("app.jwt.secret", () -> TEST_JWT_SECRET);
-		registry.add("app.runtime-db.username", () -> TEST_RUNTIME_DB_USERNAME);
-		registry.add("app.runtime-db.password", () -> TEST_RUNTIME_DB_PASSWORD);
+		registry.add("app.platform-admin.password", () -> TEST_ADMIN_PASSWORD);
+		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
+		registry.add("app.legacy-db.username", MARIADB::getUsername);
+		registry.add("app.legacy-db.password", MARIADB::getPassword);
+	}
+
+
+	/**
+	 * An instant as the application stores it in a MariaDB {@code DATETIME}.
+	 *
+	 * <p>Hibernate maps an {@code Instant} field to the column as its UTC
+	 * wall-clock text. A test that writes {@code java.sql.Timestamp.from(instant)}
+	 * through a raw {@code JdbcTemplate} gets the driver's conversion instead,
+	 * which uses the JVM's zone -- so a row the test meant to date sixty
+	 * seconds ago landed two or three hours in the future, and every "expired"
+	 * fixture was still valid. Passing a {@code LocalDateTime} sends the text
+	 * as-is, in the zone the application will read it back in.
+	 */
+	protected static LocalDateTime storedAs(Instant instant) {
+		return LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
 	}
 
 }

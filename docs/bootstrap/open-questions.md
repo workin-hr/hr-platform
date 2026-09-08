@@ -69,14 +69,20 @@ neither is decided by that document:
 Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 §8.1 — the questions that gated Item 12's closure and the final exit gate.
 
-- **How does `legacy_refresh_tokens` get created against the production legacy
-  MariaDB, and who owns that step?** (**R-023**, ADR-0013 Open Questions,
-  D-043 amendment 3.) Phase 1 adds tables to the legacy database —
-  `legacy_refresh_tokens`, and since D-158 (2026-09-02) the five
-  attendance-device tables in the same file, needed only where the device
-  receiver is enabled — and nothing in the application creates them — Flyway owns no MariaDB location and
+- **How do the Java-owned tables get created against the production legacy
+  MariaDB, and who owns that step?** *(Widened 2026-09-03: the platform-admin
+  surface runs against the same MySQL database, so `phase1_extensions.sql`
+  adds the platform-admin identity, login-attempt, audit and Spring Session
+  tables alongside `legacy_refresh_tokens`; ADR-0018 later removed the MFA
+  and step-up tables again. Widened again 2026-09-09 by D-213: the same file
+  now also carries the five attendance-device tables, needed only where the
+  receiver is enabled. Same unresolved question, more
+  tables, and a louder failure mode — the admin surface cannot authenticate at
+  all without them, where a missing `legacy_refresh_tokens` surfaces late.)* (**R-023**, ADR-0013 Open Questions,
+  D-043 amendment 3.) Phase 1 adds these tables to the legacy database and
+  nothing in the application creates them — Flyway owns no MariaDB location and
   `hibernate.hbm2ddl.auto` is `none`. Today it exists only where a test
-  container applies `phase1_extensions.schema.sql` out of band. **Resolution
+  container applies `phase1_extensions.sql` out of band. **Resolution
   criteria**: an approved provisioning mechanism, rehearsed against a restored
   copy, with the mechanism, its owner and its lock duration recorded in
   `docs/operations/release-cutover-and-rollback.md`. Note the failure mode is
@@ -398,28 +404,28 @@ ADR-0010 already makes for authorization. If that query later shows up in
 latency measurements, the answer is to measure and revisit it as its own
 decision — not to quietly restore a logout that does not log the caller out.
 
-## Attendance Device Ingestion (ADR-0006 Part B, D-158)
+## Attendance Device Ingestion (ADR-0006 Part B, D-213)
 
 Raised 2026-09-02 by `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
-§12. Q0, Q1 and Q6 were answered on 2026-09-02 (D-158); Q2, Q3, Q5, Q7 and
-Q8 were answered the same day (**D-159**). What remains is the work those
-answers oblige, tracked in D-159's Follow-up and in R-041 — not a question.
+§12. Q0, Q1 and Q6 were answered on 2026-09-02 (D-213); Q2, Q3, Q5, Q7 and
+Q8 were answered the same day (**D-214**). What remains is the work those
+answers oblige, tracked in D-214's Follow-up and in R-072 — not a question.
 
-- **Q0 — Accept D-158? — ANSWERED 2026-09-02: accepted.** ADMS push as the
+- **Q0 — Accept D-213? — ANSWERED 2026-09-02: accepted.** ADMS push as the
   primary ZKTeco adapter, the edge gateway as fallback, conditional on the
   §4.3 hardware checklist passing on the customers' actual models.
 - **Q1 — Device PIN identity.** Reuse `employees.employee_code` as the
   device PIN, or add `employee_device_identities` with `UNIQUE (company_id,
   pin)` seeded from it. **ANSWERED 2026-09-02: the table.**
 - **Q2 — Device punches and the two-hour rule. — ANSWERED 2026-09-02
-  (D-159): never reject.** The punch is always persisted; a short
+  (D-214): never reject.** The punch is always persisted; a short
   duplicate/debounce window suppresses a double-read, and a rapid
   re-check-in is flagged for review. Lands with Slice B.
-- **Q3 — Biometric templates. — ANSWERED 2026-09-02 (D-159): none in
+- **Q3 — Biometric templates. — ANSWERED 2026-09-02 (D-214): none in
   Phase 1.** Attendance events and metadata only. Already enforced in Slice
   A: `TransFlag` does not request them and the receiver discards any that
   arrive regardless.
-- **Q5 — `attendance.method` expansion. — ANSWERED 2026-09-02 (D-159):
+- **Q5 — `attendance.method` expansion. — ANSWERED 2026-09-02 (D-214):
   expand-only, with Slice B, and the audit it was conditional on is done.**
   Every frozen-PHP site writes the column; exactly one reads it, rendering it
   verbatim, so no branch depends on the value set. Two residual checks belong
@@ -431,16 +437,16 @@ answers oblige, tracked in D-159's Follow-up and in R-041 — not a question.
   legacy JWT; platform staff use a company admin's session for the pilot until
   the JTE admin surface (ADR-0015) renders it.
 - **Q8 — Proof of possession when claiming a device — ANSWERED 2026-09-02
-  (D-159), and the work is outstanding** (**R-041**). Pilot: supervised
+  (D-214), and the work is outstanding** (**R-072**). Pilot: supervised
   tenant `company_admin`/`hr` claiming is acceptable. Production: tenant
   admins may **not** claim by serial number — platform staff pre-allocate
   device ownership to a company, and tenant HR then assigns an owned device
   to a branch. An **audited unclaim / transfer / replace-device path is
   required before broad production rollout**; manual database correction is
-  not acceptable long-term. Neither is built yet, and R-041 stays open until
+  not acceptable long-term. Neither is built yet, and R-072 stays open until
   both are.
 - **Q7 — Production provisioning of Phase-1-owned MariaDB tables. —
-  ANSWERED 2026-09-02 (D-159): it must be explicitly solved before device
+  ANSWERED 2026-09-02 (D-214): it must be explicitly solved before device
   ingestion is enabled in production**, not discovered at cutover. The
   ADR-0013 open question itself (**R-023**) stays open; this makes it a
   precondition of turning `app.devices.ingest.enabled` on.

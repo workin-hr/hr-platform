@@ -123,7 +123,8 @@ public class LegacyAttendanceImportService {
 	 * same way as a parser failure.
 	 */
 	public Map<String, Object> analyze(
-			LegacyRequestContext context, MultipartFile file, String weeklyRestLabel) {
+			LegacyRequestContext context, MultipartFile file, String weeklyRestLabel,
+			Object sheetLayout) {
 		if (!availability.isAvailable()) {
 			throw new LegacyApiException(
 					403, "attendance_excel_import_not_yet_available", null,
@@ -141,7 +142,8 @@ public class LegacyAttendanceImportService {
 		}
 
 		try {
-			return analyzer.analyze(content, context.companyId(), clock.now(), weeklyRestLabel);
+			return analyzer.analyze(
+					content, context.companyId(), clock.now(), weeklyRestLabel, sheetLayout);
 		} catch (RuntimeException ex) {
 			// `catch (RuntimeException $e)` in PHP, which PDOException is an
 			// instance of -- so a DataAccessException from a dropped connection
@@ -156,7 +158,7 @@ public class LegacyAttendanceImportService {
 
 	public Outcome importExcel(
 			LegacyRequestContext context, MultipartFile file, String mappingsRaw,
-			java.util.function.LongFunction<String[]> notificationText) {
+			java.util.function.LongFunction<String[]> notificationText, Object sheetLayout) {
 		// (1) `if (!attendance_excel_import_is_available())`.
 		if (!availability.isAvailable()) {
 			throw new LegacyApiException(
@@ -195,7 +197,7 @@ public class LegacyAttendanceImportService {
 		Map<String, Object> mappings = decodeMappings(mappingsRaw);
 
 		// (5) the transaction.
-		Map<String, Object> result = runImport(context.companyId(), content, mappings);
+		Map<String, Object> result = runImport(context.companyId(), content, mappings, sheetLayout);
 
 		long inserted = LegacyValues.toPhpLong(result.get("inserted"));
 		Object errors = result.get("errors");
@@ -279,7 +281,7 @@ public class LegacyAttendanceImportService {
 	 * {@link LegacyAttendanceImportStore}.
 	 */
 	private Map<String, Object> runImport(
-			long companyId, byte[] content, Map<String, Object> mappings) {
+			long companyId, byte[] content, Map<String, Object> mappings, Object sheetLayout) {
 		// `$pdo = getDB(); $pdo->beginTransaction();` sit *above* the try, so a
 		// failure in either is uncaught in PHP and is D-084 here. Only what is
 		// inside the try can become a 400.
@@ -303,7 +305,7 @@ public class LegacyAttendanceImportService {
 			try {
 				LegacyAttendanceImportStore store = new LegacyAttendanceImportStore(connection);
 				Map<String, Object> result = LegacyAttendanceImporter.importPunchLog(
-						content, companyId, store, mappings, clock.now(), clock.offset());
+						content, companyId, store, mappings, clock.now(), clock.offset(), sheetLayout);
 				// commit() is inside the try in PHP too, so a commit failure is
 				// a PDOException caught by the first catch -- a 400, not a 500.
 				commit(connection);

@@ -19,7 +19,7 @@ Authority is split exactly as ADR-0006 is:
   for implementation (D-028).
 - The **ZKTeco connectivity pattern** is ADR-0006 **Part B**, which this
   document proposed and the repository owner **accepted on 2026-09-02**
-  (D-158), with one recorded condition: the hardware checklist in §4.3 must
+  (D-213), with one recorded condition: the hardware checklist in §4.3 must
   pass on the customers' actual models before the adapter is declared
   verified. Building Slice A is authorised.
 
@@ -52,7 +52,7 @@ stays open until §4.3 is executed against a real terminal.
   device relation. Java writes the literals `'excel'`
   (`LegacyAttendanceImportStore.java:40`) and `'qr'`
   (`LegacyCheckInService.java:154`).
-- `backend/src/test/resources/legacy/phase1_extensions.schema.sql`: the
+- `backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql`: the
   sanctioned home for Phase-1-owned tables that are not part of the vendored
   legacy contract (`legacy_refresh_tokens` is the precedent).
   `TenantFilterCoverageTest` exempts such tables structurally.
@@ -110,7 +110,7 @@ requirement is what decides between them.
 | Manual export / import | Operator exports the device log, HR imports Excel | Already ported; keeps working. Not real-time, error-prone, and the reason this design exists. |
 | **ADMS / PUSH SDK ("Cloud Server Setting")** | The device dials out over HTTP to a hostname and port, uploads punches as they happen, polls for commands, buffers while offline | Works behind any NAT with no static IP, no VPN, no software at the branch. Documented on the vendor's own PUSH SDK page; the same mechanism ZKBio Time is built on; the captured handshake even reports `DeviceType=middle east`. |
 
-**Decision (D-158, accepted 2026-09-02):** the ZKTeco adapter is the ADMS push receiver. The
+**Decision (D-213, accepted 2026-09-02):** the ZKTeco adapter is the ADMS push receiver. The
 `edge-gateway/` boundary is retained as a *fallback* for terminals that do not
 expose the Cloud Server Setting, not as the default path. Excel import stays
 as the manual fallback. This is a per-adapter choice, exactly the shape Part A
@@ -166,7 +166,7 @@ Design points:
 
 ### 4.1 Registry
 
-`attendance_devices` (Phase-1-owned, `phase1_extensions.schema.sql`; DDL
+`attendance_devices` (Phase-1-owned, `phase1_extensions.sql`; DDL
 sketch in §7) keyed by the vendor serial number. It carries the tenant and
 branch binding, the vendor, the device's configured time zone, liveness
 fields (`last_seen_at`, `last_handshake_at`, `last_seen_ip`), the last
@@ -195,7 +195,7 @@ boundary (`docs/devices/device-integration-architecture.md`, Device
 Authentication; `hr-legacy#9`'s guessable `company_id` is the failure mode it
 avoids).
 
-**Who may claim differs between pilot and production (D-159, R-041).** A
+**Who may claim differs between pilot and production (D-214, R-072).** A
 serial number is printed on the unit and the protocol offers no proof of
 possession, so *who is allowed to establish ownership* is the only real
 control:
@@ -220,14 +220,14 @@ control:
   (individual platform-admin identity), already a P0 release gate.
 - **Recovery — required before broad rollout.** An **audited unclaim /
   transfer / replace-device path**. Slice A has none, so a device registered
-  to the wrong company today needs a manual database change, which D-159
+  to the wrong company today needs a manual database change, which D-214
   rules out as a long-term answer. Replacement is the ordinary case rather
   than the exceptional one: a terminal that dies is swapped for a new serial,
   and the branch's history has to survive it.
 
 ### 4.3 Hardware confirmation — a hard prerequisite
 
-**Gate semantics (D-159).** This checklist does not block merging Slice A
+**Gate semantics (D-214).** This checklist does not block merging Slice A
 while `app.devices.ingest.enabled` is off — the code is unreachable in that
 state. It **does** block two things absolutely: describing the adapter as
 hardware-verified anywhere, and enabling it for any real customer.
@@ -260,7 +260,7 @@ into hardware evidence:
 8. **ACK / retry behaviour** — a dropped acknowledgement causes the same
    batch to be re-sent, and it is stored once.
 
-Two more, added by the review round (D-160) because the answers decide
+Two more, added by the review round (D-215) because the answers decide
 whether two deliberate compromises can be lifted:
 
 - **How the firmware encodes `ATTLOGStamp`** — the receiver currently never
@@ -502,7 +502,7 @@ rendered by Flutter clients that cannot be inspected from this repository
 not how many device punches. That under-reporting is a recorded gap awaiting
 an owner decision.
 
-**The Q5 audit is done (D-159) and the change is safe.** Every frozen-PHP
+**The Q5 audit is done (D-214) and the change is safe.** Every frozen-PHP
 site *writes* `attendance.method` — `check_in.php:58` and `create.php:111`
 (`?? 'app'`), `check_in_qr.php:71` (`'qr'`),
 `attendance_excel_analyzer.php:1019` and `xlsx_parser.php:615` (`'excel'`),
@@ -520,7 +520,7 @@ verified first. **Migration shape**: `attendance` is 36,316 rows / 64 MB, and
 a fourth value does not change a `≤255`-value enum's one-byte storage, so the
 `ALTER` should be `ALGORITHM=INSTANT` and is trivial even if it copies.
 
-**`backend/src/test/resources/legacy/phase1_extensions.schema.sql` is the
+**`backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql` is the
 authoritative schema — provision from that file, not from this section.** What
 follows shows the three tables whose shape the design turns on; the other two
 (`employee_device_identities`, §7.2, and `device_operation_logs`, which mirrors
@@ -630,7 +630,7 @@ Late-event business-rule implications).
 
 Rules, against legacy behaviour:
 
-- **Two-hour minimum gap (Q2) — decided (D-159): a device punch is never
+- **Two-hour minimum gap (Q2) — decided (D-214): a device punch is never
   rejected.** Legacy rejects a second check-in within 120 minutes and tells
   the app. A terminal cannot be told; it has already said "Thank you", so
   refusing at the boundary would destroy biometric evidence of presence with
@@ -709,7 +709,7 @@ server. The design compensates:
 - **Deactivating a device stops the flow of information, not only of
   uploads.** An inactive serial is handshaken exactly like an unknown one —
   no stamp, no zone — and nothing new is learned from it.
-- **What the platform cannot fix in code: claim squatting** (R-041, Q8). The
+- **What the platform cannot fix in code: claim squatting** (R-072, Q8). The
   protocol has no proof of possession, so a tenant who learns an unclaimed
   serial can register another company's terminal. The claim is attributable,
   a serial resolves to one company only, and the unclaimed lookup answers for
@@ -720,7 +720,7 @@ server. The design compensates:
   `REBOOT`. Never `SHELL`; never an automatic `CLEAR LOG` — the device's
   memory is the last-resort backup. Every queued command is an audited
   action by an authenticated person.
-- **No biometric templates on the platform in Phase 1 — decided (D-159).** `TransFlag`
+- **No biometric templates on the platform in Phase 1 — decided (D-214).** `TransFlag`
   excludes them and the adapter discards any that arrive (§5.4). Templates
   are sensitive personal data under the applicable data-protection regimes
   and `AGENTS.md` already forbids agent access to them. Cross-branch
@@ -773,28 +773,28 @@ server. The design compensates:
 
 | Slice | Scope | Gate |
 |---|---|---|
-| **A — ingest and visibility** | Registry and claim API; PIN identities; `/iclock/{cdata,getrequest,devicecmd}`; raw punch log with dedup; unclaimed sightings; heartbeat; template discard; property gate; raw-punch visibility endpoint; tests in §13 (the end-to-end test plays the device). **Not in A:** in-app per-serial rate limits (the pilot relies on the edge/reverse proxy), the command queue, a standalone simulator CLI | **Open** — D-158 accepted, Q1 = identity table, Q6 = tenant API (all 2026-09-02) |
+| **A — ingest and visibility** | Registry and claim API; PIN identities; `/iclock/{cdata,getrequest,devicecmd}`; raw punch log with dedup; unclaimed sightings; heartbeat; template discard; property gate; raw-punch visibility endpoint; tests in §13 (the end-to-end test plays the device). **Not in A:** in-app per-serial rate limits (the pilot relies on the edge/reverse proxy), the command queue, a standalone simulator CLI | **Open** — D-213 accepted, Q1 = identity table, Q6 = tenant API (all 2026-09-02) |
 | **B — pairing** | Pure pairing function with replay; anomaly flags; `method='device'` enum expansion; `attendance_source_punches`; HR review queue; notifications | Q2 and Q5 answered; Slice A in shadow at a pilot branch |
-| **B′ — ownership and recovery** (D-159) | Platform-mediated allocation of a device to a company, tenant assignment to a branch, and the audited unclaim / transfer / replace-device path | Required before production ingestion; closes R-041 |
+| **B′ — ownership and recovery** (D-214) | Platform-mediated allocation of a device to a company, tenant assignment to a branch, and the audited unclaim / transfer / replace-device path | Required before production ingestion; closes R-072 |
 | **C — device management** | Push `USERINFO` on employee create/move; time sync; queued-command UI with audit | Slice B live |
-| **D — later** | Hikvision/Anviz/Suprema adapters; edge-gateway bridge for non-ADMS terminals. Biometric template sync is **not** on this roadmap — D-159 rules it out for Phase 1 | Separate decisions |
+| **D — later** | Hikvision/Anviz/Suprema adapters; edge-gateway bridge for non-ADMS terminals. Biometric template sync is **not** on this roadmap — D-214 rules it out for Phase 1 | Separate decisions |
 
 ## 12. Decisions Required From The Repository Owner
 
-Q0, Q1 and Q6 were decided on 2026-09-02 (D-158); Q2, Q3, Q5, Q7 and Q8 the
-same day (**D-159**). None remains open — what is left is the work those
-answers oblige, tracked in D-159's Follow-up, R-041 and §11's slice B′.
+Q0, Q1 and Q6 were decided on 2026-09-02 (D-213); Q2, Q3, Q5, Q7 and Q8 the
+same day (**D-214**). None remains open — what is left is the work those
+answers oblige, tracked in D-214's Follow-up, R-072 and §11's slice B′.
 
 | # | Question | Recommendation |
 |---|---|---|
-| Q0 | Accept D-158: ADMS push is the primary ZKTeco adapter; the edge gateway is a fallback | **Decided 2026-09-02: accepted**, conditional on §4.3 passing on the first real device |
+| Q0 | Accept D-213: ADMS push is the primary ZKTeco adapter; the edge gateway is a fallback | **Decided 2026-09-02: accepted**, conditional on §4.3 passing on the first real device |
 | Q1 | Device PIN identity: reuse `employee_code` (a) or a new `employee_device_identities` table (b) | **Decided 2026-09-02: (b)** |
 | Q2 | Device punches under the two-hour rule: reject like the app, or debounce and flag | **Decided 2026-09-02: never reject** — persist, debounce a double-read, flag a rapid re-check-in |
 | Q3 | Biometric templates: never in Phase 1, or planned with controls | **Decided 2026-09-02: none in Phase 1** — attendance events and metadata only |
 | Q5 | When to expand `attendance.method` on the live table, given frozen PHP still reads it | **Decided 2026-09-02: expand-only with Slice B**, and the audit it was conditional on is complete (§7.1) |
 | Q6 | Who claims devices during the pilot: HR through `/api/v1/devices/**`, or platform staff on the tenant's behalf | **Decided 2026-09-02: tenant HR/admin through the API**; platform staff use a company admin's session for the pilot |
 | Q7 | Production provisioning of Phase-1-owned MariaDB tables (ADR-0013 open question, now on the critical path) | **Decided 2026-09-02: must be explicitly solved before production ingestion is enabled** (R-023) |
-| Q8 | Proof of possession when claiming a device (**R-041**) | **Decided 2026-09-02: supervised tenant claiming for the pilot; platform-mediated allocation for production, with tenant HR only assigning an owned device to a branch; an audited unclaim/transfer/replace path before broad rollout** (§4.2, slice B′) |
+| Q8 | Proof of possession when claiming a device (**R-072**) | **Decided 2026-09-02: supervised tenant claiming for the pilot; platform-mediated allocation for production, with tenant HR only assigning an owned device to a branch; an audited unclaim/transfer/replace path before broad rollout** (§4.2, slice B′) |
 
 Q4 (module inside the monolith versus a separate service) is recorded as an
 assumption in §3, not a question: the module is cheaper, and the SPI keeps
@@ -868,7 +868,7 @@ test that exists and passes.
   trailing space still resolves; an over-long serial is refused rather than
   registered as its prefix; and a zone that turns fractional in another season
   is refused.
-- Added by the **second review round** (D-161), which found eleven more:
+- Added by the **second review round** (D-216), which found eleven more:
   a batch of exactly the record cap is accepted terminator and all; a replayed
   operation log is stored once; a PIN at the API's limit still resolves a
   punch; an over-long `PushVersion` is bounded to its column; an unrecognised
@@ -888,7 +888,7 @@ test that exists and passes.
 - **Clock skew produces wrong attendance days.** Mitigated by per-device
   zone, skew metric, and Slice C time sync.
 - **Decision-log numbering collision.** Two sessions are active in this
-  repository today; D-158 is claimed here and must be renumbered if another
+  repository today; D-213 is claimed here and must be renumbered if another
   branch lands first (the repository has had exactly this collision before).
 
 ## Related
@@ -896,7 +896,7 @@ test that exists and passes.
 - ADR-0006, `docs/devices/device-integration-architecture.md`,
   `docs/devices/vendor-capability-matrix.md`,
   `docs/devices/attendance-device-model-and-firmware-inventory.md`
-- `docs/bootstrap/decision-log-wave12r.md` D-158 (accepted 2026-09-02)
+- `docs/bootstrap/decision-log-wave12r.md` D-213 (accepted 2026-09-02)
 - `docs/bootstrap/risk-register.md` R-004
 - `docs/migration/pre-migration-readiness-gap-analysis.md` PMR-04
 - `workin-hr/hr-platform#12`

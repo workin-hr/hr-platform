@@ -15,3 +15,10 @@ rules:
   # repos containing GitHub Actions workflows.
   truthy:
     check-keys: false
+
+# Vendored dependencies, not this repository's YAML. `deploy/e2e/node_modules`
+# is git-ignored, so CI never sees it -- but a developer who has run
+# `npm install` there would otherwise get errors from Playwright's own files
+# out of a lint that is supposed to be about this repository.
+ignore: |
+  deploy/e2e/node_modules/

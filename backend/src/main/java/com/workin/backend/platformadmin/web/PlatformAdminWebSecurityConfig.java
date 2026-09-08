@@ -1,0 +1,283 @@
+package com.workin.backend.platformadmin.web;
+
+import java.time.Duration;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.savedrequest.NullRequestCache;
+
+import com.workin.backend.platformadmin.PlatformAdminRepository;
+
+/**
+ * The cookie-authenticated, CSRF-protected chain for the server-rendered
+ * platform-admin UI (ADR-0015).
+ *
+ * <p><b>This chain exists because the alternative fails open silently.</b>
+ * {@code SecurityConfig.tenantSecurityFilterChain()} is the order-3 catch-all:
+ * it declares no {@code securityMatcher}, disables CSRF, and authenticates a
+ * <em>tenant</em> bearer token. An {@code /admin} mapping that did not land on
+ * a chain of its own would not 404 or 403 -- it would be served by that chain,
+ * accepting a tenant token and applying no CSRF protection at all. That is why
+ * the matcher here is explicit, and why {@code PlatformAdminWebChainCoverageTest}
+ * enumerates the handler registry instead of testing a list of routes someone
+ * remembered to write down (prerequisite 5).
+ *
+ * <p>This is the replacement for legacy's platform admin web
+ * (`dashboard/pages/companies/`), and it signs in the way legacy does -- one
+ * administrator, one password, no phone (ADR-0018) -- with the guards legacy
+ * lacks behind the form: a hashed password, a per-client miss budget, session
+ * rotation, CSRF, and an audit row for every login, miss and logout.
+ *
+ * <p>Ordered ahead of every existing chain. It does not overlap them --
+ * {@code /admin/**} against {@code /apis/**} and the catch-all -- but ordering
+ * it first makes precedence a property of the configuration rather than of the
+ * paths happening not to collide.
+ */
+@Configuration
+public class PlatformAdminWebSecurityConfig {
+
+	/** Every route this surface owns. Referenced by the coverage test. */
+	public static final String PATH_PREFIX = "/admin";
+
+	public static final String PATH_PATTERN = PATH_PREFIX + "/**";
+
+	public static final String LOGIN_PATH = PATH_PREFIX + "/login";
+
+	public static final String LOGOUT_PATH = PATH_PREFIX + "/logout";
+
+	/**
+	 * Idle timeout, mirrored in {@code application.properties} where the
+	 * container reads it. ADR-0015 prerequisite 4 requires the number to exist
+	 * and be pinned by a test rather than left to a container default.
+	 */
+	public static final Duration IDLE_TIMEOUT = Duration.ofMinutes(30);
+
+	/**
+	 * Non-renewable absolute cap. A session cannot slide past this however
+	 * active it is, so a stolen cookie has a bounded worst case that activity
+	 * cannot extend. Enforced in {@link PlatformAdminSessionRevalidationFilter},
+	 * because a servlet session only knows about idle time.
+	 */
+	public static final Duration ABSOLUTE_CAP = Duration.ofHours(8);
+
+	/** Individual session listing and revocation (ADR-0015 prerequisite 13). */
+	public static final String SESSIONS_PATH = PATH_PREFIX + "/sessions";
+
+	public static final String SESSIONS_REVOKE_PATH = SESSIONS_PATH + "/revoke";
+
+	/** Platform administration of companies (ADR-0009 Option E). */
+	public static final String COMPANIES_PATH = PATH_PREFIX + "/companies";
+
+	/**
+	 * One company's detail page, {@code /admin/companies/{id}}.
+	 *
+	 * <p>Its pattern would also match {@code /admin/companies/action}, which
+	 * is harmless -- both are authenticated, and Spring resolves the literal
+	 * mapping ahead of the variable one. Worth naming because the reverse (a literal shadowed by a
+	 * variable) is the mistake this shape usually produces.
+	 */
+	public static final String COMPANY_DETAIL_PATH = COMPANIES_PATH + "/{companyId}";
+
+	/** The lifecycle actions, one POST each (ADR-0018). */
+	public static final String COMPANIES_ACTION_PATH = COMPANIES_PATH + "/action";
+
+	/**
+	 * Platform content the clients read but cannot write -- dial codes first
+	 * (ADR-0016). Authenticated like every other page here; the write side is
+	 * gated again in the service by the surface flag and a bound second
+	 * factor.
+	 */
+	public static final String PHONE_COUNTRIES_PATH = PATH_PREFIX + "/phone_countries";
+
+	public static final String FAQS_PATH = PATH_PREFIX + "/faqs";
+
+	public static final String GUIDE_VIDEOS_PATH = PATH_PREFIX + "/guide_videos";
+
+	public static final String BANNERS_PATH = PATH_PREFIX + "/banners";
+
+	public static final String NOTIFICATIONS_PATH = PATH_PREFIX + "/notifications";
+
+	/**
+	 * The org pages. Each is one company's own data, reachable by the
+	 * administrator across companies through the session filter -- the
+	 * cross-tenant mode <b>R-044</b> covers.
+	 */
+	public static final String BRANCHES_PATH = PATH_PREFIX + "/branches";
+
+	public static final String DEPARTMENTS_PATH = PATH_PREFIX + "/departments";
+
+	public static final String JOB_TITLES_PATH = PATH_PREFIX + "/job_titles";
+
+	public static final String SHIFTS_PATH = PATH_PREFIX + "/shifts";
+
+	public static final String LEAVE_BALANCES_PATH = PATH_PREFIX + "/leave_balances";
+
+	public static final String REQUESTS_PATH = PATH_PREFIX + "/requests";
+
+	public static final String PENALTIES_PATH = PATH_PREFIX + "/penalties";
+
+	public static final String ATTENDANCE_PATH = PATH_PREFIX + "/attendance";
+
+	public static final String PAYROLL_PATH = PATH_PREFIX + "/payroll";
+
+	public static final String ASSETS_PATH = PATH_PREFIX + "/assets";
+
+	public static final String ADVANCES_PATH = PATH_PREFIX + "/advances";
+
+	public static final String ADMINISTRATIVE_DECISIONS_PATH =
+			PATH_PREFIX + "/administrative_decisions";
+
+	public static final String COMPLAINTS_PATH = PATH_PREFIX + "/complaints";
+
+	public static final String WORKFORCE_PLANNING_PATH = PATH_PREFIX + "/workforce_planning";
+
+	public static final String EMPLOYEES_PATH = PATH_PREFIX + "/employees";
+
+	/**
+	 * Legacy routes this as {@code employee_detail.php} through a rewrite in
+	 * {@code dashboard/.htaccess}, which is why the committed route inventory
+	 * -- {@code /apis/**} only -- never listed it.
+	 */
+	public static final String EMPLOYEE_DETAIL_PATH = PATH_PREFIX + "/employee_detail";
+
+	/**
+	 * The payroll group. {@code salary_calculator} is the one page on this
+	 * surface that reads and writes nothing at all -- an estimate computed from
+	 * the form's own numbers -- so it is authenticated and permission-gated
+	 * like the rest and has no company to scope.
+	 */
+	public static final String SALARY_CALCULATOR_PATH = PATH_PREFIX + "/salary_calculator";
+
+	/**
+	 * Requests to join a company. Gated by the employees permission rather than
+	 * one of its own, because a join request is an {@code employees} row and
+	 * accepting or rejecting one writes to that table -- rejecting deletes from
+	 * it.
+	 */
+	public static final String JOIN_REQUESTS_PATH = PATH_PREFIX + "/join_requests";
+
+	/**
+	 * The recent-activity feed. Read-only, and gated by its own permission
+	 * ({@code can_recent_activities}) rather than by the pages whose rows it
+	 * shows -- though each half of the feed is gated again by that page's
+	 * permission, so a session may see one half and not the other.
+	 */
+	public static final String ACTIVITIES_PATH = PATH_PREFIX + "/activities";
+
+	/**
+	 * Platform settings, in three tabs. Administrator-only, because every table
+	 * behind it is platform-level and has no {@code company_id} -- the guard is
+	 * the tenancy model rather than an addition to it.
+	 */
+	public static final String SETTINGS_PATH = PATH_PREFIX + "/settings";
+
+	/**
+	 * Two legacy routes that only redirect into a tab of the page above. Kept
+	 * as routes because they are routes -- a bookmark or a link from the app
+	 * reaches them, and the committed page manifest lists both.
+	 */
+	public static final String APP_CONTENT_PATH = PATH_PREFIX + "/app_content";
+
+	public static final String SETTING_TEMPLATES_PATH = PATH_PREFIX + "/setting_templates";
+
+	/**
+	 * A third alias into the same page, and the one that is <b>not</b>
+	 * administrator-gated: legacy's {@code content/page.php} calls
+	 * {@code requireLogin()} and redirects, where its two siblings check
+	 * {@code isAdmin()} first. Reproduced, because the page it lands on does
+	 * the checking either way.
+	 */
+	public static final String CONTENT_PATH = PATH_PREFIX + "/content";
+
+	/**
+	 * Every route on this surface that is reachable without authentication.
+	 *
+	 * <p>A named constant so it can be checked against the handlers' own
+	 * {@code @PublicUseCase} declarations. {@code SecurityPolicyAgreementTest}
+	 * asserts the two agree in both directions, which is the only reliable guard
+	 * against the failure this list already had once: {@code /admin/enrol/confirm}
+	 * was declared public and omitted here, and an omitted route does not 404 --
+	 * it lands on the entry point and redirects to the login page, which is also
+	 * where a successful confirmation goes. The test that should have caught it
+	 * passed.
+	 */
+	public static final String[] PUBLIC_PATHS = {
+		LOGIN_PATH,
+	};
+
+	/**
+	 * The stylesheets and scripts the admin pages load, served from
+	 * <p>The prefix is {@code /admin/_assets/**}, with the underscore, and that
+	 * is load-bearing. It was {@code /admin/assets/**} until the dashboard's own
+	 * {@code assets} page was ported: Spring's {@code /**} matches zero segments,
+	 * so {@code /admin/assets} matched the permitAll rule and the page answered
+	 * without a session. A leading underscore cannot be a page name -- they come
+	 * from {@code dashboard/pages/*} -- so this closes the collision for every
+	 * future page rather than for that one.
+	 *
+	 * <p>Served from
+	 * {@code classpath:/static/admin/assets/} and copied from the PHP
+	 * dashboard so the two look the same (ADR-0016).
+	 *
+	 * <p>Deliberately <b>not</b> in {@link #PUBLIC_PATHS}: that list is
+	 * handler routes, checked against their own {@code @PublicUseCase}
+	 * declarations in both directions, and a pattern with no handler behind
+	 * it would read there as a stale entry -- the exact signal that list
+	 * exists to raise.
+	 *
+	 * <p>Why a public prefix under {@code /admin} at all, when this chain's
+	 * whole point is that nothing here is reachable unauthenticated: a
+	 * stylesheet is not a secret, and the alternative -- the previous
+	 * layout's several hundred lines of inlined CSS -- does not scale to the
+	 * dashboard's copied 2,500. The exposure is bounded by there being no
+	 * handler under the prefix: it resolves against the static resource
+	 * classpath only, and Spring's firewall rejects a traversal attempt
+	 * before matching. {@code PlatformAdminAssetsExposureTest} holds both
+	 * halves of that.
+	 */
+	public static final String ASSETS_PATTERN = PATH_PREFIX + "/_assets/**";
+
+	@Bean
+	@Order(0)
+	public SecurityFilterChain platformAdminWebSecurityFilterChain(
+			HttpSecurity http, PlatformAdminRepository platformAdminRepository) throws Exception {
+		http
+			.securityMatcher(PATH_PATTERN)
+			// CSRF stays on, deliberately: this chain is cookie-authenticated,
+			// which is exactly the exposure the bearer API does not have.
+			.csrf(org.springframework.security.config.Customizer.withDefaults())
+			.sessionManagement(session -> session
+				.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+				// Session fixation: a new id is issued at login, so a cookie
+				// planted before authentication is not the one that ends up
+				// authenticated.
+				.sessionFixation(fixation -> fixation.changeSessionId()))
+			// No saved-request replay. The only unauthenticated page is the login
+			// form, so there is nothing worth resuming, and a saved request is one
+			// more piece of attacker-influenced state carried across the
+			// authentication boundary.
+			.requestCache(cache -> cache.requestCache(new NullRequestCache()))
+			.authorizeHttpRequests(authorize -> authorize
+				.requestMatchers(ASSETS_PATTERN).permitAll()
+				.requestMatchers(PUBLIC_PATHS).permitAll()
+				.anyRequest().authenticated())
+			.exceptionHandling(exceptions -> exceptions
+				.authenticationEntryPoint(new PlatformAdminWebLoginRedirectEntryPoint(LOGIN_PATH)))
+			// Prerequisite 9. The bearer chain's PlatformAdminAuthenticationFilter
+			// revalidates the admin row on every request, but only after parsing an
+			// Authorization header, so a cookie-authenticated request reaches no
+			// such check. Without this filter, deactivating an administrator would
+			// leave their session working until it expired -- precisely what D-145
+			// exists to prevent.
+			.addFilterBefore(
+				new PlatformAdminSessionRevalidationFilter(platformAdminRepository),
+				UsernamePasswordAuthenticationFilter.class);
+		return http.build();
+	}
+
+}

@@ -1,0 +1,47 @@
+/* assets/payroll-pages.css — مشترك (3 صفحات): attendance · payroll · salary_calculator (+ style خاص بالحاسبة) */
+
+.payroll-page .page-toolbar { margin-bottom: 16px; }
+.payroll-page .page-toolbar {
+  margin-bottom: 16px;
+}
+
+.payroll-page .data-table-card {
+  background: #fff;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.payroll-page .att-overtime-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.payroll-page .att-overtime-badge--plus {
+  background: #fef9e6;
+  color: #9a7b00;
+  border: 1px solid #e8d48a;
+}
+
+.payroll-page .att-overtime-badge--minus {
+  background: #f5f5f3;
+  color: #5f5e5a;
+  border: 1px solid #e0ded8;
+}
+
+.payroll-page .payroll-detail-card {
+  overflow-x: auto;
+}
+
+.payroll-page .payroll-detail-card table {
+  min-width: 1400px;
+}
+
+.payroll-page .payroll-detail-card th,
+.payroll-page .payroll-detail-card td {
+  white-space: nowrap;
+  font-size: 12px;
+}

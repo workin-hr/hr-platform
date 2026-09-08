@@ -5,7 +5,6 @@ import java.util.Locale;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
@@ -31,7 +30,6 @@ import org.springframework.stereotype.Component;
  * MariaDB on every build. See {@code docs/legacy/PR120_REVIEW_REMEDIATION.md}.
  */
 @Component
-@Profile("phase1-mysql")
 public class LegacyRowCountStartupCheck implements ApplicationRunner {
 
 	static final String OPTION = "useAffectedRows";

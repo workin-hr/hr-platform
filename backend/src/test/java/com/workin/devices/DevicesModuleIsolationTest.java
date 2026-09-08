@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.context.annotation.ComponentScan;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Controller;
 
 import com.tngtech.archunit.core.domain.JavaClass;
@@ -31,13 +31,30 @@ class DevicesModuleIsolationTest {
 				.importPackages(MODULE);
 	}
 
+	/**
+	 * This used to assert that the module was reachable <em>only</em> through
+	 * {@code LegacyPersistenceConfig}'s explicit {@code @ComponentScan}, because
+	 * the application's own scan root was deliberately empty while two
+	 * profile-gated substrates had to be kept apart. ADR-0017 left one database
+	 * and the scan root went back to {@code com.workin}, so that assertion now
+	 * describes a structure that no longer exists.
+	 *
+	 * <p>What still matters is the half that was never about scanning: this is
+	 * its own root, not a corner of {@code com.workin.backend}, so nothing here
+	 * is picked up by that package's JPA wiring.
+	 */
 	@Test
-	void theModuleIsReachedOnlyByThePhase1ScanNeverByTheApplicationRoot() {
-		ComponentScan scan = LegacyPersistenceConfig.class.getAnnotation(ComponentScan.class);
-		assertThat(scan.value()).contains(MODULE);
+	void theModuleIsItsOwnRootAndNotPartOfTheBackendPackage() {
 		assertThat(module().stream().map(JavaClass::getPackageName))
 				.isNotEmpty()
+				.allSatisfy(name -> assertThat(name).startsWith(MODULE))
 				.allSatisfy(name -> assertThat(name).doesNotStartWith("com.workin.backend"));
+
+		EntityScan entityScan = LegacyPersistenceConfig.class.getAnnotation(EntityScan.class);
+		assertThat(entityScan.value())
+				.describedAs("the module persists with JdbcTemplate and declares no entity; "
+						+ "adding it to @EntityScan would pull it into TenantFilterCoverageTest's scope")
+				.noneMatch(pkg -> pkg.startsWith(MODULE));
 	}
 
 	/** JdbcTemplate over legacyDataSource: no entity ever reaches @EntityScan, so TenantFilterCoverageTest stays untouched. */
@@ -82,15 +99,44 @@ class DevicesModuleIsolationTest {
 				.isEmpty();
 	}
 
-	/** A configuration here must never become live under the default (Postgres) profile. */
+	/**
+	 * Every bean of the unauthenticated device surface must be gated by
+	 * {@code app.devices.ingest.enabled}, which defaults to false.
+	 *
+	 * <p>This replaces a rule that required the {@code phase1-mysql} profile,
+	 * retired with the PostgreSQL half it existed to separate. The replacement
+	 * is the stricter one: the profile guard was carried by the security
+	 * configuration alone, while the controller that maps {@code /iclock/**}
+	 * was gated by the flag only. Had the profile simply been deleted, the
+	 * endpoints would still have been mapped with their own chain missing.
+	 *
+	 * <p>Scoped to {@code zkteco} on purpose. The tenant-facing surface in
+	 * {@code api} is authenticated and always on, so it must not be caught by
+	 * this rule.
+	 */
 	@Test
-	void everyConfigurationIsGuardedToThePhase1Profile() {
-		List<String> unguarded = module().stream()
-				.filter(clazz -> clazz.isMetaAnnotatedWith(Configuration.class))
-				.filter(clazz -> !clazz.isAnnotatedWith(Profile.class)
-						|| !List.of(clazz.reflect().getAnnotation(Profile.class).value()).contains("phase1-mysql"))
+	void everyBeanOfTheDeviceReceiverIsGatedByTheIngestFlag() {
+		List<JavaClass> receiverBeans = module().stream()
+				.filter(clazz -> clazz.getPackageName().startsWith(MODULE + ".zkteco"))
+				.filter(clazz -> clazz.isMetaAnnotatedWith(Configuration.class)
+						|| clazz.isMetaAnnotatedWith(Controller.class)
+						|| clazz.isMetaAnnotatedWith(org.springframework.stereotype.Component.class))
+				.toList();
+
+		// Guards the guard: an empty list would let every assertion below pass
+		// by describing nothing at all.
+		assertThat(receiverBeans)
+				.describedAs("no receiver bean found -- this rule would pass vacuously")
+				.isNotEmpty();
+
+		List<String> unguarded = receiverBeans.stream()
+				.filter(clazz -> !clazz.isAnnotatedWith(ConditionalOnProperty.class)
+						|| !"app.devices.ingest.enabled".equals(
+								clazz.reflect().getAnnotation(ConditionalOnProperty.class).name()[0]))
 				.map(JavaClass::getName)
 				.toList();
-		assertThat(unguarded).isEmpty();
+		assertThat(unguarded)
+				.describedAs("an unauthenticated device bean that a deployment cannot turn off")
+				.isEmpty();
 	}
 }

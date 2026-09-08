@@ -2,6 +2,12 @@ plugins {
 	id 'java'
 	id 'org.springframework.boot' version '4.1.1'
 	id 'io.spring.dependency-management' version '1.1.7'
+	// ADR-0015: the platform-admin surface is server-rendered JTE inside this
+	// application. Templates are *precompiled* into Java sources at build time
+	// rather than resolved from disk at runtime, so the deployed jar carries no
+	// template directory and a template that does not compile fails the build
+	// instead of the first request that renders it.
+	id 'gg.jte.gradle' version '3.2.4'
 }
 
 group = 'com.workin'
@@ -22,28 +28,9 @@ java {
 // Declared before `configurations` because a source set creates its own
 // implementation/runtimeOnly configurations; the block below extends
 // those, it does not create them.
-sourceSets {
-	phase2Test {
-		compileClasspath += sourceSets.main.output
-		runtimeClasspath += sourceSets.main.output
-	}
-}
-
 configurations {
 	compileOnly {
 		extendsFrom annotationProcessor
-	}
-	// Phase 2 tests carry their OWN PostgreSQL dependencies rather than
-	// borrowing the application's. That is the whole point of the split:
-	// Phase 1 runs the application against the legacy MySQL contract, so
-	// `main` stops depending on Postgres -- and the migration suite,
-	// which genuinely needs Postgres, must not be what keeps that
-	// dependency alive.
-	phase2TestImplementation {
-		extendsFrom testImplementation
-	}
-	phase2TestRuntimeOnly {
-		extendsFrom testRuntimeOnly
 	}
 }
 
@@ -58,14 +45,29 @@ ext {
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-	implementation 'org.springframework.boot:spring-boot-starter-flyway'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
-	implementation 'org.flywaydb:flyway-database-postgresql'
+	// ADR-0015 prerequisite 11. The application is otherwise entirely
+	// SessionCreationPolicy.STATELESS; the admin UI is the first surface that
+	// needs a server-side session, and an in-memory one breaks under the
+	// multi-worker deployment prerequisite 3 already assumes -- the same cookie
+	// authenticates on one worker and is anonymous on the next, and logout
+	// cannot invalidate a session living in another worker's heap. JDBC on the
+	// existing datasource needs no new infrastructure.
+	implementation 'org.springframework.boot:spring-boot-starter-session-jdbc'
+	// The published API description. springdoc 3.x is the line that targets
+	// Spring Boot 4, so this pairing is a supported one -- 2.8.6 before it was
+	// not, and that note said the next Boot upgrade was where an unsupported
+	// pairing would break. Held to the same bar it set: verified by running it
+	// rather than assumed, on Boot 4.1.1, where the application starts, serves
+	// /v3/api-docs as OpenAPI 3.1.0 with all 202 paths, and renders the UI.
+	// Still pinned exactly, for the same reason.
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
+	implementation 'gg.jte:jte-spring-boot-starter-4:3.2.4'
+	implementation 'gg.jte:jte:3.2.4'
 	implementation 'io.micrometer:micrometer-tracing-bridge-otel'
 	implementation 'io.opentelemetry:opentelemetry-exporter-logging'
-	runtimeOnly 'org.postgresql:postgresql'
 
 	implementation 'io.jsonwebtoken:jjwt-api:0.13.0'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
@@ -92,7 +94,6 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.springframework.security:spring-security-test'
 	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
-	testImplementation 'org.testcontainers:testcontainers-postgresql'
 	// ADR-0007's adopted testing stack (JUnit 5 + Testcontainers +
 	// ArchUnit + REST Assured) -- ArchUnit is scaffolded here per that
 	// ADR's "adopt as part of first-module scaffolding" instruction,
@@ -108,23 +109,14 @@ dependencies {
 	// `int(10) UNSIGNED` display widths among it. Testing against the
 	// engine production actually runs is the whole point of Phase 1.
 	//
-	// Added alongside the PostgreSQL substrate, not replacing it: the
-	// application still runs on PostgreSQL by default, and ~50
-	// integration tests depend on that. The phase1-mysql profile (ADR-0013
-	// / D-043) is what actually boots the application against this driver
-	// -- runtimeOnly, not testImplementation, because LegacyPersistenceConfig
-	// is production code, even though today's only proven substrate is a
-	// test container (see LegacyPersistenceConfig's own javadoc).
+	// The application's only database (ADR-0017). runtimeOnly, not
+	// testImplementation: LegacyPersistenceConfig is production code.
 	testImplementation 'org.testcontainers:testcontainers-mariadb'
 	runtimeOnly 'org.mariadb.jdbc:mariadb-java-client'
 
 	// Phase 2 suite only. These are the dependencies Phase 1 removes
 	// from the application; the migration suite keeps them here so the
 	// frozen work stays executable without holding `main` on Postgres.
-	phase2TestImplementation 'org.flywaydb:flyway-core'
-	phase2TestImplementation 'org.flywaydb:flyway-database-postgresql'
-	phase2TestImplementation 'org.testcontainers:testcontainers-postgresql'
-	phase2TestRuntimeOnly 'org.postgresql:postgresql'
 }
 
 dependencyManagement {
@@ -135,6 +127,13 @@ dependencyManagement {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// Never restored from the build cache. The suite starts a MariaDB
+	// container, and neither the Docker daemon's state nor the floating
+	// `mariadb:11.8` image is an input Gradle can see -- so a run whose
+	// inputs matched an earlier one could be "passed" by copying that run's
+	// XML without starting a database. Compilation stays cacheable, which is
+	// where the cache's time goes.
+	outputs.cacheIf { false }
 	// Without this Gradle prints only "AssertionFailedError at Foo.java:12"
 	// and swallows the message, which on CI -- the only place the
 	// Testcontainers suite can run -- means a failure gives you a line
@@ -179,24 +178,25 @@ tasks.named('test') {
 	environment 'DOCKER_API_VERSION', '1.55'
 }
 
-// Run explicitly: `./gradlew phase2Test`. Deliberately absent from
-// `check` and from the `test` task's dependencies -- a Phase 2 asset
-// must never be able to fail a Phase 1 build. It is still compiled by
-// `./gradlew compilePhase2TestJava`, which CI does run, so the frozen
-// work cannot silently stop building.
-tasks.register('phase2Test', Test) {
-	description = 'Phase 2 (storage migration) suite: ETL load against a real PostgreSQL. Not part of `check`.'
-	group = 'verification'
-	testClassesDirs = sourceSets.phase2Test.output.classesDirs
-	classpath = sourceSets.phase2Test.runtimeClasspath
-	useJUnitPlatform()
-	shouldRunAfter tasks.named('test')
-	testLogging {
-		exceptionFormat = 'full'
-		showExceptions = true
-		showCauses = true
-		showStackTraces = true
-	}
-	environment 'DOCKER_HOST', 'unix:///var/run/docker.sock'
-	environment 'DOCKER_API_VERSION', '1.55'
+
+// Precompile the JTE templates. `generate()` emits Java sources into the normal
+// compile path, so template errors are build errors and the runtime needs no
+// template files present.
+jte {
+	generate()
+	binaryStaticContent = true
+}
+
+// `bootTestRun` starts the real application on the test runtime classpath. It
+// has to be told which main class: test sources contain other `main` methods
+// (the legacy spreadsheet fixture generator among them) and the plugin
+// otherwise picks one arbitrarily.
+//
+// This is how the application is started for manual runtime verification,
+// because it cannot currently be started from the jar at all: BackendApplication
+// excludes DataSourceAutoConfiguration, so nothing supplies JdbcConnectionDetails
+// outside Testcontainers. See LiveVerifyDataSourceConfig, and treat that as a
+// deployment gap to close in the cutover work rather than a fix.
+tasks.named('bootTestRun') {
+	mainClass = 'com.workin.backend.BackendApplication'
 }

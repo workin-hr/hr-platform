@@ -1,13 +1,22 @@
 /**
- * Attendance-device ingestion (ADR-0006; D-023 core, D-158 ZKTeco adapter).
+ * Attendance-device ingestion (ADR-0006; D-023 core, D-213 ZKTeco adapter).
  *
  * <p>A third root next to {@code com.workin.backend} (the Postgres-era
  * application) and {@code com.workin.legacy} (the PHP parity port). It is
  * neither: it is new Phase-1 functionality that persists through
- * {@code legacyDataSource} with {@code JdbcTemplate}, so it lives outside
- * both scan roots and is reached only by {@code LegacyPersistenceConfig}'s
- * explicit {@code @ComponentScan} under the {@code phase1-mysql} profile.
- * {@code DevicesModuleIsolationTest} pins that.
+ * {@code legacyDataSource} with {@code JdbcTemplate}, and it declares no JPA
+ * entity, so it stays out of {@code @EntityScan} and
+ * {@code @EnableJpaRepositories} entirely.
+ *
+ * <p>It was once reached only through an explicit {@code @ComponentScan} on
+ * {@code LegacyPersistenceConfig}, because the application's own scan root was
+ * deliberately empty while two profile-gated substrates had to be kept apart.
+ * ADR-0017 settled on one database and D-168 restored an ordinary
+ * {@code scanBasePackages = "com.workin"}, so this package is now scanned like
+ * any other. What keeps it inert is no longer where it sits but what gates it:
+ * every ingestion bean is {@code @ConditionalOnProperty} on
+ * {@code app.devices.ingest.enabled}, which defaults to false.
+ * {@code DevicesModuleIsolationTest} pins both that and the entity-free rule.
  *
  * <p>Layout follows the design's seam: {@code zkteco} translates the vendor
  * protocol into {@link com.workin.devices.DeviceAttendanceEvent}s and knows

@@ -62,7 +62,19 @@ public final class LegacyEmployeeTemplate {
 
 	/** {@code 'employees_template_' . date('Y-m-d') . '.csv'} -- or {@code .xlsx}. */
 	public static String filename(String today, boolean csv) {
-		return "employees_template_" + today + (csv ? ".csv" : ".xlsx");
+		return filename(today, csv, false);
+	}
+
+	/**
+	 * {@code $baseName = $forUpdate ? 'employees_update_template_' : 'employees_template_'}.
+	 *
+	 * <p>The name is the only thing telling an operator which of the two
+	 * sheets is in their downloads folder, and uploading the wrong one to the
+	 * wrong endpoint is the mistake it exists to prevent.
+	 */
+	public static String filename(String today, boolean csv, boolean forUpdate) {
+		String base = forUpdate ? "employees_update_template_" : "employees_template_";
+		return base + today + (csv ? ".csv" : ".xlsx");
 	}
 
 	/** {@code header('Content-Disposition: attachment; filename="' . $filename . '"')}. */

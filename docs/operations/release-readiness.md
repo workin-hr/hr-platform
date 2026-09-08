@@ -136,3 +136,57 @@ fictional examples.
   approved ADRs define them?
 - Which production smoke checks can be automated, and which require manual
   operator validation?
+
+## The Phase 1 Cutover: Go/No-Go Packet
+
+*Added 2026-09-04. The sections above define what a release packet must
+contain in general; this one is the actual state of the Phase 1 cutover,
+so the go/no-go is a decision about named facts rather than a form.*
+
+### Hard gates — no cutover until each is green
+
+| # | Gate | State | Closes when |
+|---|---|---|---|
+| 1 | Phase 1 tables exist in production, and the runtime principal can write to them | **Red** (**R-023**) | The startup check logs *all 10 owned tables are present* against production, and grants are confirmed for `app.legacy-db.username` |
+| 2 | Java and PHP sign with the same secret | **Red** (**R-024**) | Two fingerprints compared and equal, then a token exchange passing both ways |
+| 3 | A rollback has been executed somewhere and observed to work | **Red** (**R-025**) | One rehearsal on a non-production environment. None exists today — that is part of the gap |
+| 4 | The three deployment unknowns are filled in | **Red** | `release-cutover-and-rollback.md` names them: how the jar is deployed, what routes traffic, whether PHP keeps running |
+
+### Soft gates — decide deliberately, do not discover
+
+| # | Gate | State | If you proceed without it |
+|---|---|---|---|
+| 5 | WhatsApp OTP credentials (**R-015**) | **Red** | Login still works; registration, password reset and phone change all return 503. A capability that works in PHP today is lost |
+| 6 | Something measures the rollback triggers (**R-043**) | **Red** | The window is supervised by a human tailing logs, and the days after it are uninstrumented |
+| 7 | A PHP error-rate and latency baseline | **Not recorded** | "Worse than the baseline" is unenforceable — there is no left-hand side |
+
+### Already green
+
+- **Parity**: PHP → Java verification is complete and accepted, desktop
+  and mobile, static and runtime, against the unchanged real clients.
+- **Rollback shape**: no irreversible step exists in the sequence. The
+  tables are additive, the rows are legacy-shaped, and sessions survive
+  in both directions *conditional on gate 2*.
+- **Platform-admin actions** are behind `app.platform-admin.actions.enabled`,
+  defaulting to false, and stay off until ADR-0015 prerequisite 7 confirms
+  the PHP admin surface is unreachable.
+
+### What the decision actually trades
+
+Cutting over **closes** three live cross-tenant defects in PHP —
+**R-037**, **R-036**, **R-039** — because Java scopes what PHP does not.
+That is an argument for going sooner, and it is also why a rollback
+should be time-boxed rather than open-ended.
+
+Against that: gates 1 through 4 are all red, and gate 3 in particular
+means Phase 1's central risk assumption — a cheap, proven rollback — is
+still an assumption. **The honest position today is no-go**, and the
+shortest path to go is gates 1, 2 and 4, which are hours of work by
+someone with production access, followed by gate 3, which needs an
+environment nobody has recorded as existing.
+
+### Recording the decision
+
+The go/no-go is human and belongs here, with a date, the person deciding,
+and which of the soft gates were knowingly accepted. Do not record a go
+that leaves a hard gate red without saying which one and why.
