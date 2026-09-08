@@ -171,7 +171,10 @@
 													data-dialog-questionEn="${item.questionEn()}"
 													data-dialog-answerAr="${item.answerAr()}"
 													data-dialog-answerEn="${item.answerEn()}"
-													data-dialog-platform="${item.platform()}"
+													<%-- .stored(), not the enum: the options are stored values
+													     ("both"), and setting a select to "BOTH" matches
+													     none of them and silently clears it. --%>
+													data-dialog-platform="${item.platform().stored()}"
 													data-dialog-sortOrder="${item.sortOrder()}">${t.apply("edit")}</button>
 											<form method="post" class="row-actions__form"
 											      onsubmit="return confirm('${t.apply("confirm_delete")}')">

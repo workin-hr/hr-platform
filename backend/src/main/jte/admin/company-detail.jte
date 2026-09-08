@@ -40,8 +40,16 @@
 				<div class="stat-num">#${detail.company().id()}</div>
 				<div class="stat-label">${t.apply("company")}</div>
 			</div>
+			<%-- The same badge the list draws, and for the same reason: the column
+			     holds "active"/"pending"/"suspended"/"rejected", which is a stored
+			     value and not a word to show anyone. --%>
 			<div class="stat-card green">
-				<div class="stat-num">${detail.company().status()}</div>
+				<div class="stat-num">
+					<span class="badge ${"active".equals(detail.company().status()) ? "badge-green"
+							: "pending".equals(detail.company().status()) ? "badge-yellow"
+							: "rejected".equals(detail.company().status()) ? "badge-red" : "badge-gray"}">
+						${t.apply("status_" + detail.company().status())}</span>
+				</div>
 				<div class="stat-label">${t.apply("status")}</div>
 			</div>
 			<div class="stat-card yellow">

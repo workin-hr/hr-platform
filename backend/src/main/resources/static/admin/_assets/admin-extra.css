@@ -121,12 +121,36 @@
    page behind it are the browser's. */
 .row-dialog {
 	width: min(28rem, calc(100vw - 2rem));
+	/* The UA centres a modal dialog with `inset: 0; margin: auto`. style.css
+	   opens with `*, *::before, *::after { margin: 0 }` -- copied from legacy,
+	   where it was harmless because legacy has no <dialog> at all -- and that
+	   reset wins over the UA rule. The result is a fixed-width box pinned to
+	   the inline-start edge and stretched to the full height: on this RTL
+	   surface, a full-height panel down the right. `height: auto` because
+	   `inset: 0` alone would still stretch it. */
+	margin: auto;
+	height: auto;
+	flex-direction: column;
+	max-height: min(calc(100dvh - 4rem), 44rem);
 	padding: 0;
 	border: 1px solid var(--app-border, #e2e6ef);
 	border-radius: var(--app-radius-lg, 14px);
 	box-shadow: 0 24px 48px rgba(15, 23, 42, .18);
 	background: var(--app-surface, #fff);
 	color: var(--app-text, #1a1d24);
+}
+
+/* Head and footer stay put and the fields scroll between them: without this
+   the whole dialog scrolls, and a form with eight fields pushes its own save
+   button off the bottom of the viewport.
+
+   `[open]` is load-bearing. The UA hides a closed dialog with
+   `dialog:not([open]) { display: none }`, and an author `display` on
+   `.row-dialog` beats it whatever the specificity -- author origin wins over
+   UA. Unscoped, every closed dialog on the page renders inline underneath the
+   table it belongs to. */
+.row-dialog[open] {
+	display: flex;
 }
 
 .row-dialog::backdrop {
@@ -156,10 +180,20 @@
 	display: none;
 }
 
+.row-dialog form {
+	display: flex;
+	flex-direction: column;
+	/* A flex child will not shrink below its content without this, which is
+	   what lets the body scroll rather than the dialog grow. */
+	min-height: 0;
+}
+
 .row-dialog__body {
 	display: grid;
 	gap: 12px;
 	padding: 16px 20px;
+	overflow-y: auto;
+	min-height: 0;
 }
 
 .row-dialog__body label {
