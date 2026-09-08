@@ -69,6 +69,13 @@ test.describe(`the ${PROFILE} profile`, () => {
 	});
 
 	test('serves the client API', async ({ request }) => {
+		// This route reads `configs`, and the production profile mounts no seed
+		// on purpose -- production data arrives by a supervised restore. On a
+		// first `./run.sh prod` the table does not exist, and a 500 there would
+		// say nothing about the deployment's shape, which is what this project
+		// tests. With E2E_SEED_PROD the restore has happened and it runs.
+		test.skip(PROFILE === 'prod' && !process.env.E2E_SEED_PROD,
+			'the production profile starts with an empty database (E2E_SEED_PROD restores one)');
 		const response = await request.get('/apis/api/configs/get');
 
 		expect(response.status()).toBe(200);
@@ -150,6 +157,10 @@ test.describe(`the ${PROFILE} profile`, () => {
 			.map((header) => header.value)
 			.filter((value) => value.startsWith('WORKIN_ADMIN_SESSION'));
 
+		// Without this the loop below runs zero times when the header is absent
+		// or renamed, and the test passes having proved none of the three flags
+		// in its own title.
+		expect(cookies, 'the login page set exactly one session cookie').toHaveLength(1);
 		for (const cookie of cookies) {
 			expect(cookie, 'ADR-0015 prerequisite 6 is unconditional').toContain('Secure');
 			expect(cookie).toContain('HttpOnly');

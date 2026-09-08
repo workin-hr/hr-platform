@@ -209,21 +209,28 @@ test.describe.serial('the platform-admin dashboard', () => {
 				reason: 'e2e run', _csrf: csrf,
 			},
 		});
-		expect(response.status(), await response.text()).toBeLessThan(400);
-		expect(scalar(`SELECT status FROM companies WHERE id = ${target.id}`)).toBe('suspended');
-		expect(rowFingerprint('companies', target.id)).not.toBe(before);
+		// try/finally, not a trailing statement: the runner reuses the stack's
+		// named volume, so a company left suspended by a failed assertion stays
+		// suspended across runs, and the next run picks a different active
+		// company and suspends that one too. The fixture would erode a company
+		// per failure, and the second failure would be about the erosion.
+		try {
+			expect(response.status(), await response.text()).toBeLessThan(400);
+			expect(scalar(`SELECT status FROM companies WHERE id = ${target.id}`)).toBe('suspended');
+			expect(rowFingerprint('companies', target.id)).not.toBe(before);
 
-		// The write and its audit row are one transaction: a company suspended
-		// with no row saying who did it is the failure mode the trail exists for.
-		const audit = rows(`SELECT event_type, target_type, target_id
-		                    FROM platform_admin_audit_events
-		                    WHERE platform_admin_id = ${adminId} AND target_id = '${target.id}'
-		                    ORDER BY id DESC LIMIT 1`)[0];
-		expect(audit, 'the action is in the audit log').toBeTruthy();
-		expect(audit.event_type).toBe('COMPANY_SUSPENDED');
-
-		// Put the seed back the way it was found.
-		exec(`UPDATE companies SET status = '${target.status}' WHERE id = ${target.id}`);
+			// The write and its audit row are one transaction: a company suspended
+			// with no row saying who did it is the failure mode the trail exists for.
+			const audit = rows(`SELECT event_type, target_type, target_id
+			                    FROM platform_admin_audit_events
+			                    WHERE platform_admin_id = ${adminId} AND target_id = '${target.id}'
+			                    ORDER BY id DESC LIMIT 1`)[0];
+			expect(audit, 'the action is in the audit log').toBeTruthy();
+			expect(audit.event_type).toBe('COMPANY_SUSPENDED');
+		}
+		finally {
+			exec(`UPDATE companies SET status = '${target.status}' WHERE id = ${target.id}`);
+		}
 	});
 
 	test('a row action that needs typing opens a dialog, and the dialog writes', async ({ page }) => {

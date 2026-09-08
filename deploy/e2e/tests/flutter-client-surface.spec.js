@@ -165,6 +165,13 @@ test('every endpoint the clients call is served, at the verb they call it with',
 		if (status === 405) {
 			notServed.push(`${verb} ${endpoint} answered 405 to the verb the inventory declares`);
 		}
+		// 501 is the router's answer for an allowed module whose handler is
+		// absent -- which is exactly a missing route, and the one shape that
+		// used to reach the report without failing the sweep. The endpoints
+		// that answer it legitimately are handled above, and never reach here.
+		if (status === 501) {
+			notServed.push(`${verb} ${endpoint} answered 501; its module is allowed but nothing serves it`);
+		}
 		if (verb !== 'GET' && status === 200 && !NO_INPUT_WRITES.has(endpoint)) {
 			wroteWithoutInput.push(`${verb} ${endpoint} answered 200 with no parameters at all`);
 		}

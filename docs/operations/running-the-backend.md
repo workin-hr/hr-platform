@@ -71,6 +71,34 @@ Verified on 2026-09-03: the packaged jar starts in this profile against MariaDB
 usable token, and an authenticated `GET /apis/api/requests/list` returns the
 paginated shape the clients expect.
 
+## Forwarded headers, and the one setting that must not be wrong
+
+`server.forward-headers-strategy` decides whether the application believes
+`X-Forwarded-For` and `X-Forwarded-Proto`. It matters because the client
+address is what the login's miss budget is charged to and what the legacy
+rate limits count, so a caller who can set that header can spend somebody
+else's budget -- or nobody's (**R-049**).
+
+| Profile | Value | Why |
+|---|---|---|
+| `prod` | **`native`**, fixed | Production is only reachable through its proxy. The compose file publishes the app port to `127.0.0.1` alone |
+| `integration` | `${FORWARD_HEADERS_STRATEGY:-none}`, defaulting to **`none`** | This box is reachable by more people than production's operators. `native` is correct there **only** once a proxy is the sole route to the port |
+| `local` | unset (`none`) | Nothing is in front |
+
+**Turning it on is a two-part change, and doing half of it is the hazard.**
+`native` without a proxy in front means the application trusts a header any
+caller can send. So: put the proxy there, close the published port to
+everything but the proxy, and only then set `FORWARD_HEADERS_STRATEGY=native`
+in the same change.
+
+**What an operator sees when it is wrong.** With `native` and no proxy: login
+throttling that never trips for a determined caller, because each attempt can
+claim a fresh address -- visible as `platform_admin_login_attempts` rows whose
+`client_key` values are varied and implausible, and as `LOGIN_FAILED` audit
+rows that never lead to a lockout. With `none` behind a proxy: every request
+attributed to the proxy's own address, so one caller's misses lock out
+everyone -- visible as a single `client_key` carrying every attempt.
+
 ## What happens at startup, and in what order
 
 Three checks run before anything serves traffic, and the order is deliberate:
