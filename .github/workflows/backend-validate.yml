@@ -36,7 +36,7 @@ on:
 permissions:
   contents: read
 
-# One run per branch, and a new push kills the one it supersedes.
+# One run per branch head, and a new push kills the one it supersedes.
 #
 # The suite takes about twenty minutes, so three pushes in quick succession --
 # a fix, a review response, a typo -- used to mean an hour of runner time to
@@ -45,12 +45,21 @@ permissions:
 # superseded run loses nothing: its result was about a commit that is no longer
 # the head.
 #
-# Keyed on the ref rather than the SHA, because the point is to cancel the
-# *previous* SHA's run. Not cancelled on `main`: there the run is the record
-# that a merged commit builds, and nothing supersedes that.
+# The key is the *source branch*, not `github.ref`. A branch that has an open
+# pull request in this repository triggers both configured events, and their
+# refs differ -- `refs/heads/<branch>` for the push, `refs/pull/<n>/merge` for
+# the pull request -- so keying on the ref put them in separate groups and ran
+# the same head twice, which is the duplication this block exists to remove.
+# `head_ref` is set only on `pull_request`, so the fallback covers pushes.
+#
+# On `main` the key is the SHA instead, because there the run is the record
+# that a merged commit builds. A shared group would not just leave it
+# uncancelled: GitHub keeps one running and one pending run per group and
+# discards the rest, so three merges in quick succession would leave the middle
+# commit with no run at all.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ${{ github.workflow }}-${{ github.ref_name == 'main' && github.sha || github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
 
 jobs:
   test:
