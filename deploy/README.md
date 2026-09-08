@@ -111,6 +111,11 @@ docker compose -f compose.integration.yaml --env-file .env.integration up -d
 
 ### Production
 
+The full cutover onto a server of your own -- which stack, every value that
+changes, the order, and the checks -- is
+[docs/operations/going-live-on-a-vps.md](../docs/operations/going-live-on-a-vps.md).
+What follows is the command.
+
 ```sh
 cp env.prod.example .env.prod                  # then fill it in
 docker compose -f compose.prod.yaml -f compose.tls.yaml --env-file .env.prod up -d

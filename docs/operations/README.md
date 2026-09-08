@@ -16,6 +16,8 @@ approved ADR establish them; where a number is genuinely unknown, write
 - `environment-and-deployment-strategy.md`
 - `release-readiness.md`
 - `release-cutover-and-rollback.md` — the overall system rollout cutover/rollback plan (distinct from `docs/migration/cutover-and-rollback-assumptions.md`, which covers the database migration cutover specifically)
+- `going-live-on-a-vps.md` — the cutover onto a server of your own: which stack to run,
+  every value that changes and the file it lives in, the order, and how to tell it worked
 - `checking-against-the-live-database.md` — the backend in Docker against the MySQL PHP still serves: the six tables Java adds, the three settings that differ against real data, and how the mobile, desktop and admin clients point at it
 - `backup-and-restore.md`
 - `incident-response.md`
