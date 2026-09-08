@@ -41,6 +41,54 @@ public interface PlatformAdminCompanyDirectory {
 
 	List<CompanyView> list(int limit);
 
+	/**
+	 * The dial codes {@code company_country_codes()} offers. The three lookup
+	 * selects are not here: {@code CompanyDirectoryStore} already supplies
+	 * them to this page for its filters, and a second copy would be a second
+	 * ordering to keep in step.
+	 */
+	List<String> dialCodes();
+
+	boolean phoneTaken(String phone, long excludeCompanyId);
+
+	boolean companyCodeTaken(String companyCode, long excludeCompanyId);
+
+	boolean lookupsExist(long activityId, long titleId, long sizeId);
+
+	/**
+	 * One company as the form needs it: the ids the selects bind to and the
+	 * name split the way the row stores it, neither of which the list's
+	 * {@code CompanyRow} carries -- it holds display names for a table.
+	 */
+	record EditableCompany(long id, String companyName, String firstName, String lastName,
+			String countryCode, String phone, String mainBranchAddress,
+			long activityId, long titleId, long sizeId, String companyCode) {
+	}
+
+	java.util.Optional<EditableCompany> editable(long companyId);
+
+	/** The stored logo and commercial-registration URLs, for an edit that uploads neither. */
+	record StoredFiles(String logoUrl, String commercialRegUrl) {
+	}
+
+	java.util.Optional<StoredFiles> storedFiles(long companyId);
+
+	/**
+	 * {@code company_admin_create()}: the row, then its main branch. Returns
+	 * the new id.
+	 */
+	long create(CompanyForm.CompanyWrite write, String passwordHash,
+			String logoUrl, String commercialRegUrl);
+
+	/**
+	 * {@code company_admin_update()}: the row, then its main branch -- updated
+	 * where one exists and inserted where it does not, as the PHP does.
+	 *
+	 * @param passwordHash null leaves the stored password alone
+	 */
+	void update(long companyId, CompanyForm.CompanyWrite write, String passwordHash,
+			String logoUrl, String commercialRegUrl);
+
 	java.util.Optional<CompanyDetail> detail(long companyId);
 
 	/**

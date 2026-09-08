@@ -21,6 +21,10 @@
 @param List<CompanyRow.Option> activities = java.util.List.of()
 @param List<CompanyRow.Option> titles = java.util.List.of()
 @param List<CompanyRow.Option> sizes = java.util.List.of()
+<%-- ?action=add or ?edit=<id>, and the row being edited when there is one. --%>
+@param boolean formOpen = false
+@param long editCompanyId = 0
+@param com.workin.backend.platformadmin.PlatformAdminCompanyDirectory.EditableCompany editCompany = null
 <%-- dashboard/pages/companies/page.php. --%>
 @template.admin.layout(
 	title = t.apply("nav_companies"),
@@ -94,6 +98,13 @@
 			<div class="data-table-card">
 				<div class="data-table-head">
 					<h2 class="data-table-title">${t.apply("nav_companies")} (${result.total()})</h2>
+					<div class="data-table-head__actions">
+						@if(actionsEnabled)
+							<%-- page.php's own entry point to _company_form.php. --%>
+							<button type="button" class="btn btn-blue btn-sm"
+									onclick="crudOpenAdd('companyModal')">+ ${t.apply("add_company")}</button>
+						@endif
+					</div>
 				</div>
 				<div class="table-wrap">
 					<table class="tbl">
@@ -186,5 +197,108 @@
 						<label>${t.apply("rejection_reason")}
 							<textarea name="reason" rows="3" required></textarea></label>
 					`)
+
+			<%-- _company_form.php, serving add and edit as it does. Opened by the
+			     "+" button or by ?edit=<id>; page.php keeps it in a modal and so
+			     does this. The logo is required to add and optional to edit,
+			     because company_admin_update falls back to the stored one. --%>
+			<div class="modal-bg${formOpen ? " open" : ""}" id="companyModal">
+				<div class="modal modal--company-add" role="dialog" aria-modal="true"
+						aria-labelledby="companyModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="companyModal-title">${t.apply(editCompanyId > 0 ? "edit" : "add_company")}</h2>
+					<form method="POST" action="/admin/companies/save"
+							enctype="multipart/form-data">
+						<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+						<input type="hidden" name="action"
+						       value="${editCompanyId > 0 ? "save_edit" : "add"}">
+						<input type="hidden" name="id" value="${editCompanyId}">
+						<div class="company-add-grid">
+							<div class="form-row company-add-span-2">
+								<label for="co_name">${t.apply("company_name")}</label>
+								<input type="text" id="co_name" name="company_name" required maxlength="255"
+								       value="${editCompany == null ? "" : editCompany.companyName()}">
+							</div>
+							<div class="form-row">
+								<label for="co_first">${t.apply("first_name")}</label>
+								<input type="text" id="co_first" name="first_name" required
+								       value="${editCompany == null ? "" : editCompany.firstName()}">
+							</div>
+							<div class="form-row">
+								<label for="co_last">${t.apply("last_name")}</label>
+								<input type="text" id="co_last" name="last_name" required
+								       value="${editCompany == null ? "" : editCompany.lastName()}">
+							</div>
+							<div class="form-row">
+								<label for="co_code">${t.apply("country_code")}</label>
+								<input type="text" id="co_code" name="country_code" dir="ltr"
+								       value="${editCompany == null ? "+20" : editCompany.countryCode()}">
+							</div>
+							<div class="form-row">
+								<label for="co_phone">${t.apply("phone")}</label>
+								<input type="text" id="co_phone" name="phone" dir="ltr" required
+								       value="${editCompany == null ? "" : editCompany.phone()}">
+							</div>
+							<div class="form-row company-add-span-2">
+								<%-- Required to add and optional to edit: blank on an edit
+								     leaves the stored password alone, which is what
+								     company_admin_update does. --%>
+								<label for="co_pw">${t.apply("password")}</label>
+								<input type="password" id="co_pw" name="password" minlength="6"
+								       required="${editCompanyId == 0}">
+							</div>
+							<div class="form-row company-add-span-2">
+								<label for="co_addr">${t.apply("main_branch_address")}</label>
+								<input type="text" id="co_addr" name="main_branch_address" required
+								       value="${editCompany == null ? "" : editCompany.mainBranchAddress()}">
+							</div>
+							<div class="form-row">
+								<label for="co_act">${t.apply("company_activity")}</label>
+								<select id="co_act" name="company_activity_id" required>
+									@for(CompanyRow.Option option : activities)
+										<option value="${option.id()}"
+											selected="${editCompany != null && editCompany.activityId() == option.id()}">${option.name()}</option>
+									@endfor
+								</select>
+							</div>
+							<div class="form-row">
+								<label for="co_title">${t.apply("company_title")}</label>
+								<select id="co_title" name="company_title_id" required>
+									@for(CompanyRow.Option option : titles)
+										<option value="${option.id()}"
+											selected="${editCompany != null && editCompany.titleId() == option.id()}">${option.name()}</option>
+									@endfor
+								</select>
+							</div>
+							<div class="form-row">
+								<label for="co_size">${t.apply("company_size")}</label>
+								<select id="co_size" name="company_size_id" required>
+									@for(CompanyRow.Option option : sizes)
+										<option value="${option.id()}"
+											selected="${editCompany != null && editCompany.sizeId() == option.id()}">${option.name()}</option>
+									@endfor
+								</select>
+							</div>
+							<div class="form-row">
+								<label for="co_logo">${t.apply("company_logo")}</label>
+								<small class="text-muted">${t.apply("current_logo")}</small>
+								<input type="file" id="co_logo" name="logo"
+								       accept="image/jpeg,image/png,image/webp"
+								       required="${editCompanyId == 0}">
+							</div>
+							<div class="form-row company-add-span-2">
+								<label for="co_reg">${t.apply("commercial_reg")}</label>
+								<input type="file" id="co_reg" name="commercial_reg"
+								       accept="image/jpeg,image/png,image/webp,application/pdf">
+							</div>
+						</div>
+						<div class="form-footer">
+							<a href="/admin/companies" class="btn btn-gray">${t.apply("cancel")}</a>
+							<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+						</div>
+					</form>
+				</div>
+			</div>
 		@endif
 	`)
