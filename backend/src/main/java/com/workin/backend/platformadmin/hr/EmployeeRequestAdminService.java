@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.hr;
 import java.time.LocalDate;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,7 +37,6 @@ import com.workin.legacy.LegacyClock;
  * {@code delete} writing by id alone. Both are guarded here.
  */
 @Service
-@Profile("phase1-mysql")
 public class EmployeeRequestAdminService {
 
 	/** {@code REQ_PENDING}, {@code REQ_APPROVED}, {@code REQ_REJECTED}. */

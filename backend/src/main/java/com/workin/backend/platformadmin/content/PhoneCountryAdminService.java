@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.content;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,7 +20,6 @@ import com.workin.backend.platformadmin.PlatformAdminAuditService;
  * not required here.
  */
 @Service
-@Profile("phase1-mysql")
 public class PhoneCountryAdminService {
 
 	/** The audit row's {@code target_type}: the table, so one triple of event types serves every content page. */

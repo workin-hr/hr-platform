@@ -36,10 +36,10 @@ settled — or less settled — than the ADRs it summarizes.
 - Flutter compatibility retained where required by validated client
   behavior — **accepted**, see ADR-0003 (API Versioning And Flutter
   Compatibility)
-- PostgreSQL as the target database — **accepted as the target**, see ADR-0004
-  (MySQL-To-PostgreSQL Migration Approach). **The migration itself is Phase 2,
-  out of scope now, and not to be advanced (D-151)**; the current phase ports
-  PHP to Java against the existing MySQL schema
+- MySQL (MariaDB in production) as the database, **permanently** — see
+  ADR-0017 (MySQL Is The Production Database, And Stays So), which supersedes
+  ADR-0004's PostgreSQL target and ADR-0011's Phase 2 migration. The port runs
+  against the existing MySQL schema, and there is no migration after it
 - local .NET edge gateway for attendance integration scenarios where
   needed — explicitly a candidate direction pending vendor and device
   discovery, see ADR-0006 (Attendance Edge-Gateway Direction)

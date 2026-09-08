@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -19,7 +18,6 @@ import com.workin.backend.platformadmin.hr.EmployeeStore;
 
 /** {@code dashboard/pages/employees/page.php}. */
 @Controller
-@Profile("phase1-mysql")
 public class AdminEmployeesController {
 
 	private static final String VIEW = "admin/employees";

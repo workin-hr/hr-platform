@@ -16,8 +16,8 @@ import com.workin.backend.security.AuthenticatedPrincipal;
  * explicit, per-call-site check, not a declarative annotation +
  * interceptor. That shape belongs to
  * {@code com.workin.backend.authorization}'s {@code AuthorizationPolicyInterceptor},
- * which is inseparable from the PostgreSQL redesign and already
- * {@code @Profile("!phase1-mysql")}-excluded (ADR-0013 §9). A legacy
+ * which belonged to the PostgreSQL redesign and went with it (ADR-0017).
+ * A legacy
  * controller method calls {@link #require} explicitly, the same way a
  * legacy PHP endpoint calls {@code require_hr_permission($auth, ...)}
  * explicitly -- opt-in per endpoint, not structural. D-044 requires

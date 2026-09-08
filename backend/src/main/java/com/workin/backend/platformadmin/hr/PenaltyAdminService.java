@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.hr;
 import java.math.BigDecimal;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,7 +28,6 @@ import com.workin.legacy.payroll.LegacyPenaltyDays;
  * Both are guarded here.
  */
 @Service
-@Profile("phase1-mysql")
 public class PenaltyAdminService {
 
 	public enum Refusal {

@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.hr;
 import java.math.BigDecimal;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,7 +27,6 @@ import com.workin.backend.platformadmin.web.DashboardSession;
  * have succeeded.
  */
 @Service
-@Profile("phase1-mysql")
 public class LeaveBalanceAdminService {
 
 	/** {@code (float) ($_POST['total_days'] ?? 15)} -- the form's own default. */

@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.content;
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -15,7 +14,6 @@ import org.springframework.stereotype.Repository;
  * them in, so the column is a visible contract rather than bookkeeping.
  */
 @Repository
-@Profile("phase1-mysql")
 public class BannerStore {
 
 	private final JdbcTemplate jdbcTemplate;

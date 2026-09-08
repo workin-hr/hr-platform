@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -30,7 +29,6 @@ import com.workin.backend.platformadmin.web.DashboardPage;
  * operator added is at the top.
  */
 @Repository
-@Profile("phase1-mysql")
 public class LeaveBalanceStore {
 
 	/** {@code dashboard_employee_display_name_sql('e')} for the shipped schema. */

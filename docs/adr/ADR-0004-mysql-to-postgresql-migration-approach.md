@@ -6,13 +6,13 @@
 |---|---|
 | ADR ID | ADR-0004 |
 | Title | MySQL-To-PostgreSQL Migration Approach |
-| Status | Accepted |
+| Status | Superseded |
 | Date | 2026-08-02 (accepted 2026-08-05 — see `docs/bootstrap/decision-log.md` D-022) |
 | Owners | Solution Architect, Legacy PHP Analyst |
 | Deciders | Human engineering leadership — recorded at approval time in `docs/bootstrap/decision-log.md` |
 | Related Issues | None yet |
 | Supersedes | None |
-| Superseded By | None |
+| Superseded By | ADR-0017 (2026-09-08): MySQL is the production database and stays so; there is no migration to PostgreSQL |
 
 > **Scope note (D-151, 2026-09-01) — not a supersession.** PostgreSQL remains
 > the accepted long-term target and this ADR's approach is unchanged. Its

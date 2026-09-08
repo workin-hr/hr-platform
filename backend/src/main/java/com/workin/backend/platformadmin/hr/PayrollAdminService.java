@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.hr;
 import java.math.BigDecimal;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,7 +48,6 @@ import com.workin.legacy.wire.LegacyApiException;
  * and the scoped batch lookup in one.
  */
 @Service
-@Profile("phase1-mysql")
 public class PayrollAdminService {
 
 	public enum Refusal {

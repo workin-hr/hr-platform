@@ -1,6 +1,5 @@
 package com.workin.backend.platformadmin.web;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -19,7 +18,6 @@ import com.workin.backend.platformadmin.content.BroadcastAudience;
  * number is what makes this a decision rather than a click.
  */
 @Controller
-@Profile("phase1-mysql")
 public class AdminNotificationsController {
 
 	private static final String VIEW = "admin/notifications";

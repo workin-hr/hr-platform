@@ -41,8 +41,8 @@ class PlatformAdminMfaServiceTest extends AbstractIntegrationTest {
 	private PlatformAdminMfaService mfaService;
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -188,7 +188,7 @@ class PlatformAdminMfaServiceTest extends AbstractIntegrationTest {
 		String token = this.mfaService.issueBootstrapToken(admin, admin);
 		String seed = this.mfaService.beginEnrolment(admin, token).orElseThrow();
 
-		byte[] stored = new JdbcTemplate(this.flywayDataSource).queryForObject(
+		byte[] stored = new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"SELECT seed_ciphertext FROM platform_admin_mfa WHERE platform_admin_id = ?",
 				byte[].class, admin);
 
@@ -293,19 +293,19 @@ class PlatformAdminMfaServiceTest extends AbstractIntegrationTest {
 	}
 
 	private List<String> auditTypesFor(long adminId) {
-		return new JdbcTemplate(this.flywayDataSource).queryForList(
+		return new JdbcTemplate(this.legacyDataSource).queryForList(
 				"SELECT event_type FROM platform_admin_audit_events WHERE platform_admin_id = ?",
 				String.class, adminId);
 	}
 
 	private void expireBootstrapTokens(long adminId) {
-		new JdbcTemplate(this.flywayDataSource).update(
+		new JdbcTemplate(this.legacyDataSource).update(
 				"UPDATE platform_admin_mfa_bootstrap_tokens SET expires_at = ? WHERE platform_admin_id = ?",
-				java.sql.Timestamp.from(Instant.now().minusSeconds(60)), adminId);
+				storedAs(Instant.now().minusSeconds(60)), adminId);
 	}
 
 	private long createPlatformAdmin() {
-		return new JdbcTemplate(this.flywayDataSource).queryForObject(
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true) RETURNING id",
 				Long.class, "+95" + System.nanoTime(), this.passwordEncoder.encode("irrelevant"));
 	}

@@ -4,7 +4,6 @@ import java.time.LocalDate;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -21,7 +20,6 @@ import com.workin.legacy.wire.LegacyMessages;
 
 /** {@code dashboard/pages/attendance/page.php}. */
 @Controller
-@Profile("phase1-mysql")
 public class AdminAttendanceController {
 
 	private static final String VIEW = "admin/attendance";

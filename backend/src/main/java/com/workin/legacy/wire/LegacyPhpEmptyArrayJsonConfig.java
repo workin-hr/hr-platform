@@ -14,7 +14,6 @@ import tools.jackson.databind.type.MapType;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 
 /**
  * Renders an empty structure the way PHP's {@code json_encode} does:
@@ -59,7 +58,6 @@ import org.springframework.context.annotation.Profile;
  * than a house style. The platform's own API keeps Jackson's defaults.
  */
 @Configuration
-@Profile("phase1-mysql")
 public class LegacyPhpEmptyArrayJsonConfig {
 
 	/**

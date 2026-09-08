@@ -2,7 +2,6 @@ package com.workin.backend.platformadmin;
 
 import java.util.List;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import com.workin.legacy.companies.LegacyCompanyRepository;
@@ -18,7 +17,6 @@ import com.workin.legacy.companies.LegacyCompanyRepository;
  * change than this needs.
  */
 @Component
-@Profile("phase1-mysql")
 public class LegacyPlatformAdminCompanyDirectory implements PlatformAdminCompanyDirectory {
 
 	private final LegacyCompanyRepository companyRepository;

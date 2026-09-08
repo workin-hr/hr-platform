@@ -37,8 +37,8 @@ class PlatformAdminAuthFlowTest extends AbstractIntegrationTest {
 	private TestRestTemplate restTemplate;
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -136,7 +136,7 @@ class PlatformAdminAuthFlowTest extends AbstractIntegrationTest {
 				.as("the token works while the admin is active")
 				.isEqualTo(HttpStatus.OK);
 
-		new JdbcTemplate(flywayDataSource).update(
+		new JdbcTemplate(legacyDataSource).update(
 				"UPDATE platform_admins SET active = false WHERE phone = ?", phone);
 
 		assertThat(meWith(token).getStatusCode())
@@ -155,7 +155,7 @@ class PlatformAdminAuthFlowTest extends AbstractIntegrationTest {
 	}
 
 	private void createPlatformAdmin(String phone, String password, boolean active) {
-		Long id = new JdbcTemplate(flywayDataSource).queryForObject(
+		Long id = new JdbcTemplate(legacyDataSource).queryForObject(
 				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, ?) RETURNING id",
 				Long.class, phone, passwordEncoder.encode(password), active);
 		// ADR-0015 prerequisite 8: the bearer surface refuses an administrator

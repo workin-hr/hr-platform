@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.hr;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -18,7 +17,6 @@ import org.springframework.stereotype.Repository;
  * says it is in.
  */
 @Repository
-@Profile("phase1-mysql")
 public class JoinRequestStore {
 
 	/**

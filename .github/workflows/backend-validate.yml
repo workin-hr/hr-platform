@@ -71,28 +71,6 @@ jobs:
       - name: Check out repository (immutable action reference)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      # Fast fail before any Java setup: two schema branches cut from the
-      # same base can each claim the same Flyway versions and merge
-      # without textual conflict (PR #37 + #38 -> broken main, fixed in
-      # PR #40). Flyway rejects duplicates at every context boot; this
-      # surfaces that in seconds with the exact colliding files.
-      - name: Fail on duplicate Flyway migration versions
-        working-directory: .
-        run: |
-          python3 scripts/check_flyway_versions.py --self-test
-          python3 scripts/check_flyway_versions.py
-
-      # A bare write to a FORCE-ROW-LEVEL-SECURITY table matches zero rows
-      # and still succeeds under a non-superuser migration role (V35 did
-      # exactly that). The Java suite cannot catch it -- Testcontainers'
-      # default Postgres user is a superuser and bypasses RLS -- so this
-      # runs here, before Java, alongside the other fast migration guards.
-      - name: Fail on unguarded writes to FORCE-RLS tables
-        working-directory: .
-        run: |
-          python3 scripts/check_rls_migration_safety.py --self-test
-          python3 scripts/check_rls_migration_safety.py
-
       # Phase 1: the legacy MySQL schema is an external contract, and
       # backend/src/test/resources/legacy/ carries a vendored copy so
       # tests can run against a real MariaDB. Only --self-test runs
@@ -119,47 +97,6 @@ jobs:
         working-directory: .
         run: python3 scripts/test_check_client_endpoints_drift.py
 
-      # ---------------------------------------------------------------
-      # Phase 2 (storage migration) assets — FROZEN 2026-08-16.
-      #
-      # These guard the PostgreSQL/ETL work that Phase 1 does not use.
-      # They are kept running because they are pure, database-free
-      # emitted-SQL checks that finish in about a second each, so they
-      # protect the frozen work without meaningfully gating a Phase 1
-      # build. The expensive coupling — EtlLoadFixtureTest, ~3 minutes of
-      # Testcontainers PostgreSQL inside the application suite — is what
-      # the reset removed: it now lives in the `phase2Test` source set
-      # and runs only on `./gradlew phase2Test`.
-      # ---------------------------------------------------------------
-
-      # PMR-10's reconciliation harness must stay proven-working: its
-      # self-tests exercise every detection class on synthetic samples.
-      - name: Migration-diff harness self-test
-        working-directory: .
-        run: python3 scripts/migration_diff.py --self-test
-
-      # The coverage auditor proves no legacy column is dropped without a
-      # recorded decision. Only --self-test runs here: --check needs the
-      # legacy MySQL schema, which lives in a separate repository this
-      # workflow does not check out. The self-test exercises every
-      # detection class on synthetic fixtures, so a regression in the
-      # detector itself still fails the build; run --check locally against
-      # a legacy checkout before changing the ETL.
-      - name: ETL coverage-audit self-test
-        working-directory: .
-        run: python3 scripts/etl/coverage_audit.py --self-test
-
-      # The load program's own self-test asserts, on the emitted SQL, every
-      # remediation decision it encodes -- which fallback each zero-date
-      # guard uses, that no repair reaches for now(), that a value is never
-      # cast before it is guarded. The file has always documented this
-      # command (its module docstring) but nothing ran it, so the
-      # assertions guarded review, not the build. Emitting SQL needs no
-      # database, so it belongs here alongside the other ETL self-tests.
-      - name: ETL load-program self-test
-        working-directory: .
-        run: python3 scripts/etl/load_postgres.py --self-test
-
       # `cache: gradle` restores the dependency cache and Gradle's own
       # build cache between runs, keyed on the build files. Without it every
       # run re-resolved the whole dependency graph -- Spring Boot, Flyway,
@@ -173,18 +110,8 @@ jobs:
           java-version: "25"
           cache: gradle
 
-      # `compilePhase2TestJava` compiles the frozen Phase 2 migration
-      # suite without running it. Frozen work must not be allowed to stop
-      # building unnoticed, but running it here would reintroduce exactly
-      # the coupling the reset removed -- ~3 minutes of Testcontainers
-      # PostgreSQL inside the application build. `./gradlew phase2Test`
-      # runs it on demand.
-      # No `clean`. The runner is a fresh checkout, so there is nothing to
-      # clean -- and with the Gradle cache restored above, `clean` would throw
-      # away the compiled output it just fetched and make the cache pointless.
-      # `--build-cache` lets an unchanged module skip recompilation outright.
-      - name: Run backend test suite (and compile the frozen Phase 2 suite)
-        run: ./gradlew test compilePhase2TestJava --console=plain --build-cache
+      - name: Run backend test suite
+        run: ./gradlew test --console=plain --build-cache
 
       # Gradle prints a test count only when something fails, so a green
       # build is silent about what actually ran -- and a test class that

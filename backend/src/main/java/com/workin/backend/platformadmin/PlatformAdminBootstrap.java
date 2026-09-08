@@ -51,10 +51,10 @@ public class PlatformAdminBootstrap implements ApplicationRunner {
 	 * <p>Reading first made the {@code platform_admins} table a startup
 	 * requirement for every deployment, including ones that never use the
 	 * platform-admin surface. That was invisible while the surface was
-	 * PostgreSQL-only, because Flyway always created the table. Under
-	 * {@code phase1-mysql} the Java-owned tables are provisioned out of band
-	 * (**R-023**), so an unconfigured optional feature was failing startup over
-	 * a table nobody had asked for.
+	 * PostgreSQL-only, because Flyway always created the table. On MySQL the
+	 * Java-owned tables are provisioned out of band (**R-023**), so an
+	 * unconfigured optional feature was failing startup over a table nobody
+	 * had asked for.
 	 */
 	@Override
 	public void run(ApplicationArguments args) {

@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.org;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,7 +26,6 @@ import com.workin.backend.platformadmin.web.DashboardSession;
  * validation exists to prevent.
  */
 @Service
-@Profile("phase1-mysql")
 public class DepartmentAdminService {
 
 	/** Why an action was refused. */

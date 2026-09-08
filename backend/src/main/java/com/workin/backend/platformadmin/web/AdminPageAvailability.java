@@ -19,11 +19,12 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * later profile-scoped or removed, and the sidebar keeps offering a link
  * that 404s.
  *
- * <p>Reading the mapping also handles the case a boolean cannot express.
- * Several pages are backed by tables that exist only in the legacy MySQL
- * schema, so their controllers are {@code @Profile("phase1-mysql")}. The
- * same build serves a different set of pages depending on the profile,
- * and this reports whichever set is really there.
+ * <p>Reading the mapping rather than declaring a list also means a page
+ * that is removed, renamed or conditionally registered is reported as it
+ * really is, not as a list remembers it. (It used to matter more: several
+ * pages existed under one Spring profile and not the other. There is one
+ * profile's worth of pages now -- ADR-0017 -- and the mechanism stays because
+ * it is still the honest one.)
  */
 @Component
 public class AdminPageAvailability {

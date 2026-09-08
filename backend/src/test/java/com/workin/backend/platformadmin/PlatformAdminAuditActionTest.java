@@ -34,8 +34,8 @@ class PlatformAdminAuditActionTest extends AbstractIntegrationTest {
 	private PlatformTransactionManager transactionManager;
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -66,7 +66,7 @@ class PlatformAdminAuditActionTest extends AbstractIntegrationTest {
 			this.auditService.recordAction(adminId, PlatformAdminAuditEventType.COMPANY_SUSPENDED,
 					"COMPANY", "4242", "approval-1", "suspended for non-payment"));
 
-		JdbcTemplate jdbc = new JdbcTemplate(this.flywayDataSource);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		assertThat(jdbc.queryForObject(
 				"SELECT target_type FROM platform_admin_audit_events WHERE platform_admin_id = ?",
 				String.class, adminId)).isEqualTo("COMPANY");
@@ -110,14 +110,14 @@ class PlatformAdminAuditActionTest extends AbstractIntegrationTest {
 	// --- helpers ------------------------------------------------------------
 
 	private int auditRowsFor(long adminId) {
-		Integer count = new JdbcTemplate(this.flywayDataSource).queryForObject(
+		Integer count = new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"SELECT COUNT(*) FROM platform_admin_audit_events WHERE platform_admin_id = ?",
 				Integer.class, adminId);
 		return count == null ? 0 : count;
 	}
 
 	private long createPlatformAdmin() {
-		return new JdbcTemplate(this.flywayDataSource).queryForObject(
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true) RETURNING id",
 				Long.class, "+96" + System.nanoTime(), this.passwordEncoder.encode("irrelevant"));
 	}

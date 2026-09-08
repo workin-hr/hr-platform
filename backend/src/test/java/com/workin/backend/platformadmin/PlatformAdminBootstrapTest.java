@@ -34,8 +34,8 @@ class PlatformAdminBootstrapTest extends AbstractIntegrationTest {
 	private PasswordEncoder passwordEncoder;
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Test
 	void firstRunCreatesTheAdminAndASecondRunDoesNotDuplicateOrResetIt() {
@@ -43,7 +43,7 @@ class PlatformAdminBootstrapTest extends AbstractIntegrationTest {
 		// non-cascading FK (deleting a principal must never silently
 		// destroy dependent records -- the hr-legacy#20 lesson), so the
 		// children go first when this test resets shared state.
-		JdbcTemplate jdbc = new JdbcTemplate(flywayDataSource);
+		JdbcTemplate jdbc = new JdbcTemplate(legacyDataSource);
 		jdbc.update("DELETE FROM platform_admin_refresh_tokens");
 		jdbc.update("DELETE FROM platform_admin_audit_events");
 		jdbc.update("DELETE FROM platform_admin_step_up_approvals");

@@ -1,11 +1,11 @@
 /**
  * Phase 1's legacy MySQL persistence adapter (ADR-0011).
  *
- * <p>Deliberately outside {@code com.workin.backend}, the application's
- * component-scan root, so these entities are invisible to the running
- * PostgreSQL context until a MySQL profile scans them explicitly. See
- * {@code LegacyAdapterIsolationTest} for why that placement is
- * load-bearing rather than organisational.
+ * <p>These entities map the legacy MySQL schema, which is the production
+ * database (ADR-0017). {@code LegacyPersistenceConfig} names this package
+ * explicitly in its {@code @EntityScan}, so the placement is organisational
+ * rather than load-bearing: it keeps the adapter's twenty-odd entities out
+ * of the application packages that read them.
  *
  * <p>Three tenancy filters are declared here rather than on one entity
  * because each applies to a class of tenant-owned legacy entities, and a

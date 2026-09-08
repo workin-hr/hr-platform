@@ -2,7 +2,6 @@ package com.workin.backend.platformadmin.hr;
 
 import java.util.List;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -17,7 +16,6 @@ import org.springframework.stereotype.Repository;
  * before any of these run.
  */
 @Repository
-@Profile("phase1-mysql")
 public class EmployeeDetailStore {
 
 	private final JdbcTemplate jdbcTemplate;

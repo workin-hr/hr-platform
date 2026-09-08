@@ -5,7 +5,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -16,7 +15,6 @@ import org.springframework.stereotype.Repository;
  * D-176 has no tenant here to anchor to.
  */
 @Repository
-@Profile("phase1-mysql")
 public class SettingsAdminStore {
 
 	private final JdbcTemplate jdbcTemplate;

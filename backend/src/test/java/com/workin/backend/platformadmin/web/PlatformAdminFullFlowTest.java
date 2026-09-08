@@ -61,8 +61,8 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	private TestRestTemplate restTemplate;
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -81,7 +81,7 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		String phone = uniquePhone();
 		long adminId = createPlatformAdmin(phone);
 		long companyId = createCompany();
-		JdbcTemplate jdbc = new JdbcTemplate(this.flywayDataSource);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 
 		// 1. Enrol. Needs the password AND an operator-issued bootstrap token.
 		String bootstrapToken = this.mfaService.issueBootstrapToken(adminId, adminId);
@@ -164,7 +164,7 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		ResponseEntity<String> loggedOut = post("/admin/logout", cookie, get("/admin", cookie).csrf());
 		assertThat(loggedOut.getStatusCode()).isEqualTo(HttpStatus.FOUND);
 		assertThat(get("/admin", cookie).response().getStatusCode()).isEqualTo(HttpStatus.FOUND);
-		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM spring_session WHERE session_id = ?",
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM SPRING_SESSION WHERE SESSION_ID = ?",
 				Integer.class, sessionIdOf(cookie)))
 			.as("the shared row must be gone, or another worker still honours the cookie")
 			.isZero();
@@ -178,7 +178,7 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		String cookie = signIn(phone, seed, adminId);
 
 		assertThat(get("/admin", cookie).response().getStatusCode()).isEqualTo(HttpStatus.OK);
-		new JdbcTemplate(this.flywayDataSource)
+		new JdbcTemplate(this.legacyDataSource)
 			.update("UPDATE platform_admins SET active = false WHERE id = ?", adminId);
 
 		assertThat(get("/admin", cookie).response().getStatusCode())
@@ -195,7 +195,7 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	}
 
 	private String signIn(String phone, String seed, long adminId) {
-		JdbcTemplate jdbc = new JdbcTemplate(this.flywayDataSource);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		Page loginForm = get("/admin/login", null);
 		ResponseEntity<String> afterPassword = post("/admin/login", loginForm.cookie(), loginForm.csrf(),
 				"phone", phone, "password", PASSWORD);
@@ -266,18 +266,18 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	}
 
 	private String statusOf(long companyId) {
-		return new JdbcTemplate(this.flywayDataSource).queryForObject(
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"SELECT status FROM companies WHERE id = ?", String.class, companyId);
 	}
 
 	private long createCompany() {
-		return new JdbcTemplate(this.flywayDataSource).queryForObject(
-				"INSERT INTO companies (name, phone, active, status) VALUES (?, ?, true, 'active') RETURNING id",
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(
+				"INSERT INTO companies (company_name, phone, password_hash, status) VALUES (?, ?, 'unused-hash', 'active') RETURNING id",
 				Long.class, "Flow " + System.nanoTime(), "+90" + System.nanoTime());
 	}
 
 	private long createPlatformAdmin(String phone) {
-		return new JdbcTemplate(this.flywayDataSource).queryForObject(
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true) RETURNING id",
 				Long.class, phone, this.passwordEncoder.encode(PASSWORD));
 	}

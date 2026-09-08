@@ -7,7 +7,6 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -19,7 +18,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import com.workin.backend.identity.JwtService;
-import com.workin.backend.identity.RefreshTokenRepository;
 import com.workin.backend.platformadmin.PlatformAdminJwtService;
 import com.workin.backend.platformadmin.PlatformAdminRefreshTokenRepository;
 import com.workin.backend.platformadmin.PlatformAdminRepository;
@@ -95,7 +93,6 @@ public class SecurityConfig {
 	 */
 	@Bean
 	@Order(2)
-	@Profile("phase1-mysql")
 	public SecurityFilterChain legacySecurityFilterChain(
 			HttpSecurity http, LegacyPhpJwtService legacyPhpJwtService, JwtService jwtService,
 			TenantScope tenantScope, LegacyTenantContextService legacyTenantContextService,
@@ -151,25 +148,4 @@ public class SecurityConfig {
 		return http.build();
 	}
 
-	@Bean
-	@Order(3)
-	@Profile("!phase1-mysql")
-	public SecurityFilterChain tenantSecurityFilterChain(
-			HttpSecurity http, JwtService jwtService,
-			RefreshTokenRepository refreshTokenRepository,
-			ApiSecurityErrorHandler apiSecurityErrorHandler) throws Exception {
-		http
-			.csrf(csrf -> csrf.disable())
-			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-			.exceptionHandling(exceptions -> exceptions
-				.authenticationEntryPoint(apiSecurityErrorHandler)
-				.accessDeniedHandler(apiSecurityErrorHandler))
-			.authorizeHttpRequests(authorize -> authorize
-				.requestMatchers("/error").permitAll()
-				.requestMatchers("/api/auth/**", "/actuator/health").permitAll()
-				.anyRequest().authenticated())
-			.addFilterBefore(new JwtAuthenticationFilter(jwtService, refreshTokenRepository),
-				UsernamePasswordAuthenticationFilter.class);
-		return http.build();
-	}
 }

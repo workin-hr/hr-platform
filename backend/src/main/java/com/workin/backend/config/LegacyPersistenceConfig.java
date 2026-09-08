@@ -11,10 +11,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.context.annotation.Profile;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.SharedEntityManagerCreator;
@@ -27,51 +25,29 @@ import com.workin.legacy.TenantFilterBinder;
 import com.zaxxer.hikari.HikariDataSource;
 
 /**
- * The {@code phase1-mysql} profile's persistence substrate (ADR-0013 /
- * D-043) -- {@link PostgresPersistenceConfig}'s mutually exclusive
- * counterpart, never active at the same time (D-041's "full profile
- * swap, not simultaneous").
+ * The application's persistence substrate: the legacy MariaDB, the schema the
+ * frozen PHP stack owns, and the handful of tables this application adds
+ * beside it.
  *
- * <p>Component-scans {@code com.workin.legacy} (the whole adapter,
- * finally reachable now that a MySQL context exists to load it into --
- * see {@code LegacyAdapterIsolationTest}) plus exactly the packages
- * ADR-0013's inventory found genuinely cross-cutting:
- * {@code identity} (for {@code JwtService} only -- everything else
- * there is guarded with {@code @Profile("!phase1-mysql")}),
- * {@code security}, {@code tenancy}, {@code config} and
- * {@code authorization} (same pattern -- the Postgres-specific classes
- * in each carry their own guard) and {@code i18n} (uniformly
- * cross-cutting, no guard needed anywhere in it). The twelve
- * pure-Postgres-domain packages are never listed here at all --
- * package-level exclusion, not per-class annotation, per ADR-0013
- * Decision.
+ * <p>This used to be one of two, profile-gated against a PostgreSQL
+ * counterpart and given its own component scan so that neither could reach
+ * the other (ADR-0013 / D-043). The PostgreSQL half is gone -- MySQL is the
+ * production database and stays so (ADR-0017) -- and this is an ordinary
+ * configuration again, found by the application's scan like everything else.
+ * What it still does deliberately: build the data source itself rather than
+ * through Boot's autoconfiguration, because the session-scoped
+ * {@link LegacySessionDataSource} and the tenant-aware transaction manager
+ * are not things that autoconfiguration can express.
  *
- * <p><b>No Flyway ownership of any MariaDB schema</b> (amendment 3):
- * the vendored legacy schema and Phase-1-owned tables
+ * <p><b>No Flyway ownership of any MariaDB schema</b> (ADR-0013 amendment 3):
+ * the vendored legacy schema and the Phase-1-owned tables
  * (e.g. {@code legacy_refresh_tokens}) are both treated as an external
- * contract here. This class only ever connects to a MariaDB that
- * already has its schema applied by something else -- a test container
- * ({@code AbstractLegacyMySqlTest}'s pattern) today; a real,
- * persistent instance needs its own, separately-approved
- * provisioning mechanism first (ADR-0013 Open Questions).
+ * contract. This class only ever connects to a MariaDB that already has its
+ * schema applied by something else -- {@code phase1_extensions.sql}, applied
+ * by the operator ({@code docs/operations/provisioning-phase1-tables.md}) and
+ * checked at startup by {@link Phase1SchemaCheck}.
  */
 @Configuration
-@Profile("phase1-mysql")
-@ComponentScan({
-	"com.workin.legacy",
-	"com.workin.backend.identity",
-	"com.workin.backend.security",
-	"com.workin.backend.tenancy",
-	"com.workin.backend.config",
-	"com.workin.backend.authorization",
-	"com.workin.backend.i18n",
-	// ADR-0015's platform-admin surface runs under both profiles. Legacy has a
-	// platform admin web of its own (dashboard/pages/companies/), so this
-	// deployment shape needs one too -- but not legacy's shared password
-	// (hr-legacy#11): the individual-identity model F-26 requires is the same
-	// code either way, over whichever database the profile selects.
-	"com.workin.backend.platformadmin"
-})
 @EntityScan({"com.workin.legacy", "com.workin.backend.platformadmin"})
 @EnableJpaRepositories(
 		basePackages = {"com.workin.legacy", "com.workin.backend.platformadmin"},
@@ -83,11 +59,10 @@ public class LegacyPersistenceConfig {
 	 * Plain {@code @Value}-bound connection info, not
 	 * {@code JdbcConnectionDetails}: that abstraction is supplied by
 	 * {@code DataSourceAutoConfiguration}, which {@code BackendApplication}
-	 * excludes globally so this profile and
-	 * {@link PostgresPersistenceConfig} can be mutually exclusive. No
-	 * committed fallback values, matching {@code app.jwt.secret}'s
-	 * pattern -- but defaulted to empty so the default profile's context
-	 * (which never evaluates these) is not affected by their absence.
+	 * excludes globally -- there is one database and this class configures
+	 * it (ADR-0017). No committed fallback values, matching
+	 * {@code app.jwt.secret}'s pattern, but defaulted to empty so a context
+	 * that never opens the database is not held hostage to their absence.
 	 */
 	@Bean
 	public DataSource legacyDataSource(
@@ -156,10 +131,8 @@ public class LegacyPersistenceConfig {
 	 * to every fresh persistence context, not just the ones a call site
 	 * remembers to scope. Named explicitly ({@code transactionManagerRef}
 	 * above) rather than left as the default {@code transactionManager}
-	 * bean name, since only one of this and
-	 * {@link PostgresPersistenceConfig#transactionManager} is ever
-	 * active per profile but Spring's bean-name resolution does not know
-	 * that ahead of time.
+	 * bean name: the reference is explicit at every use, so nothing depends
+	 * on which manager Spring would otherwise pick by name.
 	 */
 	@Bean
 	public PlatformTransactionManager legacyTransactionManager(

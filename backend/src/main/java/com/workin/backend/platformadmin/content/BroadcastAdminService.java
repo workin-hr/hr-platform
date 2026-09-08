@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.content;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +21,6 @@ import com.workin.backend.platformadmin.PlatformAdminAuditService;
  * count is the thing that changes the decision.
  */
 @Service
-@Profile("phase1-mysql")
 public class BroadcastAdminService {
 
 	static final String TARGET_TYPE = "BROADCAST";

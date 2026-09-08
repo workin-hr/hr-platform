@@ -5,17 +5,21 @@ The complete flow of ADR-0015's platform-admin surface, exercised against a
 
 `login -> MFA -> session -> step-up -> admin action -> logout/revocation`
 
-Re-run it with `scripts/verify-platform-admin-flow.sh`, which documents its own
-prerequisites. The integration suite is the regression gate; this exists because
-"it passes in a test" and "it works in the application" are different claims,
-and the second is the one worth re-checking before a cutover.
+The integration suite is the regression gate -- `PlatformAdminFullFlowTest`
+drives this whole journey over real HTTP against MariaDB on every build. This
+record exists because "it passes in a test" and "it works in the application"
+are different claims, and the second is the one worth re-checking before a
+cutover. The PostgreSQL-era script that drove it by hand
+(`scripts/verify-platform-admin-flow.sh`) was removed with ADR-0017 rather
+than ported: its fixtures were written for the PostgreSQL schema, and the
+same journey is now exercised, against the real database, by the test.
 
 ## How the run was set up
 
 | | |
 |---|---|
 | Application | The real Spring Boot application, started with `bootTestRun`, Tomcat on 18090 |
-| Database | Postgres 17, migrated by the application's own Flyway on startup |
+| Database | **Postgres 17 at the time of the run**, migrated by the application's own Flyway. That half is deleted (ADR-0017): the application runs against the legacy MariaDB, whose Java-owned tables `phase1_extensions.sql` provisions (`provisioning-phase1-tables.md`) |
 | Administrator | Provisioned by the application's own `PlatformAdminBootstrap` from `APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE`/`_PASSWORD` — the real provisioning path with the real password encoder, not a hash written into the table by hand |
 | Administrative actions | **Enabled for the run** (`APP_PLATFORM_ADMIN_ACTIONS_ENABLED=true`). They ship disabled; see the deployment note below |
 
@@ -60,15 +64,8 @@ defaults to false). ADR-0015 prerequisite 7 requires the legacy PHP admin
 surface — which still authenticates with the shared password — to be unreachable
 first. While both are live, MFA is only as strong as the weaker door.
 
-**The application cannot currently be started from its jar.**
-`BackendApplication` excludes `DataSourceAutoConfiguration`, so nothing supplies
-`JdbcConnectionDetails` from `spring.datasource.*`; the only implementation in
-the repository is Testcontainers' `@ServiceConnection` in the test base class.
-Running the jar against a real Postgres fails at startup with *"required a bean
-of type JdbcConnectionDetails that could not be found"*.
-
-This run worked around it with a **test-scoped** `LiveVerifyDataSourceConfig`
-behind a `live-verify` profile. That is deliberately not a fix: it belongs with
-the deployment work — `infrastructure/` is still an empty Phase-0 boundary — and
-putting it in production code here would have hidden a real gap under a
-verification task. **It has to be closed before anything deploys.**
+**Historical note.** When this verification was run the application could not
+start from its jar under the PostgreSQL profile (R-040), and a test-scoped
+`live-verify` data-source configuration stood in for the missing bean. That
+profile, that configuration and R-040 are gone with ADR-0017; the jar starts
+against MySQL as `running-the-backend.md` describes.

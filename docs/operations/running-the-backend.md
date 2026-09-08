@@ -1,34 +1,20 @@
 # Running The Backend
 
-Two very different things can be started from the same jar, and which one you
-get is decided entirely by the Spring profile. Getting this wrong is the most
-likely first mistake, so it comes before anything else.
+One application, one database: the existing **MariaDB/MySQL**, untouched. The
+jar serves `/apis/**` — the legacy PHP API the Flutter clients already call —
+and the platform-admin dashboard at `/admin/**`, over that database. There used
+to be a second mode over PostgreSQL behind a profile switch; it is gone
+(ADR-0017), and the three profiles that remain — `local`, `integration`,
+`prod` — gate environment values only, never which database or which surface.
 
-| Profile | Database | What it serves | Use it for |
-|---|---|---|---|
-| **`phase1-mysql`** | The existing **MariaDB/MySQL**, untouched | `/apis/**` — the legacy PHP API the Flutter clients already call — **and** the platform-admin surface at `/admin/**` | **Replacing the PHP backend, and its dashboard, without changing anything else** |
-| default (no profile) | **PostgreSQL**, with its own schema created by Flyway | `/api/**` and the same platform-admin surface | The new domain: tenant identity, authorization |
-
-Under `phase1-mysql` there is no Flyway and no PostgreSQL connection. The
-legacy `/apis/**` compatibility chain is not installed under the default
-profile, and the PostgreSQL tenant chain is not installed under
-`phase1-mysql`.
-
-**The platform-admin surface runs under both.** Legacy has a platform admin web
-of its own (`dashboard/pages/companies/`), so a deployment that stays on MySQL
-needs one too. It is the same code over whichever database the profile selects;
-what is *not* carried over is how legacy authenticates it — `doAdminLogin()`
-checks one shared password held in a config constant (`hr-legacy#11`), and there
-is no admin table in the legacy schema at all.
-
-## Running against your existing MySQL (`phase1-mysql`)
-
-This is the mode that replaces PHP for the existing clients.
+## Running against your existing MySQL
 
 ```sh
-java -jar backend-0.0.1-SNAPSHOT.jar \
-  --spring.profiles.active=phase1-mysql
+java -jar backend-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
 ```
+
+(`local` for a developer's machine, with defaults for every variable below;
+`integration` for the shared test stack. `deploy/` has the compose files.)
 
 with these in the environment:
 
@@ -37,7 +23,6 @@ with these in the environment:
 | `LEGACY_DB_JDBC_URL` | e.g. `jdbc:mariadb://127.0.0.1:3306/workin` — your existing database, unchanged |
 | `LEGACY_DB_USERNAME`, `LEGACY_DB_PASSWORD` | its credentials |
 | `JWT_SECRET` | the signing secret. **It must be the same value the PHP stack used**, or every token already on a user's device stops working. See "Tokens already issued" below |
-| `APP_RUNTIME_DB_USERNAME`, `APP_RUNTIME_DB_PASSWORD` | required to be *set*, but unused in this profile — the properties are read eagerly, the beans that use them are not created |
 | `LEGACY_WHATSAPP_API_TOKEN`, `_INSTANCE_ID` | the OTP gateway. **Unset means every OTP route answers 503**, which is legacy's own behaviour without credentials — deliberately not the silent success legacy used in dev (D-134) |
 | `SERVER_PORT` | defaults to 8080 |
 
@@ -86,16 +71,11 @@ Verified on 2026-09-03: the packaged jar starts in this profile against MariaDB
 usable token, and an authenticated `GET /apis/api/requests/list` returns the
 paginated shape the clients expect.
 
-## Running the new domain and the admin dashboard (default profile)
+## The admin dashboard
 
-```sh
-java -jar backend-0.0.1-SNAPSHOT.jar
-```
-
-Needs PostgreSQL. Both profiles need `APP_PLATFORM_ADMIN_MFA_ENCRYPTION_KEY`
-(32 bytes, base64) and, to provision the first administrator,
-`APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE` / `_PASSWORD`, if the admin surface is to
-be used.
+The same jar serves it; nothing extra to start. It needs
+`APP_PLATFORM_ADMIN_MFA_ENCRYPTION_KEY` (32 bytes, base64) and, to provision the
+first administrator, `APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE` / `_PASSWORD`.
 
 Administrative actions on companies are refused unless
 `APP_PLATFORM_ADMIN_ACTIONS_ENABLED=true`. They ship off: ADR-0015 prerequisite
@@ -120,17 +100,6 @@ enabled on the VPS** so those flows work, with the other two controls
 So enabling the flag opens the pages; it does not relax what happens once they
 are open. An administrator who has not completed the enrolment ceremony still
 cannot write, and every write is still recorded against their id.
-
-**This currently does not start from the jar** — see **R-040**.
-`BackendApplication` excludes `DataSourceAutoConfiguration`, so nothing supplies
-`JdbcConnectionDetails` from `spring.datasource.*`; the only implementation is
-the one Testcontainers injects in tests. It fails with *"required a bean of type
-JdbcConnectionDetails that could not be found"*. Until that is closed, this
-profile runs only under `./gradlew bootTestRun` with the `live-verify` profile
-(`docs/operations/platform-admin-runtime-verification.md`).
-
-The `phase1-mysql` profile is **unaffected** by R-040, because it never
-constructs those beans.
 
 ## Tokens already issued
 

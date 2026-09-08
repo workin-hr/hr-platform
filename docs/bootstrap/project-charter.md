@@ -18,10 +18,9 @@ objective are *not* in the current phase:
 
 - **Next.js** is not used at all. The admin portal is JTE, server-side
   rendered in-process — see **ADR-0015**, which supersedes ADR-0014.
-- **PostgreSQL** remains the accepted long-term target (**ADR-0004**), but
-  the MySQL-to-PostgreSQL migration and its ETL are **Phase 2 and out of
-  scope now**; they are not to be advanced. The port runs against the
-  existing MySQL schema.
+- **MySQL is the production database, and stays so** (**ADR-0017**, which
+  supersedes ADR-0004's PostgreSQL target). The port runs against the
+  existing MySQL schema; there is no storage migration after it.
 
 Enhancements during the port stay limited to implementation quality,
 performance, reliability, and transactional correctness. Business behaviour
@@ -39,8 +38,8 @@ does not change unless a separate decision explicitly approves it.
 
 - Java 25
 - Spring Boot 4.x
-- PostgreSQL latest stable release *(long-term target, ADR-0004; the
-  migration is Phase 2 and out of scope now — D-151)*
+- MySQL — MariaDB 11.8 in production *(ADR-0017; the PostgreSQL target of
+  ADR-0004 is superseded)*
 - JTE admin portal, server-side rendered inside the Spring application
   *(ADR-0015, supersedes ADR-0014; Next.js is not used — D-151)*
 - Existing Flutter UI retained with compatible contract evolution

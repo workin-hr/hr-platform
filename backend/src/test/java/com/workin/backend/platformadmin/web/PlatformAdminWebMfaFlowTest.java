@@ -55,8 +55,8 @@ class PlatformAdminWebMfaFlowTest extends AbstractIntegrationTest {
 	private TestRestTemplate restTemplate;
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -341,7 +341,7 @@ class PlatformAdminWebMfaFlowTest extends AbstractIntegrationTest {
 	}
 
 	private long createPlatformAdmin(String phone) {
-		return new JdbcTemplate(this.flywayDataSource).queryForObject(
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true) RETURNING id",
 				Long.class, phone, this.passwordEncoder.encode(PASSWORD));
 	}

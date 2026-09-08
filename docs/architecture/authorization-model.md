@@ -17,6 +17,13 @@ permission state, complete module coverage, and the broader
 authorization-enforcement test suite do **not** exist yet. This
 document remains the target reference for that remaining work.
 
+> **Amended 2026-09-08 (ADR-0017).** There is no PostgreSQL and no row-level
+> security in the application: MySQL is the production database and stays
+> so. Wherever this document names RLS as the final, mandatory tenant
+> boundary, the **application-level tenant guard** (ADR-0012, D-176, gated by
+> `AdminTenantGuardCoverageTest`) is that boundary. The RLS steps below are
+> kept as the record of the model's derivation, not as work to do.
+
 ## 1. Principal And Membership Model
 
 Two authorization domains exist, deliberately separate:
@@ -129,7 +136,8 @@ sequenceDiagram
 6. `SET LOCAL app.current_company_id` inside the **same** database
    transaction as the business operation (matches the H2 spike's proven
    pattern exactly — transaction-scoped, resets automatically).
-7. Let PostgreSQL RLS enforce the final data boundary.
+7. ~~Let PostgreSQL RLS enforce the final data boundary.~~ Superseded by
+   ADR-0017: the application-level guard is the final boundary.
 
 ### Fail-closed requirement
 
@@ -274,10 +282,9 @@ flowchart TD
    defense in depth — consistent with the H2 spike's recommendation
    (`docs/adr/ADR-0002-modular-monolith-baseline.md` Decision, condition
    2).
-5. **PostgreSQL RLS**: the final, mandatory tenant boundary, including
-   protection against an accidentally unscoped repository query — this
-   is what the H2 spike proved and what condition 1/3 of ADR-0002's
-   Decision require to hold in practice.
+5. ~~**PostgreSQL RLS**: the final, mandatory tenant boundary~~ — superseded
+   by ADR-0017. The application-level tenant guard (ADR-0012, D-176) is the
+   final boundary, and `AdminTenantGuardCoverageTest` is what holds it.
 
 ## 5. Effect Of Membership, Role, And Permission Changes
 

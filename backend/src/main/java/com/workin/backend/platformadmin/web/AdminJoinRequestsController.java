@@ -4,7 +4,6 @@ import java.util.List;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -18,7 +17,6 @@ import com.workin.backend.platformadmin.hr.JoinRequestStore;
 
 /** {@code dashboard/pages/join_requests/page.php}. */
 @Controller
-@Profile("phase1-mysql")
 public class AdminJoinRequestsController {
 
 	private static final String VIEW = "admin/join-requests";

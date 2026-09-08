@@ -2,7 +2,6 @@ package com.workin.backend.platformadmin.web;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,7 +27,6 @@ import com.workin.backend.platformadmin.payroll.SalaryCalculatorForm;
  * order.
  */
 @Controller
-@Profile("phase1-mysql")
 public class AdminSalaryCalculatorController {
 
 	private static final String VIEW = "admin/salary-calculator";

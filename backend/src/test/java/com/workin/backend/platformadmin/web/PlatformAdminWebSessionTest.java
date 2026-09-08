@@ -65,8 +65,8 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 	}
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -144,7 +144,7 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 
 		assertThat(get("/admin", session.cookieValue()).getStatusCode()).isEqualTo(HttpStatus.OK);
 
-		new JdbcTemplate(this.flywayDataSource)
+		new JdbcTemplate(this.legacyDataSource)
 			.update("UPDATE platform_admins SET active = false WHERE id = ?", id);
 
 		ResponseEntity<String> afterDeactivation = get("/admin", session.cookieValue());
@@ -164,7 +164,7 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 		createPlatformAdmin(phone, true);
 		Session session = logIn(phone, PASSWORD);
 
-		JdbcTemplate jdbc = new JdbcTemplate(this.flywayDataSource);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		String sessionId = sessionIdOf(session);
 		assertThat(storedSessions(jdbc, sessionId))
 			.as("the session must live in shared storage, not in one worker's heap")
@@ -237,7 +237,7 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 
 	private int storedSessions(JdbcTemplate jdbc, String sessionId) {
 		Integer count = jdbc.queryForObject(
-				"SELECT COUNT(*) FROM spring_session WHERE session_id = ?", Integer.class, sessionId);
+				"SELECT COUNT(*) FROM SPRING_SESSION WHERE SESSION_ID = ?", Integer.class, sessionId);
 		return count == null ? 0 : count;
 	}
 
@@ -312,7 +312,7 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 	}
 
 	private long createPlatformAdmin(String phone, boolean active) {
-		JdbcTemplate jdbc = new JdbcTemplate(this.flywayDataSource);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		return jdbc.queryForObject(
 				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, ?) RETURNING id",
 				Long.class, phone, this.passwordEncoder.encode(PASSWORD), active);

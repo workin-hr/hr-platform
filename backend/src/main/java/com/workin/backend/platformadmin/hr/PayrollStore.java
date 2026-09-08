@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.hr;
 import java.math.BigDecimal;
 import java.util.List;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -22,7 +21,6 @@ import org.springframework.stereotype.Repository;
  * <b>not</b> go through their same-named service methods.
  */
 @Repository
-@Profile("phase1-mysql")
 public class PayrollStore {
 
 	private static final String DISPLAY_NAME =

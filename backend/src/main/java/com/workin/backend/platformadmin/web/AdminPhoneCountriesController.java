@@ -18,17 +18,15 @@ import com.workin.backend.platformadmin.content.PhoneCountryForm;
  * {@code dashboard/pages/phone_countries/page.php} -- the dial codes and
  * phone-length rules every client reads at startup.
  *
- * <p>{@code @Profile("phase1-mysql")}: the table belongs to the legacy
- * schema. {@link AdminPageAvailability} reads that back off the handler
- * mapping, so under another profile the sidebar shows the entry disabled
- * rather than offering a link that fails.
+ * <p>{@link AdminPageAvailability} reads this page's presence back off the
+ * handler mapping, so a sidebar entry is never a link to a page that is not
+ * there.
  *
  * <p>One page, three POST actions, distinguished by an {@code action}
  * field exactly as the dashboard does. Redirect-after-post throughout, so
  * a refresh cannot repeat a write.
  */
 @Controller
-@Profile("phase1-mysql")
 public class AdminPhoneCountriesController {
 
 	private static final String VIEW = "admin/phone-countries";

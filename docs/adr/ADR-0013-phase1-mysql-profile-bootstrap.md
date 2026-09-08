@@ -7,6 +7,7 @@
 | ADR ID | ADR-0013 |
 | Title | Phase 1 MySQL-Profile Application Bootstrap |
 | Status | Accepted |
+| Amended | **2026-09-08** — by ADR-0017: the profile split is removed and this configuration is the application's only persistence |
 | Date | 2026-08-17 (accepted 2026-08-17, with amendments — see `docs/bootstrap/decision-log.md` D-043) |
 | Owners | Solution Architect |
 | Deciders | Repository owner — recorded in `docs/bootstrap/decision-log.md` D-043 |
