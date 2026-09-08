@@ -34,8 +34,16 @@ services:
       # Seeded on FIRST START ONLY: MariaDB runs this directory when the data
       # directory is empty, and the data directory is a named volume. To reseed
       # after pulling a new seed:  docker compose -f compose.local.yaml down -v
+      # ONE script, not two. dev-seed.sql is a COMPLETE dump: the build script
+      # applies phase1_extensions.sql before dumping (it has to -- the sanitiser
+      # deletes from platform_admins), so the Phase 1 tables are already in it.
+      # Mounting the extensions again made MariaDB run CREATE TABLE
+      # legacy_refresh_tokens a second time, which is not idempotent: the init
+      # failed with ERROR 1050, the container went unhealthy and the app never
+      # started. scripts/check_dev_seed_sanitised.py now asserts the seed
+      # carries those tables, so a seed built without them fails the gate rather
+      # than a developer's first run.
       - ./seed/dev-seed.sql:/docker-entrypoint-initdb.d/01-dev-seed.sql:ro
-      - ../backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql:/docker-entrypoint-initdb.d/02-phase1-extensions.sql:ro
     # Published so a developer can attach a SQL client, and bound to loopback so
     # it is not on their network. Nothing here needs a published port to reach
     # the app -- that goes over the compose network.
@@ -69,6 +77,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+        # Restart the app whenever the database is recreated or restarted.
+        # Without this, changing anything in the db service leaves the app
+        # running with a connection pool pointing at a container that no longer
+        # exists, and the first thing a developer sees is a wall of
+        # "Failed to validate connection ... Connection.setNetworkTimeout
+        # cannot be called on a closed connection". Hikari does recover on its
+        # own, but a stack that greets you with red text it will quietly fix is
+        # a stack you stop trusting.
+        restart: true
     environment:
       # One name. The profile group in application.properties pulls in
       # phase1-mysql, so there is no second name to forget.
@@ -77,6 +94,9 @@ services:
       LEGACY_DB_USERNAME: workin
       LEGACY_DB_PASSWORD: workin-local
       APP_LEGACY_UPLOADS_PATH: /app/uploads
+      # Raise to DEBUG when chasing something; INFO by default so the
+      # foreground log stays readable.
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
       # A platform administrator to sign in as. Optional: unset simply means no
       # administrator exists yet, not a startup failure.
       APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE: ${ADMIN_PHONE:-+201000000001}
