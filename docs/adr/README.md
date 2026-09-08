@@ -51,7 +51,8 @@ maintaining a second, divergent copy of these rules — see
   describe a model Phase 1 does not have** — see ADR-0011, ADR-0012
 - `ADR-0011-phase-sequencing.md` — implementation, then storage, then
   modernization; strict legacy API contract parity and full 38-module
-  replacement in Phase 1 (accepted 2026-08-16)
+  replacement in Phase 1 (accepted 2026-08-16). **Phase 2, the storage
+  migration, is superseded by ADR-0017**; Phase 1's contract stands
 - `ADR-0012-phase-1-tenant-isolation.md` — tenant isolation without
   row-level security while Phase 1 runs on MySQL, with its compensating
   controls and fail-closed obligations (accepted 2026-08-16)
@@ -74,9 +75,18 @@ maintaining a second, divergent copy of these rules — see
   Spring profile that points the application at legacy MySQL, inactive
   by default and guarded by an ArchUnit profile-coverage test, becoming
   the normal runtime only at the single Phase 1 cutover (accepted
-  2026-08-17 with four owner-required amendments, `docs/bootstrap/decision-log.md` D-043)
+  2026-08-17 with four owner-required amendments, `docs/bootstrap/decision-log.md` D-043).
+  **Amended by ADR-0017**: the profile split is gone and this configuration
+  is the application's only persistence
+- `ADR-0017-mysql-is-the-production-database.md` — MySQL is the production
+  database and stays so; the PostgreSQL domain, Flyway, the ETL and the
+  profile split are removed rather than left dormant. Supersedes ADR-0004
+  and ADR-0011's Phase 2 (accepted 2026-09-08)
 
 ## Superseded ADRs
+
+- `ADR-0004-mysql-to-postgresql-migration-approach.md` — superseded by
+  ADR-0017: there is no migration to PostgreSQL
 
 Listed here so index-driven readers and tooling do not treat them as
 active. The document is retained, not deleted: the reasoning behind the

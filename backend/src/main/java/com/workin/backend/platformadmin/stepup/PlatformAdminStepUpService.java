@@ -150,7 +150,10 @@ public class PlatformAdminStepUpService {
 		if (!matches) {
 			return false;
 		}
-		// The database decides the single-use race, not the check above.
+		// The row was read FOR UPDATE, so a racing caller is still waiting on
+		// the read above and will see consumed_at set when it gets there. The
+		// conditional UPDATE stays as the last word on single use: it cannot
+		// conflict now, and 0 rows here would mean the lock did not hold.
 		return this.approvalRepository.consume(approvalId, now) == 1;
 	}
 

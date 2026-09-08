@@ -44,8 +44,8 @@ class PlatformAdminFamilyCapTest extends AbstractIntegrationTest {
 	private TestRestTemplate restTemplate;
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -122,7 +122,7 @@ class PlatformAdminFamilyCapTest extends AbstractIntegrationTest {
 		// The ACTIVE row is the successor. The original is ROTATED and keeps its
 		// pre-cap expiry, which is harmless: the cap is enforced when a token is
 		// presented, before its status is even considered.
-		Instant successorExpiry = new JdbcTemplate(this.flywayDataSource).queryForObject(
+		Instant successorExpiry = new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"SELECT expires_at FROM platform_admin_refresh_tokens WHERE status = 'ACTIVE' "
 						+ "AND platform_admin_id = (SELECT id FROM platform_admins WHERE phone = ?)",
 				Date.class, phone).toInstant();
@@ -145,14 +145,14 @@ class PlatformAdminFamilyCapTest extends AbstractIntegrationTest {
 
 	/** Moves the family's origin into the past, so "now" is {@code age} into it. */
 	private void ageFamilyOrigin(String phone, Duration age) {
-		new JdbcTemplate(this.flywayDataSource).update(
+		new JdbcTemplate(this.legacyDataSource).update(
 				"UPDATE platform_admin_refresh_tokens SET family_started_at = ? "
 						+ "WHERE platform_admin_id = (SELECT id FROM platform_admins WHERE phone = ?)",
-				java.sql.Timestamp.from(Instant.now().minus(age)), phone);
+				storedAs(Instant.now().minus(age)), phone);
 	}
 
 	private void createPlatformAdmin(String phone) {
-		Long id = new JdbcTemplate(this.flywayDataSource).queryForObject(
+		Long id = new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true) RETURNING id",
 				Long.class, phone, this.passwordEncoder.encode(PASSWORD));
 		// ADR-0015 prerequisite 8: the bearer surface refuses an administrator

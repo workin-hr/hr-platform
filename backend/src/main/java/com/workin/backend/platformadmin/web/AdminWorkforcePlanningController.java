@@ -2,7 +2,6 @@ package com.workin.backend.platformadmin.web;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -17,7 +16,6 @@ import com.workin.backend.platformadmin.hr.WorkforcePlanStore;
 
 /** {@code dashboard/pages/workforce_planning/page.php}. */
 @Controller
-@Profile("phase1-mysql")
 public class AdminWorkforcePlanningController {
 
 	private static final String VIEW = "admin/workforce-planning";

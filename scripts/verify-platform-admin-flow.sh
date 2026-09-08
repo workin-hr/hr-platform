@@ -10,7 +10,7 @@
 #
 # Prerequisites, none of which it sets up for you:
 #
-#   1. A Postgres the application can reach, migrated by starting the app once.
+#   1. A MariaDB/MySQL the application can reach, with the Phase 1 tables provisioned.
 #   2. The application running with administrative actions ENABLED
 #      (APP_PLATFORM_ADMIN_ACTIONS_ENABLED=true) -- they ship disabled, see
 #      ADR-0015 prerequisite 7 -- and a bootstrap administrator provisioned via

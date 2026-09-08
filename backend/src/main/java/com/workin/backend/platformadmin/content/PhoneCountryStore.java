@@ -15,9 +15,7 @@ import org.springframework.stereotype.Repository;
 /**
  * Reads and writes {@code phone_countries} in the legacy MySQL schema.
  *
- * <p>{@code @Profile("phase1-mysql")}: the table is part of the legacy
- * contract and has no PostgreSQL counterpart, so under the other profile
- * this bean does not exist and {@link
+ * <p>The table is part of the legacy contract. {@link
  * com.workin.backend.platformadmin.web.AdminPageAvailability} reports the
  * page as unavailable rather than the sidebar offering a link that fails.
  *
@@ -27,7 +25,6 @@ import org.springframework.stereotype.Repository;
  * would invite someone to "improve" a column the clients read.
  */
 @Repository
-@Profile("phase1-mysql")
 public class PhoneCountryStore {
 
 	private static final ObjectMapper JSON = new ObjectMapper();

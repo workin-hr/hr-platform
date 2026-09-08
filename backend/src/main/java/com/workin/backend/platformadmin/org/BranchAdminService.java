@@ -5,7 +5,6 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,7 +33,6 @@ import com.workin.backend.platformadmin.web.DashboardSession;
  * be deliberate rather than discovered (<b>R-044</b>).
  */
 @Service
-@Profile("phase1-mysql")
 public class BranchAdminService {
 
 	/** Why an action was refused, so the controller can flash legacy's message. */

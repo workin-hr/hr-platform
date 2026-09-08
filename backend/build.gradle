@@ -28,28 +28,9 @@ java {
 // Declared before `configurations` because a source set creates its own
 // implementation/runtimeOnly configurations; the block below extends
 // those, it does not create them.
-sourceSets {
-	phase2Test {
-		compileClasspath += sourceSets.main.output
-		runtimeClasspath += sourceSets.main.output
-	}
-}
-
 configurations {
 	compileOnly {
 		extendsFrom annotationProcessor
-	}
-	// Phase 2 tests carry their OWN PostgreSQL dependencies rather than
-	// borrowing the application's. That is the whole point of the split:
-	// Phase 1 runs the application against the legacy MySQL contract, so
-	// `main` stops depending on Postgres -- and the migration suite,
-	// which genuinely needs Postgres, must not be what keeps that
-	// dependency alive.
-	phase2TestImplementation {
-		extendsFrom testImplementation
-	}
-	phase2TestRuntimeOnly {
-		extendsFrom testRuntimeOnly
 	}
 }
 
@@ -64,7 +45,6 @@ ext {
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-	implementation 'org.springframework.boot:spring-boot-starter-flyway'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
@@ -78,10 +58,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-session-jdbc'
 	implementation 'gg.jte:jte-spring-boot-starter-4:3.2.4'
 	implementation 'gg.jte:jte:3.2.4'
-	implementation 'org.flywaydb:flyway-database-postgresql'
 	implementation 'io.micrometer:micrometer-tracing-bridge-otel'
 	implementation 'io.opentelemetry:opentelemetry-exporter-logging'
-	runtimeOnly 'org.postgresql:postgresql'
 
 	implementation 'io.jsonwebtoken:jjwt-api:0.13.0'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
@@ -108,7 +86,6 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.springframework.security:spring-security-test'
 	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
-	testImplementation 'org.testcontainers:testcontainers-postgresql'
 	// ADR-0007's adopted testing stack (JUnit 5 + Testcontainers +
 	// ArchUnit + REST Assured) -- ArchUnit is scaffolded here per that
 	// ADR's "adopt as part of first-module scaffolding" instruction,
@@ -124,23 +101,14 @@ dependencies {
 	// `int(10) UNSIGNED` display widths among it. Testing against the
 	// engine production actually runs is the whole point of Phase 1.
 	//
-	// Added alongside the PostgreSQL substrate, not replacing it: the
-	// application still runs on PostgreSQL by default, and ~50
-	// integration tests depend on that. The phase1-mysql profile (ADR-0013
-	// / D-043) is what actually boots the application against this driver
-	// -- runtimeOnly, not testImplementation, because LegacyPersistenceConfig
-	// is production code, even though today's only proven substrate is a
-	// test container (see LegacyPersistenceConfig's own javadoc).
+	// The application's only database (ADR-0017). runtimeOnly, not
+	// testImplementation: LegacyPersistenceConfig is production code.
 	testImplementation 'org.testcontainers:testcontainers-mariadb'
 	runtimeOnly 'org.mariadb.jdbc:mariadb-java-client'
 
 	// Phase 2 suite only. These are the dependencies Phase 1 removes
 	// from the application; the migration suite keeps them here so the
 	// frozen work stays executable without holding `main` on Postgres.
-	phase2TestImplementation 'org.flywaydb:flyway-core'
-	phase2TestImplementation 'org.flywaydb:flyway-database-postgresql'
-	phase2TestImplementation 'org.testcontainers:testcontainers-postgresql'
-	phase2TestRuntimeOnly 'org.postgresql:postgresql'
 }
 
 dependencyManagement {
@@ -195,27 +163,6 @@ tasks.named('test') {
 	environment 'DOCKER_API_VERSION', '1.55'
 }
 
-// Run explicitly: `./gradlew phase2Test`. Deliberately absent from
-// `check` and from the `test` task's dependencies -- a Phase 2 asset
-// must never be able to fail a Phase 1 build. It is still compiled by
-// `./gradlew compilePhase2TestJava`, which CI does run, so the frozen
-// work cannot silently stop building.
-tasks.register('phase2Test', Test) {
-	description = 'Phase 2 (storage migration) suite: ETL load against a real PostgreSQL. Not part of `check`.'
-	group = 'verification'
-	testClassesDirs = sourceSets.phase2Test.output.classesDirs
-	classpath = sourceSets.phase2Test.runtimeClasspath
-	useJUnitPlatform()
-	shouldRunAfter tasks.named('test')
-	testLogging {
-		exceptionFormat = 'full'
-		showExceptions = true
-		showCauses = true
-		showStackTraces = true
-	}
-	environment 'DOCKER_HOST', 'unix:///var/run/docker.sock'
-	environment 'DOCKER_API_VERSION', '1.55'
-}
 
 // Precompile the JTE templates. `generate()` emits Java sources into the normal
 // compile path, so template errors are build errors and the runtime needs no

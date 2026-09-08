@@ -60,15 +60,8 @@ defaults to false). ADR-0015 prerequisite 7 requires the legacy PHP admin
 surface — which still authenticates with the shared password — to be unreachable
 first. While both are live, MFA is only as strong as the weaker door.
 
-**The application cannot currently be started from its jar.**
-`BackendApplication` excludes `DataSourceAutoConfiguration`, so nothing supplies
-`JdbcConnectionDetails` from `spring.datasource.*`; the only implementation in
-the repository is Testcontainers' `@ServiceConnection` in the test base class.
-Running the jar against a real Postgres fails at startup with *"required a bean
-of type JdbcConnectionDetails that could not be found"*.
-
-This run worked around it with a **test-scoped** `LiveVerifyDataSourceConfig`
-behind a `live-verify` profile. That is deliberately not a fix: it belongs with
-the deployment work — `infrastructure/` is still an empty Phase-0 boundary — and
-putting it in production code here would have hidden a real gap under a
-verification task. **It has to be closed before anything deploys.**
+**Historical note.** When this verification was run the application could not
+start from its jar under the PostgreSQL profile (R-040), and a test-scoped
+`live-verify` data-source configuration stood in for the missing bean. That
+profile, that configuration and R-040 are gone with ADR-0017; the jar starts
+against MySQL as `running-the-backend.md` describes.

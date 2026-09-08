@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.core.Ordered;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
@@ -27,7 +26,6 @@ import tools.jackson.databind.ObjectMapper;
  * authorizing the client's URL and dispatching the file's.
  */
 @Configuration
-@Profile("phase1-mysql")
 public class LegacyPhpRouterConfig {
 
 	/**

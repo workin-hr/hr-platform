@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -57,7 +56,6 @@ import com.workin.legacy.payroll.LegacyPayrollAttendanceFigures;
  * tidy-up cannot quietly merge the two.
  */
 @Repository
-@Profile("phase1-mysql")
 public class AttendanceStore {
 
 	private static final String DISPLAY_NAME =

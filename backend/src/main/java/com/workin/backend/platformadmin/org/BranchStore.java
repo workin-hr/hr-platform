@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -22,7 +21,6 @@ import com.workin.backend.platformadmin.web.DashboardPage;
  * unless a decision records why it changed.
  */
 @Repository
-@Profile("phase1-mysql")
 public class BranchStore {
 
 	private final JdbcTemplate jdbcTemplate;

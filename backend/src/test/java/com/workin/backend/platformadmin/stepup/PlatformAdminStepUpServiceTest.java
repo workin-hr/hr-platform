@@ -44,8 +44,8 @@ class PlatformAdminStepUpServiceTest extends AbstractIntegrationTest {
 	private PlatformTransactionManager transactionManager;
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -157,9 +157,9 @@ class PlatformAdminStepUpServiceTest extends AbstractIntegrationTest {
 	void anExpiredApprovalAuthorisesNothing() {
 		Enrolled admin = enrolledAdmin();
 		String approval = approve(admin, SUSPEND_42);
-		new JdbcTemplate(this.flywayDataSource).update(
+		new JdbcTemplate(this.legacyDataSource).update(
 				"UPDATE platform_admin_step_up_approvals SET expires_at = ? WHERE id = ?",
-				java.sql.Timestamp.from(Instant.now().minusSeconds(1)), approval);
+				storedAs(Instant.now().minusSeconds(1)), approval);
 
 		assertThat(consume(admin.id(), approval, SUSPEND_42)).isFalse();
 	}
@@ -214,7 +214,7 @@ class PlatformAdminStepUpServiceTest extends AbstractIntegrationTest {
 	}
 
 	private Enrolled enrolledAdmin() {
-		long id = new JdbcTemplate(this.flywayDataSource).queryForObject(
+		long id = new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true) RETURNING id",
 				Long.class, "+93" + System.nanoTime(), this.passwordEncoder.encode("irrelevant"));
 		String token = this.mfaService.issueBootstrapToken(id, id);

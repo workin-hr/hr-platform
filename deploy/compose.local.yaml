@@ -70,8 +70,8 @@ services:
       db:
         condition: service_healthy
     environment:
-      # One name. The profile group in application.properties pulls in
-      # phase1-mysql, so there is no second name to forget.
+      # The environment profile. It gates environment values only; the
+      # database is the legacy MariaDB in every profile (ADR-0017).
       SPRING_PROFILES_ACTIVE: local
       LEGACY_DB_JDBC_URL: jdbc:mariadb://db:3306/workin
       LEGACY_DB_USERNAME: workin

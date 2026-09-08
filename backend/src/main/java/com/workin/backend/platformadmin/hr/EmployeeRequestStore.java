@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.hr;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -16,7 +15,6 @@ import com.workin.backend.platformadmin.web.DashboardPage;
  * plus the reads {@code dashboard_request_approve()} needs.
  */
 @Repository
-@Profile("phase1-mysql")
 public class EmployeeRequestStore {
 
 	private static final String DISPLAY_NAME =

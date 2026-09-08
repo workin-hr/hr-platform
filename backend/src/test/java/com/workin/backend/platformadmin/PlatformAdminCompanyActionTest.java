@@ -44,8 +44,8 @@ class PlatformAdminCompanyActionTest extends AbstractIntegrationTest {
 	private PlatformAdminMfaService mfaService;
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -171,7 +171,7 @@ class PlatformAdminCompanyActionTest extends AbstractIntegrationTest {
 			.isEqualTo(PlatformAdminCompanyService.Outcome.DONE);
 
 		assertThat(statusOf(company)).isEqualTo("rejected");
-		assertThat(new JdbcTemplate(this.flywayDataSource).queryForObject(
+		assertThat(new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"SELECT rejection_reason FROM companies WHERE id = ?", String.class, company))
 			.as("the PHP dashboard records why a company was rejected; losing that on "
 					+ "the Java side would make the same operation mean less")
@@ -182,7 +182,7 @@ class PlatformAdminCompanyActionTest extends AbstractIntegrationTest {
 	void approvingAPendingCompanyActivatesItAndLeavesAnyOldReasonAlone() {
 		Admin admin = enrolledAdmin();
 		long company = createCompany();
-		new JdbcTemplate(this.flywayDataSource).update(
+		new JdbcTemplate(this.legacyDataSource).update(
 				"UPDATE companies SET status = 'pending', rejection_reason = ? WHERE id = ?",
 				"an earlier rejection", company);
 		String approval = approve(admin, PlatformAdminCompanyService.ACTION_APPROVE, company, "documents verified");
@@ -192,7 +192,7 @@ class PlatformAdminCompanyActionTest extends AbstractIntegrationTest {
 			.isEqualTo(PlatformAdminCompanyService.Outcome.DONE);
 
 		assertThat(statusOf(company)).isEqualTo("active");
-		assertThat(new JdbcTemplate(this.flywayDataSource).queryForObject(
+		assertThat(new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"SELECT rejection_reason FROM companies WHERE id = ?", String.class, company))
 			.as("approving does not clear the previous reason -- PHP leaves it too, and "
 					+ "clearing it would erase why the company was once rejected")
@@ -231,18 +231,18 @@ class PlatformAdminCompanyActionTest extends AbstractIntegrationTest {
 	}
 
 	private String statusOf(long companyId) {
-		return new JdbcTemplate(this.flywayDataSource).queryForObject(
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"SELECT status FROM companies WHERE id = ?", String.class, companyId);
 	}
 
 	private Object consumedAt(String approvalId) {
-		return new JdbcTemplate(this.flywayDataSource).queryForObject(
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"SELECT consumed_at FROM platform_admin_step_up_approvals WHERE id = ?",
 				Object.class, approvalId);
 	}
 
 	private List<String> auditRow(long adminId) {
-		return new JdbcTemplate(this.flywayDataSource).query(
+		return new JdbcTemplate(this.legacyDataSource).query(
 				"SELECT event_type, target_type, target_id, step_up_approval_id "
 						+ "FROM platform_admin_audit_events WHERE platform_admin_id = ? "
 						+ "AND event_type LIKE 'COMPANY%'",
@@ -252,13 +252,13 @@ class PlatformAdminCompanyActionTest extends AbstractIntegrationTest {
 	}
 
 	private long createCompany() {
-		return new JdbcTemplate(this.flywayDataSource).queryForObject(
-				"INSERT INTO companies (name, phone, active, status) VALUES (?, ?, true, 'active') RETURNING id",
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(
+				"INSERT INTO companies (company_name, phone, password_hash, status) VALUES (?, ?, 'unused-hash', 'active') RETURNING id",
 				Long.class, "Fixture " + System.nanoTime(), "+92" + System.nanoTime());
 	}
 
 	private Admin enrolledAdmin() {
-		long id = new JdbcTemplate(this.flywayDataSource).queryForObject(
+		long id = new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true) RETURNING id",
 				Long.class, "+91" + System.nanoTime(), this.passwordEncoder.encode("irrelevant"));
 		return new Admin(id, PlatformAdminMfaTestSupport.enrol(this.mfaService, id));

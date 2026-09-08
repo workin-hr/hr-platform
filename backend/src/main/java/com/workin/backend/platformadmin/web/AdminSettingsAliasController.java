@@ -1,6 +1,5 @@
 package com.workin.backend.platformadmin.web;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,7 +24,6 @@ import com.workin.backend.authorization.AuthenticatedUseCase;
  * asymmetry is legacy's rather than an oversight to correct here.
  */
 @Controller
-@Profile("phase1-mysql")
 public class AdminSettingsAliasController {
 
 	@AuthenticatedUseCase(reason = "Redirects into the settings page's content tab, carrying an "

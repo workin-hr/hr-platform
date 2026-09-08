@@ -36,8 +36,8 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 	private TestRestTemplate restTemplate;
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -88,10 +88,10 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 
 		// Written directly, as another worker or an earlier process would have.
 		// This instance has served no request for this identifier.
-		JdbcTemplate jdbc = new JdbcTemplate(this.flywayDataSource);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		for (int attempt = 0; attempt < PlatformAdminLoginThrottle.MAX_ATTEMPTS; attempt++) {
 			jdbc.update("INSERT INTO platform_admin_login_attempts (identifier_hash, attempted_at) "
-					+ "VALUES (?, ?)", sha256(phone), java.sql.Timestamp.from(Instant.now()));
+					+ "VALUES (?, ?)", sha256(phone), storedAs(Instant.now()));
 		}
 
 		assertThat(login(phone, PASSWORD).getStatusCode())
@@ -104,11 +104,11 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 		String phone = uniquePhone();
 		createPlatformAdmin(phone);
 
-		JdbcTemplate jdbc = new JdbcTemplate(this.flywayDataSource);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		Instant expired = Instant.now().minus(PlatformAdminLoginThrottle.WINDOW).minusSeconds(60);
 		for (int attempt = 0; attempt < PlatformAdminLoginThrottle.MAX_ATTEMPTS * 2; attempt++) {
 			jdbc.update("INSERT INTO platform_admin_login_attempts (identifier_hash, attempted_at) "
-					+ "VALUES (?, ?)", sha256(phone), java.sql.Timestamp.from(expired));
+					+ "VALUES (?, ?)", sha256(phone), storedAs(expired));
 		}
 
 		assertThat(login(phone, PASSWORD).getStatusCode())
@@ -139,7 +139,7 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 
 		login(phone, "wrong");
 
-		JdbcTemplate jdbc = new JdbcTemplate(this.flywayDataSource);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		Integer plaintext = jdbc.queryForObject(
 				"SELECT COUNT(*) FROM platform_admin_login_attempts WHERE identifier_hash = ?",
 				Integer.class, phone);
@@ -152,10 +152,10 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 	@Test
 	void expiredAttemptsArePurgedRatherThanAccumulating() {
 		String phone = uniquePhone();
-		JdbcTemplate jdbc = new JdbcTemplate(this.flywayDataSource);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		Instant expired = Instant.now().minus(PlatformAdminLoginThrottle.WINDOW).minusSeconds(60);
 		jdbc.update("INSERT INTO platform_admin_login_attempts (identifier_hash, attempted_at) "
-				+ "VALUES (?, ?)", sha256(phone), java.sql.Timestamp.from(expired));
+				+ "VALUES (?, ?)", sha256(phone), storedAs(expired));
 		assertThat(recordedAttempts(phone)).isOne();
 
 		this.cleanup.purgeExpiredAttempts();
@@ -176,7 +176,7 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 	}
 
 	private int recordedAttempts(String phone) {
-		Integer count = new JdbcTemplate(this.flywayDataSource).queryForObject(
+		Integer count = new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"SELECT COUNT(*) FROM platform_admin_login_attempts WHERE identifier_hash = ?",
 				Integer.class, sha256(phone));
 		return count == null ? 0 : count;
@@ -191,7 +191,7 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 	 * before the factor is ever consulted.
 	 */
 	private void createPlatformAdmin(String phone) {
-		Long id = new JdbcTemplate(this.flywayDataSource).queryForObject(
+		Long id = new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true) RETURNING id",
 				Long.class, phone, this.passwordEncoder.encode(PASSWORD));
 		this.seeds.put(phone, PlatformAdminMfaTestSupport.enrol(this.mfaServiceForTests, id));

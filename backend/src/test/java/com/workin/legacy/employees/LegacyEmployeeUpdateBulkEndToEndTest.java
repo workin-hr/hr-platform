@@ -86,8 +86,6 @@ class LegacyEmployeeUpdateBulkEndToEndTest {
 		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
 		registry.add("app.legacy-db.username", MARIADB::getUsername);
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
-		registry.add("app.runtime-db.username", () -> "unused");
-		registry.add("app.runtime-db.password", () -> "unused");
 	}
 
 	// ---------------- shape and status ----------------

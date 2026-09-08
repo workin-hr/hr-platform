@@ -4,7 +4,6 @@ import java.time.LocalDate;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -27,7 +26,6 @@ import com.workin.backend.platformadmin.hr.EmployeeStore;
  * company -- pay, attendance, penalties, advances, payslip and documents.
  */
 @Controller
-@Profile("phase1-mysql")
 public class AdminEmployeeDetailController {
 
 	private static final String VIEW = "admin/employee-detail";

@@ -2,9 +2,9 @@
 
 Closes the mechanical half of **R-023**: Phase 1 adds ten tables to the
 existing MariaDB, and until they exist the deployment is silently
-incomplete. Nothing creates them at runtime — ADR-0013 gives Flyway no
-ownership of any MariaDB schema — so this is a deliberate, human step
-taken once, before cutover.
+incomplete. Nothing creates them at runtime — the application carries no
+Flyway (ADR-0013 amendment 3; ADR-0017) — so this is a deliberate, human
+step taken once, before cutover.
 
 ## What gets added, and what does not
 
@@ -83,7 +83,7 @@ mysql -h "$HOST" -u "$USER" -p "$DATABASE" < phase1_extensions.sql
 **4. Confirm.** Re-run step 1's query; expect all ten names.
 
 **5. Let the application confirm it independently.** `Phase1SchemaCheck`
-runs at startup under `phase1-mysql` and logs one line per missing table
+runs at startup and logs one line per missing table
 naming the feature it disables. A correctly provisioned deployment logs:
 
 ```text

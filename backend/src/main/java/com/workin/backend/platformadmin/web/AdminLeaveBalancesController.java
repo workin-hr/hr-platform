@@ -2,7 +2,6 @@ package com.workin.backend.platformadmin.web;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -24,7 +23,6 @@ import com.workin.legacy.LegacyClock;
  * company column and every tenant check go through a join.
  */
 @Controller
-@Profile("phase1-mysql")
 public class AdminLeaveBalancesController {
 
 	private static final String VIEW = "admin/leave-balances";

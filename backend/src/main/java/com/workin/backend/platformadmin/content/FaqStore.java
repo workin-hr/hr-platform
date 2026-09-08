@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.content;
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -18,7 +17,6 @@ import org.springframework.stereotype.Repository;
  * contract rather than an implementation detail.
  */
 @Repository
-@Profile("phase1-mysql")
 public class FaqStore {
 
 	private final JdbcTemplate jdbcTemplate;

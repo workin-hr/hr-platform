@@ -28,8 +28,8 @@ class PlatformAdminAuditTest extends AbstractIntegrationTest {
 	private TestRestTemplate restTemplate;
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -38,7 +38,7 @@ class PlatformAdminAuditTest extends AbstractIntegrationTest {
 	private PlatformAdminSessionService platformAdminSessionService;
 
 	private Long createPlatformAdmin(String phone, String password) {
-		Long id = new JdbcTemplate(flywayDataSource).queryForObject(
+		Long id = new JdbcTemplate(legacyDataSource).queryForObject(
 				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, TRUE) RETURNING id",
 				Long.class, phone, passwordEncoder.encode(password));
 		// ADR-0015 prerequisite 8: the bearer surface refuses an administrator
@@ -68,7 +68,7 @@ class PlatformAdminAuditTest extends AbstractIntegrationTest {
 	}
 
 	private List<String> eventTypesFor(Long adminId) {
-		return new JdbcTemplate(flywayDataSource).queryForList(
+		return new JdbcTemplate(legacyDataSource).queryForList(
 				"SELECT event_type FROM platform_admin_audit_events WHERE platform_admin_id = ? ORDER BY id",
 				String.class, adminId);
 	}
@@ -102,7 +102,7 @@ class PlatformAdminAuditTest extends AbstractIntegrationTest {
 				new PlatformAdminLoginRequest("+20000000000", "whatever"), String.class);
 
 		assertThat(loginEventTypesFor(adminId)).containsExactly("LOGIN_FAILED");
-		Integer unattributable = new JdbcTemplate(flywayDataSource).queryForObject(
+		Integer unattributable = new JdbcTemplate(legacyDataSource).queryForObject(
 				"SELECT count(*) FROM platform_admin_audit_events WHERE platform_admin_id NOT IN "
 						+ "(SELECT id FROM platform_admins)",
 				Integer.class);
@@ -128,7 +128,7 @@ class PlatformAdminAuditTest extends AbstractIntegrationTest {
 		// first: one code is usable per 30 seconds, and without this the test
 		// passes or fails depending on whether it happens to straddle a step
 		// boundary.
-		PlatformAdminMfaTestSupport.allowAnotherCode(new JdbcTemplate(flywayDataSource), adminId);
+		PlatformAdminMfaTestSupport.allowAnotherCode(new JdbcTemplate(legacyDataSource), adminId);
 		PlatformAdminAuthResponse second = login(phone, "correct horse battery staple");
 		restTemplate.postForEntity(
 				"/api/platform-admin/logout",

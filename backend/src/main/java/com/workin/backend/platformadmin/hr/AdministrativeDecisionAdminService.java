@@ -1,7 +1,6 @@
 package com.workin.backend.platformadmin.hr;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +23,6 @@ import com.workin.backend.platformadmin.web.DashboardSession;
  * row that does not exist yet has no tenant to preserve.
  */
 @Service
-@Profile("phase1-mysql")
 public class AdministrativeDecisionAdminService {
 
 	public enum Refusal {

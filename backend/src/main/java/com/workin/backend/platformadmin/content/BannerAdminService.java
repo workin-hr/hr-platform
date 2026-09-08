@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.content;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -24,7 +23,6 @@ import com.workin.legacy.uploads.LegacyFileUploads;
  * how that defect would have been reproduced.
  */
 @Service
-@Profile("phase1-mysql")
 public class BannerAdminService {
 
 	static final String TARGET_TYPE = "BANNER";

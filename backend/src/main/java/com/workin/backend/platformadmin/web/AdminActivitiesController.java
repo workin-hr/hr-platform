@@ -5,7 +5,6 @@ import java.util.List;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,7 +22,6 @@ import com.workin.backend.platformadmin.hr.ActivityStore;
  * that scopes both halves.
  */
 @Controller
-@Profile("phase1-mysql")
 public class AdminActivitiesController {
 
 	private static final String VIEW = "admin/activities";

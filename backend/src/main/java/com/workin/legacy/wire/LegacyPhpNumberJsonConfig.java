@@ -9,7 +9,6 @@ import tools.jackson.databind.module.SimpleModule;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 
 /**
  * Renders whole floating-point values the way PHP's {@code json_encode} does:
@@ -43,10 +42,10 @@ import org.springframework.context.annotation.Profile;
  * up in production, where counts and sums are usually whole.
  *
  * <h2>Scope</h2>
- * <p>Registered only under {@code phase1-mysql}, where the entire served
- * surface is the legacy contract and the tenant API is not exposed. The new
- * platform's own responses keep Jackson's defaults -- PHP's rendering is a
- * legacy compatibility obligation, not a house style.
+ * <p>The entire served surface is the legacy contract, so this applies to
+ * every response the clients read. The platform-admin API's own responses
+ * are not affected -- PHP's rendering is a legacy compatibility obligation,
+ * not a house style.
  *
  * <p><b>Not reproduced</b>: PHP renders very large floats in exponent form
  * ({@code 1.0e+20}) where Jackson writes {@code 1.0E20}. No field on this
@@ -55,7 +54,6 @@ import org.springframework.context.annotation.Profile;
  * does, it needs its own measurement rather than an inference from this one.
  */
 @Configuration
-@Profile("phase1-mysql")
 public class LegacyPhpNumberJsonConfig {
 
 	/** 2^53: above this a double cannot represent every integer, so "is it whole" stops being a safe question. */

@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.hr;
 import java.math.BigDecimal;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +23,6 @@ import com.workin.legacy.LegacyClock;
  * {@code company_id}, so reassigning the employee <em>is</em> moving the debt.
  */
 @Service
-@Profile("phase1-mysql")
 public class AdvanceAdminService {
 
 	public enum Refusal {

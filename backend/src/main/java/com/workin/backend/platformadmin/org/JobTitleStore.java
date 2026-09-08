@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -14,7 +13,6 @@ import com.workin.backend.platformadmin.web.DashboardPage;
 
 /** {@code org_paginate_job_titles()} and the writes {@code job_titles.php} makes. */
 @Repository
-@Profile("phase1-mysql")
 public class JobTitleStore {
 
 	private final JdbcTemplate jdbcTemplate;

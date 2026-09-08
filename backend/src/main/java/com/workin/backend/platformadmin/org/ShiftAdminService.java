@@ -1,7 +1,6 @@
 package com.workin.backend.platformadmin.org;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,7 +18,6 @@ import com.workin.backend.platformadmin.web.DashboardSession;
  * coerces to midnight. Adding a check would refuse rows the live system holds.
  */
 @Service
-@Profile("phase1-mysql")
 public class ShiftAdminService {
 
 	public enum Refusal {

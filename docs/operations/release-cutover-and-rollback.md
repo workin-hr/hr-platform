@@ -36,20 +36,20 @@ cutover.
 ### Claim 1 — "the database is unchanged": **true of the legacy contract, false of the database**
 
 **What is verified.** Java applies **no DDL to the vendored legacy schema**.
-Flyway is bound to its own dedicated `flywayDataSource` and its migrations under
-`db/migration/{common,rls}` are the Phase-2 PostgreSQL target schema; it owns no
-MariaDB location. The legacy connection is a separate datasource
-(`app.legacy-db.*`) built by `LegacyPersistenceConfig`, which is
-`@Profile("phase1-mysql")` and states outright: *"No Flyway ownership of any
-MariaDB schema."* That config sets `hibernate.hbm2ddl.auto` to **`none`** on the
-legacy `EntityManagerFactory` — Hibernate neither migrates nor validates it, and
-the vendored schema's drift check (`scripts/check_legacy_schema_drift.py`) is
-what keeps the mapping honest instead.
+There is no Flyway in the application at all (ADR-0013 amendment 3, and since
+ADR-0017 no PostgreSQL target for one to migrate). The one datasource
+(`app.legacy-db.*`) is built by `LegacyPersistenceConfig`, which states
+outright: *"No Flyway ownership of any MariaDB schema."* That config sets
+`hibernate.hbm2ddl.auto` to **`none`** on the `EntityManagerFactory` — Hibernate
+neither migrates nor validates it, and the vendored schema's drift check
+(`scripts/check_legacy_schema_drift.py`) is what keeps the mapping honest
+instead.
 
 > An earlier draft of this section cited `spring.jpa.hibernate.ddl-auto=validate`
-> as the protection. That property governs the **PostgreSQL** datasource and
-> says nothing about MariaDB. The real setting is `none`, which is stronger for
-> this purpose — but the citation was wrong and is corrected here.
+> as the protection. That property governed the PostgreSQL datasource that
+> existed at the time and said nothing about MariaDB. The real setting is
+> `none`, which is stronger for this purpose — but the citation was wrong and is
+> corrected here.
 
 **What is not true.** Phase 1 adds exactly one table to the legacy database:
 **`legacy_refresh_tokens`** (`backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql`),

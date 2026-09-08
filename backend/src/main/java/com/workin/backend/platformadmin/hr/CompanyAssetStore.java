@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.hr;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -13,7 +12,6 @@ import com.workin.backend.platformadmin.web.DashboardPage;
 
 /** {@code hr_paginate_assets()} and the writes {@code assets.php} makes. */
 @Repository
-@Profile("phase1-mysql")
 public class CompanyAssetStore {
 
 	private static final String DISPLAY_NAME =

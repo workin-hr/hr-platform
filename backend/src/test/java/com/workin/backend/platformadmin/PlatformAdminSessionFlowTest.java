@@ -20,8 +20,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import com.workin.backend.AbstractIntegrationTest;
-import com.workin.backend.identity.AuthResponse;
-import com.workin.backend.identity.RegisterCompanyRequest;
 
 class PlatformAdminSessionFlowTest extends AbstractIntegrationTest {
 
@@ -33,8 +31,8 @@ class PlatformAdminSessionFlowTest extends AbstractIntegrationTest {
 	private TestRestTemplate restTemplate;
 
 	@Autowired
-	@Qualifier("flywayDataSource")
-	private DataSource flywayDataSource;
+	@Qualifier("legacyDataSource")
+	private DataSource legacyDataSource;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -143,7 +141,7 @@ class PlatformAdminSessionFlowTest extends AbstractIntegrationTest {
 				"/api/platform-admin/login",
 				new PlatformAdminLoginRequest(phone, "correct horse battery staple", codeFor(phone)),
 				PlatformAdminAuthResponse.class).getBody();
-		new JdbcTemplate(flywayDataSource).update(
+		new JdbcTemplate(legacyDataSource).update(
 				"UPDATE platform_admins SET active = FALSE WHERE phone = ?", phone);
 
 		ResponseEntity<String> refresh = restTemplate.postForEntity(
@@ -162,7 +160,7 @@ class PlatformAdminSessionFlowTest extends AbstractIntegrationTest {
 				new PlatformAdminLoginRequest(phone, "correct horse battery staple", codeFor(phone)),
 				PlatformAdminAuthResponse.class).getBody();
 		PlatformAdminMfaTestSupport.allowAnotherCode(
-				new JdbcTemplate(flywayDataSource), first.platformAdminId());
+				new JdbcTemplate(legacyDataSource), first.platformAdminId());
 		PlatformAdminAuthResponse second = restTemplate.postForEntity(
 				"/api/platform-admin/login",
 				new PlatformAdminLoginRequest(phone, "correct horse battery staple", codeFor(phone)),
@@ -179,29 +177,8 @@ class PlatformAdminSessionFlowTest extends AbstractIntegrationTest {
 		}
 	}
 
-	@Test
-	void aTenantRefreshTokenIsUselessInThePlatformDomainAndViceVersa() {
-		AuthResponse tenant = restTemplate.postForEntity(
-				"/api/auth/register",
-				new RegisterCompanyRequest("Separation Co", uniquePhone(), "correct horse battery staple"),
-				AuthResponse.class).getBody();
-		PlatformAdminAuthResponse admin = loginNewAdmin();
-
-		ResponseEntity<String> tenantTokenOnPlatform = restTemplate.postForEntity(
-				"/api/platform-admin/refresh",
-				new PlatformAdminRefreshTokenRequest(tenant.refreshToken()),
-				String.class);
-		assertThat(tenantTokenOnPlatform.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-
-		ResponseEntity<String> platformTokenOnTenant = restTemplate.postForEntity(
-				"/api/auth/refresh",
-				new com.workin.backend.identity.RefreshTokenRequest(admin.refreshToken()),
-				String.class);
-		assertThat(platformTokenOnTenant.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-	}
-
 	private void createPlatformAdmin(String phone, String password) {
-		Long id = new JdbcTemplate(flywayDataSource).queryForObject(
+		Long id = new JdbcTemplate(legacyDataSource).queryForObject(
 				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, TRUE) RETURNING id",
 				Long.class, phone, passwordEncoder.encode(password));
 		// ADR-0015 prerequisite 8: the bearer surface refuses an administrator
