@@ -70,7 +70,11 @@ public class OpenApiConfig {
 			endpoint of the same path, byte for byte where it matters, so the \
 			clients need no change at cutover.
 
-			**Responses share one envelope**: `{success, message, data?, meta?}`. \
+			**JSON responses share one envelope**: `{success, message, data?, meta?}`. \
+			The export routes are the exception -- `attendance/export`, \
+			`payslips/export` and the employee templates answer a spreadsheet \
+			as bytes, with the filename in `Content-Disposition` and no \
+			envelope at all. \
 			`data` and `meta` are typed as free-form objects here because the \
 			port returns PHP's own structures rather than re-typing 202 \
 			endpoints -- so this document is authoritative about *which routes \

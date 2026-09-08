@@ -95,13 +95,13 @@ build, and never merge them to a release configuration.
 
 | Who | Endpoint | Phone | `country_code` |
 |---|---|---|---|
-| Company owner | `auth/login_company.php` | `01000090001` | `+20` |
-| Employee | `auth/login_employee.php` | `01000000002` | `+20` |
-| HR | `auth/login_employee.php` | `01000000256` | `+20` |
-| Desktop, either | `auth/login_desktop.php` + `"login_as": "company"` or `"employee"` | as above | `+20` |
+| Company owner | `auth/login_company` | `01000090001` | `+20` |
+| Employee | `auth/login_employee` | `01000000002` | `+20` |
+| HR | `auth/login_employee` | `01000000256` | `+20` |
+| Desktop, either | `auth/login_desktop` + `"login_as": "company"` or `"employee"` | as above | `+20` |
 
 ```sh
-curl -X POST http://localhost:8080/apis/api/auth/login_company.php \
+curl -X POST http://localhost:8080/apis/api/auth/login_company \
   -H 'Content-Type: application/json' \
   -d '{"phone":"01000090001","country_code":"+20","password":"devpassword"}'
 ```
@@ -122,7 +122,7 @@ The token is at **`data.token`** — not `access_token`:
 Send it as a bearer token on everything else:
 
 ```sh
-curl "http://localhost:8080/apis/api/employees/list.php?page=1&per_page=2" \
+curl "http://localhost:8080/apis/api/employees/list?page=1&per_page=2" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
