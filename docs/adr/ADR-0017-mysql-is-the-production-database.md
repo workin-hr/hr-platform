@@ -91,10 +91,13 @@ audit), and the compensating tenant controls of ADR-0012 — which were written 
 
 ## Risks
 
-- **The tenant model has no database-level backstop.** ADR-0012's row-level
-  security was the PostgreSQL half's contribution; the application-level guard
-  (D-176) is now the only enforcement, and `AdminTenantGuardCoverageTest` is
-  the gate that keeps every admin write behind it. Tracked as **R-046**.
+- **The tenant model has no database-level backstop, and now permanently.**
+  ADR-0012 accepted that loss as an interim state that Phase 2's row-level
+  security would end; there is no Phase 2. The application-level guard (D-041,
+  D-176) is the only enforcement, and `AdminTenantGuardCoverageTest` is the
+  gate that keeps every admin write behind it. Tracked under its own entry,
+  **R-070** -- not R-046, which is the legacy dashboard's row-id writes and is
+  closed.
 - **A dependency on MariaDB/MySQL semantics is permanent**, including PHP's
   arithmetic (`PhpMath`) and the legacy schema's quirks. Accepted: that is the
   contract the clients already depend on (D-111).

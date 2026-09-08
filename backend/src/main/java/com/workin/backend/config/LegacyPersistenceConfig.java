@@ -59,11 +59,10 @@ public class LegacyPersistenceConfig {
 	 * Plain {@code @Value}-bound connection info, not
 	 * {@code JdbcConnectionDetails}: that abstraction is supplied by
 	 * {@code DataSourceAutoConfiguration}, which {@code BackendApplication}
-	 * excludes globally so this profile and
-	 * {@link PostgresPersistenceConfig} can be mutually exclusive. No
-	 * committed fallback values, matching {@code app.jwt.secret}'s
-	 * pattern -- but defaulted to empty so the default profile's context
-	 * (which never evaluates these) is not affected by their absence.
+	 * excludes globally -- there is one database and this class configures
+	 * it (ADR-0017). No committed fallback values, matching
+	 * {@code app.jwt.secret}'s pattern, but defaulted to empty so a context
+	 * that never opens the database is not held hostage to their absence.
 	 */
 	@Bean
 	public DataSource legacyDataSource(
@@ -132,10 +131,8 @@ public class LegacyPersistenceConfig {
 	 * to every fresh persistence context, not just the ones a call site
 	 * remembers to scope. Named explicitly ({@code transactionManagerRef}
 	 * above) rather than left as the default {@code transactionManager}
-	 * bean name, since only one of this and
-	 * {@link PostgresPersistenceConfig#transactionManager} is ever
-	 * active per profile but Spring's bean-name resolution does not know
-	 * that ahead of time.
+	 * bean name: the reference is explicit at every use, so nothing depends
+	 * on which manager Spring would otherwise pick by name.
 	 */
 	@Bean
 	public PlatformTransactionManager legacyTransactionManager(

@@ -79,11 +79,14 @@ guarantee than Phase 2 will. That is recorded here, in the threat model, and in
 the Phase 1 exit criteria — not left for a reader to infer from a missing
 migration.
 
-**Scope.** This applies only while the application runs against MySQL. The RLS
-migrations, the two-DataSource split and `SuperuserStartupCheck` are **frozen,
-not deleted** — profile-gated so they stay compiled and tested — and Phase 2
-returns to them. This decision does not reopen the tenant-isolation pattern; it
-scopes ADR-0002 Part B and ADR-0010 Dimension 7 to the phase that can run them.
+**Scope.** This applies while the application runs against MySQL, which
+**ADR-0017 (2026-09-08) made permanent**. The RLS migrations, the two-DataSource
+split and `SuperuserStartupCheck` were frozen here and are now **deleted**;
+there is no Phase 2 to return to them. What is written below as an interim
+posture is the posture, the compensating controls are not temporary either, and
+the risk of having only them is tracked as **R-070**. This decision does not
+reopen the tenant-isolation pattern; it scopes ADR-0002 Part B and ADR-0010
+Dimension 7 to a phase that no longer ends.
 
 ## Alternatives Considered
 
@@ -119,11 +122,10 @@ scopes ADR-0002 Part B and ADR-0010 Dimension 7 to the phase that can run them.
   on a tenant-owned entity must be scoped, and the test must cover it.
 - `docs/security/threat-model.md` must record the Phase 1 posture and its
   expiry — it currently describes RLS as the control.
-- Phase 2 restores the database backstop, at which point the filter becomes
-  redundant defence rather than the only defence. It should be kept, not removed
-  — two independent controls is the end state, not one replacing the other.
-- `#74` becomes moot for Phase 1 (no table has RLS) and returns in Phase 2
-  unchanged.
+- ~~Phase 2 restores the database backstop~~ — **superseded by ADR-0017**.
+  No second control is coming: the filter is the end state, which is what
+  **R-070** records and why the standing review item above is permanent.
+- `#74` is moot: no table has RLS, and none will.
 
 ## Risks
 
