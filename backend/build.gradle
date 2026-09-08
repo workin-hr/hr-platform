@@ -119,6 +119,13 @@ dependencyManagement {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// Never restored from the build cache. The suite starts a MariaDB
+	// container, and neither the Docker daemon's state nor the floating
+	// `mariadb:11.8` image is an input Gradle can see -- so a run whose
+	// inputs matched an earlier one could be "passed" by copying that run's
+	// XML without starting a database. Compilation stays cacheable, which is
+	// where the cache's time goes.
+	outputs.cacheIf { false }
 	// Without this Gradle prints only "AssertionFailedError at Foo.java:12"
 	// and swallows the message, which on CI -- the only place the
 	// Testcontainers suite can run -- means a failure gives you a line
