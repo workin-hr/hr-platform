@@ -119,7 +119,9 @@
 														<span>${t.apply("status_active")}</span></label>
 												</div>
 												<p class="text-muted">${t.apply("guide_video_hint")}</p>
-												<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+												<div class="form-footer">
+													<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+												</div>
 											</form>
 										</details>
 									</td>
@@ -160,7 +162,9 @@
 							<span>${t.apply("status_active")}</span></label>
 					</div>
 					<p class="text-muted">${t.apply("guide_video_hint")}</p>
-					<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+					<div class="form-footer">
+						<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+					</div>
 				</form>
 				</div>
 			</div>

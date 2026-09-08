@@ -277,7 +277,9 @@
 							<input type="checkbox" name="isActive" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>
-					<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+					<div class="form-footer">
+						<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+					</div>
 				</form>
 				</div>
 			</div>
@@ -324,7 +326,9 @@
 							<input type="checkbox" name="isActive" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>
-					<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+					<div class="form-footer">
+						<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+					</div>
 				</form>
 				</div>
 			</div>

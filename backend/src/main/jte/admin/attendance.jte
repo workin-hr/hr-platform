@@ -336,7 +336,14 @@
 							@endfor
 						</select>
 					</div>
-					<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+					<%-- The save sits in a form-footer so it stays put while the
+					     fields scroll: .modal is the scroll container, and a form
+					     longer than the box otherwise pushes its own button out of
+					     reach. Legacy leaves it loose here and carries the same
+					     problem; the class is legacy's own. --%>
+					<div class="form-footer">
+						<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+					</div>
 				</form>
 				</div>
 			</div>
