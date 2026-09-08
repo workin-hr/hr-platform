@@ -135,7 +135,28 @@
   );
 
   document.addEventListener('click', (e) => {
-    if (e.target.closest('.row-actions__trigger')) {
+    const trigger = e.target.closest('.row-actions__trigger');
+    if (trigger) {
+      // The open is bound to `mousedown` above, which a keyboard never fires:
+      // Enter or Space on a <button> dispatches `click` alone, so every menu
+      // was unreachable without a mouse. `detail === 0` is how the browser
+      // says this click came from the keyboard, so the pointer path stays
+      // exactly as it was and only the keyboard one is added.
+      if (e.detail === 0) {
+        const wrap = trigger.closest('[data-row-actions]');
+        if (wrap) {
+          e.preventDefault();
+          if (wrap.classList.contains('is-open')) {
+            closeAll();
+          } else {
+            openMenu(wrap);
+            const first = getMenu(wrap)?.querySelector('[role="menuitem"]');
+            if (first) {
+              first.focus();
+            }
+          }
+        }
+      }
       return;
     }
     const menuItem = e.target.closest('.row-actions__menu [role="menuitem"]');
@@ -157,6 +178,13 @@
       closeAll();
     }
   });
+
+  // A script that hijacks a click inside a menu -- setting-templates.js and
+  // row-dialog.js both do, to open a modal -- must stop the click reaching its
+  // own handlers but still needs the menu closed. Only this file knows how:
+  // the menu is portaled to <body> while open and has to be put back. So it is
+  // published as an event rather than reimplemented, badly, twice.
+  document.addEventListener('row-actions:close', closeAll);
 
   window.addEventListener('resize', closeAll);
 })();

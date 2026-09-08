@@ -15,6 +15,7 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,6 +23,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
+import com.workin.backend.platformadmin.home.HomeChart;
+import com.workin.backend.platformadmin.home.HomeService;
 import com.workin.backend.platformadmin.PlatformAdminLoginThrottle;
 import com.workin.backend.platformadmin.mfa.PlatformAdminMfaService;
 import com.workin.backend.authorization.PublicUseCase;
@@ -47,13 +50,25 @@ public class PlatformAdminWebController {
 	private final PlatformAdminMfaService mfaService;
 	private final PlatformAdminLoginThrottle throttle;
 
+	/**
+	 * The home page's data, present only under {@code phase1-mysql}.
+	 *
+	 * <p>A provider rather than a constructor parameter because this controller
+	 * serves both profiles and {@link HomeService} reads the legacy MariaDB.
+	 * Under the other profile the overview is absent and the page says so,
+	 * which is better than a context that will not start.
+	 */
+	private final ObjectProvider<HomeService> homeService;
+
 	private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
 	public PlatformAdminWebController(PlatformAdminWebLoginService loginService,
-			PlatformAdminMfaService mfaService, PlatformAdminLoginThrottle throttle) {
+			PlatformAdminMfaService mfaService, PlatformAdminLoginThrottle throttle,
+			ObjectProvider<HomeService> homeService) {
 		this.loginService = loginService;
 		this.mfaService = mfaService;
 		this.throttle = throttle;
+		this.homeService = homeService;
 	}
 
 	/** Session attribute holding a password step awaiting its second factor. */
@@ -62,15 +77,85 @@ public class PlatformAdminWebController {
 	/** Session attribute marking an enrolment between its two steps. */
 	static final String ENROLLING = PlatformAdminWebController.class.getName() + ".enrolling";
 
-	@AuthenticatedUseCase(reason = "Renders the signed-in administrator's own overview. "
-			+ "No catalog permission: the platform-admin domain is separate from the tenant "
-			+ "permission model, and this page performs no administrative action.")
+	@AuthenticatedUseCase(reason = "Renders the signed-in administrator's own overview: counts, "
+			+ "charts and two panels, every one of them scoped to the session's company filter. "
+			+ "No catalog permission of its own -- each block asks for the permission of the "
+			+ "page it summarises -- and it performs no administrative action.")
 	@GetMapping(PlatformAdminWebSecurityConfig.PATH_PREFIX)
 	public String home(@AuthenticationPrincipal PlatformAdminWebPrincipal principal, Model model,
 			HttpServletRequest request) {
 		csrf(model, request);
 		model.addAttribute("factorBound", principal.factorBound());
+
+		// ObjectProvider, not a constructor parameter: HomeService reads the
+		// legacy MariaDB and exists only under phase1-mysql, while this
+		// controller serves both profiles. Absent, the page renders its header
+		// and nothing else rather than failing to start the context.
+		HomeService homeService = this.homeService.getIfAvailable();
+		if (homeService == null) {
+			return "admin/home";
+		}
+
+		DashboardSession session = (DashboardSession) model.getAttribute("session");
+		DashboardListFilters filters = DashboardListFilters.read(session, request);
+		DashboardSession scoped = DashboardSession.admin(filters.companyId());
+		model.addAttribute("session", scoped);
+
+		model.addAttribute("summary", homeService.summary(scoped));
+		model.addAttribute("charts", translateChartLabels(homeService.charts(scoped), model));
+		model.addAttribute("activities", homeService.recentActivities(scoped, 5));
+		model.addAttribute("complaints", homeService.openComplaints(scoped, filters, 4));
+		model.addAttribute("turnover", homeService.turnover(scoped));
+		model.addAttribute("banners", homeService.banners());
+		java.util.List<HomeChart> planning = homeService.workforcePlanning(scoped);
+		model.addAttribute("planned", planning.get(0));
+		model.addAttribute("actual", planning.get(1));
 		return "admin/home";
+	}
+
+	/**
+	 * The gender and age series come out of SQL as keys, because grouping on a
+	 * translated string would group differently per language. They become
+	 * labels here, using the same {@code t} the templates render with.
+	 */
+	@SuppressWarnings("unchecked")
+	private static java.util.SequencedMap<String, HomeChart> translateChartLabels(
+			java.util.SequencedMap<String, HomeChart> charts, Model model) {
+		Object translator = model.getAttribute("t");
+		if (!(translator instanceof java.util.function.Function)) {
+			return charts;
+		}
+		java.util.function.Function<String, String> t =
+				(java.util.function.Function<String, String>) translator;
+		java.util.SequencedMap<String, HomeChart> translated = new java.util.LinkedHashMap<>();
+		charts.forEach((key, chart) -> translated.put(key,
+				"chart_gender".equals(key) || "chart_age".equals(key)
+						? chart.translateLabels(label -> t.apply(labelKey(key, label)))
+						: chart));
+		return translated;
+	}
+
+	/** {@code home_gender_label()} / {@code home_age_label()}, as message keys. */
+	private static String labelKey(String chart, String raw) {
+		if ("chart_gender".equals(chart)) {
+			return switch (raw) {
+				case "male" -> "gender_male";
+				case "female" -> "gender_female";
+				case "unknown" -> "chart_unknown";
+				default -> "gender_other";
+			};
+		}
+		// Spelled out, not concatenated: AdminLayoutWiringTest reads the
+		// message keys a controller can emit straight out of the source, and a
+		// built string is one it cannot check against the catalogue.
+		return switch (raw) {
+			case "under_20" -> "age_under_20";
+			case "twenties" -> "age_twenties";
+			case "thirties" -> "age_thirties";
+			case "forties" -> "age_forties";
+			case "fifty_plus" -> "age_fifty_plus";
+			default -> "chart_unknown";
+		};
 	}
 
 	@PublicUseCase(reason = "The login form itself. It must be reachable unauthenticated "

@@ -29,6 +29,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -86,7 +87,11 @@
 					<input type="hidden" name="company_id"
 					       value="${editRow != null ? editRow.companyId() : filters.companyId()}">
 
-					<div class="form-row">
+					<%-- The rows are a grid in legacy (_shift_form.php), with the wide ones
+					     marked "org-form-span-2". Without the wrapper every field is a
+					     full-width band. --%>
+					<div class="org-form-grid">
+					<div class="form-row org-form-span-2">
 						<label for="name">${t.apply("shift")}</label>
 						<input type="text" id="name" name="name" required maxlength="255"
 						       value="${editRow == null ? "" : editRow.name()}">
@@ -105,7 +110,7 @@
 						       value="${editRow == null ? "16:00" : editRow.endForInput()}">
 					</div>
 					@if(editRow != null)
-						<div class="form-row">
+						<div class="form-row org-form-span-2">
 							<label for="is_active">${t.apply("status")}</label>
 							<select id="is_active" name="is_active">
 								<option value="1" selected="${editRow.active()}">${t.apply("status_active")}</option>
@@ -113,6 +118,8 @@
 							</select>
 						</div>
 					@endif
+										</div>
+
 					<div class="account-form__footer">
 						<a href="/admin/shifts" class="btn btn-gray">${t.apply("cancel")}</a>
 						@if(canWrite)
@@ -130,13 +137,13 @@
 					<a href="/admin/shifts?action=add" class="btn btn-blue">+ ${t.apply("add_shift")}</a>
 				@endif
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>#</th>
+						<th>${t.apply("shift_name")}</th>
 						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
-						<th>${t.apply("shift")}</th>
 						<th>${t.apply("start_time")}</th>
 						<th>${t.apply("end_time")}</th>
 						<th>${t.apply("employees")}</th>
@@ -149,11 +156,11 @@
 					@for(int index = 0; index < result.data().size(); index++)
 						!{Shift row = result.data().get(index);}
 						<tr>
-							<td>${result.from() + index}</td>
+							<td class="text-muted">${result.from() + index}</td>
+							<td class="bold">${row.name()}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
-							<td class="bold">${row.name()}</td>
 							<td><span class="badge badge-gray">${row.startForInput()}</span></td>
 							<td><span class="badge badge-gray">${row.endForInput()}</span></td>
 							<td><span class="badge badge-blue">${row.employeeCount()}</span></td>
@@ -164,18 +171,20 @@
 							<td>${row.createdDate()}</td>
 							<td class="col-actions">
 								@if(canManage)
-									<a href="/admin/shifts?action=edit&id=${row.id()}"
-									   class="btn btn-outline btn-sm">${t.apply("edit")}</a>
-									@if(canWrite)
-										<form method="POST" class="inline-form"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete">
-											<input type="hidden" name="id" value="${row.id()}">
-											<input type="hidden" name="company_id" value="${row.companyId()}">
-											<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-										</form>
-									@endif
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<a href="/admin/shifts?action=edit&id=${row.id()}"
+										   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
+										@if(canWrite)
+											<form method="POST" class="row-actions__form" role="none"
+											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="delete">
+												<input type="hidden" name="id" value="${row.id()}">
+												<input type="hidden" name="company_id" value="${row.companyId()}">
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+											</form>
+										@endif
+									`)
 								@else
 									<span class="text-muted">—</span>
 								@endif
@@ -188,13 +197,7 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/shifts?page=${page}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			@template.admin.pager(basePath = "/admin/shifts", result = result,
+					carry = filters.asQueryParameters(), t = t)
 		</div>
 	`)

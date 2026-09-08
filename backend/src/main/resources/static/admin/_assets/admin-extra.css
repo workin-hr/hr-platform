@@ -39,3 +39,292 @@
 	color: var(--muted, #5b6876);
 	font-size: .875rem;
 }
+
+/* The pager's row count. app-ui.css carries the whole pager component; this
+   one line is the port's addition, because the PHP has no equivalent -- it
+   shows page buttons and leaves the reader to work out which rows those are. */
+.pager-summary {
+	margin: 0;
+	margin-inline-start: auto;
+	padding-inline: 4px;
+	color: var(--app-text-muted, #6b7280);
+	font-size: 13px;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+
+.pager-summary b {
+	color: var(--app-text, #1a1d24);
+	font-weight: 600;
+}
+
+/* The pager's own numerals, so page buttons do not shift width between
+   "1" and "8" and the row goes still while you page through it. */
+.pager-btn,
+.pager-size-select {
+	font-variant-numeric: tabular-nums;
+}
+
+/* —— Home page: the port's own additions to the copied home.css ——
+   The stat cards are links here, because every count on this surface has a
+   page behind it. Legacy renders them as plain divs, so the affordance is
+   ours and lives in this file rather than in the copy. */
+.home-stat-card--link {
+	text-decoration: none;
+	color: inherit;
+	transition: transform .16s var(--app-ease, ease), box-shadow .16s var(--app-ease, ease),
+		border-color .16s var(--app-ease, ease);
+}
+
+.home-stat-card--link:hover {
+	transform: translateY(-2px);
+	border-color: #c5d4e8;
+	box-shadow: var(--app-shadow, 0 12px 28px rgba(15, 35, 70, .07));
+}
+
+.home-stat-card--link:focus-visible {
+	outline: none;
+	box-shadow: var(--app-focus-ring, 0 0 0 4px rgba(24, 95, 165, .12));
+}
+
+/* The tinted icon chip. Legacy writes these as inline `style` attributes on
+   every card; naming them is what lets one card be a link and keeps the
+   colours in a stylesheet rather than in the markup. */
+.home-stat-card .ico--blue   { background: #e6f1fb; color: #185fa5; }
+.home-stat-card .ico--green  { background: #eaf3de; color: #3b6d11; }
+.home-stat-card .ico--yellow { background: #faeeda; color: #854f0b; }
+.home-stat-card .ico--red    { background: #fcebeb; color: #a32d2d; }
+.home-stat-card .ico--violet { background: #f3e8ff; color: #7c3aed; }
+.home-stat-card .ico--gray   { background: #f1efe8; color: #5f5e5a; }
+
+/* A number is read, compared and scanned down a column of cards. */
+.home-stat-card .num {
+	font-variant-numeric: tabular-nums;
+	letter-spacing: -.02em;
+}
+
+/* Chart.js needs a sized box; the card is a grid item with no intrinsic
+   height, so without this the canvas collapses to nothing. */
+.home-chart-card .chart-box {
+	position: relative;
+	height: 240px;
+}
+
+.home-chart-card.wide .chart-box {
+	height: 260px;
+}
+
+/* —— Row-action dialog ——
+   Four list pages used to carry a text or number box in the actions column,
+   which is what kept them out of the ⋮ menu. The field moved here. Native
+   <dialog>, so the focus trap, Escape, the backdrop and the inertness of the
+   page behind it are the browser's. */
+.row-dialog {
+	width: min(28rem, calc(100vw - 2rem));
+	padding: 0;
+	border: 1px solid var(--app-border, #e2e6ef);
+	border-radius: var(--app-radius-lg, 14px);
+	box-shadow: 0 24px 48px rgba(15, 23, 42, .18);
+	background: var(--app-surface, #fff);
+	color: var(--app-text, #1a1d24);
+}
+
+.row-dialog::backdrop {
+	background: rgba(15, 23, 42, .45);
+	backdrop-filter: blur(2px);
+}
+
+.row-dialog__head {
+	padding: 18px 20px 0;
+}
+
+.row-dialog__head h3 {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 700;
+}
+
+.row-dialog__subject {
+	margin: 4px 0 0;
+	color: var(--app-text-muted, #6b7280);
+	font-size: 13px;
+}
+
+/* Empty when the trigger named no subject; an empty line of padding reads as
+   a rendering fault. */
+.row-dialog__subject:empty {
+	display: none;
+}
+
+.row-dialog__body {
+	display: grid;
+	gap: 12px;
+	padding: 16px 20px;
+}
+
+.row-dialog__body label {
+	display: block;
+	font-size: 12px;
+	font-weight: 600;
+	color: #374151;
+}
+
+.row-dialog__body input,
+.row-dialog__body textarea,
+.row-dialog__body select {
+	width: 100%;
+	margin-top: 6px;
+}
+
+.row-dialog__foot {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 0 20px 18px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.row-dialog[open] {
+		animation: rowDialogIn .18s cubic-bezier(.22, 1, .36, 1);
+	}
+
+	@keyframes rowDialogIn {
+		from { opacity: 0; transform: translateY(6px) scale(.99); }
+		to   { opacity: 1; transform: none; }
+	}
+}
+
+/* —— The add/edit modal ——
+   `crud.js` and `.modal-bg` are the dashboard's own and stay as copied. What
+   is missing from them is the keyboard: legacy's modal closes on a click and
+   nothing else. These rules and modal-a11y.js are the port's addition. */
+.modal-bg.open {
+	/* Above the ⋮ menu, which portals itself to the body at z-index 10000. */
+	z-index: 11000;
+}
+
+.modal .org-form-grid {
+	margin-bottom: 4px;
+}
+
+.modal .account-form__footer {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 18px;
+	padding-top: 14px;
+	border-top: 1px solid var(--app-border, #e2e6ef);
+}
+
+/* The close button is positioned at the inline start, which is the left in
+   RTL and the right in LTR -- `left: 16px` in the copy only holds for RTL. */
+[dir="ltr"] .modal-close {
+	left: auto;
+	right: 16px;
+}
+
+.modal-close:focus-visible {
+	outline: none;
+	border-radius: 8px;
+	box-shadow: var(--app-focus-ring, 0 0 0 4px rgba(24, 95, 165, .12));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.modal-bg.open .modal {
+		animation: modalIn .18s cubic-bezier(.22, 1, .36, 1);
+	}
+
+	@keyframes modalIn {
+		from { opacity: 0; transform: translateY(8px) scale(.99); }
+		to   { opacity: 1; transform: none; }
+	}
+}
+
+/* —— Two-line table cells ——
+   Legacy folds the employee code under the name and the department and job
+   title under the branch, which is how its employees table carries fourteen
+   columns without scrolling. `emp-tbl-*` are the dashboard's own class names
+   (employee_helper.php); `tbl-sub` is this application's, for the same shape
+   on other tables. */
+.tbl-sub {
+	margin-top: 2px;
+	font-size: 11px;
+	color: var(--app-text-muted, #6b7280);
+	line-height: 1.4;
+}
+
+.emp-tbl-avatar,
+.emp-tbl-photo {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 34px;
+	height: 34px;
+	border-radius: 50%;
+	object-fit: cover;
+	flex-shrink: 0;
+}
+
+.emp-tbl-avatar {
+	background: linear-gradient(135deg, #e6f1fb 0%, #dce9f8 100%);
+	color: #185fa5;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: .02em;
+}
+
+/* Free-text columns -- a reason, a reply, a decision body -- are as long as
+   somebody typed. Legacy clips them and puts the whole of it in the title
+   attribute; without a width they push every other column off the table. */
+.tbl-clip {
+	max-width: 18ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* —— Second-factor state in the topbar ——
+   `.admin-badge` is the dashboard's own (style.css); it has no warning
+   variant because the PHP surface has no second factor to be missing. */
+.admin-badge--warn {
+	background: #fdf1dc;
+	color: #8a5b00;
+	text-decoration: none;
+}
+
+.admin-badge--warn:hover {
+	background: #f8e4bd;
+}
+
+.home-panel--enrol {
+	border-inline-start: 3px solid #e0a800;
+}
+
+.home-panel--enrol .home-panel-body > p {
+	margin: 8px 0 14px;
+	max-width: 68ch;
+	line-height: 1.7;
+	color: var(--app-text-muted, #6b7280);
+}
+
+/* —— Turnover rates ——
+   Percentages, not headcounts. Their own row, and three across at most: a rate
+   sitting in the sixteen-card grid reads as one more count, which is how
+   "2.01" gets mistaken for two people. */
+.home-stats-grid--rates {
+	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+	max-width: 900px;
+}
+
+/* The placeholder img-fallback.js puts where a banner preview would be. */
+.tbl-photo-missing {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 64px;
+	height: 36px;
+	border-radius: 6px;
+	background: #f1f2f4;
+	color: var(--app-text-muted, #6b7280);
+	font-size: 12px;
+}

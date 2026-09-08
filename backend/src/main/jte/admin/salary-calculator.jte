@@ -4,6 +4,7 @@
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
+@param boolean factorBound = false
 @param String grossRaw
 @param String siRaw
 @param String otherRaw
@@ -22,6 +23,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,

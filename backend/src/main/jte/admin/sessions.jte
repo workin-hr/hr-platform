@@ -4,6 +4,7 @@
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
+@param boolean factorBound = false
 @param List<BrowserSession> sessions
 @param String currentPage
 @param String lang
@@ -15,6 +16,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,

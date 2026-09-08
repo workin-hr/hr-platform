@@ -20,6 +20,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -39,48 +40,70 @@
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_phone_countries")} (${countries.size()})</h2>
+				<div class="data-table-head__actions">
+					@if(actionsEnabled && factorBound)
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('pcModal')">+ ${t.apply("add")}</button>
+					@endif
+				</div>
 			</div>
 			<div class="table-wrap">
 				<table class="tbl">
 					<thead>
 						<tr>
+							<th>#</th>
 							<th>${t.apply("country_code")}</th>
 							<th>${t.apply("name_ar")}</th>
 							<th>${t.apply("name_en")}</th>
+							<%-- Its own column in legacy, not a prefix on the code: an
+							     emoji flag beside a dial code reads as one token and
+							     neither can be scanned down the column. --%>
+							<th>${t.apply("flag_emoji")}</th>
 							<th>${t.apply("phone_length")}</th>
 							<th>${t.apply("phone_prefixes")}</th>
+							<th>${t.apply("sort_order")}</th>
 							<th>${t.apply("status")}</th>
 							<th class="col-actions"><span class="sr-only">${t.apply("actions")}</span></th>
 						</tr>
 					</thead>
 					<tbody>
-						@for(PhoneCountry country : countries)
+						@for(int index = 0; index < countries.size(); index++)
+							!{PhoneCountry country = countries.get(index);}
 							<tr>
-								<td>${country.flagEmoji()} ${country.countryCode()}</td>
+								<td class="text-muted">${index + 1}</td>
+								<td dir="ltr">${country.countryCode()}</td>
 								<td>${country.nameAr()}</td>
 								<td>${country.nameEn()}</td>
+								<td>${country.flagEmoji()}</td>
 								<td>${country.phoneLength()}</td>
-								<td>${String.join(", ", country.prefixes())}</td>
+								<td class="text-muted" dir="ltr">${String.join(", ", country.prefixes())}</td>
+								<td>${country.sortOrder()}</td>
 								<td>
 									<span class="badge ${country.active() ? "badge-green" : "badge-gray"}">
 										${t.apply(country.active() ? "status_active" : "status_inactive")}
 									</span>
 								</td>
 								<td class="col-actions">
+									<%-- A trigger with nothing behind it opens an empty popover,
+									     so the trigger takes the same guard its only item has. --%>
 									@if(actionsEnabled && factorBound)
-										<form method="post" class="row-actions__form"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete">
-											<input type="hidden" name="id" value="${country.id()}">
-											<button type="submit" class="btn btn-sm btn-red">${t.apply("delete")}</button>
-										</form>
+										@template.admin.rowActions(rowId = country.id(), t = t, items = @`
+											<form method="post" class="row-actions__form"
+											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="delete">
+												<input type="hidden" name="id" value="${country.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+											</form>
+										`)
+									@else
+										<span class="text-muted">—</span>
 									@endif
 								</td>
 							</tr>
 						@endfor
 						@if(countries.isEmpty())
-							<tr><td colspan="7" class="data-table-empty">${t.apply("no_data")}</td></tr>
+							<tr><td colspan="10" class="data-table-empty">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>
@@ -88,11 +111,17 @@
 		</div>
 
 		@if(actionsEnabled && factorBound)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("add")}</h2>
-				</div>
-				<form method="post">
+			<%-- Legacy opens this form in a modal, behind the "+" button above.
+			     Rendered inline it sat open over the table on every visit, whether
+			     or not anyone was adding anything. Same form, same fields, same
+			     POST; .modal-bg is position:fixed, so it lives at the end of the
+			     document and out of the reading order. --%>
+			<div class="modal-bg" id="pcModal">
+				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="pcModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="pcModal-title">${t.apply("add")}</h2>
+					<form method="post">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add">
 					<div class="form-row">
@@ -121,6 +150,7 @@
 					</div>
 					<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
 				</form>
+				</div>
 			</div>
 		@endif
 	`)

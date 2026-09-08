@@ -37,11 +37,22 @@ import org.springframework.stereotype.Service;
 @Service
 public class LegacyGuideVideoService {
 
-	private static final Pattern SAFE_VIDEO_NAME =
-			Pattern.compile("^[A-Za-z0-9._-]+\\.(mp4|webm|mov|m4v)$", Pattern.CASE_INSENSITIVE);
+	/**
+	 * The video types this surface will reference.
+	 *
+	 * <p>Public because {@code LegacyUploadServing} has to serve exactly what
+	 * the writers here can produce, and a second hand-kept list is how the two
+	 * come apart -- which they did: the first version of that handler served
+	 * images and PDFs only, so a guide video listed by the API answered 404.
+	 */
+	public static final List<String> VIDEO_EXTENSIONS = List.of("mp4", "webm", "mov", "m4v");
+
+	private static final Pattern SAFE_VIDEO_NAME = Pattern.compile(
+			"^[A-Za-z0-9._-]+\\.(" + String.join("|", VIDEO_EXTENSIONS) + ")$",
+			Pattern.CASE_INSENSITIVE);
 
 	/** {@code faq_video_poster_filename()}: the first of these that exists beside the video. */
-	private static final List<String> POSTER_EXTENSIONS = List.of("jpg", "jpeg", "png", "webp");
+	public static final List<String> POSTER_EXTENSIONS = List.of("jpg", "jpeg", "png", "webp");
 
 	private static final String GUIDE_SUBDIR = "guide_videos";
 

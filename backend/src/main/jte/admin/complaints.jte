@@ -23,13 +23,14 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled && factorBound;}
-!{int colCount = showCompanyColumn ? 8 : 7;}
+!{int colCount = showCompanyColumn ? 10 : 9;}
 <%-- dashboard/pages/complaints/page.php. --%>
 @template.admin.layout(
 	title = t.apply(session.isCompany() ? "nav_complaints" : "nav_complaints_admin"),
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -101,8 +102,8 @@
 					${t.apply(session.isCompany() ? "nav_complaints" : "nav_complaints_admin")}
 					(${result.total()})</h2>
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>#</th>
@@ -110,8 +111,10 @@
 						<th>${t.apply("complaint_submitter")}</th>
 						<th>${t.apply("phone")}</th>
 						<th>${t.apply("complaint_msg")}</th>
+						<th>${t.apply("admin_reply")}</th>
 						<th>${t.apply("complaint_source")}</th>
 						<th>${t.apply("status")}</th>
+						<th>${t.apply("date")}</th>
 						<th>${t.apply("actions")}</th>
 					</tr>
 				</thead>
@@ -125,7 +128,8 @@
 							@endif
 							<td class="bold">${row.name() == null ? "—" : row.name()}</td>
 							<td class="text-muted">${row.phone() == null ? "—" : row.phone()}</td>
-							<td>${row.message() == null ? "—" : row.message()}</td>
+							<td class="tbl-clip" title="${row.message() == null ? "" : row.message()}">${row.message() == null || row.message().isBlank() ? "—" : row.message()}</td>
+							<td class="text-muted tbl-clip" title="${row.reply() == null ? "" : row.reply()}">${row.reply() == null || row.reply().isBlank() ? "—" : row.reply()}</td>
 							<td>
 								<span class="badge badge-gray" title="${t.apply(row.fromEmployee()
 									? "complaint_source_employee_to_company_hint"
@@ -139,34 +143,25 @@
 									: "closed".equals(row.status()) ? "badge-gray" : "badge-blue"}">
 									${t.apply("status_" + row.status())}</span>
 							</td>
+							<td class="text-muted">${row.createdDate()}</td>
 							<td class="col-actions">
 								@if(canWrite)
-									<%-- The reply carries a status of its own. Legacy writes
-									     it unvalidated and a value outside the enum lands as
-									     an empty string under production's sql_mode, so the
-									     choices here are the only three (R-048). --%>
-									<form method="POST" class="inline-form">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="reply">
-										<input type="hidden" name="id" value="${row.id()}">
-										<input type="text" name="reply" class="inline-input"
-										       value="${row.reply() == null ? "" : row.reply()}"
-										       placeholder="${t.apply("admin_reply")}"
-										       aria-label="${t.apply("admin_reply")}">
-										<select name="status" aria-label="${t.apply("status")}">
-											<option value="pending" selected="${"pending".equals(row.status())}">${t.apply("status_pending")}</option>
-											<option value="done" selected="${"done".equals(row.status())}">${t.apply("status_done")}</option>
-											<option value="closed" selected="${"closed".equals(row.status())}">${t.apply("status_closed")}</option>
-										</select>
-										<button type="submit" class="btn btn-outline btn-sm">${t.apply("save")}</button>
-									</form>
-									<form method="POST" class="inline-form"
-									      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="delete">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-									</form>
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<button type="button" role="menuitem" class="row-actions__item"
+												data-dialog="complaint-reply"
+												data-dialog-id="${row.id()}"
+												data-dialog-subject="${row.name() == null || row.name().isEmpty() ? row.phone() : row.name()}"
+												data-dialog-reply="${row.reply() == null ? "" : row.reply()}"
+												data-dialog-status="${row.status()}">${t.apply("admin_reply")}</button>
+										<form method="POST" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem"
+													class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+									`)
 								@else
 									<span class="text-muted">—</span>
 								@endif
@@ -179,13 +174,39 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/complaints?page=${page}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			<%-- The page's own filters as well as the shared ones. Without them
+			     the size selector's hidden inputs carry only company and search,
+			     so changing the page size silently widened the result set. --%>
+			!{java.util.SequencedMap<String, String> carry =
+					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+			!{if (!"all".equals(source) && !source.isEmpty()) { carry.put("source", source); }}
+			!{if (!"all".equals(status) && !status.isEmpty()) { carry.put("status", status); }}
+			!{if (!dateFrom.isEmpty()) { carry.put("date_from", dateFrom); }}
+			!{if (!dateTo.isEmpty()) { carry.put("date_to", dateTo); }}
+			@template.admin.pager(basePath = "/admin/complaints", result = result,
+					carry = carry, t = t)
+		@if(canWrite)
+			<%-- The reply used to be a text box and a status select inside every
+			     row, which is what kept this page's actions out of the menu.
+			     One dialog for the page; the trigger carries the row's current
+			     reply and status in.
+
+			     The status is unvalidated in legacy, and a value outside the
+			     enum lands as an empty string under production's sql_mode, so
+			     the choices here are the only three (R-048). --%>
+			@template.admin.rowDialog(id = "complaint-reply", action = "reply",
+					title = t.apply("admin_reply"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
+					fields = @`
+						<label>${t.apply("admin_reply")}
+							<textarea name="reply" rows="4" data-dialog-field="reply"></textarea></label>
+						<label>${t.apply("status")}
+							<select name="status" data-dialog-field="status">
+								<option value="pending">${t.apply("status_pending")}</option>
+								<option value="done">${t.apply("status_done")}</option>
+								<option value="closed">${t.apply("status_closed")}</option>
+							</select></label>
+					`)
+		@endif
 		</div>
 	`)

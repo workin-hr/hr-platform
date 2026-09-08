@@ -46,6 +46,10 @@ public class EmployeeRequestStore {
 					rs.getString("status"),
 					rs.getString("from_date"),
 					rs.getString("to_date"),
+					// Part-day requests carry a time as well as a date, and the
+					// two are separate columns in legacy's table as they are here.
+					rs.getString("from_time"),
+					rs.getString("to_time"),
 					rs.getString("notes"),
 					rs.getString("reply"),
 					rs.getString("decided_at"),

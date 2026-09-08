@@ -27,7 +27,88 @@ public record Banner(
 		String buttonLabelAr,
 		String buttonLabelEn,
 		Banner.Action buttonActionType,
-		String buttonActionValue) {
+		String buttonActionValue,
+		String createdAt) {
+
+	/** {@code substr((string) $row['created_at'], 0, 10)}. */
+	public String createdDate() {
+		return this.createdAt == null || this.createdAt.isBlank()
+				? "—" : this.createdAt.substring(0, Math.min(10, this.createdAt.length()));
+	}
+
+	/**
+	 * {@code home_banner_title()}: the viewer's language, falling back to
+	 * Arabic and then English -- a banner with only one of the two still shows
+	 * rather than rendering an empty heading.
+	 */
+	public String title(String lang) {
+		return firstNonBlank("en".equals(lang) ? this.titleEn : this.titleAr,
+				this.titleAr, this.titleEn);
+	}
+
+	public String description(String lang) {
+		return firstNonBlank("en".equals(lang) ? this.descriptionEn : this.descriptionAr,
+				this.descriptionAr, this.descriptionEn);
+	}
+
+	/**
+	 * {@code home_banner_cta()}: the button, or null when this banner has none.
+	 *
+	 * <p>Null rather than a disabled button for every case legacy refuses: no
+	 * action type, no label, an external URL that is not {@code http(s)}, or a
+	 * WhatsApp action with no number. A button that goes nowhere is worse than
+	 * no button, and the stored value is unsanitised on read (see above), so
+	 * the check happens here as well as at write time.
+	 *
+	 * @param lang the viewer's language, for the label
+	 */
+	public Cta cta(String lang) {
+		String label = firstNonBlank("en".equals(lang) ? this.buttonLabelEn : this.buttonLabelAr,
+				this.buttonLabelAr, this.buttonLabelEn);
+		if (this.buttonActionType == null || this.buttonActionType == Action.NONE || label.isEmpty()) {
+			return null;
+		}
+		String value = this.buttonActionValue == null ? "" : this.buttonActionValue.trim();
+		return switch (this.buttonActionType) {
+			case EXTERNAL_URL -> value.regionMatches(true, 0, "http://", 0, 7)
+					|| value.regionMatches(true, 0, "https://", 0, 8)
+					? new Cta(label, value, true) : null;
+			case INTERNAL_ROUTE -> INTERNAL_ROUTES.contains(value)
+					? new Cta(label, routeHref(value), false) : null;
+			case WHATSAPP -> {
+				String digits = value.replaceAll("\\D", "");
+				yield digits.isEmpty() ? null : new Cta(label, "https://wa.me/" + digits, true);
+			}
+			case NONE -> null;
+		};
+	}
+
+	/**
+	 * {@code home_internal_route_href()} against this surface's own paths.
+	 *
+	 * <p>The three {@code app_*} keys name client screens with no page here, so
+	 * they land on the home page rather than on a 404 -- which is what legacy's
+	 * map does with a key it has no entry for.
+	 */
+	private static String routeHref(String key) {
+		return switch (key) {
+			case "home", "dashboard", "app_how_to_use", "app_terms", "app_compliance" -> "/admin";
+			default -> "/admin/" + key;
+		};
+	}
+
+	private static String firstNonBlank(String... candidates) {
+		for (String candidate : candidates) {
+			if (candidate != null && !candidate.isBlank()) {
+				return candidate.trim();
+			}
+		}
+		return "";
+	}
+
+	/** @param external whether the link leaves this application */
+	public record Cta(String label, String href, boolean external) {
+	}
 
 	/** {@code banners.button_action_type}. */
 	public enum Action {

@@ -86,13 +86,22 @@ public class EmployeeAdminService {
 
 	private final boolean actionsEnabled;
 
+	/**
+	 * Legacy's clock. The hire date defaulted below is written to the row, and
+	 * {@code LegacyClock}'s own note says why that matters: PHP dates it from
+	 * the timezone the database hands it, so the JVM default would file a
+	 * late-evening hire under the wrong day.
+	 */
+	private final com.workin.legacy.LegacyClock clock;
+
 	public EmployeeAdminService(
 			EmployeeStore store, PlatformAdminAuditService auditService,
-			LegacyPhoneNumbers phoneNumbers,
+			LegacyPhoneNumbers phoneNumbers, com.workin.legacy.LegacyClock clock,
 			@Value("${app.platform-admin.actions.enabled:false}") boolean actionsEnabled) {
 		this.store = store;
 		this.auditService = auditService;
 		this.phoneNumbers = phoneNumbers;
+		this.clock = clock;
 		this.actionsEnabled = actionsEnabled;
 	}
 
@@ -259,7 +268,7 @@ public class EmployeeAdminService {
 						? this.employeePasswordEncoder.encode(command.password()) : null;
 
 		String hireDate = trimmed(command.hireDate()).isEmpty()
-				? java.time.LocalDate.now().toString() : trimmed(command.hireDate());
+				? this.clock.todayAsString() : trimmed(command.hireDate());
 		String shiftEffective = trimmed(command.shiftEffectiveFrom()).isEmpty()
 				? hireDate : trimmed(command.shiftEffectiveFrom());
 

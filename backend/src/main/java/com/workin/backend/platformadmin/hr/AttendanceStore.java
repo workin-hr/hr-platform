@@ -90,12 +90,21 @@ public class AttendanceStore {
 
 	private final LegacyAttendanceCalendar calendar;
 
+	/**
+	 * Legacy's clock, for the fallback below. {@code time()} in PHP is the
+	 * configured timezone's, and the row this dates is compared against
+	 * {@code CURDATE()} on a connection set to the same offset.
+	 */
+	private final com.workin.legacy.LegacyClock clock;
+
 	public AttendanceStore(
 			JdbcTemplate jdbcTemplate,
 			LegacyAttendanceWorkedMinutes workedMinutes,
 			LegacyPayrollAttendanceFigures attendanceFigures,
 			LegacyWeeklyRestCredit weeklyRestCredit,
-			LegacyAttendanceCalendar calendar) {
+			LegacyAttendanceCalendar calendar,
+			com.workin.legacy.LegacyClock clock) {
+		this.clock = clock;
 		this.jdbcTemplate = jdbcTemplate;
 		this.workedMinutes = workedMinutes;
 		this.attendanceFigures = attendanceFigures;
@@ -193,7 +202,8 @@ public class AttendanceStore {
 				? row.checkOut() : null;
 		// date('Y-m-d', strtotime($checkIn) ?: time()) -- an unreadable
 		// check-in falls back to today rather than failing the row.
-		String dateKey = checkIn.length() >= 10 ? checkIn.substring(0, 10) : LocalDate.now().toString();
+		String dateKey = checkIn.length() >= 10
+				? checkIn.substring(0, 10) : this.clock.todayAsString();
 		int raw = !checkIn.isEmpty() && checkOut != null
 				? Math.max(0, row.workedMinutes() == null ? 0 : row.workedMinutes()) : 0;
 		long companyId = row.companyId() > 0 ? row.companyId() : filterCompanyId;

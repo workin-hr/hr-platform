@@ -6,6 +6,7 @@
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
+@param boolean factorBound = false
 @param List<Activity> rows
 @param DashboardListFilters filters
 @param String kind
@@ -33,6 +34,7 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -80,8 +82,8 @@
 		<div class="data-table-head">
 			<h2 class="data-table-title">${t.apply("nav_activities")} (${total})</h2>
 		</div>
-		<div class="data-table-wrap">
-		<table class="data-table">
+		<div class="table-wrap">
+		<table class="tbl">
 			<thead>
 				<tr>
 					<th>#</th>
@@ -115,17 +117,15 @@
 		</div>
 	</div>
 
-	@if(pages > 1)
-		<%-- Numbered links, as every other list page here renders them. The
-		     filters ride along so paging does not silently widen the query. --%>
-		!{String tail = "&kind=" + kind + "&date_from=" + dateFrom + "&date_to=" + dateTo
-			+ "&per_page=" + perPage
-			+ (filters.companyId() > 0 ? "&company_id=" + filters.companyId() : "");}
-		<div class="pager">
-			@for(int p = 1; p <= pages; p++)
-				<a href="/admin/activities?page=${p}${tail}"
-				   class="pager__link${p == pageNumber ? " is-current" : ""}">${p}</a>
-			@endfor
-		</div>
-	@endif
+	<%-- This page carries its paging as loose parameters rather than a
+	     DashboardPage, so one is assembled here for the shared pager. --%>
+	!{java.util.SequencedMap<String, String> carry = new java.util.LinkedHashMap<>();}
+	!{carry.put("kind", kind);}
+	!{carry.put("date_from", dateFrom);}
+	!{carry.put("date_to", dateTo);}
+	!{if (filters.companyId() > 0) { carry.put("company_id", String.valueOf(filters.companyId())); }}
+	@template.admin.pager(basePath = "/admin/activities",
+			result = new com.workin.backend.platformadmin.web.DashboardPage<>(
+					rows, total, pageNumber, perPage, pages, rangeFrom, rangeTo),
+			carry = carry, t = t)
 `)

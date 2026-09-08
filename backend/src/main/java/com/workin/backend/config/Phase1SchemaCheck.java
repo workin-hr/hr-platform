@@ -15,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 /**
@@ -37,8 +39,19 @@ import org.springframework.stereotype.Component;
  * deployment still serves. This logs at ERROR and names the feature each
  * missing table disables, so the gap is loud, attributable, and visible
  * in the first seconds of a deployment rather than in a user report.
+ *
+ * <p><b>First of the runners, and that is the whole point.</b> Measured on an
+ * unprovisioned database under the {@code prod} profile:
+ * {@code PlatformAdminBootstrap} ran first, its {@code count(*) from
+ * platform_admins} threw {@code Table 'workin.platform_admins' doesn't exist},
+ * the context died -- and this check, the one written to explain exactly that
+ * situation, never got to run. The operator got a Hibernate stack trace
+ * instead of "apply {@code phase1_extensions.sql}". A diagnostic that a later
+ * failure can silence is not a diagnostic, so it is ordered ahead of every
+ * other {@link ApplicationRunner}.
  */
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class Phase1SchemaCheck implements ApplicationRunner {
 
 	private static final Logger log = LoggerFactory.getLogger(Phase1SchemaCheck.class);

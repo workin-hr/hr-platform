@@ -74,6 +74,18 @@
     definitionModal.classList.add('open');
   }
 
+  /**
+   * Close the row-action menu this click came from, if any.
+   *
+   * The handlers below run in the capture phase and call stopPropagation, so
+   * row-actions.js's own bubble-phase listener never sees the click and never
+   * closes the menu. The modal then opened over a menu still marked is-open
+   * and still portaled to <body>, and closing the modal resurfaced it.
+   */
+  function closeRowActions() {
+    document.dispatchEvent(new CustomEvent('row-actions:close'));
+  }
+
   // Capture phase so clicks inside <summary> / portaled menus reach us reliably.
   document.addEventListener('click', function (e) {
     var blockedBtn = e.target.closest('[data-setting-option-blocked]');
@@ -88,6 +100,7 @@
     if (addBtn) {
       e.preventDefault();
       e.stopPropagation();
+      closeRowActions();
       openOptionAdd(addBtn.getAttribute('data-definition-id'), addBtn.getAttribute('data-definition-label'));
       return;
     }
@@ -96,6 +109,7 @@
     if (editOptionBtn) {
       e.preventDefault();
       e.stopPropagation();
+      closeRowActions();
       openOptionEdit(parseJsonAttr(editOptionBtn, 'data-setting-option'));
       return;
     }
@@ -104,6 +118,7 @@
     if (editDefBtn) {
       e.preventDefault();
       e.stopPropagation();
+      closeRowActions();
       openDefinitionEdit(parseJsonAttr(editDefBtn, 'data-setting-definition'));
       return;
     }

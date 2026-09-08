@@ -45,13 +45,19 @@ class AdminLayoutWiringTest {
 	 *
 	 * <p>{@code login}, {@code mfa},
 	 * {@code enrol} and {@code enrol-confirm} render before there is a session
-	 * and carry {@code login.css} through the shared set. {@code home},
-	 * {@code sessions}, {@code company-confirm} and the two detail pages are
-	 * the cases where legacy names none either -- checked against
-	 * {@code $pageStyles} in the PHP, not assumed.
+	 * and carry {@code login.css} through the shared set. {@code sessions},
+	 * {@code company-confirm} and the two detail pages are the cases where
+	 * legacy names none either -- checked against {@code $pageStyles} in the
+	 * PHP, not assumed.
+	 *
+	 * <p>{@code home} used to be here and is not any more. It was exempt while
+	 * it rendered a "signed in" panel and nothing else; legacy's
+	 * {@code index.php} has always named {@code pages/home/assets/style.css},
+	 * and now that the page is the overview legacy serves, so does this one
+	 * (D-198).
 	 */
 	private static final Set<String> NO_PAGE_STYLES = Set.of(
-			"login", "mfa", "enrol", "enrol-confirm", "home", "sessions",
+			"login", "mfa", "enrol", "enrol-confirm", "sessions",
 			"company-confirm", "company-detail", "employee-detail");
 
 	@Test
@@ -150,6 +156,40 @@ class AdminLayoutWiringTest {
 		return keys;
 	}
 
+	/**
+	 * The pages that render before there is a session. They take the layout's
+	 * sessionless {@code auth-shell} branch, which has no topbar to carry the
+	 * factor state.
+	 */
+	private static final Set<String> PRE_SESSION = Set.of(
+			"login", "mfa", "enrol", "enrol-confirm");
+
+	@Test
+	void everyPageForwardsTheFactorStateToItsLayout() throws IOException {
+		// A JTE template's parameters come from the model only at the top
+		// level: a nested @template call gets exactly what its caller passes.
+		// So a page that declares factorBound and does not forward it renders
+		// a topbar saying the factor is unbound while the page itself knows
+		// otherwise -- which is the state this catches, because both halves
+		// look right in isolation.
+		List<String> missing = new ArrayList<>();
+		for (Path template : pageTemplates()) {
+			String name = fileName(template);
+			String body = Files.readString(template, StandardCharsets.UTF_8);
+			if (!body.contains("@template.admin.layout(") || PRE_SESSION.contains(name)) {
+				continue;
+			}
+			if (!body.contains("factorBound = factorBound")) {
+				missing.add(name);
+			}
+		}
+		assertThat(missing)
+				.as("the topbar shows the second-factor state and links to enrolment "
+						+ "when it is missing (D-152); a page that does not forward it "
+						+ "tells the administrator the factor is unbound on every visit")
+				.isEmpty();
+	}
+
 	@Test
 	void noControllerSetsTheAdminPhoneItselfAnyMore() throws IOException {
 		// One authority. Fourteen controllers forgot this and six set it, which
@@ -171,9 +211,39 @@ class AdminLayoutWiringTest {
 				.isEmpty();
 	}
 
+	/**
+	 * The PostgreSQL profile's case: no legacy clock in the context, and the
+	 * advice falls back rather than failing to start.
+	 */
+	private static org.springframework.beans.factory.ObjectProvider<com.workin.legacy.LegacyClock>
+			noClock() {
+		return new org.springframework.beans.factory.ObjectProvider<>() {
+			@Override
+			public com.workin.legacy.LegacyClock getObject() {
+				throw new org.springframework.beans.factory.NoSuchBeanDefinitionException(
+						com.workin.legacy.LegacyClock.class);
+			}
+
+			@Override
+			public com.workin.legacy.LegacyClock getObject(Object... args) {
+				return getObject();
+			}
+
+			@Override
+			public com.workin.legacy.LegacyClock getIfAvailable() {
+				return null;
+			}
+
+			@Override
+			public com.workin.legacy.LegacyClock getIfUnique() {
+				return null;
+			}
+		};
+	}
+
 	@Test
 	void theAdviceSuppliesThePhoneAndTolerantlyOmitsItBeforeSignIn() {
-		AdminViewModelAdvice advice = new AdminViewModelAdvice(null, null);
+		AdminViewModelAdvice advice = new AdminViewModelAdvice(null, null, noClock());
 		assertThat(advice.currentAdminPhone(
 				new PlatformAdminWebPrincipal(7L, "+201000000000", true)))
 				.isEqualTo("+201000000000");

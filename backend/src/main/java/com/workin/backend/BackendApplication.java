@@ -5,6 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration;
 import org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
 
 /**
  * Boot's single-context DataSource/JPA autoconfiguration is excluded and
@@ -24,7 +25,11 @@ import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 		exclude = {
 			DataSourceAutoConfiguration.class,
 			DataJpaRepositoriesAutoConfiguration.class,
-			HibernateJpaAutoConfiguration.class
+			HibernateJpaAutoConfiguration.class,
+			// No default in-memory user with a generated password: this application's
+			// only web login is the dashboard's, and a stray default account behind
+			// HTTP Basic is a second door nobody asked for.
+			UserDetailsServiceAutoConfiguration.class
 		})
 public class BackendApplication {
 

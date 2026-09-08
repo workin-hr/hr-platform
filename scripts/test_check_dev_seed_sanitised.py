@@ -149,6 +149,23 @@ def test_a_near_miss_of_the_block_is_still_caught() -> None:
     )
 
 
+def test_a_seed_missing_a_phase1_table_fails() -> None:
+    findings: list[str] = []
+    gate.check_seed_is_self_sufficient("CREATE TABLE `employees` (...);", findings)
+    check(
+        any("legacy_refresh_tokens" in f for f in findings),
+        "a seed that does not create the Phase 1 tables is rejected -- it is the only "
+        "init script the compose files mount, so it has to stand alone",
+    )
+
+
+def test_a_complete_seed_passes_self_sufficiency() -> None:
+    findings: list[str] = []
+    complete = "".join(f"CREATE TABLE `{t}` (...);\n" for t in gate.PHASE1_TABLES)
+    gate.check_seed_is_self_sufficient(complete, findings)
+    check(not findings, f"a seed with every Phase 1 table passes (got {findings})")
+
+
 def test_a_missing_sentinel_fails() -> None:
     findings: list[str] = []
     gate.check_sentinels("INSERT INTO x VALUES ('nothing to see');", findings)

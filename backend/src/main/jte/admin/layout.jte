@@ -4,6 +4,7 @@
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone = null
+@param boolean factorBound = false
 @param String currentPage = ""
 @param String lang = "ar"
 @param com.workin.backend.platformadmin.web.DashboardSession session
@@ -31,6 +32,10 @@
 	<link rel="stylesheet" href="/admin/_assets/style.css">
 	<link rel="stylesheet" href="/admin/_assets/app-ui.css">
 	<link rel="stylesheet" href="/admin/_assets/sidebar.css">
+	<%-- After the copied sheets, not before: the @font-face blocks would
+	     work anywhere, but the family override is a `body` rule at the same
+	     specificity as style.css's, so it only wins by coming later. --%>
+	<link rel="stylesheet" href="/admin/_assets/fonts.css">
 	<link rel="stylesheet" href="/admin/_assets/admin-extra.css">
 	<%-- $pageStyles in dashboard/includes/layout.php: the per-page stylesheets,
 	     appended after the shared ones so a page's own rules win. Naming them
@@ -53,9 +58,24 @@
 				csrfParameterName = csrfParameterName, csrfToken = csrfToken, t = t,
 				available = available)
 		<main class="main">
+			<%-- .topbar-util and .admin-badge are the dashboard's own classes
+			     (style.css), which nothing here used.
+			     The factor state is in the bar rather than on the home page
+			     because it is what decides whether any page's write actions
+			     work, and D-152 migrates existing rows unbound -- so the link
+			     to enrolment has to be reachable from wherever the session
+			     lands, not from one page. --%>
 			<div class="topbar">
 				<h1 class="page-title">${title}</h1>
-				<span class="who">${currentAdminPhone}</span>
+				<div class="topbar-util">
+					<span class="who">${currentAdminPhone}</span>
+					@if(factorBound)
+						<span class="admin-badge" data-factor-bound="true">${t.apply("mfa_factor_bound")}</span>
+					@else
+						<a href="/admin/enrol" class="admin-badge admin-badge--warn"
+						   data-factor-bound="false">${t.apply("mfa_factor_unbound")}</a>
+					@endif
+				</div>
 			</div>
 			@if(flash != null)
 				<div class="flash flash-${flashType}">${flash}</div>
@@ -70,6 +90,16 @@
 	<script src="/admin/_assets/sidebar.js"></script>
 	<script src="/admin/_assets/row-actions.js"></script>
 	<script src="/admin/_assets/crud.js"></script>
+	<%-- Opens a row action's dialog and fills it from the row that asked.
+	     Shared, because four list pages need one. --%>
+	<script src="/admin/_assets/row-dialog.js"></script>
+	<%-- Escape, a focus trap and focus restore for the copied modal,
+	     which crud.js opens and closes with a class and nothing else. --%>
+	<script src="/admin/_assets/modal-a11y.js"></script>
+	<%-- Swaps a broken stored image for the initials placeholder it would have
+	     had. Legacy checks the file server-side; the stored value here is a
+	     URL, which may not be this application's to stat. --%>
+	<script src="/admin/_assets/img-fallback.js"></script>
 	<%-- $pageScripts in dashboard/includes/layout.php: after the shared ones,
 	     so a page's script can rely on them having run. --%>
 @for(String pageScript : pageScripts)

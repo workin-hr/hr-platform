@@ -149,7 +149,7 @@ public class EmployeeRequestAdminService {
 		}
 
 		int days = EmployeeRequest.inclusiveDays(request.fromDate(), request.toDate());
-		int year = EmployeeRequest.yearOf(request.fromDate());
+		int year = EmployeeRequest.yearOf(request.fromDate(), this.clock.today());
 		if (request.deductBalance() && insufficient(request.employeeId(), days, year)) {
 			throw new RefusedException(Refusal.INSUFFICIENT_BALANCE);
 		}

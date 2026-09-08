@@ -141,7 +141,80 @@ attendance rows** and **3,193 payslips** — production's real volumes, so your
 lists paginate and your payroll screens load exactly as slowly as they will in
 production.
 
-## 4. Things that look broken and are not
+## 4. URLs
+
+| | |
+|---|---|
+| API base | `http://localhost:8080/apis/api/` |
+| **Swagger UI** | `http://localhost:8080/swagger-ui.html` |
+| OpenAPI document (clients) | `http://localhost:8080/v3/api-docs/client-api` |
+| OpenAPI document (platform admin) | `http://localhost:8080/v3/api-docs/platform-admin` |
+| Health | `http://localhost:8080/actuator/health` |
+| Admin UI | `http://localhost:8080/admin/login` |
+
+Swagger UI opens on the **Client API** group: the 202 legacy routes and nothing
+else. The platform-admin group is a separate entry in the dropdown, because it
+is a different audience with different credentials.
+
+Two things about that document are worth knowing before you trust it, because
+both are corrections applied on purpose:
+
+- **The verbs are exact.** Every route is mapped in Java without a method
+  restriction, so the handler can answer PHP's own `405 invalid_method` in the
+  legacy envelope. Generated straight, the document would claim every route
+  accepts every verb. It is pruned against what each handler really checks, so
+  `auth/login_company` shows `POST` alone and `profile/employee` shows `GET` and
+  `PUT`. Two routes genuinely accept anything — the two `template_excel`
+  downloads — and PHP does not check the method on them either.
+- **The paths have no `.php` suffix**, because that is the URL you call.
+  Against the PHP system this replaces, `configs/get` answers 200 and
+  `configs/get.php` answers 500. Your `api_constants.dart` already uses the
+  suffix-less form; this port serves both, so the suffix would work here and
+  fail there.
+
+**What the document does not tell you** is the shape inside `data`. The envelope
+is `{success, message, data?, meta?}`, and `data`/`meta` are free-form objects
+because the port returns PHP's own structures rather than re-typing 202
+endpoints — that is what makes it a faithful port. So the document is
+authoritative about *which routes exist and which verb each accepts*, and silent
+about the payload. For the payload, call the endpoint, or read your own client,
+which already encodes it.
+
+The routes are also listed flat, if that is easier to grep:
+
+```sh
+grep '^/' contracts/legacy-php-routes.txt      # all 202 routes
+```
+
+Swagger is published under `local` and `integration` and **switched off under
+`prod`** — an unauthenticated map of every endpoint on a live system is
+reconnaissance. Do not build anything that expects it in production.
+
+**The admin UI renders at `/admin/login` but will not keep you signed in over
+plain HTTP.** Its session cookie is `Secure` unconditionally, by ADR-0015, and
+that is not relaxed for local convenience. You will see the login page, submit
+it, and be bounced back. To actually use it locally you need TLS in front, or a
+deliberate local-only override — ask before adding one.
+
+## 5. Watching your requests arrive
+
+The app logs one line per request on stdout, so the `docker compose up` window
+tells you whether your call reached the backend at all:
+
+```text
+172.30.0.1 POST /apis/api/auth/login_company.php HTTP/1.1 -> 200 (102ms)
+```
+
+If a request from your app does not appear here, it never arrived — check the
+base URL and the cleartext settings above before looking at the backend.
+
+Need more detail:
+
+```sh
+APP_LOG_LEVEL=DEBUG docker compose -f compose.local.yaml up
+```
+
+## 6. Things that look broken and are not
 
 **Every OTP route answers `503 otp_delivery_failed`.** WhatsApp is deliberately
 unconfigured locally, so registration, password reset and phone change cannot
@@ -162,7 +235,7 @@ It does not affect `/apis/**`, which is bearer-token authenticated.
 real bug — say so. The backend decodes form and JSON bodies as UTF-8, and there
 is a regression test pinning it (see R-067, which was exactly this).
 
-## 5. Resetting
+## 7. Resetting
 
 ```sh
 cd deploy
@@ -173,7 +246,7 @@ docker compose -f compose.local.yaml up
 The database seeds on **first start only**, so `down -v` is how you get a clean
 one — after a `git pull` that brought a new seed, for instance.
 
-## 6. When there is a shared server
+## 8. When there is a shared server
 
 `compose.integration.yaml` runs the same image with the same seed on a shared
 box, so the whole team points at one URL instead of each running Docker. It

@@ -21,13 +21,14 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled && factorBound;}
-!{int colCount = showCompanyColumn ? 6 : 5;}
+!{int colCount = showCompanyColumn ? 7 : 6;}
 <%-- dashboard/pages/administrative_decisions/page.php. --%>
 @template.admin.layout(
 	title = t.apply("nav_administrative_decisions"),
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
+	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -123,13 +124,14 @@
 						+ ${t.apply("add_administrative_decision")}</a>
 				@endif
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>#</th>
 						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
 						<th>${t.apply("decision_title")}</th>
+						<th>${t.apply("decision_body")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("reg_date")}</th>
 						<th>${t.apply("actions")}</th>
@@ -146,6 +148,7 @@
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
 							<td class="bold">${row.title()}</td>
+							<td class="text-muted tbl-clip" title="${row.body() == null ? "" : row.body()}">${row.body() == null || row.body().isBlank() ? "—" : row.body()}</td>
 							<td>
 								<span class="badge ${row.active() ? "badge-green" : "badge-gray"}">
 									${t.apply(row.active() ? "decision_status_active" : "decision_status_inactive")}</span>
@@ -153,17 +156,19 @@
 							<td>${row.createdDate()}</td>
 							<td class="col-actions">
 								@if(canManage)
-									<a href="/admin/administrative_decisions?action=edit&id=${row.id()}"
-									   class="btn btn-outline btn-sm">${t.apply("edit")}</a>
-									@if(canWrite)
-										<form method="POST" class="inline-form"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete_decision">
-											<input type="hidden" name="id" value="${row.id()}">
-											<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-										</form>
-									@endif
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<a href="/admin/administrative_decisions?action=edit&id=${row.id()}"
+										   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
+										@if(canWrite)
+											<form method="POST" class="row-actions__form" role="none"
+											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="delete_decision">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+											</form>
+										@endif
+									`)
 								@else
 									<span class="text-muted">—</span>
 								@endif
@@ -176,13 +181,7 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/administrative_decisions?page=${page}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			@template.admin.pager(basePath = "/admin/administrative_decisions", result = result,
+					carry = filters.asQueryParameters(), t = t)
 		</div>
 	`)
