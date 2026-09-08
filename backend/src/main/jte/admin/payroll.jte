@@ -64,11 +64,14 @@
 			     The other thirteen columns are not on this form and are not
 			     rewritten, which is why a hand-edited payslip's net stops
 			     reconciling with its own stored totals. --%>
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("edit")} — ${editDetail.employeeName()}</h2>
-				</div>
-				<form method="POST" class="account-form org-form">
+			<%-- page.php renders this in modal over a
+			     modal-bg open. The port had it as a data-table-card in the
+			     page flow, wrapped in account-form org-form -- classes no
+			     stylesheet defines here or in legacy. --%>
+			<div class="modal-bg open">
+				<div class="modal">
+					<h2>${t.apply("edit")} — ${editDetail.employeeName()}</h2>
+					<form method="POST">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="edit_detail">
 					<input type="hidden" name="id" value="${editDetail.id()}">
@@ -132,9 +135,13 @@
 						<input type="number" step="0.01" id="net_salary" name="net_salary"
 						       value="${editDetail.netSalary().toPlainString()}">
 					</div>
-					<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
-					<a class="btn" href="/admin/payroll?run_id=${viewRunId}">${t.apply("cancel")}</a>
-				</form>
+					<div class="form-footer">
+						<a class="btn btn-gray"
+						   href="/admin/payroll?run_id=${viewRunId}">${t.apply("cancel")}</a>
+						<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+					</div>
+					</form>
+				</div>
 			</div>
 		@elseif(viewRunId > 0 && currentBatch != null)
 			<%-- One batch: its totals strip, then its payslips. --%>

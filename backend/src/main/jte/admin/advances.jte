@@ -205,7 +205,7 @@
 					<button type="button" class="modal-close"
 							aria-label="${t.apply("cancel")}">&times;</button>
 					<h2 id="advModal-title">${t.apply("add_advance")}</h2>
-					<form method="POST" class="account-form org-form">
+					<form method="POST">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add_advance">
 					<div class="org-form-grid">
@@ -233,7 +233,7 @@
 						<input type="text" id="reason" name="reason" maxlength="500">
 					</div>
 					</div>
-					<div class="account-form__footer">
+					<div class="form-footer">
 						<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
 					</div>
 				</form>

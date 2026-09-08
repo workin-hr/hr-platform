@@ -174,7 +174,7 @@
 					<button type="button" class="modal-close"
 							aria-label="${t.apply("cancel")}">&times;</button>
 					<h2 id="assetModal-title">${t.apply("add_asset")}</h2>
-					<form method="POST" class="account-form org-form">
+					<form method="POST">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add_asset">
 					<div class="org-form-grid">
@@ -202,7 +202,7 @@
 						<input type="date" id="asset_end_date" name="asset_end_date">
 					</div>
 					</div>
-					<div class="account-form__footer">
+					<div class="form-footer">
 						<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
 					</div>
 				</form>

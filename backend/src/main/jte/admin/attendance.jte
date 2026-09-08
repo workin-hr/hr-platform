@@ -255,7 +255,7 @@
 					<button type="button" class="modal-close"
 							aria-label="${t.apply("cancel")}">&times;</button>
 					<h2 id="attModal-title">${t.apply("add_attendance")}</h2>
-					<form method="POST" class="account-form org-form">
+					<form method="POST">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add_attendance">
 					<div class="form-row">
