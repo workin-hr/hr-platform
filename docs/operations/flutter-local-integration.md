@@ -141,7 +141,52 @@ attendance rows** and **3,193 payslips** — production's real volumes, so your
 lists paginate and your payroll screens load exactly as slowly as they will in
 production.
 
-## 4. Things that look broken and are not
+## 4. URLs, and what does not exist
+
+| | |
+|---|---|
+| API base | `http://localhost:8080/apis/api/` |
+| Health | `http://localhost:8080/actuator/health` |
+| Admin UI | `http://localhost:8080/admin/login` |
+| **Swagger / OpenAPI** | **does not exist** |
+
+**There is no Swagger UI and no `/v3/api-docs`.** springdoc is not a dependency,
+and `contracts/openapi/` holds only a README. The API surface is a faithful port
+of the PHP endpoints, so the authoritative list of what exists is:
+
+```sh
+grep '^/' contracts/legacy-php-routes.txt      # all 202 routes
+```
+
+The request and response shapes are whatever the PHP served — the Flutter apps
+already encode them, which is why there was never a spec to port. If you want
+one generated, say so; it is a real piece of work rather than a switch.
+
+**The admin UI renders at `/admin/login` but will not keep you signed in over
+plain HTTP.** Its session cookie is `Secure` unconditionally, by ADR-0015, and
+that is not relaxed for local convenience. You will see the login page, submit
+it, and be bounced back. To actually use it locally you need TLS in front, or a
+deliberate local-only override — ask before adding one.
+
+## 5. Watching your requests arrive
+
+The app logs one line per request on stdout, so the `docker compose up` window
+tells you whether your call reached the backend at all:
+
+```text
+172.30.0.1 POST /apis/api/auth/login_company.php HTTP/1.1 -> 200 (102ms)
+```
+
+If a request from your app does not appear here, it never arrived — check the
+base URL and the cleartext settings above before looking at the backend.
+
+Need more detail:
+
+```sh
+APP_LOG_LEVEL=DEBUG docker compose -f compose.local.yaml up
+```
+
+## 6. Things that look broken and are not
 
 **Every OTP route answers `503 otp_delivery_failed`.** WhatsApp is deliberately
 unconfigured locally, so registration, password reset and phone change cannot
@@ -162,7 +207,7 @@ It does not affect `/apis/**`, which is bearer-token authenticated.
 real bug — say so. The backend decodes form and JSON bodies as UTF-8, and there
 is a regression test pinning it (see R-067, which was exactly this).
 
-## 5. Resetting
+## 7. Resetting
 
 ```sh
 cd deploy
@@ -173,7 +218,7 @@ docker compose -f compose.local.yaml up
 The database seeds on **first start only**, so `down -v` is how you get a clean
 one — after a `git pull` that brought a new seed, for instance.
 
-## 6. When there is a shared server
+## 8. When there is a shared server
 
 `compose.integration.yaml` runs the same image with the same seed on a shared
 box, so the whole team points at one URL instead of each running Docker. It
