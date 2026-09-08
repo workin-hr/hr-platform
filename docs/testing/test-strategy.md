@@ -61,13 +61,20 @@ an external contract and an in-memory stand-in cannot hold it (D-037: production
 is MariaDB 11.8, and the schema uses syntax MySQL 8 only warns on).
 
 **One container for the whole JVM.** `LegacyMariaDb` starts it once and hands
-each test class a database of its own inside it — `freshDatabase()` with the
-legacy schema and the Phase 1 extensions applied, `emptyDatabase()` for the few
-classes that create their own tables. Before this, eighty-four classes each
-started their own container: about three seconds of startup apiece, serialized,
-for a database that is identical every time. The schema application (~0.6s per
-database) is what is actually per-class, and it stays per-class so that one
-class's rows can never be another's fixture.
+out databases inside it — `freshDatabase()` with the legacy schema and the
+Phase 1 extensions applied, `emptyDatabase()` for the few classes that create
+their own tables. Before this, eighty-four classes each started their own
+container: about three seconds of startup apiece, serialized, for a database
+that is identical every time.
+
+**The unit of isolation is the handle, not the class.** Most classes hold their
+own handle and so cannot see another class's rows. Two shared harnesses
+deliberately do not: `AbstractLegacyMySqlTest` shares one database across its
+eighteen subclasses, and `AdminPayrollTestSupport` across its three. That is
+their long-standing contract, and it is why those hierarchies use distinct ids
+per test or reset in `@BeforeEach` the tables they touch. A test that joins one
+of them inherits that discipline; a test that takes its own handle does not
+need it.
 
 Two things keep it that way, and both are tests rather than conventions:
 
