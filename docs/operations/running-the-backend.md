@@ -71,6 +71,32 @@ Verified on 2026-09-03: the packaged jar starts in this profile against MariaDB
 usable token, and an authenticated `GET /apis/api/requests/list` returns the
 paginated shape the clients expect.
 
+## What happens at startup, and in what order
+
+Three checks run before anything serves traffic, and the order is deliberate:
+
+1. **`Phase1SchemaCheck`** (`@Order(HIGHEST_PRECEDENCE)`) names every table the
+   application owns and says which feature each missing one disables. It runs
+   first so that a database provisioned without `phase1_extensions.sql` is
+   reported as *that*, rather than as whichever runner happened to touch a
+   missing table first — which is how it read before: a stack trace from an
+   unrelated component, three checks later.
+2. **`LegacyRowCountStartupCheck`** refuses a JDBC URL that turns off
+   `useAffectedRows`, because the legacy contract depends on MySQL's
+   matched-row semantics.
+3. **`PlatformAdminBootstrap`** provisions or re-encodes the dashboard
+   administrator's password (see below).
+
+`StartupRunnerOrderTest` asserts the ordering by scanning the runners rather
+than by listing them, so a runner added later is covered without editing it.
+
+**No default account.** `BackendApplication` excludes Boot's
+`UserDetailsServiceAutoConfiguration`; without that exclusion Boot creates a
+`user` with a generated password printed to the log, and that credential
+authenticates against any chain with no authentication of its own.
+`NoDefaultUserTest` asserts the context has no `UserDetailsService` at all,
+because the exclusion is one line in a list and silent when dropped.
+
 ## The admin dashboard
 
 The same jar serves it; nothing extra to start. It signs in the way the PHP

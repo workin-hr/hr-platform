@@ -59,7 +59,12 @@ public class HomeStore {
 	public HomeSummary summary(long companyId) {
 		String employees = scope("e", companyId);
 		return new HomeSummary(
-				companyId > 0 ? 1 : count("SELECT COUNT(*) FROM companies", 0),
+				// Counted, not assumed: the filter takes any positive number, so a
+				// typo or a stale session names a company that is not there. It
+				// used to report one company beside metrics that were all zero.
+				companyId > 0
+						? count("SELECT COUNT(*) FROM companies WHERE id=?", companyId)
+						: count("SELECT COUNT(*) FROM companies", 0),
 				companyId > 0
 						? count("SELECT COUNT(*) FROM companies WHERE status='active' AND id=?", companyId)
 						: count("SELECT COUNT(*) FROM companies WHERE status='active'", 0),
