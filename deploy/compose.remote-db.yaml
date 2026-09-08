@@ -17,10 +17,12 @@
 #     operation. Nothing in the application can check that. Close PHP when you
 #     open this -- both write the same rows and neither knows about the other.
 #     ADMIN_ACTIONS_ENABLED=false renders the company pages read-only instead.
-#   * uploads are served from wherever they already live (`UPLOADS_URL`), not
-#     from a volume this stack owns. Pointed at an absolute URL the application
-#     registers no handler at all, so it cannot serve, and cannot appear to
-#     serve, files it does not have.
+#   * uploads are read and written where they already live. `UPLOADS_URL` is
+#     the address they are served from -- absolute, so this application
+#     registers no handler and cannot appear to serve files it does not have --
+#     and `UPLOADS_PATH` is the directory behind that address, bind-mounted in.
+#     The two must name the same storage: a logo written to a path this host
+#     owns alone is a logo the PHP host will answer 404 for.
 #   * WhatsApp is left unset, so every OTP route answers 503 rather than
 #     messaging a real person while somebody is looking around.
 #
@@ -56,6 +58,17 @@ services:
       # Where the stored files already are. An absolute URL means this
       # application serves none of them.
       APP_LEGACY_UPLOADS_URL: ${UPLOADS_URL:?set UPLOADS_URL, e.g. https://your-php-host/uploads/}
+      # And where it writes them. The container path is fixed; what varies is
+      # the host directory mounted onto it, below.
+      APP_LEGACY_UPLOADS_PATH: /app/uploads
+    volumes:
+      # The directory `UPLOADS_URL` serves. On a cutover that is the PHP host's
+      # own uploads directory, reachable here however you mount it -- the point
+      # is only that a file written to this path is a file that URL answers
+      # with. Defaults to a local directory so the stack still starts for a
+      # look at real data, where nothing is uploaded and it stays empty.
+      - ${UPLOADS_PATH:-./uploads-remote}:/app/uploads
+
     ports:
       - "127.0.0.1:${APP_PUBLISHED_PORT:-8080}:8080"
     deploy:

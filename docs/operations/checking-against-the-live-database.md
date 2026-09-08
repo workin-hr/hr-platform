@@ -105,7 +105,7 @@ rather than `compose.local.yaml` with a changed URL:
 | | Why |
 |---|---|
 | `ADMIN_ACTIONS_ENABLED=true` | The dashboard does what PHP's admin panel does — approve, reject, suspend, restore. **Close the PHP panel before you open this one** (ADR-0015 prerequisite 7, **D-207**): both write the same rows and neither knows about the other. Set it to `false` to render those pages read-only while PHP is still reachable |
-| `UPLOADS_URL` absolute | Points at wherever the files already are. Given an absolute URL the application registers no upload handler at all, so it cannot appear to serve files it does not have |
+| `UPLOADS_URL` absolute, `UPLOADS_PATH` mounted | The URL points at wherever the files already are — given an absolute one the application registers no upload handler at all, so it cannot appear to serve files it does not have. `UPLOADS_PATH` is the directory *behind* that URL, bind-mounted in, and the two must name the same storage. Creating a company or a banner writes a file: written somewhere the PHP host cannot serve, the row holds a URL that answers 404, and nothing fails at the time — the upload succeeds and only the later GET does not. Upload one logo and open the URL the row now holds |
 | WhatsApp unset | Every OTP route answers `503` instead of messaging a real person while somebody is looking around |
 
 And `JWT_SECRET` **must equal PHP's `AppConfig::JWT_SECRET`** (**R-024**). It is
