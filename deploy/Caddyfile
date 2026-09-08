@@ -1,0 +1,46 @@
+# The production edge. One site, one upstream, and certificates Caddy obtains
+# and renews by itself -- which is the whole reason this is Caddy and not the
+# nginx the E2E run uses: a VPS deployment should not have a certificate
+# renewal somebody has to remember.
+#
+# APP_DOMAIN is the name the clients call. Set it to `localhost` to rehearse
+# the shape locally: Caddy then issues from its own internal CA instead of
+# reaching Let's Encrypt, and everything else about the stack is identical.
+# TLS_EMAIL is where the certificate authority sends expiry warnings, and it is
+# required rather than defaulted: a deployment whose renewals fail silently is
+# a deployment that goes dark on a Sunday. The admin endpoint keeps Caddy's own
+# default -- localhost inside the container -- which is where the healthcheck
+# reads it and nowhere else.
+{
+	email {$TLS_EMAIL}
+}
+
+{$APP_DOMAIN:localhost} {
+	# Employee photos and documents come through here. The application caps
+	# uploads itself; this only has to not refuse them earlier.
+	request_body {
+		max_size 32MB
+	}
+
+	# The application reads X-Forwarded-For to charge rate limits and the
+	# login's miss budget to a caller (R-049). Caddy sets it, and the app
+	# trusts it only because this proxy is the sole route to the port --
+	# compose.tls.yaml is what makes that true by unpublishing it.
+	reverse_proxy app:8080 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	# HSTS is deliberate and belongs at the edge: the admin session cookie is
+	# `Secure`, so a downgrade does not leak it, but every legacy client token
+	# travels on these requests too.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

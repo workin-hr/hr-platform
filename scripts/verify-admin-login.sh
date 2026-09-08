@@ -23,6 +23,13 @@ DB_USER="${DB_USER:-workin}"
 DB_PASSWORD="${DB_PASSWORD:-workin-local}"
 DB_NAME="${DB_NAME:-workin}"
 
+# A deployment rehearsing behind Caddy's internal CA -- `APP_DOMAIN=localhost`
+# -- serves a certificate this machine has no reason to trust. Set
+# TLS_INSECURE=1 there, and nowhere else: against a real deployment the
+# certificate is exactly what you want verified.
+TLS=()
+[ -n "${TLS_INSECURE:-}" ] && TLS=(-k)
+
 JAR="$(mktemp -d)/cookies"
 step=0
 pass() { step=$((step + 1)); printf '  \033[32mok\033[0m  %s\n' "$1"; }
@@ -37,22 +44,22 @@ sql() {
 # The CSRF token and the session cookie travel together: a token minted for one
 # session is refused by another, which is the point of it.
 csrf_of() {
-  curl -sS -c "$1" -b "$1" "$BASE$2" | grep -o 'name="_csrf" value="[^"]*"' | head -1 |
+  curl -sS "${TLS[@]}" -c "$1" -b "$1" "$BASE$2" | grep -o 'name="_csrf" value="[^"]*"' | head -1 |
     sed 's/.*value="//; s/"$//'
 }
-status_of() { curl -sS -o /dev/null -w '%{http_code}' "$@"; }
+status_of() { curl -sS "${TLS[@]}" -o /dev/null -w '%{http_code}' "$@"; }
 
 say "1. the surface is closed to an anonymous caller"
 code="$(status_of "$BASE/admin")"
 [ "$code" = 302 ] || fail "GET /admin answered $code, expected a redirect to the login page"
-location="$(curl -sS -o /dev/null -D - "$BASE/admin" | grep -i '^location:' | tr -d '\r')"
+location="$(curl -sS "${TLS[@]}" -o /dev/null -D - "$BASE/admin" | grep -i '^location:' | tr -d '\r')"
 case "$location" in *"/admin/login"*) pass "GET /admin -> 302 $location";; *) fail "redirected to $location";; esac
 
 say "2. a wrong password is refused, and leaves an audit row"
 before="$(sql "SELECT COUNT(*) FROM platform_admin_audit_events WHERE event_type = 'LOGIN_FAILED'")"
 token="$(csrf_of "$JAR.miss" /admin/login)"
 [ -n "$token" ] || fail "the login page served no CSRF token"
-body="$(curl -sS -c "$JAR.miss" -b "$JAR.miss" -d "_csrf=$token" -d "password=not-the-password" "$BASE/admin/login")"
+body="$(curl -sS "${TLS[@]}" -c "$JAR.miss" -b "$JAR.miss" -d "_csrf=$token" -d "password=not-the-password" "$BASE/admin/login")"
 case "$body" in *login-alert--error*) pass "the page came back with its error banner";; *) fail "no error banner in the response";; esac
 [ "$(status_of -b "$JAR.miss" "$BASE/admin")" = 302 ] || fail "a refused login left a usable session"
 after="$(sql "SELECT COUNT(*) FROM platform_admin_audit_events WHERE event_type = 'LOGIN_FAILED'")"
@@ -62,7 +69,7 @@ pass "LOGIN_FAILED recorded ($before -> $after)"
 say "3. the password opens a session, server-side"
 token="$(csrf_of "$JAR" /admin/login)"
 anonymous="$(grep -i 'WORKIN_ADMIN_SESSION' "$JAR" | awk '{print $NF}')"
-code="$(curl -sS -o /dev/null -w '%{http_code}' -c "$JAR" -b "$JAR" \
+code="$(curl -sS "${TLS[@]}" -o /dev/null -w '%{http_code}' -c "$JAR" -b "$JAR" \
   -d "_csrf=$token" -d "password=$PASSWORD" "$BASE/admin/login")"
 # A refused password re-renders the page (200); an accepted one redirects. Worth
 # separating, because every assertion below would otherwise fail with a reason
@@ -83,7 +90,7 @@ pass "the session is a row in SPRING_SESSION, not one worker's heap"
 pass "LOGIN recorded"
 
 say "4. the cookie is what ADR-0015 prerequisite 6 requires"
-flags="$(curl -sS -o /dev/null -D - -c "$JAR.flags" -b "$JAR.flags" "$BASE/admin/login" |
+flags="$(curl -sS "${TLS[@]}" -o /dev/null -D - -c "$JAR.flags" -b "$JAR.flags" "$BASE/admin/login" |
   grep -i 'set-cookie: *WORKIN_ADMIN_SESSION' | tr -d '\r')"
 case "$flags" in *HttpOnly*) pass "HttpOnly";; *) fail "the session cookie is not HttpOnly: $flags";; esac
 case "$flags" in *SameSite=Lax*) pass "SameSite=Lax";; *) fail "the session cookie is not SameSite=Lax: $flags";; esac
@@ -103,7 +110,7 @@ pass "POST /admin/logout without a token -> 403"
 say "6. logout ends the session where it lives"
 token="$(csrf_of "$JAR" /admin/sessions)"
 [ -n "$token" ] || fail "the sessions page served no CSRF token"
-curl -sS -o /dev/null -b "$JAR" -c "$JAR" -d "_csrf=$token" "$BASE/admin/logout"
+curl -sS "${TLS[@]}" -o /dev/null -b "$JAR" -c "$JAR" -d "_csrf=$token" "$BASE/admin/logout"
 [ "$(sql "SELECT COUNT(*) FROM SPRING_SESSION WHERE SESSION_ID = '$id'")" = 0 ] \
   || fail "the session row survived logout -- the cookie went, the session did not"
 pass "the SPRING_SESSION row is gone, not just the cookie"
