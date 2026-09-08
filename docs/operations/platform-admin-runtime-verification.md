@@ -12,10 +12,14 @@ The complete flow of ADR-0015's platform-admin surface, exercised against a
 
 `login -> MFA -> session -> step-up -> admin action -> logout/revocation`
 
-Re-run it with `scripts/verify-platform-admin-flow.sh`, which documents its own
-prerequisites. The integration suite is the regression gate; this exists because
-"it passes in a test" and "it works in the application" are different claims,
-and the second is the one worth re-checking before a cutover.
+The integration suite is the regression gate -- `PlatformAdminFullFlowTest`
+drives this whole journey over real HTTP against MariaDB on every build. This
+record exists because "it passes in a test" and "it works in the application"
+are different claims, and the second is the one worth re-checking before a
+cutover. The PostgreSQL-era script that drove it by hand
+(`scripts/verify-platform-admin-flow.sh`) was removed with ADR-0017 rather
+than ported: its fixtures were written for the PostgreSQL schema, and the
+same journey is now exercised, against the real database, by the test.
 
 ## How the run was set up
 

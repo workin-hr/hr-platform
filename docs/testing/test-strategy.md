@@ -54,6 +54,32 @@ described the same way:
 - ADR and documentation integrity checks
 - independent review evidence
 
+## The Suite's Database
+
+The backend suite runs against a **real MariaDB**, because the legacy schema is
+an external contract and an in-memory stand-in cannot hold it (D-037: production
+is MariaDB 11.8, and the schema uses syntax MySQL 8 only warns on).
+
+**One container for the whole JVM.** `LegacyMariaDb` starts it once and hands
+each test class a database of its own inside it — `freshDatabase()` with the
+legacy schema and the Phase 1 extensions applied, `emptyDatabase()` for the few
+classes that create their own tables. Before this, eighty-four classes each
+started their own container: about three seconds of startup apiece, serialized,
+for a database that is identical every time. The schema application (~0.6s per
+database) is what is actually per-class, and it stays per-class so that one
+class's rows can never be another's fixture.
+
+Two things keep it that way, and both are tests rather than conventions:
+
+- `LegacyMariaDbSingletonTest` reads the test sources and fails if any class
+  other than `LegacyMariaDb` constructs a container. A stray one is invisible
+  otherwise — the suite still passes, only slower and with a second database
+  process beside the shared one.
+- the `test` task declares `outputs.cacheIf { false }` (`backend/build.gradle`),
+  so Gradle never restores it from the build cache. Docker's state and the
+  floating `mariadb:11.8` tag are not task inputs, so a cached "pass" could be
+  a run that never started a database at all.
+
 ## Nightly
 
 - deeper compatibility checks
