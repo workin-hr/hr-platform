@@ -8,7 +8,7 @@ Both Flutter applications hardcode
 static const String baseUrl = 'https://workin.company/apis/api/';
 ```
 
-and the Java backend, run with `--spring.profiles.active=phase1-mysql`, serves
+and the Java backend, run against the same MySQL database, serves
 exactly those paths with byte-compatible responses. Integration is a
 **deployment** change — what `workin.company` resolves to — not a code change.
 That is the whole point of the port (**D-111**: zero client change), and it is
@@ -17,8 +17,7 @@ what the parity verification was for.
 ## What to do
 
 1. Run the Java backend against your existing MySQL. See
-   [running-the-backend.md](../operations/running-the-backend.md) — the
-   `phase1-mysql` profile.
+   [running-the-backend.md](../operations/running-the-backend.md).
 2. **Use the same `JWT_SECRET` the PHP stack used.** Java validates the exact
    token format frozen PHP produced, so with the same secret every token already
    on a device keeps working. With a different one, every user is signed out at
@@ -71,7 +70,7 @@ PHP. The clients use the URL the API returns, so they follow it either way.
 
 ## The admin dashboard is served too
 
-`/admin/**` runs under `phase1-mysql` as well, against the same MySQL database —
+`/admin/**` is served by the same application, against the same MySQL database —
 the replacement for `dashboard/pages/companies/`. It needs its own tables added
 once (see the run guide); nothing PHP owns is altered.
 

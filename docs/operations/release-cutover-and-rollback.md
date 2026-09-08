@@ -135,7 +135,7 @@ either direction.
 #### Precondition B — the secret must be at least 32 bytes, or Java will not start
 
 Byte equality is not the only constraint on that value, and this one fails
-*earlier* and more confusingly. The `phase1-mysql` context also constructs
+*earlier* and more confusingly. The application context also constructs
 `JwtService` (it is component-scanned by `LegacyPersistenceConfig`; only the
 other `identity` classes are excluded), and its constructor calls
 `Keys.hmacShaKeyFor(secret.getBytes())`, which **rejects any key shorter than

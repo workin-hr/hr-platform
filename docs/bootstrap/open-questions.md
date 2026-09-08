@@ -71,7 +71,7 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
 
 - **How do the Java-owned tables get created against the production legacy
   MariaDB, and who owns that step?** *(Widened 2026-09-03: the platform-admin
-  surface now runs under `phase1-mysql` too, so `phase1_extensions.sql`
+  surface runs against the same MySQL database, so `phase1_extensions.sql`
   adds the platform-admin identity, MFA, step-up, audit and Spring Session
   tables alongside `legacy_refresh_tokens`. Same unresolved question, more
   tables, and a louder failure mode — the admin surface cannot authenticate at

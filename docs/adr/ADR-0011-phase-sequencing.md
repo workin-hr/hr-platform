@@ -6,7 +6,8 @@
 |---|---|
 | ADR ID | ADR-0011 |
 | Title | Phase Sequencing — Implementation, Then Storage, Then Modernization |
-| Status | Accepted; Phase 2 (storage migration) superseded by ADR-0017 (2026-09-08). Phase 1's contract is unchanged |
+| Status | Accepted |
+| Amended | **2026-09-08** — Phase 2 (the storage migration) is superseded by ADR-0017; Phase 1's contract is unchanged |
 | Date | 2026-08-16 (accepted 2026-08-16 — see `docs/bootstrap/decision-log.md` D-040) |
 | Owners | Solution Architect, Migration Engineer |
 | Deciders | Repository owner — recorded in `docs/bootstrap/decision-log.md` D-040 |
