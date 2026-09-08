@@ -41,6 +41,9 @@
      Two tables over one range. They do not agree on worked time and are not
      meant to: the detail list runs each punch through the worked-minutes
      engine, the summary sums raw TIMESTAMPDIFF in SQL. See AttendanceStore. --%>
+<%-- page.php:134 names three stylesheets, in this order. The port named
+     one, so the leave-balance form and the payroll table on this page
+     rendered with no rules of their own. --%>
 @template.admin.layout(
 	title = t.apply("nav_fingerprints"),
 	csrfParameterName = csrfParameterName,
@@ -51,7 +54,8 @@
 	session = session,
 	t = t,
 	available = available,
-	pageStyles = java.util.List.of("hr-pages.css"),
+	pageStyles = java.util.List.of("payroll-pages.css", "hr-pages.css",
+			"leave-balance-form.css"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>

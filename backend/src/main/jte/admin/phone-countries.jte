@@ -140,7 +140,7 @@
 						<%-- Free text, comma or space separated, as the dashboard's field is. --%>
 						<label>${t.apply("phone_prefixes")}
 							<input type="text" name="prefixes" placeholder="10, 11, 12, 15"></label>
-						<label class="login-remember">
+						<label>
 							<input type="checkbox" name="isActive" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>

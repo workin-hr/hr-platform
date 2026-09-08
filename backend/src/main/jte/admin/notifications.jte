@@ -204,7 +204,7 @@
 						<label>${t.apply("notif_body")}<textarea name="body" rows="3"></textarea></label>
 					</div>
 					<div class="form-row">
-						<label class="login-remember">
+						<label>
 							<input type="checkbox" name="confirmBroadcast" value="1" required>
 							<span>${t.apply("confirm_broadcast")} — ${t.apply("notif_audience_all_employees")}: ${reach}</span>
 						</label>

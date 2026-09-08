@@ -113,7 +113,7 @@
 													<label>${t.apply("sort_order")}
 														<input type="number" name="sort_order"
 														       value="${row.sortOrder()}"></label>
-													<label class="login-remember">
+													<label>
 														<input type="checkbox" name="is_active" value="1"
 														       checked="${row.active()}">
 														<span>${t.apply("status_active")}</span></label>
@@ -155,7 +155,7 @@
 							<input type="text" name="video" dir="ltr" required placeholder="1.mp4"></label>
 						<label>${t.apply("sort_order")}
 							<input type="number" name="sort_order" value="0"></label>
-						<label class="login-remember">
+						<label>
 							<input type="checkbox" name="is_active" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>

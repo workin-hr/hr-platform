@@ -21,14 +21,16 @@
 	t = t,
 	available = available,
 	body = @`
-		<div class="card">
-			<h1>${t.apply("your_sessions")}</h1>
-			<p class="sub">${t.apply("your_sessions_hint")}</p>
-			<%-- The one table on this surface that was not in a scroll container:
-			     three columns of timestamps overflow a phone, and without this
-			     the revoke button is the part that goes off-screen. --%>
+		<%-- No legacy equivalent, so this borrows the shared vocabulary rather
+		     than inventing one: card/grid/linkish/notice/sub were defined by no
+		     stylesheet here or in legacy, and the page rendered unstyled. --%>
+		<div class="data-table-card">
+			<div class="data-table-head">
+				<h2 class="data-table-title">${t.apply("your_sessions")}</h2>
+			</div>
+			<p class="text-muted">${t.apply("your_sessions_hint")}</p>
 			<div class="table-wrap">
-				<table class="grid">
+				<table class="tbl">
 					<thead>
 						<tr><th>${t.apply("started")}</th><th>${t.apply("last_used")}</th><th></th></tr>
 					</thead>
@@ -43,17 +45,17 @@
 									<form method="post" action="/admin/sessions/revoke">
 										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 										<input type="hidden" name="sessionId" value="${session.id()}">
-										<button type="submit" class="linkish">${t.apply("revoke")}</button>
+										<button type="submit" class="btn btn-red btn-sm">${t.apply("revoke")}</button>
 									</form>
 								</td>
 							</tr>
 						@endfor
 						@if(sessions.isEmpty())
-							<tr><td colspan="3" class="empty">${t.apply("no_data")}</td></tr>
+							<tr><td colspan="3" class="text-muted">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>
 			</div>
-			<p class="notice">${t.apply("api_families_not_listed")}</p>
+			<p class="text-muted">${t.apply("api_families_not_listed")}</p>
 		</div>
 	`)

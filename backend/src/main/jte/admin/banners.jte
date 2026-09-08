@@ -178,7 +178,7 @@
 						<label>${t.apply("country_code")}
 							<input type="text" name="whatsappCountryCode" placeholder="+20"></label>
 						<label>${t.apply("banner_whatsapp_number")}<input type="text" name="whatsappPhone"></label>
-						<label class="login-remember">
+						<label>
 							<input type="checkbox" name="isActive" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>

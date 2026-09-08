@@ -188,7 +188,7 @@
 						<label>${t.apply("name_ar")}<input type="text" name="nameAr" required></label>
 						<label>${t.apply("name_en")}<input type="text" name="nameEn" required></label>
 						<label>${t.apply("sort_order")}<input type="number" name="sortOrder" value="0"></label>
-						<label class="login-remember">
+						<label>
 							<input type="checkbox" name="isActive" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>
@@ -235,7 +235,7 @@
 						<label>${t.apply("answer_en")}<textarea name="answerEn" rows="3" required></textarea></label>
 					</div>
 					<div class="form-row">
-						<label class="login-remember">
+						<label>
 							<input type="checkbox" name="isActive" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>
