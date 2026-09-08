@@ -4,6 +4,12 @@
 #   deploy/compose.local.yaml up -d --build     # or any deployment
 #   ADMIN_PASSWORD=... scripts/verify-admin-login.sh
 #
+# Against a deployment whose database lives elsewhere -- compose.remote-db.yaml
+# -- name that database instead of a container, and trust Caddy's internal CA:
+#
+#   set -a; . deploy/.env.remote-db; set +a
+#   BASE_URL=https://localhost TLS_INSECURE=1 scripts/verify-admin-login.sh
+#
 # The integration suite already proves this journey on every build. This proves
 # something the suite cannot: that the *packaged* application, wired the way a
 # deployment wires it, behaves the same -- ADR-0015's prerequisites are about
@@ -36,9 +42,23 @@ pass() { step=$((step + 1)); printf '  \033[32mok\033[0m  %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1" >&2; exit 1; }
 say()  { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
+# A local stack keeps its database in a container; a deployment pointed at a
+# database that already exists (compose.remote-db.yaml) has none. DB_HOST picks
+# that second case, and reaches it with a one-shot client so this machine needs
+# no mariadb binary of its own. The password travels in MYSQL_PWD either way --
+# a production credential has no business in the host's process list.
 sql() {
-  docker exec -i "$DB_CONTAINER" mariadb -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -N -B -e "$1" \
-    2>/dev/null | tr -d '\r'
+  local out
+  out="$(
+    if [ -n "${DB_HOST:-}" ]; then
+      MYSQL_PWD="$DB_PASSWORD" docker run --rm -i -e MYSQL_PWD mariadb:11.8 \
+        mariadb -h"$DB_HOST" -P"${DB_PORT:-3306}" -u"$DB_USER" "$DB_NAME" -N -B -e "$1"
+    else
+      MYSQL_PWD="$DB_PASSWORD" docker exec -i -e MYSQL_PWD "$DB_CONTAINER" \
+        mariadb -u"$DB_USER" "$DB_NAME" -N -B -e "$1"
+    fi 2>/dev/null
+  )" || fail "the database query failed -- ${DB_HOST:+is $DB_HOST reachable, and }are $DB_USER's credentials right?"
+  printf '%s' "$out" | tr -d '\r'
 }
 
 # The CSRF token and the session cookie travel together: a token minted for one

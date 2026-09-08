@@ -117,8 +117,18 @@ Check it came up:
 
 ```sh
 curl -k https://localhost/actuator/health          # {"status":"UP"}
-scripts/verify-admin-login.sh                      # with TLS_INSECURE=1, see below
+
+# The fourteen checks, against this deployment. Sourcing the environment file
+# is what keeps a production password out of the shell history, and `DB_HOST`
+# is what tells the script to reach the database directly -- there is no `db`
+# container here for it to exec into.
+set -a; . deploy/.env.remote-db; set +a
+BASE_URL=https://localhost TLS_INSECURE=1 scripts/verify-admin-login.sh
 ```
+
+`TLS_INSECURE=1` belongs here and nowhere else: `APP_DOMAIN=localhost` means
+Caddy signed the certificate itself. Against a real deployment the certificate
+is exactly what you want checked.
 
 ## 3. Run the clients against it
 
