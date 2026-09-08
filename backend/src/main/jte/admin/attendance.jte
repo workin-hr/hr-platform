@@ -162,6 +162,19 @@
 							<td class="col-actions">
 								@if(canWrite)
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<%-- D-210: saveEdit existed and nothing posted
+										     edit_attendance, so a punch could be deleted but never
+										     corrected -- the one record on this surface most likely
+										     to be wrong rather than unwanted. The datetime columns
+										     are stored "YYYY-MM-DD HH:MM:SS"; datetime-local wants
+										     the T. --%>
+										<button type="button" role="menuitem" class="row-actions__item"
+												data-dialog="attendance-edit"
+												data-dialog-id="${row.id()}"
+												data-dialog-subject="${row.employeeName()}"
+												data-dialog-check_in="${row.checkIn() == null ? "" : row.checkIn().replace(' ', 'T')}"
+												data-dialog-check_out="${row.checkOut() == null ? "" : row.checkOut().replace(' ', 'T')}"
+												data-dialog-exception_type_id="${row.exceptionTypeId() == null ? "0" : String.valueOf(row.exceptionTypeId())}">${t.apply("edit")}</button>
 										<form method="POST" class="row-actions__form" role="none"
 										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -245,6 +258,29 @@
 					carry = carry, t = t,
 					pageParam = "agg_page")
 		@if(canWrite)
+			@template.admin.rowDialog(id = "attendance-edit", action = "edit_attendance",
+					title = t.apply("edit"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
+					fields = @`
+						<div class="form-row">
+							<label>${t.apply("att_check_in_time")}
+								<input type="datetime-local" name="check_in" required
+								       data-dialog-field="check_in"></label>
+							<label>${t.apply("att_check_out_time")}
+								<input type="datetime-local" name="check_out"
+								       data-dialog-field="check_out"></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("exception")}
+								<select name="exception_type_id" data-dialog-field="exception_type_id">
+									<option value="0">—</option>
+									@for(AttendanceRecord.ExceptionTypeOption option : exceptionTypes)
+										<option value="${option.id()}">${option.name()}</option>
+									@endfor
+								</select></label>
+						</div>
+					`)
+
 			<%-- Legacy opens this form in a modal, behind the "+" button above.
 			     Rendered inline it sat open over the table on every visit, whether
 			     or not anyone was adding anything. Same form, same fields, same

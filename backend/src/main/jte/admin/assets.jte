@@ -131,6 +131,17 @@
 									     there is nothing left to correct about the loan. --%>
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
 										@if(!row.returned())
+											<%-- D-210: saveEdit existed with no way in, so an asset
+											     could be marked returned or deleted but never
+											     corrected. Behind the same returned guard. --%>
+											<button type="button" role="menuitem" class="row-actions__item"
+													data-dialog="asset-edit"
+													data-dialog-id="${row.id()}"
+													data-dialog-subject="${row.employeeName()}"
+													data-dialog-employee_id="${row.employeeId()}"
+													data-dialog-asset_text="${row.assetText()}"
+													data-dialog-asset_date="${row.assetDate() == null ? "" : row.assetDate()}"
+													data-dialog-asset_end_date="${row.assetEndDate() == null ? "" : row.assetEndDate()}">${t.apply("edit")}</button>
 											<form method="POST" class="row-actions__form" role="none">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 												<input type="hidden" name="action" value="mark_returned">
@@ -164,6 +175,34 @@
 			@template.admin.pager(basePath = "/admin/assets", result = result,
 					carry = carry, t = t)
 		@if(canWrite)
+			@template.admin.rowDialog(id = "asset-edit", action = "edit_asset",
+					title = t.apply("edit"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
+					fields = @`
+						<div class="form-row">
+							<label>${t.apply("employee_name")}
+								<select name="employee_id" required data-dialog-field="employee_id">
+									@for(com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption option : employeeOptions)
+										<option value="${option.id()}">${option.companyName() == null
+											? option.code() + " — " + option.name()
+											: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
+									@endfor
+								</select></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("asset")}
+								<input type="text" name="asset_text" required maxlength="500"
+								       data-dialog-field="asset_text"></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("date")}
+								<input type="date" name="asset_date" data-dialog-field="asset_date"></label>
+							<label>${t.apply("to_date")}
+								<input type="date" name="asset_end_date"
+								       data-dialog-field="asset_end_date"></label>
+						</div>
+					`)
+
 			<%-- Legacy opens this form in a modal, behind the "+" button above.
 			     Rendered inline it sat open over the table on every visit, whether
 			     or not anyone was adding anything. Same form, same fields, same

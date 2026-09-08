@@ -134,6 +134,21 @@
 									     Legacy refuses the edit; so does this. --%>
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
 										@if(!row.appliedToPayroll())
+											<%-- D-210: saveEdit has always been here and nothing
+											     rendered a way to reach it, so a penalty could be
+											     deleted but never corrected. Behind the same
+											     applied-to-payroll guard as the rest: an edit after
+											     deduction would disagree with a payslip already
+											     computed from it. --%>
+											<button type="button" role="menuitem" class="row-actions__item"
+													data-dialog="penalty-edit"
+													data-dialog-id="${row.id()}"
+													data-dialog-subject="${row.employeeName()}"
+													data-dialog-employee_id="${row.employeeId()}"
+													data-dialog-penalty_type="${row.penaltyType()}"
+													data-dialog-penalty_days="${row.daysDisplay()}"
+													data-dialog-penalty_date="${row.penaltyDate() == null ? "" : row.penaltyDate()}"
+													data-dialog-reason="${row.reason() == null ? "" : row.reason()}">${t.apply("edit")}</button>
 											<form method="POST" class="row-actions__form" role="none">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 												<input type="hidden" name="action" value="mark_applied">
@@ -167,6 +182,48 @@
 			@template.admin.pager(basePath = "/admin/penalties", result = result,
 					carry = carry, t = t)
 		@if(canWrite)
+			@template.admin.rowDialog(id = "penalty-edit", action = "edit_penalty",
+					title = t.apply("edit"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
+					fields = @`
+						<div class="form-row">
+							<label>${t.apply("employee_name")}
+								<select name="employee_id" required data-dialog-field="employee_id">
+									@for(com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption option : employeeOptions)
+										<option value="${option.id()}">${option.companyName() == null
+											? option.code() + " — " + option.name()
+											: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
+									@endfor
+								</select></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("penalty_type")}
+								<input type="text" name="penalty_type" required maxlength="255"
+								       data-dialog-field="penalty_type"></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("penalty_days")}
+								<select name="penalty_days" required data-dialog-field="penalty_days">
+									<option value="0.25">0.25</option>
+									<option value="0.5">0.5</option>
+									<option value="1">1</option>
+									<option value="2">2</option>
+									<option value="3">3</option>
+									<option value="4">4</option>
+									<option value="5">5</option>
+								</select></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("penalty_date")}
+								<input type="date" name="penalty_date" data-dialog-field="penalty_date"></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("penalty_reason")}
+								<input type="text" name="reason" maxlength="500"
+								       data-dialog-field="reason"></label>
+						</div>
+					`)
+
 			<%-- Legacy opens this form in a modal, behind the "+" button above.
 			     Rendered inline it sat open over the table on every visit, whether
 			     or not anyone was adding anything. Same form, same fields, same

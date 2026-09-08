@@ -59,13 +59,8 @@ class AdminActionReachabilityTest {
 	 * all.
 	 */
 	private static final Map<String, Set<String>> UNREACHABLE = Map.of(
-			"advances", Set.of("edit_advance"),
-			"assets", Set.of("edit_asset"),
-			"attendance", Set.of("delete_range", "edit_attendance"),
+			"attendance", Set.of("delete_range"),
 			"banners", Set.of("edit"),
-			"complaints", Set.of("set_status"),
-			"faqs", Set.of("edit_category", "edit_item"),
-			"penalties", Set.of("edit_penalty"),
 			"settings", Set.of("edit_option"));
 
 	private static final Pattern VIEW = Pattern.compile("String VIEW\\s*=\\s*\"admin/([a-z-]+)\"");
