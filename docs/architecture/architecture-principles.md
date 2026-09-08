@@ -4,7 +4,7 @@
 2. Prefer API-first development.
 3. Preserve Flutter API compatibility where required by validated client behavior.
 4. Treat multi-tenant isolation as a first-class architecture constraint.
-5. The intended target database is PostgreSQL, subject to Discovery and ADR-0004 approval — see `docs/adr/ADR-0004-mysql-to-postgresql-migration-approach.md`, currently `Proposed`. This is an intended direction, not an accepted architecture decision.
+5. The database is **MySQL** (MariaDB in production), permanently — see `docs/adr/ADR-0017-mysql-is-the-production-database.md`, `Accepted`, which supersedes ADR-0004's PostgreSQL target. Tenant isolation is enforced in the application (ADR-0012, D-041, D-176); there is no database-level backstop and none is coming (**R-070**).
 6. Attendance events should be modeled as immutable facts.
 7. External ingestion must be idempotent.
 8. Use a transactional outbox where reliable downstream processing is required.

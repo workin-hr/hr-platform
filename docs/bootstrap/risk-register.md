@@ -1182,3 +1182,16 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Guarded by | `LocaleResolutionFilterOrderTest` asserts the order relationship directly against `new OrderedCharacterEncodingFilter().getOrder()`, and `AdminGuideVideosEndToEndTest.addingWritesTheFiveColumnsTheFormCarries` posts Arabic through a real form and reads it back from the column. Two tests on purpose: the end-to-end one proves the behaviour but is attached to one page, and the invariant is cross-cutting. |
 | Status | **Closed** in Java by **D-191**. Recorded 2026-09-06. Related: **R-049** (why nothing was deployed), **ADR-0015**, **D-191**. |
 | Evidence | `LocaleResolutionFilter:54` (`request.getParameter("lang")`) and its `@Order`; `org.springframework.boot.servlet.filter.OrderedCharacterEncodingFilter` (Spring Boot 4.1, whose order is set in the constructor and exposes no `DEFAULT_ORDER`); the failing assertion `expected: "دليل" but was: "Ø¯ÙÙÙ"`, and `theConnectionStoresArabicIntact`, which passed in the same run and is what proved the driver, the connection charset and the `utf8mb4` column were not at fault. |
+
+## R-070: The Tenant Boundary Has No Database-Level Backstop, Permanently
+
+| Field | Value |
+|---|---|
+| Description | ADR-0012 accepted a **temporary** loss of row-level security: MySQL has none, so the application-level tenant filter carried Phase 1 and PostgreSQL RLS would restore the backstop in Phase 2. ADR-0017 removes Phase 2. The application-level guard is therefore not the interim control but the **only** control, for good. |
+| Category | **Tenant isolation** |
+| Why it is accepted | The owner's decision that MySQL is the production database (D-203). MySQL offers no equivalent of RLS -- ADR-0012 considered and rejected the emulations (views, per-tenant connection users) on their own merits, and nothing about that analysis changes now that the phase is permanent. |
+| What holds the boundary | `TenantFilterBinder` binds Hibernate's filter to every persistence context rather than to the call sites that remember (D-041); `AdminTenantGuardCoverageTest` fails the build when an admin write is not behind the guard (D-176); every repository method on a tenant-owned entity must be scoped, and the security review standard carries that as a standing item (ADR-0012). |
+| What is different from ADR-0012's framing | Its consequences say "Phase 2 restores the database backstop, at which point the filter becomes redundant defence". There is no Phase 2. A defect in the filter or a query that bypasses it is now cross-tenant exposure with nothing underneath it, in a system holding salaries, national ids and attendance. |
+| Trigger for revisiting | A move to a database that offers row-level enforcement, or a tenant-scoping defect reaching production. Either reopens this as a design question rather than a recorded acceptance. |
+| Severity | **Medium**, standing. Not closable while MySQL is the database. |
+| Status | **Open by decision.** Recorded 2026-09-08. Related: **ADR-0017**, **ADR-0012**, **D-203**, **D-041**, **D-176**, **R-046** (a different risk: the legacy dashboard's cross-tenant row-id writes, closed). |

@@ -19,7 +19,7 @@ same journey is now exercised, against the real database, by the test.
 | | |
 |---|---|
 | Application | The real Spring Boot application, started with `bootTestRun`, Tomcat on 18090 |
-| Database | Postgres 17, migrated by the application's own Flyway on startup |
+| Database | **Postgres 17 at the time of the run**, migrated by the application's own Flyway. That half is deleted (ADR-0017): the application runs against the legacy MariaDB, whose Java-owned tables `phase1_extensions.sql` provisions (`provisioning-phase1-tables.md`) |
 | Administrator | Provisioned by the application's own `PlatformAdminBootstrap` from `APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE`/`_PASSWORD` — the real provisioning path with the real password encoder, not a hash written into the table by hand |
 | Administrative actions | **Enabled for the run** (`APP_PLATFORM_ADMIN_ACTIONS_ENABLED=true`). They ship disabled; see the deployment note below |
 
