@@ -121,12 +121,36 @@
    page behind it are the browser's. */
 .row-dialog {
 	width: min(28rem, calc(100vw - 2rem));
+	/* The UA centres a modal dialog with `inset: 0; margin: auto`. style.css
+	   opens with `*, *::before, *::after { margin: 0 }` -- copied from legacy,
+	   where it was harmless because legacy has no <dialog> at all -- and that
+	   reset wins over the UA rule. The result is a fixed-width box pinned to
+	   the inline-start edge and stretched to the full height: on this RTL
+	   surface, a full-height panel down the right. `height: auto` because
+	   `inset: 0` alone would still stretch it. */
+	margin: auto;
+	height: auto;
+	flex-direction: column;
+	max-height: min(calc(100dvh - 4rem), 44rem);
 	padding: 0;
 	border: 1px solid var(--app-border, #e2e6ef);
 	border-radius: var(--app-radius-lg, 14px);
 	box-shadow: 0 24px 48px rgba(15, 23, 42, .18);
 	background: var(--app-surface, #fff);
 	color: var(--app-text, #1a1d24);
+}
+
+/* Head and footer stay put and the fields scroll between them: without this
+   the whole dialog scrolls, and a form with eight fields pushes its own save
+   button off the bottom of the viewport.
+
+   `[open]` is load-bearing. The UA hides a closed dialog with
+   `dialog:not([open]) { display: none }`, and an author `display` on
+   `.row-dialog` beats it whatever the specificity -- author origin wins over
+   UA. Unscoped, every closed dialog on the page renders inline underneath the
+   table it belongs to. */
+.row-dialog[open] {
+	display: flex;
 }
 
 .row-dialog::backdrop {
@@ -156,10 +180,20 @@
 	display: none;
 }
 
+.row-dialog form {
+	display: flex;
+	flex-direction: column;
+	/* A flex child will not shrink below its content without this, which is
+	   what lets the body scroll rather than the dialog grow. */
+	min-height: 0;
+}
+
 .row-dialog__body {
 	display: grid;
 	gap: 12px;
 	padding: 16px 20px;
+	overflow-y: auto;
+	min-height: 0;
 }
 
 .row-dialog__body label {
@@ -194,6 +228,36 @@
 	}
 }
 
+/* —— The content pane must not be a containing block ——
+   `.content` animates with `appFadeUp`, whose last keyframe is
+   `transform: translateY(0)` rather than `none`. With `animation-fill-mode:
+   both` the element keeps that transform for good, and a transformed ancestor
+   becomes the containing block for every `position: fixed` descendant inside
+   it. So `.modal-bg`, which is written `position: fixed; inset: 0`, is laid
+   out against the content pane instead of the viewport: the dialog sits low
+   rather than centred, a long form's footer falls below the fold, and the
+   backdrop stops short of the sidebar and the topbar.
+
+   Legacy carries the same animation and the same consequence, so this is a
+   deliberate improvement on it rather than a parity fix -- and additive, in
+   this file, leaving the copied sheet alone. The fade is kept; only the
+   translate goes, because the translate is the part that costs a containing
+   block. Overriding `animation-name` alone leaves the duration, easing, delay
+   and fill exactly as the copy set them. */
+.content {
+	animation-name: appFadeIn;
+}
+
+@keyframes appFadeIn {
+	from {
+		opacity: 0;
+	}
+
+	to {
+		opacity: 1;
+	}
+}
+
 /* —— The add/edit modal ——
    `crud.js` and `.modal-bg` are the dashboard's own and stay as copied. What
    is missing from them is the keyboard: legacy's modal closes on a click and
@@ -205,6 +269,27 @@
 
 .modal .org-form-grid {
 	margin-bottom: 4px;
+}
+
+/* The footer stays reachable in a long form.
+   `.modal` is the scroll container (`max-height: 90vh; overflow-y: auto` in
+   the copied sheet), so a form with more fields than fit pushes its own save
+   button below the fold -- the operator has to scroll a box they did not
+   expect to scroll to find it. Sticky rather than a flex column, because the
+   forms differ inside: some wrap their fields in a grid and some do not, and
+   this needs no structure to be true of any of them.
+
+   The negative margins pull the strip across the modal's 28px padding so the
+   background covers the full width as content passes under it. */
+.modal .form-footer,
+.modal .account-form__footer {
+	position: sticky;
+	bottom: 0;
+	z-index: 1;
+	margin-inline: -28px;
+	margin-bottom: -28px;
+	padding: 14px 28px 28px;
+	background: var(--app-surface, #fff);
 }
 
 .modal .account-form__footer {

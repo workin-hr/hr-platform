@@ -68,13 +68,17 @@
 		</div>
 
 		@if(addOpen || editRow != null)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">
-						${editRow == null ? t.apply("add_workforce")
+			<%-- page.php renders this in modal modal--org-form over a
+			     modal-bg. The port had it as a data-table-card in the page
+			     flow, wrapped in account-form org-form -- classes no
+			     stylesheet defines here or in legacy. The close button legacy
+			     also carries is not copied: it is opened and closed by crud.js
+			     there, and this form is rendered by the server. --%>
+			<div class="modal-bg open">
+				<div class="modal modal--org-form">
+					<h2>${editRow == null ? t.apply("add_workforce")
 							: t.apply("edit") + " " + t.apply("workforce_item")}</h2>
-				</div>
-				<form method="POST" class="account-form org-form">
+					<form method="POST">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="${editRow == null ? "add_wp" : "edit_wp"}">
 					@if(editRow != null)
@@ -125,13 +129,14 @@
 						<input type="number" id="planned_count" name="planned_count" min="0" required
 						       value="${editRow == null ? "1" : String.valueOf(editRow.plannedCount())}">
 					</div>
-					<div class="account-form__footer">
+					<div class="form-footer">
 						<a href="/admin/workforce_planning" class="btn btn-gray">${t.apply("cancel")}</a>
 						@if(canWrite)
-							<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
+							<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
 						@endif
 					</div>
-				</form>
+					</form>
+				</div>
 			</div>
 		@endif
 

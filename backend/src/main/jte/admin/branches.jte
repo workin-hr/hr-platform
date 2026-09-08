@@ -85,22 +85,26 @@
 				<div class="data-table-head">
 					<h2 class="data-table-title">${t.apply("branch_generate_qr")} — ${qrRow.name()}</h2>
 				</div>
-				<div class="account-card">
+				<%-- _branch_qr_modal.php's vocabulary. org-form.css carries every one
+				     of these rules already and this page names it; the port reached
+				     for account-card instead, which belongs to change_password's
+				     account-pages.css and was never copied. --%>
+				<div class="branch-qr-preview">
 					@if(qrRow.qrActive(now))
-						<p class="badge badge-green">${t.apply("branch_qr_active")}</p>
-						<p>${t.apply("branch_qr_expires_at")}: ${qrRow.expiresDisplay()}</p>
+						<p class="branch-qr-status branch-qr-status--active">${t.apply("branch_qr_active")}</p>
+						<p class="branch-qr-meta">${t.apply("branch_qr_expires_at")}: ${qrRow.expiresDisplay()}</p>
 						<%-- Legacy renders the code through api.qrserver.com. Reproduced,
 						     and worth stating: this sends the branch's check-in code to a
 						     third party on every render. --%>
-						<img src="${Branch.qrImageUrl(qrRow.qrCode())}" alt="${t.apply("branch_generate_qr")}"
-						     width="220" height="220">
+						<img class="branch-qr-image" src="${Branch.qrImageUrl(qrRow.qrCode())}"
+						     alt="${t.apply("branch_generate_qr")}" width="220" height="220">
 					@elseif(qrRow.qrCode() != null && !qrRow.qrCode().isEmpty())
-						<p class="text-muted">${t.apply("branch_qr_expired")}</p>
+						<p class="branch-qr-status branch-qr-status--expired">${t.apply("branch_qr_expired")}</p>
 					@else
-						<p class="text-muted">${t.apply("branch_qr_none")}</p>
+						<p class="branch-qr-meta">${t.apply("branch_qr_none")}</p>
 					@endif
 					@if(canWrite)
-						<form method="POST" class="account-form">
+						<form method="POST" class="branch-qr-form">
 							<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 							<input type="hidden" name="action" value="generate_qr">
 							<input type="hidden" name="id" value="${qrRow.id()}">
@@ -109,7 +113,7 @@
 								<label for="expires_at">${t.apply("branch_qr_expires_at")}</label>
 								<input type="datetime-local" id="expires_at" name="expires_at" required>
 							</div>
-							<div class="account-form__footer">
+							<div class="form-footer">
 								<a href="/admin/branches" class="btn btn-gray">${t.apply("cancel")}</a>
 								<button type="submit" class="btn btn-yellow">${t.apply(qrRow.qrActive(now) ? "branch_qr_regenerate" : "branch_qr_create")}</button>
 							</div>

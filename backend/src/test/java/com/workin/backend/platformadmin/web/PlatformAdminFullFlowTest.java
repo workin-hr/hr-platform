@@ -75,7 +75,11 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		Page home = get("/admin", cookie);
 		assertThat(home.response().getStatusCode()).isEqualTo(HttpStatus.OK);
 		Page sessions = get("/admin/sessions", cookie);
-		assertThat(sessions.response().getBody()).contains("this one");
+		// The current session is the row carrying the badge. Asserted as markup
+		// rather than as its label: this surface renders in Arabic by default
+		// and the wording is a translation now (D-208), which is not what this
+		// journey is about -- AdminTemplateMessageKeyTest owns the key.
+		assertThat(sessions.response().getBody()).contains("<span class=\"badge\">");
 
 		// One POST, like every other page's actions (ADR-0018).
 		Page companies = get("/admin/companies", cookie);

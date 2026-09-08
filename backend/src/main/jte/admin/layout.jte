@@ -1,3 +1,4 @@
+@import com.workin.backend.platformadmin.web.DashboardSession
 @import gg.jte.Content
 @import java.util.function.Function
 @param String title
@@ -6,7 +7,7 @@
 @param String currentAdminPhone = null
 @param String currentPage = ""
 @param String lang = "ar"
-@param com.workin.backend.platformadmin.web.DashboardSession session
+@param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 @param String flash = null
@@ -36,6 +37,11 @@
 	     specificity as style.css's, so it only wins by coming later. --%>
 	<link rel="stylesheet" href="/admin/_assets/fonts.css">
 	<link rel="stylesheet" href="/admin/_assets/admin-extra.css">
+	<%-- The shell below a desktop width: the sidebar becomes a drawer,
+	     padding tightens, targets grow. Last of the shared sheets so its
+	     media queries win over the copied ones, which carry none for the
+	     shell at all. --%>
+	<link rel="stylesheet" href="/admin/_assets/app-responsive.css">
 	<%-- $pageStyles in dashboard/includes/layout.php: the per-page stylesheets,
 	     appended after the shared ones so a page's own rules win. Naming them
 	     on the template is what keeps a copied class name and the file that
@@ -52,12 +58,21 @@
 		${body}
 	</main>
 @else
+	<%-- Ahead of the navigation in the source, so the first thing a keyboard
+	     or a screen reader reaches is a way past forty sidebar links. --%>
+	<a class="skip-link" href="#main-content">${t.apply("skip_to_content")}</a>
 	<div class="shell">
 		@template.admin.sidebar(currentPage = currentPage, lang = lang, session = session,
 				csrfParameterName = csrfParameterName, csrfToken = csrfToken, t = t,
 				available = available)
-		<main class="main">
+		<%-- Closes the drawer. Only rendered as anything below 1024px. --%>
+		<div class="nav-backdrop" aria-hidden="true"></div>
+		<main class="main" id="main-content">
 			<div class="topbar">
+				<button type="button" class="nav-toggle" aria-expanded="false"
+						aria-controls="admin-sidebar" aria-label="${t.apply("nav_menu")}">
+					<span class="nav-toggle-bars" aria-hidden="true"></span>
+				</button>
 				<h1 class="page-title">${title}</h1>
 				<div class="topbar-util">
 					<span class="who">${currentAdminPhone}</span>
@@ -74,6 +89,9 @@
 		</main>
 	</div>
 	<script src="/admin/_assets/sidebar.js"></script>
+	<%-- The drawer: opening, the backdrop, Escape, and the focus trap
+	     that a drawer over a backdrop needs to be honest about. --%>
+	<script src="/admin/_assets/nav-drawer.js"></script>
 	<script src="/admin/_assets/row-actions.js"></script>
 	<script src="/admin/_assets/crud.js"></script>
 	<%-- Opens a row action's dialog and fills it from the row that asked.

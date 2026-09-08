@@ -1,6 +1,7 @@
+@import com.workin.backend.platformadmin.content.GuideVideo
+@import com.workin.backend.platformadmin.web.DashboardSession
 @import java.util.List
 @import java.util.function.Function
-@import com.workin.backend.platformadmin.content.GuideVideo
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
@@ -9,7 +10,7 @@
 @param String errorKey = null
 @param String currentPage
 @param String lang
-@param com.workin.backend.platformadmin.web.DashboardSession session
+@param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean canWrite = actionsEnabled;}
@@ -113,13 +114,15 @@
 													<label>${t.apply("sort_order")}
 														<input type="number" name="sort_order"
 														       value="${row.sortOrder()}"></label>
-													<label class="login-remember">
+													<label>
 														<input type="checkbox" name="is_active" value="1"
 														       checked="${row.active()}">
 														<span>${t.apply("status_active")}</span></label>
 												</div>
 												<p class="text-muted">${t.apply("guide_video_hint")}</p>
-												<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+												<div class="form-footer">
+													<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+												</div>
 											</form>
 										</details>
 									</td>
@@ -155,12 +158,14 @@
 							<input type="text" name="video" dir="ltr" required placeholder="1.mp4"></label>
 						<label>${t.apply("sort_order")}
 							<input type="number" name="sort_order" value="0"></label>
-						<label class="login-remember">
+						<label>
 							<input type="checkbox" name="is_active" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>
 					<p class="text-muted">${t.apply("guide_video_hint")}</p>
-					<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+					<div class="form-footer">
+						<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+					</div>
 				</form>
 				</div>
 			</div>

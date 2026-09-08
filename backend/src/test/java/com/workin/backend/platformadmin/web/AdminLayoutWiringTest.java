@@ -45,10 +45,19 @@ class AdminLayoutWiringTest {
 	 *
 	 * <p>{@code login}, {@code mfa},
 	 * {@code enrol} and {@code enrol-confirm} render before there is a session
-	 * and carry {@code login.css} through the shared set. {@code sessions},
-	 * {@code company-confirm} and the two detail pages are the cases where
-	 * legacy names none either -- checked against {@code $pageStyles} in the
-	 * PHP, not assumed.
+	 * and carry {@code login.css} through the shared set. {@code sessions} has
+	 * no legacy equivalent at all and uses only the shared vocabulary;
+	 * {@code company-confirm} is the case where legacy names none either.
+	 *
+	 * <p>The two detail pages used to be here on the stated grounds that legacy
+	 * named none for them, and that was wrong. Legacy serves both under a
+	 * {@code page.php} that names four
+	 * ({@code pages/employees/page.php:234}) and two
+	 * ({@code pages/companies/page.php:139}) respectively, which is what a
+	 * browser loads on legacy's own detail view. Both now name theirs, and the
+	 * classes each was using -- {@code data-table-empty} and
+	 * {@code toolbar-form} on one, {@code hr-page}-scoped rules on the other --
+	 * resolve for the first time (D-209).
 	 *
 	 * <p>{@code home} used to be here and is not any more. It was exempt while
 	 * it rendered a "signed in" panel and nothing else; legacy's
@@ -58,7 +67,7 @@ class AdminLayoutWiringTest {
 	 */
 	private static final Set<String> NO_PAGE_STYLES = Set.of(
 			"login", "mfa", "enrol", "enrol-confirm", "sessions",
-			"company-confirm", "company-detail", "employee-detail");
+			"company-confirm");
 
 	@Test
 	void everyPageTemplateNamesTheStylesheetsItsClassesNeed() throws IOException {
@@ -87,12 +96,13 @@ class AdminLayoutWiringTest {
 		Set<String> named = new LinkedHashSet<>();
 		for (Path template : pageTemplates()) {
 			String body = Files.readString(template, StandardCharsets.UTF_8);
-			int declaration = body.indexOf("pageStyles =");
-			if (declaration < 0) {
+			if (!body.contains("pageStyles =")) {
 				continue;
 			}
-			int end = body.indexOf(')', declaration);
-			Matcher matcher = PAGE_STYLE.matcher(body.substring(declaration, end));
+			// Every literal in the template, not the span up to the first ')':
+			// a conditional pageStyles puts that ')' inside its condition
+			// (settings.jte), and this sweep then checked nothing there.
+			Matcher matcher = PAGE_STYLE.matcher(body);
 			while (matcher.find()) {
 				named.add(matcher.group(1));
 			}

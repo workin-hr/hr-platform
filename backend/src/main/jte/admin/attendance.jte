@@ -41,6 +41,9 @@
      Two tables over one range. They do not agree on worked time and are not
      meant to: the detail list runs each punch through the worked-minutes
      engine, the summary sums raw TIMESTAMPDIFF in SQL. See AttendanceStore. --%>
+<%-- page.php:134 names three stylesheets, in this order. The port named
+     one, so the leave-balance form and the payroll table on this page
+     rendered with no rules of their own. --%>
 @template.admin.layout(
 	title = t.apply("nav_fingerprints"),
 	csrfParameterName = csrfParameterName,
@@ -51,7 +54,8 @@
 	session = session,
 	t = t,
 	available = available,
-	pageStyles = java.util.List.of("hr-pages.css"),
+	pageStyles = java.util.List.of("payroll-pages.css", "hr-pages.css",
+			"leave-balance-form.css"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
@@ -113,6 +117,22 @@
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("att_records")}</h2>
 				<div class="data-table-head__actions">
+					<%-- D-210: page.php:186 offers this and nothing here posted
+					     delete_range. Shown only with a company chosen, as legacy
+					     shows it -- without one the range is every company's, and
+					     the service refuses it anyway. The confirmation names the
+					     range, because "bulk delete" alone does not say how much. --%>
+					@if(canWrite && filters.companyId() > 0)
+						<form method="POST" class="inline-form"
+						      onsubmit="return confirm('${t.apply("att_range_delete_confirm")}\n${from} → ${to}')">
+							<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+							<input type="hidden" name="action" value="delete_range">
+							<input type="hidden" name="company_id" value="${filters.companyId()}">
+							<input type="hidden" name="from" value="${from}">
+							<input type="hidden" name="to" value="${to}">
+							<button type="submit" class="btn btn-red btn-sm">${t.apply("att_delete_range")}</button>
+						</form>
+					@endif
 					@if(canWrite)
 						<button type="button" class="btn btn-blue btn-sm"
 								onclick="crudOpenAdd('attModal')">+ ${t.apply("add_attendance")}</button>
@@ -158,6 +178,19 @@
 							<td class="col-actions">
 								@if(canWrite)
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<%-- D-210: saveEdit existed and nothing posted
+										     edit_attendance, so a punch could be deleted but never
+										     corrected -- the one record on this surface most likely
+										     to be wrong rather than unwanted. The datetime columns
+										     are stored "YYYY-MM-DD HH:MM:SS"; datetime-local wants
+										     the T. --%>
+										<button type="button" role="menuitem" class="row-actions__item"
+												data-dialog="attendance-edit"
+												data-dialog-id="${row.id()}"
+												data-dialog-subject="${row.employeeName()}"
+												data-dialog-check_in="${row.checkIn() == null ? "" : row.checkIn().replace(' ', 'T')}"
+												data-dialog-check_out="${row.checkOut() == null ? "" : row.checkOut().replace(' ', 'T')}"
+												data-dialog-exception_type_id="${row.exceptionTypeId() == null ? "0" : String.valueOf(row.exceptionTypeId())}">${t.apply("edit")}</button>
 										<form method="POST" class="row-actions__form" role="none"
 										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -241,6 +274,29 @@
 					carry = carry, t = t,
 					pageParam = "agg_page")
 		@if(canWrite)
+			@template.admin.rowDialog(id = "attendance-edit", action = "edit_attendance",
+					title = t.apply("edit"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
+					fields = @`
+						<div class="form-row">
+							<label>${t.apply("att_check_in_time")}
+								<input type="datetime-local" name="check_in" required
+								       data-dialog-field="check_in"></label>
+							<label>${t.apply("att_check_out_time")}
+								<input type="datetime-local" name="check_out"
+								       data-dialog-field="check_out"></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("exception")}
+								<select name="exception_type_id" data-dialog-field="exception_type_id">
+									<option value="0">—</option>
+									@for(AttendanceRecord.ExceptionTypeOption option : exceptionTypes)
+										<option value="${option.id()}">${option.name()}</option>
+									@endfor
+								</select></label>
+						</div>
+					`)
+
 			<%-- Legacy opens this form in a modal, behind the "+" button above.
 			     Rendered inline it sat open over the table on every visit, whether
 			     or not anyone was adding anything. Same form, same fields, same
@@ -251,7 +307,7 @@
 					<button type="button" class="modal-close"
 							aria-label="${t.apply("cancel")}">&times;</button>
 					<h2 id="attModal-title">${t.apply("add_attendance")}</h2>
-					<form method="POST" class="account-form org-form">
+					<form method="POST">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add_attendance">
 					<div class="form-row">
@@ -280,7 +336,14 @@
 							@endfor
 						</select>
 					</div>
-					<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+					<%-- The save sits in a form-footer so it stays put while the
+					     fields scroll: .modal is the scroll container, and a form
+					     longer than the box otherwise pushes its own button out of
+					     reach. Legacy leaves it loose here and carries the same
+					     problem; the class is legacy's own. --%>
+					<div class="form-footer">
+						<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+					</div>
 				</form>
 				</div>
 			</div>

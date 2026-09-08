@@ -1,0 +1,390 @@
+/* ============================================================
+   app-responsive.css — الهيكل على الشاشات الصغيرة
+   The shell below a desktop width: an off-canvas navigation
+   drawer, denser padding, and targets a thumb can hit.
+
+   Loaded after the copied sheets and before the per-page ones,
+   so a page can still overrule it.
+
+   Three widths, and only three. The sheets copied from the PHP
+   dashboard carry twelve different ad-hoc breakpoints between
+   them; nothing here adds a thirteenth.
+
+     1024px  the sidebar stops being a column and becomes a drawer
+      768px  the topbar and content lose their desktop padding
+      560px  one column, and controls go full width
+   ============================================================ */
+
+:root {
+  --app-drawer-z: 60;
+  --app-backdrop-z: 50;
+  --app-tap: 44px;
+}
+
+/* —— Reaching the content without the nav (keyboard, screen reader) —— */
+.skip-link {
+  position: absolute;
+  inset-inline-start: 8px;
+  top: 8px;
+  z-index: 100;
+  padding: 10px 16px;
+  border-radius: var(--app-radius-sm);
+  background: var(--blue);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-150%);
+  transition: transform .18s var(--app-ease);
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+/* —— The drawer's button. Desktop never sees it. —— */
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--app-tap);
+  height: var(--app-tap);
+  margin-inline-end: 4px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+  color: var(--app-text);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background .15s, border-color .15s;
+}
+.nav-toggle:hover {
+  background: var(--blue-lt);
+  border-color: var(--blue);
+}
+.nav-toggle-bars {
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: background .2s var(--app-ease);
+}
+/* Absolute, not in flow: three 2px blocks inside a 2px box would otherwise
+   sit where overflow happened to put them, and the X would land off-centre. */
+.nav-toggle-bars::before,
+.nav-toggle-bars::after {
+  position: absolute;
+  inset-inline-start: 0;
+  display: block;
+  width: 100%;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  content: "";
+  transition: transform .2s var(--app-ease);
+}
+.nav-toggle-bars::before { transform: translateY(-6px); }
+.nav-toggle-bars::after  { transform: translateY(6px); }
+
+/* Open, the three bars are a close button -- the control that opened the
+   drawer is the one that closes it, so it has to say so. */
+.shell.nav-open .nav-toggle-bars { background: transparent; }
+.shell.nav-open .nav-toggle-bars::before { transform: rotate(45deg); }
+.shell.nav-open .nav-toggle-bars::after  { transform: rotate(-45deg); }
+
+.nav-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: var(--app-backdrop-z);
+  background: rgba(15, 23, 42, .45);
+  opacity: 0;
+  transition: opacity .25s var(--app-ease);
+}
+
+/* —— Room for the drawer's button, and a title that gives way —— */
+.topbar {
+  gap: 12px;
+}
+.page-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar-util {
+  flex-shrink: 0;
+}
+
+/* —— A visible focus ring on everything that takes focus ——
+   :focus-visible only, so a mouse click does not draw one. */
+.main a:focus-visible,
+.main button:focus-visible,
+.main input:focus-visible,
+.main select:focus-visible,
+.main textarea:focus-visible,
+.sidebar a:focus-visible,
+.sidebar summary:focus-visible,
+.nav-toggle:focus-visible,
+.modal button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  box-shadow: var(--app-focus-ring);
+}
+
+/* —— A wide table says so ——
+   `.table-wrap` scrolls sideways and gives no sign of it: on a phone the
+   employees table is fourteen columns in a 390px window, and a reader who
+   cannot see a scrollbar has no reason to try. The shading is painted by the
+   wrap itself -- two gradients pinned to its edges with `background-attachment:
+   local` for the pair that scroll away, so they fade out exactly when there is
+   nothing more in that direction. No script, no markup, and it costs nothing
+   on a table that already fits. */
+.table-wrap {
+  background:
+    linear-gradient(to right, var(--app-surface, #fff) 30%, rgba(255, 255, 255, 0)),
+    linear-gradient(to left, var(--app-surface, #fff) 30%, rgba(255, 255, 255, 0)) 100% 0,
+    linear-gradient(to right, rgba(15, 35, 70, .10), rgba(255, 255, 255, 0)),
+    linear-gradient(to left, rgba(15, 35, 70, .10), rgba(255, 255, 255, 0)) 100% 0;
+  background-repeat: no-repeat;
+  background-size: 36px 100%, 36px 100%, 14px 100%, 14px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
+/* —— A table wider than its card scrolls sideways ——
+   No sticky header here on purpose: `.table-wrap` is `overflow-y: hidden`
+   with no height, so the vertical scroller is `.content` further out and a
+   `position: sticky` thead inside the wrap could never stick to anything.
+   Giving the wrap its own height to make that work would change how every
+   list page scrolls, which is a parity question, not a styling one. */
+.table-wrap {
+  scrollbar-width: thin;
+  overscroll-behavior-x: contain;
+}
+
+/* ============================================================
+   1024px — the sidebar becomes a drawer
+   ============================================================ */
+@media (max-width: 1024px) {
+  .nav-toggle {
+    display: inline-flex;
+  }
+
+  .nav-backdrop {
+    display: block;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    inset-inline-start: 0;
+    height: 100dvh;
+    z-index: var(--app-drawer-z);
+    box-shadow: 0 0 40px rgba(0, 0, 0, .35);
+    transform: translateX(-100%);
+    transition: transform .28s var(--app-ease);
+    visibility: hidden;
+  }
+  /* The drawer leaves by the edge it lives on, which swaps with the
+     writing direction. */
+  html[dir="rtl"] .sidebar {
+    transform: translateX(100%);
+  }
+
+  .shell.nav-open .sidebar {
+    transform: translateX(0);
+    visibility: visible;
+  }
+  .shell.nav-open .nav-backdrop {
+    opacity: 1;
+  }
+
+  /* While the drawer is open the page behind it must not scroll away under
+     the thumb. `.content` and not `body`: `.main` is `overflow: hidden` and
+     `.content` is `overflow-y: auto`, so the pane is the scroller and locking
+     the body would do nothing at all. */
+  body.nav-locked .content {
+    overflow: hidden;
+  }
+
+  .main {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* The topbar is `justify-content: space-between`, so a third child would
+     leave the title floating between the button and the account chip. */
+  .page-title {
+    margin-inline-end: auto;
+  }
+}
+
+/* ============================================================
+   768px — desktop padding is a luxury
+   ============================================================ */
+@media (max-width: 768px) {
+  .topbar {
+    padding: 0 14px;
+  }
+  .page-title {
+    font-size: 16px;
+  }
+  .content {
+    padding: 16px 14px 24px;
+  }
+  .main > .flash {
+    margin: 12px 14px 0;
+  }
+
+  /* The stat strip on the overview stops being a row of five. */
+  .stat-grid,
+  .stats-grid,
+  .cards-grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+
+  /* A filter bar wraps instead of overflowing. */
+  .filters,
+  .filter-bar,
+  .section-head,
+  .toolbar-form {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  /* And each field takes the width rather than being squeezed to a few
+     characters -- a date input at 90px shows neither the date nor its picker. */
+  .toolbar-form .filter-field {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .toolbar-form .filter-field input,
+  .toolbar-form .filter-field select {
+    width: 100%;
+  }
+
+  /* A dialog that was a centred box is a sheet with room to breathe. 28px of
+     padding on a 390px screen leaves about 330 for the field itself. */
+  .modal {
+    width: calc(100vw - 20px);
+    max-width: none;
+    max-height: calc(100dvh - 40px);
+    overflow-y: auto;
+    padding: 20px;
+    border-radius: 14px;
+  }
+
+  /* The sticky footer's negative margins are cut for the modal's padding, so
+     they follow it down when that padding changes. */
+  .modal .form-footer,
+  .modal .account-form__footer {
+    margin-inline: -20px;
+    margin-bottom: -20px;
+    padding: 12px 20px 20px;
+  }
+
+  /* Two columns of form fields do not fit. Every grid the forms use -- the org
+     pages', the company form's, the employee form's salary block, the
+     department branch picker -- becomes one column rather than two half-width
+     fields side by side. */
+  .org-form-grid,
+  .company-add-grid,
+  .emp-salary-grid,
+  .dept-branches-grid,
+  .app-content-lang-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* A field that spanned both columns now spans the only one. */
+  .org-form-span-2,
+  .company-add-span-2 {
+    grid-column: auto;
+  }
+
+  /* The row dialog is a sheet here too; its own scroll area already keeps its
+     footer visible. */
+  .row-dialog {
+    width: calc(100vw - 20px);
+    max-width: none;
+  }
+}
+
+/* ============================================================
+   560px — one column, and controls a thumb can hit
+   ============================================================ */
+@media (max-width: 560px) {
+  .stat-grid,
+  .stats-grid,
+  .cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Buttons stop being side by side in a row that no longer fits. */
+  .section-head,
+  .form-actions,
+  .row-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .form-actions .btn,
+  .section-head > .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* 44px is the smallest target most guidance accepts; the copied
+     sheets size for a mouse. */
+  .btn,
+  .pager-btn,
+  .main input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=file]),
+  .main select {
+    min-height: var(--app-tap);
+  }
+
+  /* iOS zooms the page when a focused field is under 16px. */
+  .main input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=file]),
+  .main select,
+  .main textarea {
+    font-size: 16px;
+  }
+
+  .pager-wrap {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  /* The close button sits in the padding at this size, so the heading needs
+     room not to run under it. */
+  .modal h2 {
+    padding-inline-end: 28px;
+  }
+
+  /* A file input at its default size is wider than a phone and pushes the
+     dialog sideways; the company form carries two. */
+  .modal input[type="file"] {
+    max-width: 100%;
+  }
+}
+
+/* —— A coarse pointer is a thumb at any width —— */
+@media (pointer: coarse) {
+  .sidebar nav .nav-link,
+  .sidebar nav .nav-group-toggle,
+  .row-actions a,
+  .row-actions button {
+    min-height: var(--app-tap);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .nav-backdrop,
+  .skip-link,
+  .nav-toggle-bars,
+  .nav-toggle-bars::before,
+  .nav-toggle-bars::after {
+    transition: none !important;
+  }
+}

@@ -30,6 +30,13 @@ public enum PlatformAdminAuditEventType {
 	COMPANY_SUSPENDED,
 	COMPANY_UNSUSPENDED,
 
+	// Creating a company provisions a login for its owner, and editing one can
+	// change that login's password and phone. Both are administrative writes
+	// legacy performs with no record at all; here they carry the same
+	// structured target as the lifecycle actions above.
+	COMPANY_CREATED,
+	COMPANY_UPDATED,
+
 	// --- platform content the mobile and desktop clients read but cannot
 	// write: dial codes, FAQs, banners, broadcast notifications (ADR-0016).
 	// One triple for all of them, with the table in the audit row's target

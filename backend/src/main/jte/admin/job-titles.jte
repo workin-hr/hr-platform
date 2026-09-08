@@ -82,11 +82,16 @@
 		</div>
 
 		@if(addOpen || editRow != null)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply(editRow == null ? "add_job_title" : "edit")}</h2>
-				</div>
-				<form method="POST" class="account-form org-form">
+			<%-- page.php:167/187 renders this over modal-bg open, in
+			     modal modal--org-form -- a form panel org-form.css styles.
+			     The port had it as a data-table-card in the page flow, which
+			     is a table card, and wrapped the form in account-form
+			     org-form, which no stylesheet defines here or in legacy. --%>
+			<div class="modal-bg open" id="jobTitleModal">
+				<div class="modal modal--org-form">
+					<h2>${editRow == null ? t.apply("add_job_title")
+							: t.apply("edit") + ": " + editRow.name()}</h2>
+					<form method="POST">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="${editRow == null ? "add" : "save_edit"}">
 					@if(editRow != null)
@@ -139,13 +144,14 @@
 					@endif
 										</div>
 
-					<div class="account-form__footer">
+					<div class="form-footer">
 						<a href="/admin/job_titles" class="btn btn-gray">${t.apply("cancel")}</a>
 						@if(canWrite)
-							<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
+							<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
 						@endif
 					</div>
-				</form>
+					</form>
+				</div>
 			</div>
 		@endif
 

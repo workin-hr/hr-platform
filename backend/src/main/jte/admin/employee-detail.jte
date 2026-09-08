@@ -13,6 +13,10 @@
 @param Function<String, Boolean> available
 <%-- dashboard/pages/employees/detail.php, reached in legacy as
      employee_detail.php through a rewrite. Read-only. --%>
+<%-- detail.php is served under pages/employees, whose page.php:234 names
+     these four -- what a browser loads on legacy's own detail view. The
+     port named none, and data-table-empty and toolbar-form on this page
+     are defined in the first of them. --%>
 @template.admin.layout(
 	title = t.apply("employee"),
 	csrfParameterName = csrfParameterName,
@@ -23,6 +27,8 @@
 	session = session,
 	t = t,
 	available = available,
+	pageStyles = java.util.List.of("hr-pages.css", "company-add.css",
+			"org-form.css", "employee-form.css"),
 	contentClass = "",
 	body = @`
 		<div class="toolbar page-toolbar">

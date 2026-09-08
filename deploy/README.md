@@ -77,13 +77,27 @@ which is what this stack is for; to work on the admin UI, put TLS in front.
 **Every OTP route answers 503 `otp_delivery_failed`.** WhatsApp is deliberately
 unconfigured. That is legacy's own behaviour without credentials.
 
-## The other two environments
+## The other environments
 
 | | Profile | Data | Secrets |
 |---|---|---|---|
 | `compose.local.yaml` | `local` | sanitised seed | committed defaults |
 | `compose.integration.yaml` | `integration` | sanitised seed | from `.env.integration` |
 | `compose.prod.yaml` | `prod` | restored by hand | from `.env.prod`, all required |
+| `compose.remote-db.yaml` | `local` or `integration` | **a database that already exists** | from `.env.remote-db`, all required |
+
+`compose.remote-db.yaml` is the odd one: it declares no `db` service, no seed
+and no volume, and connects out to a MySQL somebody else owns — the one PHP is
+still serving, for checking the port against real data or for running it after
+a cutover. It publishes nothing but the application's own loopback port, so
+pair it with `compose.tls.yaml` for the dashboard, whose session cookie is
+`Secure` unconditionally.
+
+Administrative actions are **on** there (**D-207**), and the precondition is
+yours rather than the file's: ADR-0015 prerequisite 7 wants the legacy PHP
+admin panel unreachable before this surface performs a privileged operation,
+and nothing in the application can check that. Close PHP when you open this.
+`docs/operations/checking-against-the-live-database.md` is the procedure.
 
 Integration holds no real data but still takes real secrets, because more than
 one person can reach it — a shared box with a committed signing secret is a box
@@ -97,20 +111,52 @@ docker compose -f compose.integration.yaml --env-file .env.integration up -d
 
 ### Production
 
+The full cutover onto a server of your own -- which stack, every value that
+changes, the order, and the checks -- is
+[docs/operations/going-live-on-a-vps.md](../docs/operations/going-live-on-a-vps.md).
+What follows is the command.
+
 ```sh
 cp env.prod.example .env.prod                  # then fill it in
-docker compose -f compose.prod.yaml --env-file .env.prod up -d
+docker compose -f compose.prod.yaml -f compose.tls.yaml --env-file .env.prod up -d
 ```
+
+**Both files, always.** `compose.tls.yaml` puts Caddy in front and *unpublishes
+the application's port*, and the second half matters as much as the first: the
+`prod` profile sets `server.forward-headers-strategy=native`, so the
+application believes `X-Forwarded-For` — which is only true when the proxy is
+the sole route to it. Bringing up `compose.prod.yaml` alone leaves the port on
+loopback with a header the application trusts and nothing setting it (**R-049**).
+
+Caddy obtains and renews the certificate itself, so `APP_DOMAIN` must resolve
+to this host before the first start, and 80 and 443 must be free. The
+dashboard needs the TLS: its session cookie is `Secure` unconditionally
+(ADR-0015 prerequisite 6), so a browser on plain HTTP accepts the login and
+then throws the cookie away.
 
 `compose.prod.yaml` mounts **no seed directory**. Production data arrives by
 restoring a real dump as a deliberate, supervised step — never from a file the
 compose file would run on any first start, unreviewed.
 
-Both ports bind to loopback. TLS terminates at a reverse proxy on the host, and
-the `prod` profile trusts forwarded headers — which is only safe because that
-proxy is the sole route to the container. **R-049** (the per-IP OTP cap is keyed
-on a spoofable header) is still open; the loopback binding is what keeps it
-unreachable from the internet meanwhile.
+#### Rehearsing the production shape
+
+The same two files, a throwaway env file and `APP_DOMAIN=localhost` — Caddy
+then issues from its own internal CA instead of reaching a certificate
+authority, and nothing else about the stack differs. Give it a project name of
+its own so it cannot adopt a real deployment's containers or volume:
+
+```sh
+docker compose -p workin-rehearsal -f compose.prod.yaml -f compose.tls.yaml \
+  --env-file /tmp/.env.rehearsal up -d --build
+# the supervised restore, by hand, as production takes it
+docker exec -i workin-rehearsal-db-1 mariadb -uworkin -p"$DB_PASSWORD" workin < seed/dev-seed.sql
+docker compose -p workin-rehearsal ... restart app
+TLS_INSECURE=1 BASE_URL=https://localhost ADMIN_PASSWORD=... DB_CONTAINER=workin-rehearsal-db-1 \
+  ../scripts/verify-admin-login.sh
+```
+
+`TLS_INSECURE=1` belongs to that rehearsal and nowhere else: against a real
+deployment the certificate is the thing you want verified.
 
 Before the first production start, work through the pre-deployment list in
 `docs/bootstrap/risk-register.md` — **R-023** (schema provisioning), **R-024**

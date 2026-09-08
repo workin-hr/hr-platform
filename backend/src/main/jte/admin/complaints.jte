@@ -135,9 +135,30 @@
 										: "complaint_source_company_to_admin")}</span>
 							</td>
 							<td>
-								<span class="badge ${"done".equals(row.status()) ? "badge-green"
-									: "closed".equals(row.status()) ? "badge-gray" : "badge-blue"}">
-									${t.apply("status_" + row.status())}</span>
+								@if(canWrite)
+									<%-- D-210: setStatus existed and nothing posted set_status, so
+									     a complaint could be replied to and deleted but never
+									     moved on. page.php's own control: a select that submits on
+									     change, in the classes hr-pages.css already carries. --%>
+									<form method="POST" class="inline-form complaint-status-form">
+										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+										<input type="hidden" name="action" value="set_status">
+										<input type="hidden" name="id" value="${row.id()}">
+										<select name="status" class="complaint-status-select"
+												onchange="this.form.submit()" aria-label="${t.apply("status")}">
+											<option value="pending"
+													selected="${"pending".equals(row.status())}">${t.apply("status_pending")}</option>
+											<option value="done"
+													selected="${"done".equals(row.status())}">${t.apply("status_done")}</option>
+											<option value="closed"
+													selected="${"closed".equals(row.status())}">${t.apply("status_closed")}</option>
+										</select>
+									</form>
+								@else
+									<span class="badge ${"done".equals(row.status()) ? "badge-green"
+										: "closed".equals(row.status()) ? "badge-gray" : "badge-blue"}">
+										${t.apply("status_" + row.status())}</span>
+								@endif
 							</td>
 							<td class="text-muted">${row.createdDate()}</td>
 							<td class="col-actions">
