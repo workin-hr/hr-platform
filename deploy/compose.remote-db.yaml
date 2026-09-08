@@ -17,12 +17,21 @@
 #     operation. Nothing in the application can check that. Close PHP when you
 #     open this -- both write the same rows and neither knows about the other.
 #     ADMIN_ACTIONS_ENABLED=false renders the company pages read-only instead.
-#   * uploads are read and written where they already live. `UPLOADS_URL` is
-#     the address they are served from -- absolute, so this application
-#     registers no handler and cannot appear to serve files it does not have --
-#     and `UPLOADS_PATH` is the directory behind that address, bind-mounted in.
-#     The two must name the same storage: a logo written to a path this host
-#     owns alone is a logo the PHP host will answer 404 for.
+#   * uploads have two modes, and which one you want depends on whether PHP is
+#     staying up.
+#
+#     `UPLOADS_URL=https://the-php-host/uploads/` -- absolute -- means that host
+#     serves them and this application registers no handler at all, so it cannot
+#     appear to serve files it does not have. `UPLOADS_PATH` must then be that
+#     host's own uploads directory, reachable from here, or a file written for a
+#     new company lands where nothing serves it.
+#
+#     `UPLOADS_URL=/uploads/` -- site-relative -- means this application serves
+#     them itself out of `UPLOADS_PATH`, behind the same TLS, with an extension
+#     allowlist derived from sniffed content rather than from a client-supplied
+#     filename. **This is the one a cutover wants**: an absolute URL at the PHP
+#     host is a dependency on the host being switched off. It needs the existing
+#     files copied into `UPLOADS_PATH` once, or everything already stored 404s.
 #   * WhatsApp is left unset, so every OTP route answers 503 rather than
 #     messaging a real person while somebody is looking around.
 #
