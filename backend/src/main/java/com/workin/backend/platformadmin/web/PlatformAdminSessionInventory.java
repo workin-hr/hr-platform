@@ -78,20 +78,21 @@ public class PlatformAdminSessionInventory {
 	}
 
 	/**
-	 * Revokes everything for this administrator except, optionally, the session
+	 * Ends this administrator's browser sessions, except optionally the one
 	 * making the request.
 	 *
-	 * <p>Used by the factor-reset path: a recovered second factor must not leave
-	 * sessions established under the old one alive, for the same reason a
-	 * password change invalidates sessions.
+	 * <p>{@code null} spares none, which is what a password rotation needs: a
+	 * session opened under the old password must not outlive it, or rotating
+	 * would not be the thing an operator reaches for when a session is believed
+	 * stolen (ADR-0018, and ADR-0015's session decisions it keeps).
 	 */
-	/** Ends every other browser session of this administrator. */
 	public void revokeEverything(long platformAdminId, String exceptSessionId) {
 		this.sessionRepository.findByPrincipalName(String.valueOf(platformAdminId)).keySet().stream()
 			.filter(id -> !id.equals(exceptSessionId))
+			.toList()
 			.forEach(this.sessionRepository::deleteById);
 		this.auditService.record(platformAdminId, PlatformAdminAuditEventType.ALL_SESSIONS_REVOKED,
-				"every other browser session");
+				exceptSessionId == null ? "every session" : "every other browser session");
 	}
 
 }

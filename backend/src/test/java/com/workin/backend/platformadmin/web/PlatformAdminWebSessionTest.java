@@ -25,6 +25,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
 import com.workin.backend.AbstractIntegrationTest;
+import com.workin.backend.platformadmin.PlatformAdminBootstrap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -66,6 +67,15 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 	@Autowired
 	@Qualifier("legacyDataSource")
 	private DataSource legacyDataSource;
+
+	@Autowired
+	private com.workin.backend.platformadmin.PlatformAdminRepository platformAdminRepository;
+
+	@Autowired
+	private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+
+	@Autowired
+	private PlatformAdminSessionInventory sessionInventory;
 
 	/** The row is shared with every class on this base; a test that deactivates it puts it back. */
 	@org.junit.jupiter.api.AfterEach
@@ -176,6 +186,49 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 		assertThat(storedSessions(jdbc, sessionId))
 			.as("the shared session row must be deleted, or another worker still honours the cookie")
 			.isZero();
+	}
+
+	/**
+	 * A rotation is what an operator reaches for when a session is believed
+	 * stolen, so it has to end the sessions opened under the old password.
+	 *
+	 * <p>Nothing else would: the sessions are rows, and per-request
+	 * revalidation asks whether the administrator is <em>active</em>, not which
+	 * password let them in. Before this, rotating left the thief signed in for
+	 * up to the eight-hour absolute limit while the operator believed they had
+	 * just locked them out.
+	 */
+	@Test
+	void rotatingThePasswordEndsTheSessionsOpenedUnderTheOldOne() {
+		Session session = logIn(PASSWORD);
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		String sessionId = sessionIdOf(session);
+		assertThat(storedSessions(jdbc, sessionId)).isOne();
+
+		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder,
+				this.sessionInventory, "a different password entirely").run(null);
+
+		try {
+			assertThat(storedSessions(jdbc, sessionId))
+				.as("the row is gone, so no worker honours the cookie")
+				.isZero();
+			assertThat(get("/admin", session.cookieValue()).getStatusCode())
+				.as("and the cookie opens nothing")
+				.isEqualTo(HttpStatus.FOUND);
+			assertThat(this.auditEvents(jdbc))
+				.as("and the revocation is in the trail, not silent")
+				.contains("ALL_SESSIONS_REVOKED");
+		}
+		finally {
+			// Shared row, shared context: put the configured password back or
+			// every other class on this base loses its login.
+			new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder,
+					this.sessionInventory, PASSWORD).run(null);
+		}
+	}
+
+	private java.util.List<String> auditEvents(JdbcTemplate jdbc) {
+		return jdbc.queryForList("SELECT event_type FROM platform_admin_audit_events", String.class);
 	}
 
 	// --- prerequisite 5, CSRF half ------------------------------------------

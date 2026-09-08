@@ -8,6 +8,8 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import com.workin.backend.platformadmin.web.PlatformAdminSessionInventory;
+
 /**
  * Keeps the one administrator's row in step with {@code APP_PLATFORM_ADMIN_PASSWORD}.
  *
@@ -24,6 +26,13 @@ import org.springframework.stereotype.Component;
  * alone: the row keeps its last hash, which is what an operator who forgot to
  * carry the variable over would want, and a database with no row at all
  * simply cannot be logged into -- as PHP with an empty constant cannot.
+ *
+ * <p><b>A rotation ends the sessions opened under the old password.</b> They
+ * are server-side rows, and nothing about a changed hash invalidates one on
+ * its own: per-request revalidation asks whether the administrator is active,
+ * not which password let them in. Without this, rotating after a session was
+ * believed stolen would leave the thief up to the eight-hour absolute limit --
+ * and rotating is exactly what an operator reaches for in that moment.
  */
 @Component
 public class PlatformAdminBootstrap implements ApplicationRunner {
@@ -32,14 +41,17 @@ public class PlatformAdminBootstrap implements ApplicationRunner {
 
 	private final PlatformAdminRepository platformAdminRepository;
 	private final PasswordEncoder passwordEncoder;
+	private final PlatformAdminSessionInventory sessions;
 	private final String password;
 
 	public PlatformAdminBootstrap(
 			PlatformAdminRepository platformAdminRepository,
 			PasswordEncoder passwordEncoder,
+			PlatformAdminSessionInventory sessions,
 			@Value("${app.platform-admin.password:}") String password) {
 		this.platformAdminRepository = platformAdminRepository;
 		this.passwordEncoder = passwordEncoder;
+		this.sessions = sessions;
 		this.password = password;
 	}
 
@@ -61,7 +73,11 @@ public class PlatformAdminBootstrap implements ApplicationRunner {
 		if (!this.passwordEncoder.matches(this.password, admin.getPasswordHash())) {
 			admin.setPasswordHash(this.passwordEncoder.encode(this.password));
 			this.platformAdminRepository.save(admin);
-			log.info("The dashboard administrator's password was rotated from APP_PLATFORM_ADMIN_PASSWORD.");
+			// Nothing is spared: a session opened under the old password must
+			// not outlive it.
+			this.sessions.revokeEverything(admin.getId(), null);
+			log.info("The dashboard administrator's password was rotated from "
+					+ "APP_PLATFORM_ADMIN_PASSWORD; every existing session was ended.");
 		}
 	}
 

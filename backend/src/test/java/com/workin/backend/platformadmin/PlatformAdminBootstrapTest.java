@@ -30,14 +30,22 @@ class PlatformAdminBootstrapTest extends AbstractIntegrationTest {
 	@Qualifier("legacyDataSource")
 	private DataSource legacyDataSource;
 
+	@Autowired
+	private com.workin.backend.platformadmin.web.PlatformAdminSessionInventory sessions;
+
+	/** The bootstrap under test. A rotation ends sessions, so it needs the inventory. */
+	private PlatformAdminBootstrap bootstrapWith(String password) {
+		return new PlatformAdminBootstrap(
+				this.platformAdminRepository, this.passwordEncoder, this.sessions, password);
+	}
+
 	/**
 	 * Every class on this base shares the context and its database, so the row
 	 * the other classes log in with is put back the way the context started it.
 	 */
 	@AfterEach
 	void restoreTheConfiguredPassword() {
-		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder,
-				TEST_ADMIN_PASSWORD).run(null);
+		bootstrapWith(TEST_ADMIN_PASSWORD).run(null);
 	}
 
 	private void startFromNothing() {
@@ -55,8 +63,7 @@ class PlatformAdminBootstrapTest extends AbstractIntegrationTest {
 	void firstRunCreatesTheAdminFromTheConfiguredPassword() {
 		startFromNothing();
 
-		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder,
-				"correct horse battery staple").run(null);
+		bootstrapWith("correct horse battery staple").run(null);
 
 		assertThat(this.platformAdminRepository.count()).isEqualTo(1);
 		assertThat(theAdmin().isActive()).isTrue();
@@ -68,9 +75,9 @@ class PlatformAdminBootstrapTest extends AbstractIntegrationTest {
 	@Test
 	void aChangedPasswordIsRotatedOnTheNextStart() {
 		startFromNothing();
-		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder, "first").run(null);
+		bootstrapWith("first").run(null);
 
-		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder, "second").run(null);
+		bootstrapWith("second").run(null);
 
 		assertThat(this.platformAdminRepository.count())
 			.as("a rotation replaces the hash on the one row; it does not add a second administrator")
@@ -82,10 +89,10 @@ class PlatformAdminBootstrapTest extends AbstractIntegrationTest {
 	@Test
 	void anUnchangedPasswordIsNotReEncoded() {
 		startFromNothing();
-		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder, "same").run(null);
+		bootstrapWith("same").run(null);
 		String hash = theAdmin().getPasswordHash();
 
-		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder, "same").run(null);
+		bootstrapWith("same").run(null);
 
 		assertThat(theAdmin().getPasswordHash())
 			.as("bcrypt salts every encoding, so an unchanged password must not be re-encoded on every start")
@@ -95,9 +102,9 @@ class PlatformAdminBootstrapTest extends AbstractIntegrationTest {
 	@Test
 	void anUnsetPasswordLeavesTheRowAlone() {
 		startFromNothing();
-		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder, "kept").run(null);
+		bootstrapWith("kept").run(null);
 
-		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder, "").run(null);
+		bootstrapWith("").run(null);
 
 		assertThat(this.platformAdminRepository.count()).isEqualTo(1);
 		assertThat(this.passwordEncoder.matches("kept", theAdmin().getPasswordHash()))

@@ -5,7 +5,10 @@ committed here.
 
 - Swagger UI: `/swagger-ui.html`
 - Client API (the 202 legacy routes): `/v3/api-docs/client-api`
-- Platform administration: `/v3/api-docs/platform-admin`
+
+The dashboard has no group here and no HTTP API: ADR-0018 removed the
+platform-admin bearer surface, and `/admin/**` is server-rendered pages behind
+a session cookie rather than an API a client calls.
 
 Published under the `local` and `integration` profiles; **off under `prod`**, so
 a live system does not hand out an unauthenticated map of every endpoint.

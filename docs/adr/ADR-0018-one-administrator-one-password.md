@@ -37,7 +37,11 @@ The dashboard has **one administrator and one password**, and no other way in.
   PHP's constant is. The application keeps a **bcrypt hash** of it in the one
   `platform_admins` row (identifier `admin`), created on first start and
   re-encoded on any start where the configured value no longer matches — so a
-  rotation is a change and a restart, and the plaintext is never stored.
+  rotation is a change and a restart, and the plaintext is never stored. A
+  rotation **ends every session opened under the old password**: they are
+  server-side rows, per-request revalidation asks whether the administrator is
+  active rather than which password let them in, and rotating is what an
+  operator reaches for when a session is believed stolen.
 - The login page is PHP's page, class for class, in its admin-only shape: one
   password field, the show/hide toggle, the "remember me" box PHP ignores, the
   language pill, the hero. `login.css` and `login.js` are the copied files.

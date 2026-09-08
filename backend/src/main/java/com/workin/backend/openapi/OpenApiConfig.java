@@ -15,6 +15,7 @@ import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.Paths;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.info.License;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 
 import org.slf4j.Logger;
@@ -100,6 +101,20 @@ public class OpenApiConfig {
 						.version("Phase 1")
 						.description(DESCRIPTION)
 						.license(new License().name("Proprietary")))
+				// Required, not merely declared. A scheme under `securitySchemes`
+				// that no requirement references documents that a mechanism
+				// exists and nothing about which routes need it -- the padlock
+				// appears in the UI and authorises nothing, and "try it out"
+				// sends no token.
+				//
+				// Global, because all but a handful of these routes
+				// authenticate: everything under `/apis/**` falls through to
+				// `anyRequest().authenticated()` unless SecurityConfig names
+				// it. The exceptions -- the three logins and the OTP pair --
+				// are therefore documented here as needing a token they do not
+				// need, which is the safe direction of imprecision and the one
+				// a caller discovers immediately.
+				.addSecurityItem(new SecurityRequirement().addList("bearerAuth"))
 				.schemaRequirement("bearerAuth", new SecurityScheme()
 						.type(SecurityScheme.Type.HTTP)
 						.scheme("bearer")

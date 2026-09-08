@@ -133,7 +133,7 @@ and the password is deployment configuration:
 
 | Variable | What it is |
 |---|---|
-| `APP_PLATFORM_ADMIN_PASSWORD` | The dashboard password. The application keeps a **bcrypt hash** of it in `platform_admins` and re-encodes it on a restart whenever the value changes, so rotating it is: change the variable, restart. Unset, the last password stays in force; a database that never had one cannot be signed into |
+| `APP_PLATFORM_ADMIN_PASSWORD` | The dashboard password. The application keeps a **bcrypt hash** of it in `platform_admins` and re-encodes it on a restart whenever the value changes, so rotating it is: change the variable, restart. **A rotation also ends every session opened under the old password** — they are server-side rows, and a changed hash does not invalidate one by itself, so without that step rotating after a session was believed stolen would leave the thief up to the 8-hour limit. Unset, the last password stays in force; a database that never had one cannot be signed into |
 | `APP_PLATFORM_ADMIN_ACTIONS_ENABLED` | Defaults to **false**. While false the pages render read-only and say so. ADR-0015 prerequisite 7 keeps it off until the PHP admin surface -- which shares this password -- is unreachable, because while both are live the login is only as strong as the weaker door |
 
 Behind the form, what PHP does not do: the password is compared against a hash
