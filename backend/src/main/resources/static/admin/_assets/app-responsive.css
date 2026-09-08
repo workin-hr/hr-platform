@@ -132,6 +132,25 @@
   box-shadow: var(--app-focus-ring);
 }
 
+/* —— A wide table says so ——
+   `.table-wrap` scrolls sideways and gives no sign of it: on a phone the
+   employees table is fourteen columns in a 390px window, and a reader who
+   cannot see a scrollbar has no reason to try. The shading is painted by the
+   wrap itself -- two gradients pinned to its edges with `background-attachment:
+   local` for the pair that scroll away, so they fade out exactly when there is
+   nothing more in that direction. No script, no markup, and it costs nothing
+   on a table that already fits. */
+.table-wrap {
+  background:
+    linear-gradient(to right, var(--app-surface, #fff) 30%, rgba(255, 255, 255, 0)),
+    linear-gradient(to left, var(--app-surface, #fff) 30%, rgba(255, 255, 255, 0)) 100% 0,
+    linear-gradient(to right, rgba(15, 35, 70, .10), rgba(255, 255, 255, 0)),
+    linear-gradient(to left, rgba(15, 35, 70, .10), rgba(255, 255, 255, 0)) 100% 0;
+  background-repeat: no-repeat;
+  background-size: 36px 100%, 36px 100%, 14px 100%, 14px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
 /* —— A table wider than its card scrolls sideways ——
    No sticky header here on purpose: `.table-wrap` is `overflow-y: hidden`
    with no height, so the vertical scroller is `.content` further out and a
@@ -228,17 +247,67 @@
   /* A filter bar wraps instead of overflowing. */
   .filters,
   .filter-bar,
-  .section-head {
+  .section-head,
+  .toolbar-form {
     flex-wrap: wrap;
     gap: 10px;
   }
 
-  /* A dialog that was a centred box is a sheet with room to breathe. */
+  /* And each field takes the width rather than being squeezed to a few
+     characters -- a date input at 90px shows neither the date nor its picker. */
+  .toolbar-form .filter-field {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .toolbar-form .filter-field input,
+  .toolbar-form .filter-field select {
+    width: 100%;
+  }
+
+  /* A dialog that was a centred box is a sheet with room to breathe. 28px of
+     padding on a 390px screen leaves about 330 for the field itself. */
   .modal {
-    width: calc(100vw - 24px);
+    width: calc(100vw - 20px);
     max-width: none;
-    max-height: calc(100dvh - 48px);
+    max-height: calc(100dvh - 40px);
     overflow-y: auto;
+    padding: 20px;
+    border-radius: 14px;
+  }
+
+  /* The sticky footer's negative margins are cut for the modal's padding, so
+     they follow it down when that padding changes. */
+  .modal .form-footer,
+  .modal .account-form__footer {
+    margin-inline: -20px;
+    margin-bottom: -20px;
+    padding: 12px 20px 20px;
+  }
+
+  /* Two columns of form fields do not fit. Every grid the forms use -- the org
+     pages', the company form's, the employee form's salary block, the
+     department branch picker -- becomes one column rather than two half-width
+     fields side by side. */
+  .org-form-grid,
+  .company-add-grid,
+  .emp-salary-grid,
+  .dept-branches-grid,
+  .app-content-lang-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* A field that spanned both columns now spans the only one. */
+  .org-form-span-2,
+  .company-add-span-2 {
+    grid-column: auto;
+  }
+
+  /* The row dialog is a sheet here too; its own scroll area already keeps its
+     footer visible. */
+  .row-dialog {
+    width: calc(100vw - 20px);
+    max-width: none;
   }
 }
 
@@ -284,6 +353,18 @@
   .pager-wrap {
     flex-wrap: wrap;
     justify-content: center;
+  }
+
+  /* The close button sits in the padding at this size, so the heading needs
+     room not to run under it. */
+  .modal h2 {
+    padding-inline-end: 28px;
+  }
+
+  /* A file input at its default size is wider than a phone and pushes the
+     dialog sideways; the company form carries two. */
+  .modal input[type="file"] {
+    max-width: 100%;
   }
 }
 

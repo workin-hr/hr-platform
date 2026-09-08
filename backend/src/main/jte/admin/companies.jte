@@ -1,4 +1,5 @@
 @import java.util.List
+@import com.workin.backend.platformadmin.PlatformAdminCompanyDirectory.EditableCompany
 @import com.workin.backend.platformadmin.companies.CompanyListFilters
 @import com.workin.backend.platformadmin.companies.CompanyRow
 @import com.workin.backend.platformadmin.hr.EmployeeDisplay
@@ -24,7 +25,7 @@
 <%-- ?action=add or ?edit=<id>, and the row being edited when there is one. --%>
 @param boolean formOpen = false
 @param long editCompanyId = 0
-@param com.workin.backend.platformadmin.PlatformAdminCompanyDirectory.EditableCompany editCompany = null
+@param EditableCompany editCompany = null
 <%-- dashboard/pages/companies/page.php. --%>
 @template.admin.layout(
 	title = t.apply("nav_companies"),

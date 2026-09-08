@@ -228,6 +228,36 @@
 	}
 }
 
+/* —— The content pane must not be a containing block ——
+   `.content` animates with `appFadeUp`, whose last keyframe is
+   `transform: translateY(0)` rather than `none`. With `animation-fill-mode:
+   both` the element keeps that transform for good, and a transformed ancestor
+   becomes the containing block for every `position: fixed` descendant inside
+   it. So `.modal-bg`, which is written `position: fixed; inset: 0`, is laid
+   out against the content pane instead of the viewport: the dialog sits low
+   rather than centred, a long form's footer falls below the fold, and the
+   backdrop stops short of the sidebar and the topbar.
+
+   Legacy carries the same animation and the same consequence, so this is a
+   deliberate improvement on it rather than a parity fix -- and additive, in
+   this file, leaving the copied sheet alone. The fade is kept; only the
+   translate goes, because the translate is the part that costs a containing
+   block. Overriding `animation-name` alone leaves the duration, easing, delay
+   and fill exactly as the copy set them. */
+.content {
+	animation-name: appFadeIn;
+}
+
+@keyframes appFadeIn {
+	from {
+		opacity: 0;
+	}
+
+	to {
+		opacity: 1;
+	}
+}
+
 /* —— The add/edit modal ——
    `crud.js` and `.modal-bg` are the dashboard's own and stay as copied. What
    is missing from them is the keyboard: legacy's modal closes on a click and
@@ -239,6 +269,27 @@
 
 .modal .org-form-grid {
 	margin-bottom: 4px;
+}
+
+/* The footer stays reachable in a long form.
+   `.modal` is the scroll container (`max-height: 90vh; overflow-y: auto` in
+   the copied sheet), so a form with more fields than fit pushes its own save
+   button below the fold -- the operator has to scroll a box they did not
+   expect to scroll to find it. Sticky rather than a flex column, because the
+   forms differ inside: some wrap their fields in a grid and some do not, and
+   this needs no structure to be true of any of them.
+
+   The negative margins pull the strip across the modal's 28px padding so the
+   background covers the full width as content passes under it. */
+.modal .form-footer,
+.modal .account-form__footer {
+	position: sticky;
+	bottom: 0;
+	z-index: 1;
+	margin-inline: -28px;
+	margin-bottom: -28px;
+	padding: 14px 28px 28px;
+	background: var(--app-surface, #fff);
 }
 
 .modal .account-form__footer {

@@ -1,6 +1,7 @@
 @import java.util.List
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.hr.CompanyAsset
+@import com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -9,7 +10,7 @@
 @param String currentAdminPhone
 @param DashboardPage<CompanyAsset> result
 @param DashboardListFilters filters
-@param List<com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption> employeeOptions
+@param List<EmployeeOption> employeeOptions
 @param String returned
 @param String dateFrom
 @param String dateTo
@@ -182,7 +183,7 @@
 						<div class="form-row">
 							<label>${t.apply("employee_name")}
 								<select name="employee_id" required data-dialog-field="employee_id">
-									@for(com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption option : employeeOptions)
+									@for(EmployeeOption option : employeeOptions)
 										<option value="${option.id()}">${option.companyName() == null
 											? option.code() + " — " + option.name()
 											: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
@@ -221,7 +222,7 @@
 						<label for="employee_id">${t.apply("employee_name")}</label>
 						<select id="employee_id" name="employee_id" required>
 							<option value="0">—</option>
-							@for(com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption option : employeeOptions)
+							@for(EmployeeOption option : employeeOptions)
 								<option value="${option.id()}">${option.companyName() == null
 									? option.code() + " — " + option.name()
 									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
