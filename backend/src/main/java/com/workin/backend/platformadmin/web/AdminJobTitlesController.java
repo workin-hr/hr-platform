@@ -53,7 +53,6 @@ public class AdminJobTitlesController {
 		model.addAttribute("departmentOptions", this.store.departmentOptions(filters.companyId()));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "job_titles"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		model.addAttribute("addOpen", "add".equals(action));
 		model.addAttribute("editRow", "edit".equals(action) ? visible(current, filters, id) : null);
@@ -88,17 +87,16 @@ public class AdminJobTitlesController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 		Long department = departmentId > 0 ? departmentId : null;
 
 		try {
 			long wrote = switch (action) {
 				case "add" -> this.service.add(
-						session, adminId, bound, companyId, department, name, workHours);
-				case "save_edit" -> this.service.saveEdit(session, adminId, bound, id, companyId,
+						session, adminId, companyId, department, name, workHours);
+				case "save_edit" -> this.service.saveEdit(session, adminId, id, companyId,
 						department, name, workHours,
 						isActive == null || !"0".equals(isActive.trim()));
-				case "delete" -> this.service.delete(session, adminId, bound, id, companyId);
+				case "delete" -> this.service.delete(session, adminId, id, companyId);
 				default -> throw new JobTitleAdminService.RefusedException(
 						JobTitleAdminService.Refusal.NO_COMPANY);
 			};
@@ -120,7 +118,6 @@ public class AdminJobTitlesController {
 	private static String messageKey(JobTitleAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case NO_COMPANY -> "select_company_first";
 			case FOREIGN_ROW -> "error_db";
 			case FOREIGN_DEPARTMENT -> "select_company_first_department";

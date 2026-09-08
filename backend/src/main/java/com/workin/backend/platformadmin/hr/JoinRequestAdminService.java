@@ -32,7 +32,6 @@ public class JoinRequestAdminService {
 		/** The surface-wide write switch is off. */
 		ACTIONS_DISABLED,
 		/** No second factor bound to this administrator. */
-		FACTOR_NOT_BOUND,
 		/** No such row, not an employee, or another company's. */
 		FOREIGN_ROW,
 		/**
@@ -77,12 +76,9 @@ public class JoinRequestAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -122,8 +118,8 @@ public class JoinRequestAdminService {
 
 	/** {@code accept_join}: the request is approved and the employee activated. */
 	@Transactional
-	public long accept(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long accept(DashboardSession session, long adminId, long id) {
+		gate();
 		JoinRequest row = pending(session, id);
 		this.store.accept(row.id());
 		// The generic ORG_* types, as the other HR services use. A pair of
@@ -131,7 +127,7 @@ public class JoinRequestAdminService {
 		// constrains, for a distinction the detail line already carries.
 		this.auditService.recordAction(
 				adminId, PlatformAdminAuditEventType.ORG_UPDATED, "employees",
-				String.valueOf(row.id()), null,
+				String.valueOf(row.id()),
 				"join request accepted for company " + row.companyId());
 		return row.id();
 	}
@@ -143,12 +139,12 @@ public class JoinRequestAdminService {
 	 * is no row to describe.
 	 */
 	@Transactional
-	public long reject(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long reject(DashboardSession session, long adminId, long id) {
+		gate();
 		JoinRequest row = pending(session, id);
 		this.auditService.recordAction(
 				adminId, PlatformAdminAuditEventType.ORG_DELETED, "employees",
-				String.valueOf(row.id()), null,
+				String.valueOf(row.id()),
 				"join request rejected, employee row deleted, company " + row.companyId());
 		this.store.reject(row.id());
 		return row.id();

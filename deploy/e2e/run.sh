@@ -31,7 +31,6 @@ esac
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
-ADMIN_PHONE='+201000000042'
 ADMIN_PASSWORD='e2e-verify-Pass123!'
 
 compose() { (cd "$DEPLOY" && docker compose "$@"); }
@@ -52,11 +51,6 @@ DB_USER=workin
 DB_PASSWORD=e2e-throwaway-db-password
 DB_ROOT_PASSWORD=e2e-throwaway-root-password
 JWT_SECRET=e2e-throwaway-signing-secret-not-production-not-integration
-# Base64 of exactly 32 bytes. The obvious-looking string one character
-# shorter decodes to 31 and the application refuses to start -- which is what
-# it should do, and did, the first time this file was written.
-ADMIN_MFA_KEY=ZTJlLXRocm93YXdheS1tZmEta2V5LTMyLWJ5dGVzISE=
-ADMIN_PHONE=$ADMIN_PHONE
 ADMIN_PASSWORD=$ADMIN_PASSWORD
 ADMIN_ACTIONS_ENABLED=${ADMIN_ACTIONS_ENABLED:-false}
 # Only meaningful under integration, and only because a proxy is in front.
@@ -96,7 +90,8 @@ case "$PROFILE" in
     PROJECTS=(--project=api --project=surface --project=deployment --project=admin)
     # The integration profile enables administrative actions by default: there
     # is no legacy PHP admin surface beside this one for ADR-0015 prerequisite 7
-    # to be about. So the step-up case runs here rather than being skipped.
+    # to be about. So the administrative-action case runs here rather than
+    # being skipped.
     : "${ADMIN_ACTIONS_ENABLED:=true}"
     ;;
   prod)
@@ -175,7 +170,6 @@ E2E_DB_USER="$DB_USER" \
 E2E_DB_PASSWORD="$DB_PASSWORD" \
 E2E_HTTP_BASE="http://127.0.0.1:${APP_PUBLISHED_PORT:-8080}" \
 E2E_HTTPS_BASE="https://127.0.0.1:${E2E_HTTPS_PORT:-8443}" \
-E2E_ADMIN_PHONE="$ADMIN_PHONE" \
 E2E_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
 E2E_ADMIN_ACTIONS="${ADMIN_ACTIONS_ENABLED:-false}" \
   npx playwright test "${PROJECTS[@]}" "$@"

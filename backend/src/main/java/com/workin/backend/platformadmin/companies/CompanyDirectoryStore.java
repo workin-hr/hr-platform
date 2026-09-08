@@ -3,7 +3,6 @@ package com.workin.backend.platformadmin.companies;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -19,12 +18,10 @@ import com.workin.backend.platformadmin.web.DashboardPage;
  * with no second factor, and that is the one thing the port deliberately does
  * not reproduce.
  *
- * <p>{@code phase1-mysql} only, like every other dashboard page. The three
- * lookup tables and the aggregate counts are legacy schema; the PostgreSQL
- * profile keeps the narrow list it already had.
+ * <p>The three lookup tables and the aggregate counts are legacy schema, read
+ * where the dashboard reads them.
  */
 @Repository
-@Profile("phase1-mysql")
 public class CompanyDirectoryStore {
 
 	/**

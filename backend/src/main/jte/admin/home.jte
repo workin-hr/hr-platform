@@ -11,15 +11,11 @@
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
-@param boolean factorBound
 @param String currentPage
 @param String lang
 @param com.workin.backend.platformadmin.web.DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-<%-- Absent under the PostgreSQL profile, where there is no legacy database to
-     summarise. The page then renders its header and the enrolment notice and
-     stops, rather than the context failing to start. --%>
 @param HomeSummary summary = null
 @param SequencedMap<String, HomeChart> charts = null
 @param List<Activity> activities = null
@@ -41,7 +37,6 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
-	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -51,19 +46,6 @@
 	pageStyles = java.util.List.of("home.css"),
 	pageScripts = java.util.List.of("chart.umd.js", "home.js"),
 	body = @`
-		<%-- D-152 migrates existing rows unbound, so the first thing such an
-		     administrator sees has to say what to do about it rather than only
-		     that something is missing. The topbar carries the same state on
-		     every other page. --%>
-		@if(!factorBound)
-			<div class="home-panel home-panel--enrol">
-				<div class="home-panel-body">
-					<h2>${t.apply("mfa_enrol_title")}</h2>
-					<p>${t.apply("mfa_enrol_body")}</p>
-					<a href="/admin/enrol" class="btn btn-blue">${t.apply("mfa_enrol_action")}</a>
-				</div>
-			</div>
-		@endif
 
 		<div class="home-welcome">
 			<h2>${t.apply("welcome_greeting")}، ${currentAdminPhone} 👋</h2>
@@ -115,13 +97,6 @@
 			</div>
 		@endif
 
-		@if(summary == null)
-			<div class="home-panel">
-				<div class="home-panel-body">
-					<p class="data-table-title">${t.apply("no_data")}</p>
-				</div>
-			</div>
-		@else
 			<%-- The counts. Each card is a number and what it counts; the ones
 			     that lead somewhere are links, because a number nobody can act
 			     on is decoration. --%>
@@ -319,5 +294,4 @@
 					@endif
 				</div>
 			@endif
-		@endif
 	`)

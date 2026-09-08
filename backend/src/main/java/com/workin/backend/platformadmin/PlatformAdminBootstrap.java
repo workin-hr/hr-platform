@@ -9,19 +9,21 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /**
- * Creates the first platform administrator, replacing hr-legacy's
- * single shared admin password (hr-legacy#11,
- * docs/migration/consolidated-task-matrix.md F-26). There is no public
- * self-registration endpoint for platform admins -- that would just be
- * a differently-shaped version of the same problem this exists to fix.
+ * Keeps the one administrator's row in step with {@code APP_PLATFORM_ADMIN_PASSWORD}.
  *
- * <p>Idempotent and non-fatal: if {@code platform_admins} already has a
- * row, this does nothing regardless of the configured env vars (never
- * overwrites an existing admin's password on restart). If the table is
- * empty and the bootstrap phone/password env vars are not set, this
- * logs a warning and lets startup continue -- no platform-admin
- * functionality can work yet, but that does not block tenant-facing
- * traffic.
+ * <p>PHP's model, deliberately (ADR-0018): the dashboard has one admin login
+ * and its password is deployment configuration, changed by changing the
+ * configuration and restarting. What differs is where the value lives -- a
+ * bcrypt hash in {@code platform_admins}, never the plaintext -- and that the
+ * row exists at all, because the audit log and the session index hang off its
+ * id.
+ *
+ * <p>Idempotent per start. The row is created if absent and its hash
+ * refreshed if the configured password no longer matches it, so a rotation is
+ * a restart and nothing else. An unset password is logged and otherwise left
+ * alone: the row keeps its last hash, which is what an operator who forgot to
+ * carry the variable over would want, and a database with no row at all
+ * simply cannot be logged into -- as PHP with an empty constant cannot.
  */
 @Component
 public class PlatformAdminBootstrap implements ApplicationRunner {
@@ -30,45 +32,37 @@ public class PlatformAdminBootstrap implements ApplicationRunner {
 
 	private final PlatformAdminRepository platformAdminRepository;
 	private final PasswordEncoder passwordEncoder;
-	private final String bootstrapPhone;
-	private final String bootstrapPassword;
+	private final String password;
 
 	public PlatformAdminBootstrap(
 			PlatformAdminRepository platformAdminRepository,
 			PasswordEncoder passwordEncoder,
-			@Value("${app.platform-admin.bootstrap.phone:}") String bootstrapPhone,
-			@Value("${app.platform-admin.bootstrap.password:}") String bootstrapPassword) {
+			@Value("${app.platform-admin.password:}") String password) {
 		this.platformAdminRepository = platformAdminRepository;
 		this.passwordEncoder = passwordEncoder;
-		this.bootstrapPhone = bootstrapPhone;
-		this.bootstrapPassword = bootstrapPassword;
+		this.password = password;
 	}
 
-	/**
-	 * Configuration is checked <em>before</em> the table is read, and the order
-	 * matters more than it looks.
-	 *
-	 * <p>Reading first made the {@code platform_admins} table a startup
-	 * requirement for every deployment, including ones that never use the
-	 * platform-admin surface. That was invisible while the surface was
-	 * PostgreSQL-only, because Flyway always created the table. On MySQL the
-	 * Java-owned tables are provisioned out of band (**R-023**), so an
-	 * unconfigured optional feature was failing startup over a table nobody
-	 * had asked for.
-	 */
 	@Override
 	public void run(ApplicationArguments args) {
-		if (bootstrapPhone.isBlank() || bootstrapPassword.isBlank()) {
-			log.warn("APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE/APP_PLATFORM_ADMIN_BOOTSTRAP_PASSWORD are "
-					+ "not set -- skipping bootstrap. No platform-admin functionality is usable "
-					+ "until an administrator is created.");
+		if (this.password.isBlank()) {
+			log.warn("APP_PLATFORM_ADMIN_PASSWORD is not set -- the dashboard keeps whatever "
+					+ "password it last had, or cannot be logged into if it never had one.");
 			return;
 		}
-		if (platformAdminRepository.count() > 0) {
+		PlatformAdmin admin = this.platformAdminRepository
+			.findByPhone(PlatformAdminLoginService.ADMIN_IDENTIFIER).orElse(null);
+		if (admin == null) {
+			this.platformAdminRepository.save(new PlatformAdmin(
+					PlatformAdminLoginService.ADMIN_IDENTIFIER, this.passwordEncoder.encode(this.password)));
+			log.info("Provisioned the dashboard administrator from APP_PLATFORM_ADMIN_PASSWORD.");
 			return;
 		}
-		platformAdminRepository.save(new PlatformAdmin(bootstrapPhone, passwordEncoder.encode(bootstrapPassword)));
-		log.info("Bootstrapped the first platform administrator from APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE.");
+		if (!this.passwordEncoder.matches(this.password, admin.getPasswordHash())) {
+			admin.setPasswordHash(this.passwordEncoder.encode(this.password));
+			this.platformAdminRepository.save(admin);
+			log.info("The dashboard administrator's password was rotated from APP_PLATFORM_ADMIN_PASSWORD.");
+		}
 	}
 
 }

@@ -81,18 +81,15 @@ public class BroadcastAdminService {
 	 * than the size of the action.
 	 */
 	@Transactional
-	public Result delete(long adminId, boolean factorBound, long id) {
+	public Result delete(long adminId, long id) {
 		if (!this.actionsEnabled) {
 			return Result.rejected("admin_actions_disabled");
-		}
-		if (!factorBound) {
-			return Result.rejected("mfa_required_for_actions");
 		}
 		if (!this.store.delete(id)) {
 			return Result.rejected("error_not_found");
 		}
 		this.auditService.recordAction(adminId, PlatformAdminAuditEventType.CONTENT_DELETED,
-				TARGET_TYPE, String.valueOf(id), null, "notification deleted");
+				TARGET_TYPE, String.valueOf(id), "notification deleted");
 		return new Result(true, 0, null);
 	}
 
@@ -102,14 +99,11 @@ public class BroadcastAdminService {
 	 * @param companyId required only by {@link BroadcastAudience#COMPANY_EMPLOYEES}
 	 */
 	@Transactional
-	public Result send(long adminId, boolean factorBound, String audienceValue,
+	public Result send(long adminId, String audienceValue,
 			String title, String body, Long companyId, boolean confirmed) {
 
 		if (!this.actionsEnabled) {
 			return Result.rejected("admin_actions_disabled");
-		}
-		if (!factorBound) {
-			return Result.rejected("mfa_required_for_actions");
 		}
 
 		BroadcastAudience audience = BroadcastAudience.of(audienceValue);
@@ -145,8 +139,7 @@ public class BroadcastAdminService {
 		// Audited even when it reached nobody: "the broadcast went out and
 		// nobody has it" is the question this row answers.
 		this.auditService.recordAction(adminId, PlatformAdminAuditEventType.CONTENT_CREATED,
-				TARGET_TYPE, audience.submitted(),
-				null, "recipients: " + recipients + "; title: " + subject);
+				TARGET_TYPE, audience.submitted(), "recipients: " + recipients + "; title: " + subject);
 
 		return new Result(true, recipients, null);
 	}

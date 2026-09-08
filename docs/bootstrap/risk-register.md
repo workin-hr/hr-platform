@@ -1200,3 +1200,15 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Guarded by | `LegacyUploadServingTest`, end to end over real HTTP: a stored file answers `200` without a session, a planted `.html` answers `404`, three traversal shapes do not read outside the upload root, and a missing file is `404` rather than an error. Verified to fail without the fix. |
 | Status | **Closed** in Java by **D-201**. Recorded 2026-09-07. Related: **D-111** (the invariant it broke), **D-154** (the naming rule that makes the extension allowlist sound), **R-049** (why nothing was deployed, and so why no user met this). |
 | Evidence | `LegacyFileUploads:100` (`return uploadUrl + ... + storedName`); `deploy/compose.integration.yaml:84,96` (the volume it writes into); a file placed at `/app/uploads/probe/t.png` in `workin-integration-app-1` answering `404` at `https://127.0.0.1:8443/uploads/probe/t.png`; the row counts above from the integration database. |
+
+## R-069: One Shared Password Means The Audit Names A Role, Not A Person
+
+| Field | Value |
+|---|---|
+| Description | Under ADR-0018 the dashboard has one administrator and one password. Every audit row is attributed to that one row. If two people know the password, the application cannot say which of them approved a company, deleted a penalty or rotated nothing at all. |
+| Category | **Accountability**, accepted by decision |
+| Why it is accepted | It is exactly PHP's model, and the owner chose it over the alternatives (D-205). The Java side keeps what can be kept without individual identities: the row exists, the audit rows exist, the timestamps and client addresses of login attempts exist. |
+| What still limits it | The password is deployment configuration: whoever can read the VPS's environment can read it, and whoever can change it can lock everyone else out by restarting. Both are the operator's already. The per-client miss budget stops a guesser without letting a guesser lock the operator out. |
+| Trigger | A second person needing dashboard access with their own accountability. That is the day to reopen ADR-0015's individual-administrator model, whose row shape this one still fits. |
+| Severity | **Low** for a single operator; **Medium** the day there are two. |
+| Status | **Open by decision.** Recorded 2026-09-08. Related: **ADR-0018**, **D-205**, **R-049** (prerequisite 7 -- while PHP is reachable the same password opens both doors). |

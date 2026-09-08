@@ -8,7 +8,6 @@
 @param List<Banner> banners
 @param List<String> routes
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param String currentPage
 @param String lang
@@ -16,7 +15,7 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean arabic = "ar".equals(lang);}
-!{boolean canWrite = actionsEnabled && factorBound;}
+!{boolean canWrite = actionsEnabled;}
 <%-- dashboard/pages/banners/page.php. The add form is the only multipart
      form on this surface; the file goes to LegacyFileUploads, which names
      the stored file from its sniffed type (D-154). --%>
@@ -25,7 +24,6 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
-	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -38,8 +36,6 @@
 		@endif
 		@if(!actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(!factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		<div class="data-table-card">

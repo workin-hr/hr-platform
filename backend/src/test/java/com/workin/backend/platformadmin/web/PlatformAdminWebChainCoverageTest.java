@@ -103,7 +103,7 @@ class PlatformAdminWebChainCoverageTest extends AbstractIntegrationTest {
 	 */
 	@Test
 	void theAdminChainDoesNotSwallowUnrelatedPaths() {
-		assertThat(chainFor(HttpMethod.GET, "/api/platform-admin/me")).isNotSameAs(this.adminChain);
+		assertThat(chainFor(HttpMethod.GET, "/apis/api/configs/get")).isNotSameAs(this.adminChain);
 		assertThat(chainFor(HttpMethod.GET, "/actuator/health")).isNotSameAs(this.adminChain);
 	}
 

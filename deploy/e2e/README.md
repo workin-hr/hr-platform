@@ -47,7 +47,7 @@ would pick them up.
 
 | Variable | Default | |
 |---|---|---|
-| `ADMIN_ACTIONS_ENABLED` | `false` | `true` runs the step-up and audit case |
+| `ADMIN_ACTIONS_ENABLED` | `false` | `true` runs the administrative-action case |
 | `E2E_SEED_PROD` | unset | restores the sanitised seed into the prod stack by hand |
 | `E2E_REGENERATE_TLS` | unset | new certificate |
 | `E2E_TLS_DIR` | `$TMPDIR/workin-e2e-tls-<uid>` | where the run's key and certificate live |
@@ -86,9 +86,8 @@ suite could make on its own.
 node shoot.mjs employees branches payroll     # -> shots/<page>.png
 ```
 
-Signs in through the real MFA flow once, then captures each page named. The
-alternative — rebuild, click through login and a TOTP code by hand, look — is a
-minute per iteration, and appearance work is many iterations. `SHOT_PROBE` runs
+Signs in once, then captures each page named. The alternative — rebuild, click
+through login by hand, look — is a minute per iteration, and appearance work is many iterations. `SHOT_PROBE` runs
 an expression in the page after each capture and prints what it returns, which
 is how you learn that a table is 813px wide inside a 1130px card instead of
 guessing from the picture.
@@ -126,7 +125,4 @@ LOCAL_MANIFEST=pages.txt LOCAL_HEADERS_OUT=local.json node headers-local.mjs
 ## Not wired into CI
 
 CI has no Docker daemon with the image built, and a full run is minutes rather
-than seconds. This is a pre-cutover and pre-release check that a human starts,
-in the same category as `scripts/verify-platform-admin-flow.sh` — which covers
-the same admin flow at the HTTP level and remains the quicker way to re-check it
-by hand.
+than seconds. This is a pre-cutover and pre-release check that a human starts.

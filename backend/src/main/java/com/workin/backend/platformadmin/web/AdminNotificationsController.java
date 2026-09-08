@@ -53,7 +53,6 @@ public class AdminNotificationsController {
 		model.addAttribute("result", this.service.list(filters.companyId(), filters.search(),
 				recipient, dateFrom, dateTo, filters.page(), filters.perPage()));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		model.addAttribute("sentCount", sent);
 		return VIEW;
@@ -65,7 +64,7 @@ public class AdminNotificationsController {
 	public String delete(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
 			@RequestParam long id) {
 		BroadcastAdminService.Result result = this.service.delete(
-				principal.platformAdminId(), principal.factorBound(), id);
+				principal.platformAdminId(), id);
 		return result.ok() ? REDIRECT : REDIRECT + "?error=" + result.errorKey();
 	}
 
@@ -80,7 +79,7 @@ public class AdminNotificationsController {
 			@RequestParam(required = false) String confirmBroadcast) {
 
 		BroadcastAdminService.Result result = this.service.send(
-				principal.platformAdminId(), principal.factorBound(), audience, title, body,
+				principal.platformAdminId(), audience, title, body,
 				companyId, confirmBroadcast != null && !confirmBroadcast.isBlank());
 
 		return result.ok()

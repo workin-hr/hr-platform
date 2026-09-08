@@ -7,6 +7,7 @@
 | ADR ID | ADR-0015 |
 | Title | Authentication for the platform-admin web surface, server-rendered with JTE |
 | Status | Accepted |
+| Amended | **2026-09-08** — the **authentication model** (individual administrators, TOTP with seed custody, step-up approvals, the bearer API) is superseded by ADR-0018. The surface itself, its server-side session, CSRF and cookie hardening, per-request revalidation, the audit trail and prerequisite 7 stand |
 | Date | 2026-09-01 |
 | Owners | Solution Architect (primary), Product (scope input) |
 | Deciders | Repository owner |

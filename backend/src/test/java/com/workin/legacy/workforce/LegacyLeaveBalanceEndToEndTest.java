@@ -24,7 +24,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.core.io.ByteArrayResource;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
@@ -37,7 +36,6 @@ import com.workin.legacy.LegacyMariaDb;
 /** Focused parity regressions for Wave 12.7 leave balances. */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@ActiveProfiles("phase1-mysql")
 class LegacyLeaveBalanceEndToEndTest {
 
 	/** A database of this class's own, inside the shared container. */

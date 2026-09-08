@@ -35,24 +35,9 @@ public abstract class AbstractIntegrationTest {
 
 	protected static final String TEST_JWT_SECRET = "test-only-secret-not-used-in-production-000000000000";
 
-	/**
-	 * The platform-admin TOTP seed key, generated once per JVM run.
-	 *
-	 * <p>Generated rather than written down: a base64 key literal in source is
-	 * indistinguishable from a leaked one, and the repository's secret scanner
-	 * flags it. Registered here rather than per test class so every context
-	 * shares one value -- a per-class key gives each class its own property set,
-	 * which means its own application context, which means its own connection
-	 * pools, and enough of those exhaust Postgres and fail with an unrelated
-	 * "unable to determine dialect".
-	 */
-	protected static final String TEST_MFA_ENCRYPTION_KEY = generateMfaKey();
+	/** The dashboard's one password (ADR-0018); the bootstrap provisions the row from it. */
+	protected static final String TEST_ADMIN_PASSWORD = "correct horse battery staple";
 
-	private static String generateMfaKey() {
-		byte[] key = new byte[32];
-		new java.security.SecureRandom().nextBytes(key);
-		return java.util.Base64.getEncoder().encodeToString(key);
-	}
 
 	/** A database of this class's own, inside the suite's one MariaDB. */
 	protected static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
@@ -60,10 +45,10 @@ public abstract class AbstractIntegrationTest {
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {
 		registry.add("app.jwt.secret", () -> TEST_JWT_SECRET);
+		registry.add("app.platform-admin.password", () -> TEST_ADMIN_PASSWORD);
 		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
 		registry.add("app.legacy-db.username", MARIADB::getUsername);
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
-		registry.add("app.platform-admin.mfa.encryption-key", () -> TEST_MFA_ENCRYPTION_KEY);
 	}
 
 

@@ -70,7 +70,6 @@ public class AdminLeaveBalancesController {
 		model.addAttribute("employeeOptions", this.store.employeeOptions(filters.companyId()));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "leave_balances"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		return VIEW;
 	}
@@ -105,15 +104,14 @@ public class AdminLeaveBalancesController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 
 		try {
 			long wrote = switch (action) {
-				case "add_leave" -> this.service.add(session, adminId, bound, employeeId,
+				case "add_leave" -> this.service.add(session, adminId, employeeId,
 						year(year, this.clock.now().getYear()), totalDays);
 				case "edit_leave" -> this.service.saveEdit(
-						session, adminId, bound, id, totalDays, usedDays);
-				case "delete_leave" -> this.service.delete(session, adminId, bound, id);
+						session, adminId, id, totalDays, usedDays);
+				case "delete_leave" -> this.service.delete(session, adminId, id);
 				default -> throw new LeaveBalanceAdminService.RefusedException(
 						LeaveBalanceAdminService.Refusal.NO_COMPANY);
 			};
@@ -127,7 +125,6 @@ public class AdminLeaveBalancesController {
 	private static String messageKey(LeaveBalanceAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case NO_COMPANY -> "select_company_first";
 			case NO_EMPLOYEE -> "error_required";
 			case FOREIGN_ROW -> "error_db";

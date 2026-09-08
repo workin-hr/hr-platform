@@ -13,7 +13,6 @@
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
-@param boolean factorBound
 @param JobTitle editRow = null
 @param boolean addOpen = false
 @param String errorKey = null
@@ -22,7 +21,7 @@
 @param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-!{boolean canWrite = canManage && actionsEnabled && factorBound;}
+!{boolean canWrite = canManage && actionsEnabled;}
 !{int colCount = showCompanyColumn ? 9 : 8;}
 <%-- dashboard/pages/job_titles/page.php. --%>
 @template.admin.layout(
@@ -30,7 +29,6 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
-	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -43,8 +41,6 @@
 		@endif
 		@if(canManage && !actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(canManage && !factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		<div class="toolbar page-toolbar page-toolbar-filters">

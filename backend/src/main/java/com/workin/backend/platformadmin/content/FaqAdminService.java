@@ -60,8 +60,8 @@ public class FaqAdminService {
 	}
 
 	@Transactional
-	public Result createCategory(long adminId, boolean factorBound, FaqForm.CategoryResult form) {
-		Result gate = gate(factorBound);
+	public Result createCategory(long adminId, FaqForm.CategoryResult form) {
+		Result gate = gate();
 		if (gate != null) {
 			return gate;
 		}
@@ -75,8 +75,8 @@ public class FaqAdminService {
 	}
 
 	@Transactional
-	public Result updateCategory(long adminId, boolean factorBound, long id, FaqForm.CategoryResult form) {
-		Result gate = gate(factorBound);
+	public Result updateCategory(long adminId, long id, FaqForm.CategoryResult form) {
+		Result gate = gate();
 		if (gate != null) {
 			return gate;
 		}
@@ -98,8 +98,8 @@ public class FaqAdminService {
 	 * vanished" is answered by that number and by nothing else.
 	 */
 	@Transactional
-	public Result deleteCategory(long adminId, boolean factorBound, long id) {
-		Result gate = gate(factorBound);
+	public Result deleteCategory(long adminId, long id) {
+		Result gate = gate();
 		if (gate != null) {
 			return gate;
 		}
@@ -113,8 +113,8 @@ public class FaqAdminService {
 	}
 
 	@Transactional
-	public Result createItem(long adminId, boolean factorBound, FaqForm.ItemResult form) {
-		Result gate = gate(factorBound);
+	public Result createItem(long adminId, FaqForm.ItemResult form) {
+		Result gate = gate();
 		if (gate != null) {
 			return gate;
 		}
@@ -135,8 +135,8 @@ public class FaqAdminService {
 	}
 
 	@Transactional
-	public Result updateItem(long adminId, boolean factorBound, long id, FaqForm.ItemResult form) {
-		Result gate = gate(factorBound);
+	public Result updateItem(long adminId, long id, FaqForm.ItemResult form) {
+		Result gate = gate();
 		if (gate != null) {
 			return gate;
 		}
@@ -155,8 +155,8 @@ public class FaqAdminService {
 	}
 
 	@Transactional
-	public Result deleteItem(long adminId, boolean factorBound, long id) {
-		Result gate = gate(factorBound);
+	public Result deleteItem(long adminId, long id) {
+		Result gate = gate();
 		if (gate != null) {
 			return gate;
 		}
@@ -169,19 +169,16 @@ public class FaqAdminService {
 	}
 
 	/** @return the refusal, or null when the caller may proceed */
-	private Result gate(boolean factorBound) {
+	private Result gate() {
 		if (!this.actionsEnabled) {
 			return Result.rejected("admin_actions_disabled");
-		}
-		if (!factorBound) {
-			return Result.rejected("mfa_required_for_actions");
 		}
 		return null;
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, String targetType,
 			String targetId, String detail) {
-		this.auditService.recordAction(adminId, type, targetType, targetId, null, detail);
+		this.auditService.recordAction(adminId, type, targetType, targetId, detail);
 	}
 
 }

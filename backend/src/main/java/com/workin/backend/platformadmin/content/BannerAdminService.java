@@ -66,8 +66,8 @@ public class BannerAdminService {
 	}
 
 	@Transactional
-	public Result create(long adminId, boolean factorBound, MultipartFile image, Submission submission) {
-		Result gate = gate(factorBound);
+	public Result create(long adminId, MultipartFile image, Submission submission) {
+		Result gate = gate();
 		if (gate != null) {
 			return gate;
 		}
@@ -92,9 +92,9 @@ public class BannerAdminService {
 	 * without it, saving a caption would blank the picture.
 	 */
 	@Transactional
-	public Result update(long adminId, boolean factorBound, long id,
+	public Result update(long adminId, long id,
 			MultipartFile image, Submission submission) {
-		Result gate = gate(factorBound);
+		Result gate = gate();
 		if (gate != null) {
 			return gate;
 		}
@@ -119,8 +119,8 @@ public class BannerAdminService {
 	}
 
 	@Transactional
-	public Result delete(long adminId, boolean factorBound, long id) {
-		Result gate = gate(factorBound);
+	public Result delete(long adminId, long id) {
+		Result gate = gate();
 		if (gate != null) {
 			return gate;
 		}
@@ -129,17 +129,14 @@ public class BannerAdminService {
 		}
 		this.store.delete(id);
 		this.auditService.recordAction(adminId, PlatformAdminAuditEventType.CONTENT_DELETED,
-				TARGET_TYPE, String.valueOf(id), null, null);
+				TARGET_TYPE, String.valueOf(id), null);
 		return Result.DONE;
 	}
 
 	/** @return the refusal, or null when the caller may proceed */
-	private Result gate(boolean factorBound) {
+	private Result gate() {
 		if (!this.actionsEnabled) {
 			return Result.rejected("admin_actions_disabled");
-		}
-		if (!factorBound) {
-			return Result.rejected("mfa_required_for_actions");
 		}
 		return null;
 	}
@@ -152,7 +149,7 @@ public class BannerAdminService {
 	private void audit(long adminId, PlatformAdminAuditEventType type, String targetId, Banner banner) {
 		String detail = banner.buttonActionType().stored()
 				+ (banner.buttonActionValue() == null ? "" : ": " + banner.buttonActionValue());
-		this.auditService.recordAction(adminId, type, TARGET_TYPE, targetId, null, detail);
+		this.auditService.recordAction(adminId, type, TARGET_TYPE, targetId, detail);
 	}
 
 	/**

@@ -22,7 +22,6 @@
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param String currentPage
 @param String lang
@@ -30,7 +29,7 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean arabic = "ar".equals(lang);}
-!{boolean canWrite = canManage && actionsEnabled && factorBound;}
+!{boolean canWrite = canManage && actionsEnabled;}
 <%-- The range, as a map: the pager needs it in every page link AND as hidden
      inputs in the page-size form, and one source keeps those from drifting. --%>
 !{java.util.SequencedMap<String, String> carry =
@@ -47,7 +46,6 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
-	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -60,8 +58,6 @@
 		@endif
 		@if(canManage && !actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(canManage && !factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		<div class="toolbar page-toolbar page-toolbar-filters">

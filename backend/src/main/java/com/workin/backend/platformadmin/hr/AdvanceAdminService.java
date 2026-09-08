@@ -30,8 +30,6 @@ public class AdvanceAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/** {@code error_db}: the row or the employee belongs to another company. */
 		FOREIGN_ROW,
@@ -78,12 +76,9 @@ public class AdvanceAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -132,9 +127,9 @@ public class AdvanceAdminService {
 
 	@Transactional
 	public long add(
-			DashboardSession session, long adminId, boolean factorBound, long employeeId,
+			DashboardSession session, long adminId, long employeeId,
 			String rawAmount, String reason, String requestDate) {
-		gate(factorBound);
+		gate();
 		BigDecimal amount = Advance.amount(rawAmount);
 		if (employeeId <= 0 || amount.signum() <= 0) {
 			throw new RefusedException(Refusal.INVALID);
@@ -156,9 +151,9 @@ public class AdvanceAdminService {
 	 */
 	@Transactional
 	public long saveEdit(
-			DashboardSession session, long adminId, boolean factorBound, long id, long employeeId,
+			DashboardSession session, long adminId, long id, long employeeId,
 			String rawAmount, String reason, String requestDate) {
-		gate(factorBound);
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		Advance existing = this.store.byId(id);
@@ -184,8 +179,8 @@ public class AdvanceAdminService {
 
 	/** Only from pending: an advance is decided once. */
 	@Transactional
-	public long approve(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long approve(DashboardSession session, long adminId, long id) {
+		gate();
 		long companyId = assertRowVisible(session, id);
 		requirePending(id);
 
@@ -198,9 +193,9 @@ public class AdvanceAdminService {
 	/** Only from pending, and the reason is not optional. */
 	@Transactional
 	public long reject(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			String rejectionReason) {
-		gate(factorBound);
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		// Checked before the status, which is legacy's order: an empty reason
@@ -226,8 +221,8 @@ public class AdvanceAdminService {
 	 * exists for.
 	 */
 	@Transactional
-	public long markPaid(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long markPaid(DashboardSession session, long adminId, long id) {
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		this.store.markPaid(id);
@@ -237,8 +232,8 @@ public class AdvanceAdminService {
 	}
 
 	@Transactional
-	public long delete(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long delete(DashboardSession session, long adminId, long id) {
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		this.store.delete(id);
@@ -264,7 +259,7 @@ public class AdvanceAdminService {
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
-		this.auditService.recordAction(adminId, type, "advance", String.valueOf(id), null, detail);
+		this.auditService.recordAction(adminId, type, "advance", String.valueOf(id), detail);
 	}
 
 }

@@ -6,7 +6,6 @@
 @param String currentAdminPhone
 @param List<PhoneCountry> countries
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param String currentPage
 @param String lang
@@ -20,7 +19,6 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
-	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -33,15 +31,13 @@
 		@endif
 		@if(!actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(!factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_phone_countries")} (${countries.size()})</h2>
 				<div class="data-table-head__actions">
-					@if(actionsEnabled && factorBound)
+					@if(actionsEnabled)
 						<button type="button" class="btn btn-blue btn-sm"
 								onclick="crudOpenAdd('pcModal')">+ ${t.apply("add")}</button>
 					@endif
@@ -86,7 +82,7 @@
 								<td class="col-actions">
 									<%-- A trigger with nothing behind it opens an empty popover,
 									     so the trigger takes the same guard its only item has. --%>
-									@if(actionsEnabled && factorBound)
+									@if(actionsEnabled)
 										@template.admin.rowActions(rowId = country.id(), t = t, items = @`
 											<form method="post" class="row-actions__form"
 											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
@@ -110,7 +106,7 @@
 			</div>
 		</div>
 
-		@if(actionsEnabled && factorBound)
+		@if(actionsEnabled)
 			<%-- Legacy opens this form in a modal, behind the "+" button above.
 			     Rendered inline it sat open over the table on every visit, whether
 			     or not anyone was adding anything. Same form, same fields, same

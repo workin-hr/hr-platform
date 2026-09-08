@@ -60,7 +60,6 @@ public class AdminComplaintsController {
 				current, filters, source, status, dateFrom, dateTo));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "complaints"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		return VIEW;
 	}
@@ -80,13 +79,12 @@ public class AdminComplaintsController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 
 		try {
 			long wrote = switch (action) {
-				case "reply" -> this.service.reply(session, adminId, bound, id, reply, status);
-				case "set_status" -> this.service.setStatus(session, adminId, bound, id, status);
-				case "delete" -> this.service.delete(session, adminId, bound, id);
+				case "reply" -> this.service.reply(session, adminId, id, reply, status);
+				case "set_status" -> this.service.setStatus(session, adminId, id, status);
+				case "delete" -> this.service.delete(session, adminId, id);
 				default -> throw new ComplaintAdminService.RefusedException(
 						ComplaintAdminService.Refusal.FOREIGN_ROW);
 			};
@@ -100,7 +98,6 @@ public class AdminComplaintsController {
 	private static String messageKey(ComplaintAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case FOREIGN_ROW -> "error_db";
 			case INVALID_STATUS -> "error_required";
 		};

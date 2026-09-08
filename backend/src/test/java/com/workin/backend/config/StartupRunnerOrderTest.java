@@ -52,33 +52,30 @@ class StartupRunnerOrderTest {
 	}
 
 	/**
-	 * Every runner in either profile, not the ones one profile happens to
-	 * activate.
+	 * Every runner the scan finds.
 	 *
-	 * <p>{@code @Profile} is a {@code @Conditional}, and the scanner evaluates
-	 * conditions against its environment -- so a single scan silently omits
-	 * half the runners, {@link Phase1SchemaCheck} among them. That is how the
-	 * first version of this test passed its ordering assertion while never
-	 * looking at the class it exists to protect. Two scans, unioned.
+	 * <p>This used to scan twice and union the results, because {@code @Profile}
+	 * is a {@code @Conditional} and a scan evaluates conditions against its
+	 * environment -- so one scan silently omitted half the runners,
+	 * {@link Phase1SchemaCheck} among them, and the test passed its ordering
+	 * assertion while never looking at the class it exists to protect. One
+	 * wiring since ADR-0017, and {@code ProfileFreeWiringTest} keeps it that
+	 * way, so one scan now sees everything.
 	 */
 	private static List<Class<?>> applicationRunners() {
 		List<Class<?>> found = new ArrayList<>();
-		for (String[] profiles : new String[][] { { "phase1-mysql" }, {} }) {
-			StandardEnvironment environment = new StandardEnvironment();
-			environment.setActiveProfiles(profiles);
-			ClassPathScanningCandidateComponentProvider scanner =
-					new ClassPathScanningCandidateComponentProvider(false, environment);
-			scanner.addIncludeFilter(new AssignableTypeFilter(ApplicationRunner.class));
-			for (BeanDefinition definition : scanner.findCandidateComponents("com.workin")) {
-				try {
-					Class<?> runner = Class.forName(definition.getBeanClassName());
-					if (!found.contains(runner)) {
-						found.add(runner);
-					}
+		ClassPathScanningCandidateComponentProvider scanner =
+				new ClassPathScanningCandidateComponentProvider(false, new StandardEnvironment());
+		scanner.addIncludeFilter(new AssignableTypeFilter(ApplicationRunner.class));
+		for (BeanDefinition definition : scanner.findCandidateComponents("com.workin")) {
+			try {
+				Class<?> runner = Class.forName(definition.getBeanClassName());
+				if (!found.contains(runner)) {
+					found.add(runner);
 				}
-				catch (ClassNotFoundException ex) {
-					throw new IllegalStateException(definition.getBeanClassName(), ex);
-				}
+			}
+			catch (ClassNotFoundException ex) {
+				throw new IllegalStateException(definition.getBeanClassName(), ex);
 			}
 		}
 		return found;

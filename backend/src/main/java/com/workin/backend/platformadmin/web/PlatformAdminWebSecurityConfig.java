@@ -27,17 +27,16 @@ import com.workin.backend.platformadmin.PlatformAdminRepository;
  * enumerates the handler registry instead of testing a list of routes someone
  * remembered to write down (prerequisite 5).
  *
- * <p><b>Active under both profiles.</b> Legacy has a platform admin web of its
- * own (`dashboard/pages/companies/`), so the MySQL deployment shape needs one
- * too. What is deliberately not carried over is how legacy authenticates it:
- * `doAdminLogin()` checks a single shared password held in a config constant
- * (`hr-legacy#11`), which F-26/D-027 rejected. The identity model here is the
- * same on either database; only the schema the entities map to differs.
+ * <p>This is the replacement for legacy's platform admin web
+ * (`dashboard/pages/companies/`), and it signs in the way legacy does -- one
+ * administrator, one password, no phone (ADR-0018) -- with the guards legacy
+ * lacks behind the form: a hashed password, a per-client miss budget, session
+ * rotation, CSRF, and an audit row for every login, miss and logout.
  *
  * <p>Ordered ahead of every existing chain. It does not overlap them --
- * {@code /admin/**} against {@code /api/platform-admin/**}, {@code /apis/**} and
- * the catch-all -- but ordering it first makes precedence a property of the
- * configuration rather than of the paths happening not to collide.
+ * {@code /admin/**} against {@code /apis/**} and the catch-all -- but ordering
+ * it first makes precedence a property of the configuration rather than of the
+ * paths happening not to collide.
  */
 @Configuration
 public class PlatformAdminWebSecurityConfig {
@@ -50,29 +49,6 @@ public class PlatformAdminWebSecurityConfig {
 	public static final String LOGIN_PATH = PATH_PREFIX + "/login";
 
 	public static final String LOGOUT_PATH = PATH_PREFIX + "/logout";
-
-	/**
-	 * The second-factor challenge. Reachable without an authenticated session on
-	 * purpose: at this point the password has passed but no security context
-	 * exists yet, so the route has to be permitted here and gated on the
-	 * session's pending marker in the controller instead. Anything else would
-	 * mean granting a context before the second factor, which is the thing the
-	 * factor exists to prevent.
-	 */
-	public static final String MFA_PATH = PATH_PREFIX + "/mfa";
-
-	/** D-152's enrolment ceremony: password and bootstrap token, no session yet. */
-	public static final String ENROL_PATH = PATH_PREFIX + "/enrol";
-
-	/**
-	 * The ceremony's second step. Named separately because the matcher below is
-	 * exact: {@code /admin/enrol} does not cover {@code /admin/enrol/confirm},
-	 * and the omission was invisible in testing -- an unpermitted route lands on
-	 * the entry point, which redirects to the login page, which is also where a
-	 * successful confirmation goes. The test now asserts the factor is bound
-	 * rather than trusting the destination.
-	 */
-	public static final String ENROL_CONFIRM_PATH = ENROL_PATH + "/confirm";
 
 	/**
 	 * Idle timeout, mirrored in {@code application.properties} where the
@@ -97,20 +73,18 @@ public class PlatformAdminWebSecurityConfig {
 	/** Platform administration of companies (ADR-0009 Option E). */
 	public static final String COMPANIES_PATH = PATH_PREFIX + "/companies";
 
-	public static final String COMPANIES_CONFIRM_PATH = COMPANIES_PATH + "/confirm";
-
 	/**
 	 * One company's detail page, {@code /admin/companies/{id}}.
 	 *
-	 * <p>Its pattern would also match {@code /admin/companies/confirm} and
-	 * {@code /admin/companies/apply}, which is harmless -- all three are
-	 * authenticated, and Spring resolves the literal mappings ahead of the
-	 * variable one. Worth naming because the reverse (a literal shadowed by a
+	 * <p>Its pattern would also match {@code /admin/companies/action}, which
+	 * is harmless -- both are authenticated, and Spring resolves the literal
+	 * mapping ahead of the variable one. Worth naming because the reverse (a literal shadowed by a
 	 * variable) is the mistake this shape usually produces.
 	 */
 	public static final String COMPANY_DETAIL_PATH = COMPANIES_PATH + "/{companyId}";
 
-	public static final String COMPANIES_APPLY_PATH = COMPANIES_PATH + "/apply";
+	/** The lifecycle actions, one POST each (ADR-0018). */
+	public static final String COMPANIES_ACTION_PATH = COMPANIES_PATH + "/action";
 
 	/**
 	 * Platform content the clients read but cannot write -- dial codes first
@@ -233,7 +207,7 @@ public class PlatformAdminWebSecurityConfig {
 	 * passed.
 	 */
 	public static final String[] PUBLIC_PATHS = {
-		LOGIN_PATH, MFA_PATH, ENROL_PATH, ENROL_CONFIRM_PATH,
+		LOGIN_PATH,
 	};
 
 	/**

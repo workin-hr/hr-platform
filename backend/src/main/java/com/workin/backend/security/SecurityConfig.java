@@ -19,9 +19,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import com.workin.backend.identity.JwtService;
-import com.workin.backend.platformadmin.PlatformAdminJwtService;
-import com.workin.backend.platformadmin.PlatformAdminRefreshTokenRepository;
-import com.workin.backend.platformadmin.PlatformAdminRepository;
 import com.workin.backend.tenancy.NoTenantScopeException;
 import com.workin.backend.tenancy.TenantScope;
 import com.workin.backend.tenancy.TenantScopeFilter;
@@ -37,97 +34,6 @@ public class SecurityConfig {
 	@Bean
 	public PasswordEncoder passwordEncoder() {
 		return new BCryptPasswordEncoder();
-	}
-
-	/**
-	 * The platform-admin API's unauthenticated routes. Same reasoning as
-	 * {@code PlatformAdminWebSecurityConfig.PUBLIC_PATHS}: checked against the
-	 * handlers' {@code @PublicUseCase} declarations by
-	 * {@code SecurityPolicyAgreementTest}, so this list cannot drift from what
-	 * the controllers say about themselves.
-	 */
-	public static final String[] PLATFORM_ADMIN_API_PUBLIC_PATHS = {
-		"/api/platform-admin/login", "/api/platform-admin/refresh", "/api/platform-admin/logout",
-	};
-
-	/**
-	 * Unprofiled: the platform-admin API is available under both profiles, for
-	 * the same reason its UI is. Its matcher ({@code /api/platform-admin/**})
-	 * cannot collide with the legacy chain's ({@code /apis/**}), so ordering it
-	 * first is safe on either.
-	 */
-	@Bean
-	@Order(1)
-	public SecurityFilterChain platformAdminSecurityFilterChain(
-			HttpSecurity http, PlatformAdminJwtService platformAdminJwtService,
-			PlatformAdminRepository platformAdminRepository,
-			PlatformAdminRefreshTokenRepository platformAdminRefreshTokenRepository,
-			ApiSecurityErrorHandler apiSecurityErrorHandler) throws Exception {
-		http
-			.securityMatcher("/api/platform-admin/**")
-			.csrf(csrf -> csrf.disable())
-			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-			.exceptionHandling(exceptions -> exceptions
-				.authenticationEntryPoint(apiSecurityErrorHandler)
-				.accessDeniedHandler(apiSecurityErrorHandler))
-			.authorizeHttpRequests(authorize -> authorize
-				.requestMatchers(PLATFORM_ADMIN_API_PUBLIC_PATHS).permitAll()
-				.anyRequest().authenticated())
-			.addFilterBefore(
-				new PlatformAdminAuthenticationFilter(
-						platformAdminJwtService, platformAdminRepository, platformAdminRefreshTokenRepository),
-				UsernamePasswordAuthenticationFilter.class);
-		return http.build();
-	}
-
-	/**
-	 * Phase-1 compatibility chain. Literal /apis/** requests authenticate with
-	 * the exact JWT format produced by frozen PHP. The JwtService dependency is
-	 * retained only for the temporary /api/legacy/** regression aliases that
-	 * predate the literal-route retrofit; it is not the client contract.
-	 *
-	 * <p>PHP employee tokens are re-derived against the employee row. Any signed
-	 * PHP non-employee token (the frozen desktop/company login emits type=company)
-	 * has no employee membership claim; PHP trusts its signed company_id, so the
-	 * compatibility chain does the same. Company-active checks remain at the same
-	 * controller guard points as the frozen source.
-	 */
-	/**
-	 * The stored uploads, which are public and say so here.
-	 *
-	 * <p>They were reachable by no chain at all, which is a different thing
-	 * from being public: nothing decided it, and nothing wrote a security
-	 * header on the response. The frozen stack serves {@code /uploads} from the
-	 * webroot with no session, and the clients fetch these URLs directly from
-	 * ordinary response bodies, so requiring authentication would break every
-	 * client -- the change **D-111** forbids. What this adds over "matches
-	 * nothing" is the standard header set and a rule a reviewer can see.
-	 *
-	 * <p>Order 4, after every other chain. The matchers cannot overlap --
-	 * {@code /admin/**}, {@code /api/**} and {@code /apis/**} do not match
-	 * {@code /uploads/**} -- so the position only decides which one wins if a
-	 * later change makes them, and an API matcher broadening over the uploads
-	 * should take them with it rather than leave them public by accident.
-	 *
-	 * @see com.workin.legacy.uploads.LegacyUploadServing which serves them, and
-	 *     refuses any extension this system does not itself write
-	 */
-	@Bean
-	@Order(4)
-	@Profile("phase1-mysql")
-	public SecurityFilterChain legacyUploadsSecurityFilterChain(HttpSecurity http,
-			@Value("${app.legacy-uploads.url:/uploads/}") String uploadUrl) throws Exception {
-		String prefix = uploadUrl.startsWith("/")
-				? (uploadUrl.endsWith("/") ? uploadUrl : uploadUrl + "/")
-				// Served elsewhere; the matcher still needs a value, and one
-				// this application never routes is the right one.
-				: "/__uploads-served-elsewhere/";
-		http
-			.securityMatcher(prefix + "**")
-			.csrf(csrf -> csrf.disable())
-			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-			.authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll());
-		return http.build();
 	}
 
 	@Bean

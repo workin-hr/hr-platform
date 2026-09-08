@@ -23,7 +23,6 @@
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
-@param boolean factorBound
 @param Employee editRow = null
 @param boolean addOpen = false
 @param String errorKey = null
@@ -37,7 +36,7 @@
      would tick over up to three hours before the database agrees. One value
      for the page, so it cannot disagree with itself across midnight. --%>
 @param java.time.LocalDate today
-!{boolean canWrite = canManage && actionsEnabled && factorBound;}
+!{boolean canWrite = canManage && actionsEnabled;}
 !{boolean arabic = "ar".equals(lang);}
 !{int colCount = showCompanyColumn ? 14 : 13;}
 <%-- dashboard/pages/employees/page.php. --%>
@@ -46,7 +45,6 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
-	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -59,8 +57,6 @@
 		@endif
 		@if(canManage && !actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(canManage && !factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		<div class="toolbar page-toolbar page-toolbar-filters">

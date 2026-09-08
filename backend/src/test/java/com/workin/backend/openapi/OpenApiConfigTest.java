@@ -93,12 +93,12 @@ class OpenApiConfigTest {
 	@Test
 	@DisplayName("a path that is not a legacy file is left exactly as it is")
 	void leavesNonLegacyPathsUntouched() {
-		OpenAPI document = documentOf("/api/platform-admin/login");
+		OpenAPI document = documentOf("/actuator/health");
 
 		customizer.customise(document);
 
-		assertThat(document.getPaths()).containsOnlyKeys("/api/platform-admin/login");
-		assertThat(verbsAt(document, "/api/platform-admin/login"))
+		assertThat(document.getPaths()).containsOnlyKeys("/actuator/health");
+		assertThat(verbsAt(document, "/actuator/health"))
 				.hasSize(PathItem.HttpMethod.values().length);
 	}
 

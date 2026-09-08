@@ -34,8 +34,6 @@ public class DepartmentAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/** {@code select_company_first}. */
 		NO_COMPANY,
@@ -81,12 +79,9 @@ public class DepartmentAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -142,9 +137,9 @@ public class DepartmentAdminService {
 
 	@Transactional
 	public long add(
-			DashboardSession session, long adminId, boolean factorBound, long postedCompanyId,
+			DashboardSession session, long adminId, long postedCompanyId,
 			String rawName, List<Long> branchIds) {
-		gate(factorBound);
+		gate();
 		long companyId = assertWritable(session, postedCompanyId, 0L);
 		// The name is checked before the branches, which is legacy's order and
 		// therefore which message an operator sees when both are wrong.
@@ -161,9 +156,9 @@ public class DepartmentAdminService {
 
 	@Transactional
 	public long saveEdit(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			long postedCompanyId, String rawName, List<Long> branchIds, boolean active) {
-		gate(factorBound);
+		gate();
 		assertWritable(session, postedCompanyId, id);
 		// The row's own company, not the posted one. An administrator's form
 		// carries company_id and nothing checks it against the row, so
@@ -183,9 +178,9 @@ public class DepartmentAdminService {
 
 	@Transactional
 	public long delete(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			long postedCompanyId) {
-		gate(factorBound);
+		gate();
 		long companyId = assertWritable(session, postedCompanyId, id);
 		// The branch links are left alone: deactivating is not detaching, and
 		// reactivating the department has to bring its branches back with it.
@@ -196,7 +191,7 @@ public class DepartmentAdminService {
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
-		this.auditService.recordAction(adminId, type, "department", String.valueOf(id), null, detail);
+		this.auditService.recordAction(adminId, type, "department", String.valueOf(id), detail);
 	}
 
 }

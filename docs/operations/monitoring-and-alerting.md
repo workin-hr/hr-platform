@@ -96,11 +96,7 @@ prerequisite 10 requires the audit row to be written in the same transaction as
 the action, which makes "action without audit row" a condition that cannot
 occur rather than one to alert on.
 
-| MFA encryption key missing or wrong | Enrolment and TOTP verification fail with "not configured" or a decrypt failure; login is unaffected until the surface demands a second factor | `app.platform-admin.mfa.encryption-key` unset, or rotated without re-encrypting. Seeds are unreadable without it — **losing this key loses every enrolled factor**, so it belongs in the same backup and custody regime as the database, held separately from it |
-| MFA key rotated | Rows still carry the old `seed_key_version` | Re-encrypt those rows before retiring the old key; the version column exists so this can be done incrementally rather than all at once |
-
 | Administrative actions refused as disabled | Operators see "Administrative actions are disabled on this deployment" | `app.platform-admin.actions.enabled` is false, which is the shipped default. It is turned on only after the legacy PHP admin surface is confirmed unreachable (ADR-0015 prerequisite 7, D-152) |
-| A step-up approval minted but never spent | A `STEP_UP_APPROVED` audit row with no matching action row referencing it | Normal if an operator changed their mind; a run of them is worth looking at. Approvals expire after five minutes and are purged |
 | Audit rows growing | `platform_admin_audit_events` grows and is never trimmed | Intended. Retention is indefinite by decision (D-161) — this table is the evidence the shared-password model never had. The purged tables are `platform_admin_login_attempts` and `platform_admin_step_up_approvals` |
 
 **Capacity note:** one row per live admin session, in a population of

@@ -7,7 +7,6 @@
 @param List<Faq.Category> categories
 @param List<Faq.Item> items
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param String currentPage
 @param String lang
@@ -15,7 +14,7 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean arabic = "ar".equals(lang);}
-!{boolean canWrite = actionsEnabled && factorBound;}
+!{boolean canWrite = actionsEnabled;}
 <%-- dashboard/pages/faqs/page.php: categories and items as two cards, each
      with its own add form. Both tables list in the order the clients render
      them, which is why sort_order is shown rather than hidden. --%>
@@ -24,7 +23,6 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
-	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -37,8 +35,6 @@
 		@endif
 		@if(!actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(!factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		<div class="data-table-card">

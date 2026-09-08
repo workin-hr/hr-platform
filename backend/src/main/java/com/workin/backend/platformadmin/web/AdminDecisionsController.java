@@ -56,7 +56,6 @@ public class AdminDecisionsController {
 		model.addAttribute("canManage",
 				DashboardAccess.canViewPage(current, "administrative_decisions"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		model.addAttribute("addOpen", "add".equals(action));
 		model.addAttribute("editRow", "edit".equals(action) ? visible(current, filters, id) : null);
@@ -90,7 +89,6 @@ public class AdminDecisionsController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 		// `!empty($_POST['is_active'])` -- an unchecked box is absent, and
 		// absent is inactive. The opposite default from the org pages, where an
 		// absent flag means active.
@@ -99,10 +97,10 @@ public class AdminDecisionsController {
 		try {
 			long wrote = switch (action) {
 				case "add_decision" -> this.service.add(
-						session, adminId, bound, companyId, title, body, active);
+						session, adminId, companyId, title, body, active);
 				case "edit_decision" -> this.service.saveEdit(
-						session, adminId, bound, id, title, body, active);
-				case "delete_decision" -> this.service.delete(session, adminId, bound, id);
+						session, adminId, id, title, body, active);
+				case "delete_decision" -> this.service.delete(session, adminId, id);
 				default -> throw new AdministrativeDecisionAdminService.RefusedException(
 						AdministrativeDecisionAdminService.Refusal.INVALID);
 			};
@@ -117,7 +115,6 @@ public class AdminDecisionsController {
 			AdministrativeDecisionAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case INVALID -> "error_required";
 			case FOREIGN_ROW -> "error_db";
 		};

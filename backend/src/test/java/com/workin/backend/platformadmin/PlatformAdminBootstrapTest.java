@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import javax.sql.DataSource;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -13,17 +14,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import com.workin.backend.AbstractIntegrationTest;
 
 /**
- * Exercises PlatformAdminBootstrap directly (constructed with literal
- * test values, same pattern as JwtSecretStartupCheckTest) rather than
- * relying on the application-context-level bean, which always runs with
- * blank bootstrap properties in this test suite (AbstractIntegrationTest
- * sets none) and is therefore always a no-op at context startup.
- *
- * <p>platform_admins is shared, unreset database state across every
- * test class in this suite (AbstractIntegrationTest's singleton
- * container). PlatformAdminAuthFlowTest/PlatformAdminDomainSeparationTest
- * insert their own fixture rows directly, so "table is empty" cannot be
- * assumed here -- the empty-table scenario is established explicitly.
+ * The one administrator's row follows {@code APP_PLATFORM_ADMIN_PASSWORD}
+ * (ADR-0018): created when absent, re-encoded when the configured password
+ * changes, left alone when nothing is configured.
  */
 class PlatformAdminBootstrapTest extends AbstractIntegrationTest {
 
@@ -37,49 +30,79 @@ class PlatformAdminBootstrapTest extends AbstractIntegrationTest {
 	@Qualifier("legacyDataSource")
 	private DataSource legacyDataSource;
 
-	@Test
-	void firstRunCreatesTheAdminAndASecondRunDoesNotDuplicateOrResetIt() {
-		// Session rows reference platform_admins with a deliberately
-		// non-cascading FK (deleting a principal must never silently
-		// destroy dependent records -- the hr-legacy#20 lesson), so the
-		// children go first when this test resets shared state.
-		JdbcTemplate jdbc = new JdbcTemplate(legacyDataSource);
-		jdbc.update("DELETE FROM platform_admin_refresh_tokens");
+	/**
+	 * Every class on this base shares the context and its database, so the row
+	 * the other classes log in with is put back the way the context started it.
+	 */
+	@AfterEach
+	void restoreTheConfiguredPassword() {
+		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder,
+				TEST_ADMIN_PASSWORD).run(null);
+	}
+
+	private void startFromNothing() {
+		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		jdbc.update("DELETE FROM platform_admin_audit_events");
-		jdbc.update("DELETE FROM platform_admin_step_up_approvals");
-		jdbc.update("DELETE FROM platform_admin_mfa_bootstrap_tokens");
-		jdbc.update("DELETE FROM platform_admin_mfa");
+		jdbc.update("DELETE FROM platform_admin_login_attempts");
 		jdbc.update("DELETE FROM platform_admins");
-		String phone = "+2099" + System.nanoTime() % 100_000_000L;
-		PlatformAdminBootstrap bootstrap = new PlatformAdminBootstrap(
-				platformAdminRepository, passwordEncoder, phone, "correct horse battery staple");
+	}
 
-		bootstrap.run(null);
-
-		PlatformAdmin created = platformAdminRepository.findByPhone(phone).orElseThrow();
-		assertThat(created.isActive()).isTrue();
-		assertThat(passwordEncoder.matches("correct horse battery staple", created.getPasswordHash())).isTrue();
-
-		// A second run, even with different would-be credentials, must be
-		// a no-op -- platform_admins already has a row, so this must
-		// never silently reset an existing administrator's password.
-		PlatformAdminBootstrap secondRun = new PlatformAdminBootstrap(
-				platformAdminRepository, passwordEncoder, "+201111111111", "a-completely-different-password");
-		secondRun.run(null);
-
-		assertThat(platformAdminRepository.count()).isEqualTo(1);
-		PlatformAdmin unchanged = platformAdminRepository.findByPhone(phone).orElseThrow();
-		assertThat(passwordEncoder.matches("correct horse battery staple", unchanged.getPasswordHash())).isTrue();
+	private PlatformAdmin theAdmin() {
+		return this.platformAdminRepository.findByPhone(PlatformAdminLoginService.ADMIN_IDENTIFIER).orElseThrow();
 	}
 
 	@Test
-	void doesNothingWhenBootstrapCredentialsAreBlank() {
-		long countBefore = platformAdminRepository.count();
-		PlatformAdminBootstrap bootstrap = new PlatformAdminBootstrap(platformAdminRepository, passwordEncoder, "", "");
+	void firstRunCreatesTheAdminFromTheConfiguredPassword() {
+		startFromNothing();
 
-		bootstrap.run(null);
+		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder,
+				"correct horse battery staple").run(null);
 
-		assertThat(platformAdminRepository.count()).isEqualTo(countBefore);
+		assertThat(this.platformAdminRepository.count()).isEqualTo(1);
+		assertThat(theAdmin().isActive()).isTrue();
+		assertThat(this.passwordEncoder.matches("correct horse battery staple", theAdmin().getPasswordHash()))
+			.as("stored as a hash, never as the value")
+			.isTrue();
+	}
+
+	@Test
+	void aChangedPasswordIsRotatedOnTheNextStart() {
+		startFromNothing();
+		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder, "first").run(null);
+
+		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder, "second").run(null);
+
+		assertThat(this.platformAdminRepository.count())
+			.as("a rotation replaces the hash on the one row; it does not add a second administrator")
+			.isEqualTo(1);
+		assertThat(this.passwordEncoder.matches("second", theAdmin().getPasswordHash())).isTrue();
+		assertThat(this.passwordEncoder.matches("first", theAdmin().getPasswordHash())).isFalse();
+	}
+
+	@Test
+	void anUnchangedPasswordIsNotReEncoded() {
+		startFromNothing();
+		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder, "same").run(null);
+		String hash = theAdmin().getPasswordHash();
+
+		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder, "same").run(null);
+
+		assertThat(theAdmin().getPasswordHash())
+			.as("bcrypt salts every encoding, so an unchanged password must not be re-encoded on every start")
+			.isEqualTo(hash);
+	}
+
+	@Test
+	void anUnsetPasswordLeavesTheRowAlone() {
+		startFromNothing();
+		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder, "kept").run(null);
+
+		new PlatformAdminBootstrap(this.platformAdminRepository, this.passwordEncoder, "").run(null);
+
+		assertThat(this.platformAdminRepository.count()).isEqualTo(1);
+		assertThat(this.passwordEncoder.matches("kept", theAdmin().getPasswordHash()))
+			.as("an operator who forgot the variable keeps the last password rather than losing the login")
+			.isTrue();
 	}
 
 }

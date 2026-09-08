@@ -73,33 +73,32 @@ paginated shape the clients expect.
 
 ## The admin dashboard
 
-The same jar serves it; nothing extra to start. It needs
-`APP_PLATFORM_ADMIN_MFA_ENCRYPTION_KEY` (32 bytes, base64) and, to provision the
-first administrator, `APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE` / `_PASSWORD`.
+The same jar serves it; nothing extra to start. It signs in the way the PHP
+dashboard does -- **one administrator, one password, no phone** (ADR-0018) --
+and the password is deployment configuration:
 
-Administrative actions on companies are refused unless
-`APP_PLATFORM_ADMIN_ACTIONS_ENABLED=true`. They ship off: ADR-0015 prerequisite
-7 requires the legacy PHP admin surface — which still authenticates with the
-shared password — to be unreachable first. While both are live, MFA is only as
-strong as the weaker door.
-
-The same flag also gates the **org pages** — branches, departments, job titles
-and shifts. That is stricter than the PHP dashboard, whose only gate is the
-section permission, and it is deliberate: an administrator writing *inside a
-customer's company* is at least as sensitive as editing a FAQ (**D-171**,
-**D-175**). The owner's decision on 2026-09-05 is that the flag **may be
-enabled on the VPS** so those flows work, with the other two controls
-**unchanged**:
-
-| Control | On the VPS |
+| Variable | What it is |
 |---|---|
-| `APP_PLATFORM_ADMIN_ACTIONS_ENABLED` | **true** — required for branch and department management |
-| Bound second factor on the session | **required**, unchanged (D-152) |
-| Audit row in the same transaction | **required**, unchanged (`ORG_CREATED` / `ORG_UPDATED` / `ORG_DELETED`) |
+| `APP_PLATFORM_ADMIN_PASSWORD` | The dashboard password. The application keeps a **bcrypt hash** of it in `platform_admins` and re-encodes it on a restart whenever the value changes, so rotating it is: change the variable, restart. Unset, the last password stays in force; a database that never had one cannot be signed into |
+| `APP_PLATFORM_ADMIN_ACTIONS_ENABLED` | Defaults to **false**. While false the pages render read-only and say so. ADR-0015 prerequisite 7 keeps it off until the PHP admin surface -- which shares this password -- is unreachable, because while both are live the login is only as strong as the weaker door |
 
-So enabling the flag opens the pages; it does not relax what happens once they
-are open. An administrator who has not completed the enrolment ceremony still
-cannot write, and every write is still recorded against their id.
+Behind the form, what PHP does not do: the password is compared against a hash
+rather than a constant, the miss budget is spent **per client address** (eight
+misses in fifteen minutes; a per-account budget with one account would let
+anyone lock the administrator out from anywhere), the session id rotates on
+login, the cookie is `Secure`, `HttpOnly` and `SameSite=Lax`, every state
+change carries a CSRF token, and every login, miss and logout is an audit row.
+
+Sessions idle out after 30 minutes and end after 8 hours whatever the activity
+-- stricter than PHP's thirty days, and deliberately so.
+
+The **org pages** -- branches, departments, job titles and shifts -- are behind
+the same actions flag as the company actions. That is stricter than the PHP
+dashboard, whose only gate is the section permission, and it is deliberate: an
+administrator writing *inside a customer's company* is at least as sensitive
+as editing a FAQ (**D-171**, **D-175**). The owner's decision on 2026-09-05 is
+that the flag **may be enabled on the VPS** so those flows work; every write is
+still recorded against the administrator's row in the same transaction.
 
 ## Tokens already issued
 

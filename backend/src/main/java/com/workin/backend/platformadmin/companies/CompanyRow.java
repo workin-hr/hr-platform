@@ -6,11 +6,9 @@ package com.workin.backend.platformadmin.companies;
  *
  * <p>Distinct from {@code PlatformAdminCompanyDirectory.CompanyView}, which
  * ADR-0015 keeps deliberately narrow because it is the interface the
- * <em>lifecycle actions</em> run through and it has to be satisfiable over
- * both databases. This record is the listing, it exists only under
- * {@code phase1-mysql}, and widening the shared interface to carry it would
- * have made the PostgreSQL profile owe ten columns and three aggregate counts
- * that its schema has no answer for.
+ * <em>lifecycle actions</em> run through. This record is the listing: ten more
+ * columns and three aggregate counts that only the page needs, kept out of the
+ * interface the actions depend on.
  *
  * @param accountHolder  {@code company_person_name()}: first and last name
  *                       joined, a dash when both are blank

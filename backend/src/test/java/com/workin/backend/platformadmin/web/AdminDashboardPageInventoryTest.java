@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -43,15 +42,12 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * {@code contracts/legacy-dashboard-pages.txt}, generated and drift-checked by
  * {@code scripts/check_dashboard_page_drift.py}.
  *
- * <p>Pinned to {@code phase1-mysql}. Most of these pages are backed by tables
- * that exist only in the legacy schema, so their controllers carry that
- * profile and the same build serves a different set without it -- under the
- * default profile this surface is three pages, which is a true answer to a
- * different question.
+ * <p>Every page here is backed by the legacy schema, which is the only schema
+ * the application has (ADR-0017). There is no second wiring under which this
+ * inventory would answer differently.
  */
 @SpringBootTest(classes = BackendApplication.class,
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@ActiveProfiles("phase1-mysql")
 class AdminDashboardPageInventoryTest {
 
 	/** An empty database of this class's own: it creates its own tables. */
@@ -63,11 +59,6 @@ class AdminDashboardPageInventoryTest {
 		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
 		registry.add("app.legacy-db.username", MARIADB::getUsername);
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
-		registry.add("app.platform-admin.mfa.encryption-key", () -> {
-			byte[] key = new byte[32];
-			new java.security.SecureRandom().nextBytes(key);
-			return java.util.Base64.getEncoder().encodeToString(key);
-		});
 	}
 
 	@Autowired
@@ -77,13 +68,13 @@ class AdminDashboardPageInventoryTest {
 	/**
 	 * Pages this surface serves that the PHP dashboard has no equivalent for.
 	 *
-	 * <p>Not gaps in either direction: the second factor and its enrolment are
-	 * D-152's, and individual session listing and revocation is ADR-0015
-	 * prerequisite 13. Legacy authenticates with a single shared password and
-	 * has none of them.
+	 * <p>Not a gap: individual session listing and revocation is ADR-0015
+	 * prerequisite 13, and legacy -- which ends a session by dropping the
+	 * cookie -- has nothing like it. The login itself is the same shape as
+	 * legacy's since ADR-0018.
 	 */
 	private static final Set<String> JAVA_ONLY_PAGES = Set.of(
-			"mfa", "enrol", "logout", "sessions", "_assets");
+			"logout", "sessions", "_assets");
 
 	/**
 	 * Legacy pages this surface serves at a different URL.

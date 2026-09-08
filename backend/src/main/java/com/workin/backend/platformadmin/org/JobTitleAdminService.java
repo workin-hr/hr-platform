@@ -33,8 +33,6 @@ public class JobTitleAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/** {@code select_company_first}. */
 		NO_COMPANY,
@@ -80,12 +78,9 @@ public class JobTitleAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -137,9 +132,9 @@ public class JobTitleAdminService {
 
 	@Transactional
 	public long add(
-			DashboardSession session, long adminId, boolean factorBound, long postedCompanyId,
+			DashboardSession session, long adminId, long postedCompanyId,
 			Long departmentId, String rawName, String rawWorkHours) {
-		gate(factorBound);
+		gate();
 		long companyId = assertWritable(session, postedCompanyId, 0L);
 		// The department is checked before the name and hours, which is
 		// legacy's order: it redirects on a foreign department before it ever
@@ -157,10 +152,10 @@ public class JobTitleAdminService {
 
 	@Transactional
 	public long saveEdit(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			long postedCompanyId, Long departmentId, String rawName, String rawWorkHours,
 			boolean active) {
-		gate(factorBound);
+		gate();
 		assertWritable(session, postedCompanyId, id);
 		// The row's own company, not the posted one -- see
 		// DepartmentAdminService#saveEdit for why the two differ.
@@ -178,9 +173,9 @@ public class JobTitleAdminService {
 
 	@Transactional
 	public long delete(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			long postedCompanyId) {
-		gate(factorBound);
+		gate();
 		long companyId = assertWritable(session, postedCompanyId, id);
 		this.store.softDelete(id);
 		audit(adminId, PlatformAdminAuditEventType.ORG_DELETED, id,
@@ -189,7 +184,7 @@ public class JobTitleAdminService {
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
-		this.auditService.recordAction(adminId, type, "job_title", String.valueOf(id), null, detail);
+		this.auditService.recordAction(adminId, type, "job_title", String.valueOf(id), detail);
 	}
 
 }

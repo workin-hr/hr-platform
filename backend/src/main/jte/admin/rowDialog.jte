@@ -23,8 +23,11 @@
 @param Content fields
 @param String submitLabel
 @param String submitVariant = "blue"
+<%-- Null when the page's own handler takes the post; jte's smart attributes
+     omit the attribute then rather than emitting action="". --%>
+@param String formAction = null
 <dialog class="row-dialog" id="${id}" aria-labelledby="${id}-title">
-	<form method="POST" class="row-dialog__form">
+	<form method="POST" class="row-dialog__form" action="${formAction}">
 		<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 		<input type="hidden" name="action" value="${action}">
 		<%-- Filled from the trigger's data-dialog-id before the dialog opens. --%>

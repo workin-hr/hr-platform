@@ -52,7 +52,6 @@ public class AdminShiftsController {
 		model.addAttribute("result", this.store.paginate(filters, showCompany));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "shifts"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		model.addAttribute("addOpen", "add".equals(action));
 		model.addAttribute("editRow", "edit".equals(action) ? visible(current, filters, id) : null);
@@ -86,15 +85,14 @@ public class AdminShiftsController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 
 		try {
 			long wrote = switch (action) {
 				case "add" -> this.service.add(
-						session, adminId, bound, companyId, name, startTime, endTime);
-				case "save_edit" -> this.service.saveEdit(session, adminId, bound, id, companyId,
+						session, adminId, companyId, name, startTime, endTime);
+				case "save_edit" -> this.service.saveEdit(session, adminId, id, companyId,
 						name, startTime, endTime, isActive == null || !"0".equals(isActive.trim()));
-				case "delete" -> this.service.delete(session, adminId, bound, id, companyId);
+				case "delete" -> this.service.delete(session, adminId, id, companyId);
 				default -> throw new ShiftAdminService.RefusedException(
 						ShiftAdminService.Refusal.NO_COMPANY);
 			};
@@ -116,7 +114,6 @@ public class AdminShiftsController {
 	private static String messageKey(ShiftAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case NO_COMPANY -> "select_company_first";
 			case FOREIGN_ROW -> "error_db";
 			case NAME_REQUIRED -> "error_required";

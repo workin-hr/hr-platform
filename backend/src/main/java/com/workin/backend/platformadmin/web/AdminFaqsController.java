@@ -39,7 +39,6 @@ public class AdminFaqsController {
 		model.addAttribute("categories", this.service.categories());
 		model.addAttribute("items", this.service.items());
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		return VIEW;
 	}
@@ -62,25 +61,24 @@ public class AdminFaqsController {
 			@RequestParam(required = false) String isActive) {
 
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 		boolean active = isActive != null && !isActive.isBlank();
 
 		FaqAdminService.Result result = switch (action) {
-			case "add_category" -> this.service.createCategory(adminId, bound,
+			case "add_category" -> this.service.createCategory(adminId,
 					FaqForm.validateCategory(nameAr, nameEn, sortOrder, active));
 			case "edit_category" -> id == null ? notFound()
-					: this.service.updateCategory(adminId, bound, id,
+					: this.service.updateCategory(adminId, id,
 							FaqForm.validateCategory(nameAr, nameEn, sortOrder, active));
 			case "delete_category" -> id == null ? notFound()
-					: this.service.deleteCategory(adminId, bound, id);
-			case "add_item" -> this.service.createItem(adminId, bound,
+					: this.service.deleteCategory(adminId, id);
+			case "add_item" -> this.service.createItem(adminId,
 					FaqForm.validateItem(categoryId, questionAr, questionEn, answerAr, answerEn,
 							platform, sortOrder, active));
 			case "edit_item" -> id == null ? notFound()
-					: this.service.updateItem(adminId, bound, id,
+					: this.service.updateItem(adminId, id,
 							FaqForm.validateItem(categoryId, questionAr, questionEn, answerAr, answerEn,
 									platform, sortOrder, active));
-			case "delete_item" -> id == null ? notFound() : this.service.deleteItem(adminId, bound, id);
+			case "delete_item" -> id == null ? notFound() : this.service.deleteItem(adminId, id);
 			default -> notFound();
 		};
 

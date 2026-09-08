@@ -68,13 +68,9 @@ public class Phase1SchemaCheck implements ApplicationRunner {
 		OWNED_TABLES.put("legacy_refresh_tokens",
 				"token refresh -- every mobile and desktop client is logged out when its access token expires");
 		OWNED_TABLES.put("platform_admins", "the platform-admin surface at /admin -- nobody can sign in");
-		OWNED_TABLES.put("platform_admin_refresh_tokens", "platform-admin token refresh");
 		OWNED_TABLES.put("platform_admin_audit_events",
 				"the platform-admin audit trail -- admin actions refuse to run without it, by design");
 		OWNED_TABLES.put("platform_admin_login_attempts", "platform-admin login throttling");
-		OWNED_TABLES.put("platform_admin_mfa", "platform-admin TOTP");
-		OWNED_TABLES.put("platform_admin_mfa_bootstrap_tokens", "platform-admin MFA enrolment and recovery");
-		OWNED_TABLES.put("platform_admin_step_up_approvals", "step-up approval for platform-admin actions");
 		OWNED_TABLES.put("SPRING_SESSION", "the platform-admin web session -- login succeeds and is then forgotten");
 		OWNED_TABLES.put("SPRING_SESSION_ATTRIBUTES", "the platform-admin web session's contents");
 	}

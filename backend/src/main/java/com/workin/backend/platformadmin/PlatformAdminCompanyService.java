@@ -1,12 +1,9 @@
 package com.workin.backend.platformadmin;
 
-import java.util.List;
-
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.workin.backend.platformadmin.stepup.PlatformAdminStepUpService;
 
 /**
  * The platform-admin operations on companies (ADR-0009 Option E): approve,
@@ -39,17 +36,14 @@ public class PlatformAdminCompanyService {
 	public static final String TARGET_TYPE = "COMPANY";
 
 	private final PlatformAdminCompanyDirectory companies;
-	private final PlatformAdminStepUpService stepUpService;
 	private final PlatformAdminAuditService auditService;
 	private final boolean actionsEnabled;
 
 	public PlatformAdminCompanyService(
 			PlatformAdminCompanyDirectory companies,
-			PlatformAdminStepUpService stepUpService,
 			PlatformAdminAuditService auditService,
 			@Value("${app.platform-admin.actions.enabled:false}") boolean actionsEnabled) {
 		this.companies = companies;
-		this.stepUpService = stepUpService;
 		this.auditService = auditService;
 		this.actionsEnabled = actionsEnabled;
 	}
@@ -62,65 +56,32 @@ public class PlatformAdminCompanyService {
 	public enum Outcome {
 		DONE,
 		SURFACE_DISABLED,
-		SECOND_FACTOR_NOT_BOUND,
-		STEP_UP_REJECTED,
 		NO_SUCH_COMPANY,
 	}
 
 	/**
-	 * Applies a lifecycle change to one company.
+	 * Applies one lifecycle action.
 	 *
-	 * @param factorBound whether the caller's session has a bound second factor
-	 * @param approvalId the step-up approval minted for this exact request
-	 * @param reason the operator's note, part of the approval's digest
+	 * <p>Gated by the surface flag (ADR-0015 prerequisite 7) and audited in the
+	 * same transaction, so a committed change cannot exist without its audit
+	 * row. The step-up approval that used to sit between the two is gone with
+	 * the second factor (ADR-0018): the dashboard has one password, and a
+	 * second prompt for it would be theatre.
 	 */
 	@Transactional
-	public Outcome apply(long platformAdminId, boolean factorBound, String action,
-			long companyId, String reason, String approvalId) {
+	public Outcome apply(long platformAdminId, String action, long companyId, String reason) {
 		if (!this.actionsEnabled) {
 			return Outcome.SURFACE_DISABLED;
 		}
-		// D-152: an administrator whose factor is not bound cannot perform a
-		// destructive operation. Existing rows migrate unbound, so this is not
-		// a theoretical state.
-		if (!factorBound) {
-			return Outcome.SECOND_FACTOR_NOT_BOUND;
-		}
-
-		PlatformAdminStepUpService.Request request = request(action, companyId, reason);
-		// Consumed inside this transaction: an action that rolls back must not
-		// leave its approval spent, and a spent approval with no action would be
-		// worse.
-		if (!this.stepUpService.consume(platformAdminId, approvalId, request)) {
-			return Outcome.STEP_UP_REJECTED;
-		}
-
-		// Reject writes the reason alongside the status, as legacy's does. Every
-		// other action leaves any previous reason alone rather than clearing it.
 		boolean applied = ACTION_REJECT.equals(action)
 				? this.companies.reject(companyId, reason)
 				: this.companies.updateStatus(companyId, statusFor(action));
 		if (!applied) {
-			// Rolls back, taking the approval's consumption with it, so a
-			// mistyped id does not burn the operator's step-up.
-			throw new CompanyNotFoundException(companyId);
+			return Outcome.NO_SUCH_COMPANY;
 		}
 		this.auditService.recordAction(platformAdminId, auditTypeFor(action),
-				TARGET_TYPE, String.valueOf(companyId), approvalId, reason);
+				TARGET_TYPE, String.valueOf(companyId), reason);
 		return Outcome.DONE;
-	}
-
-	/**
-	 * The canonical request an approval must be minted against.
-	 *
-	 * <p>Built here, from the same inputs the action uses, so the digest the
-	 * approval carries and the digest checked at consumption cannot drift: a
-	 * second construction site is how "bound to the request" quietly becomes
-	 * "bound to whatever the caller said the request was".
-	 */
-	public PlatformAdminStepUpService.Request request(String action, long companyId, String reason) {
-		return new PlatformAdminStepUpService.Request(action, TARGET_TYPE,
-				String.valueOf(companyId), List.of(reason == null ? "" : reason));
 	}
 
 	private static String statusFor(String action) {
@@ -143,12 +104,5 @@ public class PlatformAdminCompanyService {
 	}
 
 	/** Thrown so the transaction rolls back and the step-up approval is not spent. */
-	public static class CompanyNotFoundException extends RuntimeException {
-
-		public CompanyNotFoundException(long companyId) {
-			super("no company " + companyId);
-		}
-
-	}
 
 }

@@ -1,5 +1,4 @@
 @import java.util.List
-@import com.workin.backend.platformadmin.PlatformAdminCompanyDirectory.CompanyView
 @import com.workin.backend.platformadmin.companies.CompanyListFilters
 @import com.workin.backend.platformadmin.companies.CompanyRow
 @import com.workin.backend.platformadmin.hr.EmployeeDisplay
@@ -8,23 +7,17 @@
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
-@param boolean factorBound = false
 @param boolean actionsEnabled
-@param List<CompanyView> companies
-@param String error = null
+@param String errorKey = null
 @param String currentPage
 @param String lang
 @param com.workin.backend.platformadmin.web.DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-<%-- The directory, present only under phase1-mysql. The three lookup tables
-     and the employee/branch/department counts are legacy schema, and
-     PlatformAdminCompanyDirectory -- which ADR-0015 keeps narrow because it is
-     the interface the lifecycle actions run through -- has no answer for them
-     on PostgreSQL. So that profile keeps the short list it already had rather
-     than being owed ten columns it cannot fill. --%>
-@param DashboardPage<CompanyRow> result = null
-@param CompanyListFilters filters = null
+<%-- The directory: the dashboard's fourteen columns, its five filters and
+     its pager. Always supplied -- the controller has one store to read. --%>
+@param DashboardPage<CompanyRow> result
+@param CompanyListFilters filters
 @param List<CompanyRow.Option> activities = java.util.List.of()
 @param List<CompanyRow.Option> titles = java.util.List.of()
 @param List<CompanyRow.Option> sizes = java.util.List.of()
@@ -34,7 +27,6 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
-	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -42,55 +34,13 @@
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "company-add.css"),
 	body = @`
-		@if(error != null)
-			<div class="flash flash-error">${error}</div>
+		@if(errorKey != null)
+			<div class="flash flash-error">${t.apply(errorKey)}</div>
 		@endif
 		@if(!actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
 		@endif
 
-		@if(result == null)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("nav_companies")} (${companies.size()})</h2>
-				</div>
-				<div class="table-wrap">
-					<table class="tbl">
-						<thead>
-							<tr>
-								<th>#</th>
-								<th>${t.apply("company_name")}</th>
-								<th>${t.apply("status")}</th>
-								<th class="col-actions"><span class="sr-only">${t.apply("actions")}</span></th>
-							</tr>
-						</thead>
-						<tbody>
-							@for(CompanyView company : companies)
-								<tr>
-									<td class="text-muted">${company.id()}</td>
-									<td class="bold">${company.name() == null ? "—" : company.name()}</td>
-									<td>
-										<span class="badge ${"active".equals(company.status()) ? "badge-green"
-												: "pending".equals(company.status()) ? "badge-yellow"
-												: "rejected".equals(company.status()) ? "badge-red" : "badge-gray"}">
-											${t.apply("status_" + company.status())}
-										</span>
-									</td>
-									<td class="col-actions">
-										@template.admin.companyActions(companyId = company.id(),
-												status = company.status(), actionsEnabled = actionsEnabled,
-												csrfParameterName = csrfParameterName, csrfToken = csrfToken, t = t)
-									</td>
-								</tr>
-							@endfor
-							@if(companies.isEmpty())
-								<tr><td colspan="4" class="data-table-empty">${t.apply("no_data")}</td></tr>
-							@endif
-						</tbody>
-					</table>
-				</div>
-			</div>
-		@else
 			<div class="toolbar page-toolbar page-toolbar-filters">
 				<form method="GET" class="toolbar-form toolbar-form--labeled">
 					<div class="filter-field">
@@ -223,5 +173,18 @@
 				@template.admin.pager(basePath = "/admin/companies", result = result,
 						carry = filters.asQueryParameters(), t = t)
 			</div>
+		@if(actionsEnabled)
+			<%-- A rejection must say why. The other actions post from the menu
+			     directly; this one needs a box, and one dialog serves every row. --%>
+			@template.admin.rowDialog(id = "company-reject", action = "COMPANY_REJECT",
+					formAction = "/admin/companies/action",
+					title = t.apply("reject"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("reject"),
+					submitVariant = "danger",
+					fields = @`
+						<input type="hidden" name="companyId" data-dialog-field="companyId">
+						<label>${t.apply("rejection_reason")}
+							<textarea name="reason" rows="3" required></textarea></label>
+					`)
 		@endif
 	`)

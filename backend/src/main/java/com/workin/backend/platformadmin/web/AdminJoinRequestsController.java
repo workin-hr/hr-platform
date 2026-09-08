@@ -69,7 +69,6 @@ public class AdminJoinRequestsController {
 		model.addAttribute("items", this.store.list(filters.companyId(), selected));
 		model.addAttribute("canManage", true);
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		return VIEW;
 	}
@@ -89,13 +88,12 @@ public class AdminJoinRequestsController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 		String back = STATUSES.contains(redirectStatus) ? redirectStatus : "pending";
 
 		try {
 			switch (action) {
-				case "accept_join" -> this.service.accept(session, adminId, bound, id);
-				case "reject_join" -> this.service.reject(session, adminId, bound, id);
+				case "accept_join" -> this.service.accept(session, adminId, id);
+				case "reject_join" -> this.service.reject(session, adminId, id);
 				default -> throw new JoinRequestAdminService.RefusedException(
 						JoinRequestAdminService.Refusal.FOREIGN_ROW);
 			}
@@ -117,7 +115,6 @@ public class AdminJoinRequestsController {
 	private static String messageFor(JoinRequestAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			default -> "join_accept_failed";
 		};
 	}

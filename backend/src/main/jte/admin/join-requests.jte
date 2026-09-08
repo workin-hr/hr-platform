@@ -12,14 +12,13 @@
 @param List<String> statuses
 @param boolean canManage
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param String currentPage
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-!{boolean canWrite = canManage && actionsEnabled && factorBound;}
+!{boolean canWrite = canManage && actionsEnabled;}
 <%-- dashboard/pages/join_requests/page.php. A join request is an employees
      row that has not been admitted yet, so this page's permission and its
      stylesheet are the employees page's. --%>
@@ -28,7 +27,6 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
-	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,

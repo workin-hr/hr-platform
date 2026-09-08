@@ -55,8 +55,6 @@ public class PayrollAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/** {@code error_db}: the batch or payslip belongs to another company. */
 		FOREIGN_ROW,
@@ -111,12 +109,9 @@ public class PayrollAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -159,9 +154,8 @@ public class PayrollAdminService {
 	 * {@code company_id} is R-044's deliberate reach rather than a hole.
 	 */
 	@Transactional
-	public long createRun(DashboardSession session, long adminId, boolean factorBound,
-			long postedCompanyId, int month, int year) {
-		gate(factorBound);
+	public long createRun(DashboardSession session, long adminId, long postedCompanyId, int month, int year) {
+		gate();
 		long companyId = session.isScopedToOneCompany() ? session.companyId() : postedCompanyId;
 		if (companyId <= 0 || month <= 0 || month > 12 || year <= 0) {
 			throw new RefusedException(Refusal.INVALID);
@@ -199,9 +193,8 @@ public class PayrollAdminService {
 	 * up scoped, so another company's id is refused instead of calculated.
 	 */
 	@Transactional
-	public Calculation calculate(DashboardSession session, long adminId, boolean factorBound,
-			long batchId, String weeklyRestLabel) {
-		gate(factorBound);
+	public Calculation calculate(DashboardSession session, long adminId, long batchId, String weeklyRestLabel) {
+		gate();
 		long owner = assertBatchVisible(session, batchId);
 		try {
 			LegacyPayrollBatchService.CalculationResult result =
@@ -227,8 +220,8 @@ public class PayrollAdminService {
 	 * API's {@code finalize()} is not called here.
 	 */
 	@Transactional
-	public long finalizeRun(DashboardSession session, long adminId, boolean factorBound, long batchId) {
-		gate(factorBound);
+	public long finalizeRun(DashboardSession session, long adminId, long batchId) {
+		gate();
 		long owner = assertBatchVisible(session, batchId);
 		this.batchStore.updateStatus(batchId, "finalized");
 		audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, batchId,
@@ -238,8 +231,8 @@ public class PayrollAdminService {
 
 	/** {@code reopen}: the same bare status write, back to {@code draft}. */
 	@Transactional
-	public long reopenRun(DashboardSession session, long adminId, boolean factorBound, long batchId) {
-		gate(factorBound);
+	public long reopenRun(DashboardSession session, long adminId, long batchId) {
+		gate();
 		long owner = assertBatchVisible(session, batchId);
 		this.batchStore.updateStatus(batchId, "draft");
 		audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, batchId,
@@ -257,8 +250,8 @@ public class PayrollAdminService {
 	 * the cascade and the right one on a schema that does not.
 	 */
 	@Transactional
-	public long deleteRun(DashboardSession session, long adminId, boolean factorBound, long batchId) {
-		gate(factorBound);
+	public long deleteRun(DashboardSession session, long adminId, long batchId) {
+		gate();
 		long owner = assertBatchVisible(session, batchId);
 		this.batchStore.deleteWithPayslips(batchId);
 		audit(adminId, PlatformAdminAuditEventType.ORG_DELETED, batchId,
@@ -279,9 +272,8 @@ public class PayrollAdminService {
 	 * from this form at all.
 	 */
 	@Transactional
-	public DetailEdit editDetail(DashboardSession session, long adminId, boolean factorBound,
-			long payslipId, PayrollStore.PayslipEdit edit) {
-		gate(factorBound);
+	public DetailEdit editDetail(DashboardSession session, long adminId, long payslipId, PayrollStore.PayslipEdit edit) {
+		gate();
 		if (payslipId <= 0) {
 			throw new RefusedException(Refusal.INVALID);
 		}
@@ -313,7 +305,7 @@ public class PayrollAdminService {
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
-		this.auditService.recordAction(adminId, type, "payroll", String.valueOf(id), null, detail);
+		this.auditService.recordAction(adminId, type, "payroll", String.valueOf(id), detail);
 	}
 
 }

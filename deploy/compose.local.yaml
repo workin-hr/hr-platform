@@ -99,8 +99,9 @@ services:
       APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
       # A platform administrator to sign in as. Optional: unset simply means no
       # administrator exists yet, not a startup failure.
-      APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE: ${ADMIN_PHONE:-+201000000001}
-      APP_PLATFORM_ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_PASSWORD:-devpassword}
+      # The dashboard's one password (ADR-0018). A bcrypt hash of it lives in
+      # platform_admins; change the value and restart to rotate it.
+      APP_PLATFORM_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-devpassword}
     volumes:
       - app-uploads:/app/uploads
     ports:

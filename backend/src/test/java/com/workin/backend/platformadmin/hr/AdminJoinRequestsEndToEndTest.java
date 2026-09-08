@@ -23,15 +23,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
 import com.workin.backend.BackendApplication;
-import com.workin.backend.platformadmin.mfa.PlatformAdminMfaService;
-import com.workin.backend.platformadmin.mfa.Totp;
 import com.workin.backend.platformadmin.web.DashboardSession;
 import com.workin.legacy.LegacyMariaDb;
 
@@ -51,7 +48,6 @@ import com.workin.legacy.LegacyMariaDb;
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@ActiveProfiles("phase1-mysql")
 class AdminJoinRequestsEndToEndTest {
 
 	/** A database of this class's own, inside the shared container. */
@@ -70,19 +66,13 @@ class AdminJoinRequestsEndToEndTest {
 		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
 		registry.add("app.legacy-db.username", MARIADB::getUsername);
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
-		registry.add("app.platform-admin.mfa.encryption-key", () -> {
-			byte[] key = new byte[32];
-			new java.security.SecureRandom().nextBytes(key);
-			return java.util.Base64.getEncoder().encodeToString(key);
-		});
+		registry.add("app.platform-admin.password", () -> PASSWORD);
 		registry.add("app.platform-admin.actions.enabled", () -> "true");
 	}
 
 	@Autowired
 	private TestRestTemplate restTemplate;
 
-	@Autowired
-	private PlatformAdminMfaService mfaService;
 
 	@Autowired
 	private JoinRequestAdminService service;
@@ -118,22 +108,12 @@ class AdminJoinRequestsEndToEndTest {
 		this.jdbc.update("DELETE FROM platform_admin_audit_events");
 
 		String phone = "+2101" + System.nanoTime() % 100_000_000L;
-		this.jdbc.update("INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, 1)",
-				phone, this.passwordEncoder.encode(PASSWORD));
+		// One administrator, one password (ADR-0018): the bootstrap provisioned
+		// the row from the configured password when the context started.
 		long adminId = this.jdbc.queryForObject(
-				"SELECT id FROM platform_admins WHERE phone = ?", Long.class, phone);
-
-		String token = this.mfaService.issueBootstrapToken(adminId, adminId);
-		String seed = this.mfaService.beginEnrolment(adminId, token).orElseThrow();
-		assertThat(this.mfaService.confirmEnrolment(adminId, code(seed))).isTrue();
-
+				"SELECT id FROM platform_admins WHERE phone = 'admin'", Long.class);
 		Page login = page("/admin/login", null);
-		String pending = cookieOf(post("/admin/login", login.cookie(), login.csrf(),
-				"phone", phone, "password", PASSWORD));
-		this.jdbc.update("UPDATE platform_admin_mfa SET last_accepted_time_step = NULL"
-				+ " WHERE platform_admin_id = ?", adminId);
-		this.cookie = cookieOf(post("/admin/mfa", pending,
-				page("/admin/mfa", pending).csrf(), "code", code(seed)));
+		this.cookie = cookieOf(post("/admin/login", login.cookie(), login.csrf(), "password", PASSWORD));
 
 		this.companyA = createCompany("Alpha Co");
 		this.companyB = createCompany("Beta Co");
@@ -248,7 +228,7 @@ class AdminJoinRequestsEndToEndTest {
 		long foreign = createJoinRequest(this.companyB, "Diaa", "01000000019", "pending");
 		DashboardSession scoped = DashboardSession.company(this.companyA);
 
-		assertThatThrownBy(() -> this.service.accept(scoped, 1L, true, foreign))
+		assertThatThrownBy(() -> this.service.accept(scoped, 1L, foreign))
 				.isInstanceOf(JoinRequestAdminService.RefusedException.class);
 		assertThat(statusOf(foreign)).isEqualTo("pending");
 		assertThat(exists(foreign)).isTrue();
@@ -463,9 +443,6 @@ class AdminJoinRequestsEndToEndTest {
 				.findFirst().orElse(null);
 	}
 
-	private static String code(String base32Seed) {
-		return Totp.codeAt(fromBase32(base32Seed), Totp.timeStepAt(java.time.Instant.now()));
-	}
 
 	private static byte[] fromBase32(String seed) {
 		String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";

@@ -271,8 +271,7 @@ DELETE FROM otp_codes;
 DELETE FROM otp_request_logs;
 DELETE FROM push_tokens;
 
--- The platform administrators of the real deployment, with their real TOTP
--- seeds. The development stack bootstraps its own from environment variables.
-DELETE FROM platform_admin_mfa;
+-- The platform administrator of the real deployment. The development stack
+-- bootstraps its own from environment variables.
 DELETE FROM platform_admin_audit_events;
 DELETE FROM platform_admins;

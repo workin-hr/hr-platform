@@ -12,6 +12,7 @@
 | Deciders | Repository owner — instruction of 2026-09-07 ("we don't use PostgreSQL, so remove it from any place it exists; we use normal MySQL, because it's my prod DB now and I will convert it to be on a VPS instead of the Hostinger DB"), recorded in `docs/bootstrap/decision-log-wave12r.md` D-203 |
 | Related Issues | None |
 | Supersedes | ADR-0004 (the MySQL-to-PostgreSQL migration approach) and ADR-0011's Phase 2 (the storage migration). Amends ADR-0013: the `phase1-mysql` profile is no longer a profile, it is the application. |
+| Superseded By | None |
 
 ## Context
 
@@ -52,6 +53,20 @@ for the tables this application adds (platform administrators, their sessions,
 audit), and the compensating tenant controls of ADR-0012 — which were written as
 "until Phase 2" and are now permanent.
 
+## Alternatives Considered
+
+- **Keep the PostgreSQL half as a dormant option** -- the profile split, the
+  Flyway migrations, the ETL and the domain packages, compiled and tested but
+  never deployed. Rejected: the owner's instruction was to remove it, and a
+  half the suite spends a third of its time on is not dormant; it is a tax on
+  every push and a standing invitation to build on the wrong side of the
+  split.
+- **Remove the code but keep the migrations and ETL as history in the tree.**
+  Rejected: they would fail the schema-drift and Flyway-version gates the
+  moment they stopped being maintained, and `git log` already keeps them.
+- **Migrate to PostgreSQL as originally planned (ADR-0004).** Rejected by the
+  owner: the production database is MySQL and will move to the VPS as MySQL.
+
 ## Consequences
 
 - **ADR-0012's controls are the tenant-isolation model**, not a stopgap. The
@@ -74,14 +89,30 @@ audit), and the compensating tenant controls of ADR-0012 — which were written 
   **history, not plan**. They are left in place; this ADR and D-203 are the
   record that they no longer describe intended work.
 
+## Risks
+
+- **The tenant model has no database-level backstop.** ADR-0012's row-level
+  security was the PostgreSQL half's contribution; the application-level guard
+  (D-176) is now the only enforcement, and `AdminTenantGuardCoverageTest` is
+  the gate that keeps every admin write behind it. Tracked as **R-046**.
+- **A dependency on MariaDB/MySQL semantics is permanent**, including PHP's
+  arithmetic (`PhpMath`) and the legacy schema's quirks. Accepted: that is the
+  contract the clients already depend on (D-111).
+
 ## Rollback
 
 `git revert` of the commit that carries this ADR restores every deleted file;
 nothing was rewritten in place that a revert would not undo. There is no data
 rollback because no data moved.
 
-## Evidence
+## Validation Evidence
 
 Repository owner instruction, 2026-09-07 (quoted above). Full backend suite on
 the MySQL-only tree, and the deployment E2E suite against the rebuilt image —
 recorded in D-203.
+
+## Open Questions
+
+- None. The VPS move of the MySQL database itself is an operations task
+  (`docs/operations/release-cutover-and-rollback.md`), not a decision this ADR
+  leaves open.

@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -24,7 +23,6 @@ import com.workin.legacy.dashboard.LegacyTurnover;
  * <p>Read-only. Nothing on the home page writes.
  */
 @Repository
-@Profile("phase1-mysql")
 public class HomeStore {
 
 	private final JdbcTemplate jdbcTemplate;

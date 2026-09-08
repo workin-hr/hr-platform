@@ -68,7 +68,6 @@ public class AdminBranchesController {
 		model.addAttribute("result", this.store.paginate(filters, showCompany));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "branches"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		model.addAttribute("addOpen", "add".equals(action));
 		model.addAttribute("editRow", "edit".equals(action) ? visible(current, filters, id) : null);
@@ -109,22 +108,21 @@ public class AdminBranchesController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 
 		try {
 			long wrote = switch (action) {
 				case "add" -> this.service.add(
-						session, adminId, bound, companyId, name, address, lat, lng, radius);
+						session, adminId, companyId, name, address, lat, lng, radius);
 				case "save_edit" -> this.service.saveEdit(
-						session, adminId, bound, id, companyId, name, address, lat, lng, radius,
+						session, adminId, id, companyId, name, address, lat, lng, radius,
 						// An unchecked checkbox is absent from the post, and
 						// `(int) ($_POST['is_active'] ?? 1)` reads absent as 1.
 						// So the edit form must always send it, and this
 						// mirrors the same default.
 						isActive == null || !"0".equals(isActive.trim()));
-				case "delete" -> this.service.delete(session, adminId, bound, id, companyId);
+				case "delete" -> this.service.delete(session, adminId, id, companyId);
 				case "generate_qr" -> this.service.generateQr(
-						session, adminId, bound, id, companyId, expiresAt, this.clock.now());
+						session, adminId, id, companyId, expiresAt, this.clock.now());
 				default -> throw new BranchAdminService.RefusedException(
 						BranchAdminService.Refusal.NO_COMPANY);
 			};
@@ -154,7 +152,6 @@ public class AdminBranchesController {
 	private static String messageKey(BranchAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case NO_COMPANY -> "select_company_first";
 			case FOREIGN_ROW -> "error_db";
 			case BAD_EXPIRY -> "branch_qr_invalid_expiry";

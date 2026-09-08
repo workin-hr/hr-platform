@@ -47,7 +47,7 @@ class PlatformAdminAuditActionTest extends AbstractIntegrationTest {
 
 		assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
 			this.auditService.recordAction(adminId, PlatformAdminAuditEventType.COMPANY_SUSPENDED,
-					"COMPANY", "4242", null, "suspended for non-payment");
+					"COMPANY", "4242", "suspended for non-payment");
 			// The action fails after its audit row was written.
 			throw new IllegalStateException("the action failed");
 		})).isInstanceOf(IllegalStateException.class);
@@ -64,7 +64,7 @@ class PlatformAdminAuditActionTest extends AbstractIntegrationTest {
 
 		transaction.executeWithoutResult(status ->
 			this.auditService.recordAction(adminId, PlatformAdminAuditEventType.COMPANY_SUSPENDED,
-					"COMPANY", "4242", "approval-1", "suspended for non-payment"));
+					"COMPANY", "4242", "suspended for non-payment"));
 
 		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		assertThat(jdbc.queryForObject(
@@ -73,9 +73,6 @@ class PlatformAdminAuditActionTest extends AbstractIntegrationTest {
 		assertThat(jdbc.queryForObject(
 				"SELECT target_id FROM platform_admin_audit_events WHERE platform_admin_id = ?",
 				String.class, adminId)).isEqualTo("4242");
-		assertThat(jdbc.queryForObject(
-				"SELECT step_up_approval_id FROM platform_admin_audit_events WHERE platform_admin_id = ?",
-				String.class, adminId)).isEqualTo("approval-1");
 	}
 
 	@Test
@@ -83,7 +80,7 @@ class PlatformAdminAuditActionTest extends AbstractIntegrationTest {
 		long adminId = createPlatformAdmin();
 
 		assertThatThrownBy(() -> this.auditService.recordAction(adminId,
-				PlatformAdminAuditEventType.COMPANY_SUSPENDED, "COMPANY", "4242", null, null))
+				PlatformAdminAuditEventType.COMPANY_SUSPENDED, "COMPANY", "4242", null))
 			.as("'same transaction as the action' is not a guarantee anyone can make "
 					+ "when there is no transaction")
 			.isInstanceOf(IllegalTransactionStateException.class);

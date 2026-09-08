@@ -70,8 +70,7 @@ services:
       APP_RUNTIME_DB_PASSWORD: unused
       APP_LEGACY_UPLOADS_PATH: /app/uploads
       APP_LEGACY_UPLOADS_URL: /uploads/
-      APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE: ${ADMIN_PHONE:-}
-      APP_PLATFORM_ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_PASSWORD:-}
+      APP_PLATFORM_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       # Defaults to false. Turn it on only once the PHP admin surface is
       # unreachable (ADR-0015 prerequisite 7) -- on a trial box, whenever you
       # want to exercise the write paths.

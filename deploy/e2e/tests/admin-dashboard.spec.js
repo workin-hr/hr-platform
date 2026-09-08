@@ -1,8 +1,6 @@
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { scalar, rows, exec, rowFingerprint } from '../lib/db.js';
-import { totp, nextWindow } from '../lib/totp.js';
 
 /**
  * The platform-admin dashboard, in a browser, over TLS.
@@ -18,7 +16,6 @@ import { totp, nextWindow } from '../lib/totp.js';
  * which is the only version of "covers every page" that stays true.
  */
 
-const PHONE = process.env.E2E_ADMIN_PHONE ?? '+201000000042';
 const PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'e2e-verify-Pass123!';
 const MANIFEST = new URL('../../../contracts/legacy-dashboard-pages.txt', import.meta.url);
 // NOT under report/: Playwright clears the HTML reporter's output folder at
@@ -54,16 +51,16 @@ async function shot(page, name) {
 }
 
 let adminId;
-let seed;
 let company;
 let employee;
 
 test.beforeAll(async () => {
-	adminId = scalar(`SELECT id FROM platform_admins WHERE phone = '${PHONE}'`);
-	expect(adminId,
-		`no platform administrator ${PHONE}. Start the stack with ADMIN_PHONE/ADMIN_PASSWORD set `
-		+ '-- the application provisions it at boot through the real encoder, which is why this '
-		+ 'suite does not write a password hash by hand.').not.toBeNull();
+	// ADR-0018: one administrator, provisioned at boot from ADMIN_PASSWORD
+	// through the real encoder -- which is why this suite does not write a
+	// password hash by hand.
+	adminId = scalar(`SELECT id FROM platform_admins WHERE phone = 'admin'`);
+	expect(adminId, 'no platform administrator. Start the stack with ADMIN_PASSWORD set.')
+		.not.toBeNull();
 
 	company = rows(
 		`SELECT id, company_name, status FROM companies WHERE status = 'active' ORDER BY id LIMIT 1`)[0];
@@ -71,76 +68,10 @@ test.beforeAll(async () => {
 		`SELECT id, company_id FROM employees WHERE company_id = ${company.id} LIMIT 1`)[0];
 });
 
-/**
- * Issues a bootstrap token the way an operator does, and enrols the factor.
- *
- * There is no API for either: both are deliberately operator-provisioned, so
- * the token is written to the table exactly as the runbook has a human write it.
- */
-/**
- * Un-enrols the administrator and issues a fresh bootstrap token.
- *
- * Called by every case that has something to say about enrolment, because the
- * stack is long-lived: a previous run leaves a bound factor behind, and a case
- * asserting "no factor was enrolled" would then be reading the last run's row
- * and failing for a reason that has nothing to do with what it tests.
- *
- * @returns the raw token an operator would hand over out of band
- */
-function issueBootstrapToken() {
-	const raw = `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-	const hash = createHash('sha256').update(raw).digest('hex');
-	exec(`DELETE FROM platform_admin_mfa WHERE platform_admin_id = ${adminId}`);
-	exec(`DELETE FROM platform_admin_mfa_bootstrap_tokens WHERE platform_admin_id = ${adminId}`);
-	exec(`INSERT INTO platform_admin_mfa_bootstrap_tokens
-	          (platform_admin_id, token_hash, issued_at, expires_at)
-	      VALUES (${adminId}, '${hash}', NOW(6), NOW(6) + INTERVAL 30 MINUTE)`);
-	return raw;
-}
-
-async function enrol(page) {
-	const raw = issueBootstrapToken();
-
-	await page.goto('/admin/enrol');
-	await page.fill('input[name="phone"]', PHONE);
-	await page.fill('input[name="password"]', PASSWORD);
-	await page.fill('input[name="bootstrapToken"]', raw);
-	await page.click('button[type="submit"]');
-
-	const shown = await page.locator('code').first().textContent();
-	expect(shown, 'enrolment shows the seed once').toMatch(/^[A-Z2-7]{16,}$/);
-	seed = shown.trim();
-
-	await page.fill('input[name="code"]', totp(seed));
-	await page.click('button[type="submit"]');
-
-	expect(scalar(`SELECT bound_at IS NOT NULL FROM platform_admin_mfa
-	               WHERE platform_admin_id = ${adminId}`), 'the factor is bound').toBe('1');
-}
-
-/** Clears the accepted step so a fresh code in the same window is not a replay. */
-function allowAnotherCode() {
-	exec(`UPDATE platform_admin_mfa SET last_accepted_time_step = NULL
-	      WHERE platform_admin_id = ${adminId}`);
-}
-
+/** PHP's login, class for class: one password and nothing else (ADR-0018). */
 async function signIn(page) {
-	// Enrol on demand rather than depending on an earlier case having run.
-	// The describe is serial, but `-g` and `--last-failed` both run a subset,
-	// and a helper that only works in one order turns "re-run just that one" --
-	// the first thing anybody does with a failure -- into a second failure with
-	// a different cause.
-	if (!seed) {
-		await enrol(page);
-	}
 	await page.goto('/admin/login');
-	await page.fill('input[name="phone"]', PHONE);
 	await page.fill('input[name="password"]', PASSWORD);
-	await page.click('button[type="submit"]');
-	await expect(page).toHaveURL(/\/admin\/mfa/);
-
-	allowAnotherCode();
-	await page.fill('input[name="code"]', totp(seed));
 	await page.click('button[type="submit"]');
 	await expect(page).toHaveURL(/\/admin(\?|$)/);
 }
@@ -154,63 +85,26 @@ test.describe.serial('the platform-admin dashboard', () => {
 		await shot(page, '00-login');
 	});
 
-	test('enrolment refuses the wrong bootstrap token before it refuses anything else', async ({ page }) => {
-		// A real, unused token exists; only the one submitted is wrong. That is
-		// the case worth checking -- the password alone must not be enough.
-		issueBootstrapToken();
-
-		await page.goto('/admin/enrol');
-		await page.fill('input[name="phone"]', PHONE);
-		await page.fill('input[name="password"]', PASSWORD);
-		await page.fill('input[name="bootstrapToken"]', 'not-the-token');
-		await page.click('button[type="submit"]');
-
-		await expect(page.locator('body')).not.toContainText(/[A-Z2-7]{16,}/);
-		expect(scalar(`SELECT COUNT(*) FROM platform_admin_mfa WHERE platform_admin_id = ${adminId}`),
-			'no factor is enrolled by a failed attempt').toBe('0');
-		await shot(page, '01-enrol-refused');
-	});
-
-	test('a factor enrols, and the seed is shown exactly once', async ({ page }) => {
-		await enrol(page);
-		await shot(page, '02-enrolled');
-	});
-
-	test('the password alone reaches the challenge and nothing behind it', async ({ page }) => {
+	test('a wrong password does not open a session', async ({ page }) => {
 		await page.goto('/admin/login');
-		await page.fill('input[name="phone"]', PHONE);
-		await page.fill('input[name="password"]', PASSWORD);
+		await page.fill('input[name="password"]', 'not-the-password');
 		await page.click('button[type="submit"]');
 
-		await expect(page).toHaveURL(/\/admin\/mfa/);
-		await shot(page, '03-mfa-challenge');
+		await expect(page).toHaveURL(/\/admin\/login/);
+		await expect(page.locator('.login-alert--error'), 'and the page says so').toBeVisible();
+		await shot(page, '01-login-refused');
 
-		// The half-authenticated session must not open the dashboard.
+		// The refused attempt leaves no session behind it.
 		await page.goto('/admin');
-		await expect(page).toHaveURL(/\/admin\/(login|mfa)/);
+		await expect(page).toHaveURL(/\/admin\/login/);
 	});
 
-	test('a wrong code does not complete the session', async ({ page }) => {
-		await page.goto('/admin/login');
-		await page.fill('input[name="phone"]', PHONE);
-		await page.fill('input[name="password"]', PASSWORD);
-		await page.click('button[type="submit"]');
-
-		await page.fill('input[name="code"]', '000000');
-		await page.click('button[type="submit"]');
-
-		await page.goto('/admin');
-		await expect(page).toHaveURL(/\/admin\/(login|mfa)/);
-	});
-
-	test('the second factor completes the session', async ({ page }) => {
-		await nextWindow();
+	test('the password opens the dashboard', async ({ page }) => {
 		await signIn(page);
 
 		// The page's own content, not just a 200: the layout renders for every
-		// route, so asserting the shell would pass on an empty page.
-		await expect(page.locator('.content')).toContainText(PHONE);
-		// Counts, not placeholders. A stat card with no number is the shape
+		// route, so asserting the shell would pass on an empty page. Counts,
+		// not placeholders. A stat card with no number is the shape
 		// this page had before it read anything.
 		const cards = page.locator('.home-stat-card');
 		expect(await cards.count(), 'the overview renders its stat cards').toBeGreaterThan(8);
@@ -226,7 +120,6 @@ test.describe.serial('the platform-admin dashboard', () => {
 
 	test('every ported page renders for a signed-in administrator', async ({ page }) => {
 		test.setTimeout(600_000);
-		await nextWindow();
 		await signIn(page);
 
 		const pages = portedListPages();
@@ -239,7 +132,7 @@ test.describe.serial('the platform-admin dashboard', () => {
 			const url = page.url();
 			// A redirect to login means the session was lost, not that the page
 			// is missing -- worth separating, because they look identical here.
-			if (status !== 200 || /\/admin\/(login|mfa)/.test(url)) {
+			if (status !== 200 || /\/admin\/login/.test(url)) {
 				failures.push(`${name}: HTTP ${status} at ${url}`);
 			}
 			// A JTE catalog miss renders the key itself: "nav_guide_videos"
@@ -256,7 +149,6 @@ test.describe.serial('the platform-admin dashboard', () => {
 	});
 
 	test('the two detail pages render for a real row', async ({ page }) => {
-		await nextWindow();
 		await signIn(page);
 
 		const detail = await page.goto(`/admin/companies/${company.id}`);
@@ -270,7 +162,6 @@ test.describe.serial('the platform-admin dashboard', () => {
 	});
 
 	test('the three aliases land in the settings tab they name', async ({ page }) => {
-		await nextWindow();
 		await signIn(page);
 
 		for (const [alias, tab] of [['app_content', 'app_content'], ['setting_templates', 'setting_templates']]) {
@@ -280,7 +171,6 @@ test.describe.serial('the platform-admin dashboard', () => {
 	});
 
 	test('a state-changing form without its CSRF token is refused', async ({ page, request }) => {
-		await nextWindow();
 		await signIn(page);
 		const cookies = await page.context().cookies();
 		const session = cookies.find((cookie) => cookie.name === 'WORKIN_ADMIN_SESSION');
@@ -297,11 +187,10 @@ test.describe.serial('the platform-admin dashboard', () => {
 		expect(response.status(), 'CSRF is enforced on this chain').toBe(403);
 	});
 
-	test('an administrative action needs a step-up, and the approval is single use', async ({ page }) => {
+	test('an administrative action is one post, applied and audited together', async ({ page }) => {
 		test.skip(process.env.E2E_ADMIN_ACTIONS !== 'true',
 			'administrative actions are disabled (ADR-0015 prerequisite 7); '
 			+ 'set ADMIN_ACTIONS_ENABLED=true to exercise this');
-		await nextWindow();
 		await signIn(page);
 
 		const target = rows(
@@ -311,58 +200,27 @@ test.describe.serial('the platform-admin dashboard', () => {
 		await page.goto('/admin/companies');
 		await shot(page, '05-companies');
 
-		allowAnotherCode();
+		// The same post the row's menu makes -- with the page's own token, so
+		// the CSRF chain is in the path rather than stepped around.
 		const csrf = await page.locator('input[name="_csrf"]').first().inputValue();
-		const confirm = await page.request.post('/admin/companies/confirm', {
+		const response = await page.request.post('/admin/companies/action', {
 			form: {
 				action: 'COMPANY_SUSPEND', companyId: String(target.id),
-				reason: 'e2e run', code: totp(seed), _csrf: csrf,
+				reason: 'e2e run', _csrf: csrf,
 			},
 		});
-		expect(confirm.status(), await confirm.text()).toBeLessThan(400);
-		const approval = (await confirm.text()).match(/name="approvalId" value="([0-9a-f]+)"/)?.[1];
-		expect(approval, 'the step-up issued an approval').toBeTruthy();
-
-		expect(rowFingerprint('companies', target.id),
-			'the step-up alone changes nothing -- it authorises, it does not apply').toBe(before);
-
-		const apply = await page.request.post('/admin/companies/apply', {
-			form: {
-				action: 'COMPANY_SUSPEND', companyId: String(target.id),
-				reason: 'e2e run', approvalId: approval, _csrf: csrf,
-			},
-		});
-		expect(apply.status()).toBeLessThan(400);
+		expect(response.status(), await response.text()).toBeLessThan(400);
 		expect(scalar(`SELECT status FROM companies WHERE id = ${target.id}`)).toBe('suspended');
+		expect(rowFingerprint('companies', target.id)).not.toBe(before);
 
-		const audit = rows(`SELECT event_type, target_type, target_id, step_up_approval_id
+		// The write and its audit row are one transaction: a company suspended
+		// with no row saying who did it is the failure mode the trail exists for.
+		const audit = rows(`SELECT event_type, target_type, target_id
 		                    FROM platform_admin_audit_events
 		                    WHERE platform_admin_id = ${adminId} AND target_id = '${target.id}'
 		                    ORDER BY id DESC LIMIT 1`)[0];
 		expect(audit, 'the action is in the audit log').toBeTruthy();
-		expect(audit.step_up_approval_id, 'and carries the approval that authorised it').toBe(approval);
-
-		const replay = await page.request.post('/admin/companies/apply', {
-			form: {
-				action: 'COMPANY_SUSPEND', companyId: String(target.id),
-				reason: 'e2e run', approvalId: approval, _csrf: csrf,
-			},
-		});
-		expect((await replay.text()).length).toBeGreaterThan(0);
-
-		// The approval leaves TWO audit rows -- STEP_UP_APPROVED when it is
-		// issued and the action's own event when it is spent -- and both carry
-		// its id, which is what makes the trail readable: the authorisation and
-		// the thing it authorised are joined. What must be single is the
-		// ACTION, so that is what is counted.
-		const trail = rows(`SELECT event_type FROM platform_admin_audit_events
-		                    WHERE step_up_approval_id = '${approval}'
-		                    ORDER BY id`).map((row) => row.event_type);
-		expect(trail, 'the approval and the action it authorised are both recorded, once each')
-			.toEqual(['STEP_UP_APPROVED', 'COMPANY_SUSPENDED']);
-		expect(scalar(`SELECT consumed_at IS NOT NULL
-		               FROM platform_admin_step_up_approvals WHERE id = '${approval}'`),
-			'the approval is marked consumed').toBe('1');
+		expect(audit.event_type).toBe('COMPANY_SUSPENDED');
 
 		// Put the seed back the way it was found.
 		exec(`UPDATE companies SET status = '${target.status}' WHERE id = ${target.id}`);
@@ -370,7 +228,6 @@ test.describe.serial('the platform-admin dashboard', () => {
 
 	test('a row action that needs typing opens a dialog, and the dialog writes', async ({ page }) => {
 		test.setTimeout(120_000);
-		await nextWindow();
 		await signIn(page);
 
 		// Four list pages used to carry a text or number box inside every row.
@@ -412,7 +269,6 @@ test.describe.serial('the platform-admin dashboard', () => {
 
 	test('an add form is a modal behind a button, not a form open over the table', async ({ page }) => {
 		test.setTimeout(180_000);
-		await nextWindow();
 		await signIn(page);
 
 		// Eleven pages rendered their add form inline and permanently expanded.
@@ -449,7 +305,6 @@ test.describe.serial('the platform-admin dashboard', () => {
 
 	test('the pager windows, carries the filters, and keeps the page size', async ({ page }) => {
 		test.setTimeout(180_000);
-		await nextWindow();
 		await signIn(page);
 
 		// Sixteen pages emitted one link per page under a class no stylesheet
@@ -499,7 +354,6 @@ test.describe.serial('the platform-admin dashboard', () => {
 
 	test('a row-action menu opens from the keyboard and has no empty triggers', async ({ page }) => {
 		test.setTimeout(180_000);
-		await nextWindow();
 		await signIn(page);
 
 		await page.goto('/admin/employees', { waitUntil: 'domcontentloaded' });
@@ -539,7 +393,6 @@ test.describe.serial('the platform-admin dashboard', () => {
 	});
 
 	test('logout ends the session, server-side', async ({ page }) => {
-		await nextWindow();
 		await signIn(page);
 
 		await page.goto('/admin/sessions');

@@ -26,25 +26,18 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
 import com.workin.backend.AbstractIntegrationTest;
-import com.workin.backend.platformadmin.PlatformAdminMfaTestSupport;
-import com.workin.backend.platformadmin.mfa.PlatformAdminMfaService;
-import com.workin.backend.platformadmin.mfa.Totp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The whole surface, end to end, over real HTTP against a real database:
- * <b>enrol -> login -> MFA -> session -> step-up -> admin action -> logout</b>.
+ * The whole administrative journey over real HTTP: the password, the pages,
+ * one company action with its audit row, the logout that ends the shared
+ * session, and a deactivation that ends a live one.
  *
- * <p>Every other test here proves one control in isolation. This one exists
- * because the controls have to hold <em>in sequence</em> -- the failure this
- * catches is the one where each piece works and the composition does not, which
- * is how the {@code /admin/enrol/confirm} gap survived a green suite.
- *
- * <p>Administrative actions are switched on for this class only. They ship off
- * (ADR-0015 prerequisite 7 is a deployment condition about the legacy PHP
- * surface), and {@code PlatformAdminCompanyActionDisabledTest} pins that
- * default.
+ * <p>End to end because the pieces have been green in isolation while the
+ * journey was broken between them -- a route omitted from the public list
+ * lands on the entry point and redirects to the login page, which is also
+ * where success goes, so a test that trusts the destination passes either way.
  */
 @TestPropertySource(properties = "app.platform-admin.actions.enabled=true")
 class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
@@ -53,9 +46,7 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 
 	private static final Pattern CSRF = Pattern.compile("name=\"([^\"]*_csrf[^\"]*)\" value=\"([^\"]+)\"");
 
-	private static final Pattern SEED = Pattern.compile("<code>([A-Z2-7]+)</code>");
 
-	private static final Pattern APPROVAL = Pattern.compile("name=\"approvalId\" value=\"([0-9a-f]+)\"");
 
 	@Autowired
 	private TestRestTemplate restTemplate;
@@ -67,8 +58,6 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	@Autowired
 	private PasswordEncoder passwordEncoder;
 
-	@Autowired
-	private PlatformAdminMfaService mfaService;
 
 	@BeforeEach
 	void doNotFollowRedirects() {
@@ -78,89 +67,34 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 
 	@Test
 	void theCompleteAdministrativeJourney() {
-		String phone = uniquePhone();
-		long adminId = createPlatformAdmin(phone);
-		long companyId = createCompany();
 		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		long adminId = adminId();
+		long companyId = createCompany();
 
-		// 1. Enrol. Needs the password AND an operator-issued bootstrap token.
-		String bootstrapToken = this.mfaService.issueBootstrapToken(adminId, adminId);
-		Page enrolForm = get("/admin/enrol", null);
-		ResponseEntity<String> seedPage = post("/admin/enrol", enrolForm.cookie(), enrolForm.csrf(),
-				"phone", phone, "password", PASSWORD, "bootstrapToken", bootstrapToken);
-		Matcher seedMatch = SEED.matcher(seedPage.getBody());
-		assertThat(seedMatch.find()).as("the seed is shown exactly once").isTrue();
-		String seed = seedMatch.group(1);
-
-		ResponseEntity<String> bound = post("/admin/enrol/confirm", enrolForm.cookie(),
-				csrfOf(seedPage), "code", code(seed, 0));
-		assertThat(bound.getStatusCode()).isEqualTo(HttpStatus.FOUND);
-		assertThat(this.mfaService.isBound(adminId))
-			.as("the factor binds only when a code verifies")
-			.isTrue();
-
-		// 2. Password alone reaches only the challenge.
-		Page loginForm = get("/admin/login", null);
-		ResponseEntity<String> afterPassword = post("/admin/login", loginForm.cookie(), loginForm.csrf(),
-				"phone", phone, "password", PASSWORD);
-		assertThat(afterPassword.getHeaders().getLocation()).asString().endsWith("/admin/mfa");
-		String pendingCookie = cookieOf(afterPassword);
-		assertThat(get("/admin", pendingCookie).response().getStatusCode())
-			.as("a password-only session must reach no protected page")
-			.isEqualTo(HttpStatus.FOUND);
-
-		// 3. Second factor completes the session.
-		PlatformAdminMfaTestSupport.allowAnotherCode(jdbc, adminId);
-		Page challenge = get("/admin/mfa", pendingCookie);
-		ResponseEntity<String> signedIn = post("/admin/mfa", pendingCookie, challenge.csrf(),
-				"code", code(seed, 0));
-		assertThat(signedIn.getStatusCode()).isEqualTo(HttpStatus.FOUND);
-		String cookie = cookieOf(signedIn);
-		assertThat(cookie).as("the session id rotates after the second factor").isNotEqualTo(pendingCookie);
-
-		// 4. The session works, and is listed as the administrator's own.
+		String cookie = signIn();
 		Page home = get("/admin", cookie);
 		assertThat(home.response().getStatusCode()).isEqualTo(HttpStatus.OK);
 		Page sessions = get("/admin/sessions", cookie);
 		assertThat(sessions.response().getBody()).contains("this one");
 
-		// 5. Step-up: an approval bound to this company and this reason.
-		PlatformAdminMfaTestSupport.allowAnotherCode(jdbc, adminId);
+		// One POST, like every other page's actions (ADR-0018).
 		Page companies = get("/admin/companies", cookie);
-		ResponseEntity<String> confirm = post("/admin/companies/confirm", cookie, companies.csrf(),
+		ResponseEntity<String> applied = post("/admin/companies/action", cookie, companies.csrf(),
 				"action", "COMPANY_SUSPEND", "companyId", String.valueOf(companyId),
-				"reason", "non-payment", "code", code(seed, 0));
-		Matcher approvalMatch = APPROVAL.matcher(confirm.getBody());
-		assertThat(approvalMatch.find()).as("a verified code mints an approval").isTrue();
-		String approvalId = approvalMatch.group(1);
-
-		// 6. The admin action, spending that approval.
-		ResponseEntity<String> applied = post("/admin/companies/apply", cookie, csrfOf(confirm),
-				"action", "COMPANY_SUSPEND", "companyId", String.valueOf(companyId),
-				"reason", "non-payment", "approvalId", approvalId);
+				"reason", "non-payment");
 		assertThat(applied.getStatusCode()).isEqualTo(HttpStatus.FOUND);
 		assertThat(statusOf(companyId)).isEqualTo("suspended");
-
-		// ... audited, with its target and the approval that authorised it.
 		assertThat(jdbc.queryForList(
-				"SELECT event_type, target_type, target_id, step_up_approval_id "
+				"SELECT event_type, target_type, target_id "
 						+ "FROM platform_admin_audit_events WHERE platform_admin_id = ? "
 						+ "AND event_type = 'COMPANY_SUSPENDED'", adminId))
+			.as("a committed change cannot exist without its audit row")
 			.singleElement()
 			.satisfies(row -> {
 				assertThat(row.get("target_type")).isEqualTo("COMPANY");
 				assertThat(row.get("target_id")).isEqualTo(String.valueOf(companyId));
-				assertThat(row.get("step_up_approval_id")).isEqualTo(approvalId);
 			});
 
-		// ... and the approval is spent.
-		Page companiesAgain = get("/admin/companies", cookie);
-		ResponseEntity<String> replay = post("/admin/companies/apply", cookie, companiesAgain.csrf(),
-				"action", "COMPANY_SUSPEND", "companyId", String.valueOf(companyId),
-				"reason", "non-payment", "approvalId", approvalId);
-		assertThat(replay.getBody()).contains("was not accepted");
-
-		// 7. Logout ends the session everywhere, not just locally.
 		ResponseEntity<String> loggedOut = post("/admin/logout", cookie, get("/admin", cookie).csrf());
 		assertThat(loggedOut.getStatusCode()).isEqualTo(HttpStatus.FOUND);
 		assertThat(get("/admin", cookie).response().getStatusCode()).isEqualTo(HttpStatus.FOUND);
@@ -171,22 +105,33 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	}
 
 	@Test
-	void deactivationEndsALiveSessionOnTheNextRequest() {
-		String phone = uniquePhone();
-		long adminId = createPlatformAdmin(phone);
-		String seed = PlatformAdminMfaTestSupport.enrol(this.mfaService, adminId);
-		String cookie = signIn(phone, seed, adminId);
+	void aWrongPasswordIsRefusedAndOpensNothing() {
+		Page loginForm = get("/admin/login", null);
+		ResponseEntity<String> refused = post("/admin/login", loginForm.cookie(), loginForm.csrf(),
+				"password", "not the password");
 
+		// PHP re-renders the form with error_auth; so does this, on the same URL.
+		assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(refused.getBody()).contains("login-alert--error");
+		assertThat(get("/admin", loginForm.cookie()).response().getStatusCode())
+			.as("the pre-login session opens no page")
+			.isEqualTo(HttpStatus.FOUND);
+	}
+
+	@Test
+	void deactivationEndsALiveSessionOnTheNextRequest() {
+		String cookie = signIn();
 		assertThat(get("/admin", cookie).response().getStatusCode()).isEqualTo(HttpStatus.OK);
+
 		new JdbcTemplate(this.legacyDataSource)
-			.update("UPDATE platform_admins SET active = false WHERE id = ?", adminId);
+			.update("UPDATE platform_admins SET active = false WHERE phone = 'admin'");
 
 		assertThat(get("/admin", cookie).response().getStatusCode())
 			.as("D-145: revocation must take effect on the next request, not at expiry")
 			.isEqualTo(HttpStatus.FOUND);
+		new JdbcTemplate(this.legacyDataSource)
+			.update("UPDATE platform_admins SET active = true WHERE phone = 'admin'");
 	}
-
-	// --- helpers ------------------------------------------------------------
 
 	private record Page(ResponseEntity<String> response, String cookie, Csrf csrf) {
 	}
@@ -194,15 +139,14 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	private record Csrf(String name, String value) {
 	}
 
-	private String signIn(String phone, String seed, long adminId) {
-		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+	private String signIn() {
 		Page loginForm = get("/admin/login", null);
-		ResponseEntity<String> afterPassword = post("/admin/login", loginForm.cookie(), loginForm.csrf(),
-				"phone", phone, "password", PASSWORD);
-		String pending = cookieOf(afterPassword);
-		PlatformAdminMfaTestSupport.allowAnotherCode(jdbc, adminId);
-		Page challenge = get("/admin/mfa", pending);
-		return cookieOf(post("/admin/mfa", pending, challenge.csrf(), "code", code(seed, 0)));
+		ResponseEntity<String> signedIn = post("/admin/login", loginForm.cookie(), loginForm.csrf(),
+				"password", PASSWORD);
+		assertThat(signedIn.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+		String cookie = cookieOf(signedIn);
+		assertThat(cookie).as("the session id rotates on login").isNotEqualTo(loginForm.cookie());
+		return cookie;
 	}
 
 	private Page get(String path, String cookie) {
@@ -235,9 +179,6 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 		return new Csrf(matcher.group(1), matcher.group(2));
 	}
 
-	private static String code(String base32Seed, long offset) {
-		return Totp.codeAt(fromBase32(base32Seed), Totp.timeStepAt(java.time.Instant.now()) + offset);
-	}
 
 	private static String cookieOf(ResponseEntity<String> response) {
 		String value = tryCookieOf(response);
@@ -270,36 +211,18 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 				"SELECT status FROM companies WHERE id = ?", String.class, companyId);
 	}
 
+	private long adminId() {
+		return new JdbcTemplate(this.legacyDataSource).queryForObject(
+				"SELECT id FROM platform_admins WHERE phone = 'admin'", Long.class);
+	}
+
 	private long createCompany() {
 		return new JdbcTemplate(this.legacyDataSource).queryForObject(
 				"INSERT INTO companies (company_name, phone, password_hash, status) VALUES (?, ?, 'unused-hash', 'active') RETURNING id",
 				Long.class, "Flow " + System.nanoTime(), "+90" + System.nanoTime());
 	}
 
-	private long createPlatformAdmin(String phone) {
-		return new JdbcTemplate(this.legacyDataSource).queryForObject(
-				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true) RETURNING id",
-				Long.class, phone, this.passwordEncoder.encode(PASSWORD));
-	}
 
-	private static byte[] fromBase32(String encoded) {
-		final String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-		java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-		int buffer = 0;
-		int bitsLeft = 0;
-		for (char c : encoded.toCharArray()) {
-			buffer = (buffer << 5) | alphabet.indexOf(c);
-			bitsLeft += 5;
-			if (bitsLeft >= 8) {
-				out.write((buffer >> (bitsLeft - 8)) & 0xFF);
-				bitsLeft -= 8;
-			}
-		}
-		return out.toByteArray();
-	}
 
-	private static String uniquePhone() {
-		return "+89" + System.nanoTime();
-	}
 
 }

@@ -110,11 +110,6 @@ public class OpenApiConfig {
 	/**
 	 * The client surface: the 202 legacy routes, and nothing else.
 	 *
-	 * <p>The platform-admin API is a separate group rather than mixed in. It is
-	 * a different audience with different credentials, and a client developer
-	 * scrolling past administrative endpoints looking for theirs is a document
-	 * that has stopped helping.
-	 *
 	 * <p>The customizer is attached to the group as well as being a bean:
 	 * springdoc builds each group's resource from that group's own customizer
 	 * set (see {@code MultipleOpenApiResource}), so a bean alone reaches the
@@ -128,15 +123,6 @@ public class OpenApiConfig {
 				.displayName("Client API (mobile and desktop)")
 				.pathsToMatch("/apis/**")
 				.addOpenApiCustomizer(legacyClientContract)
-				.build();
-	}
-
-	@Bean
-	public GroupedOpenApi platformAdminApi() {
-		return GroupedOpenApi.builder()
-				.group("platform-admin")
-				.displayName("Platform administration")
-				.pathsToMatch("/api/platform-admin/**")
 				.build();
 	}
 

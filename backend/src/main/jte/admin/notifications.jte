@@ -15,7 +15,6 @@
 @param String dateFrom
 @param String dateTo
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param Integer sentCount = null
 @param String currentPage
@@ -23,7 +22,7 @@
 @param com.workin.backend.platformadmin.web.DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-!{boolean canWrite = actionsEnabled && factorBound;}
+!{boolean canWrite = actionsEnabled;}
 <%-- dashboard/pages/notifications/page.php, admin half. The reach is shown
      beside the audience because it is the number that makes this a decision
      -- nothing un-sends a notification. --%>
@@ -32,7 +31,6 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
-	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -48,8 +46,6 @@
 		@endif
 		@if(!actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(!factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 

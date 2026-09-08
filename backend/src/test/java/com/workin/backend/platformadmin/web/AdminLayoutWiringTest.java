@@ -156,40 +156,6 @@ class AdminLayoutWiringTest {
 		return keys;
 	}
 
-	/**
-	 * The pages that render before there is a session. They take the layout's
-	 * sessionless {@code auth-shell} branch, which has no topbar to carry the
-	 * factor state.
-	 */
-	private static final Set<String> PRE_SESSION = Set.of(
-			"login", "mfa", "enrol", "enrol-confirm");
-
-	@Test
-	void everyPageForwardsTheFactorStateToItsLayout() throws IOException {
-		// A JTE template's parameters come from the model only at the top
-		// level: a nested @template call gets exactly what its caller passes.
-		// So a page that declares factorBound and does not forward it renders
-		// a topbar saying the factor is unbound while the page itself knows
-		// otherwise -- which is the state this catches, because both halves
-		// look right in isolation.
-		List<String> missing = new ArrayList<>();
-		for (Path template : pageTemplates()) {
-			String name = fileName(template);
-			String body = Files.readString(template, StandardCharsets.UTF_8);
-			if (!body.contains("@template.admin.layout(") || PRE_SESSION.contains(name)) {
-				continue;
-			}
-			if (!body.contains("factorBound = factorBound")) {
-				missing.add(name);
-			}
-		}
-		assertThat(missing)
-				.as("the topbar shows the second-factor state and links to enrolment "
-						+ "when it is missing (D-152); a page that does not forward it "
-						+ "tells the administrator the factor is unbound on every visit")
-				.isEmpty();
-	}
-
 	@Test
 	void noControllerSetsTheAdminPhoneItselfAnyMore() throws IOException {
 		// One authority. Fourteen controllers forgot this and six set it, which
@@ -242,14 +208,19 @@ class AdminLayoutWiringTest {
 	}
 
 	@Test
-	void theAdviceSuppliesThePhoneAndTolerantlyOmitsItBeforeSignIn() {
-		AdminViewModelAdvice advice = new AdminViewModelAdvice(null, null, noClock());
-		assertThat(advice.currentAdminPhone(
-				new PlatformAdminWebPrincipal(7L, "+201000000000", true)))
-				.isEqualTo("+201000000000");
-		// The login, MFA and enrolment pages have no principal, and the layout's
-		// shell-less branch is right for them.
-		assertThat(advice.currentAdminPhone(null)).isNull();
+	void theAdviceSuppliesTheAdministratorsLabelAndTolerantlyOmitsItBeforeSignIn() {
+		org.springframework.context.support.StaticMessageSource messages =
+				new org.springframework.context.support.StaticMessageSource();
+		messages.addMessage("admin", java.util.Locale.forLanguageTag("ar"), "أدمن");
+		AdminViewModelAdvice advice = new AdminViewModelAdvice(messages, null, noClock());
+		org.springframework.mock.web.MockHttpServletRequest request =
+				new org.springframework.mock.web.MockHttpServletRequest();
+		// One administrator (ADR-0018), shown by PHP's label for it, not by an id.
+		assertThat(advice.currentAdminPhone(new PlatformAdminWebPrincipal(7L, "admin"), request))
+				.isEqualTo("أدمن");
+		// The login page has no principal, and the layout's shell-less branch
+		// is right for it.
+		assertThat(advice.currentAdminPhone(null, request)).isNull();
 	}
 
 	/**

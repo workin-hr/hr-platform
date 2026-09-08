@@ -27,16 +27,16 @@ test.describe(`the ${PROFILE} profile`, () => {
 		expect((await response.json()).status).toBe('UP');
 	});
 
-	test('runs the profile it was asked to run, with phase1-mysql pulled in', async () => {
-		// The group is the whole reason an operator passes one name: `prod`
-		// alone selecting the Postgres path would be a silent, total failure.
+	test('runs the profile it was asked to run', async () => {
+		// The startup line is the one place the answer is written down. A
+		// stack running `local` where `prod` was asked for publishes the API
+		// description and logs at debug, and nothing else about it looks wrong.
 		const log = execFileSync('docker', ['logs', CONTAINER], { encoding: 'utf8', maxBuffer: 64e6 });
 		const line = log.split('\n').find((entry) => entry.includes('The following')
 			&& entry.includes('profiles are active'));
 
 		expect(line, 'the startup log names the active profiles').toBeTruthy();
 		expect(line).toContain(PROFILE);
-		expect(line).toContain('phase1-mysql');
 	});
 
 	test('exposes health and nothing else over the management surface', async ({ request }) => {

@@ -18,8 +18,8 @@
 	font-size: .85em;
 }
 
-/* Login, MFA and enrolment render without the shell -- no session yet, so
-   no sidebar. */
+/* The login page renders without the shell -- no session yet, so no
+   sidebar. */
 .auth-shell {
 	display: flex;
 	align-items: center;
@@ -294,17 +294,6 @@
 
 .admin-badge--warn:hover {
 	background: #f8e4bd;
-}
-
-.home-panel--enrol {
-	border-inline-start: 3px solid #e0a800;
-}
-
-.home-panel--enrol .home-panel-body > p {
-	margin: 8px 0 14px;
-	max-width: 68ch;
-	line-height: 1.7;
-	color: var(--app-text-muted, #6b7280);
 }
 
 /* —— Turnover rates ——

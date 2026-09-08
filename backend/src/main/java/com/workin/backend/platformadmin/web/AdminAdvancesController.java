@@ -59,7 +59,6 @@ public class AdminAdvancesController {
 		model.addAttribute("employeeOptions", this.store.employeeOptions(filters.companyId()));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "advances"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		return VIEW;
 	}
@@ -83,18 +82,17 @@ public class AdminAdvancesController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 
 		try {
 			long wrote = switch (action) {
 				case "add_advance" -> this.service.add(
-						session, adminId, bound, employeeId, amount, reason, requestDate);
+						session, adminId, employeeId, amount, reason, requestDate);
 				case "edit_advance" -> this.service.saveEdit(
-						session, adminId, bound, id, employeeId, amount, reason, requestDate);
-				case "approve" -> this.service.approve(session, adminId, bound, id);
-				case "reject" -> this.service.reject(session, adminId, bound, id, rejectionReason);
-				case "mark_paid" -> this.service.markPaid(session, adminId, bound, id);
-				case "delete_advance" -> this.service.delete(session, adminId, bound, id);
+						session, adminId, id, employeeId, amount, reason, requestDate);
+				case "approve" -> this.service.approve(session, adminId, id);
+				case "reject" -> this.service.reject(session, adminId, id, rejectionReason);
+				case "mark_paid" -> this.service.markPaid(session, adminId, id);
+				case "delete_advance" -> this.service.delete(session, adminId, id);
 				default -> throw new AdvanceAdminService.RefusedException(
 						AdvanceAdminService.Refusal.INVALID);
 			};
@@ -108,7 +106,6 @@ public class AdminAdvancesController {
 	private static String messageKey(AdvanceAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case FOREIGN_ROW -> "error_db";
 			case INVALID -> "error_required";
 			case REASON_REQUIRED -> "rejection_reason_required";

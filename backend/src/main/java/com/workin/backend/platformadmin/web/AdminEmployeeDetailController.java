@@ -90,7 +90,6 @@ public class AdminEmployeeDetailController {
 		model.addAttribute("detail",
 				this.detailStore.of(employee, selectedMonth, selectedYear));
 		model.addAttribute("canManage", true);
-		model.addAttribute("factorBound", principal.factorBound());
 		return VIEW;
 	}
 

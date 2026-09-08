@@ -17,12 +17,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
+import com.workin.legacy.LegacyMariaDb;
 
 /**
  * The stored uploads answer over HTTP.
@@ -36,24 +35,13 @@ import com.workin.backend.BackendApplication;
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@ActiveProfiles("phase1-mysql")
 class LegacyUploadServingTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	@TempDir
 	static Path uploads;
-
-	static {
-		MARIADB.start();
-		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
-		}
-		catch (Exception ex) {
-			throw new IllegalStateException("could not apply the legacy schema", ex);
-		}
-	}
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {
@@ -61,11 +49,6 @@ class LegacyUploadServingTest {
 		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
 		registry.add("app.legacy-db.username", MARIADB::getUsername);
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
-		registry.add("app.platform-admin.mfa.encryption-key", () -> {
-			byte[] key = new byte[32];
-			new java.security.SecureRandom().nextBytes(key);
-			return java.util.Base64.getEncoder().encodeToString(key);
-		});
 		registry.add("app.legacy-uploads.path", () -> uploads.toString());
 	}
 
@@ -161,19 +144,5 @@ class LegacyUploadServingTest {
 			.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 	}
 
-	private static void applySchema(String resource) throws Exception {
-		String sql = new String(LegacyUploadServingTest.class.getClassLoader()
-				.getResourceAsStream(resource).readAllBytes(), StandardCharsets.UTF_8);
-		try (java.sql.Connection connection = java.sql.DriverManager.getConnection(
-				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-				java.sql.Statement statement = connection.createStatement()) {
-			statement.execute("SET SESSION sql_mode = \'\'");
-			for (String piece : sql.split(";\\R")) {
-				if (!piece.isBlank()) {
-					statement.execute(piece);
-				}
-			}
-		}
-	}
 
 }

@@ -4,7 +4,6 @@
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone = null
-@param boolean factorBound = false
 @param String currentPage = ""
 @param String lang = "ar"
 @param com.workin.backend.platformadmin.web.DashboardSession session
@@ -47,7 +46,7 @@
 </head>
 <body class="lang-${lang}">
 @if(currentAdminPhone == null)
-	<%-- Login, MFA and enrolment render without the shell: there is no session
+	<%-- The login page renders without the shell: there is no session
 	     yet, so a sidebar would advertise pages the visitor cannot open. --%>
 	<main class="auth-shell">
 		${body}
@@ -58,23 +57,10 @@
 				csrfParameterName = csrfParameterName, csrfToken = csrfToken, t = t,
 				available = available)
 		<main class="main">
-			<%-- .topbar-util and .admin-badge are the dashboard's own classes
-			     (style.css), which nothing here used.
-			     The factor state is in the bar rather than on the home page
-			     because it is what decides whether any page's write actions
-			     work, and D-152 migrates existing rows unbound -- so the link
-			     to enrolment has to be reachable from wherever the session
-			     lands, not from one page. --%>
 			<div class="topbar">
 				<h1 class="page-title">${title}</h1>
 				<div class="topbar-util">
 					<span class="who">${currentAdminPhone}</span>
-					@if(factorBound)
-						<span class="admin-badge" data-factor-bound="true">${t.apply("mfa_factor_bound")}</span>
-					@else
-						<a href="/admin/enrol" class="admin-badge admin-badge--warn"
-						   data-factor-bound="false">${t.apply("mfa_factor_unbound")}</a>
-					@endif
 				</div>
 			</div>
 			@if(flash != null)

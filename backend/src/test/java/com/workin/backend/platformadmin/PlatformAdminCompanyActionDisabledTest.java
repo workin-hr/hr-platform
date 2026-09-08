@@ -24,8 +24,8 @@ class PlatformAdminCompanyActionDisabledTest extends AbstractIntegrationTest {
 	void theSurfaceRefusesAdministrativeActionsByDefault() {
 		assertThat(this.companyService.actionsEnabled()).isFalse();
 
-		assertThat(this.companyService.apply(1L, true,
-				PlatformAdminCompanyService.ACTION_SUSPEND, 1L, "reason", "approval"))
+		assertThat(this.companyService.apply(1L,
+				PlatformAdminCompanyService.ACTION_SUSPEND, 1L, "reason"))
 			.isEqualTo(PlatformAdminCompanyService.Outcome.SURFACE_DISABLED);
 	}
 

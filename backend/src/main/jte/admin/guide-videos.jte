@@ -6,14 +6,13 @@
 @param String currentAdminPhone
 @param List<GuideVideo> videos
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param String currentPage
 @param String lang
 @param com.workin.backend.platformadmin.web.DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-!{boolean canWrite = actionsEnabled && factorBound;}
+!{boolean canWrite = actionsEnabled;}
 <%-- dashboard/pages/guide_videos/page.php.
 
      PHP puts add and edit behind two modals filled by a script that reads a
@@ -28,7 +27,6 @@
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
-	factorBound = factorBound,
 	currentPage = currentPage,
 	lang = lang,
 	session = session,
@@ -41,8 +39,6 @@
 		@endif
 		@if(!actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(!factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		<div class="data-table-card">

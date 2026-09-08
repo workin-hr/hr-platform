@@ -30,8 +30,6 @@ public class AdministrativeDecisionAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/** {@code error_required}: no company chosen, or an empty title or body. */
 		INVALID,
@@ -72,12 +70,9 @@ public class AdministrativeDecisionAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -115,9 +110,9 @@ public class AdministrativeDecisionAdminService {
 
 	@Transactional
 	public long add(
-			DashboardSession session, long adminId, boolean factorBound, long postedCompanyId,
+			DashboardSession session, long adminId, long postedCompanyId,
 			String rawTitle, String rawBody, boolean active) {
-		gate(factorBound);
+		gate();
 		long companyId = companyForCreate(session, postedCompanyId);
 		String title = rawTitle == null ? "" : rawTitle.trim();
 		String body = rawBody == null ? "" : rawBody.trim();
@@ -137,9 +132,9 @@ public class AdministrativeDecisionAdminService {
 	 */
 	@Transactional
 	public long saveEdit(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			String rawTitle, String rawBody, boolean active) {
-		gate(factorBound);
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		String title = rawTitle == null ? "" : rawTitle.trim();
@@ -155,8 +150,8 @@ public class AdministrativeDecisionAdminService {
 	}
 
 	@Transactional
-	public long delete(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long delete(DashboardSession session, long adminId, long id) {
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		this.store.delete(id);
@@ -167,7 +162,7 @@ public class AdministrativeDecisionAdminService {
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
 		this.auditService.recordAction(
-				adminId, type, "administrative_decision", String.valueOf(id), null, detail);
+				adminId, type, "administrative_decision", String.valueOf(id), detail);
 	}
 
 }

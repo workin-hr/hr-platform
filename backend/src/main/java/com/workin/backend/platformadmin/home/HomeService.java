@@ -4,7 +4,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.SequencedMap;
 
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import com.workin.backend.platformadmin.hr.Activity;
@@ -31,7 +30,6 @@ import com.workin.backend.platformadmin.web.DashboardSession;
  * session rather than a company id -- so the tenant guard can see it.
  */
 @Service
-@Profile("phase1-mysql")
 public class HomeService {
 
 	private final HomeStore store;

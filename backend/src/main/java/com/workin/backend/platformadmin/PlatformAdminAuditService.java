@@ -48,13 +48,12 @@ public class PlatformAdminAuditService {
 	 *
 	 * @param targetType what the action was performed on, e.g. {@code COMPANY}
 	 * @param targetId which one
-	 * @param stepUpApprovalId the approval that authorised it, once step-up exists
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
 	public void recordAction(Long platformAdminId, PlatformAdminAuditEventType eventType,
-			String targetType, String targetId, String stepUpApprovalId, String detail) {
+			String targetType, String targetId, String detail) {
 		auditEventRepository.save(new PlatformAdminAuditEvent(
-				platformAdminId, eventType, detail, targetType, targetId, stepUpApprovalId));
+				platformAdminId, eventType, detail, targetType, targetId));
 	}
 
 }

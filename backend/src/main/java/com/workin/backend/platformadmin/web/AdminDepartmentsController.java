@@ -61,7 +61,6 @@ public class AdminDepartmentsController {
 		model.addAttribute("branchOptions", this.store.branchOptions(filters.companyId()));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "departments"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		model.addAttribute("addOpen", "add".equals(action));
 		model.addAttribute("editRow", "edit".equals(action) ? visible(current, filters, id) : null);
@@ -96,15 +95,14 @@ public class AdminDepartmentsController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 		List<Long> branches = Department.parseBranchIds(branchIds);
 
 		try {
 			long wrote = switch (action) {
-				case "add" -> this.service.add(session, adminId, bound, companyId, name, branches);
-				case "save_edit" -> this.service.saveEdit(session, adminId, bound, id, companyId,
+				case "add" -> this.service.add(session, adminId, companyId, name, branches);
+				case "save_edit" -> this.service.saveEdit(session, adminId, id, companyId,
 						name, branches, isActive == null || !"0".equals(isActive.trim()));
-				case "delete" -> this.service.delete(session, adminId, bound, id, companyId);
+				case "delete" -> this.service.delete(session, adminId, id, companyId);
 				default -> throw new DepartmentAdminService.RefusedException(
 						DepartmentAdminService.Refusal.NO_COMPANY);
 			};
@@ -126,7 +124,6 @@ public class AdminDepartmentsController {
 	private static String messageKey(DepartmentAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case NO_COMPANY -> "select_company_first";
 			case FOREIGN_ROW -> "error_db";
 			case NAME_REQUIRED -> "error_required";

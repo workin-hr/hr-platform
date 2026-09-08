@@ -68,7 +68,6 @@ public class AdminRequestsController {
 				filters, status, typeId, dateFrom, dateTo, showCompany));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "requests"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		return VIEW;
 	}
@@ -100,13 +99,12 @@ public class AdminRequestsController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 
 		try {
 			long wrote = switch (action) {
-				case "approve" -> this.service.approve(session, adminId, bound, id, comment);
-				case "reject" -> this.service.reject(session, adminId, bound, id, comment);
-				case "delete" -> this.service.delete(session, adminId, bound, id);
+				case "approve" -> this.service.approve(session, adminId, id, comment);
+				case "reject" -> this.service.reject(session, adminId, id, comment);
+				case "delete" -> this.service.delete(session, adminId, id);
 				default -> throw new EmployeeRequestAdminService.RefusedException(
 						EmployeeRequestAdminService.Refusal.FOREIGN_ROW);
 			};
@@ -120,7 +118,6 @@ public class AdminRequestsController {
 	private static String messageKey(EmployeeRequestAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case FOREIGN_ROW -> "error_db";
 			case INSUFFICIENT_BALANCE -> "insufficient_leave_balance";
 			case NOT_PENDING -> "error_required";

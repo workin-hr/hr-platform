@@ -28,7 +28,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -50,7 +49,6 @@ import com.workin.legacy.auth.whatsapp.LegacyWhatsAppSender;
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @Import(RecordingWhatsAppConfiguration.class)
-@ActiveProfiles("phase1-mysql")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class LegacyRegistrationEndToEndTest {
 

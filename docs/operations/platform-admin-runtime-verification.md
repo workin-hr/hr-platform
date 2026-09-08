@@ -1,5 +1,12 @@
 # Platform-Admin Surface: Runtime Verification
 
+> **Historical record.** This verification exercised the bearer API, the TOTP
+> enrolment and the step-up approvals of ADR-0015's authentication model. That
+> model was replaced by ADR-0018 on 2026-09-08 -- one administrator, one
+> password, no bearer API -- and `scripts/verify-platform-admin-flow.sh` was
+> removed with it. The findings below are kept as evidence of what was verified
+> at the time; the flow they describe no longer exists.
+
 The complete flow of ADR-0015's platform-admin surface, exercised against a
 **running application** rather than only in tests:
 

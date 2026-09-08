@@ -21,7 +21,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
@@ -68,8 +67,12 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 	@Qualifier("legacyDataSource")
 	private DataSource legacyDataSource;
 
-	@Autowired
-	private PasswordEncoder passwordEncoder;
+	/** The row is shared with every class on this base; a test that deactivates it puts it back. */
+	@org.junit.jupiter.api.AfterEach
+	void reactivateTheAdministrator() {
+		new JdbcTemplate(this.legacyDataSource)
+			.update("UPDATE platform_admins SET active = true WHERE phone = 'admin'");
+	}
 
 	// --- the surface's basic guarantees -------------------------------------
 
@@ -83,10 +86,8 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 
 	@Test
 	void theSessionCookieCarriesTheFlagsThatWerePinned() {
-		String phone = uniquePhone();
-		createPlatformAdmin(phone, true);
 
-		Session session = logIn(phone, PASSWORD);
+		Session session = logIn(PASSWORD);
 
 		assertThat(session.setCookieHeader())
 			.contains("WORKIN_ADMIN_SESSION=")
@@ -98,12 +99,10 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 
 	@Test
 	void theSessionIdRotatesOnLogin() {
-		String phone = uniquePhone();
-		createPlatformAdmin(phone, true);
 
 		// The GET establishes a pre-authentication session (CSRF needs one).
 		LoginForm form = fetchLoginForm();
-		Session session = submitLogin(form, phone, PASSWORD);
+		Session session = submitLogin(form, PASSWORD);
 
 		assertThat(session.cookieValue())
 			.as("a session id that survives authentication is a session-fixation foothold")
@@ -112,40 +111,36 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 
 	@Test
 	void anAuthenticatedAdministratorSeesTheirOwnPage() {
-		String phone = uniquePhone();
-		createPlatformAdmin(phone, true);
 
-		Session session = logIn(phone, PASSWORD);
+		Session session = logIn(PASSWORD);
 		ResponseEntity<String> page = get("/admin", session.cookieValue());
 
 		assertThat(page.getStatusCode()).isEqualTo(HttpStatus.OK);
-		assertThat(page.getBody()).contains(phone);
+		// The one administrator's home, under PHP's label for it rather than an id.
+		assertThat(page.getBody()).contains("home-page");
 	}
 
 	@Test
 	void wrongCredentialsRenderTheFormAgainWithoutASession() {
-		String phone = uniquePhone();
-		createPlatformAdmin(phone, true);
 
 		LoginForm form = fetchLoginForm();
-		ResponseEntity<String> response = postLogin(form, phone, "not the password");
+		ResponseEntity<String> response = postLogin(form, "not the password");
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-		assertThat(response.getBody()).contains("were not accepted");
+		// PHP's error_auth, rendered in whichever language the page is in.
+		assertThat(response.getBody()).contains("login-alert--error");
 	}
 
 	// --- prerequisite 9 -----------------------------------------------------
 
 	@Test
 	void deactivatingAnAdministratorRefusesTheirNextPageRequest() {
-		String phone = uniquePhone();
-		long id = createPlatformAdmin(phone, true);
-		Session session = logIn(phone, PASSWORD);
+		Session session = logIn(PASSWORD);
 
 		assertThat(get("/admin", session.cookieValue()).getStatusCode()).isEqualTo(HttpStatus.OK);
 
 		new JdbcTemplate(this.legacyDataSource)
-			.update("UPDATE platform_admins SET active = false WHERE id = ?", id);
+			.update("UPDATE platform_admins SET active = false WHERE phone = 'admin'");
 
 		ResponseEntity<String> afterDeactivation = get("/admin", session.cookieValue());
 
@@ -160,9 +155,7 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 
 	@Test
 	void logoutInvalidatesTheSessionEverywhereNotJustLocally() {
-		String phone = uniquePhone();
-		createPlatformAdmin(phone, true);
-		Session session = logIn(phone, PASSWORD);
+		Session session = logIn(PASSWORD);
 
 		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		String sessionId = sessionIdOf(session);
@@ -189,9 +182,7 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 
 	@Test
 	void aStateChangingPostWithoutTheCsrfTokenIsRejected() {
-		String phone = uniquePhone();
-		createPlatformAdmin(phone, true);
-		Session session = logIn(phone, PASSWORD);
+		Session session = logIn(PASSWORD);
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
@@ -211,13 +202,10 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 
 	@Test
 	void loginItselfRequiresTheCsrfToken() {
-		String phone = uniquePhone();
-		createPlatformAdmin(phone, true);
 
 		HttpHeaders headers = new HttpHeaders();
 		headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 		MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
-		body.add("phone", phone);
 		body.add("password", PASSWORD);
 
 		ResponseEntity<String> response = this.restTemplate.exchange(
@@ -265,20 +253,19 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 		return new LoginForm(cookieValueOf(response), matcher.group(1), matcher.group(2));
 	}
 
-	private ResponseEntity<String> postLogin(LoginForm form, String phone, String password) {
+	private ResponseEntity<String> postLogin(LoginForm form, String password) {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 		headers.add(HttpHeaders.COOKIE, "WORKIN_ADMIN_SESSION=" + form.cookieValue());
 		MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
-		body.add("phone", phone);
 		body.add("password", password);
 		body.add(form.csrfParameterName(), form.csrfToken());
 		return this.restTemplate.exchange(
 				"/admin/login", HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
 	}
 
-	private Session submitLogin(LoginForm form, String phone, String password) {
-		ResponseEntity<String> response = postLogin(form, phone, password);
+	private Session submitLogin(LoginForm form, String password) {
+		ResponseEntity<String> response = postLogin(form, password);
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
 
 		String cookie = cookieValueOf(response);
@@ -291,8 +278,8 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 		return new Session(cookie, setCookie, matcher.group(1), matcher.group(2));
 	}
 
-	private Session logIn(String phone, String password) {
-		return submitLogin(fetchLoginForm(), phone, password);
+	private Session logIn(String password) {
+		return submitLogin(fetchLoginForm(), password);
 	}
 
 	private static String setCookieHeaderOf(ResponseEntity<String> response) {
@@ -311,15 +298,6 @@ class PlatformAdminWebSessionTest extends AbstractIntegrationTest {
 		return end < 0 ? header.substring(start) : header.substring(start, end);
 	}
 
-	private long createPlatformAdmin(String phone, boolean active) {
-		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
-		return jdbc.queryForObject(
-				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, ?) RETURNING id",
-				Long.class, phone, this.passwordEncoder.encode(PASSWORD), active);
-	}
 
-	private static String uniquePhone() {
-		return "+99" + System.nanoTime();
-	}
 
 }
