@@ -77,13 +77,27 @@ which is what this stack is for; to work on the admin UI, put TLS in front.
 **Every OTP route answers 503 `otp_delivery_failed`.** WhatsApp is deliberately
 unconfigured. That is legacy's own behaviour without credentials.
 
-## The other two environments
+## The other environments
 
 | | Profile | Data | Secrets |
 |---|---|---|---|
 | `compose.local.yaml` | `local` | sanitised seed | committed defaults |
 | `compose.integration.yaml` | `integration` | sanitised seed | from `.env.integration` |
 | `compose.prod.yaml` | `prod` | restored by hand | from `.env.prod`, all required |
+| `compose.remote-db.yaml` | `local` or `integration` | **a database that already exists** | from `.env.remote-db`, all required |
+
+`compose.remote-db.yaml` is the odd one: it declares no `db` service, no seed
+and no volume, and connects out to a MySQL somebody else owns — the one PHP is
+still serving, for checking the port against real data or for running it after
+a cutover. It publishes nothing but the application's own loopback port, so
+pair it with `compose.tls.yaml` for the dashboard, whose session cookie is
+`Secure` unconditionally.
+
+Administrative actions are **on** there (**D-207**), and the precondition is
+yours rather than the file's: ADR-0015 prerequisite 7 wants the legacy PHP
+admin panel unreachable before this surface performs a privileged operation,
+and nothing in the application can check that. Close PHP when you open this.
+`docs/operations/checking-against-the-live-database.md` is the procedure.
 
 Integration holds no real data but still takes real secrets, because more than
 one person can reach it — a shared box with a committed signing secret is a box

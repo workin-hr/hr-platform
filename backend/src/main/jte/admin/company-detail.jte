@@ -11,7 +11,7 @@
 @param Function<String, String> t
 @param Function<String, Boolean> available
 @template.admin.layout(
-	title = "Company",
+	title = t.apply("company"),
 	csrfParameterName = csrfParameterName,
 	csrfToken = csrfToken,
 	currentAdminPhone = currentAdminPhone,
@@ -23,36 +23,33 @@
 	contentClass = "",
 	body = @`
 		<div class="card">
-			<h1>${detail.company().name() == null ? "Unnamed company" : detail.company().name()}</h1>
-			<p class="sub">Company #${detail.company().id()}</p>
+			<h1>${detail.company().name() == null ? t.apply("unnamed_company") : detail.company().name()}</h1>
+			<p class="sub">${t.apply("company")} #${detail.company().id()}</p>
 			<dl class="facts">
-				<dt>Status</dt><dd>${detail.company().status()}</dd>
+				<dt>${t.apply("status")}</dt><dd>${detail.company().status()}</dd>
 				@if(detail.rejectionReason() != null && !detail.rejectionReason().isBlank())
-					<dt>Rejected because</dt><dd>${detail.rejectionReason()}</dd>
+					<dt>${t.apply("rejected_because")}</dt><dd>${detail.rejectionReason()}</dd>
 				@endif
-				<dt>Pending requests</dt><dd>${detail.pendingRequests()}</dd>
-				<dt>Pending advances</dt><dd>${detail.pendingAdvances()}</dd>
+				<dt>${t.apply("pending_requests")}</dt><dd>${detail.pendingRequests()}</dd>
+				<dt>${t.apply("pending_advances")}</dt><dd>${detail.pendingAdvances()}</dd>
 			</dl>
-			<p class="notice">
-				Outstanding work is shown because suspending a company with pending
-				requests or advances leaves that work stranded.
-			</p>
+			<p class="notice">${t.apply("outstanding_work_notice")}</p>
 			@if(actionsEnabled)
 				<form method="post" action="/admin/companies/action">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="companyId" value="${detail.company().id()}">
 					@if("pending".equals(detail.company().status()))
-						<button type="submit" name="action" value="COMPANY_APPROVE" class="primary">Approve</button>
+						<button type="submit" name="action" value="COMPANY_APPROVE" class="primary">${t.apply("approve")}</button>
 						<%-- A rejection must say why; the dialog below asks. --%>
 						<button type="button" class="linkish danger" data-dialog="company-reject"
 								data-dialog-companyId="${detail.company().id()}"
-								data-dialog-subject="${detail.company().name()}">Reject</button>
+								data-dialog-subject="${detail.company().name()}">${t.apply("reject")}</button>
 					@elseif("suspended".equals(detail.company().status()))
-						<button type="submit" name="action" value="COMPANY_RESTORE" class="primary">Restore</button>
+						<button type="submit" name="action" value="COMPANY_RESTORE" class="primary">${t.apply("restore")}</button>
 					@elseif("rejected".equals(detail.company().status()))
-						<button type="submit" name="action" value="COMPANY_APPROVE" class="primary">Approve</button>
+						<button type="submit" name="action" value="COMPANY_APPROVE" class="primary">${t.apply("approve")}</button>
 					@else
-						<button type="submit" name="action" value="COMPANY_SUSPEND" class="linkish danger">Suspend</button>
+						<button type="submit" name="action" value="COMPANY_SUSPEND" class="linkish danger">${t.apply("suspend")}</button>
 					@endif
 				</form>
 				@if("pending".equals(detail.company().status()))
@@ -68,6 +65,6 @@
 							`)
 				@endif
 			@endif
-			<p class="notice"><a href="/admin/companies">Back to companies</a></p>
+			<p class="notice"><a href="/admin/companies">${t.apply("back_to_companies")}</a></p>
 		</div>
 	`)

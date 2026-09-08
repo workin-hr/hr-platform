@@ -11,7 +11,7 @@
 @param Function<String, Boolean> available
 <%-- Structure and class names are the dashboard's own (sidebar/view.php and
      render.php); the copied sidebar.css lays this out and nothing else will. --%>
-<aside class="sidebar">
+<aside class="sidebar" id="admin-sidebar">
 	<div class="logo">
 		<span class="logo-text">${t.apply("app_name")}</span>
 	</div>

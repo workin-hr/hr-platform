@@ -11,9 +11,12 @@
 # **This is the production database if you point it there.** Three things are
 # therefore deliberately different from `compose.local.yaml`:
 #
-#   * administrative actions default to **off**. The `local` profile turns them
-#     on, which is right for a throwaway seed and wrong for the live database:
-#     a click on the companies page would suspend a real company.
+#   * administrative actions are **on**, and the condition for that is yours to
+#     hold rather than this file's: ADR-0015 prerequisite 7 requires the legacy
+#     PHP admin surface to be unreachable before this one performs a privileged
+#     operation. Nothing in the application can check that. Close PHP when you
+#     open this -- both write the same rows and neither knows about the other.
+#     ADMIN_ACTIONS_ENABLED=false renders the company pages read-only instead.
 #   * uploads are served from wherever they already live (`UPLOADS_URL`), not
 #     from a volume this stack owns. Pointed at an absolute URL the application
 #     registers no handler at all, so it cannot serve, and cannot appear to
@@ -46,8 +49,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET -- PHP's AppConfig::JWT_SECRET}
 
       APP_PLATFORM_ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
-      # Off unless you say otherwise, and say it deliberately.
-      APP_PLATFORM_ADMIN_ACTIONS_ENABLED: ${ADMIN_ACTIONS_ENABLED:-false}
+      # On: this surface replaces PHP's admin panel rather than shadowing it.
+      # The precondition is that PHP is closed -- see the header.
+      APP_PLATFORM_ADMIN_ACTIONS_ENABLED: ${ADMIN_ACTIONS_ENABLED:-true}
 
       # Where the stored files already are. An absolute URL means this
       # application serves none of them.

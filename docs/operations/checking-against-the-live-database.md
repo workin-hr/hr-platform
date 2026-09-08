@@ -6,9 +6,10 @@ over. Every client points at it: the mobile app, the desktop app and the admin
 dashboard.
 
 > **This is production.** The application writes to it through every route a
-> client calls, exactly as PHP does. Nothing below is a read-only mode; what it
-> is instead is *deliberate* about the three places where the port could do
-> something PHP would not.
+> client calls, exactly as PHP does — and, with administrative actions on
+> (**D-207**), through the dashboard as well. Nothing below is a read-only
+> mode; what it is instead is *deliberate* about the three places where the
+> port could do something PHP would not.
 
 ## 1. Add the six tables Java owns
 
@@ -103,7 +104,7 @@ rather than `compose.local.yaml` with a changed URL:
 
 | | Why |
 |---|---|
-| `ADMIN_ACTIONS_ENABLED=false` | The `local` profile turns administrative actions **on**, which is right for a throwaway seed. Against this database a click on the companies page suspends a real company |
+| `ADMIN_ACTIONS_ENABLED=true` | The dashboard does what PHP's admin panel does — approve, reject, suspend, restore. **Close the PHP panel before you open this one** (ADR-0015 prerequisite 7, **D-207**): both write the same rows and neither knows about the other. Set it to `false` to render those pages read-only while PHP is still reachable |
 | `UPLOADS_URL` absolute | Points at wherever the files already are. Given an absolute URL the application registers no upload handler at all, so it cannot appear to serve files it does not have |
 | WhatsApp unset | Every OTP route answers `503` instead of messaging a real person while somebody is looking around |
 
