@@ -17,7 +17,12 @@
 # application believes `X-Forwarded-For`. That is only true if the proxy is the
 # *sole* route (R-049, and `running-the-backend.md`). `!override []` removes
 # the published port rather than adding to it, because compose merges lists.
-name: workin-prod
+#
+# No `name:` here on purpose. A later file's project name wins the merge, so
+# declaring one would drag every stack this overlays into `workin-prod` --
+# including a look-at-real-data run from `compose.remote-db.yaml`, which would
+# then adopt production's containers and volumes. The base file names the
+# project; this one only adds an edge to it.
 
 services:
   app:
