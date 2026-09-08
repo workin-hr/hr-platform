@@ -6,6 +6,8 @@
 @param String csrfToken
 @param String currentAdminPhone
 @param List<Banner> banners
+<%-- The row being edited, from ?edit=<id>. Null when adding. --%>
+@param Banner editBanner = null
 @param List<String> routes
 @param boolean actionsEnabled
 @param String errorKey = null
@@ -95,6 +97,12 @@
 									     so the trigger takes the same guard its only item has. --%>
 									@if(canWrite)
 										@template.admin.rowActions(rowId = banner.id(), t = t, items = @`
+											<%-- D-210: the way in to the edit action. A link rather
+											     than a dialog trigger, because the modal is prefilled
+											     by the server -- the image field cannot be filled from
+											     a data- attribute, and the form is multipart. --%>
+											<a href="/admin/banners?edit=${banner.id()}" role="menuitem"
+											   class="row-actions__item">${t.apply("edit")}</a>
 											<form method="post" class="row-actions__form"
 											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -123,43 +131,59 @@
 			     or not anyone was adding anything. Same form, same fields, same
 			     POST; .modal-bg is position:fixed, so it lives at the end of the
 			     document and out of the reading order. --%>
-			<div class="modal-bg" id="bannerModal">
+			<%-- One modal for both, as legacy has one: open on arrival when a row
+			     is being edited, opened by the "+" button otherwise. The image is
+			     required to add and optional to edit -- update() keeps the stored
+			     one when no file is posted, so demanding it again would make
+			     correcting a title mean re-uploading the picture. --%>
+			<div class="modal-bg${editBanner == null ? "" : " open"}" id="bannerModal">
 				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="bannerModal-title">
 					<button type="button" class="modal-close"
 							aria-label="${t.apply("cancel")}">&times;</button>
-					<h2 id="bannerModal-title">${t.apply("add")}</h2>
+					<h2 id="bannerModal-title">${t.apply(editBanner == null ? "add" : "edit_banner")}</h2>
 					<form method="post" enctype="multipart/form-data">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-					<input type="hidden" name="action" value="add">
+					<input type="hidden" name="action" value="${editBanner == null ? "add" : "edit"}">
+					@if(editBanner != null)
+						<input type="hidden" name="id" value="${editBanner.id()}">
+					@endif
 					<div class="form-row">
 						<label>${t.apply("banner_image")}
-							<input type="file" name="image" accept="image/jpeg,image/png,image/webp" required>
+							<input type="file" name="image" accept="image/jpeg,image/png,image/webp"
+							       required="${editBanner == null}">
 							<small>${t.apply("banner_upload_hint")}</small></label>
 						<label>${t.apply("app_platform")}
 							<select name="platform">
 								@for(Faq.Platform p : Faq.Platform.values())
-									<option value="${p.stored()}">${p.stored()}</option>
+									<option value="${p.stored()}"
+											selected="${editBanner != null && editBanner.platform() == p}">${p.stored()}</option>
 								@endfor
 							</select></label>
-						<label>${t.apply("sort_order")}<input type="number" name="sortOrder" value="0"></label>
+						<label>${t.apply("sort_order")}<input type="number" name="sortOrder"
+								value="${editBanner == null ? "0" : String.valueOf(editBanner.sortOrder())}"></label>
 					</div>
 					<div class="form-row">
-						<label>${t.apply("title_ar")}<input type="text" name="titleAr"></label>
-						<label>${t.apply("title_en")}<input type="text" name="titleEn"></label>
+						<label>${t.apply("title_ar")}<input type="text" name="titleAr"
+								value="${editBanner == null ? "" : editBanner.titleAr()}"></label>
+						<label>${t.apply("title_en")}<input type="text" name="titleEn"
+								value="${editBanner == null ? "" : editBanner.titleEn()}"></label>
 					</div>
 					<div class="form-row">
-						<label>${t.apply("description_ar")}<textarea name="descriptionAr" rows="2"></textarea></label>
-						<label>${t.apply("description_en")}<textarea name="descriptionEn" rows="2"></textarea></label>
+						<label>${t.apply("description_ar")}<textarea name="descriptionAr" rows="2">${editBanner == null ? "" : editBanner.descriptionAr()}</textarea></label>
+						<label>${t.apply("description_en")}<textarea name="descriptionEn" rows="2">${editBanner == null ? "" : editBanner.descriptionEn()}</textarea></label>
 					</div>
 					<div class="form-row">
-						<label>${t.apply("button_label_ar")}<input type="text" name="buttonLabelAr"></label>
-						<label>${t.apply("button_label_en")}<input type="text" name="buttonLabelEn"></label>
+						<label>${t.apply("button_label_ar")}<input type="text" name="buttonLabelAr"
+								value="${editBanner == null ? "" : editBanner.buttonLabelAr()}"></label>
+						<label>${t.apply("button_label_en")}<input type="text" name="buttonLabelEn"
+								value="${editBanner == null ? "" : editBanner.buttonLabelEn()}"></label>
 					</div>
 					<div class="form-row">
 						<label>${t.apply("button_action_type")}
 							<select name="actionType">
 								@for(Banner.Action a : Banner.Action.values())
-									<option value="${a.stored()}">${a.stored()}</option>
+									<option value="${a.stored()}"
+											selected="${editBanner != null && editBanner.buttonActionType() == a}">${a.stored()}</option>
 								@endfor
 							</select></label>
 						<%-- One field for the external URL and one datalist-backed field for
@@ -167,6 +191,8 @@
 						     the form offers only values the server will accept. --%>
 						<label>${t.apply("button_action_value")}
 							<input type="text" name="actionValue" list="bannerRoutes"
+							       value="${editBanner == null || editBanner.buttonActionValue() == null
+								       ? "" : editBanner.buttonActionValue()}"
 							       placeholder="${t.apply("banner_action_url_placeholder")}"></label>
 						<datalist id="bannerRoutes">
 							@for(String route : routes)
@@ -179,7 +205,8 @@
 							<input type="text" name="whatsappCountryCode" placeholder="+20"></label>
 						<label>${t.apply("banner_whatsapp_number")}<input type="text" name="whatsappPhone"></label>
 						<label>
-							<input type="checkbox" name="isActive" value="1" checked>
+							<input type="checkbox" name="isActive" value="1"
+						       checked="${editBanner == null || editBanner.active()}">
 							<span>${t.apply("status_active")}</span></label>
 					</div>
 					<button type="submit" class="btn btn-blue">${t.apply("save")}</button>

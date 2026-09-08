@@ -117,6 +117,22 @@
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("att_records")}</h2>
 				<div class="data-table-head__actions">
+					<%-- D-210: page.php:186 offers this and nothing here posted
+					     delete_range. Shown only with a company chosen, as legacy
+					     shows it -- without one the range is every company's, and
+					     the service refuses it anyway. The confirmation names the
+					     range, because "bulk delete" alone does not say how much. --%>
+					@if(canWrite && filters.companyId() > 0)
+						<form method="POST" class="inline-form"
+						      onsubmit="return confirm('${t.apply("att_range_delete_confirm")}\n${from} → ${to}')">
+							<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+							<input type="hidden" name="action" value="delete_range">
+							<input type="hidden" name="company_id" value="${filters.companyId()}">
+							<input type="hidden" name="from" value="${from}">
+							<input type="hidden" name="to" value="${to}">
+							<button type="submit" class="btn btn-red btn-sm">${t.apply("att_delete_range")}</button>
+						</form>
+					@endif
 					@if(canWrite)
 						<button type="button" class="btn btn-blue btn-sm"
 								onclick="crudOpenAdd('attModal')">+ ${t.apply("add_attendance")}</button>

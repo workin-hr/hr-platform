@@ -46,6 +46,8 @@ class AdminActionReachabilityTest {
 
 	private static final Path TEMPLATES = Path.of("src/main/jte/admin");
 
+	private static final Path ASSETS = Path.of("src/main/resources/static/admin/_assets");
+
 	/**
 	 * Handled by a controller, offered by no template, as of D-210.
 	 *
@@ -58,16 +60,16 @@ class AdminActionReachabilityTest {
 	 * {@code phone_countries} was a template change and no service change at
 	 * all.
 	 */
-	private static final Map<String, Set<String>> UNREACHABLE = Map.of(
-			"attendance", Set.of("delete_range"),
-			"banners", Set.of("edit"),
-			"settings", Set.of("edit_option"));
+	private static final Map<String, Set<String>> UNREACHABLE = Map.of();
 
 	private static final Pattern VIEW = Pattern.compile("String VIEW\\s*=\\s*\"admin/([a-z-]+)\"");
 
 	private static final Pattern ACTION = Pattern.compile("case \"([a-z_]+)\"\\s*->");
 
 	private static final Pattern INCLUDE = Pattern.compile("@template\\.admin\\.([A-Za-z-]+)\\(");
+
+	/** {@code pageScripts = List.of("setting-templates.js")}, and inline links. */
+	private static final Pattern SCRIPT = Pattern.compile("\"([a-z0-9-]+\\.js)\"");
 
 	@Test
 	void everyActionAControllerHandlesIsOneItsPageCanTrigger() throws IOException {
@@ -93,10 +95,11 @@ class AdminActionReachabilityTest {
 				while (action.find()) {
 					checked++;
 					String name = action.group(1);
-					// The template names it as a literal somewhere: a hidden
-					// input's value, a ternary choosing between two, or a
-					// dialog's action parameter. All three are quoted.
-					if (!rendered.contains("\"" + name + "\"") && !tolerated.contains(name)) {
+					// Named as a literal somewhere: a hidden input's value, a
+					// ternary choosing between two, a dialog's action parameter,
+					// or a script assigning it to the field. Templates quote with
+					// ", scripts with ' -- both count, because both reach it.
+					if (!names(rendered, name) && !tolerated.contains(name)) {
 						unreachable.add(page + " cannot trigger \"" + name + "\", which "
 								+ source.getFileName() + " handles");
 					}
@@ -123,7 +126,7 @@ class AdminActionReachabilityTest {
 		for (Map.Entry<String, Set<String>> entry : UNREACHABLE.entrySet()) {
 			String rendered = renderedBy(entry.getKey(), templates);
 			for (String action : entry.getValue()) {
-				if (rendered.contains("\"" + action + "\"")) {
+				if (names(rendered, action)) {
 					stale.add(entry.getKey() + " -> " + action);
 				}
 			}
@@ -133,6 +136,15 @@ class AdminActionReachabilityTest {
 				.isEmpty();
 	}
 
+	/**
+	 * The template, the partials it includes, <em>and</em> the scripts it
+	 * names. A page can reach an action without naming it: legacy's setting
+	 * templates tab renders {@code value="add_option"} and
+	 * {@code setting-templates.js} switches the same field to
+	 * {@code edit_option} when the operator edits one. Scanning templates
+	 * alone reported that as unreachable, which would have had it "fixed" --
+	 * a second control for a capability that already had one.
+	 */
 	private static String renderedBy(String page, Map<String, String> templates) {
 		Set<String> reached = new LinkedHashSet<>();
 		collect(page, templates, reached);
@@ -141,7 +153,31 @@ class AdminActionReachabilityTest {
 		for (String name : reached) {
 			all.append(templates.getOrDefault(name, ""));
 		}
+		for (String script : scriptsNamedBy(all.toString())) {
+			Path path = ASSETS.resolve(script);
+			if (Files.exists(path)) {
+				try {
+					all.append(Files.readString(path, StandardCharsets.UTF_8));
+				}
+				catch (IOException ignored) {
+					// AdminLayoutWiringTest owns a named asset that is missing.
+				}
+			}
+		}
 		return all.toString();
+	}
+
+	private static boolean names(String rendered, String action) {
+		return rendered.contains("\"" + action + "\"") || rendered.contains("'" + action + "'");
+	}
+
+	private static Set<String> scriptsNamedBy(String rendered) {
+		Set<String> named = new LinkedHashSet<>();
+		Matcher script = SCRIPT.matcher(rendered);
+		while (script.find()) {
+			named.add(script.group(1));
+		}
+		return named;
 	}
 
 	private static void collect(String name, Map<String, String> templates, Set<String> seen) {
