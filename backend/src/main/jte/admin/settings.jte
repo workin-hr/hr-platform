@@ -10,7 +10,6 @@
 @param String currentAdminPhone
 @param String tab
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param List<AppContentEntry> content = null
 @param String activeKey = null
@@ -24,7 +23,7 @@
 @param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-!{boolean canWrite = actionsEnabled && factorBound;}
+!{boolean canWrite = actionsEnabled;}
 <%-- dashboard/pages/settings/page.php. Three tabs over three platform-level
      tables, so only the selected tab's data is loaded -- the other two tabs'
      queries are not run, as legacy does not run them. --%>

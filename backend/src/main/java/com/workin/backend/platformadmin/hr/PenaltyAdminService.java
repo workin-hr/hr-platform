@@ -35,8 +35,6 @@ public class PenaltyAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/** {@code error_db}: the row or the employee belongs to another company. */
 		FOREIGN_ROW,
@@ -83,12 +81,9 @@ public class PenaltyAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -151,9 +146,9 @@ public class PenaltyAdminService {
 
 	@Transactional
 	public long add(
-			DashboardSession session, long adminId, boolean factorBound, long employeeId,
+			DashboardSession session, long adminId, long employeeId,
 			String penaltyType, String rawDays, String reason, String penaltyDate) {
-		gate(factorBound);
+		gate();
 		String type = penaltyType == null ? "" : penaltyType.trim();
 		if (employeeId <= 0 || type.isEmpty()) {
 			throw new RefusedException(Refusal.INVALID);
@@ -176,9 +171,9 @@ public class PenaltyAdminService {
 	 */
 	@Transactional
 	public long saveEdit(
-			DashboardSession session, long adminId, boolean factorBound, long id, long employeeId,
+			DashboardSession session, long adminId, long id, long employeeId,
 			String penaltyType, String rawDays, String reason, String penaltyDate) {
-		gate(factorBound);
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		Boolean applied = this.store.appliedToPayroll(id);
@@ -208,8 +203,8 @@ public class PenaltyAdminService {
 
 	@Transactional
 	public long markApplied(
-			DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+			DashboardSession session, long adminId, long id) {
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		this.store.markApplied(id);
@@ -219,8 +214,8 @@ public class PenaltyAdminService {
 	}
 
 	@Transactional
-	public long delete(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long delete(DashboardSession session, long adminId, long id) {
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		this.store.delete(id);
@@ -270,7 +265,7 @@ public class PenaltyAdminService {
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
-		this.auditService.recordAction(adminId, type, "penalty", String.valueOf(id), null, detail);
+		this.auditService.recordAction(adminId, type, "penalty", String.valueOf(id), detail);
 	}
 
 }

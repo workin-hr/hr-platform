@@ -15,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 /**
@@ -37,8 +39,19 @@ import org.springframework.stereotype.Component;
  * deployment still serves. This logs at ERROR and names the feature each
  * missing table disables, so the gap is loud, attributable, and visible
  * in the first seconds of a deployment rather than in a user report.
+ *
+ * <p><b>First of the runners, and that is the whole point.</b> Measured on an
+ * unprovisioned database under the {@code prod} profile:
+ * {@code PlatformAdminBootstrap} ran first, its {@code count(*) from
+ * platform_admins} threw {@code Table 'workin.platform_admins' doesn't exist},
+ * the context died -- and this check, the one written to explain exactly that
+ * situation, never got to run. The operator got a Hibernate stack trace
+ * instead of "apply {@code phase1_extensions.sql}". A diagnostic that a later
+ * failure can silence is not a diagnostic, so it is ordered ahead of every
+ * other {@link ApplicationRunner}.
  */
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class Phase1SchemaCheck implements ApplicationRunner {
 
 	private static final Logger log = LoggerFactory.getLogger(Phase1SchemaCheck.class);
@@ -55,13 +68,9 @@ public class Phase1SchemaCheck implements ApplicationRunner {
 		OWNED_TABLES.put("legacy_refresh_tokens",
 				"token refresh -- every mobile and desktop client is logged out when its access token expires");
 		OWNED_TABLES.put("platform_admins", "the platform-admin surface at /admin -- nobody can sign in");
-		OWNED_TABLES.put("platform_admin_refresh_tokens", "platform-admin token refresh");
 		OWNED_TABLES.put("platform_admin_audit_events",
 				"the platform-admin audit trail -- admin actions refuse to run without it, by design");
 		OWNED_TABLES.put("platform_admin_login_attempts", "platform-admin login throttling");
-		OWNED_TABLES.put("platform_admin_mfa", "platform-admin TOTP");
-		OWNED_TABLES.put("platform_admin_mfa_bootstrap_tokens", "platform-admin MFA enrolment and recovery");
-		OWNED_TABLES.put("platform_admin_step_up_approvals", "step-up approval for platform-admin actions");
 		OWNED_TABLES.put("SPRING_SESSION", "the platform-admin web session -- login succeeds and is then forgotten");
 		OWNED_TABLES.put("SPRING_SESSION_ATTRIBUTES", "the platform-admin web session's contents");
 	}

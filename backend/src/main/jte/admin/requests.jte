@@ -17,15 +17,14 @@
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param String currentPage
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-!{boolean canWrite = canManage && actionsEnabled && factorBound;}
-!{int colCount = showCompanyColumn ? 10 : 9;}
+!{boolean canWrite = canManage && actionsEnabled;}
+!{int colCount = showCompanyColumn ? 14 : 13;}
 <%-- dashboard/pages/requests/page.php. --%>
 @template.admin.layout(
 	title = t.apply("nav_employee_requests"),
@@ -44,8 +43,6 @@
 		@endif
 		@if(canManage && !actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(canManage && !factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		<div class="toolbar page-toolbar page-toolbar-filters">
@@ -98,8 +95,8 @@
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_employee_requests")} (${result.total()})</h2>
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>#</th>
@@ -109,6 +106,12 @@
 						<th>${t.apply("request_type")}</th>
 						<th>${t.apply("from_date")}</th>
 						<th>${t.apply("to_date")}</th>
+						<%-- A part-day request carries a time as well as a date, and
+						     legacy gives each its own column. --%>
+						<th>${t.apply("from_time")}</th>
+						<th>${t.apply("to_time")}</th>
+						<th>${t.apply("request_notes")}</th>
+						<th>${t.apply("admin_reply")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("reg_date")}</th>
 						<th>${t.apply("actions")}</th>
@@ -132,41 +135,48 @@
 							</td>
 							<td>${row.fromDate() == null ? "—" : row.fromDate()}</td>
 							<td>${row.toDate() == null ? "—" : row.toDate()}</td>
+							<td class="text-muted" dir="ltr">${row.fromTime() == null || row.fromTime().isBlank()
+								? "—" : row.fromTime()}</td>
+							<td class="text-muted" dir="ltr">${row.toTime() == null || row.toTime().isBlank()
+								? "—" : row.toTime()}</td>
+							<td class="text-muted tbl-clip" title="${row.notes() == null ? "" : row.notes()}">${row.notes() == null || row.notes().isBlank() ? "—" : row.notes()}</td>
+							<td class="text-muted tbl-clip" title="${row.reply() == null ? "" : row.reply()}">${row.reply() == null || row.reply().isBlank() ? "—" : row.reply()}</td>
 							<td>
 								<span class="badge ${"approved".equals(row.status()) ? "badge-green"
 									: "rejected".equals(row.status()) ? "badge-red" : "badge-gray"}">
 									${t.apply("status_" + row.status())}</span>
 							</td>
 							<td>${row.createdDate()}</td>
+							<%-- Approving is not a status change alone: it deducts leave
+							     and can write one attendance row per day of the span, which
+							     is why it asks before it runs. --%>
 							<td class="col-actions">
-								@if(canWrite && row.isPending())
-									<%-- Approving is not a status change alone: it deducts leave
-									     and can write one attendance row per day of the span. --%>
-									<form method="POST" class="inline-form">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="approve">
-										<input type="hidden" name="id" value="${row.id()}">
-										<input type="text" name="comment" class="inline-input"
-										       placeholder="${t.apply("reply")}" aria-label="${t.apply("reply")}">
-										<button type="submit" class="btn btn-outline btn-sm">${t.apply("approve")}</button>
-									</form>
-									<form method="POST" class="inline-form">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="reject">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-outline btn-sm">${t.apply("reject")}</button>
-									</form>
-								@endif
 								@if(canWrite)
-									<form method="POST" class="inline-form"
-									      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="delete">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-									</form>
-								@endif
-								@if(!canWrite)
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										@if(row.isPending())
+											<button type="button" role="menuitem"
+													class="row-actions__item row-actions__item--success"
+													data-dialog="request-approve"
+													data-dialog-id="${row.id()}"
+													data-dialog-subject="${row.employeeName()}">${t.apply("approve")}</button>
+											<form method="POST" class="row-actions__form" role="none">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="reject">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem"
+														class="row-actions__item">${t.apply("reject")}</button>
+											</form>
+										@endif
+										<form method="POST" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem"
+													class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+									`)
+								@else
 									<span class="text-muted">—</span>
 								@endif
 							</td>
@@ -178,13 +188,23 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/requests?page=${page}&status=${status}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			!{java.util.SequencedMap<String, String> carry =
+					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+			!{carry.put("status", status);}
+			@template.admin.pager(basePath = "/admin/requests", result = result,
+					carry = carry, t = t)
+		@if(canWrite)
+			<%-- The comment box used to sit in every row. It is optional -- legacy
+			     accepts an empty one -- so the dialog exists to say what approving
+			     does, not to demand text. --%>
+			@template.admin.rowDialog(id = "request-approve", action = "approve",
+					title = t.apply("approve"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("approve"),
+					submitVariant = "blue",
+					fields = @`
+						<label>${t.apply("reply")}
+							<textarea name="comment" rows="3"></textarea></label>
+					`)
+		@endif
 		</div>
 	`)

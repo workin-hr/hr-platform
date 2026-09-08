@@ -1,5 +1,10 @@
 package com.workin.backend.platformadmin.web;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.SequencedMap;
+
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
@@ -107,26 +112,40 @@ public record DashboardListFilters(
 	 * a pager link should read {@code ?page=2}, not
 	 * {@code ?page=2&search=&filter=all&filter_branch=0}.
 	 */
-	public String asQueryTail() {
-		StringBuilder tail = new StringBuilder();
-		append(tail, "search", this.search.isEmpty() ? null : this.search);
-		append(tail, "filter", "all".equals(this.status) || this.status.isEmpty() ? null : this.status);
-		append(tail, "filter_branch", this.filterBranch > 0 ? String.valueOf(this.filterBranch) : null);
-		append(tail, "filter_department",
+	/**
+	 * The filters as a parameter map, in link order.
+	 *
+	 * <p>The same set {@link #asQueryTail()} renders. A pager needs them twice
+	 * -- appended to every page link, and re-submitted as hidden inputs by the
+	 * page-size form -- and deriving both from one map is what stops a filter
+	 * surviving one route and not the other. {@code per_page} is deliberately
+	 * absent: it is the size form's own field, and a link carries it separately.
+	 */
+	public SequencedMap<String, String> asQueryParameters() {
+		SequencedMap<String, String> parameters = new LinkedHashMap<>();
+		put(parameters, "search", this.search.isEmpty() ? null : this.search);
+		put(parameters, "filter", "all".equals(this.status) || this.status.isEmpty() ? null : this.status);
+		put(parameters, "filter_branch", this.filterBranch > 0 ? String.valueOf(this.filterBranch) : null);
+		put(parameters, "filter_department",
 				this.filterDepartment > 0 ? String.valueOf(this.filterDepartment) : null);
 		// `if (!org_is_scoped_company())`: only the administrator's filter is a
 		// choice worth carrying.
-		append(tail, "company_id",
+		put(parameters, "company_id",
 				!this.scoped && this.companyId > 0 ? String.valueOf(this.companyId) : null);
+		return parameters;
+	}
+
+	public String asQueryTail() {
+		StringBuilder tail = new StringBuilder();
+		asQueryParameters().forEach((name, value) -> tail.append('&').append(name).append('=')
+				.append(URLEncoder.encode(value, StandardCharsets.UTF_8)));
 		return tail.toString();
 	}
 
-	private static void append(StringBuilder tail, String name, String value) {
-		if (value == null) {
-			return;
+	private static void put(SequencedMap<String, String> parameters, String name, String value) {
+		if (value != null) {
+			parameters.put(name, value);
 		}
-		tail.append('&').append(name).append('=')
-				.append(java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8));
 	}
 
 }

@@ -34,7 +34,6 @@ public class AdminGuideVideosController {
 			Model model, @RequestParam(required = false) String error) {
 		model.addAttribute("videos", this.service.videos());
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		return VIEW;
 	}
@@ -53,16 +52,15 @@ public class AdminGuideVideosController {
 			@RequestParam(name = "is_active", required = false) String isActive) {
 
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 		// `!empty($post['is_active'])` -- the checkbox is absent when unticked.
 		boolean active = isActive != null && !isActive.isBlank();
 
 		GuideVideoAdminService.Result result = switch (action) {
-			case "add" -> this.service.create(adminId, bound,
+			case "add" -> this.service.create(adminId,
 					GuideVideoForm.validate(titleAr, titleEn, video, sortOrder, active));
-			case "edit" -> this.service.update(adminId, bound, id == null ? 0L : id,
+			case "edit" -> this.service.update(adminId, id == null ? 0L : id,
 					GuideVideoForm.validate(titleAr, titleEn, video, sortOrder, active));
-			case "delete" -> this.service.delete(adminId, bound, id == null ? 0L : id);
+			case "delete" -> this.service.delete(adminId, id == null ? 0L : id);
 			default -> new GuideVideoAdminService.Result(false, "error_not_found");
 		};
 

@@ -1,6 +1,6 @@
 # Provisioning The Phase 1 Tables
 
-Closes the mechanical half of **R-023**: Phase 1 adds ten tables to the
+Closes the mechanical half of **R-023**: Phase 1 adds six tables to the
 existing MariaDB, and until they exist the deployment is silently
 incomplete. Nothing creates them at runtime — the application carries no
 Flyway (ADR-0013 amendment 3; ADR-0017) — so this is a deliberate, human
@@ -18,12 +18,8 @@ ahead of cutover rather than during it.
 |---|---|
 | `legacy_refresh_tokens` | Token refresh for every mobile and desktop client |
 | `platform_admins` | The platform-admin surface at `/admin` |
-| `platform_admin_refresh_tokens` | Platform-admin token refresh |
 | `platform_admin_audit_events` | The platform-admin audit trail |
 | `platform_admin_login_attempts` | Platform-admin login throttling |
-| `platform_admin_mfa` | Platform-admin TOTP |
-| `platform_admin_mfa_bootstrap_tokens` | Platform-admin MFA enrolment and recovery |
-| `platform_admin_step_up_approvals` | Step-up approval for platform-admin actions |
 | `SPRING_SESSION` | The platform-admin web session |
 | `SPRING_SESSION_ATTRIBUTES` | That session's contents |
 
@@ -58,10 +54,9 @@ SELECT TABLE_NAME
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = DATABASE()
   AND TABLE_NAME IN (
-    'legacy_refresh_tokens', 'platform_admins', 'platform_admin_refresh_tokens',
+    'legacy_refresh_tokens', 'platform_admins',
     'platform_admin_audit_events', 'platform_admin_login_attempts',
-    'platform_admin_mfa', 'platform_admin_mfa_bootstrap_tokens',
-    'platform_admin_step_up_approvals', 'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES');
+    'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES');
 ```
 
 Expect zero rows on a database that has never been provisioned. Anything

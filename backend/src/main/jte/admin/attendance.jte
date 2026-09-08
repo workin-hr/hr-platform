@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.hr.AttendanceDisplay
 @import com.workin.backend.platformadmin.hr.AttendanceRecord
 @import com.workin.backend.platformadmin.hr.Employee
 @import com.workin.backend.platformadmin.web.DashboardListFilters
@@ -21,15 +22,20 @@
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param String currentPage
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-!{boolean canWrite = canManage && actionsEnabled && factorBound;}
-!{String rangeTail = "&from=" + from + "&to=" + to;}
+!{boolean arabic = "ar".equals(lang);}
+!{boolean canWrite = canManage && actionsEnabled;}
+<%-- The range, as a map: the pager needs it in every page link AND as hidden
+     inputs in the page-size form, and one source keeps those from drifting. --%>
+!{java.util.SequencedMap<String, String> carry =
+		new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+!{carry.put("from", from);}
+!{carry.put("to", to);}
 <%-- dashboard/pages/attendance/page.php.
 
      Two tables over one range. They do not agree on worked time and are not
@@ -52,8 +58,6 @@
 		@endif
 		@if(canManage && !actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(canManage && !factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		<div class="toolbar page-toolbar page-toolbar-filters">
@@ -102,12 +106,152 @@
 			</form>
 		</div>
 
-		@if(canWrite)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("add_attendance")}</h2>
+
+		<%-- Punch by punch. The hours column is the engine's answer, and an
+		     em dash where it has none, never a zero. --%>
+		<div class="data-table-card">
+			<div class="data-table-head">
+				<h2 class="data-table-title">${t.apply("att_records")}</h2>
+				<div class="data-table-head__actions">
+					@if(canWrite)
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('attModal')">+ ${t.apply("add_attendance")}</button>
+					@endif
 				</div>
-				<form method="POST" class="account-form org-form">
+			</div>
+			<div class="table-wrap">
+			<table class="tbl">
+				<thead>
+					<tr>
+						<th>#</th>
+						<th>${t.apply("emp_code")}</th>
+						<th>${t.apply("employee_name")}</th>
+						<th>${t.apply("date")}</th>
+						<th>${t.apply("att_day")}</th>
+						<th>${t.apply("att_check_in_time")}</th>
+						<th>${t.apply("att_check_out_time")}</th>
+						<th>${t.apply("hours_worked")}</th>
+						<th>${t.apply("exception")}</th>
+						<th class="col-actions">${t.apply("actions")}</th>
+					</tr>
+				</thead>
+				<tbody>
+					@for(int index = 0; index < result.data().size(); index++)
+						!{AttendanceRecord.Row row = result.data().get(index);}
+						<tr>
+							<td>${result.from() + index}</td>
+							<td class="text-muted">${row.empCode() == null ? "—" : row.empCode()}</td>
+							<td class="bold">${row.employeeName()}</td>
+							<td>${row.checkIn() == null || row.checkIn().length() < 10
+								? "—" : row.checkIn().substring(0, 10)}</td>
+							<%-- Whether a punch fell on a Friday is the difference between
+							     an absence and a weekend; legacy puts it in its own column
+							     rather than leaving the reader to work it out from a date. --%>
+							<td class="text-muted">${AttendanceDisplay.dayName(row.checkIn(), arabic)}</td>
+							<td>${row.checkIn() == null ? "—" : row.checkIn()}</td>
+							<td>${row.checkOut() == null ? "—" : row.checkOut()}</td>
+							<td>${row.workedMinutes() == null
+								? "—" : (row.workedMinutes() / 60) + ":"
+									+ (row.workedMinutes() % 60 < 10 ? "0" : "")
+									+ (row.workedMinutes() % 60)}</td>
+							<td>${row.exceptionName() == null ? "—" : row.exceptionName()}</td>
+							<td class="col-actions">
+								@if(canWrite)
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<form method="POST" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+									`)
+								@else
+									<span class="text-muted">—</span>
+								@endif
+							</td>
+						</tr>
+					@endfor
+					@if(result.isEmpty())
+						<tr><td colspan="10" class="data-table-empty">${t.apply("no_data")}</td></tr>
+					@endif
+				</tbody>
+			</table>
+			</div>
+			@template.admin.pager(basePath = "/admin/attendance", result = result,
+					carry = carry, t = t)
+		</div>
+
+		<%-- The same range, per employee. Its hours come from raw SQL rather
+		     than the engine above, so the two tables can disagree. --%>
+		<div class="data-table-card">
+			<div class="data-table-head">
+				<h2 class="data-table-title">${t.apply("att_aggregate_report")}</h2>
+			</div>
+			<div class="table-wrap">
+			<table class="tbl">
+				<thead>
+					<tr>
+						<th>#</th>
+						<th>${t.apply("emp_code")}</th>
+						<th>${t.apply("employee_name")}</th>
+						<th>${t.apply("job_title")}</th>
+						<th>${t.apply("att_days_in_period")}</th>
+						<th>${t.apply("att_present_days")}</th>
+						<th>${t.apply("att_absent_days")}</th>
+						<th>${t.apply("att_exception_days")}</th>
+						<th>${t.apply("att_total_work_hours")}</th>
+						<th>${t.apply("att_paid_rest_hours")}</th>
+						<th>${t.apply("att_overtime_shortage")}</th>
+					</tr>
+				</thead>
+				<tbody>
+					@for(int index = 0; index < aggregateResult.data().size(); index++)
+						!{AttendanceRecord.AggregateRow row = aggregateResult.data().get(index);}
+						<tr>
+							<td class="text-muted">${aggregateResult.from() + index}</td>
+							<td class="text-muted">${row.empCode()}</td>
+							<td class="bold">${row.employeeName()}</td>
+							<td>${row.jobTitleName().isEmpty() ? "—" : row.jobTitleName()}</td>
+							<td>${row.daysInPeriod()}</td>
+							<td>${row.presentDays()}</td>
+							<td>${row.absentDays()}</td>
+							<td>${row.exceptionDays()}</td>
+							<td>${(row.totalMinutes() / 60) + ":"
+								+ (row.totalMinutes() % 60 < 10 ? "0" : "") + (row.totalMinutes() % 60)}</td>
+							<td>${(row.paidRestMinutes() / 60) + ":"
+								+ (row.paidRestMinutes() % 60 < 10 ? "0" : "") + (row.paidRestMinutes() % 60)}</td>
+							<%-- Signed: the column is overtime AND shortfall, and a
+							     negative hour count is the half a payroll clerk is
+							     looking for. --%>
+							<td class="${row.overtimeMinutes() < 0 ? "text-red" : "text-green"}" dir="ltr">${
+								(row.overtimeMinutes() < 0 ? "-" : "")
+								+ (Math.abs(row.overtimeMinutes()) / 60) + ":"
+								+ (Math.abs(row.overtimeMinutes()) % 60 < 10 ? "0" : "")
+								+ (Math.abs(row.overtimeMinutes()) % 60)}</td>
+						</tr>
+					@endfor
+					@if(aggregateResult.isEmpty())
+						<tr><td colspan="11" class="data-table-empty">${t.apply("no_data")}</td></tr>
+					@endif
+				</tbody>
+			</table>
+			</div>
+			@template.admin.pager(basePath = "/admin/attendance", result = aggregateResult,
+					carry = carry, t = t,
+					pageParam = "agg_page")
+		@if(canWrite)
+			<%-- Legacy opens this form in a modal, behind the "+" button above.
+			     Rendered inline it sat open over the table on every visit, whether
+			     or not anyone was adding anything. Same form, same fields, same
+			     POST; .modal-bg is position:fixed, so it lives at the end of the
+			     document and out of the reading order. --%>
+			<div class="modal-bg" id="attModal">
+				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="attModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="attModal-title">${t.apply("add_attendance")}</h2>
+					<form method="POST" class="account-form org-form">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add_attendance">
 					<div class="form-row">
@@ -138,127 +282,8 @@
 					</div>
 					<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
 				</form>
+				</div>
 			</div>
 		@endif
-
-		<%-- Punch by punch. The hours column is the engine's answer, and an
-		     em dash where it has none, never a zero. --%>
-		<div class="data-table-card">
-			<div class="data-table-head">
-				<h2 class="data-table-title">${t.apply("att_records")}</h2>
-			</div>
-			<div class="data-table-scroll">
-			<table class="data-table">
-				<thead>
-					<tr>
-						<th>#</th>
-						<th>${t.apply("emp_code")}</th>
-						<th>${t.apply("employee_name")}</th>
-						<th>${t.apply("date")}</th>
-						<th>${t.apply("att_check_in_time")}</th>
-						<th>${t.apply("att_check_out_time")}</th>
-						<th>${t.apply("hours_worked")}</th>
-						<th>${t.apply("exception")}</th>
-						<th class="col-actions">${t.apply("actions")}</th>
-					</tr>
-				</thead>
-				<tbody>
-					@for(int index = 0; index < result.data().size(); index++)
-						!{AttendanceRecord.Row row = result.data().get(index);}
-						<tr>
-							<td>${result.from() + index}</td>
-							<td class="text-muted">${row.empCode() == null ? "—" : row.empCode()}</td>
-							<td class="bold">${row.employeeName()}</td>
-							<td>${row.checkIn() == null || row.checkIn().length() < 10
-								? "—" : row.checkIn().substring(0, 10)}</td>
-							<td>${row.checkIn() == null ? "—" : row.checkIn()}</td>
-							<td>${row.checkOut() == null ? "—" : row.checkOut()}</td>
-							<td>${row.workedMinutes() == null
-								? "—" : (row.workedMinutes() / 60) + ":"
-									+ (row.workedMinutes() % 60 < 10 ? "0" : "")
-									+ (row.workedMinutes() % 60)}</td>
-							<td>${row.exceptionName() == null ? "—" : row.exceptionName()}</td>
-							<td class="col-actions">
-								@if(canWrite)
-									<form method="POST" class="inline-form"
-									      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="delete">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-									</form>
-								@else
-									<span class="text-muted">—</span>
-								@endif
-							</td>
-						</tr>
-					@endfor
-					@if(result.isEmpty())
-						<tr><td colspan="9" class="data-table-empty">${t.apply("no_data")}</td></tr>
-					@endif
-				</tbody>
-			</table>
-			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/attendance?page=${page}${rangeTail}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
-		</div>
-
-		<%-- The same range, per employee. Its hours come from raw SQL rather
-		     than the engine above, so the two tables can disagree. --%>
-		<div class="data-table-card">
-			<div class="data-table-head">
-				<h2 class="data-table-title">${t.apply("att_aggregate_report")}</h2>
-			</div>
-			<div class="data-table-scroll">
-			<table class="data-table">
-				<thead>
-					<tr>
-						<th>${t.apply("emp_code")}</th>
-						<th>${t.apply("employee_name")}</th>
-						<th>${t.apply("job_title")}</th>
-						<th>${t.apply("att_days_in_period")}</th>
-						<th>${t.apply("att_present_days")}</th>
-						<th>${t.apply("att_absent_days")}</th>
-						<th>${t.apply("att_exception_days")}</th>
-						<th>${t.apply("att_total_work_hours")}</th>
-						<th>${t.apply("att_paid_rest_hours")}</th>
-					</tr>
-				</thead>
-				<tbody>
-					@for(AttendanceRecord.AggregateRow row : aggregateResult.data())
-						<tr>
-							<td class="text-muted">${row.empCode()}</td>
-							<td class="bold">${row.employeeName()}</td>
-							<td>${row.jobTitleName().isEmpty() ? "—" : row.jobTitleName()}</td>
-							<td>${row.daysInPeriod()}</td>
-							<td>${row.presentDays()}</td>
-							<td>${row.absentDays()}</td>
-							<td>${row.exceptionDays()}</td>
-							<td>${(row.totalMinutes() / 60) + ":"
-								+ (row.totalMinutes() % 60 < 10 ? "0" : "") + (row.totalMinutes() % 60)}</td>
-							<td>${(row.paidRestMinutes() / 60) + ":"
-								+ (row.paidRestMinutes() % 60 < 10 ? "0" : "") + (row.paidRestMinutes() % 60)}</td>
-						</tr>
-					@endfor
-					@if(aggregateResult.isEmpty())
-						<tr><td colspan="9" class="data-table-empty">${t.apply("no_data")}</td></tr>
-					@endif
-				</tbody>
-			</table>
-			</div>
-			@if(aggregateResult.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= aggregateResult.pages(); page++)
-						<a href="/admin/attendance?agg_page=${page}${rangeTail}${filters.asQueryTail()}"
-						   class="pager__link${page == aggregateResult.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
 		</div>
 	`)

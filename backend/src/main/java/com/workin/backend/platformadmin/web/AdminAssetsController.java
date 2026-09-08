@@ -59,7 +59,6 @@ public class AdminAssetsController {
 		model.addAttribute("employeeOptions", this.store.employeeOptions(filters.companyId()));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "assets"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		return VIEW;
 	}
@@ -82,16 +81,15 @@ public class AdminAssetsController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 
 		try {
 			long wrote = switch (action) {
 				case "add_asset" -> this.service.add(
-						session, adminId, bound, employeeId, assetText, assetDate, assetEndDate);
-				case "edit_asset" -> this.service.saveEdit(session, adminId, bound, id,
+						session, adminId, employeeId, assetText, assetDate, assetEndDate);
+				case "edit_asset" -> this.service.saveEdit(session, adminId, id,
 						employeeId, assetText, assetDate, assetEndDate);
-				case "mark_returned" -> this.service.markReturned(session, adminId, bound, id);
-				case "delete_asset" -> this.service.delete(session, adminId, bound, id);
+				case "mark_returned" -> this.service.markReturned(session, adminId, id);
+				case "delete_asset" -> this.service.delete(session, adminId, id);
 				default -> throw new CompanyAssetAdminService.RefusedException(
 						CompanyAssetAdminService.Refusal.INVALID);
 			};
@@ -105,7 +103,6 @@ public class AdminAssetsController {
 	private static String messageKey(CompanyAssetAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case FOREIGN_ROW -> "error_db";
 			case INVALID -> "error_required";
 		};

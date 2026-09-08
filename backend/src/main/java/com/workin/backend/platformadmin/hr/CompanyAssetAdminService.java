@@ -33,8 +33,6 @@ public class CompanyAssetAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/** {@code error_db}: the row or the employee belongs to another company. */
 		FOREIGN_ROW,
@@ -78,12 +76,9 @@ public class CompanyAssetAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -137,9 +132,9 @@ public class CompanyAssetAdminService {
 
 	@Transactional
 	public long add(
-			DashboardSession session, long adminId, boolean factorBound, long employeeId,
+			DashboardSession session, long adminId, long employeeId,
 			String assetText, String assetDate, String assetEndDate) {
-		gate(factorBound);
+		gate();
 		String text = assetText == null ? "" : assetText.trim();
 		if (employeeId <= 0 || text.isEmpty()) {
 			throw new RefusedException(Refusal.INVALID);
@@ -170,9 +165,9 @@ public class CompanyAssetAdminService {
 	 */
 	@Transactional
 	public long saveEdit(
-			DashboardSession session, long adminId, boolean factorBound, long id, long employeeId,
+			DashboardSession session, long adminId, long id, long employeeId,
 			String assetText, String assetDate, String assetEndDate) {
-		gate(factorBound);
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		Boolean returned = this.store.isReturned(id);
@@ -195,8 +190,8 @@ public class CompanyAssetAdminService {
 
 	@Transactional
 	public long markReturned(
-			DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+			DashboardSession session, long adminId, long id) {
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		this.store.markReturned(id, this.clock.today().toString());
@@ -206,8 +201,8 @@ public class CompanyAssetAdminService {
 	}
 
 	@Transactional
-	public long delete(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long delete(DashboardSession session, long adminId, long id) {
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		this.store.delete(id);
@@ -227,7 +222,7 @@ public class CompanyAssetAdminService {
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
-		this.auditService.recordAction(adminId, type, "asset", String.valueOf(id), null, detail);
+		this.auditService.recordAction(adminId, type, "asset", String.valueOf(id), detail);
 	}
 
 }

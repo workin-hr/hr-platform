@@ -278,8 +278,10 @@ def check_exception_lists_current(schema: str, findings: list[str]) -> None:
 PHASE1_TABLES = (
     "legacy_refresh_tokens",
     "platform_admins",
-    "platform_admin_mfa",
     "platform_admin_audit_events",
+    "platform_admin_login_attempts",
+    "SPRING_SESSION",
+    "SPRING_SESSION_ATTRIBUTES",
 )
 
 

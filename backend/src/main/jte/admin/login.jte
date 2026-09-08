@@ -1,28 +1,29 @@
 @import java.util.function.Function
 @param String csrfParameterName
 @param String csrfToken
-@param String error = null
+@param String errorKey = null
+@param String reason = null
 @param String lang
 @param Function<String, String> t
-<%-- Standalone, not through admin/layout: the dashboard's login has its own
-     full-page design (hero panel beside the card) rather than the signed-in
-     shell, and its stylesheet is the one copied to /admin/_assets/login.css.
-     Markup follows hr-legacy/dashboard/pages/login/page.php class for class.
-
-     One deliberate difference: PHP's admin tab hides the phone field, because
-     legacy authenticates the platform admin with a single shared password
-     (hr-legacy#11). This surface has individual administrators (F-26 / D-027),
-     so phone is shown and required. The company and HR tabs are absent until
-     those sessions exist here (ADR-0016). --%>
+<%-- dashboard/pages/login/page.php, as production serves it: the admin tab
+     only (DASHBOARD_LOGIN_SHOW_TYPE_TABS is false there), so one password
+     field and no phone. Standalone rather than through admin/layout, because
+     the login has its own full-page design -- the hero beside the card -- and
+     its stylesheet and script are the ones copied to /admin/_assets verbatim.
+     What differs is behind the form (ADR-0018): the password is a bcrypt hash,
+     the miss budget is per client, the session rotates on success and is
+     Secure, HttpOnly and CSRF-bound. --%>
+!{boolean arabic = "ar".equals(lang);}
+!{boolean hasAlert = errorKey != null || "timeout".equals(reason);}
 <!DOCTYPE html>
-<html lang="${lang}" dir="${"ar".equals(lang) ? "rtl" : "ltr"}">
+<html lang="${lang}" dir="${arabic ? "rtl" : "ltr"}">
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>${t.apply("login_btn")} — ${t.apply("app_name")}</title>
+	<title>${t.apply("login_title")} — ${t.apply("app_name")}</title>
 	<link rel="stylesheet" href="/admin/_assets/login.css">
 </head>
-<body class="login-body${error != null ? " login-shake" : ""}">
+<body class="login-body${hasAlert ? " login-has-alert" : ""}${errorKey != null ? " login-shake" : ""}">
 <div class="login-page">
 	<aside class="login-hero">
 		<div class="login-hero-dots" aria-hidden="true"></div>
@@ -37,6 +38,21 @@
 			</div>
 			<h2 class="login-hero-headline">${t.apply("login_hero_headline")}</h2>
 			<p class="login-hero-desc">${t.apply("login_hero_desc")}</p>
+			<div class="login-hero-grid">
+				@for(String feature : java.util.List.of("hr", "sec", "rep", "br", "dec", "perf"))
+					<article class="login-hero-feature">
+						<span class="login-hero-feature-icon login-hero-feature-icon--${
+							switch (feature) {
+								case "hr" -> "users"; case "sec" -> "shield"; case "rep" -> "chart";
+								case "br" -> "building"; case "dec" -> "target"; default -> "bolt";
+							}}" aria-hidden="true"></span>
+						<div>
+							<h3>${t.apply("login_feat_" + feature + "_title")}</h3>
+							<p>${t.apply("login_feat_" + feature + "_desc")}</p>
+						</div>
+					</article>
+				@endfor
+			</div>
 		</div>
 	</aside>
 
@@ -45,9 +61,9 @@
 			<div class="login-card-toolbar login-anim" style="--d: 0">
 				<div class="login-lang-pill">
 					<span class="login-lang-globe" aria-hidden="true"></span>
-					<a href="?lang=ar" class="${"ar".equals(lang) ? "is-active" : ""}">العربية</a>
+					<a href="?lang=ar" class="${arabic ? "is-active" : ""}">العربية</a>
 					<span class="login-lang-sep" aria-hidden="true">|</span>
-					<a href="?lang=en" class="${"en".equals(lang) ? "is-active" : ""}">English</a>
+					<a href="?lang=en" class="${arabic ? "" : "is-active"}">English</a>
 				</div>
 			</div>
 
@@ -58,31 +74,41 @@
 				</div>
 			</header>
 
-			@if(error != null)
-				<div class="login-alert login-alert--error login-anim" style="--d: 2" role="alert">${error}</div>
+			@if("timeout".equals(reason))
+				<div class="login-alert login-alert--warn login-anim" style="--d: 2" role="alert">
+					${arabic ? "انتهت مدة الجلسة — الرجاء الدخول مجدداً" : "Session expired — please sign in again"}
+				</div>
+			@endif
+			@if(errorKey != null)
+				<div class="login-alert login-alert--error login-anim" style="--d: 2" role="alert">${t.apply(errorKey)}</div>
 			@endif
 
-			<form method="post" class="login-form login-anim" style="--d: 3">
+			<div id="loginValidation" class="login-alert login-alert--error login-validation" hidden role="alert"></div>
+			<form method="POST" id="loginForm" class="login-form login-anim" style="--d: 3" novalidate
+			      data-msg-required="${t.apply("error_required")}"
+			      data-msg-fill="${t.apply("login_fill_required")}"
+			      data-msg-invalid-phone="${t.apply("error_invalid_phone")}"
+			      data-admin-only="1">
 				<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-
-				<div class="login-field">
-					<label for="loginPhone">${t.apply("phone")}</label>
-					<div class="login-input-wrap">
-						<span class="login-input-icon login-input-icon--phone" aria-hidden="true"></span>
-						<input type="text" id="loginPhone" name="phone" inputmode="tel"
-						       placeholder="${t.apply("phone")}" autocomplete="username" autofocus required>
-					</div>
-				</div>
-
+				<input type="hidden" name="user_type" id="userType" value="admin">
 				<div class="login-field">
 					<label for="loginPassword">${t.apply("password")}</label>
 					<div class="login-input-wrap">
 						<span class="login-input-icon login-input-icon--lock" aria-hidden="true"></span>
 						<input type="password" id="loginPassword" name="password"
-						       placeholder="${t.apply("login_password_ph")}" required autocomplete="current-password">
+						       placeholder="${t.apply("login_password_ph")}" autofocus required
+						       autocomplete="current-password">
+						<button type="button" class="login-password-toggle" id="passwordToggle"
+						        aria-label="${arabic ? "إظهار كلمة المرور" : "Show password"}" aria-pressed="false"></button>
 					</div>
 				</div>
-
+				<div class="login-form-row">
+					<label class="login-remember">
+						<input type="checkbox" name="remember" value="1">
+						<span>${t.apply("login_remember")}</span>
+					</label>
+					<a href="#" class="login-forgot" onclick="return false">${t.apply("login_forgot")}</a>
+				</div>
 				<button class="login-submit" type="submit">
 					<span class="login-submit-icon" aria-hidden="true"></span>
 					<span class="login-submit-text">${t.apply("login_btn")}</span>
@@ -91,5 +117,7 @@
 		</div>
 	</main>
 </div>
+<script src="/admin/_assets/phone-validator.js"></script>
+<script src="/admin/_assets/login.js"></script>
 </body>
 </html>

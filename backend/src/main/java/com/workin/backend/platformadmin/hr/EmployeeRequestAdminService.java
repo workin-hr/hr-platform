@@ -51,8 +51,6 @@ public class EmployeeRequestAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/** {@code error_db}: the row belongs to another company, or is gone. */
 		FOREIGN_ROW,
@@ -99,12 +97,9 @@ public class EmployeeRequestAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -136,8 +131,8 @@ public class EmployeeRequestAdminService {
 	 */
 	@Transactional
 	public long approve(
-			DashboardSession session, long adminId, boolean factorBound, long id, String reply) {
-		gate(factorBound);
+			DashboardSession session, long adminId, long id, String reply) {
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		EmployeeRequest request = this.store.forApproval(id, companyId);
@@ -149,7 +144,7 @@ public class EmployeeRequestAdminService {
 		}
 
 		int days = EmployeeRequest.inclusiveDays(request.fromDate(), request.toDate());
-		int year = EmployeeRequest.yearOf(request.fromDate());
+		int year = EmployeeRequest.yearOf(request.fromDate(), this.clock.today());
 		if (request.deductBalance() && insufficient(request.employeeId(), days, year)) {
 			throw new RefusedException(Refusal.INSUFFICIENT_BALANCE);
 		}
@@ -225,8 +220,8 @@ public class EmployeeRequestAdminService {
 	 */
 	@Transactional
 	public long reject(
-			DashboardSession session, long adminId, boolean factorBound, long id, String reply) {
-		gate(factorBound);
+			DashboardSession session, long adminId, long id, String reply) {
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		this.store.decide(id, REJECTED, blankToNull(reply), now());
@@ -245,8 +240,8 @@ public class EmployeeRequestAdminService {
 	 * worth more than the row it destroyed.
 	 */
 	@Transactional
-	public long delete(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long delete(DashboardSession session, long adminId, long id) {
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		this.store.delete(id);
@@ -267,7 +262,7 @@ public class EmployeeRequestAdminService {
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
-		this.auditService.recordAction(adminId, type, "request", String.valueOf(id), null, detail);
+		this.auditService.recordAction(adminId, type, "request", String.valueOf(id), detail);
 	}
 
 }

@@ -55,8 +55,8 @@ public class GuideVideoAdminService {
 	}
 
 	@Transactional
-	public Result create(long adminId, boolean factorBound, GuideVideoForm.Result form) {
-		Result gate = gate(factorBound);
+	public Result create(long adminId, GuideVideoForm.Result form) {
+		Result gate = gate();
 		if (gate != null) {
 			return gate;
 		}
@@ -82,8 +82,8 @@ public class GuideVideoAdminService {
 	 * none is skipped that PHP would.
 	 */
 	@Transactional
-	public Result update(long adminId, boolean factorBound, long id, GuideVideoForm.Result form) {
-		Result gate = gate(factorBound);
+	public Result update(long adminId, long id, GuideVideoForm.Result form) {
+		Result gate = gate();
 		if (gate != null) {
 			return gate;
 		}
@@ -104,8 +104,8 @@ public class GuideVideoAdminService {
 	}
 
 	@Transactional
-	public Result delete(long adminId, boolean factorBound, long id) {
-		Result gate = gate(factorBound);
+	public Result delete(long adminId, long id) {
+		Result gate = gate();
 		if (gate != null) {
 			return gate;
 		}
@@ -123,19 +123,16 @@ public class GuideVideoAdminService {
 		return Result.DONE;
 	}
 
-	private Result gate(boolean factorBound) {
+	private Result gate() {
 		if (!this.actionsEnabled) {
 			return Result.rejected("admin_actions_disabled");
-		}
-		if (!factorBound) {
-			return Result.rejected("mfa_required_for_actions");
 		}
 		return null;
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, String targetId,
 			String detail) {
-		this.auditService.recordAction(adminId, type, TARGET, targetId, null, detail);
+		this.auditService.recordAction(adminId, type, TARGET, targetId, detail);
 	}
 
 }

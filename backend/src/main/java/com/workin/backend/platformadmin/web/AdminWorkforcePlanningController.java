@@ -64,7 +64,6 @@ public class AdminWorkforcePlanningController {
 		model.addAttribute("canManage",
 				DashboardAccess.canViewPage(current, "workforce_planning"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		model.addAttribute("addOpen", "add".equals(action));
 		model.addAttribute("editRow", editRow);
@@ -102,17 +101,16 @@ public class AdminWorkforcePlanningController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 
 		try {
 			long wrote = switch (action) {
 				case "add_wp" -> this.service.add(
-						session, adminId, bound, companyId, branchId, departmentId, jobTitleId,
+						session, adminId, companyId, branchId, departmentId, jobTitleId,
 						plannedCount);
 				case "edit_wp" -> this.service.saveEdit(
-						session, adminId, bound, id, branchId, departmentId, jobTitleId,
+						session, adminId, id, branchId, departmentId, jobTitleId,
 						plannedCount);
-				case "delete_wp" -> this.service.delete(session, adminId, bound, id);
+				case "delete_wp" -> this.service.delete(session, adminId, id);
 				default -> throw new WorkforcePlanAdminService.RefusedException(
 						WorkforcePlanAdminService.Refusal.FOREIGN_ROW);
 			};
@@ -126,7 +124,6 @@ public class AdminWorkforcePlanningController {
 	private static String messageKey(WorkforcePlanAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case FOREIGN_ROW -> "error_db";
 			case INVALID -> "error_required";
 			case DUPLICATE_TARGET -> "already_exists";

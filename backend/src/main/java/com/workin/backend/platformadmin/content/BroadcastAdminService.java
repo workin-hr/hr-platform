@@ -62,19 +62,48 @@ public class BroadcastAdminService {
 	}
 
 	/**
+	 * The notification rows themselves, as {@code notifications_paginate()}
+	 * lists them. {@link #recent()} groups this surface's own sends; this is
+	 * the table, and it is what the dashboard shows.
+	 */
+	public com.workin.backend.platformadmin.web.DashboardPage<BroadcastStore.NotificationRow> list(
+			long companyId, String search, String recipientKind, String dateFrom, String dateTo,
+			int page, int perPage) {
+		return this.store.list(companyId, search, recipientKind, dateFrom, dateTo, page, perPage);
+	}
+
+	/**
+	 * Removes one notification.
+	 *
+	 * <p>Behind the same two gates as a send. A delete here is small next to a
+	 * broadcast, but it is still a write to another tenant's data from a
+	 * platform session, and ADR-0015 prerequisite 7 is about the surface rather
+	 * than the size of the action.
+	 */
+	@Transactional
+	public Result delete(long adminId, long id) {
+		if (!this.actionsEnabled) {
+			return Result.rejected("admin_actions_disabled");
+		}
+		if (!this.store.delete(id)) {
+			return Result.rejected("error_not_found");
+		}
+		this.auditService.recordAction(adminId, PlatformAdminAuditEventType.CONTENT_DELETED,
+				TARGET_TYPE, String.valueOf(id), "notification deleted");
+		return new Result(true, 0, null);
+	}
+
+	/**
 	 * @param confirmed the operator ticked the confirmation; without it a
 	 *                  multi-recipient send is refused rather than performed
 	 * @param companyId required only by {@link BroadcastAudience#COMPANY_EMPLOYEES}
 	 */
 	@Transactional
-	public Result send(long adminId, boolean factorBound, String audienceValue,
+	public Result send(long adminId, String audienceValue,
 			String title, String body, Long companyId, boolean confirmed) {
 
 		if (!this.actionsEnabled) {
 			return Result.rejected("admin_actions_disabled");
-		}
-		if (!factorBound) {
-			return Result.rejected("mfa_required_for_actions");
 		}
 
 		BroadcastAudience audience = BroadcastAudience.of(audienceValue);
@@ -110,8 +139,7 @@ public class BroadcastAdminService {
 		// Audited even when it reached nobody: "the broadcast went out and
 		// nobody has it" is the question this row answers.
 		this.auditService.recordAction(adminId, PlatformAdminAuditEventType.CONTENT_CREATED,
-				TARGET_TYPE, audience.submitted(),
-				null, "recipients: " + recipients + "; title: " + subject);
+				TARGET_TYPE, audience.submitted(), "recipients: " + recipients + "; title: " + subject);
 
 		return new Result(true, recipients, null);
 	}

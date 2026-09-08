@@ -6,14 +6,13 @@
 @param String currentAdminPhone
 @param List<GuideVideo> videos
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param String currentPage
 @param String lang
 @param com.workin.backend.platformadmin.web.DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-!{boolean canWrite = actionsEnabled && factorBound;}
+!{boolean canWrite = actionsEnabled;}
 <%-- dashboard/pages/guide_videos/page.php.
 
      PHP puts add and edit behind two modals filled by a script that reads a
@@ -40,13 +39,17 @@
 		@endif
 		@if(!actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(!factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_guide_videos")} (${videos.size()})</h2>
+				<div class="data-table-head__actions">
+					@if(canWrite)
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('gvModal')">+ ${t.apply("add_guide_video")}</button>
+					@endif
+				</div>
 			</div>
 			<div class="table-wrap">
 				<table class="tbl">
@@ -74,13 +77,15 @@
 									${t.apply(row.active() ? "status_active" : "status_inactive")}</span></td>
 								<td class="col-actions">
 									@if(canWrite)
-										<form method="post" class="row-actions__form"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete">
-											<input type="hidden" name="id" value="${row.id()}">
-											<button type="submit" class="btn btn-sm btn-red">${t.apply("delete")}</button>
-										</form>
+										@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+											<form method="post" class="row-actions__form"
+											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="delete">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+											</form>
+										`)
 									@else
 										<span class="text-muted">—</span>
 									@endif
@@ -128,11 +133,19 @@
 				</table>
 			</div>
 
-			@if(canWrite)
-				<form method="post">
+		</div>
+		@if(canWrite)
+			<%-- Legacy opens this in a modal (gvAddModal), behind the "+" button
+			     above. Rendered inline it sat open under the table on every
+			     visit. --%>
+			<div class="modal-bg" id="gvModal">
+				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="gvModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="gvModal-title">${t.apply("add_guide_video")}</h2>
+					<form method="post">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add">
-					<h3>${t.apply("add_guide_video")}</h3>
 					<div class="form-row">
 						<label>${t.apply("title_ar")}
 							<input type="text" name="title_ar" required></label>
@@ -149,6 +162,7 @@
 					<p class="text-muted">${t.apply("guide_video_hint")}</p>
 					<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
 				</form>
-			@endif
-		</div>
+				</div>
+			</div>
+		@endif
 	`)

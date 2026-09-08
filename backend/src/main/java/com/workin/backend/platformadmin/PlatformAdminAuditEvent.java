@@ -47,25 +47,20 @@ public class PlatformAdminAuditEvent {
 	@Column(name = "target_id", length = 64)
 	private String targetId;
 
-	/** The step-up approval that authorised this action, once those exist. */
-	@Column(name = "step_up_approval_id", length = 64)
-	private String stepUpApprovalId;
-
 	protected PlatformAdminAuditEvent() {
 	}
 
 	public PlatformAdminAuditEvent(Long platformAdminId, PlatformAdminAuditEventType eventType, String detail) {
-		this(platformAdminId, eventType, detail, null, null, null);
+		this(platformAdminId, eventType, detail, null, null);
 	}
 
 	public PlatformAdminAuditEvent(Long platformAdminId, PlatformAdminAuditEventType eventType, String detail,
-			String targetType, String targetId, String stepUpApprovalId) {
+			String targetType, String targetId) {
 		this.platformAdminId = platformAdminId;
 		this.eventType = eventType;
 		this.detail = detail;
 		this.targetType = targetType;
 		this.targetId = targetId;
-		this.stepUpApprovalId = stepUpApprovalId;
 	}
 
 	public String getTargetType() {
@@ -74,10 +69,6 @@ public class PlatformAdminAuditEvent {
 
 	public String getTargetId() {
 		return targetId;
-	}
-
-	public String getStepUpApprovalId() {
-		return stepUpApprovalId;
 	}
 
 	public Long getId() {

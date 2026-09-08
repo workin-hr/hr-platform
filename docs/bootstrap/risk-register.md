@@ -1183,6 +1183,36 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Status | **Closed** in Java by **D-191**. Recorded 2026-09-06. Related: **R-049** (why nothing was deployed), **ADR-0015**, **D-191**. |
 | Evidence | `LocaleResolutionFilter:54` (`request.getParameter("lang")`) and its `@Order`; `org.springframework.boot.servlet.filter.OrderedCharacterEncodingFilter` (Spring Boot 4.1, whose order is set in the constructor and exposes no `DEFAULT_ORDER`); the failing assertion `expected: "دليل" but was: "Ø¯ÙÙÙ"`, and `theConnectionStoresArabicIntact`, which passed in the same run and is what proved the driver, the connection charset and the `utf8mb4` column were not at fault. |
 
+## R-068: Nothing Served The Uploads, So Every Stored File Was A 404
+
+| Field | Value |
+|---|---|
+| Description | `LegacyFileUploads.store()` writes the file, returns `/uploads/<area>/<name>`, and that URL is handed to clients in ordinary API response bodies and rendered by the dashboard's `<img src>`. The frozen PHP stack answers it from the webroot. **This application registered no handler for the prefix at all**, so every one of those URLs came back `404`. |
+| Category | **Correctness -- Phase 1 parity**, a port omission |
+| How it was found | Screenshotting the rebuilt admin pages for the production-parity sweep, 2026-09-07. The companies list drew broken-image icons where the logos should be. The first read was "the sanitised seed points its `logo_url` at `seed.example.invalid`", which is true and would have closed the question wrongly. Writing a real file into the container's upload volume and requesting it over the deployed stack returned **404**, which is the measurement that settled it. |
+| Blast radius | Every file the system stores: company logos, commercial-registration documents, employee photos, employee documents, banner images and guide-video thumbnails. In the reference snapshot that is 284 logos, 148 commercial registrations, 100 employee photos, 50 employee documents and 2 banners. A client showing an employee's photo shows a broken image; a dashboard offering a document link offers a dead one. |
+| Why it survived | Nothing tested it. `LegacyFileUploadsTest` covers `store()` thoroughly -- the MIME sniffing, the extension derivation, the empty-file cases -- and every assertion is below the HTTP layer. The file was written correctly and the returned path was correct; what was missing was a route, and no test asked for one. |
+| Severity | **High.** It breaks **D-111**'s zero-client-change invariant on a surface a user sees immediately, and it would have been found by the first person to open the app after cutover. |
+| Owner | Repository owner. |
+| Fix | `LegacyUploadServing`, a `WebMvcConfigurer` that maps the configured URL prefix to the configured upload path, plus an explicit `permitAll` chain in `SecurityConfig` so the "these are public" decision is written down rather than being an artifact of matching no chain. |
+| Two narrowings, both deliberate | The handler serves only the extensions this system itself writes -- the five `LegacyFileUploads` stores (`jpg`, `jpeg`, `png`, `webp`, `pdf`) plus the guide videos and their posters (`LegacyGuideVideoService.VIDEO_EXTENSIONS` and `POSTER_EXTENSIONS`), composed from those constants rather than repeated, so a new stored type cannot be served without being added there. Anything else is `404`. Frozen PHP names a stored file from the **client-supplied** filename, so its `/uploads` tree can hold a file whose extension has nothing to do with its bytes -- the upload-naming risk this register already carries -- and serving such a file inline from this application's own origin would turn a planted `.html` into script on the admin's origin. Nothing legitimate is refused: every file this port writes has one of the five. And when `app.legacy-uploads.url` is an absolute URL, the handler is not registered at all, because the files are then somebody else's to serve. |
+| Public, and why that is not a new exposure | `/uploads` is public on the frozen stack: the clients fetch these URLs with no session, from URLs the API hands them in response bodies. Requiring authentication would break every client, which is the change **D-111** forbids. The exposure is legacy's and is inherited rather than introduced -- but it is now stated in a security chain a reviewer can see, with the standard header set on the response, instead of being reachable by no chain and nobody's decision. |
+| Guarded by | `LegacyUploadServingTest`, end to end over real HTTP: a stored file answers `200` without a session, a planted `.html` answers `404`, three traversal shapes do not read outside the upload root, and a missing file is `404` rather than an error. Verified to fail without the fix. |
+| Status | **Closed** in Java by **D-201**. Recorded 2026-09-07. Related: **D-111** (the invariant it broke), **D-154** (the naming rule that makes the extension allowlist sound), **R-049** (why nothing was deployed, and so why no user met this). |
+| Evidence | `LegacyFileUploads:100` (`return uploadUrl + ... + storedName`); `deploy/compose.integration.yaml:84,96` (the volume it writes into); a file placed at `/app/uploads/probe/t.png` in `workin-integration-app-1` answering `404` at `https://127.0.0.1:8443/uploads/probe/t.png`; the row counts above from the integration database. |
+
+## R-069: One Shared Password Means The Audit Names A Role, Not A Person
+
+| Field | Value |
+|---|---|
+| Description | Under ADR-0018 the dashboard has one administrator and one password. Every audit row is attributed to that one row. If two people know the password, the application cannot say which of them approved a company, deleted a penalty or rotated nothing at all. |
+| Category | **Accountability**, accepted by decision |
+| Why it is accepted | It is exactly PHP's model, and the owner chose it over the alternatives (D-205). The Java side keeps what can be kept without individual identities: the row exists, the audit rows exist, the timestamps and client addresses of login attempts exist. |
+| What still limits it | The password is deployment configuration: whoever can read the VPS's environment can read it, and whoever can change it can lock everyone else out by restarting. Both are the operator's already. The per-client miss budget stops a guesser without letting a guesser lock the operator out. |
+| Trigger | A second person needing dashboard access with their own accountability. That is the day to reopen ADR-0015's individual-administrator model, whose row shape this one still fits. |
+| Severity | **Low** for a single operator; **Medium** the day there are two. |
+| Status | **Open by decision.** Recorded 2026-09-08. Related: **ADR-0018**, **D-205**, **R-049** (prerequisite 7 -- while PHP is reachable the same password opens both doors). |
+
 ## R-070: The Tenant Boundary Has No Database-Level Backstop, Permanently
 
 | Field | Value |

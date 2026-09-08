@@ -24,15 +24,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
 import com.workin.backend.BackendApplication;
-import com.workin.backend.platformadmin.mfa.PlatformAdminMfaService;
-import com.workin.backend.platformadmin.mfa.Totp;
 import com.workin.legacy.LegacyMariaDb;
 
 /**
@@ -53,7 +50,6 @@ import com.workin.legacy.LegacyMariaDb;
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@ActiveProfiles("phase1-mysql")
 class AdminEmployeesEndToEndTest {
 
 	/** A database of this class's own, inside the shared container. */
@@ -69,19 +65,13 @@ class AdminEmployeesEndToEndTest {
 		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
 		registry.add("app.legacy-db.username", MARIADB::getUsername);
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
-		registry.add("app.platform-admin.mfa.encryption-key", () -> {
-			byte[] key = new byte[32];
-			new java.security.SecureRandom().nextBytes(key);
-			return java.util.Base64.getEncoder().encodeToString(key);
-		});
+		registry.add("app.platform-admin.password", () -> PASSWORD);
 		registry.add("app.platform-admin.actions.enabled", () -> "true");
 	}
 
 	@Autowired
 	private TestRestTemplate restTemplate;
 
-	@Autowired
-	private PlatformAdminMfaService mfaService;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -135,22 +125,12 @@ class AdminEmployeesEndToEndTest {
 		this.jdbc.update("DELETE FROM platform_admin_audit_events");
 
 		String phone = "+2101" + System.nanoTime() % 100_000_000L;
-		this.jdbc.update("INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, 1)",
-				phone, this.passwordEncoder.encode(PASSWORD));
+		// One administrator, one password (ADR-0018): the bootstrap provisioned
+		// the row from the configured password when the context started.
 		long adminId = this.jdbc.queryForObject(
-				"SELECT id FROM platform_admins WHERE phone = ?", Long.class, phone);
-
-		String token = this.mfaService.issueBootstrapToken(adminId, adminId);
-		String seed = this.mfaService.beginEnrolment(adminId, token).orElseThrow();
-		assertThat(this.mfaService.confirmEnrolment(adminId, code(seed))).isTrue();
-
+				"SELECT id FROM platform_admins WHERE phone = 'admin'", Long.class);
 		Page login = page("/admin/login", null);
-		String pending = cookieOf(post("/admin/login", login.cookie(), login.csrf(),
-				"phone", phone, "password", PASSWORD));
-		this.jdbc.update("UPDATE platform_admin_mfa SET last_accepted_time_step = NULL"
-				+ " WHERE platform_admin_id = ?", adminId);
-		this.cookie = cookieOf(post("/admin/mfa", pending,
-				page("/admin/mfa", pending).csrf(), "code", code(seed)));
+		this.cookie = cookieOf(post("/admin/login", login.cookie(), login.csrf(), "password", PASSWORD));
 
 		this.companyA = createCompany("Alpha Co");
 		this.companyB = createCompany("Beta Co");
@@ -181,6 +161,21 @@ class AdminEmployeesEndToEndTest {
 		String html = body("/admin/employees");
 		assertThat(html).contains("1001", "Aya", "Alpha HQ", "Alpha Ops", "Alpha Fitter",
 				"Alpha Day");
+	}
+
+	@Test
+	void theListRendersAnEmployeeWhoHasAContractDuration() {
+		// Every other fixture here leaves contract_duration_months NULL, and
+		// that is why the whole page answered 500 against real data without
+		// one test failing: the column is int(10) unsigned, whose range does
+		// not fit a signed int, so MariaDB Connector/J boxes it as a Long and
+		// the row mapper's cast to Integer threw. 1,448 of the development
+		// seed's 3,783 employees carry a value.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update(
+				"UPDATE employees SET contract_duration_months = 12 WHERE id = ?", id);
+
+		assertThat(body("/admin/employees")).contains("1001", "Aya");
 	}
 
 	@Test
@@ -768,9 +763,6 @@ class AdminEmployeesEndToEndTest {
 		return new Csrf(matcher.group(1), matcher.group(2));
 	}
 
-	private static String code(String base32Seed) {
-		return Totp.codeAt(fromBase32(base32Seed), Totp.timeStepAt(Instant.now()));
-	}
 
 	private static byte[] fromBase32(String seed) {
 		String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";

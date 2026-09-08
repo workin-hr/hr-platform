@@ -45,13 +45,19 @@ class AdminLayoutWiringTest {
 	 *
 	 * <p>{@code login}, {@code mfa},
 	 * {@code enrol} and {@code enrol-confirm} render before there is a session
-	 * and carry {@code login.css} through the shared set. {@code home},
-	 * {@code sessions}, {@code company-confirm} and the two detail pages are
-	 * the cases where legacy names none either -- checked against
-	 * {@code $pageStyles} in the PHP, not assumed.
+	 * and carry {@code login.css} through the shared set. {@code sessions},
+	 * {@code company-confirm} and the two detail pages are the cases where
+	 * legacy names none either -- checked against {@code $pageStyles} in the
+	 * PHP, not assumed.
+	 *
+	 * <p>{@code home} used to be here and is not any more. It was exempt while
+	 * it rendered a "signed in" panel and nothing else; legacy's
+	 * {@code index.php} has always named {@code pages/home/assets/style.css},
+	 * and now that the page is the overview legacy serves, so does this one
+	 * (D-198).
 	 */
 	private static final Set<String> NO_PAGE_STYLES = Set.of(
-			"login", "mfa", "enrol", "enrol-confirm", "home", "sessions",
+			"login", "mfa", "enrol", "enrol-confirm", "sessions",
 			"company-confirm", "company-detail", "employee-detail");
 
 	@Test
@@ -171,15 +177,50 @@ class AdminLayoutWiringTest {
 				.isEmpty();
 	}
 
+	/**
+	 * The PostgreSQL profile's case: no legacy clock in the context, and the
+	 * advice falls back rather than failing to start.
+	 */
+	private static org.springframework.beans.factory.ObjectProvider<com.workin.legacy.LegacyClock>
+			noClock() {
+		return new org.springframework.beans.factory.ObjectProvider<>() {
+			@Override
+			public com.workin.legacy.LegacyClock getObject() {
+				throw new org.springframework.beans.factory.NoSuchBeanDefinitionException(
+						com.workin.legacy.LegacyClock.class);
+			}
+
+			@Override
+			public com.workin.legacy.LegacyClock getObject(Object... args) {
+				return getObject();
+			}
+
+			@Override
+			public com.workin.legacy.LegacyClock getIfAvailable() {
+				return null;
+			}
+
+			@Override
+			public com.workin.legacy.LegacyClock getIfUnique() {
+				return null;
+			}
+		};
+	}
+
 	@Test
-	void theAdviceSuppliesThePhoneAndTolerantlyOmitsItBeforeSignIn() {
-		AdminViewModelAdvice advice = new AdminViewModelAdvice(null, null);
-		assertThat(advice.currentAdminPhone(
-				new PlatformAdminWebPrincipal(7L, "+201000000000", true)))
-				.isEqualTo("+201000000000");
-		// The login, MFA and enrolment pages have no principal, and the layout's
-		// shell-less branch is right for them.
-		assertThat(advice.currentAdminPhone(null)).isNull();
+	void theAdviceSuppliesTheAdministratorsLabelAndTolerantlyOmitsItBeforeSignIn() {
+		org.springframework.context.support.StaticMessageSource messages =
+				new org.springframework.context.support.StaticMessageSource();
+		messages.addMessage("admin", java.util.Locale.forLanguageTag("ar"), "أدمن");
+		AdminViewModelAdvice advice = new AdminViewModelAdvice(messages, null, noClock());
+		org.springframework.mock.web.MockHttpServletRequest request =
+				new org.springframework.mock.web.MockHttpServletRequest();
+		// One administrator (ADR-0018), shown by PHP's label for it, not by an id.
+		assertThat(advice.currentAdminPhone(new PlatformAdminWebPrincipal(7L, "admin"), request))
+				.isEqualTo("أدمن");
+		// The login page has no principal, and the layout's shell-less branch
+		// is right for it.
+		assertThat(advice.currentAdminPhone(null, request)).isNull();
 	}
 
 	/**

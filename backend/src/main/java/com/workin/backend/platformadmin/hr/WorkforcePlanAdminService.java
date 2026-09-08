@@ -39,8 +39,6 @@ public class WorkforcePlanAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/**
 		 * {@code error_required}: no company, a missing branch or job title, or
@@ -90,12 +88,9 @@ public class WorkforcePlanAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -163,9 +158,9 @@ public class WorkforcePlanAdminService {
 
 	@Transactional
 	public long add(
-			DashboardSession session, long adminId, boolean factorBound, long postedCompanyId,
+			DashboardSession session, long adminId, long postedCompanyId,
 			long branchId, long departmentId, long jobTitleId, int rawPlannedCount) {
-		gate(factorBound);
+		gate();
 		long companyId = companyForCreate(session, postedCompanyId);
 		assertPayloadWithinCompany(companyId, branchId, departmentId, jobTitleId);
 		assertTargetFree(companyId, branchId, departmentId, jobTitleId, 0);
@@ -188,9 +183,9 @@ public class WorkforcePlanAdminService {
 	 */
 	@Transactional
 	public long saveEdit(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			long branchId, long departmentId, long jobTitleId, int rawPlannedCount) {
-		gate(factorBound);
+		gate();
 		long companyId = assertRowVisible(session, id);
 		assertPayloadWithinCompany(companyId, branchId, departmentId, jobTitleId);
 		assertTargetFree(companyId, branchId, departmentId, jobTitleId, id);
@@ -202,8 +197,8 @@ public class WorkforcePlanAdminService {
 	}
 
 	@Transactional
-	public long delete(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long delete(DashboardSession session, long adminId, long id) {
+		gate();
 		long companyId = assertRowVisible(session, id);
 
 		this.store.delete(id);
@@ -228,7 +223,7 @@ public class WorkforcePlanAdminService {
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
 		this.auditService.recordAction(
-				adminId, type, "workforce_planning", String.valueOf(id), null, detail);
+				adminId, type, "workforce_planning", String.valueOf(id), detail);
 	}
 
 }

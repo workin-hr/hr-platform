@@ -12,14 +12,13 @@
 @param List<String> statuses
 @param boolean canManage
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param String currentPage
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-!{boolean canWrite = canManage && actionsEnabled && factorBound;}
+!{boolean canWrite = canManage && actionsEnabled;}
 <%-- dashboard/pages/join_requests/page.php. A join request is an employees
      row that has not been admitted yet, so this page's permission and its
      stylesheet are the employees page's. --%>
@@ -63,8 +62,8 @@
 		<div class="data-table-head">
 			<h2 class="data-table-title">${t.apply("nav_join_requests")} (${items.size()})</h2>
 		</div>
-		<div class="data-table-wrap">
-		<table class="data-table">
+		<div class="table-wrap">
+		<table class="tbl">
 			<thead>
 				<tr>
 					<th>#</th>
@@ -94,32 +93,36 @@
 					</td>
 					<td>${row.createdAt() == null ? "—" : row.createdAt().toString().replace("T", " ")}</td>
 					<td class="col-actions">
-						<div class="actions">
-						@if(row.pending() && canWrite)
-							<form method="POST" class="inline-form" action="/admin/join_requests">
-								<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-								<input type="hidden" name="action" value="accept_join">
-								<input type="hidden" name="id" value="${row.id()}">
-								<input type="hidden" name="redirect_status" value="${status}">
-								<button type="submit" class="btn btn-green btn-sm">${t.apply("approve")}</button>
-							</form>
+						<%-- The dash belongs beside the row, not inside a popover the
+						     reader has to open to be told there is nothing in it. --%>
+						@if((row.pending() && canWrite) || row.accepted())
 							<%-- Rejecting deletes the employee row, so the confirm
 							     is not decoration. --%>
-							<form method="POST" class="inline-form" action="/admin/join_requests"
-							      onsubmit="return confirm('${t.apply("confirm_action")}')">
-								<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-								<input type="hidden" name="action" value="reject_join">
-								<input type="hidden" name="id" value="${row.id()}">
-								<input type="hidden" name="redirect_status" value="${status}">
-								<button type="submit" class="btn btn-red btn-sm">${t.apply("reject")}</button>
-							</form>
-						@elseif(row.accepted())
-							<a href="/admin/employees?action=edit&id=${row.id()}"
-							   class="btn btn-blue btn-sm">${t.apply("edit")}</a>
+							@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+								@if(row.pending() && canWrite)
+									<form method="POST" class="row-actions__form" role="none" action="/admin/join_requests">
+										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+										<input type="hidden" name="action" value="accept_join">
+										<input type="hidden" name="id" value="${row.id()}">
+										<input type="hidden" name="redirect_status" value="${status}">
+										<button type="submit" role="menuitem" class="row-actions__item row-actions__item--success">${t.apply("approve")}</button>
+									</form>
+									<form method="POST" class="row-actions__form" role="none" action="/admin/join_requests"
+									      onsubmit="return confirm('${t.apply("confirm_action")}')">
+										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+										<input type="hidden" name="action" value="reject_join">
+										<input type="hidden" name="id" value="${row.id()}">
+										<input type="hidden" name="redirect_status" value="${status}">
+										<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("reject")}</button>
+									</form>
+								@else
+									<a href="/admin/employees?action=edit&id=${row.id()}"
+									   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
+								@endif
+							`)
 						@else
 							<span class="text-muted">—</span>
 						@endif
-						</div>
 					</td>
 				</tr>
 				@endfor

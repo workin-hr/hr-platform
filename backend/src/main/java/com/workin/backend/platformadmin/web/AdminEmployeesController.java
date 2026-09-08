@@ -79,7 +79,6 @@ public class AdminEmployeesController {
 		model.addAttribute("shiftOptions", this.store.shiftOptions(optionsCompanyId));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "employees"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		model.addAttribute("addOpen", "add".equals(action));
 		model.addAttribute("editRow", editRow);
@@ -109,16 +108,15 @@ public class AdminEmployeesController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 
 		try {
 			long wrote = switch (action) {
-				case "add_employee" -> this.service.add(session, adminId, bound, addCommand(request));
+				case "add_employee" -> this.service.add(session, adminId, addCommand(request));
 				case "save_edit" -> this.service.saveEdit(
-						session, adminId, bound, id, editCommand(request));
-				case "deactivate" -> this.service.setActive(session, adminId, bound, id, false);
-				case "reactivate" -> this.service.setActive(session, adminId, bound, id, true);
-				case "delete" -> this.service.delete(session, adminId, bound, id);
+						session, adminId, id, editCommand(request));
+				case "deactivate" -> this.service.setActive(session, adminId, id, false);
+				case "reactivate" -> this.service.setActive(session, adminId, id, true);
+				case "delete" -> this.service.delete(session, adminId, id);
 				default -> throw new EmployeeAdminService.RefusedException(
 						EmployeeAdminService.Refusal.FOREIGN_ROW);
 			};
@@ -229,7 +227,6 @@ public class AdminEmployeesController {
 	private static String messageKey(EmployeeAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case FOREIGN_ROW -> "error_db";
 			case INVALID -> "error_required";
 			case CODE_INVALID -> "employee_code_invalid";

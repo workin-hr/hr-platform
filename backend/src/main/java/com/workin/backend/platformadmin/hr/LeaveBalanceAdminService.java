@@ -37,8 +37,6 @@ public class LeaveBalanceAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/** {@code select_company_first}. */
 		NO_COMPANY,
@@ -81,12 +79,9 @@ public class LeaveBalanceAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -125,9 +120,9 @@ public class LeaveBalanceAdminService {
 	 */
 	@Transactional
 	public long add(
-			DashboardSession session, long adminId, boolean factorBound, long employeeId,
+			DashboardSession session, long adminId, long employeeId,
 			int year, String rawTotalDays) {
-		gate(factorBound);
+		gate();
 		if (employeeId <= 0) {
 			throw new RefusedException(Refusal.NO_EMPLOYEE);
 		}
@@ -152,9 +147,9 @@ public class LeaveBalanceAdminService {
 
 	@Transactional
 	public long saveEdit(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			String rawTotalDays, String rawUsedDays) {
-		gate(factorBound);
+		gate();
 		assertRowVisible(session, id);
 		Long owner = this.store.companyOf(id);
 
@@ -167,8 +162,8 @@ public class LeaveBalanceAdminService {
 	}
 
 	@Transactional
-	public long delete(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long delete(DashboardSession session, long adminId, long id) {
+		gate();
 		assertRowVisible(session, id);
 		Long owner = this.store.companyOf(id);
 
@@ -180,7 +175,7 @@ public class LeaveBalanceAdminService {
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
 		this.auditService.recordAction(
-				adminId, type, "leave_balance", String.valueOf(id), null, detail);
+				adminId, type, "leave_balance", String.valueOf(id), detail);
 	}
 
 }

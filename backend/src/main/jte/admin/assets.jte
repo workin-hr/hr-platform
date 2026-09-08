@@ -16,14 +16,13 @@
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param String currentPage
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-!{boolean canWrite = canManage && actionsEnabled && factorBound;}
+!{boolean canWrite = canManage && actionsEnabled;}
 !{int colCount = showCompanyColumn ? 9 : 8;}
 <%-- dashboard/pages/assets/page.php. --%>
 @template.admin.layout(
@@ -43,8 +42,6 @@
 		@endif
 		@if(canManage && !actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(canManage && !factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		<div class="toolbar page-toolbar page-toolbar-filters">
@@ -83,57 +80,26 @@
 			</form>
 		</div>
 
-		@if(canWrite)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("add_asset")}</h2>
-				</div>
-				<form method="POST" class="account-form org-form">
-					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-					<input type="hidden" name="action" value="add_asset">
-					<div class="form-row">
-						<label for="employee_id">${t.apply("employee_name")}</label>
-						<select id="employee_id" name="employee_id" required>
-							<option value="0">—</option>
-							@for(com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption option : employeeOptions)
-								<option value="${option.id()}">${option.companyName() == null
-									? option.code() + " — " + option.name()
-									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
-							@endfor
-						</select>
-					</div>
-					<div class="form-row">
-						<label for="asset_text">${t.apply("asset")}</label>
-						<input type="text" id="asset_text" name="asset_text" required maxlength="500">
-					</div>
-					<div class="form-row">
-						<label for="asset_date">${t.apply("asset_date")}</label>
-						<input type="date" id="asset_date" name="asset_date">
-					</div>
-					<div class="form-row">
-						<label for="asset_end_date">${t.apply("asset_end_date")}</label>
-						<input type="date" id="asset_end_date" name="asset_end_date">
-					</div>
-					<div class="account-form__footer">
-						<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
-					</div>
-				</form>
-			</div>
-		@endif
 
 		<div class="data-table-card">
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("nav_assets")} (${result.total()})</h2>
+				<div class="data-table-head__actions">
+					@if(canWrite)
+						<button type="button" class="btn btn-blue btn-sm"
+								onclick="crudOpenAdd('assetModal')">+ ${t.apply("add_asset")}</button>
+					@endif
+				</div>
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
 					<tr>
 						<th>#</th>
 						<th>${t.apply("emp_code")}</th>
 						<th>${t.apply("employee_name")}</th>
 						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
-						<th>${t.apply("asset")}</th>
+						<th>${t.apply("asset_text")}</th>
 						<th>${t.apply("asset_date")}</th>
 						<th>${t.apply("asset_end_date")}</th>
 						<th>${t.apply("is_returned")}</th>
@@ -158,25 +124,28 @@
 									${t.apply(row.returned() ? "yes" : "no")}</span>
 							</td>
 							<td class="col-actions">
-								@if(canWrite && !row.returned())
-									<%-- Once the asset is back the row is frozen against
-									     editing: there is nothing left to correct about the
-									     loan. --%>
-									<form method="POST" class="inline-form">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="mark_returned">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-outline btn-sm">${t.apply("is_returned")}</button>
-									</form>
-								@endif
+								<%-- The dash belongs beside the row, not inside a popover the
+								     reader has to open to be told there is nothing in it. --%>
 								@if(canWrite)
-									<form method="POST" class="inline-form"
-									      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-										<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-										<input type="hidden" name="action" value="delete_asset">
-										<input type="hidden" name="id" value="${row.id()}">
-										<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-									</form>
+									<%-- Once the asset is back the row is frozen against editing:
+									     there is nothing left to correct about the loan. --%>
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										@if(!row.returned())
+											<form method="POST" class="row-actions__form" role="none">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="mark_returned">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item">${t.apply("is_returned")}</button>
+											</form>
+										@endif
+										<form method="POST" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete_asset">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+									`)
 								@else
 									<span class="text-muted">—</span>
 								@endif
@@ -189,13 +158,56 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/assets?page=${page}&returned=${returned}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
+			!{java.util.SequencedMap<String, String> carry =
+					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+			!{carry.put("returned", returned);}
+			@template.admin.pager(basePath = "/admin/assets", result = result,
+					carry = carry, t = t)
+		@if(canWrite)
+			<%-- Legacy opens this form in a modal, behind the "+" button above.
+			     Rendered inline it sat open over the table on every visit, whether
+			     or not anyone was adding anything. Same form, same fields, same
+			     POST; .modal-bg is position:fixed, so it lives at the end of the
+			     document and out of the reading order. --%>
+			<div class="modal-bg" id="assetModal">
+				<div class="modal" role="dialog" aria-modal="true" aria-labelledby="assetModal-title">
+					<button type="button" class="modal-close"
+							aria-label="${t.apply("cancel")}">&times;</button>
+					<h2 id="assetModal-title">${t.apply("add_asset")}</h2>
+					<form method="POST" class="account-form org-form">
+					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+					<input type="hidden" name="action" value="add_asset">
+					<div class="org-form-grid">
+					<div class="form-row">
+						<label for="employee_id">${t.apply("employee_name")}</label>
+						<select id="employee_id" name="employee_id" required>
+							<option value="0">—</option>
+							@for(com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption option : employeeOptions)
+								<option value="${option.id()}">${option.companyName() == null
+									? option.code() + " — " + option.name()
+									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
+							@endfor
+						</select>
+					</div>
+					<div class="form-row">
+						<label for="asset_text">${t.apply("asset")}</label>
+						<input type="text" id="asset_text" name="asset_text" required maxlength="500">
+					</div>
+					<div class="form-row">
+						<label for="asset_date">${t.apply("asset_date")}</label>
+						<input type="date" id="asset_date" name="asset_date">
+					</div>
+					<div class="form-row">
+						<label for="asset_end_date">${t.apply("asset_end_date")}</label>
+						<input type="date" id="asset_end_date" name="asset_end_date">
+					</div>
+					</div>
+					<div class="account-form__footer">
+						<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
+					</div>
+				</form>
 				</div>
-			@endif
+			</div>
+		@endif
 		</div>
 	`)

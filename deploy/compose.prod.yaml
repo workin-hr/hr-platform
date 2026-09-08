@@ -80,14 +80,14 @@ services:
       LEGACY_WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN:?set WHATSAPP_API_TOKEN in .env.prod}
       LEGACY_WHATSAPP_INSTANCE_ID: ${WHATSAPP_INSTANCE_ID:?set WHATSAPP_INSTANCE_ID in .env.prod}
 
-      APP_PLATFORM_ADMIN_MFA_ENCRYPTION_KEY: ${ADMIN_MFA_KEY:?set ADMIN_MFA_KEY in .env.prod}
-      APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE: ${ADMIN_PHONE:-}
-      APP_PLATFORM_ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_PASSWORD:-}
+      # The dashboard's one password (ADR-0018). A bcrypt hash of it lives in
+      # platform_admins; change the value and restart to rotate it.
+      APP_PLATFORM_ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env.prod}
 
       # ADR-0015 prerequisite 7: OFF until the legacy PHP admin surface is
-      # confirmed unreachable. Turning it on earlier reopens the hole the whole
-      # MFA and step-up design exists to close, because an attacker walks around
-      # it by logging into the weaker surface instead.
+      # confirmed unreachable. The same password opens both dashboards, so
+      # while PHP is reachable the Java side's guards protect nothing -- an
+      # attacker logs into the weaker surface instead.
       APP_PLATFORM_ADMIN_ACTIONS_ENABLED: ${ADMIN_ACTIONS_ENABLED:-false}
 
       APP_LEGACY_UPLOADS_PATH: /app/uploads

@@ -21,14 +21,13 @@
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
-@param boolean factorBound
 @param String errorKey = null
 @param String currentPage
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-!{boolean canWrite = canManage && actionsEnabled && factorBound;}
+!{boolean canWrite = canManage && actionsEnabled;}
 <%-- `clean($row['x'] ?? '—')`: a missing or null value renders as an
      em dash, never as the literal "null". --%>
 !{java.util.function.BiFunction<java.util.Map<String, Object>, String, String> cell =
@@ -58,8 +57,6 @@
 		@endif
 		@if(canManage && !actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(canManage && !factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		@if(editDetail != null)
@@ -150,8 +147,8 @@
 					<div class="data-table-head">
 						<h2 class="data-table-title">${t.apply("payroll_batch_detail")}</h2>
 					</div>
-					<div class="data-table-scroll">
-					<table class="data-table">
+					<div class="table-wrap">
+					<table class="tbl">
 						<thead>
 							<tr>
 								<th>${t.apply("employees")}</th>
@@ -186,8 +183,8 @@
 			     stored but not shown here -- it surfaces in the totals strip
 			     above and the list's total_net. That is the source's behaviour. --%>
 			<div class="data-table-card">
-				<div class="data-table-scroll">
-				<table class="data-table">
+				<div class="table-wrap">
+				<table class="tbl">
 					<thead>
 						<tr>
 							<th>${t.apply("employee")}</th>
@@ -253,8 +250,10 @@
 								<td class="col-center bold">${cell.apply(row, "net_salary")}</td>
 								<td class="col-actions">
 									@if(canWrite && !currentBatch.finalized())
-										<a class="btn btn-sm"
-										   href="/admin/payroll?action=edit_detail&id=${cell.apply(row, "id")}&run_id=${viewRunId}">${t.apply("edit")}</a>
+										@template.admin.rowActions(rowId = cell.apply(row, "id"), t = t, items = @`
+											<a role="menuitem" class="row-actions__item"
+											   href="/admin/payroll?action=edit_detail&id=${cell.apply(row, "id")}&run_id=${viewRunId}">${t.apply("edit")}</a>
+										`)
 									@else
 										<span class="text-muted">—</span>
 									@endif
@@ -267,14 +266,12 @@
 					</tbody>
 				</table>
 				</div>
-				@if(detailResult.pages() > 1)
-					<div class="pager">
-						@for(int page = 1; page <= detailResult.pages(); page++)
-							<a href="/admin/payroll?run_id=${viewRunId}&page=${page}"
-							   class="pager__link${page == detailResult.page() ? " is-current" : ""}">${page}</a>
-						@endfor
-					</div>
-				@endif
+				<%-- The run this table belongs to travels with every page link and with
+				     the size form; without it, turning the page loses the batch. --%>
+				!{java.util.SequencedMap<String, String> detailCarry = new java.util.LinkedHashMap<>();}
+				!{detailCarry.put("run_id", String.valueOf(viewRunId));}
+				@template.admin.pager(basePath = "/admin/payroll", result = detailResult,
+						carry = detailCarry, t = t)
 			</div>
 		@else
 			<div class="toolbar page-toolbar page-toolbar-filters">
@@ -353,10 +350,11 @@
 				<div class="data-table-head">
 					<h2 class="data-table-title">${t.apply("nav_payroll")}</h2>
 				</div>
-				<div class="data-table-scroll">
-				<table class="data-table">
+				<div class="table-wrap">
+				<table class="tbl">
 					<thead>
 						<tr>
+							<th>#</th>
 							@if(showCompanyColumn)
 								<th>${t.apply("company")}</th>
 							@endif
@@ -371,8 +369,10 @@
 						</tr>
 					</thead>
 					<tbody>
-						@for(PayrollRecord.BatchRow row : batchResult.data())
+						@for(int index = 0; index < batchResult.data().size(); index++)
+							!{PayrollRecord.BatchRow row = batchResult.data().get(index);}
 							<tr>
+								<td class="text-muted">${batchResult.from() + index}</td>
 								@if(showCompanyColumn)
 									<td>${row.companyName()}</td>
 								@endif
@@ -384,54 +384,56 @@
 								<td class="bold">${row.totalNet().toPlainString()}</td>
 								<td><span class="badge ${"finalized".equals(row.status()) ? "badge-green" : "badge-yellow"}">${t.apply("status_" + row.status())}</span></td>
 								<td class="col-actions">
-									<a class="btn btn-sm" href="/admin/payroll?run_id=${row.id()}">${t.apply("edit")}</a>
-									@if(canWrite)
-										@if(!"finalized".equals(row.status()))
-											<form method="POST" class="inline-form">
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<a role="menuitem" class="row-actions__item" href="/admin/payroll?run_id=${row.id()}">${t.apply("edit")}</a>
+										@if(canWrite)
+											@if(!"finalized".equals(row.status()))
+												<form method="POST" class="row-actions__form" role="none">
+													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+													<input type="hidden" name="action" value="calculate">
+													<input type="hidden" name="id" value="${row.id()}">
+													<button type="submit" role="menuitem" class="row-actions__item">${t.apply("calculate")}</button>
+												</form>
+												<form method="POST" class="row-actions__form" role="none">
+													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+													<input type="hidden" name="action" value="finalize">
+													<input type="hidden" name="id" value="${row.id()}">
+													<button type="submit" role="menuitem" class="row-actions__item">${t.apply("finalize")}</button>
+												</form>
+											@else
+												<form method="POST" class="row-actions__form" role="none">
+													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+													<input type="hidden" name="action" value="reopen">
+													<input type="hidden" name="id" value="${row.id()}">
+													<button type="submit" role="menuitem" class="row-actions__item">${t.apply("reopen")}</button>
+												</form>
+											@endif
+											<form method="POST" class="row-actions__form" role="none"
+											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-												<input type="hidden" name="action" value="calculate">
+												<input type="hidden" name="action" value="delete_run">
 												<input type="hidden" name="id" value="${row.id()}">
-												<button type="submit" class="btn btn-sm">${t.apply("calculate")}</button>
-											</form>
-											<form method="POST" class="inline-form">
-												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-												<input type="hidden" name="action" value="finalize">
-												<input type="hidden" name="id" value="${row.id()}">
-												<button type="submit" class="btn btn-sm">${t.apply("finalize")}</button>
-											</form>
-										@else
-											<form method="POST" class="inline-form">
-												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-												<input type="hidden" name="action" value="reopen">
-												<input type="hidden" name="id" value="${row.id()}">
-												<button type="submit" class="btn btn-sm">${t.apply("reopen")}</button>
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
 											</form>
 										@endif
-										<form method="POST" class="inline-form"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete_run">
-											<input type="hidden" name="id" value="${row.id()}">
-											<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-										</form>
-									@endif
+									`)
 								</td>
 							</tr>
 						@endfor
 						@if(batchResult.isEmpty())
-							<tr><td colspan="${showCompanyColumn ? 9 : 8}" class="data-table-empty">${t.apply("no_data")}</td></tr>
+							<tr><td colspan="${showCompanyColumn ? 10 : 9}" class="data-table-empty">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>
 				</div>
-				@if(batchResult.pages() > 1)
-					<div class="pager">
-						@for(int page = 1; page <= batchResult.pages(); page++)
-							<a href="/admin/payroll?page=${page}${filters.asQueryTail()}"
-							   class="pager__link${page == batchResult.page() ? " is-current" : ""}">${page}</a>
-						@endfor
-					</div>
-				@endif
+				<%-- The month and the year, which are this page's whole filter and
+				     which the size selector was dropping. --%>
+				!{java.util.SequencedMap<String, String> batchCarry =
+						new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+				!{if (month > 0) { batchCarry.put("month", String.valueOf(month)); }}
+				!{if (year > 0) { batchCarry.put("year", String.valueOf(year)); }}
+				@template.admin.pager(basePath = "/admin/payroll", result = batchResult,
+						carry = batchCarry, t = t)
 			</div>
 		@endif
 	`)

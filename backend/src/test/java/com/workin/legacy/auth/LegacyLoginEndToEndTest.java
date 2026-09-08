@@ -21,7 +21,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -31,7 +30,6 @@ import com.workin.legacy.LegacyMariaDb;
 
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@ActiveProfiles("phase1-mysql")
 @SuppressWarnings({"rawtypes", "unchecked"})
 class LegacyLoginEndToEndTest {
 
@@ -55,7 +53,7 @@ class LegacyLoginEndToEndTest {
 		try {
 			seed();
 		} catch (Exception ex) {
-			throw new IllegalStateException("could not prepare the phase1-mysql end-to-end fixture", ex);
+			throw new IllegalStateException("could not prepare the legacy end-to-end fixture", ex);
 		}
 	}
 

@@ -1,18 +1,64 @@
 # Platform-Admin Surface: Runtime Verification
 
-The complete flow of ADR-0015's platform-admin surface, exercised against a
-**running application** rather than only in tests:
+The dashboard's login, exercised against a **running application** rather than
+only in tests:
 
-`login -> MFA -> session -> step-up -> admin action -> logout/revocation`
+`login -> session -> CSRF -> logout`
 
-The integration suite is the regression gate -- `PlatformAdminFullFlowTest`
-drives this whole journey over real HTTP against MariaDB on every build. This
-record exists because "it passes in a test" and "it works in the application"
-are different claims, and the second is the one worth re-checking before a
-cutover. The PostgreSQL-era script that drove it by hand
-(`scripts/verify-platform-admin-flow.sh`) was removed with ADR-0017 rather
-than ported: its fixtures were written for the PostgreSQL schema, and the
-same journey is now exercised, against the real database, by the test.
+`PlatformAdminFullFlowTest` drives this journey on every build and is the
+regression gate. This exists because "it passes in a test" and "it works in the
+deployed application" are different claims, and only the second one is about a
+container reading its configuration from the environment, a session cookie
+crossing a proxy, and a `SPRING_SESSION` row in the database an operator
+actually provisioned.
+
+## Running it
+
+```sh
+cd deploy && docker compose -f compose.local.yaml up -d --build
+BASE_URL=http://127.0.0.1:8080 ADMIN_PASSWORD=devpassword \
+  DB_CONTAINER=workin-local-db-1 scripts/verify-admin-login.sh
+```
+
+Any deployment works -- point `BASE_URL`, `ADMIN_PASSWORD` and the `DB_*`
+variables at it. The script reads the database to check what the application
+wrote and writes nothing itself; it creates one session and ends it.
+
+## What it checks, and why each one needs a running application
+
+| # | Check | Why a test cannot settle it |
+|---|---|---|
+| 1 | `GET /admin` unauthenticated redirects to the login page | The chain that does it is assembled from configuration the container reads at boot |
+| 2 | A wrong password re-renders the page with its error banner, leaves no session, and writes a `LOGIN_FAILED` row | The audit write is a different transaction from the refusal; a deployment with the table missing fails here and nowhere else |
+| 3 | The right password rotates the session id, opens `/admin`, and its session is a row in `SPRING_SESSION` | Session fixation and the shared store are properties of the servlet container and the JDBC session repository, not of the controller |
+| 4 | The cookie is `HttpOnly`, `SameSite=Lax` and `Secure` | ADR-0015 prerequisite 6. `Secure` is unconditional, so a deployment serving this surface over plain HTTP loses the cookie in a browser -- which is why it goes behind TLS |
+| 5 | A company action and a logout without a CSRF token are both `403` | The token is bound to the session, and the binding is the deployment's `SecurityContextRepository` |
+| 6 | Logout removes the `SPRING_SESSION` row, and the old cookie opens nothing | The row is what makes a revocation real; dropping the cookie alone would pass a test that only checks the browser side |
+
+## The run of record
+
+**2026-09-08**, against the packaged image from `deploy/compose.local.yaml`
+(the `local` profile, MariaDB 11.8 with the sanitised seed, the administrator
+provisioned at boot by `PlatformAdminBootstrap` from `APP_PLATFORM_ADMIN_PASSWORD`
+through the real encoder):
+
+```text
+14 checks passed against http://127.0.0.1:18080
+```
+
+All six groups above passed, including the three cookie flags and both CSRF
+refusals. The deployment E2E suite (`deploy/e2e/run.sh integration`) covers the
+same surface in a real browser over real TLS, which is the check to run before a
+cutover; this script is the one that answers in ten seconds during a deployment.
+
+## Appendix: the ADR-0015 run (historical)
+
+The verification below was made against ADR-0015's authentication model --
+individual administrators, TOTP with seed custody, step-up approvals and the
+bearer API -- on PostgreSQL, before **ADR-0017** made MySQL permanent and
+**ADR-0018** replaced that model with one administrator and one password. Its
+flow no longer exists, and `scripts/verify-platform-admin-flow.sh` was removed
+with it. It is kept as the record of what was verified at the time.
 
 ## How the run was set up
 

@@ -88,7 +88,6 @@ public class AdminAttendanceController {
 		model.addAttribute("departmentOptions", this.employeeStore.departmentOptions(optionsCompanyId));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "attendance"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		return VIEW;
 	}
@@ -114,18 +113,17 @@ public class AdminAttendanceController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 		Long exceptionType = AttendanceAdminService.exceptionTypeOrNull(exceptionTypeId);
 
 		try {
 			switch (action) {
 				case "add_attendance" -> this.service.add(
-						session, adminId, bound, employeeId, checkIn, checkOut, exceptionType);
+						session, adminId, employeeId, checkIn, checkOut, exceptionType);
 				case "edit_attendance" -> this.service.saveEdit(
-						session, adminId, bound, id, checkIn, checkOut, exceptionType);
-				case "delete" -> this.service.delete(session, adminId, bound, id);
+						session, adminId, id, checkIn, checkOut, exceptionType);
+				case "delete" -> this.service.delete(session, adminId, id);
 				case "delete_range" -> this.service.deleteRange(
-						session, adminId, bound, companyId, from, to,
+						session, adminId, companyId, from, to,
 						this.clock.today().toString());
 				default -> throw new AttendanceAdminService.RefusedException(
 						AttendanceAdminService.Refusal.INVALID);
@@ -144,7 +142,6 @@ public class AdminAttendanceController {
 	private static String messageKey(AttendanceAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case FOREIGN_ROW -> "error_db";
 			case INVALID -> "error_required";
 		};

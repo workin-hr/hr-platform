@@ -59,7 +59,6 @@ public class AdminSettingsController {
 		model.addAttribute("tab", selected);
 		model.addAttribute("errorKey", error);
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 
 		// Only the selected tab's data is loaded, as legacy does -- the other
 		// two tabs' queries are not run at all.
@@ -100,47 +99,46 @@ public class AdminSettingsController {
 		}
 
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 
 		try {
 			switch (action) {
 				case "save_content" -> {
 					String key = param(request, "content_key");
-					this.service.saveContent(adminId, bound, key,
+					this.service.saveContent(adminId, key,
 							param(request, "content_value_ar"),
 							param(request, "content_value_en"));
 					return redirect("app_content",
 							key.isEmpty() ? null : "&section=" + key, null);
 				}
 				case "edit_definition" -> {
-					this.service.editDefinition(adminId, bound, number(request, "id"),
+					this.service.editDefinition(adminId, number(request, "id"),
 							param(request, "label_ar"), param(request, "label_en"),
 							param(request, "description_ar"), param(request, "description_en"),
 							(int) number(request, "sort_order"));
 					return redirect("setting_templates", null, null);
 				}
 				case "add_option" -> {
-					this.service.addOption(adminId, bound,
+					this.service.addOption(adminId,
 							number(request, "setting_definition_id"),
 							param(request, "value"), param(request, "label_ar"),
 							param(request, "label_en"), (int) number(request, "sort_order"));
 					return redirect("setting_templates", null, null);
 				}
 				case "edit_option" -> {
-					this.service.editOption(adminId, bound, number(request, "id"),
+					this.service.editOption(adminId, number(request, "id"),
 							param(request, "value"), param(request, "label_ar"),
 							param(request, "label_en"), (int) number(request, "sort_order"));
 					return redirect("setting_templates", null, null);
 				}
 				case "delete_option" -> {
-					this.service.deleteOption(adminId, bound, number(request, "id"));
+					this.service.deleteOption(adminId, number(request, "id"));
 					return redirect("setting_templates", null, null);
 				}
 				case "save_configs" -> {
 					Map<String, String> posted = new LinkedHashMap<>();
 					SettingsCatalog.CONFIGS.keySet()
 							.forEach(key -> posted.put(key, request.getParameter(key)));
-					this.service.saveConfigs(adminId, bound, posted);
+					this.service.saveConfigs(adminId, posted);
 					return redirect("system", null, null);
 				}
 				default -> {
@@ -174,7 +172,6 @@ public class AdminSettingsController {
 	private static String messageFor(SettingsAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case VALUE_TOO_LONG -> "setting_option_value_too_long";
 			case VALUE_EXISTS -> "setting_option_value_exists";
 			case OPTION_IN_USE -> "setting_option_in_use_delete_blocked";

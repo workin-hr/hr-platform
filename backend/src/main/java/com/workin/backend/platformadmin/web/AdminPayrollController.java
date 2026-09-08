@@ -96,7 +96,6 @@ public class AdminPayrollController {
 		model.addAttribute("today", this.clock.today());
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "payroll"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		return VIEW;
 	}
@@ -183,12 +182,11 @@ public class AdminPayrollController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 
 		try {
 			if ("edit_detail".equals(action)) {
 				PayrollAdminService.DetailEdit edited = this.service.editDetail(
-						session, adminId, bound, id, payslipEditFrom(request));
+						session, adminId, id, payslipEditFrom(request));
 				// `header('Location: payroll.php?run_id=...')` -- back to the batch,
 				// and this one does not go through payroll_redirect() at all.
 				return "redirect:" + PATH + "?run_id=" + edited.batchId();
@@ -196,12 +194,12 @@ public class AdminPayrollController {
 
 			switch (action) {
 				case "create_run" -> this.service.createRun(
-						session, adminId, bound, companyId, month, year);
+						session, adminId, companyId, month, year);
 				case "calculate" -> this.service.calculate(
-						session, adminId, bound, id, weeklyRestLabel(request));
-				case "finalize" -> this.service.finalizeRun(session, adminId, bound, id);
-				case "reopen" -> this.service.reopenRun(session, adminId, bound, id);
-				case "delete_run" -> this.service.deleteRun(session, adminId, bound, id);
+						session, adminId, id, weeklyRestLabel(request));
+				case "finalize" -> this.service.finalizeRun(session, adminId, id);
+				case "reopen" -> this.service.reopenRun(session, adminId, id);
+				case "delete_run" -> this.service.deleteRun(session, adminId, id);
 				default -> throw new PayrollAdminService.RefusedException(
 						PayrollAdminService.Refusal.INVALID);
 			}
@@ -257,7 +255,6 @@ public class AdminPayrollController {
 	private static String messageKey(PayrollAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case FOREIGN_ROW -> "error_db";
 			case INVALID -> "error_required";
 			case DUPLICATE_PERIOD -> "payroll_batch_exists";

@@ -59,7 +59,6 @@ public class AdminPenaltiesController {
 		model.addAttribute("employeeOptions", this.store.employeeOptions(filters.companyId()));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "penalties"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		return VIEW;
 	}
@@ -83,16 +82,15 @@ public class AdminPenaltiesController {
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 
 		try {
 			long wrote = switch (action) {
-				case "add_penalty" -> this.service.add(session, adminId, bound, employeeId,
+				case "add_penalty" -> this.service.add(session, adminId, employeeId,
 						penaltyType, penaltyDays, reason, penaltyDate);
-				case "edit_penalty" -> this.service.saveEdit(session, adminId, bound, id,
+				case "edit_penalty" -> this.service.saveEdit(session, adminId, id,
 						employeeId, penaltyType, penaltyDays, reason, penaltyDate);
-				case "mark_applied" -> this.service.markApplied(session, adminId, bound, id);
-				case "delete_penalty" -> this.service.delete(session, adminId, bound, id);
+				case "mark_applied" -> this.service.markApplied(session, adminId, id);
+				case "delete_penalty" -> this.service.delete(session, adminId, id);
 				default -> throw new PenaltyAdminService.RefusedException(
 						PenaltyAdminService.Refusal.INVALID);
 			};
@@ -106,7 +104,6 @@ public class AdminPenaltiesController {
 	private static String messageKey(PenaltyAdminService.RefusedException refused) {
 		return switch (refused.refusal()) {
 			case ACTIONS_DISABLED -> "admin_actions_disabled";
-			case FACTOR_NOT_BOUND -> "mfa_required_for_actions";
 			case FOREIGN_ROW -> "error_db";
 			case INVALID -> "error_required";
 			case BAD_DAYS -> "penalty_days_invalid";

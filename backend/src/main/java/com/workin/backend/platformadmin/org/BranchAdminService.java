@@ -42,7 +42,6 @@ public class BranchAdminService {
 		ACTIONS_DISABLED,
 
 		/** {@code mfa_required_for_actions}: no second factor bound to this session (D-152). */
-		FACTOR_NOT_BOUND,
 
 		/** {@code select_company_first}: no company resolved for the write. */
 		NO_COMPANY,
@@ -100,12 +99,9 @@ public class BranchAdminService {
 	 * cost is that the flag must be turned on deliberately, which is the
 	 * default-closed side of the trade.
 	 */
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -135,9 +131,9 @@ public class BranchAdminService {
 	/** @return the company the branch was created in, for the redirect's filter */
 	@Transactional
 	public long add(
-			DashboardSession session, long adminId, boolean factorBound, long postedCompanyId,
+			DashboardSession session, long adminId, long postedCompanyId,
 			String name, String address, String latitude, String longitude, String radius) {
-		gate(factorBound);
+		gate();
 		long companyId = assertWritable(session, postedCompanyId, 0L);
 		long id = this.store.insert(
 				companyId, name.trim(), blankToNull(address),
@@ -150,10 +146,10 @@ public class BranchAdminService {
 
 	@Transactional
 	public long saveEdit(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			long postedCompanyId, String name, String address, String latitude, String longitude,
 			String radius, boolean active) {
-		gate(factorBound);
+		gate();
 		long companyId = assertWritable(session, postedCompanyId, id);
 		this.store.update(
 				id, name.trim(), blankToNull(address),
@@ -166,9 +162,9 @@ public class BranchAdminService {
 
 	@Transactional
 	public long delete(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			long postedCompanyId) {
-		gate(factorBound);
+		gate();
 		long companyId = assertWritable(session, postedCompanyId, id);
 		this.store.softDelete(id);
 		audit(adminId, PlatformAdminAuditEventType.ORG_DELETED, id,
@@ -187,9 +183,9 @@ public class BranchAdminService {
 	 */
 	@Transactional
 	public long generateQr(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			long postedCompanyId, String expiresAtInput, LocalDateTime now) {
-		gate(factorBound);
+		gate();
 		long companyId = assertWritable(session, postedCompanyId, id);
 		// The administrator is not checked by assertWritable, so this is where
 		// a branch id from another company is still rejected for everyone:
@@ -221,7 +217,7 @@ public class BranchAdminService {
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long branchId, String detail) {
-		this.auditService.recordAction(adminId, type, "branch", String.valueOf(branchId), null, detail);
+		this.auditService.recordAction(adminId, type, "branch", String.valueOf(branchId), detail);
 	}
 
 	/** {@code trim(...) ?: null} -- an empty address is stored as NULL, not ''. */

@@ -63,7 +63,8 @@ maintaining a second, divergent copy of these rules — see
   Carries forward MFA/TOTP with seed custody, bounded step-up, throttling,
   per-request authorization, session invalidation and auditability, and
   adds CSRF and session-cookie hardening, which the in-process model makes
-  first-class (accepted 2026-09-01)
+  first-class (accepted 2026-09-01). **Its authentication model is superseded
+  by ADR-0018**; the surface, session, CSRF and audit decisions stand
 - `ADR-0016-full-dashboard-port-to-jte.md` — the **whole** PHP dashboard is
   reproduced in JTE inside the backend: the same pages, the same design
   (its stylesheets copied verbatim, its 772 labels converted), and all
@@ -78,6 +79,11 @@ maintaining a second, divergent copy of these rules — see
   2026-08-17 with four owner-required amendments, `docs/bootstrap/decision-log.md` D-043).
   **Amended by ADR-0017**: the profile split is gone and this configuration
   is the application's only persistence
+- `ADR-0018-one-administrator-one-password.md` — the dashboard signs in the
+  way PHP's does: one administrator, one password, no phone and no second
+  factor, with Java's guards behind the form -- a bcrypt hash, a per-client
+  miss budget, session rotation, CSRF, audit. TOTP, step-up approvals and the
+  bearer API are removed (accepted 2026-09-08, owner's choice)
 - `ADR-0017-mysql-is-the-production-database.md` — MySQL is the production
   database and stays so; the PostgreSQL domain, Flyway, the ETL and the
   profile split are removed rather than left dormant. Supersedes ADR-0004

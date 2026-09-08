@@ -33,8 +33,6 @@ public class AttendanceAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/**
 		 * {@code error_db}: the row, the employee, or the exception type belongs
@@ -78,12 +76,9 @@ public class AttendanceAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -140,9 +135,8 @@ public class AttendanceAdminService {
 	}
 
 	@Transactional
-	public long add(DashboardSession session, long adminId, boolean factorBound,
-			long employeeId, String checkIn, String checkOut, Long exceptionTypeId) {
-		gate(factorBound);
+	public long add(DashboardSession session, long adminId, long employeeId, String checkIn, String checkOut, Long exceptionTypeId) {
+		gate();
 		// `if ($addEid)` -- legacy flashes error_required and writes nothing.
 		if (employeeId <= 0) {
 			throw new RefusedException(Refusal.INVALID);
@@ -161,9 +155,8 @@ public class AttendanceAdminService {
 	}
 
 	@Transactional
-	public long saveEdit(DashboardSession session, long adminId, boolean factorBound,
-			long id, String checkIn, String checkOut, Long exceptionTypeId) {
-		gate(factorBound);
+	public long saveEdit(DashboardSession session, long adminId, long id, String checkIn, String checkOut, Long exceptionTypeId) {
+		gate();
 		if (id <= 0) {
 			throw new RefusedException(Refusal.INVALID);
 		}
@@ -178,8 +171,8 @@ public class AttendanceAdminService {
 	}
 
 	@Transactional
-	public long delete(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long delete(DashboardSession session, long adminId, long id) {
+		gate();
 		if (id <= 0) {
 			throw new RefusedException(Refusal.INVALID);
 		}
@@ -203,9 +196,8 @@ public class AttendanceAdminService {
 	 * A company-scoped session's company always wins over the posted one.
 	 */
 	@Transactional
-	public RangeDeletion deleteRange(DashboardSession session, long adminId, boolean factorBound,
-			long postedCompanyId, String from, String to, String today) {
-		gate(factorBound);
+	public RangeDeletion deleteRange(DashboardSession session, long adminId, long postedCompanyId, String from, String to, String today) {
+		gate();
 		long companyId = session.isScopedToOneCompany()
 				? session.companyId()
 				: (postedCompanyId > 0 ? postedCompanyId : session.companyId());
@@ -233,7 +225,7 @@ public class AttendanceAdminService {
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
-		this.auditService.recordAction(adminId, type, "attendance", String.valueOf(id), null, detail);
+		this.auditService.recordAction(adminId, type, "attendance", String.valueOf(id), detail);
 	}
 
 	/** `$_POST['check_out'] ?: null` -- an empty string stores NULL, not ''. */

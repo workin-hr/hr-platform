@@ -86,26 +86,6 @@ CREATE TABLE platform_admins (
     active TINYINT(1) NOT NULL DEFAULT 1
 );
 
-CREATE TABLE platform_admin_refresh_tokens (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    platform_admin_id BIGINT NOT NULL,
-    family_id VARCHAR(36) NOT NULL,
-    token_hash VARCHAR(64) NOT NULL UNIQUE,
-    status VARCHAR(16) NOT NULL,
-    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    expires_at DATETIME(6) NOT NULL,
-    family_started_at DATETIME(6) NOT NULL,
-    CONSTRAINT platform_admin_refresh_tokens_admin_fk
-        FOREIGN KEY (platform_admin_id) REFERENCES platform_admins (id),
-    CONSTRAINT platform_admin_refresh_tokens_status_chk
-        CHECK (status IN ('ACTIVE', 'ROTATED', 'REVOKED'))
-);
-
-CREATE INDEX platform_admin_refresh_tokens_family_id_idx
-    ON platform_admin_refresh_tokens (family_id);
-CREATE INDEX platform_admin_refresh_tokens_admin_id_idx
-    ON platform_admin_refresh_tokens (platform_admin_id);
-
 -- Retained indefinitely by decision (D-161): this table is the evidence the
 -- shared-password model never had.
 CREATE TABLE platform_admin_audit_events (
@@ -116,7 +96,6 @@ CREATE TABLE platform_admin_audit_events (
     occurred_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     target_type VARCHAR(64),
     target_id VARCHAR(64),
-    step_up_approval_id VARCHAR(64),
     CONSTRAINT platform_admin_audit_events_admin_fk
         FOREIGN KEY (platform_admin_id) REFERENCES platform_admins (id)
 );
@@ -134,50 +113,6 @@ CREATE TABLE platform_admin_login_attempts (
 
 CREATE INDEX platform_admin_login_attempts_ix1
     ON platform_admin_login_attempts (identifier_hash, attempted_at);
-
-CREATE TABLE platform_admin_mfa (
-    platform_admin_id BIGINT PRIMARY KEY,
-    seed_ciphertext VARBINARY(255) NOT NULL,
-    seed_nonce VARBINARY(64) NOT NULL,
-    seed_key_version INT NOT NULL,
-    enrolled_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    bound_at DATETIME(6),
-    last_accepted_time_step BIGINT,
-    CONSTRAINT platform_admin_mfa_admin_fk
-        FOREIGN KEY (platform_admin_id) REFERENCES platform_admins (id)
-);
-
-CREATE TABLE platform_admin_mfa_bootstrap_tokens (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    platform_admin_id BIGINT NOT NULL,
-    token_hash VARCHAR(64) NOT NULL UNIQUE,
-    issued_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    expires_at DATETIME(6) NOT NULL,
-    used_at DATETIME(6),
-    revoked_at DATETIME(6),
-    CONSTRAINT platform_admin_mfa_bootstrap_tokens_admin_fk
-        FOREIGN KEY (platform_admin_id) REFERENCES platform_admins (id)
-);
-
-CREATE INDEX platform_admin_mfa_bootstrap_tokens_admin_idx
-    ON platform_admin_mfa_bootstrap_tokens (platform_admin_id);
-
-CREATE TABLE platform_admin_step_up_approvals (
-    id VARCHAR(64) PRIMARY KEY,
-    platform_admin_id BIGINT NOT NULL,
-    action VARCHAR(64) NOT NULL,
-    target_type VARCHAR(64) NOT NULL,
-    target_id VARCHAR(64) NOT NULL,
-    request_digest VARCHAR(64) NOT NULL,
-    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    expires_at DATETIME(6) NOT NULL,
-    consumed_at DATETIME(6),
-    CONSTRAINT platform_admin_step_up_approvals_admin_fk
-        FOREIGN KEY (platform_admin_id) REFERENCES platform_admins (id)
-);
-
-CREATE INDEX platform_admin_step_up_approvals_admin_idx
-    ON platform_admin_step_up_approvals (platform_admin_id);
 
 -- Spring Session's own schema, MySQL flavour. Taken from Spring Session's
 -- shipped MySQL DDL rather than translated by hand, for the same reason the

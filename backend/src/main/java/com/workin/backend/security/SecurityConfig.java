@@ -5,6 +5,7 @@ import java.util.function.Function;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -18,9 +19,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import com.workin.backend.identity.JwtService;
-import com.workin.backend.platformadmin.PlatformAdminJwtService;
-import com.workin.backend.platformadmin.PlatformAdminRefreshTokenRepository;
-import com.workin.backend.platformadmin.PlatformAdminRepository;
 import com.workin.backend.tenancy.NoTenantScopeException;
 import com.workin.backend.tenancy.TenantScope;
 import com.workin.backend.tenancy.TenantScopeFilter;
@@ -38,59 +36,6 @@ public class SecurityConfig {
 		return new BCryptPasswordEncoder();
 	}
 
-	/**
-	 * The platform-admin API's unauthenticated routes. Same reasoning as
-	 * {@code PlatformAdminWebSecurityConfig.PUBLIC_PATHS}: checked against the
-	 * handlers' {@code @PublicUseCase} declarations by
-	 * {@code SecurityPolicyAgreementTest}, so this list cannot drift from what
-	 * the controllers say about themselves.
-	 */
-	public static final String[] PLATFORM_ADMIN_API_PUBLIC_PATHS = {
-		"/api/platform-admin/login", "/api/platform-admin/refresh", "/api/platform-admin/logout",
-	};
-
-	/**
-	 * Unprofiled: the platform-admin API is available under both profiles, for
-	 * the same reason its UI is. Its matcher ({@code /api/platform-admin/**})
-	 * cannot collide with the legacy chain's ({@code /apis/**}), so ordering it
-	 * first is safe on either.
-	 */
-	@Bean
-	@Order(1)
-	public SecurityFilterChain platformAdminSecurityFilterChain(
-			HttpSecurity http, PlatformAdminJwtService platformAdminJwtService,
-			PlatformAdminRepository platformAdminRepository,
-			PlatformAdminRefreshTokenRepository platformAdminRefreshTokenRepository,
-			ApiSecurityErrorHandler apiSecurityErrorHandler) throws Exception {
-		http
-			.securityMatcher("/api/platform-admin/**")
-			.csrf(csrf -> csrf.disable())
-			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-			.exceptionHandling(exceptions -> exceptions
-				.authenticationEntryPoint(apiSecurityErrorHandler)
-				.accessDeniedHandler(apiSecurityErrorHandler))
-			.authorizeHttpRequests(authorize -> authorize
-				.requestMatchers(PLATFORM_ADMIN_API_PUBLIC_PATHS).permitAll()
-				.anyRequest().authenticated())
-			.addFilterBefore(
-				new PlatformAdminAuthenticationFilter(
-						platformAdminJwtService, platformAdminRepository, platformAdminRefreshTokenRepository),
-				UsernamePasswordAuthenticationFilter.class);
-		return http.build();
-	}
-
-	/**
-	 * Phase-1 compatibility chain. Literal /apis/** requests authenticate with
-	 * the exact JWT format produced by frozen PHP. The JwtService dependency is
-	 * retained only for the temporary /api/legacy/** regression aliases that
-	 * predate the literal-route retrofit; it is not the client contract.
-	 *
-	 * <p>PHP employee tokens are re-derived against the employee row. Any signed
-	 * PHP non-employee token (the frozen desktop/company login emits type=company)
-	 * has no employee membership claim; PHP trusts its signed company_id, so the
-	 * compatibility chain does the same. Company-active checks remain at the same
-	 * controller guard points as the frozen source.
-	 */
 	@Bean
 	@Order(2)
 	public SecurityFilterChain legacySecurityFilterChain(

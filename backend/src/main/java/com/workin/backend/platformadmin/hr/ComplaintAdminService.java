@@ -30,8 +30,6 @@ public class ComplaintAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/** {@code error_db}: another company's complaint, or one this session may not restatus. */
 		FOREIGN_ROW,
@@ -71,12 +69,9 @@ public class ComplaintAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -120,9 +115,9 @@ public class ComplaintAdminService {
 	 */
 	@Transactional
 	public long reply(
-			DashboardSession session, long adminId, boolean factorBound, long id, String reply,
+			DashboardSession session, long adminId, long id, String reply,
 			String status) {
-		gate(factorBound);
+		gate();
 		Complaint row = assertVisible(session, id);
 
 		String resolved = status == null || status.isBlank() ? "pending" : status.trim();
@@ -145,8 +140,8 @@ public class ComplaintAdminService {
 	 */
 	@Transactional
 	public long setStatus(
-			DashboardSession session, long adminId, boolean factorBound, long id, String status) {
-		gate(factorBound);
+			DashboardSession session, long adminId, long id, String status) {
+		gate();
 		if (!Complaint.isValidStatus(status)) {
 			throw new RefusedException(Refusal.INVALID_STATUS);
 		}
@@ -162,8 +157,8 @@ public class ComplaintAdminService {
 	}
 
 	@Transactional
-	public long delete(DashboardSession session, long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public long delete(DashboardSession session, long adminId, long id) {
+		gate();
 		Complaint row = assertVisible(session, id);
 
 		this.store.delete(id);
@@ -178,7 +173,7 @@ public class ComplaintAdminService {
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
-		this.auditService.recordAction(adminId, type, "complaint", String.valueOf(id), null, detail);
+		this.auditService.recordAction(adminId, type, "complaint", String.valueOf(id), detail);
 	}
 
 }

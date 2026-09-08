@@ -12,34 +12,33 @@ import org.springframework.web.bind.annotation.RequestParam;
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.PlatformAdminCompanyDirectory;
 import com.workin.backend.platformadmin.PlatformAdminCompanyService;
-import com.workin.backend.platformadmin.stepup.PlatformAdminStepUpService;
+import com.workin.backend.platformadmin.companies.CompanyDirectoryStore;
+import com.workin.backend.platformadmin.companies.CompanyListFilters;
 
 /**
  * Platform administration of companies (ADR-0009 Option E).
  *
- * <p>Three steps on purpose. The list offers an action; the confirmation page
- * collects a TOTP code and mints an approval bound to <em>that</em> company with
- * <em>that</em> reason; applying spends it. Collapsing the last two would mean
- * minting and spending an approval in one request, which is the same as not
- * having one.
- *
- * <p>The approval id travels in a hidden field, and that is safe because it
- * proves nothing on its own: the service recomputes the action, target and
- * request digest server-side from the parameters it is about to act on, so a
- * tampered field fails the comparison rather than widening it.
+ * <p>One step, like every other page's actions: a CSRF-protected POST, the
+ * surface flag, and an audit row in the same transaction. The three-step
+ * ceremony that used to sit here -- offer, second factor, apply -- went with
+ * the second factor (ADR-0018).
  */
 @Controller
 public class PlatformAdminCompaniesController {
 
+	/** One company, for the detail page: the narrow view the actions also use. */
 	private final PlatformAdminCompanyDirectory companies;
+
 	private final PlatformAdminCompanyService companyService;
-	private final PlatformAdminStepUpService stepUpService;
+
+	/** The list: the dashboard's fourteen columns, five filters and pager. */
+	private final CompanyDirectoryStore directory;
 
 	public PlatformAdminCompaniesController(PlatformAdminCompanyDirectory companies,
-			PlatformAdminCompanyService companyService, PlatformAdminStepUpService stepUpService) {
+			PlatformAdminCompanyService companyService, CompanyDirectoryStore directory) {
 		this.companies = companies;
 		this.companyService = companyService;
-		this.stepUpService = stepUpService;
+		this.directory = directory;
 	}
 
 	@AuthenticatedUseCase(reason = "Platform-wide oversight: the list of companies this "
@@ -66,56 +65,23 @@ public class PlatformAdminCompaniesController {
 			.orElseGet(() -> "redirect:" + PlatformAdminWebSecurityConfig.COMPANIES_PATH);
 	}
 
-	@AuthenticatedUseCase(reason = "Collects the second factor for one specific action against "
-			+ "one specific company. Mints nothing until the code verifies.")
-	@PostMapping(PlatformAdminWebSecurityConfig.COMPANIES_CONFIRM_PATH)
-	public String confirm(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
+	@AuthenticatedUseCase(reason = "Applies one lifecycle action to one company: approve, reject "
+			+ "(with a reason), suspend or restore. CSRF-protected, refused outright while the "
+			+ "surface is disabled (ADR-0015 prerequisite 7), and audited in the same transaction.")
+	@PostMapping(PlatformAdminWebSecurityConfig.COMPANIES_ACTION_PATH)
+	public String act(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
 			@RequestParam String action, @RequestParam long companyId,
 			@RequestParam(required = false, defaultValue = "") String reason,
-			@RequestParam(required = false) String code,
 			Model model, HttpServletRequest request) {
-		PlatformAdminWebCsrf.expose(model, request);
-		model.addAttribute("action", action);
-		model.addAttribute("companyId", companyId);
-		model.addAttribute("reason", reason);
-
-		if (code == null || code.isBlank()) {
-			model.addAttribute("approvalId", null);
-			return "admin/company-confirm";
-		}
-		return this.stepUpService
-			.approve(principal.platformAdminId(),
-					this.companyService.request(action, companyId, reason), code)
-			.map(approvalId -> {
-				model.addAttribute("approvalId", approvalId);
-				return "admin/company-confirm";
-			})
-			.orElseGet(() -> {
-				model.addAttribute("approvalId", null);
-				model.addAttribute("error", "That code was not accepted.");
-				return "admin/company-confirm";
-			});
-	}
-
-	@AuthenticatedUseCase(reason = "Applies one administrative action, spending a step-up "
-			+ "approval the service re-derives and re-checks server-side. Refused outright "
-			+ "while the surface is disabled (ADR-0015 prerequisite 7).")
-	@PostMapping(PlatformAdminWebSecurityConfig.COMPANIES_APPLY_PATH)
-	public String apply(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
-			@RequestParam String action, @RequestParam long companyId,
-			@RequestParam(required = false, defaultValue = "") String reason,
-			@RequestParam String approvalId, Model model, HttpServletRequest request) {
 		PlatformAdminCompanyService.Outcome outcome = this.companyService.apply(
-				principal.platformAdminId(), principal.factorBound(),
-				action, companyId, reason, approvalId);
+				principal.platformAdminId(), action, companyId, reason);
 		if (outcome == PlatformAdminCompanyService.Outcome.DONE) {
 			return "redirect:" + PlatformAdminWebSecurityConfig.COMPANIES_PATH;
 		}
 		render(model, request);
-		model.addAttribute("error", switch (outcome) {
-			case SURFACE_DISABLED -> "Administrative actions are disabled on this deployment.";
-			case SECOND_FACTOR_NOT_BOUND -> "Bind a second factor before performing this action.";
-			default -> "That approval was not accepted for this request.";
+		model.addAttribute("errorKey", switch (outcome) {
+			case SURFACE_DISABLED -> "admin_actions_disabled";
+			default -> "error_not_found";
 		});
 		return "admin/companies";
 	}
@@ -123,7 +89,12 @@ public class PlatformAdminCompaniesController {
 	private void render(Model model, HttpServletRequest request) {
 		PlatformAdminWebCsrf.expose(model, request);
 		model.addAttribute("actionsEnabled", this.companyService.actionsEnabled());
-		model.addAttribute("companies", this.companies.list(200));
+		CompanyListFilters filters = CompanyListFilters.read(request);
+		model.addAttribute("filters", filters);
+		model.addAttribute("result", this.directory.list(filters));
+		model.addAttribute("activities", this.directory.activities());
+		model.addAttribute("titles", this.directory.titles());
+		model.addAttribute("sizes", this.directory.sizes());
 	}
 
 }

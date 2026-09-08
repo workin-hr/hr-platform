@@ -28,7 +28,6 @@ public class PhoneCountryAdminService {
 	public enum Outcome {
 		DONE,
 		SURFACE_DISABLED,
-		SECOND_FACTOR_NOT_BOUND,
 		INVALID,
 		DUPLICATE_COUNTRY_CODE,
 		NOT_FOUND
@@ -64,8 +63,8 @@ public class PhoneCountryAdminService {
 	}
 
 	@Transactional
-	public Result create(long platformAdminId, boolean factorBound, PhoneCountryForm.Result form) {
-		Result gate = gate(factorBound, form);
+	public Result create(long platformAdminId, PhoneCountryForm.Result form) {
+		Result gate = gate(form);
 		if (gate != null) {
 			return gate;
 		}
@@ -79,8 +78,8 @@ public class PhoneCountryAdminService {
 	}
 
 	@Transactional
-	public Result update(long platformAdminId, boolean factorBound, long id, PhoneCountryForm.Result form) {
-		Result gate = gate(factorBound, form);
+	public Result update(long platformAdminId, long id, PhoneCountryForm.Result form) {
+		Result gate = gate(form);
 		if (gate != null) {
 			return gate;
 		}
@@ -97,12 +96,9 @@ public class PhoneCountryAdminService {
 	}
 
 	@Transactional
-	public Result delete(long platformAdminId, boolean factorBound, long id) {
+	public Result delete(long platformAdminId, long id) {
 		if (!this.actionsEnabled) {
 			return new Result(Outcome.SURFACE_DISABLED, "admin_actions_disabled");
-		}
-		if (!factorBound) {
-			return new Result(Outcome.SECOND_FACTOR_NOT_BOUND, "mfa_required_for_actions");
 		}
 		if (this.store.find(id).isEmpty()) {
 			return new Result(Outcome.NOT_FOUND, "error_not_found");
@@ -113,12 +109,9 @@ public class PhoneCountryAdminService {
 	}
 
 	/** @return the refusal, or null when the caller may proceed */
-	private Result gate(boolean factorBound, PhoneCountryForm.Result form) {
+	private Result gate(PhoneCountryForm.Result form) {
 		if (!this.actionsEnabled) {
 			return new Result(Outcome.SURFACE_DISABLED, "admin_actions_disabled");
-		}
-		if (!factorBound) {
-			return new Result(Outcome.SECOND_FACTOR_NOT_BOUND, "mfa_required_for_actions");
 		}
 		if (!form.ok()) {
 			return new Result(Outcome.INVALID, form.errorKey());
@@ -127,7 +120,7 @@ public class PhoneCountryAdminService {
 	}
 
 	private void audit(long platformAdminId, PlatformAdminAuditEventType type, String targetId) {
-		this.auditService.recordAction(platformAdminId, type, TARGET_TYPE, targetId, null, null);
+		this.auditService.recordAction(platformAdminId, type, TARGET_TYPE, targetId, null);
 	}
 
 }

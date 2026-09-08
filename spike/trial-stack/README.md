@@ -45,7 +45,7 @@ Seed order is alphabetical, which is why the files are numbered:
 | File | Contents |
 |---|---|
 | `01-production.sql` | The dump: 44 tables, real data. **Git-ignored** |
-| `02-phase1-extensions.sql` | The 10 tables Phase 1 adds (R-023) |
+| `02-phase1-extensions.sql` | The 6 tables Phase 1 adds (R-023) |
 
 ## The dump
 

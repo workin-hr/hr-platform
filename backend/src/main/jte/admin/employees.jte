@@ -1,6 +1,7 @@
 @import java.util.List
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.hr.Employee
+@import com.workin.backend.platformadmin.hr.EmployeeDisplay
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -22,7 +23,6 @@
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
-@param boolean factorBound
 @param Employee editRow = null
 @param boolean addOpen = false
 @param String errorKey = null
@@ -31,8 +31,14 @@
 @param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
-!{boolean canWrite = canManage && actionsEnabled && factorBound;}
-!{int colCount = showCompanyColumn ? 11 : 10;}
+<%-- Today as legacy reckons it, supplied by AdminViewModelAdvice: the JVM
+     default zone is not the one CURDATE() runs in, so a tenure computed here
+     would tick over up to three hours before the database agrees. One value
+     for the page, so it cannot disagree with itself across midnight. --%>
+@param java.time.LocalDate today
+!{boolean canWrite = canManage && actionsEnabled;}
+!{boolean arabic = "ar".equals(lang);}
+!{int colCount = showCompanyColumn ? 14 : 13;}
 <%-- dashboard/pages/employees/page.php. --%>
 @template.admin.layout(
 	title = t.apply("employees"),
@@ -51,8 +57,6 @@
 		@endif
 		@if(canManage && !actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>
-		@elseif(canManage && !factorBound)
-			<div class="flash flash-warning">${t.apply("mfa_required_for_actions")}</div>
 		@endif
 
 		<div class="toolbar page-toolbar page-toolbar-filters">
@@ -243,19 +247,28 @@
 					<a href="/admin/employees?action=add" class="btn btn-blue">+ ${t.apply("add_employee")}</a>
 				@endif
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead>
+					<%-- The columns legacy renders, in legacy's order. Six of them
+					     were selected by the store and shown by nothing: the avatar,
+					     the basic salary, the hire and created dates, the length of
+					     service and the contract duration. Code lives under the name
+					     and department/job title under the branch, as two-line cells,
+					     which is how the page fits fourteen columns. --%>
 					<tr>
 						<th>#</th>
-						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
-						<th>${t.apply("emp_code")}</th>
-						<th>${t.apply("employees")}</th>
+						<th>${t.apply("employee_logo")}</th>
+						<th>${t.apply("employee_name")}</th>
 						<th>${t.apply("phone")}</th>
+						@if(showCompanyColumn)<th>${t.apply("company")}</th>@endif
 						<th>${t.apply("branch")}</th>
-						<th>${t.apply("department")}</th>
-						<th>${t.apply("job_title")}</th>
 						<th>${t.apply("shift")}</th>
+						<th class="col-center">${t.apply("basic_salary")}</th>
+						<th>${t.apply("hire_date")}</th>
+						<th>${t.apply("created_at")}</th>
+						<th>${t.apply("work_tenure")}</th>
+						<th>${t.apply("contract_duration")}</th>
 						<th>${t.apply("status")}</th>
 						<th>${t.apply("actions")}</th>
 					</tr>
@@ -264,42 +277,64 @@
 					@for(int index = 0; index < result.data().size(); index++)
 						!{Employee row = result.data().get(index);}
 						<tr>
-							<td>${result.from() + index}</td>
+							<td class="text-muted">${result.from() + index}</td>
+							<td>
+								@if(row.photoUrl() == null || row.photoUrl().isBlank())
+									<span class="emp-tbl-avatar" aria-hidden="true">${EmployeeDisplay.initials(row.employeeName())}</span>
+								@else
+									<img src="${row.photoUrl()}" alt="" class="emp-tbl-photo"
+									     width="40" height="40" loading="lazy"
+									     data-fallback-initials="${EmployeeDisplay.initials(row.employeeName())}">
+								@endif
+							</td>
+							<td>
+								<div class="bold">${row.employeeName()}</div>
+								<div class="tbl-sub">${row.employeeCode() == null || row.employeeCode().isBlank()
+									? "—" : row.employeeCode()}</div>
+							</td>
+							<td class="text-muted" dir="ltr">${row.phoneLabel()}</td>
 							@if(showCompanyColumn)
 								<td class="text-muted">${row.companyName() == null ? "—" : row.companyName()}</td>
 							@endif
-							<td>${row.employeeCode()}</td>
-							<td class="bold">${row.employeeName()}</td>
-							<td>${row.phoneLabel()}</td>
-							<td class="text-muted">${row.branchLabel()}</td>
-							<td class="text-muted">${row.departmentLabel()}</td>
-							<td class="text-muted">${row.jobTitleLabel()}</td>
+							<td>
+								<div class="bold">${row.branchLabel()}</div>
+								<div class="tbl-sub">${row.departmentLabel()}${
+									"—".equals(row.departmentLabel()) || "—".equals(row.jobTitleLabel())
+										? "" : " · "}${"—".equals(row.jobTitleLabel()) ? "" : row.jobTitleLabel()}</div>
+							</td>
 							<td class="text-muted">${row.shiftLabel()}</td>
+							<td class="col-center" dir="ltr">${EmployeeDisplay.basicSalary(row.basicSalary())}</td>
+							<td class="text-muted">${EmployeeDisplay.date(row.hireDate())}</td>
+							<td class="text-muted">${EmployeeDisplay.date(row.createdAt())}</td>
+							<td class="text-muted">${EmployeeDisplay.workTenure(row.hireDate(), arabic, today)}</td>
+							<td class="text-muted">${EmployeeDisplay.contractDuration(row.contractDurationMonths(), arabic)}</td>
 							<td>
 								<span class="badge ${row.active() ? "badge-green" : "badge-red"}">
 									${t.apply(row.active() ? "status_active" : "status_inactive")}</span>
 							</td>
 							<td class="col-actions">
 								@if(canManage)
-									<a href="/admin/employees?action=edit&id=${row.id()}"
-									   class="btn btn-outline btn-sm">${t.apply("edit")}</a>
-									@if(canWrite)
-										<form method="POST" class="inline-form">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action"
-											       value="${row.active() ? "deactivate" : "reactivate"}">
-											<input type="hidden" name="id" value="${row.id()}">
-											<button type="submit" class="btn btn-outline btn-sm">
-												${t.apply(row.active() ? "deactivate" : "reactivate")}</button>
-										</form>
-										<form method="POST" class="inline-form"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete">
-											<input type="hidden" name="id" value="${row.id()}">
-											<button type="submit" class="btn btn-danger btn-sm">${t.apply("delete")}</button>
-										</form>
-									@endif
+									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
+										<a href="/admin/employees?action=edit&id=${row.id()}"
+										   role="menuitem" class="row-actions__item">${t.apply("edit")}</a>
+										@if(canWrite)
+											<form method="POST" class="row-actions__form" role="none">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action"
+												       value="${row.active() ? "deactivate" : "reactivate"}">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item">
+													${t.apply(row.active() ? "deactivate" : "reactivate")}</button>
+											</form>
+											<form method="POST" class="row-actions__form" role="none"
+											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="delete">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+											</form>
+										@endif
+									`)
 								@else
 									<span class="text-muted">—</span>
 								@endif
@@ -312,13 +347,16 @@
 				</tbody>
 			</table>
 			</div>
-			@if(result.pages() > 1)
-				<div class="pager">
-					@for(int page = 1; page <= result.pages(); page++)
-						<a href="/admin/employees?page=${page}${filters.asQueryTail()}"
-						   class="pager__link${page == result.page() ? " is-current" : ""}">${page}</a>
-					@endfor
-				</div>
-			@endif
+			<%-- Plus this page's own three. DashboardListFilters carries branch
+			     and department because four pages share them; the job title and
+			     the hire-date range are employees' alone, and the size selector
+			     dropped them. --%>
+			!{java.util.SequencedMap<String, String> carry =
+					new java.util.LinkedHashMap<>(filters.asQueryParameters());}
+			!{if (filterJobTitle > 0) { carry.put("filter_job_title", String.valueOf(filterJobTitle)); }}
+			!{if (!dateFrom.isEmpty()) { carry.put("date_from", dateFrom); }}
+			!{if (!dateTo.isEmpty()) { carry.put("date_to", dateTo); }}
+			@template.admin.pager(basePath = "/admin/employees", result = result,
+					carry = carry, t = t)
 		</div>
 	`)

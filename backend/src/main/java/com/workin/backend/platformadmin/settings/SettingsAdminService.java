@@ -27,7 +27,6 @@ public class SettingsAdminService {
 
 	public enum Refusal {
 		ACTIONS_DISABLED,
-		FACTOR_NOT_BOUND,
 		/** Missing id, absent row, or a blank required field. */
 		INVALID,
 		/** A content key outside {@code app_content_fixed_keys()}. */
@@ -87,12 +86,9 @@ public class SettingsAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -105,9 +101,8 @@ public class SettingsAdminService {
 	 * inserting.
 	 */
 	@Transactional
-	public void saveContent(long adminId, boolean factorBound,
-			String key, String valueAr, String valueEn) {
-		gate(factorBound);
+	public void saveContent(long adminId, String key, String valueAr, String valueEn) {
+		gate();
 		if (key == null || !SettingsCatalog.APP_CONTENT_KEYS.contains(key)) {
 			throw new RefusedException(Refusal.UNKNOWN_CONTENT_KEY);
 		}
@@ -118,10 +113,10 @@ public class SettingsAdminService {
 
 	/** {@code edit_definition}: labels required, descriptions nullable, key untouched. */
 	@Transactional
-	public void editDefinition(long adminId, boolean factorBound, long id,
+	public void editDefinition(long adminId, long id,
 			String labelAr, String labelEn, String descriptionAr, String descriptionEn,
 			int sortOrder) {
-		gate(factorBound);
+		gate();
 		if (id <= 0 || !this.store.definitionExists(id)) {
 			throw new RefusedException(Refusal.INVALID);
 		}
@@ -138,9 +133,9 @@ public class SettingsAdminService {
 
 	/** {@code add_option}. */
 	@Transactional
-	public long addOption(long adminId, boolean factorBound, long definitionId,
+	public long addOption(long adminId, long definitionId,
 			String value, String labelAr, String labelEn, int sortOrder) {
-		gate(factorBound);
+		gate();
 		String checked = validateOptionValue(definitionId, value, 0);
 		long id = this.store.insertOption(definitionId, checked,
 				blankToNull(labelAr), blankToNull(labelEn), sortOrder);
@@ -159,9 +154,9 @@ public class SettingsAdminService {
 	 * point -- the option can be renamed without being re-coded.
 	 */
 	@Transactional
-	public void editOption(long adminId, boolean factorBound, long id,
+	public void editOption(long adminId, long id,
 			String value, String labelAr, String labelEn, int sortOrder) {
-		gate(factorBound);
+		gate();
 		if (id <= 0) {
 			throw new RefusedException(Refusal.INVALID);
 		}
@@ -182,8 +177,8 @@ public class SettingsAdminService {
 
 	/** {@code delete_option}, refused while any company depends on it. */
 	@Transactional
-	public void deleteOption(long adminId, boolean factorBound, long id) {
-		gate(factorBound);
+	public void deleteOption(long adminId, long id) {
+		gate();
 		if (id <= 0) {
 			throw new RefusedException(Refusal.INVALID);
 		}
@@ -210,8 +205,8 @@ public class SettingsAdminService {
 	 * is not a case legacy protects against either.
 	 */
 	@Transactional
-	public void saveConfigs(long adminId, boolean factorBound, Map<String, String> posted) {
-		gate(factorBound);
+	public void saveConfigs(long adminId, Map<String, String> posted) {
+		gate();
 		SettingsCatalog.CONFIGS.forEach((key, definition) -> this.store.saveConfig(
 				key, ConfigValues.normalize(definition.type(), posted.get(key))));
 		audit(adminId, PlatformAdminAuditEventType.CONTENT_UPDATED, "configs", "*",
@@ -239,7 +234,7 @@ public class SettingsAdminService {
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, String target,
 			String targetId, String detail) {
-		this.auditService.recordAction(adminId, type, target, targetId, null, detail);
+		this.auditService.recordAction(adminId, type, target, targetId, detail);
 	}
 
 	private static String trim(String value) {

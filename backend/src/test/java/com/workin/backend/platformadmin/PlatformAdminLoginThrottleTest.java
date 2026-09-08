@@ -1,5 +1,7 @@
 package com.workin.backend.platformadmin;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -7,197 +9,136 @@ import java.util.HexFormat;
 
 import javax.sql.DataSource;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.resttestclient.TestRestTemplate;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.workin.backend.AbstractIntegrationTest;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
- * ADR-0015 prerequisite 3, end to end.
+ * The login's miss budget (ADR-0015 prerequisite 4, kept under ADR-0018).
  *
- * <p>The prerequisite is specific about what a real test has to show, so each
- * of its clauses gets one: that the budget is spent by attempts against
- * <em>unknown</em> identifiers too, that it lives in shared state rather than a
- * worker's heap, and that spending it refuses a subsequently-correct password.
+ * <p>Charged per client rather than per account, because there is one account:
+ * a budget on the identifier would let anyone lock the administrator out for
+ * fifteen minutes at a time, indefinitely, from anywhere. Kept in the database
+ * rather than a worker's memory, because a budget one worker cannot see is a
+ * budget the next worker does not enforce.
  */
 class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 
-	private static final String PASSWORD = "correct horse battery staple";
+	@Autowired
+	private PlatformAdminLoginService loginService;
 
 	@Autowired
-	private TestRestTemplate restTemplate;
+	private PlatformAdminLoginThrottle throttle;
 
 	@Autowired
 	@Qualifier("legacyDataSource")
 	private DataSource legacyDataSource;
 
-	@Autowired
-	private PasswordEncoder passwordEncoder;
+	private JdbcTemplate jdbc;
 
-	@Autowired
-	private PlatformAdminLoginAttemptCleanup cleanup;
+	@BeforeEach
+	void freshBudget() {
+		this.jdbc = new JdbcTemplate(this.legacyDataSource);
+		this.jdbc.update("DELETE FROM platform_admin_login_attempts");
+	}
 
-	@Autowired
-	private com.workin.backend.platformadmin.mfa.PlatformAdminMfaService mfaServiceForTests;
+	private static String client() {
+		return "203.0.113." + (System.nanoTime() % 200);
+	}
 
 	@Test
 	void spendingTheBudgetRefusesEvenTheCorrectPassword() {
-		String phone = uniquePhone();
-		createPlatformAdmin(phone);
-
+		String client = client();
 		for (int attempt = 0; attempt < PlatformAdminLoginThrottle.MAX_ATTEMPTS; attempt++) {
-			assertThat(login(phone, "wrong").getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+			assertThat(this.loginService.login("wrong", client)).isEmpty();
 		}
-
-		assertThat(login(phone, PASSWORD).getStatusCode())
-			.as("the budget must bound guessing regardless of whether the guess is finally right")
-			.isEqualTo(HttpStatus.UNAUTHORIZED);
+		assertThat(this.loginService.login(TEST_ADMIN_PASSWORD, client))
+			.as("a client that has spent its budget is refused whatever it sends")
+			.isEmpty();
 	}
 
 	@Test
-	void attemptsAgainstAnUnknownIdentifierConsumeTheSameBudget() {
-		String phone = uniquePhone();
-
-		// No administrator exists yet: every one of these is a "miss".
+	void theBudgetIsPerClientNotPerAdministrator() {
+		String guesser = client();
 		for (int attempt = 0; attempt < PlatformAdminLoginThrottle.MAX_ATTEMPTS; attempt++) {
-			assertThat(login(phone, "wrong").getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+			this.loginService.login("wrong", guesser);
 		}
-
-		// The administrator appears afterwards with the correct password. If
-		// misses had been free, the budget would be untouched and this would
-		// succeed -- which is exactly the hole the prerequisite describes.
-		createPlatformAdmin(phone);
-
-		assertThat(login(phone, PASSWORD).getStatusCode())
-			.as("attempts against an identifier that is not an administrator must not be free")
-			.isEqualTo(HttpStatus.UNAUTHORIZED);
-	}
-
-	@Test
-	void theBudgetIsSharedStateNotOneWorkersMemory() {
-		String phone = uniquePhone();
-		createPlatformAdmin(phone);
-
-		// Written directly, as another worker or an earlier process would have.
-		// This instance has served no request for this identifier.
-		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
-		for (int attempt = 0; attempt < PlatformAdminLoginThrottle.MAX_ATTEMPTS; attempt++) {
-			jdbc.update("INSERT INTO platform_admin_login_attempts (identifier_hash, attempted_at) "
-					+ "VALUES (?, ?)", sha256(phone), storedAs(Instant.now()));
-		}
-
-		assertThat(login(phone, PASSWORD).getStatusCode())
-			.as("a budget held in a worker's heap would not see these and would let the login through")
-			.isEqualTo(HttpStatus.UNAUTHORIZED);
-	}
-
-	@Test
-	void attemptsOlderThanTheWindowDoNotCount() {
-		String phone = uniquePhone();
-		createPlatformAdmin(phone);
-
-		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
-		Instant expired = Instant.now().minus(PlatformAdminLoginThrottle.WINDOW).minusSeconds(60);
-		for (int attempt = 0; attempt < PlatformAdminLoginThrottle.MAX_ATTEMPTS * 2; attempt++) {
-			jdbc.update("INSERT INTO platform_admin_login_attempts (identifier_hash, attempted_at) "
-					+ "VALUES (?, ?)", sha256(phone), storedAs(expired));
-		}
-
-		assertThat(login(phone, PASSWORD).getStatusCode())
-			.as("a window that never forgets is a permanent lockout, not a throttle")
-			.isEqualTo(HttpStatus.OK);
+		assertThat(this.loginService.login(TEST_ADMIN_PASSWORD, "198.51.100.7"))
+			.as("somebody else's misses must not lock the administrator out from everywhere")
+			.isPresent();
 	}
 
 	@Test
 	void aSuccessfulLoginClearsTheBudget() {
-		String phone = uniquePhone();
-		createPlatformAdmin(phone);
-
+		String client = client();
 		for (int attempt = 0; attempt < PlatformAdminLoginThrottle.MAX_ATTEMPTS - 1; attempt++) {
-			login(phone, "wrong");
+			this.loginService.login("wrong", client);
 		}
-		assertThat(login(phone, PASSWORD).getStatusCode()).isEqualTo(HttpStatus.OK);
-
-
-		assertThat(recordedAttempts(phone))
-			.as("a caller who proved the password was not guessing; leaving the count "
-					+ "standing locks them out after a few typos")
-			.isZero();
+		assertThat(this.loginService.login(TEST_ADMIN_PASSWORD, client)).isPresent();
+		assertThat(recordedAttempts(client)).as("cleared on success").isZero();
 	}
 
 	@Test
-	void theIdentifierIsNotStoredInPlaintext() {
-		String phone = uniquePhone();
+	void attemptsOlderThanTheWindowDoNotCount() {
+		String client = client();
+		Instant expired = Instant.now().minus(PlatformAdminLoginThrottle.WINDOW).minusSeconds(60);
+		for (int attempt = 0; attempt < PlatformAdminLoginThrottle.MAX_ATTEMPTS * 2; attempt++) {
+			this.jdbc.update("INSERT INTO platform_admin_login_attempts (identifier_hash, attempted_at) "
+					+ "VALUES (?, ?)", sha256("web:" + client), storedAs(expired));
+		}
+		assertThat(this.loginService.login(TEST_ADMIN_PASSWORD, client))
+			.as("a window that never forgets is a permanent lockout, not a throttle")
+			.isPresent();
+	}
 
-		login(phone, "wrong");
+	@Test
+	void theBudgetIsSharedStateNotOneWorkersMemory() {
+		String client = client();
+		// Rows written directly, as another worker would have written them.
+		for (int attempt = 0; attempt < PlatformAdminLoginThrottle.MAX_ATTEMPTS; attempt++) {
+			this.jdbc.update("INSERT INTO platform_admin_login_attempts (identifier_hash, attempted_at) "
+					+ "VALUES (?, ?)", sha256("web:" + client), storedAs(Instant.now()));
+		}
+		assertThat(this.loginService.login(TEST_ADMIN_PASSWORD, client))
+			.as("a budget held in a worker's heap would not see these and would let the login through")
+			.isEmpty();
+	}
 
-		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
-		Integer plaintext = jdbc.queryForObject(
-				"SELECT COUNT(*) FROM platform_admin_login_attempts WHERE identifier_hash = ?",
-				Integer.class, phone);
-		assertThat(plaintext)
-			.as("an unauthenticated caller chooses this value; it must not be stored verbatim")
-			.isZero();
-		assertThat(recordedAttempts(phone)).isOne();
+	@Test
+	void theClientIsNotStoredInPlaintext() {
+		String client = client();
+		this.loginService.login("wrong", client);
+		assertThat(this.jdbc.queryForList(
+				"SELECT identifier_hash FROM platform_admin_login_attempts", String.class))
+			.isNotEmpty()
+			.allSatisfy(stored -> assertThat(stored).doesNotContain(client));
 	}
 
 	@Test
 	void expiredAttemptsArePurgedRatherThanAccumulating() {
-		String phone = uniquePhone();
-		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
+		String client = client();
 		Instant expired = Instant.now().minus(PlatformAdminLoginThrottle.WINDOW).minusSeconds(60);
-		jdbc.update("INSERT INTO platform_admin_login_attempts (identifier_hash, attempted_at) "
-				+ "VALUES (?, ?)", sha256(phone), storedAs(expired));
-		assertThat(recordedAttempts(phone)).isOne();
+		this.jdbc.update("INSERT INTO platform_admin_login_attempts (identifier_hash, attempted_at) "
+				+ "VALUES (?, ?)", sha256("web:" + client), storedAs(expired));
 
-		this.cleanup.purgeExpiredAttempts();
+		this.throttle.purgeExpired();
 
-		assertThat(recordedAttempts(phone))
-			.as("an unauthenticated caller controls how many identifiers appear here, "
-					+ "so rows that can no longer affect a decision must not be kept")
+		assertThat(recordedAttempts(client))
+			.as("an unauthenticated caller controls how many identifiers appear here, so rows that "
+					+ "can no longer affect a decision must not be kept")
 			.isZero();
 	}
 
-	// --- helpers ------------------------------------------------------------
-
-	private ResponseEntity<String> login(String phone, String password) {
-		String seed = this.seeds.get(phone);
-		String code = seed == null ? null : PlatformAdminMfaTestSupport.freshCode(seed);
-		return this.restTemplate.postForEntity("/api/platform-admin/login",
-				new PlatformAdminLoginRequest(phone, password, code), String.class);
-	}
-
-	private int recordedAttempts(String phone) {
-		Integer count = new JdbcTemplate(this.legacyDataSource).queryForObject(
+	private int recordedAttempts(String client) {
+		Integer count = this.jdbc.queryForObject(
 				"SELECT COUNT(*) FROM platform_admin_login_attempts WHERE identifier_hash = ?",
-				Integer.class, sha256(phone));
+				Integer.class, sha256("web:" + client));
 		return count == null ? 0 : count;
 	}
-
-	/**
-	 * Creates an administrator and enrols a second factor.
-	 *
-	 * <p>Prerequisite 8 refuses the bearer surface to an administrator with no
-	 * bound factor, so a fixture that expects a *successful* login has to enrol.
-	 * The throttle behaviour under test is unaffected -- the budget is spent
-	 * before the factor is ever consulted.
-	 */
-	private void createPlatformAdmin(String phone) {
-		Long id = new JdbcTemplate(this.legacyDataSource).queryForObject(
-				"INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, true) RETURNING id",
-				Long.class, phone, this.passwordEncoder.encode(PASSWORD));
-		this.seeds.put(phone, PlatformAdminMfaTestSupport.enrol(this.mfaServiceForTests, id));
-	}
-
-	private final java.util.Map<String, String> seeds = new java.util.HashMap<>();
 
 	private static String sha256(String value) {
 		try {
@@ -207,10 +148,6 @@ class PlatformAdminLoginThrottleTest extends AbstractIntegrationTest {
 		catch (Exception ex) {
 			throw new IllegalStateException(ex);
 		}
-	}
-
-	private static String uniquePhone() {
-		return "+98" + System.nanoTime();
 	}
 
 }

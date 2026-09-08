@@ -22,8 +22,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
-import com.workin.backend.platformadmin.PlatformAdminLoginThrottle;
-import com.workin.backend.platformadmin.mfa.PlatformAdminMfaService;
+import com.workin.backend.platformadmin.PlatformAdminLoginService;
+import com.workin.backend.platformadmin.home.HomeChart;
+import com.workin.backend.platformadmin.home.HomeService;
 import com.workin.backend.authorization.PublicUseCase;
 
 /**
@@ -36,41 +37,93 @@ import com.workin.backend.authorization.PublicUseCase;
  * asserts exactly that, so a page added here without a matching route pattern
  * fails the build rather than being served quietly by the tenant catch-all.
  *
- * <p>Authentication calls {@link PlatformAdminWebLoginService} in-process. It
- * does not consume {@code POST /api/platform-admin/login}: ADR-0015 is explicit
- * that this surface shares the services, not the HTTP contract.
+ * <p>Authentication calls {@link PlatformAdminWebLoginService} in-process: one
+ * password, no phone, no second factor (ADR-0018).
  */
 @Controller
 public class PlatformAdminWebController {
 
 	private final PlatformAdminWebLoginService loginService;
-	private final PlatformAdminMfaService mfaService;
-	private final PlatformAdminLoginThrottle throttle;
+
+	private final HomeService homeService;
 
 	private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
 	public PlatformAdminWebController(PlatformAdminWebLoginService loginService,
-			PlatformAdminMfaService mfaService, PlatformAdminLoginThrottle throttle) {
+			HomeService homeService) {
 		this.loginService = loginService;
-		this.mfaService = mfaService;
-		this.throttle = throttle;
+		this.homeService = homeService;
 	}
 
-	/** Session attribute holding a password step awaiting its second factor. */
-	static final String PENDING = PlatformAdminWebController.class.getName() + ".pending";
-
-	/** Session attribute marking an enrolment between its two steps. */
-	static final String ENROLLING = PlatformAdminWebController.class.getName() + ".enrolling";
-
-	@AuthenticatedUseCase(reason = "Renders the signed-in administrator's own overview. "
-			+ "No catalog permission: the platform-admin domain is separate from the tenant "
-			+ "permission model, and this page performs no administrative action.")
+	@AuthenticatedUseCase(reason = "Renders the signed-in administrator's own overview: counts, "
+			+ "charts and two panels, every one of them scoped to the session's company filter. "
+			+ "No catalog permission of its own -- each block asks for the permission of the "
+			+ "page it summarises -- and it performs no administrative action.")
 	@GetMapping(PlatformAdminWebSecurityConfig.PATH_PREFIX)
 	public String home(@AuthenticationPrincipal PlatformAdminWebPrincipal principal, Model model,
 			HttpServletRequest request) {
 		csrf(model, request);
-		model.addAttribute("factorBound", principal.factorBound());
+
+		DashboardSession session = (DashboardSession) model.getAttribute("session");
+		DashboardListFilters filters = DashboardListFilters.read(session, request);
+		DashboardSession scoped = DashboardSession.admin(filters.companyId());
+		model.addAttribute("session", scoped);
+
+		model.addAttribute("summary", this.homeService.summary(scoped));
+		model.addAttribute("charts", translateChartLabels(this.homeService.charts(scoped), model));
+		model.addAttribute("activities", this.homeService.recentActivities(scoped, 5));
+		model.addAttribute("complaints", this.homeService.openComplaints(scoped, filters, 4));
+		model.addAttribute("turnover", this.homeService.turnover(scoped));
+		model.addAttribute("banners", this.homeService.banners());
+		java.util.List<HomeChart> planning = this.homeService.workforcePlanning(scoped);
+		model.addAttribute("planned", planning.get(0));
+		model.addAttribute("actual", planning.get(1));
 		return "admin/home";
+	}
+
+	/**
+	 * The gender and age series come out of SQL as keys, because grouping on a
+	 * translated string would group differently per language. They become
+	 * labels here, using the same {@code t} the templates render with.
+	 */
+	@SuppressWarnings("unchecked")
+	private static java.util.SequencedMap<String, HomeChart> translateChartLabels(
+			java.util.SequencedMap<String, HomeChart> charts, Model model) {
+		Object translator = model.getAttribute("t");
+		if (!(translator instanceof java.util.function.Function)) {
+			return charts;
+		}
+		java.util.function.Function<String, String> t =
+				(java.util.function.Function<String, String>) translator;
+		java.util.SequencedMap<String, HomeChart> translated = new java.util.LinkedHashMap<>();
+		charts.forEach((key, chart) -> translated.put(key,
+				"chart_gender".equals(key) || "chart_age".equals(key)
+						? chart.translateLabels(label -> t.apply(labelKey(key, label)))
+						: chart));
+		return translated;
+	}
+
+	/** {@code home_gender_label()} / {@code home_age_label()}, as message keys. */
+	private static String labelKey(String chart, String raw) {
+		if ("chart_gender".equals(chart)) {
+			return switch (raw) {
+				case "male" -> "gender_male";
+				case "female" -> "gender_female";
+				case "unknown" -> "chart_unknown";
+				default -> "gender_other";
+			};
+		}
+		// Spelled out, not concatenated: AdminLayoutWiringTest reads the
+		// message keys a controller can emit straight out of the source, and a
+		// built string is one it cannot check against the catalogue.
+		return switch (raw) {
+			case "under_20" -> "age_under_20";
+			case "twenties" -> "age_twenties";
+			case "thirties" -> "age_thirties";
+			case "forties" -> "age_forties";
+			case "fifty_plus" -> "age_fifty_plus";
+			default -> "chart_unknown";
+		};
 	}
 
 	@PublicUseCase(reason = "The login form itself. It must be reachable unauthenticated "
@@ -85,152 +138,24 @@ public class PlatformAdminWebController {
 	}
 
 	@PublicUseCase(reason = "Credential submission is by definition pre-authentication. "
-			+ "It is CSRF-protected and delegates the credential check to the shared "
-			+ "PlatformAdminLoginService.")
+			+ "It is CSRF-protected and delegates the credential check to PlatformAdminLoginService, "
+			+ "whose miss budget is per client address.")
 	@PostMapping(PlatformAdminWebSecurityConfig.LOGIN_PATH)
-	public String login(@RequestParam String phone, @RequestParam String password, Model model,
+	public String login(@RequestParam String password, Model model,
 			HttpServletRequest request, HttpServletResponse response) {
-		PlatformAdminWebLoginService.Outcome outcome = this.loginService.authenticate(phone, password);
-		if (!outcome.succeeded()) {
+		// The client address is what the miss budget is charged to. Behind the
+		// proxy this is the real one: server.forward-headers-strategy=native in
+		// production, and the proxy is the only route (R-049).
+		Optional<Long> admin = this.loginService.authenticate(password, request.getRemoteAddr());
+		if (admin.isEmpty()) {
 			csrf(model, request);
-			// One message for every failure mode. Distinguishing "no such
-			// administrator" from "wrong password" hands an unauthenticated
-			// caller an account-enumeration oracle for free.
-			model.addAttribute("error", "Those credentials were not accepted.");
+			model.addAttribute("errorKey", "error_auth");
 			return "admin/login";
 		}
-
-		// Session fixation: a brand-new session, so a cookie planted before
-		// authentication is not the one that ends up authenticated. Spring
-		// Security's changeSessionId() covers its own authentication filters;
-		// this controller authenticates directly, so it does the rotation itself.
-		HttpSession session = rotateSession(request);
-
-		if (this.mfaService.isBound(outcome.platformAdminId())) {
-			// The password is not enough. No security context is created here --
-			// only a pending marker, so the single thing this session can reach
-			// is the challenge page.
-			session.setAttribute(PENDING, new PlatformAdminPendingAuthentication(
-					outcome.platformAdminId(), outcome.phone(), Instant.now()));
-			return "redirect:" + PlatformAdminWebSecurityConfig.MFA_PATH;
-		}
-
-		// No bound factor: the session exists so the administrator can enrol,
-		// and carries factorBound=false so a privileged operation can refuse it
-		// (D-152 -- existing rows migrate unbound and must not act until bound).
-		authenticate(request, response, session,
-				new PlatformAdminWebPrincipal(outcome.platformAdminId(), outcome.phone(), false));
-		return "redirect:" + PlatformAdminWebSecurityConfig.PATH_PREFIX;
-	}
-
-	@PublicUseCase(reason = "The second-factor challenge. The password has passed but no security "
-			+ "context exists yet, so this is gated on the session's pending marker rather than "
-			+ "on an authenticated principal -- granting a context first would defeat the factor.")
-	@GetMapping(PlatformAdminWebSecurityConfig.MFA_PATH)
-	public String mfaForm(Model model, HttpServletRequest request) {
-		if (pendingIn(request) == null) {
-			return "redirect:" + PlatformAdminWebSecurityConfig.LOGIN_PATH;
-		}
-		csrf(model, request);
-		return "admin/mfa";
-	}
-
-	@PublicUseCase(reason = "Second-factor submission, completing an authentication that is "
-			+ "already half-proven. CSRF-protected and throttled on the same shared budget as "
-			+ "the password step.")
-	@PostMapping(PlatformAdminWebSecurityConfig.MFA_PATH)
-	public String mfa(@RequestParam String code, Model model,
-			HttpServletRequest request, HttpServletResponse response) {
-		PlatformAdminPendingAuthentication pending = pendingIn(request);
-		if (pending == null) {
-			return "redirect:" + PlatformAdminWebSecurityConfig.LOGIN_PATH;
-		}
-
-		// ADR-0015 prerequisite 3 covers the TOTP step too, not only the
-		// password one. Namespaced so a spent code budget cannot lock out the
-		// password step or vice versa, while both are still bounded.
-		String budgetKey = "totp:" + pending.platformAdminId();
-		if (this.throttle.isExhausted(budgetKey) || !this.mfaService.verify(pending.platformAdminId(), code)) {
-			this.throttle.recordFailure(budgetKey);
-			csrf(model, request);
-			model.addAttribute("error", "That code was not accepted.");
-			return "admin/mfa";
-		}
-		this.throttle.clear(budgetKey);
-
-		// Rotate again: the id that carried the half-authenticated state is not
-		// the id that carries the authenticated one.
 		HttpSession session = rotateSession(request);
 		authenticate(request, response, session,
-				new PlatformAdminWebPrincipal(pending.platformAdminId(), pending.phone(), true));
+				new PlatformAdminWebPrincipal(admin.get(), PlatformAdminLoginService.ADMIN_IDENTIFIER));
 		return "redirect:" + PlatformAdminWebSecurityConfig.PATH_PREFIX;
-	}
-
-	@PublicUseCase(reason = "D-152's enrolment ceremony. Pre-authentication by definition: "
-			+ "the account has no second factor yet, and the gate is the password plus an "
-			+ "operator-issued bootstrap token, not a session.")
-	@GetMapping(PlatformAdminWebSecurityConfig.ENROL_PATH)
-	public String enrolForm(Model model, HttpServletRequest request) {
-		csrf(model, request);
-		return "admin/enrol";
-	}
-
-	@PublicUseCase(reason = "Begins enrolment against a password and a bootstrap token, and "
-			+ "displays the seed once. Creates no session and grants no context: the factor is "
-			+ "not bound until a code verifies.")
-	@PostMapping(PlatformAdminWebSecurityConfig.ENROL_PATH)
-	public String enrol(@RequestParam String phone, @RequestParam String password,
-			@RequestParam(name = "bootstrapToken") String bootstrapToken, Model model,
-			HttpServletRequest request) {
-		PlatformAdminWebLoginService.Outcome outcome = this.loginService.authenticate(phone, password);
-		// One message for both failure modes. Distinguishing "wrong password"
-		// from "bad token" would let either be brute-forced against a known-good
-		// other half.
-		if (!outcome.succeeded()) {
-			csrf(model, request);
-			model.addAttribute("error", "Those details were not accepted.");
-			return "admin/enrol";
-		}
-		Optional<String> seed = this.mfaService.beginEnrolment(outcome.platformAdminId(), bootstrapToken);
-		if (seed.isEmpty()) {
-			csrf(model, request);
-			model.addAttribute("error", "Those details were not accepted.");
-			return "admin/enrol";
-		}
-
-		// The seed is rendered exactly here and never stored anywhere it could
-		// be read back -- not in the session, which is persisted to the same
-		// database, and not in a redirect.
-		// No session rotation here, deliberately. Rotation defends against
-		// fixation, which matters where a session *gains privilege* -- and this
-		// one does not: it carries a marker saying an enrolment is in progress
-		// and grants no security context, and the confirm step ends in a
-		// redirect to the login page rather than a session. Rotating anyway
-		// would discard the CSRF token the confirm form is about to carry.
-		request.getSession(true).setAttribute(ENROLLING, outcome.platformAdminId());
-		csrf(model, request);
-		model.addAttribute("seed", seed.get());
-		model.addAttribute("phone", outcome.phone());
-		return "admin/enrol-confirm";
-	}
-
-	@PublicUseCase(reason = "Confirms enrolment with a code. Authorised by the in-progress "
-			+ "enrolment marker, which only the token-gated begin step can have created.")
-	@PostMapping(PlatformAdminWebSecurityConfig.ENROL_CONFIRM_PATH)
-	public String confirmEnrolment(@RequestParam String code, Model model,
-			HttpServletRequest request, HttpServletResponse response) {
-		HttpSession session = request.getSession(false);
-		Object enrolling = session == null ? null : session.getAttribute(ENROLLING);
-		if (!(enrolling instanceof Long platformAdminId)) {
-			return "redirect:" + PlatformAdminWebSecurityConfig.ENROL_PATH;
-		}
-		if (!this.mfaService.confirmEnrolment(platformAdminId, code)) {
-			csrf(model, request);
-			model.addAttribute("error", "That code was not accepted. Start again to get a new seed.");
-			return "admin/enrol";
-		}
-		session.removeAttribute(ENROLLING);
-		return "redirect:" + PlatformAdminWebSecurityConfig.LOGIN_PATH;
 	}
 
 	@AuthenticatedUseCase(reason = "Ends the caller's own session. Nothing to authorize "
@@ -280,21 +205,6 @@ public class PlatformAdminWebController {
 	}
 
 	/** The live pending challenge for this session, or null. */
-	private static PlatformAdminPendingAuthentication pendingIn(HttpServletRequest request) {
-		HttpSession session = request.getSession(false);
-		if (session == null) {
-			return null;
-		}
-		if (!(session.getAttribute(PENDING) instanceof PlatformAdminPendingAuthentication pending)) {
-			return null;
-		}
-		if (!pending.isLiveAt(Instant.now())) {
-			session.removeAttribute(PENDING);
-			return null;
-		}
-		return pending;
-	}
-
 	private static boolean isAuthenticated() {
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 		return authentication != null

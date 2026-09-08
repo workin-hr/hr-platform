@@ -26,15 +26,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
 import com.workin.backend.BackendApplication;
-import com.workin.backend.platformadmin.mfa.PlatformAdminMfaService;
-import com.workin.backend.platformadmin.mfa.Totp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -56,7 +53,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@ActiveProfiles("phase1-mysql")
 class LegacyPlatformAdminOnMySqlTest {
 
 	/** A database of this class's own, inside the shared container. */
@@ -66,9 +62,7 @@ class LegacyPlatformAdminOnMySqlTest {
 
 	private static final Pattern CSRF = Pattern.compile("name=\"([^\"]*_csrf[^\"]*)\" value=\"([^\"]+)\"");
 
-	private static final Pattern SEED = Pattern.compile("<code>([A-Z2-7]+)</code>");
 
-	private static final Pattern APPROVAL = Pattern.compile("name=\"approvalId\" value=\"([0-9a-f]+)\"");
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {
@@ -76,19 +70,13 @@ class LegacyPlatformAdminOnMySqlTest {
 		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
 		registry.add("app.legacy-db.username", MARIADB::getUsername);
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
-		registry.add("app.platform-admin.mfa.encryption-key", () -> {
-			byte[] key = new byte[32];
-			new java.security.SecureRandom().nextBytes(key);
-			return java.util.Base64.getEncoder().encodeToString(key);
-		});
+		registry.add("app.platform-admin.password", () -> PASSWORD);
 		registry.add("app.platform-admin.actions.enabled", () -> "true");
 	}
 
 	@Autowired
 	private TestRestTemplate restTemplate;
 
-	@Autowired
-	private PlatformAdminMfaService mfaService;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -107,180 +95,76 @@ class LegacyPlatformAdminOnMySqlTest {
 		// The clients' surface is still there...
 		assertThat(get("/apis/api/phone_countries/list", null).getStatusCode())
 			.isNotEqualTo(HttpStatus.NOT_FOUND);
-		// ...and so is the admin one, which under this profile used to be a 404.
+		// ...and so is the admin one.
 		assertThat(get("/admin", null).getStatusCode()).isEqualTo(HttpStatus.FOUND);
 	}
 
 	@Test
 	void theWholeAdminJourneyWorksOnMySql() {
 		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
-		String phone = "+2091" + System.nanoTime() % 100_000_000L;
-		long adminId = createPlatformAdmin(jdbc, phone);
-		long companyId = createCompany(jdbc);
+		long adminId = adminId(jdbc);
+		long company = createCompany(jdbc);
 
-		// Enrol: password plus an operator-issued bootstrap token.
-		String bootstrapToken = this.mfaService.issueBootstrapToken(adminId, adminId);
-		Page enrol = get2("/admin/enrol", null);
-		ResponseEntity<String> seedPage = post("/admin/enrol", enrol.cookie(), enrol.csrf(),
-				"phone", phone, "password", PASSWORD, "bootstrapToken", bootstrapToken);
-		Matcher seedMatch = SEED.matcher(seedPage.getBody());
-		assertThat(seedMatch.find()).as("the seed is shown once").isTrue();
-		String seed = seedMatch.group(1);
+		String cookie = signIn();
+		assertThat(get("/admin", cookie).getStatusCode()).isEqualTo(HttpStatus.OK);
 
-		assertThat(post("/admin/enrol/confirm", enrol.cookie(), csrfOf(seedPage),
-				"code", code(seed, 0)).getStatusCode()).isEqualTo(HttpStatus.FOUND);
-		assertThat(this.mfaService.isBound(adminId))
-			.as("the encrypted seed round-tripped through a MySQL VARBINARY column")
-			.isTrue();
-
-		// Password alone reaches only the challenge.
-		Page login = get2("/admin/login", null);
-		ResponseEntity<String> afterPassword = post("/admin/login", login.cookie(), login.csrf(),
-				"phone", phone, "password", PASSWORD);
-		assertThat(afterPassword.getHeaders().getLocation()).asString().endsWith("/admin/mfa");
-		String pending = cookieOf(afterPassword);
-		assertThat(get("/admin", pending).getStatusCode()).isEqualTo(HttpStatus.FOUND);
-
-		// Second factor completes it.
-		jdbc.update("UPDATE platform_admin_mfa SET last_accepted_time_step = NULL "
-				+ "WHERE platform_admin_id = ?", adminId);
-		Page challenge = get2("/admin/mfa", pending);
-		ResponseEntity<String> signedIn = post("/admin/mfa", pending, challenge.csrf(),
-				"code", code(seed, 0));
-		assertThat(signedIn.getStatusCode()).isEqualTo(HttpStatus.FOUND);
-		String cookie = cookieOf(signedIn);
-		assertThat(get("/admin", cookie).getStatusCode())
-			.as("the session round-tripped through MySQL's SPRING_SESSION tables")
-			.isEqualTo(HttpStatus.OK);
-
-		// Step-up, then the action.
-		jdbc.update("UPDATE platform_admin_mfa SET last_accepted_time_step = NULL "
-				+ "WHERE platform_admin_id = ?", adminId);
 		Page companies = get2("/admin/companies", cookie);
-		ResponseEntity<String> confirm = post("/admin/companies/confirm", cookie, companies.csrf(),
-				"action", "COMPANY_SUSPEND", "companyId", String.valueOf(companyId),
-				"reason", "non-payment", "code", code(seed, 0));
-		Matcher approvalMatch = APPROVAL.matcher(confirm.getBody());
-		assertThat(approvalMatch.find()).as("a verified code mints an approval").isTrue();
-		String approvalId = approvalMatch.group(1);
+		assertThat(post("/admin/companies/action", cookie, companies.csrf(),
+				"action", "COMPANY_SUSPEND", "companyId", String.valueOf(company),
+				"reason", "non-payment").getStatusCode()).isEqualTo(HttpStatus.FOUND);
 
-		assertThat(post("/admin/companies/apply", cookie, csrfOf(confirm),
-				"action", "COMPANY_SUSPEND", "companyId", String.valueOf(companyId),
-				"reason", "non-payment", "approvalId", approvalId).getStatusCode())
-			.isEqualTo(HttpStatus.FOUND);
-
-		assertThat(jdbc.queryForObject("SELECT status FROM companies WHERE id = ?",
-				String.class, companyId))
-			.as("the action changed the same companies table the PHP dashboard writes")
+		assertThat(jdbc.queryForObject("SELECT status FROM companies WHERE id = ?", String.class, company))
 			.isEqualTo("suspended");
-
-		assertThat(jdbc.queryForList("SELECT event_type, target_type, target_id, step_up_approval_id "
-				+ "FROM platform_admin_audit_events WHERE platform_admin_id = ? "
-				+ "AND event_type = 'COMPANY_SUSPENDED'", adminId))
-			.singleElement()
-			.satisfies(row -> {
-				assertThat(row.get("target_id")).isEqualTo(String.valueOf(companyId));
-				assertThat(row.get("step_up_approval_id")).isEqualTo(approvalId);
-			});
-
-		// Logout clears the shared session row.
-		assertThat(post("/admin/logout", cookie, get2("/admin", cookie).csrf()).getStatusCode())
-			.isEqualTo(HttpStatus.FOUND);
-		assertThat(get("/admin", cookie).getStatusCode()).isEqualTo(HttpStatus.FOUND);
-	}
-
-	@Test
-	void theBearerApiStillRequiresTheSecondFactorOnMySql() {
-		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
-		String phone = "+2092" + System.nanoTime() % 100_000_000L;
-		long adminId = createPlatformAdmin(jdbc, phone);
-		String seed = enrol(adminId);
-
-		HttpHeaders json = new HttpHeaders();
-		json.setContentType(MediaType.APPLICATION_JSON);
-		assertThat(this.restTemplate.exchange("/api/platform-admin/login", HttpMethod.POST,
-				new HttpEntity<>("{\"phone\":\"" + phone + "\",\"password\":\"" + PASSWORD + "\"}", json),
-				String.class).getStatusCode())
-			.isEqualTo(HttpStatus.UNAUTHORIZED);
-
-		jdbc.update("UPDATE platform_admin_mfa SET last_accepted_time_step = NULL "
-				+ "WHERE platform_admin_id = ?", adminId);
-		assertThat(this.restTemplate.exchange("/api/platform-admin/login", HttpMethod.POST,
-				new HttpEntity<>("{\"phone\":\"" + phone + "\",\"password\":\"" + PASSWORD
-						+ "\",\"code\":\"" + code(seed, 0) + "\"}", json),
-				String.class).getStatusCode())
-			.isEqualTo(HttpStatus.OK);
+		assertThat(jdbc.queryForObject(
+				"SELECT COUNT(*) FROM platform_admin_audit_events WHERE platform_admin_id = ? "
+						+ "AND event_type = 'COMPANY_SUSPENDED' AND target_id = ?",
+				Integer.class, adminId, String.valueOf(company)))
+			.as("the audit row is in the legacy database, in the same transaction")
+			.isEqualTo(1);
 	}
 
 	@Test
 	void approveAndRejectWorkOnMySqlAndRejectRecordsWhy() {
 		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
-		String phone = "+2093" + System.nanoTime() % 100_000_000L;
-		long adminId = createPlatformAdmin(jdbc, phone);
-		String seed = enrol(adminId);
-		long pending = createCompany(jdbc);
-		jdbc.update("UPDATE companies SET status = 'pending' WHERE id = ?", pending);
+		long approved = createCompany(jdbc);
+		long rejected = createCompany(jdbc);
+		jdbc.update("UPDATE companies SET status = 'pending' WHERE id IN (?, ?)", approved, rejected);
+		String cookie = signIn();
 
-		String cookie = signIn(jdbc, phone, seed, adminId);
-
-		// The list offers Approve and Reject for a pending company -- the
-		// workflow the PHP dashboard exists for, and the one the first cut of
-		// this page did not have.
 		Page companies = get2("/admin/companies", cookie);
-		assertThat(companies.response().getBody()).contains("COMPANY_APPROVE", "COMPANY_REJECT");
+		assertThat(post("/admin/companies/action", cookie, companies.csrf(),
+				"action", "COMPANY_APPROVE", "companyId", String.valueOf(approved))
+			.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+		assertThat(post("/admin/companies/action", cookie, get2("/admin/companies", cookie).csrf(),
+				"action", "COMPANY_REJECT", "companyId", String.valueOf(rejected),
+				"reason", "no commercial registration")
+			.getStatusCode()).isEqualTo(HttpStatus.FOUND);
 
-		jdbc.update("UPDATE platform_admin_mfa SET last_accepted_time_step = NULL "
-				+ "WHERE platform_admin_id = ?", adminId);
-		ResponseEntity<String> confirm = post("/admin/companies/confirm", cookie, companies.csrf(),
-				"action", "COMPANY_REJECT", "companyId", String.valueOf(pending),
-				"reason", "no commercial registration", "code", code(seed, 0));
-		Matcher approvalMatch = APPROVAL.matcher(confirm.getBody());
-		assertThat(approvalMatch.find()).isTrue();
-
-		assertThat(post("/admin/companies/apply", cookie, csrfOf(confirm),
-				"action", "COMPANY_REJECT", "companyId", String.valueOf(pending),
-				"reason", "no commercial registration", "approvalId", approvalMatch.group(1))
-				.getStatusCode()).isEqualTo(HttpStatus.FOUND);
-
-		assertThat(jdbc.queryForObject("SELECT status FROM companies WHERE id = ?",
-				String.class, pending)).isEqualTo("rejected");
-		assertThat(jdbc.queryForObject("SELECT rejection_reason FROM companies WHERE id = ?",
-				String.class, pending))
-			.as("the same column the PHP dashboard's reject writes")
+		assertThat(jdbc.queryForObject("SELECT status FROM companies WHERE id = ?", String.class, approved))
+			.isEqualTo("active");
+		assertThat(jdbc.queryForObject("SELECT status FROM companies WHERE id = ?", String.class, rejected))
+			.isEqualTo("rejected");
+		assertThat(jdbc.queryForObject("SELECT rejection_reason FROM companies WHERE id = ?", String.class, rejected))
+			.as("rejecting records why, in the column PHP writes")
 			.isEqualTo("no commercial registration");
 	}
 
 	@Test
 	void theCompanyDetailPageCountsOutstandingWork() {
 		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
-		String phone = "+2094" + System.nanoTime() % 100_000_000L;
-		long adminId = createPlatformAdmin(jdbc, phone);
-		String seed = enrol(adminId);
 		long company = createCompany(jdbc);
-		String cookie = signIn(jdbc, phone, seed, adminId);
-
+		String cookie = signIn();
 		ResponseEntity<String> detail = get("/admin/companies/" + company, cookie);
-
 		assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(detail.getBody())
 			.as("the counts legacy's detail.php shows, over the same join through employees")
 			.contains("Pending requests", "Pending advances");
 	}
 
-	// --- helpers ------------------------------------------------------------
-
-	/** Password step, second factor, and back with a usable session cookie. */
-	private String signIn(JdbcTemplate jdbc, String phone, String seed, long adminId) {
+	private String signIn() {
 		Page login = get2("/admin/login", null);
-		ResponseEntity<String> afterPassword = post("/admin/login", login.cookie(), login.csrf(),
-				"phone", phone, "password", PASSWORD);
-		String pending = cookieOf(afterPassword);
-		jdbc.update("UPDATE platform_admin_mfa SET last_accepted_time_step = NULL "
-				+ "WHERE platform_admin_id = ?", adminId);
-		Page challenge = get2("/admin/mfa", pending);
-		return cookieOf(post("/admin/mfa", pending, challenge.csrf(), "code", code(seed, 0)));
+		return cookieOf(post("/admin/login", login.cookie(), login.csrf(), "password", PASSWORD));
 	}
-
 
 	private record Page(ResponseEntity<String> response, String cookie, Csrf csrf) {
 	}
@@ -288,12 +172,6 @@ class LegacyPlatformAdminOnMySqlTest {
 	private record Csrf(String name, String value) {
 	}
 
-	private String enrol(long adminId) {
-		String token = this.mfaService.issueBootstrapToken(adminId, adminId);
-		String seed = this.mfaService.beginEnrolment(adminId, token).orElseThrow();
-		assertThat(this.mfaService.confirmEnrolment(adminId, code(seed, 0))).isTrue();
-		return seed;
-	}
 
 	private ResponseEntity<String> get(String path, String cookie) {
 		HttpHeaders headers = new HttpHeaders();
@@ -328,9 +206,6 @@ class LegacyPlatformAdminOnMySqlTest {
 		return new Csrf(matcher.group(1), matcher.group(2));
 	}
 
-	private static String code(String base32Seed, long offset) {
-		return Totp.codeAt(fromBase32(base32Seed), Totp.timeStepAt(Instant.now()) + offset);
-	}
 
 	private static String cookieOf(ResponseEntity<String> response) {
 		String value = tryCookieOf(response);
@@ -353,10 +228,9 @@ class LegacyPlatformAdminOnMySqlTest {
 			.findFirst().orElse(null);
 	}
 
-	private long createPlatformAdmin(JdbcTemplate jdbc, String phone) {
-		jdbc.update("INSERT INTO platform_admins (phone, password_hash, active) VALUES (?, ?, 1)",
-				phone, this.passwordEncoder.encode(PASSWORD));
-		return jdbc.queryForObject("SELECT id FROM platform_admins WHERE phone = ?", Long.class, phone);
+
+	private long adminId(JdbcTemplate jdbc) {
+		return jdbc.queryForObject("SELECT id FROM platform_admins WHERE phone = 'admin'", Long.class);
 	}
 
 	private long createCompany(JdbcTemplate jdbc) {
@@ -369,20 +243,5 @@ class LegacyPlatformAdminOnMySqlTest {
 		return jdbc.queryForObject("SELECT id FROM companies WHERE phone = ?", Long.class, companyPhone);
 	}
 
-	private static byte[] fromBase32(String encoded) {
-		final String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-		java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-		int buffer = 0;
-		int bitsLeft = 0;
-		for (char c : encoded.toCharArray()) {
-			buffer = (buffer << 5) | alphabet.indexOf(c);
-			bitsLeft += 5;
-			if (bitsLeft >= 8) {
-				out.write((buffer >> (bitsLeft - 8)) & 0xFF);
-				bitsLeft -= 8;
-			}
-		}
-		return out.toByteArray();
-	}
 
 }

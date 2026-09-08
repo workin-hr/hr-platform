@@ -66,17 +66,16 @@ public class AdminPhoneCountriesController {
 
 		boolean active = isActive != null && !isActive.isBlank();
 		PhoneCountryAdminService.Result result = switch (action) {
-			case "add" -> this.service.create(principal.platformAdminId(), principal.factorBound(),
-					PhoneCountryForm.validate(countryCode, nameAr, nameEn, flagEmoji,
+			case "add" -> this.service.create(principal.platformAdminId(), PhoneCountryForm.validate(countryCode, nameAr, nameEn, flagEmoji,
 							phoneLength, prefixes, active, sortOrder));
 			case "edit" -> id == null
 					? new PhoneCountryAdminService.Result(PhoneCountryAdminService.Outcome.NOT_FOUND, "error_not_found")
-					: this.service.update(principal.platformAdminId(), principal.factorBound(), id,
+					: this.service.update(principal.platformAdminId(), id,
 							PhoneCountryForm.validate(countryCode, nameAr, nameEn, flagEmoji,
 									phoneLength, prefixes, active, sortOrder));
 			case "delete" -> id == null
 					? new PhoneCountryAdminService.Result(PhoneCountryAdminService.Outcome.NOT_FOUND, "error_not_found")
-					: this.service.delete(principal.platformAdminId(), principal.factorBound(), id);
+					: this.service.delete(principal.platformAdminId(), id);
 			// An unknown action is a client that does not match this form.
 			// Answering "not found" rather than throwing keeps it a page the
 			// operator can carry on using.
@@ -90,7 +89,6 @@ public class AdminPhoneCountriesController {
 	private void render(Model model, PlatformAdminWebPrincipal principal, String errorKey) {
 		model.addAttribute("countries", this.service.list());
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", errorKey);
 	}
 

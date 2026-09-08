@@ -71,35 +71,88 @@ Verified on 2026-09-03: the packaged jar starts in this profile against MariaDB
 usable token, and an authenticated `GET /apis/api/requests/list` returns the
 paginated shape the clients expect.
 
+## Forwarded headers, and the one setting that must not be wrong
+
+`server.forward-headers-strategy` decides whether the application believes
+`X-Forwarded-For` and `X-Forwarded-Proto`. It matters because the client
+address is what the login's miss budget is charged to and what the legacy
+rate limits count, so a caller who can set that header can spend somebody
+else's budget -- or nobody's (**R-049**).
+
+| Profile | Value | Why |
+|---|---|---|
+| `prod` | **`native`**, fixed | Production is only reachable through its proxy. The compose file publishes the app port to `127.0.0.1` alone |
+| `integration` | `${FORWARD_HEADERS_STRATEGY:-none}`, defaulting to **`none`** | This box is reachable by more people than production's operators. `native` is correct there **only** once a proxy is the sole route to the port |
+| `local` | unset (`none`) | Nothing is in front |
+
+**Turning it on is a two-part change, and doing half of it is the hazard.**
+`native` without a proxy in front means the application trusts a header any
+caller can send. So: put the proxy there, close the published port to
+everything but the proxy, and only then set `FORWARD_HEADERS_STRATEGY=native`
+in the same change.
+
+**What an operator sees when it is wrong.** With `native` and no proxy: login
+throttling that never trips for a determined caller, because each attempt can
+claim a fresh address -- visible as `platform_admin_login_attempts` rows whose
+`client_key` values are varied and implausible, and as `LOGIN_FAILED` audit
+rows that never lead to a lockout. With `none` behind a proxy: every request
+attributed to the proxy's own address, so one caller's misses lock out
+everyone -- visible as a single `client_key` carrying every attempt.
+
+## What happens at startup, and in what order
+
+Three checks run before anything serves traffic, and the order is deliberate:
+
+1. **`Phase1SchemaCheck`** (`@Order(HIGHEST_PRECEDENCE)`) names every table the
+   application owns and says which feature each missing one disables. It runs
+   first so that a database provisioned without `phase1_extensions.sql` is
+   reported as *that*, rather than as whichever runner happened to touch a
+   missing table first — which is how it read before: a stack trace from an
+   unrelated component, three checks later.
+2. **`LegacyRowCountStartupCheck`** refuses a JDBC URL that turns off
+   `useAffectedRows`, because the legacy contract depends on MySQL's
+   matched-row semantics.
+3. **`PlatformAdminBootstrap`** provisions or re-encodes the dashboard
+   administrator's password (see below).
+
+`StartupRunnerOrderTest` asserts the ordering by scanning the runners rather
+than by listing them, so a runner added later is covered without editing it.
+
+**No default account.** `BackendApplication` excludes Boot's
+`UserDetailsServiceAutoConfiguration`; without that exclusion Boot creates a
+`user` with a generated password printed to the log, and that credential
+authenticates against any chain with no authentication of its own.
+`NoDefaultUserTest` asserts the context has no `UserDetailsService` at all,
+because the exclusion is one line in a list and silent when dropped.
+
 ## The admin dashboard
 
-The same jar serves it; nothing extra to start. It needs
-`APP_PLATFORM_ADMIN_MFA_ENCRYPTION_KEY` (32 bytes, base64) and, to provision the
-first administrator, `APP_PLATFORM_ADMIN_BOOTSTRAP_PHONE` / `_PASSWORD`.
+The same jar serves it; nothing extra to start. It signs in the way the PHP
+dashboard does -- **one administrator, one password, no phone** (ADR-0018) --
+and the password is deployment configuration:
 
-Administrative actions on companies are refused unless
-`APP_PLATFORM_ADMIN_ACTIONS_ENABLED=true`. They ship off: ADR-0015 prerequisite
-7 requires the legacy PHP admin surface — which still authenticates with the
-shared password — to be unreachable first. While both are live, MFA is only as
-strong as the weaker door.
-
-The same flag also gates the **org pages** — branches, departments, job titles
-and shifts. That is stricter than the PHP dashboard, whose only gate is the
-section permission, and it is deliberate: an administrator writing *inside a
-customer's company* is at least as sensitive as editing a FAQ (**D-171**,
-**D-175**). The owner's decision on 2026-09-05 is that the flag **may be
-enabled on the VPS** so those flows work, with the other two controls
-**unchanged**:
-
-| Control | On the VPS |
+| Variable | What it is |
 |---|---|
-| `APP_PLATFORM_ADMIN_ACTIONS_ENABLED` | **true** — required for branch and department management |
-| Bound second factor on the session | **required**, unchanged (D-152) |
-| Audit row in the same transaction | **required**, unchanged (`ORG_CREATED` / `ORG_UPDATED` / `ORG_DELETED`) |
+| `APP_PLATFORM_ADMIN_PASSWORD` | The dashboard password. The application keeps a **bcrypt hash** of it in `platform_admins` and re-encodes it on a restart whenever the value changes, so rotating it is: change the variable, restart. **A rotation also ends every session opened under the old password** — they are server-side rows, and a changed hash does not invalidate one by itself, so without that step rotating after a session was believed stolen would leave the thief up to the 8-hour limit. Unset, the last password stays in force; a database that never had one cannot be signed into |
+| `APP_PLATFORM_ADMIN_ACTIONS_ENABLED` | Defaults to **false**. While false the pages render read-only and say so. ADR-0015 prerequisite 7 keeps it off until the PHP admin surface -- which shares this password -- is unreachable, because while both are live the login is only as strong as the weaker door |
 
-So enabling the flag opens the pages; it does not relax what happens once they
-are open. An administrator who has not completed the enrolment ceremony still
-cannot write, and every write is still recorded against their id.
+Behind the form, what PHP does not do: the password is compared against a hash
+rather than a constant, the miss budget is spent **per client address** (eight
+misses in fifteen minutes; a per-account budget with one account would let
+anyone lock the administrator out from anywhere), the session id rotates on
+login, the cookie is `Secure`, `HttpOnly` and `SameSite=Lax`, every state
+change carries a CSRF token, and every login, miss and logout is an audit row.
+
+Sessions idle out after 30 minutes and end after 8 hours whatever the activity
+-- stricter than PHP's thirty days, and deliberately so.
+
+The **org pages** -- branches, departments, job titles and shifts -- are behind
+the same actions flag as the company actions. That is stricter than the PHP
+dashboard, whose only gate is the section permission, and it is deliberate: an
+administrator writing *inside a customer's company* is at least as sensitive
+as editing a FAQ (**D-171**, **D-175**). The owner's decision on 2026-09-05 is
+that the flag **may be enabled on the VPS** so those flows work; every write is
+still recorded against the administrator's row in the same transaction.
 
 ## Tokens already issued
 

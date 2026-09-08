@@ -49,8 +49,9 @@ class LegacyRowCountStartupCheckTest {
 	}
 
 	/**
-	 * The property defaults to empty because {@code LegacyPersistenceConfig}'s beans are
-	 * {@code @Profile("phase1-mysql")} and are never constructed under the default profile.
+	 * The URL is empty until a deployment supplies one, and a check that refused
+	 * an unconfigured value would fail every context that never opens the legacy
+	 * database -- a unit test's, among them.
 	 */
 	@Test
 	void acceptsAnUnconfiguredLegacyUrl() {

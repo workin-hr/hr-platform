@@ -42,7 +42,6 @@ public class AdminBannersController {
 		model.addAttribute("banners", this.service.list());
 		model.addAttribute("routes", Banner.INTERNAL_ROUTES);
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
-		model.addAttribute("factorBound", principal.factorBound());
 		model.addAttribute("errorKey", error);
 		return VIEW;
 	}
@@ -69,17 +68,16 @@ public class AdminBannersController {
 			@RequestParam(required = false) String sortOrder) {
 
 		long adminId = principal.platformAdminId();
-		boolean bound = principal.factorBound();
 		BannerAdminService.Submission submission = new BannerAdminService.Submission(
 				titleAr, titleEn, descriptionAr, descriptionEn, buttonLabelAr, buttonLabelEn,
 				platform, actionType, actionValue, whatsappCountryCode, whatsappPhone,
 				isActive != null && !isActive.isBlank(), sortOrder);
 
 		BannerAdminService.Result result = switch (action) {
-			case "add" -> this.service.create(adminId, bound, image, submission);
+			case "add" -> this.service.create(adminId, image, submission);
 			case "edit" -> id == null ? notFound()
-					: this.service.update(adminId, bound, id, image, submission);
-			case "delete" -> id == null ? notFound() : this.service.delete(adminId, bound, id);
+					: this.service.update(adminId, id, image, submission);
+			case "delete" -> id == null ? notFound() : this.service.delete(adminId, id);
 			default -> notFound();
 		};
 

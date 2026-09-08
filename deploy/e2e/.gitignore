@@ -1,0 +1,8 @@
+# The run's TLS material lives OUTSIDE the repository (see run.sh): a private
+# key in a source tree is a key somebody eventually commits, and
+# validate_phase0's secret scan reads the working tree rather than the index.
+node_modules/
+test-results/
+playwright-report/
+screenshots/
+report/

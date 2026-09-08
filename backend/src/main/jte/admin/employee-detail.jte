@@ -6,7 +6,6 @@
 @param String currentAdminPhone
 @param EmployeeDetail detail
 @param boolean canManage
-@param boolean factorBound
 @param String currentPage
 @param String lang
 @param DashboardSession session
@@ -86,8 +85,8 @@
 			<div class="data-table-head">
 				<h2 class="data-table-title">${t.apply("attendance")} — ${detail.month()}/${detail.year()}</h2>
 			</div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead><tr><th>${t.apply("date")}</th><th>${t.apply("check_in")}</th>
 					<th>${t.apply("check_out")}</th><th>${t.apply("method")}</th>
 					<th>${t.apply("hours_worked")}</th></tr></thead>
@@ -111,8 +110,8 @@
 
 		<div class="data-table-card">
 			<div class="data-table-head"><h2 class="data-table-title">${t.apply("requests")}</h2></div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead><tr><th>${t.apply("request_type")}</th><th>${t.apply("from_date")}</th>
 					<th>${t.apply("to_date")}</th><th>${t.apply("status")}</th></tr></thead>
 				<tbody>
@@ -130,8 +129,8 @@
 
 		<div class="data-table-card">
 			<div class="data-table-head"><h2 class="data-table-title">${t.apply("penalties")}</h2></div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead><tr><th>${t.apply("penalty_date")}</th><th>${t.apply("penalty_type")}</th>
 					<th>${t.apply("penalty_days")}</th><th>${t.apply("applied_payroll")}</th></tr></thead>
 				<tbody>
@@ -150,8 +149,8 @@
 
 		<div class="data-table-card">
 			<div class="data-table-head"><h2 class="data-table-title">${t.apply("advances")}</h2></div>
-			<div class="data-table-wrap">
-			<table class="data-table">
+			<div class="table-wrap">
+			<table class="tbl">
 				<thead><tr><th>${t.apply("advance_amount")}</th><th>${t.apply("remaining")}</th>
 					<th>${t.apply("status")}</th></tr></thead>
 				<tbody>
@@ -188,8 +187,8 @@
 		@if(!detail.documents().isEmpty())
 			<div class="data-table-card">
 				<div class="data-table-head"><h2 class="data-table-title">${t.apply("commercial_reg")}</h2></div>
-				<div class="data-table-wrap">
-				<table class="data-table">
+				<div class="table-wrap">
+				<table class="tbl">
 					<tbody>
 						@for(EmployeeDetail.Document row : detail.documents())
 							<tr><td>${row.docType()}</td><td>${row.uploadedAt()}</td></tr>

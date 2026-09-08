@@ -35,7 +35,8 @@ public class BannerStore {
 			rs.getString("button_label_ar"),
 			rs.getString("button_label_en"),
 			Banner.Action.of(rs.getString("button_action_type")),
-			rs.getString("button_action_value"));
+			rs.getString("button_action_value"),
+			rs.getString("created_at"));
 
 	public List<Banner> list() {
 		return this.jdbcTemplate.query(

@@ -21,13 +21,9 @@ import com.workin.backend.platformadmin.PlatformAdminRepository;
  * Revalidates the authenticated administrator on every request of the cookie
  * chain, and enforces the session's absolute cap.
  *
- * <p>ADR-0015 prerequisite 9 exists because this is <em>not</em> inherited.
- * {@code PlatformAdminAuthenticationFilter} performs the same lookup, but it is
- * installed only on the stateless {@code /api/platform-admin/**} chain and does
- * its work only after parsing an {@code Authorization: Bearer} header. A
- * cookie-authenticated request never reaches it. Without this filter,
- * deactivating an administrator would leave their existing session working
- * until it expired -- the exact window D-145 closed for the bearer surface.
+ * <p>ADR-0015 prerequisite 9: the session holds an identifier to reload by,
+ * never a cached decision. Without this filter, deactivating the administrator
+ * would leave an existing session working until it expired.
  *
  * <p>The absolute cap lives here too, because a servlet session only understands
  * idle time: {@code setMaxInactiveInterval} slides forward on every request, so

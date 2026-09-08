@@ -26,7 +26,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -39,7 +38,6 @@ import com.workin.legacy.LegacyMariaDb;
 /** Wave 13.4c: {@code employee_docs}, {@code complaints}, {@code company_join_requests}. */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
-@ActiveProfiles("phase1-mysql")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class LegacyPeopleEndToEndTest {
 

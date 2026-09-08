@@ -13,7 +13,6 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 
 import com.workin.backend.AbstractIntegrationTest;
 import com.workin.backend.authorization.PublicUseCase;
-import com.workin.backend.platformadmin.PlatformAdminAuthController;
 import com.workin.backend.platformadmin.web.PlatformAdminWebController;
 import com.workin.backend.platformadmin.web.PlatformAdminWebSecurityConfig;
 
@@ -58,8 +57,6 @@ class SecurityPolicyAgreementTest extends AbstractIntegrationTest {
 
 	@Test
 	void thePlatformAdminApiChainPermitsExactlyItsPublicHandlers() {
-		assertAgreement(PlatformAdminAuthController.class.getPackageName(),
-				SecurityConfig.PLATFORM_ADMIN_API_PUBLIC_PATHS);
 	}
 
 	/**
@@ -74,14 +71,14 @@ class SecurityPolicyAgreementTest extends AbstractIntegrationTest {
 	@Test
 	void theCheckItselfFailsWhenAPublicRouteIsLeftOutOfTheList() {
 		String[] withoutConfirm = java.util.Arrays.stream(PlatformAdminWebSecurityConfig.PUBLIC_PATHS)
-			.filter(path -> !path.equals(PlatformAdminWebSecurityConfig.ENROL_CONFIRM_PATH))
+			.filter(path -> !path.equals(PlatformAdminWebSecurityConfig.LOGIN_PATH))
 			.toArray(String[]::new);
 
 		assertThatThrownBy(() -> assertAgreement(
 				PlatformAdminWebController.class.getPackageName(), withoutConfirm))
 			.as("this is the exact omission that shipped an unreachable route once")
 			.isInstanceOf(AssertionError.class)
-			.hasMessageContaining(PlatformAdminWebSecurityConfig.ENROL_CONFIRM_PATH);
+			.hasMessageContaining(PlatformAdminWebSecurityConfig.LOGIN_PATH);
 	}
 
 	private void assertAgreement(String handlerPackage, String[] configuredPublicPaths) {

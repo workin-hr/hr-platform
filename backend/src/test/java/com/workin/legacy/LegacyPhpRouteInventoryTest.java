@@ -12,7 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -25,7 +24,6 @@ import com.workin.legacy.wire.LegacyWireExceptionHandler;
 
 /** Bidirectional literal inventory for every delivered {@code /apis/**} route. */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.MOCK)
-@ActiveProfiles("phase1-mysql")
 class LegacyPhpRouteInventoryTest {
 
 	/** An empty database of this class's own: it creates its own tables. */

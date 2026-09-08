@@ -25,8 +25,6 @@ public class ShiftAdminService {
 		/** {@code admin_actions_disabled}. */
 		ACTIONS_DISABLED,
 
-		/** {@code mfa_required_for_actions}. */
-		FACTOR_NOT_BOUND,
 
 		/** {@code select_company_first}. */
 		NO_COMPANY,
@@ -69,12 +67,9 @@ public class ShiftAdminService {
 		return this.actionsEnabled;
 	}
 
-	private void gate(boolean factorBound) {
+	private void gate() {
 		if (!this.actionsEnabled) {
 			throw new RefusedException(Refusal.ACTIONS_DISABLED);
-		}
-		if (!factorBound) {
-			throw new RefusedException(Refusal.FACTOR_NOT_BOUND);
 		}
 	}
 
@@ -101,9 +96,9 @@ public class ShiftAdminService {
 
 	@Transactional
 	public long add(
-			DashboardSession session, long adminId, boolean factorBound, long postedCompanyId,
+			DashboardSession session, long adminId, long postedCompanyId,
 			String rawName, String startTime, String endTime) {
-		gate(factorBound);
+		gate();
 		long companyId = assertWritable(session, postedCompanyId, 0L);
 		String name = requireName(rawName);
 
@@ -116,9 +111,9 @@ public class ShiftAdminService {
 
 	@Transactional
 	public long saveEdit(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			long postedCompanyId, String rawName, String startTime, String endTime, boolean active) {
-		gate(factorBound);
+		gate();
 		long companyId = assertWritable(session, postedCompanyId, id);
 		String name = requireName(rawName);
 
@@ -131,9 +126,9 @@ public class ShiftAdminService {
 
 	@Transactional
 	public long delete(
-			DashboardSession session, long adminId, boolean factorBound, long id,
+			DashboardSession session, long adminId, long id,
 			long postedCompanyId) {
-		gate(factorBound);
+		gate();
 		long companyId = assertWritable(session, postedCompanyId, id);
 		// Employee assignments point at the shift and are left alone, the same
 		// as everywhere else on these pages: deactivating is not unassigning.
@@ -144,7 +139,7 @@ public class ShiftAdminService {
 	}
 
 	private void audit(long adminId, PlatformAdminAuditEventType type, long id, String detail) {
-		this.auditService.recordAction(adminId, type, "shift", String.valueOf(id), null, detail);
+		this.auditService.recordAction(adminId, type, "shift", String.valueOf(id), detail);
 	}
 
 }

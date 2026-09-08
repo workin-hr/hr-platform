@@ -95,13 +95,13 @@ build, and never merge them to a release configuration.
 
 | Who | Endpoint | Phone | `country_code` |
 |---|---|---|---|
-| Company owner | `auth/login_company.php` | `01000090001` | `+20` |
-| Employee | `auth/login_employee.php` | `01000000002` | `+20` |
-| HR | `auth/login_employee.php` | `01000000256` | `+20` |
-| Desktop, either | `auth/login_desktop.php` + `"login_as": "company"` or `"employee"` | as above | `+20` |
+| Company owner | `auth/login_company` | `01000090001` | `+20` |
+| Employee | `auth/login_employee` | `01000000002` | `+20` |
+| HR | `auth/login_employee` | `01000000256` | `+20` |
+| Desktop, either | `auth/login_desktop` + `"login_as": "company"` or `"employee"` | as above | `+20` |
 
 ```sh
-curl -X POST http://localhost:8080/apis/api/auth/login_company.php \
+curl -X POST http://localhost:8080/apis/api/auth/login_company \
   -H 'Content-Type: application/json' \
   -d '{"phone":"01000090001","country_code":"+20","password":"devpassword"}'
 ```
@@ -122,7 +122,7 @@ The token is at **`data.token`** — not `access_token`:
 Send it as a bearer token on everything else:
 
 ```sh
-curl "http://localhost:8080/apis/api/employees/list.php?page=1&per_page=2" \
+curl "http://localhost:8080/apis/api/employees/list?page=1&per_page=2" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -141,26 +141,54 @@ attendance rows** and **3,193 payslips** — production's real volumes, so your
 lists paginate and your payroll screens load exactly as slowly as they will in
 production.
 
-## 4. URLs, and what does not exist
+## 4. URLs
 
 | | |
 |---|---|
 | API base | `http://localhost:8080/apis/api/` |
+| **Swagger UI** | `http://localhost:8080/swagger-ui.html` |
+| OpenAPI document (clients) | `http://localhost:8080/v3/api-docs/client-api` |
+| OpenAPI document (platform admin) | `http://localhost:8080/v3/api-docs/platform-admin` |
 | Health | `http://localhost:8080/actuator/health` |
 | Admin UI | `http://localhost:8080/admin/login` |
-| **Swagger / OpenAPI** | **does not exist** |
 
-**There is no Swagger UI and no `/v3/api-docs`.** springdoc is not a dependency,
-and `contracts/openapi/` holds only a README. The API surface is a faithful port
-of the PHP endpoints, so the authoritative list of what exists is:
+Swagger UI opens on the **Client API** group: the 202 legacy routes and nothing
+else. The platform-admin group is a separate entry in the dropdown, because it
+is a different audience with different credentials.
+
+Two things about that document are worth knowing before you trust it, because
+both are corrections applied on purpose:
+
+- **The verbs are exact.** Every route is mapped in Java without a method
+  restriction, so the handler can answer PHP's own `405 invalid_method` in the
+  legacy envelope. Generated straight, the document would claim every route
+  accepts every verb. It is pruned against what each handler really checks, so
+  `auth/login_company` shows `POST` alone and `profile/employee` shows `GET` and
+  `PUT`. Two routes genuinely accept anything — the two `template_excel`
+  downloads — and PHP does not check the method on them either.
+- **The paths have no `.php` suffix**, because that is the URL you call.
+  Against the PHP system this replaces, `configs/get` answers 200 and
+  `configs/get.php` answers 500. Your `api_constants.dart` already uses the
+  suffix-less form; this port serves both, so the suffix would work here and
+  fail there.
+
+**What the document does not tell you** is the shape inside `data`. The envelope
+is `{success, message, data?, meta?}`, and `data`/`meta` are free-form objects
+because the port returns PHP's own structures rather than re-typing 202
+endpoints — that is what makes it a faithful port. So the document is
+authoritative about *which routes exist and which verb each accepts*, and silent
+about the payload. For the payload, call the endpoint, or read your own client,
+which already encodes it.
+
+The routes are also listed flat, if that is easier to grep:
 
 ```sh
 grep '^/' contracts/legacy-php-routes.txt      # all 202 routes
 ```
 
-The request and response shapes are whatever the PHP served — the Flutter apps
-already encode them, which is why there was never a spec to port. If you want
-one generated, say so; it is a real piece of work rather than a switch.
+Swagger is published under `local` and `integration` and **switched off under
+`prod`** — an unauthenticated map of every endpoint on a live system is
+reconnaissance. Do not build anything that expects it in production.
 
 **The admin UI renders at `/admin/login` but will not keep you signed in over
 plain HTTP.** Its session cookie is `Secure` unconditionally, by ADR-0015, and
