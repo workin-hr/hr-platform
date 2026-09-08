@@ -26,6 +26,29 @@ touches a table PHP knows about (**R-023**).
 | `platform_admin_login_attempts` | the login's miss budget |
 | `SPRING_SESSION`, `SPRING_SESSION_ATTRIBUTES` | the dashboard session — login succeeds and is immediately forgotten |
 
+**Verified against the live database on 2026-09-08**, read-only: MariaDB
+**11.8.8** (the version the suite runs against), `utf8mb4` /
+`utf8mb4_unicode_ci`, InnoDB throughout, the schema user holds `ALL
+PRIVILEGES`, and **none of the six tables exist yet** — so the file applies as
+written. Its 44 legacy tables are also exactly the 44 in the vendored schema
+the port was built and tested against, with nothing missing and nothing extra.
+
+Check that yourself before and after, with a script that only reads —
+`backend/src/main/resources/db/phase1-mysql/verify_phase1_tables.sql`, which
+paste into phpMyAdmin's SQL tab or:
+
+```sh
+mysql -h "$DB_HOST" -u "$DB_USER" -p "$DB_NAME" \
+  < backend/src/main/resources/db/phase1-mysql/verify_phase1_tables.sql
+```
+
+It reports the server version, the database's charset and engine, which of the
+six tables are present (`none`, `applied`, or a partial apply to undo), the
+column count of each against what the script creates — a table with the right
+name and the wrong shape is the failure the non-idempotent script exists to
+prevent, and a name check cannot see it — and that the legacy table count is
+unchanged.
+
 Take a backup first, then apply it. **Run this yourself**; it changes a
 production schema, which is not something to hand to an agent:
 
