@@ -1,5 +1,7 @@
 package com.workin.backend.platformadmin.web;
 
+import java.util.List;
+
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -38,8 +40,16 @@ public class AdminBannersController {
 			+ "Only a platform administrator may see or change them.")
 	@GetMapping(PlatformAdminWebSecurityConfig.BANNERS_PATH)
 	public String list(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
-			Model model, @RequestParam(required = false) String error) {
-		model.addAttribute("banners", this.service.list());
+			Model model, @RequestParam(required = false) String error,
+			@RequestParam(required = false) Long edit) {
+		List<Banner> banners = this.service.list();
+		model.addAttribute("banners", banners);
+		// D-210: `case "edit"` has always been handled and nothing rendered a
+		// form that posts it. Prefilled here rather than by crud.js, which
+		// fills a field named `title_ar` from `data-title-ar` -- this form's
+		// fields are camelCase, so the copied script cannot reach them.
+		model.addAttribute("editBanner", edit == null ? null
+				: banners.stream().filter(banner -> banner.id() == edit).findFirst().orElse(null));
 		model.addAttribute("routes", Banner.INTERNAL_ROUTES);
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);

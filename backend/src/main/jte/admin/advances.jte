@@ -1,6 +1,7 @@
 @import java.util.List
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.hr.Advance
+@import com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -9,7 +10,7 @@
 @param String currentAdminPhone
 @param DashboardPage<Advance> result
 @param DashboardListFilters filters
-@param List<com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption> employeeOptions
+@param List<EmployeeOption> employeeOptions
 @param String status
 @param String dateFrom
 @param String dateTo
@@ -136,6 +137,17 @@
 								@if(canWrite)
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
 										@if(row.isPending())
+											<%-- D-210: saveEdit existed with no way in, so a pending
+											     advance could be approved, rejected or deleted but
+											     never corrected. Pending only, as the others are. --%>
+											<button type="button" role="menuitem" class="row-actions__item"
+													data-dialog="advance-edit"
+													data-dialog-id="${row.id()}"
+													data-dialog-subject="${row.employeeName()}"
+													data-dialog-employee_id="${row.employeeId()}"
+													data-dialog-amount="${row.amount() == null ? "" : row.amount().toPlainString()}"
+													data-dialog-reason="${row.reason() == null ? "" : row.reason()}"
+													data-dialog-request_date="${row.requestDate() == null ? "" : row.requestDate()}">${t.apply("edit")}</button>
 											<form method="POST" class="row-actions__form" role="none"
 											      onsubmit="return confirm('${t.apply("confirm_approve_advance")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -195,6 +207,34 @@
 					`)
 		@endif
 		@if(canWrite)
+			@template.admin.rowDialog(id = "advance-edit", action = "edit_advance",
+					title = t.apply("edit"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
+					fields = @`
+						<div class="form-row">
+							<label>${t.apply("employee_name")}
+								<select name="employee_id" required data-dialog-field="employee_id">
+									@for(EmployeeOption option : employeeOptions)
+										<option value="${option.id()}">${option.companyName() == null
+											? option.code() + " — " + option.name()
+											: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
+									@endfor
+								</select></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("advance_amount")}
+								<input type="number" step="0.01" min="0" name="amount" required
+								       data-dialog-field="amount"></label>
+							<label>${t.apply("request_date")}
+								<input type="date" name="request_date" data-dialog-field="request_date"></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("advance_reason")}
+								<input type="text" name="reason" maxlength="500"
+								       data-dialog-field="reason"></label>
+						</div>
+					`)
+
 			<%-- Legacy opens this form in a modal, behind the "+" button above.
 			     Rendered inline it sat open over the table on every visit, whether
 			     or not anyone was adding anything. Same form, same fields, same
@@ -205,7 +245,7 @@
 					<button type="button" class="modal-close"
 							aria-label="${t.apply("cancel")}">&times;</button>
 					<h2 id="advModal-title">${t.apply("add_advance")}</h2>
-					<form method="POST" class="account-form org-form">
+					<form method="POST">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="add_advance">
 					<div class="org-form-grid">
@@ -213,7 +253,7 @@
 						<label for="employee_id">${t.apply("employee_name")}</label>
 						<select id="employee_id" name="employee_id" required>
 							<option value="0">—</option>
-							@for(com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption option : employeeOptions)
+							@for(EmployeeOption option : employeeOptions)
 								<option value="${option.id()}">${option.companyName() == null
 									? option.code() + " — " + option.name()
 									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
@@ -233,7 +273,7 @@
 						<input type="text" id="reason" name="reason" maxlength="500">
 					</div>
 					</div>
-					<div class="account-form__footer">
+					<div class="form-footer">
 						<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
 					</div>
 				</form>

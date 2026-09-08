@@ -124,11 +124,14 @@
 		</div>
 
 		@if(addOpen || editRow != null)
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply(editRow == null ? "add_employee" : "edit")}</h2>
-				</div>
-				<form method="POST" class="account-form org-form">
+			<%-- page.php renders this in modal modal--employee-form over a
+			     modal-bg open. The port had it as a data-table-card in the
+			     page flow, wrapped in account-form org-form -- classes no
+			     stylesheet defines here or in legacy. --%>
+			<div class="modal-bg open">
+				<div class="modal modal--employee-form">
+					<h2>${editRow == null ? t.apply("add_employee") : t.apply("edit")}</h2>
+					<form method="POST">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="${editRow == null ? "add_employee" : "save_edit"}">
 					@if(editRow != null)
@@ -230,13 +233,14 @@
 							<input type="number" id="basic_salary" name="basic_salary" min="0" step="0.01">
 						</div>
 					@endif
-					<div class="account-form__footer">
+					<div class="form-footer">
 						<a href="/admin/employees" class="btn btn-gray">${t.apply("cancel")}</a>
 						@if(canWrite)
-							<button type="submit" class="btn btn-yellow">${t.apply("save")}</button>
+							<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
 						@endif
 					</div>
-				</form>
+					</form>
+				</div>
 			</div>
 		@endif
 

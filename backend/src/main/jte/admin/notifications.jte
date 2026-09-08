@@ -1,9 +1,10 @@
-@import java.util.List
-@import java.util.function.Function
 @import com.workin.backend.platformadmin.content.BroadcastAudience
 @import com.workin.backend.platformadmin.content.BroadcastStore
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
+@import com.workin.backend.platformadmin.web.DashboardSession
+@import java.util.List
+@import java.util.function.Function
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
@@ -19,7 +20,7 @@
 @param Integer sentCount = null
 @param String currentPage
 @param String lang
-@param com.workin.backend.platformadmin.web.DashboardSession session
+@param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean canWrite = actionsEnabled;}
@@ -204,12 +205,19 @@
 						<label>${t.apply("notif_body")}<textarea name="body" rows="3"></textarea></label>
 					</div>
 					<div class="form-row">
-						<label class="login-remember">
+						<label>
 							<input type="checkbox" name="confirmBroadcast" value="1" required>
 							<span>${t.apply("confirm_broadcast")} — ${t.apply("notif_audience_all_employees")}: ${reach}</span>
 						</label>
 					</div>
-					<button type="submit" class="btn btn-blue">${t.apply("send_notification")}</button>
+					<%-- The save sits in a form-footer so it stays put while the
+					     fields scroll: .modal is the scroll container, and a form
+					     longer than the box otherwise pushes its own button out of
+					     reach. Legacy leaves it loose here and carries the same
+					     problem; the class is legacy's own. --%>
+					<div class="form-footer">
+						<button type="submit" class="btn btn-blue">${t.apply("send_notification")}</button>
+					</div>
 				</form>
 				</div>
 			</div>

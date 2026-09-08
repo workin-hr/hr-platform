@@ -4,6 +4,12 @@
 #   deploy/compose.local.yaml up -d --build     # or any deployment
 #   ADMIN_PASSWORD=... scripts/verify-admin-login.sh
 #
+# Against a deployment whose database lives elsewhere -- compose.remote-db.yaml
+# -- name that database instead of a container, and trust Caddy's internal CA:
+#
+#   set -a; . deploy/.env.remote-db; set +a
+#   BASE_URL=https://localhost TLS_INSECURE=1 scripts/verify-admin-login.sh
+#
 # The integration suite already proves this journey on every build. This proves
 # something the suite cannot: that the *packaged* application, wired the way a
 # deployment wires it, behaves the same -- ADR-0015's prerequisites are about
@@ -23,36 +29,57 @@ DB_USER="${DB_USER:-workin}"
 DB_PASSWORD="${DB_PASSWORD:-workin-local}"
 DB_NAME="${DB_NAME:-workin}"
 
+# A deployment rehearsing behind Caddy's internal CA -- `APP_DOMAIN=localhost`
+# -- serves a certificate this machine has no reason to trust. Set
+# TLS_INSECURE=1 there, and nowhere else: against a real deployment the
+# certificate is exactly what you want verified.
+TLS=()
+[ -n "${TLS_INSECURE:-}" ] && TLS=(-k)
+
 JAR="$(mktemp -d)/cookies"
 step=0
 pass() { step=$((step + 1)); printf '  \033[32mok\033[0m  %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1" >&2; exit 1; }
 say()  { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
+# A local stack keeps its database in a container; a deployment pointed at a
+# database that already exists (compose.remote-db.yaml) has none. DB_HOST picks
+# that second case, and reaches it with a one-shot client so this machine needs
+# no mariadb binary of its own. The password travels in MYSQL_PWD either way --
+# a production credential has no business in the host's process list.
 sql() {
-  docker exec -i "$DB_CONTAINER" mariadb -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -N -B -e "$1" \
-    2>/dev/null | tr -d '\r'
+  local out
+  out="$(
+    if [ -n "${DB_HOST:-}" ]; then
+      MYSQL_PWD="$DB_PASSWORD" docker run --rm -i -e MYSQL_PWD mariadb:11.8 \
+        mariadb -h"$DB_HOST" -P"${DB_PORT:-3306}" -u"$DB_USER" "$DB_NAME" -N -B -e "$1"
+    else
+      MYSQL_PWD="$DB_PASSWORD" docker exec -i -e MYSQL_PWD "$DB_CONTAINER" \
+        mariadb -u"$DB_USER" "$DB_NAME" -N -B -e "$1"
+    fi 2>/dev/null
+  )" || fail "the database query failed -- ${DB_HOST:+is $DB_HOST reachable, and }are $DB_USER's credentials right?"
+  printf '%s' "$out" | tr -d '\r'
 }
 
 # The CSRF token and the session cookie travel together: a token minted for one
 # session is refused by another, which is the point of it.
 csrf_of() {
-  curl -sS -c "$1" -b "$1" "$BASE$2" | grep -o 'name="_csrf" value="[^"]*"' | head -1 |
+  curl -sS "${TLS[@]}" -c "$1" -b "$1" "$BASE$2" | grep -o 'name="_csrf" value="[^"]*"' | head -1 |
     sed 's/.*value="//; s/"$//'
 }
-status_of() { curl -sS -o /dev/null -w '%{http_code}' "$@"; }
+status_of() { curl -sS "${TLS[@]}" -o /dev/null -w '%{http_code}' "$@"; }
 
 say "1. the surface is closed to an anonymous caller"
 code="$(status_of "$BASE/admin")"
 [ "$code" = 302 ] || fail "GET /admin answered $code, expected a redirect to the login page"
-location="$(curl -sS -o /dev/null -D - "$BASE/admin" | grep -i '^location:' | tr -d '\r')"
+location="$(curl -sS "${TLS[@]}" -o /dev/null -D - "$BASE/admin" | grep -i '^location:' | tr -d '\r')"
 case "$location" in *"/admin/login"*) pass "GET /admin -> 302 $location";; *) fail "redirected to $location";; esac
 
 say "2. a wrong password is refused, and leaves an audit row"
 before="$(sql "SELECT COUNT(*) FROM platform_admin_audit_events WHERE event_type = 'LOGIN_FAILED'")"
 token="$(csrf_of "$JAR.miss" /admin/login)"
 [ -n "$token" ] || fail "the login page served no CSRF token"
-body="$(curl -sS -c "$JAR.miss" -b "$JAR.miss" -d "_csrf=$token" -d "password=not-the-password" "$BASE/admin/login")"
+body="$(curl -sS "${TLS[@]}" -c "$JAR.miss" -b "$JAR.miss" -d "_csrf=$token" -d "password=not-the-password" "$BASE/admin/login")"
 case "$body" in *login-alert--error*) pass "the page came back with its error banner";; *) fail "no error banner in the response";; esac
 [ "$(status_of -b "$JAR.miss" "$BASE/admin")" = 302 ] || fail "a refused login left a usable session"
 after="$(sql "SELECT COUNT(*) FROM platform_admin_audit_events WHERE event_type = 'LOGIN_FAILED'")"
@@ -62,7 +89,7 @@ pass "LOGIN_FAILED recorded ($before -> $after)"
 say "3. the password opens a session, server-side"
 token="$(csrf_of "$JAR" /admin/login)"
 anonymous="$(grep -i 'WORKIN_ADMIN_SESSION' "$JAR" | awk '{print $NF}')"
-code="$(curl -sS -o /dev/null -w '%{http_code}' -c "$JAR" -b "$JAR" \
+code="$(curl -sS "${TLS[@]}" -o /dev/null -w '%{http_code}' -c "$JAR" -b "$JAR" \
   -d "_csrf=$token" -d "password=$PASSWORD" "$BASE/admin/login")"
 # A refused password re-renders the page (200); an accepted one redirects. Worth
 # separating, because every assertion below would otherwise fail with a reason
@@ -83,7 +110,7 @@ pass "the session is a row in SPRING_SESSION, not one worker's heap"
 pass "LOGIN recorded"
 
 say "4. the cookie is what ADR-0015 prerequisite 6 requires"
-flags="$(curl -sS -o /dev/null -D - -c "$JAR.flags" -b "$JAR.flags" "$BASE/admin/login" |
+flags="$(curl -sS "${TLS[@]}" -o /dev/null -D - -c "$JAR.flags" -b "$JAR.flags" "$BASE/admin/login" |
   grep -i 'set-cookie: *WORKIN_ADMIN_SESSION' | tr -d '\r')"
 case "$flags" in *HttpOnly*) pass "HttpOnly";; *) fail "the session cookie is not HttpOnly: $flags";; esac
 case "$flags" in *SameSite=Lax*) pass "SameSite=Lax";; *) fail "the session cookie is not SameSite=Lax: $flags";; esac
@@ -103,7 +130,7 @@ pass "POST /admin/logout without a token -> 403"
 say "6. logout ends the session where it lives"
 token="$(csrf_of "$JAR" /admin/sessions)"
 [ -n "$token" ] || fail "the sessions page served no CSRF token"
-curl -sS -o /dev/null -b "$JAR" -c "$JAR" -d "_csrf=$token" "$BASE/admin/logout"
+curl -sS "${TLS[@]}" -o /dev/null -b "$JAR" -c "$JAR" -d "_csrf=$token" "$BASE/admin/logout"
 [ "$(sql "SELECT COUNT(*) FROM SPRING_SESSION WHERE SESSION_ID = '$id'")" = 0 ] \
   || fail "the session row survived logout -- the cookie went, the session did not"
 pass "the SPRING_SESSION row is gone, not just the cookie"

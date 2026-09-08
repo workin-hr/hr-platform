@@ -24,7 +24,8 @@
 -- Deliberately NOT idempotent -- no CREATE TABLE IF NOT EXISTS. A table
 -- that already exists with the wrong columns would pass that check
 -- silently, which is the failure this file exists to prevent. Verify
--- first (scripts/verify-phase1-tables.sql, read-only), then apply.
+-- first (verify_phase1_tables.sql, beside this file and in the jar
+-- alongside it, read-only), then apply.
 --
 -- Unlike mysql_workin.schema.sql (vendored, drift-checked byte-identical
 -- against hr-legacy by scripts/check_legacy_schema_drift.py), the tables

@@ -154,11 +154,15 @@ class LegacyPlatformAdminOnMySqlTest {
 		JdbcTemplate jdbc = new JdbcTemplate(this.legacyDataSource);
 		long company = createCompany(jdbc);
 		String cookie = signIn();
-		ResponseEntity<String> detail = get("/admin/companies/" + company, cookie);
+		// ?lang=en because the page is localised now (D-209): it used to carry
+		// these two labels as hardcoded English, which is the only reason
+		// asserting on them worked without asking for a language. The wording
+		// is the catalogue's, not this test's.
+		ResponseEntity<String> detail = get("/admin/companies/" + company + "?lang=en", cookie);
 		assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(detail.getBody())
 			.as("the counts legacy's detail.php shows, over the same join through employees")
-			.contains("Pending requests", "Pending advances");
+			.contains("Pending Requests", "Pending Advances");
 	}
 
 	private String signIn() {

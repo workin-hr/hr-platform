@@ -1,6 +1,7 @@
+@import com.workin.backend.platformadmin.content.Faq
+@import com.workin.backend.platformadmin.web.DashboardSession
 @import java.util.List
 @import java.util.function.Function
-@import com.workin.backend.platformadmin.content.Faq
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
@@ -10,7 +11,7 @@
 @param String errorKey = null
 @param String currentPage
 @param String lang
-@param com.workin.backend.platformadmin.web.DashboardSession session
+@param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean arabic = "ar".equals(lang);}
@@ -83,6 +84,16 @@
 									@if(canWrite)
 										@template.admin.rowActions(rowId = category.id(), t = t,
 												menuPrefix = "faq-category-menu", items = @`
+											<%-- D-210: updateCategory existed with nothing posting
+											     edit_category, so a category could be deleted but
+											     not renamed. --%>
+											<button type="button" role="menuitem" class="row-actions__item"
+													data-dialog="faq-category-edit"
+													data-dialog-id="${category.id()}"
+													data-dialog-subject="${category.nameAr()}"
+													data-dialog-nameAr="${category.nameAr()}"
+													data-dialog-nameEn="${category.nameEn()}"
+													data-dialog-sortOrder="${category.sortOrder()}">${t.apply("edit")}</button>
 											<form method="post" class="row-actions__form"
 											      onsubmit="return confirm('${t.apply("faq_delete_category_confirm")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -149,6 +160,23 @@
 									@if(canWrite)
 										@template.admin.rowActions(rowId = item.id(), t = t,
 												menuPrefix = "faq-item-menu", items = @`
+											<%-- D-210: updateItem existed with nothing posting
+											     edit_item, so a question could be deleted but not
+											     corrected. --%>
+											<button type="button" role="menuitem" class="row-actions__item"
+													data-dialog="faq-item-edit"
+													data-dialog-id="${item.id()}"
+													data-dialog-subject="${item.questionAr()}"
+													data-dialog-categoryId="${item.categoryId()}"
+													data-dialog-questionAr="${item.questionAr()}"
+													data-dialog-questionEn="${item.questionEn()}"
+													data-dialog-answerAr="${item.answerAr()}"
+													data-dialog-answerEn="${item.answerEn()}"
+													<%-- .stored(), not the enum: the options are stored values
+													     ("both"), and setting a select to "BOTH" matches
+													     none of them and silently clears it. --%>
+													data-dialog-platform="${item.platform().stored()}"
+													data-dialog-sortOrder="${item.sortOrder()}">${t.apply("edit")}</button>
 											<form method="post" class="row-actions__form"
 											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -171,6 +199,64 @@
 			</div>
 		</div>
 		@if(canWrite)
+			@template.admin.rowDialog(id = "faq-category-edit", action = "edit_category",
+					title = t.apply("edit"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
+					fields = @`
+						<div class="form-row">
+							<label>${t.apply("name_ar")}
+								<input type="text" name="nameAr" required data-dialog-field="nameAr"></label>
+							<label>${t.apply("name_en")}
+								<input type="text" name="nameEn" required data-dialog-field="nameEn"></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("sort_order")}
+								<input type="number" name="sortOrder" data-dialog-field="sortOrder"></label>
+							<%-- Not prefilled: a checkbox has no data-dialog-field equivalent,
+							     and the row shows its own state. Submitting sets it. --%>
+							<label><input type="checkbox" name="isActive" value="1" checked>
+								<span>${t.apply("status_active")}</span></label>
+						</div>
+					`)
+
+			@template.admin.rowDialog(id = "faq-item-edit", action = "edit_item",
+					title = t.apply("edit"), csrfParameterName = csrfParameterName,
+					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
+					fields = @`
+						<div class="form-row">
+							<label>${t.apply("faq_category")}
+								<select name="categoryId" required data-dialog-field="categoryId">
+									@for(Faq.Category category : categories)
+										<option value="${category.id()}">${arabic ? category.nameAr() : category.nameEn()}</option>
+									@endfor
+								</select></label>
+							<label>${t.apply("app_platform")}
+								<select name="platform" data-dialog-field="platform">
+									@for(Faq.Platform p : Faq.Platform.values())
+										<option value="${p.stored()}">${p.stored()}</option>
+									@endfor
+								</select></label>
+							<label>${t.apply("sort_order")}
+								<input type="number" name="sortOrder" data-dialog-field="sortOrder"></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("question_ar")}
+								<input type="text" name="questionAr" required data-dialog-field="questionAr"></label>
+							<label>${t.apply("question_en")}
+								<input type="text" name="questionEn" required data-dialog-field="questionEn"></label>
+						</div>
+						<div class="form-row">
+							<label>${t.apply("answer_ar")}
+								<textarea name="answerAr" rows="3" required data-dialog-field="answerAr"></textarea></label>
+							<label>${t.apply("answer_en")}
+								<textarea name="answerEn" rows="3" required data-dialog-field="answerEn"></textarea></label>
+						</div>
+						<div class="form-row">
+							<label><input type="checkbox" name="isActive" value="1" checked>
+								<span>${t.apply("status_active")}</span></label>
+						</div>
+					`)
+
 			<%-- Legacy opens this in a modal (faqCatAddModal / faqItemAddModal),
 			     behind the "+" button on the table above. Rendered inline it sat
 			     open under the table on every visit -- a stack of full-width
@@ -188,11 +274,13 @@
 						<label>${t.apply("name_ar")}<input type="text" name="nameAr" required></label>
 						<label>${t.apply("name_en")}<input type="text" name="nameEn" required></label>
 						<label>${t.apply("sort_order")}<input type="number" name="sortOrder" value="0"></label>
-						<label class="login-remember">
+						<label>
 							<input type="checkbox" name="isActive" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>
-					<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+					<div class="form-footer">
+						<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+					</div>
 				</form>
 				</div>
 			</div>
@@ -235,11 +323,13 @@
 						<label>${t.apply("answer_en")}<textarea name="answerEn" rows="3" required></textarea></label>
 					</div>
 					<div class="form-row">
-						<label class="login-remember">
+						<label>
 							<input type="checkbox" name="isActive" value="1" checked>
 							<span>${t.apply("status_active")}</span></label>
 					</div>
-					<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+					<div class="form-footer">
+						<button type="submit" class="btn btn-blue">${t.apply("add")}</button>
+					</div>
 				</form>
 				</div>
 			</div>

@@ -64,11 +64,14 @@
 			     The other thirteen columns are not on this form and are not
 			     rewritten, which is why a hand-edited payslip's net stops
 			     reconciling with its own stored totals. --%>
-			<div class="data-table-card">
-				<div class="data-table-head">
-					<h2 class="data-table-title">${t.apply("edit")} — ${editDetail.employeeName()}</h2>
-				</div>
-				<form method="POST" class="account-form org-form">
+			<%-- page.php renders this in modal over a
+			     modal-bg open. The port had it as a data-table-card in the
+			     page flow, wrapped in account-form org-form -- classes no
+			     stylesheet defines here or in legacy. --%>
+			<div class="modal-bg open">
+				<div class="modal">
+					<h2>${t.apply("edit")} — ${editDetail.employeeName()}</h2>
+					<form method="POST">
 					<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 					<input type="hidden" name="action" value="edit_detail">
 					<input type="hidden" name="id" value="${editDetail.id()}">
@@ -132,9 +135,13 @@
 						<input type="number" step="0.01" id="net_salary" name="net_salary"
 						       value="${editDetail.netSalary().toPlainString()}">
 					</div>
-					<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
-					<a class="btn" href="/admin/payroll?run_id=${viewRunId}">${t.apply("cancel")}</a>
-				</form>
+					<div class="form-footer">
+						<a class="btn btn-gray"
+						   href="/admin/payroll?run_id=${viewRunId}">${t.apply("cancel")}</a>
+						<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+					</div>
+					</form>
+				</div>
 			</div>
 		@elseif(viewRunId > 0 && currentBatch != null)
 			<%-- One batch: its totals strip, then its payslips. --%>
@@ -307,11 +314,17 @@
 			</div>
 
 			@if(canWrite)
-				<div class="data-table-card">
-					<div class="data-table-head">
-						<h2 class="data-table-title">${t.apply("create_payroll_batch")}</h2>
-					</div>
-					<form method="POST" class="account-form org-form">
+				<%-- page.php:320 keeps this in createRunModal, behind the "+" button
+				     on the batches table below. Rendered inline it sat open above
+				     that table on every visit, whether or not anyone was creating
+				     a batch. --%>
+				<div class="modal-bg" id="createRunModal">
+					<div class="modal" role="dialog" aria-modal="true"
+							aria-labelledby="createRunModal-title">
+						<button type="button" class="modal-close"
+								aria-label="${t.apply("cancel")}">&times;</button>
+						<h2 id="createRunModal-title">${t.apply("create_payroll_batch")}</h2>
+					<form method="POST">
 						<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 						<input type="hidden" name="action" value="create_run">
 						@if(!session.isScopedToOneCompany())
@@ -341,14 +354,25 @@
 								@endfor
 							</select>
 						</div>
-						<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+						<div class="form-footer">
+							<button type="submit" class="btn btn-blue">${t.apply("save")}</button>
+						</div>
 					</form>
+					</div>
 				</div>
 			@endif
 
 			<div class="data-table-card">
 				<div class="data-table-head">
 					<h2 class="data-table-title">${t.apply("nav_payroll")}</h2>
+					<div class="data-table-head__actions">
+						@if(canWrite)
+							<%-- page.php:195. The modal is rendered above; this is what
+							     opens it. --%>
+							<button type="button" class="btn btn-blue btn-sm"
+									onclick="crudOpenAdd('createRunModal')">+ ${t.apply("create_payroll_batch")}</button>
+						@endif
+					</div>
 				</div>
 				<div class="table-wrap">
 				<table class="tbl">

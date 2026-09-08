@@ -1,0 +1,64 @@
+# TLS in front of production, and the port closed behind it.
+#
+#   docker compose -f compose.prod.yaml -f compose.tls.yaml \
+#     --env-file .env.prod up -d
+#
+# Two things happen here, and the second matters as much as the first.
+#
+# **Caddy terminates TLS** on 80 and 443 and obtains its own certificates, so
+# there is no renewal for an operator to remember. The dashboard needs this at
+# all: its session cookie is `Secure` unconditionally (ADR-0015 prerequisite
+# 6), so a browser on plain HTTP accepts the login and then discards the
+# cookie.
+#
+# **The application's port stops being published.** `compose.prod.yaml` binds
+# it to loopback, which is safe but still a second route in -- and the `prod`
+# profile sets `server.forward-headers-strategy=native`, which means the
+# application believes `X-Forwarded-For`. That is only true if the proxy is the
+# *sole* route (R-049, and `running-the-backend.md`). `!override []` removes
+# the published port rather than adding to it, because compose merges lists.
+#
+# No `name:` here on purpose. A later file's project name wins the merge, so
+# declaring one would drag every stack this overlays into `workin-prod` --
+# including a look-at-real-data run from `compose.remote-db.yaml`, which would
+# then adopt production's containers and volumes. The base file names the
+# project; this one only adds an edge to it.
+
+services:
+  app:
+    ports: !override []
+
+  proxy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env.prod}
+      TLS_EMAIL: ${TLS_EMAIL:?set TLS_EMAIL in .env.prod -- the certificate authority mails renewal failures there}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The certificates and the account key. A named volume, not a bind: losing
+      # it means re-issuing on the next start, and Let's Encrypt rate-limits
+      # that.
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: ${PROXY_MEMORY_LIMIT:-256m}
+
+volumes:
+  caddy-data:
+  caddy-config:
