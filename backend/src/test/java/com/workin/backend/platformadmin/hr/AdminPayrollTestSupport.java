@@ -28,11 +28,11 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.platformadmin.mfa.PlatformAdminMfaService;
 import com.workin.backend.platformadmin.mfa.Totp;
+import com.workin.legacy.LegacyMariaDb;
 
 /**
  * The container, sign-in and fixtures the three {@code /admin/payroll} suites
@@ -47,14 +47,14 @@ import com.workin.backend.platformadmin.mfa.Totp;
  * from the assertion.
  *
  * <p>They share this base rather than a copied harness so all three run against
- * one MariaDB and one Spring context.
+ * one database and one Spring context.
  */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
 @ActiveProfiles("phase1-mysql")
 abstract class AdminPayrollTestSupport {
 
-	protected static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	protected static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	protected static final String PASSWORD = "correct horse battery staple";
 
@@ -81,17 +81,6 @@ abstract class AdminPayrollTestSupport {
 			"days_present", "days_absent", "days_leave", "overtime_hours",
 			"basic_salary", "allowances", "overtime_pay", "penalties_total",
 			"advance_deduction", "advances_deduction", "other_deductions", "net_salary");
-
-	static {
-		MARIADB.start();
-		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
-		}
-		catch (Exception ex) {
-			throw new IllegalStateException("could not apply the legacy schema", ex);
-		}
-	}
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {
@@ -357,19 +346,5 @@ abstract class AdminPayrollTestSupport {
 				.findFirst().orElse(null);
 	}
 
-	private static void applySchema(String resource) throws Exception {
-		String sql = new String(AdminPayrollTestSupport.class.getClassLoader()
-				.getResourceAsStream(resource).readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-		try (java.sql.Connection connection = java.sql.DriverManager.getConnection(
-				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-				java.sql.Statement statement = connection.createStatement()) {
-			statement.execute("SET SESSION sql_mode = ''");
-			for (String piece : sql.split(";\\R")) {
-				if (!piece.isBlank()) {
-					statement.execute(piece);
-				}
-			}
-		}
-	}
 
 }
