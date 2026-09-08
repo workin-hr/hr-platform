@@ -1212,6 +1212,7 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Trigger | A second person needing dashboard access with their own accountability. That is the day to reopen ADR-0015's individual-administrator model, whose row shape this one still fits. |
 | Severity | **Low** for a single operator; **Medium** the day there are two. |
 | Status | **Open by decision.** Recorded 2026-09-08. Related: **ADR-0018**, **D-205**, **R-049** (prerequisite 7 -- while PHP is reachable the same password opens both doors). |
+
 ## R-070: The Tenant Boundary Has No Database-Level Backstop, Permanently
 
 | Field | Value |
