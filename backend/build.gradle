@@ -56,12 +56,13 @@ dependencies {
 	// cannot invalidate a session living in another worker's heap. JDBC on the
 	// existing datasource needs no new infrastructure.
 	implementation 'org.springframework.boot:spring-boot-starter-session-jdbc'
-	// The published API description. springdoc 2.8.6 is the latest release and
-	// targets Spring Boot 3.x, while this project is on 4.1.1 -- that pairing is
-	// unsupported by the maintainers and was verified by running it rather than
-	// assumed: the application starts, serves /v3/api-docs and renders the UI.
-	// Pinned exactly, because the next Boot upgrade is where an unsupported
-	// pairing breaks, and a floating version would make that a surprise.
+	// The published API description. springdoc 3.x is the line that targets
+	// Spring Boot 4, so this pairing is a supported one -- 2.8.6 before it was
+	// not, and that note said the next Boot upgrade was where an unsupported
+	// pairing would break. Held to the same bar it set: verified by running it
+	// rather than assumed, on Boot 4.1.1, where the application starts, serves
+	// /v3/api-docs as OpenAPI 3.1.0 with all 202 paths, and renders the UI.
+	// Still pinned exactly, for the same reason.
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
 	implementation 'gg.jte:jte-spring-boot-starter-4:3.2.4'
 	implementation 'gg.jte:jte:3.2.4'
