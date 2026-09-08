@@ -1,7 +1,8 @@
-@import java.util.List
-@import java.util.function.Function
 @import com.workin.backend.platformadmin.content.Banner
 @import com.workin.backend.platformadmin.content.Faq
+@import com.workin.backend.platformadmin.web.DashboardSession
+@import java.util.List
+@import java.util.function.Function
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
@@ -13,7 +14,7 @@
 @param String errorKey = null
 @param String currentPage
 @param String lang
-@param com.workin.backend.platformadmin.web.DashboardSession session
+@param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean arabic = "ar".equals(lang);}

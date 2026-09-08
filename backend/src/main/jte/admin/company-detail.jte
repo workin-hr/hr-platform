@@ -1,4 +1,5 @@
 @import com.workin.backend.platformadmin.PlatformAdminCompanyDirectory.CompanyDetail
+@import com.workin.backend.platformadmin.web.DashboardSession
 @import java.util.function.Function
 @param String csrfParameterName
 @param String csrfToken
@@ -7,7 +8,7 @@
 @param CompanyDetail detail
 @param String currentPage
 @param String lang
-@param com.workin.backend.platformadmin.web.DashboardSession session
+@param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 <%-- detail.php renders inside pages/companies, whose page.php:139 names

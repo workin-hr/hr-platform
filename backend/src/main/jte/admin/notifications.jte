@@ -1,9 +1,10 @@
-@import java.util.List
-@import java.util.function.Function
 @import com.workin.backend.platformadmin.content.BroadcastAudience
 @import com.workin.backend.platformadmin.content.BroadcastStore
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
+@import com.workin.backend.platformadmin.web.DashboardSession
+@import java.util.List
+@import java.util.function.Function
 @param String csrfParameterName
 @param String csrfToken
 @param String currentAdminPhone
@@ -19,7 +20,7 @@
 @param Integer sentCount = null
 @param String currentPage
 @param String lang
-@param com.workin.backend.platformadmin.web.DashboardSession session
+@param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 !{boolean canWrite = actionsEnabled;}

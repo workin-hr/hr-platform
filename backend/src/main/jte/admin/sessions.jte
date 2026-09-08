@@ -1,5 +1,6 @@
-@import java.util.List
+@import com.workin.backend.platformadmin.web.DashboardSession
 @import com.workin.backend.platformadmin.web.PlatformAdminSessionInventory.BrowserSession
+@import java.util.List
 @import java.util.function.Function
 @param String csrfParameterName
 @param String csrfToken
@@ -7,7 +8,7 @@
 @param List<BrowserSession> sessions
 @param String currentPage
 @param String lang
-@param com.workin.backend.platformadmin.web.DashboardSession session
+@param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 @template.admin.layout(

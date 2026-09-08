@@ -1,3 +1,4 @@
+@import com.workin.backend.platformadmin.web.DashboardSession
 @import gg.jte.Content
 @import java.util.function.Function
 @param String title
@@ -6,7 +7,7 @@
 @param String currentAdminPhone = null
 @param String currentPage = ""
 @param String lang = "ar"
-@param com.workin.backend.platformadmin.web.DashboardSession session
+@param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 @param String flash = null

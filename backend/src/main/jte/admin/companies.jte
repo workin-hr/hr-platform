@@ -1,9 +1,10 @@
-@import java.util.List
 @import com.workin.backend.platformadmin.PlatformAdminCompanyDirectory.EditableCompany
 @import com.workin.backend.platformadmin.companies.CompanyListFilters
 @import com.workin.backend.platformadmin.companies.CompanyRow
 @import com.workin.backend.platformadmin.hr.EmployeeDisplay
 @import com.workin.backend.platformadmin.web.DashboardPage
+@import com.workin.backend.platformadmin.web.DashboardSession
+@import java.util.List
 @import java.util.function.Function
 @param String csrfParameterName
 @param String csrfToken
@@ -12,7 +13,7 @@
 @param String errorKey = null
 @param String currentPage
 @param String lang
-@param com.workin.backend.platformadmin.web.DashboardSession session
+@param DashboardSession session
 @param Function<String, String> t
 @param Function<String, Boolean> available
 <%-- The directory: the dashboard's fourteen columns, its five filters and
