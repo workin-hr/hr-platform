@@ -38,7 +38,17 @@ import org.testcontainers.containers.MariaDBContainer;
  */
 public final class LegacyMariaDb {
 
-	private static final MariaDBContainer<?> CONTAINER = new MariaDBContainer<>("mariadb:11.8");
+	/**
+	 * One container serves every class in the fork, and each class's Spring
+	 * context keeps its own connection pool open for as long as Spring's test
+	 * context cache holds it. Twenty-five classes' pools plus their fixtures
+	 * passed MariaDB's default ceiling of 151 -- "Too many connections", first
+	 * seen as a schema apply failing inside a class initialiser. The image's
+	 * entrypoint prepends {@code mariadbd} to an argument list that starts with
+	 * a dash, so this is the server option and nothing else changes.
+	 */
+	private static final MariaDBContainer<?> CONTAINER = new MariaDBContainer<>("mariadb:11.8")
+			.withCommand("--max-connections=1000");
 
 	private static final AtomicInteger NEXT = new AtomicInteger();
 
