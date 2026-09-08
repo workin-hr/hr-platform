@@ -31,7 +31,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.platformadmin.mfa.PlatformAdminMfaService;
@@ -60,7 +59,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("phase1-mysql")
 class LegacyPlatformAdminOnMySqlTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	private static final String PASSWORD = "correct horse battery staple";
 
@@ -69,17 +69,6 @@ class LegacyPlatformAdminOnMySqlTest {
 	private static final Pattern SEED = Pattern.compile("<code>([A-Z2-7]+)</code>");
 
 	private static final Pattern APPROVAL = Pattern.compile("name=\"approvalId\" value=\"([0-9a-f]+)\"");
-
-	static {
-		MARIADB.start();
-		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
-		}
-		catch (Exception ex) {
-			throw new IllegalStateException("could not apply the legacy schema", ex);
-		}
-	}
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {
@@ -394,26 +383,6 @@ class LegacyPlatformAdminOnMySqlTest {
 			}
 		}
 		return out.toByteArray();
-	}
-
-	private static void applySchema(String resource) throws Exception {
-		try (InputStream stream = LegacyPlatformAdminOnMySqlTest.class.getClassLoader()
-				.getResourceAsStream(resource)) {
-			String sql = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-			try (Connection connection = DriverManager.getConnection(
-					MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-					Statement statement = connection.createStatement()) {
-				// One statement per `;` at end of line, comments included --
-				// the same split AbstractLegacyMySqlTest uses. Skipping chunks
-				// that *start* with a comment would skip the statement the
-				// comment documents, which is most of them in these files.
-				for (String piece : sql.split(";\\s*\\R")) {
-					if (!piece.isBlank()) {
-						statement.execute(piece);
-					}
-				}
-			}
-		}
 	}
 
 }

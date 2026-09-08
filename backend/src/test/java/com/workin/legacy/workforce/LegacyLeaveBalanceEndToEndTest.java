@@ -29,10 +29,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.LegacyMariaDb;
 
 /** Focused parity regressions for Wave 12.7 leave balances. */
 @SpringBootTest(classes = BackendApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -40,7 +40,8 @@ import com.workin.backend.identity.JwtService;
 @ActiveProfiles("phase1-mysql")
 class LegacyLeaveBalanceEndToEndTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	private static final long COMPANY = 21701L;
 	private static final long BRANCH_A = 21711L;
@@ -59,10 +60,7 @@ class LegacyLeaveBalanceEndToEndTest {
 	private JwtService jwtService;
 
 	static {
-		MARIADB.start();
 		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare leave-balance fixture", ex);
@@ -314,27 +312,8 @@ class LegacyLeaveBalanceEndToEndTest {
 				+ " 'accepted', '+2010" + id + "', '" + name + "', 'Test', '2025-01-20 09:00:00')");
 	}
 
-	private static void applySchema(String resourceName) throws Exception {
-		String schema = readResource(resourceName);
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-		}
-	}
-
 	private static Connection connect() throws Exception {
 		return DriverManager.getConnection(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
 	}
 
-	private static String readResource(String resourceName) throws Exception {
-		try (InputStream stream = LegacyLeaveBalanceEndToEndTest.class.getClassLoader().getResourceAsStream(resourceName)) {
-			if (stream == null) {
-				throw new IllegalStateException("missing test resource " + resourceName);
-			}
-			return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-		}
-	}
 }

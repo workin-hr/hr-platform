@@ -25,10 +25,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.LegacyMariaDb;
 
 /**
  * Wave 12.4, slice 1: {@code employees/list.php} and {@code employees/one.php}
@@ -45,7 +45,8 @@ import com.workin.backend.identity.JwtService;
 @ActiveProfiles("phase1-mysql")
 class LegacyEmployeeReadEndToEndTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	private static final String LIST = "/apis/api/employees/list.php";
 	private static final String ONE = "/apis/api/employees/one.php";
@@ -80,10 +81,7 @@ class LegacyEmployeeReadEndToEndTest {
 	private RequestMappingHandlerMapping handlerMapping;
 
 	static {
-		MARIADB.start();
 		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the Wave 12.4 employee read fixture", ex);
@@ -597,17 +595,6 @@ class LegacyEmployeeReadEndToEndTest {
 		return headers;
 	}
 
-	private static void applySchema(String resourceName) throws Exception {
-		String schema = readResource(resourceName);
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-		}
-	}
-
 	private static void seed() throws Exception {
 		try (Connection connection = connect(); Statement st = connection.createStatement()) {
 			st.execute("SET SESSION sql_mode = ''");
@@ -691,15 +678,6 @@ class LegacyEmployeeReadEndToEndTest {
 
 	private static Connection connect() throws Exception {
 		return DriverManager.getConnection(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-	}
-
-	private static String readResource(String name) throws Exception {
-		try (InputStream stream = LegacyEmployeeReadEndToEndTest.class.getClassLoader().getResourceAsStream(name)) {
-			if (stream == null) {
-				throw new IllegalStateException("missing test resource " + name);
-			}
-			return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-		}
 	}
 
 }

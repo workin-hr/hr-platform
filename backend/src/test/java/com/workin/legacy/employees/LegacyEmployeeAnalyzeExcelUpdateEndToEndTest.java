@@ -27,10 +27,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.LegacyMariaDb;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetColumns;
 import com.workin.legacy.spreadsheet.LegacyCsvWriter;
 
@@ -54,7 +54,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("phase1-mysql")
 class LegacyEmployeeAnalyzeExcelUpdateEndToEndTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	private static final String ANALYZE_UPDATE = "/apis/api/employees/analyze_excel_update.php";
 	private static final String TEMPLATE = "/apis/api/employees/template_excel.php";
@@ -74,10 +75,7 @@ class LegacyEmployeeAnalyzeExcelUpdateEndToEndTest {
 	private JwtService jwtService;
 
 	static {
-		MARIADB.start();
 		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the analyze_excel_update fixture", ex);
@@ -386,21 +384,6 @@ class LegacyEmployeeAnalyzeExcelUpdateEndToEndTest {
 	private static Connection connect() throws Exception {
 		return DriverManager.getConnection(
 				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-	}
-
-	private static void applySchema(String resourceName) throws Exception {
-		String schema;
-		try (java.io.InputStream stream = LegacyEmployeeAnalyzeExcelUpdateEndToEndTest.class
-				.getClassLoader().getResourceAsStream(resourceName)) {
-			schema = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-		}
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-		}
 	}
 
 	private static void seed() throws Exception {

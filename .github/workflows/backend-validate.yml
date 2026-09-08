@@ -36,6 +36,31 @@ on:
 permissions:
   contents: read
 
+# One run per branch head, and a new push kills the one it supersedes.
+#
+# The suite takes about twenty minutes, so three pushes in quick succession --
+# a fix, a review response, a typo -- used to mean an hour of runner time to
+# learn one answer about the last of them. Nothing here publishes a status
+# another job reads, unlike the review gate next door, so cancelling a
+# superseded run loses nothing: its result was about a commit that is no longer
+# the head.
+#
+# The key is the *source branch*, not `github.ref`. A branch that has an open
+# pull request in this repository triggers both configured events, and their
+# refs differ -- `refs/heads/<branch>` for the push, `refs/pull/<n>/merge` for
+# the pull request -- so keying on the ref put them in separate groups and ran
+# the same head twice, which is the duplication this block exists to remove.
+# `head_ref` is set only on `pull_request`, so the fallback covers pushes.
+#
+# On `main` the key is the SHA instead, because there the run is the record
+# that a merged commit builds. A shared group would not just leave it
+# uncancelled: GitHub keeps one running and one pending run per group and
+# discards the rest, so three merges in quick succession would leave the middle
+# commit with no run at all.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name == 'main' && github.sha || github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
+
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -135,11 +160,18 @@ jobs:
         working-directory: .
         run: python3 scripts/etl/load_postgres.py --self-test
 
+      # `cache: gradle` restores the dependency cache and Gradle's own
+      # build cache between runs, keyed on the build files. Without it every
+      # run re-resolved the whole dependency graph -- Spring Boot, Flyway,
+      # Testcontainers and their transitive closure -- before compiling a
+      # line. The cache is scoped per branch by the action, and a cache miss
+      # simply costs what every run used to cost.
       - name: Set up Java 25 (immutable action reference; exact version, not checksum-verified)
         uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c  # v6.0.0
         with:
           distribution: temurin
           java-version: "25"
+          cache: gradle
 
       # `compilePhase2TestJava` compiles the frozen Phase 2 migration
       # suite without running it. Frozen work must not be allowed to stop
@@ -147,8 +179,12 @@ jobs:
       # the coupling the reset removed -- ~3 minutes of Testcontainers
       # PostgreSQL inside the application build. `./gradlew phase2Test`
       # runs it on demand.
+      # No `clean`. The runner is a fresh checkout, so there is nothing to
+      # clean -- and with the Gradle cache restored above, `clean` would throw
+      # away the compiled output it just fetched and make the cache pointless.
+      # `--build-cache` lets an unchanged module skip recompilation outright.
       - name: Run backend test suite (and compile the frozen Phase 2 suite)
-        run: ./gradlew clean test compilePhase2TestJava --console=plain
+        run: ./gradlew test compilePhase2TestJava --console=plain --build-cache
 
       # Gradle prints a test count only when something fails, so a green
       # build is silent about what actually ran -- and a test class that

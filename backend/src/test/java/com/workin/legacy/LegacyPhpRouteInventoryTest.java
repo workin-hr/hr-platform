@@ -17,7 +17,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.legacy.wire.LegacyApiResponse;
@@ -29,7 +28,8 @@ import com.workin.legacy.wire.LegacyWireExceptionHandler;
 @ActiveProfiles("phase1-mysql")
 class LegacyPhpRouteInventoryTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** An empty database of this class's own: it creates its own tables. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.emptyDatabase();
 
 	private static final List<String> EXPECTED_ROUTES = List.of(
 			"/apis/api/administrative_decisions/create.php",
@@ -171,7 +171,6 @@ class LegacyPhpRouteInventoryTest {
 	@Qualifier("requestMappingHandlerMapping")
 	private RequestMappingHandlerMapping handlerMapping;
 
-	static { MARIADB.start(); }
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {

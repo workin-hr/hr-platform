@@ -21,13 +21,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MariaDBContainer;
 
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import com.workin.backend.BackendApplication;
+import com.workin.legacy.LegacyMariaDb;
 
 /**
  * {@code apis/api/index.php}'s behaviour for a path no endpoint serves.
@@ -61,11 +61,8 @@ import com.workin.backend.BackendApplication;
 @ActiveProfiles("phase1-mysql")
 class LegacyPhpRouterRefusalTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
-
-	static {
-		MARIADB.start();
-	}
+	/** An empty database of this class's own: it creates its own tables. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.emptyDatabase();
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {

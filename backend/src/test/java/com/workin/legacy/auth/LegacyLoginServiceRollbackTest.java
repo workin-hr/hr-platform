@@ -18,10 +18,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
+import com.workin.legacy.LegacyMariaDb;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -58,7 +58,8 @@ import static org.mockito.Mockito.doThrow;
 @ActiveProfiles("phase1-mysql")
 class LegacyLoginServiceRollbackTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 	private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
 	private static final String KNOWN_PASSWORD = "Secret123!";
 	private static final long EMPLOYEE_ID = 90601L;
@@ -71,10 +72,7 @@ class LegacyLoginServiceRollbackTest {
 	private JwtService jwtService;
 
 	static {
-		MARIADB.start();
 		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
 			seed();
 		} catch (Exception ex) {
 			throw new IllegalStateException("could not prepare the login-rollback fixture", ex);
@@ -87,17 +85,6 @@ class LegacyLoginServiceRollbackTest {
 		registry.add("app.legacy-db.jdbc-url", MARIADB::getJdbcUrl);
 		registry.add("app.legacy-db.username", MARIADB::getUsername);
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
-	}
-
-	private static void applySchema(String resourceName) throws Exception {
-		String schema = readResource(resourceName);
-		try (Connection connection = connect(); Statement st = connection.createStatement()) {
-			for (String statement : schema.split(";\\s*\\R")) {
-				if (!statement.isBlank()) {
-					st.execute(statement);
-				}
-			}
-		}
 	}
 
 	private static void seed() throws Exception {
@@ -126,15 +113,6 @@ class LegacyLoginServiceRollbackTest {
 
 	private static Connection connect() throws Exception {
 		return DriverManager.getConnection(MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-	}
-
-	private static String readResource(String name) throws Exception {
-		try (InputStream in = LegacyLoginServiceRollbackTest.class.getClassLoader().getResourceAsStream(name)) {
-			if (in == null) {
-				throw new IllegalStateException("missing test resource: " + name);
-			}
-			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-		}
 	}
 
 	private static long readTokenVersion() throws Exception {

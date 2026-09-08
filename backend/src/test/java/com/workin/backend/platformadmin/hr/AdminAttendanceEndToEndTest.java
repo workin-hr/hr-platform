@@ -29,11 +29,11 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.testcontainers.containers.MariaDBContainer;
 
 import com.workin.backend.BackendApplication;
 import com.workin.backend.platformadmin.mfa.PlatformAdminMfaService;
 import com.workin.backend.platformadmin.mfa.Totp;
+import com.workin.legacy.LegacyMariaDb;
 
 /**
  * {@code /admin/attendance} over real HTTP against a real MariaDB.
@@ -52,21 +52,12 @@ import com.workin.backend.platformadmin.mfa.Totp;
 @ActiveProfiles("phase1-mysql")
 class AdminAttendanceEndToEndTest {
 
-	private static final MariaDBContainer<?> MARIADB = new MariaDBContainer<>("mariadb:11.8");
+	/** A database of this class's own, inside the shared container. */
+	private static final LegacyMariaDb.Handle MARIADB = LegacyMariaDb.freshDatabase();
 
 	private static final String PASSWORD = "correct horse battery staple";
 
 	private static final Pattern CSRF = Pattern.compile("name=\"([^\"]*_csrf[^\"]*)\" value=\"([^\"]+)\"");
-
-	static {
-		MARIADB.start();
-		try {
-			applySchema("legacy/mysql_workin.schema.sql");
-			applySchema("db/phase1-mysql/phase1_extensions.sql");
-		} catch (Exception ex) {
-			throw new IllegalStateException("could not apply the legacy schema", ex);
-		}
-	}
 
 	@DynamicPropertySource
 	static void registerProperties(DynamicPropertyRegistry registry) {
@@ -606,21 +597,6 @@ class AdminAttendanceEndToEndTest {
 					return end < 0 ? header.substring(start) : header.substring(start, end);
 				})
 				.findFirst().orElse(null);
-	}
-
-	private static void applySchema(String resource) throws Exception {
-		String sql = new String(AdminPenaltiesEndToEndTest.class.getClassLoader()
-				.getResourceAsStream(resource).readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-		try (java.sql.Connection connection = java.sql.DriverManager.getConnection(
-				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
-				java.sql.Statement statement = connection.createStatement()) {
-			statement.execute("SET SESSION sql_mode = ''");
-			for (String piece : sql.split(";\\R")) {
-				if (!piece.isBlank()) {
-					statement.execute(piece);
-				}
-			}
-		}
 	}
 
 }
