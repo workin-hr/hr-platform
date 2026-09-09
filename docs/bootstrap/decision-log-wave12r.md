@@ -3623,7 +3623,7 @@ it reached `main`, and the honest answer is that nobody independent looked.
 
 | Path | Condition | Evidence |
 |---|---|---|
-| **(a) Self-declared exhaustion, still current** | A usage-limit comment exists **and is the reviewer's most recent artefact of any kind** — no review object and no clean-round comment has landed after it. A historical usage-limit comment proves the outage *happened*, never that it *persists*: quota recovers on its own, and on 2026-09-09 it recovered roughly 80 minutes after the last such comment. **The moment any round lands anywhere, path (a) is closed** — see Criterion 5. | Line 2 of the command below reading `PASS`. |
+| **(a) Self-declared exhaustion, still current** | A usage-limit comment exists **and is the reviewer's most recent artefact of any kind anywhere in the repository** — no review object and no clean-round comment has landed after it, on this pull request or any other. A historical usage-limit comment proves the outage *happened*, never that it *persists*: quota recovers on its own, and on 2026-09-09 it recovered roughly 80 minutes after the last such comment. **The moment any round lands anywhere, path (a) is closed** — see Criterion 5. | Line 2 of the command below reading `PASS`. |
 | **(b) Silence** | All of: `@codex review` requested at least **twice**, the requests at least **60 minutes** apart, the first at least **4 hours** ago; **and** no round on the current head — counting **both** review objects **and** D-158 clean-round comments, because a round that finds nothing posts a comment and no review object at all, so counting reviews alone reports "silence" on a head that was reviewed clean. | Lines 1 and 3 of the command below reading `PASS`. |
 
 Neither path may be declared by inference, impatience, or a summary. **Every line the command prints must read `PASS` for the path being claimed; a `FAIL` or `n/a` on any required line means the gate is not degraded and the merge waits.** The command proves each prerequisite rather than reporting two counts a reader must interpret — an earlier draft returned only `reviews_on_head` and a repository-wide quota-comment count, either of which could read `0`/`n` for an unrequested, too-recent, already-reviewed, or already-recovered head.
@@ -3641,14 +3641,22 @@ rounds=$(jq -r --arg b "$BOT" --arg s "$SHA" --arg p "$SHORT" '
 [ "$rounds" -eq 0 ] && echo "PASS  no round on head $SHORT" \
                     || echo "FAIL  $rounds round(s) on head $SHORT -- the gate is SATISFIED, not degraded"
 
-# 2. path (a): the reviewer's LATEST artefact is a usage-limit notice (current, not historical)
-last=$(jq -r --arg b "$BOT" '[(.comments[]|select(.author.login==$b)|{createdAt,body}),
-   (.reviews[]|select(.author.login==$b)|{createdAt:.submittedAt,body:"<review object>"})]
-   |sort_by(.createdAt)|last // empty' <<<"$J")
-if [ -z "$last" ]; then echo "n/a   path (a) not claimable -- reviewer has posted nothing"; else
-  jq -e '.body|test("usage limits";"i")' >/dev/null <<<"$last" \
-    && echo "PASS  current exhaustion ($(jq -r .createdAt <<<"$last"))" \
-    || echo "FAIL  quota RECOVERED -- latest artefact $(jq -r .createdAt <<<"$last") is not a usage-limit notice"
+# 2. path (a): the reviewer's latest artefact ACROSS THE REPOSITORY is a
+#    usage-limit notice. Repository-wide, not this PR: recovery anywhere ends
+#    the outage, so a stale notice on the PR in hand must not authorise a
+#    substitute after the reviewer has already come back on another one.
+latest=$(for n in $(gh pr list --repo "$REPO" --state open --limit 30 --json number --jq '.[].number'); do
+    gh pr view "$n" --repo "$REPO" --json comments,reviews \
+      | jq -c --arg b "$BOT" '
+        [(.comments[]|select(.author.login==$b)|{at:.createdAt,
+            kind:(if (.body|test("usage limits";"i")) then "quota" else "round" end)}),
+         (.reviews[] |select(.author.login==$b)|{at:.submittedAt, kind:"round"})][]' 2>/dev/null
+  done | jq -s 'sort_by(.at)|last // empty')
+if [ -z "$latest" ]; then echo "n/a   path (a) not claimable -- reviewer has posted nothing anywhere"
+elif [ "$(jq -r .kind <<<"$latest")" = "quota" ]; then
+  echo "PASS  exhaustion is current repository-wide ($(jq -r .at <<<"$latest"))"
+else
+  echo "FAIL  reviewer RECOVERED at $(jq -r .at <<<"$latest") -- D-224 has lapsed, use the normal gate"
 fi
 
 # 3. path (b): two requests >=60min apart, first >=4h ago
