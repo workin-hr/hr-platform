@@ -98,6 +98,8 @@ public final class LegacyEmployeeSpreadsheetErrors {
 			case "mobile_attendance_required", "mobile_attendance_invalid"
 					-> "is_mobile_attendance_enabled";
 			case "salary_basic_required" -> "salary_basic";
+			case "employee_not_found" -> "employee_code";
+			case "gender_invalid" -> "gender";
 			default -> null;
 		};
 	}
@@ -140,6 +142,7 @@ public final class LegacyEmployeeSpreadsheetErrors {
 			case "job_title_department_mismatch" -> "المسمى الوظيفي لا ينتمي للقسم المحدد";
 			case "mobile_attendance_required" -> "حضور من الموبايل مطلوب — اكتب نعم أو لا";
 			case "mobile_attendance_invalid" -> "حضور من الموبايل غير صالح — اكتب نعم أو لا";
+			case "gender_invalid" -> "النوع غير صالح — اكتب ذكر أو أنثى";
 			case "invalid_phone" -> phone.isEmpty()
 					? "رقم التلفون غير صالح لهذه الدولة (مثال: 010… أو 10…)"
 					: "رقم التليفون (" + phone + ") غير صالح لهذه الدولة (مثال: 010… أو 10…)";
@@ -147,6 +150,11 @@ public final class LegacyEmployeeSpreadsheetErrors {
 					? "رقم التلفون غير صالح لهذه الدولة"
 					: "رقم التليفون (" + phone + ") غير صالح لهذه الدولة";
 			case "salary_basic_required" -> "الراتب الأساسي مطلوب";
+			case "employee_not_found" -> employeeCode.isEmpty()
+					? "كود الموظف غير موجود في الشركة"
+					: "كود الموظف (" + employeeCode + ") غير موجود في الشركة";
+			case "nothing_to_update" -> "لا توجد قيم للتعديل — املأ عموداً واحداً على الأقل غير كود الموظف";
+			case "employee_update_failed" -> "تعذّر تعديل الموظف. راجع البيانات وحاول مرة أخرى";
 			case "employee_create_failed" -> "تعذّر إنشاء الموظف. راجع البيانات وحاول مرة أخرى";
 			default -> code;
 		};

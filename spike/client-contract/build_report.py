@@ -122,14 +122,21 @@ if CLIENT == 'mobile':
     w('same status, same parse outcome, and the same set of fields that end up blank')
     w('or defaulted. Nothing here asks for a Java change.')
     w('')
-    w('### 2. `time/now` does not exist -- a client defect, not a parity defect')
+    # Rewritten 2026-09-09 (D-220). This section asserted a 404 that hr-legacy
+    # 505004f retired by adding `time` to ApiModule::allowedList(). Left as it
+    # was, every regenerated report would have re-emitted the stale claim --
+    # which is the whole hazard of a stale statement inside a generator rather
+    # than in prose somebody reads once.
+    w('### 2. `time/now` used to 404, and no longer does')
     w('')
-    w('The mobile client calls `time/now`. There is no `time` module in the frozen')
-    w('PHP tree, and both stacks answer the same 404:')
+    w('The mobile client calls `time/now` five times a session. Until hr-legacy')
+    w('505004f there was no `time` module in the allow-list, so the router')
+    w('refused before looking for the file and both stacks answered the same 404.')
+    w('That commit added the module, and both stacks now serve the route:')
     w('')
     w('```text')
-    w("php  404 Module 'time' not found")
-    w("java 404 Module 'time' not found")
+    w('php  200 (server_unix)')
+    w('java 200 (server_unix)')
     w('```')
     w('')
     w('Pre-existing, identical on both, and not a migration decision.')

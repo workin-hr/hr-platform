@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import com.workin.legacy.payroll.LegacyPayrollFiscalSettings;
 import com.workin.legacy.LegacyJdbcValues;
+import com.workin.legacy.LegacyPublicRow;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.attendance.location.LegacyAttendanceLocation;
 import com.workin.legacy.auth.LegacyLoginCandidate;
@@ -114,8 +115,9 @@ public class LegacyPhpLoginService {
 
 		attendanceLocation.attachBranchLocationConfiguredFlag(employee, authenticated.companyId());
 		fiscalSettings.attachCompanyFiscalMonth(employee, authenticated.companyId());
-		employee.remove("password_hash");
-		employee.remove("token_version");
+		// The same list the rest of the surface strips, rather than a fourth
+		// hand-written copy of it.
+		LegacyPublicRow.SENSITIVE_KEYS.forEach(employee::remove);
 		return new LoginResult(token, employee);
 	}
 

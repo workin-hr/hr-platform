@@ -412,34 +412,30 @@ public class LegacyPayrollAttendanceFigures {
 	}
 
 	/**
-	 * {@code payroll_payslip_present_details()} ({@code payroll_calculation.php:382-437}):
-	 * the day-by-day "present days" hover breakdown -- real punches/exceptions,
-	 * earned weekly rest, and (once the employee clears the minimum-coverage
-	 * threshold) credited official holidays, sorted by date.
+	 * {@code payroll_payslip_present_details()}: the day-by-day "present days"
+	 * hover breakdown -- <b>punches and exceptions only</b>, sorted by date.
+	 *
+	 * <p>hr-legacy {@code 505004f} deleted the earned-weekly-rest loop and the
+	 * credited-holiday block from this function; its docblock now reads
+	 * "punch / exception only. Earned weekly rest and official holidays are
+	 * separate payslip fields." Listing them here put days the employee never
+	 * punched into a breakdown of days attended, and disagreed with the
+	 * {@code days_present} count beside it.
+	 *
+	 * <p>{@code companyId} and {@code punchPresent} are still parameters because
+	 * {@code payroll_payslip_present_details()} still takes them, and this port
+	 * follows PHP's signature so the two stay comparable. The weekly-rest and
+	 * holiday <em>labels</em> are not: they were only ever Java-side i18n for
+	 * the two row kinds this no longer emits, so they went with them.
 	 */
 	public List<Map<String, Object>> presentDetails(
 			long companyId, long employeeId, String periodFrom, String periodTo, int punchPresent, String asOf,
-			String presentLabel, String weeklyRestLabel, String officialHolidayFallbackLabel) {
+			String presentLabel) {
 		boolean inProgress = asOf.compareTo(periodTo) < 0;
 		String rangeTo = inProgress ? asOf : periodTo;
 
 		List<Map<String, Object>> details =
 				new java.util.ArrayList<>(attendancePresentDetails(employeeId, periodFrom, rangeTo, presentLabel));
-
-		Map<String, LegacyWeeklyRestCredit.AttendanceFlag> attFlags =
-				weeklyRestCredit.attendanceFlagsInRange(companyId, employeeId, periodFrom, rangeTo);
-		String lookbackFrom = LocalDate.parse(periodFrom).minusDays(7).toString();
-		Map<String, String> holidayByDate = calendar.holidaysByDate(companyId, lookbackFrom, rangeTo);
-
-		for (String date : weeklyRestDatesByStatus(
-				companyId, employeeId, periodFrom, rangeTo, LegacyWeeklyRestCredit.EARNED, attFlags, holidayByDate, asOf)) {
-			details.add(Map.of("date", date, "day_type", "weekly_rest", "label", weeklyRestLabel));
-		}
-
-		if (punchPresent >= MIN_COVERED_WORKDAYS) {
-			details.addAll(officialHolidaysWorkingCreditDetails(
-					companyId, employeeId, periodFrom, rangeTo, officialHolidayFallbackLabel));
-		}
 
 		details.sort(java.util.Comparator.comparing(row -> (String) row.get("date")));
 		return details;

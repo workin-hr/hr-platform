@@ -23,14 +23,17 @@ public final class LegacyPhpModules {
 
 	/** Ported from {@code apis/config/http_api.php}; order is PHP's. */
 	public static final List<String> ALLOWED = List.of(
-			"administrative_decisions", "advances", "app_content", "faqs", "attendance", "auth",
-			"banners", "branches", "company", "company_settings", "company_official_holidays",
-			"setting_definitions", "setting_allowed_values", "complaints", "configs", "departments",
-			"employee_docs", "assets", "employees", "hr_employees", "company_join_requests",
-			"job_titles", "workforce_planning", "leave_balances", "notifications",
-			"payroll_batches", "payslips", "penalties", "phone_countries", "profile", "reports",
-			"request_types", "requests", "salary_contracts", "shifts", "schedules",
-			"attendance_exception_types", "dashboard");
+			"administrative_decisions", "advances", "app_content", "faqs",
+			"guide_videos", "attendance", "auth", "banners",
+			"branches", "company", "company_settings", "company_official_holidays",
+			"setting_definitions", "setting_allowed_values", "complaints", "configs",
+			"departments", "employee_docs", "assets", "employees",
+			"hr_employees", "company_join_requests", "job_titles", "workforce_planning",
+			"leave_balances", "notifications", "payroll_batches", "payslips",
+			"penalties", "phone_countries", "profile", "reports",
+			"request_types", "requests", "salary_contracts", "shifts",
+			"schedules", "attendance_exception_types", "time", "dashboard"
+	);
 
 	private static final Set<String> ALLOWED_SET = Set.copyOf(ALLOWED);
 

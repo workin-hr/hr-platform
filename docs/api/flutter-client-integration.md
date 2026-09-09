@@ -48,10 +48,14 @@ No Java parity defect was found in any of it.
 Each was reproduced against PHP before being accepted, so do not "fix" them
 when you meet them:
 
-- **`GET time/now` returns 404.** The mobile client calls it five times a
-  session. `time/now.php` exists on disk, but `time` is not in
-  `ApiModule::allowedList()`, and the legacy router checks that list before
-  looking for a file. It has never worked. The client tolerates it.
+- **`GET time/now` works, since `hr-legacy` `505004f`.** It used to 404: the
+  file existed on disk but `time` was absent from `ApiModule::allowedList()`,
+  and the router checks that list before looking for a file, so the mobile
+  client's five calls a session had never once succeeded — and the client
+  tolerated it. `505004f` added the module. Both stacks now serve the route
+  (`LegacyTimeController`), so a client that only ever saw a 404 here will
+  start receiving a real clock. **Corrected 2026-09-09 (D-220);** the previous
+  text told a reader to expect and preserve the 404.
 - **`requests/create` returns 403 for a `company_admin`.** The endpoint is
   `requireAuth([EMPLOYEE])`. Only an employee-role account can create a request.
 - **`profile/logout` deactivates the account** and notifies the company. That is

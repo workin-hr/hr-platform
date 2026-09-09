@@ -1,4 +1,4 @@
-# ApiModule::allowedList(), vendored from hr-legacy@d113204
+# ApiModule::allowedList(), vendored from hr-legacy@a2dd5d7
 # apis/config/http_api.php. Order is PHP's own: index.php emits
 # implode(', ', $allowedModules) into the module_not_found body, so
 # the order is part of the client-visible contract, not incidental.
@@ -10,6 +10,7 @@ administrative_decisions
 advances
 app_content
 faqs
+guide_videos
 attendance
 auth
 banners
@@ -43,4 +44,5 @@ salary_contracts
 shifts
 schedules
 attendance_exception_types
+time
 dashboard

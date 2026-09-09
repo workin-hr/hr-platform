@@ -129,23 +129,46 @@ class LegacyPayrollBatchServiceTest {
 	// mocked store/DataSource the same way calculate()'s equivalent tests were. See
 	// LegacyPayrollBatchCalculateEndToEndTest for the real-database replacement coverage.
 
+	/**
+	 * These two asserted {@code invalid_input} until hr-legacy {@code 505004f}
+	 * replaced the refusal with the fiscal month containing today. That is what
+	 * makes the no-parameter call -- both values arriving as 0 -- the
+	 * endpoint's ordinary use rather than a client error.
+	 */
 	@Test
-	void fiscalPeriodRejectsAYearBeforeTwoThousand() {
-		assertThatThrownBy(() -> service.fiscalPeriod(9L, 1999, 4))
-				.isInstanceOf(LegacyApiException.class)
-				.satisfies(ex -> assertThat(((LegacyApiException) ex).getMessageKey()).isEqualTo("invalid_input"));
+	void fiscalPeriodFallsBackToTheCurrentMonthForAYearBeforeTwoThousand() {
+		when(clock.today()).thenReturn(java.time.LocalDate.parse("2026-04-15"));
+		when(fiscalSettings.fiscalMonthContainingDate(9L, null, java.time.LocalDate.parse("2026-04-15")))
+				.thenReturn(new LegacyPayrollFiscalSettings.FiscalMonth(
+						2026, 4, "2026-04-01", "2026-04-30", 1, 0));
+		when(fiscalSettings.fiscalPeriodBounds(9L, 2026, 4)).thenReturn(new String[] {"2026-04-01", "2026-04-07"});
+		when(fiscalSettings.fiscalDaySettings(9L)).thenReturn(new int[] {1, 0});
+		when(weeklyOffDays.forCompany(9L)).thenReturn(List.of("friday"));
+
+		Map<String, Object> result = service.fiscalPeriod(9L, 1999, 4);
+
+		assertThat(result).containsEntry("year", 2026).containsEntry("month", 4);
 	}
 
 	@Test
-	void fiscalPeriodRejectsAMonthOutsideOneToTwelve() {
-		assertThatThrownBy(() -> service.fiscalPeriod(9L, 2026, 13))
-				.isInstanceOf(LegacyApiException.class)
-				.satisfies(ex -> assertThat(((LegacyApiException) ex).getMessageKey()).isEqualTo("invalid_input"));
+	void fiscalPeriodFallsBackToTheCurrentMonthForAMonthOutsideOneToTwelve() {
+		when(clock.today()).thenReturn(java.time.LocalDate.parse("2026-04-15"));
+		when(fiscalSettings.fiscalMonthContainingDate(9L, null, java.time.LocalDate.parse("2026-04-15")))
+				.thenReturn(new LegacyPayrollFiscalSettings.FiscalMonth(
+						2026, 4, "2026-04-01", "2026-04-30", 1, 0));
+		when(fiscalSettings.fiscalPeriodBounds(9L, 2026, 4)).thenReturn(new String[] {"2026-04-01", "2026-04-07"});
+		when(fiscalSettings.fiscalDaySettings(9L)).thenReturn(new int[] {1, 0});
+		when(weeklyOffDays.forCompany(9L)).thenReturn(List.of("friday"));
+
+		Map<String, Object> result = service.fiscalPeriod(9L, 2026, 13);
+
+		assertThat(result).containsEntry("year", 2026).containsEntry("month", 4);
 	}
 
 	@Test
 	void fiscalPeriodCountsWorkingDaysAgainstTheResolvedBounds() {
 		when(fiscalSettings.fiscalPeriodBounds(9L, 2026, 4)).thenReturn(new String[] {"2026-04-01", "2026-04-07"});
+		when(fiscalSettings.fiscalDaySettings(9L)).thenReturn(new int[] {1, 0});
 		when(weeklyOffDays.forCompany(9L)).thenReturn(List.of("friday"));
 
 		Map<String, Object> result = service.fiscalPeriod(9L, 2026, 4);
@@ -153,6 +176,9 @@ class LegacyPayrollBatchServiceTest {
 		assertThat(result).containsEntry("period_from", "2026-04-01").containsEntry("period_to", "2026-04-07");
 		// 2026-04-01..07 is Wed..Tue; Friday (04-03) is the only weekly-rest day in range -> 6 working days.
 		assertThat(result).containsEntry("working_days", 6);
+		assertThat(result).containsEntry("month_start_day", 1);
+		// end_day is 0 ("unset"), so it resolves to the last day of the period's own month.
+		assertThat(result).containsEntry("month_end_day", 30);
 	}
 
 	@Test

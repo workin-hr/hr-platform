@@ -160,20 +160,41 @@ public class LegacyPayrollBatchService {
 		});
 	}
 
-	/** {@code fiscal_period.php}: bounds plus the company-wide (no employee override) working-day count. */
+	/**
+	 * {@code fiscal_period.php}: bounds plus the company-wide (no employee
+	 * override) working-day count.
+	 *
+	 * <p><b>An out-of-range year or month is not an error.</b> hr-legacy
+	 * {@code 505004f} replaced the refusal with the fiscal month containing
+	 * today, which is what makes the no-parameter call -- "what period am I
+	 * in?" -- the endpoint's ordinary use. Refusing it with
+	 * {@code invalid_input} meant a client that asked the obvious question got
+	 * a 400.
+	 */
 	public Map<String, Object> fiscalPeriod(long companyId, int year, int month) {
 		if (year < 2000 || month < 1 || month > 12) {
-			throw new LegacyApiException(400, "invalid_input");
+			LegacyPayrollFiscalSettings.FiscalMonth current =
+					fiscalSettings.fiscalMonthContainingDate(companyId, null, clock.today());
+			year = current.year();
+			month = current.month();
 		}
 		String[] bounds = fiscalSettings.fiscalPeriodBounds(companyId, year, month);
 		int workingDays = periodWorkingDays(companyId, bounds[0], bounds[1]);
+		int[] days = fiscalSettings.fiscalDaySettings(companyId);
 
-		return new java.util.LinkedHashMap<>(Map.of(
-				"period_from", bounds[0],
-				"period_to", bounds[1],
-				"year", year,
-				"month", month,
-				"working_days", workingDays));
+		Map<String, Object> body = new java.util.LinkedHashMap<>();
+		body.put("period_from", bounds[0]);
+		body.put("period_to", bounds[1]);
+		body.put("year", year);
+		body.put("month", month);
+		body.put("month_start_day", days[0]);
+		// 0 means "unset", and PHP resolves it to the last day of the period's
+		// own month rather than leaving the client to guess.
+		body.put("month_end_day", days[1] > 0
+				? days[1]
+				: java.time.LocalDate.parse(bounds[1]).lengthOfMonth());
+		body.put("working_days", workingDays);
+		return body;
 	}
 
 	/**

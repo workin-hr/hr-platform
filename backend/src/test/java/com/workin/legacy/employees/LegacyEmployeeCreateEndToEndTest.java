@@ -28,6 +28,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import com.workin.legacy.LegacyPublicRow;
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
 import com.workin.legacy.LegacyMariaDb;
@@ -129,7 +130,9 @@ class LegacyEmployeeCreateEndToEndTest {
 		assertThat(employee.get("phone")).isEqualTo("01012340001");
 		assertThat(employee.get("country_code")).isEqualTo("+20");
 		assertThat(employee.get("branch_name")).isEqualTo("Default Branch");
-		assertThat(employee).doesNotContainKeys("password_hash", "token_version");
+		assertThat(employee.keySet())
+				.doesNotContain("password_hash", "token_version")
+				.doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 		// The attach helpers ran after the commit, so these are present.
 		assertThat(employee.get("basic_salary")).isEqualTo("12000.50");
 		assertThat(employee.get("assigned_shift_name")).isEqualTo("Morning");

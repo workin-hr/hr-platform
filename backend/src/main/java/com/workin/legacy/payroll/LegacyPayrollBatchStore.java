@@ -243,23 +243,43 @@ public class LegacyPayrollBatchStore {
 
 	/**
 	 * {@code stats.php}'s aggregate query ({@code payroll_calculation.php}'s
-	 * {@code sql_payslip_total_entitlements()}/{@code sql_payslip_total_deductions()}
-	 * expressions, inlined verbatim).
+	 * {@code sql_payslip_total_entitlements()}/{@code sql_payslip_total_deductions()}/
+	 * {@code sql_payslip_total_allowances()} expressions, inlined verbatim).
+	 *
+	 * <p><b>No {@code NULLIF}.</b> These expressions read
+	 * {@code COALESCE(stored, sum)}, not {@code COALESCE(NULLIF(stored, 0), sum)}
+	 * -- hr-legacy {@code 505004f} dropped the {@code NULLIF} and says why in
+	 * the source: "Keep stored 0 (mid-month unpaid) -- only fall back when the
+	 * column is NULL." A stored zero is a real figure. An employee absent for
+	 * the whole period has {@code salary_by_attendance = 0}, so
+	 * {@code payroll_compute_employee_payslip()} stores
+	 * {@code total_entitlements = 0} while {@code basic_salary} and the
+	 * allowances stay populated; treating that zero as "unset" fell through to
+	 * the sum and reported the employee's full gross as though it had been
+	 * paid.
 	 */
 	public Map<String, Object> statsForBatch(long batchId) {
 		String entitlements = """
-				COALESCE(NULLIF(ps.total_entitlements, 0), ROUND(
+				COALESCE(ps.total_entitlements, ROUND(
 				  COALESCE(ps.basic_salary,0) + COALESCE(ps.transport_allowance,0) + COALESCE(ps.food_allowance,0)
 				  + COALESCE(ps.risk_allowance,0) + COALESCE(ps.incentives,0) + COALESCE(ps.allowances,0)
 				  + COALESCE(ps.overtime_pay,0), 2))""";
 		String deductions = """
-				COALESCE(NULLIF(ps.total_deductions, 0), ROUND(
+				COALESCE(ps.total_deductions, ROUND(
 				  COALESCE(ps.insurance_deduction,0) + COALESCE(ps.tax_deduction,0) + COALESCE(ps.advances_deduction,0)
 				  + COALESCE(ps.fund_deduction,0) + COALESCE(ps.penalties_total,0) + COALESCE(ps.advance_deduction,0)
 				  + COALESCE(ps.other_deductions,0), 2))""";
+		// sql_payslip_total_allowances(): every allowance column, not the
+		// housing one alone. Rounded PER ROW and then summed, which is the
+		// order PHP uses -- summing first and rounding once is a different
+		// number.
+		String allowances = """
+				ROUND(COALESCE(ps.transport_allowance,0) + COALESCE(ps.food_allowance,0)
+				  + COALESCE(ps.risk_allowance,0) + COALESCE(ps.incentives,0)
+				  + COALESCE(ps.allowances,0), 2)""";
 		String net = "GREATEST(0, ROUND(" + entitlements + " - (" + deductions + "), 2))";
 		String sql = "SELECT COUNT(*) AS total_employees, "
-				+ "SUM(ps.basic_salary) AS total_basic_salary, SUM(ps.allowances) AS total_allowances, "
+				+ "SUM(ps.basic_salary) AS total_basic_salary, SUM(" + allowances + ") AS total_allowances, "
 				+ "SUM(ps.overtime_pay) AS total_overtime_pay, SUM(" + entitlements + ") AS total_entitlements, "
 				+ "SUM(" + deductions + ") AS total_deductions, SUM(ps.penalties_total) AS total_penalties, "
 				+ "SUM(ps.advance_deduction) AS total_advance_deductions, "

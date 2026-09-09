@@ -21,6 +21,7 @@ import org.springframework.stereotype.Repository;
 import com.workin.legacy.employees.spreadsheet.LegacyEmployeeSpreadsheetErrors;
 
 import com.workin.legacy.LegacyJdbcValues;
+import com.workin.legacy.LegacyPublicRow;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.workin.legacy.LegacyValues;
@@ -99,8 +100,8 @@ public class LegacyEmployeeStore {
 			"employee_schedules", "employee_shift_assignments", "salary_contracts", "employee_docs",
 			"complaints", "hr_permissions");
 
-	/** {@code sensitive_response_keys()} ({@code helpers/public_row.php:10}). */
-	private static final List<String> SENSITIVE_KEYS = List.of("password_hash", "token_version");
+	/** {@code sensitive_response_keys()} -- the one list, in {@link LegacyPublicRow}. */
+	private static final List<String> SENSITIVE_KEYS = LegacyPublicRow.SENSITIVE_KEYS;
 
 	/** {@code sql_employee_roster_join_clause('e')} ({@code functions.php:684-688}). */
 	private static final String ROSTER_CLAUSE = "COALESCE(e.join_request_status, 'accepted') = 'accepted'";

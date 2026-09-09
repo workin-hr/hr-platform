@@ -16,16 +16,30 @@ import java.util.Map;
  * wire.
  *
  * <p>Extracted here because that makes it reusable at the point of return.
- * {@link com.workin.legacy.employees.LegacyEmployeeStore} strips the same two
- * keys inside its own row mapper, which protects the queries that go through
- * it -- and silently protects nothing when a different module runs its own
+ * {@link com.workin.legacy.employees.LegacyEmployeeStore} strips the same keys
+ * inside its own row mapper, which protects the queries that go through it --
+ * and silently protects nothing when a different module runs its own
  * {@code SELECT * FROM employees}. Wave 13.4c's join-request accept/reject did
  * exactly that and returned both columns.
+ *
+ * <p><b>{@link #SENSITIVE_KEYS} is the one list.</b> There were four copies of
+ * it, and when {@code 505004f} added {@code ip} to
+ * {@code sensitive_response_keys()} all four kept the old pair -- so the port
+ * served a column PHP had just classified as a secret. Nine tests asserted the
+ * stale pair by name and agreed with every copy. A list duplicated four ways
+ * cannot be kept honest by review, so the copies now read this one.
  */
 public final class LegacyPublicRow {
 
-	/** {@code sensitive_response_keys()}. */
-	private static final List<String> SENSITIVE_KEYS = List.of("password_hash", "token_version");
+	/**
+	 * {@code sensitive_response_keys()} ({@code helpers/public_row.php:10}).
+	 *
+	 * <p>{@code ip} is the last-login address {@code auth_save_last_ip()}
+	 * records. It is a column on both {@code employees} and {@code companies},
+	 * so an unrestricted {@code SELECT *} carries it to the wire unless it is
+	 * removed here.
+	 */
+	public static final List<String> SENSITIVE_KEYS = List.of("password_hash", "token_version", "ip");
 
 	private LegacyPublicRow() {
 	}

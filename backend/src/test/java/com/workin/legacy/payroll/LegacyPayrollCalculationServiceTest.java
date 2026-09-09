@@ -38,7 +38,15 @@ class LegacyPayrollCalculationServiceTest {
 		assertThat(result.grossSalary()).isEqualByComparingTo("6000.00");
 		assertThat(result.totalEntitlements()).isEqualByComparingTo("6000.00");
 		assertThat(result.netSalary()).isEqualByComparingTo("6000.00");
-		assertThat(result.daysPresent()).isEqualTo(26); // 22 punch + 4 earned rest
+
+		// 22, not 26. This asserted "22 punch + 4 earned rest" until hr-legacy
+		// 505004f moved earned weekly rest and credited holidays out of
+		// days_present and into their own payslip fields. The four rest days
+		// are still earned and still paid -- the gross above is unchanged and
+		// proves it -- they are simply no longer counted as days attended.
+		assertThat(result.daysPresent())
+				.as("punches only; the 4 earned rest days in the input are reported separately")
+				.isEqualTo(22);
 	}
 
 	@Test

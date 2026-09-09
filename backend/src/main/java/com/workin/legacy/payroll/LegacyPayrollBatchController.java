@@ -78,10 +78,22 @@ public class LegacyPayrollBatchController {
 		return LegacyApiResponse.ok(message(request, "ok"), null);
 	}
 
+	/**
+	 * Every authenticated role, not just the two that manage batches.
+	 *
+	 * <p>hr-legacy {@code 505004f} widened this to
+	 * {@code [COMPANY_ADMIN, HR, MANAGER, EMPLOYEE]}. It is a read of the
+	 * company's own period boundaries -- the same values a manager or employee
+	 * needs to label an attendance screen -- and the port answered them 403.
+	 * Every other route on this controller keeps {@link #role()}.
+	 */
 	@RequestMapping("/fiscal_period.php")
 	public LegacyApiResponse fiscalPeriod(HttpServletRequest request) {
 		requireMethod(request, "GET");
-		LegacyRequestContext context = role();
+		LegacyRequestContext context = guard.requireAuth(
+				LegacyEmployee.Role.COMPANY_ADMIN, LegacyEmployee.Role.HR,
+				LegacyEmployee.Role.MANAGER, LegacyEmployee.Role.EMPLOYEE);
+		guard.requireCompanyActive(context.companyId());
 		LegacyQueryParameters query = LegacyQueryParameters.parse(request.getQueryString());
 		int year = (int) intOrZero(query.value("year"));
 		int month = (int) intOrZero(query.value("month"));
