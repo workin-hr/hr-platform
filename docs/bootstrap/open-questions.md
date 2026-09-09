@@ -110,7 +110,13 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
   or deferred to a later item?~~ **Resolved 2026-08-28 (O-8/D-120): all three
   are delivered.** None is excluded and none is deferred, so gate G2's live
   denominator stays at 198 and the exclusion ledger stays one row long
-  (`time/now.php`, O-3). The governing rule is that Java reproduces what PHP
+  (`time/now.php`, O-3). **That last row is stale as of 2026-09-09 (R-071).**
+  `time/now.php` was excluded because `time` was not in
+  `ApiModule::allowedList()`, which made the route a 404; hr-legacy
+  `505004f` added it. The port serves it today — `LegacyTimeController`,
+  `route-methods.txt:209`, `LegacyPhpRoutes:153` — so the ledger has no
+  remaining rows and the denominator needs re-deriving against the current
+  baseline rather than carrying this exclusion forward. The governing rule is that Java reproduces what PHP
   does per endpoint — D-074's JSON envelope where PHP calls `ok()`, and where PHP
   terminates in a download helper the same reader-observable workbook, headers
   and filename rather than the same archive bytes (D-085) — which makes

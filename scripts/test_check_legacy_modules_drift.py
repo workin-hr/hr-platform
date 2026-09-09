@@ -103,14 +103,22 @@ def main() -> int:
     case("the vendored file this guard protects exists", real.is_file())
     if real.is_file():
         vendored = drift.read_vendored()
-        case("the vendored file has the 38 modules allowedList() declares",
-             len(vendored) == 38)
+        # A deliberate tripwire, not an incidental number. When the baseline
+        # moves and somebody refreshes the vendored file, this fails and makes
+        # them look at what changed -- which is exactly what it did when
+        # 505004f took the list from 38 to 40. Bump it as part of the refresh.
+        case("the vendored file has the 40 modules allowedList() declares",
+             len(vendored) == 40)
         case("comments and blank lines are not read as modules",
              all(m and not m.startswith("#") for m in vendored))
         case("`reports` is present despite having no directory (C4)",
              "reports" in vendored)
-        case("`time` is absent, which is what makes time/now a 404 (O-3)",
-             "time" not in vendored)
+        # This pinned the opposite until 505004f. `time` was absent, which is
+        # what made time/now.php a 404 and put it on O-3's exclusion ledger;
+        # the commit added both modules, so the route resolves and the ledger
+        # entry went stale with it.
+        case("`time` and `guide_videos` are present -- 505004f added both",
+             "time" in vendored and "guide_videos" in vendored)
 
     print()
     if failures:
