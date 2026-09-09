@@ -22,6 +22,7 @@ These 15 skills follow this repository's own procedure schema (see
 - validate-bootstrap
 - prepare-pr-evidence
 - propagate-change
+- degraded-independent-review
 
 ## Vendor-Provided (Spec Kit)
 
