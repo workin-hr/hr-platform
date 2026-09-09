@@ -45,13 +45,21 @@ inherit this contract.
 
 `Issue -> Specification -> Clarification -> Architecture and test impact -> Human approval -> Isolated implementation branch -> Automated verification -> Independent review -> Human merge`
 
-**Independent review is performed by `chatgpt-codex-connector[bot]` (D-121).**
+**Independent review is performed by a read-only review agent invoked through
+the `independent-review` skill (D-226, superseding D-121's reservation of this
+gate to `chatgpt-codex-connector[bot]`).** That reviewer must have had **no
+authorship, implementation, generation, or repository-write involvement** in the
+change under review, on any branch — an agent that wrote the diff cannot review
+it by later running read-only, because that is the same actor twice. Rounds from
+`chatgpt-codex-connector[bot]` still satisfy the gate; it is simply no longer the
+only party who can. **This is weaker than an independent service and D-226 records
+why it was accepted anyway.**
 It reviews the whole pull request, not a sample, and the round must cover the
 final head — commits pushed after a review round are unreviewed until review is
 re-requested. Its findings are fixed, or answered on the thread with a reason,
 before merge. A green CI run proves automated verification only and never
-substitutes for this gate. When Codex's externally-billed quota is exhausted
-(risk R-009) the gate is **unavailable**, not waived: the merge waits.
+substitutes for this gate. When no qualifying reviewer can be
+obtained at all, the gate is **unavailable**, not waived: the merge waits.
 
 **The one documented exception is D-224**, a time-boxed degraded-review
 procedure for a reviewer-service outage. It is narrow on purpose: the outage

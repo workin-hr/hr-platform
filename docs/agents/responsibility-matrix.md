@@ -21,8 +21,11 @@ definitions, enforcement configuration, and validation tests together.
 `AGENTS.md`'s mandatory workflow (D-121). Its review of the whole pull request
 discharges the independent-review gate; it does not approve or merge, and the
 human owner still performs the merge. When its externally-billed quota is
-exhausted (R-009) the gate is unavailable, not waived — with the single
-documented exception of **D-224**, a time-boxed degraded-review procedure for a
+exhausted (R-009) the gate is no longer blocked on it: **D-226** makes a
+read-only review agent, with no authorship or write involvement in the change,
+the reviewer of record, and Codex's rounds still count. The gate is unavailable
+only when no qualifying reviewer can be obtained — with the documented
+exception of **D-224**, a time-boxed degraded-review procedure for a
 reviewer-service outage, which does not make any other agent the named reviewer
 and lapses the moment quota recovers.
 
