@@ -432,8 +432,11 @@ public class LegacyPayslipService {
 		row.put("earned_weekly_rest_days", earnedWeeklyRestDays);
 		row.put("void_weekly_rest_days", voidWeeklyRestDays);
 
-		int creditedWorkDays = Math.max(0, punchPresent) + Math.max(0, earnedWeeklyRestDays)
-				+ Math.max(0, officialHolidayDays);
+		// Punches and exceptions only (505004f). The weekly-rest and holiday
+		// counts are already exposed as their own keys just above, so adding
+		// them in here both double-reported them and overwrote a correctly
+		// stored value on every read.
+		int creditedWorkDays = Math.max(0, punchPresent);
 		row.put("days_present", creditedWorkDays);
 		row.put("present_details", attendanceFigures.presentDetails(
 				companyId, employeeId, periodFrom, periodTo, punchPresent, asOf,
