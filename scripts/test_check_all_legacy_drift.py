@@ -36,19 +36,23 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WRAPPER = REPO_ROOT / "scripts" / "check_all_legacy_drift.sh"
 
-# name -> (detector filename, expected argv given legacy root L)
-EXPECTED: dict[str, tuple[str, list[str]]] = {
-    "schema":            ("check_legacy_schema_drift.py",             ["--legacy", "{L}"]),
-    "modules":           ("check_legacy_modules_drift.py",            ["--legacy", "{L}"]),
-    "lang":              ("check_legacy_lang_drift.py",               ["--legacy", "{L}"]),
-    "spreadsheet":       ("check_legacy_spreadsheet_columns_drift.py", ["--legacy", "{L}"]),
-    "sensitive-keys":    ("check_legacy_sensitive_keys_drift.py",     ["--legacy", "{L}"]),
-    "excel-error-codes": ("check_legacy_excel_error_codes_drift.py",  ["--legacy", "{L}"]),
+# name -> (detector filename, expected argv given legacy root L, required marker)
+#
+# The marker is the detector's own positive evidence, and must stay identical
+# to docs/migration/moving-the-baseline.md's checklist. A zero exit proves
+# nothing on its own -- see the UNPROVEN cases below.
+EXPECTED: dict[str, tuple[str, list[str], str]] = {
+    "schema":            ("check_legacy_schema_drift.py",             ["--legacy", "{L}"], "matches"),
+    "modules":           ("check_legacy_modules_drift.py",            ["--legacy", "{L}"], "same values and same order"),
+    "lang":              ("check_legacy_lang_drift.py",               ["--legacy", "{L}"], "matches"),
+    "spreadsheet":       ("check_legacy_spreadsheet_columns_drift.py", ["--legacy", "{L}"], "matches"),
+    "sensitive-keys":    ("check_legacy_sensitive_keys_drift.py",     ["--legacy", "{L}"], "sensitive-key parity OK"),
+    "excel-error-codes": ("check_legacy_excel_error_codes_drift.py",  ["--legacy", "{L}"], "compared by value"),
     # The three that do NOT take a bare --legacy. A wrong flag here is silent,
     # which is the whole reason these are asserted individually.
-    "routes":            ("check_legacy_route_drift.py",              ["--legacy-api", "{L}/apis/api"]),
-    "messages":          ("check_legacy_message_drift.py",            ["--legacy-lang", "{L}/apis/lang"]),
-    "product-defaults":  ("check_legacy_product_defaults_drift.py",   ["--legacy", "{L}"]),
+    "routes":            ("check_legacy_route_drift.py",              ["--legacy-api", "{L}/apis/api"], "hr-legacy present:"),
+    "messages":          ("check_legacy_message_drift.py",            ["--legacy-lang", "{L}/apis/lang"], "hr-legacy present:"),
+    "product-defaults":  ("check_legacy_product_defaults_drift.py",   ["--legacy", "{L}"], "match hr-legacy at HEAD"),
 }
 
 STUB = '''#!/usr/bin/env python3
@@ -58,7 +62,9 @@ with open(os.path.join(os.environ["ARGV_DIR"], name + ".argv"), "w") as fh:
     json.dump(sys.argv[1:], fh)
 plan = json.load(open(os.environ["PLAN"]))
 spec = plan.get(name, {})
-sys.stdout.write(spec.get("out", "OK: fine\\n"))
+# The default output carries this detector's real marker, so the happy path is
+# a genuine pass rather than a fixture that would sail through any guard.
+sys.stdout.write(spec.get("out", "OK: __MARKER__ here\\n"))
 sys.exit(spec.get("exit", 0))
 '''
 
@@ -76,9 +82,9 @@ def run_wrapper(plan: dict, *, legacy_exists: bool = True, legacy_arg: str | Non
     try:
         (tmp / "scripts").mkdir()
         shutil.copy(WRAPPER, tmp / "scripts" / WRAPPER.name)
-        for _, (filename, _args) in EXPECTED.items():
+        for _label, (filename, _args, marker) in EXPECTED.items():
             stub = tmp / "scripts" / filename
-            stub.write_text(STUB)
+            stub.write_text(STUB.replace("__MARKER__", marker))
             stub.chmod(0o755)
 
         legacy = tmp / "hr-legacy"
@@ -102,7 +108,7 @@ def run_wrapper(plan: dict, *, legacy_exists: bool = True, legacy_arg: str | Non
 code, out, seen, legacy = run_wrapper({})
 check(code == 0, f"all-clean run should exit 0, got {code}\n{out}")
 check(len(seen) == 9, f"expected 9 detectors invoked, saw {len(seen)}: {sorted(seen)}")
-for label, (filename, argtpl) in EXPECTED.items():
+for label, (filename, argtpl, _marker) in EXPECTED.items():
     want = [a.replace("{L}", legacy) for a in argtpl]
     got = seen.get(filename)
     check(got == want, f"{label}: expected argv {want}, got {got}")
@@ -140,9 +146,40 @@ code, out, seen, _l = run_wrapper({}, legacy_exists=False, legacy_arg="/nonexist
 check(code == 2, f"missing checkout must exit 2, got {code}\n{out}")
 check(not seen, f"no detector may run without a checkout, but these did: {sorted(seen)}")
 
+# --- 7. exit 0 with NO output is not a pass ---------------------------------
+# The negative-only guard this replaced let nine silent detectors certify the
+# baseline: it looked for "not checked out" and found nothing, so it passed.
+code, out, _seen, _l = run_wrapper(
+    {"check_legacy_schema_drift.py": {"exit": 0, "out": ""}})
+check(code == 1, f"a detector printing nothing must not pass, got exit {code}\n{out}")
+check("UNPROVEN" in out, f"empty output must be reported UNPROVEN:\n{out}")
+check("printed nothing at all" in out, f"the report must say it printed nothing:\n{out}")
+check("1 unproven" in out, f"unproven count must reach the summary:\n{out}")
+
+# --- 8. exit 0 with plausible-but-unmarked output is not a pass -------------
+code, out, _seen, _l = run_wrapper(
+    {"check_legacy_route_drift.py": {"exit": 0, "out": "OK: everything looks fine\n"}})
+check(code == 1, f"output without the marker must not pass, got exit {code}\n{out}")
+check("UNPROVEN" in out and "hr-legacy present:" in out,
+      f"the report must name the marker it wanted:\n{out}")
+
+# --- 9. all nine silent is the exact reproduction that motivated this -------
+code, out, _seen, _l = run_wrapper({f: {"exit": 0, "out": ""} for f, _a, _m in EXPECTED.values()})
+check(code == 1, f"nine silent detectors must not certify the baseline, got exit {code}")
+check("9 unproven" in out, f"all nine must be counted unproven:\n{out}")
+check("all 9 detectors read" not in out,
+      "a wholly unproven run must NOT claim all nine read the checkout")
+
+# --- 10. a reworded degraded message is still caught ------------------------
+# "not checked out" is kept as a specific diagnostic, but the marker check is
+# what makes a reworded fallback fail rather than sail through.
+code, out, _seen, _l = run_wrapper(
+    {"check_legacy_message_drift.py": {"exit": 0, "out": "hr-legacy absent; using committed inventory\n"}})
+check(code == 1, f"a reworded fallback must not pass, got exit {code}\n{out}")
+
 if failures:
     print(f"FAIL: {len(failures)} assertion(s) failed", file=sys.stderr)
     for f in failures:
         print(f"  - {f}", file=sys.stderr)
     sys.exit(1)
-print("OK: check_all_legacy_drift.sh regression tests passed (6 cases)")
+print("OK: check_all_legacy_drift.sh regression tests passed (10 cases)")

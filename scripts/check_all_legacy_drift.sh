@@ -28,9 +28,17 @@ fi
 
 failed=0
 degraded=0
+unproven=0
 
+# run <name> <required-marker> <command...>
+#
+# The marker is the detector's own positive evidence that it compared
+# something -- the string docs/migration/moving-the-baseline.md records for it.
+# Excluding one fallback phrase is not enough: a detector that exits 0 while
+# printing nothing, or printing a reworded fallback, sails through a negative
+# check and the wrapper then certifies a baseline nobody verified.
 run() {
-    local name="$1"; shift
+    local name="$1" marker="$2"; shift 2
     local output status
     output="$("$@" 2>&1)"
     status=$?
@@ -44,10 +52,24 @@ run() {
 
     # Exit 0 is not enough. A detector that could not find hr-legacy says so
     # and still exits 0; treating that as a pass is the whole failure mode.
+    # Checked before the marker so this keeps its specific diagnostic.
     if printf '%s' "$output" | grep -qi "not checked out"; then
         printf 'DEGRADED  %-26s exit 0, but it never read hr-legacy\n' "$name"
         printf '%s\n' "$output" | grep -i "not checked out" | sed 's/^/            /'
         degraded=$((degraded + 1))
+        return
+    fi
+
+    # The positive half: it has to say what it compared.
+    if ! printf '%s' "$output" | grep -qF -- "$marker"; then
+        printf 'UNPROVEN  %-26s exit 0, but nothing in its output proves it compared anything\n' "$name"
+        printf '            expected to find: %s\n' "$marker"
+        if [ -z "$output" ]; then
+            printf '            it printed nothing at all\n'
+        else
+            printf '%s\n' "$output" | tail -3 | sed 's/^/            got: /'
+        fi
+        unproven=$((unproven + 1))
         return
     fi
 
@@ -57,24 +79,24 @@ run() {
 echo "Comparing against $LEGACY"
 echo
 
-run schema            python3 scripts/check_legacy_schema_drift.py             --legacy "$LEGACY"
-run modules           python3 scripts/check_legacy_modules_drift.py            --legacy "$LEGACY"
-run lang              python3 scripts/check_legacy_lang_drift.py               --legacy "$LEGACY"
-run spreadsheet       python3 scripts/check_legacy_spreadsheet_columns_drift.py --legacy "$LEGACY"
-run sensitive-keys    python3 scripts/check_legacy_sensitive_keys_drift.py     --legacy "$LEGACY"
-run excel-error-codes python3 scripts/check_legacy_excel_error_codes_drift.py  --legacy "$LEGACY"
+run schema            "matches" python3 scripts/check_legacy_schema_drift.py             --legacy "$LEGACY"
+run modules           "same values and same order" python3 scripts/check_legacy_modules_drift.py            --legacy "$LEGACY"
+run lang              "matches" python3 scripts/check_legacy_lang_drift.py               --legacy "$LEGACY"
+run spreadsheet       "matches" python3 scripts/check_legacy_spreadsheet_columns_drift.py --legacy "$LEGACY"
+run sensitive-keys    "sensitive-key parity OK" python3 scripts/check_legacy_sensitive_keys_drift.py     --legacy "$LEGACY"
+run excel-error-codes "compared by value" python3 scripts/check_legacy_excel_error_codes_drift.py  --legacy "$LEGACY"
 
 # These three take a different flag from the six above. Spelled out rather
 # than generated, because a wrong flag here is silent: argparse accepts an
 # unambiguous PREFIX, so `--legacy` is quietly swallowed as `--legacy-lang`.
 # scripts/test_check_all_legacy_drift.py asserts each one individually.
-run routes            python3 scripts/check_legacy_route_drift.py   --legacy-api  "$LEGACY/apis/api"
-run messages          python3 scripts/check_legacy_message_drift.py --legacy-lang "$LEGACY/apis/lang"
-run product-defaults  python3 scripts/check_legacy_product_defaults_drift.py --legacy "$LEGACY"
+run routes            "hr-legacy present:" python3 scripts/check_legacy_route_drift.py   --legacy-api  "$LEGACY/apis/api"
+run messages          "hr-legacy present:" python3 scripts/check_legacy_message_drift.py --legacy-lang "$LEGACY/apis/lang"
+run product-defaults  "match hr-legacy at HEAD" python3 scripts/check_legacy_product_defaults_drift.py --legacy "$LEGACY"
 
 echo
-if [ "$failed" -gt 0 ] || [ "$degraded" -gt 0 ]; then
-    echo "$failed failed, $degraded degraded -- the baseline is NOT verified."
+if [ "$failed" -gt 0 ] || [ "$degraded" -gt 0 ] || [ "$unproven" -gt 0 ]; then
+    echo "$failed failed, $degraded degraded, $unproven unproven -- the baseline is NOT verified."
     exit 1
 fi
 echo "all 9 detectors read $LEGACY and agree with it."
