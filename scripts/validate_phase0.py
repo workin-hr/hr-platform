@@ -356,6 +356,12 @@ def validate_agent_files(failures: list[str], root: Path | None = None) -> None:
 # with no such file. Without the check below, the reviewer role would live only
 # in prose and could be edited out of either document with nothing failing.
 INDEPENDENT_REVIEWER = "chatgpt-codex-connector[bot]"
+# D-226 added a second party that may discharge the gate. Both must be named in
+# AGENTS.md's Mandatory Workflow and carry a read-only matrix row -- otherwise
+# the guard passes on a sentence that says the reviewer no longer staffs the
+# gate, which is the vacuity this check exists to prevent.
+INDEPENDENT_REVIEW_AGENT = "independent-review-agent"
+PERMITTED_REVIEWERS = (INDEPENDENT_REVIEWER, INDEPENDENT_REVIEW_AGENT)
 
 # The executable half of D-121. Named here so the workflow, the branch-protection
 # checker and this validator cannot drift into three different opinions about
@@ -498,14 +504,14 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
         # identifier, so a look-alike such as
         # `impersonator-chatgpt-codex-connector[bot]` names a different agent
         # rather than this one.
-        if not REVIEWER_IN_PROSE_RE.search(workflow):
-            fail(
-                f"AGENTS.md's Mandatory Workflow does not name {INDEPENDENT_REVIEWER!r} as "
-                f"the reviewer that discharges its independent-review step (D-121); a mention "
-                "elsewhere in the file, or of a different identity containing this name, does "
-                "not count",
-                failures,
-            )
+        for reviewer in PERMITTED_REVIEWERS:
+            if not re.search(rf"(?<![\w-]){re.escape(reviewer)}", workflow):
+                fail(
+                    f"AGENTS.md's Mandatory Workflow does not name {reviewer!r} as a party that "
+                    f"discharges its independent-review step (D-226); a mention elsewhere in the "
+                    "file, or of a different identity containing this name, does not count",
+                    failures,
+                )
 
     matrix_text = matrix_path.read_text(encoding="utf-8")
     # Every matching row is checked, and more than one is itself a failure: a
@@ -741,6 +747,7 @@ def validate_skill_files(failures: list[str], root: Path | None = None) -> None:
         "validate-bootstrap",
         "prepare-pr-evidence",
         "propagate-change",
+        "independent-review",
     }
     # Vendor-provided Spec Kit skills (installed by `specify init` /
     # `specify integration install`) use their own upstream schema

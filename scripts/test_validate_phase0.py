@@ -1673,9 +1673,16 @@ def write_reviewer_declaration(
             f"{'###' if demoted_heading else '##'} Mandatory Workflow\n\n"
             f"{steps}\n\n"
             + (
-                f"Independent review is performed by `impersonator-{v.INDEPENDENT_REVIEWER}` (D-121).\n"
+                # D-226 permits two parties, so the fixture names both when it
+                # is meant to pass. The look-alike case still corrupts only the
+                # Codex name -- that is the identity-confusion property under
+                # test, and naming the agent correctly beside it keeps the case
+                # about look-alikes rather than about a missing second party.
+                f"Independent review is performed by `impersonator-{v.INDEPENDENT_REVIEWER}` "
+                f"or `{v.INDEPENDENT_REVIEW_AGENT}` (D-226).\n"
                 if lookalike_in_workflow
-                else f"Independent review is performed by `{v.INDEPENDENT_REVIEWER}` (D-121).\n"
+                else f"Independent review is performed by `{v.INDEPENDENT_REVIEWER}` "
+                f"or `{v.INDEPENDENT_REVIEW_AGENT}` (D-226).\n"
                 if agents_names_reviewer
                 else "Independent review is performed by somebody.\n"
             )

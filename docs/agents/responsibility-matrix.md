@@ -16,8 +16,11 @@ definitions, enforcement configuration, and validation tests together.
 | Bootstrap Auditor | Read-only review | No | No | No |
 | Independent Verification Reviewer | Read-only review | No | No | No |
 | `chatgpt-codex-connector[bot]` (pull-request review) | Read-only review | No | No | No |
+| `independent-review-agent` (pull-request review, D-226) | Read-only review | No | No | No |
 
-`chatgpt-codex-connector[bot]` is the named independent reviewer for
+**D-226**: the independent review is performed by `independent-review-agent` -- a read-only review agent with no authorship, implementation or write involvement in the change under review -- invoked through the `independent-review` skill. Rounds from `chatgpt-codex-connector[bot]` also satisfy the gate. Both are read-only and neither approves or merges.
+
+Historically, and until D-226, `chatgpt-codex-connector[bot]` was the sole named independent reviewer for
 `AGENTS.md`'s mandatory workflow (D-121). Its review of the whole pull request
 discharges the independent-review gate; it does not approve or merge, and the
 human owner still performs the merge. When its externally-billed quota is

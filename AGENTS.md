@@ -45,8 +45,8 @@ inherit this contract.
 
 `Issue -> Specification -> Clarification -> Architecture and test impact -> Human approval -> Isolated implementation branch -> Automated verification -> Independent review -> Human merge`
 
-**Independent review is performed by a read-only review agent invoked through
-the `independent-review` skill (D-226, superseding D-121's reservation of this
+**Independent review is performed by `independent-review-agent` — a read-only
+review agent invoked through the `independent-review` skill (D-226, superseding D-121's reservation of this
 gate to `chatgpt-codex-connector[bot]`).** That reviewer must have had **no
 authorship, implementation, generation, or repository-write involvement** in the
 change under review, on any branch — an agent that wrote the diff cannot review

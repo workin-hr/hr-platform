@@ -21,7 +21,6 @@ Do **not** use it to review your own work. The reviewer this skill dispatches mu
 
 - The pull request number.
 - Its **exact head SHA**, frozen: nothing may be pushed between the review and the merge.
-- The owner's authorisation and their decline of the remedy, quotable.
 - The diff under review, as GitHub reports it against the pull request's current base.
 
 ## Preconditions
@@ -29,13 +28,13 @@ Do **not** use it to review your own work. The reviewer this skill dispatches mu
 - The head is frozen and matches what will merge.
 - `validate` (and `test` where the path filter runs it) is green on that exact head.
 - Zero unresolved review threads from earlier rounds, or each carries a recorded disposition.
-- The substitute reviewer has **no authorship, implementation, generation, or repository-write involvement** in this change, on any branch. An agent that wrote the diff cannot review it by later running read-only; that is the same actor twice.
+- The independent reviewer has **no authorship, implementation, generation, or repository-write involvement** in this change, on any branch. An agent that wrote the diff cannot review it by later running read-only; that is the same actor twice.
 - The reviewer is read-only: no write tools, no ability to push, comment, or merge.
 
 ## Ordered Workflow
 
 1. Freeze the head. Re-read it from GitHub rather than trusting a local value.
-2. Dispatch a **read-only** reviewer with no write tools and no prior involvement in the change. Give it the diff and the repository's standards; do not tell it what you believe is correct.
+2. Dispatch a **read-only** reviewer with no prior involvement in the change. Give it the **pull request number and the frozen head SHA**, not a diff you selected -- it fetches the diff itself and echoes the SHA and file count it actually read, so a partial or wrong-commit diff cannot pass unnoticed. Do not tell it what you believe is correct.
 3. Post every finding it returns **verbatim** to the pull request, including findings you dispute — state the dispute as a reply, never by omission.
 4. Reproduce each finding independently before acting on it. Fix what reproduces; answer what does not, with the evidence that disproves it.
 5. Add a discriminating regression test for each behavioural fix, and prove it discriminates by reverting the fix and observing the test fail.
@@ -48,7 +47,8 @@ Do **not** use it to review your own work. The reviewer this skill dispatches mu
 One comment on the pull request containing:
 
 - the exact head SHA;
-- the substitute reviewer's identity and confirmation it holds no write access to the branch and did not author the change;
+- the independent reviewer's identity and confirmation it holds no write access to the branch and did not author the change;
+- the reviewer's **complete unedited output**, as a fenced block, separate from your dispositions -- "posted verbatim" is otherwise unverifiable and an omission is undetectable;
 - every finding and its disposition — fixed with a commit SHA, or answered with evidence;
 - **what remains unverified relative to a real round**, stated plainly;
 - a link to D-226.
@@ -62,7 +62,7 @@ One comment on the pull request containing:
 ## Validation Checklist
 
 - [ ] The head that was reviewed is the head that will merge.
-- [ ] The substitute reviewer wrote none of the change under review.
+- [ ] The independent reviewer wrote none of the change under review.
 - [ ] Every finding is on the pull request verbatim, disputes included.
 - [ ] Every behavioural fix has a test proven to fail without it.
 - [ ] The evidence comment names what is unverified, not only what passed.
@@ -77,7 +77,7 @@ Stop and report rather than continuing when:
 - the only available reviewer had a hand in writing the change;
 - a finding reproduces and cannot be fixed within the pull request's scope;
 - `validate` or `test` is not green on the exact head;
-- D-224's own eligibility conditions cannot be established from evidence.
+- the reviewer's independence cannot be established from evidence.
 
 ## Escalation Conditions
 
