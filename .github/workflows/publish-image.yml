@@ -1,0 +1,75 @@
+# Publishes the backend image so client developers do not build it.
+#
+# Without this, a Flutter or desktop developer runs deploy/compose.local.yaml,
+# which has `build:` rather than `image:` -- so they need the whole repository
+# and a four-minute Gradle build in Docker, repeated every time the backend
+# moves. This turns that into `docker compose pull`.
+#
+# The image is exactly deploy/Dockerfile's, which is the same image local,
+# integration and production run. Nothing environment-specific is baked in;
+# only the profile and injected configuration differ at run time.
+name: Publish backend image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "deploy/Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/publish-image.yml"
+  # So a developer can be unblocked without waiting for a merge.
+  workflow_dispatch:
+
+concurrency:
+  # A newer main supersedes an older one; there is no value in publishing a
+  # commit that is already behind.
+  group: publish-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Two tags on purpose. `main` is what a developer's compose file follows,
+      # so `docker compose pull` gets the current backend without anyone
+      # editing a version. `sha-<commit>` is immutable, so a developer chasing
+      # "it worked yesterday" can pin the exact build and say which one.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/backend:main
+            ghcr.io/${{ github.repository }}/backend:sha-${{ github.sha }}
+          # Layer cache in the registry: the Dockerfile already separates the
+          # dependency download from the source copy, so a code-only change
+          # reuses it and publishes in well under a minute.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Say what was published
+        run: |
+          echo "### Backend image published" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "ghcr.io/${{ github.repository }}/backend:main" >> "$GITHUB_STEP_SUMMARY"
+          echo "ghcr.io/${{ github.repository }}/backend:sha-${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Client developers get it with:" >> "$GITHUB_STEP_SUMMARY"
+          echo '`cd deploy && docker compose -f compose.dev.yaml pull && docker compose -f compose.dev.yaml up -d`' >> "$GITHUB_STEP_SUMMARY"

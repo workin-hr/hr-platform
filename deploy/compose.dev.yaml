@@ -1,0 +1,141 @@
+# The client-developer stack: what a Flutter or desktop developer runs.
+#
+#   cd deploy
+#   docker compose -f compose.dev.yaml pull      # get the current backend
+#   docker compose -f compose.dev.yaml up -d
+#
+# Identical to compose.local.yaml in every respect but one: it PULLS the
+# backend image instead of building it. compose.local.yaml is for someone
+# changing the backend, who wants their own edit running. This is for someone
+# consuming the API, who wants whatever is on main -- and should not pay a
+# four-minute Gradle build, or need a JDK, to get it.
+#
+# Whenever the backend moves, `pull` is the whole update. CI publishes the
+# image on every push to main (.github/workflows/publish-image.yml).
+#
+# No .env to fill in, no secrets to obtain, no VPS to reach. The API is on
+# http://localhost:8080 with a database of sanitised data behind it, so every
+# endpoint answers with something on the first run.
+#
+# WHAT baseUrl TO USE, because this is where the hour usually goes:
+#
+#   host machine / desktop / iOS simulator   http://localhost:8080
+#   Android emulator                         http://10.0.2.2:8080
+#   physical phone on the same Wi-Fi         http://<this machine's LAN IP>:8080
+#
+# localhost inside an Android emulator is the emulator itself, not this
+# machine. For a physical device, find the IP with `hostname -I` (Linux) or
+# `ipconfig getifaddr en0` (macOS), and note that the app service below is
+# published on all interfaces so the phone can reach it.
+#
+# The data is REAL IN SHAPE AND FAKE IN CONTENT: 386 companies, 3,783
+# employees, 44,756 attendance rows -- production's volumes, so pagination and
+# list performance behave as they will in production -- with every name, phone,
+# address, coordinate, document and amount replaced. See deploy/seed/README.md.
+
+name: workin-dev
+
+services:
+  db:
+    image: mariadb:11.8
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: local-root-not-a-secret
+      MARIADB_DATABASE: workin
+      MARIADB_USER: workin
+      MARIADB_PASSWORD: workin-local
+    # Production runs non-strict, which is how its 24 zero-date rows came to
+    # exist. A strict server here would reject rows the real system holds, and
+    # local would stop predicting production on exactly the data that matters.
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --sql-mode=
+    volumes:
+      - db-data:/var/lib/mysql
+      # Seeded on FIRST START ONLY: MariaDB runs this directory when the data
+      # directory is empty, and the data directory is a named volume. To reseed
+      # after pulling a new seed:  docker compose -f compose.local.yaml down -v
+      # ONE script, not two. dev-seed.sql is a COMPLETE dump: the build script
+      # applies phase1_extensions.sql before dumping (it has to -- the sanitiser
+      # deletes from platform_admins), so the Phase 1 tables are already in it.
+      # Mounting the extensions again made MariaDB run CREATE TABLE
+      # legacy_refresh_tokens a second time, which is not idempotent: the init
+      # failed with ERROR 1050, the container went unhealthy and the app never
+      # started. scripts/check_dev_seed_sanitised.py now asserts the seed
+      # carries those tables, so a seed built without them fails the gate rather
+      # than a developer's first run.
+      - ./seed/dev-seed.sql:/docker-entrypoint-initdb.d/01-dev-seed.sql:ro
+    # Published so a developer can attach a SQL client, and bound to loopback so
+    # it is not on their network. Nothing here needs a published port to reach
+    # the app -- that goes over the compose network.
+    ports:
+      - "127.0.0.1:13306:3306"
+    healthcheck:
+      # Over TCP (-h 127.0.0.1), and requiring a seeded table -- both halves
+      # matter. While the seed loads, MariaDB's entrypoint runs a TEMPORARY
+      # server with --skip-networking: a socket-based check passes against it,
+      # compose calls the database ready, the temp server then shuts down for
+      # the real start, and the app connects into that gap and dies. Forcing
+      # TCP fails for the whole of that phase, which is exactly what is wanted.
+      test:
+        - CMD-SHELL
+        - >-
+          mariadb -h 127.0.0.1 -u"$$MARIADB_USER" -p"$$MARIADB_PASSWORD"
+          -e 'SELECT 1 FROM companies LIMIT 1' "$$MARIADB_DATABASE"
+          >/dev/null 2>&1
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      # The seed is 9.6 MB and restoring it takes a while on a laptop. The app
+      # must not be told the database is ready halfway through that.
+      start_period: 240s
+
+  app:
+    # Published by CI from deploy/Dockerfile -- the same image local,
+    # integration and production run. Override the tag to pin an exact build
+    # when chasing a regression:
+    #   BACKEND_TAG=sha-<commit> docker compose -f compose.dev.yaml up -d
+    image: ghcr.io/workin-hr/hr-platform/backend:${BACKEND_TAG:-main}
+    pull_policy: always
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+        # Restart the app whenever the database is recreated or restarted.
+        # Without this, changing anything in the db service leaves the app
+        # running with a connection pool pointing at a container that no longer
+        # exists, and the first thing a developer sees is a wall of
+        # "Failed to validate connection ... Connection.setNetworkTimeout
+        # cannot be called on a closed connection". Hikari does recover on its
+        # own, but a stack that greets you with red text it will quietly fix is
+        # a stack you stop trusting.
+        restart: true
+    environment:
+      # The environment profile. It gates environment values only; the
+      # database is the legacy MariaDB in every profile (ADR-0017).
+      SPRING_PROFILES_ACTIVE: local
+      LEGACY_DB_JDBC_URL: jdbc:mariadb://db:3306/workin
+      LEGACY_DB_USERNAME: workin
+      LEGACY_DB_PASSWORD: workin-local
+      APP_LEGACY_UPLOADS_PATH: /app/uploads
+      # Raise to DEBUG when chasing something; INFO by default so the
+      # foreground log stays readable.
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
+      # A platform administrator to sign in as. Optional: unset simply means no
+      # administrator exists yet, not a startup failure.
+      # The dashboard's one password (ADR-0018). A bcrypt hash of it lives in
+      # platform_admins; change the value and restart to rotate it.
+      APP_PLATFORM_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-devpassword}
+    volumes:
+      - app-uploads:/app/uploads
+    ports:
+      # All interfaces, not 127.0.0.1: a physical phone on the same Wi-Fi has
+      # to reach this. compose.local.yaml does the same. If that is not wanted
+      # on an untrusted network, change it to "127.0.0.1:8080:8080" and use the
+      # emulator rather than a device.
+      - "8080:8080"
+
+volumes:
+  db-data:
+  app-uploads:
