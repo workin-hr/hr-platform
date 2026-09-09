@@ -95,6 +95,24 @@ ENTRY = re.compile(
 ENTRY_START = re.compile(r"^\s*'([a-z0-9_]+)'\s*=>", re.M)
 
 
+def is_git_checkout(path: str) -> bool:
+    """True for a normal clone AND for a linked worktree.
+
+    A linked worktree's `.git` is a FILE holding a gitdir: pointer, not a
+    directory, so an isdir() test rejects one and this check degrades on a
+    perfectly valid checkout. hr-platform is worked entirely through linked
+    worktrees, so that is the ordinary case. Kept identical in every detector;
+    scripts/test_check_all_legacy_drift.py fails if any of them reverts to the
+    isdir() form.
+    """
+    if not os.path.isdir(path):
+        return False
+    probe = subprocess.run(
+        ["git", "-C", path, "rev-parse", "--git-dir"],
+        capture_output=True, text=True, check=False)
+    return probe.returncode == 0
+
+
 def php_lang_source(lang_dir: str, locale: str) -> str | None:
     """One lang file as **HEAD** has it, or None when it is not there.
 
@@ -106,7 +124,7 @@ def php_lang_source(lang_dir: str, locale: str) -> str | None:
     describes one machine rather than a contract.
     """
     repo = os.path.dirname(os.path.dirname(os.path.abspath(lang_dir)))
-    if not os.path.isdir(os.path.join(repo, ".git")):
+    if not is_git_checkout(repo):
         return None
     blob = subprocess.run(
         ["git", "-C", repo, "show", f"HEAD:apis/lang/{locale}.php"],

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -177,9 +178,27 @@ code, out, _seen, _l = run_wrapper(
     {"check_legacy_message_drift.py": {"exit": 0, "out": "hr-legacy absent; using committed inventory\n"}})
 check(code == 1, f"a reworded fallback must not pass, got exit {code}\n{out}")
 
+# --- 11. no detector may reintroduce the isdir(".git") presence test --------
+# Fixed three times in this file's history, once per detector, because the same
+# predicate was copied. Assert the class, not the instance.
+BAD = re.compile(r"isdir\(\s*os\.path\.join\([^)]*[\"']\.git[\"']\s*\)")
+offenders = [d.name for d in sorted((REPO_ROOT / "scripts").glob("check_legacy_*.py"))
+             if BAD.search(d.read_text(encoding="utf-8"))]
+check(not offenders,
+      f"these detectors still use isdir('.git'), which rejects a linked worktree: {offenders}")
+
+# --- 12. every detector must agree a linked worktree is a checkout ----------
+detectors = sorted((REPO_ROOT / "scripts").glob("check_legacy_*.py"))
+missing = [d.name for d in detectors
+           if "not checked out" in d.read_text(encoding="utf-8")
+           and "is_git_checkout" not in d.read_text(encoding="utf-8")]
+check(not missing,
+      f"these detectors degrade on a missing checkout but do not use the shared "
+      f"linked-worktree-aware predicate: {missing}")
+
 if failures:
     print(f"FAIL: {len(failures)} assertion(s) failed", file=sys.stderr)
     for f in failures:
         print(f"  - {f}", file=sys.stderr)
     sys.exit(1)
-print("OK: check_all_legacy_drift.sh regression tests passed (10 cases)")
+print("OK: check_all_legacy_drift.sh regression tests passed (12 cases)")
