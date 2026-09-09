@@ -462,8 +462,8 @@ REAL_GATE_WORKFLOW = REPO_ROOT / ".github/workflows/independent-review-gate.yml"
 
 
 def _thread(author: str, *replies: tuple[str, str], path: str = "a.java", line: int = 1,
-            resolved: bool = True, total_count: int | None = None) -> dict:
-    nodes = [{"author": {"login": author}, "body": "P1: a finding"}]
+            resolved: bool = True, total_count: int | None = None, body: str = "P1: a finding") -> dict:
+    nodes = [{"author": {"login": author}, "body": body}]
     nodes += [{"author": {"login": who}, "body": body} for who, body in replies]
     comments: dict = {"nodes": nodes}
     # Mirrors the real payload: totalCount is what the server holds, nodes is
@@ -477,13 +477,16 @@ def _thread(author: str, *replies: tuple[str, str], path: str = "a.java", line: 
             "path": path, "line": line, "comments": comments}
 
 
-def run_check_dispositions(threads: list[dict], workflow_text: str | None = None) -> subprocess.CompletedProcess:
+def run_check_dispositions(threads: list[dict], workflow_text: str | None = None,
+                           agent_rounds: int = 0, declared_none: int = 0) -> subprocess.CompletedProcess:
     payload = {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": threads}}}}}
     with tempfile.TemporaryDirectory(prefix="dispositions-test-") as tmp:
         json_file = Path(tmp) / "threads.json"
         json_file.write_text(json.dumps(payload), encoding="utf-8")
         env = dict(os.environ)
         env["REVIEW_THREADS_JSON_FILE"] = str(json_file)
+        env["AGENT_ROUND_COUNT"] = str(agent_rounds)
+        env["DECLARED_NONE_COUNT"] = str(declared_none)
         if workflow_text is not None:
             workflow_file = Path(tmp) / "gate.yml"
             workflow_file.write_text(workflow_text, encoding="utf-8")
@@ -685,6 +688,54 @@ def test_dispositions_threads_opened_by_humans_are_not_findings() -> None:
     check(
         proc.returncode == 0 and "nothing for step 7" in proc.stdout,
         f"a human-opened thread is not a finding (exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+    # D-226. The agent reviewer is read-only, so the IMPLEMENTER posts its
+    # findings and every such thread is authored by the implementer. Matching on
+    # the reviewer login alone found zero and exited 0 for the whole agent path
+    # -- a check that always passes.
+    proc = run_check_dispositions(
+        [_thread("karimtismail", body="finding-of: independent-review-agent\nP1 something")],
+        agent_rounds=1)
+    check(
+        proc.returncode != 0,
+        f"an undispositioned agent finding must fail, not pass as 'not a finding' "
+        f"(exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+    proc = run_check_dispositions([], agent_rounds=1, declared_none=0)
+    check(
+        proc.returncode != 0 and "Silence is not a disposition" in proc.stdout,
+        f"a claimed agent round with no findings and no 'findings: none' must refuse "
+        f"(exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+    proc = run_check_dispositions([], agent_rounds=1, declared_none=1)
+    check(
+        proc.returncode == 0,
+        f"a claimed agent round that explicitly declares zero findings passes "
+        f"(exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+    # Isolates the marker attribution from the vacuity guard: with
+    # declared_none=1 the guard would pass, so the ONLY thing that can fail this
+    # is the marked thread being counted as a finding that lacks a disposition.
+    # Without that, an implementer could declare "findings: none" while an
+    # undispositioned finding sat on the pull request.
+    proc = run_check_dispositions(
+        [_thread("karimtismail", body="finding-of: independent-review-agent\nP1 something")],
+        agent_rounds=1, declared_none=1)
+    check(
+        proc.returncode != 0,
+        f"a marked agent finding still needs a disposition even when zero findings were declared "
+        f"(exit={proc.returncode}, stdout={proc.stdout!r})",
+    )
+
+    proc = run_check_dispositions([], agent_rounds=0, declared_none=0)
+    check(
+        proc.returncode == 0,
+        f"no round claimed and no findings is still an ordinary pass "
+        f"(exit={proc.returncode}, stdout={proc.stdout!r})",
     )
 
 

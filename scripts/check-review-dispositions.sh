@@ -158,10 +158,25 @@ REVIEWER_LOGIN="${REVIEWER%\[bot\]}"
 
 # A "finding" is a thread the reviewer opened. A thread someone else started is
 # a conversation, not a finding, and step 7 does not speak to it.
-findings="$(echo "$THREADS_JSON" | jq --arg reviewer "$REVIEWER_LOGIN" '
+#
+# D-226 breaks the author test, and silently: an agent reviewer is read-only, so
+# the IMPLEMENTER posts its findings, and every such thread is authored by the
+# implementer. Matching on the reviewer login alone found zero threads and exited
+# 0 -- "nothing to disposition" -- for the entire agent review path. A check that
+# always passes is worse than no check, which is what the comments in this file
+# already say, so the marker below is what carries attribution instead.
+#
+# It is an ATTESTATION, not proof: the implementer writes it. What it does buy is
+# that the claim is explicit and countable, so an agent round with no finding
+# threads and no explicit zero-findings declaration fails rather than passing
+# quietly.
+FINDING_MARKER='finding-of: independent-review-agent'
+
+findings="$(echo "$THREADS_JSON" | jq --arg reviewer "$REVIEWER_LOGIN" --arg marker "$FINDING_MARKER" '
   [ .data.repository.pullRequest.reviewThreads.nodes[]
     | select((.comments.nodes | length) > 0)
-    | select((.comments.nodes[0].author.login | sub("\\[bot\\]$"; "")) == $reviewer) ]')"
+    | select(((.comments.nodes[0].author.login | sub("\\[bot\\]$"; "")) == $reviewer)
+             or (.comments.nodes[0].body | test($marker))) ]')"
 
 # A thread longer than one comment page needs its remaining comments fetched
 # before the disposition can be judged. An earlier version refused instead --
@@ -217,6 +232,30 @@ fi
 total="$(echo "$findings" | jq 'length')"
 
 if [ "$total" -eq 0 ]; then
+  # Zero findings is only a pass when nobody CLAIMED a round. If a D-226 agent
+  # round is recorded on this pull request, zero marked finding threads means
+  # either the reviewer found nothing -- which must be declared, not inferred --
+  # or the findings were never posted. Both look identical from here, so this
+  # refuses rather than guessing, which is the vacuity the agent path introduced.
+  # The counts come from the API in a real run, and from the environment in
+  # fixture mode -- the same seam REVIEW_THREADS_JSON_FILE already uses, so the
+  # refusal below is reachable by a regression test without a live pull request.
+  if [ -n "${REVIEW_THREADS_JSON_FILE:-}" ]; then
+    agent_round="${AGENT_ROUND_COUNT:-0}"
+    declared_none="${DECLARED_NONE_COUNT:-0}"
+  else
+    agent_round="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+      --jq '[.[] | select(.body | test("independent-review-round: agent"))] | length' 2>/dev/null || echo 0)"
+    declared_none="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+      --jq '[.[] | select(.body | test("findings: none"))] | length' 2>/dev/null || echo 0)"
+  fi
+  if [ "${agent_round:-0}" -gt 0 ] && [ "${declared_none:-0}" -eq 0 ]; then
+    echo "FAIL: an agent review round is recorded on this pull request, but no thread carries"
+    echo "      '$FINDING_MARKER' and no comment declares 'findings: none'."
+    echo "      A round that produced findings must post them; a round that produced none must"
+    echo "      say so. Silence is not a disposition."
+    exit 1
+  fi
   echo "No findings from $REVIEWER on this pull request; nothing for step 7 to disposition."
   exit 0
 fi

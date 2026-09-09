@@ -149,6 +149,19 @@ jobs:
           # AGENTS.md and the responsibility matrix, so it cannot drift here
           # on its own.
           REVIEWER: "chatgpt-codex-connector[bot]"
+          # D-226: an agent round is recorded by the IMPLEMENTER, because the
+          # reviewer is read-only and cannot post. So it cannot be attributed by
+          # author login the way a Codex round can, and this marker is what the
+          # gate matches instead. The marker is bound to a SHA, which is the one
+          # property that matters here: it cannot be recycled onto a later head.
+          #
+          # Trust boundary, stated plainly and NOT overclaimed: unlike
+          # `user.login == REVIEWER`, this IS forgeable by anyone who can comment
+          # on the pull request. It proves the round names this head; it does not
+          # prove a review happened. D-226 records that reduction. The
+          # compensating control is scripts/check-review-dispositions.sh, which
+          # requires the finding threads the marker claims.
+          AGENT_ROUND_RE: 'independent-review-round: agent'
         run: |
           set -euo pipefail
 
@@ -218,6 +231,19 @@ jobs:
                   # Prefix, anchored at the start: `${HEAD_SHA#$sha}` differing
                   # from HEAD_SHA means it matched at position 0.
                   case "$HEAD_SHA" in "$sha"*) [ -n "$sha" ] && echo "$at" ;; esac
+                done || true
+
+            # D-226 agent rounds. Same SHA-binding rule as above: the marker must
+            # name THIS head, so a round cannot be carried forward to a commit the
+            # reviewer never saw.
+            gh api "repos/$REPO/issues/$pr/comments" --paginate \
+              --jq '.[] | select(.body | test(env.AGENT_ROUND_RE))
+                      | select(.body | test("head: [0-9a-f]{40}"))
+                      | [.created_at,
+                         (.body | capture("head: (?<sha>[0-9a-f]{40})").sha)]
+                      | @tsv' 2>/dev/null \
+              | while IFS="$(printf '\t')" read -r at sha; do
+                  [ "$sha" = "$HEAD_SHA" ] && echo "$at"
                 done || true
           }
 
