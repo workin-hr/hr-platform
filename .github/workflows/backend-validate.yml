@@ -15,6 +15,10 @@ on:
       # protects would otherwise skip the step that guards it and stay green.
       - "scripts/check_legacy_modules_drift.py"
       - "scripts/test_check_legacy_modules_drift.py"
+      - "scripts/check_legacy_sensitive_keys_drift.py"
+      - "scripts/test_check_legacy_sensitive_keys_drift.py"
+      - "scripts/check_legacy_excel_error_codes_drift.py"
+      - "scripts/test_check_legacy_excel_error_codes_drift.py"
       - "scripts/check_client_endpoints_drift.py"
       - "scripts/test_check_client_endpoints_drift.py"
       - "scripts/check_legacy_schema_drift.py"
@@ -28,6 +32,10 @@ on:
       - ".github/workflows/backend-validate.yml"
       - "scripts/check_legacy_modules_drift.py"
       - "scripts/test_check_legacy_modules_drift.py"
+      - "scripts/check_legacy_sensitive_keys_drift.py"
+      - "scripts/test_check_legacy_sensitive_keys_drift.py"
+      - "scripts/check_legacy_excel_error_codes_drift.py"
+      - "scripts/test_check_legacy_excel_error_codes_drift.py"
       - "scripts/check_client_endpoints_drift.py"
       - "scripts/test_check_client_endpoints_drift.py"
       - "scripts/check_legacy_schema_drift.py"
@@ -96,6 +104,19 @@ jobs:
       - name: Client endpoint-list drift-detector regression suite
         working-directory: .
         run: python3 scripts/test_check_client_endpoints_drift.py
+
+      # Two catalogs the port copies from PHP, both of which fall through
+      # silently when a key is missing rather than failing -- which is how a
+      # suppressed `ip` column and four untranslated error codes shipped
+      # (R-071). Same shape as the detectors above: the real comparison needs
+      # an hr-legacy checkout, the regression suite needs nothing.
+      - name: Sensitive-response-key drift-detector regression suite
+        working-directory: .
+        run: python3 scripts/test_check_legacy_sensitive_keys_drift.py
+
+      - name: Employee-import error-catalog drift-detector regression suite
+        working-directory: .
+        run: python3 scripts/test_check_legacy_excel_error_codes_drift.py
 
       # `cache: gradle` restores the dependency cache and Gradle's own
       # build cache between runs, keyed on the build files. Without it every
