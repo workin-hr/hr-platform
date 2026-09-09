@@ -23,41 +23,46 @@ import com.workin.legacy.attendance.calendar.LegacyAttendanceCalendar;
  * <p>{@code attendance_session_helper.php:11-245}. All three Wave 12.6.3
  * endpoints reach this before they do anything of their own.
  *
- * <h2>This is a write-bearing read</h2>
- * <p>{@link #findOpenSession} is spelled like a lookup and is not one.
- * {@code attendance_find_open_session()} calls
- * {@code attendance_auto_close_stale_open_sessions()}, which <b>UPDATEs</b>
- * every open row of the employee whose deadline has passed, writing a synthetic
- * {@code check_out}. So a {@code check_in} request can mutate an older
- * attendance row before it reaches its own INSERT, and a request that then
- * fails -- on the two-hour rule, on the geofence, on anything -- leaves that
- * auto-close <b>committed</b>, because PHP opens no transaction anywhere on
- * this path.
+ * <h2>It used to be a write-bearing read. It is not any more.</h2>
+ * <p>{@code attendance_find_open_session()} calls
+ * {@code attendance_auto_close_stale_open_sessions()}, which once <b>UPDATEd</b>
+ * every open row whose deadline had passed, writing a synthetic
+ * {@code check_out} -- so a {@code check_in} that then failed on the geofence
+ * left that close committed, PHP opening no transaction on the path.
  *
- * <p>Nothing here is annotated read-only or transactional, deliberately. The
- * partial write is the contract, and
- * {@code LegacyCheckInEndToEndTest.aFailedCheckInStillLeavesTheAutoCloseCommitted}
- * pins it.
+ * <p>hr-legacy {@code 505004f} emptied that function and kept its call sites.
+ * A stale open is now left alone: {@code check_out} stays null, the UI shows a
+ * dash, and the hours come from {@code attendance_row_worked_minutes} instead.
+ * {@link #autoCloseStaleOpenSessions} answers 0 and writes nothing, and
+ * {@code LegacyCheckInEndToEndTest.aFailedCheckInLeavesTheStaleSessionAlone}
+ * pins the replacement.
  *
- * <h2>The deadline is a calendar walk, not a duration</h2>
+ * <h2>The deadline is a calendar walk under a hard cap</h2>
  * <p>An open session is stale once the employee's <em>next working day's shift
  * start</em> has passed -- found by walking up to eight days forward and
- * skipping rest days. Only if none of those eight days yields a start later
- * than the check-in does it fall back to check-in + 18 hours. So an employee
- * with Friday and Saturday off who checks in on Thursday evening stays open all
- * weekend.
+ * skipping rest days -- <b>or</b> once 16 hours have elapsed, whichever comes
+ * first. So an employee with Friday and Saturday off who checks in on Thursday
+ * evening does <em>not</em> stay open all weekend; the cap closes the window on
+ * Friday morning.
+ *
+ * <p>It was a pure calendar walk with an 18-hour floor until hr-legacy
+ * {@code 505004f}, which lowered the maximum to 16 and made it a real ceiling
+ * rather than a fallback reached only when the scan found nothing.
  */
 @Component
 public class LegacyAttendanceSessions {
 
-	/** {@code attendance_open_session_max_hours()}. */
-	private static final int MAX_OPEN_HOURS = 18;
+	/**
+	 * {@code attendance_open_session_max_hours()}.
+	 *
+	 * <p>16, not 18. hr-legacy {@code 505004f} -- the commit this port is
+	 * measured against -- lowered it, and made it a genuine cap rather than
+	 * only a fallback. See {@link #openSessionDeadline}.
+	 */
+	private static final int MAX_OPEN_HOURS = 16;
 
 	/** How many days forward {@code attendance_open_session_deadline()} looks. */
 	private static final int DEADLINE_SCAN_DAYS = 8;
-
-	/** {@code ATTENDANCE_INCOMPLETE_PUNCH_DEDUCTION_MINUTES}. */
-	private static final int INCOMPLETE_PUNCH_DEDUCTION_MINUTES = 120;
 
 	/** The shift-start fallback when the origin day has no usable one. */
 	private static final String DEFAULT_SHIFT_START = "09:00:00";
@@ -65,9 +70,6 @@ public class LegacyAttendanceSessions {
 	private static final Pattern HOUR_MINUTE = Pattern.compile("^\\d{1,2}:\\d{2}$");
 
 	private static final Pattern HOUR_MINUTE_SECOND = Pattern.compile("^\\d{1,2}:\\d{2}:\\d{2}$");
-
-	private static final java.time.format.DateTimeFormatter SQL_DATE_TIME =
-			java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
 	private final JdbcTemplate jdbcTemplate;
 	private final LegacyAttendanceCalendar calendar;
@@ -149,43 +151,22 @@ public class LegacyAttendanceSessions {
 	 * @return how many rows were closed, as PHP's counter does
 	 */
 	public int autoCloseStaleOpenSessions(long companyId, long employeeId, String weeklyRestLabel) {
-		if (employeeId <= 0 || companyId <= 0) {
-			return 0;
-		}
-		LocalDateTime asOf = clock.now();
-		List<Map<String, Object>> rows = jdbcTemplate.query("""
-				SELECT id, check_in, exception_type_id FROM attendance
-				WHERE employee_id = ? AND check_out IS NULL AND check_in IS NOT NULL
-				ORDER BY id ASC""", LegacyJdbcValues.rowMapper(), employeeId);
-
-		int closed = 0;
-		for (Map<String, Object> row : rows) {
-			String checkIn = trimmed(row.get("check_in"));
-			if (checkIn.isEmpty()) {
-				continue;
-			}
-			if (isExceptionOnlyRow(checkIn, null, row.get("exception_type_id"))) {
-				continue;
-			}
-			LocalDateTime deadline = openSessionDeadline(companyId, employeeId, checkIn, weeklyRestLabel);
-			if (asOf.isBefore(deadline)) {
-				continue;
-			}
-			LocalDateTime checkInAt = LegacyPhpStrtotime.dateTimeOf(checkIn, asOf);
-			if (checkInAt == null) {
-				continue;
-			}
-
-			LegacyAttendanceCalendar.DayExpectation expected = calendar.expectedForDay(
-					companyId, employeeId, checkInAt.toLocalDate().toString(), weeklyRestLabel);
-			int worked = Math.max(0, expected.expectedMinutes() - INCOMPLETE_PUNCH_DEDUCTION_MINUTES);
-			String checkOut = checkInAt.plusMinutes(worked).format(SQL_DATE_TIME);
-
-			closed += jdbcTemplate.update(
-					"UPDATE attendance SET check_out = ? WHERE id = ? AND check_out IS NULL",
-					checkOut, row.get("id"));
-		}
-		return closed;
+		// Deliberately does nothing, and deliberately still exists.
+		//
+		// hr-legacy 505004f -- the commit this port is measured against --
+		// emptied this function and kept its three call sites, with the comment
+		// "@return int always 0 -- kept so existing call sites stay valid". A
+		// stale open is no longer mutated: check_out stays null, the UI shows a
+		// dash, and the hours come from attendance_row_worked_minutes (expected
+		// minus two hours), which LegacyAttendanceWorkedMinutes already owns for
+		// every reporting path.
+		//
+		// This port had carried the older behaviour, writing a synthetic
+		// check_out. That is why the signature is preserved rather than the
+		// method deleted: matching the baseline means the call is still made and
+		// still answers 0, and a caller that branches on the count -- as
+		// LegacyAttendanceReportService does -- keeps doing so correctly.
+		return 0;
 	}
 
 	/**
@@ -214,6 +195,7 @@ public class LegacyAttendanceSessions {
 			fallbackStart = DEFAULT_SHIFT_START;
 		}
 
+		LocalDateTime hardCap = checkIn.plusHours(MAX_OPEN_HOURS);
 		for (int day = 1; day <= DEADLINE_SCAN_DAYS; day++) {
 			LocalDate candidate = checkIn.toLocalDate().plusDays(day);
 			LegacyAttendanceCalendar.DayExpectation expected = calendar.expectedForDay(
@@ -226,11 +208,17 @@ public class LegacyAttendanceSessions {
 				start = fallbackStart;
 			}
 			LocalDateTime deadline = LocalDateTime.parse(candidate + "T" + start);
-			if (deadline.isAfter(checkIn)) {
+			if (deadline.isAfter(checkIn) && deadline.isBefore(hardCap)) {
 				return deadline;
 			}
+			// The next shift is at or beyond the cap, so the cap is the earlier
+			// of the two and no later candidate can beat it. PHP breaks here for
+			// the same reason; continuing would only find shifts further away.
+			if (deadline.isAfter(checkIn)) {
+				break;
+			}
 		}
-		return checkIn.plusHours(MAX_OPEN_HOURS);
+		return hardCap;
 	}
 
 	/**

@@ -1265,3 +1265,22 @@ Severity is Probability x Impact, rated qualitatively (Low / Medium / High).
 | Target Date | Pilot may proceed as-is; both remedies are due before device ingestion is enabled for production traffic. |
 | Evidence | `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md` §4.2, §8, §12 (Q8); `DeviceManagementController.claim`; `AttendanceDeviceStore.claim`'s global unique key. Related: R-071. |
 | Last Reviewed | 2026-09-02 |
+
+## R-073: The Baseline Move To `505004f` Was Swept File By File, And At Least One File Was Missed
+
+| Field | Value |
+|---|---|
+| Description | D-185 moved the port's contract to `hr-legacy` `505004f` and the inventories were refreshed against it, but the *behavioural* sweep of what that commit changed was done file by file, driven by the inventories' route and page counts. Those counts cannot see a changed rule inside a file that already existed. `attendance_session_helper.php` was never swept: it carried **three** divergences at once (D-217) — an 18-hour maximum where PHP says 16, a fallback where PHP has a hard cap, and a stale-session auto-close that still wrote a synthetic `check_out` after PHP had emptied the function. |
+| Category | Migration / Parity |
+| Probability | Medium — one file of the commit's ~40 API files is confirmed missed; the rest are unaudited, and some (`attendance_calendar_helper.php`'s fiscal-period bounds, `attendance/stats.php`) demonstrably were swept, so this is a gap in coverage rather than a wholesale omission. |
+| Impact | High where it lands. These three defects would have gone into `attendance` rows through device pairing, and a synthetic `check_out` is indistinguishable from a real one after the fact — the data cannot be repaired later because nothing records which timestamps were invented. |
+| Severity | High |
+| Owner | Repository owner (scope decision); implementer (execution) |
+| Why the tests did not catch it | Every rule here was covered — by tests that agreed with the port. Two whose comments said "18 hours" used a two-hour-old session, inside both 16 and 18, so the constant was never actually pinned. Three more pinned the auto-close's synthetic `check_out`, faithfully encoding the behaviour PHP had removed. A port's own suite cannot detect a baseline it was never shown. |
+| Mitigation | Diff `505004f` against its parent for every file with a Java counterpart and check each behavioural change is reflected — roughly 40 API files plus the dashboard. `git show 505004f --stat` is the worklist. Prioritise the helpers, where a changed constant or an emptied function is invisible to a route or page inventory: `payroll_calculation.php` (152 lines changed), `functions.php` (63 added), `attendance_excel_analyzer.php`, `employee_create_helper.php`. |
+| Trigger | Any port work that reads a `505004f`-touched helper and takes its behaviour on trust rather than against today's PHP. |
+| Contingency | Treat every rule read out of the Java port as unverified until diffed against `hr-legacy` at `HEAD`, as D-217 was. |
+| Status | **Open.** One file corrected (D-217); the sweep itself is not scheduled. |
+| Target Date | Before Phase 1 cutover — a parity defect found after cutover is a data-repair problem, not a code one. |
+| Evidence | D-217; `hr-legacy` `505004f`; `git log -S "return 16;" -- apis/helpers/attendance_session_helper.php`; the three rewritten tests in `LegacyCheckInEndToEndTest`. |
+| Last Reviewed | 2026-09-09 |

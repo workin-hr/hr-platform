@@ -427,44 +427,65 @@ class LegacyCheckInEndToEndTest {
 	}
 
 	// ------------------------------------------------------------------
-	// The stale-session auto-close, and its durability
+	// The stale session, which is left where it is
 	// ------------------------------------------------------------------
 
 	/**
-	 * A stale open session is closed by the <em>next</em> request, at
-	 * check-in + (expected - 120) minutes.
+	 * A stale open session is stepped over, and no synthetic check-out is
+	 * invented for it.
 	 *
-	 * <p>The employee has an 8-hour shift, so the synthetic check-out is six
-	 * hours after the check-in -- not "now", and not the shift end.
+	 * <p>This pair of tests used to assert the opposite: that the next request
+	 * closed the row at check-in + (expected - 120) minutes -- 360 for an
+	 * 8-hour shift, 60 for a 3-hour {@code expected_daily_hours} fallback.
+	 * hr-legacy {@code 505004f} emptied
+	 * {@code attendance_auto_close_stale_open_sessions()}, so nothing writes
+	 * that timestamp any more.
+	 *
+	 * <p>The <em>rule</em> those numbers came from is alive and unchanged; it
+	 * simply moved from a write to a read. {@code attendance_row_worked_minutes}
+	 * still reports expected minus 120 for a row with one punch --
+	 * {@link com.workin.legacy.attendance.calendar.LegacyAttendanceWorkedMinutes}
+	 * ports it and {@code LegacyAttendanceReportDetailsTest} covers it -- so the
+	 * hours a user sees are the same. What changed is that the database keeps
+	 * saying "this punch was never closed" instead of being told a time that
+	 * nobody recorded.
 	 */
 	@Test
-	void aStaleOpenSessionIsClosedAtExpectedMinusTwoHours() {
+	void aStaleOpenSessionIsLeftOpenRatherThanClosedSynthetically() {
 		assignShift(EMPLOYEE_1, SHIFT_1, "2020-01-01");
 		openSession(EMPLOYEE_1, "NOW() - INTERVAL 10 DAY");
 
 		post(CHECK_IN, EMPLOYEE_1, "{" + INSIDE + ",\"method\":\"app\"}", 200);
 
-		List<Map<String, Object>> rows = query(
-				"SELECT TIMESTAMPDIFF(MINUTE, check_in, check_out) AS m FROM attendance"
-						+ " WHERE check_out IS NOT NULL");
-		assertThat(rows).hasSize(1);
-		// 09:00-17:00 is 480 expected minutes; 480 - 120 = 360.
-		assertThat(number(rows.get(0).get("m"))).isEqualTo(360L);
+		List<Map<String, Object>> rows = query("SELECT check_out FROM attendance ORDER BY id");
+		assertThat(rows).describedAs("the stale row, plus the new check-in").hasSize(2);
+		assertThat(rows).allSatisfy(row ->
+				assertThat(row.get("check_out"))
+						.describedAs("nothing on this path writes a check-out")
+						.isNull());
 	}
 
 	/**
-	 * <b>The partial-write proof.</b> The auto-close survives a request that
-	 * then fails.
+	 * A stale session is passed over, not closed.
 	 *
-	 * <p>{@code attendance_find_open_session()} auto-closes before the endpoint
-	 * reaches the geofence, and PHP opens no transaction anywhere on the path.
-	 * So a stale session is closed, the check-in is then refused for being out
-	 * of range, and the close is <b>committed</b> while no new row exists. A
-	 * port that wrapped the endpoint in a transaction would roll the close back
-	 * and diverge.
+	 * <p>This test used to assert the opposite, and was right to at the time.
+	 * {@code attendance_find_open_session()} once auto-closed stale rows before
+	 * the endpoint reached the geofence, and since PHP opens no transaction on
+	 * that path, a check-in refused for being out of range still left a
+	 * synthetic {@code check_out} committed. It was the partial-write proof.
+	 *
+	 * <p>hr-legacy {@code 505004f} emptied
+	 * {@code attendance_auto_close_stale_open_sessions()} -- it returns 0 and
+	 * mutates nothing, so there is no longer any write to survive the failure.
+	 * A ten-day-old open row stays open, its {@code check_out} null, and the UI
+	 * shows a dash; the hours come from {@code attendance_row_worked_minutes}
+	 * (expected minus two hours) instead of from a fabricated timestamp.
+	 *
+	 * <p>The half of the old assertion that still holds is kept: the refused
+	 * check-in inserts nothing.
 	 */
 	@Test
-	void aFailedCheckInStillLeavesTheAutoCloseCommitted() {
+	void aFailedCheckInLeavesTheStaleSessionAlone() {
 		assignShift(EMPLOYEE_1, SHIFT_1, "2020-01-01");
 		openSession(EMPLOYEE_1, "NOW() - INTERVAL 10 DAY");
 
@@ -473,7 +494,8 @@ class LegacyCheckInEndToEndTest {
 		List<Map<String, Object>> rows = query("SELECT check_out FROM attendance");
 		assertThat(rows).describedAs("no new row was inserted").hasSize(1);
 		assertThat(rows.get(0).get("check_out"))
-				.describedAs("but the stale session stayed closed").isNotNull();
+				.describedAs("and the stale session was never written to")
+				.isNull();
 	}
 
 	/**
@@ -482,7 +504,7 @@ class LegacyCheckInEndToEndTest {
 	 *
 	 * <p>The deadline is the next working day's shift start. With the company's
 	 * {@code WEEKLY_OFF_DAYS} covering every day, no candidate in the eight-day
-	 * scan qualifies and the 18-hour fallback applies instead -- which a
+	 * scan qualifies and the 16-hour cap applies instead -- which a
 	 * two-hour-old session is still inside.
 	 */
 	@Test
@@ -500,6 +522,46 @@ class LegacyCheckInEndToEndTest {
 	}
 
 	/**
+	 * The 16-hour cap closes a session that no shift start would have closed.
+	 *
+	 * <p>This is the discriminating case for hr-legacy {@code 505004f}, which
+	 * both lowered the maximum from 18 hours to 16 and turned it into a real
+	 * cap rather than a fallback reached only when the eight-day scan finds
+	 * nothing. Before that commit the deadline was "the next working day's
+	 * shift start, however far away", so an employee whose next working day was
+	 * days off stayed check-out-able across the whole gap.
+	 *
+	 * <p>Every day is a rest day here, so no candidate qualifies and only the
+	 * cap can close the session. At 17 hours old it is past 16 and inside 18:
+	 * the session is stale, {@code attendance_find_open_session()} returns
+	 * nothing, and the check-in proceeds instead of being refused. The
+	 * seventeen hours also clear the two-hour minimum gap, so nothing else can
+	 * account for the 200.
+	 *
+	 * <p>The stale row is <b>not</b> closed on the way past --
+	 * {@code attendance_auto_close_stale_open_sessions()} returns 0 and mutates
+	 * nothing -- so the first row keeps its null check-out and the new check-in
+	 * is a second row.
+	 */
+	@Test
+	void aSessionOlderThanTheSixteenHourCapIsStaleEvenWithNoShiftToCloseIt() {
+		assignShift(EMPLOYEE_1, SHIFT_1, "2020-01-01");
+		weeklyOffDays(COMPANY_1, "sunday", "monday", "tuesday", "wednesday", "thursday",
+				"friday", "saturday");
+		openSession(EMPLOYEE_1, "NOW() - INTERVAL 17 HOUR");
+
+		post(CHECK_IN, EMPLOYEE_1, "{" + INSIDE + ",\"method\":\"app\"}", 200);
+
+		List<Map<String, Object>> rows = query(
+				"SELECT check_out FROM attendance ORDER BY id");
+		assertThat(rows).hasSize(2);
+		assertThat(rows.get(0).get("check_out"))
+				.describedAs("the stale row is passed over, never auto-closed")
+				.isNull();
+		assertThat(rows.get(1).get("check_out")).isNull();
+	}
+
+	/**
 	 * An official holiday is a rest day for the deadline too, and it takes
 	 * precedence over the shift's own hours.
 	 */
@@ -507,7 +569,7 @@ class LegacyCheckInEndToEndTest {
 	void anOfficialHolidayCountsAsARestDayForTheDeadline() {
 		assignShift(EMPLOYEE_1, SHIFT_1, "2020-01-01");
 		// Every day of the next fortnight is a holiday, so the scan finds no
-		// working day and falls back to 18 hours.
+		// working day and falls back to the 16-hour cap.
 		for (int day = 0; day <= 14; day++) {
 			execute("INSERT INTO company_official_holidays (company_id, name, holiday_date)"
 					+ " VALUES (" + COMPANY_1 + ", 'Eid', DATE_ADD(CURDATE(), INTERVAL " + day + " DAY))");
@@ -521,24 +583,26 @@ class LegacyCheckInEndToEndTest {
 	}
 
 	/**
-	 * With no shift assigned, the expected day comes from the coalesce chain,
-	 * and the auto-close uses it.
-	 *
-	 * <p>{@code expected_daily_hours} is 3, so expected is 180 minutes and the
-	 * synthetic check-out is 60 minutes after the check-in.
+	 * The same, with no shift assigned so the expected day would have come from
+	 * the {@code expected_daily_hours} coalesce chain. There is no auto-close
+	 * for it to drive.
 	 */
 	@Test
-	void theExpectedDailyHoursFallbackDrivesTheAutoClose() {
+	void theExpectedDailyHoursFallbackNoLongerDrivesAnAutoClose() {
 		execute("UPDATE employees SET expected_daily_hours = 3 WHERE id = " + EMPLOYEE_1);
-		openSession(EMPLOYEE_1, "NOW() - INTERVAL 10 DAY");
+		try {
+			openSession(EMPLOYEE_1, "NOW() - INTERVAL 10 DAY");
 
-		post(CHECK_IN, EMPLOYEE_1, "{" + INSIDE + ",\"method\":\"app\"}", 200);
+			post(CHECK_IN, EMPLOYEE_1, "{" + INSIDE + ",\"method\":\"app\"}", 200);
 
-		List<Map<String, Object>> rows = query(
-				"SELECT TIMESTAMPDIFF(MINUTE, check_in, check_out) AS m FROM attendance"
-						+ " WHERE check_out IS NOT NULL");
-		assertThat(number(rows.get(0).get("m"))).isEqualTo(60L);
-		execute("UPDATE employees SET expected_daily_hours = NULL WHERE id = " + EMPLOYEE_1);
+			assertThat(query("SELECT check_out FROM attendance WHERE check_out IS NOT NULL"))
+					.describedAs("no row was closed by anything on this path")
+					.isEmpty();
+		} finally {
+			// Restored even on failure: this column is shared fixture state and
+			// leaving it at 3 would silently retune every later test's expected day.
+			execute("UPDATE employees SET expected_daily_hours = NULL WHERE id = " + EMPLOYEE_1);
+		}
 	}
 
 	// ------------------------------------------------------------------
