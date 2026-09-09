@@ -107,7 +107,11 @@ public class PunchPairingStore {
 				FROM device_punches
 				WHERE company_id = ? AND processing_state = 'RECEIVED' AND employee_id IS NOT NULL
 				  AND pair_attempts < ?
-				ORDER BY pair_attempts ASC, employee_id ASC, punched_at_local ASC, id ASC
+				-- punched_at_utc, not punched_at_local: during an autumn DST
+				-- overlap the wall clock reads the same value twice an hour
+				-- apart, so ordering by local time leaves chronology to the
+				-- arrival id -- the one thing a replay guarantee cannot rest on.
+				ORDER BY pair_attempts ASC, employee_id ASC, punched_at_utc ASC, id ASC
 				LIMIT ?""",
 				LegacyJdbcValues.rowMapper(), companyId, maxAttempts, limit);
 	}
@@ -219,9 +223,10 @@ public class PunchPairingStore {
 	 * have already produced attendance rows, so pairing it against the current
 	 * state would read a window that its own presence changes.
 	 */
+	/** The newest already-paired punch as a stored INSTANT, never a wall clock. */
 	public LocalDateTime newestPairedPunch(long employeeId) {
 		List<Map<String, Object>> rows = jdbcTemplate.query(
-				"SELECT MAX(punched_at_local) AS newest FROM device_punches"
+				"SELECT MAX(punched_at_utc) AS newest FROM device_punches"
 						+ " WHERE employee_id = ? AND processing_state = 'PAIRED'",
 				LegacyJdbcValues.rowMapper(), employeeId);
 		if (rows.isEmpty() || rows.get(0).get("newest") == null) {
@@ -267,8 +272,14 @@ public class PunchPairingStore {
 	 *
 	 * @return how many attendance rows were removed
 	 */
-	public int rewindPairedFrom(long employeeId, LocalDateTime from) {
-		String at = SQL_DATE_TIME.format(from);
+	/**
+	 * @param fromCheckIn the attendance bound, in the legacy runtime offset --
+	 *        the clock {@code attendance.check_in} is written in
+	 * @param fromInstant the punch bound, as a stored UTC instant. Two bounds
+	 *        because they are two different clocks: one value cannot address
+	 *        both tables once attendance stopped being the device's wall clock.
+	 */
+	public int rewindPairedFrom(long employeeId, LocalDateTime fromCheckIn, LocalDateTime fromInstant) {
 		// The row itself must lie inside the window, not merely be referenced
 		// by a punch inside it. A punch that CLOSED a session points at a row
 		// whose check_in is an earlier punch's time, so keying only on the
@@ -290,13 +301,16 @@ public class PunchPairingStore {
 						+ "   WHERE o.employee_id = p.employee_id AND o.attendance_id = a.id"
 						+ "     AND o.attendance_check_in_at IS NOT NULL"
 						+ "     AND o.attendance_check_in_at = a.check_in)",
-				employeeId, at);
+				employeeId, SQL_DATE_TIME.format(fromCheckIn));
 		jdbcTemplate.update(
+				// Bounded by the INSTANT: during a DST overlap the local value
+				// cannot separate two punches an hour apart at all.
 				"UPDATE device_punches SET processing_state = 'RECEIVED',"
-						+ " attendance_id = NULL, paired_at = NULL, review_flag = NULL"
+						+ " attendance_id = NULL, paired_at = NULL, review_flag = NULL,"
+						+ " attendance_check_in_at = NULL"
 						+ " WHERE employee_id = ? AND processing_state IN ('PAIRED', 'IGNORED')"
-						+ " AND punched_at_local >= ?",
-				employeeId, at);
+						+ " AND punched_at_utc >= ?",
+				employeeId, SQL_DATE_TIME.format(fromInstant));
 		return removed;
 	}
 

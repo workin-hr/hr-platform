@@ -216,15 +216,20 @@ public class PunchPairingService {
 	 * @return how many employees were rewound
 	 */
 	private int rewindLateArrivals(List<Map<String, Object>> punches) {
+		// Lateness is decided on INSTANTS. Comparing wall clocks cannot see a
+		// punch as late when the DST overlap gives it the same local time as
+		// the one already paired, and -- since attendance moved to the runtime
+		// offset -- comparing a converted value against a device-local one
+		// would be two different clocks besides.
 		Map<Long, LocalDateTime> earliestLate = new LinkedHashMap<>();
 		for (Map<String, Object> punch : punches) {
 			long employeeId = LegacyValues.toPhpLong(punch.get("employee_id"));
-			LocalDateTime punchedAt = punchedAtOf(punch);
-			LocalDateTime newestPaired = store.newestPairedPunch(employeeId);
-			if (newestPaired == null || !punchedAt.isBefore(newestPaired)) {
+			LocalDateTime instant = instantOf(punch);
+			LocalDateTime newestPairedInstant = store.newestPairedPunch(employeeId);
+			if (newestPairedInstant == null || !instant.isBefore(newestPairedInstant)) {
 				continue;
 			}
-			earliestLate.merge(employeeId, punchedAt,
+			earliestLate.merge(employeeId, instant,
 					(existing, candidate) -> candidate.isBefore(existing) ? candidate : existing);
 		}
 
@@ -232,15 +237,25 @@ public class PunchPairingService {
 			// Back to the start of the session the late punch belongs to, not
 			// the punch itself: a 12:00 arrival belongs to a session opened at
 			// 08:00, and rewinding from 12:00 would leave that row standing.
-			LocalDateTime sessionStart = store.sessionStartCovering(entry.getKey(), entry.getValue());
-			LocalDateTime from = sessionStart != null && sessionStart.isBefore(entry.getValue())
+			// Two bounds, because two clocks: attendance is addressed in the
+			// runtime offset, punches by their stored instant.
+			LocalDateTime lateInstant = entry.getValue();
+			LocalDateTime lateCheckIn = lateInstant.atOffset(ZoneOffset.UTC)
+					.withOffsetSameInstant(clock.offset()).toLocalDateTime();
+			LocalDateTime sessionStart = store.sessionStartCovering(entry.getKey(), lateCheckIn);
+			LocalDateTime fromCheckIn = sessionStart != null && sessionStart.isBefore(lateCheckIn)
 					? sessionStart
-					: entry.getValue();
-			int removed = transactions.execute(status -> store.rewindPairedFrom(entry.getKey(), from));
+					: lateCheckIn;
+			// The punch bound moves back by the same amount the attendance
+			// bound did, so a session opened earlier releases its own punches.
+			LocalDateTime fromInstant = lateInstant.minus(
+					java.time.Duration.between(fromCheckIn, lateCheckIn));
+			int removed = transactions.execute(
+					status -> store.rewindPairedFrom(entry.getKey(), fromCheckIn, fromInstant));
 			log.info("Replaying attendance for employee {} from {}: a punch at {} arrived after "
 							+ "later ones were already paired. {} attendance row(s) removed and "
 							+ "their punches returned to RECEIVED.",
-					entry.getKey(), from, entry.getValue(), removed);
+					entry.getKey(), fromCheckIn, lateCheckIn, removed);
 		}
 		return earliestLate.size();
 	}
@@ -403,6 +418,12 @@ public class PunchPairingService {
 	 * moves between +02:00 and +03:00, so a fixed interval would relocate the
 	 * defect to the daylight-saving boundary instead of removing it.
 	 */
+	/** The punch's stored instant, the only value safe to order or compare by. */
+	private static LocalDateTime instantOf(Map<String, Object> punch) {
+		return LocalDateTime.parse(LegacyValues.toPhpString(punch.get("punched_at_utc"))
+				.replace(' ', 'T').substring(0, 19));
+	}
+
 	private LocalDateTime punchedAtOf(Map<String, Object> punch) {
 		String utc = LegacyValues.toPhpString(punch.get("punched_at_utc"));
 		LocalDateTime instant = LocalDateTime.parse(utc.replace(' ', 'T').substring(0, 19));

@@ -665,7 +665,11 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 		long edited = ((Number) attendance().get(0).get("id")).longValue();
 		seedAsLegacyWould("UPDATE attendance SET check_in = '" + DAY + " 07:45:00' WHERE id = " + edited);
 
-		store().rewindPairedFrom(EMPLOYEE, LocalDateTime.parse((DAY + "T00:00:00")));
+		// Both bounds set to the start of the day in their own clock -- the
+		// attendance bound in the runtime offset, the punch bound as an instant.
+		store().rewindPairedFrom(EMPLOYEE,
+				LocalDateTime.parse(DAY + "T00:00:00"),
+				LocalDateTime.parse(DAY + "T00:00:00").minusHours(2));
 		assertThat(attendance())
 				.as("an HR correction moves check_in off the provenance value, so the row is left alone")
 				.hasSize(1);
@@ -677,7 +681,11 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 		service.pairCompany(COMPANY, "friday");
 		assertThat(attendance()).hasSize(1);
 
-		store().rewindPairedFrom(EMPLOYEE, LocalDateTime.parse((DAY + "T00:00:00")));
+		// Both bounds set to the start of the day in their own clock -- the
+		// attendance bound in the runtime offset, the punch bound as an instant.
+		store().rewindPairedFrom(EMPLOYEE,
+				LocalDateTime.parse(DAY + "T00:00:00"),
+				LocalDateTime.parse(DAY + "T00:00:00").minusHours(2));
 		assertThat(attendance()).as("an untouched pairing-created row is still rewindable").isEmpty();
 	}
 
@@ -722,6 +730,68 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 			rs.next();
 			return rs.getLong(1);
 		}
+	}
+
+
+	@Test
+	void aDstOverlapPairsByStoredInstantWhateverOrderTheArrivalsCameIn() throws Exception {
+		// The autumn fallback: the wall clock reads 02:30 twice, an hour apart.
+		// Both punches therefore carry the SAME punched_at_local and DIFFERENT
+		// punched_at_utc -- and the later instant is delivered first, so the
+		// arrival-derived id disagrees with chronology too.
+		//
+		// Ordering by (punched_at_local, id) puts the 01:30Z punch first and
+		// then cannot see the 00:30Z punch as late, because their LOCAL times
+		// are equal and "strictly earlier local" is false. The earlier punch is
+		// then debounced against a newer instant, producing a negative duration
+		// and a DOUBLE_READ on the punch that should have opened the session.
+		String overlapLocal = "2025-10-31 02:30:00";
+		insertPunchWithUtc(overlapLocal, "2025-10-31 01:30:00");   // LATER instant, arrives FIRST
+		insertPunchWithUtc(overlapLocal, "2025-10-31 00:30:00");   // EARLIER instant, arrives SECOND
+
+		service.pairCompany(COMPANY, "friday");
+
+		List<Map<String, Object>> rows = attendance();
+		assertThat(rows).as("the two instants are one session, not two").hasSize(1);
+		assertThat(rows.get(0).get("check_in").toString())
+				.as("the EARLIER instant opens the session: 00:30Z at +02:00")
+				.startsWith("2025-10-31 02:30:00");
+		assertThat(rows.get(0).get("check_out"))
+				.as("the LATER instant closes it rather than being discarded")
+				.isNotNull();
+		assertThat(rows.get(0).get("check_out").toString())
+				.as("closed at the later instant: 01:30Z at +02:00")
+				.startsWith("2025-10-31 03:30:00");
+
+		assertThat(query("SELECT review_flag FROM device_punches WHERE employee_id = " + EMPLOYEE
+				+ " AND review_flag = 'DOUBLE_READ'"))
+				.as("neither punch is a double read -- they are an hour apart by instant")
+				.isEmpty();
+	}
+
+
+	@Test
+	void aLaterPunchDoesNotTriggerASpuriousReplayOfAnAlreadyPairedSession() throws Exception {
+		// Lateness compares the arriving punch's INSTANT against the newest
+		// already-paired punch. If that newest value is read as a wall clock
+		// while the arriving one is an instant, the two are on different clocks
+		// and an ordinary later punch looks late: 09:00 local is 07:00Z, which
+		// is "before" a previous punch's 08:00 LOCAL. The day is then rewound
+		// and replayed for nothing.
+		//
+		// The final state converges either way, so the observable difference is
+		// that the attendance row is deleted and recreated -- a new id.
+		punchAt(DAY + " 08:00:00");
+		service.pairCompany(COMPANY, "friday");
+		long firstId = ((Number) attendance().get(0).get("id")).longValue();
+
+		punchAt(DAY + " 09:00:00");
+		service.pairCompany(COMPANY, "friday");
+
+		assertThat(attendance()).hasSize(1);
+		assertThat(((Number) attendance().get(0).get("id")).longValue())
+				.as("no spurious rewind: the session row survives rather than being recreated")
+				.isEqualTo(firstId);
 	}
 
 }
