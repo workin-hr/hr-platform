@@ -11,6 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import com.workin.legacy.LegacyJdbcValues;
+import com.workin.legacy.LegacyValues;
 
 /**
  * The two tables punch pairing spans: {@code device_punches}, which the device
@@ -246,6 +247,24 @@ public class PunchPairingStore {
 	 * replay would then see a day already half-paired and produce something
 	 * different again.
 	 */
+	/**
+	 * A CLOSED attendance row that already spans this moment, if one exists.
+	 *
+	 * <p>Only reachable when a row pairing cannot rewind is in the way -- in
+	 * practice one HR has corrected, which the rewind deliberately preserves.
+	 * Opening another row inside its span would record the same stretch of the
+	 * day twice and quietly duplicate the correction.
+	 */
+	public Long closedRowCovering(long employeeId, LocalDateTime at) {
+		List<Map<String, Object>> rows = jdbcTemplate.query(
+				"SELECT id FROM attendance WHERE employee_id = ? AND method = 'device'"
+						+ " AND check_out IS NOT NULL AND check_in <= ? AND check_out >= ?"
+						+ " ORDER BY check_in DESC LIMIT 1",
+				LegacyJdbcValues.rowMapper(), employeeId,
+				SQL_DATE_TIME.format(at), SQL_DATE_TIME.format(at));
+		return rows.isEmpty() ? null : LegacyValues.toPhpLong(rows.get(0).get("id"));
+	}
+
 	public LocalDateTime sessionStartCovering(long employeeId, LocalDateTime at) {
 		List<Map<String, Object>> rows = jdbcTemplate.query(
 				"SELECT MAX(a.check_in) AS started FROM attendance a"
@@ -303,13 +322,27 @@ public class PunchPairingStore {
 						+ "     AND o.attendance_check_in_at = a.check_in)",
 				employeeId, SQL_DATE_TIME.format(fromCheckIn));
 		jdbcTemplate.update(
+				// Only punches whose attendance row actually went. The DELETE
+				// above deliberately spares a row HR has corrected, and
+				// resetting its punches anyway sent them back through pairing to
+				// build a SECOND, overlapping session around the human edit --
+				// the correction survived while being quietly duplicated.
+				//
+				// The LEFT JOIN is the test: after the delete, a punch whose row
+				// survived still resolves to it, and a punch whose row went has
+				// a dangling attendance_id. `a.id IS NULL` catches that and the
+				// IGNORED punches, which never had a row to begin with and must
+				// still be replayed.
+				//
 				// Bounded by the INSTANT: during a DST overlap the local value
 				// cannot separate two punches an hour apart at all.
-				"UPDATE device_punches SET processing_state = 'RECEIVED',"
-						+ " attendance_id = NULL, paired_at = NULL, review_flag = NULL,"
-						+ " attendance_check_in_at = NULL"
-						+ " WHERE employee_id = ? AND processing_state IN ('PAIRED', 'IGNORED')"
-						+ " AND punched_at_utc >= ?",
+				"UPDATE device_punches p"
+						+ " LEFT JOIN attendance a ON a.id = p.attendance_id"
+						+ " SET p.processing_state = 'RECEIVED',"
+						+ " p.attendance_id = NULL, p.paired_at = NULL, p.review_flag = NULL,"
+						+ " p.attendance_check_in_at = NULL"
+						+ " WHERE p.employee_id = ? AND p.processing_state IN ('PAIRED', 'IGNORED')"
+						+ " AND p.punched_at_utc >= ? AND a.id IS NULL",
 				employeeId, SQL_DATE_TIME.format(fromInstant));
 		return removed;
 	}

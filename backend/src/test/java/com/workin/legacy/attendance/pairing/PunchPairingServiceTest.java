@@ -794,4 +794,41 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 				.isEqualTo(firstId);
 	}
 
+
+	@Test
+	void punchesOfAnHrEditedRowStayOutOfReplayAndCannotOverlapIt() throws Exception {
+		// The DELETE deliberately preserves a row HR has corrected. The UPDATE
+		// beside it reset EVERY punch in the window regardless -- including the
+		// two belonging to that preserved row. They then re-paired and built a
+		// second, overlapping session around the human edit.
+		punchAt(DAY + " 08:00:00");
+		punchAt(DAY + " 17:00:00");
+		service.pairCompany(COMPANY, "friday");
+		assertThat(attendance()).hasSize(1);
+		long editedId = ((Number) attendance().get(0).get("id")).longValue();
+
+		// HR corrects the check-in. The row is now a human artefact.
+		seedAsLegacyWould("UPDATE attendance SET check_in = '" + DAY + " 07:45:00' WHERE id = " + editedId);
+
+		// A late punch inside that session triggers a replay of the window.
+		punchAt(DAY + " 12:00:00");
+		service.pairCompany(COMPANY, "friday");
+
+		List<Map<String, Object>> rows = attendance();
+		assertThat(rows)
+				.as("the corrected row must not gain an overlapping neighbour built from its own punches")
+				.hasSize(1);
+		assertThat(((Number) rows.get(0).get("id")).longValue())
+				.as("and it is still the human's row, not a rebuilt one")
+				.isEqualTo(editedId);
+		assertThat(rows.get(0).get("check_in").toString())
+				.as("the correction survives")
+				.startsWith(DAY + " 07:45:00");
+
+		assertThat(query("SELECT id FROM device_punches WHERE employee_id = " + EMPLOYEE
+				+ " AND attendance_id = " + editedId + " AND processing_state = 'PAIRED'"))
+				.as("the preserved row's own punches stay paired to it rather than being replayed")
+				.isNotEmpty();
+	}
+
 }

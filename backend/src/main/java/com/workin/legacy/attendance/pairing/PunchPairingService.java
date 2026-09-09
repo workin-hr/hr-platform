@@ -82,6 +82,8 @@ public class PunchPairingService {
 	static final String FLAG_OUT_OF_HOME_BRANCH = "OUT_OF_HOME_BRANCH";
 	/** Failed to pair {@link #MAX_PAIR_ATTEMPTS} times; see the store's quarantine. */
 	static final String FLAG_PAIRING_FAILED = "PAIRING_FAILED";
+	/** A punch inside a session a human corrected: attributable to no new row. */
+	static final String FLAG_INSIDE_CORRECTED_SESSION = "INSIDE_CORRECTED_SESSION";
 
 	/**
 	 * How many passes a punch may fail before it is taken out of the claim.
@@ -309,6 +311,16 @@ public class PunchPairingService {
 		String flag = joinFlags(
 				isRapidRecheckIn(employeeId, punchedAt) ? FLAG_RAPID_RECHECKIN : null,
 				outOfHomeBranch(employeeId, punch) ? FLAG_OUT_OF_HOME_BRANCH : null);
+		// A row pairing could not rewind -- an HR correction -- may already span
+		// this moment. Opening another inside it records the same stretch of the
+		// day twice, so the punch is held for review instead. The raw punch is
+		// never discarded; only its attribution is withheld.
+		Long covering = store.closedRowCovering(employeeId, punchedAt);
+		if (covering != null) {
+			store.markIgnored(punchId, punchedAt, FLAG_INSIDE_CORRECTED_SESSION);
+			return new Outcome(0, 0, 1, 1);
+		}
+
 		long attendanceId = store.openAttendance(employeeId, punchedAt);
 		// The opener records the exact value written to attendance.check_in, so
 		// nothing downstream has to infer which punch created the row.
