@@ -1,0 +1,45 @@
+-- Slice B: a fourth value for attendance.method (Q5, D-214).
+--
+-- Separate from phase1_extensions.sql, and the separation is the point.
+-- That file is the one definition of the tables Phase 1 *adds*; it is
+-- applied to a database that may hold nothing else, and
+-- Phase1SchemaCheckTest proves exactly that by applying it to a scratch
+-- database with no legacy schema in it. This statement instead *alters* a
+-- table the legacy contract owns, so it can only run against a database
+-- that already carries mysql_workin.schema.sql.
+--
+-- It is equally deliberately not an edit to mysql_workin.schema.sql. That
+-- file is a byte-identical copy of hr-legacy's dump, held to it by
+-- scripts/check_legacy_schema_drift.py. Editing the copy would make it
+-- claim something production does not say until this has actually run.
+--
+-- THE EXPAND STEP. Run this before deploying code that writes 'device'.
+-- Both deployment orders are safe once it has:
+--
+--   old PHP + new enum -- fine. Audited under D-214: every frozen-PHP site
+--     writes attendance.method (check_in.php, create.php, check_in_qr.php,
+--     attendance_excel_analyzer.php, xlsx_parser.php,
+--     request_actions_helper.php) and exactly one reads it,
+--     dashboard/pages/employees/detail.php, which renders clean($a['method'])
+--     verbatim. No comparison, no switch, no WHERE method =, no i18n label
+--     keyed by the value, no export column. PHP prints the word and moves on.
+--
+--   new Java + old enum -- NOT fine, and this is why the ALTER goes first:
+--     MariaDB refuses an out-of-range ENUM value, so pairing's INSERT would
+--     fail and every device punch would stay RECEIVED. Loud, and recoverable
+--     by running this and letting the pass retry -- but avoidable entirely.
+--
+-- Cost: attendance is 36,316 rows / 64 MB, and a fourth value does not change
+-- a <=255-value ENUM's one-byte storage, so this is metadata-only
+-- (ALGORITHM=INSTANT) and does not rewrite the table. Existing rows keep both
+-- their value and its ordinal, because the new value is appended last.
+--
+-- Rollback: pairing writes 'device' rows, so narrowing the enum again would
+-- silently coerce them. To undo, first repoint or delete those rows
+-- (SELECT id FROM attendance WHERE method = 'device'), then narrow.
+--
+-- Re-running this is harmless: it states the column's target shape rather
+-- than a delta, so a second run is a no-op.
+
+ALTER TABLE attendance
+    MODIFY COLUMN method ENUM('app', 'excel', 'qr', 'device') NOT NULL DEFAULT 'app';

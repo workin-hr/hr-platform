@@ -76,6 +76,38 @@ design section 9 of `docs/superpowers/specs/2026-09-02-attendance-device-ingesti
   hardware checklist) or an attempt to amplify one request into many
   statements.
 
+### Punch to attendance pairing (D-218)
+
+`PunchPairingService` converts stored punches into `attendance` rows.
+
+- **Nothing triggers a pass yet.** The engine and its rules are implemented
+  and tested; no scheduler, endpoint or listener calls `pairCompany`. Until
+  one exists, punches accumulate in `device_punches` with
+  `processing_state = 'RECEIVED'` and no attendance is written — which is
+  safe (the evidence is kept, and pairing is replayable by design) but is
+  not a working feature. Choosing the trigger is a separate decision: how
+  often, per company or across all, and what stops two passes overlapping.
+- **The query that says whether it is keeping up**, once something does run
+  it — the oldest unpaired punch is the lag:
+
+  ```sql
+  SELECT company_id, COUNT(*) AS waiting, MIN(punched_at_local) AS oldest
+  FROM device_punches WHERE processing_state = 'RECEIVED'
+  GROUP BY company_id;
+  ```
+
+- **A punch that never leaves `RECEIVED`** is the poison-row signal. A pass
+  logs at ERROR with the punch id and moves on rather than stopping, so one
+  unpairable row cannot strand the rest — but it also means the row is only
+  visible in that query and in the log, never as a stalled pass.
+- **`review_flag` is a work queue, not an error.** `RAPID_RECHECKIN` means
+  legacy would have refused the check-in; a terminal cannot be refused, so a
+  human decides. `DOUBLE_READ` is a debounced second read and needs nothing.
+- **What an operator sees when the enum was not widened**: every pairing
+  attempt fails on the `attendance.method` INSERT, punches stay `RECEIVED`,
+  and the log fills with data-integrity errors naming the column. The fix is
+  `slice_b_attendance_method.sql` — see `provisioning-phase1-tables.md`.
+
 ## Source System
 
 ## The Signals The Rollback Depends On

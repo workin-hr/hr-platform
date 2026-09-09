@@ -41,6 +41,37 @@ rather than whatever a branch has since become:
 unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/phase1_extensions.sql > phase1_extensions.sql
 ```
 
+### And one file beside it
+
+`slice_b_attendance_method.sql`, in the same directory and the same jar
+path, adds a fourth value to `attendance.method` for device punches
+(D-213, D-218).
+
+It is separate because it **alters a table the legacy contract owns**,
+where the file above only *creates* tables Phase 1 adds. That difference
+is load-bearing in both directions: `phase1_extensions.sql` must stay
+applicable to a database holding nothing else — `Phase1SchemaCheckTest`
+proves it by applying it to an empty scratch database — and the vendored
+`mysql_workin.schema.sql` must stay byte-identical to `hr-legacy`'s dump,
+which `check_legacy_schema_drift.py` enforces, so the ALTER cannot live
+there either.
+
+```bash
+unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/slice_b_attendance_method.sql \
+  > slice_b_attendance_method.sql
+```
+
+Apply it **only after** the legacy schema is in place, and **before**
+deploying code that writes `'device'`. Old PHP against the widened enum is
+safe — one site reads `method` and renders it verbatim — but new Java
+against the old enum has its INSERT refused, so pairing would stall with
+every punch left `RECEIVED`. Loud and recoverable, but avoidable.
+
+Unlike the file above it *is* re-runnable: it states the column's target
+shape rather than a delta. On `attendance` (36,316 rows / 64 MB) a fourth
+value does not change a one-byte enum's storage, so it is
+`ALGORITHM=INSTANT` and does not copy the table.
+
 It is deliberately **not** idempotent. `CREATE TABLE IF NOT EXISTS`
 would accept a table that already exists with the wrong columns, which is
 the failure this file exists to prevent. Verify first, then apply.
@@ -56,7 +87,9 @@ WHERE TABLE_SCHEMA = DATABASE()
   AND TABLE_NAME IN (
     'legacy_refresh_tokens', 'platform_admins',
     'platform_admin_audit_events', 'platform_admin_login_attempts',
-    'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES');
+    'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+    'attendance_devices', 'employee_device_identities', 'device_punches',
+    'unclaimed_device_sightings', 'device_operation_logs');
 ```
 
 Expect zero rows on a database that has never been provisioned. Anything
@@ -73,16 +106,25 @@ find that out.
 
 ```bash
 mysql -h "$HOST" -u "$USER" -p "$DATABASE" < phase1_extensions.sql
+mysql -h "$HOST" -u "$USER" -p "$DATABASE" < slice_b_attendance_method.sql
 ```
 
-**4. Confirm.** Re-run step 1's query; expect all ten names.
+**4. Confirm.** Re-run step 1's query; expect all eleven names. Then
+check the enum took:
+
+```sql
+SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance' AND COLUMN_NAME = 'method';
+```
+
+Expect `enum('app','excel','qr','device')`.
 
 **5. Let the application confirm it independently.** `Phase1SchemaCheck`
 runs at startup and logs one line per missing table
 naming the feature it disables. A correctly provisioned deployment logs:
 
 ```text
-Phase 1 schema check: all 10 owned tables are present.
+Phase 1 schema check: all 11 owned tables are present.
 ```
 
 This is the authoritative check — it reads the same list the tests pin to
@@ -95,7 +137,7 @@ The check logs at `ERROR`, once per missing table, in the first seconds
 of startup:
 
 ```text
-Phase 1 schema check: 10 of 10 owned tables are MISSING from this database.
+Phase 1 schema check: 11 of 11 owned tables are MISSING from this database.
   missing table platform_admins -- disables the platform-admin surface at /admin -- nobody can sign in
 ```
 

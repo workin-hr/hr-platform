@@ -223,9 +223,31 @@ CREATE TABLE device_punches (
     dedup_key CHAR(64) NOT NULL UNIQUE,
     raw_line VARCHAR(512) NOT NULL,
     processing_state VARCHAR(16) NOT NULL,
+    -- Slice B. The idempotency record, not a convenience: pairing writes the
+    -- attendance row and marks the punch in one transaction, so a PAIRED punch
+    -- names the row it produced and an unpaired one produced nothing. The pass
+    -- claims only RECEIVED rows, so a crash mid-run costs a repeat rather than
+    -- a loss, and a re-run cannot pair the same punch twice.
+    --
+    -- Deliberately NOT a foreign key to attendance(id): that table is the
+    -- vendored legacy contract, PHP paths this schema does not control delete
+    -- from it, and ON DELETE CASCADE would erase the evidence of what a device
+    -- recorded. A dangling id means "the attendance row was deleted", which is
+    -- a fact worth keeping rather than an integrity error.
+    attendance_id INT UNSIGNED NULL,
+    paired_at DATETIME NULL,
+    -- Unconstrained on purpose: a review flag is an observation for a human,
+    -- and a value this build does not recognise must never stop a punch from
+    -- being stored or paired.
+    review_flag VARCHAR(32) NULL,
     CONSTRAINT device_punches_state_chk
         CHECK (processing_state IN ('RECEIVED', 'UNMATCHED', 'PAIRED', 'IGNORED'))
 );
+
+-- The pairing pass claims work with processing_state = 'RECEIVED' and walks a
+-- company's punches in punch order, so this is the index it runs on.
+CREATE INDEX device_punches_pairing_idx
+    ON device_punches (processing_state, company_id, employee_id, punched_at_local);
 
 CREATE INDEX device_punches_device_time_idx ON device_punches (device_id, punched_at_local);
 CREATE INDEX device_punches_employee_time_idx ON device_punches (company_id, employee_id, punched_at_local);
