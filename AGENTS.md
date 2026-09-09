@@ -61,7 +61,8 @@ the merge: the head SHA, every gate's actual state, what review *did* occur
 and on which heads, what remains unconfirmed, the specific harm that justifies
 not waiting, and the follow-up that closes the gap. An override by anyone else,
 or without that record, is a policy breach rather than a judgement call. See
-D-222 for the full conditions and for the one override taken so far.
+D-222 for the full conditions, and for the overrides taken so far and how they
+differ.
 
 ## Mandatory Change Propagation
 
