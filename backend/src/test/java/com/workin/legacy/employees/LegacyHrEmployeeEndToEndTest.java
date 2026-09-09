@@ -214,7 +214,9 @@ class LegacyHrEmployeeEndToEndTest {
 		assertThat(((Number) user.get("branch_id")).longValue()).isEqualTo(BRANCH_MAIN);
 		assertThat(user.get("is_active")).isEqualTo(1);
 		// public_row() still strips these two.
-		assertThat(user.keySet()).doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
+		assertThat(user.keySet())
+				.doesNotContain("password_hash", "token_version")
+				.doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 		// The seventeen columns are lifted into `permissions` and removed.
 		assertThat(user).doesNotContainKeys(PERMISSION_KEYS.toArray(new String[0]));
 
@@ -678,7 +680,9 @@ class LegacyHrEmployeeEndToEndTest {
 		List<Map<String, Object>> rows = (List<Map<String, Object>>) get(LIST, ADMIN_1, 200).get("data");
 		for (Map<String, Object> user : rows) {
 			assertThat(user).containsKey("permissions");
-			assertThat(user.keySet()).doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
+			assertThat(user.keySet())
+				.doesNotContain("password_hash", "token_version")
+				.doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 			@SuppressWarnings("unchecked")
 			Map<String, Object> permissions = (Map<String, Object>) user.get("permissions");
 			assertThat(permissions.keySet()).containsExactlyElementsOf(PERMISSION_KEYS);

@@ -180,9 +180,14 @@ UI/API surface change beyond the one new settings field.
   **default `true` when unset** ("keep existing companies unchanged,"
   :138-139), true only for `'1'`/`'true'`/`'yes'`/`'on'`
   (case-insensitive, trimmed).
-- `days_present` (displayed/persisted count, distinct from the money
+- ~~`days_present` (displayed/persisted count, distinct from the money
   formula) = `punch_present + earned_weekly_rest_days +
-  official_holiday_days` (:1235-1237) — not used in the pay
+  official_holiday_days` (:1235-1237)~~ — **superseded 2026-09-09 (D-218).**
+  `hr-legacy` `505004f` moved earned weekly rest and credited holidays out of
+  this count into their own payslip fields, so it is `punch_present` alone.
+  They are still earned and still paid; they are no longer reported as days
+  attended. The rule below is otherwise unchanged — it is still not used in the
+  pay
   calculation, only the attendance display. `net_salary = max(0,
   round(total_entitlements − total_deductions, 2))` already matches
   current Java's shape.

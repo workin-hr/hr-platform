@@ -116,7 +116,9 @@ class LegacyEmployeeUploadPhotoEndToEndTest {
 			String url = (String) employee.get("photo_url");
 			// /uploads/photos/<generated>.<client extension>
 			assertThat(url).matches("^/uploads/photos/[0-9a-f]+\\.[0-9]+\\.jpg$");
-			assertThat(employee.keySet()).doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
+			assertThat(employee.keySet())
+				.doesNotContain("password_hash", "token_version")
+				.doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 			assertThat(employee.get("branch_name")).isEqualTo("Main Branch");
 
 			// The row and the file both exist, and they agree.

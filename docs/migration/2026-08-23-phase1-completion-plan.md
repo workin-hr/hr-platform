@@ -456,12 +456,12 @@ The published headline "199 endpoint files, 38 modules" reconciles at the
 current `hr-legacy` commit — but not for the reason the source documents give.
 Recomputed:
 
-| Measure | `hr-legacy@83c326e4` (the pinned inventory commit) | `hr-legacy@d113204` (current) |
-|---|---|---|
-| `.php` files under `apis/api/` | 199 | 200 |
-| ...of which the router `apis/api/index.php` | 1 | 1 |
-| **module endpoint files** | **198** | **199** |
-| module directories | 38 | 38 |
+| Measure | `hr-legacy@83c326e4` (the pinned inventory commit) | `hr-legacy@d113204` | `hr-legacy@505004f` (current baseline) |
+|---|---|---|---|
+| `.php` files under `apis/api/` | 199 | 200 | **203** |
+| ...of which the router `apis/api/index.php` | 1 | 1 | 1 |
+| **module endpoint files** | **198** | **199** | **202** |
+| module directories | 38 | 38 | **39** |
 
 **C2, confirmed:** the published 199 was a count that **included
 `apis/api/index.php`**, over a tree holding 198 real endpoints. Since then
@@ -472,21 +472,30 @@ counts module endpoint files and excludes the router.
 Applying **O-3**:
 
 ```text
-199   module endpoint files (router excluded)
- -1   apis/api/time/now.php — EXPLICITLY_EXCLUDED_WITH_DECISION (§2.3)
+202   module endpoint files (router excluded)
+ -0   nothing is excluded — see below
 ----
-198   LIVE Phase-1 API endpoint obligation
+202   LIVE Phase-1 API endpoint obligation
 ```
 
-Module accounting follows the same subtraction: **38 directories = 37 live
-endpoint-bearing modules + 1 excluded**, of which 19 live modules are Item 12
-and 18 are Item 13. `reports` is an allow-list entry with no directory and no
-endpoint files, so it carries zero delivery obligation and adds nothing to
-either count.
+**Re-derived 2026-09-09 from `505004f` (D-220, R-071).** The `-1` was
+`apis/api/time/now.php`, excluded by O-3 *because* `time` was absent from
+`ApiModule::allowedList()`, so the route 404'd. `505004f` added the module, and
+both stacks serve the route today. The subtraction has nothing left to subtract.
+
+The move from 199 to 202 is three added endpoint files, not a reclassification:
+`employees/analyze_excel_update.php`, `employees/update_bulk.php` and
+`guide_videos/list.php`, with none removed. The 39th module directory is
+`guide_videos`.
+
+Module accounting no longer subtracts: **39 directories = 39 live
+endpoint-bearing modules + 0 excluded.** `reports` remains an allow-list entry
+with no directory and no endpoint files, so it carries zero delivery obligation
+and adds nothing to either count.
 
 ### 3.2 The ledger
 
-Every one of the 198 live endpoints is in exactly one bucket.
+Every one of the 202 live endpoints is in exactly one bucket.
 
 **Restated 2026-08-27**, after Wave 12 merged to `main` (`4caff98`, PR #120) and
 after C9 (§6) corrected `attendance/overall_report.php`'s classification. The
@@ -510,13 +519,13 @@ which is why this paragraph is here rather than implied.
 
 | Status | Endpoints | What it covers |
 |---|---|---|
-| `FINAL_COMPATIBLE` | **198** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(198)`). Waves 12.4 through 12.10, the Wave 12.R retrofit, Wave 12.6.6's two attendance endpoints, Wave 12.9's `payslips/export.php`, **Item 13.0's `configs/get.php`** — the first endpoint delivered outside Item 12 — **Item 13.5's five reference endpoints**, **Wave 13.3's eight settings endpoints**, **Wave 13.4a's ten records endpoints**, **Wave 13.4b's seven workforce-planning endpoints**, **Wave 13.4c's eleven people endpoints, which complete Item 13.4**, **Wave 13.2's six `notifications` endpoints plus seven of the nine `profile` endpoints**, **Wave 13.1a's four public OTP endpoints plus the two `profile` phone-change routes**, and **Wave 13.1b's nine account-lifecycle `auth` endpoints, which complete Item 13**. |
+| `FINAL_COMPATIBLE` | **202** | Every delivered route, on its literal `/apis/api/**` URL. Exactly the set `LegacyPhpRouteInventoryTest` asserts bidirectionally (`hasSize(202)`). **Re-derived 2026-09-09 (D-220):** `505004f` added `employees/analyze_excel_update.php`, `employees/update_bulk.php` and `guide_videos/list.php`, and made `time/now.php` live by adding its module — four endpoints, all four delivered and routed. Waves 12.4 through 12.10, the Wave 12.R retrofit, Wave 12.6.6's two attendance endpoints, Wave 12.9's `payslips/export.php`, **Item 13.0's `configs/get.php`** — the first endpoint delivered outside Item 12 — **Item 13.5's five reference endpoints**, **Wave 13.3's eight settings endpoints**, **Wave 13.4a's ten records endpoints**, **Wave 13.4b's seven workforce-planning endpoints**, **Wave 13.4c's eleven people endpoints, which complete Item 13.4**, **Wave 13.2's six `notifications` endpoints plus seven of the nine `profile` endpoints**, **Wave 13.1a's four public OTP endpoints plus the two `profile` phone-change routes**, and **Wave 13.1b's nine account-lifecycle `auth` endpoints, which complete Item 13**. |
 | `IMPLEMENTED_BUT_REQUIRES_D074_RETROFIT` | **0** | Closed by Wave 12.R (D-107/D-108/D-110/D-111). No `/api/legacy/**` business route remains mapped. |
 | `ITEM12_REMAINING` | **0** | **Empty as of 2026-08-28.** All three of C9's endpoints were delivered rather than excluded, exactly as O-8/D-120 dispositioned. |
 | `ITEM13_REMAINING` | **0** | Item 13 is complete. §2.2's 71 endpoints are all delivered: `auth/login_employee` (Wave 12.R), `configs/get.php` (Item 13.0), Wave 13.5's five, Wave 13.3's eight, Wave 13.4a's ten, Wave 13.4b's seven, Wave 13.4c's eleven, Wave 13.2's thirteen, Wave 13.1a's six and Wave 13.1b's nine (D-135). |
-| **Live total** | **198** | 198 + 0 + 0 + 0 |
-| `EXPLICITLY_EXCLUDED_WITH_DECISION` | **1** | `apis/api/time/now.php` (O-3, §2.3). Outside the live total. |
-| **Endpoint files** | **199** | 198 live + 1 excluded |
+| **Live total** | **202** | 202 + 0 + 0 + 0 |
+| `EXPLICITLY_EXCLUDED_WITH_DECISION` | **0** | **Empty as of 2026-09-09 (D-220).** Its one row was `apis/api/time/now.php`, excluded by O-3 because `time` was absent from `ApiModule::allowedList()`; `505004f` added the module, so the route is live and delivered. |
+| **Endpoint files** | **202** | 202 live + 0 excluded |
 
 **Why the three sit in `ITEM12_REMAINING` and not in the exclusion bucket.**
 That bucket is named `EXPLICITLY_EXCLUDED_WITH_DECISION`, and the qualifier is
@@ -538,7 +547,7 @@ excluded would let G2 close at a reduced total without either implementing two
 frozen client routes or obtaining that decision — which is the same
 deferred-read-as-excluded error C9 exists to correct, repeated one bucket over.
 **That decision has now been made and it is not an exclusion** (D-120): the
-three move to `FINAL_COMPATIBLE` by being implemented, and the live total of 198
+three move to `FINAL_COMPATIBLE` by being implemented, and the live total of 202
 is reached with the exclusion list still one row long.
 
 **The binary-response observation stands, and is not a disposition.**
@@ -602,7 +611,7 @@ assertion. All three are mapped; the three-way name collision is the reason to
 keep them distinct, not a difference in status.
 
 **The PHP dashboard's 92 page files are not in any bucket** and are not part of
-the 198 (O-5, §4.9).
+the 202 (O-5, §4.9).
 
 ---
 
@@ -963,7 +972,7 @@ is complete and no `/api/legacy/**` business route remains mapped.**
 **What enforces what.** `LegacyPhpRouteInventoryTest`'s bidirectional assertion
 is an **internal-mapping** check, not a URL-surface one: it compares the set of
 mapped controller patterns against `EXPECTED_ROUTES`, at 125 routes today and
-198 when G2 closes. It never exercises a method, a guard order, a status code,
+202 when G2 closes. It never exercises a method, a guard order, a status code,
 an envelope, a header or a body, so a route with an incompatible wire
 implementation still satisfies it.
 
@@ -986,7 +995,7 @@ query parameter:
 
 | Shape | Live today | PHP terminates in | Java answers |
 |---|---|---|---|
-| **Envelope only** | **193** of the 198 | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — including `attendance/overall_report.php`, delivered by Wave 12.6.6c |
+| **Envelope only** | **193** of the 198 as counted 2026-08-27; not re-derived for the four `505004f` added | `ok()` / `fail()` (`apis/helpers/functions.php`) | D-074's JSON envelope — including `attendance/overall_report.php`, delivered by Wave 12.6.6c |
 | **Download only** | **4**: `employees/template_excel.php`, `leave_balances/template_excel.php`, `attendance/export.php`, `payslips/export.php` | `stream_employee_template_xlsx()` / `leave_balance_excel_stream_template()` — write to output and `exit`; `api_xlsx_export_send()` for the export | the same reader-observable file, `Content-Type`, `attachment` disposition and filename. **All delivered** — `LegacyEmployeeController.templateExcel` writes the bytes itself, `LegacyLeaveBalanceController.template` returns `ResponseEntity<byte[]>`, and `LegacyAttendanceController.export` returns the workbook for either sheet |
 | **Conditional** | **1**: `penalties/report.php` | `?format=csv` → the file's **own local** `streamCSV()` (`penalties/report.php:24`), which `exit`s; anything else falls through to `ok()` | both shapes from one handler. **Delivered** — `LegacyPenaltyController.report` returns `ResponseEntity<?>`: the workbook on the `csv` branch, `LegacyApiResponse.ok` otherwise |
 | **Owed** | **none** — Item 12's last endpoint shipped 2026-08-28 | — | — |
@@ -1138,7 +1147,7 @@ rewritten; this section is the correction of record.
 | **C1** | Item-12 specification §1.1's endpoint totals are arithmetically wrong. It states the 19 shared-table modules "hold **128 of the 200**" and that "Item 12 therefore delivers 20 tables and **122** endpoint files". | Summing its own per-module rows gives **133**, and Item 12 after D-4 removes `company_settings` is **127**. Both stated totals are short by exactly 5. **The per-module rows are correct and are the reliable part**; only the two totals are wrong. Item-12 scope is **127 endpoints across 19 modules**. |
 | **C2** | "199 endpoint files across 38 module directories" counted the router. | At `83c326e4` there were **198** module endpoints plus `apis/api/index.php`. `complaints/delete.php` was added later, taking the current count to **199**. The headline is right today by coincidence, not derivation. Affects `docs/legacy/existing-php-module-inventory.md` and `docs/api/existing-endpoint-inventory.md`. |
 | **C3** | `existing-endpoint-inventory.md` claims "All 199 ... endpoint files ... have now been read", but its section headings account for **195**. | The entire shortfall is one heading: "Employee Docs, Company Join Requests, HR Employees, Complaints, Schedules, Company (**16** endpoints)", where those six modules hold **20** at the current commit (19 at the pinned one). Four endpoints in that group are uncovered, and the section's prose names no `employee_docs` or `complaints` endpoint individually. **Discovery evidence debt — narrowed, not discharged, 2026-08-29** (`docs/migration/2026-08-29-c3-c8-bounded-discovery.md`). The heading is corrected to **19**, matching the inventory's own pinned source `83c326e`; the twentieth endpoint, `complaints/delete.php`, exists only in the later `d113204` tree and is counted there, not here. The eight endpoints in `employee_docs` and `complaints` — the two modules named zero times — were read, and both yielded a finding: `complaints/create.php` is a **third unauthenticated endpoint and the first that writes**, storing anonymous rows with a null `company_id` that `complaints/list.php` can never return; and `employee_docs` authenticates MANAGER but honours it on `list`/`upload` while denying it on `update`/`delete`. Neither is filed upstream — C3-a needs an owner answer before it is a defect, C3-b may be intended. **The other four modules in the heading were not re-read** and remain owed (§8.1). |
-| **C4** | 38 directories on disk ≠ the 38 names in `allowedList()`. | `time` is on disk and **not** allow-listed → unreachable, 404 (O-3, §2.3). `reports` is allow-listed and has **no directory** → advertised module, zero endpoints, every action **501s** (`module_not_implemented`) — the module resolves, so the router gets past the 404 branch and fails to find the action file. Measured 2026-08-31 against the running PHP; an earlier version of this row said 404. Neither was previously recorded. Neither changes the 199. |
+| **C4** | 38 directories on disk ≠ the 38 names in `allowedList()`. | ~~`time` is on disk and **not** allow-listed → unreachable, 404 (O-3, §2.3).~~ **Superseded 2026-09-09 (D-220): `505004f` added `time` to `allowedList()`, so the route is reachable, delivered, and live.** The observation this row recorded — that the two counts disagreed — is why the mismatch was worth writing down; it is now `guide_videos` that makes 39 directories, all of them allow-listed. `reports` is allow-listed and has **no directory** → advertised module, zero endpoints, every action **501s** (`module_not_implemented`) — the module resolves, so the router gets past the 404 branch and fails to find the action file. Measured 2026-08-31 against the running PHP; an earlier version of this row said 404. Neither was previously recorded. Neither changes the 199. |
 | **C5** | ADR-0011's "nineteen modules with no Java counterpart" is quoted as if it described Item 13. | It described the repository on 2026-08-16 and is preserved as history. Item 13's current membership is **18 modules / 71 endpoints** (§2.1–§2.2), after D-4 added `company_settings` + its two dependency tables, Wave 12.4 delivered `hr_employees`, and O-3 excluded `time`. The two numbers must never be substituted for one another. Separately, the specification's own shared-table table implies **18** modules without a counterpart, not 19 — most likely `hr_employees`, which shares the `employees` table but has no entity. Neither "19" should be quoted as a scope figure without recomputation. |
 | **C6** | The punch list's Item-12 wave table shows 12.5 as "Discovery/specification only" and 12.6 as "Not started"; its "Next, in order" section still describes 12.4 as "in discovery". | Corrected in `2026-08-17-phase1-punch-list.md` to point at this document and to state the current wave status. History and decision references are unchanged. |
 | **C7** | `hr-platform#22`'s "Phase 1 cross-cutting exit requirement" / "cutover blocker" classification contradicts the client-side evidence that push works on neither side today. | Resolved by **O-1**: FCM delivery is not a Phase-1 completion requirement (§4.8). D-082/D-089 and the Wave 12.5/12.6 discovery text are historical and are not rewritten; §4.8 is the current classification. |
@@ -1202,12 +1211,13 @@ Not decisions — evidence and sequencing owed by the waves that own them.
   `attendance/export.php` and `payslips/export.php` answer the workbook their PHP
   emits, matching its reader-observable content, headers and filename rather than
   its archive bytes (D-085, §5 G3). `ITEM12_REMAINING` is empty and
-  `FINAL_COMPATIBLE` stands at 198 -- the whole live surface (§3.2), after Item
+  `FINAL_COMPATIBLE` stands at 202 -- the whole live surface (§3.2), after Item
   13.0's `configs/get.php`, Wave 13.5's five, Wave 13.3's eight, Item 13.4's
   twenty-eight across waves 13.4a, 13.4b and 13.4c, **Wave 13.2's thirteen** and
   **Wave 13.1's fifteen**, which complete Item 13. The contributor list must add
-  up to the figure beside it: 170 + 13 + 15 = 198.
-  **G2 is not closed by that.** Its numerator is; the gate covers all 198 live
+  up to the figure beside it: 170 + 13 + 15 = 198, plus the four `505004f`
+  added (D-220) = 202.
+  **G2 is not closed by that.** Its numerator is; the gate covers all 202 live
   endpoints and Item 13's remainder still stands — see §3.2's
   `ITEM13_REMAINING` for the current figure, which is the only place it is
   maintained. G3, G6 and G7 read on their own terms.

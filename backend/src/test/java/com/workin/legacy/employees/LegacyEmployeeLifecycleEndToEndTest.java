@@ -112,7 +112,9 @@ class LegacyEmployeeLifecycleEndToEndTest {
 		Map<String, Object> employee = (Map<String, Object>) response.getBody().get("data");
 		assertThat(employee.get("is_active")).isEqualTo(0);
 		assertThat(employee.get("branch_name")).isEqualTo("Main Branch");
-		assertThat(employee.keySet()).doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
+		assertThat(employee.keySet())
+				.doesNotContain("password_hash", "token_version")
+				.doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 		// fetch_employee_with_org_labels() has no salary or shift columns.
 		assertThat(employee).doesNotContainKeys("basic_salary", "assigned_shift_id");
 		assertThat(queryLong("SELECT is_active FROM employees WHERE id = " + STAFF_1)).isZero();

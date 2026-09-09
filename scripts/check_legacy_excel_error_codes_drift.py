@@ -12,9 +12,20 @@ fail anywhere, it ships. hr-legacy `505004f` added four codes for the
 bulk-update path and the port added none, so an Arabic-speaking HR user was
 shown the bare token `nothing_to_update` and no cell was highlighted.
 
-This compares the CODES each side handles, not the rendered text: the text is
-interpolated and locale-specific, while a missing code is the whole failure
-mode.
+This compares the **resolved mappings**, not just the set of codes handled.
+Comparing code names alone would pass a port that answered `gender_invalid`
+with the wrong column, or rendered the wrong sentence -- the code would be
+present on both sides and the mapping still wrong.
+
+So:
+
+* `field_key` is compared as a full `code -> field` map, resolving PHP's
+  `Request::` and `Column::` constants to their string values.
+* `message` is compared as a `code -> text` map for every arm that is a plain
+  literal on both sides. Arms that interpolate a value (`invalid_phone`,
+  `employee_not_found`) cannot be compared as text and are reported as
+  `compared by presence only`, so what this check does not cover is visible in
+  its own output rather than assumed.
 
 Needs a `hr-legacy` checkout, so like its siblings it cannot run in CI;
 `--self-test` needs nothing and does.
@@ -40,6 +51,76 @@ PHP_FUNCTIONS = {
     "field_key": "employee_excel_error_field_key",
 }
 JAVA_METHODS = {"message": "message", "field_key": "fieldKey"}
+
+PHP_CONSTANT_FILES = (
+    os.path.join("apis", "config", "request.php"),
+    os.path.join("apis", "config", "columns.php"),
+)
+# An arm whose value is built from a variable rather than being a literal.
+INTERPOLATED = object()
+
+
+def php_constants(sources: list[str]) -> dict[str, str]:
+    """`public const GENDER = \'gender\';` -> {GENDER: gender}, across every file."""
+    constants: dict[str, str] = {}
+    for source in sources:
+        constants.update(re.findall(r"public\s+const\s+([A-Z0-9_]+)\s*=\s*'([^']*)'\s*;", source))
+    return constants
+
+
+def php_arms(source: str, function: str, constants: dict[str, str]) -> dict[str, object]:
+    """One function's `match` arms as {code: value}.
+
+    The value is the resolved string for a literal or a `Class::CONST`, and
+    INTERPOLATED for anything built at runtime -- a ternary on a captured
+    variable, a concatenation. Grouped keys (`'a', 'b' => x`) all take x.
+    """
+    start = source.find("function " + function)
+    if start < 0:
+        raise ValueError("could not find " + function + "() in " + PHP)
+    body = source[start:source.find("\n}", start)]
+
+    arms: dict[str, object] = {}
+    # Keys, then the value up to the arm-terminating comma at end of line.
+    pattern = re.compile(
+        r"^\s*((?:'[^']+'\s*,\s*)*'[^']+')\s*=>\s*(.*?),\s*$", re.M | re.S)
+    for keys, raw in pattern.findall(body):
+        raw = raw.strip()
+        if re.fullmatch(r"'([^']*)'", raw):
+            value: object = raw[1:-1]
+        elif re.fullmatch(r"(?:Request|Column)::([A-Z0-9_]+)", raw):
+            name = raw.split("::")[1]
+            value = constants.get(name, name)
+        elif raw == "null":
+            value = None
+        else:
+            value = INTERPOLATED
+        for code in re.findall(r"'([^']+)'", keys):
+            arms[code] = value
+    return arms
+
+
+def java_arms(source: str, method: str) -> dict[str, object]:
+    """One method's `switch` arms as {code: value}, same convention."""
+    start = source.find("String " + method + "(")
+    if start < 0:
+        raise ValueError("could not find " + method + "() in " + JAVA)
+    body = source[start:source.find("\n\t}", start)]
+
+    arms: dict[str, object] = {}
+    pattern = re.compile(
+        r"case\s+((?:\"[^\"]+\"\s*,\s*)*\"[^\"]+\")\s*->\s*(.*?);", re.S)
+    for keys, raw in pattern.findall(body):
+        raw = raw.strip()
+        if re.fullmatch(r'"((?:[^"\\\\]|\\\\.)*)"', raw):
+            value: object = raw[1:-1]
+        elif raw == "null":
+            value = None
+        else:
+            value = INTERPOLATED
+        for code in re.findall(r'"([^"]+)"', keys):
+            arms[code] = value
+    return arms
 
 
 def php_codes(source: str, function: str) -> set[str]:
@@ -68,56 +149,102 @@ def java_codes(source: str, method: str) -> set[str]:
     return codes
 
 
-def compare(label: str, php: set[str], java: set[str]) -> list[str]:
+def compare(label: str, php: dict, java: dict) -> tuple[list[str], int]:
+    """Failures, plus how many arms could only be checked for presence."""
     failures = []
-    missing = sorted(php - java)
+
+    missing = sorted(set(php) - set(java))
     if missing:
         failures.append(
             label + ": handled by PHP, missing from the port: " + repr(missing)
             + " -- these fall through and ship as a raw code"
         )
-    extra = sorted(java - php)
+    extra = sorted(set(java) - set(php))
     if extra:
         failures.append(label + ": handled by the port, unknown to PHP: " + repr(extra))
-    return failures
+
+    presence_only = 0
+    for code in sorted(set(php) & set(java)):
+        expected, actual = php[code], java[code]
+        # An interpolated arm on either side cannot be compared as text. Its
+        # presence is still checked above; only the wording is out of reach.
+        if expected is INTERPOLATED or actual is INTERPOLATED:
+            presence_only += 1
+            continue
+        if expected != actual:
+            failures.append(
+                label + ": " + repr(code) + " maps to " + repr(actual)
+                + " in the port but " + repr(expected) + " in PHP"
+            )
+    return failures, presence_only
 
 
 def self_test() -> int:
+    constants = php_constants([
+        "class Request { public const GENDER = 'gender';"
+        " public const EMPLOYEE_CODE = 'employee_code'; }",
+        "class Column { public const EXPECTED_DAILY_HOURS = 'expected_daily_hours'; }",
+    ])
+
     php_source = (
-        "function employee_excel_error_message(string $code): string {\n"
+        "function employee_excel_error_field_key(string $code): ?string {\n"
         "    return match ($code) {\n"
-        "        'first_name_required' => 'x',\n"
-        "        'gender_invalid' => 'y',\n"
-        "        'invalid_phone', 'invalid_phone_number' => 'z',\n"
-        "        default => $code,\n"
+        "        'first_name_required' => 'first_name',\n"
+        "        'gender_invalid' => Request::GENDER,\n"
+        "        'employee_not_found' => Request::EMPLOYEE_CODE,\n"
+        "        'expected_daily_hours_required' => Column::EXPECTED_DAILY_HOURS,\n"
+        "        'shift_required',\n"
+        "        'shift_not_found' => 'shift_name',\n"
+        "        default => null,\n"
         "    };\n"
         "}\n"
     )
-    php = php_codes(php_source, "employee_excel_error_message")
-    assert php == {"first_name_required", "gender_invalid", "invalid_phone",
-                   "invalid_phone_number"}, php
+    php = php_arms(php_source, "employee_excel_error_field_key", constants)
+    assert php == {
+        "first_name_required": "first_name",
+        "gender_invalid": "gender",
+        "employee_not_found": "employee_code",
+        "expected_daily_hours_required": "expected_daily_hours",
+        "shift_required": "shift_name",
+        "shift_not_found": "shift_name",
+    }, php
 
     java_source = (
-        '\tpublic static String message(String code, Context context) {\n'
+        '\tpublic static String fieldKey(String code) {\n'
         '\t\treturn switch (code) {\n'
-        '\t\t\tcase "first_name_required" -> "x";\n'
-        '\t\t\tcase "invalid_phone", "invalid_phone_number" -> "z";\n'
-        '\t\t\tdefault -> code;\n'
+        '\t\t\tcase "first_name_required" -> "first_name";\n'
+        '\t\t\tcase "gender_invalid" -> "gender";\n'
+        '\t\t\tcase "employee_not_found" -> "employee_code";\n'
+        '\t\t\tcase "expected_daily_hours_required" -> "expected_daily_hours";\n'
+        '\t\t\tcase "shift_required", "shift_not_found" -> "shift_name";\n'
+        '\t\t\tdefault -> null;\n'
         '\t\t};\n'
         '\t}\n'
     )
-    java = java_codes(java_source, "message")
-    assert java == {"first_name_required", "invalid_phone", "invalid_phone_number"}, java
+    java = java_arms(java_source, "fieldKey")
+    assert java == php, java
 
-    failures = compare("message", php, java)
-    assert failures and "gender_invalid" in failures[0], failures
-    assert "ship as a raw code" in failures[0]
+    failures, presence_only = compare("field_key", php, java)
+    assert failures == [] and presence_only == 0, (failures, presence_only)
 
-    assert compare("message", php, php) == []
-    failures = compare("message", set(), {"invented"})
-    assert failures and "unknown to PHP" in failures[0], failures
+    # A code present on both sides but pointing at the wrong column: the exact
+    # class of defect a code-set comparison cannot see.
+    wrong = dict(java, gender_invalid="employee_code")
+    failures, _ = compare("field_key", php, wrong)
+    assert len(failures) == 1 and "maps to 'employee_code'" in failures[0], failures
 
-    print("5/5 excel-error-code drift self-test cases passed.")
+    # A missing arm still reports as a fall-through.
+    short = {k: v for k, v in java.items() if k != "gender_invalid"}
+    failures, _ = compare("field_key", php, short)
+    assert failures and "ship as a raw code" in failures[0], failures
+
+    # An interpolated arm is counted, not compared, and not a failure.
+    interp_php = {"invalid_phone": INTERPOLATED}
+    interp_java = {"invalid_phone": "any wording at all"}
+    failures, presence_only = compare("message", interp_php, interp_java)
+    assert failures == [] and presence_only == 1, (failures, presence_only)
+
+    print("6/6 excel-error-code drift self-test cases passed.")
     return 0
 
 
@@ -140,12 +267,23 @@ def main(argv: list[str]) -> int:
     with open(JAVA, encoding="utf-8") as handle:
         java_source = handle.read()
 
+    constants = php_constants([
+        open(os.path.join(legacy, path), encoding="utf-8").read()
+        for path in PHP_CONSTANT_FILES
+        if os.path.exists(os.path.join(legacy, path))
+    ])
+
     failures = []
+    notes = []
     for label, php_function in PHP_FUNCTIONS.items():
-        failures += compare(
-            label,
-            php_codes(php_source, php_function),
-            java_codes(java_source, JAVA_METHODS[label]),
+        php_map = php_arms(php_source, php_function, constants)
+        java_map = java_arms(java_source, JAVA_METHODS[label])
+        found, presence_only = compare(label, php_map, java_map)
+        failures += found
+        notes.append(
+            "  " + label + ": " + str(len(php_map)) + " arms, "
+            + str(len(php_map) - presence_only) + " compared by value, "
+            + str(presence_only) + " by presence only (interpolated)"
         )
 
     if failures:
@@ -155,6 +293,8 @@ def main(argv: list[str]) -> int:
         return 1
 
     print("employee-import error catalog parity OK")
+    for note in notes:
+        print(note)
     return 0
 
 

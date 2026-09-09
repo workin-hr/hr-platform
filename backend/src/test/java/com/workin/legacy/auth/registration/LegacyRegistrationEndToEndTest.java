@@ -337,7 +337,9 @@ class LegacyRegistrationEndToEndTest {
 				.containsEntry("is_active", 0)
 				.containsEntry("first_name", "Joiner")
 				.containsEntry("branch_id", (int) BRANCH);
-		assertThat(employee.keySet()).doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
+		assertThat(employee.keySet())
+				.doesNotContain("password_hash", "token_version")
+				.doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 	}
 
 	/** Joining notifies both the employee and the company. */

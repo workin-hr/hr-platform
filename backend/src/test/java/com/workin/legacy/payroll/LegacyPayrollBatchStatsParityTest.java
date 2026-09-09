@@ -52,11 +52,12 @@ class LegacyPayrollBatchStatsParityTest extends AbstractLegacyMySqlTest {
 				// stores total_entitlements = 0 because salary_by_attendance is
 				// 0, while basic_salary and the allowances stay populated --
 				// the exact row NULLIF(col, 0) mistook for "unset".
-				payslip(ABSENT_EMPLOYEE, "0.00", "10000.00", "1000.00", "500.00", "300.00", "100.00", "200.00"),
+				payslip(ABSENT_EMPLOYEE, "0.00", "10000.00", "1000.00", "500.00", "300.00", "100.00", "200.00",
+						"500.00"),
 
 				// Ordinary paid row, allowances only in the housing column, so
 				// the two allowance expressions agree on this one.
-				payslip(PAID_EMPLOYEE, "3000.00", "3000.00", "0.00", "0.00", "0.00", "0.00", "0.00"));
+				payslip(PAID_EMPLOYEE, "3000.00", "3000.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00"));
 
 		store = new LegacyPayrollBatchStore(new DriverManagerDataSource(
 				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword()));
@@ -84,6 +85,33 @@ class LegacyPayrollBatchStatsParityTest extends AbstractLegacyMySqlTest {
 	}
 
 	/**
+	 * The deductions half of the same rule, which the entitlements case does not
+	 * reach.
+	 *
+	 * <p>Both stored totals are 0 here, so with every deduction component also 0
+	 * the two expressions agree and the old `NULLIF` passes — verified by
+	 * reinstating it. The absent employee therefore carries
+	 * {@code other_deductions = 500} beside a stored {@code total_deductions = 0},
+	 * which is D-190's real scenario: {@code edit_detail} writes
+	 * {@code other_deductions} and never {@code total_deductions}.
+	 *
+	 * <p>PHP reports the stored 0. The old expression read that zero as unset and
+	 * fell through to the component sum, inventing a 500 deduction nobody
+	 * recorded.
+	 */
+	@Test
+	void aStoredZeroDeductionIsNotReplacedByTheSumOfItsComponents() {
+		Map<String, Object> stats = store.statsForBatch(BATCH);
+
+		assertThat(new BigDecimal(String.valueOf(stats.get("total_deductions"))))
+				.as("both rows store 0, despite one carrying a 500 component -- not 500")
+				.isEqualByComparingTo("0.00");
+		assertThat(new BigDecimal(String.valueOf(stats.get("total_other_deductions"))))
+				.as("the component itself is still reported, so the 500 is not simply absent")
+				.isEqualByComparingTo("500.00");
+	}
+
+	/**
 	 * {@code sql_payslip_total_allowances()} sums all five allowance columns.
 	 * The port summed only {@code allowances}, the housing one, so every other
 	 * allowance an employee receives was missing from the batch total.
@@ -104,12 +132,21 @@ class LegacyPayrollBatchStatsParityTest extends AbstractLegacyMySqlTest {
 				+ " '+2011000" + id + "', 'employee', 1, 'accepted', '2025-01-01 09:00:00')";
 	}
 
+	/**
+	 * {@code total_deductions} is always the stored 0 -- that is the value under
+	 * test. {@code otherDeductions} is a <em>component</em>, and giving one row a
+	 * non-zero component beside that stored zero is what separates the two
+	 * expressions: the correct one reports the stored 0, the old one treats it as
+	 * unset and falls through to the component sum.
+	 */
 	private static String payslip(long employeeId, String totalEntitlements, String basic,
-			String housing, String transport, String food, String risk, String incentives) {
+			String housing, String transport, String food, String risk, String incentives,
+			String otherDeductions) {
 		return "INSERT INTO payslips (batch_id, employee_id, basic_salary, allowances,"
 				+ " transport_allowance, food_allowance, risk_allowance, incentives,"
-				+ " total_entitlements, total_deductions) VALUES ("
+				+ " other_deductions, total_entitlements, total_deductions) VALUES ("
 				+ BATCH + ", " + employeeId + ", " + basic + ", " + housing + ", " + transport + ", "
-				+ food + ", " + risk + ", " + incentives + ", " + totalEntitlements + ", 0.00)";
+				+ food + ", " + risk + ", " + incentives + ", " + otherDeductions + ", "
+				+ totalEntitlements + ", 0.00)";
 	}
 }

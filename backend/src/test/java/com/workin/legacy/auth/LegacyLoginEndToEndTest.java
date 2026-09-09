@@ -113,7 +113,9 @@ class LegacyLoginEndToEndTest {
 		assertThat(data).doesNotContainKey("refresh_token");
 
 		Map employee = (Map) data.get("employee");
-		assertThat(employee.keySet()).doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
+		assertThat(employee.keySet())
+				.doesNotContain("password_hash", "token_version")
+				.doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 		assertThat(((Number) employee.get("id")).longValue()).isEqualTo(90011L);
 		assertThat(((Number) employee.get("company_id")).longValue()).isEqualTo(9001L);
 

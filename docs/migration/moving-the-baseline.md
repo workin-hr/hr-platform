@@ -81,17 +81,36 @@ Re-vendor every copy and **check each file's own provenance header names the
 new baseline**. Then run the real comparisons, which need a sibling checkout
 and therefore cannot run in CI:
 
+**The flags differ per script.** Copy these exactly:
+
 ```bash
-python3 scripts/check_legacy_schema_drift.py         --legacy ../hr-legacy
-python3 scripts/check_legacy_modules_drift.py        --legacy ../hr-legacy
-python3 scripts/check_legacy_route_drift.py          --legacy-api ../hr-legacy/apis/api
-python3 scripts/check_legacy_lang_drift.py           --legacy ../hr-legacy
-python3 scripts/check_legacy_message_drift.py        --legacy ../hr-legacy
-python3 scripts/check_legacy_product_defaults_drift.py --legacy ../hr-legacy
-python3 scripts/check_legacy_spreadsheet_columns_drift.py --legacy ../hr-legacy
-python3 scripts/check_legacy_sensitive_keys_drift.py --legacy ../hr-legacy
-python3 scripts/check_legacy_excel_error_codes_drift.py --legacy ../hr-legacy
+python3 scripts/check_legacy_schema_drift.py              --legacy ../hr-legacy
+python3 scripts/check_legacy_modules_drift.py             --legacy ../hr-legacy
+python3 scripts/check_legacy_lang_drift.py                --legacy ../hr-legacy
+python3 scripts/check_legacy_spreadsheet_columns_drift.py  --legacy ../hr-legacy
+python3 scripts/check_legacy_sensitive_keys_drift.py      --legacy ../hr-legacy
+python3 scripts/check_legacy_excel_error_codes_drift.py   --legacy ../hr-legacy
+
+# These three do not take --legacy.
+python3 scripts/check_legacy_route_drift.py    --legacy-api  ../hr-legacy/apis/api
+python3 scripts/check_legacy_message_drift.py  --legacy-lang ../hr-legacy/apis/lang
+python3 scripts/check_legacy_product_defaults_drift.py   # reads hr-legacy itself; takes no path
 ```
+
+> **Do not guess a flag, and do not trust a zero exit from one you guessed.**
+> This list first shipped with `--legacy ../hr-legacy` on the message check.
+> Python's `argparse` accepts an unambiguous **prefix** of a long option, so
+> `--legacy` was silently taken as `--legacy-lang` and pointed the script at
+> `../hr-legacy` rather than `../hr-legacy/apis/lang`. It found no catalog
+> there, printed *"hr-legacy not checked out: comparing against the committed
+> inventory only"*, compared the port against **itself**, and exited **0** with
+> `OK` on the last line.
+>
+> That is worse than the argparse error it looks like it should have been: a
+> checklist step that appears to pass while checking nothing. Confirm each
+> command's output actually says it read `hr-legacy` — the message check should
+> print *"hr-legacy present: its 825 messages match the committed inventory"*,
+> not *"not checked out"*.
 
 See **A gate's output is evidence, not a verdict** below for what to do with
 what they print.

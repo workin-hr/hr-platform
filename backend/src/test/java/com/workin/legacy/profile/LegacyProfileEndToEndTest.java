@@ -140,6 +140,7 @@ class LegacyProfileEndToEndTest {
 				.containsEntry("manager_name", "Ada Admin");
 		assertThat(row.keySet())
 				.as("public_row() strips every sensitive key, whatever the list currently is")
+				.doesNotContain("password_hash", "token_version")
 				.doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 		assertThat(row).as("no contract seeded, so the key is absent entirely")
 				.doesNotContainKey("basic_salary");

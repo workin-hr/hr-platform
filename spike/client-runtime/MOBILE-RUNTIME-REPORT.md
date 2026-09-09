@@ -73,18 +73,26 @@ why the first check-in attempts failed.
 
 ## Findings
 
-### `time/now` is a 404 on both stacks
+### `time/now` was a 404 on both stacks, and is now served by both
 
-The app calls `GET time/now` five times per session and gets
-`404 الوحدة 'time' غير موجودة`. **PHP returns the identical 404.**
-`apis/api/time/now.php` exists on disk, but `time` is absent from
-`ApiModule::allowedList()` in `apis/config/http_api.php`, and the legacy router
-resolves the first path segment against that list *before* it looks for an
-action file. Java ports the list literally, so the two agree byte for byte.
+**Superseded 2026-09-09 (D-220).** This run was measured before `hr-legacy`
+`505004f`, which added `time` to `ApiModule::allowedList()`.
 
-Classification: **existing client defect against legacy behaviour, preserved
-correctly by the port.** The endpoint has never been reachable in PHP either.
-The client tolerates it -- no crash, no visible degradation.
+What was measured, and was correct at the time: the app calls `GET time/now`
+five times per session and got `404 الوحدة 'time' غير موجودة`, and **PHP
+returned the identical 404** — `apis/api/time/now.php` existed on disk, but
+`time` was absent from the allow-list in `apis/config/http_api.php`, and the
+legacy router resolves the first path segment against that list *before* it
+looks for an action file. Java ported the list literally, so the two agreed
+byte for byte. Classification at the time: an existing client defect against
+legacy behaviour, preserved correctly by the port.
+
+What holds now: `505004f` added the module, so the route resolves in both
+stacks and the port serves it through `LegacyTimeController`. The client's five
+calls a session, which had never once succeeded, now receive a real clock.
+**This section must not be used as evidence that the 404 is expected** — it is
+retained as a record of what the pre-`505004f` run measured. Re-run the
+comparison against the current baseline before relying on it.
 
 ### `requests/create` refuses a `company_admin` on both stacks
 

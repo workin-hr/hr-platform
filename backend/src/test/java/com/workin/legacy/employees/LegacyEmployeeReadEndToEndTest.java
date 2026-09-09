@@ -106,8 +106,15 @@ class LegacyEmployeeReadEndToEndTest {
 
 		Map<String, Object> row = firstRowFor(body, STAFF_MAIN);
 
-		// public_row() strips exactly two keys, and no more.
-		assertThat(row.keySet()).doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
+		// Two assertions on purpose. The named pair is the floor and holds even
+		// if somebody edits SENSITIVE_KEYS; the list catches whatever is added
+		// to it, which is how `ip` slipped past nine tests that named only the
+		// pair. Neither alone is enough.
+		//
+		// public_row() strips these and no more.
+		assertThat(row.keySet())
+				.doesNotContain("password_hash", "token_version")
+				.doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 		assertThat(row).containsKeys("id", "company_id", "employee_code", "national_id", "join_request_status");
 
 		// Measured against PHP: INT columns are JSON numbers...
