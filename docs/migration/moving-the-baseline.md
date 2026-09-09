@@ -93,9 +93,8 @@ python3 scripts/check_legacy_sensitive_keys_drift.py --legacy ../hr-legacy
 python3 scripts/check_legacy_excel_error_codes_drift.py --legacy ../hr-legacy
 ```
 
-**Read their output as statements, not as pass/fail.** `check_legacy_route_drift.py`
-had been printing the correct endpoint count throughout, next to a ledger that
-claimed a different one — nobody compared the two because the gate was green.
+See **A gate's output is evidence, not a verdict** below for what to do with
+what they print.
 
 ## 5. Governance artifacts and ledgers — the category that has no gate
 
@@ -130,6 +129,37 @@ One decision entry per behavioural change, naming the PHP `path:line` and the
 Java `path:line`. Update the risk register where a risk's evidence moved. If
 the sweep found nothing in a file, that is worth one line too — R-071 records
 its clean areas precisely so the next sweep need not re-derive them.
+
+## A gate's output is evidence, not a verdict
+
+**A green exit code does not make a discrepancy acceptable.** A detector that
+prints a concrete total is making an accounting statement, and that statement
+has to be reconciled against whatever else in the repository claims to count
+the same thing.
+
+The worked example is not hypothetical. `check_legacy_route_drift.py` prints:
+
+```text
+committed legacy routes: 202   java inventory: 202
+hr-legacy present: its 202 routes match the committed inventory.
+OK: every legacy route is in the Java inventory.
+```
+
+It printed **202** through the entire period in which gate G2 read `198 live +
+1 excluded = 199` and the exclusion ledger named a route both stacks were
+serving. The detector was right, it was right in public, and it was right on
+every run. Nobody reconciled it, because the last line said `OK` and the eye
+stops there.
+
+So, whenever a gate emits a number:
+
+- [ ] Compare it against every **prose** figure that claims to count the same
+      thing — gate denominators, ledgers, decision entries, plan totals.
+- [ ] When they disagree, the **derived number wins** and the prose is the
+      defect. Fix the prose; do not adjust the derived number to match it.
+- [ ] Treat "the gate is green" and "the accounting is correct" as two separate
+      questions. The first never answers the second: a gate compares the two
+      things it was pointed at, and a ledger is usually not one of them.
 
 ## The rule underneath all of this
 
