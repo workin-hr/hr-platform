@@ -87,6 +87,13 @@ public class Phase1SchemaCheck implements ApplicationRunner {
 		OWNED_TABLES.put("unclaimed_device_sightings",
 				"the record of terminals pointed here but not yet claimed -- device setup has nothing to show");
 		OWNED_TABLES.put("device_operation_logs", "the device operation log");
+		OWNED_TABLES.put("device_malformed_punches",
+				"quarantined unparseable ATTLOG lines -- a punch a firmware revision worded"
+						+ " differently is acknowledged to the terminal and then unrecoverable");
+		OWNED_TABLES.put("device_assignment_history",
+				"what a device's branch and zone WERE -- without it a buffered punch delivered"
+						+ " after a reassignment is attributed to the wrong branch, and after a"
+						+ " zone change its stored instant is wrong outright");
 	}
 
 	private final DataSource dataSource;

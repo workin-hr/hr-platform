@@ -211,11 +211,19 @@ CREATE TABLE device_punches (
     -- Snapshotted from the device at ingestion, not read back through it: a
     -- terminal can be moved to another branch, and reporting the registry's
     -- current branch would retroactively relabel every punch it ever sent.
-    branch_id INT UNSIGNED NOT NULL,
+    -- NULLABLE for the same reason as punched_at_utc: an unresolved punch has
+    -- no branch we observed, and the earliest-known branch is a guess.
+    branch_id INT UNSIGNED NULL,
     employee_id INT UNSIGNED NULL,
     pin VARCHAR(32) NOT NULL,
     punched_at_local DATETIME NOT NULL,
-    punched_at_utc DATETIME NOT NULL,
+    -- NULLABLE, deliberately. A wall-clock punch whose configuration cannot be
+    -- established has no instant we are entitled to assert -- around a zone
+    -- change or a DST fold the same wall clock maps plausibly into more than
+    -- one. Writing a placeholder would turn "we do not know" into a fact that
+    -- reads exactly like a measurement. punched_at_local always survives, so
+    -- nothing is lost; only the derived value is withheld.
+    punched_at_utc DATETIME NULL,
     -- Explicit provenance: set ONLY on the punch that OPENED an attendance row,
     -- to the exact LegacyRuntimeOffset value written to attendance.check_in.
     -- Null on a punch that closed an existing row.
@@ -230,6 +238,16 @@ CREATE TABLE device_punches (
     -- Comparing this against attendance.check_in stays useful, but for a
     -- different question: whether HR edited the row after pairing.
     attendance_check_in_at DATETIME NULL,
+    -- Which history row was used, kept as provenance rather than a foreign key:
+    -- Phase 1 tables carry no FKs (the legacy lifecycle owns deletion order),
+    -- so this records WHY the branch and zone were chosen without constraining
+    -- either table's lifetime.
+    device_assignment_id BIGINT NULL,
+    -- Schema-level, not a comment: whether the temporal attribution above was
+    -- observed or guessed. EXACT is the only value pairing will claim, so an
+    -- acknowledged guess cannot become payroll-facing attendance by default.
+    assignment_resolution ENUM('EXACT', 'INFERRED_EARLIEST', 'UNRESOLVED')
+        NOT NULL DEFAULT 'EXACT',
     status_code SMALLINT NULL,
     verify_code SMALLINT NULL,
     work_code VARCHAR(32) NULL,
@@ -278,7 +296,10 @@ CREATE TABLE device_punches (
 -- The pairing pass claims work with processing_state = 'RECEIVED' and walks a
 -- company's punches in punch order, so this is the index it runs on.
 CREATE INDEX device_punches_pairing_idx
-    ON device_punches (processing_state, company_id, pair_attempts, employee_id, punched_at_local);
+    -- Ends in punched_at_utc because claimable() orders by the INSTANT: a DST
+-- overlap makes punched_at_local ambiguous, and an index that disagrees with
+-- the ORDER BY buys a filesort on the hottest query in pairing.
+ON device_punches (processing_state, company_id, pair_attempts, employee_id, punched_at_utc);
 
 CREATE INDEX device_punches_device_time_idx ON device_punches (device_id, punched_at_local);
 CREATE INDEX device_punches_employee_time_idx ON device_punches (company_id, employee_id, punched_at_local);
@@ -310,6 +331,39 @@ CREATE TABLE unclaimed_device_sightings (
 -- to survive somewhere or the punch is lost for good. The usual cause is a
 -- firmware revision emitting a shape the parser has not been taught, which
 -- makes these rows the input for teaching it.
+-- What a device's configuration WAS, not just what it is.
+--
+-- attendance_devices holds one branch_id and one device_time_zone, overwritten
+-- in place. Offline buffering is a supported flow, so a punch can be delivered
+-- after either changed -- and ingestion stamped the CURRENT values onto it. The
+-- branch was wrong; worse, the zone is what derives punched_at_utc, so a zone
+-- change silently corrupted the instant that ordering, late-arrival detection,
+-- rewind bounds and the attendance timestamp all now rest on.
+--
+-- Append-only, and deliberately WITHOUT effective_to: each row means "from this
+-- instant onward, this was the configuration", and the next row implicitly ends
+-- it. Closing and reopening intervals would add an "exactly one open row"
+-- invariant to defend, and with it the overlap and gap bugs that come from
+-- getting it wrong.
+--
+-- attendance_devices keeps the current values materialised -- registry reads
+-- must not join history -- but they move in the same transaction as the append.
+CREATE TABLE device_assignment_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    device_id BIGINT NOT NULL,
+    company_id INT UNSIGNED NOT NULL,
+    branch_id INT UNSIGNED NOT NULL,
+    device_time_zone VARCHAR(64) NOT NULL,
+    -- An INSTANT. Ordering configuration by a wall clock would reintroduce the
+    -- ambiguity this table exists to resolve.
+    effective_from_utc DATETIME NOT NULL,
+    created_at DATETIME NOT NULL,
+    -- (device_id, effective_from_utc, id): the timeline for one device, in
+    -- order, and `id` makes two rows sharing an instant deterministic rather
+    -- than arbitrary.
+    KEY device_assignment_history_timeline_idx (device_id, effective_from_utc, id)
+);
+
 CREATE TABLE device_malformed_punches (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     device_id BIGINT NOT NULL,

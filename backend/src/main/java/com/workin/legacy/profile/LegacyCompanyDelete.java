@@ -120,7 +120,8 @@ public class LegacyCompanyDelete {
 	 * from this list: an unclaimed serial belongs to no company.
 	 */
 	private static final List<String> DEVICE_OWNED = List.of(
-			"device_punches", "device_operation_logs", "employee_device_identities", "attendance_devices");
+			"device_punches", "device_operation_logs", "device_malformed_punches",
+			"device_assignment_history", "employee_device_identities", "attendance_devices");
 
 	/** The final company-scoped batch; failures ignored. */
 	private static final List<String> COMPANY_OWNED_LATE = List.of(
