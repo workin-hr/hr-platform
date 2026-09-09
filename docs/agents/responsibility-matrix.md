@@ -21,7 +21,10 @@ definitions, enforcement configuration, and validation tests together.
 `AGENTS.md`'s mandatory workflow (D-121). Its review of the whole pull request
 discharges the independent-review gate; it does not approve or merge, and the
 human owner still performs the merge. When its externally-billed quota is
-exhausted (R-009) the gate is unavailable, not waived.
+exhausted (R-009) the gate is unavailable, not waived — with the single
+documented exception of **D-224**, a time-boxed degraded-review procedure for a
+reviewer-service outage, which does not make any other agent the named reviewer
+and lapses the moment quota recovers.
 
 That row is enforced by `validate_independent_reviewer_declaration()` in
 `scripts/validate_phase0.py`, not left as prose: the row must exist under the
