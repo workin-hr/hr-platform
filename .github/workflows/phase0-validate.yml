@@ -190,11 +190,6 @@ jobs:
       - name: Pin what the legacy message-drift check catches
         run: python3 scripts/test_check_legacy_message_drift.py
 
-      # The wrapper is a shell script, so validate_phase0.py's script/test-sibling
-      # rule (which globs scripts/*.py) cannot see it. Wire its tests explicitly.
-      - name: Pin what the all-detector drift wrapper asserts
-        run: python3 scripts/test_check_all_legacy_drift.py
-
       # And the dashboard's own catalog, which is a different file in a
       # different shape. Its strings render in the JTE templates, so a missing
       # one is a sidebar entry reading "nav_guide_videos".

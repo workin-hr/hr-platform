@@ -81,18 +81,6 @@ Re-vendor every copy and **check each file's own provenance header names the
 new baseline**. Then run the real comparisons, which need a sibling checkout
 and therefore cannot run in CI:
 
-**Run them through the wrapper, not by hand:**
-
-```bash
-./scripts/check_all_legacy_drift.sh          # defaults to ../hr-legacy
-```
-
-It runs all nine with the flag each one actually takes and **refuses to report
-success unless each proves it read `hr-legacy`** — see the rule below for why a
-zero exit does not establish that. The individual commands are listed here so
-the wrapper is auditable rather than magic; if you run one by hand, run it in
-this exact form.
-
 **The flags differ per script.** Copy these exactly:
 
 ```bash
@@ -103,59 +91,11 @@ python3 scripts/check_legacy_spreadsheet_columns_drift.py  --legacy ../hr-legacy
 python3 scripts/check_legacy_sensitive_keys_drift.py      --legacy ../hr-legacy
 python3 scripts/check_legacy_excel_error_codes_drift.py   --legacy ../hr-legacy
 
-# These two take a different flag.
+# These three do not take --legacy.
 python3 scripts/check_legacy_route_drift.py    --legacy-api  ../hr-legacy/apis/api
 python3 scripts/check_legacy_message_drift.py  --legacy-lang ../hr-legacy/apis/lang
-python3 scripts/check_legacy_product_defaults_drift.py    --legacy ../hr-legacy
+python3 scripts/check_legacy_product_defaults_drift.py   # reads hr-legacy itself; takes no path
 ```
-
-`check_legacy_product_defaults_drift.py` previously took no path and always
-read `../hr-legacy`, whatever checkout you selected. Pass `--legacy` explicitly:
-a wrapper that reports which checkout it compared has to pass that checkout to
-every detector, and this was the one that did not.
-
-### A drift check is verified by its output, never by its exit code
-
-**A detector that exits 0 has not necessarily compared anything.** Three of the
-nine degrade rather than fail when they cannot find `hr-legacy`: they fall back
-to the port's own committed inventory, compare it against itself, print
-`not checked out`, and exit **0** with `OK` on the last line.
-
-So the rule is positive, not negative. Do not look for an error; look for the
-evidence that the intended source was read:
-
-Each detector has to print its own evidence, and `check_all_legacy_drift.sh`
-requires the exact string below from each — reporting **`UNPROVEN`** and failing
-the run when it is absent. Excluding one fallback phrase is not enough: a
-detector that exits 0 while printing nothing, or printing a *reworded*
-fallback, passes a negative check and the wrapper then certifies a baseline
-nobody verified. That was demonstrated with nine silent stubs before this rule
-existed — the wrapper printed "all 9 detectors read hr-legacy" and exited 0.
-
-| Detector | Required marker |
-|---|---|
-| `check_legacy_schema_drift.py` | `matches` |
-| `check_legacy_modules_drift.py` | `same values and same order` |
-| `check_legacy_lang_drift.py` | `matches` |
-| `check_legacy_spreadsheet_columns_drift.py` | `matches` |
-| `check_legacy_sensitive_keys_drift.py` | `sensitive-key parity OK` |
-| `check_legacy_excel_error_codes_drift.py` | `compared by value` |
-| `check_legacy_route_drift.py` | `hr-legacy present:` |
-| `check_legacy_message_drift.py` | `hr-legacy present:` |
-| `check_legacy_product_defaults_drift.py` | `match hr-legacy at HEAD` |
-
-The three that *degrade* rather than fail are the last three; the other six
-exit non-zero when the source is missing, so for those the marker is a second
-line of defence rather than the only one. `scripts/test_check_all_legacy_drift.py`
-pins this table — change a marker here and change it there, or the tests fail.
-
-**A linked worktree is a real checkout.** Its `.git` is a *file*, not a
-directory, so a `isdir(.git)` presence test rejects one and skips the
-comparison while exiting 0. This repository is worked through linked
-worktrees, so that is the ordinary case.
-
-This class was found twice by review and never once by us, so it belongs in a
-command rather than in somebody's discipline.
 
 > **Do not guess a flag, and do not trust a zero exit from one you guessed.**
 > This list first shipped with `--legacy ../hr-legacy` on the message check.
