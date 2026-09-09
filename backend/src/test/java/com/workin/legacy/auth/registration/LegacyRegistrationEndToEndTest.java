@@ -31,6 +31,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import com.workin.legacy.LegacyPublicRow;
 import com.workin.backend.BackendApplication;
 import com.workin.legacy.LegacyMariaDb;
 import com.workin.legacy.LegacyRuntimeOffset;
@@ -336,7 +337,7 @@ class LegacyRegistrationEndToEndTest {
 				.containsEntry("is_active", 0)
 				.containsEntry("first_name", "Joiner")
 				.containsEntry("branch_id", (int) BRANCH);
-		assertThat(employee).doesNotContainKeys("password_hash", "token_version");
+		assertThat(employee.keySet()).doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 	}
 
 	/** Joining notifies both the employee and the company. */

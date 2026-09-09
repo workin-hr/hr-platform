@@ -30,6 +30,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import com.workin.legacy.LegacyPublicRow;
 import com.workin.backend.BackendApplication;
 import com.workin.legacy.LegacyMariaDb;
 import com.workin.legacy.LegacyRuntimeOffset;
@@ -137,7 +138,9 @@ class LegacyProfileEndToEndTest {
 				.containsEntry("department_name", "Ops")
 				.containsEntry("job_title_name", "Engineer")
 				.containsEntry("manager_name", "Ada Admin");
-		assertThat(row).as("public_row() strips both").doesNotContainKeys("password_hash", "token_version");
+		assertThat(row.keySet())
+				.as("public_row() strips every sensitive key, whatever the list currently is")
+				.doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 		assertThat(row).as("no contract seeded, so the key is absent entirely")
 				.doesNotContainKey("basic_salary");
 	}

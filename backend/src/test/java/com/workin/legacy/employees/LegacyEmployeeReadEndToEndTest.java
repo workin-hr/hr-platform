@@ -25,6 +25,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
+import com.workin.legacy.LegacyPublicRow;
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
 import com.workin.legacy.LegacyMariaDb;
@@ -106,7 +107,7 @@ class LegacyEmployeeReadEndToEndTest {
 		Map<String, Object> row = firstRowFor(body, STAFF_MAIN);
 
 		// public_row() strips exactly two keys, and no more.
-		assertThat(row).doesNotContainKeys("password_hash", "token_version");
+		assertThat(row.keySet()).doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 		assertThat(row).containsKeys("id", "company_id", "employee_code", "national_id", "join_request_status");
 
 		// Measured against PHP: INT columns are JSON numbers...
@@ -504,6 +505,49 @@ class LegacyEmployeeReadEndToEndTest {
 	 * TIMESTAMP, which measured wasNull() TRUE for an all-zero value, so
 	 * that is the assertion which was genuinely broken before D-096.
 	 */
+	/**
+	 * A populated {@code ip} column never reaches the wire.
+	 *
+	 * <p>The sibling assertions above pass whether or not the port strips
+	 * {@code ip}, because the shared fixture leaves the column NULL and a NULL
+	 * column is simply absent from the row. That is exactly how this shipped:
+	 * {@code 505004f} added {@code ip} to {@code sensitive_response_keys()},
+	 * four copies of the list in this port kept the old pair, and nine tests
+	 * asserting the old pair by name all agreed with them.
+	 *
+	 * <p>So this one writes an address first. The employee list is
+	 * {@code SELECT * FROM employees}, and {@code LegacyJdbcValues.rowMapper()}
+	 * puts every column label into the map, so nothing but
+	 * {@link LegacyPublicRow} stands between the column and an HR session
+	 * holding every employee's last-login address.
+	 */
+	@Test
+	void aStoredLastLoginAddressIsStrippedFromTheEmployeeList() throws Exception {
+		long id = 194098L;
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute("SET SESSION sql_mode = ''");
+			st.execute("INSERT INTO employees (id, company_id, branch_id, employee_code,"
+					+ " role, is_active, join_request_status, phone, first_name, last_name, ip)"
+					+ " VALUES (" + id + ", " + COMPANY_1 + ", " + BRANCH_MAIN
+					+ ", '9098', 'employee', 1, 'accepted', '+201000194098',"
+					+ " 'Traced', 'Employee', '203.0.113.47')");
+		}
+		try {
+			Map<String, Object> row = firstRowFor(getMap(LIST, ADMIN_1), id);
+
+			assertThat(row)
+					.as("the column is populated, so absence here is the strip and not an empty column")
+					.doesNotContainKey("ip");
+			assertThat(row.values())
+					.as("nor under any other key")
+					.doesNotContain("203.0.113.47");
+		} finally {
+			try (Connection connection = connect(); Statement st = connection.createStatement()) {
+				st.execute("DELETE FROM employees WHERE id = " + id);
+			}
+		}
+	}
+
 	@Test
 	void aZeroDateAndZeroTimestampReachTheWireAsLiteralStrings() throws Exception {
 		long id = 194099L;

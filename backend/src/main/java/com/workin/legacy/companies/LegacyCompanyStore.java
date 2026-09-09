@@ -14,19 +14,21 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import com.workin.legacy.LegacyJdbcValues;
+import com.workin.legacy.LegacyPublicRow;
 
 /**
  * Frozen {@code companies} row access for Wave 12.10 ({@code company/*.php}).
  *
  * <p>{@code public_row($row)} returns the PDO row minus {@code sensitive_response_keys()}
- * ({@code helpers/public_row.php:10}) -- {@code password_hash} and
- * {@code token_version}, the latter not a {@code companies} column at all, so
- * stripping it here is a harmless no-op exactly as PHP's {@code unset()} is.
+ * ({@code helpers/public_row.php:10}) -- taken from {@link LegacyPublicRow} so
+ * there is one list rather than a copy. {@code token_version} is not a
+ * {@code companies} column at all, so stripping it here is a harmless no-op
+ * exactly as PHP's {@code unset()} is; {@code ip} very much is one.
  */
 @Repository
 public class LegacyCompanyStore {
 
-	private static final List<String> SENSITIVE_KEYS = List.of("password_hash", "token_version");
+	private static final List<String> SENSITIVE_KEYS = LegacyPublicRow.SENSITIVE_KEYS;
 
 	private final JdbcTemplate jdbc;
 

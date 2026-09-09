@@ -34,6 +34,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
+import com.workin.legacy.LegacyPublicRow;
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
 import com.workin.legacy.LegacyMariaDb;
@@ -115,7 +116,7 @@ class LegacyEmployeeUploadPhotoEndToEndTest {
 			String url = (String) employee.get("photo_url");
 			// /uploads/photos/<generated>.<client extension>
 			assertThat(url).matches("^/uploads/photos/[0-9a-f]+\\.[0-9]+\\.jpg$");
-			assertThat(employee).doesNotContainKeys("password_hash", "token_version");
+			assertThat(employee.keySet()).doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 			assertThat(employee.get("branch_name")).isEqualTo("Main Branch");
 
 			// The row and the file both exist, and they agree.
