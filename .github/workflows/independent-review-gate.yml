@@ -36,10 +36,15 @@ name: Independent Review Gate
 # happened on this head, not that its findings were addressed. That is step 7,
 # and nothing in this repository verifies it mechanically (R-008).
 #
-# Fork limitation, disclosed rather than worked around: `GITHUB_TOKEN` is
-# read-only for pull requests from forks, so the status cannot be published for
-# those. Every pull request in this repository is opened from a branch on the
-# repository itself.
+# NOT a fork limitation. This once read that `GITHUB_TOKEN` is read-only for
+# fork pull requests so the status could not be published for them. That was
+# true under `pull_request`; under `pull_request_target` and `issue_comment`
+# the job runs in BASE context and holds the `statuses: write` declared below
+# whatever the head's origin. The status IS published for fork pull requests,
+# and the round-attribution rules further down are what constrain who may
+# satisfy it -- so do not read this paragraph as a mitigation, because it never
+# was one. Every pull request in this repository is opened from a branch on the
+# repository itself, which is a fact about practice, not an access control.
 
 # `pull_request_target`, not `pull_request` -- the owner's decision, D-122.
 #
@@ -150,18 +155,30 @@ jobs:
           # on its own.
           REVIEWER: "chatgpt-codex-connector[bot]"
           # D-226: an agent round is recorded by the IMPLEMENTER, because the
-          # reviewer is read-only and cannot post. So it cannot be attributed by
-          # author login the way a Codex round can, and this marker is what the
-          # gate matches instead. The marker is bound to a SHA, which is the one
-          # property that matters here: it cannot be recycled onto a later head.
+          # reviewer is read-only and cannot post. So it cannot be attributed to
+          # the REVIEWER by author login the way a Codex round can.
           #
-          # Trust boundary, stated plainly and NOT overclaimed: unlike
-          # `user.login == REVIEWER`, this IS forgeable by anyone who can comment
-          # on the pull request. It proves the round names this head; it does not
-          # prove a review happened. D-226 records that reduction. The
-          # compensating control is scripts/check-review-dispositions.sh, which
-          # requires the finding threads the marker claims.
-          AGENT_ROUND_RE: 'independent-review-round: agent'
+          # It can still be attributed to the CLAIMANT, and must be: a marker
+          # matched on body text alone is postable by anyone who can comment,
+          # which on a public repository is every GitHub account -- including a
+          # third party greening a stranger's pull request. The three predicates
+          # below are what keep that from being true.
+          #
+          # Trust boundary, stated plainly and NOT overclaimed: this is forgeable
+          # by anyone who can already WRITE to this repository. It proves a
+          # writer claimed a round naming this head; it does not prove a review
+          # happened, and an implementer can still self-attest. D-226 records
+          # that reduction. The compensating control for the remaining gap is
+          # scripts/check-review-dispositions.sh, which requires the finding
+          # threads the marker claims.
+          #
+          # Anchored to a line start so a comment QUOTING this file -- a review
+          # of the gate itself -- is not counted as a round on it.
+          AGENT_ROUND_RE: '(^|\n)independent-review-round: agent'
+          # Association is computed by GitHub from repository access; the
+          # commenter cannot set it. CONTRIBUTOR is deliberately absent: one
+          # merged commit earns it and it implies no write access.
+          ROUND_AUTHOR_ASSOC: 'OWNER,MEMBER,COLLABORATOR'
         run: |
           set -euo pipefail
 
@@ -216,11 +233,17 @@ jobs:
           # ADMIN could edit the bot's comment body to name a different SHA --
           # but an admin can already merge, so this grants no capability that
           # was not already held. Review objects have the same property.
-          rounds_on_head() {  # $1=pull request number -> one timestamp per round
+          # Emits one line per round: "<ISO timestamp> <codex|agent>". The
+          # timestamp leads because the retarget comparison below sorts these
+          # and compares them against a marker time; a leading tag would sort by
+          # mechanism and make every comparison against a bare timestamp false,
+          # silently clearing a base-change invalidation that must hold the gate
+          # red. Consumers that want the time alone strip the tag with `%% *`.
+          rounds_on_head() {  # $1=pull request number -> "<timestamp> <kind>" per round
             local pr="$1"
             gh api "repos/$REPO/pulls/$pr/reviews" --paginate \
               --jq '.[] | select(.user.login == env.REVIEWER and .commit_id == env.HEAD_SHA
-                      and .state != "DISMISSED") | .submitted_at' || true
+                      and .state != "DISMISSED") | "\(.submitted_at) codex"' || true
             gh api "repos/$REPO/issues/$pr/comments" --paginate \
               --jq '.[] | select(.user.login == env.REVIEWER)
                       | select(.body | test("\\*\\*Reviewed commit:\\*\\* \\x60[0-9a-f]{7,40}\\x60"))
@@ -230,20 +253,32 @@ jobs:
               | while IFS="$(printf '\t')" read -r at sha; do
                   # Prefix, anchored at the start: `${HEAD_SHA#$sha}` differing
                   # from HEAD_SHA means it matched at position 0.
-                  case "$HEAD_SHA" in "$sha"*) [ -n "$sha" ] && echo "$at" ;; esac
+                  case "$HEAD_SHA" in "$sha"*) [ -n "$sha" ] && echo "$at codex" ;; esac
                 done || true
 
             # D-226 agent rounds. Same SHA-binding rule as above: the marker must
             # name THIS head, so a round cannot be carried forward to a commit the
             # reviewer never saw.
+            #
+            # `created_at == updated_at` refuses an EDITED comment. Without it the
+            # SHA binding is worth nothing: post a round naming head A, push
+            # commits, then edit the same comment to name head B. `edited` is one
+            # of this workflow's own triggers, so that would re-green the gate
+            # with no new comment for a human to notice.
+            # `$a` is a jq variable bound by the `as` below, not a shell
+            # expansion, so the single quotes are required and SC2016 is noise.
+            # shellcheck disable=SC2016
             gh api "repos/$REPO/issues/$pr/comments" --paginate \
-              --jq '.[] | select(.body | test(env.AGENT_ROUND_RE))
+              --jq '.[] | select(.author_association as $a
+                                 | (env.ROUND_AUTHOR_ASSOC | split(",")) | index($a))
+                      | select(.created_at == .updated_at)
+                      | select(.body | test(env.AGENT_ROUND_RE))
                       | select(.body | test("head: [0-9a-f]{40}"))
                       | [.created_at,
                          (.body | capture("head: (?<sha>[0-9a-f]{40})").sha)]
                       | @tsv' 2>/dev/null \
               | while IFS="$(printf '\t')" read -r at sha; do
-                  [ "$sha" = "$HEAD_SHA" ] && echo "$at"
+                  [ "$sha" = "$HEAD_SHA" ] && echo "$at agent"
                 done || true
           }
 
@@ -281,6 +316,7 @@ jobs:
                 newest_round=""
                 for sibling in $siblings; do
                   round="$(rounds_on_head "$sibling" | sort | tail -n 1)"
+                  round="${round%% *}"  # drop the mechanism tag; compare times
                   if [ -z "$round" ]; then
                     newest_round=""
                     break
@@ -336,6 +372,8 @@ jobs:
           echo "Open pull requests at this commit: $(echo "$open_prs" | tr '\n' ' ')"
 
           unreviewed=""
+          # Which mechanism satisfied the gate, for the status description.
+          agent_rounds_seen=""
           for pr in $open_prs; do
             # Counted by lines, not by a per-page `length`: `--paginate` emits a
             # separate JSON array per page, so `--jq '... | length'` returns one
@@ -344,8 +382,14 @@ jobs:
             # through to the success path, which would report a green gate on an
             # unreviewed head. One line per match, counted, has no page boundary
             # to trip over. (`--slurp` would also work but is not in every `gh`.)
-            count="$(rounds_on_head "$pr" | wc -l | tr -d '[:space:]')"
-            echo "  #$pr: $count review(s) from $REVIEWER on this head"
+            rounds="$(rounds_on_head "$pr")"
+            count="$(printf '%s' "$rounds" | grep -c . || true)"
+            echo "  #$pr: $count round(s) on this head" \
+                 "(codex: $(printf '%s' "$rounds" | grep -c ' codex$' || true)," \
+                 "agent: $(printf '%s' "$rounds" | grep -c ' agent$' || true))"
+            if printf '%s' "$rounds" | grep -q ' agent$'; then
+              agent_rounds_seen=yes
+            fi
             if [ "$count" -eq 0 ]; then
               unreviewed="$unreviewed #$pr"
             fi
@@ -378,15 +422,27 @@ jobs:
             echo "merge, and D-121 requires the round to cover the final head — commits"
             echo "pushed after a round are unreviewed until review is re-requested."
             echo
-            echo "Comment '@codex review' on each pull request listed above; this status turns"
-            echo "green when every one of them has a round on this commit. If the reviewer's"
-            echo "quota is exhausted (risk R-009) the gate is unavailable, not waived: the"
-            echo "merge waits."
+            echo "Either mechanism turns this green, on every pull request listed above:"
+            echo "  * comment '@codex review' for a round from $REVIEWER; or"
+            echo "  * run the independent-review skill and record the round, per D-226 and"
+            echo "    .agents/skills/independent-review/SKILL.md."
+            echo "If the Codex quota is exhausted (risk R-009) that half is unavailable, not"
+            echo "waived -- D-226 is the answer to it, and the merge otherwise waits."
           else
             state="success"
-            description="$REVIEWER reviewed this head on every open PR at this commit"
+            # Two mechanisms satisfy this gate, and the status is the durable
+            # record a future auditor reads first. Naming only Codex there
+            # asserts something false about who reviewed -- which is the very
+            # thing D-226's Forbidden Behavior clause prohibits the evidence
+            # comment from doing.
+            if [ -n "$agent_rounds_seen" ]; then
+              by="an independent-review-agent round (D-226)"
+            else
+              by="$REVIEWER"
+            fi
+            description="Reviewed by $by on every open PR at this commit"
             echo
-            echo "OK: every open pull request at this commit has a round from $REVIEWER."
+            echo "OK: every open pull request at this commit has a round -- $by."
             echo "This proves a round happened. It does not prove its findings were addressed —"
             echo "that is the merge sequence's step 7."
           fi

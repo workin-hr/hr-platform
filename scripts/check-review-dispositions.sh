@@ -66,6 +66,29 @@ if [ -z "$REVIEWER" ]; then
   exit 1
 fi
 
+# Same rule, same reason, for the agent-round constants: the gate decides what a
+# round IS, and this script must ask the same question. A second copy here drifts
+# the moment the marker is tightened in the workflow -- and it drifts SILENTLY,
+# because a marker that matches nothing makes the vacuity guard below turn itself
+# off rather than fail.
+AGENT_ROUND_RE="$(
+  sed -e 's/^[[:space:]]*#.*$//' -e "s/[[:space:]]#[^\"']*$//" "$INDEPENDENT_REVIEW_WORKFLOW" \
+    | sed -n "s/.*AGENT_ROUND_RE:[[:space:]]*'\([^']*\)'.*/\1/p" | head -n 1
+)"
+ROUND_AUTHOR_ASSOC="$(
+  sed -e 's/^[[:space:]]*#.*$//' -e "s/[[:space:]]#[^\"']*$//" "$INDEPENDENT_REVIEW_WORKFLOW" \
+    | sed -n "s/.*ROUND_AUTHOR_ASSOC:[[:space:]]*'\([^']*\)'.*/\1/p" | head -n 1
+)"
+export AGENT_ROUND_RE ROUND_AUTHOR_ASSOC
+
+if [ -z "$AGENT_ROUND_RE" ] || [ -z "$ROUND_AUTHOR_ASSOC" ]; then
+  echo "Error: could not read the agent-round marker or its author allowlist from" >&2
+  echo "       $INDEPENDENT_REVIEW_WORKFLOW -- the zero-findings guard cannot run" >&2
+  echo "       without them, and running it with a marker that matches nothing" >&2
+  echo "       would silently pass every claimed round (D-226)." >&2
+  exit 1
+fi
+
 if [ -n "${REVIEW_THREADS_JSON_FILE:-}" ]; then
   THREADS_JSON="$(cat "$REVIEW_THREADS_JSON_FILE")"
 else
@@ -244,16 +267,48 @@ if [ "$total" -eq 0 ]; then
     agent_round="${AGENT_ROUND_COUNT:-0}"
     declared_none="${DECLARED_NONE_COUNT:-0}"
   else
+    # `$REPO` and `$PR` are the names the WORKFLOW uses, where they arrive as
+    # `env:`. This script never set them, so under `set -u` the queries below
+    # aborted at expansion before `gh` ran -- on every real invocation. Resolved
+    # here rather than beside PR_NUMBER so the threads fetch above costs no
+    # extra API call.
+    PR="$PR_NUMBER"
+    REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+    export PR REPO
+
+    # A round comment is one the GATE would count: written by somebody with
+    # write access, never edited since, and carrying the marker on its own line.
+    # Anything weaker counts comments the gate does not, so the guard would be
+    # answering a different question than the one that turns the status green.
+    # `$a` is a jq variable bound by the `as` below, not a shell expansion, so
+    # the single quotes are required and SC2016 is noise.
+    # shellcheck disable=SC2016
+    round_comments='.[]
+      | select(.author_association as $a
+               | (env.ROUND_AUTHOR_ASSOC | split(",")) | index($a))
+      | select(.created_at == .updated_at)
+      | select(.body | test(env.AGENT_ROUND_RE))'
+    # Count LINES, never `| length`. `--paginate` emits one JSON array per page,
+    # so `length` yields one count per page -- "0\n0" past 100 comments, which
+    # `[ ... -gt 0 ]` reports as a syntax error, and an erroring test falls
+    # through to the pass path. The gate's own counting documents this defect;
+    # writing it a third time here would be the third time in this repository.
     agent_round="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-      --jq '[.[] | select(.body | test("independent-review-round: agent"))] | length' 2>/dev/null || echo 0)"
+      --jq "$round_comments | .id" 2>/dev/null | wc -l | tr -d '[:space:]')"
+    # The declaration must live IN a round comment, on its own line -- not
+    # anywhere on the pull request. Matching it loosely made this guard disarm
+    # itself: its own failure text below named the literal, so pasting that
+    # failure into a comment satisfied the condition it was reporting.
     declared_none="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-      --jq '[.[] | select(.body | test("findings: none"))] | length' 2>/dev/null || echo 0)"
+      --jq "$round_comments | select(.body | test(\"(^|\\\\n)findings: none\")) | .id" \
+      2>/dev/null | wc -l | tr -d '[:space:]')"
   fi
   if [ "${agent_round:-0}" -gt 0 ] && [ "${declared_none:-0}" -eq 0 ]; then
     echo "FAIL: an agent review round is recorded on this pull request, but no thread carries"
-    echo "      '$FINDING_MARKER' and no comment declares 'findings: none'."
+    echo "      '$FINDING_MARKER' and no round comment declares zero findings."
     echo "      A round that produced findings must post them; a round that produced none must"
-    echo "      say so. Silence is not a disposition."
+    echo "      say so, in the round comment, on its own line. Silence is not a disposition."
+    echo "      The declaration's exact form is in .agents/skills/independent-review/SKILL.md."
     exit 1
   fi
   echo "No findings from $REVIEWER on this pull request; nothing for step 7 to disposition."

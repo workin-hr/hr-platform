@@ -140,6 +140,13 @@ jobs:
       - name: Pin what the independent-review gate counts as a round
         run: ./scripts/test-review-gate-counting.sh
 
+      # The other half of D-226's enforcement. Its live path -- the one that
+      # runs on a real pull request -- had no coverage at all and shipped
+      # referencing two variables the script never assigned, so the guard the
+      # decision names as its compensating control aborted before it ran.
+      - name: Pin the zero-findings guard's production path
+        run: ./scripts/test-check-review-dispositions.sh
+
       # The committed client contract is the input to the coverage reports and
       # is derived purely from the pinned client checkouts, so it can drift
       # silently when the extractor or a submodule moves. Skips, loudly, when

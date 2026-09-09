@@ -24,6 +24,7 @@ scripts/validate_phase0.py (invoked as a subprocess check), and
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import shutil
@@ -477,6 +478,17 @@ def _thread(author: str, *replies: tuple[str, str], path: str = "a.java", line: 
             "path": path, "line": line, "comments": comments}
 
 
+# The script reads the agent-round marker and its author allowlist from the
+# gate workflow, so any fixture workflow must carry them or the script refuses
+# to run -- deliberately, since a marker it cannot read would silently disarm
+# the zero-findings guard. Appended for every fixture whose subject is
+# something else.
+AGENT_GATE_ASSIGNMENTS = (
+    f"          AGENT_ROUND_RE: '(^|\\n){v.AGENT_ROUND_MARKER}'\n"
+    f"          ROUND_AUTHOR_ASSOC: '{','.join(v.REQUIRED_ROUND_ASSOC)}'\n"
+)
+
+
 def run_check_dispositions(threads: list[dict], workflow_text: str | None = None,
                            agent_rounds: int = 0, declared_none: int = 0) -> subprocess.CompletedProcess:
     payload = {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": threads}}}}}
@@ -489,7 +501,11 @@ def run_check_dispositions(threads: list[dict], workflow_text: str | None = None
         env["DECLARED_NONE_COUNT"] = str(declared_none)
         if workflow_text is not None:
             workflow_file = Path(tmp) / "gate.yml"
-            workflow_file.write_text(workflow_text, encoding="utf-8")
+            workflow_file.write_text(
+                workflow_text
+                if v.AGENT_ROUND_MARKER in workflow_text
+                else workflow_text + AGENT_GATE_ASSIGNMENTS,
+                encoding="utf-8")
             env["INDEPENDENT_REVIEW_WORKFLOW_FILE"] = str(workflow_file)
         return subprocess.run(
             ["bash", str(CHECK_DISPOSITIONS_SCRIPT)],
@@ -534,7 +550,8 @@ def run_check_dispositions_over_fake_gh(pages: list[dict]) -> subprocess.Complet
         env.pop("REVIEW_THREADS_JSON_FILE", None)
         workflow = tmpdir / "gate.yml"
         # Quoted: the script reads REVIEWER from a `REVIEWER: "..."` assignment.
-        workflow.write_text(f'env:\n  REVIEWER: "{REVIEWER}"\n', encoding="utf-8")
+        workflow.write_text(f'env:\n  REVIEWER: "{REVIEWER}"\n' + AGENT_GATE_ASSIGNMENTS,
+                            encoding="utf-8")
         env["INDEPENDENT_REVIEW_WORKFLOW_FILE"] = str(workflow)
         proc = subprocess.run(
             ["bash", str(CHECK_DISPOSITIONS_SCRIPT), "1"],
@@ -1661,6 +1678,8 @@ def write_reviewer_declaration(
     reversed_order: bool = False,
     lookalike_in_workflow: bool = False,
     gate_workflow: str | None = "",
+    agent_gate: bool = True,
+    skill_protocol: str | None = "",
 ) -> None:
     body = "# Repository Engineering Instructions\n\n"
     if workflow_section:
@@ -1693,17 +1712,39 @@ def write_reviewer_declaration(
     (root / "AGENTS.md").write_text(body, encoding="utf-8")
     write_matrix(root, matrix_rows)
 
+    # The skill states the protocol the gate and the disposition check match on,
+    # so a fixture about something else still needs it present and complete.
+    if skill_protocol is not None:
+        skill_protocol = skill_protocol or "\n".join(
+            f"`{literal}`" for literal in v.AGENT_PROTOCOL_LITERALS)
+        skill = root / v.INDEPENDENT_REVIEW_SKILL
+        skill.parent.mkdir(parents=True, exist_ok=True)
+        skill.write_text(skill_protocol, encoding="utf-8")
+
     # `gate_workflow=None` omits the file entirely; "" writes the canonical
     # one; any other string is written verbatim, for drift cases.
     if gate_workflow is not None:
         gate = root / v.REVIEW_GATE_WORKFLOW
         gate.parent.mkdir(parents=True, exist_ok=True)
+        # Same rule as the disposition fixtures: a drift case is about the thing
+        # it corrupts, so it inherits the agent-gate assignments unless it is
+        # itself about them.
+        if agent_gate and gate_workflow and v.AGENT_ROUND_MARKER not in gate_workflow:
+            gate_workflow += (
+                f"          AGENT_ROUND_RE: '(^|\\n){v.AGENT_ROUND_MARKER}'\n"
+                f"          ROUND_AUTHOR_ASSOC: '{','.join(v.REQUIRED_ROUND_ASSOC)}'\n"
+            )
         gate.write_text(
             gate_workflow
             or (
                 "name: Independent Review Gate\n"
                 f"# D-121 names `{v.INDEPENDENT_REVIEWER}` as the reviewer.\n"
                 f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
+                # D-226's half of the gate. The canonical fixture carries it
+                # because a workflow without it cannot recognise an agent
+                # round, and the validator now says so.
+                f"          AGENT_ROUND_RE: '(^|\\n){v.AGENT_ROUND_MARKER}'\n"
+                f"          ROUND_AUTHOR_ASSOC: '{','.join(v.REQUIRED_ROUND_ASSOC)}'\n"
                 f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
             ),
             encoding="utf-8",
@@ -1855,6 +1896,76 @@ def test_lookalike_reviewer_in_the_workflow_fails() -> None:
         shutil.rmtree(root)
 
 
+def test_lookalike_agent_reviewer_in_the_workflow_fails() -> None:
+    """The trailing-boundary case, which only the agent identity can have.
+
+    `chatgpt-codex-connector[bot]` ends in `[bot]`, so nothing extends it to the
+    right and a leading boundary sufficed. `independent-review-agent-v2` extends
+    cleanly, and without a trailing boundary it satisfies the prose check while
+    naming a reviewer the matrix does not describe and the gate cannot count.
+    """
+    root = make_root()
+    try:
+        write_reviewer_declaration(root, agents_names_reviewer=True,
+                                   matrix_rows=list(REVIEWER_ROWS))
+        agents = root / "AGENTS.md"
+        agents.write_text(
+            agents.read_text(encoding="utf-8").replace(
+                f"`{v.INDEPENDENT_REVIEW_AGENT}`", f"`{v.INDEPENDENT_REVIEW_AGENT}-v2`"),
+            encoding="utf-8")
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("does not name" in f and v.INDEPENDENT_REVIEW_AGENT in f for f in failures),
+            f"a right-extended look-alike agent identity fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_skill_missing_a_protocol_literal_fails() -> None:
+    """The skill produces the evidence the other layers consume.
+
+    A reviewer following a skill that says "the exact head SHA" writes
+    "Head SHA: `abc...`". The gate wants `head: ` and 40 lowercase hex, so it
+    counts no round on a head that WAS reviewed -- failing closed, silently, in
+    the direction nobody investigates.
+    """
+    for omitted in v.AGENT_PROTOCOL_LITERALS:
+        root = make_root()
+        try:
+            kept = "\n".join(
+                f"`{lit}`" for lit in v.AGENT_PROTOCOL_LITERALS if lit != omitted)
+            write_reviewer_declaration(root, agents_names_reviewer=True,
+                                       matrix_rows=list(REVIEWER_ROWS),
+                                       skill_protocol=kept)
+            failures: list[str] = []
+            v.validate_independent_reviewer_declaration(failures, root=root)
+            check(
+                any(omitted in f and "never states" in f for f in failures),
+                f"a skill omitting {omitted!r} fails (failures={failures})",
+            )
+        finally:
+            shutil.rmtree(root)
+
+
+def test_skill_missing_entirely_fails() -> None:
+    """D-226 routes the review through the skill; without it nobody can know
+    what to emit."""
+    root = make_root()
+    try:
+        write_reviewer_declaration(root, agents_names_reviewer=True,
+                                   matrix_rows=list(REVIEWER_ROWS), skill_protocol=None)
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("is missing" in f and "SKILL.md" in f for f in failures),
+            f"a missing independent-review skill fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_reviewer_missing_from_matrix_fails() -> None:
     """The gap validate_agent_matrix_consistency() cannot catch: the bot has no
     .claude/agents file, so that function skips it and only this check binds it."""
@@ -1949,9 +2060,9 @@ def test_agent_reviewer_row_widened_fails() -> None:
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
         check(
-            any("May Approve Work" in f for f in failures),
-            "an agent-reviewer row granting approval fails despite a compliant "
-            f"Codex row (failures={failures})",
+            any("May Approve Work" in f and v.INDEPENDENT_REVIEW_AGENT in f for f in failures),
+            "an agent-reviewer row granting approval fails, and the failure names THAT "
+            f"identity rather than the compliant Codex row (failures={failures})",
         )
     finally:
         shutil.rmtree(root)
@@ -2133,6 +2244,101 @@ def test_review_gate_workflow_with_an_inline_decoy_comment_fails() -> None:
         )
     finally:
         shutil.rmtree(root)
+
+
+def _gate_with(marker: str | None, assoc: str | None) -> str:
+    """The canonical gate, with the two D-226 assignments under the test's control."""
+    text = (
+        "name: Independent Review Gate\n"
+        f'          REVIEWER: "{v.INDEPENDENT_REVIEWER}"\n'
+    )
+    if marker is not None:
+        text += f"          AGENT_ROUND_RE: '{marker}'\n"
+    if assoc is not None:
+        text += f"          ROUND_AUTHOR_ASSOC: '{assoc}'\n"
+    return text + f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
+
+
+def _gate_failures(gate: str) -> list[str]:
+    root = make_root()
+    try:
+        # Verbatim: these cases are ABOUT the agent-gate assignments, so they
+        # must not inherit them.
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS),
+            gate_workflow=gate, agent_gate=False,
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        return failures
+    finally:
+        shutil.rmtree(root)
+
+
+def test_gate_workflow_without_the_agent_marker_fails() -> None:
+    """Deleting the agent half of the gate must not validate green.
+
+    The reviewer login was bound; the mechanism that recognises the OTHER
+    permitted reviewer was not. Removing it fails closed -- the gate simply
+    counts zero agent rounds -- which is why nothing else catches it."""
+    failures = _gate_failures(_gate_with(None, ",".join(v.REQUIRED_ROUND_ASSOC)))
+    check(
+        any("AGENT_ROUND_RE" in f for f in failures),
+        f"a gate workflow with no agent-round marker fails (failures={failures})",
+    )
+
+
+def test_gate_workflow_with_a_renamed_agent_marker_fails() -> None:
+    """The skill emits this literal; renaming it here alone silently decouples
+    the two, and the gate stops counting the rounds the skill produces."""
+    failures = _gate_failures(_gate_with("(^|\\n)reviewed-by-the-agent", ",".join(v.REQUIRED_ROUND_ASSOC)))
+    check(
+        any(v.AGENT_ROUND_MARKER in f for f in failures),
+        f"a renamed agent-round marker fails (failures={failures})",
+    )
+
+
+def test_gate_workflow_with_an_unanchored_agent_marker_fails() -> None:
+    """Unanchored, the marker matches a comment that merely QUOTES it -- so
+    reviewing this workflow on a pull request would claim a round on it."""
+    failures = _gate_failures(_gate_with(v.AGENT_ROUND_MARKER, ",".join(v.REQUIRED_ROUND_ASSOC)))
+    check(
+        any("anchored" in f for f in failures),
+        f"an unanchored agent-round marker fails (failures={failures})",
+    )
+
+
+def test_gate_workflow_without_the_author_allowlist_fails() -> None:
+    """Without it the marker is matched on body text alone. On a public
+    repository that is every GitHub account, including a third party greening
+    a stranger's pull request."""
+    failures = _gate_failures(_gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", None))
+    check(
+        any("ROUND_AUTHOR_ASSOC" in f for f in failures),
+        f"a gate workflow with no author allowlist fails (failures={failures})",
+    )
+
+
+def test_gate_workflow_accepting_a_non_writer_association_fails() -> None:
+    """CONTRIBUTOR is earned by one merged commit and grants no write access,
+    so accepting it lets a drive-by contributor claim a round on their own
+    pull request."""
+    failures = _gate_failures(
+        _gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", "OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR"))
+    check(
+        any("CONTRIBUTOR" in f for f in failures),
+        f"an allowlist admitting CONTRIBUTOR fails (failures={failures})",
+    )
+
+
+def test_gate_workflow_omitting_a_writer_association_fails() -> None:
+    """The other direction: dropping COLLABORATOR would leave the implementer
+    who records the round unable to satisfy the gate."""
+    failures = _gate_failures(_gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", "OWNER"))
+    check(
+        any("omits" in f for f in failures),
+        f"an allowlist missing a writer association fails (failures={failures})",
+    )
 
 
 def test_review_gate_workflow_keeps_a_hash_inside_a_quoted_string() -> None:
@@ -2744,6 +2950,36 @@ def test_product_code_inside_spike_is_excluded() -> None:
         shutil.rmtree(root)
 
 
+def _check_every_test_is_registered() -> None:
+    """Every `test_*` in this file must be called by `main()`.
+
+    Cases are enumerated by hand here, so a newly added test runs only if
+    somebody also remembers to list it. Forgetting is silent and reads exactly
+    like coverage: the function exists, review sees it, and it never executes.
+    Three tests had been dead this way, and three more were added dead in the
+    change that introduced this check.
+    """
+    source = Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    defined = [
+        node.name for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
+    ]
+    main_def = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "main"
+    )
+    called = {
+        node.func.id for node in ast.walk(main_def)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    orphans = [name for name in defined if name not in called]
+    check(
+        not orphans,
+        f"every test function is registered in main() (unregistered: {orphans})",
+    )
+
+
 def main() -> int:
     test_claude_without_agents_import_fails()
     test_canonical_agents_import_passes()
@@ -2829,6 +3065,9 @@ def main() -> int:
     test_review_after_merge_fails()
     test_lookalike_reviewer_row_does_not_satisfy_the_check()
     test_lookalike_reviewer_in_the_workflow_fails()
+    test_lookalike_agent_reviewer_in_the_workflow_fails()
+    test_skill_missing_a_protocol_literal_fails()
+    test_skill_missing_entirely_fails()
     test_reviewer_named_only_outside_the_workflow_fails()
     test_reviewer_missing_from_matrix_fails()
     test_reviewer_row_widened_fails()
@@ -2843,6 +3082,12 @@ def main() -> int:
     test_review_gate_workflow_with_a_decoy_context_comment_fails()
     test_review_gate_workflow_with_an_inline_decoy_comment_fails()
     test_review_gate_workflow_keeps_a_hash_inside_a_quoted_string()
+    test_gate_workflow_without_the_agent_marker_fails()
+    test_gate_workflow_with_a_renamed_agent_marker_fails()
+    test_gate_workflow_with_an_unanchored_agent_marker_fails()
+    test_gate_workflow_without_the_author_allowlist_fails()
+    test_gate_workflow_accepting_a_non_writer_association_fails()
+    test_gate_workflow_omitting_a_writer_association_fails()
     test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()
@@ -2851,6 +3096,7 @@ def main() -> int:
     test_skill_catalog_check_is_unchanged_outside_a_git_repository()
     test_ignored_markdown_is_skipped_by_the_link_scanner()
     test_submodule_markdown_is_skipped_by_the_link_scanner()
+    test_initialized_submodule_content_is_excluded()
     test_ignored_skill_bypasses_the_repository_schema()
     test_ignored_paths_are_skipped_by_the_forbidden_file_scanner()
     test_forbidden_scan_keeps_the_ignore_exemption_with_a_populated_submodule()
@@ -2862,6 +3108,10 @@ def main() -> int:
     test_product_code_inside_spike_is_excluded()
     test_product_code_inside_backend_is_excluded()
     test_product_code_in_other_component_dirs_still_fails()
+    test_settings_missing_write_side_of_a_pattern_fails()
+    test_settings_missing_notebookedit_side_of_a_pattern_fails()
+
+    _check_every_test_is_registered()
 
     passed = sum(1 for ok, _ in CASES_RUN if ok)
     total = len(CASES_RUN)

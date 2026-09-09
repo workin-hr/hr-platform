@@ -51,6 +51,21 @@ chmod +x "$WORK/gh"
 PATH="$WORK:$PATH"
 export REPO=owner/repo REVIEWER="chatgpt-codex-connector[bot]" FIXTURE_DIR="$WORK"
 
+# The agent half of the gate, read from the workflow for the same reason the
+# function is extracted from it: hardcoding these here would let the test pass
+# against a marker the gate no longer uses. Unset, `test(null)` errors and the
+# error is swallowed by the function's own `2>/dev/null`, so every agent case
+# would silently count zero and still look green.
+strip_comments() { sed -e 's/^[[:space:]]*#.*$//' -e "s/[[:space:]]#[^\"']*$//" "$WORKFLOW"; }
+AGENT_ROUND_RE="$(strip_comments | sed -n "s/.*AGENT_ROUND_RE:[[:space:]]*'\([^']*\)'.*/\1/p" | head -n 1)"
+ROUND_AUTHOR_ASSOC="$(strip_comments | sed -n "s/.*ROUND_AUTHOR_ASSOC:[[:space:]]*'\([^']*\)'.*/\1/p" | head -n 1)"
+if [ -z "$AGENT_ROUND_RE" ] || [ -z "$ROUND_AUTHOR_ASSOC" ]; then
+  echo "FATAL: could not read AGENT_ROUND_RE / ROUND_AUTHOR_ASSOC from $WORKFLOW." >&2
+  echo "  The agent half of the gate is unpinned until this test can find them again." >&2
+  exit 2
+fi
+export AGENT_ROUND_RE ROUND_AUTHOR_ASSOC
+
 # gh's --jq is jq over the response; the stub prints the response, so the real
 # jq has to do the filtering the workflow asks for.
 cat > "$WORK/gh" <<'STUB'
@@ -134,6 +149,70 @@ expect "both a review object and a marker comment" 2
 reviews '[{"user":{"login":"chatgpt-codex-connector[bot]"},"commit_id":"'"$HEAD_FULL"'","state":"DISMISSED","submitted_at":"2026-09-02T14:29:19Z"}]'
 comments '[]'
 expect "dismissed review (must NOT count)" 0
+
+# --- D-226 agent rounds -------------------------------------------------------
+# The gate counts these too, and until now no case exercised them at all.
+
+AGENT_BODY="independent-review-round: agent\r\nhead: $HEAD_FULL"
+agent() {  # $1=association $2=created $3=updated $4=body
+  comments '[{"author_association":"'"$1"'","created_at":"'"$2"'","updated_at":"'"$3"'","body":"'"$4"'"}]'
+}
+reviews '[]'
+
+# 10. The round the skill tells the reviewer to produce.
+agent OWNER t1 t1 "$AGENT_BODY"
+expect "agent round by a writer, naming this head" 1
+
+# 11. Naming a different head. Same rule as the Codex path: a round does not
+#     carry forward to a commit the reviewer never saw.
+agent OWNER t1 t1 "independent-review-round: agent\r\nhead: 8478781bf88478781bf88478781bf88478781bf8"
+expect "agent round naming another head (must NOT count)" 0
+
+# 12. No `head:` line at all -- a claim about nothing in particular.
+agent OWNER t1 t1 "independent-review-round: agent\r\nlooks fine to me"
+expect "agent round with no head SHA (must NOT count)" 0
+
+# 13. The self-approval bypass this gate shipped with: the marker was matched on
+#     body text alone, so on a PUBLIC repository any GitHub account could green
+#     the gate on anyone's pull request with a single comment.
+agent NONE t1 t1 "$AGENT_BODY"
+expect "agent round from outside the repository (must NOT count)" 0
+
+# 14. CONTRIBUTOR is earned by one merged commit and grants no write access.
+agent CONTRIBUTOR t1 t1 "$AGENT_BODY"
+expect "agent round from a drive-by contributor (must NOT count)" 0
+
+# 15. Post a round naming head A, push commits, then EDIT the comment to name
+#     head B. `edited` is one of this workflow's triggers, so without this the
+#     SHA binding buys nothing.
+agent OWNER t1 t2 "$AGENT_BODY"
+expect "edited agent round (must NOT count)" 0
+
+# 16. A comment QUOTING the marker -- reviewing this workflow on a pull request
+#     is exactly that -- must not claim a round on the workflow it quotes.
+agent OWNER t1 t1 "the gate sets:\r\n    AGENT_ROUND_RE: independent-review-round: agent\r\nhead: $HEAD_FULL"
+expect "quoted marker in a review of the gate (must NOT count)" 0
+
+# 17. Both mechanisms on the same head count separately.
+reviews '[{"user":{"login":"chatgpt-codex-connector[bot]"},"commit_id":"'"$HEAD_FULL"'","state":"COMMENTED","submitted_at":"2026-09-02T14:29:19Z"}]'
+agent OWNER t1 t1 "$AGENT_BODY"
+expect "a Codex round and an agent round on one head" 2
+
+# 18. The OUTPUT CONTRACT, not just the count. The retarget path sorts these
+#     lines and compares the result against a bare marker timestamp, so the
+#     timestamp must lead. A leading mechanism tag sorts by mechanism and makes
+#     that comparison always false -- silently clearing a base-change
+#     invalidation that must hold the gate red. Counting cases cannot see this.
+reviews '[]'
+agent OWNER t1 t1 "$AGENT_BODY"
+line="$(HEAD_SHA="$HEAD_FULL" rounds_on_head 1 | head -n 1)"
+if printf '%s' "$line" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+Z? (codex|agent)$' \
+   || printf '%s' "$line" | grep -Eq '^t[0-9]+ (codex|agent)$'; then
+  printf '  ok    %-52s %s\n' "round line leads with its timestamp" "$line"
+else
+  printf '  FAIL  %-52s got %s\n' "round line leads with its timestamp" "$line"
+  fails=$((fails + 1))
+fi
 
 echo
 if [ "$fails" -ne 0 ]; then

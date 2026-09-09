@@ -53,6 +53,43 @@ One comment on the pull request containing:
 - **what remains unverified relative to a real round**, stated plainly;
 - a link to D-226.
 
+The comment must open with this block, exactly. It is not decoration: the gate
+and the disposition check match these literals, and a comment without them
+records no round at all -- `independent-review` stays red on a head that was
+reviewed, and the operator is left reverse-engineering the marker from the
+workflow.
+
+```text
+independent-review-round: agent
+head: <the full 40-character head SHA>
+```
+
+Both lines start at column 1. An indented or fenced copy does not count, so
+that a comment *quoting* this protocol -- a review of the gate itself -- cannot
+claim a round on the pull request it is quoting.
+
+The round must be recorded by someone with write access to the repository
+(`OWNER`, `MEMBER` or `COLLABORATOR`), because the reviewer is read-only and
+cannot post. Do not edit the comment afterwards: an edited comment is not
+counted, since the body it would be counted on is not the body that was posted.
+If the head moves, post a new round.
+
+Each finding goes in its own review thread whose first comment carries:
+
+```text
+finding-of: independent-review-agent
+```
+
+A round that found nothing declares it, on its own line, in the round comment:
+
+```text
+findings: none
+```
+
+Silence is not a disposition: a claimed round carrying neither a marked finding
+nor this declaration fails `scripts/check-review-dispositions.sh` rather than
+passing quietly.
+
 ## Evidence
 
 - Commit SHAs for each fix, and the revert-proof that each new test discriminates.
@@ -67,6 +104,10 @@ One comment on the pull request containing:
 - [ ] Every behavioural fix has a test proven to fail without it.
 - [ ] The evidence comment names what is unverified, not only what passed.
 - [ ] The unresolved count was re-read after resolving, not inferred from the mutation result.
+- [ ] The round comment opens with `independent-review-round: agent` and `head: <40-hex>`, both at column 1.
+- [ ] Every finding thread's first comment carries `finding-of: independent-review-agent`.
+- [ ] A clean round declares `findings: none` on its own line in the round comment.
+- [ ] The round comment has not been edited since it was posted.
 - [ ] The merge is left to the owner.
 
 ## Failure Conditions
