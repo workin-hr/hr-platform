@@ -216,6 +216,20 @@ CREATE TABLE device_punches (
     pin VARCHAR(32) NOT NULL,
     punched_at_local DATETIME NOT NULL,
     punched_at_utc DATETIME NOT NULL,
+    -- Explicit provenance: set ONLY on the punch that OPENED an attendance row,
+    -- to the exact LegacyRuntimeOffset value written to attendance.check_in.
+    -- Null on a punch that closed an existing row.
+    --
+    -- Why a column rather than matching punched_at_local against check_in: that
+    -- comparison inferred "this punch opened that row" from two values being
+    -- equal, which stops being true the moment attendance is written in the
+    -- runtime offset while the device reports its own wall clock. attendance_id
+    -- alone cannot serve either -- the opening AND closing punches both carry
+    -- it, so it identifies the row but not the opener.
+    --
+    -- Comparing this against attendance.check_in stays useful, but for a
+    -- different question: whether HR edited the row after pairing.
+    attendance_check_in_at DATETIME NULL,
     status_code SMALLINT NULL,
     verify_code SMALLINT NULL,
     work_code VARCHAR(32) NULL,

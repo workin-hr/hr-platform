@@ -147,7 +147,7 @@ public class PunchPairingStore {
 		List<Map<String, Object>> rows = jdbcTemplate.query(
 				"SELECT p.punched_at_utc AS instant FROM device_punches p"
 						+ " INNER JOIN attendance a ON a.id = p.attendance_id"
-						+ " WHERE p.attendance_id = ? AND p.punched_at_local = a.check_in"
+						+ " WHERE p.attendance_id = ? AND p.attendance_check_in_at IS NOT NULL"
 						+ " ORDER BY p.id ASC LIMIT 1",
 				LegacyJdbcValues.rowMapper(), attendanceId);
 		if (rows.isEmpty() || rows.get(0).get("instant") == null) {
@@ -282,9 +282,14 @@ public class PunchPairingStore {
 						// Only a row pairing itself opened: its check_in is
 						// exactly some punch's timestamp. An HR correction moves
 						// check_in off the punch and the row survives.
+						// Edit detection, not identity: the opener is found by
+						// its non-null provenance, and the row survives only if
+						// its check_in still equals what pairing wrote. An HR
+						// correction moves check_in and the row is left alone.
 						+ " AND EXISTS (SELECT 1 FROM device_punches o"
 						+ "   WHERE o.employee_id = p.employee_id AND o.attendance_id = a.id"
-						+ "     AND o.punched_at_local = a.check_in)",
+						+ "     AND o.attendance_check_in_at IS NOT NULL"
+						+ "     AND o.attendance_check_in_at = a.check_in)",
 				employeeId, at);
 		jdbcTemplate.update(
 				"UPDATE device_punches SET processing_state = 'RECEIVED',"
@@ -318,6 +323,26 @@ public class PunchPairingStore {
 	}
 
 	/** Records what the pass did with a punch, in the pass's own transaction. */
+	/**
+	 * The punch that OPENED {@code attendanceId}, recording the exact value
+	 * written to {@code attendance.check_in} as its provenance.
+	 *
+	 * <p>Separate from {@link #markPaired} because only the opener may carry
+	 * that field: both punches reference the same attendance row, so the field
+	 * being non-null is what distinguishes them.
+	 */
+	public void markPairedAsOpener(long punchId, long attendanceId, LocalDateTime pairedAt,
+			String reviewFlag, LocalDateTime checkInAt) {
+		jdbcTemplate.update("""
+				UPDATE device_punches
+				SET processing_state = 'PAIRED', attendance_id = ?, paired_at = ?, review_flag = ?,
+				    attendance_check_in_at = ?
+				WHERE id = ? AND processing_state = 'RECEIVED'""",
+				attendanceId, SQL_DATE_TIME.format(pairedAt), reviewFlag,
+				SQL_DATE_TIME.format(checkInAt), punchId);
+	}
+
+	/** A punch that CLOSED an existing row; its provenance field stays null. */
 	public void markPaired(long punchId, long attendanceId, LocalDateTime pairedAt, String reviewFlag) {
 		jdbcTemplate.update("""
 				UPDATE device_punches

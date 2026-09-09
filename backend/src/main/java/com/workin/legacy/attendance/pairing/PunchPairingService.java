@@ -2,6 +2,7 @@ package com.workin.legacy.attendance.pairing;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.workin.legacy.LegacyClock;
 import com.workin.legacy.LegacyValues;
 import com.workin.legacy.attendance.session.LegacyAttendanceSessions;
 
@@ -91,6 +93,7 @@ public class PunchPairingService {
 	static final int MAX_PAIR_ATTEMPTS = 5;
 
 	private final PunchPairingStore store;
+	private final LegacyClock clock;
 	private final LegacyAttendanceSessions sessions;
 	private final int batchSize;
 	private final TransactionTemplate transactions;
@@ -99,9 +102,11 @@ public class PunchPairingService {
 			PunchPairingStore store,
 			LegacyAttendanceSessions sessions,
 			DataSource legacyDataSource,
+			LegacyClock clock,
 			@Value("${app.devices.pairing.batch-size:500}") int batchSize) {
 		this.store = store;
 		this.sessions = sessions;
+		this.clock = clock;
 		this.batchSize = batchSize;
 		// A TransactionTemplate rather than @Transactional, and the difference
 		// is not stylistic. The per-punch boundary is entered from pairCompany
@@ -290,7 +295,9 @@ public class PunchPairingService {
 				isRapidRecheckIn(employeeId, punchedAt) ? FLAG_RAPID_RECHECKIN : null,
 				outOfHomeBranch(employeeId, punch) ? FLAG_OUT_OF_HOME_BRANCH : null);
 		long attendanceId = store.openAttendance(employeeId, punchedAt);
-		store.markPaired(punchId, attendanceId, punchedAt, flag);
+		// The opener records the exact value written to attendance.check_in, so
+		// nothing downstream has to infer which punch created the row.
+		store.markPairedAsOpener(punchId, attendanceId, punchedAt, flag, punchedAt);
 		return new Outcome(1, 0, 0, flag == null ? 0 : 1);
 	}
 
@@ -382,9 +389,24 @@ public class PunchPairingService {
 		return second == null ? first : first + "," + second;
 	}
 
-	private static LocalDateTime punchedAtOf(Map<String, Object> punch) {
-		return LocalDateTime.parse(LegacyValues.toPhpString(punch.get("punched_at_local"))
-				.replace(' ', 'T').substring(0, 19));
+	/**
+	 * The attendance timestamp for a punch, in the legacy runtime offset.
+	 *
+	 * <p>Derived from {@code punched_at_utc}, never {@code punched_at_local}.
+	 * The local value is the device's own wall clock, so a terminal configured
+	 * outside the runtime's zone wrote check-ins two or three hours away from
+	 * the app and QR rows beside them in the same table -- a discrepancy
+	 * nothing reported, while session deadlines and every report read it as
+	 * real.
+	 *
+	 * <p>The offset comes from {@link LegacyClock} rather than a constant: it
+	 * moves between +02:00 and +03:00, so a fixed interval would relocate the
+	 * defect to the daylight-saving boundary instead of removing it.
+	 */
+	private LocalDateTime punchedAtOf(Map<String, Object> punch) {
+		String utc = LegacyValues.toPhpString(punch.get("punched_at_utc"));
+		LocalDateTime instant = LocalDateTime.parse(utc.replace(' ', 'T').substring(0, 19));
+		return instant.atOffset(ZoneOffset.UTC).withOffsetSameInstant(clock.offset()).toLocalDateTime();
 	}
 
 	private static LocalDateTime checkInOf(Map<String, Object> row) {

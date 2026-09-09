@@ -2,6 +2,9 @@ package com.workin.legacy.attendance.pairing;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.LocalDateTime;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -39,6 +42,18 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 
 	/** A Tuesday, so the deadline scan finds ordinary working days after it. */
 	private static final String DAY = "2025-06-03";
+	/**
+	 * The zone the seeded terminal's clock is set to. Deliberately equal to the
+	 * legacy runtime's default offset, so these tests stay about PAIRING: a
+	 * device that agrees with the runtime produces attendance at its own wall
+	 * clock, and the existing expectations remain readable.
+	 *
+	 * <p>Divergence -- a terminal in another zone -- is what
+	 * {@code aDeviceOutsideTheRuntimeZone...} covers, and is the case the old
+	 * fixture could not express at all, because it stored punched_at_utc
+	 * identical to punched_at_local.
+	 */
+	private static final ZoneId DEVICE_ZONE = ZoneOffset.ofHours(2);
 	private static final String NEXT_DAY = "2025-06-04";
 
 	private PunchPairingService service;
@@ -72,7 +87,7 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 				new LegacyAttendanceCalendar(dataSource, new LegacyWeeklyOffDays(dataSource));
 		this.sessions = new LegacyAttendanceSessions(dataSource, calendar, clock);
 		this.service = new PunchPairingService(
-				new PunchPairingStore(dataSource), sessions, dataSource, 500);
+				new PunchPairingStore(dataSource), sessions, dataSource, clock, 500);
 	}
 
 	@Test
@@ -275,6 +290,19 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 
 		DataSource dataSource = productionLikeDataSource();
 		PunchPairingStore failing = new PunchPairingStore(dataSource) {
+			// BOTH marks are overridden. The opening path calls
+			// markPairedAsOpener and the closing path calls markPaired, so
+			// stubbing only one silently moves the injection point off the
+			// path under test and the crash never happens -- the failure looks
+			// like a rollback bug when it is really a test that stopped
+			// testing.
+			@Override
+			public void markPairedAsOpener(long punchId, long attendanceId,
+					java.time.LocalDateTime pairedAt, String reviewFlag,
+					java.time.LocalDateTime checkInAt) {
+				throw new IllegalStateException("crash between the attendance write and the punch's state");
+			}
+
 			@Override
 			public void markPaired(long punchId, long attendanceId,
 					java.time.LocalDateTime pairedAt, String reviewFlag) {
@@ -285,7 +313,7 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 		LegacyAttendanceCalendar calendar =
 				new LegacyAttendanceCalendar(dataSource, new LegacyWeeklyOffDays(dataSource));
 		PunchPairingService crashing = new PunchPairingService(failing,
-				new LegacyAttendanceSessions(dataSource, calendar, clock), dataSource, 500);
+				new LegacyAttendanceSessions(dataSource, calendar, clock), dataSource, clock, 500);
 
 		crashing.pairCompany(COMPANY, "friday");
 
@@ -423,7 +451,7 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 		try {
 			// A fresh store, so the cached enum probe is taken after the ALTER.
 			PunchPairingService guarded = new PunchPairingService(
-					new PunchPairingStore(dataSource), sessions, dataSource, 500);
+					new PunchPairingStore(dataSource), sessions, dataSource, new LegacyClock(dataSource), 500);
 
 			PunchPairingService.Outcome outcome = guarded.pairCompany(COMPANY, "friday");
 
@@ -486,12 +514,30 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 		return insertPunch(localTime, "NULL", "UNMATCHED");
 	}
 
+	/**
+	 * The real UTC instant for a device wall-clock time.
+	 *
+	 * <p>This fixture used to store {@code punched_at_utc} identical to
+	 * {@code punched_at_local}, which is physically impossible for a device in
+	 * Cairo and is why the clock-basis defect survived: with the two columns
+	 * equal, reading either one gave the same answer, so a test could not tell
+	 * a correct implementation from one copying the device's wall clock.
+	 */
+	private static String utcOf(String deviceLocalTime) {
+		return LocalDateTime.parse(deviceLocalTime.replace(' ', 'T'))
+				.atZone(DEVICE_ZONE)
+				.withZoneSameInstant(ZoneOffset.UTC)
+				.toLocalDateTime()
+				.toString()
+				.replace('T', ' ');
+	}
+
 	private static long insertPunch(String localTime, String employee, String state) throws Exception {
 		String key = String.format("%064x", (localTime + employee + state).hashCode() & 0xffffffffL);
 		seedAsLegacyWould("INSERT INTO device_punches (device_id, company_id, branch_id, employee_id,"
 				+ " pin, punched_at_local, punched_at_utc, received_at, dedup_key, raw_line,"
 				+ " processing_state) VALUES (" + DEVICE + ", " + COMPANY + ", " + BRANCH + ", "
-				+ employee + ", '7001', '" + localTime + "', '" + localTime + "', '" + localTime
+				+ employee + ", '7001', '" + localTime + "', '" + utcOf(localTime) + "', '" + localTime
 				+ "', '" + key + "', 'seed', '" + state + "')");
 		try (Connection connection = connect(); Statement st = connection.createStatement();
 				ResultSet rs = st.executeQuery(
@@ -564,6 +610,118 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 		assertThat(width)
 				.as("review_flag must hold %d chars (longest pair pairing composes)", longestPair)
 				.isGreaterThanOrEqualTo(longestPair);
+	}
+
+
+	// ---- clock basis and opening-punch provenance -------------------------
+
+	@Test
+	void aDeviceOutsideTheRuntimeZoneStillWritesAttendanceInTheRuntimeOffset() throws Exception {
+		// A terminal in London: 09:00 there is 08:00 UTC, which the legacy
+		// runtime (+02:00) calls 10:00. Copying the device wall clock would
+		// have written 09:00 and put this row an hour away from the app and QR
+		// rows beside it -- with nothing reporting the discrepancy.
+		String londonLocal = DAY + " 09:00:00";
+		insertPunchWithUtc(londonLocal, londonUtc(londonLocal));
+
+		service.pairCompany(COMPANY, "friday");
+
+		assertThat(attendance()).hasSize(1);
+		assertThat(attendance().get(0).get("check_in").toString())
+				.as("attendance is written in the runtime offset, not the device's wall clock")
+				.startsWith(DAY + " 10:00:00");
+	}
+
+	@Test
+	void theOpeningPunchIsFoundByProvenanceNotByATimestampCoincidence() throws Exception {
+		// A LONDON terminal on purpose. With a device that agrees with the
+		// runtime offset, punched_at_local happens to equal check_in, so the old
+		// "match the timestamps" lookup still works and this test would prove
+		// nothing -- which is exactly what an earlier version of it did.
+		// Divergence is what separates provenance from coincidence.
+		insertPunchWithUtc(DAY + " 09:00:00", londonUtc(DAY + " 09:00:00"));
+		insertPunchWithUtc(DAY + " 17:00:00", londonUtc(DAY + " 17:00:00"));
+		service.pairCompany(COMPANY, "friday");
+
+		List<Map<String, Object>> punches = query(
+				"SELECT id, attendance_check_in_at FROM device_punches WHERE employee_id = "
+						+ EMPLOYEE + " ORDER BY punched_at_local");
+		assertThat(punches).hasSize(2);
+		assertThat(punches.get(0).get("attendance_check_in_at"))
+				.as("the opener carries the exact value written to attendance.check_in").isNotNull();
+		assertThat(punches.get(1).get("attendance_check_in_at"))
+				.as("the closer shares the attendance_id but must NOT look like the opener").isNull();
+
+		long attendanceId = ((Number) attendance().get(0).get("id")).longValue();
+		assertThat(store().punchInstantAt(attendanceId))
+				.as("the opener's stored UTC instant is still reachable after the basis change")
+				.isEqualTo(LocalDateTime.parse(londonUtc(DAY + " 09:00:00").replace(' ', 'T')));
+	}
+
+	@Test
+	void anHrEditedCheckInSurvivesRewindWhileAnUntouchedRowDoesNot() throws Exception {
+		punchAt(DAY + " 08:00:00");
+		service.pairCompany(COMPANY, "friday");
+		long edited = ((Number) attendance().get(0).get("id")).longValue();
+		seedAsLegacyWould("UPDATE attendance SET check_in = '" + DAY + " 07:45:00' WHERE id = " + edited);
+
+		store().rewindPairedFrom(EMPLOYEE, LocalDateTime.parse((DAY + "T00:00:00")));
+		assertThat(attendance())
+				.as("an HR correction moves check_in off the provenance value, so the row is left alone")
+				.hasSize(1);
+
+		// And the control: an untouched pairing-created row IS removed.
+		seedAsLegacyWould("DELETE FROM attendance WHERE id = " + edited);
+		seedAsLegacyWould("UPDATE device_punches SET processing_state = 'RECEIVED',"
+				+ " attendance_id = NULL, attendance_check_in_at = NULL WHERE employee_id = " + EMPLOYEE);
+		service.pairCompany(COMPANY, "friday");
+		assertThat(attendance()).hasSize(1);
+
+		store().rewindPairedFrom(EMPLOYEE, LocalDateTime.parse((DAY + "T00:00:00")));
+		assertThat(attendance()).as("an untouched pairing-created row is still rewindable").isEmpty();
+	}
+
+	@Test
+	void aDaylightSavingDateUsesTheRuntimeOffsetRatherThanAFixedInterval() throws Exception {
+		// The runtime offset moves +02:00 <-> +03:00, which is exactly why the
+		// conversion must ask LegacyClock instead of adding a constant. Whatever
+		// the configured offset is, the attendance value must be the punch's
+		// stored instant expressed in it -- never the device's wall clock.
+		String local = DAY + " 08:00:00";
+		insertPunchWithUtc(local, utcOf(local));
+		service.pairCompany(COMPANY, "friday");
+
+		LocalDateTime expected = LocalDateTime.parse(utcOf(local).replace(' ', 'T'))
+				.atOffset(ZoneOffset.UTC)
+				.withOffsetSameInstant(new LegacyClock(productionLikeDataSource()).offset())
+				.toLocalDateTime();
+		assertThat(attendance().get(0).get("check_in").toString())
+				.startsWith(expected.toString().replace('T', ' '));
+	}
+
+	private static String londonUtc(String londonLocal) {
+		return LocalDateTime.parse(londonLocal.replace(' ', 'T'))
+				.atZone(ZoneId.of("Europe/London")).withZoneSameInstant(ZoneOffset.UTC)
+				.toLocalDateTime().toString().replace('T', ' ');
+	}
+
+	private PunchPairingStore store() {
+		return new PunchPairingStore(this.dataSource);
+	}
+
+	private static long insertPunchWithUtc(String localTime, String utcTime) throws Exception {
+		String key = String.format("%064x", (localTime + utcTime).hashCode() & 0xffffffffL);
+		seedAsLegacyWould("INSERT INTO device_punches (device_id, company_id, branch_id, employee_id,"
+				+ " pin, punched_at_local, punched_at_utc, received_at, dedup_key, raw_line,"
+				+ " processing_state) VALUES (" + DEVICE + ", " + COMPANY + ", " + BRANCH + ", "
+				+ EMPLOYEE + ", '7001', '" + localTime + "', '" + utcTime + "', '" + localTime
+				+ "', '" + key + "', 'seed', 'RECEIVED')");
+		try (Connection connection = connect(); Statement st = connection.createStatement();
+				ResultSet rs = st.executeQuery(
+						"SELECT id FROM device_punches WHERE dedup_key = '" + key + "'")) {
+			rs.next();
+			return rs.getLong(1);
+		}
 	}
 
 }
