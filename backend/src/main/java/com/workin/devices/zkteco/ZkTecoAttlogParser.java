@@ -62,7 +62,18 @@ public final class ZkTecoAttlogParser {
 	private ZkTecoAttlogParser() {
 	}
 
-	public record Result(List<DeviceAttendanceEvent> events, int malformed) {
+	/**
+	 * @param malformedLines the raw text of every line that could not be
+	 *        parsed, kept so it can actually be quarantined. Counting them was
+	 *        not enough: the terminal is told 200 OK and drops its copy, so the
+	 *        raw line is the only remaining evidence of a real employee's punch
+	 *        and discarding it loses that punch permanently.
+	 */
+	public record Result(List<DeviceAttendanceEvent> events, List<String> malformedLines) {
+
+		public int malformed() {
+			return malformedLines.size();
+		}
 	}
 
 	/**
@@ -73,7 +84,7 @@ public final class ZkTecoAttlogParser {
 	 */
 	public static Result parse(String serialNumber, String body, ZoneId deviceZone) {
 		List<DeviceAttendanceEvent> events = new ArrayList<>();
-		int malformed = 0;
+		List<String> malformedLines = new ArrayList<>();
 		for (String line : body.split("\\r?\\n")) {
 			String trimmed = line.strip();
 			if (trimmed.isEmpty()) {
@@ -81,12 +92,12 @@ public final class ZkTecoAttlogParser {
 			}
 			DeviceAttendanceEvent event = parseLine(serialNumber, trimmed, deviceZone);
 			if (event == null) {
-				malformed++;
+				malformedLines.add(trimmed);
 			} else {
 				events.add(event);
 			}
 		}
-		return new Result(events, malformed);
+		return new Result(events, List.copyOf(malformedLines));
 	}
 
 	static DeviceAttendanceEvent parseLine(String serialNumber, String line, ZoneId deviceZone) {

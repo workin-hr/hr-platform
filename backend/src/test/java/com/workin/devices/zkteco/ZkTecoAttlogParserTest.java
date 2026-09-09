@@ -128,6 +128,31 @@ class ZkTecoAttlogParserTest {
 
 		assertThat(result.malformed()).isEqualTo(4);
 		assertThat(result.events()).extracting(DeviceAttendanceEvent::pin).containsExactly("1001", "1003");
+
+		// The count was all this test used to assert, while the name promised
+		// quarantine -- so it passed just as happily when the raw lines were
+		// thrown away and an employee's punch was lost for good. The lines
+		// themselves are the recoverable evidence, so assert those.
+		assertThat(result.malformedLines()).containsExactly(
+				"abc\t2024-07-28 08:00:00\t0\t1",
+				"1002\tyesterday\t0\t1",
+				"just-one-field",
+				"9".repeat(33) + "\t2024-07-28 08:00:00");
+		assertThat(result.malformedLines()).noneMatch(String::isBlank);
+	}
+
+	@Test
+	void aMalformedLineIsKeptVerbatimSoTheRealPunchCanBeRecovered() {
+		// The whole point of quarantine: a firmware revision emitting a shape
+		// this parser has not been taught still contains a real employee's PIN
+		// and timestamp. If the line does not survive verbatim, the punch is
+		// unrecoverable -- the terminal drops its copy once we answer 200 OK.
+		String unknownShape = "1005|2024-07-28 08:15:00|0|1";   // pipes, not tabs
+		ZkTecoAttlogParser.Result result = ZkTecoAttlogParser.parse(SN, unknownShape, CAIRO);
+
+		assertThat(result.events()).isEmpty();
+		assertThat(result.malformedLines()).containsExactly(unknownShape);
+		assertThat(result.malformedLines().get(0)).contains("1005").contains("2024-07-28 08:15:00");
 	}
 
 	@Test

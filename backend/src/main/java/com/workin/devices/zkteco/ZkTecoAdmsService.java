@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import com.workin.devices.DeviceInput;
 import com.workin.devices.DeviceVendor;
+import com.workin.devices.ingest.DeviceMalformedPunchStore;
 import com.workin.devices.ingest.DeviceOperationLogStore;
 import com.workin.devices.ingest.DevicePunchIngestionService;
 import com.workin.devices.registry.AttendanceDevice;
@@ -83,6 +84,7 @@ public class ZkTecoAdmsService {
 	private final UnclaimedDeviceSightingStore sightings;
 	private final DevicePunchIngestionService ingestion;
 	private final DeviceOperationLogStore operationLogs;
+	private final DeviceMalformedPunchStore malformedPunches;
 	private final LegacyClock clock;
 	private final MeterRegistry meters;
 
@@ -96,13 +98,15 @@ public class ZkTecoAdmsService {
 
 	public ZkTecoAdmsService(
 			AttendanceDeviceStore devices, UnclaimedDeviceSightingStore sightings,
-			DevicePunchIngestionService ingestion, DeviceOperationLogStore operationLogs, LegacyClock clock,
+			DevicePunchIngestionService ingestion, DeviceOperationLogStore operationLogs,
+			DeviceMalformedPunchStore malformedPunches, LegacyClock clock,
 			MeterRegistry meters,
 			@Value("${app.devices.ingest.max-records-per-upload}") int maxRecordsPerUpload) {
 		this.devices = devices;
 		this.sightings = sightings;
 		this.ingestion = ingestion;
 		this.operationLogs = operationLogs;
+		this.malformedPunches = malformedPunches;
 		this.clock = clock;
 		this.meters = meters;
 		this.maxRecordsPerUpload = maxRecordsPerUpload;
@@ -202,8 +206,13 @@ public class ZkTecoAdmsService {
 		ZkTecoAttlogParser.Result parsed = ZkTecoAttlogParser.parse(device.serialNumber(), body, device.zone());
 		DevicePunchIngestionService.Outcome outcome = ingestion.ingest(device, parsed.events());
 		if (parsed.malformed() > 0) {
+			// Persisted BEFORE the 200 OK below, because that acknowledgement is
+			// what makes the terminal drop its copy. Counting these was losing a
+			// real employee's punch permanently while the log said "quarantined".
+			malformedPunches.quarantine(
+					device.id(), device.companyId(), parsed.malformedLines(), clock.now());
 			meters.counter("devices.punches.malformed", "vendor", VENDOR).increment(parsed.malformed());
-			LOG.warn("device {} sent {} malformed ATTLOG line(s); quarantined, batch acknowledged",
+			LOG.warn("device {} sent {} malformed ATTLOG line(s); quarantined for recovery, batch acknowledged",
 					device.serialNumber(), parsed.malformed());
 		}
 		recordStamp(device, stamp, parsed.events().isEmpty());

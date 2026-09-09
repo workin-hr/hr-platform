@@ -289,6 +289,22 @@ CREATE TABLE unclaimed_device_sightings (
 -- replays operation logs it already delivered. Without a key of their own
 -- these rows would duplicate the whole history on every reconnect, so they
 -- get the same content-hash treatment the punches have.
+-- ATTLOG lines this build could not parse. The batch is acknowledged 200 OK
+-- regardless -- refusing it would let one unrecognised line block every good
+-- punch behind it -- and the terminal then drops its copy. At that moment the
+-- raw line is the ONLY remaining evidence that an employee punched, so it has
+-- to survive somewhere or the punch is lost for good. The usual cause is a
+-- firmware revision emitting a shape the parser has not been taught, which
+-- makes these rows the input for teaching it.
+CREATE TABLE device_malformed_punches (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    device_id BIGINT NOT NULL,
+    company_id INT UNSIGNED NOT NULL,
+    received_at DATETIME NOT NULL,
+    raw_line VARCHAR(512) NOT NULL,
+    dedup_key CHAR(64) NOT NULL UNIQUE
+);
+
 CREATE TABLE device_operation_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     device_id BIGINT NOT NULL,
