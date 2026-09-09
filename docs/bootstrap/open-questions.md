@@ -409,3 +409,65 @@ control that did not do what its name says, and because it is the same trade
 ADR-0010 already makes for authorization. If that query later shows up in
 latency measurements, the answer is to measure and revisit it as its own
 decision — not to quietly restore a logout that does not log the caller out.
+
+## Repository Visibility Versus Merge-Governance Enforcement (D-223 Q3, Proposed)
+
+`hr-platform` must become **private** — the product is being prepared for sale
+and publicly readable source cannot be sold as exclusive. That part is settled.
+What is not settled is what happens to merge governance when it does.
+
+GitHub Free offers **neither** branch protection **nor** rulesets on private
+repositories. D-013 recorded both endpoints returning `403 Upgrade to GitHub Pro
+or make this repository public` the last time this repository was private on
+Free, and GitHub's current documentation still gates the two features
+identically — rulesets are not an escape hatch. D-125 applied protection only
+because going public removed D-013's premise.
+
+Seven settings are enforced on `main` today and all seven cease to exist on the
+move: required status check `validate`, `enforce_admins`, no force pushes, no
+deletions, required conversation resolution, stale-review dismissal, and the
+(deliberately zero) approving-review count.
+
+The drafted pre-push hook covers the **push** boundary — direct pushes, force
+pushes and deletions to `main`, plus running `validate` locally first. It does
+**not** cover the **merge** boundary, because pull requests are merged on
+github.com and that operation never passes through a local hook. Conversation
+resolution at merge, a required green check at merge, and `enforce_admins`
+therefore lose enforcement with no substitute. The hook is also client-side and
+`--no-verify` bypasses it.
+
+**The question.** Accept that loss — merge governance becomes entirely
+procedural and **R-008 must be reopened**, reverting the mitigation its own
+history says procedure could not hold (PR #126 lost a ten-second race to it) —
+or buy **GitHub Team** at $4/user/month, which restores protection and rulesets
+on private repositories and raises included Actions minutes to 3,000. At one
+seat that is $4/month, and D-223 Q2's trimming keeps consumption inside the
+allowance, so $4/month is the entire cost.
+
+The engineering recommendation is Team. The owner has stated no subscription is
+currently possible, which is a legitimate constraint to weigh against a real and
+documented governance loss that later subscribing would reverse. **Repository
+visibility does not change until this is answered.**
+
+## Whether To Accept The Degraded-Review Procedure (D-224, Proposed)
+
+The named independent reviewer (`chatgpt-codex-connector[bot]`, D-121) is
+quota-exhausted: seven literal *"You have reached your Codex usage limits for
+code reviews"* comments across #182, #186 and #187 between 10:30Z and 11:17Z on
+2026-09-09. This is **R-009 realised**, matching that risk's stated trigger
+exactly — not an unexplained outage.
+
+D-224 proposes a time-boxed degraded procedure: objective criteria for declaring
+unavailability, a mandatory attempt at the documented remedy first (restoring or
+funding the reviewer, which R-009 names as the mitigation), a five-part
+substitute verification, a fixed evidence block per pull request, and automatic
+lapse on the reviewer's return or after 14 days.
+
+**The question.** Accept D-224, restore the Codex quota, or continue waiting.
+Accepting it changes who may satisfy D-121's gate, which R-009 requires be done
+as a separately approved policy change that updates `AGENTS.md` first — so
+acceptance is also an `AGENTS.md` amendment, not only a log entry.
+
+Unanswered, #182, #186 and #187 wait. D-222 is **not** the answer: it is for a
+merge whose delay is itself a harm, and reviewer unavailability is explicitly
+not a qualifying reason under it.

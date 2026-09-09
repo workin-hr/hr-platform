@@ -3556,3 +3556,114 @@ it reached `main`, and the honest answer is that nobody independent looked.
 | The pattern that is now visible, and is not acceptable as a habit | Two overrides in one day, on consecutive pull requests, both because the connector went silent rather than because it objected. That is a **reviewer-availability problem being paid for with governance**, and D-222's bar — *waiting is itself the harm* — is doing real work only while the queue is the exception. If a third arises for the same reason, the answer is to fix the review pipeline (R-009's territory) or to define a documented timeout with a named substitute reviewer, not to keep spending the override. |
 | Why an agent must ask rather than infer | On #183 the instruction was "i approved can merge them", and three facts contradicted the natural reading: no approval was recorded on the PR, the round had not landed on that head, and GitHub reported the PR blocked. Merging on the plain reading would have silently bypassed a gate the owner may not have known was still failing. Surfacing the three facts cost one exchange; the override then happened knowingly. That exchange is the requirement, not a courtesy. |
 | Related | **D-121** (the gate), **R-009** (quota exhaustion, which makes the gate *unavailable* rather than overridable), `AGENTS.md` Mandatory Workflow. |
+
+## D-223: Repository Visibility, CI Execution, And Merge-Governance Enforcement Are Three Decisions, Not One
+
+| Field | Value |
+|---|---|
+| Status | **Proposed.** Q1 and Q2 are recommendations; **Q3 is an owner decision that is owed and not taken here.** Repository visibility does not change until Q3 is settled — that ordering is the point of this entry, not a formality. |
+| Owner | Repository owner |
+| Why one entry, three questions | The request arrived as one sentence — make the repository private without incurring cost — and collapsing it into a single decision hides the only hard part. Privacy is a commercial requirement. Cost is an arithmetic problem with a clean solution. Enforcement is a genuine loss with no free substitute, and it is the one that has to be decided deliberately rather than absorbed as a side effect of the other two. |
+| Related | **D-013** (the original private-on-Free deferral), **D-125** (protection applied once public), **D-142** (`independent-review` lifted from required contexts), **R-008**, **R-009**, **D-222**, **D-224**. |
+
+### Q1 — Repository privacy
+
+| Field | Value |
+|---|---|
+| Decision | `hr-platform` becomes **private**. |
+| Reason | The product is being prepared for sale. Source that is publicly readable cannot be sold as exclusive, and the repository is public today. This is a commercial requirement, not a technical or cost one. |
+| What this is **not** | It is **not** a response to an Actions limit being hit. Public repositories get unlimited free GitHub-hosted runner minutes; the account is currently paying nothing and is not near any cap. The 2,000-minute allowance is **created by** going private. Any framing that treats privacy as a cost saving is backwards, and Q2 exists because privacy has a cost, not a saving. |
+| Confidentiality check performed | `deploy/seed/dev-seed.sql` (80,708 lines) was audited before this entry because a production-derived seed in a public repository would have made privacy urgent rather than commercial. It is **properly sanitised**: all 442 e-mail addresses use the RFC 2606 reserved `@example.invalid` domain, the 4,185 mobile numbers occupy a narrow synthetic block (`0100000XXXX`–`0100009XXXX`, 4.6% density over its own span), and every 14-digit identifier begins `200` with a single governorate code. These are generator artefacts, not real people. **No disclosure incident exists and none of this is urgent.** |
+| Blocked on | **Q3.** Do not change visibility before it is settled. |
+
+### Q2 — CI cost and execution strategy
+
+| Field | Value |
+|---|---|
+| Decision | Reduce Actions consumption by **trimming workflow triggers**, to roughly 670 minutes/month against the 2,000 included with GitHub Free. Do **not** introduce self-hosted runners. |
+| Measured consumption | 30 days to 2026-09-09, from run history: `Backend Validate` 592 runs × 10.6 min = 6,275; `Phase 0 Bootstrap Validate` 716 × ~2 = 1,432; `Independent Review Gate` 894 executed × 1 (per-job round-up) = 894; nightly and Dependabot ≈ 60. **Total ≈ 8,660 min/month.** Billable minutes read zero from the API today because the repository is public; each run is a single job, so `ceil(run_duration)` is the correct proxy. |
+| Cost if unchanged when private | 6,660 minutes over the allowance at **$0.006**/min (ubuntu 2-core; GitHub cut hosted-runner prices effective 2026-01-01 — an earlier $0.008 figure used in discussion was stale) ≈ **$40/month**, with the free allowance exhausted in about seven days. |
+| Where the trimming comes from | `Backend Validate` publishes the context `test`, which **is not a required check** — deliberately so: D-125 dropped it because the workflow is path-filtered and would deadlock docs-only pull requests. The single most expensive workflow, 72% of consumption, therefore gates nothing, and moving it to on-demand plus the existing local nightly costs no enforcement. `Phase 0 Bootstrap Validate` has **no `concurrency` group**, so superseded runs are never cancelled. The review gate's largest event source is `pull_request_review` (645 of 1,146 runs), not `issue_comment` (69). |
+| Facts that removed two assumed blockers | **GHCR is not a cost problem.** Container storage and bandwidth on `ghcr.io` are *"currently free"* per GitHub's own documentation, with a commitment to at least one month's notice before that changes. The 500 MB / 1 GB Packages quotas govern npm, Maven, NuGet and Gradle — not container images. The backend image is ~500 MB, which had been read as disqualifying; it is not. #186's `docker compose pull` workflow therefore survives the move to private unchanged, except that client developers must `docker login ghcr.io` with a token carrying `read:packages`. |
+| Why not self-hosted runners | They would remove the minute limit entirely — GitHub bills no minutes for them and places no plan restriction on GitHub Free organizations. **R-009's Contingency forbids it in this repository by name**: *"Do not attempt to work around either quota in-repo (no self-hosted-runner fallback, …)"*. That prohibition stands and is not reopened here. Independently, GitHub scopes the residual risk to *"anyone who can fork the repository and open a pull request (generally those with read access)"* — an empty set with one maintainer, but not empty the moment client developers are granted read access, which is a live possibility under #186. Trimming reaches the same goal with no new infrastructure and no security trade-off. |
+| Sequencing | Lands as a focused pull request **after** this record is accepted, together with the Q3 hook if Q3 accepts it. |
+
+### Q3 — Enforcement of merge governance (owner decision owed)
+
+| Field | Value |
+|---|---|
+| The constraint | GitHub Free offers **neither** branch protection **nor** rulesets on private repositories. This is not an inference: D-013 recorded both endpoints returning `403 Upgrade to GitHub Pro or make this repository public` when `hr-platform` was last private on Free, and GitHub's current documentation gates the two features identically — *"Rulesets are available in public repositories with GitHub Free … and in public and private repositories with GitHub Pro, GitHub Team…"*. **Rulesets are not an escape hatch.** D-125 applied protection only because going public removed D-013's premise; going private restores it. |
+| What is mechanically enforced on `main` today | Verified live against the API for this entry: required status check `validate` (strict); `enforce_admins=true`; `allow_force_pushes=false`; `allow_deletions=false`; `required_conversation_resolution=true`; `dismiss_stale_reviews=true`; `required_approving_review_count=0`. Two contexts are deliberately absent: `test` (D-125, path-filter deadlock) and **`independent-review`, lifted by the owner under D-142** — so that gate is already procedural rather than mechanical, and Q3 does not lose it because it is not currently held. |
+| What going private on Free costs, exactly | All seven settings above cease to exist. There is no partial mode and no downgraded enforcement — the protection object is simply unavailable. |
+| What the pre-push hook **can** enforce | Refusal of a direct push to `main`; refusal of a non-fast-forward (force) push to `main`; refusal of a branch deletion; and running the full `validate` equivalent locally before any push succeeds. Drafted and tested against this worktree; `shellcheck` clean. |
+| What the pre-push hook **cannot** enforce, and this is the crux | **It never runs on the path that actually merges.** Pull requests are merged on github.com, through the UI or API; that operation does not pass through any local hook. So conversation resolution at merge, a required green check at merge, `enforce_admins`, and protection against a force-push or branch deletion performed through the web interface or API all lose their enforcement entirely and gain **no** substitute. The hook covers the *push* boundary; branch protection covered the *merge* boundary. They are not the same boundary, and describing the hook as a replacement for branch protection would be false. |
+| Second limitation, stated plainly | The hook is client-side and `--no-verify` bypasses it. With one maintainer this is tolerable — it prevents accidents and binds automated agents, which is most of its value — but it is not a control that survives an actor who does not want to be bound, and it is weaker than `enforce_admins`, which bound the owner too. |
+| Option A — accept the loss | Go private on Free. Merge governance becomes **entirely procedural**: no required check, no conversation-resolution gate, no admin enforcement. **R-008 reverts from "Mechanically enforced as of 2026-08-29 (D-125)" to its pre-D-125 state and must be reopened**, restoring the exact condition its own history says procedure alone failed to hold — PR #126 lost a ten-second race to it. Cost: $0. |
+| Option B — buy enforcement first | GitHub **Team** at $4/user/month restores branch protection and rulesets on private repositories and raises included minutes from 2,000 to 3,000. At one seat this is **$4/month**, and with Q2's trimming nothing exceeds the allowance, so $4/month is the whole cost. R-008's mitigation survives intact. |
+| The recommendation, and its limit | Option B is $4/month to keep a control this repository's own risk register says procedure could not substitute for. That is the engineering recommendation. It is **not** the decision — the owner has stated that no subscription is currently possible, and that constraint is theirs to weigh against a governance loss that is real, documented, and reversible only by subscribing later. Either answer is legitimate; what is not legitimate is changing visibility without answering. |
+| Required before visibility changes | An explicit owner answer recorded here — Option A with R-008 reopened, or Option B. |
+
+## D-224: Degraded-Review Procedure For A Reviewer-Service Outage
+
+| Field | Value |
+|---|---|
+| Status | **Proposed.** Requires owner acceptance before any pull request relies on it. Accepting it changes who may satisfy D-121's gate, which R-009 states must be *"a separately approved policy change that updates the canonical workflow first"* — so acceptance also amends `AGENTS.md`. |
+| Owner | Repository owner |
+| Why this exists | D-222 closed with a condition on itself: *"If a third arises for the same reason, the answer is to fix the review pipeline (R-009's territory) or to define a documented timeout with a named substitute reviewer, not to keep spending the override."* Two overrides were taken on 2026-09-09 because the reviewer produced nothing. Three pull requests (#182, #186, #187) are now in the same state. This entry is that condition being discharged rather than a third override being spent. |
+| What this is **not** | **It is not D-222 and must never be used as one.** D-222 is for a merge whose *delay is itself a harm* — a defect live in production, a security exposure, a data-integrity fault still running. Reviewer unavailability is **not** a qualifying reason under D-222 and this entry does not make it one. D-222 overrides the gate for a specific merge; D-224 **degrades** the gate for a stated outage window and demands a substitute in the gate's place. A pull request merged under D-224 was not merged past the gate — it was merged under a weaker gate, and it must say so. |
+| Correction that shaped this entry | The three pull requests were repeatedly described in working discussion as having received *no response* from the reviewer across six requests. **That was wrong, and the error was mine: I counted review objects and comment totals without reading the comment bodies.** The connector answered every request. Between 10:30:36Z and 11:17:11Z on 2026-09-09 it posted **seven** comments across the three pull requests, each the literal *"You have reached your Codex usage limits for code reviews."* This is not an unexplained outage. It is **R-009 realised again**, matching that risk's stated trigger word for word. |
+
+### Criterion 1 — declaring the reviewer unavailable
+
+| Path | Condition | Evidence |
+|---|---|---|
+| **(a) Self-declared exhaustion** | The reviewer has posted the literal usage-limit comment on the pull request. Objective, immediate, no waiting period — the reviewer has stated its own unavailability and further requests cannot change it. | The comment's timestamp and body, quoted. |
+| **(b) Silence** | All of: `@codex review` requested on the **current head SHA** at least twice, the requests at least **60 minutes** apart; at least **4 hours** elapsed since the first; and **zero** artefacts of any kind from `chatgpt-codex-connector[bot]` on that head — no review object, no comment. | The command output below, pasted verbatim. |
+
+Neither path may be declared by inference, impatience, or a summary. The verification command, whose output is the evidence:
+
+```bash
+PR=<number>; BOT=chatgpt-codex-connector
+SHA=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
+gh pr view "$PR" --json reviews --jq "[.reviews[] | select(.author.login==\"$BOT\" and .commit.oid==\"$SHA\")] | length"   # reviews on THIS head
+gh pr view "$PR" --json comments --jq "[.comments[] | select(.author.login==\"$BOT\" and (.body | test(\"usage limits\";\"i\")))] | length"   # quota messages
+```
+
+A round on an earlier head is evidence about that head and no other; `reviews_on_head` is the only count that discharges the gate.
+
+### Criterion 2 — the remedy is attempted before the substitute
+
+| Field | Value |
+|---|---|
+| Mandatory first step | Under path (a) the cause is known and the remedy is documented: R-009 states the mitigation is *"restoring or funding the named reviewer, not monitoring."* **The owner must either restore the quota or explicitly decline to, and the declining is recorded.** Building a substitute reviewer while an unattempted paid fix exists is precisely the *"reviewer-availability problem being paid for with governance"* that D-222 named and refused to normalise. |
+| Why this clause is load-bearing | Without it, D-224 becomes a standing alternative to funding the reviewer, and the gate quietly degrades permanently. The substitute is for the window between the outage and the remedy — not instead of the remedy. |
+
+### Criterion 3 — the replacement independent verification
+
+All five are required. Any one missing means the gate is not degraded but simply unmet, and the merge waits.
+
+| # | Requirement |
+|---|---|
+| 1 | **A read-only review pass on the frozen final head** by an agent that has made no commit to the branch. `AGENTS.md` holds that automation which writes to the repository is an implementer and never a reviewer; the reviewer here must therefore be a separate read-only pass, and the head must not move during or after it. |
+| 2 | **Findings posted to the pull request verbatim**, not summarised, including findings the implementer disputes — with the dispute stated as a reply rather than by omission. |
+| 3 | **Red-before-green evidence for every behavioural change**: the test failing without the fix and passing with it, run standalone, linked. |
+| 4 | **The full suite green on the final head**, linked by run or local summary. |
+| 5 | **A written statement of what the substitute did not cover** relative to a real round — at minimum that it is a different reviewer of unmeasured comparability, and that no independent party verified the implementer's dispositions. |
+
+### Criterion 4 — the record required on each pull request
+
+Posted as a single comment before the merge, containing: the head SHA; which unavailability path was declared, with its evidence; the quota-restoration decision and who made it; the substitute reviewer's identity and confirmation it holds no write access to the branch; every finding and its disposition; what remains unverified; and a link to this entry. A merge under D-224 without this comment is a policy breach, on the same terms D-222 sets for its own record.
+
+### Criterion 5 — returning to the normal gate
+
+| Trigger | Effect |
+|---|---|
+| The reviewer produces a round on any pull request head | The degraded procedure **lapses immediately** and the normal D-121 gate resumes for every open pull request, including those mid-flight. |
+| **14 days** from acceptance | Lapses automatically. Extension requires a new owner decision, not a renewal by silence — this is the clause that stops a temporary procedure becoming the standing one. |
+| Either way | Every pull request merged under D-224 is listed in the extension or closure record, and each gets a retrospective round or an explicit, recorded owner decision not to seek one. |
+
+| Field | Value |
+|---|---|
+| Amendments required on acceptance | `AGENTS.md` Mandatory Workflow — the sentence *"When Codex's externally-billed quota is exhausted (risk R-009) the gate is **unavailable**, not waived: the merge waits"* gains D-224 as its documented, time-boxed exception. **R-009** — its *"not substitutable"* clause gains the same reference, since that clause explicitly anticipates being changed by an approved policy change and this is that change. |
+| Application to #182, #186 and #187 | **None by this entry.** D-224 defines a procedure; it merges nothing and authorises nothing retroactively. Whether to apply it to the three open pull requests, restore the Codex quota, or continue waiting is the owner's decision, taken after this record is accepted. |
+| Related | **D-121** (the gate), **D-222** (the override, deliberately distinct), **D-142** (what happened last time the gate was worked around at scale — twelve pull requests merged without a round), **R-008**, **R-009**, `AGENTS.md` Mandatory Workflow. |
