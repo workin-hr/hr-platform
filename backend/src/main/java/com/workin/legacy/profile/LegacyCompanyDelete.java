@@ -230,8 +230,16 @@ public class LegacyCompanyDelete {
 			// Before employees and branches go, though nothing here has a
 			// foreign key to either -- the ordering is for readers, not the
 			// database.
+			//
+			// deleteFromOptionalTable, NOT ignoringFailure: these four are the
+			// tables whose survival is dangerous rather than merely untidy. An
+			// attendance_devices row is what makes a serial recognised, so one
+			// surviving row keeps a terminal ingesting punches against a company
+			// that no longer exists. Swallowing every RuntimeException cannot
+			// tell "not deployed here" from "the delete was refused", and the
+			// second must roll the cascade back.
 			for (String table : DEVICE_OWNED) {
-				ignoringFailure("DELETE FROM " + table + " WHERE company_id = ?", companyId);
+				deleteFromOptionalTable(table, companyId);
 			}
 
 			jdbcTemplate.update("DELETE FROM employees WHERE company_id = ?", companyId);
@@ -265,6 +273,28 @@ public class LegacyCompanyDelete {
 			}
 		});
 		return preview;
+	}
+
+	/**
+	 * Delete from a table that may not exist in this deployment -- tolerating
+	 * its absence, but never its failure.
+	 *
+	 * <p>Absence is established by asking {@code information_schema} rather
+	 * than by catching an exception, because a catch cannot distinguish a
+	 * missing table from a missing DELETE grant, a lock timeout, or a trigger
+	 * refusing the row. Only the first is safe to ignore; the rest have to
+	 * abort so the surrounding transaction rolls back and an operator sees a
+	 * failure instead of a half-deleted tenant.
+	 */
+	private void deleteFromOptionalTable(String table, long companyId) {
+		Number found = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM information_schema.TABLES"
+						+ " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+				Number.class, table);
+		if (found == null || found.intValue() == 0) {
+			return;
+		}
+		jdbcTemplate.update("DELETE FROM " + table + " WHERE company_id = ?", companyId);
 	}
 
 	private void ignoringFailure(String sql, long companyId) {
