@@ -19,7 +19,13 @@ docker compose -f compose.local.yaml up --build
 **Only consuming the API** — Flutter, desktop, QA? Pull it instead, and skip
 the build and the JDK entirely:
 
+The published image is **private** — a new `ghcr.io` package does not inherit
+the repository's visibility, verified by measurement — so sign in once first
+with a token carrying `read:packages`:
+
 ```sh
+echo "$CR_PAT" | docker login ghcr.io -u <your-github-username> --password-stdin
+
 cd deploy
 docker compose -f compose.dev.yaml pull
 docker compose -f compose.dev.yaml up -d

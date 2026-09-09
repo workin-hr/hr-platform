@@ -6,7 +6,19 @@ backend.
 
 ## Once
 
-Install Docker Desktop (or Docker Engine + the compose plugin), then:
+Install Docker Desktop (or Docker Engine + the compose plugin).
+
+**You need to sign in to the image registry first.** The published image is
+**private**, so an unauthenticated `pull` fails with `unauthorized` — see
+"Why a login is needed" below. Ask the repository owner for a personal access
+token with the **`read:packages`** scope, then:
+
+```bash
+export CR_PAT=<the token you were given>
+echo "$CR_PAT" | docker login ghcr.io -u <your-github-username> --password-stdin
+```
+
+That is once per machine; Docker stores it. Then:
 
 ```bash
 git clone https://github.com/workin-hr/hr-platform.git
@@ -23,6 +35,34 @@ The API is then on **`http://localhost:8080`**.
 > The clone is for the compose file and the seed, not for the backend source.
 > The backend itself is **pulled as a published image**, so no Gradle build
 > runs on your machine and you never need the JDK.
+
+### Why a login is needed
+
+A new package on `ghcr.io` is **private by default and does not inherit the
+repository's visibility**, even when the repository is public. GitHub's own
+documentation is contradictory here — the packages-with-Actions page says a
+workflow-created package "inherits the visibility ... of the repository", while
+the visibility page says the default is private and inheritance covers
+"access permissions (but not the visibility)".
+
+This was settled by measurement rather than by reading, using a throwaway
+package published over the same `GITHUB_TOKEN` path from this public
+repository:
+
+```text
+$ docker logout ghcr.io
+$ docker pull ghcr.io/workin-hr/hr-platform/visibility-probe:probe
+Error response from daemon: Head "https://ghcr.io/v2/.../manifests/probe": unauthorized
+```
+
+The visibility page is the one that describes actual behaviour. **The package
+stays private deliberately** — this is a commercial product, and GitHub
+documents making a package public as irreversible ("Once you make a package
+public, you cannot make it private again"). Authentication is therefore part
+of the client flow by design, not an oversight.
+
+If a pull ever fails with `denied` rather than `unauthorized`, the token is
+being sent but lacks `read:packages`.
 
 ## Every time the backend changes
 

@@ -1,8 +1,13 @@
 # The client-developer stack: what a Flutter or desktop developer runs.
 #
+#   echo "$CR_PAT" | docker login ghcr.io -u <user> --password-stdin  # once
 #   cd deploy
 #   docker compose -f compose.dev.yaml pull      # get the current backend
 #   docker compose -f compose.dev.yaml up -d
+#
+# The login is required, not optional: a new ghcr.io package is private and
+# does NOT inherit the repository's visibility, so an anonymous pull fails
+# with `unauthorized`. The token needs the read:packages scope.
 #
 # Identical to compose.local.yaml in every respect but one: it PULLS the
 # backend image instead of building it. compose.local.yaml is for someone
