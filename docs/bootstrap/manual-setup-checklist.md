@@ -192,7 +192,12 @@ only after a human completed the underlying action first.
    round are unreviewed until review is re-requested (`@codex review`). This
    is the gate; it is not optional and no other reviewer substitutes for it.
    If its externally-billed quota is exhausted (R-009) the gate is
-   *unavailable*, not waived: the merge waits.
+   *unavailable*, not waived: the merge waits. **D-224 is the one documented
+   exception** — a time-boxed degraded-review procedure for a reviewer-service
+   outage, which requires current (not historical) exhaustion, demands the
+   documented remedy be attempted or explicitly declined first, and lapses the
+   moment quota recovers. A merge under it was merged under a *weaker* gate, not
+   past the gate, and its record must say so.
    The `independent-review` status check
    (`.github/workflows/independent-review-gate.yml`) reports whether that round
    exists for the pull request's **current head SHA**, so this step no longer

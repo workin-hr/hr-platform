@@ -53,6 +53,19 @@ before merge. A green CI run proves automated verification only and never
 substitutes for this gate. When Codex's externally-billed quota is exhausted
 (risk R-009) the gate is **unavailable**, not waived: the merge waits.
 
+**The one documented exception is D-224**, a time-boxed degraded-review
+procedure for a reviewer-service outage. It is narrow on purpose: the outage
+must be objectively established (the reviewer's own usage-limit comment, or
+silence after two requests at least an hour apart and four hours elapsed), the
+documented remedy — restoring or funding the reviewer — must be attempted or
+explicitly declined and recorded first, a five-part substitute verification must
+be produced, a fixed evidence block must be posted on the pull request, and the
+procedure lapses on the reviewer's return or after fourteen days. **A merge under
+D-224 was not merged past the gate; it was merged under a weaker one, and the
+record must say so.** D-224 is distinct from D-222 and may never be used in its
+place: D-222 is for a merge whose delay is itself a harm, and reviewer
+unavailability is explicitly not a qualifying reason under it.
+
 **The gate has exactly one override, and it is the repository owner's alone
 (D-222).** Waiting is the default and stays the default; an override is for a
 merge whose delay is itself a harm — a defect live in production — and never
