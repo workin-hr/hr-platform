@@ -439,8 +439,7 @@ public class LegacyPayslipService {
 		int creditedWorkDays = Math.max(0, punchPresent);
 		row.put("days_present", creditedWorkDays);
 		row.put("present_details", attendanceFigures.presentDetails(
-				companyId, employeeId, periodFrom, periodTo, punchPresent, asOf,
-				presentLabel, weeklyRestLabel, officialHolidayFallbackLabel));
+				companyId, employeeId, periodFrom, periodTo, punchPresent, asOf, presentLabel));
 		row.put("contract_basic_salary", round(contractBasic));
 		row.put("daily_basic_rate", dayRate);
 		row.put("absence_cost", absenceCost);

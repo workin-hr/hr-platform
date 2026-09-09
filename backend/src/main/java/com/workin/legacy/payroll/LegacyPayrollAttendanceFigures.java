@@ -422,12 +422,15 @@ public class LegacyPayrollAttendanceFigures {
 	 * punched into a breakdown of days attended, and disagreed with the
 	 * {@code days_present} count beside it.
 	 *
-	 * <p>{@code punchPresent} is still a parameter: it is part of PHP's
-	 * signature, which this port follows so the two stay comparable.
+	 * <p>{@code companyId} and {@code punchPresent} are still parameters because
+	 * {@code payroll_payslip_present_details()} still takes them, and this port
+	 * follows PHP's signature so the two stay comparable. The weekly-rest and
+	 * holiday <em>labels</em> are not: they were only ever Java-side i18n for
+	 * the two row kinds this no longer emits, so they went with them.
 	 */
 	public List<Map<String, Object>> presentDetails(
 			long companyId, long employeeId, String periodFrom, String periodTo, int punchPresent, String asOf,
-			String presentLabel, String weeklyRestLabel, String officialHolidayFallbackLabel) {
+			String presentLabel) {
 		boolean inProgress = asOf.compareTo(periodTo) < 0;
 		String rangeTo = inProgress ? asOf : periodTo;
 
