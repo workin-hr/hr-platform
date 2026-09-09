@@ -29,13 +29,17 @@ MAX_LIMIT) and a placeholder for anything secret.
 
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LEGACY_REPO = os.path.join(REPO_ROOT, "..", "hr-legacy")
+# Default only. The caller may select a different checkout with --legacy, and
+# scripts/check_all_legacy_drift.sh does: a wrapper that reports which checkout
+# it compared against must actually pass that checkout to every detector.
+DEFAULT_LEGACY_REPO = os.path.join(REPO_ROOT, "..", "hr-legacy")
 TEMPLATE = "apis/config/constants.example.php"
 
 # One entry per product default this port reproduces: the PHP constant, the
@@ -80,18 +84,23 @@ def normalise(literal: str) -> str:
         return literal.strip()
 
 
-def template_source() -> str | None:
-    """The template as HEAD has it, or None when hr-legacy is not beside us."""
-    if not os.path.isdir(os.path.join(LEGACY_REPO, ".git")):
+def template_source(legacy_repo: str) -> str | None:
+    """The template as HEAD has it, or None when that checkout is not present."""
+    if not os.path.isdir(os.path.join(legacy_repo, ".git")):
         return None
     blob = subprocess.run(
-        ["git", "-C", LEGACY_REPO, "show", f"HEAD:{TEMPLATE}"],
+        ["git", "-C", legacy_repo, "show", f"HEAD:{TEMPLATE}"],
         capture_output=True, text=True, check=False)
     return blob.stdout if blob.returncode == 0 else None
 
 
-def main() -> int:
-    template = template_source()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--legacy", default=DEFAULT_LEGACY_REPO,
+                        help="path to the hr-legacy checkout to compare against")
+    args = parser.parse_args(argv)
+
+    template = template_source(args.legacy)
     if template is None:
         # Unlike the inventory gates there is no committed manifest to fall
         # back to, so this check simply does not run in CI. Say so rather than

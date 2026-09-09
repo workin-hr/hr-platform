@@ -64,11 +64,13 @@ run spreadsheet       python3 scripts/check_legacy_spreadsheet_columns_drift.py 
 run sensitive-keys    python3 scripts/check_legacy_sensitive_keys_drift.py     --legacy "$LEGACY"
 run excel-error-codes python3 scripts/check_legacy_excel_error_codes_drift.py  --legacy "$LEGACY"
 
-# These three take a different flag, or none. Spelled out rather than
-# generated, because a wrong flag here is silent.
+# These three take a different flag from the six above. Spelled out rather
+# than generated, because a wrong flag here is silent: argparse accepts an
+# unambiguous PREFIX, so `--legacy` is quietly swallowed as `--legacy-lang`.
+# scripts/test_check_all_legacy_drift.py asserts each one individually.
 run routes            python3 scripts/check_legacy_route_drift.py   --legacy-api  "$LEGACY/apis/api"
 run messages          python3 scripts/check_legacy_message_drift.py --legacy-lang "$LEGACY/apis/lang"
-run product-defaults  python3 scripts/check_legacy_product_defaults_drift.py
+run product-defaults  python3 scripts/check_legacy_product_defaults_drift.py --legacy "$LEGACY"
 
 echo
 if [ "$failed" -gt 0 ] || [ "$degraded" -gt 0 ]; then

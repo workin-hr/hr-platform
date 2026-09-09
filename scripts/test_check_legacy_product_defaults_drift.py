@@ -74,14 +74,16 @@ def build_java(root: pathlib.Path, body: str) -> str:
 def run(root: pathlib.Path, legacy: pathlib.Path, java_rel: str,
         java_name: str = "DEFAULT_ANNUAL_LEAVE_DAYS",
         php_name: str = "DEFAULT_ANNUAL_LEAVE_DAYS") -> int:
-    real = (drift.REPO_ROOT, drift.LEGACY_REPO, drift.PINNED)
+    real = (drift.REPO_ROOT, drift.PINNED)
     drift.REPO_ROOT = str(root)
-    drift.LEGACY_REPO = str(legacy)
     drift.PINNED = ((php_name, java_rel, java_name),)
     try:
-        return drift.main()
+        # Drive the real --legacy argument rather than patching a module
+        # global: the checkout the caller selects is now part of the
+        # detector's contract, so the tests have to exercise that path.
+        return drift.main(["--legacy", str(legacy)])
     finally:
-        drift.REPO_ROOT, drift.LEGACY_REPO, drift.PINNED = real
+        drift.REPO_ROOT, drift.PINNED = real
 
 
 POLICY = "class Policy { public static final double DEFAULT_ANNUAL_LEAVE_DAYS = %s; }\n"
