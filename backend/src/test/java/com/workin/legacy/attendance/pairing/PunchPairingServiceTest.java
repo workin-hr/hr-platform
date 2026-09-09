@@ -1,10 +1,12 @@
 package com.workin.legacy.attendance.pairing;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.LocalDateTime;
+import java.sql.SQLException;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -829,6 +831,42 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 				+ " AND attendance_id = " + editedId + " AND processing_state = 'PAIRED'"))
 				.as("the preserved row's own punches stay paired to it rather than being replayed")
 				.isNotEmpty();
+	}
+
+
+	@Test
+	void anUnknownAssignmentResolutionIsRejectedEvenUnderNonStrictSqlMode() throws Exception {
+		// The trap this column exists to avoid, proved rather than assumed.
+		// Production runs sql_mode='' , where an out-of-range ENUM value is
+		// stored as the empty error value with only a warning -- this pull
+		// request demonstrated exactly that on attendance.method. A provenance
+		// column must fail loudly instead of gaining a silent fourth state.
+		try (Connection connection = this.dataSource.getConnection();
+				Statement statement = connection.createStatement()) {
+			ResultSet mode = statement.executeQuery("SELECT @@SESSION.sql_mode");
+			mode.next();
+			assertThat(mode.getString(1))
+					.as("this fixture must be as permissive as production, or it proves nothing")
+					.isEmpty();
+
+			assertThatThrownBy(() -> {
+				try (Statement bad = connection.createStatement()) {
+					bad.executeUpdate("INSERT INTO device_punches (device_id, company_id, branch_id,"
+							+ " employee_id, pin, punched_at_local, punched_at_utc, received_at,"
+							+ " dedup_key, raw_line, processing_state, assignment_resolution) VALUES ("
+							+ DEVICE + ", " + COMPANY + ", " + BRANCH + ", " + EMPLOYEE + ", '7001',"
+							+ " '" + DAY + " 08:00:00', '" + DAY + " 06:00:00', '" + DAY + " 08:00:00',"
+							+ " 'badresolution01', 'seed', 'RECEIVED', 'PROBABLY_FINE')");
+				}
+			}).as("an unknown resolution must be refused, not coerced to an empty value")
+					.isInstanceOf(SQLException.class);
+
+			try (ResultSet rs = statement.executeQuery(
+					"SELECT COUNT(*) FROM device_punches WHERE dedup_key = 'badresolution01'")) {
+				rs.next();
+				assertThat(rs.getInt(1)).as("and nothing may be left behind").isZero();
+			}
+		}
 	}
 
 }

@@ -53,21 +53,30 @@ public class DevicePunchStore {
 	 * what the columns accept; this is the guard for whatever it did not
 	 * anticipate.
 	 */
+	/**
+	 * @param branchId null when the punch's configuration could not be
+	 *        established -- see {@code assignment_resolution}. A fallback value
+	 *        here would be indistinguishable from an observed one.
+	 * @param punchedAtUtc null for the same reason
+	 */
 	public InsertOutcome insert(
-			long deviceId, long companyId, long branchId, Long employeeId, DeviceAttendanceEvent event,
-			LocalDateTime punchedAtUtc, LocalDateTime receivedAt, String state) {
+			long deviceId, long companyId, Long branchId, Long employeeId, DeviceAttendanceEvent event,
+			LocalDateTime punchedAtUtc, LocalDateTime receivedAt, String state,
+			Long assignmentId, String assignmentResolution) {
 		try {
 			jdbcTemplate.update("""
 					INSERT INTO device_punches
 					  (device_id, company_id, branch_id, employee_id, pin, punched_at_local, punched_at_utc,
-					   status_code, verify_code, work_code, received_at, dedup_key, raw_line, processing_state)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+					   status_code, verify_code, work_code, received_at, dedup_key, raw_line, processing_state,
+					   device_assignment_id, assignment_resolution)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
 					deviceId, companyId, branchId, employeeId, event.pin(),
 					DeviceAttendanceEvent.SQL_DATE_TIME.format(event.punchedAtLocal()),
-					DeviceAttendanceEvent.SQL_DATE_TIME.format(punchedAtUtc),
+					punchedAtUtc == null ? null : DeviceAttendanceEvent.SQL_DATE_TIME.format(punchedAtUtc),
 					event.statusCode(), event.verifyCode(), event.workCode(),
 					DeviceAttendanceEvent.SQL_DATE_TIME.format(receivedAt),
-					event.dedupKey(), DeviceInput.bounded(event.rawLine(), MAX_RAW_LINE), state);
+					event.dedupKey(), DeviceInput.bounded(event.rawLine(), MAX_RAW_LINE), state,
+					assignmentId, assignmentResolution);
 			return InsertOutcome.STORED;
 		} catch (DuplicateKeyException ex) {
 			return InsertOutcome.DUPLICATE;

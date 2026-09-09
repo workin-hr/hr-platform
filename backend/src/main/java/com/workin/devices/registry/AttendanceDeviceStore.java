@@ -7,6 +7,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import com.workin.devices.assignment.DeviceAssignmentHistoryStore;
+import com.workin.legacy.LegacyClock;
 import javax.sql.DataSource;
 
 import org.springframework.dao.DuplicateKeyException;
@@ -35,7 +39,15 @@ public class AttendanceDeviceStore {
 
 	private final JdbcTemplate jdbcTemplate;
 
-	public AttendanceDeviceStore(DataSource legacyDataSource) {
+	private final TransactionTemplate transactions;
+	private final DeviceAssignmentHistoryStore history;
+	private final LegacyClock clock;
+
+	public AttendanceDeviceStore(DataSource legacyDataSource, DeviceAssignmentHistoryStore history,
+			LegacyClock clock) {
+		this.transactions = new TransactionTemplate(new DataSourceTransactionManager(legacyDataSource));
+		this.history = history;
+		this.clock = clock;
 		this.jdbcTemplate = new JdbcTemplate(legacyDataSource);
 	}
 
@@ -105,17 +117,68 @@ public class AttendanceDeviceStore {
 		return id == null ? Optional.empty() : Optional.of(id.longValue());
 	}
 
+	/**
+	 * Claim, and the device's first history row, in one transaction.
+	 *
+	 * <p>Without the initial row the timeline has no beginning, and every punch
+	 * from this device would resolve as INFERRED_EARLIEST -- correct in spirit,
+	 * useless in practice, and it would stop pairing entirely.
+	 */
+	public Optional<Long> claimWithHistory(
+			long companyId, long branchId, String vendor, String serialNumber, String name,
+			String deviceTimeZone, Long registeredByEmployeeId, LocalDateTime now) {
+		return transactions.execute(status -> {
+			Optional<Long> claimed = claim(companyId, branchId, vendor, serialNumber, name,
+					deviceTimeZone, registeredByEmployeeId, now);
+			claimed.ifPresent(id -> history.append(id, companyId, branchId, deviceTimeZone,
+					DeviceAssignmentHistoryStore.toUtc(now, clock.offset()), now));
+			return claimed;
+		});
+	}
+
+	/**
+	 * A configuration change, and its history row, in one transaction.
+	 *
+	 * <p>The row is locked before anything is decided, so two concurrent
+	 * changes serialise rather than interleaving into a registry that disagrees
+	 * with the newest history row.
+	 *
+	 * <p>What counts as a change is the ACTUAL value, not the presence of a
+	 * field in the request: re-sending the same branch appends nothing. A
+	 * branch and zone changing together append exactly ONE row carrying the new
+	 * combined configuration -- two rows would imply a moment when only half
+	 * the change had happened, which never existed.
+	 */
 	public void update(
 			long companyId, long id, String name, Long branchId, String deviceTimeZone, Boolean active,
 			LocalDateTime now) {
-		jdbcTemplate.update("""
-				UPDATE attendance_devices
-				SET name = COALESCE(?, name), branch_id = COALESCE(?, branch_id),
-				    device_time_zone = COALESCE(?, device_time_zone), is_active = COALESCE(?, is_active),
-				    updated_at = ?
-				WHERE company_id = ? AND id = ?""",
-				name, branchId, deviceTimeZone, active == null ? null : (active ? 1 : 0),
-				DeviceAttendanceEvent.SQL_DATE_TIME.format(now), companyId, id);
+		transactions.executeWithoutResult(status -> {
+			List<Map<String, Object>> current = jdbcTemplate.queryForList(
+					"SELECT branch_id, device_time_zone FROM attendance_devices"
+							+ " WHERE company_id = ? AND id = ? FOR UPDATE",
+					companyId, id);
+			if (current.isEmpty()) {
+				return;
+			}
+			long currentBranch = ((Number) current.get(0).get("branch_id")).longValue();
+			String currentZone = (String) current.get(0).get("device_time_zone");
+
+			jdbcTemplate.update("""
+					UPDATE attendance_devices
+					SET name = COALESCE(?, name), branch_id = COALESCE(?, branch_id),
+					    device_time_zone = COALESCE(?, device_time_zone), is_active = COALESCE(?, is_active),
+					    updated_at = ?
+					WHERE company_id = ? AND id = ?""",
+					name, branchId, deviceTimeZone, active == null ? null : (active ? 1 : 0),
+					DeviceAttendanceEvent.SQL_DATE_TIME.format(now), companyId, id);
+
+			long newBranch = branchId == null ? currentBranch : branchId;
+			String newZone = deviceTimeZone == null ? currentZone : deviceTimeZone;
+			if (newBranch != currentBranch || !newZone.equals(currentZone)) {
+				history.append(id, companyId, newBranch, newZone,
+						DeviceAssignmentHistoryStore.toUtc(now, clock.offset()), now);
+			}
+		});
 	}
 
 	/** Every request from a claimed device: liveness, and the address it came from. */

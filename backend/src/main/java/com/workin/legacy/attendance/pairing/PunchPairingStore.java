@@ -108,6 +108,15 @@ public class PunchPairingStore {
 				FROM device_punches
 				WHERE company_id = ? AND processing_state = 'RECEIVED' AND employee_id IS NOT NULL
 				  AND pair_attempts < ?
+				  -- Only punches whose temporal attribution was established.
+				  -- INFERRED_EARLIEST and UNRESOLVED keep their evidence but must
+				  -- not become payroll-facing attendance on their own: an
+				  -- acknowledged guess is not a measurement. The NOT NULL checks
+				  -- are belt and braces -- those columns are nullable precisely
+				  -- so an unresolved punch asserts nothing, and every ordering
+				  -- and comparison below assumes a real instant.
+				  AND assignment_resolution = 'EXACT'
+				  AND punched_at_utc IS NOT NULL AND branch_id IS NOT NULL
 				-- punched_at_utc, not punched_at_local: during an autumn DST
 				-- overlap the wall clock reads the same value twice an hour
 				-- apart, so ordering by local time leaves chronology to the

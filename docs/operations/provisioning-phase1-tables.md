@@ -109,7 +109,7 @@ mysql -h "$HOST" -u "$USER" -p "$DATABASE" < phase1_extensions.sql
 mysql -h "$HOST" -u "$USER" -p "$DATABASE" < slice_b_attendance_method.sql
 ```
 
-**4. Confirm.** Re-run step 1's query; expect all eleven names. Then
+**4. Confirm.** Re-run step 1's query; expect all thirteen names. Then
 check the enum took:
 
 ```sql

@@ -105,7 +105,7 @@ public class DeviceManagementService {
 		// and with no unclaim path (R-042) the caller was left needing a
 		// manual database correction for a claim they were never told about.
 		return transactions.execute(status -> {
-			Optional<Long> id = devices.claim(
+			Optional<Long> id = devices.claimWithHistory(
 					companyId, branchId, DeviceVendor.ZKTECO.code(), serialNumber, name, zone,
 					actorEmployeeId > 0 ? actorEmployeeId : null, clock.now());
 			if (id.isEmpty()) {

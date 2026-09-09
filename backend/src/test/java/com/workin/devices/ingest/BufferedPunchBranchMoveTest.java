@@ -19,13 +19,12 @@ import com.workin.legacy.AbstractLegacyMySqlTest;
  * punch's own timestamp. Offline buffering is a supported flow, so the two can
  * legitimately be hours or days apart.
  *
- * <p><b>This is a CHARACTERISATION test: it asserts the CURRENT, WRONG
- * behaviour</b>, as evidence for a fix that is not yet designed. It must be
- * inverted -- the punch attributed to branch A -- when assignment history
- * lands. It is committed rather than discarded because the second assertion is
- * the load-bearing one: the information needed to attribute the punch
- * correctly does not exist anywhere, which is why this cannot be fixed without
- * a schema decision.
+ * <p>This began as a characterisation test asserting the WRONG behaviour,
+ * because the information needed to attribute the punch correctly did not exist
+ * anywhere. device_assignment_history supplies it, so the assertions are now
+ * inverted: the history exists, and the punch belongs to the branch it happened
+ * in. The end-to-end proof through the real ingest path lives in
+ * DeviceIngestionEndToEndTest; this keeps the schema-level guarantee.
  */
 class BufferedPunchBranchMoveTest extends AbstractLegacyMySqlTest {
 
@@ -46,7 +45,7 @@ class BufferedPunchBranchMoveTest extends AbstractLegacyMySqlTest {
 	}
 
 	@Test
-	void aPunchBufferedBeforeAMoveIsAttributedToTheBranchTheDeviceIsInNow() throws Exception {
+	void assignmentHistoryExistsSoAPriorConfigurationIsRecoverable() throws Exception {
 		exec("INSERT IGNORE INTO companies (id, company_name, phone, password_hash)"
 				+ " VALUES (" + COMPANY + ", 'move co', '01000000993', 'x')");
 		exec("INSERT IGNORE INTO branches (id, company_id, name) VALUES (" + BRANCH_A + ", " + COMPANY + ", 'A')");
@@ -71,17 +70,21 @@ class BufferedPunchBranchMoveTest extends AbstractLegacyMySqlTest {
 				+ " '2025-06-02 06:00:00', '2025-06-03 10:00:00', 'movekey0001', 'seed', 'UNMATCHED'"
 				+ " FROM attendance_devices WHERE id = 993100");
 
-		long recorded = scalar("SELECT branch_id FROM device_punches WHERE dedup_key = 'movekey0001'");
-		assertThat(recorded)
-				.as("a punch that happened at A is recorded against B, because ingestion "
-						+ "reads the device's CURRENT branch")
-				.isEqualTo(BRANCH_B);
-
-		// And the information needed to correct it is not recoverable: the
-		// registry keeps one branch_id, overwritten in place, with no history.
+		// The inversion. A history table now exists and records what the
+		// configuration WAS, so the prior branch is recoverable rather than
+		// overwritten -- which is what makes correct attribution possible at
+		// all. The direct INSERT above still carries the registry's current
+		// branch because it bypasses ingestion; the real path is proved
+		// end to end in DeviceIngestionEndToEndTest.
 		assertThat(scalar("SELECT COUNT(*) FROM information_schema.TABLES"
-				+ " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE 'device_branch%'"))
-				.as("no assignment history exists, so the prior branch cannot be looked up")
-				.isZero();
+				+ " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'device_assignment_history'"))
+				.as("assignment history exists, so a prior configuration can be looked up")
+				.isEqualTo(1);
+		assertThat(scalar("SELECT COUNT(*) FROM information_schema.COLUMNS"
+				+ " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'device_assignment_history'"
+				+ " AND COLUMN_NAME = 'device_time_zone'"))
+				.as("and it records the ZONE too -- a branch-only history would have left the "
+						+ "worse half of the same bug in place")
+				.isEqualTo(1);
 	}
 }

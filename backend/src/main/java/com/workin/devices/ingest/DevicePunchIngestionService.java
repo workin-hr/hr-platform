@@ -13,6 +13,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.workin.devices.DeviceAttendanceEvent;
+import com.workin.devices.assignment.DeviceAssignmentHistoryStore;
+import com.workin.devices.assignment.DeviceAssignmentTimeline;
 import com.workin.devices.DeviceInput;
 import com.workin.devices.identity.EmployeeDeviceIdentityStore;
 import com.workin.devices.registry.AttendanceDevice;
@@ -33,14 +35,16 @@ public class DevicePunchIngestionService {
 	private static final Logger LOG = LoggerFactory.getLogger(DevicePunchIngestionService.class);
 
 	private final DevicePunchStore punches;
+	private final DeviceAssignmentHistoryStore assignments;
 	private final EmployeeDeviceIdentityStore identities;
 	private final LegacyClock clock;
 	private final MeterRegistry meters;
 
 	public DevicePunchIngestionService(
 			DevicePunchStore punches, EmployeeDeviceIdentityStore identities, LegacyClock clock,
-			MeterRegistry meters) {
+			MeterRegistry meters, DeviceAssignmentHistoryStore assignments) {
 		this.punches = punches;
+		this.assignments = assignments;
 		this.identities = identities;
 		this.clock = clock;
 		this.meters = meters;
@@ -64,7 +68,10 @@ public class DevicePunchIngestionService {
 		if (events.isEmpty()) {
 			return new Outcome(0, 0, 0, 0);
 		}
-		ZoneId zone = device.zone();
+		// ONE query for the whole delivery. A reconnect can carry thousands of
+		// buffered punches; a history lookup each would turn one upload into
+		// thousands of round trips.
+		DeviceAssignmentTimeline timeline = assignments.timelineFor(device.id());
 		LocalDateTime receivedAt = clock.now();
 		Set<String> pins = new LinkedHashSet<>();
 		for (DeviceAttendanceEvent event : events) {
@@ -82,9 +89,16 @@ public class DevicePunchIngestionService {
 		for (DeviceAttendanceEvent event : events) {
 			Long employeeId = byPin.get(event.pin());
 			String state = employeeId != null ? DevicePunchStore.STATE_RECEIVED : DevicePunchStore.STATE_UNMATCHED;
-			LocalDateTime utc = toUtc(event, zone);
+			// Resolved against the timeline, never against the device's CURRENT
+			// configuration: a buffered punch predates whatever the registry
+			// says now, in both branch and zone.
+			DeviceAssignmentTimeline.Resolved resolved = event.punchedAtInstant() != null
+					? timeline.forInstant(LocalDateTime.ofInstant(event.punchedAtInstant(), ZoneOffset.UTC))
+					: timeline.forWallClock(event.punchedAtLocal());
 			switch (punches.insert(
-					device.id(), device.companyId(), device.branchId(), employeeId, event, utc, receivedAt, state)) {
+					device.id(), device.companyId(), resolved.branchId(), employeeId, event,
+					resolved.instantUtc(), receivedAt, state,
+					resolved.assignmentId(), resolved.resolution().name())) {
 				case STORED -> {
 					stored++;
 					if (employeeId == null) {

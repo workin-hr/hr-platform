@@ -732,6 +732,12 @@ class DeviceIngestionEndToEndTest {
 		return (List<Map<String, Object>>) body.get(key);
 	}
 
+	private static void exec(String sql) throws Exception {
+		try (Connection connection = connect(); Statement st = connection.createStatement()) {
+			st.execute(sql);
+		}
+	}
+
 	private static long count(String sql) throws Exception {
 		try (Connection connection = connect(); Statement st = connection.createStatement(); ResultSet rs = st.executeQuery(sql)) {
 			return rs.next() ? rs.getLong(1) : 0L;
@@ -782,6 +788,75 @@ class DeviceIngestionEndToEndTest {
 
 	private static Connection connect() throws Exception {
 		return MARIADB.connect();
+	}
+
+
+	@Test
+	void aBufferedPunchDeliveredAfterAReassignmentIsRecordedAgainstTheBranchItHappenedIn() throws Exception {
+		// The whole sequence, through the real ingest path: claim into branch 1,
+		// reassign to branch 2, THEN deliver a punch the terminal had been
+		// holding. Ingestion used to stamp the branch the registry says now.
+		long deviceId = claim(ADMIN_1, "DEV-MOVE", BRANCH_1, "Movable", "+02:00");
+
+		// Age the claim so there is a real window to have buffered inside. The
+		// claim and the reassignment below otherwise land in the same second,
+		// and no punch could fall between them. Only the fixture's age is
+		// adjusted -- resolution still runs the real ingest path.
+		exec("UPDATE device_assignment_history SET effective_from_utc = '2024-07-27 00:00:00'"
+				+ " WHERE device_id = " + deviceId);
+
+		api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1,
+				"{\"branch_id\":" + BRANCH_1B + "}", 200);
+
+		ResponseEntity<String> upload = devicePost("/iclock/cdata?SN=DEV-MOVE&table=ATTLOG&Stamp=4712",
+				"1001\t2024-07-28 08:00:00\t0\t1\t\t0\t0\r\n");
+		assertThat(upload.getStatusCode().value()).isEqualTo(200);
+
+		assertThat(count("SELECT branch_id FROM device_punches WHERE device_id = " + deviceId))
+				.as("the punch happened while the device was in branch 1, and stays there")
+				.isEqualTo(BRANCH_1);
+		assertThat(text("SELECT assignment_resolution FROM device_punches WHERE device_id = " + deviceId))
+				.as("and the attribution was established, not guessed")
+				.isEqualTo("EXACT");
+		assertThat(count("SELECT COUNT(*) FROM device_assignment_history WHERE device_id = " + deviceId))
+				.as("claim wrote the first configuration; the reassignment appended the second")
+				.isEqualTo(2);
+	}
+
+	@Test
+	void theLatestHistoryRowAlwaysMatchesTheRegistrysCurrentState() throws Exception {
+		long deviceId = claim(ADMIN_1, "DEV-INV", BRANCH_1, "Invariant", "+02:00");
+		assertInvariant(deviceId);
+
+		api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1, "{\"branch_id\":" + BRANCH_1B + "}", 200);
+		assertInvariant(deviceId);
+
+		// Zone alone.
+		api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1,
+				"{\"device_time_zone\":\"+03:00\"}", 200);
+		assertInvariant(deviceId);
+
+		long afterThree = count("SELECT COUNT(*) FROM device_assignment_history WHERE device_id = " + deviceId);
+
+		// A name-only edit must append nothing, and neither must re-sending a
+		// value that is already current.
+		api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1, "{\"name\":\"Renamed\"}", 200);
+		api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1, "{\"branch_id\":" + BRANCH_1B + "}", 200);
+		assertThat(count("SELECT COUNT(*) FROM device_assignment_history WHERE device_id = " + deviceId))
+				.as("no history for a rename, and none for re-sending the current branch")
+				.isEqualTo(afterThree);
+		assertInvariant(deviceId);
+	}
+
+	private void assertInvariant(long deviceId) throws Exception {
+		long registryBranch = count("SELECT branch_id FROM attendance_devices WHERE id = " + deviceId);
+		String registryZone = text("SELECT device_time_zone FROM attendance_devices WHERE id = " + deviceId);
+		long historyBranch = count("SELECT branch_id FROM device_assignment_history WHERE device_id = "
+				+ deviceId + " ORDER BY effective_from_utc DESC, id DESC LIMIT 1");
+		String historyZone = text("SELECT device_time_zone FROM device_assignment_history WHERE device_id = "
+				+ deviceId + " ORDER BY effective_from_utc DESC, id DESC LIMIT 1");
+		assertThat(historyBranch).as("latest history branch must equal the registry's").isEqualTo(registryBranch);
+		assertThat(historyZone).as("latest history zone must equal the registry's").isEqualTo(registryZone);
 	}
 
 }

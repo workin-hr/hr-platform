@@ -246,8 +246,15 @@ CREATE TABLE device_punches (
     -- Schema-level, not a comment: whether the temporal attribution above was
     -- observed or guessed. EXACT is the only value pairing will claim, so an
     -- acknowledged guess cannot become payroll-facing attendance by default.
-    assignment_resolution ENUM('EXACT', 'INFERRED_EARLIEST', 'UNRESOLVED')
-        NOT NULL DEFAULT 'EXACT',
+    --
+    -- VARCHAR + CHECK rather than ENUM, and the difference is not stylistic.
+    -- This application runs MariaDB with sql_mode='' (application.properties),
+    -- where an out-of-range ENUM value is stored as the empty error value with
+    -- only a warning -- proved on this pull request, on attendance.method. For
+    -- a provenance column that would be the worst possible failure: an unknown
+    -- resolution silently becoming an unrecognised fourth state, indistinct
+    -- from a real one. A CHECK is enforced whatever sql_mode says.
+    assignment_resolution VARCHAR(24) NOT NULL DEFAULT 'EXACT',
     status_code SMALLINT NULL,
     verify_code SMALLINT NULL,
     work_code VARCHAR(32) NULL,
@@ -289,6 +296,8 @@ CREATE TABLE device_punches (
     -- punch sinks below the work that can succeed, and is quarantined once it
     -- has had enough turns.
     pair_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    CONSTRAINT device_punches_assignment_resolution_chk
+        CHECK (assignment_resolution IN ('EXACT', 'INFERRED_EARLIEST', 'UNRESOLVED')),
     CONSTRAINT device_punches_state_chk
         CHECK (processing_state IN ('RECEIVED', 'UNMATCHED', 'PAIRED', 'IGNORED'))
 );
