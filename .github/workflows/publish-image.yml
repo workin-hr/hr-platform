@@ -64,12 +64,24 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # One redirect, and no backticks: actionlint runs shellcheck over this,
+      # which flags many-individual-redirects (SC2129) and backticks inside
+      # single quotes (SC2016, they read as command substitution). Plain lines
+      # render fine in a step summary and avoid both.
       - name: Say what was published
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/backend
+          COMMIT_SHA: ${{ github.sha }}
         run: |
-          echo "### Backend image published" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "ghcr.io/${{ github.repository }}/backend:main" >> "$GITHUB_STEP_SUMMARY"
-          echo "ghcr.io/${{ github.repository }}/backend:sha-${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo "Client developers get it with:" >> "$GITHUB_STEP_SUMMARY"
-          echo '`cd deploy && docker compose -f compose.dev.yaml pull && docker compose -f compose.dev.yaml up -d`' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Backend image published"
+            echo ""
+            echo "- ${IMAGE}:main"
+            echo "- ${IMAGE}:sha-${COMMIT_SHA}"
+            echo ""
+            echo "Client developers get it with:"
+            echo ""
+            echo "    cd deploy"
+            echo "    docker compose -f compose.dev.yaml pull"
+            echo "    docker compose -f compose.dev.yaml up -d"
+          } >> "$GITHUB_STEP_SUMMARY"
