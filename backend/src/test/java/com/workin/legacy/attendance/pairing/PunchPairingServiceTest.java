@@ -529,4 +529,41 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 	private static String text(Object value) {
 		return value == null ? null : value.toString();
 	}
+
+	@Test
+	void reviewFlagColumnHoldsTheLongestCombinationPairingCanProduce() throws Exception {
+		// Production runs sql_mode='' (application.properties), where an
+		// over-long value is silently TRUNCATED rather than rejected. A column
+		// one character too narrow therefore stores a flag no exact review
+		// filter can match, with no error anywhere. Derived from the flags
+		// themselves so adding a longer one fails here rather than in review.
+		List<String> flags = List.of(PunchPairingService.FLAG_RAPID_RECHECKIN,
+				PunchPairingService.FLAG_DOUBLE_READ,
+				PunchPairingService.FLAG_OUT_OF_HOME_BRANCH,
+				PunchPairingService.FLAG_PAIRING_FAILED);
+		int longestPair = 0;
+		for (String first : flags) {
+			for (String second : flags) {
+				if (!first.equals(second)) {
+					longestPair = Math.max(longestPair, (first + "," + second).length());
+				}
+			}
+		}
+
+		int width;
+		try (Connection connection = this.dataSource.getConnection();
+				Statement statement = connection.createStatement();
+				ResultSet columns = statement.executeQuery(
+						"SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS"
+								+ " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'device_punches'"
+								+ " AND COLUMN_NAME = 'review_flag'")) {
+			assertThat(columns.next()).as("device_punches.review_flag must exist").isTrue();
+			width = columns.getInt(1);
+		}
+
+		assertThat(width)
+				.as("review_flag must hold %d chars (longest pair pairing composes)", longestPair)
+				.isGreaterThanOrEqualTo(longestPair);
+	}
+
 }

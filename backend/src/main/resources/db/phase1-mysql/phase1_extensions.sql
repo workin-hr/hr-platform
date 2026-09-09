@@ -239,7 +239,15 @@ CREATE TABLE device_punches (
     -- Unconstrained on purpose: a review flag is an observation for a human,
     -- and a value this build does not recognise must never stop a punch from
     -- being stored or paired.
-    review_flag VARCHAR(32) NULL,
+    --
+    -- Width, not style: pairing composes two anomalies into one value, and
+    -- 'RAPID_RECHECKIN,OUT_OF_HOME_BRANCH' is 34 characters. Production runs
+    -- MariaDB with sql_mode='' (application.properties), where an over-long
+    -- value is silently TRUNCATED rather than rejected -- so a 32-character
+    -- column would have stored 'RAPID_RECHECKIN,OUT_OF_HOME_BRAN' and no exact
+    -- review filter would ever match it. PunchPairingServiceTest pins the
+    -- width against the longest combination the flags can actually produce.
+    review_flag VARCHAR(64) NULL,
     -- How many passes have tried and failed on this punch. Without it, a punch
     -- that can never pair -- an employee deleted between ingestion and
     -- pairing, say -- stays RECEIVED, and since the pass claims the OLDEST
