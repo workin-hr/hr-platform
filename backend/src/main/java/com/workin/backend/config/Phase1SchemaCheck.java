@@ -90,6 +90,10 @@ public class Phase1SchemaCheck implements ApplicationRunner {
 		OWNED_TABLES.put("device_malformed_punches",
 				"quarantined unparseable ATTLOG lines -- a punch a firmware revision worded"
 						+ " differently is acknowledged to the terminal and then unrecoverable");
+		OWNED_TABLES.put("legacy_runtime_offset_history",
+				"what the legacy runtime offset WAS -- without it a device punch processed after"
+						+ " the daylight-saving flag changed is written to the wrong attendance clock,"
+						+ " and pairing refuses to run rather than guess");
 		OWNED_TABLES.put("device_assignment_history",
 				"what a device's branch and zone WERE -- without it a buffered punch delivered"
 						+ " after a reassignment is attributed to the wrong branch, and after a"

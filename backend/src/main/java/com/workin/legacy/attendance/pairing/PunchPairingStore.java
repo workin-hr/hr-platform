@@ -264,6 +264,42 @@ public class PunchPairingStore {
 	 * Opening another row inside its span would record the same stretch of the
 	 * day twice and quietly duplicate the correction.
 	 */
+	/**
+	 * The legacy runtime offset in force at an instant, or null when the
+	 * instant predates recorded history.
+	 *
+	 * <p>Null is not a failure to look up -- it is the honest answer. The old
+	 * value of {@code configs.is_daylight_saving} is gone, and guessing it from
+	 * the earliest row, or from Africa/Cairo's rules, would answer a different
+	 * question: what the operator theoretically should have configured, rather
+	 * than what app and QR attendance actually used at that moment.
+	 */
+	public Integer runtimeOffsetSecondsAt(LocalDateTime instantUtc) {
+		List<Map<String, Object>> rows = jdbcTemplate.query(
+				"SELECT offset_seconds FROM legacy_runtime_offset_history"
+						+ " WHERE effective_from_utc <= ?"
+						+ " ORDER BY effective_from_utc DESC, id DESC LIMIT 1",
+				LegacyJdbcValues.rowMapper(), SQL_DATE_TIME.format(instantUtc));
+		return rows.isEmpty() ? null : (int) LegacyValues.toPhpLong(rows.get(0).get("offset_seconds"));
+	}
+
+	/**
+	 * Whether the triggers that WRITE that history are installed.
+	 *
+	 * <p>A seeded table with no active writers is worse than an obvious
+	 * failure: it looks authoritative and silently stops tracking, so every
+	 * later punch is converted with a stale offset that nothing reports.
+	 */
+	public boolean runtimeOffsetHooksInstalled() {
+		Integer found = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM information_schema.TRIGGERS"
+						+ " WHERE TRIGGER_SCHEMA = DATABASE()"
+						+ " AND TRIGGER_NAME IN ('configs_runtime_offset_after_insert',"
+						+ "   'configs_runtime_offset_after_update', 'configs_runtime_offset_after_delete')",
+				Integer.class);
+		return found != null && found == 3;
+	}
+
 	public Long closedRowCovering(long employeeId, LocalDateTime at) {
 		List<Map<String, Object>> rows = jdbcTemplate.query(
 				"SELECT id FROM attendance WHERE employee_id = ? AND method = 'device'"

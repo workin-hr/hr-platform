@@ -90,7 +90,8 @@ WHERE TABLE_SCHEMA = DATABASE()
     'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
     'attendance_devices', 'employee_device_identities', 'device_punches',
     'unclaimed_device_sightings', 'device_operation_logs',
-    'device_malformed_punches', 'device_assignment_history');
+    'device_malformed_punches', 'device_assignment_history',
+    'legacy_runtime_offset_history');
 ```
 
 Expect zero rows on a database that has never been provisioned. Anything
@@ -108,10 +109,25 @@ find that out.
 ```bash
 mysql -h "$HOST" -u "$USER" -p "$DATABASE" < phase1_extensions.sql
 mysql -h "$HOST" -u "$USER" -p "$DATABASE" < slice_b_attendance_method.sql
+# Order matters: the hooks reference legacy `configs` AND write into
+# legacy_runtime_offset_history, so both must exist first. The file ends by
+# seeding the current offset -- that row is where trustworthy coverage BEGINS
+# and asserts nothing about what was in force before it.
+mysql -h "$HOST" -u "$USER" -p "$DATABASE" < legacy_runtime_offset_hooks.sql
 ```
 
-**4. Confirm.** Re-run step 1's query; expect all thirteen names. Then
-check the enum took:
+**4. Confirm.** Re-run step 1's query; expect all fourteen names. Then
+confirm the runtime-offset writers are installed -- pairing refuses to run
+without them, because a seeded history with no writers looks authoritative
+while silently going stale:
+
+```sql
+SELECT TRIGGER_NAME FROM information_schema.TRIGGERS
+WHERE TRIGGER_SCHEMA = DATABASE()
+  AND TRIGGER_NAME LIKE 'configs_runtime_offset_%';
+```
+
+Expect three rows. Then check the enum took:
 
 ```sql
 SELECT COLUMN_TYPE FROM information_schema.COLUMNS

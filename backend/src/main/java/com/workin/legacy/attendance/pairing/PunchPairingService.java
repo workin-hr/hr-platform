@@ -82,6 +82,8 @@ public class PunchPairingService {
 	static final String FLAG_OUT_OF_HOME_BRANCH = "OUT_OF_HOME_BRANCH";
 	/** Failed to pair {@link #MAX_PAIR_ATTEMPTS} times; see the store's quarantine. */
 	static final String FLAG_PAIRING_FAILED = "PAIRING_FAILED";
+	/** The runtime offset governing this punch's instant was never recorded. */
+	static final String FLAG_RUNTIME_OFFSET_PRE_HISTORY = "RUNTIME_OFFSET_PRE_HISTORY";
 	/** A punch inside a session a human corrected: attributable to no new row. */
 	static final String FLAG_INSIDE_CORRECTED_SESSION = "INSIDE_CORRECTED_SESSION";
 
@@ -147,6 +149,16 @@ public class PunchPairingService {
 		// will ever revisit it. Refusing to pair leaves every punch RECEIVED,
 		// which is the recoverable state: apply the DDL and the next pass picks
 		// them all up untouched.
+		if (!store.runtimeOffsetHooksInstalled()) {
+			// A seeded history with no writers looks authoritative and silently
+			// stops tracking, so every later punch is converted with a stale
+			// offset that nothing reports. Refusing is the recoverable outcome.
+			log.error("Refusing to pair: the legacy runtime-offset triggers are not installed. "
+					+ "Apply db/phase1-mysql/legacy_runtime_offset_hooks.sql -- until then a punch "
+					+ "crossing a daylight-saving change would be written to the wrong clock.");
+			return new Outcome(0, 0, 0, 0);
+		}
+
 		if (!store.attendanceMethodAcceptsDevice()) {
 			log.error("Not pairing: attendance.method does not accept 'device'. Apply "
 					+ "db/phase1-mysql/slice_b_attendance_method.sql -- see "
@@ -277,6 +289,15 @@ public class PunchPairingService {
 		long punchId = LegacyValues.toPhpLong(punch.get("id"));
 		long employeeId = LegacyValues.toPhpLong(punch.get("employee_id"));
 		LocalDateTime punchedAt = punchedAtOf(punch);
+		if (punchedAt == null) {
+			// PRE_HISTORY: the runtime offset governing this instant was never
+			// recorded. An hour of silent error moves session boundaries and
+			// payroll, and a review flag beside an already-derived row is too
+			// late -- so nothing is derived. The raw punch survives, visibly
+			// held, which is the same rule assignment provenance follows.
+			store.markIgnored(punchId, instantOf(punch), FLAG_RUNTIME_OFFSET_PRE_HISTORY);
+			return new Outcome(0, 0, 1, 1);
+		}
 
 		Map<String, Object> open = store.newestOpenRow(employeeId);
 		if (open != null && isLiveAt(companyId, employeeId, open, punchedAt, weeklyRestLabel)) {
@@ -437,9 +458,14 @@ public class PunchPairingService {
 	}
 
 	private LocalDateTime punchedAtOf(Map<String, Object> punch) {
-		String utc = LegacyValues.toPhpString(punch.get("punched_at_utc"));
-		LocalDateTime instant = LocalDateTime.parse(utc.replace(' ', 'T').substring(0, 19));
-		return instant.atOffset(ZoneOffset.UTC).withOffsetSameInstant(clock.offset()).toLocalDateTime();
+		LocalDateTime instant = instantOf(punch);
+		Integer offsetSeconds = store.runtimeOffsetSecondsAt(instant);
+		if (offsetSeconds == null) {
+			// PRE_HISTORY. Signalled by null so the caller refuses to pair
+			// rather than deriving a timestamp from an offset nobody recorded.
+			return null;
+		}
+		return instant.plusSeconds(offsetSeconds);
 	}
 
 	private static LocalDateTime checkInOf(Map<String, Object> row) {

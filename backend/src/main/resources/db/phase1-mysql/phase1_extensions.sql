@@ -255,6 +255,11 @@ CREATE TABLE device_punches (
     -- resolution silently becoming an unrecognised fourth state, indistinct
     -- from a real one. A CHECK is enforced whatever sql_mode says.
     assignment_resolution VARCHAR(24) NOT NULL DEFAULT 'EXACT',
+    -- The legacy runtime offset actually used to derive this punch's attendance
+    -- wall clock, stored rather than recomputed later: recomputing would ask
+    -- today's question again and get today's answer.
+    legacy_runtime_offset_seconds INT NULL,
+    runtime_offset_resolution VARCHAR(16) NOT NULL DEFAULT 'EXACT',
     status_code SMALLINT NULL,
     verify_code SMALLINT NULL,
     work_code VARCHAR(32) NULL,
@@ -296,6 +301,8 @@ CREATE TABLE device_punches (
     -- punch sinks below the work that can succeed, and is quarantined once it
     -- has had enough turns.
     pair_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    CONSTRAINT device_punches_runtime_offset_resolution_chk
+        CHECK (runtime_offset_resolution IN ('EXACT', 'PRE_HISTORY')),
     CONSTRAINT device_punches_assignment_resolution_chk
         CHECK (assignment_resolution IN ('EXACT', 'INFERRED_EARLIEST', 'UNRESOLVED')),
     CONSTRAINT device_punches_state_chk
@@ -357,6 +364,36 @@ CREATE TABLE unclaimed_device_sightings (
 --
 -- attendance_devices keeps the current values materialised -- registry reads
 -- must not join history -- but they move in the same transaction as the append.
+-- What the legacy runtime offset WAS, and from when.
+--
+-- configs.is_daylight_saving is a single row with no timestamps, a UNIQUE key
+-- on config_key, and no audit anywhere: its past values are gone. A device
+-- punch processed after the flag changed was converted to the legacy attendance
+-- clock with the CURRENT offset, putting it an hour away from the app and QR
+-- rows written at the same instant -- silently, and in a value that moves
+-- session boundaries and payroll.
+--
+-- This cannot recover the past. It begins trustworthy coverage at its seed row
+-- and says nothing about what came before, which is why a punch predating the
+-- seed is marked PRE_HISTORY rather than assumed.
+--
+-- Written by TRIGGERS on configs, not by this application: the flag can be
+-- changed by PHP, by hand, or by any other path, and recording when Java first
+-- NOTICED a new value would store the observation time rather than the change
+-- time. A punch delivered between those two moments would still be converted
+-- wrongly.
+CREATE TABLE legacy_runtime_offset_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    effective_from_utc DATETIME NOT NULL,
+    -- Only the two offsets legacy can actually apply. A CHECK, not an ENUM:
+    -- under sql_mode='' an out-of-range ENUM stores the empty error value with
+    -- a warning, which for provenance would be a silent third state.
+    offset_seconds INT NOT NULL,
+    CONSTRAINT legacy_runtime_offset_history_seconds_chk
+        CHECK (offset_seconds IN (7200, 10800)),
+    KEY legacy_runtime_offset_history_timeline_idx (effective_from_utc, id)
+);
+
 CREATE TABLE device_assignment_history (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     device_id BIGINT NOT NULL,

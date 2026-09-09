@@ -83,6 +83,13 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 						+ " '+201100246011', 'employee', 1, 1, 0, 'accepted', 1, '2025-01-01 09:00:00')");
 
 		this.dataSource = productionLikeDataSource();
+		// The runtime-offset writers and a history row old enough to cover these
+		// fixtures. Pairing fails closed without the triggers, and every punch is
+		// PRE_HISTORY without a row at or before its instant -- both deliberate.
+		com.workin.legacy.runtime.LegacyRuntimeOffsetHistoryTest.installHooks();
+		seedAsLegacyWould("DELETE FROM legacy_runtime_offset_history");
+		seedAsLegacyWould("INSERT INTO legacy_runtime_offset_history"
+				+ " (effective_from_utc, offset_seconds) VALUES ('2000-01-01 00:00:00', 7200)");
 		this.identities = new com.workin.devices.identity.EmployeeDeviceIdentityStore(dataSource);
 		LegacyClock clock = new LegacyClock(dataSource);
 		LegacyAttendanceCalendar calendar =
@@ -866,6 +873,74 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 				rs.next();
 				assertThat(rs.getInt(1)).as("and nothing may be left behind").isZero();
 			}
+		}
+	}
+
+
+	@Test
+	void aPunchIsPairedWithTheRuntimeOffsetInForceWhenItHappenedNotWhenItIsPaired() throws Exception {
+		// The punch happens under +02:00. The runtime then switches to +03:00 --
+		// an offline device delivers late, and pairing runs afterwards.
+		// Converting with the CURRENT offset would write 10:00 for an instant
+		// that contemporaneous app and QR attendance recorded as 09:00.
+		seedAsLegacyWould("DELETE FROM legacy_runtime_offset_history");
+		seedAsLegacyWould("INSERT INTO legacy_runtime_offset_history (effective_from_utc, offset_seconds)"
+				+ " VALUES ('2025-06-01 00:00:00', 7200)");
+		seedAsLegacyWould("INSERT INTO legacy_runtime_offset_history (effective_from_utc, offset_seconds)"
+				+ " VALUES ('" + DAY + " 12:00:00', 10800)");
+
+		// And make the CURRENT offset differ from the historical one, or this
+		// test cannot tell the two implementations apart: with both at +02:00 a
+		// clock.offset() lookup gives the right answer for the wrong reason.
+		seedAsLegacyWould("INSERT INTO configs (config_key, config_value) VALUES"
+				+ " ('is_daylight_saving', '1')"
+				+ " ON DUPLICATE KEY UPDATE config_value = '1'");
+		PunchPairingService withCurrentOffsetPlusThree = new PunchPairingService(
+				new PunchPairingStore(this.dataSource), sessions, this.dataSource,
+				new LegacyClock(this.dataSource), 500);
+
+		insertPunchWithUtc(DAY + " 09:00:00", DAY + " 07:00:00");   // instant under +02
+		withCurrentOffsetPlusThree.pairCompany(COMPANY, "friday");
+
+		assertThat(attendance()).hasSize(1);
+		assertThat(attendance().get(0).get("check_in").toString())
+				.as("07:00Z happened under +02:00, so legacy attendance called it 09:00 -- "
+						+ "the current offset is +03:00 and must not be used")
+				.startsWith(DAY + " 09:00:00");
+	}
+
+	@Test
+	void aPunchOlderThanTheRecordedHistoryProducesNoAttendance() throws Exception {
+		// The offset that governed this instant was never recorded. An hour of
+		// silent error moves session boundaries and payroll, and a review flag
+		// beside an already-derived row is too late -- so nothing is derived.
+		seedAsLegacyWould("DELETE FROM legacy_runtime_offset_history");
+		seedAsLegacyWould("INSERT INTO legacy_runtime_offset_history (effective_from_utc, offset_seconds)"
+				+ " VALUES ('" + DAY + " 00:00:00', 7200)");
+
+		insertPunchWithUtc("2020-01-02 09:00:00", "2020-01-02 07:00:00");
+		service.pairCompany(COMPANY, "friday");
+
+		assertThat(attendance()).as("no attendance may be derived from an unrecorded offset").isEmpty();
+		assertThat(query("SELECT review_flag FROM device_punches WHERE employee_id = " + EMPLOYEE
+				+ " AND review_flag = 'RUNTIME_OFFSET_PRE_HISTORY'"))
+				.as("but the punch survives, visibly held for review")
+				.isNotEmpty();
+	}
+
+	@Test
+	void pairingRefusesEntirelyWhenTheRuntimeOffsetWritersAreMissing() throws Exception {
+		// A seeded history with no triggers looks authoritative and silently
+		// stops tracking. Refusing is the recoverable outcome.
+		punchAt(DAY + " 08:00:00");
+		seedAsLegacyWould("DROP TRIGGER IF EXISTS configs_runtime_offset_after_update");
+		try {
+			PunchPairingService.Outcome outcome = service.pairCompany(COMPANY, "friday");
+
+			assertThat(outcome.opened()).as("nothing is paired without the writers").isZero();
+			assertThat(attendance()).isEmpty();
+		} finally {
+			com.workin.legacy.runtime.LegacyRuntimeOffsetHistoryTest.installHooks();
 		}
 	}
 
