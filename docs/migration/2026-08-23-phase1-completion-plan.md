@@ -857,21 +857,53 @@ Recorded separately, because neither is a delivery obligation:
 
 The PHP dashboard is out of scope entirely (O-5) and is not part of this count.
 
-**G2 — Endpoint accounting: 198 / 198 live Phase-1 API endpoints are exactly
-accounted for.** The §3.2 ledger holds with `FINAL_COMPATIBLE` = 198 and every
+**G2 — Endpoint accounting: 202 / 202 live Phase-1 API endpoints are exactly
+accounted for.** The §3.2 ledger holds with `FINAL_COMPATIBLE` = 202 and every
 other live bucket at zero.
 
-Plus, separately, **1 physical endpoint file is explicitly excluded**:
-`/apis/api/time/now.php`.
+**The exclusion bucket is empty.**
 
 ```text
-198 live  +  1 excluded  =  199 physical endpoint files
+202 live  +  0 excluded  =  202 physical endpoint files
 ```
 
-The gate is **never** to be stated as "199 / 199 implemented". That wording
-would contradict O-3, which removed `time/now.php` from the live obligation
-precisely because the router cannot expose it — implementing it would add a
-route legacy does not serve.
+### Re-derived 2026-09-09 from the current baseline (R-071)
+
+This read `198 live + 1 excluded = 199` until the baseline moved to `505004f`.
+The number was not adjusted — it was **re-counted from `hr-legacy` at `HEAD`**,
+because carrying an old total forward is how the stale exclusion survived in
+the first place:
+
+| | |
+|---|---|
+| `.php` files under `apis/api/**` | 203 |
+| less `apis/api/index.php`, the router rather than an endpoint | **202** |
+| of those, whose module is in `ApiModule::allowedList()` | **202** |
+| therefore excluded | **0** |
+
+The delta from 199 is fully accounted for. `505004f` added exactly three
+endpoint files — `employees/analyze_excel_update.php`,
+`employees/update_bulk.php` and `guide_videos/list.php` — and removed none
+(`git diff d113204 HEAD` over `apis/api/**/*.php`). 199 + 3 = 202.
+
+**`time/now.php` is no longer excluded, and the reason it was excluded is the
+reason it cannot stay so.** O-3 removed it from the live obligation *precisely
+because the router could not expose it* — `time` was absent from
+`allowedList()`, so the route 404'd and implementing it would have added a
+route legacy does not serve. `505004f` added the module. Legacy serves the
+route today, and so does this port: `LegacyTimeController`,
+`route-methods.txt:209`, `LegacyPhpRoutes.java:153`. Keeping the exclusion
+would now mean asserting an exception that no longer exists.
+
+So the wording rule inverts too: the gate is **no longer** to be stated as
+"198 / 198 with one excluded". Both halves of that sentence are stale.
+
+Evidence, all three independently agreeing on 202: the file count above; the
+port's own inventory (`route-methods.txt` holds 202 distinct endpoint files);
+and `check_legacy_route_drift.py --legacy-api ../hr-legacy/apis/api`, which
+reports *"hr-legacy present: its 202 routes match the committed inventory"*.
+That last one is the check that would have caught this had anyone read its
+output as an accounting statement rather than a pass/fail.
 
 **Note added 2026-08-27 (C9), completed 2026-08-28 (D-120).** An earlier
 revision of this correction restated G2 as 196 / 196 by moving
