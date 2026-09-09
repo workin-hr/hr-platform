@@ -410,7 +410,7 @@ ADR-0010 already makes for authorization. If that query later shows up in
 latency measurements, the answer is to measure and revisit it as its own
 decision — not to quietly restore a logout that does not log the caller out.
 
-## Repository Visibility Versus Merge-Governance Enforcement (D-223 Q3, Proposed)
+## Repository Visibility Versus Merge-Governance Enforcement (D-223 Q3) — ANSWERED
 
 `hr-platform` must become **private** — the product is being prepared for sale
 and publicly readable source cannot be sold as exclusive. That part is settled.
@@ -444,12 +444,26 @@ on private repositories and raises included Actions minutes to 3,000. At one
 seat that is $4/month, and D-223 Q2's trimming keeps consumption inside the
 allowance, so $4/month is the entire cost.
 
-The engineering recommendation is Team. The owner has stated no subscription is
-currently possible, which is a legitimate constraint to weigh against a real and
-documented governance loss that later subscribing would reverse. **Repository
-visibility does not change until this is answered.**
+**Resolution (2026-09-09). Option B.** GitHub-enforced merge governance is
+preserved, and Option A is rejected as the permanent private-repository model —
+the repository will not be flipped private with branch protection knowingly
+downgraded to procedure-only enforcement.
 
-## Whether To Accept The Degraded-Review Procedure (D-224, Proposed)
+Because Team is not currently funded, the consequence is that **`hr-platform`
+stays public for now**. Privacy is approved in principle and blocked on funding
+one $4/month seat; it is deferred, not abandoned. This is the only outcome that
+keeps all seven enforcement settings intact at zero cost, and what it spends is
+confidentiality-later rather than governance-now. **R-008's mitigation therefore
+survives unchanged and is not reopened.**
+
+The cost objection was accepted rather than argued away: staying public means the
+source of a product being prepared for sale remains publicly readable, which is a
+real commercial exposure and the whole reason Q1 exists. It was accepted because
+the alternative trades a control this repository's own risk register says
+procedure could not substitute for — PR #126 lost a ten-second race to exactly
+that substitution — and because the block is one funded seat away from lifting.
+
+## Whether To Accept The Degraded-Review Procedure (D-224) — ANSWERED
 
 The named independent reviewer (`chatgpt-codex-connector[bot]`, D-121) is
 quota-exhausted: seven literal *"You have reached your Codex usage limits for
@@ -463,11 +477,25 @@ funding the reviewer, which R-009 names as the mitigation), a five-part
 substitute verification, a fixed evidence block per pull request, and automatic
 lapse on the reviewer's return or after 14 days.
 
-**The question.** Accept D-224, restore the Codex quota, or continue waiting.
-Accepting it changes who may satisfy D-121's gate, which R-009 requires be done
-as a separately approved policy change that updates `AGENTS.md` first — so
-acceptance is also an `AGENTS.md` amendment, not only a log entry.
+**Resolution (2026-09-09). Accepted**, with the expiry, the per-PR evidence
+block, and the automatic return to the normal reviewer all kept as drafted. The
+quota evidence makes this an objectively detectable condition rather than a
+judgement call, and the requirement to attempt or explicitly decline the
+documented remedy before substituting is the clause that stops the procedure
+becoming a standing alternative to funding the reviewer.
 
-Unanswered, #182, #186 and #187 wait. D-222 is **not** the answer: it is for a
-merge whose delay is itself a harm, and reviewer unavailability is explicitly
-not a qualifying reason under it.
+**With one condition: D-224 may not bootstrap itself.** #188, the pull request
+that introduces it, must receive a **normal** independent round on its exact
+final head before D-224 becomes canonical. A degraded procedure that admitted
+itself under its own terms would leave the one change that weakens the gate as
+the only change with no independent check on it. D-224 is therefore accepted but
+**not in force**, and its 14-day clock starts at #188's merge rather than at
+acceptance — a procedure not yet in force cannot expire.
+
+**For #182, #186 and #187 the answer is the documented remedy, not degraded
+mode.** The reviewer has explicitly identified quota exhaustion, so the quota is
+restored first; the restored quota then reviews #188 on its exact head so the
+governance decision merges cleanly, and #187 and #186 follow. Restored
+availability is **not** merge approval for #182, which separately needs its
+existing P1/P2 findings resolved, a settled final head, the full verification
+suite, and a fresh round on that exact head.
