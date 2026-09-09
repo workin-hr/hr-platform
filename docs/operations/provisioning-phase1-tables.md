@@ -89,7 +89,8 @@ WHERE TABLE_SCHEMA = DATABASE()
     'platform_admin_audit_events', 'platform_admin_login_attempts',
     'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
     'attendance_devices', 'employee_device_identities', 'device_punches',
-    'unclaimed_device_sightings', 'device_operation_logs');
+    'unclaimed_device_sightings', 'device_operation_logs',
+    'device_malformed_punches', 'device_assignment_history');
 ```
 
 Expect zero rows on a database that has never been provisioned. Anything
