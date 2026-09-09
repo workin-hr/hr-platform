@@ -421,9 +421,9 @@ REVIEWER_ROW_ANNOTATION_RE = re.compile(r"\s*\([^)]*\)\s*$")
 REVIEWER_IN_PROSE_RE = re.compile(rf"(?<![\w-]){re.escape(INDEPENDENT_REVIEWER)}")
 
 
-def _names_reviewer(agent_name: str) -> bool:
+def _names_reviewer(agent_name: str, reviewer: str = INDEPENDENT_REVIEWER) -> bool:
     stripped = REVIEWER_ROW_ANNOTATION_RE.sub("", agent_name.strip()).strip()
-    return stripped.strip("`").strip() == INDEPENDENT_REVIEWER
+    return stripped.strip("`").strip() == reviewer
 
 
 def _agents_section(text: str, heading: str) -> str | None:
@@ -514,29 +514,39 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
                 )
 
     matrix_text = matrix_path.read_text(encoding="utf-8")
-    # Every matching row is checked, and more than one is itself a failure: a
-    # read-only row followed by a permissive duplicate would otherwise leave a
-    # contradictory grant in the matrix with validation green.
-    rows = [
-        (may_modify, may_pr, may_approve)
-        for agent_name, _primary_mode, may_modify, may_pr, may_approve in MATRIX_ROW_RE.findall(matrix_text)
-        if _names_reviewer(agent_name)
-    ]
-    if not rows:
-        fail(
-            f"docs/agents/responsibility-matrix.md has no row for {INDEPENDENT_REVIEWER!r}, the "
-            "independent reviewer AGENTS.md's Mandatory Workflow depends on (D-121)",
-            failures,
-        )
-        return
+    # Per identity, not one global match: each reviewer permitted to discharge
+    # the gate needs exactly one row, and that row must be read-only. Matching
+    # "any permitted reviewer" against one row list instead would make the two
+    # legitimate rows read as a duplicate, and relaxing the duplicate rule to
+    # compensate is exactly how a permissive row hides behind a read-only one.
+    rows = []
+    for reviewer in PERMITTED_REVIEWERS:
+        matching = [
+            (may_modify, may_pr, may_approve)
+            for agent_name, _primary_mode, may_modify, may_pr, may_approve
+            in MATRIX_ROW_RE.findall(matrix_text)
+            if _names_reviewer(agent_name, reviewer)
+        ]
+        if not matching:
+            fail(
+                f"docs/agents/responsibility-matrix.md has no row for {reviewer!r}, which "
+                "AGENTS.md's Mandatory Workflow permits to discharge the independent-review "
+                "gate (D-226). Every permitted reviewer needs a read-only row, or the matrix "
+                "does not describe who may review",
+                failures,
+            )
+            continue
+        if len(matching) > 1:
+            fail(
+                f"docs/agents/responsibility-matrix.md declares {reviewer!r} in "
+                f"{len(matching)} rows; exactly one per reviewer is allowed, so a permissive "
+                "duplicate cannot hide behind a read-only row (D-226)",
+                failures,
+            )
+        rows.extend(matching)
 
-    if len(rows) > 1:
-        fail(
-            f"docs/agents/responsibility-matrix.md declares {INDEPENDENT_REVIEWER!r} in "
-            f"{len(rows)} rows; exactly one is allowed, so a permissive duplicate cannot hide "
-            "behind a read-only row (D-121)",
-            failures,
-        )
+    if not rows:
+        return  # every permitted reviewer already failed above
 
     _validate_review_gate_workflow(root, failures)
 

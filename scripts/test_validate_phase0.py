@@ -1711,12 +1711,21 @@ def write_reviewer_declaration(
 
 
 REVIEWER_ROW = f"| `{v.INDEPENDENT_REVIEWER}` (pull-request review) | Read-only review | No | No | No |\n"
+AGENT_ROW = (
+    f"| `{v.INDEPENDENT_REVIEW_AGENT}` (pull-request review, D-226) "
+    "| Read-only review | No | No | No |\n"
+)
+# D-226 permits two reviewer identities, so a fixture that is meant to PASS
+# must carry a read-only row for each. Tests below that are about some other
+# property pass BOTH rows, so they keep failing for their own reason rather
+# than for a missing second row.
+REVIEWER_ROWS = [REVIEWER_ROW, AGENT_ROW]
 
 
 def test_reviewer_named_and_declared_read_only_passes() -> None:
     root = make_root()
     try:
-        write_reviewer_declaration(root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW])
+        write_reviewer_declaration(root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS))
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
         check(failures == [], f"a named, read-only reviewer declared on both sides passes (failures={failures})")
@@ -1728,7 +1737,7 @@ def test_workflow_without_named_reviewer_fails() -> None:
     """AGENTS.md may not gate merges on an independent review it does not staff."""
     root = make_root()
     try:
-        write_reviewer_declaration(root, agents_names_reviewer=False, matrix_rows=[REVIEWER_ROW])
+        write_reviewer_declaration(root, agents_names_reviewer=False, matrix_rows=list(REVIEWER_ROWS))
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
         check(
@@ -1744,7 +1753,7 @@ def test_workflow_section_deleted_fails() -> None:
     root = make_root()
     try:
         write_reviewer_declaration(
-            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], workflow_section=False,
+            root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS), workflow_section=False,
         )
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
@@ -1761,7 +1770,7 @@ def test_reviewer_named_only_outside_the_workflow_fails() -> None:
     root = make_root()
     try:
         write_reviewer_declaration(
-            root, agents_names_reviewer=False, matrix_rows=[REVIEWER_ROW],
+            root, agents_names_reviewer=False, matrix_rows=list(REVIEWER_ROWS),
             reviewer_outside_section=True,
         )
         failures: list[str] = []
@@ -1780,7 +1789,7 @@ def test_demoted_workflow_heading_fails() -> None:
     root = make_root()
     try:
         write_reviewer_declaration(
-            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], demoted_heading=True,
+            root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS), demoted_heading=True,
         )
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
@@ -1797,7 +1806,7 @@ def test_review_after_merge_fails() -> None:
     root = make_root()
     try:
         write_reviewer_declaration(
-            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], reversed_order=True,
+            root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS), reversed_order=True,
         )
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
@@ -1815,7 +1824,7 @@ def test_lookalike_reviewer_row_does_not_satisfy_the_check() -> None:
     root = make_root()
     try:
         lookalike = f"| `impersonator-{v.INDEPENDENT_REVIEWER}` (pull-request review) | Read-only review | No | No | No |\n"
-        write_reviewer_declaration(root, agents_names_reviewer=True, matrix_rows=[lookalike])
+        write_reviewer_declaration(root, agents_names_reviewer=True, matrix_rows=[lookalike, AGENT_ROW])
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
         check(
@@ -1833,7 +1842,7 @@ def test_lookalike_reviewer_in_the_workflow_fails() -> None:
     root = make_root()
     try:
         write_reviewer_declaration(
-            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW],
+            root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS),
             lookalike_in_workflow=True,
         )
         failures: list[str] = []
@@ -1853,7 +1862,7 @@ def test_reviewer_missing_from_matrix_fails() -> None:
     try:
         write_reviewer_declaration(
             root, agents_names_reviewer=True,
-            matrix_rows=["| Bootstrap Auditor | Read-only review | No | No | No |\n"],
+            matrix_rows=["| Bootstrap Auditor | Read-only review | No | No | No |\n", AGENT_ROW],
         )
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
@@ -1870,7 +1879,7 @@ def test_reviewer_row_widened_fails() -> None:
     root = make_root()
     try:
         widened = f"| `{v.INDEPENDENT_REVIEWER}` (pull-request review) | Read-only review | No | No | Yes |\n"
-        write_reviewer_declaration(root, agents_names_reviewer=True, matrix_rows=[widened])
+        write_reviewer_declaration(root, agents_names_reviewer=True, matrix_rows=[widened, AGENT_ROW])
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
         check(
@@ -1888,7 +1897,7 @@ def test_duplicate_reviewer_rows_fail() -> None:
     try:
         permissive = f"| `{v.INDEPENDENT_REVIEWER}` (second entry) | Controlled implementation | Yes | Yes | Yes |\n"
         write_reviewer_declaration(
-            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW, permissive],
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW, permissive, AGENT_ROW],
         )
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
@@ -1904,12 +1913,91 @@ def test_duplicate_reviewer_rows_fail() -> None:
         shutil.rmtree(root)
 
 
+def test_agent_reviewer_missing_from_matrix_fails() -> None:
+    """The invariant is per identity, not "some reviewer row exists".
+
+    D-226 lets `independent-review-agent` discharge the gate, so a matrix that
+    describes only the Codex bot leaves the agent that actually reviews with no
+    read-only declaration binding it. A check keyed to a single name reads the
+    Codex row and passes -- which is precisely the hole this closes.
+    """
+    root = make_root()
+    try:
+        write_reviewer_declaration(root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW])
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any(v.INDEPENDENT_REVIEW_AGENT in f and "has no row for" in f for f in failures),
+            "a permitted reviewer absent from the matrix fails even when the other "
+            f"reviewer's row is present and read-only (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_agent_reviewer_row_widened_fails() -> None:
+    """Read-only must hold for every permitted reviewer, not just the first."""
+    root = make_root()
+    try:
+        widened = (
+            f"| `{v.INDEPENDENT_REVIEW_AGENT}` (pull-request review, D-226) "
+            "| Read-only review | No | No | Yes |\n"
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW, widened],
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any("May Approve Work" in f for f in failures),
+            "an agent-reviewer row granting approval fails despite a compliant "
+            f"Codex row (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_duplicate_agent_reviewer_rows_fail() -> None:
+    """Counting rows per identity, not in total.
+
+    Three rows are present and two of them are legitimate, so a global
+    "exactly one row" rule would either mis-report the compliant pair or have
+    to be relaxed into allowing duplicates. Per identity, the agent's
+    permissive second row is still caught.
+    """
+    root = make_root()
+    try:
+        permissive = (
+            f"| `{v.INDEPENDENT_REVIEW_AGENT}` (second entry) "
+            "| Controlled implementation | Yes | Yes | Yes |\n"
+        )
+        write_reviewer_declaration(
+            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW, AGENT_ROW, permissive],
+        )
+        failures: list[str] = []
+        v.validate_independent_reviewer_declaration(failures, root=root)
+        check(
+            any(v.INDEPENDENT_REVIEW_AGENT in f and "2 rows" in f for f in failures),
+            f"the agent's duplicate row is reported against its own identity (failures={failures})",
+        )
+        check(
+            not any(v.INDEPENDENT_REVIEWER in f and "rows" in f and "2" in f for f in failures),
+            f"the compliant Codex row is not swept into the duplicate report (failures={failures})",
+        )
+        check(
+            any("May Modify Files" in f for f in failures),
+            f"the permissive duplicate is still column-checked, not skipped (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_missing_review_gate_workflow_fails() -> None:
     """Deleting the workflow deletes the executable half of the gate."""
     root = make_root()
     try:
         write_reviewer_declaration(
-            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=None,
+            root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS), gate_workflow=None,
         )
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
@@ -1935,7 +2023,7 @@ def test_review_gate_workflow_naming_a_different_reviewer_fails() -> None:
             f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
         )
         write_reviewer_declaration(
-            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=drifted,
+            root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS), gate_workflow=drifted,
         )
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
@@ -1958,7 +2046,7 @@ def test_review_gate_workflow_without_a_reviewer_assignment_fails() -> None:
             f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
         )
         write_reviewer_declaration(
-            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=no_assignment,
+            root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS), gate_workflow=no_assignment,
         )
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
@@ -1982,7 +2070,7 @@ def test_review_gate_workflow_dropping_the_status_context_fails() -> None:
             '            -f context="something-else" \\\n'
         )
         write_reviewer_declaration(
-            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=renamed,
+            root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS), gate_workflow=renamed,
         )
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
@@ -2008,7 +2096,7 @@ def test_review_gate_workflow_with_a_decoy_context_comment_fails() -> None:
             '            -f context="some-other-context" \\\n'
         )
         write_reviewer_declaration(
-            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW], gate_workflow=decoy,
+            root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS), gate_workflow=decoy,
         )
         failures: list[str] = []
         v.validate_independent_reviewer_declaration(failures, root=root)
@@ -2033,7 +2121,7 @@ def test_review_gate_workflow_with_an_inline_decoy_comment_fails() -> None:
             '            -f context="some-other-context" \\\n'
         )
         write_reviewer_declaration(
-            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW],
+            root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS),
             gate_workflow=inline_decoy,
         )
         failures: list[str] = []
@@ -2059,7 +2147,7 @@ def test_review_gate_workflow_keeps_a_hash_inside_a_quoted_string() -> None:
             f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
         )
         write_reviewer_declaration(
-            root, agents_names_reviewer=True, matrix_rows=[REVIEWER_ROW],
+            root, agents_names_reviewer=True, matrix_rows=list(REVIEWER_ROWS),
             gate_workflow=quoted_hash,
         )
         failures: list[str] = []
@@ -2745,6 +2833,9 @@ def main() -> int:
     test_reviewer_missing_from_matrix_fails()
     test_reviewer_row_widened_fails()
     test_duplicate_reviewer_rows_fail()
+    test_agent_reviewer_missing_from_matrix_fails()
+    test_agent_reviewer_row_widened_fails()
+    test_duplicate_agent_reviewer_rows_fail()
     test_missing_review_gate_workflow_fails()
     test_review_gate_workflow_naming_a_different_reviewer_fails()
     test_review_gate_workflow_without_a_reviewer_assignment_fails()
