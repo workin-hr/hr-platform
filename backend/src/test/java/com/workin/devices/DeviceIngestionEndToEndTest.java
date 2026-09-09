@@ -859,4 +859,54 @@ class DeviceIngestionEndToEndTest {
 		assertThat(historyZone).as("latest history zone must equal the registry's").isEqualTo(registryZone);
 	}
 
+
+	@Test
+	void reactivatingADeviceWhoseBranchWasDeletedIsRefused() throws Exception {
+		// Deleting a branch deliberately leaves the registry row and its history
+		// but deactivates the device. Flipping is_active back on must not undo
+		// that safeguard while branch_id still points at a branch that is gone.
+		exec("INSERT IGNORE INTO branches (id, company_id, name) VALUES (95181, " + COMPANY_1 + ", 'react a')");
+		long deviceId = claim(ADMIN_1, "DEV-REACT", 95181, "Reactivatable", "+02:00");
+		exec("DELETE FROM branches WHERE id = 95181");
+		exec("UPDATE attendance_devices SET is_active = 0 WHERE id = " + deviceId);
+
+		api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1, "{\"is_active\":true}", 422);
+
+		assertThat(count("SELECT is_active FROM attendance_devices WHERE id = " + deviceId))
+				.as("the device must stay inactive rather than become active on a deleted branch")
+				.isZero();
+	}
+
+	@Test
+	void reactivationSucceedsWhenTheRequestSuppliesAValidReplacementBranch() throws Exception {
+		exec("INSERT IGNORE INTO branches (id, company_id, name) VALUES (95182, " + COMPANY_1 + ", 'react b')");
+		long deviceId = claim(ADMIN_1, "DEV-REACT2", 95182, "Movable", "+02:00");
+		exec("DELETE FROM branches WHERE id = 95182");
+		exec("UPDATE attendance_devices SET is_active = 0 WHERE id = " + deviceId);
+		long before = count("SELECT COUNT(*) FROM device_assignment_history WHERE device_id = " + deviceId);
+
+		api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1,
+				"{\"is_active\":true,\"branch_id\":" + BRANCH_1 + "}", 200);
+
+		assertThat(count("SELECT is_active FROM attendance_devices WHERE id = " + deviceId)).isEqualTo(1);
+		assertThat(count("SELECT branch_id FROM attendance_devices WHERE id = " + deviceId)).isEqualTo(BRANCH_1);
+		assertThat(count("SELECT COUNT(*) FROM device_assignment_history WHERE device_id = " + deviceId))
+				.as("the branch change flows through the same assignment-history transaction")
+				.isEqualTo(before + 1);
+	}
+
+	@Test
+	void anOrdinaryReactivationOnALiveBranchStillWorksAndAppendsNoHistory() throws Exception {
+		long deviceId = claim(ADMIN_1, "DEV-REACT3", BRANCH_1, "Ordinary", "+02:00");
+		long before = count("SELECT COUNT(*) FROM device_assignment_history WHERE device_id = " + deviceId);
+
+		api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1, "{\"is_active\":false}", 200);
+		api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1, "{\"is_active\":true}", 200);
+
+		assertThat(count("SELECT is_active FROM attendance_devices WHERE id = " + deviceId)).isEqualTo(1);
+		assertThat(count("SELECT COUNT(*) FROM device_assignment_history WHERE device_id = " + deviceId))
+				.as("is_active alone is not a configuration change")
+				.isEqualTo(before);
+	}
+
 }

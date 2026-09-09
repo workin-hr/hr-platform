@@ -125,7 +125,13 @@ public class DeviceManagementService {
 		if (name == null && branchId == null && zone == null && active == null) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "devices.nothing_to_update");
 		}
-		devices.update(companyId, id, name, branchId, zone, active, clock.now());
+		try {
+			devices.update(companyId, id, name, branchId, zone, active, clock.now());
+		} catch (AttendanceDeviceStore.DeviceBranchMissingException ex) {
+			// 422 rather than 404: the device exists and the request is
+			// well-formed; the state it asks for is the thing that is invalid.
+			throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "devices.branch_no_longer_exists");
+		}
 		return require(companyId, id);
 	}
 

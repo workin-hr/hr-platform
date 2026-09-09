@@ -32,6 +32,16 @@ import com.workin.legacy.LegacyJdbcValues;
 @Component
 public class AttendanceDeviceStore {
 
+	/** Reactivation refused: the branch the device would become active on is gone. */
+	public static class DeviceBranchMissingException extends RuntimeException {
+		private static final long serialVersionUID = 1L;
+
+		public DeviceBranchMissingException(long branchId) {
+			super("branch " + branchId + " no longer exists");
+		}
+	}
+
+
 	private static final String COLUMNS = """
 			id, company_id, branch_id, vendor, serial_number, name, model, firmware, push_version,
 			device_time_zone, is_active, last_seen_at, last_handshake_at, last_attlog_stamp, last_seen_ip,
@@ -174,6 +184,22 @@ public class AttendanceDeviceStore {
 
 			long newBranch = branchId == null ? currentBranch : branchId;
 			String newZone = deviceTimeZone == null ? currentZone : deviceTimeZone;
+
+			// Reactivation must not undo a branch deletion's safeguard. Deleting
+			// a branch deactivates its devices but leaves branch_id pointing at
+			// a branch that is gone, so flipping is_active back on would make a
+			// device active against nothing -- and it would start accepting
+			// punches again. Checked HERE, inside the lock that already holds
+			// the device row, so a concurrent branch deletion cannot slip
+			// between a check and the activation.
+			if (Boolean.TRUE.equals(active)) {
+				Integer branchLives = jdbcTemplate.queryForObject(
+						"SELECT COUNT(*) FROM branches WHERE id = ? AND company_id = ? FOR UPDATE",
+						Integer.class, newBranch, companyId);
+				if (branchLives == null || branchLives == 0) {
+					throw new DeviceBranchMissingException(newBranch);
+				}
+			}
 			if (newBranch != currentBranch || !newZone.equals(currentZone)) {
 				history.append(id, companyId, newBranch, newZone,
 						DeviceAssignmentHistoryStore.toUtc(now, clock.offset()), now);
