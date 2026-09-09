@@ -42,13 +42,17 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 	private static final String NEXT_DAY = "2025-06-04";
 
 	private PunchPairingService service;
+	private DataSource dataSource;
+	private LegacyAttendanceSessions sessions;
+	private com.workin.devices.identity.EmployeeDeviceIdentityStore identities;
 
 	@BeforeEach
 	void setUp() throws Exception {
 		seedAsLegacyWould(
 				"DELETE FROM device_punches WHERE company_id = " + COMPANY,
 				"DELETE FROM attendance WHERE employee_id = " + EMPLOYEE,
-				"DELETE FROM employees WHERE id = " + EMPLOYEE,
+				"DELETE FROM employee_device_identities WHERE company_id = " + COMPANY,
+				"DELETE FROM employees WHERE company_id = " + COMPANY,
 				"DELETE FROM branches WHERE id = " + BRANCH,
 				"DELETE FROM companies WHERE id = " + COMPANY,
 				"INSERT INTO companies (id, company_name, phone, status, created_at) VALUES ("
@@ -61,12 +65,12 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 						+ EMPLOYEE + ", " + COMPANY + ", " + BRANCH + ", '7001', 'Punch', 'Pair',"
 						+ " '+201100246011', 'employee', 1, 1, 0, 'accepted', 1, '2025-01-01 09:00:00')");
 
-		DataSource dataSource = new DriverManagerDataSource(
-				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+		this.dataSource = productionLikeDataSource();
+		this.identities = new com.workin.devices.identity.EmployeeDeviceIdentityStore(dataSource);
 		LegacyClock clock = new LegacyClock(dataSource);
 		LegacyAttendanceCalendar calendar =
 				new LegacyAttendanceCalendar(dataSource, new LegacyWeeklyOffDays(dataSource));
-		LegacyAttendanceSessions sessions = new LegacyAttendanceSessions(dataSource, calendar, clock);
+		this.sessions = new LegacyAttendanceSessions(dataSource, calendar, clock);
 		this.service = new PunchPairingService(
 				new PunchPairingStore(dataSource), sessions, dataSource, 500);
 	}
@@ -269,8 +273,7 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 	void aFailureBetweenTheTwoWritesRollsBackTheAttendanceRowAsWell() throws Exception {
 		punchAt(DAY + " 08:00:00");
 
-		DataSource dataSource = new DriverManagerDataSource(
-				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+		DataSource dataSource = productionLikeDataSource();
 		PunchPairingStore failing = new PunchPairingStore(dataSource) {
 			@Override
 			public void markPaired(long punchId, long attendanceId,
@@ -303,9 +306,177 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 		assertThat(text(punchRow(orphan).get("processing_state"))).isEqualTo("UNMATCHED");
 	}
 
+	/**
+	 * A punch older than ones already paired rewinds and replays the window.
+	 *
+	 * <p>The guarantee this design claims is that pairing depends on the
+	 * punches and the schedule, not on the order they arrived. Without a
+	 * replay that is only true within a single pass: 08:00 and 17:00 pair into
+	 * one closed row, and a 12:00 arriving afterwards finds nothing open and
+	 * starts a second, overlapping one -- two rows for one day, the later of
+	 * them never closed.
+	 *
+	 * <p>Processed in order, the same three punches close 08:00 at 12:00 and
+	 * leave 17:00 open. This asserts the late arrival produces exactly that,
+	 * which is what "replayable" has to mean.
+	 */
+	@Test
+	void aPunchArrivingAfterLaterOnesWereAlreadyPairedRewindsAndReplaysTheDay() throws Exception {
+		punchAt(DAY + " 08:00:00");
+		punchAt(DAY + " 17:00:00");
+		service.pairCompany(COMPANY, "friday");
+		assertThat(attendance()).describedAs("the two-punch day pairs into one closed row").hasSize(1);
+
+		// The late one: a terminal reconnecting with a buffered record.
+		punchAt(DAY + " 12:00:00");
+
+		service.pairCompany(COMPANY, "friday");
+
+		List<Map<String, Object>> rows = attendance();
+		assertThat(rows).describedAs("08:00-12:00 closed, 17:00 open -- not an overlapping pair").hasSize(2);
+		assertThat(text(rows.get(0).get("check_in"))).startsWith(DAY + " 08:00:00");
+		assertThat(text(rows.get(0).get("check_out"))).startsWith(DAY + " 12:00:00");
+		assertThat(text(rows.get(1).get("check_in"))).startsWith(DAY + " 17:00:00");
+		assertThat(rows.get(1).get("check_out")).isNull();
+	}
+
+	/**
+	 * A replay must not discard a row a human has touched.
+	 *
+	 * <p>The rewind removes only what pairing itself created and left alone:
+	 * named by a punch's {@code attendance_id}, still {@code method='device'},
+	 * still carrying the {@code check_in} the punch recorded. An HR correction
+	 * fails that test, so the row survives and the replay works around it.
+	 */
+	@Test
+	void aReplayLeavesAnAttendanceRowAHumanHasEditedAlone() throws Exception {
+		punchAt(DAY + " 08:00:00");
+		punchAt(DAY + " 17:00:00");
+		service.pairCompany(COMPANY, "friday");
+
+		// HR corrects the arrival: same row, different check_in.
+		seedAsLegacyWould("UPDATE attendance SET check_in = '" + DAY + " 07:45:00'"
+				+ " WHERE employee_id = " + EMPLOYEE);
+
+		punchAt(DAY + " 12:00:00");
+		service.pairCompany(COMPANY, "friday");
+
+		assertThat(query("SELECT id FROM attendance WHERE employee_id = " + EMPLOYEE
+				+ " AND check_in = '" + DAY + " 07:45:00'"))
+				.describedAs("the corrected row is still there -- a replay does not delete a human's work")
+				.hasSize(1);
+	}
+
+	/**
+	 * A PIN bound to a departed employee never reaches the employee_code
+	 * fallback.
+	 *
+	 * <p>An explicit binding claims the PIN whether or not its employee is
+	 * still active. Treating an inactive binding as "unbound" sent the punch to
+	 * the fallback, where an active colleague whose {@code employee_code}
+	 * happens to equal that PIN absorbed it -- attendance recorded against the
+	 * wrong person. The documented rule is that a departed badge is
+	 * {@code UNMATCHED} for review.
+	 */
+	@Test
+	void aPinBoundToADepartedEmployeeDoesNotFallThroughToAColleaguesCode() throws Exception {
+		long departed = 246012L;
+		long colleague = 246013L;
+		seedAsLegacyWould(
+				"INSERT INTO employees (id, company_id, branch_id, employee_code, first_name, last_name,"
+						+ " phone, role, is_active, join_request_status, created_at) VALUES ("
+						+ departed + ", " + COMPANY + ", " + BRANCH + ", '9001', 'Gone', 'Person',"
+						+ " '+201100246012', 'employee', 0, 'accepted', '2025-01-01 09:00:00')",
+				// The colleague's CODE equals the departed employee's PIN.
+				"INSERT INTO employees (id, company_id, branch_id, employee_code, first_name, last_name,"
+						+ " phone, role, is_active, join_request_status, created_at) VALUES ("
+						+ colleague + ", " + COMPANY + ", " + BRANCH + ", '7777', 'Still', 'Here',"
+						+ " '+201100246013', 'employee', 1, 'accepted', '2025-01-01 09:00:00')",
+				"INSERT INTO employee_device_identities (company_id, employee_id, pin, source,"
+						+ " created_at, updated_at) VALUES (" + COMPANY + ", " + departed
+						+ ", '7777', 'MANUAL', '2025-01-01 09:00:00', '2025-01-01 09:00:00')");
+
+		Map<String, Long> resolved = identities.resolveEmployeeIds(COMPANY, List.of("7777"));
+
+		assertThat(resolved)
+				.describedAs("claimed by a departed employee, so it resolves to nobody -- "
+						+ "and above all not to the colleague whose code is 7777")
+				.doesNotContainKey("7777");
+	}
+
+	/**
+	 * Without the fourth enum value, pairing refuses rather than writing a
+	 * blank method.
+	 *
+	 * <p>The runbook claimed the INSERT would be refused. It would not: every
+	 * connection runs {@code sql_mode=''}, under which MariaDB stores the
+	 * empty-string error value for an out-of-range ENUM and warns. The punch
+	 * would then be marked PAIRED against a row whose method is blank, and no
+	 * later pass would revisit it. Refusing leaves it RECEIVED, which is
+	 * recoverable.
+	 */
+	@Test
+	void pairingRefusesWhenTheMethodEnumHasNotBeenWidened() throws Exception {
+		long punch = punchAt(DAY + " 08:00:00");
+		seedAsLegacyWould("ALTER TABLE attendance MODIFY COLUMN method"
+				+ " ENUM('app','excel','qr') NOT NULL DEFAULT 'app'");
+		try {
+			// A fresh store, so the cached enum probe is taken after the ALTER.
+			PunchPairingService guarded = new PunchPairingService(
+					new PunchPairingStore(dataSource), sessions, dataSource, 500);
+
+			PunchPairingService.Outcome outcome = guarded.pairCompany(COMPANY, "friday");
+
+			assertThat(outcome.total()).describedAs("nothing paired").isZero();
+			assertThat(attendance()).describedAs("and nothing written").isEmpty();
+			assertThat(text(punchRow(punch).get("processing_state")))
+					.describedAs("still claimable, so it pairs once the DDL is applied")
+					.isEqualTo("RECEIVED");
+		} finally {
+			seedAsLegacyWould("ALTER TABLE attendance MODIFY COLUMN method"
+					+ " ENUM('app','excel','qr','device') NOT NULL DEFAULT 'app'");
+		}
+	}
+
 	// ------------------------------------------------------------------
 	// Fixtures
 	// ------------------------------------------------------------------
+
+	/**
+	 * A data source that connects the way the application does.
+	 *
+	 * <p>{@code application.properties} sets
+	 * {@code connection-init-sql=SET SESSION sql_mode=''} on every legacy
+	 * connection, because the vendored data requires it. A plain
+	 * {@code DriverManagerDataSource} does not, so it connects in the
+	 * container's STRICT mode -- and strict MariaDB rejects an out-of-range
+	 * ENUM where non-strict silently stores the empty-string error value.
+	 *
+	 * <p>That difference is the entire subject of
+	 * {@code pairingRefusesWhenTheMethodEnumHasNotBeenWidened}. Under strict
+	 * mode the bad INSERT throws, the punch stays RECEIVED, and the test passes
+	 * whether or not the guard exists -- proving nothing, which is exactly what
+	 * it did before this existed. Every test here uses it so the database under
+	 * test behaves like the real one.
+	 */
+	private static DataSource productionLikeDataSource() {
+		// The same statement application.properties runs, run the same way:
+		// once per connection, before anything else uses it. Done here rather
+		// than through a URL parameter because the driver's sessionVariables
+		// syntax does not take an empty value cleanly.
+		return new DriverManagerDataSource(
+				MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword()) {
+			@Override
+			protected Connection getConnectionFromDriver(java.util.Properties props)
+					throws java.sql.SQLException {
+				Connection connection = super.getConnectionFromDriver(props);
+				try (Statement statement = connection.createStatement()) {
+					statement.execute("SET SESSION sql_mode=''");
+				}
+				return connection;
+			}
+		};
+	}
 
 	private static long punchAt(String localTime) throws Exception {
 		return insertPunch(localTime, String.valueOf(EMPLOYEE), "RECEIVED");

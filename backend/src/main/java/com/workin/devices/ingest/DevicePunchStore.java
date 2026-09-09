@@ -76,6 +76,34 @@ public class DevicePunchStore {
 		}
 	}
 
+	/**
+	 * Adopts the punches a newly-bound PIN already produced.
+	 *
+	 * <p>Punches whose PIN resolved to nobody are stored {@code UNMATCHED} with
+	 * {@code employee_id} null, precisely so the evidence survives until
+	 * somebody says who the PIN belongs to. Binding is that moment -- and
+	 * without this, it did nothing for them: pairing claims only
+	 * {@code RECEIVED} rows, and re-delivery cannot help either because
+	 * {@code dedup_key} is unique and the terminal's retry returns
+	 * {@code DUPLICATE}. Those punches could never enter pairing at all, which
+	 * makes the documented bind-and-replay flow a promise the code did not
+	 * keep.
+	 *
+	 * <p>Scoped to one company and one PIN, and only rows still
+	 * {@code UNMATCHED}: a punch already paired, ignored or attributed
+	 * elsewhere is left exactly as it is.
+	 *
+	 * @return how many punches were adopted
+	 */
+	public int adoptUnmatched(long companyId, long employeeId, String pin) {
+		return jdbcTemplate.update(
+				"UPDATE device_punches SET employee_id = ?, processing_state = 'RECEIVED',"
+						+ " pair_attempts = 0"
+						+ " WHERE company_id = ? AND pin = ? AND processing_state = 'UNMATCHED'"
+						+ " AND employee_id IS NULL",
+				employeeId, companyId, pin);
+	}
+
 	/** Newest first, always inside one company; the optional filters narrow, never widen. */
 	public List<Map<String, Object>> recentForCompany(long companyId, Long deviceId, String state, int limit) {
 		StringBuilder sql = new StringBuilder("""

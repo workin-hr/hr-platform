@@ -2,6 +2,7 @@ package com.workin.legacy.attendance.pairing;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -75,6 +76,19 @@ public class PunchPairingService {
 
 	static final String FLAG_RAPID_RECHECKIN = "RAPID_RECHECKIN";
 	static final String FLAG_DOUBLE_READ = "DOUBLE_READ";
+	/** Punched on a device assigned to a branch that is not the employee's. */
+	static final String FLAG_OUT_OF_HOME_BRANCH = "OUT_OF_HOME_BRANCH";
+	/** Failed to pair {@link #MAX_PAIR_ATTEMPTS} times; see the store's quarantine. */
+	static final String FLAG_PAIRING_FAILED = "PAIRING_FAILED";
+
+	/**
+	 * How many passes a punch may fail before it is taken out of the claim.
+	 *
+	 * <p>Generous, because the ordinary reasons a pass fails are transient -- a
+	 * database blip, a lock timeout -- and losing a real punch to a moment's
+	 * unavailability is worse than retrying it a few extra times.
+	 */
+	static final int MAX_PAIR_ATTEMPTS = 5;
 
 	private final PunchPairingStore store;
 	private final LegacyAttendanceSessions sessions;
@@ -120,21 +134,110 @@ public class PunchPairingService {
 	 * a lock for its whole duration and lose everything to a single bad row.
 	 */
 	public Outcome pairCompany(long companyId, String weeklyRestLabel) {
-		List<Map<String, Object>> punches = store.claimable(companyId, batchSize);
+		// Fail closed. Without the fourth enum value, a non-strict MariaDB
+		// stores a blank method rather than refusing the insert, and the punch
+		// is marked PAIRED on the way past -- so the row is wrong and nothing
+		// will ever revisit it. Refusing to pair leaves every punch RECEIVED,
+		// which is the recoverable state: apply the DDL and the next pass picks
+		// them all up untouched.
+		if (!store.attendanceMethodAcceptsDevice()) {
+			log.error("Not pairing: attendance.method does not accept 'device'. Apply "
+					+ "db/phase1-mysql/slice_b_attendance_method.sql -- see "
+					+ "docs/operations/provisioning-phase1-tables.md. Punches stay RECEIVED "
+					+ "and pair on the next pass once it is applied; pairing without it would "
+					+ "write blank-method attendance rows that no later pass can repair.");
+			return new Outcome(0, 0, 0, 0);
+		}
+
+		List<Map<String, Object>> punches = store.claimable(companyId, batchSize, MAX_PAIR_ATTEMPTS);
+
+		// A punch older than one already paired for the same employee arrived
+		// late -- a terminal reconnecting with a buffered backlog, or a 4370
+		// pulled after the fact. Pairing it against the current state would
+		// read a window its own presence changes: with 08:00 and 17:00 already
+		// a closed row, a late 12:00 finds nothing open and starts a second,
+		// overlapping one. Processing all three in order instead closes 08:00
+		// at 12:00 and leaves 17:00 open.
+		//
+		// So the affected window is rewound and replayed. That is what makes
+		// the result depend on the punches rather than on the order they
+		// happened to arrive in, which is the guarantee this design claims.
+		int replayed = rewindLateArrivals(punches);
+		if (replayed > 0) {
+			punches = store.claimable(companyId, batchSize, MAX_PAIR_ATTEMPTS);
+		}
+
 		Outcome total = new Outcome(0, 0, 0, 0);
 		for (Map<String, Object> punch : punches) {
 			try {
 				total = total.plus(pairOne(companyId, punch, weeklyRestLabel));
 			} catch (RuntimeException ex) {
-				// One unpairable punch must not strand the rest. It stays
-				// RECEIVED, so the next pass retries it -- and if it is
-				// genuinely poison, it is visible as a row that never leaves
-				// that state rather than as a pass that never finishes.
-				log.error("Could not pair device punch {} for company {}; it stays RECEIVED",
-						punch.get("id"), companyId, ex);
+				// One unpairable punch must not strand the rest, and must not
+				// hold the claim either: the claim takes the oldest rows under
+				// a LIMIT, so a permanently failing punch would be re-selected
+				// on every pass and eventually starve every employee behind it.
+				long punchId = LegacyValues.toPhpLong(punch.get("id"));
+				store.recordFailedAttempt(punchId);
+				int attempts = LegacyValues.toPhpLong(punch.get("pair_attempts")) == 0
+						? 1
+						: (int) LegacyValues.toPhpLong(punch.get("pair_attempts")) + 1;
+				if (attempts >= MAX_PAIR_ATTEMPTS) {
+					store.quarantine(punchId, punchedAtOf(punch), FLAG_PAIRING_FAILED);
+					log.error("Device punch {} for company {} failed to pair {} times and is "
+									+ "quarantined as IGNORED/PAIRING_FAILED. It is kept, not "
+									+ "deleted -- the device really produced it.",
+							punchId, companyId, attempts, ex);
+				} else {
+					log.error("Could not pair device punch {} for company {} (attempt {} of {}); "
+									+ "it stays RECEIVED and sinks below work that can succeed",
+							punchId, companyId, attempts, MAX_PAIR_ATTEMPTS, ex);
+				}
 			}
 		}
 		return total;
+	}
+
+	/**
+	 * Rewinds each employee whose batch contains a punch older than something
+	 * already paired for them.
+	 *
+	 * <p>One rewind per employee, from their earliest late punch, so a backlog
+	 * spanning days costs one replay rather than one per punch. The rewind and
+	 * the re-pairing are separate transactions on purpose: a crash between them
+	 * leaves punches {@code RECEIVED} with their attendance rows removed, which
+	 * the next pass repairs by pairing them again. The reverse order -- pairing
+	 * first, rewinding after -- has no such recovery.
+	 *
+	 * @return how many employees were rewound
+	 */
+	private int rewindLateArrivals(List<Map<String, Object>> punches) {
+		Map<Long, LocalDateTime> earliestLate = new LinkedHashMap<>();
+		for (Map<String, Object> punch : punches) {
+			long employeeId = LegacyValues.toPhpLong(punch.get("employee_id"));
+			LocalDateTime punchedAt = punchedAtOf(punch);
+			LocalDateTime newestPaired = store.newestPairedPunch(employeeId);
+			if (newestPaired == null || !punchedAt.isBefore(newestPaired)) {
+				continue;
+			}
+			earliestLate.merge(employeeId, punchedAt,
+					(existing, candidate) -> candidate.isBefore(existing) ? candidate : existing);
+		}
+
+		for (Map.Entry<Long, LocalDateTime> entry : earliestLate.entrySet()) {
+			// Back to the start of the session the late punch belongs to, not
+			// the punch itself: a 12:00 arrival belongs to a session opened at
+			// 08:00, and rewinding from 12:00 would leave that row standing.
+			LocalDateTime sessionStart = store.sessionStartCovering(entry.getKey(), entry.getValue());
+			LocalDateTime from = sessionStart != null && sessionStart.isBefore(entry.getValue())
+					? sessionStart
+					: entry.getValue();
+			int removed = transactions.execute(status -> store.rewindPairedFrom(entry.getKey(), from));
+			log.info("Replaying attendance for employee {} from {}: a punch at {} arrived after "
+							+ "later ones were already paired. {} attendance row(s) removed and "
+							+ "their punches returned to RECEIVED.",
+					entry.getKey(), from, entry.getValue(), removed);
+		}
+		return earliestLate.size();
 	}
 
 	/**
@@ -151,8 +254,7 @@ public class PunchPairingService {
 	private Outcome pairOneInTransaction(long companyId, Map<String, Object> punch, String weeklyRestLabel) {
 		long punchId = LegacyValues.toPhpLong(punch.get("id"));
 		long employeeId = LegacyValues.toPhpLong(punch.get("employee_id"));
-		LocalDateTime punchedAt = LocalDateTime.parse(
-				LegacyValues.toPhpString(punch.get("punched_at_local")).replace(' ', 'T').substring(0, 19));
+		LocalDateTime punchedAt = punchedAtOf(punch);
 
 		Map<String, Object> open = store.newestOpenRow(employeeId);
 		if (open != null && isLiveAt(companyId, employeeId, open, punchedAt, weeklyRestLabel)) {
@@ -162,7 +264,13 @@ public class PunchPairingService {
 			// A terminal reading the same finger twice, or a person tapping
 			// again because the beep was missed. Closing on it would record a
 			// zero-length day; opening a new row would record two.
-			if (openedAt != null && Duration.between(openedAt, punchedAt).compareTo(DEBOUNCE) < 0) {
+			// Elapsed time from the INSTANT, never the local clock. During an
+			// autumn DST fold two events an hour apart share a
+			// punched_at_local, so a local-time debounce reads the second as a
+			// duplicate of the first and the session is never closed. Ingestion
+			// keeps the instants distinct precisely so this can use them.
+			Duration sinceOpened = elapsedBetween(open, punch, openedAt, punchedAt);
+			if (openedAt != null && sinceOpened.compareTo(DEBOUNCE) < 0) {
 				store.markIgnored(punchId, punchedAt, FLAG_DOUBLE_READ);
 				return new Outcome(0, 0, 1, 1);
 			}
@@ -175,7 +283,12 @@ public class PunchPairingService {
 			// and open a new row: the punch is real and must land somewhere.
 		}
 
-		String flag = isRapidRecheckIn(employeeId, punchedAt) ? FLAG_RAPID_RECHECKIN : null;
+		// Both anomalies can apply to one punch, so they compose rather than
+		// one silently winning: a rapid re-check-in at the wrong branch is two
+		// facts a reviewer needs, not one.
+		String flag = joinFlags(
+				isRapidRecheckIn(employeeId, punchedAt) ? FLAG_RAPID_RECHECKIN : null,
+				outOfHomeBranch(employeeId, punch) ? FLAG_OUT_OF_HOME_BRANCH : null);
 		long attendanceId = store.openAttendance(employeeId, punchedAt);
 		store.markPaired(punchId, attendanceId, punchedAt, flag);
 		return new Outcome(1, 0, 0, flag == null ? 0 : 1);
@@ -204,13 +317,74 @@ public class PunchPairingService {
 		return punchedAt.isBefore(sessions.openSessionDeadline(companyId, employeeId, checkIn, weeklyRestLabel));
 	}
 
-	/** {@code check_in.php}'s two-hour rule, measured against the punch. */
+	/**
+	 * Time between the punch that opened a session and this one, preferring the
+	 * stored instants and falling back to local time.
+	 *
+	 * <p>The fallback exists because the opening row is an {@code attendance}
+	 * row, which has no UTC column -- only the punch does. When the opening
+	 * punch can still be found, its instant is used; otherwise local time is
+	 * the best available, and outside a DST fold the two agree exactly.
+	 */
+	private Duration elapsedBetween(Map<String, Object> open, Map<String, Object> punch,
+			LocalDateTime openedAt, LocalDateTime punchedAt) {
+		LocalDateTime punchedAtUtc = utcOf(punch);
+		LocalDateTime openedAtUtc = openedAt == null ? null : store.punchInstantAt(
+				LegacyValues.toPhpLong(open.get("id")));
+		if (punchedAtUtc != null && openedAtUtc != null) {
+			return Duration.between(openedAtUtc, punchedAtUtc);
+		}
+		return openedAt == null ? Duration.ZERO : Duration.between(openedAt, punchedAt);
+	}
+
+	private static LocalDateTime utcOf(Map<String, Object> punch) {
+		String value = LegacyValues.toPhpString(punch.get("punched_at_utc"));
+		return value.isBlank() ? null
+				: LocalDateTime.parse(value.replace(' ', 'T').substring(0, 19));
+	}
+
+	/**
+	 * {@code check_in.php}'s two-hour rule, measured against the punch.
+	 */
 	private boolean isRapidRecheckIn(long employeeId, LocalDateTime punchedAt) {
 		LocalDateTime last = store.newestCheckIn(employeeId);
 		if (last == null || punchedAt.isBefore(last)) {
 			return false;
 		}
 		return Duration.between(last, punchedAt).compareTo(RAPID_RECHECKIN_WINDOW) < 0;
+	}
+
+	/**
+	 * Whether this punch happened on a device belonging to a branch that is not
+	 * the employee's, without permission to roam.
+	 *
+	 * <p>The punch's own {@code branch_id} is used, snapshotted at ingestion
+	 * rather than read back through the registry -- a terminal can be moved
+	 * between branches, and reading the registry's current branch would
+	 * retroactively relabel every punch it ever sent, which is exactly what
+	 * makes this policy unreconstructable.
+	 */
+	private boolean outOfHomeBranch(long employeeId, Map<String, Object> punch) {
+		Map<String, Object> policy = store.branchPolicy(employeeId);
+		if (policy == null || LegacyValues.toPhpLong(policy.get("can_check_in_any_branch")) == 1) {
+			return false;
+		}
+		long homeBranch = LegacyValues.toPhpLong(policy.get("branch_id"));
+		long punchedAtBranch = LegacyValues.toPhpLong(punch.get("branch_id"));
+		return homeBranch > 0 && punchedAtBranch > 0 && homeBranch != punchedAtBranch;
+	}
+
+	/** Both flags, or the one that applies, or null. */
+	private static String joinFlags(String first, String second) {
+		if (first == null) {
+			return second;
+		}
+		return second == null ? first : first + "," + second;
+	}
+
+	private static LocalDateTime punchedAtOf(Map<String, Object> punch) {
+		return LocalDateTime.parse(LegacyValues.toPhpString(punch.get("punched_at_local"))
+				.replace(' ', 'T').substring(0, 19));
 	}
 
 	private static LocalDateTime checkInOf(Map<String, Object> row) {

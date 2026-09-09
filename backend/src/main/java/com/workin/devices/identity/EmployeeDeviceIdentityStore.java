@@ -72,21 +72,39 @@ public class EmployeeDeviceIdentityStore {
 		if (distinct.isEmpty()) {
 			return resolved;
 		}
+		// Every PIN that has a binding row AT ALL, active employee or not. The
+		// two are different questions and conflating them is a defect: a PIN
+		// bound to a departed employee is *claimed*, so it must not fall
+		// through to the employee_code fallback below, where an active
+		// colleague whose employee_code happens to equal that PIN would absorb
+		// the punches. A departed badge produces UNMATCHED punches for review,
+		// which is the documented rule; it never produces punches attributed to
+		// somebody else.
+		Set<String> claimed = new LinkedHashSet<>();
+
 		for (List<String> chunk : chunks(distinct)) {
 			// Joined to employees, not read alone: an explicit binding must stop
 			// resolving when its employee is deactivated, exactly as the
 			// employee_code fallback below does. Otherwise a departed person's
 			// badge would keep producing punches attributed to them, and only
 			// the unbound half of the company would behave correctly.
+			//
+			// is_active is selected rather than filtered, so one query answers
+			// both questions: which PINs resolve, and which are claimed.
 			jdbcTemplate.query(
-					"SELECT i.pin AS pin, i.employee_id AS employee_id FROM employee_device_identities i"
+					"SELECT i.pin AS pin, i.employee_id AS employee_id, e.is_active AS is_active"
+							+ " FROM employee_device_identities i"
 							+ " INNER JOIN employees e ON e.id = i.employee_id AND e.company_id = i.company_id"
-							+ " WHERE i.company_id = ? AND e.is_active = 1 AND i.pin IN ("
+							+ " WHERE i.company_id = ? AND i.pin IN ("
 							+ placeholders(chunk.size()) + ")",
 					(ResultSet rs) -> {
 						while (rs.next()) {
 							String pin = normalized(rs.getString("pin"));
-							if (pin != null) {
+							if (pin == null) {
+								continue;
+							}
+							claimed.add(pin);
+							if (rs.getInt("is_active") == 1) {
 								resolved.put(pin, rs.getLong("employee_id"));
 							}
 						}
@@ -95,7 +113,9 @@ public class EmployeeDeviceIdentityStore {
 					arguments(companyId, chunk));
 		}
 
-		List<String> unbound = distinct.stream().filter(pin -> !resolved.containsKey(pin)).toList();
+		// Only PINs nobody has bound reach the fallback -- not merely the ones
+		// that failed to resolve.
+		List<String> unbound = distinct.stream().filter(pin -> !claimed.contains(pin)).toList();
 		for (List<String> chunk : chunks(unbound)) {
 			Map<String, Long> byCode = new HashMap<>();
 			Set<String> ambiguous = new LinkedHashSet<>();

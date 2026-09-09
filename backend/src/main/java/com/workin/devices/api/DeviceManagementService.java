@@ -13,6 +13,8 @@ import java.util.Optional;
 
 import javax.sql.DataSource;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Service;
@@ -42,6 +44,9 @@ import com.workin.legacy.LegacyRuntimeOffset;
  */
 @Service
 public class DeviceManagementService {
+
+	private static final Logger log =
+			LoggerFactory.getLogger(DeviceManagementService.class);
 
 	private static final int DEFAULT_PUNCHES_PAGE = 100;
 
@@ -166,10 +171,23 @@ public class DeviceManagementService {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "devices.pin_invalid");
 		}
 		String cardNo = DeviceInput.bounded(asText(body.get("card_no")), 32);
-		switch (identities.bind(companyId, employeeId, pin, cardNo, clock.now())) {
-			case PIN_TAKEN -> throw new ApiException(HttpStatus.CONFLICT, "devices.pin_already_bound");
-			case EMPLOYEE_ALREADY_BOUND -> throw new ApiException(HttpStatus.CONFLICT, "devices.employee_already_bound");
-			case BOUND -> { }
+		// Bind and adopt in one transaction. A binding that succeeded while the
+		// adoption failed would leave punches UNMATCHED that nothing will look
+		// at again -- pairing claims only RECEIVED, and re-delivery is refused
+		// by the unique dedup_key -- so the two have to commit together.
+		int adopted = transactions.execute(status -> {
+			switch (identities.bind(companyId, employeeId, pin, cardNo, clock.now())) {
+				case PIN_TAKEN -> throw new ApiException(HttpStatus.CONFLICT, "devices.pin_already_bound");
+				case EMPLOYEE_ALREADY_BOUND ->
+						throw new ApiException(HttpStatus.CONFLICT, "devices.employee_already_bound");
+				case BOUND -> { }
+			}
+			return punches.adoptUnmatched(companyId, employeeId, pin);
+		});
+		if (adopted > 0) {
+			log.info("Bound PIN {} to employee {} and adopted {} punch(es) that had arrived "
+							+ "before the binding; they are RECEIVED and pair on the next pass.",
+					pin, employeeId, adopted);
 		}
 		return new BoundIdentity(employeeId, pin, cardNo);
 	}

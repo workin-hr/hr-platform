@@ -40,6 +40,9 @@ public class LegacyBranchService {
 	private final LegacyBranchRepository legacyBranchRepository;
 	private final LegacyEmployeeRepository legacyEmployeeRepository;
 	private final EntityManager entityManager;
+
+	/** Null until first probed; see {@code attendanceDevicesTableExists()}. */
+	private volatile Boolean attendanceDevicesPresent;
 	// Only for resolving strtotime's relative forms ("tomorrow"), which are
 	// relative to PHP's clock, not the JVM default. LegacyClock is
 	// request-scoped and carries the legacy runtime offset.
@@ -206,18 +209,51 @@ public class LegacyBranchService {
 	 * documented race-condition fallback only (an employee assigned to
 	 * this branch between the pre-check and the delete), not the
 	 * primary check.
+	 *
+	 * <p>The device cleanup below asks whether the table exists rather than
+	 * trying and catching, because a caught exception is not enough inside a
+	 * transaction -- see the comment on the method itself.
 	 */
 	private void deactivateDevicesOfDeletedBranch(long companyId, long branchId) {
-		try {
-			entityManager.createNativeQuery(
-					"UPDATE attendance_devices SET is_active = 0 WHERE company_id = :companyId "
-							+ "AND branch_id = :branchId")
-					.setParameter("companyId", companyId)
-					.setParameter("branchId", branchId)
-					.executeUpdate();
-		} catch (RuntimeException ignored) {
-			// A deployment without the device tables must still delete branches.
+		// Asked, not attempted-and-caught. This runs inside the caller's
+		// @Transactional, and a native query against a missing table does not
+		// merely throw -- JPA marks the transaction ROLLBACK-ONLY on its way
+		// out. Swallowing the exception therefore achieved nothing it looked
+		// like it achieved: the branch delete continued, and then the whole
+		// transaction rolled back at commit and the endpoint returned an
+		// error. The one case the catch existed for -- a deployment without
+		// the device tables -- was the one case it did not handle.
+		if (!attendanceDevicesTableExists()) {
+			return;
 		}
+		entityManager.createNativeQuery(
+				"UPDATE attendance_devices SET is_active = 0 WHERE company_id = :companyId "
+						+ "AND branch_id = :branchId")
+				.setParameter("companyId", companyId)
+				.setParameter("branchId", branchId)
+				.executeUpdate();
+	}
+
+	/**
+	 * Whether this database carries the device tables at all.
+	 *
+	 * <p>Cached: it is schema, and it cannot change under a running
+	 * application without a deployment. Reading {@code information_schema} is a
+	 * plain SELECT, so it neither throws nor poisons the transaction the way
+	 * touching the absent table does.
+	 */
+	private boolean attendanceDevicesTableExists() {
+		Boolean known = this.attendanceDevicesPresent;
+		if (known != null) {
+			return known;
+		}
+		Number found = (Number) entityManager.createNativeQuery(
+				"SELECT COUNT(*) FROM information_schema.TABLES"
+						+ " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_devices'")
+				.getSingleResult();
+		boolean present = found != null && found.intValue() > 0;
+		this.attendanceDevicesPresent = present;
+		return present;
 	}
 
 	@Transactional

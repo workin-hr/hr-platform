@@ -240,6 +240,15 @@ CREATE TABLE device_punches (
     -- and a value this build does not recognise must never stop a punch from
     -- being stored or paired.
     review_flag VARCHAR(32) NULL,
+    -- How many passes have tried and failed on this punch. Without it, a punch
+    -- that can never pair -- an employee deleted between ingestion and
+    -- pairing, say -- stays RECEIVED, and since the pass claims the OLDEST
+    -- rows under a LIMIT it is re-claimed on every pass forever. Enough of
+    -- them and no later employee's punches are ever selected: one bad row
+    -- starves a whole company. Claiming orders by this first, so a failing
+    -- punch sinks below the work that can succeed, and is quarantined once it
+    -- has had enough turns.
+    pair_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     CONSTRAINT device_punches_state_chk
         CHECK (processing_state IN ('RECEIVED', 'UNMATCHED', 'PAIRED', 'IGNORED'))
 );
@@ -247,7 +256,7 @@ CREATE TABLE device_punches (
 -- The pairing pass claims work with processing_state = 'RECEIVED' and walks a
 -- company's punches in punch order, so this is the index it runs on.
 CREATE INDEX device_punches_pairing_idx
-    ON device_punches (processing_state, company_id, employee_id, punched_at_local);
+    ON device_punches (processing_state, company_id, pair_attempts, employee_id, punched_at_local);
 
 CREATE INDEX device_punches_device_time_idx ON device_punches (device_id, punched_at_local);
 CREATE INDEX device_punches_employee_time_idx ON device_punches (company_id, employee_id, punched_at_local);
@@ -282,3 +291,11 @@ CREATE TABLE device_operation_logs (
 );
 
 CREATE INDEX device_operation_logs_device_idx ON device_operation_logs (device_id, received_at);
+
+-- Every new serial an unclaimed terminal presents runs the retention delete,
+-- which is WHERE last_seen_at < ?. Without an index beginning on that column
+-- MariaDB scans the whole table for each one -- and the callers are
+-- unauthenticated, so the table grows with whatever serials arrive and the
+-- cleanup becomes progressively more expensive than the insert it follows.
+CREATE INDEX unclaimed_device_sightings_retention_idx
+    ON unclaimed_device_sightings (last_seen_at);
