@@ -3451,3 +3451,77 @@ it reached `main`, and the honest answer is that nobody independent looked.
 | A wide table now says so | `.table-wrap` scrolls sideways and gave no sign of it; the employees table is fourteen columns in a 390px window. Edge shading painted by the wrap itself, `background-attachment: local` for the pair that scroll, so it fades exactly when there is nothing further that way. No script, no markup, and nothing at all on a table that already fits. |
 | Verified by measuring, not by looking | Before: backdrop top 74 height 887, modal bottom 961, footer bottom 934, viewport 927. After: backdrop top 0 height 927, modal bottom 907, footer bottom 880. The small-screen rules were confirmed by lifting the 768px block out of its media query, because the harness reports a viewport resize and does not perform one -- so the breakpoint itself is still unproven, and that is the known gap. |
 | Related | **D-208** (the responsive shell this extends), **D-209**, `admin-extra.css`'s own header on why the port's additions live apart from the copies. |
+
+> **Numbering note.** D-213 and D-214, and R-041/R-042 and R-071, are allocated
+> on `feat/device-ingestion-and-pairing` (PR #182), which is open and based on
+> the same `main` as this branch. This branch therefore starts at **D-215**. If
+> #182 merges first, its shorter R-071 and this branch's fuller one conflict:
+> **this branch's version is the superset and wins.**
+
+## D-215: The Sensitive-Response Key List Is One List, And It Includes `ip`
+
+| Field | Value |
+|---|---|
+| Decision | `LegacyPublicRow.SENSITIVE_KEYS` gains `ip` and becomes the single authority. The three other copies — `LegacyEmployeeStore`, `LegacyCompanyStore`, and `LegacyPhpLoginService`'s two hand-written `remove()` calls — now read it. `scripts/check_legacy_sensitive_keys_drift.py` holds it to `sensitive_response_keys()`. |
+| The defect | `505004f` added `Column::IP` to `sensitive_response_keys()` and added the backing column to both `employees` and `companies`. All four copies in the port kept `password_hash, token_version`. `LegacyJdbcValues.rowMapper()` strips nothing and the projections are unrestricted — `LegacyEmployeeStore` runs `SELECT * FROM employees WHERE company_id=?` and two `SELECT e.*` for the HR employee list — so **an HR session received the last-login IP of every employee in the company**, an approximate location per person, for a field PHP had just classified as a secret. On `profile/company.php` it was the company's. |
+| Also a shape change | The port emitted `"ip": null` where PHP omits the key, on the most-called objects in the API. A dual-run diff would have shown a difference on every employee and company object. |
+| Why four copies is the root cause | `LegacyPublicRow`'s own javadoc already warned that a second copy "silently protects nothing when a different module runs its own `SELECT *`". A list duplicated four ways cannot be kept honest by review, so the fix is not four edits — it is one list. |
+| Why the tests agreed | Nine tests asserted `doesNotContainKeys("password_hash", "token_version")` by name. None mentioned `ip`, so all nine passed against all four stale copies. They now assert `keySet()` against `LegacyPublicRow.SENSITIVE_KEYS`, so they cannot go stale independently of the thing they check. |
+| The test that actually proves it | The nine above would still pass if `ip` were served, because the shared fixture leaves the column NULL and a NULL column is simply absent from the row — which is exactly how this shipped. `aStoredLastLoginAddressIsStrippedFromTheEmployeeList` writes `203.0.113.47` first, then asserts the key is absent **and** that no value in the row equals it. Verified red: with `ip` removed from the list it fails, and the new gate fails too. |
+| Related | **R-071** (the audit), **R-072** (nothing writes the column), **R-049** (whose "exactly one consumer" claim this audit corrected). |
+
+## D-216: The Vendored Module Allow-List Is Refreshed, And Its Gate Was Reporting Green While Stale
+
+| Field | Value |
+|---|---|
+| Decision | `allowed_modules.txt` is refreshed from `hr-legacy@a2dd5d7` (38 → 40 modules, adding `guide_videos` and `time`) and `LegacyPhpModules.ALLOWED` with it. |
+| The defect, and the worse defect behind it | The vendored file's own header read `vendored from hr-legacy@d113204` — **the commit before the baseline**. It was never refreshed when D-185 moved the contract. Running the real check reported `missing from vendored: ['guide_videos', 'time']` and exited 1: **the gate was already red and nobody was running it.** |
+| Why CI stayed green | The script's docstring records that the real comparison "cannot run in CI" — CI has no `hr-legacy` checkout. What CI runs is `LegacyPhpModulesDriftTest`, which compares the Java constant against the **vendored file**. Both were stale, so they agreed, so it passed. A vendored authority that nothing refreshes is not an authority; it is a second copy of the mistake. |
+| Consequence | Routes still worked — `LegacyPhpRoutes` maps both — but the refusal ladder was wrong: `module_not_found` bodies listed 38 modules where PHP lists 40, and an unknown action under `time/` or `guide_videos/` returned `404 module_not_found` where PHP returns `501 module_not_implemented`. |
+| A test whose premise the baseline changed | `aModuleThatIsNotOnTheListIsNotAllowed` used `"time"` as its example of an absent module. `505004f` made `time` a real one, so the assertion had quietly started proving the opposite of what it said. It now uses a name that cannot become a module. |
+| Related | **R-071**. |
+
+## D-217: A Stored Zero Is A Real Figure, And Allowances Are More Than Housing
+
+| Field | Value |
+|---|---|
+| Decision | Two corrections to `payroll_batches/stats.php`'s aggregate query. The `NULLIF(col, 0)` wrappers are removed from the entitlements and deductions expressions, and `total_allowances` sums all five allowance columns via `505004f`'s new `sql_payslip_total_allowances()` rather than the housing column alone. |
+| The `NULLIF`, and why it mattered | `505004f` dropped it and said why in the source: "Keep stored 0 (mid-month unpaid) — only fall back when the column is NULL." `total_entitlements` is `NOT NULL DEFAULT 0.00`, so PHP's `COALESCE(col, sum)` **always** returns the stored column and its sum branch is unreachable. The port's `COALESCE(NULLIF(col, 0), sum)` instead treated every legitimate zero as unset. An employee absent the whole period stores `total_entitlements = 0` while `basic_salary` and the allowances stay populated — so the port reported that employee's **full gross as though it had been paid**, inflating `total_entitlements`, `total_net_salary` and all four net aggregates on the batch. |
+| The allowances | PHP now rounds `transport + food + risk + incentives + housing` **per row** and then sums; the port summed `ps.allowances` alone. Ten employees on transport 500 / food 300 / incentives 200 / housing 1,000: PHP reports 20,000, the port reported 10,000 — half. The per-row rounding is preserved deliberately: summing first and rounding once is a different number. |
+| Why the suite passed | No existing fixture stores a zero total, and none uses an allowance column other than housing — the two places the right and wrong expressions agree. `LegacyPayrollBatchStatsParityTest` seeds exactly those two shapes and was **verified red** against both old expressions before being taken green. |
+| Related | **R-071**, **D-190** (`edit_detail` writes `other_deductions` but never `total_deductions`, which is what makes the deduction side of this reachable after a hand edit). |
+
+## D-218: Weekly Rest And Holidays Are Not Days Present
+
+| Field | Value |
+|---|---|
+| Decision | `days_present` counts punches and exceptions only, at all three places the port computed it: the write (`LegacyPayrollCalculationService`), the read (`LegacyPayslipService`) and the hover breakdown (`LegacyPayrollAttendanceFigures.presentDetails`). |
+| The upstream change | `505004f` moved earned weekly rest and credited official holidays out of "days present" and into their own payslip fields, deleting ~40 lines from `payroll_payslip_present_details()` and rewriting its docblock to "punch / exception only. Earned weekly rest and official holidays are separate payslip fields." They are still earned and still paid — only no longer reported as days attended. |
+| One decision, three places | The port kept them merged in all three, so they had to be fixed together. 22 punches + 4 earned rests + 1 credited holiday displayed as **27**. The read path was the worst of the three: it recomputed and overwrote the stored value, so the inflated figure appeared even on payslips that had been calculated correctly. It propagated to the payslip screen, the XLSX "أيام الحضور" column and `SUM(ps.days_present)` in the batch stats — roughly +500 days on a 100-employee batch. |
+| Not a money defect | Pay is driven by `days_absent`, so no salary figure moves. Every attendance figure a user reads does. |
+| Why the suite passed | `LegacyPayrollBatchCalculateEndToEndTest` asserts `days_present` on fixtures with no weekly rest and no holidays, so it passed under either rule. `LegacyPayrollCalculationServiceTest` did pin the old rule explicitly — `isEqualTo(26); // 22 punch + 4 earned rest` — and was rewritten to 22 with the reason recorded, not deleted. |
+| Related | **R-071**. |
+
+## D-219: Two Smaller Divergences The Baseline Had Already Decided
+
+| Field | Value |
+|---|---|
+| Decision | Both are behaviour `505004f` determined, so the port simply has to agree: `fiscal_period.php` resolves rather than refuses, and the employee-import error catalog renders the four codes it was missing. |
+| `fiscal_period.php` | An out-of-range `year`/`month` no longer fails; PHP resolves the fiscal month containing today, which is what makes the **no-parameter** call — "what period am I in?" — the endpoint's ordinary use. The port answered it `400 invalid_input`. The response also gained `month_start_day` and `month_end_day` (with `0` resolved to the last day of the period's own month, not left for the client to guess), and the roles widened to include `MANAGER` and `EMPLOYEE`, whom the port was answering 403. The building block was already present and correct — `LegacyPayrollFiscalSettings.fiscalMonthContainingDate()` — and simply never called from here; D-188 ported the same helper into `attendance/stats.php` and stopped there. |
+| The error catalog | `505004f` added `gender_invalid`, `employee_not_found`, `nothing_to_update` and `employee_update_failed`. The port **produced all four** and fed them into a table with no arm for any of them, so they fell through `default -> code`. An Arabic-speaking HR user saw the bare token `nothing_to_update`, and `field_errors` stayed empty so the per-cell highlight never fired. Not an edge case: the update template ships with every example cell blank except `employee_code`, so "filled in only the code" is the default careless outcome. |
+| The gate that existed and did not cover it | `decision-log-wave12r.md` records the *identical* failure mode on this very endpoint — `employees_updated` shipping as a raw key — fixed by adding `check_legacy_message_drift.py`. That gate closed the `t()` catalog. `employee_excel_error_message()` is a **second, hard-coded catalog in the same feature**, deliberately outside `t()`, and was left open. `check_legacy_excel_error_codes_drift.py` closes it, comparing the codes each side handles rather than the rendered text. |
+| Three tests whose premise changed | Two pinned `fiscal_period`'s refusal and were rewritten to assert the fallback; the third gained the two new response fields. |
+| Related | **R-071**, **D-188**. |
+
+## D-220: G2's Denominator Is Re-Counted From The Baseline, Not Carried Forward
+
+| Field | Value |
+|---|---|
+| Decision | Gate **G2** reads **202 live + 0 excluded = 202** physical endpoint files, replacing `198 live + 1 excluded = 199`. The number was **re-counted from `hr-legacy` at `HEAD`**, not adjusted arithmetically. |
+| What made the old one wrong | O-3 excluded `/apis/api/time/now.php` from the live obligation *precisely because the router could not expose it* — `time` was absent from `ApiModule::allowedList()`, so the route 404'd and implementing it would have added a route legacy does not serve. `505004f` added the module. Legacy serves the route today and so does this port (`LegacyTimeController`, `route-methods.txt:209`, `LegacyPhpRoutes.java:153`), so the exception described nothing and the exclusion ledger has no remaining rows. |
+| The count, with its working | 203 `.php` files under `apis/api/**`, less `apis/api/index.php` which is the router rather than an endpoint, gives **202**; all 202 belong to modules in `allowedList()`, so **0** are excluded. The delta from 199 is fully accounted: `505004f` added exactly three endpoint files — `employees/analyze_excel_update.php`, `employees/update_bulk.php`, `guide_videos/list.php` — and removed none. 199 + 3 = 202. |
+| Why re-counted rather than adjusted | Carrying a total forward and patching it is how the stale exception survived a baseline move in the first place. A derived number can be checked against its source; an adjusted one can only be checked against the person who adjusted it. |
+| Three independent sources agree | The file count above; the port's own inventory (`route-methods.txt` holds 202 distinct endpoint files); and `check_legacy_route_drift.py --legacy-api ../hr-legacy/apis/api`, which reports *"hr-legacy present: its 202 routes match the committed inventory"*. **That third one has been printing the correct number all along** — it was read as a pass/fail signal rather than as an accounting statement, which is the whole reason a stale ledger could sit beside a green gate. |
+| Scope | This settles the **denominator** and the exclusion bucket. The §3.2 ledger's own bucket accounting is the completion plan's to maintain; nothing here reclassifies an endpoint's implementation status. |
+| Historical entries left alone | Earlier decision-log rows saying "live total 198 unchanged" were accurate when written and are not rewritten — the log is a record, not a current-state document. This entry supersedes them. |
+| Related | **R-071**, **D-185** (the baseline move), **O-3** (the exclusion this retires), **D-120/O-8**. |

@@ -24,6 +24,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import com.workin.legacy.LegacyPublicRow;
 import com.workin.backend.BackendApplication;
 import com.workin.backend.identity.JwtService;
 import com.workin.legacy.LegacyMariaDb;
@@ -112,7 +113,9 @@ class LegacyLoginEndToEndTest {
 		assertThat(data).doesNotContainKey("refresh_token");
 
 		Map employee = (Map) data.get("employee");
-		assertThat(employee).doesNotContainKeys("password_hash", "token_version");
+		assertThat(employee.keySet())
+				.doesNotContain("password_hash", "token_version")
+				.doesNotContainAnyElementsOf(LegacyPublicRow.SENSITIVE_KEYS);
 		assertThat(((Number) employee.get("id")).longValue()).isEqualTo(90011L);
 		assertThat(((Number) employee.get("company_id")).longValue()).isEqualTo(9001L);
 

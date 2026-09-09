@@ -110,7 +110,15 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
   or deferred to a later item?~~ **Resolved 2026-08-28 (O-8/D-120): all three
   are delivered.** None is excluded and none is deferred, so gate G2's live
   denominator stays at 198 and the exclusion ledger stays one row long
-  (`time/now.php`, O-3). The governing rule is that Java reproduces what PHP
+  (`time/now.php`, O-3). **Both halves of that sentence were made stale by the
+  baseline move, and were re-derived 2026-09-09 (D-220, R-071): the live
+  total is 202 and the exclusion ledger is empty.** `time/now.php` was
+  excluded *because* `time` was absent from `ApiModule::allowedList()`, so the
+  route 404'd; `505004f` added the module. Legacy serves it and so does this
+  port (`LegacyTimeController`, `route-methods.txt:209`,
+  `LegacyPhpRoutes:153`), so the exception no longer describes anything. The
+  new total was counted from `hr-legacy` at `HEAD` rather than adjusted —
+  carrying a number forward is how the exception survived unnoticed. The governing rule is that Java reproduces what PHP
   does per endpoint — D-074's JSON envelope where PHP calls `ok()`, and where PHP
   terminates in a download helper the same reader-observable workbook, headers
   and filename rather than the same archive bytes (D-085) — which makes

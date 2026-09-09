@@ -66,7 +66,10 @@ class LegacyPhpModulesDriftTest {
 
 	@Test
 	void aModuleThatIsNotOnTheListIsNotAllowed() {
-		assertThat(LegacyPhpModules.isAllowed("time")).isFalse();
+		// Not "time": hr-legacy 505004f added it, so the old example became a
+		// real module and this assertion started proving the opposite of what
+		// it says. A name that cannot become one is the stable choice.
+		assertThat(LegacyPhpModules.isAllowed("not_a_module")).isFalse();
 		assertThat(LegacyPhpModules.isAllowed("")).isFalse();
 	}
 

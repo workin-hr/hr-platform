@@ -166,9 +166,18 @@ directly.
 
 ## Payroll Batches (`apis/api/payroll_batches/`, 10 endpoints)
 
-**Consumer (all 10):** Dashboard/HR client only — every endpoint in this
-module requires `COMPANY_ADMIN` or `HR` role (`requireAuth([UserRoleEnum::COMPANY_ADMIN, UserRoleEnum::HR])`),
+**Consumer (9 of 10):** Dashboard/HR client only — those endpoints require
+`COMPANY_ADMIN` or `HR` role (`requireAuth([UserRoleEnum::COMPANY_ADMIN, UserRoleEnum::HR])`),
 never `MANAGER` or `EMPLOYEE`. No self-service surface exists for batches.
+
+**`fiscal_period.php` is the exception, since `hr-legacy` `505004f`** (D-219):
+`requireAuth([COMPANY_ADMIN, HR, MANAGER, EMPLOYEE])`. It reads the company's
+own period boundaries — the values a manager or employee needs to label an
+attendance screen — and writes nothing. The same commit made an out-of-range
+`year`/`month` resolve to the fiscal month containing today rather than fail,
+so the no-parameter call is its ordinary use, and added `month_start_day` and
+`month_end_day` to the response (`0` resolved to the last day of the period's
+own month).
 
 **ID convention:** `id` is read from `$_GET[Request::ID]` on every
 mutating endpoint, including the `PUT`/`POST` ones (`calculate.php`,

@@ -114,9 +114,13 @@ public class LegacyPayrollCalculationService {
 				.add(fund));
 		BigDecimal netSalary = max(BigDecimal.ZERO, round(totalEntitlements.subtract(totalDeductions)));
 
-		int daysPresent = Math.max(0, attendance.punchPresentDays())
-				+ Math.max(0, attendance.earnedWeeklyRestDays())
-				+ Math.max(0, attendance.officialHolidayDays());
+		// Punches and exceptions only. hr-legacy 505004f moved earned weekly
+		// rest and credited holidays out of "days present" and into their own
+		// payslip fields -- they are still counted, and still paid, but they
+		// are no longer reported as days the employee attended. Adding them
+		// back here inflated a stored column, so it reached the payslip screen,
+		// the XLSX export and SUM(ps.days_present) in the batch stats.
+		int daysPresent = Math.max(0, attendance.punchPresentDays());
 
 		return new PayslipComputation(
 				contractBasic,
