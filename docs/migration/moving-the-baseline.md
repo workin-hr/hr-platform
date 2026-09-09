@@ -81,6 +81,18 @@ Re-vendor every copy and **check each file's own provenance header names the
 new baseline**. Then run the real comparisons, which need a sibling checkout
 and therefore cannot run in CI:
 
+**Run them through the wrapper, not by hand:**
+
+```bash
+./scripts/check_all_legacy_drift.sh          # defaults to ../hr-legacy
+```
+
+It runs all nine with the flag each one actually takes and **refuses to report
+success unless each proves it read `hr-legacy`** — see the rule below for why a
+zero exit does not establish that. The individual commands are listed here so
+the wrapper is auditable rather than magic; if you run one by hand, run it in
+this exact form.
+
 **The flags differ per script.** Copy these exactly:
 
 ```bash
@@ -96,6 +108,29 @@ python3 scripts/check_legacy_route_drift.py    --legacy-api  ../hr-legacy/apis/a
 python3 scripts/check_legacy_message_drift.py  --legacy-lang ../hr-legacy/apis/lang
 python3 scripts/check_legacy_product_defaults_drift.py   # reads hr-legacy itself; takes no path
 ```
+
+### A drift check is verified by its output, never by its exit code
+
+**A detector that exits 0 has not necessarily compared anything.** Three of the
+nine degrade rather than fail when they cannot find `hr-legacy`: they fall back
+to the port's own committed inventory, compare it against itself, print
+`not checked out`, and exit **0** with `OK` on the last line.
+
+So the rule is positive, not negative. Do not look for an error; look for the
+evidence that the intended source was read:
+
+- [ ] `check_legacy_route_drift.py` must print **`hr-legacy present:`** — if it
+      says `not checked out`, it compared the port against itself.
+- [ ] `check_legacy_message_drift.py` must print **`hr-legacy present:`**, same
+      reason.
+- [ ] `check_legacy_product_defaults_drift.py` must print
+      **`match hr-legacy at HEAD`**.
+- [ ] The other six exit non-zero when the source is missing, so for those a
+      zero exit is sufficient.
+
+`check_all_legacy_drift.sh` asserts all of this, which is the point of having
+it: this class was found twice by review and never once by us, so it belongs in
+a command rather than in somebody's discipline.
 
 > **Do not guess a flag, and do not trust a zero exit from one you guessed.**
 > This list first shipped with `--legacy ../hr-legacy` on the message check.
