@@ -27,7 +27,7 @@ import com.workin.legacy.attendance.session.LegacyAttendanceSessions;
  * departure -- and it lives here, beside the rest of the attendance rules,
  * because that judgment is the same judgment {@code check_in.php} makes and
  * has to stay consistent with it. A punch is an observation; attendance is an
- * interpretation (D-213).
+ * interpretation (D-164).
  *
  * <h2>Liveness is judged as of the punch, not as of now</h2>
  * <p>{@code LegacyAttendanceSessions.findOpenSession} asks whether a session is
@@ -66,7 +66,7 @@ public class PunchPairingService {
 	 * dropped the record from its buffer. Refusing here would destroy the only
 	 * evidence that the person was present, and show them nothing. So the punch
 	 * is always stored and paired, and the row is flagged for a human instead
-	 * (D-214).
+	 * (D-165).
 	 */
 	static final Duration RAPID_RECHECKIN_WINDOW = Duration.ofMinutes(120);
 
@@ -185,7 +185,7 @@ public class PunchPairingService {
 	 * Whether an open row was still check-out-able when the punch happened.
 	 *
 	 * <p>The deadline is legacy's own -- the earlier of the next working day's
-	 * shift start and check-in + 16 hours (D-217) -- so a device check-out and
+	 * shift start and check-in + 16 hours (D-213) -- so a device check-out and
 	 * a mobile one close the same window. An exception-only row is not a
 	 * session at all and is skipped, matching
 	 * {@code attendance_find_open_session()}.

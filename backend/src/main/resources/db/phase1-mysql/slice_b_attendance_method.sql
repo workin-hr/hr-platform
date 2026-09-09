@@ -1,4 +1,4 @@
--- Slice B: a fourth value for attendance.method (Q5, D-214).
+-- Slice B: a fourth value for attendance.method (Q5, D-165).
 --
 -- Separate from phase1_extensions.sql, and the separation is the point.
 -- That file is the one definition of the tables Phase 1 *adds*; it is
@@ -16,7 +16,7 @@
 -- THE EXPAND STEP. Run this before deploying code that writes 'device'.
 -- Both deployment orders are safe once it has:
 --
---   old PHP + new enum -- fine. Audited under D-214: every frozen-PHP site
+--   old PHP + new enum -- fine. Audited under D-165: every frozen-PHP site
 --     writes attendance.method (check_in.php, create.php, check_in_qr.php,
 --     attendance_excel_analyzer.php, xlsx_parser.php,
 --     request_actions_helper.php) and exactly one reads it,

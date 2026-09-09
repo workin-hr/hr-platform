@@ -199,7 +199,7 @@ class LegacyPhpRouteInventoryTest {
 	}
 
 	/**
-	 * D-213: the attendance-device receiver is default-closed. This context
+	 * D-164: the attendance-device receiver is default-closed. This context
 	 * never sets {@code app.devices.ingest.enabled}, so no {@code /iclock}
 	 * route may exist in it -- the flag, not a deployment's luck, decides
 	 * whether the unauthenticated device surface is mapped at all.

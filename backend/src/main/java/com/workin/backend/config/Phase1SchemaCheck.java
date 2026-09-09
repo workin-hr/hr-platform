@@ -73,7 +73,7 @@ public class Phase1SchemaCheck implements ApplicationRunner {
 		OWNED_TABLES.put("platform_admin_login_attempts", "platform-admin login throttling");
 		OWNED_TABLES.put("SPRING_SESSION", "the platform-admin web session -- login succeeds and is then forgotten");
 		OWNED_TABLES.put("SPRING_SESSION_ATTRIBUTES", "the platform-admin web session's contents");
-		// D-213. Absent, these degrade rather than break: the receiver is off by
+		// D-164. Absent, these degrade rather than break: the receiver is off by
 		// default, and LegacyBranchService and LegacyEmployeeStore already swallow
 		// a missing device table so the rest of the deployment still serves. That
 		// is exactly why they are listed -- a silent degradation is the kind of gap

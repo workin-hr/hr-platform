@@ -45,7 +45,7 @@ unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/phase1_extensions.sql > ph
 
 `slice_b_attendance_method.sql`, in the same directory and the same jar
 path, adds a fourth value to `attendance.method` for device punches
-(D-213, D-218).
+(D-164, D-214).
 
 It is separate because it **alters a table the legacy contract owns**,
 where the file above only *creates* tables Phase 1 adds. That difference

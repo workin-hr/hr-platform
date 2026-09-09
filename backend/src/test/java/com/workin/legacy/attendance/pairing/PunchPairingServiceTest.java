@@ -130,7 +130,7 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 	}
 
 	/**
-	 * Past the 16-hour cap (D-217), the earlier row is not a session any more,
+	 * Past the 16-hour cap (D-213), the earlier row is not a session any more,
 	 * so the punch opens its own rather than closing something a day old.
 	 */
 	@Test
@@ -177,7 +177,7 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 	/**
 	 * Legacy refuses a check-in inside two hours of the last one. A terminal
 	 * cannot be refused -- it has already said "Thank you" and dropped the
-	 * record -- so the punch is kept and flagged instead (D-214).
+	 * record -- so the punch is kept and flagged instead (D-165).
 	 */
 	@Test
 	void aRapidReCheckInIsFlaggedForReviewAndNeverRejected() throws Exception {

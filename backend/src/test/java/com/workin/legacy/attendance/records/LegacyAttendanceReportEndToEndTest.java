@@ -452,7 +452,7 @@ class LegacyAttendanceReportEndToEndTest {
 
 	/**
 	 * A stale open session reports expected minus two hours <b>while staying
-	 * open</b>. This is the whole of D-217 in one assertion.
+	 * open</b>. This is the whole of D-213 in one assertion.
 	 *
 	 * <p>The 360 is unchanged from when this test was written, and that is the
 	 * point: it used to prove the report had auto-closed the row and then read

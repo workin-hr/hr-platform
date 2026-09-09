@@ -40,7 +40,7 @@ which exposes database connectivity and component internals to
 unauthenticated callers. Do not set it without also restricting the
 matcher in `SecurityConfig`.
 
-### Attendance-device receiver (D-213)
+### Attendance-device receiver (D-164)
 
 Emitted by `com.workin.devices` when `app.devices.ingest.enabled=true`;
 design section 9 of `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`.
@@ -76,7 +76,7 @@ design section 9 of `docs/superpowers/specs/2026-09-02-attendance-device-ingesti
   hardware checklist) or an attempt to amplify one request into many
   statements.
 
-### Punch to attendance pairing (D-218)
+### Punch to attendance pairing (D-214)
 
 `PunchPairingService` converts stored punches into `attendance` rows.
 
