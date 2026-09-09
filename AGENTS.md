@@ -53,6 +53,16 @@ before merge. A green CI run proves automated verification only and never
 substitutes for this gate. When Codex's externally-billed quota is exhausted
 (risk R-009) the gate is **unavailable**, not waived: the merge waits.
 
+**The gate has exactly one override, and it is the repository owner's alone
+(D-222).** Waiting is the default and stays the default; an override is for a
+merge whose delay is itself a harm — a defect live in production — and never
+for convenience or impatience. It requires, in the pull request itself before
+the merge: the head SHA, every gate's actual state, what review *did* occur
+and on which heads, what remains unconfirmed, the specific harm that justifies
+not waiting, and the follow-up that closes the gap. An override by anyone else,
+or without that record, is a policy breach rather than a judgement call. See
+D-222 for the full conditions and for the one override taken so far.
+
 ## Mandatory Change Propagation
 
 No implementation, configuration, schema, contract, automation, agent, or
