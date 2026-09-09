@@ -3580,10 +3580,12 @@ it reached `main`, and the honest answer is that nobody independent looked.
 
 | Field | Value |
 |---|---|
-| Decision | Reduce Actions consumption by **trimming workflow triggers**, to roughly 670 minutes/month against the 2,000 included with GitHub Free. Do **not** introduce self-hosted runners. |
+| Decision | Reduce Actions consumption by **trimming workflow triggers**, **while keeping an automatic backend check on every pull request's final head**. Do **not** introduce self-hosted runners. |
+| Superseded in practice by Q3's answer | Q3 chose Option B, so the repository **stays public** until Team is funded — and public repositories have **no minute limit at all**. The cost pressure this question was written to answer therefore **does not currently exist**, and the trimming survives only as a **latency** improvement, not a budget necessity. The 30-day figures below are retained because the budget question returns in full the day visibility flips, and must be re-derived then **with** the backend check retained rather than by reusing the 670-minute figure, which assumed removing it. |
 | Measured consumption | 30 days to 2026-09-09, from run history: `Backend Validate` 592 runs × 10.6 min = 6,275; `Phase 0 Bootstrap Validate` 716 × ~2 = 1,432; `Independent Review Gate` 894 executed × 1 (per-job round-up) = 894; nightly and Dependabot ≈ 60. **Total ≈ 8,660 min/month.** Billable minutes read zero from the API today because the repository is public; each run is a single job, so `ceil(run_duration)` is the correct proxy. |
 | Cost if unchanged when private | 6,660 minutes over the allowance at **$0.006**/min (ubuntu 2-core; GitHub cut hosted-runner prices effective 2026-01-01 — an earlier $0.008 figure used in discussion was stale) ≈ **$40/month**, with the free allowance exhausted in about seven days. |
-| Where the trimming comes from | `Backend Validate` publishes the context `test`, which **is not a required check** — deliberately so: D-125 dropped it because the workflow is path-filtered and would deadlock docs-only pull requests. The single most expensive workflow, 72% of consumption, therefore gates nothing, and moving it to on-demand plus the existing local nightly costs no enforcement. `Phase 0 Bootstrap Validate` has **no `concurrency` group**, so superseded runs are never cancelled. The review gate's largest event source is `pull_request_review` (645 of 1,146 runs), not `issue_comment` (69). |
+| Where the trimming comes from | `Phase 0 Bootstrap Validate` has **no `concurrency` group**, so superseded runs are never cancelled — a pure waste with no enforcement value. The review gate's largest event source is `pull_request_review` (645 of 1,146 runs), not `issue_comment` (69). `Backend Validate` may skip **draft** pull requests, since a draft is not a merge candidate. |
+| **Correction — `Backend Validate` does not "gate nothing"** | An earlier draft of this entry reasoned that because `test` is not a *platform-required status* (D-125 dropped it: the workflow is path-filtered and would deadlock docs-only pull requests), the workflow could move to an on-demand trigger at no cost to enforcement. **That conflates two different things.** `AGENTS.md`'s Mandatory Workflow makes **automated verification** a required *stage* independent of what branch protection enforces, and `backend-validate.yml` is the **only** workflow in the repository that runs `./gradlew test` — `nightly.yml` runs `validate_phase0.py` and no Gradle at all, verified by grep across `.github/workflows/`. Moving it off an automatic trigger would let a backend pull request reach human merge with **no backend suite having run on its final head**. It therefore stays automatic on `pull_request`; only draft-skipping and cancellation of superseded runs are taken. |
 | Facts that removed two assumed blockers | **GHCR is not a cost problem.** Container storage and bandwidth on `ghcr.io` are *"currently free"* per GitHub's own documentation, with a commitment to at least one month's notice before that changes. The 500 MB / 1 GB Packages quotas govern npm, Maven, NuGet and Gradle — not container images. The backend image is ~500 MB, which had been read as disqualifying; it is not. #186's `docker compose pull` workflow therefore survives the move to private unchanged, except that client developers must `docker login ghcr.io` with a token carrying `read:packages`. |
 | Why not self-hosted runners | They would remove the minute limit entirely — GitHub bills no minutes for them and places no plan restriction on GitHub Free organizations. **R-009's Contingency forbids it in this repository by name**: *"Do not attempt to work around either quota in-repo (no self-hosted-runner fallback, …)"*. That prohibition stands and is not reopened here. Independently, GitHub scopes the residual risk to *"anyone who can fork the repository and open a pull request (generally those with read access)"* — an empty set with one maintainer, but not empty the moment client developers are granted read access, which is a live possibility under #186. Trimming reaches the same goal with no new infrastructure and no security trade-off. |
 | Sequencing | Lands as a focused pull request **after** this record is accepted, together with the Q3 hook if Q3 accepts it. |
@@ -3598,7 +3600,7 @@ it reached `main`, and the honest answer is that nobody independent looked.
 | What the pre-push hook **can** enforce | Refusal of a direct push to `main`; refusal of a non-fast-forward (force) push to `main`; refusal of a branch deletion; and running the full `validate` equivalent locally before any push succeeds. Drafted and tested against this worktree; `shellcheck` clean. |
 | What the pre-push hook **cannot** enforce, and this is the crux | **It never runs on the path that actually merges.** Pull requests are merged on github.com, through the UI or API; that operation does not pass through any local hook. So conversation resolution at merge, a required green check at merge, `enforce_admins`, and protection against a force-push or branch deletion performed through the web interface or API all lose their enforcement entirely and gain **no** substitute. The hook covers the *push* boundary; branch protection covered the *merge* boundary. They are not the same boundary, and describing the hook as a replacement for branch protection would be false. |
 | Second limitation, stated plainly | The hook is client-side and `--no-verify` bypasses it. With one maintainer this is tolerable — it prevents accidents and binds automated agents, which is most of its value — but it is not a control that survives an actor who does not want to be bound, and it is weaker than `enforce_admins`, which bound the owner too. |
-| Option A — accept the loss | Go private on Free. Merge governance becomes **entirely procedural**: no required check, no conversation-resolution gate, no admin enforcement. **R-008 reverts from "Mechanically enforced as of 2026-08-29 (D-125)" to its pre-D-125 state and must be reopened**, restoring the exact condition its own history says procedure alone failed to hold — PR #126 lost a ten-second race to it. Cost: $0. |
+| Option A — accept the loss (**rejected**, recorded for completeness) | Go private on Free. Merge governance becomes **entirely procedural**: no required check, no conversation-resolution gate, no admin enforcement — the exact condition R-008's own history says procedure alone failed to hold, PR #126 having lost a ten-second race to it. Cost: $0. **The state transition this would require, stated precisely because "reopen R-008" is not one:** R-008's Status is *already* `Open — Accepted Residual Risk`, so there is nothing to reopen. What would actually be required is **replacing its Mitigation**, which currently opens *"Mechanically enforced as of 2026-08-29 (D-125)"* — a sentence that becomes false the moment protection disappears — with the procedural-only state, and recording a **fourth realisation** if a merge then bypasses the process. Leaving that Mitigation standing while the mechanism is gone would be the worst outcome available: a register asserting enforcement that no longer exists. |
 | Option B — buy enforcement first | GitHub **Team** at $4/user/month restores branch protection and rulesets on private repositories and raises included minutes from 2,000 to 3,000. At one seat this is **$4/month**, and with Q2's trimming nothing exceeds the allowance, so $4/month is the whole cost. R-008's mitigation survives intact. |
 | **Decision: Option B** (owner, 2026-09-09) | GitHub-enforced merge governance is preserved. **Option A is rejected as the permanent private-repository model** — the repository will not be flipped private with branch protection knowingly downgraded to procedure-only enforcement. |
 | Consequence while Team is unfunded | The repository **stays public**. This is the one outcome that keeps every enforcement setting intact at zero cost, and it costs only the confidentiality that Q1 wants — deferred, not abandoned. **R-008's mitigation therefore survives unchanged** and is not reopened. |
@@ -3621,19 +3623,45 @@ it reached `main`, and the honest answer is that nobody independent looked.
 
 | Path | Condition | Evidence |
 |---|---|---|
-| **(a) Self-declared exhaustion** | The reviewer has posted the literal usage-limit comment on the pull request. Objective, immediate, no waiting period — the reviewer has stated its own unavailability and further requests cannot change it. | The comment's timestamp and body, quoted. |
-| **(b) Silence** | All of: `@codex review` requested on the **current head SHA** at least twice, the requests at least **60 minutes** apart; at least **4 hours** elapsed since the first; and **zero** artefacts of any kind from `chatgpt-codex-connector[bot]` on that head — no review object, no comment. | The command output below, pasted verbatim. |
+| **(a) Self-declared exhaustion, still current** | A usage-limit comment exists **and is the reviewer's most recent artefact of any kind** — no review object and no clean-round comment has landed after it. A historical usage-limit comment proves the outage *happened*, never that it *persists*: quota recovers on its own, and on 2026-09-09 it recovered roughly 80 minutes after the last such comment. **The moment any round lands anywhere, path (a) is closed** — see Criterion 5. | Line 2 of the command below reading `PASS`. |
+| **(b) Silence** | All of: `@codex review` requested at least **twice**, the requests at least **60 minutes** apart, the first at least **4 hours** ago; **and** no round on the current head — counting **both** review objects **and** D-158 clean-round comments, because a round that finds nothing posts a comment and no review object at all, so counting reviews alone reports "silence" on a head that was reviewed clean. | Lines 1 and 3 of the command below reading `PASS`. |
 
-Neither path may be declared by inference, impatience, or a summary. The verification command, whose output is the evidence:
+Neither path may be declared by inference, impatience, or a summary. **Every line the command prints must read `PASS` for the path being claimed; a `FAIL` or `n/a` on any required line means the gate is not degraded and the merge waits.** The command proves each prerequisite rather than reporting two counts a reader must interpret — an earlier draft returned only `reviews_on_head` and a repository-wide quota-comment count, either of which could read `0`/`n` for an unrequested, too-recent, already-reviewed, or already-recovered head.
 
 ```bash
-PR=<number>; BOT=chatgpt-codex-connector
-SHA=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
-gh pr view "$PR" --json reviews --jq "[.reviews[] | select(.author.login==\"$BOT\" and .commit.oid==\"$SHA\")] | length"   # reviews on THIS head
-gh pr view "$PR" --json comments --jq "[.comments[] | select(.author.login==\"$BOT\" and (.body | test(\"usage limits\";\"i\")))] | length"   # quota messages
+PR=<number>; BOT=chatgpt-codex-connector; REPO=workin-hr/hr-platform
+SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid); SHORT=${SHA:0:7}
+J=$(gh pr view "$PR" --repo "$REPO" --json reviews,comments)
+now=$(date -u +%s); ep(){ date -u -d "$1" +%s 2>/dev/null || echo 0; }
+
+# 1. no round on THIS head -- review objects AND D-158 clean-round comments
+rounds=$(jq -r --arg b "$BOT" --arg s "$SHA" --arg p "$SHORT" '
+  [(.reviews[]|select(.author.login==$b and .commit.oid==$s)),
+   (.comments[]|select(.author.login==$b and (.body|test("Reviewed commit.{0,4}"+$p))))]|length' <<<"$J")
+[ "$rounds" -eq 0 ] && echo "PASS  no round on head $SHORT" \
+                    || echo "FAIL  $rounds round(s) on head $SHORT -- the gate is SATISFIED, not degraded"
+
+# 2. path (a): the reviewer's LATEST artefact is a usage-limit notice (current, not historical)
+last=$(jq -r --arg b "$BOT" '[(.comments[]|select(.author.login==$b)|{createdAt,body}),
+   (.reviews[]|select(.author.login==$b)|{createdAt:.submittedAt,body:"<review object>"})]
+   |sort_by(.createdAt)|last // empty' <<<"$J")
+if [ -z "$last" ]; then echo "n/a   path (a) not claimable -- reviewer has posted nothing"; else
+  jq -e '.body|test("usage limits";"i")' >/dev/null <<<"$last" \
+    && echo "PASS  current exhaustion ($(jq -r .createdAt <<<"$last"))" \
+    || echo "FAIL  quota RECOVERED -- latest artefact $(jq -r .createdAt <<<"$last") is not a usage-limit notice"
+fi
+
+# 3. path (b): two requests >=60min apart, first >=4h ago
+reqs=$(jq -r '[.comments[]|select(.body|test("@codex review"))|.createdAt]|sort|.[]' <<<"$J")
+n=$(grep -c . <<<"$reqs")
+if [ "$n" -ge 2 ]; then f=$(ep "$(head -1 <<<"$reqs")"); l=$(ep "$(tail -1 <<<"$reqs")")
+  [ $(( l - f )) -ge 3600 ] && [ $(( now - f )) -ge 14400 ] \
+    && echo "PASS  path (b): $n requests, $(( (l-f)/60 ))min apart, first $(( (now-f)/3600 ))h ago" \
+    || echo "FAIL  path (b): needs >=2 requests >=60min apart and >=4h elapsed"
+else echo "n/a   path (b) not claimable -- $n request(s)"; fi
 ```
 
-A round on an earlier head is evidence about that head and no other; `reviews_on_head` is the only count that discharges the gate.
+A round on an earlier head is evidence about that head and no other.
 
 ### Criterion 2 — the remedy is attempted before the substitute
 
@@ -3648,7 +3676,7 @@ All five are required. Any one missing means the gate is not degraded but simply
 
 | # | Requirement |
 |---|---|
-| 1 | **A read-only review pass on the frozen final head** by an agent that has made no commit to the branch. `AGENTS.md` holds that automation which writes to the repository is an implementer and never a reviewer; the reviewer here must therefore be a separate read-only pass, and the head must not move during or after it. |
+| 1 | **A read-only review pass on the frozen final head** by a reviewer with **no authorship, implementation, generation, or repository-write involvement in the change under review, on any branch** — not merely one that personally ran no `git commit`. An agent that wrote or generated the diff is an implementer under `AGENTS.md` whoever committed it, and a later read-only pass by that same agent does not launder it into a reviewer. The head must not move during or after the pass. |
 | 2 | **Findings posted to the pull request verbatim**, not summarised, including findings the implementer disputes — with the dispute stated as a reply rather than by omission. |
 | 3 | **Red-before-green evidence for every behavioural change**: the test failing without the fix and passing with it, run standalone, linked. |
 | 4 | **The full suite green on the final head**, linked by run or local summary. |
@@ -3662,12 +3690,13 @@ Posted as a single comment before the merge, containing: the head SHA; which una
 
 | Trigger | Effect |
 |---|---|
-| The reviewer produces a round on any pull request head | The degraded procedure **lapses immediately** and the normal D-121 gate resumes for every open pull request, including those mid-flight. |
+| **Any evidence that quota has recovered** — a round on any head, or any reviewer artefact that is not a usage-limit notice | The degraded procedure **lapses immediately** and the normal D-121 gate resumes for every open pull request, including those mid-flight. Recovery is the trigger, **not** the arrival of a round on the specific pull request in hand: waiting for a per-PR round would leave a window in which a stale usage-limit comment still authorised the substitute after the outage had ended. Line 2 of Criterion 1's command is what closes that window. |
 | **14 days** from acceptance | Lapses automatically. Extension requires a new owner decision, not a renewal by silence — this is the clause that stops a temporary procedure becoming the standing one. |
 | Either way | Every pull request merged under D-224 is listed in the extension or closure record, and each gets a retrospective round or an explicit, recorded owner decision not to seek one. |
 
 | Field | Value |
 |---|---|
-| Amendments required on acceptance | `AGENTS.md` Mandatory Workflow — the sentence *"When Codex's externally-billed quota is exhausted (risk R-009) the gate is **unavailable**, not waived: the merge waits"* gains D-224 as its documented, time-boxed exception. **R-009** — its *"not substitutable"* clause gains the same reference, since that clause explicitly anticipates being changed by an approved policy change and this is that change. |
+| Amendments required on acceptance | D-224 changes which agent may satisfy the independent-review gate, so the amendment set is everything that encodes the current answer, not only the policy file: (1) **`AGENTS.md`** Mandatory Workflow — the *"unavailable, not waived"* sentence gains D-224 as its documented, time-boxed exception; (2) **R-009** — its *"not substitutable"* clause gains the same reference, which that clause explicitly anticipates; (3) **`docs/agents/responsibility-matrix.md`** — its reviewer note ends *"the gate is unavailable, not waived"* and must carry the exception; (4) **`docs/bootstrap/manual-setup-checklist.md`** step 5 — it states *"no other reviewer substitutes for it"*, which contradicts an accepted D-224 as written. All four are amended in the same branch as this entry. |
+| Reviewed and found not to need amendment, with the reason | **`scripts/validate_phase0.py`'s `validate_independent_reviewer_declaration()` and its regression tests in `scripts/test_validate_phase0.py`.** The property they enforce is that `AGENTS.md` names the independent reviewer inside the workflow it gates and that `docs/agents/responsibility-matrix.md` carries a matching read-only row. **D-224 does not change that property**: `chatgpt-codex-connector[bot]` remains *the* named reviewer, and the substitute is a degraded fallback for its unavailability, not a second reviewer of record. Widening the validator to accept a substitute name would weaken exactly the binding D-121 relies on. Verified green against this branch. |
 | Application to #182, #186 and #187 | **None by this entry.** D-224 defines a procedure; it merges nothing and authorises nothing retroactively. Whether to apply it to the three open pull requests, restore the Codex quota, or continue waiting is the owner's decision, taken after this record is accepted. |
 | Related | **D-121** (the gate), **D-222** (the override, deliberately distinct), **D-142** (what happened last time the gate was worked around at scale — twelve pull requests merged without a round), **R-008**, **R-009**, `AGENTS.md` Mandatory Workflow. |
