@@ -450,18 +450,37 @@ class LegacyAttendanceReportEndToEndTest {
 		assertThat(meta.get("has_open_check_in")).isEqualTo(true);
 	}
 
+	/**
+	 * A stale open session reports expected minus two hours <b>while staying
+	 * open</b>. This is the whole of D-213 in one assertion.
+	 *
+	 * <p>The 360 is unchanged from when this test was written, and that is the
+	 * point: it used to prove the report had auto-closed the row and then read
+	 * the synthetic {@code check_out} back. hr-legacy {@code 505004f} emptied
+	 * {@code attendance_auto_close_stale_open_sessions()}, so the row is never
+	 * written to -- and {@code attendance_row_worked_minutes} computes the same
+	 * 360 on read, from one punch and an 8-hour expected day.
+	 *
+	 * <p>So the user sees the same hours either way, and the difference is only
+	 * whether the database was told a check-out time that nobody recorded. The
+	 * session is still past its deadline, so it is not a live open check-in.
+	 */
 	@Test
-	void aStaleOpenSessionIsAutoClosedBeforeTheRowsAreRead() {
+	void aStaleOpenSessionStaysOpenAndStillReportsExpectedMinusTwoHours() {
 		Map<String, Object> body = get(
 				MONTHLY + "?id=" + EMPLOYEE_OPEN_STALE + "&month=1&year=2019", EMPLOYEE_OPEN_STALE, 200);
 		List<Map<String, Object>> rows = dataRows(body);
 		assertThat(rows).hasSize(1);
-		assertThat(rows.get(0).get("check_out")).isNotNull();
-		// No shift assigned: expected falls back to 8h, closed at expected - 2h.
+		assertThat(rows.get(0).get("check_out"))
+				.describedAs("nothing invents a check-out for it any more")
+				.isNull();
+		// No shift assigned: expected falls back to 8h, reported at expected - 2h.
 		assertThat(number(rows.get(0).get("duration_minutes"))).isEqualTo(360);
 
 		Map<?, ?> meta = (Map<?, ?>) body.get("meta");
-		assertThat(meta.get("has_open_check_in")).isEqualTo(false);
+		assertThat(meta.get("has_open_check_in"))
+				.describedAs("open in the table, but past its deadline, so not a live session")
+				.isEqualTo(false);
 	}
 
 	@Test
