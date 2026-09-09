@@ -3631,8 +3631,20 @@ Neither path may be declared by inference, impatience, or a summary. **Every lin
 ```bash
 set -o pipefail
 PR=<number>; BOT=chatgpt-codex-connector; REPO=workin-hr/hr-platform
-SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid); SHORT=${SHA:0:7}
-J=$(gh pr view "$PR" --repo "$REPO" --json reviews,comments)
+die() { echo "FAIL  evidence incomplete: $1 -- refusing to certify exhaustion" >&2; exit 3; }
+
+# Resolve the target head FIRST and abort if it cannot be resolved. An empty
+# SHA must never reach the round-count logic: `[ "" -eq 0 ]` is a bash error,
+# the `if` falls through to its else branch, and the check prints a confident
+# verdict about a gate it never examined -- with exit 0.
+SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid) || die "cannot resolve #$PR"
+case "$SHA" in
+  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) : ;;
+  *) die "head of #$PR is not a sha ('$SHA')" ;;
+esac
+[ ${#SHA} -eq 40 ] || die "head of #$PR is not a full sha ('$SHA')"
+SHORT=${SHA:0:7}
+J=$(gh pr view "$PR" --repo "$REPO" --json reviews,comments) || die "cannot read #$PR"
 now=$(date -u +%s); ep(){ date -u -d "$1" +%s 2>/dev/null || echo 0; }
 
 # 1. no round on THIS head -- review objects AND D-158 clean-round comments
@@ -3649,16 +3661,23 @@ rounds=$(jq -r --arg b "$BOT" --arg s "$SHA" --arg p "$SHORT" '
 #    an evidence check that degrades to "no artefacts found" on a transient
 #    error would certify exhaustion it never established.
 BOT_RE='^chatgpt-codex-connector(\[bot\])?$'   # REST says "[bot]"; GraphQL does not
-die() { echo "FAIL  evidence incomplete: $1 -- refusing to certify exhaustion" >&2; exit 3; }
 
-issue=$(gh api "/repos/$REPO/issues/comments?sort=created&direction=desc&per_page=100") || die "issue comments"
-prc=$(gh api "/repos/$REPO/pulls/comments?sort=created&direction=desc&per_page=100")   || die "review comments"
+# --paginate, not a single page. The two feeds are capped INDEPENDENTLY, and
+# they churn at different rates -- this repository carries ~726 review comments
+# to ~212 issue comments. A recovery posted as a review comment can therefore
+# fall off page one of the fast feed while a stale usage-limit notice survives
+# on page one of the slow one, and the merge then reports exhaustion that ended
+# hours ago. Page one holds the newest 100 comments from EVERYONE, not the
+# newest 100 from the reviewer.
+issue=$(gh api --paginate "/repos/$REPO/issues/comments?sort=created&direction=desc&per_page=100") || die "issue comments"
+prc=$(gh api --paginate "/repos/$REPO/pulls/comments?sort=created&direction=desc&per_page=100")   || die "review comments"
 
+# --paginate emits one array per page, so flatten with .[][] rather than .[].
 latest=$(jq -s --arg re "$BOT_RE" '
-   [ (.[0][] | select(.user.login|test($re)) | {at:.created_at,
+   [ (.[0][][] | select(.user.login|test($re)) | {at:.created_at,
         kind:(if (.body|test("usage limits";"i")) then "quota" else "round" end)}),
-     (.[1][] | select(.user.login|test($re)) | {at:.created_at, kind:"round"}) ]
-   | sort_by(.at) | last // empty' <<<"$issue"$'\n'"$prc") || die "parse"
+     (.[1][][] | select(.user.login|test($re)) | {at:.created_at, kind:"round"}) ]
+   | sort_by(.at) | last // empty' <(jq -s . <<<"$issue") <(jq -s . <<<"$prc")) || die "parse"
 
 if [ -z "$latest" ]; then echo "n/a   reviewer has posted nothing in this repository"
 elif [ "$(jq -r .kind <<<"$latest")" = "quota" ]; then
