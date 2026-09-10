@@ -35,8 +35,16 @@ export const options = {
 // CSRF token cannot be validated against it, and every sign-in is a 403.
 //
 // Run it against the TLS proxy:
-//   docker compose -f compose.local.yaml -f e2e/compose.proxy.yaml up -d --wait
+//   deploy/e2e/run.sh            # brings up the TLS proxy and mints its cert
 //   BASE_URL=https://127.0.0.1:8443 ./run.sh admin-dashboard
+//
+// NOT `docker compose -f compose.local.yaml -f e2e/compose.proxy.yaml`, which
+// this comment used to say. compose.proxy.yaml carries `name: workin-integration`
+// and a later file's project name wins the merge, so that command runs the LOCAL
+// stack's definitions inside the INTEGRATION project -- recreating its
+// containers and attaching the local database to workin-integration_db-data.
+// It also fails outright without E2E_TLS_DIR and a generated certificate, which
+// deploy/e2e/run.sh is what provides.
 //
 // insecureSkipTLSVerify is in the options below for that proxy's self-signed
 // certificate; it is a local measurement, not a trust decision.

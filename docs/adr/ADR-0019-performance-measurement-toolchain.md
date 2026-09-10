@@ -119,9 +119,11 @@ the result, which is what catches the D-114 shape before it ships.
   **and** that an application meter reaches it; verified red by removing the
   registry dependency, which answered 404.
 - `PairingQueryBudgetTest` measured a pairing pass at **11 statements per
-  punch** (89 across 8 punches), and 4x the punches at **3.7x** the statements
-  -- linear, so no N+1, but 11/punch against a 5,000-record upload cap is where
-  the ingestion work now points.
+  punch** (89 across 8 punches) before any optimisation. It now asserts the
+  total directly -- **69 statements for 8 punches** -- and a separate assertion
+  holds per-employee cost at **3.0**. The original "4x the punches at 3.7x the
+  statements" arm is gone: review showed it was algebraically incapable of
+  failing, because both of its arms seeded the same punches-per-employee ratio.
 - The forbidden-file exclusion for `perf/scenarios/*.js` is scoped to one
   directory and one suffix, with a test asserting `.ts`, `package.json`,
   `perf/*.js` and `.js` elsewhere all still fail.

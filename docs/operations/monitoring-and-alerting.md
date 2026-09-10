@@ -28,8 +28,9 @@ local stack for measurement.
 **Production is unchanged**: `health` only, no scrape endpoint, no dashboard,
 no log aggregation and no alert routing. Exposing the scrape there needs a
 management port the proxy does not forward, or an authenticated matcher --
-this chain does not authenticate `/actuator` and `deploy/Caddyfile` proxies
-every path on `APP_DOMAIN`. ADR-0008's deferral of the deployed stack stands.
+this chain does not authenticate `/actuator`, and while `deploy/Caddyfile`
+now refuses that surface the application must not depend on an edge it does
+not own. ADR-0008's deferral of the deployed stack stands.
 
 ### Two things to fix before cutover
 

@@ -616,12 +616,20 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 		punchAt(DAY + " 08:00:00");
 		long closer = punchAt(DAY + " 17:00:00");
 
-		service.pairCompany(COMPANY, "friday");
+		PunchPairingService.Outcome outcome = service.pairCompany(COMPANY, "friday");
 
+		// Pinned as a CLOSER, not merely PAIRED. Both dispositions produce
+		// PAIRED, so without this a regression that made the 17:00 punch open a
+		// second row would still pass here -- through markPairedAsOpener -- and
+		// silently stop covering markPaired, which is the method under test.
+		assertThat(outcome.closed()).as("the 17:00 punch closed the morning row").isEqualTo(1);
 		Map<String, Object> row = query("SELECT legacy_runtime_offset_seconds,"
-				+ " runtime_offset_resolution, processing_state FROM device_punches WHERE id = "
-				+ closer).get(0);
+				+ " runtime_offset_resolution, processing_state, attendance_check_in_at"
+				+ " FROM device_punches WHERE id = " + closer).get(0);
 		assertThat(text(row.get("processing_state"))).isEqualTo("PAIRED");
+		assertThat(row.get("attendance_check_in_at"))
+				.as("only the opener stamps this, so a null here proves markPaired ran")
+				.isNull();
 		assertThat(text(row.get("runtime_offset_resolution")))
 				.isEqualTo(PunchPairingService.RUNTIME_OFFSET_EXACT);
 		assertThat(Long.parseLong(text(row.get("legacy_runtime_offset_seconds"))))

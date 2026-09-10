@@ -32,12 +32,26 @@ BASE_URL="${BASE_URL:-http://127.0.0.1:${APP_PORT}}"
 # (which sets insecureSkipTLSVerify) ever starts -- a gate stricter than the
 # thing it gates, whose only workaround trains the operator to set the
 # disposability escape hatch by reflex.
+# Anchored on the delimiter: an unanchored `https://localhost*` also matches
+# https://localhost-staging.corp, which would disable certificate verification
+# against a remote host.
 case "$BASE_URL" in
-  https://127.0.0.1*|https://localhost*) INSECURE=1 ;;
+  https://127.0.0.1|https://127.0.0.1[:/]*|https://localhost|https://localhost[:/]*)
+    INSECURE=1 ;;
   *) INSECURE="" ;;
 esac
 
-if ! curl -fsS ${INSECURE:+-k} "${BASE_URL}/actuator/health" >/dev/null 2>&1; then
+# An explicit 200, never "curl did not error". `curl -f` only fails on >= 400,
+# and the edge answers 308 on every plain-HTTP path -- so a redirect read as
+# success on both probes below, and the disposability guard passed against a
+# target where the API description does not exist at all. --max-redirs 0 keeps
+# the answer being about THIS url.
+probe_status() {  # $1=path -> HTTP status, or 000
+  curl -sS -o /dev/null -w '%{http_code}' --max-redirs 0 \
+    ${INSECURE:+-k} "${BASE_URL}$1" 2>/dev/null || echo 000
+}
+
+if [ "$(probe_status /actuator/health)" != "200" ]; then
   echo "nothing healthy at ${BASE_URL}." >&2
   echo "Start the stack first, or set PERF_APP_PORT / BASE_URL:" >&2
   echo "  cd deploy && docker compose -f compose.local.yaml \\" >&2
@@ -63,7 +77,12 @@ fi
 # regardless of profile, which restores the marker's meaning -- and that pin,
 # not the profile, is what this relies on.
 if [ "${PERF_TARGET_IS_DISPOSABLE:-0}" != "1" ]; then
-  if ! curl -fsS ${INSECURE:+-k} "${BASE_URL}/v3/api-docs/client-api" >/dev/null 2>&1; then
+  # 200 AND an OpenAPI document. A 3xx, a portal splash page or an error page
+  # that happens to return 200 must not read as "this is a disposable stack".
+  description="$(curl -sS --max-redirs 0 ${INSECURE:+-k} \
+    "${BASE_URL}/v3/api-docs/client-api" 2>/dev/null || true)"
+  if [ "$(probe_status /v3/api-docs/client-api)" != "200" ] \
+      || ! printf '%s' "$description" | grep -q '"openapi"'; then
     echo "refusing: ${BASE_URL} does not publish the API description, so it does not" >&2
     echo "  look like a local or integration stack. compose.remote-db.yaml publishes the" >&2
     echo "  same port and points at the production database; a load run there locks the" >&2
