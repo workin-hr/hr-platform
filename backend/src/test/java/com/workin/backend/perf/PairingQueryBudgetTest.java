@@ -87,6 +87,11 @@ class PairingQueryBudgetTest extends AbstractLegacyMySqlTest {
 	}
 
 	private void seedEmployeesWithOneDayEach(int employees) throws Exception {
+		seedEmployeesWithPunches(employees, 2);
+	}
+
+	/** {@code employees} people, {@code punchesEach} punches apiece on one day. */
+	private void seedEmployeesWithPunches(int employees, int punchesEach) throws Exception {
 		for (int i = 0; i < employees; i++) {
 			long id = 996100 + i;
 			seedAsLegacyWould("INSERT INTO employees (id, company_id, branch_id, employee_code,"
@@ -95,7 +100,11 @@ class PairingQueryBudgetTest extends AbstractLegacyMySqlTest {
 					+ " token_version, created_at) VALUES (" + id + ", " + COMPANY + ", " + BRANCH
 					+ ", '" + (7000 + i) + "', 'Budget', 'E" + i + "', '+2011002" + (50000 + i)
 					+ "', 'employee', 1, 1, 0, 'accepted', 1, '2025-01-01 09:00:00')");
-			for (String at : List.of(DAY + " 08:00:00", DAY + " 17:00:00")) {
+			List<String> times = new java.util.ArrayList<>();
+			for (int p = 0; p < punchesEach; p++) {
+				times.add(String.format("%s %02d:00:00", DAY, 8 + p));
+			}
+			for (String at : times) {
 				String key = String.format("%064x", (at + id).hashCode() & 0xffffffffL);
 				seedAsLegacyWould("INSERT INTO device_punches (device_id, company_id, branch_id,"
 						+ " employee_id, pin, punched_at_local, punched_at_utc, received_at,"
@@ -108,29 +117,43 @@ class PairingQueryBudgetTest extends AbstractLegacyMySqlTest {
 	}
 
 	@Test
-	void theWorkPerPunchDoesNotGrowWithHowManyEmployeesArePaired() throws Exception {
-		seedEmployeesWithOneDayEach(2);
-		List<String> small = counter.measure(() -> service.pairCompany(COMPANY, "monday"));
+	void perEmployeeWorkDoesNotRideAlongInsideThePerPunchLoop() throws Exception {
+		// SAME punch count, different employee count. The previous version of
+		// this test used 2 punches per employee in both arms, so employees rose
+		// in step with punches and per-employee work was algebraically
+		// indistinguishable from per-punch work: for any cost of the form
+		// P + c*n the assertion reduced to something true for all P and c, and
+		// nothing short of superlinear growth could fail it.
+		//
+		// Sixteen punches either way. If a lookup happens once per EMPLOYEE
+		// inside the loop, the 8-employee arm pays it four times as often as
+		// the 2-employee arm and the difference has nowhere to hide.
+		seedEmployeesWithPunches(2, 8);
+		int fewEmployees = counter.measure(() -> service.pairCompany(COMPANY, "monday")).size();
 
 		seed();
-		seedEmployeesWithOneDayEach(8);
-		List<String> large = counter.measure(() -> service.pairCompany(COMPANY, "monday"));
+		seedEmployeesWithPunches(8, 2);
+		int manyEmployees = counter.measure(() -> service.pairCompany(COMPANY, "monday")).size();
 
-		// Four times the employees, four times the punches. Anything that is
-		// per-punch scales with them; anything per-PASS must not.
-		// Per-punch cost, not raw totals. Comparing totals hides the thing being
-		// guarded: a fixed per-pass cost of four statements drags the ratio
-		// down, so ANY constant-per-punch implementation lands under 4.0 and a
-		// threshold of 6.0 rejected nothing -- the per-employee-inside-the-loop
-		// shape this test names computes to 5.5 and would have passed.
-		double smallPerPunch = (double) small.size() / 4;
-		double largePerPunch = (double) large.size() / 16;
-		assertThat(largePerPunch)
-				.as("%.1f statements per punch over 16 punches against %.1f over 4. Per-punch "
-						+ "work is expected and must stay FLAT; a rise means something is being "
-						+ "looked up per punch that could be looked up once per pass.",
-						largePerPunch, smallPerPunch)
-				.isLessThan(smallPerPunch * 1.25);
+		// The PER-EMPLOYEE cost, isolated. Some of it is legitimate and expected:
+		// the branch policy is a per-employee fact and the memo's whole purpose
+		// is to pay for it once each. What must not grow is that constant --
+		// measured at 3 statements per employee (133 vs 115 across 6 extra),
+		// which is one memoised policy read plus its share of the pass.
+		//
+		// The two assertions in this class catch DIFFERENT regressions, and it is
+		// worth being exact because an earlier version of this comment was not.
+		// Removing the branch-policy memo makes that read per PUNCH, which
+		// raises both arms and trips the RATCHET below (73 against 69) while
+		// leaving this figure flat -- so the ratchet guards per-punch cost and
+		// this guards per-employee cost. Neither substitutes for the other.
+		double perEmployee = (manyEmployees - fewEmployees) / 6.0;
+		assertThat(perEmployee)
+				.as("16 punches across 8 employees issued %d statements and across 2 employees "
+						+ "%d -- %.1f per extra employee. A rise means something is looked up "
+						+ "per employee that is not already memoised for the pass (D-114).",
+						manyEmployees, fewEmployees, perEmployee)
+				.isLessThanOrEqualTo(4.0);
 	}
 
 	@Test

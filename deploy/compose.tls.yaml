@@ -36,6 +36,9 @@ services:
         condition: service_healthy
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env.prod}
+      # Passed through, or the devices site is literally `devices.localhost`
+      # in production -- a name nobody set and nobody expects.
+      APP_DEVICES_DOMAIN: ${APP_DEVICES_DOMAIN:-devices.localhost}
       TLS_EMAIL: ${TLS_EMAIL:?set TLS_EMAIL in .env.prod -- the certificate authority mails renewal failures there}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

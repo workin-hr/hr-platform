@@ -46,6 +46,12 @@ services:
     image: ${APP_IMAGE:-workin-backend:local-build}
     restart: unless-stopped
     environment:
+      # Explicit pass-through, following APP_LOG_LEVEL. `--env-file` variables
+      # are used for INTERPOLATION only and are never injected into the
+      # container, so a knob that is not named here does nothing at all -- the
+      # exact defect this change set out to remove one layer further in.
+      APP_TRACE_SAMPLING: ${APP_TRACE_SAMPLING:-0.05}
+      APP_DB_MAX_POOL_SIZE: ${APP_DB_MAX_POOL_SIZE:-10}
       # `local` or `integration`. Not `prod`: that profile requires WhatsApp
       # credentials and trusts forwarded headers, neither of which belongs in a
       # session someone is using to look around.

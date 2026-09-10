@@ -21,7 +21,29 @@
 # whatever rate limits and WAF rules this name carries. The application refuses
 # it there too (app.devices.ingest.host); this is the outer half of the same
 # rule, so neither one alone is load-bearing.
+# Everything on the management surface except health, refused at the edge.
+#
+# A SNIPPET because it has to apply to EVERY site. It was written into the
+# client site alone, which left the devices name proxying `/actuator/*`
+# straight through -- and both names are served by the same Caddy on
+# 0.0.0.0:443, so "a misconfiguration has to defeat both layers" was true on
+# one hostname and false on the other.
+#
+# `health` is carved out deliberately: going-live-on-a-vps.md tells an operator
+# to curl it through the public domain, and a blanket refusal breaks the one
+# check that says a release came up. Bare `/actuator` is included because
+# Spring serves its discovery document there.
+(refuse_management) {
+	@management_private {
+		path /actuator /actuator/*
+		not path /actuator/health
+	}
+	respond @management_private 404
+}
+
 {$APP_DEVICES_DOMAIN:devices.localhost} {
+	import refuse_management
+
 	request_body {
 		max_size 2MB
 	}
@@ -52,11 +74,7 @@
 	# `health` is carved out deliberately: going-live-on-a-vps.md tells an
 	# operator to curl it through this domain, and a blanket refusal here
 	# breaks the one check that says the deployment came up.
-	@management_private {
-		path /actuator/*
-		not path /actuator/health
-	}
-	respond @management_private 404
+	import refuse_management
 
 	# Employee photos and documents come through here. The application caps
 	# uploads itself; this only has to not refuse them earlier.

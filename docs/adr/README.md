@@ -86,10 +86,10 @@ maintaining a second, divergent copy of these rules — see
   is the application's only persistence
 - `ADR-0019-performance-measurement-toolchain.md` — a Micrometer Prometheus
   registry reads the meters the application already maintained, k6 drives the
-  three surfaces from the compose network, query-count assertions catch the
+  three surfaces from the host network, query-count assertions catch the
   round-trip growth a profiler reports as "time in JDBC", and JFR answers the
-  rest. The scrape is exposed in `local`/`integration` only and load runs stay
-  off per-PR CI. Answers part of ADR-0008's deferred question; the deployed
+  rest. The scrape is exposed only by the measurement overlay -- never by a
+  profile -- and load runs stay off per-PR CI. Answers part of ADR-0008's deferred question; the deployed
   monitoring stack stays deferred (accepted 2026-09-10)
 - `ADR-0018-one-administrator-one-password.md` — the dashboard signs in the
   way PHP's does: one administrator, one password, no phone and no second

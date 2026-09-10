@@ -7,7 +7,7 @@ in comparing two runs of the same scenario against the same data.
 ## Why k6
 
 A single static binary with no JVM, scenarios in JavaScript, and a container
-image that runs in the same compose network as the application. Gatling would
+image that runs against the published port from the host network. Gatling would
 bring a second JVM into a measurement of the first one; JMeter's GUI and XML
 are a poor fit for something that has to live in a repository and be diffed.
 Recorded in **ADR-0019**.

@@ -492,7 +492,7 @@ public class PunchPairingStore {
 				provenance.offsetSeconds(), provenance.resolution(), punchId);
 	}
 
-	/** A punch that CLOSED an existing row; its provenance field stays null. */
+	/** A punch that CLOSED an existing row; it sets no {@code attendance_check_in_at}. */
 	public void markPaired(long punchId, long attendanceId, LocalDateTime pairedAt,
 			String reviewFlag, RuntimeOffsetProvenance provenance) {
 		jdbcTemplate.update("""

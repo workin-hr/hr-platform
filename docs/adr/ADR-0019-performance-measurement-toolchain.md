@@ -50,7 +50,7 @@ a monitoring stack deferred.
 
 | Tool | Question it answers | Where it runs |
 |---|---|---|
-| **Micrometer Prometheus registry** | What is the JVM, the pool and the app doing? | Application, local + integration profiles |
+| **Micrometer Prometheus registry** | What is the JVM, the pool and the app doing? | Application; scrape exposed only by the measurement overlay |
 | **Prometheus + Grafana** | What was it doing *while* the load ran? | `deploy/compose.observability.yaml`, local only |
 | **k6** | Does it hold up, and did this change make it worse? | Container, host network, against the published port |
 | **Query-count assertions** | Is the work per row constant? | JUnit, in the normal suite |
@@ -61,11 +61,13 @@ in JavaScript that diff cleanly in a repository, and an image that joins the
 compose network. Gatling would introduce a second JVM into a measurement of the
 first. JMeter's GUI-driven XML does not belong in version control.
 
-**The Prometheus endpoint is exposed in `local` and `integration` only.**
-Production keeps `health` alone. This chain does not authenticate `/actuator`
-and `deploy/Caddyfile` proxies every path on `APP_DOMAIN`, so exposing it there
-would publish JVM internals, every meter and every URI template to anyone who
-asks. Turning it on needs either a management port the proxy does not forward
+**The Prometheus endpoint is exposed by the measurement overlay ALONE**, not
+by any profile. Keying it to `local`/`integration` was wrong and was caught in
+review: `deploy/compose.remote-db.yaml` runs profile `local` against the
+production database behind the public edge. No chain authenticates `/actuator`,
+so that would have published JVM internals, every URI template, and every
+registered terminal's serial. `deploy/Caddyfile` now also refuses the
+management surface on both site names, health excepted. Turning it on needs either a management port the proxy does not forward
 or an authenticated matcher -- a decision with its own evidence, not a config
 flip.
 

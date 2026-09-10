@@ -1,7 +1,7 @@
 // Surface 3: the ZKTeco push receiver.
 //
-// The one surface with a hard, known cost: a pairing pass issues about eleven
-// statements per punch (PairingQueryBudgetTest measures it), and a terminal
+// The one surface with a hard, known cost: a pairing pass issues roughly nine
+// statements per punch (PairingQueryBudgetTest ratchets the exact figure), and a terminal
 // returning from an outage delivers its whole buffer at once, capped at
 // app.devices.ingest.max-records-per-upload. This measures the delivery, which
 // is the part a terminal waits on and re-sends if it times out.

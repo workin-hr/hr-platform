@@ -21,7 +21,7 @@ recorded as **R-043**.*
 
 That list was the whole story until **ADR-0019**. What changed: a Micrometer
 Prometheus registry now reads the meters the application already maintained,
-`/actuator/prometheus` is exposed in the `local` and `integration` profiles,
+`/actuator/prometheus` is exposed only by `deploy/compose.observability.yaml`, never by a profile,
 and `deploy/compose.observability.yaml` runs Prometheus and Grafana beside the
 local stack for measurement.
 

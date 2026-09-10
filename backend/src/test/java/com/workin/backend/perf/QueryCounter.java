@@ -25,6 +25,15 @@ import javax.sql.DataSource;
  * counter: this is a JDK proxy over {@link DataSource} and {@link Connection},
  * used only from tests.
  *
+ * <p><b>Not the production round-trip count.</b> It counts
+ * {@code prepareStatement}/{@code prepareCall} only, so a
+ * {@code createStatement().execute(...)} is invisible, and the budget tests
+ * wrap a plain {@code DriverManagerDataSource} rather than
+ * {@code LegacySessionDataSource}, which issues a {@code SET time_zone} on
+ * every checkout (D-099). The figures here are self-consistent run to run,
+ * which is what a ratchet needs; they are not a number to quote as production
+ * cost.
+ *
  * <p>Not thread-safe by design, and it does not need to be: a query budget is
  * asserted around a single operation on the calling thread. Counting across a
  * concurrent load run is what the Prometheus scrape is for.

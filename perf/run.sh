@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs a k6 scenario against the local stack, inside the compose network.
+# Runs a k6 scenario against a local stack, from the host network.
 #
 # On the HOST network, against the published port. The admin dashboard's
 # session cookie is `Secure` and k6 -- unlike browsers and curl -- does not
@@ -33,6 +33,30 @@ if ! curl -fsS "${BASE_URL}/actuator/health" >/dev/null 2>&1; then
   echo "  cd deploy && docker compose -f compose.local.yaml \\" >&2
   echo "      -f compose.observability.yaml up -d --wait" >&2
   exit 1
+fi
+
+# REFUSE ANYTHING THAT IS NOT A DISPOSABLE STACK.
+#
+# `deploy/compose.remote-db.yaml` publishes 127.0.0.1:8080 -- the same host and
+# default port this harness assumes -- and its own header says it points at the
+# production database. `./run.sh all` against it would throw thousands of failed
+# `admin` sign-ins at production: PlatformAdminLoginThrottle allows 8 per 15
+# minutes per identifier, so the real platform administrator is locked out and
+# the attempts table takes the junk. A load generator must not be one
+# environment variable away from that.
+#
+# The marker is the published API description, which deployment-shape.spec.js
+# already uses to tell a local/integration stack from a production one: prod
+# does not publish it.
+if [ "${PERF_TARGET_IS_DISPOSABLE:-0}" != "1" ]; then
+  if ! curl -fsS "${BASE_URL}/v3/api-docs/client-api" >/dev/null 2>&1; then
+    echo "refusing: ${BASE_URL} does not publish the API description, so it does not" >&2
+    echo "  look like a local or integration stack. compose.remote-db.yaml publishes the" >&2
+    echo "  same port and points at the production database; a load run there locks the" >&2
+    echo "  platform administrator out and writes junk into it." >&2
+    echo "  Set PERF_TARGET_IS_DISPOSABLE=1 only if you are certain this target is." >&2
+    exit 1
+  fi
 fi
 
 run_one() {
