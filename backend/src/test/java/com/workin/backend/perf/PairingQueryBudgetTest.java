@@ -153,7 +153,11 @@ class PairingQueryBudgetTest extends AbstractLegacyMySqlTest {
 						+ "%d -- %.1f per extra employee. A rise means something is looked up "
 						+ "per employee that is not already memoised for the pass (D-114).",
 						manyEmployees, fewEmployees, perEmployee)
-				.isLessThanOrEqualTo(4.0);
+				// 3.0 measured, and asserted at 3.0. At 4.0 a single added
+				// per-employee lookup costs exactly +1 and lands on 4.0, which
+				// passes -- a ratchet with a full unit of headroom on a quantity
+				// that moves in units of one is not a ratchet.
+				.isLessThanOrEqualTo(3.0);
 	}
 
 	@Test

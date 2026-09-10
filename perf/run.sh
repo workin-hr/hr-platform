@@ -27,7 +27,17 @@ usage() {
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:${APP_PORT}}"
 
-if ! curl -fsS "${BASE_URL}/actuator/health" >/dev/null 2>&1; then
+# The admin scenario's documented target is https://127.0.0.1:8443 with a
+# self-signed certificate, so a bare `curl -fsS` fails the precheck before k6
+# (which sets insecureSkipTLSVerify) ever starts -- a gate stricter than the
+# thing it gates, whose only workaround trains the operator to set the
+# disposability escape hatch by reflex.
+case "$BASE_URL" in
+  https://127.0.0.1*|https://localhost*) INSECURE=1 ;;
+  *) INSECURE="" ;;
+esac
+
+if ! curl -fsS ${INSECURE:+-k} "${BASE_URL}/actuator/health" >/dev/null 2>&1; then
   echo "nothing healthy at ${BASE_URL}." >&2
   echo "Start the stack first, or set PERF_APP_PORT / BASE_URL:" >&2
   echo "  cd deploy && docker compose -f compose.local.yaml \\" >&2
@@ -45,11 +55,15 @@ fi
 # the attempts table takes the junk. A load generator must not be one
 # environment variable away from that.
 #
-# The marker is the published API description, which deployment-shape.spec.js
-# already uses to tell a local/integration stack from a production one: prod
-# does not publish it.
+# The marker was the published API description, borrowed from
+# deployment-shape.spec.js. That was wrong for the same reason the exposure bug
+# was: that marker is keyed to the PROFILE NAME (`PROFILE !== 'prod'`), and
+# compose.remote-db.yaml runs profile `local`, so the guard passed on exactly
+# the stack it exists to refuse. compose.remote-db.yaml now pins springdoc off
+# regardless of profile, which restores the marker's meaning -- and that pin,
+# not the profile, is what this relies on.
 if [ "${PERF_TARGET_IS_DISPOSABLE:-0}" != "1" ]; then
-  if ! curl -fsS "${BASE_URL}/v3/api-docs/client-api" >/dev/null 2>&1; then
+  if ! curl -fsS ${INSECURE:+-k} "${BASE_URL}/v3/api-docs/client-api" >/dev/null 2>&1; then
     echo "refusing: ${BASE_URL} does not publish the API description, so it does not" >&2
     echo "  look like a local or integration stack. compose.remote-db.yaml publishes the" >&2
     echo "  same port and points at the production database; a load run there locks the" >&2

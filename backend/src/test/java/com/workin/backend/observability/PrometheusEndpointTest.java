@@ -75,7 +75,11 @@ class PrometheusEndpointTest {
 		// and this asserts the property reached it.
 		assertThat(scrape())
 				.as("app.legacy-db.maximum-pool-size must reach the pool, not be decorative")
-				.contains("hikaricp_connections{pool=\"HikariPool-1\"} 7.0");
+				// `hikaricp_connections_max` IS the configured maximum.
+				// `hikaricp_connections` is the current total, which the
+				// housekeeper fills asynchronously, so asserting it makes this
+				// a race on a loaded machine.
+				.containsPattern("hikaricp_connections_max\\{[^}]*\\} 7\\.0");
 	}
 
 	@Test

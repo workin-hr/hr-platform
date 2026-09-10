@@ -61,7 +61,7 @@ in this repository already holds itself to.
 | OWASP Dependency-Check | Dependency scanning | Evaluate during discovery | Useful after application dependencies exist |
 | OWASP ZAP | DAST | Evaluate during discovery | Depends on running application surfaces |
 | OpenTelemetry | Observability | Evaluate during discovery | Important but not needed for bootstrap |
-| Prometheus | Metrics | **Adopted, local only (ADR-0019)** | Registry in the app; scrape exposed only by `deploy/compose.observability.yaml`, never by a profile. Production exposure still deferred — the endpoint is unauthenticated and the edge proxies every path |
+| Prometheus | Metrics | **Adopted, local only (ADR-0019)** | Registry in the app; scrape exposed only by `deploy/compose.observability.yaml`, never by a profile. Production exposure still deferred — the endpoint is unauthenticated; the edge now refuses it, but the application must not depend on that alone |
 | Grafana | Dashboards | **Adopted, local only (ADR-0019)** | `deploy/compose.observability.yaml`, loopback-bound. Not in `compose.prod.yaml` |
 | Loki | Log storage | Still deferred (ADR-0008, ADR-0019) | ADR-0019 adopted measurement, not log aggregation |
 | Tempo | Trace storage | Still deferred (ADR-0008, ADR-0019) | Traces still export to the log; sampling now 0.05 outside local |

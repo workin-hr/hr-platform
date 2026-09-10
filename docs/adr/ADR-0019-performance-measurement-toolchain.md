@@ -58,7 +58,7 @@ a monitoring stack deferred.
 
 **k6 over Gatling and JMeter.** A single static binary with no JVM, scenarios
 in JavaScript that diff cleanly in a repository, and an image that joins the
-compose network. Gatling would introduce a second JVM into a measurement of the
+host network against the published port. Gatling would introduce a second JVM into a measurement of the
 first. JMeter's GUI-driven XML does not belong in version control.
 
 **The Prometheus endpoint is exposed by the measurement overlay ALONE**, not

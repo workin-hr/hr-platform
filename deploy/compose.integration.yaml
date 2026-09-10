@@ -74,7 +74,10 @@ services:
       # are used for INTERPOLATION only and are never injected into the
       # container, so a knob that is not named here does nothing at all -- the
       # exact defect this change set out to remove one layer further in.
-      APP_TRACE_SAMPLING: ${APP_TRACE_SAMPLING:-0.05}
+      # 1.0, matching application-integration.properties -- this environment
+      # exists to be inspected. A 0.05 default here would have silently
+      # changed that while three documents still said 1.0.
+      APP_TRACE_SAMPLING: ${APP_TRACE_SAMPLING:-1.0}
       APP_DB_MAX_POOL_SIZE: ${APP_DB_MAX_POOL_SIZE:-10}
       SPRING_PROFILES_ACTIVE: integration
       LEGACY_DB_JDBC_URL: jdbc:mariadb://db:3306/${DB_NAME:-workin}
