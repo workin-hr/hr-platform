@@ -130,8 +130,10 @@ the result, which is what catches the D-114 shape before it ships.
   failures. Attendance pages 1/10/25 are flat at 47/47/44ms, so pagination does
   not degrade with depth at the seed's volume.
 
-Two surfaces are **not** baselined, and the scenarios say so rather than
-reporting a fast number for the wrong thing:
+All three surfaces are now baselined: client API **p95 107ms**, admin dashboard
+**p95 213ms**, device ingestion **p95 159ms** at 50-record batches, none with a
+single failed request. Two needed a run-time override to reach, neither of them
+committed:
 
 - **Admin dashboard** needs an `https` base URL. The session cookie is
   `Secure`; browsers and `curl` treat `http://127.0.0.1` as a secure context
@@ -139,10 +141,21 @@ reporting a fast number for the wrong thing:
   (This also corrected `running-the-backend-for-client-developers.md`, which
   claimed the dashboard never stays signed in on the local stack. It does, on
   `localhost`; it does not by LAN IP from another machine.)
-- **Device ingestion** is blocked by a stale seed: `deploy/seed/dev-seed.sql`
-  predates the Phase-1 device tables, the stack reports `8 of 14 owned tables
-  are MISSING`, and claiming a device answers 500. Regenerating the seed from a
-  post-#182 dump is the prerequisite.
+- **Device ingestion** needs `app.devices.ingest.enabled` (default false) and
+  `app.devices.ingest.host`. It is also blocked on a stale seed:
+  `deploy/seed/dev-seed.sql` predates the Phase-1 device tables, so the stack
+  reports `8 of 14 owned tables are MISSING` and claiming a device answers 500.
+  Applying `phase1_extensions.sql` to the running database unblocks a
+  measurement; **regenerating the seed remains outstanding**.
+
+**The first full run found the bottleneck.** Prometheus recorded
+`hikaricp_connections_active` at its ceiling of 10 with
+`hikaricp_connections_pending` also at 10 -- every connection busy and ten more
+threads queued -- while heap peaked at 150MB, so neither memory nor GC is the
+constraint. `spring.datasource.hikari.maximum-pool-size` is unset, i.e.
+HikariCP's default of 10. Sizing it is a deployment decision against MariaDB's
+`max_connections` and the instance count, so it is recorded rather than
+changed here.
 
 ## What the measurement then changed
 

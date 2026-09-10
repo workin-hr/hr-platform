@@ -58,12 +58,39 @@ tests" and "we have measured this" are different claims.
 | Surface | State | Detail |
 |---|---|---|
 | **Client API** | **Baselined** | 22,417 requests at 20 VUs, **p95 107ms**, avg 33ms, 0 failures. Attendance pages 1, 10 and 25 measured flat (47/47/44ms) -- no offset-scan degradation at this volume |
-| **Admin dashboard** | **Blocked: needs HTTPS** | The session cookie is `Secure`. Browsers and `curl` treat `http://127.0.0.1` as a secure context and send it anyway; **k6 does not**, so the session from the GET never returns on the POST, CSRF cannot validate, and every sign-in is 403. Run it against `e2e/compose.proxy.yaml` on `https://127.0.0.1:8443` |
-| **Device ingestion** | **Blocked: stale seed** | `deploy/seed/dev-seed.sql` predates the Phase-1 device tables. The stack starts and reports `8 of 14 owned tables are MISSING`, and claiming a device answers 500. The seed needs regenerating from a dump taken after those tables existed |
+| **Admin dashboard** | **Baselined** | 1,810 requests at 5 VUs, **p95 213ms**, avg 83ms, 0 failures |
+| **Device ingestion** | **Baselined** | 12,634 requests at 20 VUs with 50-record batches, **p95 159ms**, avg 58ms, 0 failures |
 
-The two blocked surfaces have scenarios written and calibrated against the real
-routes; neither has a baseline, and neither threshold is evidence of anything
-yet.
+Two of them needed a run-time override to reach at all, and neither override is
+committed -- they belong on the command line of a measurement, not in a profile:
+
+- **Admin dashboard.** The session cookie is `Secure`, and k6 -- unlike
+  browsers and `curl` -- does not treat `http://127.0.0.1` as a secure context,
+  so the session never returns on the POST and CSRF cannot validate. Either run
+  against `e2e/compose.proxy.yaml` over `https://127.0.0.1:8443`, or override
+  `server.servlet.session.cookie.secure=false` for the run, which measures
+  application cost without TLS handshake noise.
+- **Device ingestion.** `app.devices.ingest.enabled` defaults to false, so
+  `/iclock/**` does not exist; set it, and set `app.devices.ingest.host` to the
+  host k6 calls. Separately, `deploy/seed/dev-seed.sql` **predates the Phase-1
+  device tables** -- the stack starts reporting `8 of 14 owned tables are
+  MISSING` and claiming a device answers 500. Applying `phase1_extensions.sql`
+  to the running database unblocks a measurement; regenerating the seed is the
+  real fix and is still outstanding.
+
+## What the first full run found
+
+**The connection pool saturates before anything else does.** Across the three
+runs Prometheus recorded `hikaricp_connections_active` at its ceiling of **10**
+with `hikaricp_connections_pending` also at **10** -- every connection busy and
+ten more threads queued behind them. Heap peaked at 150MB, so memory is not the
+constraint and neither is GC.
+
+`spring.datasource.hikari.maximum-pool-size` is not set anywhere, so this is
+HikariCP's default of 10. That is the first number to change, and it is a
+deployment decision rather than a code one: it has to be sized against
+MariaDB's `max_connections` and the number of application instances, which is
+why it is recorded here rather than raised unilaterally.
 
 ## The thresholds are ratchets
 

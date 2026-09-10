@@ -14,7 +14,11 @@ export const options = {
   thresholds: {
     // A terminal that does not get an answer re-sends the batch, so a slow
     // receiver turns into more load rather than less.
-    'http_req_duration{scenario:default}': ['p(95)<2000'],
+    // Ratchet, from a measured baseline: 12,634 requests at 20 VUs with
+    // 50-record batches gave p95=159ms, avg=58ms, 0 failures (2026-09-10,
+    // laptop). 400 leaves room for a busier machine and for a larger
+    // PERF_BATCH; 2000 was a guess.
+    'http_req_duration{scenario:default}': ['p(95)<400'],
     'http_req_failed': ['rate<0.01'],
   },
 };

@@ -20,7 +20,10 @@ export const options = {
   ],
   insecureSkipTLSVerify: true,
   thresholds: {
-    'http_req_duration': ['p(95)<1500'],
+    // Ratchet, from a measured baseline: 1,810 requests at 5 VUs gave
+    // p95=213ms, avg=83ms, 0 failures (2026-09-10, laptop). 400 leaves room
+    // for a busier machine; 1500 was a guess and would have caught nothing.
+    'http_req_duration': ['p(95)<400'],
     'http_req_failed': ['rate<0.02'],
   },
 };
