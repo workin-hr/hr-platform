@@ -91,6 +91,10 @@ class DeviceIngestionEndToEndTest {
 		registry.add("app.legacy-db.username", MARIADB::getUsername);
 		registry.add("app.legacy-db.password", MARIADB::getPassword);
 		registry.add("app.devices.ingest.enabled", () -> "true");
+		// The receiver answers on one hostname. TestRestTemplate calls
+		// localhost, so that is the device host here; in a deployment it is
+		// the separate device ingress name.
+		registry.add("app.devices.ingest.host", () -> "localhost");
 		// Small on purpose so the oversized-body refusal is testable without a megabyte.
 		registry.add("app.devices.ingest.max-body-bytes", () -> "2048");
 		// Small so the record cap is reachable without a megabyte of fixture.
@@ -740,6 +744,39 @@ class DeviceIngestionEndToEndTest {
 	/** What a firmware that posts its batch as a form would send. */
 	private ResponseEntity<String> devicePostForm(String pathAndQuery, String body) {
 		return devicePost(pathAndQuery, body, MediaType.APPLICATION_FORM_URLENCODED);
+	}
+
+	@Test
+	void theReceiverAnswersOnlyOnTheDeviceHost() throws Exception {
+		// The chain matched the path alone, and deploy/Caddyfile proxies every
+		// path on APP_DOMAIN to this application -- so /iclock/** was reachable
+		// UNAUTHENTICATED on the ordinary employee and admin hostname, and the
+		// device ingress with its own rate limits and WAF was bypassed simply
+		// by asking the other name for the same path.
+		claim(ADMIN_1, "DEV-HOST", BRANCH_1, "Host Gate", "+02:00");
+		String path = "/iclock/cdata?SN=DEV-HOST&options=all&pushver=2.4.0";
+
+		// The same request on the configured device host must work, so the
+		// refusal below cannot be blamed on the request itself.
+		ResponseEntity<String> allowed = deviceGet(path);
+		assertThat(allowed.getStatusCode().is2xxSuccessful())
+				.as("the handshake must succeed on the device host").isTrue();
+		assertThat(allowed.getBody()).contains("TimeZone=");
+
+		// A different NAME for the same port -- not a forged Host header: the
+		// test client rewrites that from the URI, so setting it by hand proves
+		// nothing. app.devices.ingest.host is localhost here, so 127.0.0.1 is
+		// a second name the server answers on and the one that must be refused.
+		String otherName = restTemplate.getRootUri().replace("localhost", "127.0.0.1");
+		assertThat(otherName).doesNotContain("localhost");
+		ResponseEntity<String> refused = restTemplate.exchange(
+				URI.create(otherName + path), HttpMethod.GET,
+				new HttpEntity<>(new HttpHeaders()), String.class);
+
+		assertThat(refused.getStatusCode().value())
+				.as("refused outright on any other hostname, not handed to the "
+						+ "ordinary chain where a signed-in employee could reach it")
+				.isEqualTo(403);
 	}
 
 	private ResponseEntity<String> devicePost(String pathAndQuery, String body, MediaType contentType) {

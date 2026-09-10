@@ -10,6 +10,8 @@ import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.util.StringUtils;
 
 /**
  * {@code /iclock/**} has no bearer token to check: device identity is the
@@ -43,14 +45,49 @@ public class ZkTecoAdmsSecurityConfig {
 		return registration;
 	}
 
+	/**
+	 * The receiver answers on ONE hostname, and only that one.
+	 *
+	 * <p>The chain matched the path alone, and the shipped edge
+	 * ({@code deploy/Caddyfile}) proxies every path on {@code APP_DOMAIN} to
+	 * this application. So {@code /iclock/**} was reachable, unauthenticated,
+	 * on the ordinary employee and admin hostname -- the separate device
+	 * hostname the design gives its own rate limits and WAF rules was simply
+	 * bypassed by asking the other name for the same path.
+	 *
+	 * <p>Enforced here rather than only at the proxy because the application
+	 * must not depend on an edge configuration it does not own: a second
+	 * ingress, a port-forward, or a future proxy change would silently
+	 * reopen it.
+	 *
+	 * <p>A request on any other host is {@code denyAll}, not a fall-through.
+	 * Falling through would hand {@code /iclock/**} to the ordinary chain,
+	 * where an authenticated employee could reach a device endpoint that has
+	 * no business being reachable by a person at all.
+	 */
 	@Bean
 	@Order(0)
-	public SecurityFilterChain deviceReceiverSecurityFilterChain(HttpSecurity http) throws Exception {
+	public SecurityFilterChain deviceReceiverSecurityFilterChain(
+			HttpSecurity http,
+			@Value("${app.devices.ingest.host:}") String ingestHost) throws Exception {
+		if (!StringUtils.hasText(ingestHost)) {
+			throw new IllegalStateException(
+					"app.devices.ingest.enabled=true requires app.devices.ingest.host to name the "
+							+ "hostname the device receiver answers on. Without it /iclock/** would "
+							+ "be reachable unauthenticated on every hostname this application "
+							+ "serves, including the employee and admin API. Set it to the device "
+							+ "ingress name (D-164).");
+		}
+		String expected = ingestHost.strip();
+		RequestMatcher onDeviceHost =
+				request -> expected.equalsIgnoreCase(request.getServerName());
 		http
 			.securityMatcher("/iclock/**")
 			.csrf(csrf -> csrf.disable())
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-			.authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll());
+			.authorizeHttpRequests(authorize -> authorize
+					.requestMatchers(onDeviceHost).permitAll()
+					.anyRequest().denyAll());
 		return http.build();
 	}
 }
