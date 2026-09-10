@@ -161,9 +161,41 @@ def test_a_seed_missing_a_phase1_table_fails() -> None:
 
 def test_a_complete_seed_passes_self_sufficiency() -> None:
     findings: list[str] = []
-    complete = "".join(f"CREATE TABLE `{t}` (...);\n" for t in gate.PHASE1_TABLES)
+    complete = "".join(f"CREATE TABLE `{t}` (...);\n" for t in gate.owned_tables([]))
     gate.check_seed_is_self_sufficient(complete, findings)
     check(not findings, f"a seed with every Phase 1 table passes (got {findings})")
+
+
+def test_the_required_tables_come_from_phase1schemacheck() -> None:
+    """The list is derived, not repeated.
+
+    It was repeated once: the check named six tables, the application grew to
+    owning fourteen, and the seed satisfied the gate while every stack seeded
+    from it logged `8 of 14 owned tables are MISSING`.
+    """
+    tables = gate.owned_tables([])
+    check(
+        len(tables) >= 14 and "attendance_devices" in tables and "platform_admins" in tables,
+        f"the required tables are read from Phase1SchemaCheck (got {len(tables)}: {tables})",
+    )
+
+
+def test_an_unreadable_owner_fails_rather_than_requiring_nothing() -> None:
+    """If the source moves or its declaration changes shape, this check must
+    say so -- not silently start requiring an empty list, which every seed
+    satisfies."""
+    findings: list[str] = []
+    original = gate.PHASE1_SCHEMA_CHECK
+    try:
+        gate.PHASE1_SCHEMA_CHECK = "backend/src/main/java/com/workin/backend/config/NoSuchClass.java"
+        tables = gate.owned_tables(findings)
+    finally:
+        gate.PHASE1_SCHEMA_CHECK = original
+    check(
+        tables == () and any("cannot be determined" in f for f in findings),
+        f"a missing Phase1SchemaCheck fails loudly rather than requiring nothing "
+        f"(tables={tables}, findings={findings})",
+    )
 
 
 def test_a_missing_sentinel_fails() -> None:
