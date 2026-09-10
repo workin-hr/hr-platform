@@ -50,8 +50,23 @@ public final class ZkTecoHandshake {
 	private ZkTecoHandshake() {
 	}
 
+	/**
+	 * <p><b>No configuration means the key is OMITTED, not zero.</b>
+	 * {@code TimeZone=0} is an operating instruction -- set your clock to UTC --
+	 * and an unknown or deactivated terminal used to receive it. It would then
+	 * record buffered punches on a UTC wall clock, while
+	 * {@code device_assignment_history} still said its original zone, because
+	 * activation changes append no history row. Those punches came back
+	 * misattributed by the offset between the two.
+	 *
+	 * <p>Leaving the key out changes nothing on the terminal, which is what
+	 * "configured like an unknown device" was always supposed to mean:
+	 * deactivation stops information flowing, in both directions.
+	 */
 	public static String response(String serialNumber, Optional<AttendanceDevice> device, Instant now) {
-		int timeZoneHours = device.map(d -> offsetHours(d.deviceTimeZone(), now)).orElse(0);
+		String timeZoneLine = device
+				.map(d -> "TimeZone=" + offsetHours(d.deviceTimeZone(), now) + CRLF)
+				.orElse("");
 		return "GET OPTION FROM: " + serialNumber + CRLF
 				+ "ATTLOGStamp=" + ALWAYS_RESEND + CRLF
 				+ "OPERLOGStamp=0" + CRLF
@@ -61,7 +76,7 @@ public final class ZkTecoHandshake {
 				+ "TransTimes=00:00;14:05" + CRLF
 				+ "TransInterval=1" + CRLF
 				+ "TransFlag=TransData AttLog\tOpLog" + CRLF
-				+ "TimeZone=" + timeZoneHours + CRLF
+				+ timeZoneLine
 				+ "Realtime=1" + CRLF
 				+ "Encrypt=None" + CRLF;
 	}

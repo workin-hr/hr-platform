@@ -37,7 +37,12 @@ class ZkTecoHandshakeTest {
 	void anUnclaimedDeviceGetsAValidReplyWithZeroStamps() {
 		String response = ZkTecoHandshake.response("NEW", Optional.empty(), Instant.parse("2026-09-02T08:00:00Z"));
 
-		assertThat(response).startsWith("GET OPTION FROM: NEW\r\n").contains("ATTLOGStamp=0\r\n").contains("TimeZone=0\r\n");
+		// PREMISE CHANGED: `TimeZone=0` is an instruction to run on UTC, not an
+		// omission, and an unknown terminal must not be configured at all.
+		assertThat(response).startsWith("GET OPTION FROM: NEW\r\n").contains("ATTLOGStamp=0\r\n");
+		assertThat(response)
+				.as("no zone is asserted for a device we hold no configuration for")
+				.doesNotContain("TimeZone=");
 	}
 
 	@Test

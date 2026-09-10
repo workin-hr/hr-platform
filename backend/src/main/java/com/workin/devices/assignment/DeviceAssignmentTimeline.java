@@ -67,8 +67,10 @@ public final class DeviceAssignmentTimeline {
 			return Resolved.UNRESOLVED;
 		}
 		Assignment found = null;
+		Assignment previous = null;
 		for (Assignment candidate : ordered) {
 			if (!candidate.effectiveFromUtc().isAfter(instantUtc)) {
+				previous = found;
 				found = candidate;
 			} else {
 				break;
@@ -77,6 +79,23 @@ public final class DeviceAssignmentTimeline {
 		if (found == null) {
 			Assignment earliest = ordered.get(0);
 			return new Resolved(earliest.id(), earliest.branchId(), instantUtc, Resolution.INFERRED_EARLIEST);
+		}
+		// A punch sharing its SECOND with the change that created this
+		// assignment is not attributable. Both the ATTLOG timestamp and
+		// effective_from_utc have second precision, so a punch that physically
+		// preceded the claim or reassignment inside that second is
+		// indistinguishable from one that followed it -- and the inclusive
+		// comparison above chose the new row and called it EXACT, which
+		// attributed the punch to a branch or zone it did not happen under.
+		//
+		// Only when the two candidates actually DISAGREE. A history row that
+		// changed neither branch nor zone leaves both answers identical, and
+		// quarantining a punch over a distinction without a difference would
+		// cost real attendance for nothing.
+		if (previous != null && found.effectiveFromUtc().equals(instantUtc)
+				&& (previous.branchId() != found.branchId()
+						|| !previous.zone().equals(found.zone()))) {
+			return new Resolved(found.id(), found.branchId(), instantUtc, Resolution.UNRESOLVED);
 		}
 		return new Resolved(found.id(), found.branchId(), instantUtc, Resolution.EXACT);
 	}

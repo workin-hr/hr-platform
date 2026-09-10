@@ -57,10 +57,38 @@ class DeviceAssignmentTimelineTest {
 	@Test
 	void anEpochPunchAroundTheSameChangeResolvesDirectlyByItsInstant() {
 		assertThat(twoConfigurations().forInstant(at("2025-06-03 08:59:59")).branchId()).isEqualTo(BRANCH_A);
-		assertThat(twoConfigurations().forInstant(at("2025-06-03 09:00:00")).branchId()).isEqualTo(BRANCH_B);
-		assertThat(twoConfigurations().forInstant(at("2025-06-03 09:00:00")).resolution())
-				.as("the boundary instant belongs to the row that starts at it")
+		assertThat(twoConfigurations().forInstant(at("2025-06-03 09:00:01")).branchId()).isEqualTo(BRANCH_B);
+		assertThat(twoConfigurations().forInstant(at("2025-06-03 09:00:01")).resolution())
 				.isEqualTo(Resolution.EXACT);
+
+		// PREMISE CHANGED, deliberately. This used to assert that the boundary
+		// instant "belongs to the row that starts at it", with EXACT. That is
+		// not something the data can support: both the ATTLOG timestamp and
+		// effective_from_utc carry only seconds, so a punch physically BEFORE
+		// the reassignment, inside the same second, is indistinguishable from
+		// one after it -- and calling it EXACT attributed it to a branch and a
+		// zone it did not happen under. UNRESOLVED is what "more than one
+		// configuration is plausible" already means here.
+		Resolved boundary = twoConfigurations().forInstant(at("2025-06-03 09:00:00"));
+		assertThat(boundary.resolution())
+				.as("a punch sharing its second with the change is not attributable")
+				.isEqualTo(Resolution.UNRESOLVED);
+	}
+
+	@Test
+	void aBoundaryPunchStaysExactWhenBothCandidatesAgree() {
+		// The ambiguity only matters when the two answers differ. A history row
+		// that changed neither branch nor zone leaves both candidates
+		// identical, and quarantining attendance over a distinction without a
+		// difference would cost real punches for nothing.
+		DeviceAssignmentTimeline timeline = new DeviceAssignmentTimeline(List.of(
+				new Assignment(1, BRANCH_A, CAIRO, at("2025-06-01 00:00:00")),
+				new Assignment(2, BRANCH_A, CAIRO, at("2025-06-03 09:00:00"))));
+
+		Resolved resolved = timeline.forInstant(at("2025-06-03 09:00:00"));
+
+		assertThat(resolved.resolution()).isEqualTo(Resolution.EXACT);
+		assertThat(resolved.branchId()).isEqualTo(BRANCH_A);
 	}
 
 	@Test

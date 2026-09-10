@@ -121,7 +121,7 @@ public class ZkTecoAdmsController {
 		if (body == null) {
 			return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(BODY_TOO_LARGE);
 		}
-		Status status = receiver.commandResult(serialNumber, body);
+		Status status = receiver.commandResult(serialNumber, body, request.getRemoteAddr());
 		return status == Status.OK ? ResponseEntity.ok(OK) : refuse(status);
 	}
 

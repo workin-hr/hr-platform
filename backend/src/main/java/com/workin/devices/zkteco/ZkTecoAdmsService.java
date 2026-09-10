@@ -2,6 +2,7 @@ package com.workin.devices.zkteco;
 
 import java.time.LocalDateTime;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -189,13 +190,41 @@ public class ZkTecoAdmsService {
 		return Status.OK;
 	}
 
-	/** A device reporting what it did with a queued command. */
-	public Status commandResult(String serialNumber, String body) {
+	/**
+	 * A device reporting what it did with a queued command.
+	 *
+	 * <p>The route is unauthenticated, so this used to put 200 characters of
+	 * an arbitrary body into production logs for anyone who could guess a
+	 * syntactically valid serial: the serial's SHAPE was checked, never that it
+	 * belonged to a registered device, and the body was never parsed. That is
+	 * also a way around the biometric filtering {@code OPERLOG} gets -- template
+	 * data pasted here reached the log untouched.
+	 *
+	 * <p>Now: an unregistered serial is answered identically but logged as a
+	 * sighting rather than by content, and a registered one has only the three
+	 * fields this route is defined to carry ({@code ID}, {@code Return},
+	 * {@code CMD}) extracted and bounded. Anything else in the body is not
+	 * logged at all, because nothing downstream reads it.
+	 */
+	public Status commandResult(String serialNumber, String body, String ip) {
 		if (!DeviceInput.isValidSerialNumber(serialNumber)) {
 			return rejectSerial(serialNumber);
 		}
-		LOG.info("device {} reported command result {}",
-				DeviceInput.forLog(serialNumber, 64), DeviceInput.forLog(body.strip(), 200));
+		Optional<AttendanceDevice> device = devices.findBySerial(serialNumber);
+		if (device.isEmpty() || !device.get().active()) {
+			// Same answer as the success path -- this route must not tell a
+			// caller which serials exist -- but nothing from the body is kept.
+			recordSighting(serialNumber, ip, null, null, clock.now());
+			LOG.info("command result from unregistered or inactive device {}; body not logged",
+					DeviceInput.forLog(serialNumber, 64));
+			return Status.OK;
+		}
+		Map<String, String> fields = ZkTecoCommandResult.parse(body);
+		LOG.info("device {} reported command result id={} return={} cmd={}",
+				DeviceInput.forLog(serialNumber, 64),
+				DeviceInput.forLog(fields.getOrDefault("ID", ""), 32),
+				DeviceInput.forLog(fields.getOrDefault("Return", ""), 32),
+				DeviceInput.forLog(fields.getOrDefault("CMD", ""), 32));
 		return Status.OK;
 	}
 

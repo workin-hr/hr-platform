@@ -341,7 +341,15 @@ class DeviceIngestionEndToEndTest {
 		api(HttpMethod.PATCH, "/api/v1/devices/" + deviceId, ADMIN_1, "{\"is_active\":false}", 200);
 
 		ResponseEntity<String> handshake = deviceGet("/iclock/cdata?SN=DEV-R&options=all&pushver=9.9.9");
-		assertThat(handshake.getBody()).contains("TimeZone=0\r\n");
+		// PREMISE CHANGED: this asserted `TimeZone=0`, which is an operating
+		// instruction -- set your clock to UTC -- and not the absence of one.
+		// A deactivated terminal took it, recorded buffered punches on a UTC
+		// wall clock, and came back misattributed, because activation changes
+		// append no assignment history and the timeline still said +03. The
+		// test's own name already said "carrying no ... zone"; now it does.
+		assertThat(handshake.getBody())
+				.as("no zone instruction at all, so the terminal keeps its clock")
+				.doesNotContain("TimeZone=");
 		// It is still recorded as knocking -- an operator needs to see that --
 		// but nothing new is learned from it.
 		assertThat(text("SELECT push_version FROM attendance_devices WHERE id = " + deviceId)).isNotEqualTo("9.9.9");
