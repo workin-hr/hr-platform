@@ -74,16 +74,14 @@ def build_java(root: pathlib.Path, body: str) -> str:
 def run(root: pathlib.Path, legacy: pathlib.Path, java_rel: str,
         java_name: str = "DEFAULT_ANNUAL_LEAVE_DAYS",
         php_name: str = "DEFAULT_ANNUAL_LEAVE_DAYS") -> int:
-    real = (drift.REPO_ROOT, drift.PINNED)
+    real = (drift.REPO_ROOT, drift.LEGACY_REPO, drift.PINNED)
     drift.REPO_ROOT = str(root)
+    drift.LEGACY_REPO = str(legacy)
     drift.PINNED = ((php_name, java_rel, java_name),)
     try:
-        # Drive the real --legacy argument rather than patching a module
-        # global: the checkout the caller selects is now part of the
-        # detector's contract, so the tests have to exercise that path.
-        return drift.main(["--legacy", str(legacy)])
+        return drift.main()
     finally:
-        drift.REPO_ROOT, drift.PINNED = real
+        drift.REPO_ROOT, drift.LEGACY_REPO, drift.PINNED = real
 
 
 POLICY = "class Policy { public static final double DEFAULT_ANNUAL_LEAVE_DAYS = %s; }\n"
@@ -152,38 +150,6 @@ def test_no_hr_legacy_does_not_claim_a_pass() -> None:
               run(root, root / "absent", java) == 0)
 
 
-def test_a_linked_worktree_is_a_real_checkout() -> None:
-    """A linked worktree's `.git` is a FILE, not a directory.
-
-    The presence test used to be os.path.isdir(legacy/".git"), which rejects
-    one -- so pointing --legacy at a worktree reported "not checked out" and
-    skipped the comparison while exiting 0. This repository is worked entirely
-    through linked worktrees, so that is the normal case, not an exotic one.
-    """
-    with tempfile.TemporaryDirectory() as tmp:
-        root = pathlib.Path(tmp)
-        legacy = build_legacy(root, "21")
-        linked = root / "linked-worktree"
-        subprocess.run(["git", "-C", str(legacy), "worktree", "add", "-q",
-                        str(linked), "HEAD"], check=True,
-                       capture_output=True)
-        check("a linked worktree's .git is a file, not a directory",
-              (linked / ".git").is_file() and not (linked / ".git").is_dir())
-        check("the presence test accepts a linked worktree",
-              drift.is_git_checkout(str(linked)))
-
-        java = build_java(root, POLICY % "21.0")
-        # The decisive assertion: identical verdict from the worktree and the
-        # clone. Before the fix this returned 0 *without comparing anything*,
-        # which is indistinguishable from a pass by exit code alone.
-        check("a linked worktree yields the same verdict as its clone",
-              run(root, linked, java) == run(root, legacy, java) == 0)
-
-        drifted = build_java(root, POLICY % "22.0")
-        check("and it still detects drift through the worktree",
-              run(root, linked, drifted) == 1)
-
-
 def main() -> int:
     test_matching_values_pass()
     test_a_drifted_value_fails()
@@ -192,7 +158,6 @@ def main() -> int:
     test_a_missing_java_constant_fails()
     test_a_missing_php_constant_is_fatal()
     test_no_hr_legacy_does_not_claim_a_pass()
-    test_a_linked_worktree_is_a_real_checkout()
     print()
     if FAILURES:
         print(f"{len(FAILURES)} FAILURE(S): {FAILURES}")

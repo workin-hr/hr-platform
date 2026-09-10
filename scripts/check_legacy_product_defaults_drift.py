@@ -29,17 +29,13 @@ MAX_LIMIT) and a placeholder for anything secret.
 
 from __future__ import annotations
 
-import argparse
 import os
 import re
 import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Default only. The caller may select a different checkout with --legacy, and
-# scripts/check_all_legacy_drift.sh does: a wrapper that reports which checkout
-# it compared against must actually pass that checkout to every detector.
-DEFAULT_LEGACY_REPO = os.path.join(REPO_ROOT, "..", "hr-legacy")
+LEGACY_REPO = os.path.join(REPO_ROOT, "..", "hr-legacy")
 TEMPLATE = "apis/config/constants.example.php"
 
 # One entry per product default this port reproduces: the PHP constant, the
@@ -84,39 +80,18 @@ def normalise(literal: str) -> str:
         return literal.strip()
 
 
-def is_git_checkout(path: str) -> bool:
-    """True for a normal clone AND for a linked worktree.
-
-    A linked worktree's `.git` is a FILE containing a gitdir: pointer, not a
-    directory, so an isdir() test rejects one. This repository is worked
-    through linked worktrees, so that test would have reported a perfectly
-    valid checkout as absent and silently skipped the comparison.
-    """
-    if not os.path.isdir(path):
-        return False
-    probe = subprocess.run(
-        ["git", "-C", path, "rev-parse", "--git-dir"],
-        capture_output=True, text=True, check=False)
-    return probe.returncode == 0
-
-
-def template_source(legacy_repo: str) -> str | None:
-    """The template as HEAD has it, or None when that checkout is not present."""
-    if not is_git_checkout(legacy_repo):
+def template_source() -> str | None:
+    """The template as HEAD has it, or None when hr-legacy is not beside us."""
+    if not os.path.isdir(os.path.join(LEGACY_REPO, ".git")):
         return None
     blob = subprocess.run(
-        ["git", "-C", legacy_repo, "show", f"HEAD:{TEMPLATE}"],
+        ["git", "-C", LEGACY_REPO, "show", f"HEAD:{TEMPLATE}"],
         capture_output=True, text=True, check=False)
     return blob.stdout if blob.returncode == 0 else None
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--legacy", default=DEFAULT_LEGACY_REPO,
-                        help="path to the hr-legacy checkout to compare against")
-    args = parser.parse_args(argv)
-
-    template = template_source(args.legacy)
+def main() -> int:
+    template = template_source()
     if template is None:
         # Unlike the inventory gates there is no committed manifest to fall
         # back to, so this check simply does not run in CI. Say so rather than

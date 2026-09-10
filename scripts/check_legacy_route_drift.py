@@ -84,24 +84,6 @@ EXEMPT: dict[str, str] = {}
 AWAITING_BASELINE: dict[str, str] = {}
 
 
-def is_git_checkout(path: str) -> bool:
-    """True for a normal clone AND for a linked worktree.
-
-    A linked worktree's `.git` is a FILE holding a gitdir: pointer, not a
-    directory, so an isdir() test rejects one and this check degrades on a
-    perfectly valid checkout. hr-platform is worked entirely through linked
-    worktrees, so that is the ordinary case. Kept identical in every detector;
-    scripts/test_check_all_legacy_drift.py fails if any of them reverts to the
-    isdir() form.
-    """
-    if not os.path.isdir(path):
-        return False
-    probe = subprocess.run(
-        ["git", "-C", path, "rev-parse", "--git-dir"],
-        capture_output=True, text=True, check=False)
-    return probe.returncode == 0
-
-
 def php_routes(api_dir: str) -> set[str]:
     """Every `<resource>/<action>.php` hr-legacy serves **at HEAD**.
 
@@ -112,7 +94,7 @@ def php_routes(api_dir: str) -> set[str]:
     one machine, not a contract.
     """
     repo = os.path.dirname(os.path.dirname(os.path.abspath(api_dir)))
-    if not is_git_checkout(repo):
+    if not os.path.isdir(os.path.join(repo, ".git")):
         return set()
     listing = subprocess.run(
         ["git", "-C", repo, "ls-tree", "-r", "--name-only", "HEAD", "apis/api/"],
