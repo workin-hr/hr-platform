@@ -3623,15 +3623,28 @@ it reached `main`, and the honest answer is that nobody independent looked.
 
 | Path | Condition | Evidence |
 |---|---|---|
-| **(a) Self-declared exhaustion, still current** | A usage-limit comment exists **and is the reviewer's most recent artefact of any kind** — no review object and no clean-round comment has landed after it. A historical usage-limit comment proves the outage *happened*, never that it *persists*: quota recovers on its own, and on 2026-09-09 it recovered roughly 80 minutes after the last such comment. **The moment any round lands anywhere, path (a) is closed** — see Criterion 5. | Line 2 of the command below reading `PASS`. |
+| **(a) Self-declared exhaustion, still current** | A usage-limit comment exists **and is the reviewer's most recent artefact of any kind anywhere in the repository, in any pull-request state** — nothing has landed after it, on this pull request or any other, open, closed **or merged**. The merged case is the one that bites: the pull request proving recovery is usually the one that just merged. The check **fails closed** — a fetch or parse error exits 3 rather than reporting an empty artefact set as "no recovery". A historical usage-limit comment proves the outage *happened*, never that it *persists*: quota recovers on its own, and on 2026-09-09 it recovered roughly 80 minutes after the last such comment. **The moment any round lands anywhere, path (a) is closed** — see Criterion 5. | Line 2 of the command below reading `PASS`. |
 | **(b) Silence** | All of: `@codex review` requested at least **twice**, the requests at least **60 minutes** apart, the first at least **4 hours** ago; **and** no round on the current head — counting **both** review objects **and** D-158 clean-round comments, because a round that finds nothing posts a comment and no review object at all, so counting reviews alone reports "silence" on a head that was reviewed clean. | Lines 1 and 3 of the command below reading `PASS`. |
 
 Neither path may be declared by inference, impatience, or a summary. **Every line the command prints must read `PASS` for the path being claimed; a `FAIL` or `n/a` on any required line means the gate is not degraded and the merge waits.** The command proves each prerequisite rather than reporting two counts a reader must interpret — an earlier draft returned only `reviews_on_head` and a repository-wide quota-comment count, either of which could read `0`/`n` for an unrequested, too-recent, already-reviewed, or already-recovered head.
 
 ```bash
+set -o pipefail
 PR=<number>; BOT=chatgpt-codex-connector; REPO=workin-hr/hr-platform
-SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid); SHORT=${SHA:0:7}
-J=$(gh pr view "$PR" --repo "$REPO" --json reviews,comments)
+die() { echo "FAIL  evidence incomplete: $1 -- refusing to certify exhaustion" >&2; exit 3; }
+
+# Resolve the target head FIRST and abort if it cannot be resolved. An empty
+# SHA must never reach the round-count logic: `[ "" -eq 0 ]` is a bash error,
+# the `if` falls through to its else branch, and the check prints a confident
+# verdict about a gate it never examined -- with exit 0.
+SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid) || die "cannot resolve #$PR"
+case "$SHA" in
+  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) : ;;
+  *) die "head of #$PR is not a sha ('$SHA')" ;;
+esac
+[ ${#SHA} -eq 40 ] || die "head of #$PR is not a full sha ('$SHA')"
+SHORT=${SHA:0:7}
+J=$(gh pr view "$PR" --repo "$REPO" --json reviews,comments) || die "cannot read #$PR"
 now=$(date -u +%s); ep(){ date -u -d "$1" +%s 2>/dev/null || echo 0; }
 
 # 1. no round on THIS head -- review objects AND D-158 clean-round comments
@@ -3641,14 +3654,36 @@ rounds=$(jq -r --arg b "$BOT" --arg s "$SHA" --arg p "$SHORT" '
 [ "$rounds" -eq 0 ] && echo "PASS  no round on head $SHORT" \
                     || echo "FAIL  $rounds round(s) on head $SHORT -- the gate is SATISFIED, not degraded"
 
-# 2. path (a): the reviewer's LATEST artefact is a usage-limit notice (current, not historical)
-last=$(jq -r --arg b "$BOT" '[(.comments[]|select(.author.login==$b)|{createdAt,body}),
-   (.reviews[]|select(.author.login==$b)|{createdAt:.submittedAt,body:"<review object>"})]
-   |sort_by(.createdAt)|last // empty' <<<"$J")
-if [ -z "$last" ]; then echo "n/a   path (a) not claimable -- reviewer has posted nothing"; else
-  jq -e '.body|test("usage limits";"i")' >/dev/null <<<"$last" \
-    && echo "PASS  current exhaustion ($(jq -r .createdAt <<<"$last"))" \
-    || echo "FAIL  quota RECOVERED -- latest artefact $(jq -r .createdAt <<<"$last") is not a usage-limit notice"
+# 2. path (a): the reviewer's latest artefact ACROSS THE REPOSITORY, in any
+#    pull-request state. Two repo-wide endpoints, newest-first -- not a loop
+#    over open pull requests: the PR that proves recovery is usually the one
+#    that just merged, and `--state open` cannot see it. Fails CLOSED, because
+#    an evidence check that degrades to "no artefacts found" on a transient
+#    error would certify exhaustion it never established.
+BOT_RE='^chatgpt-codex-connector(\[bot\])?$'   # REST says "[bot]"; GraphQL does not
+
+# --paginate, not a single page. The two feeds are capped INDEPENDENTLY, and
+# they churn at different rates -- this repository carries ~726 review comments
+# to ~212 issue comments. A recovery posted as a review comment can therefore
+# fall off page one of the fast feed while a stale usage-limit notice survives
+# on page one of the slow one, and the merge then reports exhaustion that ended
+# hours ago. Page one holds the newest 100 comments from EVERYONE, not the
+# newest 100 from the reviewer.
+issue=$(gh api --paginate "/repos/$REPO/issues/comments?sort=created&direction=desc&per_page=100") || die "issue comments"
+prc=$(gh api --paginate "/repos/$REPO/pulls/comments?sort=created&direction=desc&per_page=100")   || die "review comments"
+
+# --paginate emits one array per page, so flatten with .[][] rather than .[].
+latest=$(jq -s --arg re "$BOT_RE" '
+   [ (.[0][][] | select(.user.login|test($re)) | {at:.created_at,
+        kind:(if (.body|test("usage limits";"i")) then "quota" else "round" end)}),
+     (.[1][][] | select(.user.login|test($re)) | {at:.created_at, kind:"round"}) ]
+   | sort_by(.at) | last // empty' <(jq -s . <<<"$issue") <(jq -s . <<<"$prc")) || die "parse"
+
+if [ -z "$latest" ]; then echo "n/a   reviewer has posted nothing in this repository"
+elif [ "$(jq -r .kind <<<"$latest")" = "quota" ]; then
+  echo "PASS  exhaustion is current repository-wide ($(jq -r .at <<<"$latest"))"
+else
+  echo "FAIL  reviewer RECOVERED at $(jq -r .at <<<"$latest") -- D-224 has lapsed, use the normal gate"
 fi
 
 # 3. path (b): two requests >=60min apart, first >=4h ago

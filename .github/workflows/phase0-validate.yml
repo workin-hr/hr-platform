@@ -197,6 +197,13 @@ jobs:
       - name: Pin what the legacy message-drift check catches
         run: python3 scripts/test_check_legacy_message_drift.py
 
+      # D-224's eligibility command lives in a fenced block in the decision log,
+      # not in a script file, so nothing else would notice it being edited into
+      # something that no longer fails closed. These tests extract the committed
+      # block and exercise it against a stub `gh`.
+      - name: Pin D-224's degraded-review eligibility check
+        run: python3 scripts/test_d224_eligibility_check.py
+
       # And the dashboard's own catalog, which is a different file in a
       # different shape. Its strings render in the JTE templates, so a missing
       # one is a sidebar entry reading "nav_guide_videos".
