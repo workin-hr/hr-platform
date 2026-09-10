@@ -2903,6 +2903,45 @@ def test_real_repository_skill_catalog_still_passes() -> None:
     check(failures == [], f"the real repository's skill-catalog.md still passes (failures={failures})")
 
 
+def test_a_k6_scenario_is_allowed_where_k6_scenarios_live() -> None:
+    """k6 runs `.js`; there is no other form to write a scenario in."""
+    root = make_root()
+    try:
+        (root / "perf/scenarios").mkdir(parents=True)
+        (root / "perf/scenarios/client-api.js").write_text("export default function () {}\n",
+                                                           encoding="utf-8")
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+        check(failures == [], f"a k6 scenario does not trip the scanner (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_the_perf_exclusion_is_one_directory_and_one_suffix() -> None:
+    """The narrowness IS the rule. A directory that accepts any JavaScript is
+    how a frontend appears by accident, which is what this scanner exists to
+    prevent -- so everything except `.js` under perf/scenarios/ still fails."""
+    root = make_root()
+    try:
+        (root / "perf/scenarios").mkdir(parents=True)
+        (root / "perf/scenarios/helper.ts").write_text("export const x = 1;\n", encoding="utf-8")
+        (root / "perf/scenarios/package.json").write_text("{}\n", encoding="utf-8")
+        (root / "perf/harness.js").write_text("// outside scenarios/\n", encoding="utf-8")
+        (root / "tools").mkdir(parents=True, exist_ok=True)
+        (root / "tools/thing.js").write_text("// elsewhere entirely\n", encoding="utf-8")
+        failures: list[str] = []
+        v.validate_forbidden_files(failures, root=root)
+
+        for expected in ("perf/scenarios/helper.ts", "perf/scenarios/package.json",
+                         "perf/harness.js", "tools/thing.js"):
+            check(
+                any(expected in f for f in failures),
+                f"{expected} must still be refused (failures={failures})",
+            )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_product_code_outside_spike_still_fails() -> None:
     """Regression baseline: the spike/ exclusion must not weaken the
     scanner for everywhere else in the repository. Uses admin-web/, not
@@ -3182,6 +3221,8 @@ def main() -> int:
     test_a_non_utf8_filename_does_not_disable_the_ignore_exemption()
     test_verify_bootstrap_file_list_survives_awkward_filenames_and_deletions()
     test_real_repository_skill_catalog_still_passes()
+    test_a_k6_scenario_is_allowed_where_k6_scenarios_live()
+    test_the_perf_exclusion_is_one_directory_and_one_suffix()
     test_product_code_outside_spike_still_fails()
     test_product_code_inside_spike_is_excluded()
     test_product_code_inside_backend_is_excluded()

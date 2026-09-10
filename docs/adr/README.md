@@ -84,6 +84,13 @@ maintaining a second, divergent copy of these rules — see
   2026-08-17 with four owner-required amendments, `docs/bootstrap/decision-log.md` D-043).
   **Amended by ADR-0017**: the profile split is gone and this configuration
   is the application's only persistence
+- `ADR-0019-performance-measurement-toolchain.md` — a Micrometer Prometheus
+  registry reads the meters the application already maintained, k6 drives the
+  three surfaces from the compose network, query-count assertions catch the
+  round-trip growth a profiler reports as "time in JDBC", and JFR answers the
+  rest. The scrape is exposed in `local`/`integration` only and load runs stay
+  off per-PR CI. Answers part of ADR-0008's deferred question; the deployed
+  monitoring stack stays deferred (accepted 2026-09-10)
 - `ADR-0018-one-administrator-one-password.md` — the dashboard signs in the
   way PHP's does: one administrator, one password, no phone and no second
   factor, with Java's guards behind the form -- a bcrypt hash, a per-client

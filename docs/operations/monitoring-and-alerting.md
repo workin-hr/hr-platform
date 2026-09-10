@@ -19,9 +19,17 @@ recorded as **R-043**.*
 | Traces | Micrometer Tracing, **sampled at 1.0** | `opentelemetry-exporter-logging` — i.e. **into the log**, not to a collector |
 | Health | `/actuator/health`, `permitAll` | HTTP, status only (details default to `never`) |
 
-That is the complete list. There is **no metrics endpoint exposed, no
-Prometheus, no dashboard, no log aggregation, and no alert routing**
-configured anywhere in this repository.
+That list was the whole story until **ADR-0019**. What changed: a Micrometer
+Prometheus registry now reads the meters the application already maintained,
+`/actuator/prometheus` is exposed in the `local` and `integration` profiles,
+and `deploy/compose.observability.yaml` runs Prometheus and Grafana beside the
+local stack for measurement.
+
+**Production is unchanged**: `health` only, no scrape endpoint, no dashboard,
+no log aggregation and no alert routing. Exposing the scrape there needs a
+management port the proxy does not forward, or an authenticated matcher --
+this chain does not authenticate `/actuator` and `deploy/Caddyfile` proxies
+every path on `APP_DOMAIN`. ADR-0008's deferral of the deployed stack stands.
 
 ### Two things to fix before cutover
 

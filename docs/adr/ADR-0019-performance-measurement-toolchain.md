@@ -1,0 +1,133 @@
+# ADR-0019: Performance Measurement Toolchain
+
+## Metadata
+
+| Field | Value |
+|---|---|
+| ADR ID | ADR-0019 |
+| Title | Performance Measurement Toolchain |
+| Status | Accepted |
+| Date | 2026-09-10 |
+| Owners | Solution Architect |
+| Deciders | Repository owner |
+| Related Issues | None |
+| Supersedes | None |
+| Superseded By | None |
+
+## Context
+
+ADR-0008 set the observability baseline at structured logs, correlation ids and
+a health endpoint, and **deliberately deferred** the heavier stack -- its own
+words -- to "a separate, later, evidence-informed decision", on the grounds
+that adopting Prometheus/Grafana/Loki/Tempo "before real load and cost data
+exists could add operational burden disproportionate to MVP needs". That
+reasoning still holds for a production deployment. It does not hold for
+measurement, and two facts made the gap concrete:
+
+**The application maintains meters that nothing can read.** Actuator is on the
+classpath, `micrometer-tracing-bridge-otel` is wired, and the device code emits
+counters and a per-device clock-skew summary. No Prometheus registry was
+present and every profile exposed only `health`, so those meters were
+incremented and discarded -- the cost of maintaining them paid, none of the
+benefit taken.
+
+**Trace sampling was 1.0 in every profile**, exporting through
+`opentelemetry-exporter-logging` -- i.e. a span for every request, into the
+log. `docs/operations/monitoring-and-alerting.md` already flagged this as
+"right for the local verification it was set up for and wrong for production".
+
+There is also a specific, known performance failure mode in this codebase
+rather than a generic one. It is a PHP-to-Java parity port of a data-heavy
+application, and the shape has already bitten once: `LegacyPayslipService.enrich()`
+drove a per-employee, per-day lookup and turned one page into "hundreds of
+avoidable round trips per HTTP request" (D-114). That is a round-trip problem,
+and a CPU profiler reports it as time spent in JDBC -- true, and useless.
+
+## Decision
+
+Adopt a measurement toolchain, in this order, and keep production deployment of
+a monitoring stack deferred.
+
+| Tool | Question it answers | Where it runs |
+|---|---|---|
+| **Micrometer Prometheus registry** | What is the JVM, the pool and the app doing? | Application, local + integration profiles |
+| **Prometheus + Grafana** | What was it doing *while* the load ran? | `deploy/compose.observability.yaml`, local only |
+| **k6** | Does it hold up, and did this change make it worse? | Container, on the compose network |
+| **Query-count assertions** | Is the work per row constant? | JUnit, in the normal suite |
+| **JFR, then async-profiler** | Where does the time actually go? | On demand, no dependency |
+
+**k6 over Gatling and JMeter.** A single static binary with no JVM, scenarios
+in JavaScript that diff cleanly in a repository, and an image that joins the
+compose network. Gatling would introduce a second JVM into a measurement of the
+first. JMeter's GUI-driven XML does not belong in version control.
+
+**The Prometheus endpoint is exposed in `local` and `integration` only.**
+Production keeps `health` alone. This chain does not authenticate `/actuator`
+and `deploy/Caddyfile` proxies every path on `APP_DOMAIN`, so exposing it there
+would publish JVM internals, every meter and every URI template to anyone who
+asks. Turning it on needs either a management port the proxy does not forward
+or an authenticated matcher -- a decision with its own evidence, not a config
+flip.
+
+**Trace sampling defaults to 0.05** (`APP_TRACE_SAMPLING`), and stays at 1.0 in
+local and integration, which exist to be inspected.
+
+**Load runs are local or nightly, never per-PR.** Shared GitHub runners are
+noisy neighbours, so absolute latency from a hosted runner is meaningless, and
+the Actions minutes are not free -- a live constraint here (D-223).
+
+**Query counting is a test, not a dashboard.** `QueryCounter` is a JDK proxy
+over `DataSource` in test scope; datasource-proxy and p6spy both do this well
+and neither earns a dependency for counting `prepareStatement`. The assertion
+that matters is not a fixed budget but whether the count grows with the size of
+the result, which is what catches the D-114 shape before it ships.
+
+## Alternatives Considered
+
+- **Hosted APM (Datadog, New Relic).** Rejected: recurring per-host cost, and
+  the owner has stated subscriptions are not currently possible (D-223).
+- **Deploying Prometheus/Grafana to production now.** Rejected: that is exactly
+  what ADR-0008 deferred, and nothing here supplies the load and cost evidence
+  it asked for yet. This ADR produces that evidence; it does not pre-empt it.
+- **Hibernate statistics for query counting.** Rejected: the legacy port is
+  `JdbcTemplate` throughout, so Hibernate's counters see almost none of it.
+- **Micrometer `@Timed` annotations everywhere.** Rejected for now: the HTTP
+  server timings the registry provides already answer "which endpoint", and
+  per-method timers are a decision to take once a specific method is suspected.
+
+## Consequences
+
+- One new runtime dependency (`micrometer-registry-prometheus`), on a registry
+  the application was already feeding.
+- A load run needs the local stack up; it is not a `./gradlew` target.
+- Query budgets are ratchets and will need lowering when something gets faster.
+  A ratchet never tightened is decoration.
+
+## Risks
+
+- A threshold set from one laptop reads as authoritative later. Mitigated by
+  `perf/README.md` stating plainly that these are comparative, not a service
+  level.
+- The observability overlay could drift toward being deployed. Mitigated by
+  keeping it out of `compose.prod.yaml` and saying why in the file itself.
+
+## Validation Evidence
+
+- `PrometheusEndpointTest` asserts the scrape serves JVM, GC and Hikari figures
+  **and** that an application meter reaches it; verified red by removing the
+  registry dependency, which answered 404.
+- `PairingQueryBudgetTest` measured a pairing pass at **11 statements per
+  punch** (89 across 8 punches), and 4x the punches at **3.7x** the statements
+  -- linear, so no N+1, but 11/punch against a 5,000-record upload cap is where
+  the ingestion work now points.
+- The forbidden-file exclusion for `perf/scenarios/*.js` is scoped to one
+  directory and one suffix, with a test asserting `.ts`, `package.json`,
+  `perf/*.js` and `.js` elsewhere all still fail.
+
+## Open Questions
+
+- Production scrape exposure: management port or authenticated matcher.
+- Whether the 11-statements-per-punch pairing cost is worth reducing, and
+  against what upload volume.
+- Log aggregation (Loki) and trace collection (Tempo) remain deferred under
+  ADR-0008; nothing here changes that.
