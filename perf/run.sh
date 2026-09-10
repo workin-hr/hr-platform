@@ -76,6 +76,35 @@ fi
 # the stack it exists to refuse. compose.remote-db.yaml now pins springdoc off
 # regardless of profile, which restores the marker's meaning -- and that pin,
 # not the profile, is what this relies on.
+# TWO independent conditions, not one inference.
+#
+# Every version of this guard has been a single inference from one observable
+# property of the target, and every one has had a bypass: the marker was
+# profile-keyed and `remote-db` runs profile `local`; then a 308 from the edge
+# read as success. A second condition that has to fail at the same time is
+# worth more than a better first one.
+#
+# The target must be on loopback. Every disposable stack in this repository
+# publishes to 127.0.0.1 and a production deployment is reached by its domain
+# through the edge, so a hostname alone refuses the whole class -- whatever the
+# target chooses to serve, and regardless of what the edge does to the status
+# code.
+case "$BASE_URL" in
+  http://127.0.0.1[:/]*|http://127.0.0.1|https://127.0.0.1[:/]*|https://127.0.0.1\
+  |http://localhost[:/]*|http://localhost|https://localhost[:/]*|https://localhost)
+    on_loopback=1 ;;
+  *) on_loopback=0 ;;
+esac
+
+if [ "${PERF_TARGET_IS_DISPOSABLE:-0}" != "1" ] && [ "$on_loopback" != "1" ]; then
+  echo "refusing: ${BASE_URL} is not on loopback." >&2
+  echo "  Every disposable stack here publishes to 127.0.0.1; a deployment is reached" >&2
+  echo "  by its domain. A load run against one locks the platform administrator out" >&2
+  echo "  and writes junk into its database." >&2
+  echo "  Set PERF_TARGET_IS_DISPOSABLE=1 only if you are certain this target is." >&2
+  exit 1
+fi
+
 if [ "${PERF_TARGET_IS_DISPOSABLE:-0}" != "1" ]; then
   # 200 AND an OpenAPI document. A 3xx, a portal splash page or an error page
   # that happens to return 200 must not read as "this is a disposable stack".
