@@ -311,6 +311,35 @@ public class PunchPairingStore {
 	}
 
 	/**
+	 * The whole runtime-offset history, oldest first, for one pass to resolve
+	 * against in memory.
+	 *
+	 * <p>Measured: the per-punch lookup above was one of eleven statements each
+	 * punch cost, and it asks the same tiny table the same way every time. The
+	 * table holds one row per offset change for the life of the system --
+	 * roughly two a year -- so reading it once per pass and selecting in memory
+	 * gives the identical answer for a fraction of the round trips. This is the
+	 * shape {@code DeviceAssignmentTimeline} already uses for assignments.
+	 *
+	 * <p>The staleness this introduces is bounded and, in practice, empty: a
+	 * history row appearing mid-pass has {@code effective_from_utc} at about
+	 * "now", while a pass is resolving punches that already happened. The next
+	 * pass reads it.
+	 */
+	public List<RuntimeOffsetPeriod> runtimeOffsetHistory() {
+		return jdbcTemplate.query(
+				"SELECT effective_from_utc, offset_seconds FROM legacy_runtime_offset_history"
+						+ " ORDER BY effective_from_utc ASC, id ASC",
+				(rs, rowNumber) -> new RuntimeOffsetPeriod(
+						rs.getTimestamp("effective_from_utc").toLocalDateTime(),
+						rs.getInt("offset_seconds")));
+	}
+
+	/** One recorded offset, in force from {@code effectiveFromUtc} until the next. */
+	public record RuntimeOffsetPeriod(LocalDateTime effectiveFromUtc, int offsetSeconds) {
+	}
+
+	/**
 	 * Whether the triggers that WRITE that history are installed.
 	 *
 	 * <p>A seeded table with no active writers is worse than an obvious

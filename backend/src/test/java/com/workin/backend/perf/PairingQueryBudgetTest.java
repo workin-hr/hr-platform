@@ -139,8 +139,10 @@ class PairingQueryBudgetTest extends AbstractLegacyMySqlTest {
 						+ "not a target: if it drops, lower it; if it rises, that is a "
 						+ "regression to explain. Busiest single statement repeated %d times.",
 						perPunch, issued.size(), QueryCounter.busiestRepeat(issued))
-				// Measured at 11 on 2026-09-10. Set at the measurement plus one, so it
-				// is a ratchet rather than a ceiling nobody is near.
-				.isLessThanOrEqualTo(12L);
+				// Measured at 11 on 2026-09-10, then 9 after the runtime-offset
+				// history moved to one read per pass and the branch policy
+				// became a per-employee memo. Set at the measurement, with no
+				// headroom: the next thing to change it should have to say so.
+				.isLessThanOrEqualTo(9L);
 	}
 }

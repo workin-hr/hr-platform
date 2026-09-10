@@ -144,6 +144,37 @@ reporting a fast number for the wrong thing:
   are MISSING`, and claiming a device answers 500. Regenerating the seed from a
   post-#182 dump is the prerequisite.
 
+## What the measurement then changed
+
+The harness paid for itself immediately. A breakdown of the 89 statements
+showed seven firing once per punch, two of which asked an unchanging question:
+
+- `legacy_runtime_offset_history` was queried per punch for the offset in force
+  at that instant. That table holds one row per offset change for the life of
+  the system -- roughly two a year -- so a pass now reads it once and resolves
+  in memory, the same shape `DeviceAssignmentTimeline` already used. The query
+  disappears from the pass entirely.
+- `branchPolicy` was read per punch. The claim is ordered by employee, so a
+  per-pass memo turns it into one read per employee: 8 became 4 on the fixture.
+
+**11 statements per punch became 9** (89 -> 77 total), and the growth ratio
+stayed linear at 3.6x for 4x the punches. The budget test's ratchet moved with
+it, so the gain cannot quietly be given back.
+
+Both are pass-scoped, never fields on the singleton service, and the staleness
+each introduces is bounded to one pass: an offset row appearing mid-pass has
+`effective_from_utc` at about "now" while the pass resolves punches that have
+already happened, and a branch edited mid-pass affects a review flag rather
+than a payroll figure.
+
+**Next measured target, deliberately not taken here**: the provenance
+`UPDATE device_punches SET legacy_runtime_offset_seconds ...` is still its own
+statement per punch and could fold into the disposition write that always
+follows it -- worth about 1 of the remaining 9. The other per-punch reads
+(`expected_daily_hours`, the shift assignment) live in the shared
+PHP-parity calendar code, where a cache is a parity risk rather than a
+refactor, so they are left alone.
+
 ## Open Questions
 
 - Production scrape exposure: management port or authenticated matcher.
