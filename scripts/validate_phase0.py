@@ -1459,6 +1459,14 @@ def validate_links(failures: list[str], root: Path | None = None) -> None:
                 fail(f"Broken relative link in {path.relative_to(root)}: {target}", failures)
 
 
+# `uses: owner/repo@ref`, and `uses: owner/repo/sub/path@ref`. Local actions
+# (`./.github/actions/x`) and container actions (`docker://`) have no tag to
+# retarget and are not matched.
+ACTION_REF_RE = re.compile(
+    r"^\s*-?\s*uses:\s*([A-Za-z0-9][\w.-]*/[\w.-]+(?:/[\w.-]+)*)@(\S+)", re.MULTILINE)
+SHA_PIN_RE = re.compile(r"[0-9a-f]{40}")
+
+
 def validate_workflow_safety(failures: list[str], root: Path | None = None) -> None:
     root = root if root is not None else ROOT
     workflows_dir = root / ".github/workflows"
@@ -1517,6 +1525,25 @@ def validate_workflow_safety(failures: list[str], root: Path | None = None) -> N
                 "'permissions:' block (least-privilege requirement)",
                 failures,
             )
+        # Every third-party action pinned to a full commit SHA, never a moving
+        # tag. A tag is a pointer its owner can retarget at any time, so `@v4`
+        # is "whatever that account publishes next" -- and these jobs hold
+        # `contents: read` at least and `packages: write` in one case, which is
+        # enough to replace the backend image every client developer pulls.
+        #
+        # `uses:` must START the line (after optional indent and list dash), so
+        # prose mentioning the forbidden form -- including the comment above the
+        # pinned block in publish-image.yml -- is not matched. Stripping
+        # comments first would add nothing on top of that anchoring.
+        for action, ref in ACTION_REF_RE.findall(text):
+            if not SHA_PIN_RE.fullmatch(ref):
+                fail(
+                    f"{relative} uses {action}@{ref}, a moving tag. Pin third-party actions "
+                    "to a full 40-character commit SHA (with the version in a trailing "
+                    "comment): a retargeted tag runs code nobody reviewed, under this "
+                    "workflow's permissions",
+                    failures,
+                )
 
 
 def validate_tool_catalog_consistency(failures: list[str]) -> None:

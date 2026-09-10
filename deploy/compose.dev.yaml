@@ -60,7 +60,10 @@ services:
       - db-data:/var/lib/mysql
       # Seeded on FIRST START ONLY: MariaDB runs this directory when the data
       # directory is empty, and the data directory is a named volume. To reseed
-      # after pulling a new seed:  docker compose -f compose.local.yaml down -v
+      # after pulling a new seed:  docker compose -f compose.dev.yaml down -v
+      # This file, not compose.local.yaml: the project names differ
+      # (workin-dev vs workin-local), so naming the wrong file destroys the
+      # OTHER stack's volume and leaves this one's stale database in place.
       # ONE script, not two. dev-seed.sql is a COMPLETE dump: the build script
       # applies phase1_extensions.sql before dumping (it has to -- the sanitiser
       # deletes from platform_admins), so the Phase 1 tables are already in it.
@@ -102,7 +105,11 @@ services:
     # when chasing a regression:
     #   BACKEND_TAG=sha-<commit> docker compose -f compose.dev.yaml up -d
     image: ghcr.io/workin-hr/hr-platform/backend:${BACKEND_TAG:-main}
-    pull_policy: always
+    # No `pull_policy: always`. It made every `up` require a successful GHCR
+    # request even when the image was already local, so being offline, GHCR
+    # being down, or an expired PAT failed the pull instead of starting the
+    # perfectly usable cached backend. Updating is the explicit `pull` step in
+    # the runbook, which is where a developer expects to need the network.
     restart: unless-stopped
     depends_on:
       db:
