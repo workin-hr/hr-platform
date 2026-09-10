@@ -80,17 +80,36 @@ committed -- they belong on the command line of a measurement, not in a profile:
 
 ## What the first full run found
 
-**The connection pool saturates before anything else does.** Across the three
-runs Prometheus recorded `hikaricp_connections_active` at its ceiling of **10**
-with `hikaricp_connections_pending` also at **10** -- every connection busy and
-ten more threads queued behind them. Heap peaked at 150MB, so memory is not the
-constraint and neither is GC.
+**The pool was not configurable at all.** `LegacyPersistenceConfig` builds the
+datasource by hand -- `DataSourceAutoConfiguration` is excluded globally
+(ADR-0017) -- and never set a pool size, so it ran on HikariCP's default of 10.
+Worse, `spring.datasource.hikari.connection-timeout` sat in
+`application.properties` looking authoritative while the builder hardcoded the
+same value: **those keys did nothing**, and anyone tuning them would have seen
+no effect and no error. Both are now real properties
+(`app.legacy-db.maximum-pool-size`, `app.legacy-db.connection-timeout-ms`) with
+the previous behaviour as the default, and a test asserts the property reaches
+the pool rather than being decorative.
 
-`spring.datasource.hikari.maximum-pool-size` is not set anywhere, so this is
-HikariCP's default of 10. That is the first number to change, and it is a
-deployment decision rather than a code one: it has to be sized against
-MariaDB's `max_connections` and the number of application instances, which is
-why it is recorded here rather than raised unilaterally.
+**Whether 10 is the right number is still unanswered, and this machine cannot
+answer it.** Prometheus did record `hikaricp_connections_active` at 10 with
+`hikaricp_connections_pending` at 10, which is real saturation -- but queueing
+at the pool is what a pool is *for*, and it is not on its own evidence that a
+bigger one would help. Measured:
+
+| Pool | Throughput | p95 |
+|---|---|---|
+| 10 | 62.2 / 42.7 / 49.3 iter/s | 153 / 307 / 202 ms |
+| 24 | 48.8 iter/s | 218 ms |
+
+The three pool=10 runs are the same configuration, minutes apart. **Run-to-run
+variance is +/-20% on throughput and +/-50% on p95**, and the pool=24 result
+falls inside it. The comparison is inconclusive, not negative.
+
+This is the reason the README says these numbers are comparative and not a
+service level -- and it sharpens the rule: **pool tuning needs an otherwise
+idle machine.** These runs shared a laptop with four other Docker stacks.
+Nothing about the pool size should be changed on this evidence.
 
 ## The thresholds are ratchets
 

@@ -315,11 +315,12 @@ public class PunchPairingService {
 			// payroll, and a review flag beside an already-derived row is too
 			// late -- so nothing is derived. The raw punch survives, visibly
 			// held, which is the same rule assignment provenance follows.
-			store.recordRuntimeOffset(punchId, null, RUNTIME_OFFSET_PRE_HISTORY);
-			store.markIgnored(punchId, instant, FLAG_RUNTIME_OFFSET_PRE_HISTORY);
+			store.markIgnored(punchId, instant, FLAG_RUNTIME_OFFSET_PRE_HISTORY,
+					new PunchPairingStore.RuntimeOffsetProvenance(null, RUNTIME_OFFSET_PRE_HISTORY));
 			return new Outcome(0, 0, 1, 1);
 		}
-		store.recordRuntimeOffset(punchId, offsetSeconds, RUNTIME_OFFSET_EXACT);
+		PunchPairingStore.RuntimeOffsetProvenance provenance =
+				new PunchPairingStore.RuntimeOffsetProvenance(offsetSeconds, RUNTIME_OFFSET_EXACT);
 		LocalDateTime punchedAt = instant.plusSeconds(offsetSeconds);
 
 		// Computed ONCE, for every outcome below. It was evaluated only on the
@@ -345,12 +346,12 @@ public class PunchPairingService {
 			// keeps the instants distinct precisely so this can use them.
 			Duration sinceOpened = elapsedBetween(open, punch, openedAt, punchedAt);
 			if (openedAt != null && sinceOpened.compareTo(DEBOUNCE) < 0) {
-				store.markIgnored(punchId, punchedAt, joinFlags(FLAG_DOUBLE_READ, branchFlag));
+				store.markIgnored(punchId, punchedAt, joinFlags(FLAG_DOUBLE_READ, branchFlag), provenance);
 				return new Outcome(0, 0, 1, 1);
 			}
 
 			if (store.closeAttendance(attendanceId, punchedAt)) {
-				store.markPaired(punchId, attendanceId, punchedAt, branchFlag);
+				store.markPaired(punchId, attendanceId, punchedAt, branchFlag, provenance);
 				return new Outcome(0, 1, 0, branchFlag == null ? 0 : 1);
 			}
 			// Someone closed it between the read and the update. Fall through
@@ -369,14 +370,14 @@ public class PunchPairingService {
 		// never discarded; only its attribution is withheld.
 		Long covering = store.closedRowCovering(employeeId, punchedAt);
 		if (covering != null) {
-			store.markIgnored(punchId, punchedAt, FLAG_INSIDE_CORRECTED_SESSION);
+			store.markIgnored(punchId, punchedAt, FLAG_INSIDE_CORRECTED_SESSION, provenance);
 			return new Outcome(0, 0, 1, 1);
 		}
 
 		long attendanceId = store.openAttendance(employeeId, punchedAt);
 		// The opener records the exact value written to attendance.check_in, so
 		// nothing downstream has to infer which punch created the row.
-		store.markPairedAsOpener(punchId, attendanceId, punchedAt, flag, punchedAt);
+		store.markPairedAsOpener(punchId, attendanceId, punchedAt, flag, punchedAt, provenance);
 		return new Outcome(1, 0, 0, flag == null ? 0 : 1);
 	}
 

@@ -143,6 +143,10 @@ class PairingQueryBudgetTest extends AbstractLegacyMySqlTest {
 				// history moved to one read per pass and the branch policy
 				// became a per-employee memo. Set at the measurement, with no
 				// headroom: the next thing to change it should have to say so.
-				.isLessThanOrEqualTo(9L);
+				// 11 measured on 2026-09-10; 9 after the offset history became one
+				// read per pass and the branch policy a per-employee memo; 8
+				// after the provenance columns stopped being their own UPDATE
+				// and rode along on the disposition instead.
+				.isLessThanOrEqualTo(8L);
 	}
 }

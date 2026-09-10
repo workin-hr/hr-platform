@@ -148,14 +148,35 @@ committed:
   Applying `phase1_extensions.sql` to the running database unblocks a
   measurement; **regenerating the seed remains outstanding**.
 
-**The first full run found the bottleneck.** Prometheus recorded
-`hikaricp_connections_active` at its ceiling of 10 with
-`hikaricp_connections_pending` also at 10 -- every connection busy and ten more
-threads queued -- while heap peaked at 150MB, so neither memory nor GC is the
-constraint. `spring.datasource.hikari.maximum-pool-size` is unset, i.e.
-HikariCP's default of 10. Sizing it is a deployment decision against MariaDB's
-`max_connections` and the instance count, so it is recorded rather than
-changed here.
+**The first full run found a trap, and then the second run corrected the
+conclusion drawn from it.** Prometheus recorded `hikaricp_connections_active`
+at 10 with `hikaricp_connections_pending` at 10 -- real saturation, while heap
+peaked at 150MB, so neither memory nor GC is the constraint. That was first
+written up as "the pool is the bottleneck, and its size is the first number to
+change". Testing it did not support that:
+
+| Pool | Throughput | p95 |
+|---|---|---|
+| 10 | 62.2 / 42.7 / 49.3 iter/s | 153 / 307 / 202 ms |
+| 24 | 48.8 iter/s | 218 ms |
+
+The three pool=10 rows are the same configuration minutes apart. Run-to-run
+variance is +/-20% on throughput and +/-50% on p95, and pool=24 lands inside
+it, so the comparison is **inconclusive** -- and queueing at a pool is what a
+pool is for, not on its own evidence that a larger one would help. Pool sizing
+needs an otherwise idle machine; these runs shared a laptop with four other
+Docker stacks.
+
+What the investigation did find is worth more than the number would have been:
+**the pool was not configurable at all.** `LegacyPersistenceConfig` builds the
+datasource by hand, because ADR-0017 excludes `DataSourceAutoConfiguration`
+globally, and never set a pool size -- so it ran on HikariCP's default of 10.
+`spring.datasource.hikari.connection-timeout` meanwhile sat in
+`application.properties` looking authoritative while the builder hardcoded the
+same value: those keys did nothing, and anyone tuning them would have got no
+effect and no error. Both are now `app.legacy-db.*` properties with the
+previous behaviour as the default, and `PrometheusEndpointTest` asserts the
+property reaches the pool -- verified red by hardcoding it again.
 
 ## What the measurement then changed
 

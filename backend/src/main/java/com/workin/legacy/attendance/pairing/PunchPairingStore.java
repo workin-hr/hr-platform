@@ -480,23 +480,28 @@ public class PunchPairingStore {
 	 * being non-null is what distinguishes them.
 	 */
 	public void markPairedAsOpener(long punchId, long attendanceId, LocalDateTime pairedAt,
-			String reviewFlag, LocalDateTime checkInAt) {
+			String reviewFlag, LocalDateTime checkInAt, RuntimeOffsetProvenance provenance) {
 		jdbcTemplate.update("""
 				UPDATE device_punches
 				SET processing_state = 'PAIRED', attendance_id = ?, paired_at = ?, review_flag = ?,
-				    attendance_check_in_at = ?
+				    attendance_check_in_at = ?,
+				    legacy_runtime_offset_seconds = ?, runtime_offset_resolution = ?
 				WHERE id = ? AND processing_state = 'RECEIVED'""",
 				attendanceId, SQL_DATE_TIME.format(pairedAt), reviewFlag,
-				SQL_DATE_TIME.format(checkInAt), punchId);
+				SQL_DATE_TIME.format(checkInAt),
+				provenance.offsetSeconds(), provenance.resolution(), punchId);
 	}
 
 	/** A punch that CLOSED an existing row; its provenance field stays null. */
-	public void markPaired(long punchId, long attendanceId, LocalDateTime pairedAt, String reviewFlag) {
+	public void markPaired(long punchId, long attendanceId, LocalDateTime pairedAt,
+			String reviewFlag, RuntimeOffsetProvenance provenance) {
 		jdbcTemplate.update("""
 				UPDATE device_punches
-				SET processing_state = 'PAIRED', attendance_id = ?, paired_at = ?, review_flag = ?
+				SET processing_state = 'PAIRED', attendance_id = ?, paired_at = ?, review_flag = ?,
+				    legacy_runtime_offset_seconds = ?, runtime_offset_resolution = ?
 				WHERE id = ? AND processing_state = 'RECEIVED'""",
-				attendanceId, SQL_DATE_TIME.format(pairedAt), reviewFlag, punchId);
+				attendanceId, SQL_DATE_TIME.format(pairedAt), reviewFlag,
+				provenance.offsetSeconds(), provenance.resolution(), punchId);
 	}
 
 	/**
@@ -506,31 +511,26 @@ public class PunchPairingStore {
 	 * later, and leaving it {@code RECEIVED} would make every pass reconsider
 	 * it forever.
 	 */
-	/**
-	 * Which runtime offset produced this punch's timestamp, recorded on the row.
-	 *
-	 * <p>Both columns existed and neither was ever written, so every punch --
-	 * including the pre-history ones pairing refuses precisely BECAUSE their
-	 * offset is unknown -- carried the {@code 'EXACT'} column default with a
-	 * null offset beside it. The schema asserted certainty about a value it did
-	 * not hold, which is worse than holding nothing: an audit asking which
-	 * offset produced an attendance row got a confident wrong answer.
-	 *
-	 * <p>Written before the punch is dispositioned, so it is recorded whichever
-	 * way the pass then goes.
-	 */
-	public void recordRuntimeOffset(long punchId, Integer offsetSeconds, String resolution) {
-		jdbcTemplate.update(
-				"UPDATE device_punches SET legacy_runtime_offset_seconds = ?,"
-						+ " runtime_offset_resolution = ? WHERE id = ?",
-				offsetSeconds, resolution, punchId);
-	}
-
-	public void markIgnored(long punchId, LocalDateTime at, String reviewFlag) {
+	public void markIgnored(long punchId, LocalDateTime at, String reviewFlag,
+			RuntimeOffsetProvenance provenance) {
 		jdbcTemplate.update("""
 				UPDATE device_punches
-				SET processing_state = 'IGNORED', paired_at = ?, review_flag = ?
+				SET processing_state = 'IGNORED', paired_at = ?, review_flag = ?,
+				    legacy_runtime_offset_seconds = ?, runtime_offset_resolution = ?
 				WHERE id = ? AND processing_state = 'RECEIVED'""",
-				SQL_DATE_TIME.format(at), reviewFlag, punchId);
+				SQL_DATE_TIME.format(at), reviewFlag,
+				provenance.offsetSeconds(), provenance.resolution(), punchId);
+	}
+
+	/**
+	 * Which runtime offset produced a punch's timestamp, carried to whichever
+	 * disposition the punch takes.
+	 *
+	 * <p>It used to be its own {@code UPDATE} immediately before that
+	 * disposition -- correct, and one of the nine statements each punch cost,
+	 * spent writing two columns on a row the very next statement rewrote. The
+	 * provenance is still recorded on every path; it just rides along now.
+	 */
+	public record RuntimeOffsetProvenance(Integer offsetSeconds, String resolution) {
 	}
 }

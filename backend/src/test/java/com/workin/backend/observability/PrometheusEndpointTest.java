@@ -28,7 +28,12 @@ import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRe
  */
 @SpringBootTest(classes = BackendApplication.class,
 		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "management.endpoints.web.exposure.include=health,prometheus")
+		properties = {
+				"management.endpoints.web.exposure.include=health,prometheus",
+				// A value that is neither Hikari's default nor a round number,
+				// so a passing assertion cannot be a coincidence.
+				"app.legacy-db.maximum-pool-size=7",
+		})
 @AutoConfigureTestRestTemplate
 class PrometheusEndpointTest {
 
@@ -59,6 +64,18 @@ class PrometheusEndpointTest {
 		assertThat(body)
 				.as("the connection pool is the first thing to look at under load")
 				.contains("hikaricp_connections");
+	}
+
+	@Test
+	void thePoolSizeIsWhatThePropertySaysAndNotHikariDefault() {
+		// The pool was never configured, so it ran on HikariCP's default of 10
+		// while `spring.datasource.hikari.*` sat in application.properties
+		// looking like it controlled something. This test exists so that
+		// silence cannot come back: the scrape reports the pool's real size,
+		// and this asserts the property reached it.
+		assertThat(scrape())
+				.as("app.legacy-db.maximum-pool-size must reach the pool, not be decorative")
+				.contains("hikaricp_connections{pool=\"HikariPool-1\"} 7.0");
 	}
 
 	@Test

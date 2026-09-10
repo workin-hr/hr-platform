@@ -308,13 +308,15 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 			@Override
 			public void markPairedAsOpener(long punchId, long attendanceId,
 					java.time.LocalDateTime pairedAt, String reviewFlag,
-					java.time.LocalDateTime checkInAt) {
+					java.time.LocalDateTime checkInAt,
+					PunchPairingStore.RuntimeOffsetProvenance provenance) {
 				throw new IllegalStateException("crash between the attendance write and the punch's state");
 			}
 
 			@Override
 			public void markPaired(long punchId, long attendanceId,
-					java.time.LocalDateTime pairedAt, String reviewFlag) {
+					java.time.LocalDateTime pairedAt, String reviewFlag,
+					PunchPairingStore.RuntimeOffsetProvenance provenance) {
 				throw new IllegalStateException("crash between the attendance write and the punch's state");
 			}
 		};
