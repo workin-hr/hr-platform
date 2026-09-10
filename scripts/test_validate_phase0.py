@@ -1774,6 +1774,80 @@ def test_reviewer_named_and_declared_read_only_passes() -> None:
         shutil.rmtree(root)
 
 
+def test_workflow_using_a_moving_action_tag_fails() -> None:
+    """A tag is a pointer its owner can retarget. `packages: write` plus `@v3`
+    means whatever that account publishes next can replace the image every
+    client developer pulls."""
+    root = make_root()
+    try:
+        write_workflow(root, "publisher.yml",
+                       "name: X\non:\n  push:\npermissions:\n  contents: read\n"
+                       "jobs:\n  b:\n    steps:\n      - uses: docker/login-action@v3\n")
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(
+            any("moving tag" in f for f in failures),
+            f"an action pinned to a tag fails (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_workflow_using_a_quoted_moving_action_tag_fails() -> None:
+    """`uses: "owner/repo@v3"` is valid YAML. Requiring the owner to start
+    immediately after `uses:` left the quoted form unmatched, so the rule
+    reported a clean workflow while a mutable tag was in it."""
+    root = make_root()
+    try:
+        write_workflow(root, "publisher.yml",
+                       "name: X\non:\n  push:\npermissions:\n  contents: read\n"
+                       "jobs:\n  b:\n    steps:\n"
+                       '      - uses: "docker/login-action@v3"\n')
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(
+            any("moving tag" in f for f in failures),
+            f"a quoted moving tag fails just as the bare form does (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
+def test_workflow_using_a_sha_pinned_action_passes() -> None:
+    """The rule must not fire on the form it is asking for."""
+    root = make_root()
+    try:
+        write_workflow(root, "publisher.yml",
+                       "name: X\non:\n  push:\npermissions:\n  contents: read\n"
+                       "jobs:\n  b:\n    steps:\n"
+                       "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1\n")
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(failures == [], f"a SHA-pinned action passes (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_a_moving_tag_named_only_in_prose_does_not_fail() -> None:
+    """publish-image.yml explains this rule in a comment, naming the very form
+    it forbids. The rule requires `uses:` to START the line, so prose about it
+    is not matched -- otherwise the file would fail for documenting itself, the
+    same false positive the trigger ban already had to fix."""
+    root = make_root()
+    try:
+        write_workflow(root, "publisher.yml",
+                       "name: X\non:\n  push:\npermissions:\n  contents: read\n"
+                       "# Never write `uses: docker/login-action@v3` -- pin the SHA.\n"
+                       "jobs:\n  b:\n    steps:\n"
+                       "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1\n")
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(failures == [],
+              f"a moving tag named only in prose does not fail (failures={failures})")
+    finally:
+        shutil.rmtree(root)
+
+
 def test_workflow_without_named_reviewer_fails() -> None:
     """AGENTS.md may not gate merges on an independent review it does not staff."""
     root = make_root()
@@ -3059,6 +3133,10 @@ def main() -> int:
     test_the_review_gate_using_the_privileged_trigger_with_a_checkout_fails()
     test_a_checkout_named_only_in_a_comment_does_not_trip_the_exception()
     test_reviewer_named_and_declared_read_only_passes()
+    test_workflow_using_a_moving_action_tag_fails()
+    test_workflow_using_a_quoted_moving_action_tag_fails()
+    test_workflow_using_a_sha_pinned_action_passes()
+    test_a_moving_tag_named_only_in_prose_does_not_fail()
     test_workflow_without_named_reviewer_fails()
     test_workflow_section_deleted_fails()
     test_demoted_workflow_heading_fails()
