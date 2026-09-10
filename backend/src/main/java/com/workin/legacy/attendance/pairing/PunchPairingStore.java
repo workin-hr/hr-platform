@@ -51,8 +51,11 @@ public class PunchPairingStore {
 	 * since the punch is no longer {@code RECEIVED}, no later pass would ever
 	 * revisit it. Unrecoverable, and invisible.
 	 *
-	 * <p>Read once and cached: it is schema, it cannot change under a running
-	 * application without a deployment, and the pass asks once per batch.
+	 * <p>A successful probe is cached: it is schema, it cannot change under a
+	 * running application without a deployment, and the pass asks once per
+	 * batch. A FAILED probe is not cached -- applying the missing DDL is the
+	 * documented remedy, and caching the negative made that remedy silently
+	 * require an application restart as well.
 	 */
 	public boolean attendanceMethodAcceptsDevice() {
 		Boolean cached = this.deviceMethodSupported;
@@ -68,7 +71,16 @@ public class PunchPairingStore {
 		// point is to fail closed, so "I could not tell" lands on the same side
 		// as "no".
 		boolean supported = columnType != null && columnType.contains("'device'");
-		this.deviceMethodSupported = supported;
+		// Cache ONLY success. A false here means the DDL has not been applied
+		// yet, and the log tells the operator that punches will pair on the
+		// next pass once they apply it -- which was untrue while this cached
+		// the negative too: the answer was frozen for the life of the JVM and
+		// the promised recovery actually needed a restart nobody documented.
+		// Re-probing costs one information_schema read per pass, and only
+		// while the deployment is incomplete.
+		if (supported) {
+			this.deviceMethodSupported = true;
+		}
 		return supported;
 	}
 
@@ -104,7 +116,13 @@ public class PunchPairingStore {
 	 */
 	public List<Map<String, Object>> claimable(long companyId, int limit, int maxAttempts) {
 		return jdbcTemplate.query("""
-				SELECT id, employee_id, punched_at_local, punched_at_utc, branch_id, device_id
+				-- pair_attempts is PROJECTED, not only filtered on. The caller
+				-- decides quarantine from it; without it every failure read as
+				-- attempt 1, the cap was never reached, and a punch that could
+				-- never pair stayed RECEIVED for ever -- invisible to the claim
+				-- once over the cap, yet still looking claimable to an operator.
+				SELECT id, employee_id, punched_at_local, punched_at_utc, branch_id, device_id,
+				       pair_attempts
 				FROM device_punches
 				WHERE company_id = ? AND processing_state = 'RECEIVED' AND employee_id IS NOT NULL
 				  AND pair_attempts < ?
@@ -121,7 +139,16 @@ public class PunchPairingStore {
 				-- overlap the wall clock reads the same value twice an hour
 				-- apart, so ordering by local time leaves chronology to the
 				-- arrival id -- the one thing a replay guarantee cannot rest on.
-				ORDER BY pair_attempts ASC, employee_id ASC, punched_at_utc ASC, id ASC
+				-- NOT ordered by pair_attempts. Sinking failures was the intent,
+				-- but ordering by attempts REORDERS AN EMPLOYEE'S DAY: after an
+				-- 08:00 punch fails once and a 17:00 punch is rewound, the next
+				-- pass sees 17:00 at attempt 0 before 08:00 at attempt 1, opens
+				-- the evening session first, and leaves two open rows in reverse
+				-- order. Pairing is stateful per employee, so chronology is the
+				-- invariant; the `pair_attempts < ?` bound above is what stops a
+				-- permanently failing punch holding the claim, and it does that
+				-- without touching order.
+				ORDER BY employee_id ASC, punched_at_utc ASC, id ASC
 				LIMIT ?""",
 				LegacyJdbcValues.rowMapper(), companyId, maxAttempts, limit);
 	}

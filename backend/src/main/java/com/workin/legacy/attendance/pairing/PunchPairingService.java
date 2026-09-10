@@ -197,9 +197,11 @@ public class PunchPairingService {
 				// on every pass and eventually starve every employee behind it.
 				long punchId = LegacyValues.toPhpLong(punch.get("id"));
 				store.recordFailedAttempt(punchId);
-				int attempts = LegacyValues.toPhpLong(punch.get("pair_attempts")) == 0
-						? 1
-						: (int) LegacyValues.toPhpLong(punch.get("pair_attempts")) + 1;
+				// The row's own count plus this failure. Both arms of the old
+				// ternary computed the same thing, and it read from a column
+				// the claim never projected, so this was always 1 and the cap
+				// below was unreachable.
+				int attempts = (int) LegacyValues.toPhpLong(punch.get("pair_attempts")) + 1;
 				if (attempts >= MAX_PAIR_ATTEMPTS) {
 					store.quarantine(punchId, punchedAtOf(punch), FLAG_PAIRING_FAILED);
 					log.error("Device punch {} for company {} failed to pair {} times and is "

@@ -586,6 +586,72 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 	}
 
 	@Test
+	void aPunchThatCanNeverPairIsQuarantinedOnceItReachesTheAttemptCap() throws Exception {
+		// The claim filtered on pair_attempts but never PROJECTED it, so the
+		// service read every failure as attempt 1 and the cap below was
+		// unreachable. The row then stopped being claimable (pair_attempts <
+		// max) while still sitting in RECEIVED -- invisible to pairing, and
+		// still looking like pending work to an operator.
+		long punch = punchAt(DAY + " 08:00:00");
+		// The motivating case from the claim's own comment: the employee is
+		// gone between ingestion and pairing, so the attendance insert can
+		// never succeed.
+		seedAsLegacyWould("DELETE FROM employees WHERE id = " + EMPLOYEE);
+
+		for (int pass = 0; pass < PunchPairingService.MAX_PAIR_ATTEMPTS; pass++) {
+			service.pairCompany(COMPANY, "friday");
+		}
+
+		Map<String, Object> row = punchRow(punch);
+		assertThat(text(row.get("processing_state")))
+				.as("after %d failed passes the punch must be quarantined, not left RECEIVED",
+						PunchPairingService.MAX_PAIR_ATTEMPTS)
+				.isEqualTo("IGNORED");
+		assertThat(text(row.get("review_flag"))).contains(PunchPairingService.FLAG_PAIRING_FAILED);
+	}
+
+	@Test
+	void aRetriedPunchDoesNotOvertakeAnEarlierOneFromTheSameDay() throws Exception {
+		// Ordering the claim by pair_attempts sank failures, which was the
+		// intent -- but it reorders an employee's own day. Pairing is stateful
+		// per employee, so processing 17:00 before 08:00 opens the evening
+		// session first and leaves the morning punch to open a SECOND row:
+		// two open sessions, in reverse order, from one ordinary day.
+		long morning = punchAt(DAY + " 08:00:00");
+		punchAt(DAY + " 17:00:00");
+		// The morning punch has already failed once; the evening one has not.
+		seedAsLegacyWould("UPDATE device_punches SET pair_attempts = 1 WHERE id = " + morning);
+
+		service.pairCompany(COMPANY, "friday");
+
+		List<Map<String, Object>> rows = attendance();
+		assertThat(rows).as("one session for the day, not one per punch").hasSize(1);
+		assertThat(text(rows.get(0).get("check_in"))).startsWith(DAY + " 08:00:00");
+		assertThat(text(rows.get(0).get("check_out"))).startsWith(DAY + " 17:00:00");
+	}
+
+	@Test
+	void anUnsupportedMethodEnumIsReprobedRatherThanCachedForTheLifeOfTheJvm() throws Exception {
+		// The guard's log tells the operator that punches pair on the next
+		// pass once the DDL is applied. Caching the negative made that untrue:
+		// the answer froze for the life of the JVM, so the documented remedy
+		// silently needed an application restart nobody mentioned.
+		PunchPairingStore store = new PunchPairingStore(dataSource);
+		seedAsLegacyWould("ALTER TABLE attendance"
+				+ " MODIFY COLUMN method ENUM('app', 'excel', 'qr') NOT NULL DEFAULT 'app'");
+		assertThat(store.attendanceMethodAcceptsDevice())
+				.as("without the DDL the guard must refuse").isFalse();
+
+		// Exactly the documented remedy, with no restart: same store instance.
+		seedAsLegacyWould("ALTER TABLE attendance"
+				+ " MODIFY COLUMN method ENUM('app', 'excel', 'qr', 'device') NOT NULL DEFAULT 'app'");
+
+		assertThat(store.attendanceMethodAcceptsDevice())
+				.as("applying the DDL must be enough; a restart must not be required")
+				.isTrue();
+	}
+
+	@Test
 	void reviewFlagColumnHoldsTheLongestCombinationPairingCanProduce() throws Exception {
 		// Production runs sql_mode='' (application.properties), where an
 		// over-long value is silently TRUNCATED rather than rejected. A column
