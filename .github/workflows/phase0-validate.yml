@@ -130,6 +130,14 @@ jobs:
       - name: Run yamllint
         run: yamllint -s .
 
+      # The dev stack is a copy of the local one; prose kept them in step and
+      # prose had already failed (the reseed command named the wrong file, so
+      # following it destroyed the other stack's volume).
+      - name: Check the dev and local compose stacks have not drifted
+        run: |
+          python3 scripts/check_compose_dev_parity.py
+          python3 scripts/test_check_compose_dev_parity.py
+
       - name: Run ShellCheck
         run: shellcheck scripts/*.sh .agents/skills/*/scripts/*.sh
 
@@ -139,6 +147,13 @@ jobs:
       # it cannot pass against a stale copy.
       - name: Pin what the independent-review gate counts as a round
         run: ./scripts/test-review-gate-counting.sh
+
+      # The other half of D-226's enforcement. Its live path -- the one that
+      # runs on a real pull request -- had no coverage at all and shipped
+      # referencing two variables the script never assigned, so the guard the
+      # decision names as its compensating control aborted before it ran.
+      - name: Pin the zero-findings guard's production path
+        run: ./scripts/test-check-review-dispositions.sh
 
       # The committed client contract is the input to the coverage reports and
       # is derived purely from the pinned client checkouts, so it can drift
@@ -189,6 +204,13 @@ jobs:
 
       - name: Pin what the legacy message-drift check catches
         run: python3 scripts/test_check_legacy_message_drift.py
+
+      # D-224's eligibility command lives in a fenced block in the decision log,
+      # not in a script file, so nothing else would notice it being edited into
+      # something that no longer fails closed. These tests extract the committed
+      # block and exercise it against a stub `gh`.
+      - name: Pin D-224's degraded-review eligibility check
+        run: python3 scripts/test_d224_eligibility_check.py
 
       # And the dashboard's own catalog, which is a different file in a
       # different shape. Its strings render in the JTE templates, so a missing

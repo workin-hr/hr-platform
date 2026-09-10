@@ -1,0 +1,137 @@
+# Publishes the backend image so client developers do not build it.
+#
+# Without this, a Flutter or desktop developer runs deploy/compose.local.yaml,
+# which has `build:` rather than `image:` -- so they need the whole repository
+# and a four-minute Gradle build in Docker, repeated every time the backend
+# moves. This turns that into `docker compose pull`.
+#
+# The image is exactly deploy/Dockerfile's, which is the same image local,
+# integration and production run. Nothing environment-specific is baked in;
+# only the profile and injected configuration differ at run time.
+name: Publish backend image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "deploy/Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/publish-image.yml"
+  # So a developer can be unblocked without waiting for a merge.
+  workflow_dispatch:
+
+concurrency:
+  # A newer main supersedes an older one; there is no value in publishing a
+  # commit that is already behind.
+  group: publish-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+# Every action here is pinned to a full commit SHA, not a moving tag. This job
+# holds `packages: write`, so an action that silently retargets its tag can
+# execute arbitrary code and replace the image every client developer pulls.
+# scripts/validate_phase0.py enforces the pinning repository-wide.
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1 -- the same pin every other workflow in this repository uses
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Two tags on purpose. `main` is what a developer's compose file follows,
+      # so `docker compose pull` gets the current backend without anyone
+      # editing a version. `sha-<commit>` is immutable, so a developer chasing
+      # "it worked yesterday" can pin the exact build and say which one.
+      #
+      # The moving tag is published ONLY from main. `workflow_dispatch` accepts
+      # any ref and the checkout above builds whatever was dispatched, so
+      # without this a manual run from a feature branch would publish unmerged,
+      # unreviewed backend code as `:main` -- which deploy/compose.dev.yaml
+      # pulls automatically for every client developer. A dispatch from another
+      # ref still publishes its immutable `sha-` tag, so the "unblock someone
+      # without waiting for a merge" case the trigger exists for still works:
+      # the developer pins that SHA instead of following `main`.
+      - name: Decide which tags this ref may publish
+        id: tags
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/backend
+          IS_MAIN: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          set -euo pipefail
+          {
+            echo "tags<<EOF"
+            if [ "$IS_MAIN" = "true" ]; then
+              echo "$IMAGE:main"
+            else
+              echo "Not refs/heads/main -- publishing the immutable tag only." >&2
+            fi
+            echo "$IMAGE:sha-${{ github.sha }}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          # Layer cache in the registry: the Dockerfile already separates the
+          # dependency download from the source copy, so a code-only change
+          # reuses it and publishes in well under a minute.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # One redirect, and no backticks: actionlint runs shellcheck over this,
+      # which flags many-individual-redirects (SC2129) and backticks inside
+      # single quotes (SC2016, they read as command substitution). Plain lines
+      # render fine in a step summary and avoid both.
+      # The digest is the only truly immutable reference. `sha-<commit>` is a
+      # TAG, and a tag can be pushed again: re-running this workflow at the same
+      # commit republishes it, and because deploy/Dockerfile uses floating base
+      # image tags and `apt-get`, that rebuild can differ in bytes and in
+      # behaviour from the first one. So the "go back to what worked yesterday"
+      # case needs the digest, not the tag, and the digest is recorded here
+      # because nothing else records it.
+      - name: Say what was published
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ghcr.io/${{ github.repository }}/backend
+        run: |
+          {
+            echo "### Backend image published"
+            echo ""
+            echo "Tags:"
+            echo ""
+            printf '%s\n' "$TAGS" | while IFS= read -r tag; do
+              [ -n "$tag" ] && echo "- $tag"
+            done
+            echo ""
+            echo "Digest (immutable -- pin this to reproduce exactly):"
+            echo ""
+            echo "    ${IMAGE}@${DIGEST}"
+            echo ""
+            echo "A sha- tag can be republished by a re-run and the Dockerfile"
+            echo "has floating base tags, so identical bytes are not guaranteed"
+            echo "for a tag. The digest is."
+            echo ""
+            echo "Client developers get it with:"
+            echo ""
+            echo "    cd deploy"
+            echo "    docker compose -f compose.dev.yaml pull"
+            echo "    docker compose -f compose.dev.yaml up -d"
+          } >> "$GITHUB_STEP_SUMMARY"

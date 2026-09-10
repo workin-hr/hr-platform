@@ -133,7 +133,7 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
   their own waves. Both `attendance/overall_report.php` and
   `attendance/export.php` are unblocked on dependency grounds.
 - Who performs the independent review the mandatory workflow places before human
-  merge? **Resolved 2026-08-28 (D-121)**: `chatgpt-codex-connector[bot]`,
+  merge? **Resolved 2026-08-28 (D-121)**, and **superseded 2026-09-09 (D-226)**: the reviewer is now a read-only review agent with no authorship or write involvement in the change; Codex rounds still count. Original answer:: `chatgpt-codex-connector[bot]`,
   reviewing the whole pull request. Its externally-billed quota (R-009) makes
   the gate *unavailable* when exhausted, never waived.
 

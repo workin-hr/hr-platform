@@ -9,13 +9,35 @@ first environment to run what it runs.
 You need Docker and a clone of this repository. Nothing else — no VPS, no
 credentials, no database to install.
 
+**Changing the backend?** Build it, so your own edit is what runs:
+
 ```sh
 cd deploy
 docker compose -f compose.local.yaml up --build
 ```
 
-First run takes a few minutes: it builds the backend and restores a 9.2 MB
-seed. After that it is seconds.
+**Only consuming the API** — Flutter, desktop, QA? Pull it instead, and skip
+the build and the JDK entirely:
+
+The published image is **private** — a new `ghcr.io` package does not inherit
+the repository's visibility, verified by measurement — so sign in once first
+with a token carrying `read:packages`:
+
+```sh
+echo "$CR_PAT" | docker login ghcr.io -u <your-github-username> --password-stdin
+
+cd deploy
+docker compose -f compose.dev.yaml pull
+docker compose -f compose.dev.yaml up -d
+```
+
+CI publishes the image on every push to `main`, so `pull` is the whole update
+whenever the backend moves. Full guide, including which `baseUrl` an Android
+emulator needs (not `localhost`):
+[`docs/operations/running-the-backend-for-client-developers.md`](../docs/operations/running-the-backend-for-client-developers.md).
+
+First run takes a few minutes either way: it restores a 9.2 MB seed, and
+`compose.local.yaml` also builds the backend. After that it is seconds.
 
 When it is up:
 
@@ -82,9 +104,16 @@ unconfigured. That is legacy's own behaviour without credentials.
 | | Profile | Data | Secrets |
 |---|---|---|---|
 | `compose.local.yaml` | `local` | sanitised seed | committed defaults |
+| `compose.dev.yaml` | `local` | sanitised seed | committed defaults |
 | `compose.integration.yaml` | `integration` | sanitised seed | from `.env.integration` |
 | `compose.prod.yaml` | `prod` | restored by hand | from `.env.prod`, all required |
 | `compose.remote-db.yaml` | `local` or `integration` | **a database that already exists** | from `.env.remote-db`, all required |
+
+`compose.dev.yaml` differs from `compose.local.yaml` in exactly one line: it
+pulls `ghcr.io/workin-hr/hr-platform/backend` rather than building from the
+working tree. A client developer should not pay a Gradle build, or install a
+JDK, to get an API to call. Pin an exact build with
+`BACKEND_TAG=sha-<commit>` when bisecting a regression.
 
 `compose.remote-db.yaml` is the odd one: it declares no `db` service, no seed
 and no volume, and connects out to a MySQL somebody else owns — the one PHP is
