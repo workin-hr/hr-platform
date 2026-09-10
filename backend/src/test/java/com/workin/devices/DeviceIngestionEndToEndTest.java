@@ -670,6 +670,50 @@ class DeviceIngestionEndToEndTest {
 
 	// ---------- helpers ----------
 
+	@Test
+	void anOverlongPinIsRejectedRatherThanTruncatedIntoADifferentOne() throws Exception {
+		// `requiredText` bounded before validating, so a 40-digit PIN was cut
+		// to its 32-digit prefix and bound successfully. The receiver validates
+		// the terminal's unmodified PIN and rejects the same value, so the
+		// binding could never match a punch: a 201 for something unusable.
+		String overlong = "1".repeat(40);
+
+		api(HttpMethod.PUT, "/api/v1/devices/identities", ADMIN_1,
+				"{\"employee_id\":" + EMPLOYEE_1001 + ",\"pin\":\"" + overlong + "\"}",
+				400);
+
+		assertThat(count("SELECT COUNT(*) FROM employee_device_identities WHERE pin = '"
+				+ "1".repeat(32) + "'"))
+				.as("no binding may be created for the truncated prefix")
+				.isZero();
+	}
+
+	@Test
+	void aFractionalEmployeeIdIsRejectedRatherThanTruncatedOntoAnotherEmployee() throws Exception {
+		// `Number.longValue()` truncates, so `employee_id: <1002>.9` used to
+		// bind a PIN to employee 1002. These are new strict JSON APIs; a
+		// malformed identifier must not be redirected to a valid resource.
+		api(HttpMethod.PUT, "/api/v1/devices/identities", ADMIN_1,
+				"{\"employee_id\":" + EMPLOYEE_1002 + ".9,\"pin\":\"4242\"}",
+				404);
+
+		assertThat(count("SELECT COUNT(*) FROM employee_device_identities WHERE pin = '4242'"))
+				.as("a fractional id must bind nothing at all")
+				.isZero();
+	}
+
+	@Test
+	void aFractionalBranchIdIsRejectedRatherThanClaimingOntoAnotherBranch() throws Exception {
+		api(HttpMethod.POST, "/api/v1/devices", ADMIN_1,
+				"{\"serial_number\":\"DEV-FRACTIONAL\",\"branch_id\":" + BRANCH_1
+						+ ".9,\"name\":\"Gate\",\"device_time_zone\":\"+02:00\"}",
+				404);
+
+		assertThat(count("SELECT COUNT(*) FROM attendance_devices WHERE serial_number = 'DEV-FRACTIONAL'"))
+				.as("a fractional branch id must claim nothing")
+				.isZero();
+	}
+
 	private long claim(long actor, String serial, long branchId, String name, String zone) {
 		Map<String, Object> created = api(HttpMethod.POST, "/api/v1/devices", actor,
 				"{\"serial_number\":\"" + serial + "\",\"branch_id\":" + branchId + ",\"name\":\"" + name + "\",\"device_time_zone\":\"" + zone + "\"}",

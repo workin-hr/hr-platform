@@ -105,6 +105,15 @@ public class DeviceManagementService {
 		// and with no unclaim path (R-042) the caller was left needing a
 		// manual database correction for a claim they were never told about.
 		return transactions.execute(status -> {
+			// Re-checked INSIDE the transaction, holding the branch row. The
+			// check above happens before the transaction opens, and
+			// device_punches.branch_id has no foreign key, so a branch deleted
+			// in that window left an active device -- and then punches --
+			// pointing at a branch that no longer exists.
+			Long owner = devices.branchCompanyIdForUpdate(branchId);
+			if (owner == null || owner != companyId) {
+				throw new ApiException(HttpStatus.NOT_FOUND, "devices.branch_not_found");
+			}
 			Optional<Long> id = devices.claimWithHistory(
 					companyId, branchId, DeviceVendor.ZKTECO.code(), serialNumber, name, zone,
 					actorEmployeeId > 0 ? actorEmployeeId : null, clock.now());
@@ -172,10 +181,20 @@ public class DeviceManagementService {
 		if (employeeId <= 0 || !identities.employeeBelongsToCompany(companyId, employeeId)) {
 			throw new ApiException(HttpStatus.NOT_FOUND, "devices.employee_not_found");
 		}
-		String pin = requiredText(body, "pin", "devices.pin_required", 32);
-		if (!DeviceInput.isValidPin(pin)) {
+		// Length checked on the RAW value. `requiredText` bounds before
+		// validating, so a 40-digit PIN used to be truncated to its 32-digit
+		// prefix and bound successfully -- while the receiver validates the
+		// terminal's unmodified PIN and rejects the same value as malformed.
+		// The binding could then never match a punch: an API that reported
+		// success for something that could not work.
+		String rawPin = DeviceInput.bounded(asText(body.get("pin")), Integer.MAX_VALUE);
+		if (rawPin == null) {
+			throw new ApiException(HttpStatus.BAD_REQUEST, "devices.pin_required");
+		}
+		if (rawPin.length() > 32 || !DeviceInput.isValidPin(rawPin)) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "devices.pin_invalid");
 		}
+		String pin = rawPin;
 		String cardNo = DeviceInput.bounded(asText(body.get("card_no")), 32);
 		// Bind and adopt in one transaction. A binding that succeeded while the
 		// adoption failed would leave punches UNMATCHED that nothing will look
@@ -312,9 +331,40 @@ public class DeviceManagementService {
 		return raw == null ? null : String.valueOf(raw);
 	}
 
+	/**
+	 * An identifier, or 0 if the value is not one.
+	 *
+	 * <p>{@code longValue()} on a JSON number TRUNCATES, so {@code 1002.9}
+	 * used to name employee 1002 and {@code 123.9} a claim on branch 123 --
+	 * a malformed identifier silently redirected to a different, valid
+	 * resource. These are new strict JSON APIs, so a non-integral number is
+	 * rejected rather than rounded: 0 is not a valid id anywhere here, and
+	 * every caller already treats it as "not found".
+	 */
 	private static long asLong(Object raw) {
+		if (raw instanceof Byte || raw instanceof Short
+				|| raw instanceof Integer || raw instanceof Long) {
+			return ((Number) raw).longValue();
+		}
+		if (raw instanceof java.math.BigInteger integer) {
+			return integer.bitLength() < 64 ? integer.longValue() : 0L;
+		}
+		if (raw instanceof java.math.BigDecimal decimal) {
+			try {
+				return decimal.longValueExact();
+			} catch (ArithmeticException ex) {
+				return 0L;
+			}
+		}
 		if (raw instanceof Number number) {
-			return number.longValue();
+			// Double/Float: integral in value and exactly representable, or
+			// nothing. NaN and the infinities fail both tests.
+			double value = number.doubleValue();
+			if (value != Math.rint(value) || Double.isInfinite(value) || Double.isNaN(value)
+					|| value < Long.MIN_VALUE || value > Long.MAX_VALUE) {
+				return 0L;
+			}
+			return (long) value;
 		}
 		try {
 			return raw == null ? 0L : Long.parseLong(String.valueOf(raw).strip());

@@ -87,6 +87,26 @@ public class AttendanceDeviceStore {
 	}
 
 	/**
+	 * The same question, asked inside a transaction and holding the row.
+	 *
+	 * <p>{@code device_punches.branch_id} has no foreign key, so nothing at the
+	 * schema level stops a device being claimed onto a branch that was deleted
+	 * between the ownership check and the insert. The claim would succeed, the
+	 * terminal would be accepted, and its punches would carry a branch id that
+	 * resolves to nothing.
+	 *
+	 * <p>{@code FOR UPDATE} closes the window rather than narrowing it: a
+	 * concurrent delete either finishes first -- and this returns empty, so the
+	 * claim is refused -- or waits for the claim to commit, and then deletes a
+	 * branch whose device is visible to it.
+	 */
+	public Long branchCompanyIdForUpdate(long branchId) {
+		List<Long> values = jdbcTemplate.queryForList(
+				"SELECT company_id FROM branches WHERE id = ? FOR UPDATE", Long.class, branchId);
+		return values.isEmpty() ? null : values.get(0);
+	}
+
+	/**
 	 * Registers a serial for a company/branch.
 	 *
 	 * @return the new id, or empty when the serial is already registered --
