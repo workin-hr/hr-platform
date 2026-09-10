@@ -654,10 +654,29 @@ public class LegacyEmployeeStore {
 	/**
 	 * {@code delete.php}'s direct path: a single scoped delete, <b>not</b> inside
 	 * a transaction and with no manager cleanup (D-077).
+	 *
+	 * <p><b>Employee first, identity second.</b> There is no transaction here
+	 * by design, so the two statements commit independently and the order is
+	 * the only thing deciding which partial state is reachable. Removing the
+	 * identity first meant a failing employee delete -- a row inserted after
+	 * the preview whose foreign key still references the employee, say -- left
+	 * the employee present with their PIN binding already gone: their terminal
+	 * punches stop resolving, silently, and nothing says why.
+	 *
+	 * <p>This way round the reachable partial state is an employee who is gone
+	 * with a stale identity row, which resolves no punches to anybody and is
+	 * visible in the identities list. The device identity is a Phase-1 addition
+	 * with no counterpart in {@code delete.php}, so ordering it after the
+	 * legacy statement changes nothing about parity (D-077).
 	 */
 	public void deleteEmployeeUnscopedOfAnyTransaction(long employeeId, long companyId) {
-		deleteDeviceIdentity(employeeId, companyId);
-		jdbcTemplate.update("DELETE FROM employees WHERE id = ? AND company_id = ?", employeeId, companyId);
+		int deleted = jdbcTemplate.update(
+				"DELETE FROM employees WHERE id = ? AND company_id = ?", employeeId, companyId);
+		if (deleted > 0) {
+			// Only when the employee actually went. A missing or foreign id
+			// deletes nothing above, and must not strip a binding either.
+			deleteDeviceIdentity(employeeId, companyId);
+		}
 	}
 
 	/**
