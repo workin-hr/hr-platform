@@ -1793,6 +1793,26 @@ def test_workflow_using_a_moving_action_tag_fails() -> None:
         shutil.rmtree(root)
 
 
+def test_workflow_using_a_quoted_moving_action_tag_fails() -> None:
+    """`uses: "owner/repo@v3"` is valid YAML. Requiring the owner to start
+    immediately after `uses:` left the quoted form unmatched, so the rule
+    reported a clean workflow while a mutable tag was in it."""
+    root = make_root()
+    try:
+        write_workflow(root, "publisher.yml",
+                       "name: X\non:\n  push:\npermissions:\n  contents: read\n"
+                       "jobs:\n  b:\n    steps:\n"
+                       '      - uses: "docker/login-action@v3"\n')
+        failures: list[str] = []
+        v.validate_workflow_safety(failures, root=root)
+        check(
+            any("moving tag" in f for f in failures),
+            f"a quoted moving tag fails just as the bare form does (failures={failures})",
+        )
+    finally:
+        shutil.rmtree(root)
+
+
 def test_workflow_using_a_sha_pinned_action_passes() -> None:
     """The rule must not fire on the form it is asking for."""
     root = make_root()
@@ -3114,6 +3134,7 @@ def main() -> int:
     test_a_checkout_named_only_in_a_comment_does_not_trip_the_exception()
     test_reviewer_named_and_declared_read_only_passes()
     test_workflow_using_a_moving_action_tag_fails()
+    test_workflow_using_a_quoted_moving_action_tag_fails()
     test_workflow_using_a_sha_pinned_action_passes()
     test_a_moving_tag_named_only_in_prose_does_not_fail()
     test_workflow_without_named_reviewer_fails()

@@ -105,6 +105,14 @@ def main() -> int:
     check(proc.returncode == 1 and "GONE" in proc.stderr,
           f"an intended difference vanishing fails too (exit={proc.returncode})")
 
+    # Re-indenting a setting into a different mapping keeps the same text in
+    # the same order. Stripping indentation made that compare equal, while
+    # producing a genuinely different stack.
+    reindented = DEV.replace("    restart: unless-stopped", "  restart: unless-stopped")
+    proc = run(LOCAL, reindented)
+    check(proc.returncode == 1 and "restart" in proc.stderr,
+          f"a setting re-indented into another mapping fails (exit={proc.returncode})")
+
     # A missing file is a failure, not a silent skip: this check protects a
     # file a developer could delete while splitting the stacks apart.
     root = Path(tempfile.mkdtemp(prefix="compose-parity-"))

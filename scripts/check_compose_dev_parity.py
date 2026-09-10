@@ -33,21 +33,28 @@ ALLOWED: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     # stacks fight over the same containers and volumes.
     (("name: workin-local",), ("name: workin-dev",)),
     # The one intended behavioural difference: build locally vs pull published.
+    # Indentation included, because the comparison keeps it.
     (
-        ("build:", "context: ..", "dockerfile: deploy/Dockerfile"),
-        ("image: ghcr.io/workin-hr/hr-platform/backend:${BACKEND_TAG:-main}",),
+        ("    build:", "      context: ..", "      dockerfile: deploy/Dockerfile"),
+        ("    image: ghcr.io/workin-hr/hr-platform/backend:${BACKEND_TAG:-main}",),
     ),
 )
 
 
 def normalise(path: Path) -> list[str]:
-    """Significant lines only: comments and blank lines carry no behaviour."""
+    """Significant lines only, INDENTATION INTACT.
+
+    Comments and blank lines carry no behaviour, so they are dropped. Leading
+    whitespace is not: in YAML it is the nesting. Stripping it made the
+    comparison blind to structural drift -- moving `restart: unless-stopped`
+    from under `app` to under `services` keeps the same text in the same order
+    and would have compared equal, while producing a different stack.
+    """
     out = []
     for raw in path.read_text(encoding="utf-8").splitlines():
-        stripped = raw.strip()
-        if not stripped or stripped.startswith("#"):
+        if not raw.strip() or raw.strip().startswith("#"):
             continue
-        out.append(stripped)
+        out.append(raw.rstrip())
     return out
 
 

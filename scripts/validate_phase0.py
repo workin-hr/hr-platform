@@ -1597,7 +1597,12 @@ def validate_links(failures: list[str], root: Path | None = None) -> None:
 # (`./.github/actions/x`) and container actions (`docker://`) have no tag to
 # retarget and are not matched.
 ACTION_REF_RE = re.compile(
-    r"^\s*-?\s*uses:\s*([A-Za-z0-9][\w.-]*/[\w.-]+(?:/[\w.-]+)*)@(\S+)", re.MULTILINE)
+    # The quotes are optional and must be allowed for: `uses: "owner/repo@v3"`
+    # is valid YAML, and requiring the owner to start immediately after `uses:`
+    # left that form unmatched -- a mutable tag in a job with `packages: write`
+    # while this reported everything pinned.
+    r"""^\s*-?\s*uses:\s*["']?([A-Za-z0-9][\w.-]*/[\w.-]+(?:/[\w.-]+)*)@([^"'\s]+)""",
+    re.MULTILINE)
 SHA_PIN_RE = re.compile(r"[0-9a-f]{40}")
 
 
