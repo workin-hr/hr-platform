@@ -477,6 +477,26 @@ public class PunchPairingStore {
 	 * later, and leaving it {@code RECEIVED} would make every pass reconsider
 	 * it forever.
 	 */
+	/**
+	 * Which runtime offset produced this punch's timestamp, recorded on the row.
+	 *
+	 * <p>Both columns existed and neither was ever written, so every punch --
+	 * including the pre-history ones pairing refuses precisely BECAUSE their
+	 * offset is unknown -- carried the {@code 'EXACT'} column default with a
+	 * null offset beside it. The schema asserted certainty about a value it did
+	 * not hold, which is worse than holding nothing: an audit asking which
+	 * offset produced an attendance row got a confident wrong answer.
+	 *
+	 * <p>Written before the punch is dispositioned, so it is recorded whichever
+	 * way the pass then goes.
+	 */
+	public void recordRuntimeOffset(long punchId, Integer offsetSeconds, String resolution) {
+		jdbcTemplate.update(
+				"UPDATE device_punches SET legacy_runtime_offset_seconds = ?,"
+						+ " runtime_offset_resolution = ? WHERE id = ?",
+				offsetSeconds, resolution, punchId);
+	}
+
 	public void markIgnored(long punchId, LocalDateTime at, String reviewFlag) {
 		jdbcTemplate.update("""
 				UPDATE device_punches

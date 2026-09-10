@@ -45,6 +45,9 @@ import com.workin.legacy.LegacyRuntimeOffset;
 @Service
 public class DeviceManagementService {
 
+	private static final org.slf4j.Logger LOG =
+			org.slf4j.LoggerFactory.getLogger(DeviceManagementService.class);
+
 	private static final Logger log =
 			LoggerFactory.getLogger(DeviceManagementService.class);
 
@@ -223,6 +226,29 @@ public class DeviceManagementService {
 		int page = limit == null || limit <= 0 ? DEFAULT_PUNCHES_PAGE : Math.min(limit, MAX_PUNCHES_PAGE);
 		String stateFilter = state == null || state.isBlank() ? null : state.strip().toUpperCase(Locale.ROOT);
 		return punches.recentForCompany(companyId, deviceId, stateFilter, flaggedOnly, page);
+	}
+
+	/**
+	 * An operator confirming that a device's pre-claim punches really do belong
+	 * to the branch and zone it was claimed into.
+	 *
+	 * <p>The one input the system cannot derive. Everything else about a
+	 * buffered punch is recorded; where the terminal physically was before
+	 * anyone claimed it is not, and no amount of history helps because the
+	 * history starts at the claim.
+	 */
+	public Map<String, Object> confirmInferredPunches(
+			long companyId, long deviceId, long actorEmployeeId) {
+		AttendanceDevice device = require(companyId, deviceId);
+		int promoted = punches.confirmInferredAssignment(companyId, deviceId);
+		// The actor is recorded here rather than on the row: device_punches has
+		// no column for it, and inventing one to hold an attestation would put
+		// it somewhere no other provenance lives. The change itself is visible
+		// -- assignment_resolution moves, and the punches list projects it.
+		LOG.info("employee {} confirmed the pre-claim attribution of {} punch(es) on device {} "
+						+ "(serial {}) for company {}",
+				actorEmployeeId, promoted, deviceId, device.serialNumber(), companyId);
+		return Map.of("confirmed", promoted);
 	}
 
 	private AttendanceDevice require(long companyId, long id) {

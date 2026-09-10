@@ -84,6 +84,10 @@ public class PunchPairingService {
 	static final String FLAG_PAIRING_FAILED = "PAIRING_FAILED";
 	/** The runtime offset governing this punch's instant was never recorded. */
 	static final String FLAG_RUNTIME_OFFSET_PRE_HISTORY = "RUNTIME_OFFSET_PRE_HISTORY";
+
+	/** device_punches.runtime_offset_resolution, held to the schema's CHECK. */
+	static final String RUNTIME_OFFSET_EXACT = "EXACT";
+	static final String RUNTIME_OFFSET_PRE_HISTORY = "PRE_HISTORY";
 	/** A punch inside a session a human corrected: attributable to no new row. */
 	static final String FLAG_INSIDE_CORRECTED_SESSION = "INSIDE_CORRECTED_SESSION";
 
@@ -290,16 +294,25 @@ public class PunchPairingService {
 	private Outcome pairOneInTransaction(long companyId, Map<String, Object> punch, String weeklyRestLabel) {
 		long punchId = LegacyValues.toPhpLong(punch.get("id"));
 		long employeeId = LegacyValues.toPhpLong(punch.get("employee_id"));
-		LocalDateTime punchedAt = punchedAtOf(punch);
-		if (punchedAt == null) {
+		// The offset is resolved once here, and RECORDED, so the row says which
+		// one produced its timestamp. Both provenance columns were previously
+		// left at their defaults for every punch, so a pre-history row -- the
+		// one case where the offset is definitively unknown -- still claimed
+		// 'EXACT'.
+		LocalDateTime instant = instantOf(punch);
+		Integer offsetSeconds = store.runtimeOffsetSecondsAt(instant);
+		if (offsetSeconds == null) {
 			// PRE_HISTORY: the runtime offset governing this instant was never
 			// recorded. An hour of silent error moves session boundaries and
 			// payroll, and a review flag beside an already-derived row is too
 			// late -- so nothing is derived. The raw punch survives, visibly
 			// held, which is the same rule assignment provenance follows.
-			store.markIgnored(punchId, instantOf(punch), FLAG_RUNTIME_OFFSET_PRE_HISTORY);
+			store.recordRuntimeOffset(punchId, null, RUNTIME_OFFSET_PRE_HISTORY);
+			store.markIgnored(punchId, instant, FLAG_RUNTIME_OFFSET_PRE_HISTORY);
 			return new Outcome(0, 0, 1, 1);
 		}
+		store.recordRuntimeOffset(punchId, offsetSeconds, RUNTIME_OFFSET_EXACT);
+		LocalDateTime punchedAt = instant.plusSeconds(offsetSeconds);
 
 		// Computed ONCE, for every outcome below. It was evaluated only on the
 		// open-session path, so a check-OUT at the wrong branch and a duplicate

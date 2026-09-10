@@ -84,6 +84,25 @@ public class DeviceManagementController {
 		return view;
 	}
 
+	/**
+	 * {@code POST /api/v1/devices/{id}/punches/confirm-inferred}.
+	 *
+	 * <p>Punches a terminal buffered BEFORE it was claimed resolve as
+	 * INFERRED_EARLIEST, because the device's assignment history begins at the
+	 * claim. Pairing requires an established attribution, so those punches were
+	 * held indefinitely with nothing able to release them. This is the operator
+	 * saying the terminal was already where it was claimed to be.
+	 */
+	@PostMapping("/{deviceId}/punches/confirm-inferred")
+	public Map<String, Object> confirmInferredPunches(@PathVariable("deviceId") long deviceId) {
+		// administrative(): this is an operator attesting to a fact about the
+		// physical world, so it belongs with claim and update rather than with
+		// the read paths.
+		LegacyRequestContext context = administrative();
+		return service.confirmInferredPunches(
+				context.companyId(), deviceId, context.employeeId());
+	}
+
 	@GetMapping("/identities")
 	public Map<String, Object> identities() {
 		LegacyRequestContext context = administrative();

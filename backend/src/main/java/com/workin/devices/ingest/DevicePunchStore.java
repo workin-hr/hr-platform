@@ -113,6 +113,41 @@ public class DevicePunchStore {
 				employeeId, companyId, pin);
 	}
 
+	/**
+	 * Promotes a device's pre-claim punches from inferred attribution to
+	 * established, on an operator's word.
+	 *
+	 * <p>A terminal buffers punches while unclaimed and uploads them once it is
+	 * claimed. The device's assignment history begins at claim time, so every
+	 * one of those punches resolves INFERRED_EARLIEST -- and the pairing claim
+	 * requires EXACT, deliberately, because an acknowledged guess must not
+	 * become payroll-facing attendance on its own. Nothing then existed to
+	 * change that, so those punches sat in RECEIVED for ever: excluded from
+	 * pairing, invisible as work, and not recoverable by any path.
+	 *
+	 * <p>The missing input is a fact only a person has -- that the terminal was
+	 * already in this branch, on this zone, before it was claimed. This is
+	 * where they supply it. It is narrow on purpose: one device, only rows
+	 * still RECEIVED, and only INFERRED_EARLIEST ones, so it can neither
+	 * revive a quarantined punch nor overwrite an attribution that was
+	 * established rather than guessed.
+	 *
+	 * @return how many punches were promoted
+	 */
+	public int confirmInferredAssignment(long companyId, long deviceId) {
+		return jdbcTemplate.update("""
+				UPDATE device_punches
+				SET assignment_resolution = 'EXACT'
+				WHERE company_id = ? AND device_id = ?
+				  AND processing_state = 'RECEIVED'
+				  AND assignment_resolution = 'INFERRED_EARLIEST'
+				  -- Both are required by the pairing claim, and an inferred row
+				  -- can be missing them; promoting one that is would move it
+				  -- from "held" to "silently never selected".
+				  AND punched_at_utc IS NOT NULL AND branch_id IS NOT NULL""",
+				companyId, deviceId);
+	}
+
 	/** Newest first, always inside one company; the optional filters narrow, never widen. */
 	public List<Map<String, Object>> recentForCompany(
 			long companyId, Long deviceId, String state, boolean flaggedOnly, int limit) {

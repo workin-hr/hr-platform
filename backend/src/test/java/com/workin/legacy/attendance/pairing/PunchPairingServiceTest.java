@@ -586,6 +586,47 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 	}
 
 	@Test
+	void everyPunchRecordsWhichRuntimeOffsetProducedItsTimestamp() throws Exception {
+		// Both provenance columns existed and neither was ever written, so
+		// every punch carried the 'EXACT' default with a null offset beside it
+		// -- including pre-history punches, which pairing refuses precisely
+		// BECAUSE their offset is unknown. The schema asserted certainty about
+		// a value it did not hold.
+		long paired = punchAt(DAY + " 08:00:00");
+
+		service.pairCompany(COMPANY, "friday");
+
+		Map<String, Object> row = query("SELECT legacy_runtime_offset_seconds,"
+				+ " runtime_offset_resolution FROM device_punches WHERE id = " + paired).get(0);
+		assertThat(text(row.get("runtime_offset_resolution")))
+				.isEqualTo(PunchPairingService.RUNTIME_OFFSET_EXACT);
+		assertThat(Long.parseLong(text(row.get("legacy_runtime_offset_seconds"))))
+				.as("the offset actually used, not a null beside a confident label")
+				.isEqualTo(7200L);
+	}
+
+	@Test
+	void aPrePunchHistoryPunchIsRecordedAsPreHistoryRatherThanExact() throws Exception {
+		// Older than the one history row the fixture seeds, so no offset
+		// governs it. This is the row the old default described as EXACT.
+		seedAsLegacyWould("DELETE FROM legacy_runtime_offset_history");
+		seedAsLegacyWould("INSERT INTO legacy_runtime_offset_history"
+				+ " (effective_from_utc, offset_seconds) VALUES ('2030-01-01 00:00:00', 7200)");
+		long orphan = punchAt(DAY + " 08:00:00");
+
+		service.pairCompany(COMPANY, "friday");
+
+		Map<String, Object> row = query("SELECT legacy_runtime_offset_seconds,"
+				+ " runtime_offset_resolution, processing_state FROM device_punches WHERE id = "
+				+ orphan).get(0);
+		assertThat(text(row.get("runtime_offset_resolution")))
+				.as("the one case where the offset is definitively unknown")
+				.isEqualTo(PunchPairingService.RUNTIME_OFFSET_PRE_HISTORY);
+		assertThat(row.get("legacy_runtime_offset_seconds")).isNull();
+		assertThat(text(row.get("processing_state"))).isEqualTo("IGNORED");
+	}
+
+	@Test
 	void theWrongBranchIsFlaggedOnEveryOutcome() throws Exception {
 		// outOfHomeBranch was evaluated only on the open-session path, so a
 		// check-OUT at the wrong branch and a debounced duplicate read at the

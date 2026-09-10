@@ -840,6 +840,49 @@ class DeviceIngestionEndToEndTest {
 		assertThat(summary.count()).as("and carry an observation from this delivery").isPositive();
 	}
 
+	@Test
+	void preClaimPunchesCanBeConfirmedInsteadOfBeingHeldForEver() throws Exception {
+		// A terminal buffers punches while unclaimed and uploads them once
+		// claimed. Its assignment history begins at the claim, so those punches
+		// resolve INFERRED_EARLIEST -- and the pairing claim requires EXACT, so
+		// nothing could ever select them again. They sat in RECEIVED for ever:
+		// excluded from pairing, not visible as work, unrecoverable.
+		long deviceId = claim(ADMIN_1, "DEV-PRE", BRANCH_1, "Pre Gate", "+02:00");
+		devicePost("/iclock/cdata?SN=DEV-PRE&table=ATTLOG&Stamp=1", ATTLOG_TWO_PUNCHES);
+		// Exactly what a pre-claim upload leaves behind.
+		exec("UPDATE device_punches SET assignment_resolution = 'INFERRED_EARLIEST'"
+				+ " WHERE device_id = " + deviceId);
+		assertThat(count("SELECT COUNT(*) FROM device_punches WHERE device_id = " + deviceId
+				+ " AND assignment_resolution = 'INFERRED_EARLIEST'")).isPositive();
+
+		Map<String, Object> result = api(HttpMethod.POST,
+				"/api/v1/devices/" + deviceId + "/punches/confirm-inferred", ADMIN_1, null, 200);
+
+		assertThat(((Number) result.get("confirmed")).intValue()).isPositive();
+		assertThat(count("SELECT COUNT(*) FROM device_punches WHERE device_id = " + deviceId
+				+ " AND assignment_resolution = 'INFERRED_EARLIEST'"))
+				.as("nothing is left inferred once the operator has confirmed it").isZero();
+	}
+
+	@Test
+	void confirmingDoesNotRevivePunchesThatWereAlreadyDispositioned() throws Exception {
+		// Narrow on purpose: only rows still RECEIVED, and only inferred ones.
+		// Otherwise this becomes a way to resurrect a quarantined punch or to
+		// overwrite an attribution that was established rather than guessed.
+		long deviceId = claim(ADMIN_1, "DEV-PRE2", BRANCH_1, "Pre Gate 2", "+02:00");
+		devicePost("/iclock/cdata?SN=DEV-PRE2&table=ATTLOG&Stamp=1", ATTLOG_TWO_PUNCHES);
+		exec("UPDATE device_punches SET assignment_resolution = 'INFERRED_EARLIEST',"
+				+ " processing_state = 'IGNORED' WHERE device_id = " + deviceId);
+
+		Map<String, Object> result = api(HttpMethod.POST,
+				"/api/v1/devices/" + deviceId + "/punches/confirm-inferred", ADMIN_1, null, 200);
+
+		assertThat(((Number) result.get("confirmed")).intValue()).isZero();
+		assertThat(count("SELECT COUNT(*) FROM device_punches WHERE device_id = " + deviceId
+				+ " AND assignment_resolution = 'INFERRED_EARLIEST'"))
+				.as("a dispositioned punch stays as it was").isPositive();
+	}
+
 	private ResponseEntity<String> devicePost(String pathAndQuery, String body, MediaType contentType) {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setContentType(contentType);
