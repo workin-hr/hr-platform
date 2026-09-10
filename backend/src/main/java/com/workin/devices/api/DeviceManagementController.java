@@ -106,9 +106,13 @@ public class DeviceManagementController {
 	public Map<String, Object> punches(
 			@RequestParam(name = "device_id", required = false) Long deviceId,
 			@RequestParam(name = "state", required = false) String state,
+			// Narrows to punches carrying a review flag. Seeing the flag in the
+			// projection is what makes review possible; this is what makes it
+			// practical on a company with thousands of ordinary punches.
+			@RequestParam(name = "flagged", required = false, defaultValue = "false") boolean flagged,
 			@RequestParam(name = "limit", required = false) Integer limit) {
 		LegacyRequestContext context = administrative();
-		return Map.of("punches", service.punches(context.companyId(), deviceId, state, limit));
+		return Map.of("punches", service.punches(context.companyId(), deviceId, state, flagged, limit));
 	}
 
 	private LegacyRequestContext administrative() {

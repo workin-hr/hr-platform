@@ -61,6 +61,24 @@ unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/slice_b_attendance_method.
   > slice_b_attendance_method.sql
 ```
 
+### And a third
+
+`legacy_runtime_offset_hooks.sql` installs the triggers that record every
+runtime-offset change as it happens. Step 3 applies it, so it has to be
+extracted here too — and it ships separately from `phase1_extensions.sql`
+because that file must run against a database holding nothing else, while
+these triggers reference the legacy `configs` table.
+
+```bash
+unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/legacy_runtime_offset_hooks.sql \
+  > legacy_runtime_offset_hooks.sql
+```
+
+Skipping it is not a partial success. `PunchPairingService` refuses every
+pairing pass while the triggers are absent — a seeded history with no writers
+looks authoritative and goes stale silently — so the whole feature stays dark
+with punches accumulating in `RECEIVED`.
+
 Apply it **only after** the legacy schema is in place, and **before**
 deploying code that writes `'device'`. Old PHP against the widened enum is
 safe — one site reads `method` and renders it verbatim — but new Java

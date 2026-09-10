@@ -218,10 +218,11 @@ public class DeviceManagementService {
 	}
 
 	/** Shadow-mode visibility: the raw punches, newest first, inside one company only. */
-	public List<Map<String, Object>> punches(long companyId, Long deviceId, String state, Integer limit) {
+	public List<Map<String, Object>> punches(
+			long companyId, Long deviceId, String state, boolean flaggedOnly, Integer limit) {
 		int page = limit == null || limit <= 0 ? DEFAULT_PUNCHES_PAGE : Math.min(limit, MAX_PUNCHES_PAGE);
 		String stateFilter = state == null || state.isBlank() ? null : state.strip().toUpperCase(Locale.ROOT);
-		return punches.recentForCompany(companyId, deviceId, stateFilter, page);
+		return punches.recentForCompany(companyId, deviceId, stateFilter, flaggedOnly, page);
 	}
 
 	private AttendanceDevice require(long companyId, long id) {

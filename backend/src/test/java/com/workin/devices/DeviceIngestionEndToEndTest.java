@@ -787,6 +787,37 @@ class DeviceIngestionEndToEndTest {
 				.isEqualTo(403);
 	}
 
+	@Test
+	void aTenantReviewerCanSeeAndFilterTheReviewFlags() throws Exception {
+		// This is the only tenant-facing punch query, and it omitted
+		// review_flag entirely -- so a punch flagged for human review came back
+		// indistinguishable from an ordinary one, and the review those flags
+		// exist to demand could not be performed at all.
+		long deviceId = claim(ADMIN_1, "DEV-FLAG", BRANCH_1, "Flag Gate", "+02:00");
+		devicePost("/iclock/cdata?SN=DEV-FLAG&table=ATTLOG&Stamp=1", ATTLOG_TWO_PUNCHES);
+		exec("UPDATE device_punches SET review_flag = '"
+				+ "OUT_OF_HOME_BRANCH"
+				+ "' WHERE device_id = " + deviceId + " ORDER BY id LIMIT 1");
+
+		List<Map<String, Object>> all = listOf(
+				api(HttpMethod.GET, "/api/v1/devices/punches?device_id=" + deviceId, ADMIN_1, null, 200),
+				"punches");
+		assertThat(all).as("the flag must be visible at all").anySatisfy(punch ->
+				assertThat(punch.get("review_flag"))
+						.isEqualTo("OUT_OF_HOME_BRANCH"));
+		assertThat(all).as("and the provenance beside it").allSatisfy(punch ->
+				assertThat(punch).containsKey("assignment_resolution"));
+
+		List<Map<String, Object>> flagged = listOf(
+				api(HttpMethod.GET, "/api/v1/devices/punches?device_id=" + deviceId + "&flagged=true",
+						ADMIN_1, null, 200),
+				"punches");
+		assertThat(flagged).as("and reviewable without paging past everything else")
+				.hasSize(1)
+				.allSatisfy(punch -> assertThat(punch.get("review_flag")).isNotNull());
+		assertThat(flagged.size()).isLessThan(all.size());
+	}
+
 	private ResponseEntity<String> devicePost(String pathAndQuery, String body, MediaType contentType) {
 		HttpHeaders headers = new HttpHeaders();
 		headers.setContentType(contentType);

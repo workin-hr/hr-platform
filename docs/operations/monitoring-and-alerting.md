@@ -103,10 +103,17 @@ design section 9 of `docs/superpowers/specs/2026-09-02-attendance-device-ingesti
 - **`review_flag` is a work queue, not an error.** `RAPID_RECHECKIN` means
   legacy would have refused the check-in; a terminal cannot be refused, so a
   human decides. `DOUBLE_READ` is a debounced second read and needs nothing.
-- **What an operator sees when the enum was not widened**: every pairing
-  attempt fails on the `attendance.method` INSERT, punches stay `RECEIVED`,
-  and the log fills with data-integrity errors naming the column. The fix is
-  `slice_b_attendance_method.sql` — see `provisioning-phase1-tables.md`.
+- **What an operator sees when the enum was not widened**: one line per pass,
+  at ERROR, beginning `Not pairing: attendance.method does not accept 'device'`.
+  Punches stay `RECEIVED` and the pass ends immediately. The fix is
+  `slice_b_attendance_method.sql` — see `provisioning-phase1-tables.md`, and
+  applying it is enough: the guard re-probes, so no restart is needed.
+
+  This previously described "data-integrity errors naming the column", from
+  before the guard existed. Those cannot occur: the guard runs first and
+  returns, so the INSERT that would raise them is never attempted. An operator
+  waiting for that message would wait forever, and the one signal that does
+  appear was not written down anywhere.
 
 ## Source System
 

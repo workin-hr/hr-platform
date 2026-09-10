@@ -114,11 +114,21 @@ public class DevicePunchStore {
 	}
 
 	/** Newest first, always inside one company; the optional filters narrow, never widen. */
-	public List<Map<String, Object>> recentForCompany(long companyId, Long deviceId, String state, int limit) {
+	public List<Map<String, Object>> recentForCompany(
+			long companyId, Long deviceId, String state, boolean flaggedOnly, int limit) {
 		StringBuilder sql = new StringBuilder("""
+				-- review_flag and assignment_resolution are PROJECTED, not just
+				-- stored. This is the only tenant-facing punch query, and
+				-- without them a punch flagged RAPID_RECHECKIN,
+				-- OUT_OF_HOME_BRANCH or PAIRING_FAILED was indistinguishable
+				-- from an ordinary one -- so the human review those flags exist
+				-- to demand could not be performed at all. assignment_resolution
+				-- answers the next question an operator asks about a punch that
+				-- is not pairing: whether its attribution was established or
+				-- only inferred.
 				SELECT p.id, p.device_id, d.name AS device_name, p.branch_id, p.employee_id, p.pin,
 				       p.punched_at_local, p.punched_at_utc, p.status_code, p.verify_code, p.work_code,
-				       p.received_at, p.processing_state
+				       p.received_at, p.processing_state, p.review_flag, p.assignment_resolution
 				FROM device_punches p
 				JOIN attendance_devices d ON d.id = p.device_id
 				WHERE p.company_id = ?""");
@@ -131,6 +141,11 @@ public class DevicePunchStore {
 		if (state != null) {
 			sql.append(" AND p.processing_state = ?");
 			args.add(state);
+		}
+		if (flaggedOnly) {
+			// Seeing the flag is not enough on its own: a reviewer needs the
+			// flagged punches without paging through everything else.
+			sql.append(" AND p.review_flag IS NOT NULL AND p.review_flag <> ''");
 		}
 		sql.append(" ORDER BY p.punched_at_local DESC, p.id DESC LIMIT ").append(limit);
 		return jdbcTemplate.query(sql.toString(), LegacyJdbcValues.rowMapper(), args.toArray());
