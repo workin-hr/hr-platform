@@ -43,6 +43,38 @@ what the JVM was doing while it saw it:
 | Was it heap pressure? | `jvm_memory_used_bytes{area="heap"}` |
 | Which endpoint? | `topk(5, rate(http_server_requests_seconds_sum[1m]))` |
 
+## The harness refuses a target it cannot show is disposable
+
+`run.sh` will not generate load against something that might not be yours to
+load. It proceeds only if **both** hold:
+
+1. **The host resolves to loopback** (`127.0.0.1`, `localhost` or `::1`). This
+   is a statement about the URL you typed, not about where a stack binds --
+   `compose.local.yaml` and `compose.dev.yaml` both publish on all interfaces on
+   purpose. What it refuses is the class of targets named by a domain, which is
+   how a deployment is reached.
+2. **The target publishes the API description** at `/v3/api-docs/client-api`.
+   This is what refuses a *loopback* URL that is not a disposable stack:
+   `deploy/compose.remote-db.yaml` publishes to `127.0.0.1:8080` -- the same
+   host and port this harness defaults to -- and its own header says it points
+   at the production database. It pins springdoc off, and
+   `scripts/check_remote_db_pins.py` keeps that pin in place.
+
+To override, when you are certain:
+
+```bash
+PERF_TARGET_IS_DISPOSABLE=1 ./run.sh all
+```
+
+**What neither condition catches:** an `ssh -L 8080:localhost:8080` port-forward
+to a stack that does publish the description -- the shared integration
+environment. That reaches loopback and answers condition 2, and no probe of a
+URL can tell the socket from the stack behind it. The harness is not what
+protects you there; sign-in happens once in `setup()` and aborts the run on
+failure, so a wrong credential costs one attempt rather than the ~1,800 that
+locked the platform administrator out for 15 minutes. Point it at a stack you
+can throw away.
+
 ## Not in CI
 
 Shared GitHub runners are noisy neighbours, so absolute latency from a hosted
@@ -58,7 +90,7 @@ tests" and "we have measured this" are different claims.
 | Surface | State | Detail |
 |---|---|---|
 | **Client API** | **Baselined** | 22,417 requests at 20 VUs, **p95 107ms**, avg 33ms, 0 failures. Attendance pages 1, 10 and 25 measured flat (47/47/44ms) -- no offset-scan degradation at this volume |
-| **Admin dashboard** | **Baselined** | 1,810 requests at 5 VUs, **p95 213ms**, avg 83ms, 0 failures |
+| **Admin dashboard** | **Needs re-measuring** | 1,810 requests at 5 VUs, **p95 213ms**, avg 83ms, 0 failures -- but that run signed in on every iteration, so three of its five requests were the login form and the POST. The scenario now signs in once in `setup()`; the number above is not comparable to a run made after 2026-09-11 |
 | **Device ingestion** | **Baselined** | 12,634 requests at 20 VUs with 50-record batches, **p95 159ms**, avg 58ms, 0 failures |
 
 Two of them needed a run-time override to reach at all, and neither override is
@@ -67,9 +99,16 @@ committed -- they belong on the command line of a measurement, not in a profile:
 - **Admin dashboard.** The session cookie is `Secure`, and k6 -- unlike
   browsers and `curl` -- does not treat `http://127.0.0.1` as a secure context,
   so the session never returns on the POST and CSRF cannot validate. Either run
-  against `e2e/compose.proxy.yaml` over `https://127.0.0.1:8443`, or override
+  `deploy/e2e/run.sh`, which brings up the TLS proxy and mints its certificate,
+  and point at `https://127.0.0.1:8443`; or override
   `server.servlet.session.cookie.secure=false` for the run, which measures
   application cost without TLS handshake noise.
+  **Not** `docker compose -f compose.local.yaml -f e2e/compose.proxy.yaml`, as
+  this said until 2026-09-11: `compose.proxy.yaml` carries
+  `name: workin-integration` and a later file's project name wins the merge, so
+  that command runs the local stack's definitions inside the *integration*
+  project -- recreating its containers and attaching the local database to
+  `workin-integration_db-data`.
 - **Device ingestion.** `app.devices.ingest.enabled` defaults to false, so
   `/iclock/**` does not exist; set it, and set `app.devices.ingest.host` to the
   host k6 calls. Separately, `deploy/seed/dev-seed.sql` **predates the Phase-1

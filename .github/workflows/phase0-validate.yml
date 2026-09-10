@@ -138,6 +138,15 @@ jobs:
           python3 scripts/check_compose_dev_parity.py
           python3 scripts/test_check_compose_dev_parity.py
 
+      # compose.remote-db.yaml is the one stack here that may point at the
+      # production database, and it publishes the host and port perf/run.sh
+      # defaults to. Its springdoc pin is the only condition that stops a load
+      # run reaching production, and nothing checked that the pin stayed.
+      - name: Check the remote-db stack keeps its safety pins
+        run: |
+          python3 scripts/check_remote_db_pins.py
+          python3 scripts/test_check_remote_db_pins.py
+
       - name: Run ShellCheck
         run: shellcheck scripts/*.sh .agents/skills/*/scripts/*.sh
 
