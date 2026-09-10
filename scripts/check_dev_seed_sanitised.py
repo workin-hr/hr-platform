@@ -275,23 +275,46 @@ def check_exception_lists_current(schema: str, findings: list[str]) -> None:
 # phase1_extensions.sql was mounted beside it, MariaDB ran a non-idempotent
 # CREATE TABLE twice, and the database never came up. Removing the second mount
 # fixed that and created this requirement, so it is checked rather than assumed.
-PHASE1_TABLES = (
-    "legacy_refresh_tokens",
-    "platform_admins",
-    "platform_admin_audit_events",
-    "platform_admin_login_attempts",
-    "SPRING_SESSION",
-    "SPRING_SESSION_ATTRIBUTES",
-)
+#
+# The list is READ FROM Phase1SchemaCheck, not repeated here. A hardcoded copy
+# is how this went stale the first time: the check listed six tables, the
+# application grew to owning fourteen, and the seed satisfied the gate while
+# every stack seeded from it logged `8 of 14 owned tables are MISSING` -- no
+# terminal could be registered and every punch a device sent was acknowledged
+# and then lost. Deriving it means a fifteenth owned table fails here the day it
+# is added, rather than the day someone notices.
+PHASE1_SCHEMA_CHECK = "backend/src/main/java/com/workin/backend/config/Phase1SchemaCheck.java"
+OWNED_TABLE = re.compile(r'OWNED_TABLES\.put\(\s*"([^"]+)"')
+
+
+def owned_tables(findings: list[str]) -> tuple[str, ...]:
+    source = os.path.join(REPO_ROOT, PHASE1_SCHEMA_CHECK)
+    if not os.path.isfile(source):
+        fail(
+            f"{PHASE1_SCHEMA_CHECK} is missing, so the tables the seed must carry cannot be "
+            f"determined. If the class moved, update PHASE1_SCHEMA_CHECK here",
+            findings,
+        )
+        return ()
+    with open(source, encoding="utf-8") as handle:
+        tables = tuple(OWNED_TABLE.findall(handle.read()))
+    if not tables:
+        fail(
+            f"found no OWNED_TABLES entries in {PHASE1_SCHEMA_CHECK}. The declaration's shape "
+            f"changed and this check silently stopped requiring anything",
+            findings,
+        )
+    return tables
 
 
 def check_seed_is_self_sufficient(seed: str, findings: list[str]) -> None:
-    for table in PHASE1_TABLES:
+    for table in owned_tables(findings):
         if f"CREATE TABLE `{table}`" not in seed:
             fail(
-                f"deploy/seed/dev-seed.sql does not create `{table}`. It is mounted as the "
-                f"only init script, so a seed missing a Phase 1 table leaves the application "
-                f"unable to start. Rebuild it with scripts/build_dev_seed.sh, which applies "
+                f"deploy/seed/dev-seed.sql does not create `{table}`, which "
+                f"Phase1SchemaCheck owns. It is mounted as the only init script, so a seed "
+                f"missing a Phase 1 table leaves that feature dead on every stack seeded "
+                f"from it. Rebuild it with scripts/build_dev_seed.sh, which applies "
                 f"phase1_extensions.sql before dumping",
                 findings,
             )

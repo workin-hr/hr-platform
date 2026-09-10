@@ -80706,3 +80706,181 @@ SET AUTOCOMMIT=@OLD_AUTOCOMMIT;
 /*M!100616 SET NOTE_VERBOSITY=@OLD_NOTE_VERBOSITY */;
 
 -- Dump completed
+
+--
+-- Phase 1 device tables.
+--
+-- This dump was taken before `phase1_extensions.sql` gained the eight device
+-- tables, so a stack seeded from it started with `8 of 14 owned tables are
+-- MISSING`: no terminal could be registered, and every punch a device sent was
+-- acknowledged and then lost. The seed is mounted as the ONLY init script --
+-- mounting phase1_extensions.sql beside it ran a non-idempotent CREATE TABLE
+-- twice and the database never came up -- so the tables have to be in here.
+--
+-- Structure only, no rows: these are empty on a fresh install anyway. Generated
+-- by applying db/phase1-mysql/phase1_extensions.sql to a database loaded from
+-- this seed and dumping the tables it added, so it is exactly what
+-- scripts/build_dev_seed.sh would produce from a fresh production dump.
+--
+
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*M!100616 SET @OLD_NOTE_VERBOSITY=@@NOTE_VERBOSITY, NOTE_VERBOSITY=0 */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `attendance_devices` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `company_id` int(10) unsigned NOT NULL,
+  `branch_id` int(10) unsigned NOT NULL,
+  `vendor` varchar(32) NOT NULL,
+  `serial_number` varchar(64) NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `model` varchar(100) DEFAULT NULL,
+  `firmware` varchar(100) DEFAULT NULL,
+  `push_version` varchar(32) DEFAULT NULL,
+  `device_time_zone` varchar(64) NOT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `last_seen_at` datetime DEFAULT NULL,
+  `last_handshake_at` datetime DEFAULT NULL,
+  `last_attlog_stamp` varchar(32) DEFAULT NULL,
+  `last_seen_ip` varchar(45) DEFAULT NULL,
+  `registered_by_employee_id` int(10) unsigned DEFAULT NULL,
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `serial_number` (`serial_number`),
+  KEY `attendance_devices_company_idx` (`company_id`,`branch_id`),
+  CONSTRAINT `attendance_devices_vendor_chk` CHECK (`vendor` = 'zkteco')
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `employee_device_identities` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `company_id` int(10) unsigned NOT NULL,
+  `employee_id` int(10) unsigned NOT NULL,
+  `pin` varchar(32) NOT NULL,
+  `card_no` varchar(32) DEFAULT NULL,
+  `source` varchar(16) NOT NULL,
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `employee_device_identities_pin_uq` (`company_id`,`pin`),
+  UNIQUE KEY `employee_device_identities_employee_uq` (`company_id`,`employee_id`),
+  CONSTRAINT `employee_device_identities_source_chk` CHECK (`source` in ('MANUAL','EMPLOYEE_CODE','DEVICE'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `device_punches` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `device_id` bigint(20) NOT NULL,
+  `company_id` int(10) unsigned NOT NULL,
+  `branch_id` int(10) unsigned DEFAULT NULL,
+  `employee_id` int(10) unsigned DEFAULT NULL,
+  `pin` varchar(32) NOT NULL,
+  `punched_at_local` datetime NOT NULL,
+  `punched_at_utc` datetime DEFAULT NULL,
+  `attendance_check_in_at` datetime DEFAULT NULL,
+  `device_assignment_id` bigint(20) DEFAULT NULL,
+  `assignment_resolution` varchar(24) NOT NULL DEFAULT 'EXACT',
+  `legacy_runtime_offset_seconds` int(11) DEFAULT NULL,
+  `runtime_offset_resolution` varchar(16) NOT NULL DEFAULT 'EXACT',
+  `status_code` smallint(6) DEFAULT NULL,
+  `verify_code` smallint(6) DEFAULT NULL,
+  `work_code` varchar(32) DEFAULT NULL,
+  `received_at` datetime NOT NULL,
+  `dedup_key` char(64) NOT NULL,
+  `raw_line` varchar(512) NOT NULL,
+  `processing_state` varchar(16) NOT NULL,
+  `attendance_id` int(10) unsigned DEFAULT NULL,
+  `paired_at` datetime DEFAULT NULL,
+  `review_flag` varchar(64) DEFAULT NULL,
+  `pair_attempts` smallint(5) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `dedup_key` (`dedup_key`),
+  KEY `device_punches_pairing_idx` (`processing_state`,`company_id`,`pair_attempts`,`employee_id`,`punched_at_utc`),
+  KEY `device_punches_device_time_idx` (`device_id`,`punched_at_local`),
+  KEY `device_punches_employee_time_idx` (`company_id`,`employee_id`,`punched_at_local`),
+  KEY `device_punches_state_idx` (`processing_state`),
+  CONSTRAINT `device_punches_runtime_offset_resolution_chk` CHECK (`runtime_offset_resolution` in ('EXACT','PRE_HISTORY')),
+  CONSTRAINT `device_punches_assignment_resolution_chk` CHECK (`assignment_resolution` in ('EXACT','INFERRED_EARLIEST','UNRESOLVED')),
+  CONSTRAINT `device_punches_state_chk` CHECK (`processing_state` in ('RECEIVED','UNMATCHED','PAIRED','IGNORED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `unclaimed_device_sightings` (
+  `serial_number` varchar(64) NOT NULL,
+  `first_seen_at` datetime NOT NULL,
+  `last_seen_at` datetime NOT NULL,
+  `last_seen_ip` varchar(45) DEFAULT NULL,
+  `push_version` varchar(32) DEFAULT NULL,
+  `device_type` varchar(64) DEFAULT NULL,
+  `hit_count` int(10) unsigned NOT NULL DEFAULT 1,
+  PRIMARY KEY (`serial_number`),
+  KEY `unclaimed_device_sightings_retention_idx` (`last_seen_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `device_operation_logs` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `device_id` bigint(20) NOT NULL,
+  `company_id` int(10) unsigned NOT NULL,
+  `received_at` datetime NOT NULL,
+  `raw_line` varchar(512) NOT NULL,
+  `dedup_key` char(64) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `dedup_key` (`dedup_key`),
+  KEY `device_operation_logs_device_idx` (`device_id`,`received_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `device_malformed_punches` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `device_id` bigint(20) NOT NULL,
+  `company_id` int(10) unsigned NOT NULL,
+  `received_at` datetime NOT NULL,
+  `raw_line` varchar(512) NOT NULL,
+  `dedup_key` char(64) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `dedup_key` (`dedup_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `legacy_runtime_offset_history` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `effective_from_utc` datetime NOT NULL,
+  `offset_seconds` int(11) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `legacy_runtime_offset_history_timeline_idx` (`effective_from_utc`,`id`),
+  CONSTRAINT `legacy_runtime_offset_history_seconds_chk` CHECK (`offset_seconds` in (7200,10800))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `device_assignment_history` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `device_id` bigint(20) NOT NULL,
+  `company_id` int(10) unsigned NOT NULL,
+  `branch_id` int(10) unsigned NOT NULL,
+  `device_time_zone` varchar(64) NOT NULL,
+  `effective_from_utc` datetime NOT NULL,
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `device_assignment_history_timeline_idx` (`device_id`,`effective_from_utc`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*M!100616 SET NOTE_VERBOSITY=@OLD_NOTE_VERBOSITY */;
+
