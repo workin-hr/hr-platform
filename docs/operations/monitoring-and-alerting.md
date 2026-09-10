@@ -100,6 +100,16 @@ design section 9 of `docs/superpowers/specs/2026-09-02-attendance-device-ingesti
   logs at ERROR with the punch id and moves on rather than stopping, so one
   unpairable row cannot strand the rest — but it also means the row is only
   visible in that query and in the log, never as a stalled pass.
+- **`devices.punches.clock_skew_seconds`** is the one per-device signal here,
+  a summary tagged by `vendor` and `serial`, recording the widest
+  `received_at - punched_at` in each delivery (signed: negative means the
+  terminal is behind this server). A drifting terminal reports perfectly valid
+  timestamps, so nothing else catches it -- the punches are accepted and
+  pairing places attendance on the wrong day. Watch the per-serial value, not
+  an average across devices: one terminal two days out is invisible beside a
+  hundred healthy ones. Beyond two days it also logs a WARN naming the serial.
+  A large positive value right after an outage is normal -- that is a buffered
+  batch, not drift -- so judge it on whether it persists.
 - **`review_flag` is a work queue, not an error.** `RAPID_RECHECKIN` means
   legacy would have refused the check-in; a terminal cannot be refused, so a
   human decides. `DOUBLE_READ` is a debounced second read and needs nothing.

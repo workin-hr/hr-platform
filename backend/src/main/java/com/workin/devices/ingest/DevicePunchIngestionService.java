@@ -38,6 +38,16 @@ public class DevicePunchIngestionService {
 	private final DeviceAssignmentHistoryStore assignments;
 	private final EmployeeDeviceIdentityStore identities;
 	private final LegacyClock clock;
+	/**
+	 * Past this, the terminal's clock is wrong rather than merely imprecise.
+	 *
+	 * <p>Generous on purpose: a buffered batch from an outage is delivered long
+	 * after it was recorded, and that is normal operation, not drift. What this
+	 * catches is a clock set to the wrong year, month or hour -- the case where
+	 * every punch is plausible on its own and lands on the wrong day.
+	 */
+	private static final java.time.Duration MAX_PLAUSIBLE_SKEW = java.time.Duration.ofDays(2);
+
 	private final MeterRegistry meters;
 
 	public DevicePunchIngestionService(
@@ -86,6 +96,11 @@ public class DevicePunchIngestionService {
 		int duplicates = 0;
 		int unmatched = 0;
 		int rejected = 0;
+		// Widest skew seen in this delivery, in seconds, signed: negative means
+		// the terminal's clock is BEHIND ours, positive ahead. Tracked per
+		// delivery rather than per punch so one buffered batch from an outage
+		// does not read as thousands of separate drift observations.
+		Long widestSkewSeconds = null;
 		for (DeviceAttendanceEvent event : events) {
 			Long employeeId = byPin.get(event.pin());
 			String state = employeeId != null ? DevicePunchStore.STATE_RECEIVED : DevicePunchStore.STATE_UNMATCHED;
@@ -103,6 +118,14 @@ public class DevicePunchIngestionService {
 					stored++;
 					if (employeeId == null) {
 						unmatched++;
+					}
+					if (resolved.instantUtc() != null) {
+						long skew = java.time.Duration.between(
+								resolved.instantUtc(), receivedAt).toSeconds();
+						if (widestSkewSeconds == null
+								|| Math.abs(skew) > Math.abs(widestSkewSeconds)) {
+							widestSkewSeconds = skew;
+						}
 					}
 				}
 				case DUPLICATE -> duplicates++;
@@ -122,6 +145,23 @@ public class DevicePunchIngestionService {
 		if (unmatched > 0) {
 			LOG.warn("device {} (company {}) sent {} punch(es) for PINs bound to no active employee",
 					device.serialNumber(), device.companyId(), unmatched);
+		}
+		// PER DEVICE, deliberately, and the only metric here that is. A drifting
+		// or misconfigured terminal clock still reports syntactically valid
+		// timestamps, so ingestion accepts them and pairing can place attendance
+		// on the wrong day; the design names observed skew as the mitigation for
+		// exactly that, and the aggregate vendor counters above cannot show it.
+		// Cardinality is the number of registered terminals, which is bounded
+		// and small -- unlike, say, tagging by PIN.
+		if (widestSkewSeconds != null) {
+			meters.summary("devices.punches.clock_skew_seconds",
+							"vendor", vendor, "serial", device.serialNumber())
+					.record(widestSkewSeconds);
+			if (Math.abs(widestSkewSeconds) > MAX_PLAUSIBLE_SKEW.toSeconds()) {
+				LOG.warn("device {} (company {}) is {}s from this server's clock; its punches "
+								+ "can be attributed to the wrong day while that holds",
+						device.serialNumber(), device.companyId(), widestSkewSeconds);
+			}
 		}
 		return new Outcome(stored, duplicates, unmatched, rejected);
 	}

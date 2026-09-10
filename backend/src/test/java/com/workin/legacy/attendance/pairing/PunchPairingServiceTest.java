@@ -586,6 +586,32 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 	}
 
 	@Test
+	void theWrongBranchIsFlaggedOnEveryOutcome() throws Exception {
+		// outOfHomeBranch was evaluated only on the open-session path, so a
+		// check-OUT at the wrong branch and a debounced duplicate read at the
+		// wrong branch carried no signal -- and those are exactly the cases a
+		// reviewer is looking for. Where the punch happened is a fact about the
+		// punch, not about which outcome it took.
+		long foreign = BRANCH + 77;
+		seedAsLegacyWould("INSERT INTO branches (id, company_id, name, is_active, created_at)"
+				+ " VALUES (" + foreign + ", " + COMPANY + ", 'Away', 1, '2025-01-01 09:00:00')");
+
+		long opener = punchAt(DAY + " 08:00:00");
+		long closer = punchAt(DAY + " 17:00:00");
+		seedAsLegacyWould("UPDATE device_punches SET branch_id = " + foreign
+				+ " WHERE id IN (" + opener + ", " + closer + ")");
+
+		service.pairCompany(COMPANY, "friday");
+
+		assertThat(text(punchRow(opener).get("review_flag")))
+				.as("the opener was already flagged")
+				.contains(PunchPairingService.FLAG_OUT_OF_HOME_BRANCH);
+		assertThat(text(punchRow(closer).get("review_flag")))
+				.as("and the check-out must be too -- it is the same wrong branch")
+				.contains(PunchPairingService.FLAG_OUT_OF_HOME_BRANCH);
+	}
+
+	@Test
 	void aPunchThatCanNeverPairIsQuarantinedOnceItReachesTheAttemptCap() throws Exception {
 		// The claim filtered on pair_attempts but never PROJECTED it, so the
 		// service read every failure as attempt 1 and the cap below was

@@ -70,6 +70,9 @@ class DeviceIngestionEndToEndTest {
 	private TestRestTemplate restTemplate;
 
 	@Autowired
+	private io.micrometer.core.instrument.MeterRegistry meters;
+
+	@Autowired
 	private JwtService jwtService;
 
 	@Autowired
@@ -816,6 +819,25 @@ class DeviceIngestionEndToEndTest {
 				.hasSize(1)
 				.allSatisfy(punch -> assertThat(punch.get("review_flag")).isNotNull());
 		assertThat(flagged.size()).isLessThan(all.size());
+	}
+
+	@Test
+	void clockSkewIsMeasuredPerDeviceNotJustCountedPerVendor() {
+		// A terminal whose clock drifts still reports syntactically valid
+		// timestamps, so ingestion accepts them and pairing can place
+		// attendance on the wrong day. The design names observed
+		// received_at - punched_at skew per device as the mitigation, and the
+		// aggregate vendor counters cannot show it: one terminal running two
+		// days out is invisible beside a hundred healthy ones.
+		claim(ADMIN_1, "DEV-SKEW", BRANCH_1, "Skew Gate", "+02:00");
+
+		devicePost("/iclock/cdata?SN=DEV-SKEW&table=ATTLOG&Stamp=1", ATTLOG_TWO_PUNCHES);
+
+		io.micrometer.core.instrument.DistributionSummary summary = meters.find("devices.punches.clock_skew_seconds")
+				.tag("serial", "DEV-SKEW")
+				.summary();
+		assertThat(summary).as("a per-device skew summary must exist for this terminal").isNotNull();
+		assertThat(summary.count()).as("and carry an observation from this delivery").isPositive();
 	}
 
 	private ResponseEntity<String> devicePost(String pathAndQuery, String body, MediaType contentType) {

@@ -301,6 +301,14 @@ public class PunchPairingService {
 			return new Outcome(0, 0, 1, 1);
 		}
 
+		// Computed ONCE, for every outcome below. It was evaluated only on the
+		// open-session path, so a check-OUT at the wrong branch and a duplicate
+		// read at the wrong branch carried no OUT_OF_HOME_BRANCH signal at all
+		// -- and those are exactly the cases a reviewer is looking for. Where
+		// the punch happened is a fact about the punch, not about which of the
+		// three outcomes it happened to take.
+		String branchFlag = outOfHomeBranch(employeeId, punch) ? FLAG_OUT_OF_HOME_BRANCH : null;
+
 		Map<String, Object> open = store.newestOpenRow(employeeId);
 		if (open != null && isLiveAt(companyId, employeeId, open, punchedAt, weeklyRestLabel)) {
 			long attendanceId = LegacyValues.toPhpLong(open.get("id"));
@@ -316,13 +324,13 @@ public class PunchPairingService {
 			// keeps the instants distinct precisely so this can use them.
 			Duration sinceOpened = elapsedBetween(open, punch, openedAt, punchedAt);
 			if (openedAt != null && sinceOpened.compareTo(DEBOUNCE) < 0) {
-				store.markIgnored(punchId, punchedAt, FLAG_DOUBLE_READ);
+				store.markIgnored(punchId, punchedAt, joinFlags(FLAG_DOUBLE_READ, branchFlag));
 				return new Outcome(0, 0, 1, 1);
 			}
 
 			if (store.closeAttendance(attendanceId, punchedAt)) {
-				store.markPaired(punchId, attendanceId, punchedAt, null);
-				return new Outcome(0, 1, 0, 0);
+				store.markPaired(punchId, attendanceId, punchedAt, branchFlag);
+				return new Outcome(0, 1, 0, branchFlag == null ? 0 : 1);
 			}
 			// Someone closed it between the read and the update. Fall through
 			// and open a new row: the punch is real and must land somewhere.
@@ -333,7 +341,7 @@ public class PunchPairingService {
 		// facts a reviewer needs, not one.
 		String flag = joinFlags(
 				isRapidRecheckIn(employeeId, punchedAt) ? FLAG_RAPID_RECHECKIN : null,
-				outOfHomeBranch(employeeId, punch) ? FLAG_OUT_OF_HOME_BRANCH : null);
+				branchFlag);
 		// A row pairing could not rewind -- an HR correction -- may already span
 		// this moment. Opening another inside it records the same stretch of the
 		// day twice, so the punch is held for review instead. The raw punch is
