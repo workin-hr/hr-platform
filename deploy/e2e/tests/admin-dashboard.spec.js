@@ -91,7 +91,14 @@ test.describe.serial('the platform-admin dashboard', () => {
 		await page.click('button[type="submit"]');
 
 		await expect(page).toHaveURL(/\/admin\/login/);
-		await expect(page.locator('.login-alert--error'), 'and the page says so').toBeVisible();
+		// :not(.login-validation) -- login.jte renders TWO elements with this
+		// class: the server-rendered error, and a hidden container the
+		// client-side validation fills in. Both arrived in the same commit as
+		// this assertion, so it has never passed: Playwright's strict mode
+		// refuses a locator matching two elements. The server-rendered one is
+		// what "the page says so" means here.
+		await expect(page.locator('.login-alert--error:not(.login-validation)'),
+			'and the page says so').toBeVisible();
 		await shot(page, '01-login-refused');
 
 		// The refused attempt leaves no session behind it.

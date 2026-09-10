@@ -32,8 +32,14 @@ test.describe(`the ${PROFILE} profile`, () => {
 		// stack running `local` where `prod` was asked for publishes the API
 		// description and logs at debug, and nothing else about it looks wrong.
 		const log = execFileSync('docker', ['logs', CONTAINER], { encoding: 'utf8', maxBuffer: 64e6 });
+		// Singular AND plural. Spring writes "The following 1 profile is
+		// active" for one and "The following 2 profiles are active" for more,
+		// and every compose file here sets exactly one -- so matching only
+		// 'profiles are active' could never match, and this assertion failed
+		// for every profile rather than checking anything. Nothing in CI runs
+		// this suite, so it stayed red unnoticed.
 		const line = log.split('\n').find((entry) => entry.includes('The following')
-			&& entry.includes('profiles are active'));
+			&& /profiles? (is|are) active/.test(entry));
 
 		expect(line, 'the startup log names the active profiles').toBeTruthy();
 		expect(line).toContain(PROFILE);
