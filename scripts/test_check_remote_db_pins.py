@@ -127,6 +127,61 @@ def main() -> int:
     proc = run(reordered)
     check(proc.returncode == 0, f"re-ordering the pins is not drift (exit={proc.returncode})")
 
+    # STRUCTURAL BYPASSES. Both of these passed the text-matching version of
+    # this check, which is why it now parses the document.
+
+    # An extra publish beside the pinned one. The loopback entry is still there
+    # and still looks right; the process is on every interface anyway.
+    proc = run(COMPOSE.replace('      - "127.0.0.1:${APP_PUBLISHED_PORT:-8080}:8080"\n',
+                               '      - "127.0.0.1:${APP_PUBLISHED_PORT:-8080}:8080"\n'
+                               '      - "8081:8080"\n'))
+    check(proc.returncode == 1 and "8081" in proc.stderr,
+          f"a SECOND publish on all interfaces fails (exit={proc.returncode})")
+
+    # The pins hoisted into a dead top-level block: every literal is still
+    # present in the file, and none of them reaches the app service.
+    dead = """\
+name: workin-remote-db
+x-dead:
+  environment:
+    MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health
+    SPRINGDOC_API_DOCS_ENABLED: "false"
+    SPRINGDOC_SWAGGER_UI_ENABLED: "false"
+services:
+  app:
+    environment:
+      APP_TRACE_SAMPLING: ${APP_TRACE_SAMPLING:-1.0}
+    ports:
+      - "0.0.0.0:8080:8080"
+"""
+    proc = run(dead)
+    check(proc.returncode == 1 and "SPRINGDOC_API_DOCS_ENABLED" in proc.stderr,
+          f"pins in a dead x- block do not count (exit={proc.returncode})")
+
+    # The same, via a service that is not `app`.
+    other = COMPOSE.replace("  app:\n", "  app:\n    image: scratch\n  notapp:\n")
+    proc = run(other)
+    check(proc.returncode == 1,
+          f"pins under a different service do not count (exit={proc.returncode})")
+
+    # Long-syntax ports must be checked too.
+    longform = COMPOSE.replace('    ports:\n      - "127.0.0.1:${APP_PUBLISHED_PORT:-8080}:8080"\n',
+                               "    ports:\n      - target: 8080\n        published: 8080\n"
+                               "        host_ip: 0.0.0.0\n")
+    proc = run(longform)
+    check(proc.returncode == 1,
+          f"long-syntax publish on all interfaces fails (exit={proc.returncode})")
+
+    # A service with no ports at all is not silently fine.
+    proc = run(COMPOSE.replace('    ports:\n      - "127.0.0.1:${APP_PUBLISHED_PORT:-8080}:8080"\n', ""))
+    check(proc.returncode == 1 and "publishes no ports" in proc.stderr,
+          f"removing the publish entirely fails (exit={proc.returncode})")
+
+    # A renamed service must fail loudly, not vacuously pass with nothing to check.
+    proc = run(COMPOSE.replace("  app:\n", "  application:\n"))
+    check(proc.returncode == 1 and "has no `services.app`" in proc.stderr,
+          f"a renamed service fails loudly (exit={proc.returncode})")
+
     # A missing file fails rather than skipping.
     proc = run(None)
     check(proc.returncode == 1 and "is missing" in proc.stderr,

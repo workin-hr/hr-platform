@@ -18,7 +18,7 @@ export const options = {
     { duration: '30s', target: 5 },
     { duration: '15s', target: 0 },
   ],
-  insecureSkipTLSVerify: true,
+  insecureSkipTLSVerify: __ENV.PERF_INSECURE === '1',
   thresholds: {
     // 400 comes from a measured baseline -- 1,810 requests at 5 VUs, p95=213ms,
     // avg=83ms, 0 failures (2026-09-10, laptop) -- but that run signed in on
@@ -50,38 +50,51 @@ export const options = {
 // It also fails outright without E2E_TLS_DIR and a generated certificate, which
 // deploy/e2e/run.sh is what provides.
 //
-// insecureSkipTLSVerify is in the options above for that proxy's self-signed
-// certificate; it is a local measurement, not a trust decision.
+// insecureSkipTLSVerify in the options above follows run.sh's PERF_INSECURE,
+// which is set only for an https LOOPBACK target. It used to be unconditional,
+// which meant the precheck verified a remote certificate and the load
+// generator did not -- one decision, made twice, in opposite directions.
 
 // Sign in ONCE, in setup, and hand the session to every VU.
 //
 // It used to run per iteration, which made a wrong password destructive rather
-// than merely wrong: PlatformAdminLoginThrottle allows 8 failures per 15
-// minutes per identifier, and a 60s run at 5 VUs threw ~1,800 of them. Against
-// any shared target -- an ssh -L port-forward to the integration box reaches
-// loopback and publishes the API description, so run.sh's guard cannot refuse
-// it -- that locked the real platform administrator out for 15 minutes past the
-// end of the run, and filled the attempts table with junk.
+// than merely wrong: a 60s run at 5 VUs threw ~1,800 failed sign-ins.
+//
+// PlatformAdminLoginThrottle charges those to `web:` + getRemoteAddr(), not to
+// the account -- deliberately, so that nobody can lock the one administrator
+// out from anywhere. That does NOT make the volume harmless through an
+// `ssh -L` port-forward, which is the case run.sh's guard cannot refuse: the
+// tunnel terminates on the remote host, so the application sees 127.0.0.1 and
+// charges every attempt to the budget shared by everyone who reaches that box
+// over loopback or through a same-host proxy. Eight misses in 15 minutes
+// exhausts it for all of them, and the attempts table takes the junk.
 //
 // Throwing here aborts the whole run before any load, so a bad credential now
 // costs exactly one failed attempt. `client-api.js` already worked this way.
 export function setup() {
   const page = http.get(`${BASE}/admin/login`);
   const token = page.html().find('input[name="_csrf"]').attr('value');
+  // `password` only: PlatformAdminWebController.login takes no username, and
+  // PlatformAdminLoginService uses a constant identifier. A `username` field
+  // here was discarded, and naming it in the error below sent an operator
+  // looking for a knob that does not exist.
   const login = http.post(`${BASE}/admin/login`, {
-    username: __ENV.PERF_ADMIN_USER || 'admin',
     password: __ENV.PERF_ADMIN_PASSWORD || 'devpassword',
     _csrf: token,
   });
   // A 200 or 403 on /admin/login means the form came back -- it did NOT work.
   if (login.status >= 400 || login.url.endsWith('/admin/login')) {
     throw new Error(
-      `admin sign-in failed (${login.status} at ${login.url}). This scenario ` +
-      `needs an https BASE_URL -- over plain HTTP k6 drops the \`Secure\` ` +
-      `session cookie and the CSRF token cannot be validated, so every ` +
-      `sign-in is a 403. Run deploy/e2e/run.sh and use ` +
-      `BASE_URL=https://127.0.0.1:8443, or set PERF_ADMIN_USER / ` +
-      `PERF_ADMIN_PASSWORD if the credentials differ.`,
+      login.status === 403
+        ? `admin sign-in was refused with 403 at ${login.url}. That is the CSRF ` +
+          `check, not the password: over plain HTTP k6 drops the \`Secure\` ` +
+          `session cookie, so the token cannot be validated against a session. ` +
+          `Use an https BASE_URL -- deploy/e2e/run.sh integration puts a TLS ` +
+          `proxy on https://127.0.0.1:8443.`
+        : `admin sign-in failed (${login.status} at ${login.url}). The form came ` +
+          `back, which means the password was rejected. Set PERF_ADMIN_PASSWORD ` +
+          `(deploy/e2e/run.sh integration uses 'e2e-verify-Pass123!'; ` +
+          `compose.local.yaml defaults to 'devpassword').`,
     );
   }
   // Read the cookies back rather than naming one: the session cookie is

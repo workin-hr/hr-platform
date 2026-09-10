@@ -20,49 +20,85 @@ like a preference:
       Anything beyond `health` exposes actuator -- heapdump, env, mappings --
       on a process holding production credentials.
 
-  ports:
-      Loopback-only. Widening it to `${APP_PUBLISHED_PORT}:8080` puts that
-      process on every interface of whatever machine runs it.
+  ports
+      EVERY entry loopback-only. One extra `- "8081:8080"` beside the pinned
+      entry puts that process on every interface, and the pinned entry is still
+      sitting there looking correct.
 
-They were pinned as literals so that `.env` cannot override them, and nothing
-checked that they stayed. A review found the gap by asking what test would fail
-if the lines were deleted, and the answer was none: this stack is in no test
-matrix, and `deploy/e2e/run.sh` only ever drives local, integration and prod.
+Asserted on the PARSED document, not on the text. The first version of this
+check matched `^\\s*KEY: value$` against the file's lines, which passes on any
+line that merely looks right: a review moved all four pins into a dead
+top-level `x-` block, left the app service with no springdoc keys and a
+`0.0.0.0:8080:8080` publish, and this script still reported "keeps all 4 pins".
+Reading the structure is the difference between checking the setting and
+checking that somebody wrote the setting down somewhere.
+
+Parsing also subsumes the text cases for free: a commented-out pin is an absent
+key, an unquoted `false` is the boolean False rather than the string "false",
+and `${SPRINGDOC_API_DOCS_ENABLED:-false}` is a string that is not "false" --
+which is the point, because these are literals precisely so that `.env` cannot
+override them.
 """
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
+try:
+    import yaml
+except ModuleNotFoundError:  # pragma: no cover - a CI image without PyYAML
+    print("FAIL: PyYAML is required (pip install pyyaml)", file=sys.stderr)
+    raise SystemExit(1)
+
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = "deploy/compose.remote-db.yaml"
+SERVICE = "app"
 
-# (regex, what it pins, why it matters if it goes)
-REQUIRED: tuple[tuple[str, str, str], ...] = (
-    (
-        r'^\s*SPRINGDOC_API_DOCS_ENABLED:\s*"false"\s*$',
-        'SPRINGDOC_API_DOCS_ENABLED: "false"',
+# key -> (required literal, why it matters if it changes)
+REQUIRED_ENV: dict[str, tuple[str, str]] = {
+    "SPRINGDOC_API_DOCS_ENABLED": (
+        "false",
         "perf/run.sh's only remaining refusal for this stack; without it a load "
         "run against the default BASE_URL reaches the production database",
     ),
-    (
-        r'^\s*SPRINGDOC_SWAGGER_UI_ENABLED:\s*"false"\s*$',
-        'SPRINGDOC_SWAGGER_UI_ENABLED: "false"',
+    "SPRINGDOC_SWAGGER_UI_ENABLED": (
+        "false",
         "serves an interactive API console against production data",
     ),
-    (
-        r"^\s*MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:\s*health\s*$",
-        "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health",
-        "anything wider exposes actuator on a process holding production "
-        "credentials",
+    "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE": (
+        "health",
+        "anything wider exposes actuator on a process holding production credentials",
     ),
-    (
-        r'^\s*-\s*"127\.0\.0\.1:\$\{APP_PUBLISHED_PORT:-8080\}:8080"\s*$',
-        '- "127.0.0.1:${APP_PUBLISHED_PORT:-8080}:8080"',
-        "publishing on all interfaces exposes that process to the network",
-    ),
-)
+}
+
+LOOPBACK = "127.0.0.1"
+
+
+def environment_of(service: dict) -> dict[str, str]:
+    """Compose accepts a mapping or a `KEY=value` list; normalise both."""
+    raw = service.get("environment", {})
+    if isinstance(raw, dict):
+        return raw
+    out: dict[str, str] = {}
+    for entry in raw or []:
+        key, _, value = str(entry).partition("=")
+        out[key] = value
+    return out
+
+
+def published_hosts(service: dict) -> list[tuple[str, str]]:
+    """(host_ip, original) for every published port, short or long syntax."""
+    out: list[tuple[str, str]] = []
+    for entry in service.get("ports", []) or []:
+        if isinstance(entry, dict):  # long syntax
+            out.append((str(entry.get("host_ip", "")), str(entry)))
+            continue
+        text = str(entry)
+        # "127.0.0.1:8080:8080" / "8080:8080" / "8080". A host_ip is present
+        # only in the three-part form (or two-part with a non-numeric head).
+        parts = text.split(":")
+        out.append((parts[0] if len(parts) >= 3 else "", text))
+    return out
 
 
 def main() -> int:
@@ -71,32 +107,63 @@ def main() -> int:
         print(f"FAIL: {COMPOSE} is missing", file=sys.stderr)
         return 1
 
-    # Comments are dropped first: a pin that has been commented out is gone,
-    # and a checker that matched the explanation above the line would not
-    # notice.
-    lines = [
-        raw
-        for raw in path.read_text(encoding="utf-8").splitlines()
-        if raw.strip() and not raw.strip().startswith("#")
-    ]
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as error:
+        print(f"FAIL: {COMPOSE} is not valid YAML: {error}", file=sys.stderr)
+        return 1
 
-    missing = [
-        (literal, why)
-        for pattern, literal, why in REQUIRED
-        if not any(re.match(pattern, line) for line in lines)
-    ]
-    if missing:
-        print(f"FAIL: {COMPOSE} has lost a pin that keeps it safe.\n", file=sys.stderr)
-        for literal, why in missing:
-            print(f"  missing: {literal}\n    {why}\n", file=sys.stderr)
+    problems: list[str] = []
+    service = ((doc or {}).get("services") or {}).get(SERVICE)
+    if not isinstance(service, dict):
         print(
-            "These are literals on purpose, so that .env cannot override them.\n"
+            f"FAIL: {COMPOSE} has no `services.{SERVICE}` mapping, so none of its pins "
+            f"can be checked. If the service was renamed, update SERVICE in "
+            f"scripts/{Path(__file__).name}.",
+            file=sys.stderr,
+        )
+        return 1
+
+    environment = environment_of(service)
+    for key, (expected, why) in REQUIRED_ENV.items():
+        actual = environment.get(key, ...)
+        if actual is ...:
+            problems.append(f"  services.{SERVICE}.environment.{key} is absent\n    {why}")
+        elif actual != expected:
+            problems.append(
+                f"  services.{SERVICE}.environment.{key} is {actual!r}, must be the "
+                f"literal {expected!r}\n    {why}"
+            )
+
+    hosts = published_hosts(service)
+    if not hosts:
+        problems.append(
+            f"  services.{SERVICE} publishes no ports at all; the pinned "
+            f"{LOOPBACK} publish is gone\n    without it this file no longer "
+            f"describes a reachable stack"
+        )
+    for host_ip, original in hosts:
+        if host_ip != LOOPBACK:
+            problems.append(
+                f"  services.{SERVICE}.ports entry {original!r} publishes on "
+                f"{host_ip or 'every interface'}, not {LOOPBACK}\n"
+                f"    exposes a process holding production credentials to the network"
+            )
+
+    if problems:
+        print(f"FAIL: {COMPOSE} has lost a pin that keeps it safe.\n", file=sys.stderr)
+        print("\n\n".join(problems), file=sys.stderr)
+        print(
+            "\nThese are literals on purpose, so that .env cannot override them.\n"
             "If one genuinely has to change, change it here too and say why.",
             file=sys.stderr,
         )
         return 1
 
-    print(f"{COMPOSE} keeps all {len(REQUIRED)} pins.")
+    print(
+        f"{COMPOSE} keeps all {len(REQUIRED_ENV)} environment pins and publishes "
+        f"only on {LOOPBACK} ({len(hosts)} port(s))."
+    )
     return 0
 
 

@@ -167,7 +167,7 @@ run_one() {
     -e "BASE_URL=$BASE_URL" \
     -e "PERF_PHONE=${PERF_PHONE:-}" \
     -e "PERF_PASSWORD=${PERF_PASSWORD:-}" \
-    -e "PERF_ADMIN_USER=${PERF_ADMIN_USER:-}" \
+    -e "PERF_INSECURE=${INSECURE:-}" \
     -e "PERF_ADMIN_PASSWORD=${PERF_ADMIN_PASSWORD:-}" \
     -e "PERF_SERIAL=${PERF_SERIAL:-}" \
     -e "PERF_BATCH=${PERF_BATCH:-}" \

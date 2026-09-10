@@ -69,11 +69,18 @@ PERF_TARGET_IS_DISPOSABLE=1 ./run.sh all
 **What neither condition catches:** an `ssh -L 8080:localhost:8080` port-forward
 to a stack that does publish the description -- the shared integration
 environment. That reaches loopback and answers condition 2, and no probe of a
-URL can tell the socket from the stack behind it. The harness is not what
-protects you there; sign-in happens once in `setup()` and aborts the run on
-failure, so a wrong credential costs one attempt rather than the ~1,800 that
-locked the platform administrator out for 15 minutes. Point it at a stack you
-can throw away.
+URL can tell the socket from the stack behind it.
+
+The harness is not what protects you there. Sign-in happens once in `setup()`
+and aborts the run on failure, so a wrong credential costs one attempt rather
+than the ~1,800 a per-iteration sign-in threw. That matters because
+`PlatformAdminLoginThrottle` charges misses to `web:` + `getRemoteAddr()`, and a
+tunnel terminates on the remote host -- so every attempt is charged to
+`127.0.0.1`, the budget shared by everyone reaching that box over loopback or
+through a same-host proxy. Eight misses in 15 minutes exhausts it for all of
+them. (It is per client address, not per account, precisely so that nobody can
+lock the one administrator out from anywhere.) Point it at a stack you can throw
+away.
 
 ## Not in CI
 
@@ -99,8 +106,11 @@ committed -- they belong on the command line of a measurement, not in a profile:
 - **Admin dashboard.** The session cookie is `Secure`, and k6 -- unlike
   browsers and `curl` -- does not treat `http://127.0.0.1` as a secure context,
   so the session never returns on the POST and CSRF cannot validate. Either run
-  `deploy/e2e/run.sh`, which brings up the TLS proxy and mints its certificate,
-  and point at `https://127.0.0.1:8443`; or override
+  `deploy/e2e/run.sh integration` -- the profile argument matters, `local` is
+  the default and puts nothing on 8443 -- which brings up the TLS proxy and
+  mints its certificate, then point at `https://127.0.0.1:8443` with
+  `PERF_ADMIN_PASSWORD='e2e-verify-Pass123!'` (the constant that script fixes);
+  or override
   `server.servlet.session.cookie.secure=false` for the run, which measures
   application cost without TLS handshake noise.
   **Not** `docker compose -f compose.local.yaml -f e2e/compose.proxy.yaml`, as
