@@ -356,6 +356,12 @@ def validate_agent_files(failures: list[str], root: Path | None = None) -> None:
 # with no such file. Without the check below, the reviewer role would live only
 # in prose and could be edited out of either document with nothing failing.
 INDEPENDENT_REVIEWER = "chatgpt-codex-connector[bot]"
+# D-226 added a second party that may discharge the gate. Both must be named in
+# AGENTS.md's Mandatory Workflow and carry a read-only matrix row -- otherwise
+# the guard passes on a sentence that says the reviewer no longer staffs the
+# gate, which is the vacuity this check exists to prevent.
+INDEPENDENT_REVIEW_AGENT = "independent-review-agent"
+PERMITTED_REVIEWERS = (INDEPENDENT_REVIEWER, INDEPENDENT_REVIEW_AGENT)
 
 # The executable half of D-121. Named here so the workflow, the branch-protection
 # checker and this validator cannot drift into three different opinions about
@@ -366,6 +372,33 @@ REVIEW_GATE_CONTEXT = "independent-review"
 # The single line the gate actually runs on. Bound by value, not by presence
 # anywhere in the file -- the workflow's comments name the reviewer too.
 REVIEW_GATE_REVIEWER_RE = re.compile(r'^\s*REVIEWER:\s*"([^"]*)"\s*$', re.MULTILINE)
+# The agent half of the gate, bound the same way and for the same reason. The
+# reviewer login is only half of what D-226 made the gate depend on: the other
+# half is the marker that identifies an agent round and the association
+# allowlist that says who may claim one. Unbound, both can be renamed, loosened
+# or deleted with every check in this repository green -- and the failure is
+# silent, because a marker that matches nothing makes the gate count zero agent
+# rounds rather than fail.
+REVIEW_GATE_AGENT_MARKER_RE = re.compile(r"""(?m)^\s*AGENT_ROUND_RE:\s*'([^']*)'""")
+REVIEW_GATE_ROUND_ASSOC_RE = re.compile(r"""(?m)^\s*ROUND_AUTHOR_ASSOC:\s*'([^']*)'""")
+# The literal an agent round must carry. The skill tells the reviewer to emit
+# exactly this, so the two cannot drift without this constant failing.
+AGENT_ROUND_MARKER = "independent-review-round: agent"
+# CONTRIBUTOR is deliberately absent: one merged commit earns it and it grants
+# no write access, so accepting it would let a drive-by contributor claim a
+# round on their own pull request.
+REQUIRED_ROUND_ASSOC = ("OWNER", "MEMBER", "COLLABORATOR")
+# The skill is the layer that PRODUCES the evidence the gate and the disposition
+# check consume, so it has to state the protocol they match on. It shipped
+# stating none of it: a reviewer following the skill exactly wrote "Head SHA:
+# `abc...`" and the gate, which wants `head: ` and 40 lowercase hex, counted no
+# round on a head that had been reviewed.
+INDEPENDENT_REVIEW_SKILL = ".agents/skills/independent-review/SKILL.md"
+AGENT_PROTOCOL_LITERALS = (
+    AGENT_ROUND_MARKER,
+    "finding-of: independent-review-agent",
+    "findings: none",
+)
 
 # The `-f context="..."` arguments the workflow actually passes to `gh api`.
 REVIEW_GATE_CONTEXT_RE = re.compile(r'-f\s+context="([^"]*)"')
@@ -415,9 +448,9 @@ REVIEWER_ROW_ANNOTATION_RE = re.compile(r"\s*\([^)]*\)\s*$")
 REVIEWER_IN_PROSE_RE = re.compile(rf"(?<![\w-]){re.escape(INDEPENDENT_REVIEWER)}")
 
 
-def _names_reviewer(agent_name: str) -> bool:
+def _names_reviewer(agent_name: str, reviewer: str = INDEPENDENT_REVIEWER) -> bool:
     stripped = REVIEWER_ROW_ANNOTATION_RE.sub("", agent_name.strip()).strip()
-    return stripped.strip("`").strip() == INDEPENDENT_REVIEWER
+    return stripped.strip("`").strip() == reviewer
 
 
 def _agents_section(text: str, heading: str) -> str | None:
@@ -498,43 +531,61 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
         # identifier, so a look-alike such as
         # `impersonator-chatgpt-codex-connector[bot]` names a different agent
         # rather than this one.
-        if not REVIEWER_IN_PROSE_RE.search(workflow):
-            fail(
-                f"AGENTS.md's Mandatory Workflow does not name {INDEPENDENT_REVIEWER!r} as "
-                f"the reviewer that discharges its independent-review step (D-121); a mention "
-                "elsewhere in the file, or of a different identity containing this name, does "
-                "not count",
-                failures,
-            )
+        #
+        # BOTH boundaries. A trailing one was once unnecessary because the only
+        # identity here ended in `[bot]`, which nothing can extend to the right.
+        # `independent-review-agent` can be: with no trailing boundary,
+        # `independent-review-agent-v2` in the Mandatory Workflow satisfies this
+        # check while naming a reviewer the matrix does not describe and the
+        # gate cannot recognise.
+        for reviewer in PERMITTED_REVIEWERS:
+            if not re.search(rf"(?<![\w-]){re.escape(reviewer)}(?![\w-])", workflow):
+                fail(
+                    f"AGENTS.md's Mandatory Workflow does not name {reviewer!r} as a party that "
+                    f"discharges its independent-review step (D-226); a mention elsewhere in the "
+                    "file, or of a different identity containing this name, does not count",
+                    failures,
+                )
 
     matrix_text = matrix_path.read_text(encoding="utf-8")
-    # Every matching row is checked, and more than one is itself a failure: a
-    # read-only row followed by a permissive duplicate would otherwise leave a
-    # contradictory grant in the matrix with validation green.
-    rows = [
-        (may_modify, may_pr, may_approve)
-        for agent_name, _primary_mode, may_modify, may_pr, may_approve in MATRIX_ROW_RE.findall(matrix_text)
-        if _names_reviewer(agent_name)
-    ]
-    if not rows:
-        fail(
-            f"docs/agents/responsibility-matrix.md has no row for {INDEPENDENT_REVIEWER!r}, the "
-            "independent reviewer AGENTS.md's Mandatory Workflow depends on (D-121)",
-            failures,
-        )
-        return
+    # Per identity, not one global match: each reviewer permitted to discharge
+    # the gate needs exactly one row, and that row must be read-only. Matching
+    # "any permitted reviewer" against one row list instead would make the two
+    # legitimate rows read as a duplicate, and relaxing the duplicate rule to
+    # compensate is exactly how a permissive row hides behind a read-only one.
+    rows = []
+    for reviewer in PERMITTED_REVIEWERS:
+        matching = [
+            (may_modify, may_pr, may_approve)
+            for agent_name, _primary_mode, may_modify, may_pr, may_approve
+            in MATRIX_ROW_RE.findall(matrix_text)
+            if _names_reviewer(agent_name, reviewer)
+        ]
+        if not matching:
+            fail(
+                f"docs/agents/responsibility-matrix.md has no row for {reviewer!r}, which "
+                "AGENTS.md's Mandatory Workflow permits to discharge the independent-review "
+                "gate (D-226). Every permitted reviewer needs a read-only row, or the matrix "
+                "does not describe who may review",
+                failures,
+            )
+            continue
+        if len(matching) > 1:
+            fail(
+                f"docs/agents/responsibility-matrix.md declares {reviewer!r} in "
+                f"{len(matching)} rows; exactly one per reviewer is allowed, so a permissive "
+                "duplicate cannot hide behind a read-only row (D-226)",
+                failures,
+            )
+        rows.extend((reviewer, *row) for row in matching)
 
-    if len(rows) > 1:
-        fail(
-            f"docs/agents/responsibility-matrix.md declares {INDEPENDENT_REVIEWER!r} in "
-            f"{len(rows)} rows; exactly one is allowed, so a permissive duplicate cannot hide "
-            "behind a read-only row (D-121)",
-            failures,
-        )
+    if not rows:
+        return  # every permitted reviewer already failed above
 
     _validate_review_gate_workflow(root, failures)
+    _validate_agent_review_protocol(root, failures)
 
-    for may_modify, may_pr, may_approve in rows:
+    for reviewer, may_modify, may_pr, may_approve in rows:
         widened = [
             label
             for label, value in (
@@ -546,8 +597,37 @@ def validate_independent_reviewer_declaration(failures: list[str], root: Path | 
         ]
         if widened:
             fail(
-                f"responsibility-matrix.md's {INDEPENDENT_REVIEWER!r} row must declare 'No' for "
-                f"every permission (D-121 makes it a read-only reviewer); widened: {', '.join(widened)}",
+                f"responsibility-matrix.md's {reviewer!r} row must declare 'No' for "
+                f"every permission (D-226 makes every permitted reviewer read-only); "
+                f"widened: {', '.join(widened)}",
+                failures,
+            )
+
+
+def _validate_agent_review_protocol(root: Path, failures: list[str]) -> None:
+    """Skill and enforcement must name the same literals.
+
+    The gate recognises a round by a marker, and the disposition check
+    recognises findings and a clean round by two more. All three are produced by
+    whoever follows the skill, so a literal that appears in only one of the two
+    places is a protocol the reviewer cannot satisfy and the gate cannot see.
+    """
+    skill = root / INDEPENDENT_REVIEW_SKILL
+    if not skill.is_file():
+        fail(
+            f"{INDEPENDENT_REVIEW_SKILL} is missing; D-226 routes the independent review through "
+            "it, so without it no reviewer can know what to emit",
+            failures,
+        )
+        return
+
+    text = skill.read_text(encoding="utf-8")
+    for literal in AGENT_PROTOCOL_LITERALS:
+        if literal not in text:
+            fail(
+                f"{INDEPENDENT_REVIEW_SKILL} never states {literal!r}, but the gate or "
+                "scripts/check-review-dispositions.sh matches on it (D-226); a reviewer "
+                "following the skill would emit a comment neither one recognises",
                 failures,
             )
 
@@ -592,6 +672,59 @@ def _validate_review_gate_workflow(root: Path, failures: list[str]) -> None:
             "executable gate and the declared reviewer have diverged",
             failures,
         )
+    # D-226's half. Parsed from the assignments, never from the file, for the
+    # reason the reviewer binding above records: this workflow's comments
+    # discuss the marker at length, so a whole-file search would stay satisfied
+    # after the live value was changed.
+    marker = REVIEW_GATE_AGENT_MARKER_RE.search(text)
+    if marker is None:
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} has no `AGENT_ROUND_RE: '...'` assignment; D-226 lets "
+            f"{INDEPENDENT_REVIEW_AGENT!r} discharge the gate, and that round is recognised "
+            "only by this marker, so without it the agent path silently counts zero rounds",
+            failures,
+        )
+    elif AGENT_ROUND_MARKER not in marker.group(1):
+        fail(
+            f"{REVIEW_GATE_WORKFLOW}'s agent-round marker {marker.group(1)!r} no longer contains "
+            f"{AGENT_ROUND_MARKER!r}; .agents/skills/independent-review/SKILL.md instructs the "
+            "reviewer to emit that literal, so the gate would stop counting the rounds the "
+            "skill produces (D-226)",
+            failures,
+        )
+    elif not marker.group(1).startswith("(^|"):
+        fail(
+            f"{REVIEW_GATE_WORKFLOW}'s agent-round marker {marker.group(1)!r} is not anchored to "
+            "a line start; unanchored it matches a comment that merely QUOTES the marker, so "
+            "reviewing this workflow on a pull request would claim a round on it (D-226)",
+            failures,
+        )
+
+    assoc = REVIEW_GATE_ROUND_ASSOC_RE.search(text)
+    if assoc is None:
+        fail(
+            f"{REVIEW_GATE_WORKFLOW} has no `ROUND_AUTHOR_ASSOC: '...'` assignment; without it "
+            "the agent-round marker is matched on body text alone, which anyone who can comment "
+            "can post -- on a public repository, any account at all (D-226)",
+            failures,
+        )
+    else:
+        declared = tuple(a.strip() for a in assoc.group(1).split(",") if a.strip())
+        if set(declared) - set(REQUIRED_ROUND_ASSOC):
+            fail(
+                f"{REVIEW_GATE_WORKFLOW} accepts agent rounds from {sorted(set(declared) - set(REQUIRED_ROUND_ASSOC))}, "
+                f"which are not write-access associations; only {list(REQUIRED_ROUND_ASSOC)} may "
+                "claim a round, or a party with no write access can green the gate (D-226)",
+                failures,
+            )
+        if set(REQUIRED_ROUND_ASSOC) - set(declared):
+            fail(
+                f"{REVIEW_GATE_WORKFLOW} omits {sorted(set(REQUIRED_ROUND_ASSOC) - set(declared))} "
+                "from the agent-round author allowlist; the implementer who records the round "
+                "would be unable to satisfy the gate (D-226)",
+                failures,
+            )
+
     # The published context, parsed from the `-f context="..."` arguments the
     # workflow actually runs -- comment lines excluded. A whole-file substring
     # check has the same vacuity the reviewer binding had before it was fixed:
@@ -741,6 +874,7 @@ def validate_skill_files(failures: list[str], root: Path | None = None) -> None:
         "validate-bootstrap",
         "prepare-pr-evidence",
         "propagate-change",
+        "independent-review",
     }
     # Vendor-provided Spec Kit skills (installed by `specify init` /
     # `specify integration install`) use their own upstream schema

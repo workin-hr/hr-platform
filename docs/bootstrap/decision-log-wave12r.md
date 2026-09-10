@@ -3623,15 +3623,28 @@ it reached `main`, and the honest answer is that nobody independent looked.
 
 | Path | Condition | Evidence |
 |---|---|---|
-| **(a) Self-declared exhaustion, still current** | A usage-limit comment exists **and is the reviewer's most recent artefact of any kind** — no review object and no clean-round comment has landed after it. A historical usage-limit comment proves the outage *happened*, never that it *persists*: quota recovers on its own, and on 2026-09-09 it recovered roughly 80 minutes after the last such comment. **The moment any round lands anywhere, path (a) is closed** — see Criterion 5. | Line 2 of the command below reading `PASS`. |
+| **(a) Self-declared exhaustion, still current** | A usage-limit comment exists **and is the reviewer's most recent artefact of any kind anywhere in the repository, in any pull-request state** — nothing has landed after it, on this pull request or any other, open, closed **or merged**. The merged case is the one that bites: the pull request proving recovery is usually the one that just merged. The check **fails closed** — a fetch or parse error exits 3 rather than reporting an empty artefact set as "no recovery". A historical usage-limit comment proves the outage *happened*, never that it *persists*: quota recovers on its own, and on 2026-09-09 it recovered roughly 80 minutes after the last such comment. **The moment any round lands anywhere, path (a) is closed** — see Criterion 5. | Line 2 of the command below reading `PASS`. |
 | **(b) Silence** | All of: `@codex review` requested at least **twice**, the requests at least **60 minutes** apart, the first at least **4 hours** ago; **and** no round on the current head — counting **both** review objects **and** D-158 clean-round comments, because a round that finds nothing posts a comment and no review object at all, so counting reviews alone reports "silence" on a head that was reviewed clean. | Lines 1 and 3 of the command below reading `PASS`. |
 
 Neither path may be declared by inference, impatience, or a summary. **Every line the command prints must read `PASS` for the path being claimed; a `FAIL` or `n/a` on any required line means the gate is not degraded and the merge waits.** The command proves each prerequisite rather than reporting two counts a reader must interpret — an earlier draft returned only `reviews_on_head` and a repository-wide quota-comment count, either of which could read `0`/`n` for an unrequested, too-recent, already-reviewed, or already-recovered head.
 
 ```bash
+set -o pipefail
 PR=<number>; BOT=chatgpt-codex-connector; REPO=workin-hr/hr-platform
-SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid); SHORT=${SHA:0:7}
-J=$(gh pr view "$PR" --repo "$REPO" --json reviews,comments)
+die() { echo "FAIL  evidence incomplete: $1 -- refusing to certify exhaustion" >&2; exit 3; }
+
+# Resolve the target head FIRST and abort if it cannot be resolved. An empty
+# SHA must never reach the round-count logic: `[ "" -eq 0 ]` is a bash error,
+# the `if` falls through to its else branch, and the check prints a confident
+# verdict about a gate it never examined -- with exit 0.
+SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid) || die "cannot resolve #$PR"
+case "$SHA" in
+  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) : ;;
+  *) die "head of #$PR is not a sha ('$SHA')" ;;
+esac
+[ ${#SHA} -eq 40 ] || die "head of #$PR is not a full sha ('$SHA')"
+SHORT=${SHA:0:7}
+J=$(gh pr view "$PR" --repo "$REPO" --json reviews,comments) || die "cannot read #$PR"
 now=$(date -u +%s); ep(){ date -u -d "$1" +%s 2>/dev/null || echo 0; }
 
 # 1. no round on THIS head -- review objects AND D-158 clean-round comments
@@ -3641,14 +3654,36 @@ rounds=$(jq -r --arg b "$BOT" --arg s "$SHA" --arg p "$SHORT" '
 [ "$rounds" -eq 0 ] && echo "PASS  no round on head $SHORT" \
                     || echo "FAIL  $rounds round(s) on head $SHORT -- the gate is SATISFIED, not degraded"
 
-# 2. path (a): the reviewer's LATEST artefact is a usage-limit notice (current, not historical)
-last=$(jq -r --arg b "$BOT" '[(.comments[]|select(.author.login==$b)|{createdAt,body}),
-   (.reviews[]|select(.author.login==$b)|{createdAt:.submittedAt,body:"<review object>"})]
-   |sort_by(.createdAt)|last // empty' <<<"$J")
-if [ -z "$last" ]; then echo "n/a   path (a) not claimable -- reviewer has posted nothing"; else
-  jq -e '.body|test("usage limits";"i")' >/dev/null <<<"$last" \
-    && echo "PASS  current exhaustion ($(jq -r .createdAt <<<"$last"))" \
-    || echo "FAIL  quota RECOVERED -- latest artefact $(jq -r .createdAt <<<"$last") is not a usage-limit notice"
+# 2. path (a): the reviewer's latest artefact ACROSS THE REPOSITORY, in any
+#    pull-request state. Two repo-wide endpoints, newest-first -- not a loop
+#    over open pull requests: the PR that proves recovery is usually the one
+#    that just merged, and `--state open` cannot see it. Fails CLOSED, because
+#    an evidence check that degrades to "no artefacts found" on a transient
+#    error would certify exhaustion it never established.
+BOT_RE='^chatgpt-codex-connector(\[bot\])?$'   # REST says "[bot]"; GraphQL does not
+
+# --paginate, not a single page. The two feeds are capped INDEPENDENTLY, and
+# they churn at different rates -- this repository carries ~726 review comments
+# to ~212 issue comments. A recovery posted as a review comment can therefore
+# fall off page one of the fast feed while a stale usage-limit notice survives
+# on page one of the slow one, and the merge then reports exhaustion that ended
+# hours ago. Page one holds the newest 100 comments from EVERYONE, not the
+# newest 100 from the reviewer.
+issue=$(gh api --paginate "/repos/$REPO/issues/comments?sort=created&direction=desc&per_page=100") || die "issue comments"
+prc=$(gh api --paginate "/repos/$REPO/pulls/comments?sort=created&direction=desc&per_page=100")   || die "review comments"
+
+# --paginate emits one array per page, so flatten with .[][] rather than .[].
+latest=$(jq -s --arg re "$BOT_RE" '
+   [ (.[0][][] | select(.user.login|test($re)) | {at:.created_at,
+        kind:(if (.body|test("usage limits";"i")) then "quota" else "round" end)}),
+     (.[1][][] | select(.user.login|test($re)) | {at:.created_at, kind:"round"}) ]
+   | sort_by(.at) | last // empty' <(jq -s . <<<"$issue") <(jq -s . <<<"$prc")) || die "parse"
+
+if [ -z "$latest" ]; then echo "n/a   reviewer has posted nothing in this repository"
+elif [ "$(jq -r .kind <<<"$latest")" = "quota" ]; then
+  echo "PASS  exhaustion is current repository-wide ($(jq -r .at <<<"$latest"))"
+else
+  echo "FAIL  reviewer RECOVERED at $(jq -r .at <<<"$latest") -- D-224 has lapsed, use the normal gate"
 fi
 
 # 3. path (b): two requests >=60min apart, first >=4h ago
@@ -3700,3 +3735,46 @@ Posted as a single comment before the merge, containing: the head SHA; which una
 | Reviewed and found not to need amendment, with the reason | **`scripts/validate_phase0.py`'s `validate_independent_reviewer_declaration()` and its regression tests in `scripts/test_validate_phase0.py`.** The property they enforce is that `AGENTS.md` names the independent reviewer inside the workflow it gates and that `docs/agents/responsibility-matrix.md` carries a matching read-only row. **D-224 does not change that property**: `chatgpt-codex-connector[bot]` remains *the* named reviewer, and the substitute is a degraded fallback for its unavailability, not a second reviewer of record. Widening the validator to accept a substitute name would weaken exactly the binding D-121 relies on. Verified green against this branch. |
 | Application to #182, #186 and #187 | **None by this entry.** D-224 defines a procedure; it merges nothing and authorises nothing retroactively. Whether to apply it to the three open pull requests, restore the Codex quota, or continue waiting is the owner's decision, taken after this record is accepted. |
 | Related | **D-121** (the gate), **D-222** (the override, deliberately distinct), **D-142** (what happened last time the gate was worked around at scale — twelve pull requests merged without a round), **R-008**, **R-009**, `AGENTS.md` Mandatory Workflow. |
+
+## D-225: Should `independent-review` Be A Required Status Context Again?
+
+| Field | Value |
+|---|---|
+| Status | **Accepted 2026-09-09 by the repository owner — Option A.** `independent-review` is restored as a mechanically required status context on `main`, subject to the sequencing condition below. Raised by R-008's fourth realisation and deliberately kept out of that incident's remediation (#190, #191): this is a standing governance change, and deciding it inside an incident fix is how a change of this weight avoids scrutiny. |
+| **The decision is recorded now; the setting is not changed now** | This entry is the decision. The branch-protection change is a separate, later act, gated on the sequence below — recording an intent and applying a setting are different things, and conflating them is how a condition gets skipped once the record says "Accepted". |
+| Required sequence, in order | **1.** #189 merges, correcting D-224's eligibility checker. **2.** D-224 is verified in force and usable — its command run against a real pull request and producing the right verdict, not merely present in the log. **3.** `independent-review` is added to `main`'s required status contexts. **4.** The **actual** protection state is verified with `scripts/check-branch-protection.sh`, not assumed from the API call that set it. |
+| Why the condition is not a formality | Requiring the context while D-224 cannot be relied on recreates exactly D-142's deadlock — every pull request unmergeable during a reviewer outage — but backed by a documented procedure that does not yet work. That is worse than the current state, because the procedure's existence would be cited as the reason the deadlock is acceptable. |
+| Owner | Repository owner |
+| The question | `independent-review` is **not** a required status context on `main`. `validate` is the only one. Should the review gate be mechanically required again, or stay advisory? |
+| How it came to be advisory | **D-142.** The Codex quota was exhausted mid-review and stayed out; with `independent-review` required, every pull request was unmergeable through no fault of its author. The owner lifted the context and twelve pull requests merged without an independent round. That was a reasonable response to a real deadlock — the objection it answered is not hypothetical. |
+| What that costs, now measured rather than predicted | A commit carrying a green `validate` is admissible to `main` **whether or not anyone reviewed it**. On 2026-09-09 an agent pushed a branch to `main` directly; protection was fully applied — `enforce_admins=true`, force-pushes and deletions forbidden — and did not stop it, because the gate that would have is not required. R-008 had realised three times before as a *procedural* failure; this is the first time it realised with protection correctly configured, which is what makes it evidence about the configuration rather than about discipline. |
+| What has changed since D-142, and why the question is worth reopening now | D-142's premise was that an outage leaves no path forward, so the gate must be liftable. **D-224 now supplies that path** — a time-boxed degraded-review procedure with objective unavailability criteria, a mandatory attempt at the documented remedy first, a substitute verification, a per-pull-request evidence block, and automatic lapse on recovery or after fourteen days. The deadlock D-142 responded to now has a defined, recorded route through it that does not require dismantling the gate. |
+| Option A — restore it as required | The gate becomes mechanical again. A reviewer outage no longer deadlocks the repository, because D-224 is the documented route through one. Cost: every merge depends on a third-party service being reachable, and D-224's procedure is heavier than merging. |
+| Option B — leave it advisory | No change. Merge governance stays procedural and depends on the tooling and the people being careful — which is precisely what failed on 2026-09-09, and what R-008's own history says procedure could not hold (PR #126 lost a ten-second race to it). Cost: $0 and no new friction; the risk is that the next tooling defect has the same reach as this one. |
+| Recommendation, with its condition | **Option A, but not yet.** Requiring the context is only safe once the outage route is genuinely usable, and D-224 is currently *accepted but not in force*: its eligibility checker is still being corrected under #189, and until that merges the check can authorise a substitute the policy forbids. Restoring the requirement before then would recreate D-142's deadlock with a procedure that cannot yet be relied on. **Sequence: land #189, confirm D-224 is in force, then restore the context and verify with `scripts/check-branch-protection.sh`.** |
+| Not in scope | Whether `test` should also be required. D-125 dropped it deliberately — `Backend Validate` is path-filtered and would deadlock docs-only pull requests — and that reasoning is untouched by this. A separate question if anyone wants to raise it. |
+| Related | **R-008** (fourth realisation), **D-142** (why it was lifted), **D-121** (the gate), **D-224** (the outage route), **D-125** (the protection applied), **D-223 Q3** (the decision to preserve GitHub-enforced governance, whose value this incident tests). |
+
+## D-226: The Independent Reviewer Is A Read-Only Review Agent, Not Codex
+
+| Field | Value |
+|---|---|
+| Status | **Accepted 2026-09-09 by the repository owner**, on the third explicit instruction to stop depending on Codex and review through a skill instead. |
+| Owner | Repository owner |
+| Supersedes | **D-121**'s reservation of the independent-review gate to `chatgpt-codex-connector[bot]`. D-121's *substance* — that the gate exists, covers the whole pull request, must land on the final head, and is discharged by someone who did not write the change — is untouched and restated below. Only the named party changes. |
+| Decision | The independent review required by `AGENTS.md`'s Mandatory Workflow is performed by a **read-only review agent** invoked through a new `independent-review` skill. It **supersedes** the unmerged `degraded-independent-review` skill written for D-224 on branch `feat/degraded-review-skill`; that branch must be dropped rather than merged, or the repository would carry two skills for one gate. Nothing is renamed on `main`, where neither existed. `chatgpt-codex-connector[bot]` remains welcome and its rounds still count, but it is no longer the *only* party who can satisfy the gate. |
+| Why now, stated honestly | Not because the reviewer misbehaved. Because it was **unavailable for most of 2026-09-09** — R-009 realised three times in one day, with recovery windows of minutes — and the repository had accumulated an unmergeable stack behind a gate nothing could satisfy. A gate that cannot be satisfied is not a control; it is an outage with a governance label on it. |
+| What the reviewer must be | A pass with **no authorship, implementation, generation, or repository-write involvement** in the change under review, on any branch. An agent that wrote the diff cannot review it by later running read-only — that is the same actor twice, and `AGENTS.md`'s rule that writing automation is an implementer and never a reviewer is what forbids it. |
+| The weakness, recorded rather than glossed | A read-only agent dispatched by the implementing session is **weaker** than an independent service. It shares a model family with the implementer and is invoked by it, so it is not independent in the way a third party is. What it does provide is a reviewer that did not write the code, **is instructed not to write to the repository**, and reports findings the implementer must post verbatim. **Not "cannot": that claim was in an earlier draft and was false.** Read-only agent definitions in this repository grant `Bash`, which they need to run `git diff` and `gh api` at all, and the permission deny-list does not cover plain `git push`, `gh pr merge`, `gh pr review` or `gh api -X POST`. Making it true needs a dedicated agent definition whose tool set excludes Bash-mediated writes; a repository-wide deny-list is the wrong instrument, because it would equally block the implementer, who legitimately pushes. Until that definition exists, the reviewer's read-only status is a **configuration intention, not a proven property**, and this record says so rather than implying otherwise. That is a real check and a real reduction in independence at the same time, and both halves belong in the record. |
+| Evidence that it is not theatre | Its first use, on **#190**, found that the incident record this repository had just written was **factually wrong**: it claimed the merged head received zero reviewer rounds, when `ec016e4e` was reviewed at 14:03:20Z — 17 seconds after the push — with three findings that remain open on `main`. Codex's own round had produced those findings; nothing in the repository had noticed them. The substitute reviewer read the API and caught it. |
+| What does not change | The gate still covers the whole pull request. It still must land on the **exact final head**. Findings are still fixed, or answered on the thread with a reason, before merge. A green CI run still proves automated verification only. **Implementers still cannot merge their own work.** D-222's override and its conditions are unaffected. |
+| What this makes of D-224 | D-224 was the *temporary* degraded procedure for a reviewer-service outage. With the gate no longer depending on a single external service, its purpose narrows sharply: it remains the recorded procedure for the case where **no** qualifying reviewer can be obtained at all, and its evidence and lapse rules stand. It is no longer the expected path. |
+| What this makes of R-009 | The Codex half of that risk stops being able to block merging outright. The risk stays open for the GitHub Actions half, and because losing the named reviewer is still a real degradation of independence — now recorded as an accepted trade rather than an outage. |
+| Amendments this requires, per R-009's own rule | Policy **and the code that enforces it**, because prose alone would leave the rule true and its enforcement silently absent: `AGENTS.md` Mandatory Workflow **and its Global Rules bullet**; **R-009**; `docs/agents/responsibility-matrix.md` **including a row for the new reviewer**; `docs/bootstrap/manual-setup-checklist.md` step 5; `docs/bootstrap/open-questions.md`; `.github/workflows/independent-review-gate.yml`; `scripts/validate_phase0.py`; `scripts/check-review-dispositions.sh`; and their regression tests. All in this branch. |
+| What the enforcement change does and does not buy | The gate now recognises an agent round through a **SHA-bound marker**, so a round cannot be recycled onto a head the reviewer never saw. The marker is body text, so it is **forgeable — but only by someone who can already write to this repository**. The gate counts a round only from an `OWNER`, `MEMBER` or `COLLABORATOR`, and only from a comment that has not been edited since it was posted; `CONTRIBUTOR` is excluded because one merged commit earns it and it grants no write access. Without those predicates the marker was postable by any GitHub account at all, which on a public repository meant a stranger could green the gate on somebody else's pull request. What remains is **self-attestation by the implementer**: it proves a writer claimed a round *naming this head*; it does not prove a review happened. Unlike a Codex round's `user.login`, it is not evidence of who reviewed. The compensating control is `check-review-dispositions.sh`, which refuses when a round is claimed but no finding thread and no explicit zero-findings declaration exists — and which applies the same author, edit and anchoring rules, so it cannot be armed or disarmed by anyone the gate would not count. Silence stops being a pass. |
+| Rollback | Revert the adopting merge commit. The four documents return to D-121, and the workflow, validator and disposition script return to Codex-only attribution. No data migration, no state to unwind. |
+| **Bootstrap — D-226 does not authorize its own adoption** | **D-226 may not review or admit the pull request that introduces it.** *The adopting pull request* — whichever one lands this entry on `main` — must be reviewed and admitted under the policy canonical **immediately before** D-226: with `chatgpt-codex-connector[bot]` as the named reviewer, or through **D-224**, that policy's own documented answer to the reviewer being unobtainable. D-226 commences at **the merge commit that lands it on `main`**, and only from that commit may a review agent satisfy the gate. **No condition here is keyed to a pull-request number**: the first draft was, the numbered pull request was then closed and reopened, and the commencement condition became unsatisfiable while reading like a typo. |
+| **No retroactive effect** | D-226 says nothing about pull requests merged before it became canonical, and confers no authority over them. A review performed before D-226's adopting merge is not a D-226 review and must not be recorded as one — including reviews of #190, #191 and #192, which are prerequisites of nothing here and must be admitted on their own terms. |
+| Why this clause exists | Without it the decision is circular: the rule being introduced would authorize the mechanism used to merge the pull requests it was stacked behind. That is the same shape as an override citing itself as precedent, and it is why #193 was detached from the remediation stack and rebuilt directly on `main` — so it can merge **first**, on the old policy's authority, rather than last on its own. |
+| What the skill cannot enforce | Three gaps, recorded because the skill reads as though it closes them. The implementer **chooses the diff** handed to the reviewer, so a partial or wrong-commit diff still ticks every checklist item -- mitigated by requiring the reviewer to fetch the diff itself from the API and echo the SHA and file count it actually read. Independence is **self-attested** by the party whose independence is in question. And "post findings verbatim" is **unverifiable** unless the reviewer's raw output is preserved -- so the evidence comment must carry that output as a fenced block, separate from the implementer's dispositions, where omission becomes visible. |
+| Related | **D-121** (superseded in part), **D-222** (override, unaffected), **D-224** (the bootstrap route, and afterwards narrowed to "no qualifying reviewer obtainable at all"), **D-225** (whether the context becomes required again), **R-008**, **R-009**. |

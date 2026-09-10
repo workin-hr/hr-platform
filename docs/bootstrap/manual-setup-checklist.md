@@ -187,12 +187,17 @@ only after a human completed the underlying action first.
    any checks added by this remediation — see
    `docs/bootstrap/audit-remediation.md`).
 5. **The independent review required by `AGENTS.md`'s Mandatory Workflow is
-   obtained from `chatgpt-codex-connector[bot]` (D-121).** It must cover the
+   obtained from a read-only review agent with no authorship, implementation or
+   write involvement in the change (D-226), or from
+   `chatgpt-codex-connector[bot]`, whose rounds still count.** It must cover the
    whole pull request and the **final head** — commits pushed after a review
-   round are unreviewed until review is re-requested (`@codex review`). This
-   is the gate; it is not optional and no other reviewer substitutes for it.
-   If its externally-billed quota is exhausted (R-009) the gate is
-   *unavailable*, not waived: the merge waits. **D-224 is the one documented
+   round are unreviewed until review is re-requested (`@codex review`, or a fresh agent round under D-226). This
+   is the gate; it is not optional. **D-226 changed who may satisfy it**: a
+   read-only review agent with no authorship, implementation or write
+   involvement in the change qualifies, invoked through the
+   `independent-review` skill, and Codex's rounds still count. The gate is
+   *unavailable* — the merge waits — only when no qualifying reviewer can be
+   obtained at all. **D-224 is the one documented
    exception** — a time-boxed degraded-review procedure for a reviewer-service
    outage, which requires current (not historical) exhaustion, demands the
    documented remedy be attempted or explicitly declined first, and lapses the
