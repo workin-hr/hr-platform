@@ -40,6 +40,93 @@ which exposes database connectivity and component internals to
 unauthenticated callers. Do not set it without also restricting the
 matcher in `SecurityConfig`.
 
+### Attendance-device receiver (D-164)
+
+Emitted by `com.workin.devices` when `app.devices.ingest.enabled=true`;
+design section 9 of `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`.
+
+- Metrics (Micrometer counters, tag `vendor`): `devices.punches.stored`,
+  `devices.punches.duplicate`, `devices.punches.unmatched`,
+  `devices.punches.malformed`, `devices.punches.rejected`,
+  `devices.unclaimed.hits`, `devices.biometric.discarded`,
+  `devices.stamp.rejected`, `devices.requests.rejected`,
+  `devices.uploads.oversized` (second tag `table`), and
+  `devices.uploads.discarded` (second tag `table`, drawn from a closed set so
+  a caller cannot grow the registry).
+- Logs, all carrying the serial: WARN on unmatched PINs, malformed lines,
+  template lines discarded, unknown tables; INFO on command results; ERROR
+  with the cause when the receiver fails (the device retries after its
+  `ErrorDelay`, so an ERROR here repeats until fixed).
+- Liveness is data, not a metric yet: `attendance_devices.last_seen_at` is
+  advanced by every command poll (about every 10 seconds). "Device offline"
+  is that column older than a threshold for an active device; until a gauge
+  exists, a scheduled query is the alert source.
+- Meaningful failure modes: a claimed device silent beyond the threshold
+  (site network or power); `devices.unclaimed.hits` rising (a terminal
+  pointed at the receiver and not yet claimed — or a probe); a sustained
+  `devices.punches.unmatched` rate (PINs nobody bound, or a badge still in
+  use after the employee left); any `devices.biometric.discarded` (a firmware
+  ignoring `TransFlag`; record it in the inventory); any
+  `devices.punches.rejected` (a row the database refused — it is acknowledged
+  rather than retried, so this counter is the only trace); and
+  `devices.stamp.rejected` or `devices.requests.rejected` above a trickle,
+  which means something is sending values no terminal would send; and any
+  `devices.uploads.oversized`, which is either a buffered reconnect larger
+  than the record cap (raise it, and record the real batch size on the
+  hardware checklist) or an attempt to amplify one request into many
+  statements.
+
+### Punch to attendance pairing (D-214)
+
+`PunchPairingService` converts stored punches into `attendance` rows.
+
+- **Nothing triggers a pass yet.** The engine and its rules are implemented
+  and tested; no scheduler, endpoint or listener calls `pairCompany`. Until
+  one exists, punches accumulate in `device_punches` with
+  `processing_state = 'RECEIVED'` and no attendance is written — which is
+  safe (the evidence is kept, and pairing is replayable by design) but is
+  not a working feature. Choosing the trigger is a separate decision: how
+  often, per company or across all, and what stops two passes overlapping.
+- **The query that says whether it is keeping up**, once something does run
+  it — the oldest unpaired punch is the lag:
+
+  ```sql
+  SELECT company_id, COUNT(*) AS waiting, MIN(punched_at_local) AS oldest
+  FROM device_punches WHERE processing_state = 'RECEIVED'
+  GROUP BY company_id;
+  ```
+
+- **A punch that never leaves `RECEIVED`** is the poison-row signal. A pass
+  logs at ERROR with the punch id and moves on rather than stopping, so one
+  unpairable row cannot strand the rest — but it also means the row is only
+  visible in that query and in the log, never as a stalled pass.
+- **`devices.punches.clock_skew_seconds`** is the one per-device signal here,
+  a summary tagged by `vendor` and `serial`, recording the widest
+  `received_at - punched_at` in each delivery (signed: negative means the
+  terminal is behind this server). A drifting terminal reports perfectly valid
+  timestamps, so nothing else catches it -- the punches are accepted and
+  pairing places attendance on the wrong day. Watch the per-serial value, not
+  an average across devices: one terminal two days out is invisible beside a
+  hundred healthy ones. Beyond two days it also logs a WARN naming the serial.
+  A large positive value right after an outage is normal -- that is a buffered
+  batch, not drift -- so judge it on whether it persists.
+- **`review_flag` is a work queue, not an error.** `RAPID_RECHECKIN` means
+  legacy would have refused the check-in; a terminal cannot be refused, so a
+  human decides. `DOUBLE_READ` is a debounced second read and needs nothing.
+- **What an operator sees when the enum was not widened**: one line per pass,
+  at ERROR, beginning `Not pairing: attendance.method does not accept 'device'`.
+  Punches stay `RECEIVED` and the pass ends immediately. The fix is
+  `slice_b_attendance_method.sql` — see `provisioning-phase1-tables.md`, and
+  applying it is enough: the guard re-probes, so no restart is needed.
+
+  This previously described "data-integrity errors naming the column", from
+  before the guard existed. Those cannot occur: the guard runs first and
+  returns, so the INSERT that would raise them is never attempted. An operator
+  waiting for that message would wait forever, and the one signal that does
+  appear was not written down anywhere.
+
+## Source System
+
 ## The Signals The Rollback Depends On
 
 `docs/operations/release-cutover-and-rollback.md` triggers a rollback on

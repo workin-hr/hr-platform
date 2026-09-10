@@ -40,6 +40,9 @@ public class LegacyBranchService {
 	private final LegacyBranchRepository legacyBranchRepository;
 	private final LegacyEmployeeRepository legacyEmployeeRepository;
 	private final EntityManager entityManager;
+
+	/** Null until first probed; see {@code attendanceDevicesTableExists()}. */
+	private volatile Boolean attendanceDevicesPresent;
 	// Only for resolving strtotime's relative forms ("tomorrow"), which are
 	// relative to PHP's clock, not the JVM default. LegacyClock is
 	// request-scoped and carries the legacy runtime offset.
@@ -206,7 +209,53 @@ public class LegacyBranchService {
 	 * documented race-condition fallback only (an employee assigned to
 	 * this branch between the pre-check and the delete), not the
 	 * primary check.
+	 *
+	 * <p>The device cleanup below asks whether the table exists rather than
+	 * trying and catching, because a caught exception is not enough inside a
+	 * transaction -- see the comment on the method itself.
 	 */
+	private void deactivateDevicesOfDeletedBranch(long companyId, long branchId) {
+		// Asked, not attempted-and-caught. This runs inside the caller's
+		// @Transactional, and a native query against a missing table does not
+		// merely throw -- JPA marks the transaction ROLLBACK-ONLY on its way
+		// out. Swallowing the exception therefore achieved nothing it looked
+		// like it achieved: the branch delete continued, and then the whole
+		// transaction rolled back at commit and the endpoint returned an
+		// error. The one case the catch existed for -- a deployment without
+		// the device tables -- was the one case it did not handle.
+		if (!attendanceDevicesTableExists()) {
+			return;
+		}
+		entityManager.createNativeQuery(
+				"UPDATE attendance_devices SET is_active = 0 WHERE company_id = :companyId "
+						+ "AND branch_id = :branchId")
+				.setParameter("companyId", companyId)
+				.setParameter("branchId", branchId)
+				.executeUpdate();
+	}
+
+	/**
+	 * Whether this database carries the device tables at all.
+	 *
+	 * <p>Cached: it is schema, and it cannot change under a running
+	 * application without a deployment. Reading {@code information_schema} is a
+	 * plain SELECT, so it neither throws nor poisons the transaction the way
+	 * touching the absent table does.
+	 */
+	private boolean attendanceDevicesTableExists() {
+		Boolean known = this.attendanceDevicesPresent;
+		if (known != null) {
+			return known;
+		}
+		Number found = (Number) entityManager.createNativeQuery(
+				"SELECT COUNT(*) FROM information_schema.TABLES"
+						+ " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_devices'")
+				.getSingleResult();
+		boolean present = found != null && found.intValue() > 0;
+		this.attendanceDevicesPresent = present;
+		return present;
+	}
+
 	@Transactional
 	public void delete(long companyId, long id) {
 		legacyBranchRepository.findByIdAndCompanyId(id, companyId)
@@ -218,6 +267,18 @@ public class LegacyBranchService {
 		}
 
 		try {
+			// A device outlives the branch it was placed in, and nothing in the
+			// schema stops that: attendance_devices.branch_id has no foreign
+			// key (D-164's tables are Phase-1-owned and deliberately
+			// unconstrained). Deactivating rather than deleting keeps the
+			// terminal's punch history and its registration, while stopping it
+			// ingesting into a branch that no longer exists. Deliberately not a
+			// refusal: branches/delete.php answers 200 here in frozen PHP, and
+			// D-111 does not permit this route to start answering 409.
+			// Tolerant of the table being absent, like the company cascade,
+			// because provisioning is still open (R-023 / Q7).
+			deactivateDevicesOfDeletedBranch(companyId, id);
+
 			entityManager.createNativeQuery("DELETE FROM department_branches WHERE branch_id = :branchId")
 					.setParameter("branchId", id)
 					.executeUpdate();

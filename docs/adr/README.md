@@ -12,8 +12,10 @@ now have a recorded decision — 9 are fully `Accepted` (ADR-0001, ADR-0002
 both parts, ADR-0003, ADR-0004, ADR-0005, ADR-0006 Part A, ADR-0007,
 ADR-0008, ADR-0009) per `docs/bootstrap/decision-log.md` D-016 through
 D-025, and ADR-0010 (authorization model, all six dimensions) is
-Accepted per D-026. Only ADR-0006's Part B (final vendor
-protocol/connectivity detail) remains open, blocked on PMR-04.
+Accepted per D-026. ADR-0006's Part B (final vendor
+protocol/connectivity detail) was the last open item until the repository
+owner accepted it on 2026-09-02 (D-164, hardware checklist recorded as a
+condition).
 
 `scripts/validate_phase0.py::validate_adrs()` discovers real ADR files
 dynamically (`docs/adr/ADR-[0-9][0-9][0-9][0-9]-*.md`, excluding the
@@ -38,9 +40,12 @@ maintaining a second, divergent copy of these rules — see
 - `ADR-0003-api-versioning-and-flutter-compatibility.md`
 - `ADR-0004-mysql-to-postgresql-migration-approach.md`
 - `ADR-0005-authentication-direction.md`
-- `ADR-0006-attendance-edge-gateway-direction.md` — **Part A only**
-  (adapter/SPI architectural pattern); Part B (vendor-specific
-  gateway-or-not decisions) remains `Proposed`, blocked on PMR-04
+- `ADR-0006-attendance-edge-gateway-direction.md` — **Part A** (adapter/SPI
+  architectural pattern, D-023) **and Part B** (ZKTeco terminals push over
+  ADMS, edge gateway as fallback — D-164, accepted 2026-09-02 with the
+  hardware checklist in
+  `../superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
+  §4.3 as a recorded condition)
 - `ADR-0007-testing-and-quality-gate-strategy.md`
 - `ADR-0008-observability-baseline.md`
 - `ADR-0009-dashboard-vs-desktop-admin-client.md` — Option E, role-based

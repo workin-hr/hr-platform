@@ -73,6 +73,31 @@ public class Phase1SchemaCheck implements ApplicationRunner {
 		OWNED_TABLES.put("platform_admin_login_attempts", "platform-admin login throttling");
 		OWNED_TABLES.put("SPRING_SESSION", "the platform-admin web session -- login succeeds and is then forgotten");
 		OWNED_TABLES.put("SPRING_SESSION_ATTRIBUTES", "the platform-admin web session's contents");
+		// D-164. Absent, these degrade rather than break: the receiver is off by
+		// default, and LegacyBranchService and LegacyEmployeeStore already swallow
+		// a missing device table so the rest of the deployment still serves. That
+		// is exactly why they are listed -- a silent degradation is the kind of gap
+		// this check exists to name out loud.
+		OWNED_TABLES.put("attendance_devices",
+				"attendance devices -- terminals cannot be registered, and none of their punches are accepted");
+		OWNED_TABLES.put("employee_device_identities",
+				"device PIN to employee mapping -- punches fall back to employee_code and otherwise go unmatched");
+		OWNED_TABLES.put("device_punches",
+				"the punch record itself -- a terminal's scans are acknowledged and then lost");
+		OWNED_TABLES.put("unclaimed_device_sightings",
+				"the record of terminals pointed here but not yet claimed -- device setup has nothing to show");
+		OWNED_TABLES.put("device_operation_logs", "the device operation log");
+		OWNED_TABLES.put("device_malformed_punches",
+				"quarantined unparseable ATTLOG lines -- a punch a firmware revision worded"
+						+ " differently is acknowledged to the terminal and then unrecoverable");
+		OWNED_TABLES.put("legacy_runtime_offset_history",
+				"what the legacy runtime offset WAS -- without it a device punch processed after"
+						+ " the daylight-saving flag changed is written to the wrong attendance clock,"
+						+ " and pairing refuses to run rather than guess");
+		OWNED_TABLES.put("device_assignment_history",
+				"what a device's branch and zone WERE -- without it a buffered punch delivered"
+						+ " after a reassignment is attributed to the wrong branch, and after a"
+						+ " zone change its stored instant is wrong outright");
 	}
 
 	private final DataSource dataSource;

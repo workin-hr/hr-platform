@@ -13,6 +13,7 @@ import java.util.Map;
 import javax.sql.DataSource;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -654,9 +655,29 @@ public class LegacyEmployeeStore {
 	/**
 	 * {@code delete.php}'s direct path: a single scoped delete, <b>not</b> inside
 	 * a transaction and with no manager cleanup (D-077).
+	 *
+	 * <p><b>Employee first, identity second.</b> There is no transaction here
+	 * by design, so the two statements commit independently and the order is
+	 * the only thing deciding which partial state is reachable. Removing the
+	 * identity first meant a failing employee delete -- a row inserted after
+	 * the preview whose foreign key still references the employee, say -- left
+	 * the employee present with their PIN binding already gone: their terminal
+	 * punches stop resolving, silently, and nothing says why.
+	 *
+	 * <p>This way round the reachable partial state is an employee who is gone
+	 * with a stale identity row, which resolves no punches to anybody and is
+	 * visible in the identities list. The device identity is a Phase-1 addition
+	 * with no counterpart in {@code delete.php}, so ordering it after the
+	 * legacy statement changes nothing about parity (D-077).
 	 */
 	public void deleteEmployeeUnscopedOfAnyTransaction(long employeeId, long companyId) {
-		jdbcTemplate.update("DELETE FROM employees WHERE id = ? AND company_id = ?", employeeId, companyId);
+		int deleted = jdbcTemplate.update(
+				"DELETE FROM employees WHERE id = ? AND company_id = ?", employeeId, companyId);
+		if (deleted > 0) {
+			// Only when the employee actually went. A missing or foreign id
+			// deletes nothing above, and must not strip a binding either.
+			deleteDeviceIdentity(employeeId, companyId);
+		}
 	}
 
 	/**
@@ -916,7 +937,42 @@ public class LegacyEmployeeStore {
 
 	/** The cascade's final statement, whose row count the helper requires to be exactly 1. */
 	public int deleteEmployeeScoped(long employeeId, long companyId) {
+		deleteDeviceIdentity(employeeId, companyId);
 		return jdbcTemplate.update("DELETE FROM employees WHERE id = ? AND company_id = ?", employeeId, companyId);
+	}
+
+	/**
+	 * The device PIN binding (D-164), cleared on <b>both</b> paths that remove
+	 * an employee -- the cascade above and {@code delete.php}'s direct path,
+	 * which an employee with no related records takes instead.
+	 *
+	 * <p>Deliberately outside {@link #CASCADE_TABLES}: that list is the PHP
+	 * helper's contract (D-078) and this table does not exist in PHP. Leaving
+	 * the row behind would orphan it -- the identities endpoint would show a
+	 * PIN against a blank employee, and the unique employee key would stay
+	 * taken so the PIN could never be reissued.
+	 *
+	 * <p><b>Only an absent table is ignored</b>, which is the single case this
+	 * tolerance was written for: a deployment may not have provisioned the
+	 * Phase-1 tables yet (R-023 / Q7). Swallowing every {@code RuntimeException}
+	 * also swallowed a lock timeout and a missing DELETE grant, and treated
+	 * them as "nothing to clean up" -- so the orphan this method exists to
+	 * prevent was created silently, by the method preventing it.
+	 *
+	 * <p>Anything else propagates. The employee row is already gone by then and
+	 * this path has no transaction to undo it (D-077), so the orphan cannot be
+	 * avoided at that point -- but it can be reported, and a caller that sees
+	 * the failure knows a PIN is still reserved against a deleted employee.
+	 * Silence was the one outcome that guaranteed nobody would.
+	 */
+	private void deleteDeviceIdentity(long employeeId, long companyId) {
+		try {
+			jdbcTemplate.update(
+					"DELETE FROM employee_device_identities WHERE company_id = ? AND employee_id = ?",
+					companyId, employeeId);
+		} catch (BadSqlGrammarException absentTable) {
+			// The table is not provisioned in this deployment; nothing to clear.
+		}
 	}
 
 	/** The tables the cascade clears, in order, after {@code notifications}. */

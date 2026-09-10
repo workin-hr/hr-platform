@@ -12,6 +12,12 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
@@ -137,6 +143,32 @@ class Phase1SchemaCheckTest extends AbstractLegacyMySqlTest {
 	private static DriverManagerDataSource dataSourceFor(String database) {
 		return new DriverManagerDataSource(
 				urlFor(database), MARIADB.getUsername(), MARIADB.getPassword());
+	}
+
+
+	@Test
+	void theProvisioningRunbookVerifiesEveryOwnedTable() throws Exception {
+		// The runbook's step-1 query is what an operator actually runs to
+		// decide whether a deployment is complete. It had drifted to eleven
+		// names while OWNED_TABLES held thirteen, so a database missing
+		// device_malformed_punches or device_assignment_history passed the
+		// documented check -- and the prose above it had already been updated
+		// to say "thirteen", which made the contradiction invisible to a reader
+		// who trusted either half alone.
+		Path runbook = Path.of("..", "docs", "operations", "provisioning-phase1-tables.md");
+		String text = Files.readString(runbook);
+		Matcher block = Pattern.compile("AND TABLE_NAME IN \\(([^)]*)\\)", Pattern.DOTALL).matcher(text);
+		assertThat(block.find()).as("the runbook must still contain a verification query").isTrue();
+
+		Set<String> listed = Arrays.stream(block.group(1).split(","))
+				.map(part -> part.replace("'", "").trim())
+				.filter(part -> !part.isEmpty())
+				.collect(Collectors.toCollection(LinkedHashSet::new));
+
+		assertThat(listed)
+				.as("the operator's verification query must name exactly the tables this "
+						+ "application owns, or a partial deployment passes the documented check")
+				.containsExactlyInAnyOrderElementsOf(Phase1SchemaCheck.OWNED_TABLES.keySet());
 	}
 
 }

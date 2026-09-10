@@ -41,6 +41,55 @@ rather than whatever a branch has since become:
 unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/phase1_extensions.sql > phase1_extensions.sql
 ```
 
+### And one file beside it
+
+`slice_b_attendance_method.sql`, in the same directory and the same jar
+path, adds a fourth value to `attendance.method` for device punches
+(D-164, D-214).
+
+It is separate because it **alters a table the legacy contract owns**,
+where the file above only *creates* tables Phase 1 adds. That difference
+is load-bearing in both directions: `phase1_extensions.sql` must stay
+applicable to a database holding nothing else — `Phase1SchemaCheckTest`
+proves it by applying it to an empty scratch database — and the vendored
+`mysql_workin.schema.sql` must stay byte-identical to `hr-legacy`'s dump,
+which `check_legacy_schema_drift.py` enforces, so the ALTER cannot live
+there either.
+
+```bash
+unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/slice_b_attendance_method.sql \
+  > slice_b_attendance_method.sql
+```
+
+### And a third
+
+`legacy_runtime_offset_hooks.sql` installs the triggers that record every
+runtime-offset change as it happens. Step 3 applies it, so it has to be
+extracted here too — and it ships separately from `phase1_extensions.sql`
+because that file must run against a database holding nothing else, while
+these triggers reference the legacy `configs` table.
+
+```bash
+unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/legacy_runtime_offset_hooks.sql \
+  > legacy_runtime_offset_hooks.sql
+```
+
+Skipping it is not a partial success. `PunchPairingService` refuses every
+pairing pass while the triggers are absent — a seeded history with no writers
+looks authoritative and goes stale silently — so the whole feature stays dark
+with punches accumulating in `RECEIVED`.
+
+Apply it **only after** the legacy schema is in place, and **before**
+deploying code that writes `'device'`. Old PHP against the widened enum is
+safe — one site reads `method` and renders it verbatim — but new Java
+against the old enum has its INSERT refused, so pairing would stall with
+every punch left `RECEIVED`. Loud and recoverable, but avoidable.
+
+Unlike the file above it *is* re-runnable: it states the column's target
+shape rather than a delta. On `attendance` (36,316 rows / 64 MB) a fourth
+value does not change a one-byte enum's storage, so it is
+`ALGORITHM=INSTANT` and does not copy the table.
+
 It is deliberately **not** idempotent. `CREATE TABLE IF NOT EXISTS`
 would accept a table that already exists with the wrong columns, which is
 the failure this file exists to prevent. Verify first, then apply.
@@ -56,7 +105,11 @@ WHERE TABLE_SCHEMA = DATABASE()
   AND TABLE_NAME IN (
     'legacy_refresh_tokens', 'platform_admins',
     'platform_admin_audit_events', 'platform_admin_login_attempts',
-    'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES');
+    'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+    'attendance_devices', 'employee_device_identities', 'device_punches',
+    'unclaimed_device_sightings', 'device_operation_logs',
+    'device_malformed_punches', 'device_assignment_history',
+    'legacy_runtime_offset_history');
 ```
 
 Expect zero rows on a database that has never been provisioned. Anything
@@ -73,16 +126,40 @@ find that out.
 
 ```bash
 mysql -h "$HOST" -u "$USER" -p "$DATABASE" < phase1_extensions.sql
+mysql -h "$HOST" -u "$USER" -p "$DATABASE" < slice_b_attendance_method.sql
+# Order matters: the hooks reference legacy `configs` AND write into
+# legacy_runtime_offset_history, so both must exist first. The file ends by
+# seeding the current offset -- that row is where trustworthy coverage BEGINS
+# and asserts nothing about what was in force before it.
+mysql -h "$HOST" -u "$USER" -p "$DATABASE" < legacy_runtime_offset_hooks.sql
 ```
 
-**4. Confirm.** Re-run step 1's query; expect all ten names.
+**4. Confirm.** Re-run step 1's query; expect all fourteen names. Then
+confirm the runtime-offset writers are installed -- pairing refuses to run
+without them, because a seeded history with no writers looks authoritative
+while silently going stale:
+
+```sql
+SELECT TRIGGER_NAME FROM information_schema.TRIGGERS
+WHERE TRIGGER_SCHEMA = DATABASE()
+  AND TRIGGER_NAME LIKE 'configs_runtime_offset_%';
+```
+
+Expect three rows. Then check the enum took:
+
+```sql
+SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance' AND COLUMN_NAME = 'method';
+```
+
+Expect `enum('app','excel','qr','device')`.
 
 **5. Let the application confirm it independently.** `Phase1SchemaCheck`
 runs at startup and logs one line per missing table
 naming the feature it disables. A correctly provisioned deployment logs:
 
 ```text
-Phase 1 schema check: all 10 owned tables are present.
+Phase 1 schema check: all 14 owned tables are present.
 ```
 
 This is the authoritative check — it reads the same list the tests pin to
@@ -95,7 +172,7 @@ The check logs at `ERROR`, once per missing table, in the first seconds
 of startup:
 
 ```text
-Phase 1 schema check: 10 of 10 owned tables are MISSING from this database.
+Phase 1 schema check: 14 of 14 owned tables are MISSING from this database.
   missing table platform_admins -- disables the platform-admin surface at /admin -- nobody can sign in
 ```
 
@@ -107,10 +184,25 @@ the deployment succeeding; read the log.
 
 ## Rollback
 
-`DROP TABLE` each name, innermost first (`SPRING_SESSION_ATTRIBUTES`
-before `SPRING_SESSION`). Legacy PHP never referenced any of them, so
-dropping them returns the database to exactly its pre-Phase-1 shape and
-cannot affect a rollback to PHP.
+**Drop the runtime-offset triggers FIRST**, before any table:
+
+```sql
+DROP TRIGGER IF EXISTS configs_runtime_offset_after_insert;
+DROP TRIGGER IF EXISTS configs_runtime_offset_after_update;
+DROP TRIGGER IF EXISTS configs_runtime_offset_after_delete;
+```
+
+They live on the legacy `configs` table and write into
+`legacy_runtime_offset_history`. Dropping that table while they are installed
+leaves them pointing at nothing, and the next PHP insert, update or delete on
+`configs` then fails -- so the rollback that was supposed to return the
+database to PHP would be what breaks it. Confirm with the `information_schema.TRIGGERS`
+query in step 4: expect zero rows.
+
+Then `DROP TABLE` each name, innermost first (`SPRING_SESSION_ATTRIBUTES`
+before `SPRING_SESSION`). Legacy PHP never referenced any of the tables, so
+once the triggers are gone this returns the database to exactly its
+pre-Phase-1 shape.
 
 The one thing a drop destroys that matters is
 `platform_admin_audit_events` — the record of what platform admins did.

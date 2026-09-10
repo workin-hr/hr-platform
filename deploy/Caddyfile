@@ -15,7 +15,33 @@
 	email {$TLS_EMAIL}
 }
 
+# The device receiver answers on its OWN name. /iclock/** is unauthenticated by
+# design -- a terminal has no bearer token -- so serving it on the name clients
+# use would put an unauthenticated surface on the employee and admin API, past
+# whatever rate limits and WAF rules this name carries. The application refuses
+# it there too (app.devices.ingest.host); this is the outer half of the same
+# rule, so neither one alone is load-bearing.
+{$APP_DEVICES_DOMAIN:devices.localhost} {
+	request_body {
+		max_size 2MB
+	}
+	reverse_proxy app:8080 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+}
+
 {$APP_DOMAIN:localhost} {
+	# Nothing device-facing on this name. The application enforces the same
+	# rule; refusing here as well means a misconfiguration has to defeat both.
+	handle /iclock/* {
+		respond 404
+	}
+
 	# Employee photos and documents come through here. The application caps
 	# uploads itself; this only has to not refuse them earlier.
 	request_body {

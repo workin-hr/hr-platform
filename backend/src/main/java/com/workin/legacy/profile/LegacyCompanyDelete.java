@@ -61,6 +61,16 @@ import com.workin.legacy.wire.LegacyMessages;
  * operator who needs the data back needs a database backup. Recorded rather
  * than mitigated, because legacy behaves this way today and D-058 puts the
  * burden of proof on the change.
+ *
+ * <h2>The device tables are deleted but not previewed</h2>
+ * <p>{@link #DEVICE_OWNED} extends the cascade to the Phase-1-owned device
+ * tables, which PHP knows nothing about. The <b>preview</b> is deliberately
+ * left alone: its key set and order are a client-visible contract (D-111)
+ * that the Flutter clients render, and those clients cannot be inspected from
+ * this repository (PMR-02). So a company admin deleting their company is not
+ * told how many device punches go with it, while they are told about
+ * attendance. That under-reporting is a known gap awaiting an owner decision,
+ * not an oversight.
  */
 @Service
 public class LegacyCompanyDelete {
@@ -92,6 +102,26 @@ public class LegacyCompanyDelete {
 	/** Company-scoped rows that may still reference employees; failures ignored. */
 	private static final List<String> COMPANY_OWNED_EARLY = List.of(
 			"assets", "administrative_decisions", "workforce_planning");
+
+	/**
+	 * Phase-1-owned device tables (D-164), children first.
+	 *
+	 * <p>Not part of {@code company_delete_helper.php} -- they do not exist in
+	 * PHP, so including them is not a parity divergence; leaving them out
+	 * would be a real one, because a deleted company's device registry, PIN
+	 * bindings, raw punches and operation logs would outlive it. The
+	 * globally-unique serial matters too: without this, a terminal whose
+	 * company was deleted could never be claimed again.
+	 *
+	 * <p>Deleted through {@code ignoringFailure} like the other company-scoped
+	 * batches, because a deployment that has not provisioned these tables yet
+	 * (R-023, Q7 is still open) must not have its company deletion aborted by
+	 * their absence. {@code unclaimed_device_sightings} is deliberately absent
+	 * from this list: an unclaimed serial belongs to no company.
+	 */
+	private static final List<String> DEVICE_OWNED = List.of(
+			"device_punches", "device_operation_logs", "device_malformed_punches",
+			"device_assignment_history", "employee_device_identities", "attendance_devices");
 
 	/** The final company-scoped batch; failures ignored. */
 	private static final List<String> COMPANY_OWNED_LATE = List.of(
@@ -198,6 +228,21 @@ public class LegacyCompanyDelete {
 				ignoringFailure("DELETE FROM " + table + " WHERE company_id = ?", companyId);
 			}
 
+			// Before employees and branches go, though nothing here has a
+			// foreign key to either -- the ordering is for readers, not the
+			// database.
+			//
+			// deleteFromOptionalTable, NOT ignoringFailure: these four are the
+			// tables whose survival is dangerous rather than merely untidy. An
+			// attendance_devices row is what makes a serial recognised, so one
+			// surviving row keeps a terminal ingesting punches against a company
+			// that no longer exists. Swallowing every RuntimeException cannot
+			// tell "not deployed here" from "the delete was refused", and the
+			// second must roll the cascade back.
+			for (String table : DEVICE_OWNED) {
+				deleteFromOptionalTable(table, companyId);
+			}
+
 			jdbcTemplate.update("DELETE FROM employees WHERE company_id = ?", companyId);
 
 			jdbcTemplate.update("""
@@ -229,6 +274,28 @@ public class LegacyCompanyDelete {
 			}
 		});
 		return preview;
+	}
+
+	/**
+	 * Delete from a table that may not exist in this deployment -- tolerating
+	 * its absence, but never its failure.
+	 *
+	 * <p>Absence is established by asking {@code information_schema} rather
+	 * than by catching an exception, because a catch cannot distinguish a
+	 * missing table from a missing DELETE grant, a lock timeout, or a trigger
+	 * refusing the row. Only the first is safe to ignore; the rest have to
+	 * abort so the surrounding transaction rolls back and an operator sees a
+	 * failure instead of a half-deleted tenant.
+	 */
+	private void deleteFromOptionalTable(String table, long companyId) {
+		Number found = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM information_schema.TABLES"
+						+ " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+				Number.class, table);
+		if (found == null || found.intValue() == 0) {
+			return;
+		}
+		jdbcTemplate.update("DELETE FROM " + table + " WHERE company_id = ?", companyId);
 	}
 
 	private void ignoringFailure(String sql, long companyId) {

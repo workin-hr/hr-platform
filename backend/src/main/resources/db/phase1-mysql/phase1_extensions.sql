@@ -141,3 +141,299 @@ CREATE TABLE SPRING_SESSION_ATTRIBUTES (
     CONSTRAINT SPRING_SESSION_ATTRIBUTES_FK FOREIGN KEY (SESSION_PRIMARY_ID)
         REFERENCES SPRING_SESSION (PRIMARY_ID) ON DELETE CASCADE
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
+
+
+-- Attendance-device ingestion (ADR-0006 Part A core; Part B ZKTeco adapter,
+-- D-164). Design: docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md
+-- section 7. All five tables are Phase-1-owned: none exists in legacy MySQL,
+-- so none is part of the vendored contract and TenantFilterCoverageTest's
+-- structural exemption applies. No foreign keys to the vendored tables, on
+-- purpose: the legacy dump adds its own FKs through ALTER TABLE after the
+-- CREATEs, and this file is applied after it; coupling the two files'
+-- order any further would make the extension schema fragile for no
+-- integrity gain the application does not already enforce (a serial is
+-- bound only to a branch of the claiming caller's own company).
+
+-- One physical terminal, identified by the vendor serial number. The
+-- company/branch binding is written by an authenticated claim and is the
+-- ONLY source of tenant for anything the device sends.
+CREATE TABLE attendance_devices (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    company_id INT UNSIGNED NOT NULL,
+    branch_id INT UNSIGNED NOT NULL,
+    vendor VARCHAR(32) NOT NULL,
+    serial_number VARCHAR(64) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    model VARCHAR(100) NULL,
+    firmware VARCHAR(100) NULL,
+    push_version VARCHAR(32) NULL,
+    device_time_zone VARCHAR(64) NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    last_seen_at DATETIME NULL,
+    last_handshake_at DATETIME NULL,
+    last_attlog_stamp VARCHAR(32) NULL,
+    last_seen_ip VARCHAR(45) NULL,
+    registered_by_employee_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    CONSTRAINT attendance_devices_vendor_chk CHECK (vendor IN ('zkteco'))
+);
+
+CREATE INDEX attendance_devices_company_idx ON attendance_devices (company_id, branch_id);
+
+-- Device PIN -> employee, per company (Q1, D-164). A PIN is unique within a
+-- company and an employee holds at most one PIN. Absent a row, ingestion
+-- falls back to employees.employee_code, which is what the Excel import
+-- already treats as the device PIN.
+CREATE TABLE employee_device_identities (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    company_id INT UNSIGNED NOT NULL,
+    employee_id INT UNSIGNED NOT NULL,
+    pin VARCHAR(32) NOT NULL,
+    card_no VARCHAR(32) NULL,
+    source VARCHAR(16) NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    CONSTRAINT employee_device_identities_pin_uq UNIQUE (company_id, pin),
+    CONSTRAINT employee_device_identities_employee_uq UNIQUE (company_id, employee_id),
+    CONSTRAINT employee_device_identities_source_chk CHECK (source IN ('MANUAL', 'EMPLOYEE_CODE', 'DEVICE'))
+);
+
+-- Raw, append-only punches. dedup_key is the synthesised idempotency key
+-- (the protocol carries no record id): sha256(serial|pin|local time|status).
+-- punched_at_local is exactly what the device said; punched_at_utc is
+-- derived through the device's zone. Never updated by ingestion except
+-- processing_state/employee_id, never deleted.
+CREATE TABLE device_punches (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    device_id BIGINT NOT NULL,
+    company_id INT UNSIGNED NOT NULL,
+    -- Snapshotted from the device at ingestion, not read back through it: a
+    -- terminal can be moved to another branch, and reporting the registry's
+    -- current branch would retroactively relabel every punch it ever sent.
+    -- NULLABLE for the same reason as punched_at_utc: an unresolved punch has
+    -- no branch we observed, and the earliest-known branch is a guess.
+    branch_id INT UNSIGNED NULL,
+    employee_id INT UNSIGNED NULL,
+    pin VARCHAR(32) NOT NULL,
+    punched_at_local DATETIME NOT NULL,
+    -- NULLABLE, deliberately. A wall-clock punch whose configuration cannot be
+    -- established has no instant we are entitled to assert -- around a zone
+    -- change or a DST fold the same wall clock maps plausibly into more than
+    -- one. Writing a placeholder would turn "we do not know" into a fact that
+    -- reads exactly like a measurement. punched_at_local always survives, so
+    -- nothing is lost; only the derived value is withheld.
+    punched_at_utc DATETIME NULL,
+    -- Explicit provenance: set ONLY on the punch that OPENED an attendance row,
+    -- to the exact LegacyRuntimeOffset value written to attendance.check_in.
+    -- Null on a punch that closed an existing row.
+    --
+    -- Why a column rather than matching punched_at_local against check_in: that
+    -- comparison inferred "this punch opened that row" from two values being
+    -- equal, which stops being true the moment attendance is written in the
+    -- runtime offset while the device reports its own wall clock. attendance_id
+    -- alone cannot serve either -- the opening AND closing punches both carry
+    -- it, so it identifies the row but not the opener.
+    --
+    -- Comparing this against attendance.check_in stays useful, but for a
+    -- different question: whether HR edited the row after pairing.
+    attendance_check_in_at DATETIME NULL,
+    -- Which history row was used, kept as provenance rather than a foreign key:
+    -- Phase 1 tables carry no FKs (the legacy lifecycle owns deletion order),
+    -- so this records WHY the branch and zone were chosen without constraining
+    -- either table's lifetime.
+    device_assignment_id BIGINT NULL,
+    -- Schema-level, not a comment: whether the temporal attribution above was
+    -- observed or guessed. EXACT is the only value pairing will claim, so an
+    -- acknowledged guess cannot become payroll-facing attendance by default.
+    --
+    -- VARCHAR + CHECK rather than ENUM, and the difference is not stylistic.
+    -- This application runs MariaDB with sql_mode='' (application.properties),
+    -- where an out-of-range ENUM value is stored as the empty error value with
+    -- only a warning -- proved on this pull request, on attendance.method. For
+    -- a provenance column that would be the worst possible failure: an unknown
+    -- resolution silently becoming an unrecognised fourth state, indistinct
+    -- from a real one. A CHECK is enforced whatever sql_mode says.
+    assignment_resolution VARCHAR(24) NOT NULL DEFAULT 'EXACT',
+    -- The legacy runtime offset actually used to derive this punch's attendance
+    -- wall clock, stored rather than recomputed later: recomputing would ask
+    -- today's question again and get today's answer.
+    legacy_runtime_offset_seconds INT NULL,
+    runtime_offset_resolution VARCHAR(16) NOT NULL DEFAULT 'EXACT',
+    status_code SMALLINT NULL,
+    verify_code SMALLINT NULL,
+    work_code VARCHAR(32) NULL,
+    received_at DATETIME NOT NULL,
+    dedup_key CHAR(64) NOT NULL UNIQUE,
+    raw_line VARCHAR(512) NOT NULL,
+    processing_state VARCHAR(16) NOT NULL,
+    -- Slice B. The idempotency record, not a convenience: pairing writes the
+    -- attendance row and marks the punch in one transaction, so a PAIRED punch
+    -- names the row it produced and an unpaired one produced nothing. The pass
+    -- claims only RECEIVED rows, so a crash mid-run costs a repeat rather than
+    -- a loss, and a re-run cannot pair the same punch twice.
+    --
+    -- Deliberately NOT a foreign key to attendance(id): that table is the
+    -- vendored legacy contract, PHP paths this schema does not control delete
+    -- from it, and ON DELETE CASCADE would erase the evidence of what a device
+    -- recorded. A dangling id means "the attendance row was deleted", which is
+    -- a fact worth keeping rather than an integrity error.
+    attendance_id INT UNSIGNED NULL,
+    paired_at DATETIME NULL,
+    -- Unconstrained on purpose: a review flag is an observation for a human,
+    -- and a value this build does not recognise must never stop a punch from
+    -- being stored or paired.
+    --
+    -- Width, not style: pairing composes two anomalies into one value, and
+    -- 'RAPID_RECHECKIN,OUT_OF_HOME_BRANCH' is 34 characters. Production runs
+    -- MariaDB with sql_mode='' (application.properties), where an over-long
+    -- value is silently TRUNCATED rather than rejected -- so a 32-character
+    -- column would have stored 'RAPID_RECHECKIN,OUT_OF_HOME_BRAN' and no exact
+    -- review filter would ever match it. PunchPairingServiceTest pins the
+    -- width against the longest combination the flags can actually produce.
+    review_flag VARCHAR(64) NULL,
+    -- How many passes have tried and failed on this punch. Without it, a punch
+    -- that can never pair -- an employee deleted between ingestion and
+    -- pairing, say -- stays RECEIVED, and since the pass claims the OLDEST
+    -- rows under a LIMIT it is re-claimed on every pass forever. Enough of
+    -- them and no later employee's punches are ever selected: one bad row
+    -- starves a whole company. Claiming orders by this first, so a failing
+    -- punch sinks below the work that can succeed, and is quarantined once it
+    -- has had enough turns.
+    pair_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    CONSTRAINT device_punches_runtime_offset_resolution_chk
+        CHECK (runtime_offset_resolution IN ('EXACT', 'PRE_HISTORY')),
+    CONSTRAINT device_punches_assignment_resolution_chk
+        CHECK (assignment_resolution IN ('EXACT', 'INFERRED_EARLIEST', 'UNRESOLVED')),
+    CONSTRAINT device_punches_state_chk
+        CHECK (processing_state IN ('RECEIVED', 'UNMATCHED', 'PAIRED', 'IGNORED'))
+);
+
+-- The pairing pass claims work with processing_state = 'RECEIVED' and walks a
+-- company's punches in punch order, so this is the index it runs on.
+CREATE INDEX device_punches_pairing_idx
+    -- Ends in punched_at_utc because claimable() orders by the INSTANT: a DST
+-- overlap makes punched_at_local ambiguous, and an index that disagrees with
+-- the ORDER BY buys a filesort on the hottest query in pairing.
+ON device_punches (processing_state, company_id, pair_attempts, employee_id, punched_at_utc);
+
+CREATE INDEX device_punches_device_time_idx ON device_punches (device_id, punched_at_local);
+CREATE INDEX device_punches_employee_time_idx ON device_punches (company_id, employee_id, punched_at_local);
+CREATE INDEX device_punches_state_idx ON device_punches (processing_state);
+
+-- Serials that have contacted the receiver without being claimed. Global,
+-- not tenant-scoped: an unclaimed serial belongs to nobody yet. The tenant
+-- API exposes it only by exact serial lookup, never as a list.
+CREATE TABLE unclaimed_device_sightings (
+    serial_number VARCHAR(64) PRIMARY KEY,
+    first_seen_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    last_seen_ip VARCHAR(45) NULL,
+    push_version VARCHAR(32) NULL,
+    device_type VARCHAR(64) NULL,
+    hit_count INT UNSIGNED NOT NULL DEFAULT 1
+);
+
+-- Device operation log lines (OPLOG records only -- biometric template
+-- lines that share the same upload are discarded before this table).
+-- The handshake always answers OPERLOGStamp=0, so a reconnecting terminal
+-- replays operation logs it already delivered. Without a key of their own
+-- these rows would duplicate the whole history on every reconnect, so they
+-- get the same content-hash treatment the punches have.
+-- ATTLOG lines this build could not parse. The batch is acknowledged 200 OK
+-- regardless -- refusing it would let one unrecognised line block every good
+-- punch behind it -- and the terminal then drops its copy. At that moment the
+-- raw line is the ONLY remaining evidence that an employee punched, so it has
+-- to survive somewhere or the punch is lost for good. The usual cause is a
+-- firmware revision emitting a shape the parser has not been taught, which
+-- makes these rows the input for teaching it.
+-- What a device's configuration WAS, not just what it is.
+--
+-- attendance_devices holds one branch_id and one device_time_zone, overwritten
+-- in place. Offline buffering is a supported flow, so a punch can be delivered
+-- after either changed -- and ingestion stamped the CURRENT values onto it. The
+-- branch was wrong; worse, the zone is what derives punched_at_utc, so a zone
+-- change silently corrupted the instant that ordering, late-arrival detection,
+-- rewind bounds and the attendance timestamp all now rest on.
+--
+-- Append-only, and deliberately WITHOUT effective_to: each row means "from this
+-- instant onward, this was the configuration", and the next row implicitly ends
+-- it. Closing and reopening intervals would add an "exactly one open row"
+-- invariant to defend, and with it the overlap and gap bugs that come from
+-- getting it wrong.
+--
+-- attendance_devices keeps the current values materialised -- registry reads
+-- must not join history -- but they move in the same transaction as the append.
+-- What the legacy runtime offset WAS, and from when.
+--
+-- configs.is_daylight_saving is a single row with no timestamps, a UNIQUE key
+-- on config_key, and no audit anywhere: its past values are gone. A device
+-- punch processed after the flag changed was converted to the legacy attendance
+-- clock with the CURRENT offset, putting it an hour away from the app and QR
+-- rows written at the same instant -- silently, and in a value that moves
+-- session boundaries and payroll.
+--
+-- This cannot recover the past. It begins trustworthy coverage at its seed row
+-- and says nothing about what came before, which is why a punch predating the
+-- seed is marked PRE_HISTORY rather than assumed.
+--
+-- Written by TRIGGERS on configs, not by this application: the flag can be
+-- changed by PHP, by hand, or by any other path, and recording when Java first
+-- NOTICED a new value would store the observation time rather than the change
+-- time. A punch delivered between those two moments would still be converted
+-- wrongly.
+CREATE TABLE legacy_runtime_offset_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    effective_from_utc DATETIME NOT NULL,
+    -- Only the two offsets legacy can actually apply. A CHECK, not an ENUM:
+    -- under sql_mode='' an out-of-range ENUM stores the empty error value with
+    -- a warning, which for provenance would be a silent third state.
+    offset_seconds INT NOT NULL,
+    CONSTRAINT legacy_runtime_offset_history_seconds_chk
+        CHECK (offset_seconds IN (7200, 10800)),
+    KEY legacy_runtime_offset_history_timeline_idx (effective_from_utc, id)
+);
+
+CREATE TABLE device_assignment_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    device_id BIGINT NOT NULL,
+    company_id INT UNSIGNED NOT NULL,
+    branch_id INT UNSIGNED NOT NULL,
+    device_time_zone VARCHAR(64) NOT NULL,
+    -- An INSTANT. Ordering configuration by a wall clock would reintroduce the
+    -- ambiguity this table exists to resolve.
+    effective_from_utc DATETIME NOT NULL,
+    created_at DATETIME NOT NULL,
+    -- (device_id, effective_from_utc, id): the timeline for one device, in
+    -- order, and `id` makes two rows sharing an instant deterministic rather
+    -- than arbitrary.
+    KEY device_assignment_history_timeline_idx (device_id, effective_from_utc, id)
+);
+
+CREATE TABLE device_malformed_punches (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    device_id BIGINT NOT NULL,
+    company_id INT UNSIGNED NOT NULL,
+    received_at DATETIME NOT NULL,
+    raw_line VARCHAR(512) NOT NULL,
+    dedup_key CHAR(64) NOT NULL UNIQUE
+);
+
+CREATE TABLE device_operation_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    device_id BIGINT NOT NULL,
+    company_id INT UNSIGNED NOT NULL,
+    received_at DATETIME NOT NULL,
+    raw_line VARCHAR(512) NOT NULL,
+    dedup_key CHAR(64) NOT NULL UNIQUE
+);
+
+CREATE INDEX device_operation_logs_device_idx ON device_operation_logs (device_id, received_at);
+
+-- Every new serial an unclaimed terminal presents runs the retention delete,
+-- which is WHERE last_seen_at < ?. Without an index beginning on that column
+-- MariaDB scans the whole table for each one -- and the callers are
+-- unauthenticated, so the table grows with whatever serials arrive and the
+-- cleanup becomes progressively more expensive than the insert it follows.
+CREATE INDEX unclaimed_device_sightings_retention_idx
+    ON unclaimed_device_sightings (last_seen_at);

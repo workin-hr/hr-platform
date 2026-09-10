@@ -146,6 +146,9 @@ public final class LegacyMariaDb {
 		if (withSchema) {
 			applySchema(handle, "legacy/mysql_workin.schema.sql");
 			applySchema(handle, "db/phase1-mysql/phase1_extensions.sql");
+			// Alters a vendored table, so it can only run once that schema is
+			// in place -- which is also why it is not part of the file above.
+			applySchema(handle, "db/phase1-mysql/slice_b_attendance_method.sql");
 		}
 		return handle;
 	}

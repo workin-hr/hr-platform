@@ -47,6 +47,13 @@ not be described as, comprehensive secret scanning on their own.
 
 ## Platform Security
 
+- attendance terminals are an untrusted external boundary (D-164, R-041):
+  a device is identified by a serial number the platform resolves against
+  its own registry, never by anything the payload asserts; nothing is
+  ingested for an unclaimed or deactivated serial; biometric template
+  records are discarded before storage; device commands are a closed
+  allow-list — see
+  `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md` §8
 - least privilege
 - dependency and supply-chain review
 - security review in pull requests

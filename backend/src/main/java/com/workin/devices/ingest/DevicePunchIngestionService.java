@@ -1,0 +1,254 @@
+package com.workin.devices.ingest;
+
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import com.workin.devices.DeviceAttendanceEvent;
+import com.workin.devices.assignment.DeviceAssignmentHistoryStore;
+import com.workin.devices.assignment.DeviceAssignmentTimeline;
+import com.workin.devices.DeviceInput;
+import com.workin.devices.identity.EmployeeDeviceIdentityStore;
+import com.workin.devices.registry.AttendanceDevice;
+import com.workin.legacy.LegacyClock;
+
+import io.micrometer.core.instrument.MeterRegistry;
+
+/**
+ * The vendor-agnostic half of ingestion: given a claimed device and the
+ * events an adapter translated, resolve the PINs inside that device's
+ * company, derive the instant from the device's wall clock, and append
+ * idempotently. The tenant comes from the device row and nowhere else -- an
+ * adapter cannot pass one in.
+ */
+@Service
+public class DevicePunchIngestionService {
+
+	private static final Logger LOG = LoggerFactory.getLogger(DevicePunchIngestionService.class);
+
+	private final DevicePunchStore punches;
+	private final DeviceAssignmentHistoryStore assignments;
+	private final EmployeeDeviceIdentityStore identities;
+	private final LegacyClock clock;
+	/**
+	 * Past this, the terminal's clock is wrong rather than merely imprecise.
+	 *
+	 * <p>Generous on purpose: a buffered batch from an outage is delivered long
+	 * after it was recorded, and that is normal operation, not drift. What this
+	 * catches is a clock set to the wrong year, month or hour -- the case where
+	 * every punch is plausible on its own and lands on the wrong day.
+	 */
+	private static final java.time.Duration MAX_PLAUSIBLE_SKEW = java.time.Duration.ofDays(2);
+
+	private final MeterRegistry meters;
+
+	private final org.springframework.transaction.support.TransactionTemplate transactions;
+
+	public DevicePunchIngestionService(
+			DevicePunchStore punches, EmployeeDeviceIdentityStore identities, LegacyClock clock,
+			MeterRegistry meters, DeviceAssignmentHistoryStore assignments,
+			javax.sql.DataSource legacyDataSource) {
+		this.transactions = new org.springframework.transaction.support.TransactionTemplate(
+				new org.springframework.jdbc.datasource.DataSourceTransactionManager(legacyDataSource));
+		this.punches = punches;
+		this.assignments = assignments;
+		this.identities = identities;
+		this.clock = clock;
+		this.meters = meters;
+	}
+
+	/** Counts a receiver reports back and a dashboard graphs. */
+	public record Outcome(int stored, int duplicates, int unmatched, int rejected) {
+
+		/**
+		 * What the device is told it delivered. A rejected row is deliberately
+		 * counted as accepted: the device can never produce a storable version
+		 * of it, so leaving it unacknowledged would only make it re-send the
+		 * batch forever.
+		 */
+		public int accepted() {
+			return stored + duplicates + rejected;
+		}
+	}
+
+	public Outcome ingest(AttendanceDevice device, List<DeviceAttendanceEvent> events) {
+		if (events.isEmpty()) {
+			return new Outcome(0, 0, 0, 0);
+		}
+		// ONE query for the whole delivery. A reconnect can carry thousands of
+		// buffered punches; a history lookup each would turn one upload into
+		// thousands of round trips.
+		DeviceAssignmentTimeline timeline = assignments.timelineFor(device.id());
+		LocalDateTime receivedAt = clock.now();
+		Set<String> pins = new LinkedHashSet<>();
+		for (DeviceAttendanceEvent event : events) {
+			pins.add(event.pin());
+		}
+		// One resolution for the whole delivery. A terminal returning from an
+		// outage sends its entire buffer at once, so doing this per punch is
+		// the difference between two queries and two thousand.
+		Map<String, Long> byPin = identities.resolveEmployeeIds(device.companyId(), pins);
+
+		// The whole batch in ONE transaction, opened by holding the device row.
+		// The registry lookup that produced `device` happened before parsing,
+		// and the device tables have no foreign keys, so a company deletion in
+		// that window would otherwise let these inserts land for a company that
+		// no longer exists -- punches nobody owns and nothing collects. Holding
+		// the row makes the two take turns.
+		Outcome outcome = transactions.execute(status -> {
+			if (!punches.holdDeviceForUpload(device.id(), device.companyId())) {
+				LOG.warn("device {} (company {}) was removed while this delivery was being "
+								+ "parsed; {} record(s) refused rather than stored against it",
+						device.serialNumber(), device.companyId(), events.size());
+				return null;
+			}
+			return storeBatch(device, events, byPin, receivedAt, timeline);
+		});
+		return outcome != null ? outcome : new Outcome(0, 0, 0, 0);
+	}
+
+	private Outcome storeBatch(AttendanceDevice device, List<DeviceAttendanceEvent> events,
+			Map<String, Long> byPin, LocalDateTime receivedAt, DeviceAssignmentTimeline timeline) {
+		int stored = 0;
+		int duplicates = 0;
+		int unmatched = 0;
+		int rejected = 0;
+		// Widest skew seen in this delivery, in seconds, signed: negative means
+		// the terminal's clock is BEHIND ours, positive ahead. Tracked per
+		// delivery rather than per punch so one buffered batch from an outage
+		// does not read as thousands of separate drift observations.
+		Long widestSkewSeconds = null;
+		for (DeviceAttendanceEvent event : events) {
+			Long employeeId = byPin.get(event.pin());
+			String state = employeeId != null ? DevicePunchStore.STATE_RECEIVED : DevicePunchStore.STATE_UNMATCHED;
+			// Resolved against the timeline, never against the device's CURRENT
+			// configuration: a buffered punch predates whatever the registry
+			// says now, in both branch and zone.
+			DeviceAssignmentTimeline.Resolved resolved = event.punchedAtInstant() != null
+					? timeline.forInstant(LocalDateTime.ofInstant(event.punchedAtInstant(), ZoneOffset.UTC))
+					: timeline.forWallClock(event.punchedAtLocal());
+			switch (punches.insert(
+					device.id(), device.companyId(), resolved.branchId(), employeeId, event,
+					resolved.instantUtc(), receivedAt, state,
+					resolved.assignmentId(), resolved.resolution().name())) {
+				case STORED -> {
+					stored++;
+					if (employeeId == null) {
+						unmatched++;
+					}
+					if (resolved.instantUtc() != null) {
+						long skew = java.time.Duration.between(
+								resolved.instantUtc(), receivedAt).toSeconds();
+						if (widestSkewSeconds == null
+								|| Math.abs(skew) > Math.abs(widestSkewSeconds)) {
+							widestSkewSeconds = skew;
+						}
+					}
+				}
+				case DUPLICATE -> duplicates++;
+				case REJECTED -> {
+					rejected++;
+					LOG.error("device {} punch for PIN {} at {} was refused by the database and is not stored: {}",
+							device.serialNumber(), DeviceInput.forLog(event.pin(), 32), event.punchedAtLocal(),
+							DeviceInput.forLog(event.rawLine(), 200));
+				}
+			}
+		}
+		String vendor = device.vendor();
+		meters.counter("devices.punches.stored", "vendor", vendor).increment(stored);
+		meters.counter("devices.punches.duplicate", "vendor", vendor).increment(duplicates);
+		meters.counter("devices.punches.unmatched", "vendor", vendor).increment(unmatched);
+		meters.counter("devices.punches.rejected", "vendor", vendor).increment(rejected);
+		if (unmatched > 0) {
+			// Re-resolved AFTER the inserts, not only before them. The
+			// resolution above is one snapshot for the whole delivery, and a
+			// large upload takes a while: HR binding a PIN partway through it
+			// would have its `adoptUnmatched` sweep run before these rows
+			// existed, so they stayed UNMATCHED with the binding already in
+			// place. Pairing never claims those, and re-delivery only meets the
+			// dedup key, so nothing would ever pick them up again.
+			//
+			// Cheap: one query over the PINs that actually came back unmatched,
+			// and only when some did.
+			Set<String> stillUnmatched = new LinkedHashSet<>();
+			for (DeviceAttendanceEvent event : events) {
+				if (!byPin.containsKey(event.pin())) {
+					stillUnmatched.add(event.pin());
+				}
+			}
+			Map<String, Long> boundSince = identities.resolveEmployeeIds(
+					device.companyId(), stillUnmatched);
+			int adopted = 0;
+			for (Map.Entry<String, Long> entry : boundSince.entrySet()) {
+				adopted += punches.adoptUnmatched(
+						device.companyId(), entry.getValue(), entry.getKey());
+			}
+			if (adopted > 0) {
+				unmatched -= Math.min(adopted, unmatched);
+				LOG.info("device {} (company {}): {} punch(es) were bound to an employee while "
+								+ "this delivery was being stored, and have been adopted",
+						device.serialNumber(), device.companyId(), adopted);
+			}
+		}
+		if (unmatched > 0) {
+			LOG.warn("device {} (company {}) sent {} punch(es) for PINs bound to no active employee",
+					device.serialNumber(), device.companyId(), unmatched);
+		}
+		// PER DEVICE, deliberately, and the only metric here that is. A drifting
+		// or misconfigured terminal clock still reports syntactically valid
+		// timestamps, so ingestion accepts them and pairing can place attendance
+		// on the wrong day; the design names observed skew as the mitigation for
+		// exactly that, and the aggregate vendor counters above cannot show it.
+		// Cardinality is the number of registered terminals, which is bounded
+		// and small -- unlike, say, tagging by PIN.
+		if (widestSkewSeconds != null) {
+			meters.summary("devices.punches.clock_skew_seconds",
+							"vendor", vendor, "serial", device.serialNumber())
+					.record(widestSkewSeconds);
+			if (Math.abs(widestSkewSeconds) > MAX_PLAUSIBLE_SKEW.toSeconds()) {
+				LOG.warn("device {} (company {}) is {}s from this server's clock; its punches "
+								+ "can be attributed to the wrong day while that holds",
+						device.serialNumber(), device.companyId(), widestSkewSeconds);
+			}
+		}
+		return new Outcome(stored, duplicates, unmatched, rejected);
+	}
+
+	/**
+	 * The device's wall clock to an instant.
+	 *
+	 * <p>A device that reported an <b>instant</b> needs no zone rule at all,
+	 * and gets none: its value is used directly, which is also what keeps the
+	 * two punches of an autumn overlap distinct.
+	 *
+	 * <p>For the wall-clock form, {@code punched_at_local} is the
+	 * authoritative value and is stored exactly as the device reported it;
+	 * this column is the derived one, and it is the only place a zone rule can
+	 * bite. Two cases have no lossless answer, both from daylight saving in a
+	 * device's IANA zone: a wall clock
+	 * inside a spring-forward gap does not exist and {@code atZone} moves it
+	 * forward by the gap, and one inside an autumn overlap is ambiguous and
+	 * {@code atZone} resolves it to the earlier offset. Both are accepted
+	 * deliberately rather than rejected -- refusing the punch would lose a
+	 * real attendance record over a calendar artefact, and the local time,
+	 * which is what pairing and the reports use, stays correct either way.
+	 */
+	static LocalDateTime toUtc(DeviceAttendanceEvent event, ZoneId zone) {
+		return event.punchedAtInstant() != null
+				? LocalDateTime.ofInstant(event.punchedAtInstant(), ZoneOffset.UTC)
+				: toUtc(event.punchedAtLocal(), zone);
+	}
+
+	static LocalDateTime toUtc(LocalDateTime punchedAtLocal, ZoneId zone) {
+		return punchedAtLocal.atZone(zone).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+	}
+
+}
