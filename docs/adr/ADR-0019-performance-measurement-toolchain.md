@@ -123,6 +123,26 @@ the result, which is what catches the D-114 shape before it ships.
 - The forbidden-file exclusion for `perf/scenarios/*.js` is scoped to one
   directory and one suffix, with a test asserting `.ts`, `package.json`,
   `perf/*.js` and `.js` elsewhere all still fail.
+- The stack was **run**, not just configured: `/actuator/prometheus` serves 132
+  metric lines including `hikaricp_connections` and `jvm_memory_used_bytes`,
+  and Prometheus reports the `workin-backend` target `up`.
+- **Client API baselined**: 22,417 requests at 20 VUs, p95 107ms, avg 33ms, 0
+  failures. Attendance pages 1/10/25 are flat at 47/47/44ms, so pagination does
+  not degrade with depth at the seed's volume.
+
+Two surfaces are **not** baselined, and the scenarios say so rather than
+reporting a fast number for the wrong thing:
+
+- **Admin dashboard** needs an `https` base URL. The session cookie is
+  `Secure`; browsers and `curl` treat `http://127.0.0.1` as a secure context
+  and send it anyway, k6 does not, so CSRF cannot validate and sign-in is 403.
+  (This also corrected `running-the-backend-for-client-developers.md`, which
+  claimed the dashboard never stays signed in on the local stack. It does, on
+  `localhost`; it does not by LAN IP from another machine.)
+- **Device ingestion** is blocked by a stale seed: `deploy/seed/dev-seed.sql`
+  predates the Phase-1 device tables, the stack reports `8 of 14 owned tables
+  are MISSING`, and claiming a device answers 500. Regenerating the seed from a
+  post-#182 dump is the prerequisite.
 
 ## Open Questions
 

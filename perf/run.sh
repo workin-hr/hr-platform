@@ -8,7 +8,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCENARIO="${1:-}"
-NETWORK="${PERF_NETWORK:-workin-local_default}"
+APP_PORT="${PERF_APP_PORT:-8080}"
 
 usage() {
   echo "usage: $0 <client-api|admin-dashboard|device-ingestion|all>" >&2
@@ -21,10 +21,13 @@ usage() {
 
 [ -n "$SCENARIO" ] || usage
 
-if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
-  echo "no compose network '$NETWORK'." >&2
-  echo "Start the stack first, or set PERF_NETWORK to the right name:" >&2
-  docker network ls --filter name=workin --format '  {{.Name}}' >&2
+BASE_URL="${BASE_URL:-http://127.0.0.1:${APP_PORT}}"
+
+if ! curl -fsS "${BASE_URL}/actuator/health" >/dev/null 2>&1; then
+  echo "nothing healthy at ${BASE_URL}." >&2
+  echo "Start the stack first, or set PERF_APP_PORT / BASE_URL:" >&2
+  echo "  cd deploy && docker compose -f compose.local.yaml \\" >&2
+  echo "      -f compose.observability.yaml up -d --wait" >&2
   exit 1
 fi
 
@@ -36,10 +39,15 @@ run_one() {
   echo "=== $name ==="
   # --quiet keeps the progress bar out of a captured log; the end-of-run
   # summary is the part worth keeping.
+  # --network host, not the compose network. The admin dashboard's session
+  # cookie is `Secure`, and only localhost/127.0.0.1 count as a secure context
+  # over plain HTTP -- from inside the compose network that cookie is dropped
+  # and the scenario measures a login page instead of a dashboard. One base URL
+  # for all three surfaces beats one exception.
   docker run --rm -i \
-    --network "$NETWORK" \
+    --network host \
     -v "$HERE/scenarios:/scenarios:ro" \
-    -e "BASE_URL=${BASE_URL:-http://app:8080}" \
+    -e "BASE_URL=$BASE_URL" \
     -e "PERF_PHONE=${PERF_PHONE:-}" \
     -e "PERF_PASSWORD=${PERF_PASSWORD:-}" \
     -e "PERF_ADMIN_USER=${PERF_ADMIN_USER:-}" \

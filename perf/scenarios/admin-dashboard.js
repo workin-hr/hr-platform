@@ -18,34 +18,50 @@ export const options = {
     { duration: '30s', target: 5 },
     { duration: '15s', target: 0 },
   ],
+  insecureSkipTLSVerify: true,
   thresholds: {
     'http_req_duration': ['p(95)<1500'],
     'http_req_failed': ['rate<0.02'],
   },
 };
 
-export function setup() {
-  const jar = http.cookieJar();
+// THIS SCENARIO NEEDS AN https BASE_URL. Measured, not assumed: the admin
+// session cookie is `Secure`, and while browsers and curl treat
+// http://127.0.0.1 as a secure context and send it anyway, k6 does not. So
+// over plain HTTP the session from the GET never comes back on the POST, the
+// CSRF token cannot be validated against it, and every sign-in is a 403.
+//
+// Run it against the TLS proxy:
+//   docker compose -f compose.local.yaml -f e2e/compose.proxy.yaml up -d --wait
+//   BASE_URL=https://127.0.0.1:8443 ./run.sh admin-dashboard
+//
+// insecureSkipTLSVerify is in the options below for that proxy's self-signed
+// certificate; it is a local measurement, not a trust decision.
+function signIn() {
+  const page = http.get(`${BASE}/admin/login`);
+  const token = page.html().find('input[name="_csrf"]').attr('value');
   const login = http.post(`${BASE}/admin/login`, {
     username: __ENV.PERF_ADMIN_USER || 'admin',
     password: __ENV.PERF_ADMIN_PASSWORD || 'devpassword',
+    _csrf: token,
   });
-  if (login.status >= 400) {
-    throw new Error(
-      `admin login failed (${login.status}). Set PERF_ADMIN_PASSWORD, or note ` +
-      `that the session cookie is Secure and this stack is plain HTTP -- see ` +
-      `docs/operations/running-the-backend-for-client-developers.md.`,
-    );
-  }
-  return { cookies: jar.cookiesForURL(BASE) };
+  // A 200 or 403 on /admin/login means the form came back -- it did NOT work.
+  return login.status < 400 && !login.url.endsWith('/admin/login');
 }
 
 export default function () {
+  if (!signIn()) {
+    check(null, {
+      'admin signed in (needs an https BASE_URL -- see the note above signIn)': () => false,
+    });
+    return;
+  }
+
+  check(http.get(`${BASE}/admin`), {
+    'dashboard renders': (r) => r.status === 200,
+  });
+  // Where the enrichment loops live: a page that reads per row, per day.
   check(http.get(`${BASE}/admin/companies`), {
     'companies page renders': (r) => r.status === 200,
-  });
-  // Payroll and attendance are where the enrichment loops are.
-  check(http.get(`${BASE}/admin/payroll?page=3`), {
-    'payroll page renders': (r) => r.status === 200,
   });
 }

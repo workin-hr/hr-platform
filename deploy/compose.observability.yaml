@@ -11,10 +11,14 @@
 # produced. It is deliberately NOT part of compose.prod.yaml -- the production
 # scrape endpoint is unexposed and protecting it is part of that later
 # decision, not something to slip in behind an overlay.
+# No `container_name:` on either service. A fixed name is global to the Docker
+# daemon, so it collides the moment this overlay is used with a second compose
+# project -- and a failed `up` leaves the named container behind to collide
+# with the retry. Compose derives `<project>-<service>-1` on its own, which is
+# unique per project and is what `docker compose ps` shows anyway.
 services:
   prometheus:
     image: prom/prometheus:v3.1.0
-    container_name: workin-prometheus
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -34,7 +38,6 @@ services:
 
   grafana:
     image: grafana/grafana:11.5.1
-    container_name: workin-grafana
     restart: unless-stopped
     environment:
       # Local-only stack on loopback; the login screen would be friction with
