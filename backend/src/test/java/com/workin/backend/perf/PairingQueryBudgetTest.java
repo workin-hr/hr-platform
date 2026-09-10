@@ -118,13 +118,19 @@ class PairingQueryBudgetTest extends AbstractLegacyMySqlTest {
 
 		// Four times the employees, four times the punches. Anything that is
 		// per-punch scales with them; anything per-PASS must not.
-		double ratio = (double) large.size() / small.size();
-		assertThat(ratio)
-				.as("a pass over 4x the punches issued %d statements against %d -- "
-						+ "%.1fx. Per-punch work is expected; a jump well beyond 4x means "
-						+ "something is being looked up repeatedly that could be looked up once",
-						large.size(), small.size(), ratio)
-				.isLessThan(6.0);
+		// Per-punch cost, not raw totals. Comparing totals hides the thing being
+		// guarded: a fixed per-pass cost of four statements drags the ratio
+		// down, so ANY constant-per-punch implementation lands under 4.0 and a
+		// threshold of 6.0 rejected nothing -- the per-employee-inside-the-loop
+		// shape this test names computes to 5.5 and would have passed.
+		double smallPerPunch = (double) small.size() / 4;
+		double largePerPunch = (double) large.size() / 16;
+		assertThat(largePerPunch)
+				.as("%.1f statements per punch over 16 punches against %.1f over 4. Per-punch "
+						+ "work is expected and must stay FLAT; a rise means something is being "
+						+ "looked up per punch that could be looked up once per pass.",
+						largePerPunch, smallPerPunch)
+				.isLessThan(smallPerPunch * 1.25);
 	}
 
 	@Test
@@ -133,20 +139,16 @@ class PairingQueryBudgetTest extends AbstractLegacyMySqlTest {
 
 		List<String> issued = counter.measure(() -> service.pairCompany(COMPANY, "monday"));
 
-		long perPunch = issued.size() / 8;
-		assertThat(perPunch)
-				.as("statements per punch, currently %d across %d total. This is a ratchet, "
-						+ "not a target: if it drops, lower it; if it rises, that is a "
-						+ "regression to explain. Busiest single statement repeated %d times.",
-						perPunch, issued.size(), QueryCounter.busiestRepeat(issued))
-				// Measured at 11 on 2026-09-10, then 9 after the runtime-offset
-				// history moved to one read per pass and the branch policy
-				// became a per-employee memo. Set at the measurement, with no
-				// headroom: the next thing to change it should have to say so.
-				// 11 measured on 2026-09-10; 9 after the offset history became one
-				// read per pass and the branch policy a per-employee memo; 8
-				// after the provenance columns stopped being their own UPDATE
-				// and rode along on the disposition instead.
-				.isLessThanOrEqualTo(8L);
+		// The TOTAL, not a per-punch integer division. `issued.size() / 8`
+		// quantised: at 8 per punch anything from 64 to 71 rounded to the same
+		// number, so up to seven extra statements per pass could land while the
+		// assertion's own comment claimed "no headroom". It now asserts the
+		// figure it actually measured.
+		assertThat(issued.size())
+				.as("statements for 8 punches, currently %d. A ratchet, not a target: if it "
+						+ "drops, lower it; if it rises, that is a regression to explain. "
+						+ "Busiest single statement repeated %d times.",
+						issued.size(), QueryCounter.busiestRepeat(issued))
+				.isLessThanOrEqualTo(69);
 	}
 }

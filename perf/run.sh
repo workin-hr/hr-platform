@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Runs a k6 scenario against the local stack, inside the compose network.
 #
-# In the network rather than from the host so the measurement is of the
-# application, not of Docker's port forwarding -- and so `app:8080` resolves
-# the same way Prometheus resolves it.
+# On the HOST network, against the published port. The admin dashboard's
+# session cookie is `Secure` and k6 -- unlike browsers and curl -- does not
+# treat 127.0.0.1 as a secure context, so from inside the compose network that
+# cookie is dropped and the scenario measures a login page. One base URL for
+# all three surfaces beats one exception. The cost is Docker's port forwarding
+# in the path, which is constant across runs and so does not affect a
+# comparison. (`--network host` reaching host loopback is Linux-only.)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

@@ -42,6 +42,16 @@
 		respond 404
 	}
 
+	# Nor anything on the management surface. The application exposes only
+	# `health` unless the measurement overlay is running, and this is the outer
+	# half of the same rule: a misconfiguration has to defeat both. It matters
+	# because compose.remote-db.yaml runs profile `local` -- against the
+	# production database -- behind this proxy, so "the profile is local" is not
+	# a reason anything is unreachable.
+	handle /actuator/* {
+		respond 404
+	}
+
 	# Employee photos and documents come through here. The application caps
 	# uploads itself; this only has to not refuse them earlier.
 	request_body {

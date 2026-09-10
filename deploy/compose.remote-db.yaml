@@ -50,6 +50,9 @@ services:
       # credentials and trusts forwarded headers, neither of which belongs in a
       # session someone is using to look around.
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILE:-local}
+      # Belt and braces on the stack that points at real data behind a public
+      # edge: whatever the profile says, this one exposes health alone.
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health
 
       LEGACY_DB_JDBC_URL: jdbc:mariadb://${DB_HOST:?set DB_HOST in .env.remote-db}:${DB_PORT:-3306}/${DB_NAME:?set DB_NAME}
       LEGACY_DB_USERNAME: ${DB_USER:?set DB_USER}

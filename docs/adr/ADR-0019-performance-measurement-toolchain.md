@@ -52,7 +52,7 @@ a monitoring stack deferred.
 |---|---|---|
 | **Micrometer Prometheus registry** | What is the JVM, the pool and the app doing? | Application, local + integration profiles |
 | **Prometheus + Grafana** | What was it doing *while* the load ran? | `deploy/compose.observability.yaml`, local only |
-| **k6** | Does it hold up, and did this change make it worse? | Container, on the compose network |
+| **k6** | Does it hold up, and did this change make it worse? | Container, host network, against the published port |
 | **Query-count assertions** | Is the work per row constant? | JUnit, in the normal suite |
 | **JFR, then async-profiler** | Where does the time actually go? | On demand, no dependency |
 

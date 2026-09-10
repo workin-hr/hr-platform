@@ -2924,6 +2924,11 @@ def test_the_perf_exclusion_is_one_directory_and_one_suffix() -> None:
     root = make_root()
     try:
         (root / "perf/scenarios").mkdir(parents=True)
+        # A nested tree is the case the prefix test let through: an entire
+        # JavaScript application under perf/scenarios/ passed cleanly, which is
+        # exactly the "frontend by accident" this scanner exists to prevent.
+        (root / "perf/scenarios/webapp/pages").mkdir(parents=True)
+        (root / "perf/scenarios/webapp/pages/index.js").write_text("//\n", encoding="utf-8")
         (root / "perf/scenarios/helper.ts").write_text("export const x = 1;\n", encoding="utf-8")
         (root / "perf/scenarios/package.json").write_text("{}\n", encoding="utf-8")
         (root / "perf/harness.js").write_text("// outside scenarios/\n", encoding="utf-8")
@@ -2933,7 +2938,8 @@ def test_the_perf_exclusion_is_one_directory_and_one_suffix() -> None:
         v.validate_forbidden_files(failures, root=root)
 
         for expected in ("perf/scenarios/helper.ts", "perf/scenarios/package.json",
-                         "perf/harness.js", "tools/thing.js"):
+                         "perf/harness.js", "tools/thing.js",
+                         "perf/scenarios/webapp/pages/index.js"):
             check(
                 any(expected in f for f in failures),
                 f"{expected} must still be refused (failures={failures})",

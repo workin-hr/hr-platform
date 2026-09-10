@@ -16,7 +16,7 @@ recorded as **R-043**.*
 |---|---|---|
 | Structured JSON logs | `logging.structured.format.console=logstash` | stdout |
 | Correlation ids | `traceId`/`spanId` in every line (**ADR-0008**) | the same log line |
-| Traces | Micrometer Tracing, **sampled at 1.0** | `opentelemetry-exporter-logging` — i.e. **into the log**, not to a collector |
+| Traces | Micrometer Tracing, **sampled at 0.05** (`APP_TRACE_SAMPLING`; 1.0 in local/integration) | `opentelemetry-exporter-logging` — i.e. **into the log**, not to a collector |
 | Health | `/actuator/health`, `permitAll` | HTTP, status only (details default to `never`) |
 
 That list was the whole story until **ADR-0019**. What changed: a Micrometer
@@ -33,12 +33,12 @@ every path on `APP_DOMAIN`. ADR-0008's deferral of the deployed stack stands.
 
 ### Two things to fix before cutover
 
-**Trace sampling is at 100% and exports to the log.** Every request
-produces span output into stdout. That is right for the local
-verification it was set up for and wrong for production: it multiplies
-log volume by request rate for data nobody is collecting. Either lower
-`management.tracing.sampling.probability` or point the exporter at a real
-collector — but decide, rather than shipping 1.0 by default.
+**Trace sampling was at 100% and is no longer.** It now defaults to 0.05 via
+`APP_TRACE_SAMPLING`, staying at 1.0 in `local` and `integration`, which exist
+to be inspected (ADR-0019). The exporter is still
+`opentelemetry-exporter-logging` -- spans go to the log, not a collector -- so
+at 5% you will find a trace for one request in twenty and no more. Raise the
+variable for an incident and lower it afterwards.
 
 **`/actuator/health` is `permitAll`.** That is the standard arrangement
 and is safe as configured, because health details default to `never` and

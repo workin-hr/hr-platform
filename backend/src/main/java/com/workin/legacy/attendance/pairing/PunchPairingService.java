@@ -288,10 +288,6 @@ public class PunchPairingService {
 	 * an admin triggering a pass inside a request, say -- cannot widen this
 	 * into a single unit that rolls the whole batch back.
 	 */
-	Outcome pairOne(long companyId, Map<String, Object> punch, String weeklyRestLabel) {
-		return pairOne(companyId, punch, weeklyRestLabel, new Pass(store));
-	}
-
 	private Outcome pairOne(long companyId, Map<String, Object> punch, String weeklyRestLabel,
 			Pass pass) {
 		return transactions.execute(status ->

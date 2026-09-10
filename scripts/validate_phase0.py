@@ -5,7 +5,7 @@ import json
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -334,7 +334,10 @@ def validate_forbidden_files(failures: list[str], root: Path | None = None) -> N
         if path.name in FORBIDDEN_FILE_NAMES:
             fail(f"Forbidden file present: {rel}", failures)
         if path.suffix in FORBIDDEN_SUFFIXES:
-            if (rel.startswith(PERF_SCENARIOS_DIR + "/")
+            # PARENT, not prefix. `startswith` let an arbitrarily deep tree
+            # through -- perf/scenarios/webapp/pages/components/*.js passed
+            # cleanly -- which is the whole thing the narrowness was for.
+            if (PurePosixPath(rel).parent.as_posix() == PERF_SCENARIOS_DIR
                     and path.suffix in PERF_SCENARIOS_SUFFIXES):
                 continue
             fail(f"Forbidden file suffix present: {rel}", failures)

@@ -17,6 +17,14 @@
 # with the retry. Compose derives `<project>-<service>-1` on its own, which is
 # unique per project and is what `docker compose ps` shows anyway.
 services:
+  # The ONLY place the scrape endpoint is turned on. Not a profile: profiles
+  # travel to places their name does not describe -- compose.remote-db.yaml
+  # runs `local` against the production database behind the public edge -- so
+  # exposure is opted into by running this overlay and nothing else.
+  app:
+    environment:
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus
+
   prometheus:
     image: prom/prometheus:v3.1.0
     restart: unless-stopped

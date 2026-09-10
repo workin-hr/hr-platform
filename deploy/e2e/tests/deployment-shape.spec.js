@@ -40,7 +40,14 @@ test.describe(`the ${PROFILE} profile`, () => {
 	});
 
 	test('exposes health and nothing else over the management surface', async ({ request }) => {
-		for (const endpoint of ['env', 'beans', 'configprops', 'loggers', 'mappings', 'heapdump']) {
+		// `prometheus` is in this list deliberately. It is exposed ONLY by
+		// deploy/compose.observability.yaml, which no deployed stack runs --
+		// and it was briefly keyed to the `local` and `integration` profiles
+		// instead, which put it behind the public edge on the stack that points
+		// at the production database (ADR-0019). Nothing tested that, so
+		// nothing would have caught it.
+		for (const endpoint of ['env', 'beans', 'configprops', 'loggers', 'mappings',
+			'heapdump', 'prometheus']) {
 			const response = await request.get(`/actuator/${endpoint}`);
 			expect(response.status(), `/actuator/${endpoint} must not be published`)
 				.not.toBe(200);
