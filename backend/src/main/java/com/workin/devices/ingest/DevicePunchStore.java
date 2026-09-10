@@ -104,6 +104,32 @@ public class DevicePunchStore {
 	 *
 	 * @return how many punches were adopted
 	 */
+	/**
+	 * Holds the device row for the life of the caller's transaction.
+	 *
+	 * <p>The device tables carry no foreign keys, so nothing at the schema
+	 * level stops a batch being written for a company that is being deleted.
+	 * The registry lookup happens once, before parsing; a company deletion can
+	 * remove the device and its punches in the window between that lookup and
+	 * these inserts, and the inserts then succeed against a device object that
+	 * describes a row which no longer exists -- leaving punches nobody owns and
+	 * nothing will ever collect.
+	 *
+	 * <p>Taking the row here makes the two take turns: the deletion waits for
+	 * this upload to finish and then removes its punches too, or it goes first
+	 * and this returns false so the batch is refused. The lock is per device,
+	 * so it also serialises a terminal's own concurrent uploads, which is
+	 * desirable independently.
+	 *
+	 * @return whether the device still exists
+	 */
+	public boolean holdDeviceForUpload(long deviceId, long companyId) {
+		Integer alive = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM attendance_devices WHERE id = ? AND company_id = ? FOR UPDATE",
+				Integer.class, deviceId, companyId);
+		return alive != null && alive > 0;
+	}
+
 	public int adoptUnmatched(long companyId, long employeeId, String pin) {
 		return jdbcTemplate.update(
 				"UPDATE device_punches SET employee_id = ?, processing_state = 'RECEIVED',"

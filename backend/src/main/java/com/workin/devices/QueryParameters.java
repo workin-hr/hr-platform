@@ -25,6 +25,16 @@ public final class QueryParameters {
 
 	private static final int MAX_PARAMETERS = 32;
 
+	/**
+	 * Segments looked at before giving up, empty ones included.
+	 *
+	 * <p>Separate from {@link #MAX_PARAMETERS} because empty segments now cost
+	 * a loop iteration rather than ending the parse, and a query string of
+	 * nothing but separators must not be able to spend more than a bounded
+	 * amount of work.
+	 */
+	private static final int MAX_SEGMENTS = 256;
+
 	private static final int MAX_VALUE_LENGTH = 256;
 
 	private QueryParameters() {
@@ -40,9 +50,24 @@ public final class QueryParameters {
 		if (queryString == null || queryString.isEmpty()) {
 			return parameters;
 		}
-		for (String pair : queryString.split("&", MAX_PARAMETERS + 1)) {
-			if (parameters.size() >= MAX_PARAMETERS || pair.isEmpty()) {
+		// An empty segment is SKIPPED, never a stop. `SN=DEV-1&&table=ATTLOG` --
+		// a redundant separator from a terminal or an intermediary -- used to
+		// end the parse at the gap, so `table` was never read, the upload fell
+		// into the unknown-table default, and the whole punch body was
+		// discarded behind a 200 OK. The terminal takes that as delivery and
+		// drops records that were never stored.
+		//
+		// Split with no limit, and bound the work by segments EXAMINED rather
+		// than by split parts: with a limit, enough empty segments would push
+		// the real parameters into one unsplit remainder and parse it as a
+		// single malformed name.
+		int examined = 0;
+		for (String pair : queryString.split("&", -1)) {
+			if (parameters.size() >= MAX_PARAMETERS || ++examined > MAX_SEGMENTS) {
 				break;
+			}
+			if (pair.isEmpty()) {
+				continue;
 			}
 			int equals = pair.indexOf('=');
 			String name = decode(equals < 0 ? pair : pair.substring(0, equals));

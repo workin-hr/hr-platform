@@ -212,7 +212,14 @@ public class AttendanceDeviceStore {
 			// punches again. Checked HERE, inside the lock that already holds
 			// the device row, so a concurrent branch deletion cannot slip
 			// between a check and the activation.
-			if (Boolean.TRUE.equals(active)) {
+			// Also on any MOVE, not only on activation. A PATCH that sends
+			// branch_id without is_active took neither path: the target branch
+			// was checked before this transaction opened, and a deletion in
+			// that window does not see the device because it is still on the
+			// old branch -- so the move landed an active device on a branch
+			// that no longer exists. Activation and relocation are the same
+			// question asked at different times.
+			if (Boolean.TRUE.equals(active) || newBranch != currentBranch) {
 				Integer branchLives = jdbcTemplate.queryForObject(
 						"SELECT COUNT(*) FROM branches WHERE id = ? AND company_id = ? FOR UPDATE",
 						Integer.class, newBranch, companyId);

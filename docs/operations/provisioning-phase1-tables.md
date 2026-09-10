@@ -159,7 +159,7 @@ runs at startup and logs one line per missing table
 naming the feature it disables. A correctly provisioned deployment logs:
 
 ```text
-Phase 1 schema check: all 11 owned tables are present.
+Phase 1 schema check: all 14 owned tables are present.
 ```
 
 This is the authoritative check — it reads the same list the tests pin to
@@ -172,7 +172,7 @@ The check logs at `ERROR`, once per missing table, in the first seconds
 of startup:
 
 ```text
-Phase 1 schema check: 11 of 11 owned tables are MISSING from this database.
+Phase 1 schema check: 14 of 14 owned tables are MISSING from this database.
   missing table platform_admins -- disables the platform-admin surface at /admin -- nobody can sign in
 ```
 
@@ -184,10 +184,25 @@ the deployment succeeding; read the log.
 
 ## Rollback
 
-`DROP TABLE` each name, innermost first (`SPRING_SESSION_ATTRIBUTES`
-before `SPRING_SESSION`). Legacy PHP never referenced any of them, so
-dropping them returns the database to exactly its pre-Phase-1 shape and
-cannot affect a rollback to PHP.
+**Drop the runtime-offset triggers FIRST**, before any table:
+
+```sql
+DROP TRIGGER IF EXISTS configs_runtime_offset_after_insert;
+DROP TRIGGER IF EXISTS configs_runtime_offset_after_update;
+DROP TRIGGER IF EXISTS configs_runtime_offset_after_delete;
+```
+
+They live on the legacy `configs` table and write into
+`legacy_runtime_offset_history`. Dropping that table while they are installed
+leaves them pointing at nothing, and the next PHP insert, update or delete on
+`configs` then fails -- so the rollback that was supposed to return the
+database to PHP would be what breaks it. Confirm with the `information_schema.TRIGGERS`
+query in step 4: expect zero rows.
+
+Then `DROP TABLE` each name, innermost first (`SPRING_SESSION_ATTRIBUTES`
+before `SPRING_SESSION`). Legacy PHP never referenced any of the tables, so
+once the triggers are gone this returns the database to exactly its
+pre-Phase-1 shape.
 
 The one thing a drop destroys that matters is
 `platform_admin_audit_events` — the record of what platform admins did.

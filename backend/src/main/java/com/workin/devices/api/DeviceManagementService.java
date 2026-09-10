@@ -204,6 +204,15 @@ public class DeviceManagementService {
 		// at again -- pairing claims only RECEIVED, and re-delivery is refused
 		// by the unique dedup_key -- so the two have to commit together.
 		int adopted = transactions.execute(status -> {
+			// Re-checked INSIDE the transaction, holding the employee row. The
+			// check above runs before it opens, and this Phase-1 table has no
+			// foreign key to employees, so a deletion in that window left a
+			// binding for somebody who no longer exists -- reported as success,
+			// resolving to nobody, and holding its company-unique PIN against a
+			// person who cannot be reassigned it.
+			if (!identities.employeeBelongsToCompanyForUpdate(companyId, employeeId)) {
+				throw new ApiException(HttpStatus.NOT_FOUND, "devices.employee_not_found");
+			}
 			switch (identities.bind(companyId, employeeId, pin, cardNo, clock.now())) {
 				case PIN_TAKEN -> throw new ApiException(HttpStatus.CONFLICT, "devices.pin_already_bound");
 				case EMPLOYEE_ALREADY_BOUND ->

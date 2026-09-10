@@ -13,6 +13,7 @@ import java.util.Map;
 import javax.sql.DataSource;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -949,17 +950,28 @@ public class LegacyEmployeeStore {
 	 * helper's contract (D-078) and this table does not exist in PHP. Leaving
 	 * the row behind would orphan it -- the identities endpoint would show a
 	 * PIN against a blank employee, and the unique employee key would stay
-	 * taken so the PIN could never be reissued. Failures are ignored for the
-	 * same reason the company cascade ignores them: a deployment may not have
-	 * provisioned these tables yet (R-023 / Q7).
+	 * taken so the PIN could never be reissued.
+	 *
+	 * <p><b>Only an absent table is ignored</b>, which is the single case this
+	 * tolerance was written for: a deployment may not have provisioned the
+	 * Phase-1 tables yet (R-023 / Q7). Swallowing every {@code RuntimeException}
+	 * also swallowed a lock timeout and a missing DELETE grant, and treated
+	 * them as "nothing to clean up" -- so the orphan this method exists to
+	 * prevent was created silently, by the method preventing it.
+	 *
+	 * <p>Anything else propagates. The employee row is already gone by then and
+	 * this path has no transaction to undo it (D-077), so the orphan cannot be
+	 * avoided at that point -- but it can be reported, and a caller that sees
+	 * the failure knows a PIN is still reserved against a deleted employee.
+	 * Silence was the one outcome that guaranteed nobody would.
 	 */
 	private void deleteDeviceIdentity(long employeeId, long companyId) {
 		try {
 			jdbcTemplate.update(
 					"DELETE FROM employee_device_identities WHERE company_id = ? AND employee_id = ?",
 					companyId, employeeId);
-		} catch (RuntimeException ignored) {
-			// See the javadoc: an absent table must not block employee deletion.
+		} catch (BadSqlGrammarException absentTable) {
+			// The table is not provisioned in this deployment; nothing to clear.
 		}
 	}
 

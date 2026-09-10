@@ -50,9 +50,14 @@ public class DevicePunchIngestionService {
 
 	private final MeterRegistry meters;
 
+	private final org.springframework.transaction.support.TransactionTemplate transactions;
+
 	public DevicePunchIngestionService(
 			DevicePunchStore punches, EmployeeDeviceIdentityStore identities, LegacyClock clock,
-			MeterRegistry meters, DeviceAssignmentHistoryStore assignments) {
+			MeterRegistry meters, DeviceAssignmentHistoryStore assignments,
+			javax.sql.DataSource legacyDataSource) {
+		this.transactions = new org.springframework.transaction.support.TransactionTemplate(
+				new org.springframework.jdbc.datasource.DataSourceTransactionManager(legacyDataSource));
 		this.punches = punches;
 		this.assignments = assignments;
 		this.identities = identities;
@@ -92,6 +97,26 @@ public class DevicePunchIngestionService {
 		// the difference between two queries and two thousand.
 		Map<String, Long> byPin = identities.resolveEmployeeIds(device.companyId(), pins);
 
+		// The whole batch in ONE transaction, opened by holding the device row.
+		// The registry lookup that produced `device` happened before parsing,
+		// and the device tables have no foreign keys, so a company deletion in
+		// that window would otherwise let these inserts land for a company that
+		// no longer exists -- punches nobody owns and nothing collects. Holding
+		// the row makes the two take turns.
+		Outcome outcome = transactions.execute(status -> {
+			if (!punches.holdDeviceForUpload(device.id(), device.companyId())) {
+				LOG.warn("device {} (company {}) was removed while this delivery was being "
+								+ "parsed; {} record(s) refused rather than stored against it",
+						device.serialNumber(), device.companyId(), events.size());
+				return null;
+			}
+			return storeBatch(device, events, byPin, receivedAt, timeline);
+		});
+		return outcome != null ? outcome : new Outcome(0, 0, 0, 0);
+	}
+
+	private Outcome storeBatch(AttendanceDevice device, List<DeviceAttendanceEvent> events,
+			Map<String, Long> byPin, LocalDateTime receivedAt, DeviceAssignmentTimeline timeline) {
 		int stored = 0;
 		int duplicates = 0;
 		int unmatched = 0;
@@ -142,6 +167,37 @@ public class DevicePunchIngestionService {
 		meters.counter("devices.punches.duplicate", "vendor", vendor).increment(duplicates);
 		meters.counter("devices.punches.unmatched", "vendor", vendor).increment(unmatched);
 		meters.counter("devices.punches.rejected", "vendor", vendor).increment(rejected);
+		if (unmatched > 0) {
+			// Re-resolved AFTER the inserts, not only before them. The
+			// resolution above is one snapshot for the whole delivery, and a
+			// large upload takes a while: HR binding a PIN partway through it
+			// would have its `adoptUnmatched` sweep run before these rows
+			// existed, so they stayed UNMATCHED with the binding already in
+			// place. Pairing never claims those, and re-delivery only meets the
+			// dedup key, so nothing would ever pick them up again.
+			//
+			// Cheap: one query over the PINs that actually came back unmatched,
+			// and only when some did.
+			Set<String> stillUnmatched = new LinkedHashSet<>();
+			for (DeviceAttendanceEvent event : events) {
+				if (!byPin.containsKey(event.pin())) {
+					stillUnmatched.add(event.pin());
+				}
+			}
+			Map<String, Long> boundSince = identities.resolveEmployeeIds(
+					device.companyId(), stillUnmatched);
+			int adopted = 0;
+			for (Map.Entry<String, Long> entry : boundSince.entrySet()) {
+				adopted += punches.adoptUnmatched(
+						device.companyId(), entry.getValue(), entry.getKey());
+			}
+			if (adopted > 0) {
+				unmatched -= Math.min(adopted, unmatched);
+				LOG.info("device {} (company {}): {} punch(es) were bound to an employee while "
+								+ "this delivery was being stored, and have been adopted",
+						device.serialNumber(), device.companyId(), adopted);
+			}
+		}
 		if (unmatched > 0) {
 			LOG.warn("device {} (company {}) sent {} punch(es) for PINs bound to no active employee",
 					device.serialNumber(), device.companyId(), unmatched);

@@ -156,6 +156,27 @@ public class EmployeeDeviceIdentityStore {
 		return count != null && count > 0;
 	}
 
+	/**
+	 * The same question, inside the binding transaction and holding the row.
+	 *
+	 * <p>{@code employee_device_identities} is a Phase-1 table with no foreign
+	 * key to {@code employees}, so nothing at the schema level stops a binding
+	 * being written for an employee who was deleted between the ownership check
+	 * and the insert. The API then reported a successful binding that resolves
+	 * to nobody, and its PIN -- unique per company -- stayed reserved against a
+	 * person who no longer exists, so it could not be reassigned.
+	 *
+	 * <p>{@code FOR UPDATE} makes the deletion and the binding take turns
+	 * rather than interleave: the delete either completes first, and this
+	 * returns false, or it waits and then removes the identity this wrote.
+	 */
+	public boolean employeeBelongsToCompanyForUpdate(long companyId, long employeeId) {
+		Long count = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM employees WHERE company_id = ? AND id = ? FOR UPDATE",
+				Long.class, companyId, employeeId);
+		return count != null && count > 0;
+	}
+
 	public enum BindOutcome { BOUND, PIN_TAKEN, EMPLOYEE_ALREADY_BOUND }
 
 	/**
