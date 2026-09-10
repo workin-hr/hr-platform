@@ -161,9 +161,22 @@ def test_a_seed_missing_a_phase1_table_fails() -> None:
 
 def test_a_complete_seed_passes_self_sufficiency() -> None:
     findings: list[str] = []
-    complete = "".join(f"CREATE TABLE `{t}` (...);\n" for t in gate.owned_tables([]))
+    derived = gate.owned_tables(findings)
+    check(not findings and len(derived) >= gate.MINIMUM_OWNED_TABLES,
+          f"the table list itself derives cleanly ({len(derived)} tables, {findings})")
+    complete = "".join(f"CREATE TABLE `{t}` (...);\n" for t in derived)
     gate.check_seed_is_self_sufficient(complete, findings)
     check(not findings, f"a seed with every Phase 1 table passes (got {findings})")
+
+
+def test_a_folded_table_name_still_counts() -> None:
+    """Phase1SchemaCheck compares case-insensitively because
+    lower_case_table_names folds SPRING_SESSION on some hosts. A seed built on
+    such a host must not fail a gate the application itself would accept."""
+    findings: list[str] = []
+    folded = "".join(f"CREATE TABLE `{t.lower()}` (...);\n" for t in gate.owned_tables([]))
+    gate.check_seed_is_self_sufficient(folded, findings)
+    check(not findings, f"a seed with folded table names passes (got {findings})")
 
 
 def test_the_required_tables_come_from_phase1schemacheck() -> None:

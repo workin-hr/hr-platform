@@ -286,6 +286,14 @@ def check_exception_lists_current(schema: str, findings: list[str]) -> None:
 PHASE1_SCHEMA_CHECK = "backend/src/main/java/com/workin/backend/config/Phase1SchemaCheck.java"
 OWNED_TABLE = re.compile(r'OWNED_TABLES\.put\(\s*"([^"]+)"')
 
+# A FLOOR, not the authority -- the authority is the file above. Parsing a Java
+# source with a regex degrades quietly: `putIfAbsent`, a constant instead of a
+# literal, or a loop all yield fewer names, and the "found nothing" guard only
+# fires at zero. One table added that way would silently stop being required,
+# which is the failure this whole check was rewritten to prevent. Raise this
+# with the count; never lower it to make a parse fit.
+MINIMUM_OWNED_TABLES = 14
+
 
 def owned_tables(findings: list[str]) -> tuple[str, ...]:
     source = os.path.join(REPO_ROOT, PHASE1_SCHEMA_CHECK)
@@ -304,12 +312,21 @@ def owned_tables(findings: list[str]) -> tuple[str, ...]:
             f"changed and this check silently stopped requiring anything",
             findings,
         )
+    elif len(tables) < MINIMUM_OWNED_TABLES:
+        fail(
+            f"parsed only {len(tables)} OWNED_TABLES entries from {PHASE1_SCHEMA_CHECK}, "
+            f"below the floor of {MINIMUM_OWNED_TABLES}: {', '.join(tables)}. Either a table "
+            f"was deleted, or it is now written in a way this regex does not see "
+            f"(putIfAbsent, a constant, a loop) and is silently no longer required",
+            findings,
+        )
     return tables
 
 
 def check_seed_is_self_sufficient(seed: str, findings: list[str]) -> None:
+    lowered = seed.lower()
     for table in owned_tables(findings):
-        if f"CREATE TABLE `{table}`" not in seed:
+        if f"create table `{table.lower()}`" not in lowered:
             fail(
                 f"deploy/seed/dev-seed.sql does not create `{table}`, which "
                 f"Phase1SchemaCheck owns. It is mounted as the only init script, so a seed "
