@@ -39,8 +39,10 @@ export const options = {
 // CSRF token cannot be validated against it, and every sign-in is a 403.
 //
 // Run it against the TLS proxy:
-//   deploy/e2e/run.sh            # brings up the TLS proxy and mints its cert
-//   BASE_URL=https://127.0.0.1:8443 ./run.sh admin-dashboard
+//   deploy/e2e/run.sh integration    # the profile argument matters: `local`
+//                                    # is the default and puts nothing on 8443
+//   PERF_ADMIN_PASSWORD='e2e-verify-Pass123!' \
+//     BASE_URL=https://127.0.0.1:8443 ./run.sh admin-dashboard
 //
 // NOT `docker compose -f compose.local.yaml -f e2e/compose.proxy.yaml`, which
 // this comment used to say. compose.proxy.yaml carries `name: workin-integration`
@@ -60,14 +62,17 @@ export const options = {
 // It used to run per iteration, which made a wrong password destructive rather
 // than merely wrong: a 60s run at 5 VUs threw ~1,800 failed sign-ins.
 //
-// PlatformAdminLoginThrottle charges those to `web:` + getRemoteAddr(), not to
-// the account -- deliberately, so that nobody can lock the one administrator
-// out from anywhere. That does NOT make the volume harmless through an
-// `ssh -L` port-forward, which is the case run.sh's guard cannot refuse: the
-// tunnel terminates on the remote host, so the application sees 127.0.0.1 and
-// charges every attempt to the budget shared by everyone who reaches that box
-// over loopback or through a same-host proxy. Eight misses in 15 minutes
-// exhausts it for all of them, and the attempts table takes the junk.
+// PlatformAdminLoginService charges those to `web:` + getRemoteAddr() rather
+// than to the account, so that nobody can lock the one administrator out from
+// anywhere. In THIS deployment that buys less than it sounds like: the app is
+// containerised, so a hit on a published port arrives from the Docker bridge
+// gateway (measured: 172.17.0.1, not 127.0.0.1), and under `local` and
+// `integration` -- the only profiles compose.remote-db.yaml runs --
+// server.forward-headers-strategy is `none`, so anything through the proxy
+// arrives as the PROXY's address. Either way it is one shared bucket, and
+// eight misses in 15 minutes closes dashboard sign-in for everyone using it.
+// Hundreds of attempts, which a per-iteration sign-in produced, empties it
+// immediately and fills the attempts table with junk.
 //
 // Throwing here aborts the whole run before any load, so a bad credential now
 // costs exactly one failed attempt. `client-api.js` already worked this way.
@@ -91,10 +96,15 @@ export function setup() {
           `session cookie, so the token cannot be validated against a session. ` +
           `Use an https BASE_URL -- deploy/e2e/run.sh integration puts a TLS ` +
           `proxy on https://127.0.0.1:8443.`
-        : `admin sign-in failed (${login.status} at ${login.url}). The form came ` +
-          `back, which means the password was rejected. Set PERF_ADMIN_PASSWORD ` +
-          `(deploy/e2e/run.sh integration uses 'e2e-verify-Pass123!'; ` +
-          `compose.local.yaml defaults to 'devpassword').`,
+        : login.status >= 500 || login.status === 404
+          ? `admin sign-in got ${login.status} at ${login.url}. That is the target, ` +
+            `not the credentials -- the application is probably still starting or ` +
+            `no longer there. run.sh's health probe passed moments earlier, so ` +
+            `check the stack rather than PERF_ADMIN_PASSWORD.`
+          : `admin sign-in failed (${login.status} at ${login.url}). The form came ` +
+            `back, which means the password was rejected. Set PERF_ADMIN_PASSWORD ` +
+            `(deploy/e2e/run.sh integration uses 'e2e-verify-Pass123!'; ` +
+            `compose.local.yaml defaults to 'devpassword').`,
     );
   }
   // Read the cookies back rather than naming one: the session cookie is

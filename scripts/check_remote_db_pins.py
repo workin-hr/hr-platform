@@ -50,6 +50,32 @@ except ModuleNotFoundError:  # pragma: no cover - a CI image without PyYAML
     print("FAIL: PyYAML is required (pip install pyyaml)", file=sys.stderr)
     raise SystemExit(1)
 
+
+class ComposeLoader(yaml.SafeLoader):
+    """SafeLoader that does not choke on compose's merge-control tags.
+
+    `ports: !override []` is real and already in deploy/compose.tls.yaml.
+    safe_load raises on it, which fails closed but reports a YAML syntax error
+    for a file compose accepts -- so the reader goes looking for the wrong bug.
+    """
+
+
+def _untagged(loader: yaml.Loader, node: yaml.Node):
+    """The tag's value, as if the tag were not there.
+
+    Dispatched on node type: calling construct_object here would re-enter this
+    same constructor and raise "found unconstructable recursive node".
+    """
+    if isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node, deep=True)
+    if isinstance(node, yaml.MappingNode):
+        return loader.construct_mapping(node, deep=True)
+    return loader.construct_scalar(node)
+
+
+for _tag in ("!override", "!reset"):
+    ComposeLoader.add_constructor(_tag, _untagged)
+
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = "deploy/compose.remote-db.yaml"
 SERVICE = "app"
@@ -73,6 +99,17 @@ REQUIRED_ENV: dict[str, tuple[str, str]] = {
 
 LOOPBACK = "127.0.0.1"
 
+# Keys that make the authored document differ from the resolved one. A review
+# reproduced both: `extends:` pulls in a base service whose ports compose MERGES
+# with these (adding an off-loopback publish beside the pinned entry), and
+# `network_mode: host` makes Docker discard `ports` entirely while the pinned
+# line sits there still looking correct. Both passed a checker that read only
+# this file, so both are refused instead.
+UNRESOLVABLE_KEYS = {
+    "extends": "pulls in another service whose ports compose merges with these",
+    "network_mode": "host networking discards `ports` entirely and binds every interface",
+}
+
 
 def environment_of(service: dict) -> dict[str, str]:
     """Compose accepts a mapping or a `KEY=value` list; normalise both."""
@@ -94,8 +131,12 @@ def published_hosts(service: dict) -> list[tuple[str, str]]:
             out.append((str(entry.get("host_ip", "")), str(entry)))
             continue
         text = str(entry)
-        # "127.0.0.1:8080:8080" / "8080:8080" / "8080". A host_ip is present
-        # only in the three-part form (or two-part with a non-numeric head).
+        if text.startswith("["):  # "[::1]:8080:8080"
+            host, _, _rest = text[1:].partition("]")
+            out.append((host, text))
+            continue
+        # "127.0.0.1:8080:8080" / "127.0.0.1::8080" / "8080:8080" / "8080".
+        # A host_ip is present only when there are three colon-separated parts.
         parts = text.split(":")
         out.append((parts[0] if len(parts) >= 3 else "", text))
     return out
@@ -108,7 +149,7 @@ def main() -> int:
         return 1
 
     try:
-        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        doc = yaml.load(path.read_text(encoding="utf-8"), Loader=ComposeLoader)
     except yaml.YAMLError as error:
         print(f"FAIL: {COMPOSE} is not valid YAML: {error}", file=sys.stderr)
         return 1
@@ -135,17 +176,27 @@ def main() -> int:
                 f"literal {expected!r}\n    {why}"
             )
 
-    hosts = published_hosts(service)
+    for key, why in UNRESOLVABLE_KEYS.items():
+        if key in service:
+            problems.append(
+                f"  services.{SERVICE}.{key} is set\n    {why}, and this check reads "
+                f"the file rather than the resolved stack, so it cannot see the result"
+            )
+
+    hosts: list[tuple[str, str]] = []
+    for name, other in (doc.get("services") or {}).items():
+        if isinstance(other, dict):
+            hosts.extend((ip, f"{name}: {text}") for ip, text in published_hosts(other))
     if not hosts:
         problems.append(
-            f"  services.{SERVICE} publishes no ports at all; the pinned "
+            f"  no service publishes any port; the pinned "
             f"{LOOPBACK} publish is gone\n    without it this file no longer "
             f"describes a reachable stack"
         )
     for host_ip, original in hosts:
         if host_ip != LOOPBACK:
             problems.append(
-                f"  services.{SERVICE}.ports entry {original!r} publishes on "
+                f"  ports entry {original!r} publishes on "
                 f"{host_ip or 'every interface'}, not {LOOPBACK}\n"
                 f"    exposes a process holding production credentials to the network"
             )

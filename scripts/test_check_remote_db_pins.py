@@ -174,13 +174,46 @@ services:
 
     # A service with no ports at all is not silently fine.
     proc = run(COMPOSE.replace('    ports:\n      - "127.0.0.1:${APP_PUBLISHED_PORT:-8080}:8080"\n', ""))
-    check(proc.returncode == 1 and "publishes no ports" in proc.stderr,
+    check(proc.returncode == 1 and "no service publishes any port" in proc.stderr,
           f"removing the publish entirely fails (exit={proc.returncode})")
 
     # A renamed service must fail loudly, not vacuously pass with nothing to check.
     proc = run(COMPOSE.replace("  app:\n", "  application:\n"))
     check(proc.returncode == 1 and "has no `services.app`" in proc.stderr,
           f"a renamed service fails loudly (exit={proc.returncode})")
+
+    # RESOLUTION BYPASSES. The checker reads this file; compose resolves
+    # something else. Both of these were reproduced against `docker compose
+    # config` while the checker reported "publishes only on 127.0.0.1".
+
+    # `extends` pulls in a base service whose ports compose MERGES with these.
+    proc = run(COMPOSE.replace("  app:\n",
+                               "  app:\n    extends:\n      file: base.yaml\n      service: wide\n"))
+    check(proc.returncode == 1 and "extends" in proc.stderr,
+          f"extends: is refused, not silently resolved (exit={proc.returncode})")
+
+    # `network_mode: host` makes Docker discard `ports` and bind everything.
+    proc = run(COMPOSE.replace("  app:\n", "  app:\n    network_mode: host\n"))
+    check(proc.returncode == 1 and "network_mode" in proc.stderr,
+          f"network_mode: host is refused (exit={proc.returncode})")
+
+    # A SIBLING service publishing off-loopback. Latent today -- one service --
+    # but "this stack is loopback-only" is a claim about the whole file.
+    proc = run(COMPOSE + '  helper:\n    image: scratch\n    ports:\n      - "0.0.0.0:9999:9999"\n')
+    check(proc.returncode == 1 and "9999" in proc.stderr,
+          f"a sibling service publishing off-loopback fails (exit={proc.returncode})")
+
+    # compose's own merge-control tags must not read as a YAML syntax error.
+    proc = run(COMPOSE.replace('    ports:\n      - "127.0.0.1:${APP_PUBLISHED_PORT:-8080}:8080"\n',
+                               "    ports: !override []\n"))
+    check(proc.returncode == 1 and "not valid YAML" not in proc.stderr,
+          f"!override parses, and an emptied ports list still fails (exit={proc.returncode})")
+
+    # A bracketed IPv6 host_ip is parsed, not garbled into "[".
+    proc = run(COMPOSE.replace('      - "127.0.0.1:${APP_PUBLISHED_PORT:-8080}:8080"',
+                               '      - "[::1]:8080:8080"'))
+    check(proc.returncode == 1 and "::1" in proc.stderr,
+          f"an IPv6 host_ip is reported by name (exit={proc.returncode})")
 
     # A missing file fails rather than skipping.
     proc = run(None)

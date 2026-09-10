@@ -73,14 +73,18 @@ URL can tell the socket from the stack behind it.
 
 The harness is not what protects you there. Sign-in happens once in `setup()`
 and aborts the run on failure, so a wrong credential costs one attempt rather
-than the ~1,800 a per-iteration sign-in threw. That matters because
-`PlatformAdminLoginThrottle` charges misses to `web:` + `getRemoteAddr()`, and a
-tunnel terminates on the remote host -- so every attempt is charged to
-`127.0.0.1`, the budget shared by everyone reaching that box over loopback or
-through a same-host proxy. Eight misses in 15 minutes exhausts it for all of
-them. (It is per client address, not per account, precisely so that nobody can
-lock the one administrator out from anywhere.) Point it at a stack you can throw
-away.
+than the hundreds a per-iteration sign-in threw.
+
+That matters because the miss budget is charged to `web:` + `getRemoteAddr()`,
+and in this deployment that is **one shared bucket**, not one per person: the
+app is containerised, so a hit on a published port arrives from the Docker
+bridge gateway (measured: `172.17.0.1`), and under `local` and `integration`
+`server.forward-headers-strategy` is `none`, so anything arriving through the
+proxy carries the proxy's address. Eight misses in 15 minutes closes dashboard
+sign-in for everyone using that path. Charging per client address rather than
+per account is what stops someone locking the administrator out from anywhere;
+behind a proxy it does not separate one operator from another. Point it at a
+stack you can throw away.
 
 ## Not in CI
 

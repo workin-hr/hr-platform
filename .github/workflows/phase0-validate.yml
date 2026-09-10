@@ -13,8 +13,8 @@ name: Phase 0 Bootstrap Validate
 #   - ShellCheck, actionlint, Gitleaks, and Lychee are pinned to an exact
 #     release version AND checksum-verified against a SHA-256 recorded in
 #     this file before use.
-#   - markdownlint-cli2 and yamllint are pinned to an exact version only
-#     (installed from the npm/PyPI registries); they are NOT
+#   - markdownlint-cli2, yamllint and PyYAML are pinned to an exact version
+#     only (installed from the npm/PyPI registries); they are NOT
 #     checksum-verified. This is a real, disclosed difference in
 #     guarantee strength, not an oversight.
 
@@ -149,6 +149,8 @@ jobs:
 
       # perf/run.sh carries the load harness's disposability guard and its own
       # URL parsing, and was outside this glob while both were being rewritten.
+      # deploy/e2e/run.sh was never in it either; it is added here because it is
+      # the other shell entrypoint an operator runs, not because it changed.
       - name: Run ShellCheck
         run: shellcheck scripts/*.sh .agents/skills/*/scripts/*.sh perf/run.sh deploy/e2e/run.sh
 
