@@ -27,6 +27,33 @@
 services:
   app:
     ports: !override []
+    environment:
+      # Trust the edge's forwarded headers -- and only here, because this file is
+      # the condition that makes them trustworthy: `ports: !override []` above
+      # removes the application's own published port, so Caddy is the SOLE route
+      # in (R-049, D-206). Set anywhere else it would trust a header any caller
+      # can write.
+      #
+      # `compose.prod.yaml` runs profile `prod`, which already sets this; the
+      # value here is the same one, so layering changes nothing for that pair.
+      # `compose.remote-db.yaml` runs `local` or `integration` on purpose -- it
+      # refuses `prod` because that profile also requires WhatsApp credentials --
+      # and neither sets a strategy, so without this line the application behind
+      # this proxy sees Caddy's address as every client's.
+      #
+      # That is not cosmetic: PlatformAdminLoginThrottle allows MAX_ATTEMPTS=8 per
+      # 15 minutes keyed on `hash(request.getRemoteAddr())`, so one shared address
+      # is one shared bucket -- eight failed logins from anyone locks out every
+      # administrator until the window expires.
+      #
+      # Checking this from the access log will mislead you. Tomcat's
+      # AccessLogValve runs BEFORE RemoteIpValve in the pipeline, so `%h` keeps
+      # printing the proxy's address even when the application itself has the
+      # real one. Measured both ways: with the strategy set, two requests
+      # carrying different X-Forwarded-For values still log one address, and
+      # still land in two different throttle buckets. Check the application's
+      # behaviour, not the log line.
+      SERVER_FORWARD_HEADERS_STRATEGY: ${SERVER_FORWARD_HEADERS_STRATEGY:-native}
 
   proxy:
     image: caddy:2.10-alpine
