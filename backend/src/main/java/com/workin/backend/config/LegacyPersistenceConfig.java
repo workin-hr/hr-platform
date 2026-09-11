@@ -69,14 +69,29 @@ public class LegacyPersistenceConfig {
 			@Value("${app.legacy-db.jdbc-url}") String jdbcUrl,
 			@Value("${app.legacy-db.username}") String username,
 			@Value("${app.legacy-db.password}") String password,
-			@Value("${app.legacy-db.connection-init-sql:}") String connectionInitSql) {
+			@Value("${app.legacy-db.connection-init-sql:}") String connectionInitSql,
+			@Value("${app.legacy-db.maximum-pool-size:10}") int maximumPoolSize,
+			@Value("${app.legacy-db.connection-timeout-ms:5000}") long connectionTimeoutMs) {
 		HikariDataSource dataSource = DataSourceBuilder.create()
 			.type(HikariDataSource.class)
 			.url(jdbcUrl)
 			.username(username)
 			.password(password)
 			.build();
-		dataSource.setConnectionTimeout(5000);
+		// These are properties, not literals, because they were literals and
+		// `spring.datasource.hikari.*` in application.properties did NOTHING:
+		// DataSourceAutoConfiguration is excluded globally (ADR-0017), so this
+		// builder is the only thing configuring the pool, and it hardcoded what
+		// the properties file appeared to control. Anyone tuning either value
+		// saw no effect and no error.
+		//
+		// The pool size was never set at all, so it was HikariCP's default of
+		// 10 -- which a load run found saturated, with as many threads queued
+		// behind it as there were connections in it. The default here keeps
+		// that exact behaviour; sizing it is a deployment decision against
+		// MariaDB's max_connections and the instance count (ADR-0019).
+		dataSource.setMaximumPoolSize(maximumPoolSize);
+		dataSource.setConnectionTimeout(connectionTimeoutMs);
 		dataSource.setInitializationFailTimeout(5000);
 		if (!connectionInitSql.isBlank()) {
 			// Hikari executes this once for every new physical connection before pooling it.

@@ -12,7 +12,7 @@
 | Deciders | Human engineering leadership — recorded at approval time in `docs/bootstrap/decision-log.md` |
 | Related Issues | None yet |
 | Supersedes | None |
-| Superseded By | None |
+| Superseded By | None — but its deferred question is answered in part by **ADR-0019** (measurement toolchain; production monitoring stays deferred) |
 
 ## Context
 

@@ -1,0 +1,14 @@
+# Scrapes the application over the compose network, not through the edge.
+global:
+  # Five seconds because these runs are minutes long, not days: a 15s interval
+  # gives three points across a k6 stage and hides the shape.
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: workin-backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["app:8080"]
+        labels:
+          service: workin-backend

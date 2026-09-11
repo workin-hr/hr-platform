@@ -190,10 +190,11 @@ public class PunchPairingService {
 			punches = store.claimable(companyId, batchSize, MAX_PAIR_ATTEMPTS);
 		}
 
+		Pass pass = new Pass(store);
 		Outcome total = new Outcome(0, 0, 0, 0);
 		for (Map<String, Object> punch : punches) {
 			try {
-				total = total.plus(pairOne(companyId, punch, weeklyRestLabel));
+				total = total.plus(pairOne(companyId, punch, weeklyRestLabel, pass));
 			} catch (RuntimeException ex) {
 				// One unpairable punch must not strand the rest, and must not
 				// hold the claim either: the claim takes the oldest rows under
@@ -287,11 +288,14 @@ public class PunchPairingService {
 	 * an admin triggering a pass inside a request, say -- cannot widen this
 	 * into a single unit that rolls the whole batch back.
 	 */
-	Outcome pairOne(long companyId, Map<String, Object> punch, String weeklyRestLabel) {
-		return transactions.execute(status -> pairOneInTransaction(companyId, punch, weeklyRestLabel));
+	private Outcome pairOne(long companyId, Map<String, Object> punch, String weeklyRestLabel,
+			Pass pass) {
+		return transactions.execute(status ->
+				pairOneInTransaction(companyId, punch, weeklyRestLabel, pass));
 	}
 
-	private Outcome pairOneInTransaction(long companyId, Map<String, Object> punch, String weeklyRestLabel) {
+	private Outcome pairOneInTransaction(long companyId, Map<String, Object> punch,
+			String weeklyRestLabel, Pass pass) {
 		long punchId = LegacyValues.toPhpLong(punch.get("id"));
 		long employeeId = LegacyValues.toPhpLong(punch.get("employee_id"));
 		// The offset is resolved once here, and RECORDED, so the row says which
@@ -300,18 +304,19 @@ public class PunchPairingService {
 		// one case where the offset is definitively unknown -- still claimed
 		// 'EXACT'.
 		LocalDateTime instant = instantOf(punch);
-		Integer offsetSeconds = store.runtimeOffsetSecondsAt(instant);
+		Integer offsetSeconds = pass.offsetSecondsAt(instant);
 		if (offsetSeconds == null) {
 			// PRE_HISTORY: the runtime offset governing this instant was never
 			// recorded. An hour of silent error moves session boundaries and
 			// payroll, and a review flag beside an already-derived row is too
 			// late -- so nothing is derived. The raw punch survives, visibly
 			// held, which is the same rule assignment provenance follows.
-			store.recordRuntimeOffset(punchId, null, RUNTIME_OFFSET_PRE_HISTORY);
-			store.markIgnored(punchId, instant, FLAG_RUNTIME_OFFSET_PRE_HISTORY);
+			store.markIgnored(punchId, instant, FLAG_RUNTIME_OFFSET_PRE_HISTORY,
+					new PunchPairingStore.RuntimeOffsetProvenance(null, RUNTIME_OFFSET_PRE_HISTORY));
 			return new Outcome(0, 0, 1, 1);
 		}
-		store.recordRuntimeOffset(punchId, offsetSeconds, RUNTIME_OFFSET_EXACT);
+		PunchPairingStore.RuntimeOffsetProvenance provenance =
+				new PunchPairingStore.RuntimeOffsetProvenance(offsetSeconds, RUNTIME_OFFSET_EXACT);
 		LocalDateTime punchedAt = instant.plusSeconds(offsetSeconds);
 
 		// Computed ONCE, for every outcome below. It was evaluated only on the
@@ -320,7 +325,7 @@ public class PunchPairingService {
 		// -- and those are exactly the cases a reviewer is looking for. Where
 		// the punch happened is a fact about the punch, not about which of the
 		// three outcomes it happened to take.
-		String branchFlag = outOfHomeBranch(employeeId, punch) ? FLAG_OUT_OF_HOME_BRANCH : null;
+		String branchFlag = outOfHomeBranch(employeeId, punch, pass) ? FLAG_OUT_OF_HOME_BRANCH : null;
 
 		Map<String, Object> open = store.newestOpenRow(employeeId);
 		if (open != null && isLiveAt(companyId, employeeId, open, punchedAt, weeklyRestLabel)) {
@@ -337,12 +342,12 @@ public class PunchPairingService {
 			// keeps the instants distinct precisely so this can use them.
 			Duration sinceOpened = elapsedBetween(open, punch, openedAt, punchedAt);
 			if (openedAt != null && sinceOpened.compareTo(DEBOUNCE) < 0) {
-				store.markIgnored(punchId, punchedAt, joinFlags(FLAG_DOUBLE_READ, branchFlag));
+				store.markIgnored(punchId, punchedAt, joinFlags(FLAG_DOUBLE_READ, branchFlag), provenance);
 				return new Outcome(0, 0, 1, 1);
 			}
 
 			if (store.closeAttendance(attendanceId, punchedAt)) {
-				store.markPaired(punchId, attendanceId, punchedAt, branchFlag);
+				store.markPaired(punchId, attendanceId, punchedAt, branchFlag, provenance);
 				return new Outcome(0, 1, 0, branchFlag == null ? 0 : 1);
 			}
 			// Someone closed it between the read and the update. Fall through
@@ -361,14 +366,14 @@ public class PunchPairingService {
 		// never discarded; only its attribution is withheld.
 		Long covering = store.closedRowCovering(employeeId, punchedAt);
 		if (covering != null) {
-			store.markIgnored(punchId, punchedAt, FLAG_INSIDE_CORRECTED_SESSION);
+			store.markIgnored(punchId, punchedAt, FLAG_INSIDE_CORRECTED_SESSION, provenance);
 			return new Outcome(0, 0, 1, 1);
 		}
 
 		long attendanceId = store.openAttendance(employeeId, punchedAt);
 		// The opener records the exact value written to attendance.check_in, so
 		// nothing downstream has to infer which punch created the row.
-		store.markPairedAsOpener(punchId, attendanceId, punchedAt, flag, punchedAt);
+		store.markPairedAsOpener(punchId, attendanceId, punchedAt, flag, punchedAt, provenance);
 		return new Outcome(1, 0, 0, flag == null ? 0 : 1);
 	}
 
@@ -442,8 +447,8 @@ public class PunchPairingService {
 	 * retroactively relabel every punch it ever sent, which is exactly what
 	 * makes this policy unreconstructable.
 	 */
-	private boolean outOfHomeBranch(long employeeId, Map<String, Object> punch) {
-		Map<String, Object> policy = store.branchPolicy(employeeId);
+	private boolean outOfHomeBranch(long employeeId, Map<String, Object> punch, Pass pass) {
+		Map<String, Object> policy = pass.branchPolicy(employeeId);
 		if (policy == null || LegacyValues.toPhpLong(policy.get("can_check_in_any_branch")) == 1) {
 			return false;
 		}
@@ -478,6 +483,57 @@ public class PunchPairingService {
 	private static LocalDateTime instantOf(Map<String, Object> punch) {
 		return LocalDateTime.parse(LegacyValues.toPhpString(punch.get("punched_at_utc"))
 				.replace(' ', 'T').substring(0, 19));
+	}
+
+	/**
+	 * What one pass may read once instead of once per punch.
+	 *
+	 * <p>Pass-scoped, never a field: this service is a singleton, so per-pass
+	 * state on it would be shared between concurrent companies. Created in
+	 * {@link #pairCompany} and threaded down.
+	 *
+	 * <p>Both entries were measured, not guessed: the offset lookup and the
+	 * branch policy were two of the eleven statements each punch cost, and both
+	 * ask an unchanging question. The claim is ordered by employee, so the
+	 * policy memo hits for every punch of an employee's day after the first.
+	 */
+	private static final class Pass {
+
+		private final List<PunchPairingStore.RuntimeOffsetPeriod> offsets;
+		private final Map<Long, Map<String, Object>> branchPolicies = new java.util.HashMap<>();
+		private final PunchPairingStore store;
+
+		Pass(PunchPairingStore store) {
+			this.store = store;
+			this.offsets = store.runtimeOffsetHistory();
+		}
+
+		/**
+		 * The offset in force at an instant, or null before all history.
+		 *
+		 * <p>Same selection the per-punch query made -- newest row whose
+		 * effective_from is at or before the instant -- done over a list that
+		 * holds one entry per offset change for the life of the system.
+		 */
+		Integer offsetSecondsAt(LocalDateTime instantUtc) {
+			Integer found = null;
+			for (PunchPairingStore.RuntimeOffsetPeriod period : offsets) {
+				if (period.effectiveFromUtc().isAfter(instantUtc)) {
+					break;
+				}
+				found = period.offsetSeconds();
+			}
+			return found;
+		}
+
+		/**
+		 * A memo, not a cache with a lifetime: it lives exactly as long as the
+		 * pass. An employee's branch edited mid-pass is seen by the next one,
+		 * and what it decides here is a review FLAG, not a payroll figure.
+		 */
+		Map<String, Object> branchPolicy(long employeeId) {
+			return branchPolicies.computeIfAbsent(employeeId, store::branchPolicy);
+		}
 	}
 
 	private LocalDateTime punchedAtOf(Map<String, Object> punch) {
