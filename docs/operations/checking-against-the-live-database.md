@@ -44,11 +44,13 @@ mysql -h "$DB_HOST" -u "$DB_USER" -p "$DB_NAME" \
 ```
 
 It reports the server version, the database's charset and engine, which of the
-six tables are present (`none`, `applied`, or a partial apply to undo), the
-column count of each against what the script creates — a table with the right
-name and the wrong shape is the failure the non-idempotent script exists to
-prevent, and a name check cannot see it — and that the legacy table count is
-unchanged.
+fourteen tables are present (`none`, `applied`, a database provisioned before
+the device tables existed, or a torn apply to undo), the column count of each
+against what the script creates — a table with the right name and the wrong
+shape is the failure the non-idempotent script exists to prevent, and a name
+check cannot see it — the **collation** of each, which no name or shape check
+can see and which a database provisioned before 2026-09-11 gets wrong, and that
+the legacy table count is unchanged.
 
 Take a backup first, then apply it. **Run this yourself**; it changes a
 production schema, which is not something to hand to an agent:

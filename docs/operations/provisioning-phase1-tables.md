@@ -175,7 +175,8 @@ WHERE TABLE_SCHEMA = DATABASE()
     'attendance_devices', 'employee_device_identities', 'device_punches',
     'unclaimed_device_sightings', 'device_operation_logs',
     'device_malformed_punches', 'device_assignment_history',
-    'legacy_runtime_offset_history');
+    'legacy_runtime_offset_history')
+ORDER BY TABLE_NAME;
 ```
 
 Expect zero rows. For each row it does return:
@@ -183,6 +184,23 @@ Expect zero rows. For each row it does return:
 ```sql
 ALTER TABLE <name> CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
+
+**The session pair is the exception.** `SPRING_SESSION_ATTRIBUTES_FK` is a
+foreign key on a `CHAR` column, so `CONVERT TO` is refused in *both* directions
+— `ERROR 1832` converting the child, `ERROR 1833` converting the parent — and
+`SET FOREIGN_KEY_CHECKS=0` does not lift it. Drop the constraint, convert both,
+put it back:
+
+```sql
+ALTER TABLE SPRING_SESSION_ATTRIBUTES DROP FOREIGN KEY SPRING_SESSION_ATTRIBUTES_FK;
+ALTER TABLE SPRING_SESSION            CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+ALTER TABLE SPRING_SESSION_ATTRIBUTES CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+ALTER TABLE SPRING_SESSION_ATTRIBUTES ADD CONSTRAINT SPRING_SESSION_ATTRIBUTES_FK
+    FOREIGN KEY (SESSION_PRIMARY_ID) REFERENCES SPRING_SESSION (PRIMARY_ID) ON DELETE CASCADE;
+```
+
+`CONVERT TO` rebuilds the table and holds a lock while it does, so plan the
+window around `device_punches` — the others are small and stay small.
 
 `verify_phase1_tables.sql` runs this check as its section 6, with the same
 remediation, if you would rather run one file than paste queries.

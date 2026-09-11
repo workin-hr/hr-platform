@@ -2,7 +2,8 @@
 -- and has it been already?" -- before anything writes to it.
 --
 -- Paste into phpMyAdmin's SQL tab, or:
---   mysql -h HOST -u USER -p DBNAME < scripts/verify-phase1-tables.sql
+--   mysql -h HOST -u USER -p DBNAME \
+--     < backend/src/main/resources/db/phase1-mysql/verify_phase1_tables.sql
 --
 -- Nothing here creates, alters or deletes. Every statement is a SELECT.
 -- Run it before applying, and again afterwards: the first two answers change,
@@ -28,9 +29,17 @@ SELECT 'database' AS check_name,
 --    since the script is deliberately not idempotent.
 SELECT 'phase1 tables present' AS check_name,
        COALESCE(GROUP_CONCAT(table_name ORDER BY table_name SEPARATOR ', '), 'none') AS value,
-       CASE COUNT(*) WHEN 0 THEN 'not applied -- apply it'
-                     WHEN 14 THEN 'applied'
-                     ELSE 'PARTIAL -- drop these and re-apply' END AS verdict
+       CASE COUNT(*)
+         WHEN 0 THEN 'not applied -- apply it'
+         WHEN 14 THEN 'applied'
+         -- Exactly the six originals means a database provisioned before the
+         -- device tables existed. Apply the script with --force so only the
+         -- absent eight are created; do NOT drop these. Two of them are not
+         -- yours to drop: platform_admin_audit_events is retained evidence
+         -- (D-161) and SPRING_SESSION is every live administrator session.
+         WHEN 6 THEN 'PRE-DEVICE-TABLES -- re-apply with --force, do NOT drop'
+         ELSE 'PARTIAL -- a torn apply; drop the listed tables and re-apply'
+       END AS verdict
   FROM information_schema.tables
  WHERE table_schema = DATABASE()
    AND table_name IN ('legacy_refresh_tokens', 'platform_admins',
@@ -95,7 +104,7 @@ SELECT 'legacy tables' AS check_name,
 --    `phase1_extensions.sql` declared no collation until 2026-09-11, so a
 --    database provisioned by hand before then, on a server whose default was
 --    not utf8mb4_unicode_ci, has these tables at utf8mb4_uca1400_ai_ci while
---    every legacy table beside them is utf8mb4_unicode_ci. Nothing else here
+--    every legacy table beside them but `configs` is utf8mb4_unicode_ci. Nothing else here
 --    notices: the names are right, the column counts are right, and
 --    Phase1SchemaCheck compares names only. The first cross-table string
 --    comparison -- device_punches.pin against employees.employee_code -- then
@@ -104,6 +113,20 @@ SELECT 'legacy tables' AS check_name,
 --    To repair, per table listed below:
 --      ALTER TABLE <name> CONVERT TO CHARACTER SET utf8mb4
 --                         COLLATE utf8mb4_unicode_ci;
+--
+--      The session pair is the exception: SPRING_SESSION_ATTRIBUTES_FK is a
+--      FOREIGN KEY on a CHAR column, so CONVERT TO is refused in BOTH
+--      directions -- ERROR 1832 on the child, ERROR 1833 on the parent -- and
+--      SET FOREIGN_KEY_CHECKS=0 does not lift it. Drop the constraint, convert
+--      both, put it back:
+--        ALTER TABLE SPRING_SESSION_ATTRIBUTES DROP FOREIGN KEY SPRING_SESSION_ATTRIBUTES_FK;
+--        ALTER TABLE SPRING_SESSION            CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+--        ALTER TABLE SPRING_SESSION_ATTRIBUTES CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+--        ALTER TABLE SPRING_SESSION_ATTRIBUTES ADD CONSTRAINT SPRING_SESSION_ATTRIBUTES_FK
+--            FOREIGN KEY (SESSION_PRIMARY_ID) REFERENCES SPRING_SESSION (PRIMARY_ID) ON DELETE CASCADE;
+--
+--    CONVERT TO rebuilds the table and holds a lock for the duration, so size
+--    the window for device_punches -- it is the one that will not stay small.
 SELECT 'phase1 collation' AS check_name,
        CONCAT(table_name, ' = ', table_collation) AS value,
        IF(table_collation = 'utf8mb4_unicode_ci', 'ok',

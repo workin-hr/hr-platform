@@ -300,7 +300,7 @@ OWNED_MUTATION = re.compile(
 # Comments are not call sites. `// never remove an OWNED_TABLES.put(...) line`
 # counted as one, so the gate failed on correct code and told the author to fix
 # something already right.
-JAVA_LINE_COMMENT = re.compile(r'//[^\n]*')
+JAVA_COMMENT = re.compile(r'//[^\n]*|/\*.*?\*/', re.DOTALL)
 
 
 def owned_tables(findings: list[str]) -> tuple[str, ...]:
@@ -313,7 +313,7 @@ def owned_tables(findings: list[str]) -> tuple[str, ...]:
         )
         return ()
     with open(source, encoding="utf-8") as handle:
-        source_text = JAVA_LINE_COMMENT.sub("", handle.read())
+        source_text = JAVA_COMMENT.sub("", handle.read())
     tables = tuple(OWNED_TABLE.findall(source_text))
     if not tables:
         fail(
@@ -377,15 +377,18 @@ def check_seed_can_be_applied_twice(seed: str, findings: list[str]) -> None:
     moving one DROP to the end of the file loses `attendance_devices` with no
     error anywhere, under the E2E_SEED_PROD path that never does `down -v`.
 
-    Case-folded, to agree with check_seed_is_self_sufficient and with
-    Phase1SchemaCheck.missingTables().
+    Case-SENSITIVE, unlike check_seed_is_self_sufficient. That check folds
+    because Phase1SchemaCheck folds; this one must not, because the SERVER does
+    not: MariaDB on Linux runs lower_case_table_names=0, so a DROP naming `A`
+    leaves `a` in place and the second load dies on "table already exists" --
+    precisely what this exists to catch. Folding made that a silent pass.
     """
     first_drop: dict[str, int] = {}
     for match in DROP_TABLE_STATEMENT.finditer(seed):
-        first_drop.setdefault(match.group(1).lower(), match.start())
+        first_drop.setdefault(match.group(1), match.start())
     first_create: dict[str, int] = {}
     for match in CREATE_TABLE_STATEMENT.finditer(seed):
-        first_create.setdefault(match.group(1).lower(), match.start())
+        first_create.setdefault(match.group(1), match.start())
 
     for table, created_at in first_create.items():
         dropped_at = first_drop.get(table)
