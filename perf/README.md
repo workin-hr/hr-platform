@@ -148,11 +148,13 @@ committed -- they belong on the command line of a measurement, not in a profile:
      in `unclaimed_device_sightings`, which is where an operator finds it.
   4. The database must have the Phase-1 device tables. `deploy/seed/dev-seed.sql`
      **predates them**, so a stack seeded from it reports `8 of 14 owned tables
-     are MISSING` and a claim attempt answers **500** --
-     `AttendanceDeviceStore.findBySerial` selects from a table that is not there.
-     Applying `db/phase1-mysql/phase1_extensions.sql` to the running database
-     unblocks a measurement; regenerating the seed is the real fix and is
-     tracked separately.
+     are MISSING`, and both the handshake and a claim attempt answer **500** --
+     the handshake on `AttendanceDeviceStore.findBySerial`, the claim on the
+     `INSERT INTO attendance_devices` inside `claimWithHistory`, each selecting
+     from a table that is not there. Applying
+     `backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql` to the
+     running database unblocks a measurement; regenerating the seed is the real
+     fix and is tracked separately.
 
   **What the baseline measures is the re-send path, not the insert path.**
   `attlogBatch()` builds a fixed payload -- constant base timestamp, pins
@@ -173,8 +175,8 @@ committed -- they belong on the command line of a measurement, not in a profile:
 
   Latency is n=1 per shape and not worth a verdict: 168.6 req/s / p95 152.4 ms
   fixed, 145.8 req/s / p95 128.6 ms varied. The +/-23% throughput and 4.5% p95
-  spreads quoted above were measured on `client-api`, not here, so they do not
-  license a conclusion about these two.
+  spreads quoted under *Re-measured on an idle machine* below were measured on
+  `client-api`, not here, so they do not license a conclusion about these two.
 
 ## What the first full run found
 

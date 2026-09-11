@@ -212,7 +212,10 @@ def main() -> int:
         # anchor" raise it too, and compose ACCEPTS the duplicate-anchor file.
         # Naming all three "more than one document" would be a false reason in
         # a gate whose whole point is not to send the reader after the wrong bug.
-        if "expected a single document" in str(error):
+        # error.context, not str(error): the latter embeds the offending source
+        # line, so a file containing this phrase in a comment would be reported
+        # as a second document. The discriminator must not be file content.
+        if error.context == "expected a single document in the stream":
             print(
                 f"FAIL: {COMPOSE} contains more than one YAML document.\n\n"
                 f"  compose reads them all; this check reads the first, so a second one can\n"

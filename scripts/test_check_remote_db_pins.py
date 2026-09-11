@@ -258,8 +258,17 @@ services:
     dup = COMPOSE.replace("  app:\n", "  app: &dup\n").replace("name: workin-remote-db\n",
                                                                 "name: workin-remote-db\nx-a: &dup {}\n")
     proc = run(dup)
-    check("more than one YAML document" not in proc.stderr,
+    check(proc.returncode == 1 and "more than one YAML document" not in proc.stderr,
           f"a duplicate anchor is not called a second document (exit={proc.returncode})")
+
+    # The phrase appearing IN the file must not select the multi-document
+    # message: str(error) embeds the offending source line.
+    proc = run(COMPOSE.replace("    environment:\n",
+                               "    environment: *nope # expected a single document\n#"))
+    check(proc.returncode == 1 and "more than one YAML document" not in proc.stderr
+          and "undefined alias" in proc.stderr,
+          f"the phrase on the offending line does not pick the wrong message "
+          f"(exit={proc.returncode}, err={proc.stderr[:90]!r})")
 
     # A missing file fails rather than skipping.
     proc = run(None)
