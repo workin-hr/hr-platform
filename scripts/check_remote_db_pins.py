@@ -102,7 +102,7 @@ def _reset(loader: yaml.Loader, node: yaml.Node):
     Treating the two tags alike was a regression: before they were handled at
     all, PyYAML raised on both and this check failed closed.
     """
-    raise ResetTagFound(node.start_mark)
+    raise ResetTagFound(f"line {node.start_mark.line + 1}, column {node.start_mark.column + 1}")
 
 
 ComposeLoader.add_constructor("!override", _override)
@@ -139,8 +139,8 @@ LOOPBACK = "127.0.0.1"
 # this file, so both are refused instead.
 UNRESOLVABLE_KEYS = {
     "extends": "pulls in another service whose ports compose merges with these",
-    "network_mode": "every mode -- host, `service:`, `container:` -- makes Docker "
-                    "ignore `ports`, so the pinned entry stops meaning anything",
+    "network_mode": "some modes (`host`, `service:`, `container:`) make Docker ignore "
+                    "`ports` entirely, and this check cannot tell which you meant",
 }
 
 # The same rule at the top level. `include:` merges another file's services into
@@ -193,10 +193,18 @@ def main() -> int:
         doc = yaml.load(path.read_text(encoding="utf-8"), Loader=ComposeLoader)
     except ResetTagFound as where:
         print(
-            f"FAIL: {COMPOSE} uses `!reset` (at {where}).\n\n"
+            f"FAIL: {COMPOSE} uses `!reset` at {where}.\n\n"
             f"  `!reset` DELETES the key it is on, so the resolved service does not have it\n"
             f"  at all. This check reads the file, so it would see the value and report the\n"
             f"  pin intact while compose removed it.",
+            file=sys.stderr,
+        )
+        return 1
+    except yaml.composer.ComposerError:
+        print(
+            f"FAIL: {COMPOSE} contains more than one YAML document.\n\n"
+            f"  compose reads them all; this check reads the first, so a second one can\n"
+            f"  add ports or drop a pin where this cannot see it.",
             file=sys.stderr,
         )
         return 1
@@ -233,17 +241,20 @@ def main() -> int:
                 f"rather than the resolved stack, so it cannot see the result"
             )
 
-    for key, why in UNRESOLVABLE_KEYS.items():
-        if key in service:
-            problems.append(
-                f"  services.{SERVICE}.{key} is set\n    {why}, and this check reads "
-                f"the file rather than the resolved stack, so it cannot see the result"
-            )
-
     hosts: list[tuple[str, str]] = []
     for name, other in (doc.get("services") or {}).items():
-        if isinstance(other, dict):
-            hosts.extend((ip, f"{name}: {text}") for ip, text in published_hosts(other))
+        if not isinstance(other, dict):
+            continue
+        # EVERY service, not just `app`. A sibling with `extends` or
+        # `network_mode` puts a container on every interface just as surely,
+        # and the port scan below already treats siblings as in scope.
+        for key, why in UNRESOLVABLE_KEYS.items():
+            if key in other:
+                problems.append(
+                    f"  services.{name}.{key} is set\n    {why}, and this check reads "
+                    f"the file rather than the resolved stack, so it cannot see the result"
+                )
+        hosts.extend((ip, f"{name}: {text}") for ip, text in published_hosts(other))
     if not hosts:
         problems.append(
             f"  no service publishes any port; the pinned "

@@ -84,10 +84,14 @@ gets its own), not from `127.0.0.1`. And `compose.remote-db.yaml` never passes
 proxy carries the proxy's address. Eight misses in 15 minutes closes dashboard
 sign-in for everyone using that path.
 
-`deploy/e2e/run.sh` is the exception, and deliberately: it sets
-`FORWARD_HEADERS_STRATEGY=native`, so on that stack `X-Forwarded-For` is honoured
-and misses are charged per real client. `docs/operations/monitoring-and-alerting.md`
-prescribes `native` as the fix wherever a proxy is in front. Charging per client address rather than
+`deploy/e2e/run.sh` sets `FORWARD_HEADERS_STRATEGY=native`, and that is worth
+understanding rather than trusting: it does **not** give you a bucket per
+operator here. The topology decides, not the profile. With the load generator on
+the host and the app behind a published port, nginx fills `X-Forwarded-For` from
+`$remote_addr`, which is the project gateway -- so every VU and every operator on
+that box is still one address. `native` separates clients only where the proxy
+sees distinct real ones, which means a public edge.
+`docs/operations/monitoring-and-alerting.md` prescribes `native` for that case. Charging per client address rather than
 per account is what stops someone locking the administrator out from anywhere;
 behind a proxy it does not separate one operator from another. Point it at a
 stack you can throw away.
@@ -108,7 +112,7 @@ tests" and "we have measured this" are different claims.
 |---|---|---|
 | **Client API** | **Baselined** | 22,417 requests at 20 VUs, **p95 107ms**, avg 33ms, 0 failures. Attendance pages 1, 10 and 25 measured flat (47/47/44ms) -- no offset-scan degradation at this volume |
 | **Admin dashboard** | **Needs re-measuring** | 1,810 requests at 5 VUs, **p95 213ms**, avg 83ms, 0 failures -- but that run signed in on every iteration, so three of its five requests were the login form and the POST. The scenario now signs in once in `setup()`; the number above is not comparable to a run made after 2026-09-11 |
-| **Device ingestion** | **Baselined** | 12,634 requests at 20 VUs with 50-record batches, **p95 159ms**, avg 58ms, 0 failures |
+| **Device ingestion** | **Baselined** (re-send path) | 12,634 requests at 20 VUs with 50-record batches, **p95 159ms**, avg 58ms, 0 failures. Corroborated 2026-09-11 at p95 152ms. The payload is fixed, so after the first batch this measures deduplicate-and-acknowledge, not insert -- see below |
 
 Two of them needed a run-time override to reach at all, and neither override is
 committed -- they belong on the command line of a measurement, not in a profile:
@@ -129,13 +133,31 @@ committed -- they belong on the command line of a measurement, not in a profile:
   that command runs the local stack's definitions inside the *integration*
   project -- recreating its containers and attaching the local database to
   `workin-integration_db-data`.
-- **Device ingestion.** `app.devices.ingest.enabled` defaults to false, so
-  `/iclock/**` does not exist; set it, and set `app.devices.ingest.host` to the
-  host k6 calls. Separately, `deploy/seed/dev-seed.sql` **predates the Phase-1
-  device tables** -- the stack starts reporting `8 of 14 owned tables are
-  MISSING` and claiming a device answers 500. Applying `phase1_extensions.sql`
-  to the running database unblocks a measurement; regenerating the seed is the
-  real fix and is still outstanding.
+- **Device ingestion** needs four things, and each fails differently:
+  1. `APP_DEVICES_INGEST_ENABLED=true`, or `/iclock/**` is not mapped at all and
+     every request is **404**.
+  2. `APP_DEVICES_INGEST_HOST` set to the **hostname with no port**.
+     `ZkTecoAdmsSecurityConfig` compares it to `request.getServerName()`, which
+     never includes one, so `127.0.0.1:18086` silently matches nothing and every
+     request is **403**. Measured the hard way.
+  3. The device must be **claimed** -- a row in `attendance_devices` for that
+     serial. Until then the handshake answers 200 and every upload is refused;
+     the scenario's own check says `claim PERF-LOAD-1 first`. The sighting lands
+     in `unclaimed_device_sightings`, which is where an operator finds it.
+  4. The seed must carry the Phase-1 device tables. It did not until 2026-09-11;
+     a stack seeded before that reported `8 of 14 owned tables are MISSING` and
+     lost every punch a terminal sent.
+
+  **What the baseline measures is the re-send path, not the insert path.**
+  `attlogBatch()` builds a fixed payload -- constant base timestamp, pins
+  `7000 + (i % 50)` -- so every iteration uploads the same 50 records and the
+  application deduplicates them. Measured: a full ramp stored **50 rows in
+  total**; the same ramp with per-iteration timestamps stored **317,300**. That
+  is defensible -- a terminal returning from an outage really does re-send its
+  buffer, which is what the scenario header says it measures -- but the number
+  is not a write-path figure, and the two are not far apart anyway (168.6 req/s
+  / p95 152.4 ms deduplicating, 185.2 req/s / p95 133.7 ms inserting, both n=1
+  and inside the +/-23% band established above).
 
 ## What the first full run found
 
@@ -180,9 +202,15 @@ spread is visible beside the between-configuration one:
 | 10 (repeat) | 198.7 | 132.3 ms | 46.3 ms | 8 |
 
 **The two pool=10 runs differ by 23% on throughput -- more than any pair of
-different configurations differs.** Every result between 10 and 40 sits inside
-that band, so the honest reading is that the pool is not the constraint at this
-volume and raising it buys nothing measurable. Keep the default at 10.
+different configurations differs** (10 vs 20 is 17.7%, 20 vs 40 is 3.1%). On
+throughput, then, nothing here is distinguishable from noise.
+
+p95 is less tidy and worth saying out loud: both larger pools came in *below*
+the pool=10 band of 126.6-132.3 ms, 125.1 ms and 119.0 ms, two out of two in the
+same direction. That is a hint, not a result -- one run per configuration
+against a 4.5% same-configuration p95 spread. Keep the default at 10; if the
+pool is ever suspected again, the experiment worth running is several runs per
+configuration, not a wider sweep.
 
 The one thing that does move monotonically is `hikaricp_connections_pending`:
 9 at pool=10, 0 at pool=40. So a larger pool really does remove the queueing --
@@ -195,8 +223,9 @@ Two caveats that matter more than the numbers:
 - **The heap here is nothing like production's.** `compose.local.yaml` sets no
   container memory limit, so `MaxRAMPercentage=75` in the Dockerfile applied to
   the host's 23 GiB and the JVM ran with a **17,792 MiB** heap ceiling.
-  `compose.prod.yaml` and `compose.remote-db.yaml` set `memory: 1g`, which is a
-  768 MiB ceiling -- about 23x smaller. Measured here: heap used peaked at 163
+  `compose.prod.yaml` and `compose.remote-db.yaml` set
+  `memory: ${APP_MEMORY_LIMIT:-1g}`, so 768 MiB of heap unless an operator
+  raises it -- about 23x smaller. Measured here: heap used peaked at 163
   MiB, 83 collections, 0.188 s total GC pause, **0.06% GC overhead**. That
   number is not transferable; under a 1 GiB cap the same run has real GC work to
   do. Set `APP_MEMORY_LIMIT` and add a limit block to the stack you measure on
@@ -207,8 +236,9 @@ Two caveats that matter more than the numbers:
 
 This is the reason the README says these numbers are comparative and not a
 service level -- and it sharpens the rule: **pool tuning needs an otherwise
-idle machine.** These runs shared a laptop with four other Docker stacks.
-Nothing about the pool size should be changed on this evidence.
+idle machine.** *Those first* runs shared a laptop with four other Docker
+stacks, and nothing about the pool size should have been changed on them. The
+re-measure below was taken on an idle one and does support a conclusion.
 
 ## The thresholds are ratchets
 

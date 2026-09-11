@@ -25,6 +25,15 @@ export const options = {
 
 const SERIAL = __ENV.PERF_SERIAL || 'PERF-LOAD-1';
 
+// The payload is FIXED on purpose -- same base timestamp, pins 7000+(i%50) --
+// so every iteration re-sends the same 50 records and the application
+// deduplicates them. That is the re-send a terminal really does perform after
+// an outage, and it is what the header above says this measures.
+//
+// It is NOT the insert path: measured, a full ramp stores 50 rows in total,
+// while the same ramp with per-iteration timestamps stores 317,300. If you want
+// the write cost, vary `base` by __VU and __ITER -- and then do not compare the
+// result with the ratchet below, which was set against this payload.
 function attlogBatch(records) {
   const lines = [];
   const base = Date.parse('2025-06-02T08:00:00Z');

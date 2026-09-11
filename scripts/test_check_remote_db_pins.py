@@ -234,6 +234,20 @@ services:
     check(proc.returncode == 1 and "include" in proc.stderr,
           f"top-level include: is refused (exit={proc.returncode})")
 
+    # A SIBLING service with a resolution-changing key. The port scan already
+    # treated siblings as in scope; this scan did not, so `extends` one service
+    # to the left put a container on every interface with the checker green.
+    for key, frag in (("extends", "    extends:\n      file: base.yaml\n      service: wide\n"),
+                      ("network_mode", "    network_mode: host\n")):
+        proc = run(COMPOSE + f"  sidecar:\n    image: scratch\n{frag}")
+        check(proc.returncode == 1 and key in proc.stderr and "sidecar" in proc.stderr,
+              f"{key} on a SIBLING service is refused and named (exit={proc.returncode})")
+
+    # A second YAML document: compose reads them all, this reads the first.
+    proc = run(COMPOSE + "---\nservices:\n  app:\n    ports:\n      - \"0.0.0.0:18078:8080\"\n")
+    check(proc.returncode == 1 and "more than one YAML document" in proc.stderr,
+          f"a second document is refused by name (exit={proc.returncode})")
+
     # A missing file fails rather than skipping.
     proc = run(None)
     check(proc.returncode == 1 and "is missing" in proc.stderr,

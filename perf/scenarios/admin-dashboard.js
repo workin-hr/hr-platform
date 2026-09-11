@@ -69,8 +69,10 @@ export const options = {
 // network's gateway (172.17.0.1 on the default bridge; a compose project gets
 // its own), not 127.0.0.1 -- and compose.remote-db.yaml never passes
 // SERVER_FORWARD_HEADERS_STRATEGY, so it is `none` there and anything through
-// a proxy arrives as the PROXY's address. deploy/e2e/run.sh sets `native`,
-// which is why that stack charges per real client instead. Either way it is one shared bucket, and
+// a proxy arrives as the PROXY's address. deploy/e2e/run.sh sets `native`, and
+// that does NOT buy a bucket per operator here: with the generator on the host
+// and the app behind a published port, X-Forwarded-For carries the project
+// gateway, so it is still one address. Either way it is one shared bucket, and
 // eight misses in 15 minutes closes dashboard sign-in for everyone using it.
 // Hundreds of attempts, which a per-iteration sign-in produced, empties it
 // immediately and fills the attempts table with junk.
