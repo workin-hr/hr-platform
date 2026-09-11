@@ -485,7 +485,7 @@ def _thread(author: str, *replies: tuple[str, str], path: str = "a.java", line: 
 # something else.
 AGENT_GATE_ASSIGNMENTS = (
     f"          AGENT_ROUND_RE: '(^|\\n){v.AGENT_ROUND_MARKER}'\n"
-    f"          ROUND_AUTHOR_ASSOC: '{','.join(v.REQUIRED_ROUND_ASSOC)}'\n"
+    f"          ROUND_AUTHOR_PERMISSIONS: '{','.join(v.REQUIRED_ROUND_PERMS)}'\n"
 )
 
 
@@ -1732,7 +1732,7 @@ def write_reviewer_declaration(
         if agent_gate and gate_workflow and v.AGENT_ROUND_MARKER not in gate_workflow:
             gate_workflow += (
                 f"          AGENT_ROUND_RE: '(^|\\n){v.AGENT_ROUND_MARKER}'\n"
-                f"          ROUND_AUTHOR_ASSOC: '{','.join(v.REQUIRED_ROUND_ASSOC)}'\n"
+                f"          ROUND_AUTHOR_PERMISSIONS: '{','.join(v.REQUIRED_ROUND_PERMS)}'\n"
             )
         gate.write_text(
             gate_workflow
@@ -1744,7 +1744,7 @@ def write_reviewer_declaration(
                 # because a workflow without it cannot recognise an agent
                 # round, and the validator now says so.
                 f"          AGENT_ROUND_RE: '(^|\\n){v.AGENT_ROUND_MARKER}'\n"
-                f"          ROUND_AUTHOR_ASSOC: '{','.join(v.REQUIRED_ROUND_ASSOC)}'\n"
+                f"          ROUND_AUTHOR_PERMISSIONS: '{','.join(v.REQUIRED_ROUND_PERMS)}'\n"
                 f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
             ),
             encoding="utf-8",
@@ -2329,7 +2329,7 @@ def _gate_with(marker: str | None, assoc: str | None) -> str:
     if marker is not None:
         text += f"          AGENT_ROUND_RE: '{marker}'\n"
     if assoc is not None:
-        text += f"          ROUND_AUTHOR_ASSOC: '{assoc}'\n"
+        text += f"          ROUND_AUTHOR_PERMISSIONS: '{assoc}'\n"
     return text + f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
 
 
@@ -2355,7 +2355,7 @@ def test_gate_workflow_without_the_agent_marker_fails() -> None:
     The reviewer login was bound; the mechanism that recognises the OTHER
     permitted reviewer was not. Removing it fails closed -- the gate simply
     counts zero agent rounds -- which is why nothing else catches it."""
-    failures = _gate_failures(_gate_with(None, ",".join(v.REQUIRED_ROUND_ASSOC)))
+    failures = _gate_failures(_gate_with(None, ",".join(v.REQUIRED_ROUND_PERMS)))
     check(
         any("AGENT_ROUND_RE" in f for f in failures),
         f"a gate workflow with no agent-round marker fails (failures={failures})",
@@ -2365,7 +2365,7 @@ def test_gate_workflow_without_the_agent_marker_fails() -> None:
 def test_gate_workflow_with_a_renamed_agent_marker_fails() -> None:
     """The skill emits this literal; renaming it here alone silently decouples
     the two, and the gate stops counting the rounds the skill produces."""
-    failures = _gate_failures(_gate_with("(^|\\n)reviewed-by-the-agent", ",".join(v.REQUIRED_ROUND_ASSOC)))
+    failures = _gate_failures(_gate_with("(^|\\n)reviewed-by-the-agent", ",".join(v.REQUIRED_ROUND_PERMS)))
     check(
         any(v.AGENT_ROUND_MARKER in f for f in failures),
         f"a renamed agent-round marker fails (failures={failures})",
@@ -2375,7 +2375,7 @@ def test_gate_workflow_with_a_renamed_agent_marker_fails() -> None:
 def test_gate_workflow_with_an_unanchored_agent_marker_fails() -> None:
     """Unanchored, the marker matches a comment that merely QUOTES it -- so
     reviewing this workflow on a pull request would claim a round on it."""
-    failures = _gate_failures(_gate_with(v.AGENT_ROUND_MARKER, ",".join(v.REQUIRED_ROUND_ASSOC)))
+    failures = _gate_failures(_gate_with(v.AGENT_ROUND_MARKER, ",".join(v.REQUIRED_ROUND_PERMS)))
     check(
         any("anchored" in f for f in failures),
         f"an unanchored agent-round marker fails (failures={failures})",
@@ -2388,30 +2388,32 @@ def test_gate_workflow_without_the_author_allowlist_fails() -> None:
     a stranger's pull request."""
     failures = _gate_failures(_gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", None))
     check(
-        any("ROUND_AUTHOR_ASSOC" in f for f in failures),
+        any("ROUND_AUTHOR_PERMISSIONS" in f for f in failures),
         f"a gate workflow with no author allowlist fails (failures={failures})",
     )
 
 
-def test_gate_workflow_accepting_a_non_writer_association_fails() -> None:
-    """CONTRIBUTOR is earned by one merged commit and grants no write access,
-    so accepting it lets a drive-by contributor claim a round on their own
-    pull request."""
+def test_gate_workflow_accepting_a_non_writer_permission_fails() -> None:
+    """`read` is what the collaborators endpoint returns for EVERY
+    non-collaborator on a public repository, so admitting it would let any
+    GitHub account claim a round. Association literals are not used here: they
+    would trip the "omits admin,write" branch instead, and the test would pass
+    on the wrong failure."""
     failures = _gate_failures(
-        _gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", "OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR"))
+        _gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", "admin,write,read"))
     check(
-        any("CONTRIBUTOR" in f for f in failures),
-        f"an allowlist admitting CONTRIBUTOR fails (failures={failures})",
+        any("read" in f and "omits" not in f for f in failures),
+        f"an allowlist admitting `read` fails, on the accepts branch (failures={failures})",
     )
 
 
-def test_gate_workflow_omitting_a_writer_association_fails() -> None:
-    """The other direction: dropping COLLABORATOR would leave the implementer
-    who records the round unable to satisfy the gate."""
-    failures = _gate_failures(_gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", "OWNER"))
+def test_gate_workflow_omitting_a_writer_permission_fails() -> None:
+    """The other direction: dropping `write` leaves a maintainer -- whom the
+    API reports as `write` -- unable to satisfy the gate."""
+    failures = _gate_failures(_gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", "admin"))
     check(
-        any("omits" in f for f in failures),
-        f"an allowlist missing a writer association fails (failures={failures})",
+        any("omits" in f and "write" in f for f in failures),
+        f"an allowlist missing `write` fails, on the omits branch (failures={failures})",
     )
 
 
@@ -3164,8 +3166,8 @@ def main() -> int:
     test_gate_workflow_with_a_renamed_agent_marker_fails()
     test_gate_workflow_with_an_unanchored_agent_marker_fails()
     test_gate_workflow_without_the_author_allowlist_fails()
-    test_gate_workflow_accepting_a_non_writer_association_fails()
-    test_gate_workflow_omitting_a_writer_association_fails()
+    test_gate_workflow_accepting_a_non_writer_permission_fails()
+    test_gate_workflow_omitting_a_writer_permission_fails()
     test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()

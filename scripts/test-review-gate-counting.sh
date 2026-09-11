@@ -25,13 +25,23 @@ WORKFLOW="$ROOT/.github/workflows/independent-review-gate.yml"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# The shipped function, dedented out of the `run: |` block.
-sed -n '/^ *rounds_on_head() {/,/^ *}$/p' "$WORKFLOW" | sed 's/^          //' > "$WORK/rounds_on_head.sh"
-if ! grep -q 'rounds_on_head() {' "$WORK/rounds_on_head.sh"; then
-  echo "FATAL: could not extract rounds_on_head() from $WORKFLOW." >&2
-  echo "  The gate's counting is unpinned until this test can find it again." >&2
-  exit 2
-fi
+# The shipped functions, dedented out of the `run: |` block. BOTH of them:
+# rounds_on_head() decides what looks like a round, round_author_is_trusted()
+# decides who may record one (D-228). Extracting only the first would let this
+# test pass against a gate that had lost its authorisation check entirely --
+# the counting cases would still be green because every fixture author would
+# simply be rejected, or, worse, accepted.
+{
+  sed -n '/^ *round_author_is_trusted() {/,/^ *}$/p' "$WORKFLOW"
+  sed -n '/^ *rounds_on_head() {/,/^ *}$/p' "$WORKFLOW"
+} | sed 's/^          //' > "$WORK/rounds_on_head.sh"
+for fn in rounds_on_head round_author_is_trusted; do
+  if ! grep -q "$fn() {" "$WORK/rounds_on_head.sh"; then
+    echo "FATAL: could not extract $fn() from $WORKFLOW." >&2
+    echo "  The gate's counting is unpinned until this test can find it again." >&2
+    exit 2
+  fi
+done
 
 MARKER='**Reviewed commit:**'
 HEAD_FULL=c9cc119482b48922e0c65a6ec1c2ed0d3f03923f
@@ -58,13 +68,13 @@ export REPO=owner/repo REVIEWER="chatgpt-codex-connector[bot]" FIXTURE_DIR="$WOR
 # would silently count zero and still look green.
 strip_comments() { sed -e 's/^[[:space:]]*#.*$//' -e "s/[[:space:]]#[^\"']*$//" "$WORKFLOW"; }
 AGENT_ROUND_RE="$(strip_comments | sed -n "s/.*AGENT_ROUND_RE:[[:space:]]*'\([^']*\)'.*/\1/p" | head -n 1)"
-ROUND_AUTHOR_ASSOC="$(strip_comments | sed -n "s/.*ROUND_AUTHOR_ASSOC:[[:space:]]*'\([^']*\)'.*/\1/p" | head -n 1)"
-if [ -z "$AGENT_ROUND_RE" ] || [ -z "$ROUND_AUTHOR_ASSOC" ]; then
-  echo "FATAL: could not read AGENT_ROUND_RE / ROUND_AUTHOR_ASSOC from $WORKFLOW." >&2
+ROUND_AUTHOR_PERMISSIONS="$(strip_comments | sed -n "s/.*ROUND_AUTHOR_PERMISSIONS:[[:space:]]*'\([^']*\)'.*/\1/p" | head -n 1)"
+if [ -z "$AGENT_ROUND_RE" ] || [ -z "$ROUND_AUTHOR_PERMISSIONS" ]; then
+  echo "FATAL: could not read AGENT_ROUND_RE / ROUND_AUTHOR_PERMISSIONS from $WORKFLOW." >&2
   echo "  The agent half of the gate is unpinned until this test can find them again." >&2
   exit 2
 fi
-export AGENT_ROUND_RE ROUND_AUTHOR_ASSOC
+export AGENT_ROUND_RE ROUND_AUTHOR_PERMISSIONS
 
 # gh's --jq is jq over the response; the stub prints the response, so the real
 # jq has to do the filtering the workflow asks for.
@@ -72,6 +82,7 @@ cat > "$WORK/gh" <<'STUB'
 #!/usr/bin/env bash
 body=""
 jqexpr=""
+who=""
 next_is_jq=0
 for arg in "$@"; do
   if [ "$next_is_jq" = 1 ]; then jqexpr="$arg"; next_is_jq=0; continue; fi
@@ -79,8 +90,20 @@ for arg in "$@"; do
     --jq) next_is_jq=1 ;;
     */reviews) body="$FIXTURE_DIR/reviews.json" ;;
     */comments) body="$FIXTURE_DIR/comments.json" ;;
+    */collaborators/*/permission)
+      who="${arg#*/collaborators/}"; who="${who%/permission}" ;;
   esac
 done
+if [ -n "$who" ]; then
+  # D-228. perms.txt is "login permission" per line; a login absent from it
+  # answers nothing and exits non-zero -- a 403, a rate limit or a renamed
+  # account behaves that way, and the gate must read it as "not a writer".
+  level="$(awk -v w="$who" '$1 == w {print $2; exit}' "$FIXTURE_DIR/perms.txt" 2>/dev/null)"
+  [ -n "$level" ] || exit 1
+  if [ -n "$jqexpr" ]; then printf '{"permission":"%s"}\n' "$level" | jq -r "$jqexpr"
+  else printf '{"permission":"%s"}\n' "$level"; fi
+  exit 0
+fi
 [ -n "$body" ] || { echo "[]"; exit 0; }
 if [ -n "$jqexpr" ]; then jq -r "$jqexpr" < "$body"; else cat "$body"; fi
 STUB
@@ -154,48 +177,77 @@ expect "dismissed review (must NOT count)" 0
 # The gate counts these too, and until now no case exercised them at all.
 
 AGENT_BODY="independent-review-round: agent\r\nhead: $HEAD_FULL"
-agent() {  # $1=association $2=created $3=updated $4=body
-  comments '[{"author_association":"'"$1"'","created_at":"'"$2"'","updated_at":"'"$3"'","body":"'"$4"'"}]'
+perms() { printf '%s\n' "$@" > "$WORK/perms.txt"; }
+# D-228: authority is repository PERMISSION. author_association stays in every
+# fixture below and is now ignored -- cases 14a/14b are what prove that.
+perms "writer1 admin" "stranger none" "driveby read"
+agent() {  # $1=login $2=created $3=updated $4=body [$5=association, cosmetic]
+  comments '[{"user":{"login":"'"$1"'"},"author_association":"'"${5:-CONTRIBUTOR}"'","created_at":"'"$2"'","updated_at":"'"$3"'","body":"'"$4"'"}]'
 }
 reviews '[]'
 
 # 10. The round the skill tells the reviewer to produce.
-agent OWNER t1 t1 "$AGENT_BODY"
+agent writer1 t1 t1 "$AGENT_BODY" OWNER
 expect "agent round by a writer, naming this head" 1
 
 # 11. Naming a different head. Same rule as the Codex path: a round does not
 #     carry forward to a commit the reviewer never saw.
-agent OWNER t1 t1 "independent-review-round: agent\r\nhead: 8478781bf88478781bf88478781bf88478781bf8"
+agent writer1 t1 t1 "independent-review-round: agent\r\nhead: 8478781bf88478781bf88478781bf88478781bf8" OWNER
 expect "agent round naming another head (must NOT count)" 0
 
 # 12. No `head:` line at all -- a claim about nothing in particular.
-agent OWNER t1 t1 "independent-review-round: agent\r\nlooks fine to me"
+agent writer1 t1 t1 "independent-review-round: agent\r\nlooks fine to me" OWNER
 expect "agent round with no head SHA (must NOT count)" 0
 
 # 13. The self-approval bypass this gate shipped with: the marker was matched on
 #     body text alone, so on a PUBLIC repository any GitHub account could green
 #     the gate on anyone's pull request with a single comment.
-agent NONE t1 t1 "$AGENT_BODY"
+agent stranger t1 t1 "$AGENT_BODY" NONE
 expect "agent round from outside the repository (must NOT count)" 0
 
 # 14. CONTRIBUTOR is earned by one merged commit and grants no write access.
-agent CONTRIBUTOR t1 t1 "$AGENT_BODY"
+agent driveby t1 t1 "$AGENT_BODY" CONTRIBUTOR
 expect "agent round from a drive-by contributor (must NOT count)" 0
+
+# 14a. THE CASE THIS CORRECTION EXISTS FOR (D-228). Identical association to
+#      case 14 -- CONTRIBUTOR -- and the opposite verdict, because the account
+#      actually has admin on the repository. GitHub reports a collaborator whose
+#      ORG MEMBERSHIP IS PRIVATE as CONTRIBUTOR to any token that cannot see the
+#      membership, and GITHUB_TOKEN is such a token. Measured on this repository
+#      before the correction: the owner's own round read MEMBER to their PAT and
+#      CONTRIBUTOR unauthenticated, and the gate counted zero rounds on a head
+#      it had in fact reviewed.
+perms "privatemember admin" "driveby read"
+agent privatemember t1 t1 "$AGENT_BODY" CONTRIBUTOR
+expect "private-membership collaborator counts, despite CONTRIBUTOR" 1
+
+# 14b. `write` is enough; the allowlist is admin,write.
+perms "privatemember write"
+agent privatemember t1 t1 "$AGENT_BODY" CONTRIBUTOR
+expect "write permission is enough to record a round" 1
+
+# 14c. An unreadable permission -- 403, rate limit, renamed account -- is not
+#      write access. The gate must go red rather than quietly count the round.
+perms "someoneelse admin"
+agent privatemember t1 t1 "$AGENT_BODY" OWNER
+expect "unreadable permission does not count (fails closed)" 0
+
+perms "writer1 admin" "stranger none" "driveby read"
 
 # 15. Post a round naming head A, push commits, then EDIT the comment to name
 #     head B. `edited` is one of this workflow's triggers, so without this the
 #     SHA binding buys nothing.
-agent OWNER t1 t2 "$AGENT_BODY"
+agent writer1 t1 t2 "$AGENT_BODY" OWNER
 expect "edited agent round (must NOT count)" 0
 
 # 16. A comment QUOTING the marker -- reviewing this workflow on a pull request
 #     is exactly that -- must not claim a round on the workflow it quotes.
-agent OWNER t1 t1 "the gate sets:\r\n    AGENT_ROUND_RE: independent-review-round: agent\r\nhead: $HEAD_FULL"
+agent writer1 t1 t1 "the gate sets:\r\n    AGENT_ROUND_RE: independent-review-round: agent\r\nhead: $HEAD_FULL" OWNER
 expect "quoted marker in a review of the gate (must NOT count)" 0
 
 # 17. Both mechanisms on the same head count separately.
 reviews '[{"user":{"login":"chatgpt-codex-connector[bot]"},"commit_id":"'"$HEAD_FULL"'","state":"COMMENTED","submitted_at":"2026-09-02T14:29:19Z"}]'
-agent OWNER t1 t1 "$AGENT_BODY"
+agent writer1 t1 t1 "$AGENT_BODY" OWNER
 expect "a Codex round and an agent round on one head" 2
 
 # 18. The OUTPUT CONTRACT, not just the count. The retarget path sorts these
@@ -204,7 +256,7 @@ expect "a Codex round and an agent round on one head" 2
 #     that comparison always false -- silently clearing a base-change
 #     invalidation that must hold the gate red. Counting cases cannot see this.
 reviews '[]'
-agent OWNER t1 t1 "$AGENT_BODY"
+agent writer1 t1 t1 "$AGENT_BODY" OWNER
 line="$(HEAD_SHA="$HEAD_FULL" rounds_on_head 1 | head -n 1)"
 if printf '%s' "$line" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+Z? (codex|agent)$' \
    || printf '%s' "$line" | grep -Eq '^t[0-9]+ (codex|agent)$'; then
