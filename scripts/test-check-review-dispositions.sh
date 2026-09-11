@@ -152,10 +152,12 @@ expect "private-membership collaborator IS a round, despite CONTRIBUTOR" 1
 perms "privatemember write"
 expect "write permission is enough to record a round" 1
 
-# 6c. And an unreadable permission -- a 403, a rate limit, a renamed account --
-#     is not write access. Fails CLOSED rather than counting the round.
+# 6c. An unreadable permission -- a 403, a rate limit, a renamed account -- is
+#     NOT "not a writer". The gate may collapse those two, because there both
+#     mean red; here they are opposites, since an uncounted round lets this
+#     guard exit 0. So an indeterminate lookup must FAIL, not pass quietly.
 perms "someoneelse admin"
-expect "an unreadable permission is not a round" 0
+expect "an unreadable permission FAILS rather than passing quietly" 1
 
 perms "owner1 admin" "stranger none" "driveby read"
 

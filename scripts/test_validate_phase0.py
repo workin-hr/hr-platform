@@ -2393,25 +2393,27 @@ def test_gate_workflow_without_the_author_allowlist_fails() -> None:
     )
 
 
-def test_gate_workflow_accepting_a_non_writer_association_fails() -> None:
-    """CONTRIBUTOR is earned by one merged commit and grants no write access,
-    so accepting it lets a drive-by contributor claim a round on their own
-    pull request."""
+def test_gate_workflow_accepting_a_non_writer_permission_fails() -> None:
+    """`read` is what the collaborators endpoint returns for EVERY
+    non-collaborator on a public repository, so admitting it would let any
+    GitHub account claim a round. Association literals are not used here: they
+    would trip the "omits admin,write" branch instead, and the test would pass
+    on the wrong failure."""
     failures = _gate_failures(
-        _gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", "OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR"))
+        _gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", "admin,write,read"))
     check(
-        any("CONTRIBUTOR" in f for f in failures),
-        f"an allowlist admitting CONTRIBUTOR fails (failures={failures})",
+        any("read" in f and "omits" not in f for f in failures),
+        f"an allowlist admitting `read` fails, on the accepts branch (failures={failures})",
     )
 
 
-def test_gate_workflow_omitting_a_writer_association_fails() -> None:
-    """The other direction: dropping COLLABORATOR would leave the implementer
-    who records the round unable to satisfy the gate."""
-    failures = _gate_failures(_gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", "OWNER"))
+def test_gate_workflow_omitting_a_writer_permission_fails() -> None:
+    """The other direction: dropping `write` leaves a maintainer -- whom the
+    API reports as `write` -- unable to satisfy the gate."""
+    failures = _gate_failures(_gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", "admin"))
     check(
-        any("omits" in f for f in failures),
-        f"an allowlist missing a writer association fails (failures={failures})",
+        any("omits" in f and "write" in f for f in failures),
+        f"an allowlist missing `write` fails, on the omits branch (failures={failures})",
     )
 
 
@@ -3164,8 +3166,8 @@ def main() -> int:
     test_gate_workflow_with_a_renamed_agent_marker_fails()
     test_gate_workflow_with_an_unanchored_agent_marker_fails()
     test_gate_workflow_without_the_author_allowlist_fails()
-    test_gate_workflow_accepting_a_non_writer_association_fails()
-    test_gate_workflow_omitting_a_writer_association_fails()
+    test_gate_workflow_accepting_a_non_writer_permission_fails()
+    test_gate_workflow_omitting_a_writer_permission_fails()
     test_real_repository_reviewer_declaration_still_passes()
     test_skill_missing_from_catalog_fails()
     test_skill_catalog_fully_listed_passes()

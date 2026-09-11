@@ -288,8 +288,13 @@ if [ "$total" -eq 0 ]; then
       | select(.created_at == .updated_at)
       | select(.body | test(env.AGENT_ROUND_RE))'
 
-    # Fails CLOSED, like the gate's copy: an unreadable permission is not write
-    # access, so the comment is not a round.
+    # THREE outcomes, not two. The gate can collapse "not a writer" and "cannot
+    # tell" into one, because there both mean "not counted" and not counted
+    # means RED. Here they are opposites: a round that is not counted makes this
+    # guard exit 0, so treating an unreadable permission as "not a writer" would
+    # disarm the compensating control exactly when the API is unreliable --
+    # failing OPEN while claiming to fail closed.
+    #   0 = may record   1 = definitely may not   2 = could not determine
     author_may_record() {  # $1=login
       local permission
       case "$1" in ""|*[!A-Za-z0-9-]*) return 1 ;; esac
@@ -300,31 +305,55 @@ if [ "$total" -eq 0 ]; then
       # One lowercase word, or nothing. `gh` prints the error body on stdout for
       # a 404, which would otherwise read as a permission level.
       case "$permission" in ""|*[!a-z]*) permission="" ;; esac
+      [ -n "$permission" ] || return 2
       case ",${ROUND_AUTHOR_PERMISSIONS}," in *",${permission},"*) return 0 ;; esac
       return 1
     }
-    count_rounds() {  # $1=extra jq filter ("" for none) -> count
-      local extra="$1" login n=0
+    # Prints "<counted> <indeterminate>". Command substitution runs this in a
+    # subshell, so the indeterminate tally travels in the output rather than in
+    # a variable the caller would never see.
+    count_rounds() {  # $1=extra jq filter ("" for none)
+      local extra="$1" login n=0 unknown=0
       while read -r login; do
         [ -n "$login" ] || continue
-        author_may_record "$login" && n=$((n + 1))
+        author_may_record "$login"
+        case $? in
+          0) n=$((n + 1)) ;;
+          2) unknown=$((unknown + 1))
+             echo "  could not read the repository permission of '$login'" >&2 ;;
+        esac
       done <<EOF
 $(gh api "repos/$REPO/issues/$PR/comments" --paginate \
     --jq "$round_comments ${extra} | .user.login" 2>/dev/null)
 EOF
-      printf '%s' "$n"
+      printf '%s %s' "$n" "$unknown"
     }
     # Count LINES, never `| length`. `--paginate` emits one JSON array per page,
     # so `length` yields one count per page -- "0\n0" past 100 comments, which
     # `[ ... -gt 0 ]` reports as a syntax error, and an erroring test falls
     # through to the pass path. The gate's own counting documents this defect;
     # writing it a third time here would be the third time in this repository.
-    agent_round="$(count_rounds "")"
+    read -r agent_round agent_unknown <<EOF
+$(count_rounds "")
+EOF
     # The declaration must live IN a round comment, on its own line -- not
     # anywhere on the pull request. Matching it loosely made this guard disarm
     # itself: its own failure text below named the literal, so pasting that
     # failure into a comment satisfied the condition it was reporting.
-    declared_none="$(count_rounds "| select(.body | test(\"(^|\\\\n)findings: none\"))")"
+    read -r declared_none _ <<EOF
+$(count_rounds "| select(.body | test(\"(^|\\\\n)findings: none\"))")
+EOF
+  fi
+  # An indeterminate lookup is not "no round". If the API could not tell us
+  # whether a comment author may record one, this guard cannot answer the
+  # question it exists to answer, and must say so rather than pass.
+  if [ "${agent_unknown:-0}" -gt 0 ]; then
+    echo "FAIL: could not determine the repository permission of ${agent_unknown} comment"
+    echo "      author(s) on this pull request, so whether an agent round was recorded is"
+    echo "      unknown -- and this guard cannot check the dispositions of a round it"
+    echo "      cannot see. This is a failed lookup, not an absent round: re-run once the"
+    echo "      GitHub API is answering, and do not merge on this result."
+    exit 1
   fi
   if [ "${agent_round:-0}" -gt 0 ] && [ "${declared_none:-0}" -eq 0 ]; then
     echo "FAIL: an agent review round is recorded on this pull request, but no thread carries"

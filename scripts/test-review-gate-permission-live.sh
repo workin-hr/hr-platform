@@ -65,14 +65,35 @@ if [ -z "$actor" ]; then
   echo "FATAL: no RECORDER_LOGIN/GITHUB_ACTOR to probe with." >&2
   exit 2
 fi
-raw="$(gh api "repos/$REPO/collaborators/$actor/permission" --jq '.permission' 2>"$WORK/err")" || raw=""
+status=""
+raw=""
+for attempt in 1 2 3; do
+  status="$(gh api "repos/$REPO/collaborators/$actor/permission" \
+      --include 2>"$WORK/err" | sed -n '1s#.*[[:space:]]\([0-9][0-9][0-9]\)[[:space:]].*#\1#p' | head -n 1)"
+  raw="$(gh api "repos/$REPO/collaborators/$actor/permission" --jq '.permission' 2>>"$WORK/err")" || raw=""
+  case "$raw" in ""|*[!a-z]*) raw="" ;; esac
+  [ -n "$raw" ] && break
+  # 403 is the answer, not a blip: retrying cannot grant a permission. Anything
+  # else might be a secondary rate limit or a transient 5xx, and this step sits
+  # in the only required check on `main`.
+  [ "$status" = "403" ] && break
+  [ "$attempt" = 3 ] || sleep $((attempt * 5))
+done
+
 if [ -n "$raw" ]; then
   check 0 "the workflow token CAN read repository permissions (got '$raw' for $actor)"
+elif [ "$status" = "403" ]; then
+  check 1 "the workflow token CAN read repository permissions -- 403 for $actor"
+  echo "        A PERMISSIONS REGRESSION, not a blip. GITHUB_TOKEN cannot call the"
+  echo "        collaborators endpoint with the permissions this workflow declares,"
+  echo "        so every review round would fail closed and the gate would be"
+  echo "        permanently red. Check the job's \`permissions:\` block."
+  sed 's/^/        /' "$WORK/err" >&2 || true
 else
-  check 1 "the workflow token CAN read repository permissions -- for $actor it could not"
-  echo "        This is the failure that makes every round fail closed and the gate"
-  echo "        permanently red. GITHUB_TOKEN cannot call the collaborators endpoint"
-  echo "        with the permissions this workflow declares."
+  check 1 "the workflow token CAN read repository permissions -- no answer for $actor after 3 tries"
+  echo "        HTTP status: '${status:-none}'. This is NOT a 403, so it is more"
+  echo "        likely an upstream fault -- a secondary rate limit or a 5xx -- than"
+  echo "        a permissions regression. Re-run the job before treating it as one."
   sed 's/^/        /' "$WORK/err" >&2 || true
 fi
 
