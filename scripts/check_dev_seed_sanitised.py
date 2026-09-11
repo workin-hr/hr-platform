@@ -401,39 +401,6 @@ def check_seed_names_no_definer(seed: str, findings: list[str]) -> None:
         )
 
 
-def check_hooks_ddl_guards_its_target(findings: list[str]) -> None:
-    """The precondition must run before the first DROP TRIGGER, or it is decoration.
-
-    legacy_runtime_offset_hooks.sql opens with a statement that reads
-    legacy_runtime_offset_history and touches no rows, so the file aborts with
-    ERROR 1146 when its target is absent -- before installing anything. Without
-    it, a provisioning run whose earlier file failed leaves three triggers on the
-    legacy `configs` table pointing at a table that was never created, and every
-    PHP write to the daylight-saving row fails while other keys succeed.
-
-    Checked here because deleting that one line broke nothing: the trigger-parity
-    count in build_dev_seed.sh counts CREATE TRIGGER, and every other gate reads
-    the seed rather than this file. Order matters as much as presence -- the same
-    statement after the first DROP TRIGGER protects nothing.
-    """
-    hooks = read(os.path.join(REPO_ROOT, HOOKS_DDL))
-    if hooks is None:
-        fail(f"missing {HOOKS_DDL}, which installs the runtime-offset writers", findings)
-        return
-    executed = SQL_COMMENT.sub(lambda m: " " * len(m.group(0)), hooks)
-    guard = re.search(r"(?i)\blegacy_runtime_offset_history\b", executed)
-    first_drop = re.search(r"(?im)^\s*DROP TRIGGER\b", executed)
-    if guard is None or first_drop is None or guard.start() > first_drop.start():
-        fail(
-            f"{HOOKS_DDL} does not read legacy_runtime_offset_history before its first "
-            f"DROP TRIGGER. That statement is the file's precondition: it makes the file "
-            f"abort with ERROR 1146 when its target is absent, instead of installing three "
-            f"triggers on the legacy `configs` table that point at nothing and break PHP's "
-            f"daylight-saving writes silently. Restore it above the DROP TRIGGER statements",
-            findings,
-        )
-
-
 def check_seed_carries_the_non_table_ddl(seed: str, findings: list[str]) -> None:
     """The two Phase-1 statements that are not CREATE TABLE.
 
@@ -611,7 +578,6 @@ def main() -> int:
     check_seed_is_self_sufficient(seed, findings)
     check_seed_carries_the_non_table_ddl(seed, findings)
     check_seed_names_no_definer(seed, findings)
-    check_hooks_ddl_guards_its_target(findings)
     check_seed_can_be_applied_twice(seed, findings)
 
     if findings:

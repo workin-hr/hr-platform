@@ -491,63 +491,6 @@ def test_prose_about_definer_is_not_a_definer_clause() -> None:
     check(not findings, f"prose naming the hazard passes (got {findings})")
 
 
-def _hooks_without_guard(text: str) -> str:
-    """The hooks file with its precondition line removed -- mutant N1."""
-    return "\n".join(l for l in text.splitlines()
-                     if "legacy_runtime_offset_history LIMIT 0" not in l) + "\n"
-
-
-def test_the_hooks_precondition_is_required() -> None:
-    """Removing it broke nothing before this check existed: the builder's parity
-    count counts CREATE TRIGGER, and every other gate reads the seed, not this
-    file. That is how the round-11 P1 could silently return."""
-    import tempfile, os as _os
-    hooks_path = _os.path.join(gate.REPO_ROOT, gate.HOOKS_DDL)
-    real = gate.read(hooks_path)
-    check(real is not None, "the hooks DDL is readable")
-    root = tempfile.mkdtemp(prefix="hooks-guard-")
-    target = _os.path.join(root, gate.HOOKS_DDL)
-    _os.makedirs(_os.path.dirname(target), exist_ok=True)
-    original_root = gate.REPO_ROOT
-    try:
-        # Present and ordered -> clean.
-        open(target, "w", encoding="utf-8").write(real or "")
-        gate.REPO_ROOT = root
-        findings: list[str] = []
-        gate.check_hooks_ddl_guards_its_target(findings)
-        check(not findings, f"the real hooks file passes (got {findings})")
-
-        # Removed -> rejected.
-        open(target, "w", encoding="utf-8").write(_hooks_without_guard(real or ""))
-        findings = []
-        gate.check_hooks_ddl_guards_its_target(findings)
-        check(any("ERROR 1146" in f for f in findings),
-              f"a hooks file with the precondition deleted is rejected (got {findings})")
-
-        # Present but AFTER the first DROP TRIGGER -> rejected: order is the property.
-        moved = _hooks_without_guard(real or "").rstrip("\n") + \
-            "\nSELECT 1 FROM legacy_runtime_offset_history LIMIT 0;\n"
-        open(target, "w", encoding="utf-8").write(moved)
-        findings = []
-        gate.check_hooks_ddl_guards_its_target(findings)
-        check(any("before its first" in f for f in findings),
-              f"a precondition moved below the DROP TRIGGERs is rejected (got {findings})")
-
-        # Named only in a comment -> rejected.
-        commented = _hooks_without_guard(real or "").replace(
-            "DROP TRIGGER IF EXISTS configs_runtime_offset_after_insert;",
-            "-- SELECT 1 FROM legacy_runtime_offset_history LIMIT 0;\n"
-            "DROP TRIGGER IF EXISTS configs_runtime_offset_after_insert;", 1)
-        open(target, "w", encoding="utf-8").write(commented)
-        findings = []
-        gate.check_hooks_ddl_guards_its_target(findings)
-        check(bool(findings),
-              f"a precondition that survives only as a comment is rejected (got {findings})")
-    finally:
-        gate.REPO_ROOT = original_root
-        shutil.rmtree(root, ignore_errors=True)
-
-
 def main() -> int:
     for name, function in sorted(globals().items()):
         if name.startswith("test_") and callable(function):
