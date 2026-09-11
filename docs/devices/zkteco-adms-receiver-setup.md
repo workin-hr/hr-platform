@@ -45,6 +45,12 @@ Three gates, all set by D-165, none of which the pilot satisfies by itself:
   `information_schema.TRIGGERS` query in
   [provisioning-phase1-tables.md](../operations/provisioning-phase1-tables.md)
   step 4 — expect three rows.
+- `attendance`.`method` accepts `'device'`, which
+  `backend/src/main/resources/db/phase1-mysql/slice_b_attendance_method.sql`
+  adds (**D-214**). This is the trigger prerequisite's twin and fails the same
+  way: `PunchPairingService` has two refusal branches with one symptom, and
+  nothing detects an unwidened enum either. Step 4 checks it in the same
+  breath — expect `enum('app','excel','qr','device')`.
 
 ## 2. On the terminal
 

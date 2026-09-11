@@ -1,16 +1,23 @@
 -- Phase 1 extension schema -- NOT part of the legacy contract.
 --
--- THIS IS THE PROVISIONING ARTIFACT. It is the one definition of the
--- tables Phase 1 adds to the existing MariaDB, and it is applied by hand
--- before cutover -- ADR-0013 gives Flyway no ownership of any MariaDB
--- schema, so nothing creates these at runtime. See
--- docs/operations/provisioning-phase1-tables.md for the runbook, and
--- R-023 for why an unprovisioned database is a cutover blocker rather
--- than a startup error.
+-- THIS IS NOT THE PROVISIONING ARTIFACT, and nothing outside this spike
+-- should be provisioned from it. It is a frozen copy taken while the
+-- trial stack was built, and it has since fallen behind in two ways that
+-- matter: it creates SIX of the fourteen Phase-1-owned tables (the eight
+-- attendance-device tables of D-164 are absent), and it declares no
+-- CHARACTER SET or COLLATE, so every table here takes the server default
+-- rather than utf8mb4/utf8mb4_unicode_ci.
 --
--- It ships inside the jar (src/main/resources) so an operator can
--- extract the DDL that matches the deployed code rather than a file
--- from a branch that may have moved on:
+-- The one definition is backend/src/main/resources/db/phase1-mysql/
+-- phase1_extensions.sql, which ships inside the jar so an operator can
+-- extract the DDL that matches the deployed code. Its runbook is
+-- docs/operations/provisioning-phase1-tables.md -- which is also the one
+-- authority for dropping any of these tables, triggers first. R-023 is
+-- why an unprovisioned database is a cutover blocker rather than a
+-- startup error.
+--
+-- The trial stack keeps its own copy only so the spike stays runnable
+-- without the backend tree:
 --
 --   unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/phase1_extensions.sql
 --

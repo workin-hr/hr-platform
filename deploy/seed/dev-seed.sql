@@ -80905,3 +80905,157 @@ CREATE TABLE `device_assignment_history` (
 /*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
 /*M!100616 SET NOTE_VERBOSITY=@OLD_NOTE_VERBOSITY */;
 
+--
+-- ---------------------------------------------------------------------------
+-- Phase 1, the two statements that are not CREATE TABLE.
+--
+-- scripts/build_dev_seed.sh applies all three phase1-mysql DDL files before
+-- dumping, so a seed regenerated from a production dump carries these already
+-- (mariadb-dump emits triggers by default). This block exists because THIS file
+-- was generated before the builder did that, and a seed with the fourteen tables
+-- but neither the widened enum nor the triggers is the one combination that
+-- fails silently: Phase1SchemaCheck compares table names only, logs "all 14
+-- owned tables are present", and PunchPairingService then refuses every pairing
+-- pass with punches accumulating in RECEIVED.
+--
+-- Both are idempotent -- MODIFY COLUMN, and DROP TRIGGER IF EXISTS before each
+-- CREATE -- which is why they can live here when phase1_extensions.sql cannot
+-- (re-running its CREATE TABLE gave ERROR 1050 and an unhealthy container).
+--
+-- Copied from, and held to, those two files by
+-- scripts/check_dev_seed_sanitised.py. The one authority for removing any of
+-- this is docs/operations/provisioning-phase1-tables.md#rollback.
+-- ---------------------------------------------------------------------------
+
+-- Slice B: a fourth value for attendance.method (Q5, D-165).
+--
+-- Separate from phase1_extensions.sql, and the separation is the point.
+-- That file is the one definition of the tables Phase 1 *adds*; it is
+-- applied to a database that may hold nothing else, and
+-- Phase1SchemaCheckTest proves exactly that by applying it to a scratch
+-- database with no legacy schema in it. This statement instead *alters* a
+-- table the legacy contract owns, so it can only run against a database
+-- that already carries mysql_workin.schema.sql.
+--
+-- It is equally deliberately not an edit to mysql_workin.schema.sql. That
+-- file is a byte-identical copy of hr-legacy's dump, held to it by
+-- scripts/check_legacy_schema_drift.py. Editing the copy would make it
+-- claim something production does not say until this has actually run.
+--
+-- THE EXPAND STEP. Run this before deploying code that writes 'device'.
+-- Both deployment orders are safe once it has:
+--
+--   old PHP + new enum -- fine. Audited under D-165: every frozen-PHP site
+--     writes attendance.method (check_in.php, create.php, check_in_qr.php,
+--     attendance_excel_analyzer.php, xlsx_parser.php,
+--     request_actions_helper.php) and exactly one reads it,
+--     dashboard/pages/employees/detail.php, which renders clean($a['method'])
+--     verbatim. No comparison, no switch, no WHERE method =, no i18n label
+--     keyed by the value, no export column. PHP prints the word and moves on.
+--
+--   new Java + old enum -- NOT fine, and this is why the ALTER goes first:
+--     MariaDB refuses an out-of-range ENUM value, so pairing's INSERT would
+--     fail and every device punch would stay RECEIVED. Loud, and recoverable
+--     by running this and letting the pass retry -- but avoidable entirely.
+--
+-- Cost: attendance is 36,316 rows / 64 MB, and a fourth value does not change
+-- a <=255-value ENUM's one-byte storage, so this is metadata-only
+-- (ALGORITHM=INSTANT) and does not rewrite the table. Existing rows keep both
+-- their value and its ordinal, because the new value is appended last.
+--
+-- Rollback: pairing writes 'device' rows, so narrowing the enum again would
+-- silently coerce them. To undo, first repoint or delete those rows
+-- (SELECT id FROM attendance WHERE method = 'device'), then narrow.
+--
+-- Re-running this is harmless: it states the column's target shape rather
+-- than a delta, so a second run is a no-op.
+
+ALTER TABLE attendance
+    MODIFY COLUMN method ENUM('app', 'excel', 'qr', 'device') NOT NULL DEFAULT 'app';
+
+-- Capture legacy runtime-offset changes at the DATABASE mutation boundary.
+--
+-- Separate from phase1_extensions.sql on purpose: that file must execute
+-- against a database with no legacy tables, and these triggers reference the
+-- vendored `configs` table. Same ordering rule as slice_b_attendance_method.sql
+-- (D-214) -- a statement that depends on legacy structure ships as its own step.
+--
+-- Why triggers rather than writing history from the application: the flag can
+-- be changed by PHP, by hand, or by any other path. Recording when THIS
+-- application first observed a new value would store the observation time, not
+-- the change time, and a punch delivered between those two moments would still
+-- be converted with the wrong offset.
+--
+-- The DERIVED offset is recorded, not the raw spelling. 'true' -> 'dst' is not
+-- a runtime transition: both mean +03:00, and writing a row for it would invent
+-- a boundary that never existed.
+--
+-- Deployment order (see provisioning-phase1-tables.md):
+--   1. phase1_extensions.sql        -- creates legacy_runtime_offset_history
+--   2. THIS FILE                    -- installs the writers
+--   3. the seed statement below     -- begins trustworthy coverage
+--
+-- UTC_TIMESTAMP(), never NOW(): the session's NOW() is in the legacy runtime's
+-- own offset, which is precisely the value under change here.
+
+DROP TRIGGER IF EXISTS configs_runtime_offset_after_insert;
+DROP TRIGGER IF EXISTS configs_runtime_offset_after_update;
+DROP TRIGGER IF EXISTS configs_runtime_offset_after_delete;
+
+DELIMITER $$
+
+-- The same rule LegacyRuntimeOffset.of() applies: a small set of truthy
+-- spellings means +03:00, everything else -- including an unreadable value --
+-- means the +02:00 default PHP falls back to.
+CREATE TRIGGER configs_runtime_offset_after_insert
+AFTER INSERT ON configs FOR EACH ROW
+BEGIN
+    IF NEW.config_key = 'is_daylight_saving' THEN
+        INSERT INTO legacy_runtime_offset_history (effective_from_utc, offset_seconds)
+        VALUES (UTC_TIMESTAMP(),
+                IF(LOWER(TRIM(NEW.config_value)) IN ('1', 'true', 'yes', 'summer', 'dst'), 10800, 7200));
+    END IF;
+END$$
+
+CREATE TRIGGER configs_runtime_offset_after_update
+AFTER UPDATE ON configs FOR EACH ROW
+BEGIN
+    -- Renaming INTO or OUT OF the key changes the effective offset too, so the
+    -- comparison is between "what the runtime offset was" and "what it now is",
+    -- not between two config_value strings.
+    DECLARE old_offset INT;
+    DECLARE new_offset INT;
+    SET old_offset = IF(OLD.config_key = 'is_daylight_saving',
+            IF(LOWER(TRIM(OLD.config_value)) IN ('1', 'true', 'yes', 'summer', 'dst'), 10800, 7200),
+            NULL);
+    SET new_offset = IF(NEW.config_key = 'is_daylight_saving',
+            IF(LOWER(TRIM(NEW.config_value)) IN ('1', 'true', 'yes', 'summer', 'dst'), 10800, 7200),
+            NULL);
+    IF NOT (old_offset <=> new_offset) THEN
+        INSERT INTO legacy_runtime_offset_history (effective_from_utc, offset_seconds)
+        VALUES (UTC_TIMESTAMP(), COALESCE(new_offset, 7200));
+    END IF;
+END$$
+
+-- Deleting the key returns legacy to its +02:00 default, which is a real
+-- transition and has to be recorded as one.
+CREATE TRIGGER configs_runtime_offset_after_delete
+AFTER DELETE ON configs FOR EACH ROW
+BEGIN
+    IF OLD.config_key = 'is_daylight_saving' THEN
+        INSERT INTO legacy_runtime_offset_history (effective_from_utc, offset_seconds)
+        VALUES (UTC_TIMESTAMP(), 7200);
+    END IF;
+END$$
+
+DELIMITER ;
+
+-- Seed: where trustworthy coverage BEGINS. It asserts the offset in force from
+-- this instant onward and says nothing whatever about what came before -- a
+-- punch older than this row is PRE_HISTORY, not "probably the same".
+INSERT INTO legacy_runtime_offset_history (effective_from_utc, offset_seconds)
+SELECT UTC_TIMESTAMP(),
+       IF(LOWER(TRIM(COALESCE(
+           (SELECT config_value FROM configs WHERE config_key = 'is_daylight_saving' LIMIT 1), '')))
+          IN ('1', 'true', 'yes', 'summer', 'dst'), 10800, 7200)
+WHERE NOT EXISTS (SELECT 1 FROM legacy_runtime_offset_history);

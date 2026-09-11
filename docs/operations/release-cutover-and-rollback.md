@@ -82,9 +82,9 @@ first."* Today the table exists only where a test container applies
 `phase1_extensions.sql` out-of-band.
 
 **Rollback treatment.** The change is purely additive, so a rollback does not
-need to reverse it: the tables sit unused, and leaving them costs nothing and
-preserves the option of rolling forward again. Dropping them is therefore
-**not** part of the rollback procedure.
+need to reverse it: the tables carry no application reads, and leaving them
+costs nothing and preserves the option of rolling forward again. Dropping them
+is therefore **not** part of the rollback procedure.
 
 PHP reads none of them, but it does WRITE one indirectly:
 `legacy_runtime_offset_hooks.sql` puts three triggers on the legacy `configs`

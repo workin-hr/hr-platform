@@ -69,10 +69,22 @@ run_sql < "$DUMP"
 
 # A production dump predates any Phase-1 table, and the sanitiser deletes rows
 # from platform_admins, which only exists once the extensions have run.
-if [ -f "$REPO_ROOT/backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql" ]; then
-  echo "==> applying the Phase 1 extensions"
-  run_sql < "$REPO_ROOT/backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql"
-fi
+#
+# All three DDL files, in the runbook's order (provisioning-phase1-tables.md
+# step 3) -- not just the tables. Phase1SchemaCheck compares table NAMES only, so
+# a seed carrying the fourteen tables without the triggers and without the
+# widened enum logs "all 14 owned tables are present" and then
+# PunchPairingService refuses every pass: punches pile up in RECEIVED and nothing
+# says why. Tables-alone is the one combination that fails silently.
+PHASE1_DIR="$REPO_ROOT/backend/src/main/resources/db/phase1-mysql"
+for ddl in phase1_extensions.sql slice_b_attendance_method.sql legacy_runtime_offset_hooks.sql; do
+  if [ ! -f "$PHASE1_DIR/$ddl" ]; then
+    echo "FATAL: $PHASE1_DIR/$ddl is missing -- the seed would be silently incomplete" >&2
+    exit 1
+  fi
+  echo "==> applying $ddl"
+  run_sql < "$PHASE1_DIR/$ddl"
+done
 
 echo "==> sanitising"
 run_sql < "$SANITISER"

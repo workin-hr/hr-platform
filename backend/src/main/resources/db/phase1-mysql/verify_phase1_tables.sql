@@ -37,9 +37,13 @@ SELECT 'database' AS check_name,
 --    NOT "drop the ones listed": the listed value is every owned table present,
 --    which at counts 7-13 includes platform_admin_audit_events (retained
 --    evidence, D-161) and SPRING_SESSION (every live administrator session).
---    Drop only the eight DEVICE tables, and only while nothing has written to
---    them; otherwise re-apply with --force alone, which creates what is absent
---    and touches nothing that exists.
+--    Re-apply with --force alone, which creates what is absent and touches
+--    nothing that exists. This script never tells anyone to drop anything:
+--    dropping an owned table is a destructive procedure with exactly one
+--    authority, docs/operations/provisioning-phase1-tables.md#rollback, which
+--    drops the configs triggers FIRST. Dropping legacy_runtime_offset_history
+--    while those triggers stand breaks PHP's own writes to configs -- and only
+--    on the daylight-saving row, so it fails silently.
 SELECT 'phase1 tables present' AS check_name,
        COALESCE(GROUP_CONCAT(table_name ORDER BY table_name SEPARATOR ', '), 'none') AS value,
        CASE COUNT(*)
@@ -58,16 +62,16 @@ SELECT 'phase1 tables present' AS check_name,
          -- every live administrator session.
          -- The count cannot tell a torn apply from a LIVE stack that lost one
          -- table, and device_punches is the attendance punch record -- section
-         -- 6 calls it the one that will not stay small. So the drop is
-         -- conditional, and --force alone is the answer whenever it is not.
-         ELSE CONCAT('PARTIAL. Re-apply with --force, which creates only what is ',
-                     'absent. Drop-and-re-apply is ONLY for a torn first apply, ',
-                     'only the eight device tables (attendance_devices, ',
-                     'employee_device_identities, device_punches, ',
-                     'unclaimed_device_sightings, device_operation_logs, ',
-                     'device_malformed_punches, legacy_runtime_offset_history, ',
-                     'device_assignment_history), and only while nothing has ',
-                     'written to them. NEVER drop the six originals.')
+         -- 6 calls it the one that will not stay small. An unenforceable
+         -- precondition printed to an operator's screen is still an
+         -- instruction, so this verdict offers no drop at all: --force is
+         -- always the answer here, and a genuine drop belongs to the runbook.
+         ELSE CONCAT('PARTIAL. Re-apply with --force, which creates only what ',
+                     'is absent and touches nothing that exists. Do NOT drop ',
+                     'anything to recover: dropping an owned table is a ',
+                     'destructive procedure with one authority, ',
+                     'docs/operations/provisioning-phase1-tables.md#rollback, ',
+                     'which drops the configs triggers FIRST.')
        END AS verdict
   FROM information_schema.tables
  WHERE table_schema = DATABASE()

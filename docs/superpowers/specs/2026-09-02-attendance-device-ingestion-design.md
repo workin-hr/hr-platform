@@ -478,7 +478,7 @@ itself) updates model, firmware and push version in the registry.
   MariaDB table that frozen PHP still reads (Q5). `attendance_source_punches`
   links each derived row to the punches that produced it.
 
-**Device rows follow the lifecycle of what they point at.** None of the five
+**Device rows follow the lifecycle of what they point at.** None of the eight
 tables has a foreign key — they are Phase-1-owned, and the legacy dump adds its
 own constraints separately — so every lifecycle is closed in code, and each
 tolerates the tables being absent because provisioning is still open (R-023 /
@@ -491,8 +491,11 @@ that route to start answering 409, so the terminal keeps its registration and
 history but stops ingesting into a branch that no longer exists.
 
 **A company's device data is deleted with the company.** `LegacyCompanyDelete`
-cascades through explicit table lists, and the five device tables are added to
-it (children first, tolerating a table a deployment has not provisioned).
+cascades through explicit table lists, and six of the eight device tables are
+added to it (children first, tolerating a table a deployment has not
+provisioned). `unclaimed_device_sightings` and `legacy_runtime_offset_history`
+are deliberately not among them: neither is company-scoped, so neither has a
+company to be deleted with.
 Without that, a deleted company's registry, PIN bindings, punches and
 operation logs would outlive it, and the globally-unique serial would keep the
 terminal from ever being claimed again. The **preview** that endpoint returns
