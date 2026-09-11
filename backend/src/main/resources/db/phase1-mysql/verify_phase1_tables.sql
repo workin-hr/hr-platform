@@ -53,6 +53,14 @@ SELECT 'column counts' AS check_name,
          WHEN table_name = 'platform_admin_login_attempts'  AND COUNT(*) = 3 THEN 'ok'
          WHEN table_name = 'SPRING_SESSION'                 AND COUNT(*) = 7 THEN 'ok'
          WHEN table_name = 'SPRING_SESSION_ATTRIBUTES'      AND COUNT(*) = 3 THEN 'ok'
+         WHEN table_name = 'attendance_devices'             AND COUNT(*) = 18 THEN 'ok'
+         WHEN table_name = 'employee_device_identities'     AND COUNT(*) = 8 THEN 'ok'
+         WHEN table_name = 'device_punches'                 AND COUNT(*) = 24 THEN 'ok'
+         WHEN table_name = 'unclaimed_device_sightings'     AND COUNT(*) = 7 THEN 'ok'
+         WHEN table_name = 'device_operation_logs'          AND COUNT(*) = 6 THEN 'ok'
+         WHEN table_name = 'device_malformed_punches'       AND COUNT(*) = 6 THEN 'ok'
+         WHEN table_name = 'legacy_runtime_offset_history'  AND COUNT(*) = 3 THEN 'ok'
+         WHEN table_name = 'device_assignment_history'      AND COUNT(*) = 7 THEN 'ok'
          ELSE 'UNEXPECTED -- compare against phase1_extensions.sql'
        END AS verdict
   FROM information_schema.columns
