@@ -265,8 +265,14 @@ jobs:
                 echo "  ignoring a round: '$login' is not a usable login" >&2
                 return 1 ;;
             esac
-            permission="$(gh api "repos/$REPO/collaborators/$login/permission" \
-                --jq '.permission' 2>/dev/null || true)"
+            if ! permission="$(gh api "repos/$REPO/collaborators/$login/permission" \
+                --jq '.permission' 2>/dev/null)"; then
+              permission=""
+            fi
+            # A permission is one lowercase word. On a 404 `gh` prints the error
+            # BODY on stdout, so without this the diagnostic below quotes a
+            # whole JSON document as if it were a permission level.
+            case "$permission" in ""|*[!a-z]*) permission="" ;; esac
             case ",${ROUND_AUTHOR_PERMISSIONS}," in
               *",${permission},"*) return 0 ;;
             esac

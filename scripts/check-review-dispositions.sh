@@ -293,8 +293,13 @@ if [ "$total" -eq 0 ]; then
     author_may_record() {  # $1=login
       local permission
       case "$1" in ""|*[!A-Za-z0-9-]*) return 1 ;; esac
-      permission="$(gh api "repos/$REPO/collaborators/$1/permission" \
-          --jq '.permission' 2>/dev/null || true)"
+      if ! permission="$(gh api "repos/$REPO/collaborators/$1/permission" \
+          --jq '.permission' 2>/dev/null)"; then
+        permission=""
+      fi
+      # One lowercase word, or nothing. `gh` prints the error body on stdout for
+      # a 404, which would otherwise read as a permission level.
+      case "$permission" in ""|*[!a-z]*) permission="" ;; esac
       case ",${ROUND_AUTHOR_PERMISSIONS}," in *",${permission},"*) return 0 ;; esac
       return 1
     }
