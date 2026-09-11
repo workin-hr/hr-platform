@@ -193,7 +193,7 @@ negative control, because every one of these checks can otherwise pass for the
 wrong reason.
 
 **1. Provision the Phase-1-owned tables** — `legacy_refresh_tokens` and, if the
-attendance-device receiver is to be enabled, the five device tables (D-164) —
+attendance-device receiver is to be enabled, the eight device tables (D-164) —
 in the production legacy database by an approved mechanism (ADR-0013 Open
 Questions — undecided). Rehearse it against a
 restored copy first, and record the mechanism, its owner and its lock duration
@@ -381,7 +381,7 @@ which is precisely the failure R-025 describes.
 
 | # | Step | Reversible | Confirms |
 |---|---|---|---|
-| 1 | Provision the Phase 1 tables | Yes — `DROP TABLE` | `docs/operations/provisioning-phase1-tables.md`; then the startup check logs *all 10 owned tables are present* |
+| 1 | Provision the Phase 1 tables | Yes — [Rollback](provisioning-phase1-tables.md#rollback), **triggers first** | `docs/operations/provisioning-phase1-tables.md`; then the startup check logs *all 14 owned tables are present* |
 | 2 | Confirm runtime grants on the new tables | n/a | The application's own principal can write, not just the operator who created them (see "Required pre-cutover verification" above) |
 | 3 | Compare signing-secret fingerprints | n/a | `docs/operations/verifying-the-signing-secret.md`. **Unequal means stop** |
 | 4 | Provision the WhatsApp credentials and send one real OTP | Yes — remove the config | **R-015**. Startup logs *WhatsApp OTP delivery is configured*, and one real send arrives. A 503 here is indistinguishable to a user from the platform being down |
@@ -402,9 +402,15 @@ There is **no** irreversible step in this sequence, which is unusual and
 worth stating plainly, because the instinct to treat a cutover as
 one-way is what makes people hesitate to reverse it.
 
-- The tables are additive and PHP references none of them. After a
-  rollback they sit orphaned and harmless, and leaving them means a
-  second attempt needs no DDL.
+- The tables are additive, and leaving them means a second attempt needs no
+  DDL. They are not quite orphaned, though: `legacy_runtime_offset_hooks.sql`
+  puts three triggers on the legacy `configs` table that write into
+  `legacy_runtime_offset_history`, so PHP does touch one of them indirectly on
+  every `configs` write. That is an argument for LEAVING them, not for dropping
+  them -- dropping the table while the triggers stand breaks PHP's own writes
+  (`ERROR 1146`). If they must go, use
+  [Rollback](provisioning-phase1-tables.md#rollback), which drops the triggers
+  first.
 - Every row Java writes to a legacy table is legacy-shaped — that is what
   the entire parity programme established — so PHP reads its own data
   back unchanged.
@@ -460,7 +466,10 @@ plus a customer communication.
 
 1. Reverse step 8. Traffic returns to PHP.
 2. Confirm PHP is serving: run the same smoke checks against it.
-3. Leave the Phase 1 tables in place. They are inert under PHP, and
+3. Leave the Phase 1 tables in place. They are **not** inert under PHP --
+   `legacy_runtime_offset_hooks.sql` puts three triggers on the legacy
+   `configs` table that write into `legacy_runtime_offset_history`, so dropping
+   these tables breaks PHP's own writes -- and
    dropping them only makes a second attempt more expensive.
 4. Leave the jar running but unrouted if you can — its logs are the
    evidence for what went wrong.
@@ -491,7 +500,7 @@ decision.
 
 | Step | Evidence it produces |
 |---|---|
-| 1 | The provisioning query's output before and after; the startup check's *all 10 owned tables are present* |
+| 1 | The provisioning query's output before and after; the startup check's *all 14 owned tables are present* |
 | 3 | Two fingerprints, recorded as equal — the values themselves, never the secrets |
 | 4 | One delivered OTP message |
 | 5 | Startup log: schema check clean, fingerprint matching, WhatsApp configured |

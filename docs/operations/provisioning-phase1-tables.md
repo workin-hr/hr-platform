@@ -118,7 +118,8 @@ that already exist — resolve that before continuing rather than editing
 the file to skip them.
 
 **2. Back up.** `docs/operations/backup-and-restore.md`. The change is
-additive and its rollback is a `DROP TABLE` per name, but a backup taken
+additive and its rollback is the [Rollback](#rollback) section below -- which is
+not a `DROP TABLE` per name, and the order matters -- but a backup taken
 immediately before any schema change is the cheaper of the two ways to
 find that out.
 
@@ -277,9 +278,16 @@ before `SPRING_SESSION`, and `platform_admin_audit_events` before
 `platform_admins`. Those are the two foreign keys among the fourteen; naming
 all fourteen in one statement in the wrong order fails with
 `ERROR 1451 (23000): Cannot delete or update a parent row` part-way through,
-leaving the rollback half-done. Legacy PHP never referenced any of the tables, so
-once the triggers are gone this returns the database to exactly its
-pre-Phase-1 shape.
+leaving the rollback half-done. Legacy PHP never referenced any of the fourteen
+TABLES, so once the triggers are gone those fourteen are back to their
+pre-Phase-1 state.
+
+That is not the whole database. Step 3 also applied
+`slice_b_attendance_method.sql`, which widened `attendance.method` from
+`enum('app','excel','qr')` to `enum('app','excel','qr','device')`. Nothing above
+reverses it, and reversing it is the riskier half: narrowing the enum silently
+coerces any row already storing `'device'`. That procedure is in that file's own
+header -- repoint or delete those rows first.
 
 The one thing a drop destroys that matters is
 `platform_admin_audit_events` — the record of what platform admins did.
