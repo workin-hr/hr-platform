@@ -4,10 +4,15 @@ Moving this application onto a server of your own: which stack to run, every
 value that changes and the file it lives in, the order to do it in, and how to
 tell it worked.
 
-Written for the cutover from the PHP deployment. It assumes the six Phase 1
-tables already exist in whichever database you point at —
+Written for the cutover from the PHP deployment. It assumes Phase 1 is already
+provisioned in whichever database you point at.
+[provisioning-phase1-tables.md](provisioning-phase1-tables.md) is the authority
+on what that means and how to do it. This page deliberately does not restate the
+list: it carried its own count once, that count was correct when written, and it
+went stale the moment the runbook's grew — which is the whole argument for one
+authority rather than two agreeing copies.
 [checking-against-the-live-database.md](checking-against-the-live-database.md)
-covers applying them.
+covers applying it to, and checking it against, a database that already exists.
 
 ## 1. First decide where the database lives
 
@@ -30,16 +35,24 @@ Both pairs are two files, always. `compose.tls.yaml` puts Caddy in front and
 
 ## 2. Before the first start
 
-Three things must be true, and none of them fails loudly later.
+Three things must be true, and none of them fails in a way that points at
+itself.
 
 - **`APP_DOMAIN` resolves to the VPS.** Caddy obtains the certificate on first
   start; a name that does not resolve is a certificate that never issues and a
   site that never serves.
 - **Port 80 and 443 are open** to the internet. The certificate authority
   reaches port 80 to validate.
-- **The Phase 1 tables exist** in the database you are pointing at. The
-  application creates its administrator row at every startup, so without
-  `platform_admins` it does not start at all.
+- **Phase 1 is provisioned** in the database you are pointing at, per
+  [provisioning-phase1-tables.md](provisioning-phase1-tables.md) — which is more
+  than the tables. The application creates its administrator row at every
+  startup, so without `platform_admins` it does not start at all; and the
+  startup check compares table *names* only, so a database with every table and
+  none of the rest reports itself healthy and then fails in a background pass, at
+  ERROR, where no request and no health check will surface it. Run that runbook's
+  Confirm steps — 4 for the tables, triggers and enum, and 4b for the collation,
+  which is name-invisible in exactly the same way — and take their answer rather
+  than this page's word.
 
 ## 3. What changes, and where
 
@@ -137,8 +150,24 @@ against real data:
 
 ## Rolling back
 
-Stopping the container is the rollback, and it is complete in scenario **B**:
-the database is untouched by the switch, and PHP serves again the moment DNS or
-the proxy points back. In **A** the VPS database has taken writes the old host
-has not, so a rollback there is a data reconciliation and needs planning before
-the cutover, not after.
+Stopping the container is the rollback, and in scenario **B** it is immediate:
+PHP serves again the moment DNS or the proxy points back, because the data never
+moved.
+
+It is not, however, a return to the database you started with. Provisioning ran
+against the live database, and stopping a container does not undo DDL: the tables
+remain, `attendance.method` still accepts `'device'`, and the runtime-offset
+triggers remain installed on the legacy `configs` table. Leaving all of it in
+place is the recommended treatment — it is additive, PHP reads none of it, and it
+means rolling forward again needs no DDL.
+
+**What you must not do is drop it casually.** The triggers write into
+`legacy_runtime_offset_history`, so dropping that table while they stand makes
+every PHP write to the daylight-saving row fail while writes to other keys keep
+succeeding. If a drop is ever genuinely required there is one procedure for it,
+and it drops the triggers first:
+[provisioning-phase1-tables.md#rollback](provisioning-phase1-tables.md#rollback).
+
+In **A** the VPS database has taken writes the old host has not, so a rollback
+there is a data reconciliation and needs planning before the cutover, not
+after.
