@@ -75,14 +75,14 @@ AGENT_ROUND_RE="$(
   sed -e 's/^[[:space:]]*#.*$//' -e "s/[[:space:]]#[^\"']*$//" "$INDEPENDENT_REVIEW_WORKFLOW" \
     | sed -n "s/.*AGENT_ROUND_RE:[[:space:]]*'\([^']*\)'.*/\1/p" | head -n 1
 )"
-ROUND_AUTHOR_ASSOC="$(
+ROUND_AUTHOR_PERMISSIONS="$(
   sed -e 's/^[[:space:]]*#.*$//' -e "s/[[:space:]]#[^\"']*$//" "$INDEPENDENT_REVIEW_WORKFLOW" \
-    | sed -n "s/.*ROUND_AUTHOR_ASSOC:[[:space:]]*'\([^']*\)'.*/\1/p" | head -n 1
+    | sed -n "s/.*ROUND_AUTHOR_PERMISSIONS:[[:space:]]*'\([^']*\)'.*/\1/p" | head -n 1
 )"
-export AGENT_ROUND_RE ROUND_AUTHOR_ASSOC
+export AGENT_ROUND_RE ROUND_AUTHOR_PERMISSIONS
 
-if [ -z "$AGENT_ROUND_RE" ] || [ -z "$ROUND_AUTHOR_ASSOC" ]; then
-  echo "Error: could not read the agent-round marker or its author allowlist from" >&2
+if [ -z "$AGENT_ROUND_RE" ] || [ -z "$ROUND_AUTHOR_PERMISSIONS" ]; then
+  echo "Error: could not read the agent-round marker or its permission allowlist from" >&2
   echo "       $INDEPENDENT_REVIEW_WORKFLOW -- the zero-findings guard cannot run" >&2
   echo "       without them, and running it with a marker that matches nothing" >&2
   echo "       would silently pass every claimed round (D-226)." >&2
@@ -280,28 +280,46 @@ if [ "$total" -eq 0 ]; then
     # write access, never edited since, and carrying the marker on its own line.
     # Anything weaker counts comments the gate does not, so the guard would be
     # answering a different question than the one that turns the status green.
-    # `$a` is a jq variable bound by the `as` below, not a shell expansion, so
-    # the single quotes are required and SC2016 is noise.
+    #
+    # "Write access" is the repository PERMISSION, read per author below, not
+    # author_association -- D-228, and the same authority the gate now uses.
     # shellcheck disable=SC2016
     round_comments='.[]
-      | select(.author_association as $a
-               | (env.ROUND_AUTHOR_ASSOC | split(",")) | index($a))
       | select(.created_at == .updated_at)
       | select(.body | test(env.AGENT_ROUND_RE))'
+
+    # Fails CLOSED, like the gate's copy: an unreadable permission is not write
+    # access, so the comment is not a round.
+    author_may_record() {  # $1=login
+      local permission
+      case "$1" in ""|*[!A-Za-z0-9-]*) return 1 ;; esac
+      permission="$(gh api "repos/$REPO/collaborators/$1/permission" \
+          --jq '.permission' 2>/dev/null || true)"
+      case ",${ROUND_AUTHOR_PERMISSIONS}," in *",${permission},"*) return 0 ;; esac
+      return 1
+    }
+    count_rounds() {  # $1=extra jq filter ("" for none) -> count
+      local extra="$1" login n=0
+      while read -r login; do
+        [ -n "$login" ] || continue
+        author_may_record "$login" && n=$((n + 1))
+      done <<EOF
+$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+    --jq "$round_comments ${extra} | .user.login" 2>/dev/null)
+EOF
+      printf '%s' "$n"
+    }
     # Count LINES, never `| length`. `--paginate` emits one JSON array per page,
     # so `length` yields one count per page -- "0\n0" past 100 comments, which
     # `[ ... -gt 0 ]` reports as a syntax error, and an erroring test falls
     # through to the pass path. The gate's own counting documents this defect;
     # writing it a third time here would be the third time in this repository.
-    agent_round="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-      --jq "$round_comments | .id" 2>/dev/null | wc -l | tr -d '[:space:]')"
+    agent_round="$(count_rounds "")"
     # The declaration must live IN a round comment, on its own line -- not
     # anywhere on the pull request. Matching it loosely made this guard disarm
     # itself: its own failure text below named the literal, so pasting that
     # failure into a comment satisfied the condition it was reporting.
-    declared_none="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-      --jq "$round_comments | select(.body | test(\"(^|\\\\n)findings: none\")) | .id" \
-      2>/dev/null | wc -l | tr -d '[:space:]')"
+    declared_none="$(count_rounds "| select(.body | test(\"(^|\\\\n)findings: none\"))")"
   fi
   if [ "${agent_round:-0}" -gt 0 ] && [ "${declared_none:-0}" -eq 0 ]; then
     echo "FAIL: an agent review round is recorded on this pull request, but no thread carries"

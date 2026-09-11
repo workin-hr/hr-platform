@@ -32,6 +32,7 @@ cat > "$WORK/gh" <<'STUB'
 #!/usr/bin/env bash
 if [ "${1:-}" = "repo" ]; then echo "owner/repo"; exit 0; fi
 jqexpr=""
+who=""
 next_is_jq=0
 is_graphql=0
 is_comments=0
@@ -41,8 +42,24 @@ for arg in "$@"; do
     --jq) next_is_jq=1 ;;
     graphql) is_graphql=1 ;;
     */comments) is_comments=1 ;;
+    */collaborators/*/permission)
+      # D-228: the gate and this guard both authorise by repository permission.
+      who="${arg#*/collaborators/}"; who="${who%/permission}" ;;
   esac
 done
+if [ -n "${who:-}" ]; then
+  # perms.txt is "login permission" per line. A login absent from it answers
+  # nothing at all and exits non-zero, which is how a 403, a rate limit or a
+  # renamed account behaves -- the caller must treat that as "not a writer".
+  level="$(awk -v w="$who" '$1 == w {print $2; exit}' "$FIXTURE_DIR/perms.txt" 2>/dev/null)"
+  [ -n "$level" ] || exit 1
+  if [ -n "$jqexpr" ]; then
+    printf '{"permission":"%s"}\n' "$level" | jq -r "$jqexpr"
+  else
+    printf '{"permission":"%s"}\n' "$level"
+  fi
+  exit 0
+fi
 if [ "$is_graphql" = 1 ]; then
   cat "$FIXTURE_DIR/threads.json"; exit 0
 fi
@@ -66,6 +83,7 @@ export FIXTURE_DIR="$WORK"
 printf '%s' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}' \
   > "$WORK/threads.json"
 
+perms() { printf '%s\n' "$@" > "$WORK/perms.txt"; }
 comments() { rm -f "$WORK"/comments*.json; printf '%s' "$1" > "$WORK/comments.json"; }
 
 ROUND_BODY="independent-review-round: agent\r\nhead: $HEAD_FULL"
@@ -83,6 +101,12 @@ expect() {  # $1=label $2=expected exit status
   fi
 }
 
+# Repository permission is the authority (D-228), so every case declares one.
+# `owner1` may record a round; `stranger` and `driveby` may not. Note what the
+# fixtures keep: author_association is still present on each, and is now
+# IGNORED -- case 6a exists to prove that.
+perms "owner1 admin" "stranger none" "driveby read"
+
 # 1. The ordinary clean pull request: nobody claimed a round, no findings.
 #    This is the case that crashed with `REPO: unbound variable`.
 comments '[]'
@@ -90,44 +114,66 @@ expect "clean PR, no round claimed" 0
 
 # 2. A round claimed by a writer, with no findings and no declaration. The
 #    whole point of the guard: silence is not a disposition.
-comments '[{"author_association":"OWNER","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'"}]'
+comments '[{"user":{"login":"owner1"},"author_association":"OWNER","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'"}]'
 expect "round claimed, nothing declared (must FAIL)" 1
 
 # 3. The same round, declaring zero findings on its own line.
-comments '[{"author_association":"OWNER","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'\r\nfindings: none"}]'
+comments '[{"user":{"login":"owner1"},"author_association":"OWNER","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'\r\nfindings: none"}]'
 expect "round claimed, zero findings declared" 0
 
 # 4. The guard must not disarm itself. Its own failure text names the
 #    declaration; pasting that failure into a separate comment used to satisfy
 #    the condition being reported.
-comments '[{"author_association":"OWNER","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'"},
-           {"author_association":"OWNER","created_at":"t2","updated_at":"t2","body":"the check says: no round comment declares findings: none"}]'
+comments '[{"user":{"login":"owner1"},"author_association":"OWNER","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'"},
+           {"user":{"login":"owner1"},"author_association":"OWNER","created_at":"t2","updated_at":"t2","body":"the check says: no round comment declares findings: none"}]'
 expect "declaration pasted outside the round comment (must FAIL)" 1
 
 # 5. An outsider cannot claim a round, so cannot arm the guard either. On a
-#    public repository this is any GitHub account.
-comments '[{"author_association":"NONE","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'"}]'
+#    public repository this is any GitHub account. `stranger` has permission
+#    `none`.
+comments '[{"user":{"login":"stranger"},"author_association":"NONE","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'"}]'
 expect "round claimed by a non-writer is not a round" 0
 
-# 6. CONTRIBUTOR is earned by one merged commit and implies no write access.
-comments '[{"author_association":"CONTRIBUTOR","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'"}]'
+# 6. A real drive-by contributor. CONTRIBUTOR is earned by one merged commit
+#    and implies no write access; `driveby` has permission `read`.
+comments '[{"user":{"login":"driveby"},"author_association":"CONTRIBUTOR","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'"}]'
 expect "round claimed by a drive-by CONTRIBUTOR is not a round" 0
+
+# 6a. THE CASE THIS CORRECTION EXISTS FOR (D-228). An authorised collaborator
+#     whose organisation membership is PRIVATE is reported as CONTRIBUTOR to a
+#     token that cannot see that membership -- which is what GITHUB_TOKEN is.
+#     Identical association to case 6, opposite permission, opposite verdict:
+#     the round counts, so the guard arms and demands a disposition.
+comments '[{"user":{"login":"privatemember"},"author_association":"CONTRIBUTOR","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'"}]'
+perms "privatemember admin" "driveby read"
+expect "private-membership collaborator IS a round, despite CONTRIBUTOR" 1
+
+# 6b. The same account, same association, with only `write`. Also counted.
+perms "privatemember write"
+expect "write permission is enough to record a round" 1
+
+# 6c. And an unreadable permission -- a 403, a rate limit, a renamed account --
+#     is not write access. Fails CLOSED rather than counting the round.
+perms "someoneelse admin"
+expect "an unreadable permission is not a round" 0
+
+perms "owner1 admin" "stranger none" "driveby read"
 
 # 7. An edited round comment is not a round: the body it is counted on is not
 #    the body that was posted.
-comments '[{"author_association":"OWNER","created_at":"t1","updated_at":"t2","body":"'"$ROUND_BODY"'"}]'
+comments '[{"user":{"login":"owner1"},"author_association":"OWNER","created_at":"t1","updated_at":"t2","body":"'"$ROUND_BODY"'"}]'
 expect "edited round comment is not a round" 0
 
 # 8. A comment QUOTING the marker -- a review of the gate itself -- must not
 #    claim a round. Indentation is what a fenced or quoted paste looks like.
-comments '[{"author_association":"OWNER","created_at":"t1","updated_at":"t1","body":"the workflow sets:\r\n    independent-review-round: agent\r\nhead: '"$HEAD_FULL"'"}]'
+comments '[{"user":{"login":"owner1"},"author_association":"OWNER","created_at":"t1","updated_at":"t1","body":"the workflow sets:\r\n    independent-review-round: agent\r\nhead: '"$HEAD_FULL"'"}]'
 expect "quoted marker does not claim a round" 0
 
 # 9. Counting across pages. `--paginate` emits one array per page, so `| length`
 #    yields "1\n0" here -- which `[ ... -gt 0 ]` reports as a syntax error, and
 #    an erroring test falls through to the pass path.
 rm -f "$WORK"/comments*.json
-printf '%s' '[{"author_association":"OWNER","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'"}]' > "$WORK/comments1.json"
+printf '%s' '[{"user":{"login":"owner1"},"author_association":"OWNER","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'"}]' > "$WORK/comments1.json"
 printf '%s' '[]' > "$WORK/comments2.json"
 expect "round on page 1 of 2 still counts (must FAIL)" 1
 

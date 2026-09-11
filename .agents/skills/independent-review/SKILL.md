@@ -68,9 +68,13 @@ Both lines start at column 1. An indented or fenced copy does not count, so
 that a comment *quoting* this protocol -- a review of the gate itself -- cannot
 claim a round on the pull request it is quoting.
 
-The round must be recorded by someone with write access to the repository
-(`OWNER`, `MEMBER` or `COLLABORATOR`), because the reviewer is read-only and
-cannot post. Do not edit the comment afterwards: an edited comment is not
+The round must be recorded by someone with **write access** to the repository --
+`admin` or `write` from the collaborators permission API, which is what the gate
+reads (D-228) -- because the reviewer is read-only and cannot post. It is
+deliberately NOT `author_association`: that value is derived from organisation
+membership visibility as well as access, so a repository admin whose membership
+is private reads as `CONTRIBUTOR` to the workflow's own token and the round is
+not counted. Do not edit the comment afterwards: an edited comment is not
 counted, since the body it would be counted on is not the body that was posted.
 If the head moves, post a new round.
 

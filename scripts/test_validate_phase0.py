@@ -485,7 +485,7 @@ def _thread(author: str, *replies: tuple[str, str], path: str = "a.java", line: 
 # something else.
 AGENT_GATE_ASSIGNMENTS = (
     f"          AGENT_ROUND_RE: '(^|\\n){v.AGENT_ROUND_MARKER}'\n"
-    f"          ROUND_AUTHOR_ASSOC: '{','.join(v.REQUIRED_ROUND_ASSOC)}'\n"
+    f"          ROUND_AUTHOR_PERMISSIONS: '{','.join(v.REQUIRED_ROUND_PERMS)}'\n"
 )
 
 
@@ -1732,7 +1732,7 @@ def write_reviewer_declaration(
         if agent_gate and gate_workflow and v.AGENT_ROUND_MARKER not in gate_workflow:
             gate_workflow += (
                 f"          AGENT_ROUND_RE: '(^|\\n){v.AGENT_ROUND_MARKER}'\n"
-                f"          ROUND_AUTHOR_ASSOC: '{','.join(v.REQUIRED_ROUND_ASSOC)}'\n"
+                f"          ROUND_AUTHOR_PERMISSIONS: '{','.join(v.REQUIRED_ROUND_PERMS)}'\n"
             )
         gate.write_text(
             gate_workflow
@@ -1744,7 +1744,7 @@ def write_reviewer_declaration(
                 # because a workflow without it cannot recognise an agent
                 # round, and the validator now says so.
                 f"          AGENT_ROUND_RE: '(^|\\n){v.AGENT_ROUND_MARKER}'\n"
-                f"          ROUND_AUTHOR_ASSOC: '{','.join(v.REQUIRED_ROUND_ASSOC)}'\n"
+                f"          ROUND_AUTHOR_PERMISSIONS: '{','.join(v.REQUIRED_ROUND_PERMS)}'\n"
                 f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
             ),
             encoding="utf-8",
@@ -2329,7 +2329,7 @@ def _gate_with(marker: str | None, assoc: str | None) -> str:
     if marker is not None:
         text += f"          AGENT_ROUND_RE: '{marker}'\n"
     if assoc is not None:
-        text += f"          ROUND_AUTHOR_ASSOC: '{assoc}'\n"
+        text += f"          ROUND_AUTHOR_PERMISSIONS: '{assoc}'\n"
     return text + f'            -f context="{v.REVIEW_GATE_CONTEXT}" \\\n'
 
 
@@ -2355,7 +2355,7 @@ def test_gate_workflow_without_the_agent_marker_fails() -> None:
     The reviewer login was bound; the mechanism that recognises the OTHER
     permitted reviewer was not. Removing it fails closed -- the gate simply
     counts zero agent rounds -- which is why nothing else catches it."""
-    failures = _gate_failures(_gate_with(None, ",".join(v.REQUIRED_ROUND_ASSOC)))
+    failures = _gate_failures(_gate_with(None, ",".join(v.REQUIRED_ROUND_PERMS)))
     check(
         any("AGENT_ROUND_RE" in f for f in failures),
         f"a gate workflow with no agent-round marker fails (failures={failures})",
@@ -2365,7 +2365,7 @@ def test_gate_workflow_without_the_agent_marker_fails() -> None:
 def test_gate_workflow_with_a_renamed_agent_marker_fails() -> None:
     """The skill emits this literal; renaming it here alone silently decouples
     the two, and the gate stops counting the rounds the skill produces."""
-    failures = _gate_failures(_gate_with("(^|\\n)reviewed-by-the-agent", ",".join(v.REQUIRED_ROUND_ASSOC)))
+    failures = _gate_failures(_gate_with("(^|\\n)reviewed-by-the-agent", ",".join(v.REQUIRED_ROUND_PERMS)))
     check(
         any(v.AGENT_ROUND_MARKER in f for f in failures),
         f"a renamed agent-round marker fails (failures={failures})",
@@ -2375,7 +2375,7 @@ def test_gate_workflow_with_a_renamed_agent_marker_fails() -> None:
 def test_gate_workflow_with_an_unanchored_agent_marker_fails() -> None:
     """Unanchored, the marker matches a comment that merely QUOTES it -- so
     reviewing this workflow on a pull request would claim a round on it."""
-    failures = _gate_failures(_gate_with(v.AGENT_ROUND_MARKER, ",".join(v.REQUIRED_ROUND_ASSOC)))
+    failures = _gate_failures(_gate_with(v.AGENT_ROUND_MARKER, ",".join(v.REQUIRED_ROUND_PERMS)))
     check(
         any("anchored" in f for f in failures),
         f"an unanchored agent-round marker fails (failures={failures})",
@@ -2388,7 +2388,7 @@ def test_gate_workflow_without_the_author_allowlist_fails() -> None:
     a stranger's pull request."""
     failures = _gate_failures(_gate_with(f"(^|\\n){v.AGENT_ROUND_MARKER}", None))
     check(
-        any("ROUND_AUTHOR_ASSOC" in f for f in failures),
+        any("ROUND_AUTHOR_PERMISSIONS" in f for f in failures),
         f"a gate workflow with no author allowlist fails (failures={failures})",
     )
 

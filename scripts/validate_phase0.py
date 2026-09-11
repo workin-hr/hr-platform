@@ -380,14 +380,18 @@ REVIEW_GATE_REVIEWER_RE = re.compile(r'^\s*REVIEWER:\s*"([^"]*)"\s*$', re.MULTIL
 # silent, because a marker that matches nothing makes the gate count zero agent
 # rounds rather than fail.
 REVIEW_GATE_AGENT_MARKER_RE = re.compile(r"""(?m)^\s*AGENT_ROUND_RE:\s*'([^']*)'""")
-REVIEW_GATE_ROUND_ASSOC_RE = re.compile(r"""(?m)^\s*ROUND_AUTHOR_ASSOC:\s*'([^']*)'""")
+REVIEW_GATE_ROUND_PERMS_RE = re.compile(r"""(?m)^\s*ROUND_AUTHOR_PERMISSIONS:\s*'([^']*)'""")
 # The literal an agent round must carry. The skill tells the reviewer to emit
 # exactly this, so the two cannot drift without this constant failing.
 AGENT_ROUND_MARKER = "independent-review-round: agent"
 # CONTRIBUTOR is deliberately absent: one merged commit earns it and it grants
 # no write access, so accepting it would let a drive-by contributor claim a
 # round on their own pull request.
-REQUIRED_ROUND_ASSOC = ("OWNER", "MEMBER", "COLLABORATOR")
+# D-228: authority is the recording account's repository PERMISSION, read from
+# the collaborators API, not author_association -- which is derived from org
+# membership VISIBILITY as well as access, and reported a repository admin with
+# a private membership as CONTRIBUTOR to the workflow's own token.
+REQUIRED_ROUND_PERMS = ("admin", "write")
 # The skill is the layer that PRODUCES the evidence the gate and the disposition
 # check consume, so it has to state the protocol they match on. It shipped
 # stating none of it: a reviewer following the skill exactly wrote "Head SHA:
@@ -700,28 +704,36 @@ def _validate_review_gate_workflow(root: Path, failures: list[str]) -> None:
             failures,
         )
 
-    assoc = REVIEW_GATE_ROUND_ASSOC_RE.search(text)
-    if assoc is None:
+    perms = REVIEW_GATE_ROUND_PERMS_RE.search(text)
+    if perms is None:
         fail(
-            f"{REVIEW_GATE_WORKFLOW} has no `ROUND_AUTHOR_ASSOC: '...'` assignment; without it "
-            "the agent-round marker is matched on body text alone, which anyone who can comment "
-            "can post -- on a public repository, any account at all (D-226)",
+            f"{REVIEW_GATE_WORKFLOW} has no `ROUND_AUTHOR_PERMISSIONS: '...'` assignment; without "
+            "it the agent-round marker is matched on body text alone, which anyone who can "
+            "comment can post -- on a public repository, any account at all (D-226, D-228)",
             failures,
         )
     else:
-        declared = tuple(a.strip() for a in assoc.group(1).split(",") if a.strip())
-        if set(declared) - set(REQUIRED_ROUND_ASSOC):
+        declared = tuple(a.strip() for a in perms.group(1).split(",") if a.strip())
+        if set(declared) - set(REQUIRED_ROUND_PERMS):
             fail(
-                f"{REVIEW_GATE_WORKFLOW} accepts agent rounds from {sorted(set(declared) - set(REQUIRED_ROUND_ASSOC))}, "
-                f"which are not write-access associations; only {list(REQUIRED_ROUND_ASSOC)} may "
-                "claim a round, or a party with no write access can green the gate (D-226)",
+                f"{REVIEW_GATE_WORKFLOW} accepts agent rounds from {sorted(set(declared) - set(REQUIRED_ROUND_PERMS))}, "
+                f"which are not write-access permissions; only {list(REQUIRED_ROUND_PERMS)} may "
+                "claim a round, or a party with no write access can green the gate (D-228)",
                 failures,
             )
-        if set(REQUIRED_ROUND_ASSOC) - set(declared):
+        if set(REQUIRED_ROUND_PERMS) - set(declared):
             fail(
-                f"{REVIEW_GATE_WORKFLOW} omits {sorted(set(REQUIRED_ROUND_ASSOC) - set(declared))} "
-                "from the agent-round author allowlist; the implementer who records the round "
-                "would be unable to satisfy the gate (D-226)",
+                f"{REVIEW_GATE_WORKFLOW} omits {sorted(set(REQUIRED_ROUND_PERMS) - set(declared))} "
+                "from the agent-round permission allowlist; the implementer who records the round "
+                "would be unable to satisfy the gate (D-228)",
+                failures,
+            )
+        if "author_association" in _without_comments(text):
+            fail(
+                f"{REVIEW_GATE_WORKFLOW} still filters on author_association. D-228 replaced it: "
+                "association is derived from organisation membership VISIBILITY as well as "
+                "access, so a repository admin with a private membership reads as CONTRIBUTOR to "
+                "the workflow's own token and the gate counts zero rounds on a head it reviewed",
                 failures,
             )
 

@@ -175,10 +175,18 @@ jobs:
           # Anchored to a line start so a comment QUOTING this file -- a review
           # of the gate itself -- is not counted as a round on it.
           AGENT_ROUND_RE: '(^|\n)independent-review-round: agent'
-          # Association is computed by GitHub from repository access; the
-          # commenter cannot set it. CONTRIBUTOR is deliberately absent: one
-          # merged commit earns it and it implies no write access.
-          ROUND_AUTHOR_ASSOC: 'OWNER,MEMBER,COLLABORATOR'
+          # Authorisation is the recording account's REPOSITORY PERMISSION,
+          # read from the collaborators API -- not `author_association` (D-228).
+          # Association is derived from ORG MEMBERSHIP VISIBILITY as well as
+          # access: a repository admin whose membership is private is reported
+          # as CONTRIBUTOR to a token that cannot see that membership, which is
+          # what GITHUB_TOKEN is. Measured on this repository: the owner's own
+          # round read as MEMBER to their PAT and CONTRIBUTOR unauthenticated,
+          # so the gate counted zero rounds on a head it had reviewed. Widening
+          # the list to CONTRIBUTOR would have fixed it by letting anyone with
+          # one merged commit self-certify; permission is both narrower and
+          # immune to who is asking.
+          ROUND_AUTHOR_PERMISSIONS: 'admin,write'
         run: |
           set -euo pipefail
 
@@ -239,6 +247,34 @@ jobs:
           # mechanism and make every comparison against a bare timestamp false,
           # silently clearing a base-change invalidation that must hold the gate
           # red. Consumers that want the time alone strip the tag with `%% *`.
+          # May this account record a round? Repository permission, not
+          # author_association (D-228). The collaborators API answers `admin`,
+          # `write`, `read` or `none`, and that answer does not depend on who is
+          # asking or on whether an org membership is public.
+          #
+          # FAILS CLOSED and says so: a 403, a rate limit, a renamed account or
+          # any unexpected shape yields no permission, the round is not counted,
+          # and the reason is printed. A gate that cannot establish authority
+          # must go red, not quietly green.
+          round_author_is_trusted() {  # $1=login
+            local login="$1" permission
+            # A login is [A-Za-z0-9-]; anything else is not one, and must not be
+            # pasted into a URL.
+            case "$login" in
+              ""|*[!A-Za-z0-9-]*)
+                echo "  ignoring a round: '$login' is not a usable login" >&2
+                return 1 ;;
+            esac
+            permission="$(gh api "repos/$REPO/collaborators/$login/permission" \
+                --jq '.permission' 2>/dev/null || true)"
+            case ",${ROUND_AUTHOR_PERMISSIONS}," in
+              *",${permission},"*) return 0 ;;
+            esac
+            echo "  ignoring a round by $login: repository permission" \
+                 "'${permission:-unreadable}' is not in ${ROUND_AUTHOR_PERMISSIONS}" >&2
+            return 1
+          }
+
           rounds_on_head() {  # $1=pull request number -> "<timestamp> <kind>" per round
             local pr="$1"
             gh api "repos/$REPO/pulls/$pr/reviews" --paginate \
@@ -265,20 +301,21 @@ jobs:
             # commits, then edit the same comment to name head B. `edited` is one
             # of this workflow's own triggers, so that would re-green the gate
             # with no new comment for a human to notice.
-            # `$a` is a jq variable bound by the `as` below, not a shell
-            # expansion, so the single quotes are required and SC2016 is noise.
+            # Authorisation is checked per candidate, AFTER the cheap filters,
+            # by round_author_is_trusted -- see D-228 and the env note above.
             # shellcheck disable=SC2016
             gh api "repos/$REPO/issues/$pr/comments" --paginate \
-              --jq '.[] | select(.author_association as $a
-                                 | (env.ROUND_AUTHOR_ASSOC | split(",")) | index($a))
-                      | select(.created_at == .updated_at)
+              --jq '.[] | select(.created_at == .updated_at)
                       | select(.body | test(env.AGENT_ROUND_RE))
                       | select(.body | test("head: [0-9a-f]{40}"))
                       | [.created_at,
-                         (.body | capture("head: (?<sha>[0-9a-f]{40})").sha)]
+                         (.body | capture("head: (?<sha>[0-9a-f]{40})").sha),
+                         .user.login]
                       | @tsv' 2>/dev/null \
-              | while IFS="$(printf '\t')" read -r at sha; do
-                  [ "$sha" = "$HEAD_SHA" ] && echo "$at agent"
+              | while IFS="$(printf '\t')" read -r at sha login; do
+                  [ "$sha" = "$HEAD_SHA" ] || continue
+                  round_author_is_trusted "$login" || continue
+                  echo "$at agent"
                 done || true
           }
 
