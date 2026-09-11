@@ -80909,66 +80909,35 @@ CREATE TABLE `device_assignment_history` (
 -- ---------------------------------------------------------------------------
 -- Phase 1, the two statements that are not CREATE TABLE.
 --
--- scripts/build_dev_seed.sh applies all three phase1-mysql DDL files before
--- dumping, so a seed regenerated from a production dump carries these already
--- (mariadb-dump emits triggers by default). This block exists because THIS file
--- was generated before the builder did that, and a seed with the fourteen tables
--- but neither the widened enum nor the triggers is the one combination that
--- fails silently: Phase1SchemaCheck compares table names only, logs "all 14
--- owned tables are present", and PunchPairingService then refuses every pairing
--- pass with punches accumulating in RECEIVED.
+-- A seed carrying the fourteen tables but neither the widened enum nor the
+-- triggers is the one combination that fails silently: Phase1SchemaCheck
+-- compares table names only, so it logs "all 14 owned tables are present" and
+-- PunchPairingService then refuses every pairing pass, punches accumulating in
+-- RECEIVED. This file was generated before the builder applied all three
+-- phase1-mysql DDL files, so the two non-CREATE-TABLE statements are appended
+-- here instead.
 --
--- Both are idempotent -- MODIFY COLUMN, and DROP TRIGGER IF EXISTS before each
--- CREATE -- which is why they can live here when phase1_extensions.sql cannot
--- (re-running its CREATE TABLE gave ERROR 1050 and an unhealthy container).
+-- A regenerated seed has the same two in the same shape: build_dev_seed.sh
+-- applies slice_b before dumping (so the widening lands in the CREATE TABLE)
+-- and appends this same hooks file afterwards under --skip-triggers, because
+-- mariadb-dump's own trigger form carries DEFINER=root@localhost and the
+-- unprivileged E2E_SEED_PROD restore dies on it with ERROR 1227.
 --
--- Copied from, and held to, those two files by
--- scripts/check_dev_seed_sanitised.py. The one authority for removing any of
--- this is docs/operations/provisioning-phase1-tables.md#rollback.
+-- Both statements are idempotent -- MODIFY COLUMN, and DROP TRIGGER IF EXISTS
+-- before each CREATE -- which is why they can live here when
+-- phase1_extensions.sql cannot (re-running its CREATE TABLE gave ERROR 1050 and
+-- an unhealthy container).
+--
+-- Held to those two files by scripts/check_dev_seed_sanitised.py. The one
+-- authority for removing any of this is
+-- docs/operations/provisioning-phase1-tables.md#rollback.
 -- ---------------------------------------------------------------------------
 
--- Slice B: a fourth value for attendance.method (Q5, D-165).
---
--- Separate from phase1_extensions.sql, and the separation is the point.
--- That file is the one definition of the tables Phase 1 *adds*; it is
--- applied to a database that may hold nothing else, and
--- Phase1SchemaCheckTest proves exactly that by applying it to a scratch
--- database with no legacy schema in it. This statement instead *alters* a
--- table the legacy contract owns, so it can only run against a database
--- that already carries mysql_workin.schema.sql.
---
--- It is equally deliberately not an edit to mysql_workin.schema.sql. That
--- file is a byte-identical copy of hr-legacy's dump, held to it by
--- scripts/check_legacy_schema_drift.py. Editing the copy would make it
--- claim something production does not say until this has actually run.
---
--- THE EXPAND STEP. Run this before deploying code that writes 'device'.
--- Both deployment orders are safe once it has:
---
---   old PHP + new enum -- fine. Audited under D-165: every frozen-PHP site
---     writes attendance.method (check_in.php, create.php, check_in_qr.php,
---     attendance_excel_analyzer.php, xlsx_parser.php,
---     request_actions_helper.php) and exactly one reads it,
---     dashboard/pages/employees/detail.php, which renders clean($a['method'])
---     verbatim. No comparison, no switch, no WHERE method =, no i18n label
---     keyed by the value, no export column. PHP prints the word and moves on.
---
---   new Java + old enum -- NOT fine, and this is why the ALTER goes first:
---     MariaDB refuses an out-of-range ENUM value, so pairing's INSERT would
---     fail and every device punch would stay RECEIVED. Loud, and recoverable
---     by running this and letting the pass retry -- but avoidable entirely.
---
--- Cost: attendance is 36,316 rows / 64 MB, and a fourth value does not change
--- a <=255-value ENUM's one-byte storage, so this is metadata-only
--- (ALGORITHM=INSTANT) and does not rewrite the table. Existing rows keep both
--- their value and its ordinal, because the new value is appended last.
---
--- Rollback: pairing writes 'device' rows, so narrowing the enum again would
--- silently coerce them. To undo, first repoint or delete those rows
--- (SELECT id FROM attendance WHERE method = 'device'), then narrow.
---
--- Re-running this is harmless: it states the column's target shape rather
--- than a delta, so a second run is a no-op.
+-- The widening itself, from
+-- backend/src/main/resources/db/phase1-mysql/slice_b_attendance_method.sql.
+-- Only the statement is copied: that file's header carries the procedure for
+-- undoing it, and a second copy of a procedure is the thing this branch exists
+-- to remove. Read it there.
 
 ALTER TABLE attendance
     MODIFY COLUMN method ENUM('app', 'excel', 'qr', 'device') NOT NULL DEFAULT 'app';

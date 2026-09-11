@@ -358,6 +358,7 @@ def check_seed_is_self_sufficient(seed: str, findings: list[str]) -> None:
 HOOKS_DDL = "backend/src/main/resources/db/phase1-mysql/legacy_runtime_offset_hooks.sql"
 SLICE_B_DDL = "backend/src/main/resources/db/phase1-mysql/slice_b_attendance_method.sql"
 CREATE_TRIGGER = re.compile(r"(?im)^\s*CREATE TRIGGER\s+`?(\w+)`?")
+SQL_COMMENT = re.compile(r"/\*.*?\*/|--[^\n]*", re.DOTALL)
 METHOD_ENUM = re.compile(r"(?is)MODIFY COLUMN\s+`?method`?\s+ENUM\s*\((.*?)\)")
 
 
@@ -373,12 +374,21 @@ def check_seed_carries_the_non_table_ddl(seed: str, findings: list[str]) -> None
     The names and values come from the DDL files themselves, so widening either
     one fails this gate until the seed is rebuilt rather than drifting from it.
     """
+    # A dump is mostly comments, and this file's own appended block quotes both
+    # DDL headers verbatim -- so a header that happens to mention a trigger name
+    # or spell out the enum would satisfy a bare substring match while the
+    # statement itself was gone. check_seed_is_self_sufficient names this hazard
+    # for CREATE TABLE; these patterns are weaker than that one (`/* */` opens at
+    # column 0, so `^\s*` does not exclude it, and the enum has no statement
+    # anchor at all), so the comments come out first.
+    executed = SQL_COMMENT.sub(" ", seed)
+
     hooks = read(os.path.join(REPO_ROOT, HOOKS_DDL))
     if hooks is None:
         fail(f"missing {HOOKS_DDL}, which is this check's ground truth", findings)
     else:
         for trigger in sorted(set(CREATE_TRIGGER.findall(hooks))):
-            if not re.search(rf"(?im)^\s*CREATE TRIGGER\s+`?{re.escape(trigger)}`?", seed):
+            if not re.search(rf"(?im)^\s*CREATE TRIGGER\s+`?{re.escape(trigger)}`?", executed):
                 fail(
                     f"deploy/seed/dev-seed.sql does not define the trigger `{trigger}`, which "
                     f"{HOOKS_DDL} installs on the legacy `configs` table. Without it "
@@ -402,15 +412,16 @@ def check_seed_carries_the_non_table_ddl(seed: str, findings: list[str]) -> None
     # carries the widening as a trailing MODIFY COLUMN. Requiring the CREATE form
     # alone would fail the second, which is applied and correct.
     for value in sorted({v.strip().strip("'\"") for v in wanted.group(1).split(",")}):
-        declared = re.search(rf"(?i)`method`\s+enum\([^)]*'{re.escape(value)}'", seed)
+        declared = re.search(
+            rf"(?im)^\s*`method`\s+enum\([^)]*'{re.escape(value)}'", executed)
         widened = re.search(
-            rf"(?i)MODIFY COLUMN\s+`?method`?\s+ENUM\s*\([^)]*'{re.escape(value)}'", seed)
+            rf"(?im)^\s*MODIFY COLUMN\s+`?method`?\s+ENUM\s*\([^)]*'{re.escape(value)}'", executed)
         if not declared and not widened:
             fail(
                 f"deploy/seed/dev-seed.sql declares `attendance`.`method` without '{value}', "
-                f"which {SLICE_B_DDL} adds. Pairing writes '{value}' rows, so a stack seeded "
-                f"from this file rejects every paired punch. Rebuild it with "
-                f"scripts/build_dev_seed.sh",
+                f"which {SLICE_B_DDL} makes part of that column's target shape. A stack "
+                f"seeded from this file rejects every row written with that value -- and "
+                f"pairing writes 'device'. Rebuild the seed with scripts/build_dev_seed.sh",
                 findings,
             )
 

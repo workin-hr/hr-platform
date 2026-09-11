@@ -69,9 +69,15 @@ mysqldump -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" \
   > "workin-before-phase1-$(date +%F-%H%M).sql"
 ls -lh workin-before-phase1-*.sql          # not zero bytes
 
-# 2. the fourteen tables
-mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" \
-  < backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql
+# 2. all three DDL files, in this order -- provisioning is not one file.
+#    Tables alone is the combination that fails silently: the startup check
+#    compares table names, so it reports everything present while pairing
+#    refuses every pass.
+for ddl in phase1_extensions.sql slice_b_attendance_method.sql \
+           legacy_runtime_offset_hooks.sql; do
+  mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" \
+    < "backend/src/main/resources/db/phase1-mysql/$ddl"
+done
 
 # 3. what you should see: 14
 mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" -N -B -e "
@@ -88,15 +94,19 @@ mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" -N -B -e "
 
 `CREATE TABLE` is not `IF NOT EXISTS` here, deliberately: on a database that
 already has them the script stops rather than silently continuing past a table
-whose shape it did not verify. Re-running it after a partial apply means either
+whose shape it did not verify. Re-running it after a partial apply means
 `mysql --force`, which creates only what is absent and reports one `ERROR 1050`
-per table that already exists, or dropping the ones **this apply** created.
+per table that already exists.
 
-**Do not drop all fourteen to "start clean" on a database that already served
-the six originals.** `platform_admin_audit_events` is retained evidence (D-161)
-and `SPRING_SESSION` is every live administrator session; neither is recreated
-with its contents. The eight device tables are the ones that are safe to drop
-and re-add, because nothing has written to them yet on such a database.
+**Do not drop anything to "start clean".** `platform_admin_audit_events` is
+retained evidence (D-161) and `SPRING_SESSION` is every live administrator
+session; neither is recreated with its contents. Nor are the device tables a
+safe exception: `legacy_runtime_offset_history` is one of them, and the three
+triggers described below survive a drop and break PHP's own `configs` writes.
+"Nothing has written to them yet" is a precondition nobody can check from the
+outside, and a precondition printed next to a drop is read as permission.
+`--force` is the answer here; if a drop is genuinely required, it belongs to
+the runbook below, which drops the triggers first.
 
 **Undoing it is not described here.** The rollback lives in
 [provisioning-phase1-tables.md](provisioning-phase1-tables.md#rollback) and that

@@ -256,6 +256,13 @@ has `LegacyBranchService` and `LegacyEmployeeStore` tolerate an absent
 device table. The consequence is that provisioning cannot be verified by
 the deployment succeeding; read the log.
 
+> **Extract the DDL from a jar built at or after the commit that corrected this
+> runbook.** An older jar still carries a `verify_phase1_tables.sql` whose
+> PARTIAL verdict told operators to drop the eight device tables --
+> `legacy_runtime_offset_history` among them, with the `configs` triggers left
+> standing. Check with `unzip -p app.jar BOOT-INF/classes/db/phase1-mysql/verify_phase1_tables.sql | grep -c 'Do NOT drop'`;
+> zero means the jar predates the fix, and its advice must not be followed.
+
 ## Rollback
 
 **Drop the runtime-offset triggers FIRST**, before any table:

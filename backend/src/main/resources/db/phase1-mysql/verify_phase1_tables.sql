@@ -153,8 +153,10 @@ SELECT 'legacy tables' AS check_name,
 --      the parent, and SET FOREIGN_KEY_CHECKS=0 does not lift it; on MySQL 8 it
 --      is ERROR 3780 both ways, and FOREIGN_KEY_CHECKS=0 there lets the ALTER
 --      through and leaves the two columns at DIFFERENT collations under a live
---      FK, which is worse than the error. Do not use that flag. Drop the
---      constraint, convert both, put it back:
+--      FK, which is worse than the error. Do not use that flag. The procedure
+--      below is the same one docs/operations/provisioning-phase1-tables.md
+--      carries under step 4b; that document is the authority if the two ever
+--      disagree. Drop the constraint, convert both, put it back:
 --        ALTER TABLE SPRING_SESSION_ATTRIBUTES DROP FOREIGN KEY SPRING_SESSION_ATTRIBUTES_FK;
 --        ALTER TABLE SPRING_SESSION            CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 --        ALTER TABLE SPRING_SESSION_ATTRIBUTES CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

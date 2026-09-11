@@ -346,6 +346,81 @@ def test_the_real_repository_passes() -> None:
     check(not value_findings, f"the committed seed is clean (findings={value_findings})")
 
 
+def _trigger_names() -> list[str]:
+    findings: list[str] = []
+    hooks = gate.read(os.path.join(gate.REPO_ROOT, gate.HOOKS_DDL))
+    check(hooks is not None, "the hooks DDL is readable -- it is this check's ground truth")
+    return sorted(set(gate.CREATE_TRIGGER.findall(hooks or ""))) or ["configs_runtime_offset_after_insert"]
+
+
+def _seed_with_real_ddl(enum_in_create: bool) -> str:
+    """Both shapes a correct seed can take.
+
+    A regenerated seed has slice_b applied before the dump, so the fourth value is
+    in the CREATE TABLE and there is no ALTER. A seed extended by hand carries the
+    three-value CREATE and widens it afterwards. Both end at the same column.
+    """
+    enum = "'app','excel','qr','device'" if enum_in_create else "'app','excel','qr'"
+    out = [f"CREATE TABLE `attendance` (\n  `method` enum({enum}) NOT NULL DEFAULT 'app'\n);"]
+    if not enum_in_create:
+        out.append("ALTER TABLE attendance\n    MODIFY COLUMN method ENUM('app', 'excel', 'qr', 'device') NOT NULL DEFAULT 'app';")
+    out += [f"CREATE TRIGGER {name}\nAFTER INSERT ON configs FOR EACH ROW\nBEGIN END;"
+            for name in _trigger_names()]
+    return "\n".join(out) + "\n"
+
+
+def test_a_hand_extended_seed_carries_the_non_table_ddl() -> None:
+    findings: list[str] = []
+    gate.check_seed_carries_the_non_table_ddl(_seed_with_real_ddl(enum_in_create=False), findings)
+    check(not findings, f"the committed shape (CREATE + ALTER) passes (got {findings})")
+
+
+def test_a_regenerated_seed_carries_the_non_table_ddl() -> None:
+    """build_dev_seed.sh applies slice_b BEFORE dumping, so a rebuilt seed has no
+    ALTER at all. Requiring one would fail the artifact the builder produces --
+    which is how a gate ends up rejecting its own tool's correct output."""
+    findings: list[str] = []
+    gate.check_seed_carries_the_non_table_ddl(_seed_with_real_ddl(enum_in_create=True), findings)
+    check(not findings, f"the regenerated shape (enum in CREATE, no ALTER) passes (got {findings})")
+
+
+def test_triggers_named_only_in_a_comment_are_not_counted() -> None:
+    """A dump is mostly comments, and the seed quotes the DDL headers, so a name
+    surviving in prose while the statement is gone is the realistic drift. `/*`
+    opens at column 0, so an anchored pattern alone does not exclude it."""
+    seed = _seed_with_real_ddl(enum_in_create=True)
+    commented = "/* Historical note, NOT executed:\n" + seed + "\n*/\n"
+    findings: list[str] = []
+    gate.check_seed_carries_the_non_table_ddl(commented, findings)
+    check(
+        len([f for f in findings if "trigger" in f]) == len(_trigger_names()),
+        f"every trigger that exists only inside a block comment is reported (got {findings})",
+    )
+
+
+def test_an_enum_named_only_in_a_comment_is_not_counted() -> None:
+    seed = _seed_with_real_ddl(enum_in_create=False).replace(
+        "ALTER TABLE attendance\n    MODIFY COLUMN method ENUM('app', 'excel', 'qr', 'device') NOT NULL DEFAULT 'app';",
+        "-- the column used to be `method` enum('app','excel','qr','device') NOT NULL",
+    )
+    findings: list[str] = []
+    gate.check_seed_carries_the_non_table_ddl(seed, findings)
+    check(
+        any("'device'" in f for f in findings),
+        f"an enum widened only in a line comment is reported (got {findings})",
+    )
+
+
+def test_a_seed_without_the_triggers_fails() -> None:
+    seed = "CREATE TABLE `attendance` (\n  `method` enum('app','excel','qr','device') NOT NULL\n);\n"
+    findings: list[str] = []
+    gate.check_seed_carries_the_non_table_ddl(seed, findings)
+    check(
+        len(findings) == len(_trigger_names()),
+        f"a seed with the tables and the enum but no triggers is rejected (got {findings})",
+    )
+
+
 def main() -> int:
     for name, function in sorted(globals().items()):
         if name.startswith("test_") and callable(function):
