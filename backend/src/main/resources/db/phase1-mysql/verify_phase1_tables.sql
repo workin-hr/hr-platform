@@ -23,7 +23,12 @@ SELECT 'database' AS check_name,
        CONCAT(DATABASE(), ' / ', @@character_set_database, ' / ', @@collation_database) AS value,
        IF(@@default_storage_engine = 'InnoDB', 'ok', CONCAT('NOT InnoDB: ', @@default_storage_engine)) AS verdict;
 
--- 3. Which of the fourteen already exist. `none` means apply the script as it is.
+-- 3. Which of the fourteen already exist.
+--    `--force` below means `mysql --force < phase1_extensions.sql`: the script
+--    is deliberately not idempotent, so re-applying it prints one ERROR 1050
+--    per existing table and one ERROR 1061 per existing index, creates only
+--    what is absent, and EXITS 0. Those errors are the expected output, not a
+--    failure. Re-run this script afterwards: section 3 should say `applied`. `none` means apply the script as it is.
 --    All fourteen means it has been applied -- check (4) rather than re-running it.
 --    Anything between is a partial apply: drop the ones listed and start again,
 --    since the script is deliberately not idempotent.
@@ -38,7 +43,17 @@ SELECT 'phase1 tables present' AS check_name,
          -- yours to drop: platform_admin_audit_events is retained evidence
          -- (D-161) and SPRING_SESSION is every live administrator session.
          WHEN 6 THEN 'PRE-DEVICE-TABLES -- re-apply with --force, do NOT drop'
-         ELSE 'PARTIAL -- a torn apply; drop the listed tables and re-apply'
+         -- NOT "drop the listed tables": the list includes the six originals,
+         -- and an interrupted --force apply (which WHEN 6 above sends operators
+         -- to run) lands here at 7-13. Dropping platform_admin_audit_events
+         -- loses retained evidence (D-161) and dropping SPRING_SESSION ends
+         -- every live administrator session.
+         ELSE CONCAT('PARTIAL -- a torn apply. Drop ONLY the device tables among ',
+                     'those listed (attendance_devices, employee_device_identities, ',
+                     'device_punches, unclaimed_device_sightings, device_operation_logs, ',
+                     'device_malformed_punches, legacy_runtime_offset_history, ',
+                     'device_assignment_history) and re-apply with --force. ',
+                     'NEVER drop the six originals.')
        END AS verdict
   FROM information_schema.tables
  WHERE table_schema = DATABASE()
@@ -116,12 +131,24 @@ SELECT 'legacy tables' AS check_name,
 --
 --      The session pair is the exception: SPRING_SESSION_ATTRIBUTES_FK is a
 --      FOREIGN KEY on a CHAR column, so CONVERT TO is refused in BOTH
---      directions -- ERROR 1832 on the child, ERROR 1833 on the parent -- and
---      SET FOREIGN_KEY_CHECKS=0 does not lift it. Drop the constraint, convert
---      both, put it back:
+--      directions. On MariaDB 11.8 that is ERROR 1832 on the child and 1833 on
+--      the parent, and SET FOREIGN_KEY_CHECKS=0 does not lift it; on MySQL 8 it
+--      is ERROR 3780 both ways, and FOREIGN_KEY_CHECKS=0 there lets the ALTER
+--      through and leaves the two columns at DIFFERENT collations under a live
+--      FK, which is worse than the error. Do not use that flag. Drop the
+--      constraint, convert both, put it back:
 --        ALTER TABLE SPRING_SESSION_ATTRIBUTES DROP FOREIGN KEY SPRING_SESSION_ATTRIBUTES_FK;
 --        ALTER TABLE SPRING_SESSION            CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 --        ALTER TABLE SPRING_SESSION_ATTRIBUTES CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+--        -- Anything deleted from SPRING_SESSION while the constraint is off
+--        -- leaves an orphan attribute row, and ADD CONSTRAINT then fails with
+--        -- ERROR 1452 and the table keeps NO foreign key. Spring Session's own
+--        -- cleanup job deletes expired sessions every sixty seconds, and every
+--        -- admin logout deletes one, so this window is not theoretical. Stop
+--        -- the application, or sweep before re-adding -- ideally both:
+--        DELETE a FROM SPRING_SESSION_ATTRIBUTES a
+--          LEFT JOIN SPRING_SESSION s ON s.PRIMARY_ID = a.SESSION_PRIMARY_ID
+--         WHERE s.PRIMARY_ID IS NULL;
 --        ALTER TABLE SPRING_SESSION_ATTRIBUTES ADD CONSTRAINT SPRING_SESSION_ATTRIBUTES_FK
 --            FOREIGN KEY (SESSION_PRIMARY_ID) REFERENCES SPRING_SESSION (PRIMARY_ID) ON DELETE CASCADE;
 --

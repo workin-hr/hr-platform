@@ -11,11 +11,11 @@ dashboard.
 > mode; what it is instead is *deliberate* about the three places where the
 > port could do something PHP would not.
 
-## 1. Add the six tables Java owns
+## 1. Add the fourteen tables Java owns
 
 Java's own tables do not exist in the PHP schema, and nothing creates them at
 startup: `hibernate.hbm2ddl.auto` is `none` and there is no Flyway (**ADR-0017**
-removed it). One file adds them, and it only ever adds — six `CREATE TABLE`
+removed it). One file adds them, and it only ever adds — fourteen `CREATE TABLE`
 statements and their indexes, no `DROP`, no `ALTER`, no `DELETE`, nothing that
 touches a table PHP knows about (**R-023**).
 
@@ -30,7 +30,7 @@ touches a table PHP knows about (**R-023**).
 **Verified against the live database on 2026-09-08**, read-only: MariaDB
 **11.8.8** (the version the suite runs against), `utf8mb4` /
 `utf8mb4_unicode_ci`, InnoDB throughout, the schema user holds `ALL
-PRIVILEGES`, and **none of the six tables exist yet** — so the file applies as
+PRIVILEGES`, and **none of the fourteen tables exist yet** — so the file applies as
 written. Its 44 legacy tables are also exactly the 44 in the vendored schema
 the port was built and tested against, with nothing missing and nothing extra.
 
@@ -61,27 +61,39 @@ mysqldump -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" \
   > "workin-before-phase1-$(date +%F-%H%M).sql"
 ls -lh workin-before-phase1-*.sql          # not zero bytes
 
-# 2. the six tables
+# 2. the fourteen tables
 mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" \
   < backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql
 
-# 3. what you should see: 6
+# 3. what you should see: 14
 mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" -N -B -e "
   SELECT COUNT(*) FROM information_schema.tables
    WHERE table_schema = DATABASE()
      AND table_name IN ('legacy_refresh_tokens','platform_admins',
        'platform_admin_audit_events','platform_admin_login_attempts',
-       'SPRING_SESSION','SPRING_SESSION_ATTRIBUTES')"
+       'SPRING_SESSION','SPRING_SESSION_ATTRIBUTES',
+       'attendance_devices','employee_device_identities','device_punches',
+       'unclaimed_device_sightings','device_operation_logs',
+       'device_malformed_punches','legacy_runtime_offset_history',
+       'device_assignment_history')"
 ```
 
 `CREATE TABLE` is not `IF NOT EXISTS` here, deliberately: on a database that
 already has them the script stops rather than silently continuing past a table
-whose shape it did not verify. Re-running it after a partial apply means
-dropping the ones it created — which is the one destructive step in this
-document, and it is on tables nothing else uses.
+whose shape it did not verify. Re-running it after a partial apply means either
+`mysql --force`, which creates only what is absent and reports one `ERROR 1050`
+per table that already exists, or dropping the ones **this apply** created.
 
-**Undoing it** is `DROP TABLE` on those six names and nothing else. PHP
-references none of them.
+**Do not drop all fourteen to "start clean" on a database that already served
+the six originals.** `platform_admin_audit_events` is retained evidence (D-161)
+and `SPRING_SESSION` is every live administrator session; neither is recreated
+with its contents. The eight device tables are the ones that are safe to drop
+and re-add, because nothing has written to them yet on such a database.
+
+**Undoing a first, complete apply** is `DROP TABLE` on all fourteen names and
+nothing else — PHP references none of them — and only while none of them has
+been written to. Once the platform-admin surface has been used, the audit and
+session tables carry state that a drop destroys.
 
 ## 2. Point the backend at it
 

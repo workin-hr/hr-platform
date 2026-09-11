@@ -1,6 +1,6 @@
 # Provisioning The Phase 1 Tables
 
-Closes the mechanical half of **R-023**: Phase 1 adds six tables to the
+Closes the mechanical half of **R-023**: Phase 1 adds fourteen tables to the
 existing MariaDB, and until they exist the deployment is silently
 incomplete. Nothing creates them at runtime — the application carries no
 Flyway (ADR-0013 amendment 3; ADR-0017) — so this is a deliberate, human
@@ -188,19 +188,41 @@ ALTER TABLE <name> CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 **The session pair is the exception.** `SPRING_SESSION_ATTRIBUTES_FK` is a
 foreign key on a `CHAR` column, so `CONVERT TO` is refused in *both* directions
 — `ERROR 1832` converting the child, `ERROR 1833` converting the parent — and
-`SET FOREIGN_KEY_CHECKS=0` does not lift it. Drop the constraint, convert both,
-put it back:
+`SET FOREIGN_KEY_CHECKS=0` does not lift it on MariaDB. Drop the constraint,
+convert both, put it back:
+
+**Stop the application first.** Between the `DROP FOREIGN KEY` and the
+`ADD CONSTRAINT` there is no constraint, and anything deleted from
+`SPRING_SESSION` in that window leaves an orphan attribute row — after which
+`ADD CONSTRAINT` fails with `ERROR 1452` and the table is left with **no foreign
+key at all**. That is not a theoretical window: Spring Session's cleanup job
+deletes expired sessions every sixty seconds, and every administrator logout
+deletes one. The sweep below is the belt to that braces; run it even with the
+application stopped.
 
 ```sql
 ALTER TABLE SPRING_SESSION_ATTRIBUTES DROP FOREIGN KEY SPRING_SESSION_ATTRIBUTES_FK;
 ALTER TABLE SPRING_SESSION            CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ALTER TABLE SPRING_SESSION_ATTRIBUTES CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- Orphans, if any session vanished while the constraint was off.
+DELETE a FROM SPRING_SESSION_ATTRIBUTES a
+  LEFT JOIN SPRING_SESSION s ON s.PRIMARY_ID = a.SESSION_PRIMARY_ID
+ WHERE s.PRIMARY_ID IS NULL;
 ALTER TABLE SPRING_SESSION_ATTRIBUTES ADD CONSTRAINT SPRING_SESSION_ATTRIBUTES_FK
     FOREIGN KEY (SESSION_PRIMARY_ID) REFERENCES SPRING_SESSION (PRIMARY_ID) ON DELETE CASCADE;
 ```
 
+If `ADD CONSTRAINT` still fails with `ERROR 1452`, a session was deleted after
+the sweep: re-run the `DELETE` and the `ADD CONSTRAINT` together, with the
+application stopped.
+
 `CONVERT TO` rebuilds the table and holds a lock while it does, so plan the
 window around `device_punches` — the others are small and stay small.
+
+The error numbers above are MariaDB's. MySQL 8 raises `ERROR 3780` in both
+directions instead, and there `SET FOREIGN_KEY_CHECKS=0` *does* let the `ALTER`
+through — leaving the two columns at different collations under a live foreign
+key, which is worse than the error. Do not use that flag on either engine.
 
 `verify_phase1_tables.sql` runs this check as its section 6, with the same
 remediation, if you would rather run one file than paste queries.
