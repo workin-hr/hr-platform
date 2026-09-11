@@ -155,15 +155,19 @@ PHP serves again the moment DNS or the proxy points back, because the data never
 moved.
 
 It is not, however, a return to the database you started with. Provisioning ran
-against the live database, and stopping a container does not undo DDL: the
-fourteen tables remain, `attendance.method` still accepts `'device'`, and three
-triggers remain installed on the legacy `configs` table. Leaving all of that in
+against the live database, and stopping a container does not undo DDL: the tables
+remain, `attendance.method` still accepts `'device'`, and the runtime-offset
+triggers remain installed on the legacy `configs` table. Leaving all of it in
 place is the recommended treatment — it is additive, PHP reads none of it, and it
-means rolling forward again needs no DDL. **What you must not do is drop it
-casually.** The triggers write into `legacy_runtime_offset_history`, so dropping
-that table while they stand makes every PHP write to the daylight-saving row fail
-while other keys keep succeeding. If a drop is ever genuinely required, there is
-one procedure for it and it drops the triggers first:
-[provisioning-phase1-tables.md#rollback](provisioning-phase1-tables.md#rollback). In **A** the VPS database has taken writes the old host
-has not, so a rollback there is a data reconciliation and needs planning before
-the cutover, not after.
+means rolling forward again needs no DDL.
+
+**What you must not do is drop it casually.** The triggers write into
+`legacy_runtime_offset_history`, so dropping that table while they stand makes
+every PHP write to the daylight-saving row fail while writes to other keys keep
+succeeding. If a drop is ever genuinely required there is one procedure for it,
+and it drops the triggers first:
+[provisioning-phase1-tables.md#rollback](provisioning-phase1-tables.md#rollback).
+
+In **A** the VPS database has taken writes the old host has not, so a rollback
+there is a data reconciliation and needs planning before the cutover, not
+after.
