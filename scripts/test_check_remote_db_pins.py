@@ -215,6 +215,25 @@ services:
     check(proc.returncode == 1 and "::1" in proc.stderr,
           f"an IPv6 host_ip is reported by name (exit={proc.returncode})")
 
+    # `!reset` DELETES the key. Reading it as "the value without the tag" -- which
+    # is what !override means -- inverts the answer, and did: compose resolved a
+    # service with no springdoc key while the checker reported the pin intact.
+    for key in ("SPRINGDOC_API_DOCS_ENABLED", "SPRINGDOC_SWAGGER_UI_ENABLED",
+                "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE"):
+        proc = run(COMPOSE.replace(f"{key}: ", f"{key}: !reset "))
+        check(proc.returncode == 1 and "!reset" in proc.stderr,
+              f"!reset on {key} is refused, not read as its value (exit={proc.returncode})")
+
+    proc = run(COMPOSE.replace('    ports:\n', '    ports: !reset []\n#'))
+    check(proc.returncode == 1 and "!reset" in proc.stderr,
+          f"!reset on ports is refused (exit={proc.returncode})")
+
+    # `include:` is TOP-LEVEL, so a service-level scan cannot see it. It merges
+    # another file's services in with the same concatenation as extends.
+    proc = run("include:\n  - base.yaml\n" + COMPOSE)
+    check(proc.returncode == 1 and "include" in proc.stderr,
+          f"top-level include: is refused (exit={proc.returncode})")
+
     # A missing file fails rather than skipping.
     proc = run(None)
     check(proc.returncode == 1 and "is missing" in proc.stderr,

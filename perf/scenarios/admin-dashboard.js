@@ -60,16 +60,17 @@ export const options = {
 // Sign in ONCE, in setup, and hand the session to every VU.
 //
 // It used to run per iteration, which made a wrong password destructive rather
-// than merely wrong: a 60s run at 5 VUs threw ~1,800 failed sign-ins.
+// than merely wrong: a 60s run at 5 VUs threw hundreds of failed sign-ins.
 //
 // PlatformAdminLoginService charges those to `web:` + getRemoteAddr() rather
 // than to the account, so that nobody can lock the one administrator out from
 // anywhere. In THIS deployment that buys less than it sounds like: the app is
-// containerised, so a hit on a published port arrives from the Docker bridge
-// gateway (measured: 172.17.0.1, not 127.0.0.1), and under `local` and
-// `integration` -- the only profiles compose.remote-db.yaml runs --
-// server.forward-headers-strategy is `none`, so anything through the proxy
-// arrives as the PROXY's address. Either way it is one shared bucket, and
+// containerised, so a hit on a published port arrives from the project
+// network's gateway (172.17.0.1 on the default bridge; a compose project gets
+// its own), not 127.0.0.1 -- and compose.remote-db.yaml never passes
+// SERVER_FORWARD_HEADERS_STRATEGY, so it is `none` there and anything through
+// a proxy arrives as the PROXY's address. deploy/e2e/run.sh sets `native`,
+// which is why that stack charges per real client instead. Either way it is one shared bucket, and
 // eight misses in 15 minutes closes dashboard sign-in for everyone using it.
 // Hundreds of attempts, which a per-iteration sign-in produced, empties it
 // immediately and fills the attempts table with junk.
@@ -78,6 +79,19 @@ export const options = {
 // costs exactly one failed attempt. `client-api.js` already worked this way.
 export function setup() {
   const page = http.get(`${BASE}/admin/login`);
+  // Check the GET before parsing it. k6 returns a response with a null body
+  // when the request itself failed, and `page.html()` then throws `the body is
+  // null so we can't transform it to HTML` -- which names neither the target
+  // nor the cause. This is the commonest way an operator gets here: the stack
+  // was torn down, or an https:// URL points at a plain-HTTP port.
+  if (page.status !== 200) {
+    throw new Error(
+      `the login page did not load: ${BASE}/admin/login answered ` +
+      `${page.status}${page.error ? ` (${page.error})` : ''}. That is the target, ` +
+      `not the credentials. run.sh probes /actuator/health first, so if that ` +
+      `passed and this did not, check BASE_URL's scheme and port.`,
+    );
+  }
   const token = page.html().find('input[name="_csrf"]').attr('value');
   // `password` only: PlatformAdminWebController.login takes no username, and
   // PlatformAdminLoginService uses a constant identifier. A `username` field
@@ -90,7 +104,12 @@ export function setup() {
   // A 200 or 403 on /admin/login means the form came back -- it did NOT work.
   if (login.status >= 400 || login.url.endsWith('/admin/login')) {
     throw new Error(
-      login.status === 403
+      login.status === 0
+        ? `admin sign-in never reached ${login.url}: ${login.error || 'no response'} ` +
+          `(${login.error_code || 'no code'}). Nothing answered, so this is the ` +
+          `target, not the credentials -- a torn-down stack, the wrong port, or a ` +
+          `plain-HTTP server behind an https:// URL.`
+        : login.status === 403
         ? `admin sign-in was refused with 403 at ${login.url}. That is the CSRF ` +
           `check, not the password: over plain HTTP k6 drops the \`Secure\` ` +
           `session cookie, so the token cannot be validated against a session. ` +

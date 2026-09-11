@@ -38,6 +38,21 @@ key, an unquoted `false` is the boolean False rather than the string "false",
 and `${SPRINGDOC_API_DOCS_ENABLED:-false}` is a string that is not "false" --
 which is the point, because these are literals precisely so that `.env` cannot
 override them.
+
+ONE RULE, several instances: anything whose effect is to make the resolved
+service differ from what this document says is REFUSED, not interpreted. That
+covers `extends:` and top-level `include:` (both merge in definitions from
+elsewhere, concatenating ports), `network_mode:` (Docker then ignores `ports`
+entirely) and `!reset` (deletes the key it sits on). Each was found by a review
+after the previous one was closed, which is the argument for stating the rule
+rather than listing the keys: a fifth mechanism should be refused on sight.
+
+What this reports is a property of THIS FILE, not of a running stack. The
+documented production invocation is `-f compose.remote-db.yaml -f
+compose.tls.yaml`, and that overlay unpublishes the app port and puts Caddy on
+0.0.0.0:443. The bare one-file form is the one that puts a
+production-credentialled application on 127.0.0.1:8080, where perf/run.sh
+defaults -- which is the threat this guards.
 """
 from __future__ import annotations
 
@@ -60,8 +75,12 @@ class ComposeLoader(yaml.SafeLoader):
     """
 
 
-def _untagged(loader: yaml.Loader, node: yaml.Node):
-    """The tag's value, as if the tag were not there.
+class ResetTagFound(Exception):
+    """`!reset` deletes the key it is on; this check cannot represent that."""
+
+
+def _override(loader: yaml.Loader, node: yaml.Node):
+    """`!override` means "this value, do not merge it" -- so the value.
 
     Dispatched on node type: calling construct_object here would re-enter this
     same constructor and raise "found unconstructable recursive node".
@@ -73,8 +92,21 @@ def _untagged(loader: yaml.Loader, node: yaml.Node):
     return loader.construct_scalar(node)
 
 
-for _tag in ("!override", "!reset"):
-    ComposeLoader.add_constructor(_tag, _untagged)
+def _reset(loader: yaml.Loader, node: yaml.Node):
+    """`!reset` is NOT `!override`.
+
+    It removes the key from the resolved service, so reading it as "the value
+    without the tag" inverts the answer: `SPRINGDOC_API_DOCS_ENABLED: !reset
+    "false"` resolves to NO such key -- springdoc back on -- while a checker
+    that strips the tag sees the string "false" and reports the pin intact.
+    Treating the two tags alike was a regression: before they were handled at
+    all, PyYAML raised on both and this check failed closed.
+    """
+    raise ResetTagFound(node.start_mark)
+
+
+ComposeLoader.add_constructor("!override", _override)
+ComposeLoader.add_constructor("!reset", _reset)
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = "deploy/compose.remote-db.yaml"
@@ -107,7 +139,16 @@ LOOPBACK = "127.0.0.1"
 # this file, so both are refused instead.
 UNRESOLVABLE_KEYS = {
     "extends": "pulls in another service whose ports compose merges with these",
-    "network_mode": "host networking discards `ports` entirely and binds every interface",
+    "network_mode": "every mode -- host, `service:`, `container:` -- makes Docker "
+                    "ignore `ports`, so the pinned entry stops meaning anything",
+}
+
+# The same rule at the top level. `include:` merges another file's services into
+# this one with the same list-concatenation as `extends`, so it can add an
+# off-loopback publish beside the pinned entry AND add whole services the
+# per-service loop below never sees.
+UNRESOLVABLE_TOP_LEVEL_KEYS = {
+    "include": "merges another file's services into this one",
 }
 
 
@@ -150,6 +191,15 @@ def main() -> int:
 
     try:
         doc = yaml.load(path.read_text(encoding="utf-8"), Loader=ComposeLoader)
+    except ResetTagFound as where:
+        print(
+            f"FAIL: {COMPOSE} uses `!reset` (at {where}).\n\n"
+            f"  `!reset` DELETES the key it is on, so the resolved service does not have it\n"
+            f"  at all. This check reads the file, so it would see the value and report the\n"
+            f"  pin intact while compose removed it.",
+            file=sys.stderr,
+        )
+        return 1
     except yaml.YAMLError as error:
         print(f"FAIL: {COMPOSE} is not valid YAML: {error}", file=sys.stderr)
         return 1
@@ -174,6 +224,13 @@ def main() -> int:
             problems.append(
                 f"  services.{SERVICE}.environment.{key} is {actual!r}, must be the "
                 f"literal {expected!r}\n    {why}"
+            )
+
+    for key, why in UNRESOLVABLE_TOP_LEVEL_KEYS.items():
+        if key in (doc or {}):
+            problems.append(
+                f"  top-level `{key}` is set\n    {why}, and this check reads the file "
+                f"rather than the resolved stack, so it cannot see the result"
             )
 
     for key, why in UNRESOLVABLE_KEYS.items():

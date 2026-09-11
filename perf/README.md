@@ -76,12 +76,18 @@ and aborts the run on failure, so a wrong credential costs one attempt rather
 than the hundreds a per-iteration sign-in threw.
 
 That matters because the miss budget is charged to `web:` + `getRemoteAddr()`,
-and in this deployment that is **one shared bucket**, not one per person: the
-app is containerised, so a hit on a published port arrives from the Docker
-bridge gateway (measured: `172.17.0.1`), and under `local` and `integration`
-`server.forward-headers-strategy` is `none`, so anything arriving through the
+and for the stack this guard is about that is **one shared bucket**, not one per
+person: the app is containerised, so a hit on a published port arrives from the
+project network's gateway (`172.17.0.1` on the default bridge; a compose project
+gets its own), not from `127.0.0.1`. And `compose.remote-db.yaml` never passes
+`SERVER_FORWARD_HEADERS_STRATEGY`, so it is `none` there and anything through a
 proxy carries the proxy's address. Eight misses in 15 minutes closes dashboard
-sign-in for everyone using that path. Charging per client address rather than
+sign-in for everyone using that path.
+
+`deploy/e2e/run.sh` is the exception, and deliberately: it sets
+`FORWARD_HEADERS_STRATEGY=native`, so on that stack `X-Forwarded-For` is honoured
+and misses are charged per real client. `docs/operations/monitoring-and-alerting.md`
+prescribes `native` as the fix wherever a proxy is in front. Charging per client address rather than
 per account is what stops someone locking the administrator out from anywhere;
 behind a proxy it does not separate one operator from another. Point it at a
 stack you can throw away.
@@ -158,6 +164,46 @@ bigger one would help. Measured:
 The three pool=10 runs are the same configuration, minutes apart. **Run-to-run
 variance is +/-20% on throughput and +/-50% on p95**, and the pool=24 result
 falls inside it. The comparison is inconclusive, not negative.
+
+### Re-measured on an idle machine (2026-09-11): still don't raise it
+
+Repeated on a machine doing nothing else -- load average 1.0 of 12 cores, every
+other container under 0.3% -- sweeping the pool with `APP_DB_MAX_POOL_SIZE`, one
+`client-api` run each, and **pool=10 repeated last** so the same-configuration
+spread is visible beside the between-configuration one:
+
+| Pool | req/s | p95 | avg | `connections_pending` peak |
+|---|---|---|---|---|
+| 10 | 244.9 | 126.6 ms | 37.6 ms | 9 |
+| 20 | 208.1 | 125.1 ms | 44.2 ms | 9 |
+| 40 | 214.6 | 119.0 ms | 42.9 ms | **0** |
+| 10 (repeat) | 198.7 | 132.3 ms | 46.3 ms | 8 |
+
+**The two pool=10 runs differ by 23% on throughput -- more than any pair of
+different configurations differs.** Every result between 10 and 40 sits inside
+that band, so the honest reading is that the pool is not the constraint at this
+volume and raising it buys nothing measurable. Keep the default at 10.
+
+The one thing that does move monotonically is `hikaricp_connections_pending`:
+9 at pool=10, 0 at pool=40. So a larger pool really does remove the queueing --
+it just does not make anything faster, which is the evidence the earlier note
+said was missing. The bottleneck is elsewhere (CPU peaked at 293% of one core
+across the run, and the database is on the same laptop).
+
+Two caveats that matter more than the numbers:
+
+- **The heap here is nothing like production's.** `compose.local.yaml` sets no
+  container memory limit, so `MaxRAMPercentage=75` in the Dockerfile applied to
+  the host's 23 GiB and the JVM ran with a **17,792 MiB** heap ceiling.
+  `compose.prod.yaml` and `compose.remote-db.yaml` set `memory: 1g`, which is a
+  768 MiB ceiling -- about 23x smaller. Measured here: heap used peaked at 163
+  MiB, 83 collections, 0.188 s total GC pause, **0.06% GC overhead**. That
+  number is not transferable; under a 1 GiB cap the same run has real GC work to
+  do. Set `APP_MEMORY_LIMIT` and add a limit block to the stack you measure on
+  if you want a comparable figure.
+- Resource ceiling for sizing a host: 20 VUs against this seed drew **293% of
+  one core at peak, 153% mean**, 38 live threads, and 596 MiB RSS for the
+  application container.
 
 This is the reason the README says these numbers are comparative and not a
 service level -- and it sharpens the rule: **pool tuning needs an otherwise
