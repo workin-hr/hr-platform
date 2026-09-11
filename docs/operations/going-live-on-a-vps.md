@@ -4,10 +4,15 @@ Moving this application onto a server of your own: which stack to run, every
 value that changes and the file it lives in, the order to do it in, and how to
 tell it worked.
 
-Written for the cutover from the PHP deployment. It assumes the six Phase 1
-tables already exist in whichever database you point at —
+Written for the cutover from the PHP deployment. It assumes Phase 1 is already
+provisioned in whichever database you point at.
+[provisioning-phase1-tables.md](provisioning-phase1-tables.md) is the authority
+on what that means and how to do it. This page deliberately does not restate the
+list: it carried its own count once, that count was correct when written, and it
+went stale the moment the runbook's grew — which is the whole argument for one
+authority rather than two agreeing copies.
 [checking-against-the-live-database.md](checking-against-the-live-database.md)
-covers applying them.
+covers checking an existing database against it.
 
 ## 1. First decide where the database lives
 
@@ -37,9 +42,13 @@ Three things must be true, and none of them fails loudly later.
   site that never serves.
 - **Port 80 and 443 are open** to the internet. The certificate authority
   reaches port 80 to validate.
-- **The Phase 1 tables exist** in the database you are pointing at. The
-  application creates its administrator row at every startup, so without
-  `platform_admins` it does not start at all.
+- **Phase 1 is provisioned** in the database you are pointing at, per
+  [provisioning-phase1-tables.md](provisioning-phase1-tables.md) — which is more
+  than the tables. The application creates its administrator row at every
+  startup, so without `platform_admins` it does not start at all; and the
+  startup check compares table *names* only, so a database with every table and
+  none of the rest reports itself healthy and then fails where nobody is
+  looking. Run that runbook's step 4 and take its answer, not this page's word.
 
 ## 3. What changes, and where
 
