@@ -87,10 +87,12 @@ sign-in for everyone using that path.
 `deploy/e2e/run.sh` sets `FORWARD_HEADERS_STRATEGY=native`, and that is worth
 understanding rather than trusting: it does **not** give you a bucket per
 operator here. The topology decides, not the profile. With the load generator on
-the host and the app behind a published port, nginx fills `X-Forwarded-For` from
-`$remote_addr`, which is the project gateway -- so every VU and every operator on
-that box is still one address. `native` separates clients only where the proxy
-sees distinct real ones, which means a public edge.
+the host and the app behind a published port, nginx sets `X-Forwarded-For` with
+`$proxy_add_x_forwarded_for`, which **appends** `$remote_addr` -- the project
+gateway -- to whatever the client sent. k6 sends nothing, so every VU and every
+operator on that box lands in one bucket. A client that *does* send its own
+`X-Forwarded-For` picks its own bucket under `native`, which is R-049 and still
+open.
 `docs/operations/monitoring-and-alerting.md` prescribes `native` for that case. Charging per client address rather than
 per account is what stops someone locking the administrator out from anywhere;
 behind a proxy it does not separate one operator from another. Point it at a
@@ -144,20 +146,35 @@ committed -- they belong on the command line of a measurement, not in a profile:
      serial. Until then the handshake answers 200 and every upload is refused;
      the scenario's own check says `claim PERF-LOAD-1 first`. The sighting lands
      in `unclaimed_device_sightings`, which is where an operator finds it.
-  4. The seed must carry the Phase-1 device tables. It did not until 2026-09-11;
-     a stack seeded before that reported `8 of 14 owned tables are MISSING` and
-     lost every punch a terminal sent.
+  4. The database must have the Phase-1 device tables. `deploy/seed/dev-seed.sql`
+     **predates them**, so a stack seeded from it reports `8 of 14 owned tables
+     are MISSING` and a claim attempt answers **500** --
+     `AttendanceDeviceStore.findBySerial` selects from a table that is not there.
+     Applying `db/phase1-mysql/phase1_extensions.sql` to the running database
+     unblocks a measurement; regenerating the seed is the real fix and is
+     tracked separately.
 
   **What the baseline measures is the re-send path, not the insert path.**
   `attlogBatch()` builds a fixed payload -- constant base timestamp, pins
-  `7000 + (i % 50)` -- so every iteration uploads the same 50 records and the
-  application deduplicates them. Measured: a full ramp stored **50 rows in
-  total**; the same ramp with per-iteration timestamps stored **317,300**. That
-  is defensible -- a terminal returning from an outage really does re-send its
-  buffer, which is what the scenario header says it measures -- but the number
-  is not a write-path figure, and the two are not far apart anyway (168.6 req/s
-  / p95 152.4 ms deduplicating, 185.2 req/s / p95 133.7 ms inserting, both n=1
-  and inside the +/-23% band established above).
+  `7000 + (i % 50)` -- so every iteration uploads the same 50 records. Measured
+  on one ramp each, against an empty `device_punches`:
+
+  | payload | requests | rows stored |
+  |---|---|---|
+  | committed (fixed) | 13,492 | **50, in total** |
+  | per-iteration timestamps | 11,688 | **292,200** (5,844 iterations x 50) |
+
+  That is defensible -- a terminal returning from an outage really does re-send
+  its buffer, which is what the scenario header says it measures. But it is not
+  a cheap path and it is not free: each re-sent record is still attempted as an
+  `INSERT` and rejected by the `dedup_key` unique index, which
+  `DevicePunchStore` catches as a `DuplicateKeyException` inside the same
+  transaction. It is the write path minus the row.
+
+  Latency is n=1 per shape and not worth a verdict: 168.6 req/s / p95 152.4 ms
+  fixed, 145.8 req/s / p95 128.6 ms varied. The +/-23% throughput and 4.5% p95
+  spreads quoted above were measured on `client-api`, not here, so they do not
+  license a conclusion about these two.
 
 ## What the first full run found
 
@@ -238,7 +255,8 @@ This is the reason the README says these numbers are comparative and not a
 service level -- and it sharpens the rule: **pool tuning needs an otherwise
 idle machine.** *Those first* runs shared a laptop with four other Docker
 stacks, and nothing about the pool size should have been changed on them. The
-re-measure below was taken on an idle one and does support a conclusion.
+re-measure above was taken on an idle one, and what it supports is leaving the
+default alone.
 
 ## The thresholds are ratchets
 

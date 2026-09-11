@@ -30,10 +30,15 @@ const SERIAL = __ENV.PERF_SERIAL || 'PERF-LOAD-1';
 // deduplicates them. That is the re-send a terminal really does perform after
 // an outage, and it is what the header above says this measures.
 //
-// It is NOT the insert path: measured, a full ramp stores 50 rows in total,
-// while the same ramp with per-iteration timestamps stores 317,300. If you want
-// the write cost, vary `base` by __VU and __ITER -- and then do not compare the
-// result with the ratchet below, which was set against this payload.
+// It is NOT the insert path: measured against an empty device_punches, a full
+// ramp stores 50 rows in total, while the same ramp with per-iteration
+// timestamps stores 292,200. It is not a cheap path either -- each re-sent
+// record is still attempted as an INSERT and rejected by the `dedup_key` unique
+// index, which DevicePunchStore catches as a DuplicateKeyException inside the
+// same transaction. The write path minus the row.
+//
+// If you want the write cost, vary `base` by __VU and __ITER -- and then do not
+// compare the result with the ratchet below, which was set against this payload.
 function attlogBatch(records) {
   const lines = [];
   const base = Date.parse('2025-06-02T08:00:00Z');

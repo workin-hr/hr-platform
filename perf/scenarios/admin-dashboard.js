@@ -70,9 +70,10 @@ export const options = {
 // its own), not 127.0.0.1 -- and compose.remote-db.yaml never passes
 // SERVER_FORWARD_HEADERS_STRATEGY, so it is `none` there and anything through
 // a proxy arrives as the PROXY's address. deploy/e2e/run.sh sets `native`, and
-// that does NOT buy a bucket per operator here: with the generator on the host
-// and the app behind a published port, X-Forwarded-For carries the project
-// gateway, so it is still one address. Either way it is one shared bucket, and
+// that does NOT buy a bucket per operator here: nginx uses
+// $proxy_add_x_forwarded_for, which APPENDS the project gateway to whatever the
+// client sent, and k6 sends nothing -- so every VU is one address. A client that
+// does send its own X-Forwarded-For picks its own bucket (R-049, open). Either way it is one shared bucket, and
 // eight misses in 15 minutes closes dashboard sign-in for everyone using it.
 // Hundreds of attempts, which a per-iteration sign-in produced, empties it
 // immediately and fills the attempts table with junk.

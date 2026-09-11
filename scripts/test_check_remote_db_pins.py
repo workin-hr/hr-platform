@@ -248,6 +248,19 @@ services:
     check(proc.returncode == 1 and "more than one YAML document" in proc.stderr,
           f"a second document is refused by name (exit={proc.returncode})")
 
+    # ComposerError is not only "second document". An undefined alias is a file
+    # compose also rejects; a DUPLICATE ANCHOR is one compose ACCEPTS. Neither
+    # may be reported as a second document.
+    proc = run(COMPOSE.replace("    environment:\n", "    environment: *nope\n#"))
+    check(proc.returncode == 1 and "more than one YAML document" not in proc.stderr,
+          f"an undefined alias is not called a second document (exit={proc.returncode})")
+
+    dup = COMPOSE.replace("  app:\n", "  app: &dup\n").replace("name: workin-remote-db\n",
+                                                                "name: workin-remote-db\nx-a: &dup {}\n")
+    proc = run(dup)
+    check("more than one YAML document" not in proc.stderr,
+          f"a duplicate anchor is not called a second document (exit={proc.returncode})")
+
     # A missing file fails rather than skipping.
     proc = run(None)
     check(proc.returncode == 1 and "is missing" in proc.stderr,

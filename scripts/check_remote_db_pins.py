@@ -40,12 +40,18 @@ which is the point, because these are literals precisely so that `.env` cannot
 override them.
 
 ONE RULE, several instances: anything whose effect is to make the resolved
-service differ from what this document says is REFUSED, not interpreted. That
-covers `extends:` and top-level `include:` (both merge in definitions from
-elsewhere, concatenating ports), `network_mode:` (Docker then ignores `ports`
-entirely) and `!reset` (deletes the key it sits on). Each was found by a review
-after the previous one was closed, which is the argument for stating the rule
-rather than listing the keys: a fifth mechanism should be refused on sight.
+service differ from what this document says is REFUSED, not interpreted. Five so
+far, each found by a review after the previous one was closed:
+
+  extends:            merges a base service in, concatenating ports
+  include:            the same, top-level, and it can add whole services
+  network_mode:       some modes make Docker ignore `ports` entirely
+  !reset              deletes the key it sits on
+  a second document   compose reads them all; this reads the first
+
+and the scan runs over EVERY service, not just `app`, because a sibling
+publishes just as widely. That history is the argument for stating the rule
+rather than listing the keys: a sixth mechanism should be refused on sight.
 
 What this reports is a property of THIS FILE, not of a running stack. The
 documented production invocation is `-f compose.remote-db.yaml -f
@@ -200,13 +206,21 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    except yaml.composer.ComposerError:
-        print(
-            f"FAIL: {COMPOSE} contains more than one YAML document.\n\n"
-            f"  compose reads them all; this check reads the first, so a second one can\n"
-            f"  add ports or drop a pin where this cannot see it.",
-            file=sys.stderr,
-        )
+    except yaml.composer.ComposerError as error:
+        # ComposerError covers three conditions, and only one of them is a
+        # second document -- "found undefined alias" and "found duplicate
+        # anchor" raise it too, and compose ACCEPTS the duplicate-anchor file.
+        # Naming all three "more than one document" would be a false reason in
+        # a gate whose whole point is not to send the reader after the wrong bug.
+        if "expected a single document" in str(error):
+            print(
+                f"FAIL: {COMPOSE} contains more than one YAML document.\n\n"
+                f"  compose reads them all; this check reads the first, so a second one can\n"
+                f"  add ports or drop a pin where this cannot see it.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"FAIL: {COMPOSE} could not be composed: {error}", file=sys.stderr)
         return 1
     except yaml.YAMLError as error:
         print(f"FAIL: {COMPOSE} is not valid YAML: {error}", file=sys.stderr)
