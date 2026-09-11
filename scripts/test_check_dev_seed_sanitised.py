@@ -162,7 +162,7 @@ def test_a_seed_missing_a_phase1_table_fails() -> None:
 def test_a_complete_seed_passes_self_sufficiency() -> None:
     findings: list[str] = []
     derived = gate.owned_tables(findings)
-    check(not findings and len(derived) >= gate.MINIMUM_OWNED_TABLES,
+    check(not findings and len(derived) >= 14,
           f"the table list itself derives cleanly ({len(derived)} tables, {findings})")
     complete = "".join(f"CREATE TABLE `{t}` (...);\n" for t in derived)
     gate.check_seed_is_self_sufficient(complete, findings)
@@ -174,9 +174,48 @@ def test_a_folded_table_name_still_counts() -> None:
     lower_case_table_names folds SPRING_SESSION on some hosts. A seed built on
     such a host must not fail a gate the application itself would accept."""
     findings: list[str] = []
-    folded = "".join(f"CREATE TABLE `{t.lower()}` (...);\n" for t in gate.owned_tables([]))
+    derived = gate.owned_tables(findings)
+    check(not findings and len(derived) >= 14,
+          f"the table list derives cleanly before the fixture is built ({findings})")
+    folded = "".join(f"CREATE TABLE `{t.lower()}` (...);\n" for t in derived)
     gate.check_seed_is_self_sufficient(folded, findings)
     check(not findings, f"a seed with folded table names passes (got {findings})")
+
+
+def test_a_create_table_in_prose_does_not_satisfy_the_check() -> None:
+    """The seed's own comments say CREATE TABLE more often than its DDL does.
+
+    A substring test was satisfied by a sentence; every real statement starts at
+    column 0, so the match is anchored.
+    """
+    findings: list[str] = []
+    prose = "".join(
+        f"-- mounting it twice ran a non-idempotent CREATE TABLE `{t}` again\n"
+        for t in gate.owned_tables([])
+    )
+    gate.check_seed_is_self_sufficient(prose, findings)
+    check(len(findings) >= 14,
+          f"a comment naming every table does not satisfy the check (got {len(findings)})")
+
+
+def test_a_seed_that_cannot_be_applied_twice_fails() -> None:
+    findings: list[str] = []
+    gate.check_seed_can_be_applied_twice(
+        "DROP TABLE IF EXISTS `a`;\nCREATE TABLE `a` (...);\nCREATE TABLE `b` (...);\n",
+        findings,
+    )
+    check(any("`b`" in f for f in findings) and not any("`a`" in f for f in findings),
+          f"a CREATE without its DROP is named, and one with it is not (got {findings})")
+
+
+def test_the_real_seed_can_be_applied_twice() -> None:
+    seed = gate.read(gate.SEED)
+    if seed is None:
+        check(False, "the seed is present")
+        return
+    findings: list[str] = []
+    gate.check_seed_can_be_applied_twice(seed, findings)
+    check(not findings, f"every table in the committed seed has its DROP (got {findings[:2]})")
 
 
 def test_the_required_tables_come_from_phase1schemacheck() -> None:

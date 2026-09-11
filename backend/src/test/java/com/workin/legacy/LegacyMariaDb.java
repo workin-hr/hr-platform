@@ -48,7 +48,16 @@ public final class LegacyMariaDb {
 	 * a dash, so this is the server option and nothing else changes.
 	 */
 	private static final MariaDBContainer<?> CONTAINER = new MariaDBContainer<>("mariadb:11.8")
-			.withCommand("--max-connections=1000");
+			// Collation pinned, not inherited. mariadb:11.8's default server
+			// collation is utf8mb4_uca1400_ai_ci, while the vendored legacy
+			// schema declares utf8mb4_unicode_ci on every table -- so any table
+			// created without an explicit COLLATE landed on the other one and a
+			// join between the two raised `Illegal mix of collations`. The
+			// shipped DDL now says it, and so does this, because a test
+			// database that disagrees with a deployed one is worse than useless.
+			.withCommand("--max-connections=1000",
+					"--character-set-server=utf8mb4",
+					"--collation-server=utf8mb4_unicode_ci");
 
 	private static final AtomicInteger NEXT = new AtomicInteger();
 

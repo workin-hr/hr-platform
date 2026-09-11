@@ -286,13 +286,16 @@ def check_exception_lists_current(schema: str, findings: list[str]) -> None:
 PHASE1_SCHEMA_CHECK = "backend/src/main/java/com/workin/backend/config/Phase1SchemaCheck.java"
 OWNED_TABLE = re.compile(r'OWNED_TABLES\.put\(\s*"([^"]+)"')
 
-# A FLOOR, not the authority -- the authority is the file above. Parsing a Java
-# source with a regex degrades quietly: `putIfAbsent`, a constant instead of a
-# literal, or a loop all yield fewer names, and the "found nothing" guard only
-# fires at zero. One table added that way would silently stop being required,
-# which is the failure this whole check was rewritten to prevent. Raise this
-# with the count; never lower it to make a parse fit.
-MINIMUM_OWNED_TABLES = 14
+# Parsing a Java source with a regex degrades quietly: `putIfAbsent`, a constant
+# instead of a string literal, or a loop all yield fewer NAMES while the code
+# still owns the table. A floor of the current count does not catch that -- a
+# review proved it: adding a FIFTEENTH table as `putIfAbsent` leaves the literal
+# count at 14, which clears a floor of 14 and is silently never required.
+#
+# So count the mutating call sites too and require the two to agree. Every way
+# of adding a table that this regex cannot read still adds a call site, so the
+# mismatch is the signal. It needs no constant and cannot go stale.
+OWNED_MUTATION = re.compile(r'OWNED_TABLES\.(put|putIfAbsent|putAll|merge|compute|computeIfAbsent)\s*\(')
 
 
 def owned_tables(findings: list[str]) -> tuple[str, ...]:
@@ -305,34 +308,70 @@ def owned_tables(findings: list[str]) -> tuple[str, ...]:
         )
         return ()
     with open(source, encoding="utf-8") as handle:
-        tables = tuple(OWNED_TABLE.findall(handle.read()))
+        source_text = handle.read()
+    tables = tuple(OWNED_TABLE.findall(source_text))
     if not tables:
         fail(
             f"found no OWNED_TABLES entries in {PHASE1_SCHEMA_CHECK}. The declaration's shape "
             f"changed and this check silently stopped requiring anything",
             findings,
         )
-    elif len(tables) < MINIMUM_OWNED_TABLES:
-        fail(
-            f"parsed only {len(tables)} OWNED_TABLES entries from {PHASE1_SCHEMA_CHECK}, "
-            f"below the floor of {MINIMUM_OWNED_TABLES}: {', '.join(tables)}. Either a table "
-            f"was deleted, or it is now written in a way this regex does not see "
-            f"(putIfAbsent, a constant, a loop) and is silently no longer required",
-            findings,
-        )
+    else:
+        mutations = len(OWNED_MUTATION.findall(source_text))
+        if mutations != len(tables):
+            fail(
+                f"{PHASE1_SCHEMA_CHECK} has {mutations} calls that add an owned table but "
+                f"only {len(tables)} readable names ({', '.join(tables)}). One is written in "
+                f"a form this check cannot read -- a constant instead of a string literal, or "
+                f"a loop -- so the table it names would silently stop being required of the "
+                f"seed. Write the name as a literal in the OWNED_TABLES.put(...) call, or "
+                f"teach OWNED_TABLE here to read the new form",
+                findings,
+            )
     return tables
 
 
 def check_seed_is_self_sufficient(seed: str, findings: list[str]) -> None:
-    lowered = seed.lower()
     for table in owned_tables(findings):
-        if f"create table `{table.lower()}`" not in lowered:
+        # Anchored, not a substring: this file's own comments say "CREATE TABLE"
+        # in prose more often than the dump says it in DDL, and a sentence must
+        # not satisfy the only check on the seed standing alone. Every real
+        # statement starts at column 0. Case-insensitive to agree with
+        # Phase1SchemaCheck.missingTables(), which compares that way because
+        # lower_case_table_names folds SPRING_SESSION on some hosts.
+        if not re.search(rf"(?im)^\s*CREATE TABLE `{re.escape(table)}`", seed):
             fail(
                 f"deploy/seed/dev-seed.sql does not create `{table}`, which "
                 f"Phase1SchemaCheck owns. It is mounted as the only init script, so a seed "
                 f"missing a Phase 1 table leaves that feature dead on every stack seeded "
                 f"from it. Rebuild it with scripts/build_dev_seed.sh, which applies "
                 f"phase1_extensions.sql before dumping",
+                findings,
+            )
+
+
+# The seed is restored by hand in deploy/e2e/run.sh under E2E_SEED_PROD=1, which
+# never does `down -v` -- so it has to be applicable to a database that already
+# has these tables. It stopped being: eight tables were spliced in from a
+# mariadb-dump run with --skip-add-drop-table, and a second load died with
+# `Table 'attendance_devices' already exists` AFTER 80,000 lines of data had
+# reloaded, leaving exactly the half-applied database the script warns about.
+# Nothing checked it, so nothing caught it.
+CREATE_TABLE_STATEMENT = re.compile(r"(?im)^\s*CREATE TABLE `([^`]+)`")
+DROP_TABLE_STATEMENT = re.compile(r"(?im)^\s*DROP TABLE IF EXISTS `([^`]+)`")
+
+
+def check_seed_can_be_applied_twice(seed: str, findings: list[str]) -> None:
+    created = CREATE_TABLE_STATEMENT.findall(seed)
+    dropped = set(DROP_TABLE_STATEMENT.findall(seed))
+    for table in created:
+        if table not in dropped:
+            fail(
+                f"deploy/seed/dev-seed.sql creates `{table}` without a matching "
+                f"DROP TABLE IF EXISTS. mariadb-dump emits one by default, so this was "
+                f"spliced in with --skip-add-drop-table. Applying the seed to a database "
+                f"that already has the table fails halfway through, which is how "
+                f"deploy/e2e/run.sh restores it",
                 findings,
             )
 
@@ -381,6 +420,7 @@ def main() -> int:
     check_value_shapes(seed, findings)
     check_sentinels(seed, findings)
     check_seed_is_self_sufficient(seed, findings)
+    check_seed_can_be_applied_twice(seed, findings)
 
     if findings:
         for finding in findings:
