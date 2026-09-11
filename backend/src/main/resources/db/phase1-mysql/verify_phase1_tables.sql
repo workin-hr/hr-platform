@@ -28,10 +28,18 @@ SELECT 'database' AS check_name,
 --    is deliberately not idempotent, so re-applying it prints one ERROR 1050
 --    per existing table and one ERROR 1061 per existing index, creates only
 --    what is absent, and EXITS 0. Those errors are the expected output, not a
---    failure. Re-run this script afterwards: section 3 should say `applied`. `none` means apply the script as it is.
---    All fourteen means it has been applied -- check (4) rather than re-running it.
---    Anything between is a partial apply: drop the ones listed and start again,
---    since the script is deliberately not idempotent.
+--    failure. Re-run this script afterwards: section 3 should say `applied`.
+--
+--    `none` means apply the script as it is. All fourteen means it has been
+--    applied -- check (4) rather than re-running it.
+--
+--    ANYTHING BETWEEN IS A PARTIAL APPLY, AND THE VERDICT SAYS WHAT TO DO. Do
+--    NOT "drop the ones listed": the listed value is every owned table present,
+--    which at counts 7-13 includes platform_admin_audit_events (retained
+--    evidence, D-161) and SPRING_SESSION (every live administrator session).
+--    Drop only the eight DEVICE tables, and only while nothing has written to
+--    them; otherwise re-apply with --force alone, which creates what is absent
+--    and touches nothing that exists.
 SELECT 'phase1 tables present' AS check_name,
        COALESCE(GROUP_CONCAT(table_name ORDER BY table_name SEPARATOR ', '), 'none') AS value,
        CASE COUNT(*)
@@ -48,12 +56,18 @@ SELECT 'phase1 tables present' AS check_name,
          -- to run) lands here at 7-13. Dropping platform_admin_audit_events
          -- loses retained evidence (D-161) and dropping SPRING_SESSION ends
          -- every live administrator session.
-         ELSE CONCAT('PARTIAL -- a torn apply. Drop ONLY the device tables among ',
-                     'those listed (attendance_devices, employee_device_identities, ',
-                     'device_punches, unclaimed_device_sightings, device_operation_logs, ',
+         -- The count cannot tell a torn apply from a LIVE stack that lost one
+         -- table, and device_punches is the attendance punch record -- section
+         -- 6 calls it the one that will not stay small. So the drop is
+         -- conditional, and --force alone is the answer whenever it is not.
+         ELSE CONCAT('PARTIAL. Re-apply with --force, which creates only what is ',
+                     'absent. Drop-and-re-apply is ONLY for a torn first apply, ',
+                     'only the eight device tables (attendance_devices, ',
+                     'employee_device_identities, device_punches, ',
+                     'unclaimed_device_sightings, device_operation_logs, ',
                      'device_malformed_punches, legacy_runtime_offset_history, ',
-                     'device_assignment_history) and re-apply with --force. ',
-                     'NEVER drop the six originals.')
+                     'device_assignment_history), and only while nothing has ',
+                     'written to them. NEVER drop the six originals.')
        END AS verdict
   FROM information_schema.tables
  WHERE table_schema = DATABASE()

@@ -26,6 +26,14 @@ touches a table PHP knows about (**R-023**).
 | `platform_admin_audit_events` | every administrative action (they refuse rather than proceed unrecorded) |
 | `platform_admin_login_attempts` | the login's miss budget |
 | `SPRING_SESSION`, `SPRING_SESSION_ATTRIBUTES` | the dashboard session — login succeeds and is immediately forgotten |
+| `attendance_devices` | terminals cannot be registered, and none of their punches are accepted |
+| `employee_device_identities` | device PIN to employee mapping; punches fall back to `employee_code` and otherwise go unmatched |
+| `device_punches` | the punch record itself — a terminal's scans are acknowledged and then lost |
+| `unclaimed_device_sightings` | terminals pointed here but not yet claimed are invisible, so device setup has nothing to show |
+| `device_operation_logs` | the device operation log |
+| `device_malformed_punches` | unparseable ATTLOG lines are acknowledged to the terminal and then unrecoverable |
+| `legacy_runtime_offset_history` | what the legacy runtime offset WAS — pairing refuses to run rather than guess |
+| `device_assignment_history` | what a device's branch and zone WERE, for a punch delivered after a reassignment |
 
 **Verified against the live database on 2026-09-08**, read-only: MariaDB
 **11.8.8** (the version the suite runs against), `utf8mb4` /
@@ -45,7 +53,7 @@ mysql -h "$DB_HOST" -u "$DB_USER" -p "$DB_NAME" \
 
 It reports the server version, the database's charset and engine, which of the
 fourteen tables are present (`none`, `applied`, a database provisioned before
-the device tables existed, or a torn apply to undo), the column count of each
+the device tables existed, or or a partial apply, which the verdict tells you how to resolve -- with `--force`, not a drop), the column count of each
 against what the script creates — a table with the right name and the wrong
 shape is the failure the non-idempotent script exists to prevent, and a name
 check cannot see it — the **collation** of each, which no name or shape check
