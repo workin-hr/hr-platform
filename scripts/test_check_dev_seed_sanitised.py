@@ -162,7 +162,7 @@ def test_a_seed_missing_a_phase1_table_fails() -> None:
 def test_a_complete_seed_passes_self_sufficiency() -> None:
     findings: list[str] = []
     derived = gate.owned_tables(findings)
-    check(not findings and len(derived) >= 14,
+    check(not findings and len(derived) == len(gate.owned_tables([])),
           f"the table list itself derives cleanly ({len(derived)} tables, {findings})")
     complete = "".join(f"CREATE TABLE `{t}` (...);\n" for t in derived)
     gate.check_seed_is_self_sufficient(complete, findings)
@@ -175,7 +175,7 @@ def test_a_folded_table_name_still_counts() -> None:
     such a host must not fail a gate the application itself would accept."""
     findings: list[str] = []
     derived = gate.owned_tables(findings)
-    check(not findings and len(derived) >= 14,
+    check(not findings and len(derived) == len(gate.owned_tables([])),
           f"the table list derives cleanly before the fixture is built ({findings})")
     folded = "".join(f"CREATE TABLE `{t.lower()}` (...);\n" for t in derived)
     gate.check_seed_is_self_sufficient(folded, findings)
@@ -189,12 +189,14 @@ def test_a_create_table_in_prose_does_not_satisfy_the_check() -> None:
     column 0, so the match is anchored.
     """
     findings: list[str] = []
+    derived = gate.owned_tables(findings)
+    check(not findings, f"the table list derives cleanly first ({findings})")
     prose = "".join(
         f"-- mounting it twice ran a non-idempotent CREATE TABLE `{t}` again\n"
-        for t in gate.owned_tables([])
+        for t in derived
     )
     gate.check_seed_is_self_sufficient(prose, findings)
-    check(len(findings) >= 14,
+    check(len(findings) == len(derived),
           f"a comment naming every table does not satisfy the check (got {len(findings)})")
 
 
@@ -206,6 +208,34 @@ def test_a_seed_that_cannot_be_applied_twice_fails() -> None:
     )
     check(any("`b`" in f for f in findings) and not any("`a`" in f for f in findings),
           f"a CREATE without its DROP is named, and one with it is not (got {findings})")
+
+
+def test_a_drop_after_its_create_is_caught() -> None:
+    """Set membership accepted this and it is WORSE than a missing DROP.
+
+    A missing DROP aborts the restore loudly, which deploy/e2e/run.sh
+    propagates. A DROP that sits after its CREATE loads cleanly, exits 0, and
+    leaves the table gone.
+    """
+    findings: list[str] = []
+    gate.check_seed_can_be_applied_twice(
+        "CREATE TABLE `a` (...);\nDROP TABLE IF EXISTS `a`;\n", findings)
+    check(any("AFTER creating it" in f for f in findings),
+          f"a DROP after its CREATE is caught (got {findings})")
+
+
+def test_a_drop_with_no_create_is_caught() -> None:
+    findings: list[str] = []
+    gate.check_seed_can_be_applied_twice("DROP TABLE IF EXISTS `gone`;\n", findings)
+    check(any("never creates it" in f for f in findings),
+          f"a DROP with no CREATE is caught (got {findings})")
+
+
+def test_table_names_are_folded_when_pairing_drops_with_creates() -> None:
+    findings: list[str] = []
+    gate.check_seed_can_be_applied_twice(
+        "DROP TABLE IF EXISTS `A`;\nCREATE TABLE `a` (...);\n", findings)
+    check(not findings, f"case differences do not read as a missing DROP (got {findings})")
 
 
 def test_the_real_seed_can_be_applied_twice() -> None:

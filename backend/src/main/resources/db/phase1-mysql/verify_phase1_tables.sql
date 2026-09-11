@@ -22,20 +22,24 @@ SELECT 'database' AS check_name,
        CONCAT(DATABASE(), ' / ', @@character_set_database, ' / ', @@collation_database) AS value,
        IF(@@default_storage_engine = 'InnoDB', 'ok', CONCAT('NOT InnoDB: ', @@default_storage_engine)) AS verdict;
 
--- 3. Which of the six already exist. `none` means apply the script as it is.
---    All six means it has been applied -- check (4) rather than re-running it.
+-- 3. Which of the fourteen already exist. `none` means apply the script as it is.
+--    All fourteen means it has been applied -- check (4) rather than re-running it.
 --    Anything between is a partial apply: drop the ones listed and start again,
 --    since the script is deliberately not idempotent.
 SELECT 'phase1 tables present' AS check_name,
        COALESCE(GROUP_CONCAT(table_name ORDER BY table_name SEPARATOR ', '), 'none') AS value,
        CASE COUNT(*) WHEN 0 THEN 'not applied -- apply it'
-                     WHEN 6 THEN 'applied'
+                     WHEN 14 THEN 'applied'
                      ELSE 'PARTIAL -- drop these and re-apply' END AS verdict
   FROM information_schema.tables
  WHERE table_schema = DATABASE()
    AND table_name IN ('legacy_refresh_tokens', 'platform_admins',
                       'platform_admin_audit_events', 'platform_admin_login_attempts',
-                      'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES');
+                      'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+                      'attendance_devices', 'employee_device_identities',
+                      'device_punches', 'unclaimed_device_sightings',
+                      'device_operation_logs', 'device_malformed_punches',
+                      'legacy_runtime_offset_history', 'device_assignment_history');
 
 -- 4. After applying: the shape, not just the name. A table that exists with
 --    the wrong columns is the failure the non-idempotent script exists to
@@ -55,7 +59,11 @@ SELECT 'column counts' AS check_name,
  WHERE table_schema = DATABASE()
    AND table_name IN ('legacy_refresh_tokens', 'platform_admins',
                       'platform_admin_audit_events', 'platform_admin_login_attempts',
-                      'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES')
+                      'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+                      'attendance_devices', 'employee_device_identities',
+                      'device_punches', 'unclaimed_device_sightings',
+                      'device_operation_logs', 'device_malformed_punches',
+                      'legacy_runtime_offset_history', 'device_assignment_history')
  GROUP BY table_name
  ORDER BY table_name;
 
@@ -69,4 +77,36 @@ SELECT 'legacy tables' AS check_name,
  WHERE table_schema = DATABASE()
    AND table_name NOT IN ('legacy_refresh_tokens', 'platform_admins',
                           'platform_admin_audit_events', 'platform_admin_login_attempts',
-                          'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES');
+                          'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+                          'attendance_devices', 'employee_device_identities',
+                          'device_punches', 'unclaimed_device_sightings',
+                          'device_operation_logs', 'device_malformed_punches',
+                          'legacy_runtime_offset_history', 'device_assignment_history');
+
+-- 6. The COLLATION of each owned table, which (3) and (4) are both blind to.
+--    `phase1_extensions.sql` declared no collation until 2026-09-11, so a
+--    database provisioned by hand before then, on a server whose default was
+--    not utf8mb4_unicode_ci, has these tables at utf8mb4_uca1400_ai_ci while
+--    every legacy table beside them is utf8mb4_unicode_ci. Nothing else here
+--    notices: the names are right, the column counts are right, and
+--    Phase1SchemaCheck compares names only. The first cross-table string
+--    comparison -- device_punches.pin against employees.employee_code -- then
+--    fails at runtime with `Illegal mix of collations`, on that host only.
+--
+--    To repair, per table listed below:
+--      ALTER TABLE <name> CONVERT TO CHARACTER SET utf8mb4
+--                         COLLATE utf8mb4_unicode_ci;
+SELECT 'phase1 collation' AS check_name,
+       CONCAT(table_name, ' = ', table_collation) AS value,
+       IF(table_collation = 'utf8mb4_unicode_ci', 'ok',
+          'WRONG -- CONVERT TO utf8mb4_unicode_ci, see the note above') AS verdict
+  FROM information_schema.tables
+ WHERE table_schema = DATABASE()
+   AND table_name IN ('legacy_refresh_tokens', 'platform_admins',
+                      'platform_admin_audit_events', 'platform_admin_login_attempts',
+                      'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+                      'attendance_devices', 'employee_device_identities',
+                      'device_punches', 'unclaimed_device_sightings',
+                      'device_operation_logs', 'device_malformed_punches',
+                      'legacy_runtime_offset_history', 'device_assignment_history')
+ ORDER BY (table_collation = 'utf8mb4_unicode_ci'), table_name;

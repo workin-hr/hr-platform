@@ -154,6 +154,39 @@ WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance' AND COLUMN_NAME = 
 
 Expect `enum('app','excel','qr','device')`.
 
+**4b. Check the collation, which none of the above can see.** Until
+2026-09-11 `phase1_extensions.sql` declared no charset or collation, so these
+tables inherited the server's — and a MariaDB 11.8 not started with
+`--collation-server` defaults to `utf8mb4_uca1400_ai_ci`, while every legacy
+table beside them is `utf8mb4_unicode_ci`. Names and column counts are right in
+that state, and `Phase1SchemaCheck` compares names only, so every other check
+here reports green. The first cross-table string comparison then fails at
+runtime with `Illegal mix of collations`, on that host alone.
+
+```sql
+SELECT TABLE_NAME, TABLE_COLLATION
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_COLLATION <> 'utf8mb4_unicode_ci'
+  AND TABLE_NAME IN (
+    'legacy_refresh_tokens', 'platform_admins',
+    'platform_admin_audit_events', 'platform_admin_login_attempts',
+    'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+    'attendance_devices', 'employee_device_identities', 'device_punches',
+    'unclaimed_device_sightings', 'device_operation_logs',
+    'device_malformed_punches', 'device_assignment_history',
+    'legacy_runtime_offset_history');
+```
+
+Expect zero rows. For each row it does return:
+
+```sql
+ALTER TABLE <name> CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+`verify_phase1_tables.sql` runs this check as its section 6, with the same
+remediation, if you would rather run one file than paste queries.
+
 **5. Let the application confirm it independently.** `Phase1SchemaCheck`
 runs at startup and logs one line per missing table
 naming the feature it disables. A correctly provisioned deployment logs:

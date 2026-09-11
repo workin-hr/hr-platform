@@ -80722,11 +80722,12 @@ SET AUTOCOMMIT=@OLD_AUTOCOMMIT;
 -- SAME flags scripts/build_dev_seed.sh uses (--character-set-server=utf8mb4
 -- --collation-server=utf8mb4_unicode_ci --sql-mode=), applying
 -- db/phase1-mysql/phase1_extensions.sql with --force so only the absent tables
--- are created, and dumping those eight. The server flags are not incidental:
--- generated on a default-configured MariaDB 11.8 these come out
--- utf8mb4_uca1400_ai_ci, which the other 49 tables are not, and a join between
--- device_punches.pin and employees.employee_code then fails with `Illegal mix
--- of collations`.
+-- are created, and dumping those eight. The collation is pinned in the shipped
+-- DDL now, so it no longer depends on those flags -- but it did when this block
+-- was first generated: on a default-configured MariaDB 11.8 the tables came out
+-- utf8mb4_uca1400_ai_ci, which 50 of the other 57 tables are not (the odd one
+-- is `configs`, utf8mb4_general_ci), and a join between device_punches.pin and
+-- employees.employee_code then fails with `Illegal mix of collations`.
 --
 -- DROP TABLE IF EXISTS is mariadb-dump's default and is kept, like the other 50
 -- tables: deploy/e2e/run.sh restores this seed by hand under E2E_SEED_PROD=1

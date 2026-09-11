@@ -284,7 +284,7 @@ def check_exception_lists_current(schema: str, findings: list[str]) -> None:
 # and then lost. Deriving it means a fifteenth owned table fails here the day it
 # is added, rather than the day someone notices.
 PHASE1_SCHEMA_CHECK = "backend/src/main/java/com/workin/backend/config/Phase1SchemaCheck.java"
-OWNED_TABLE = re.compile(r'OWNED_TABLES\.put\(\s*"([^"]+)"')
+OWNED_TABLE = re.compile(r'OWNED_TABLES\s*\.\s*put\(\s*"([^"]+)"')
 
 # Parsing a Java source with a regex degrades quietly: `putIfAbsent`, a constant
 # instead of a string literal, or a loop all yield fewer NAMES while the code
@@ -295,7 +295,12 @@ OWNED_TABLE = re.compile(r'OWNED_TABLES\.put\(\s*"([^"]+)"')
 # So count the mutating call sites too and require the two to agree. Every way
 # of adding a table that this regex cannot read still adds a call site, so the
 # mismatch is the signal. It needs no constant and cannot go stale.
-OWNED_MUTATION = re.compile(r'OWNED_TABLES\.(put|putIfAbsent|putAll|merge|compute|computeIfAbsent)\s*\(')
+OWNED_MUTATION = re.compile(
+    r'OWNED_TABLES\s*\.\s*(put|putIfAbsent|putAll|merge|compute|computeIfAbsent)\s*\(')
+# Comments are not call sites. `// never remove an OWNED_TABLES.put(...) line`
+# counted as one, so the gate failed on correct code and told the author to fix
+# something already right.
+JAVA_LINE_COMMENT = re.compile(r'//[^\n]*')
 
 
 def owned_tables(findings: list[str]) -> tuple[str, ...]:
@@ -308,7 +313,7 @@ def owned_tables(findings: list[str]) -> tuple[str, ...]:
         )
         return ()
     with open(source, encoding="utf-8") as handle:
-        source_text = handle.read()
+        source_text = JAVA_LINE_COMMENT.sub("", handle.read())
     tables = tuple(OWNED_TABLE.findall(source_text))
     if not tables:
         fail(
@@ -362,16 +367,50 @@ DROP_TABLE_STATEMENT = re.compile(r"(?im)^\s*DROP TABLE IF EXISTS `([^`]+)`")
 
 
 def check_seed_can_be_applied_twice(seed: str, findings: list[str]) -> None:
-    created = CREATE_TABLE_STATEMENT.findall(seed)
-    dropped = set(DROP_TABLE_STATEMENT.findall(seed))
-    for table in created:
-        if table not in dropped:
+    """Every table dropped before it is created, and nothing dropped that is not.
+
+    POSITIONS, not set membership. Comparing names only accepts a seed whose
+    DROP sits AFTER its CREATE -- and that is worse than the missing-DROP case
+    it was written for: the missing DROP aborts the restore loudly (exit 1,
+    which deploy/e2e/run.sh deliberately propagates), while a late DROP loads
+    cleanly, exits 0, and leaves the table GONE. Measured on the committed seed:
+    moving one DROP to the end of the file loses `attendance_devices` with no
+    error anywhere, under the E2E_SEED_PROD path that never does `down -v`.
+
+    Case-folded, to agree with check_seed_is_self_sufficient and with
+    Phase1SchemaCheck.missingTables().
+    """
+    first_drop: dict[str, int] = {}
+    for match in DROP_TABLE_STATEMENT.finditer(seed):
+        first_drop.setdefault(match.group(1).lower(), match.start())
+    first_create: dict[str, int] = {}
+    for match in CREATE_TABLE_STATEMENT.finditer(seed):
+        first_create.setdefault(match.group(1).lower(), match.start())
+
+    for table, created_at in first_create.items():
+        dropped_at = first_drop.get(table)
+        if dropped_at is None:
             fail(
                 f"deploy/seed/dev-seed.sql creates `{table}` without a matching "
                 f"DROP TABLE IF EXISTS. mariadb-dump emits one by default, so this was "
                 f"spliced in with --skip-add-drop-table. Applying the seed to a database "
                 f"that already has the table fails halfway through, which is how "
                 f"deploy/e2e/run.sh restores it",
+                findings,
+            )
+        elif dropped_at > created_at:
+            fail(
+                f"deploy/seed/dev-seed.sql drops `{table}` AFTER creating it, so applying "
+                f"the seed deletes the table it just built -- silently, with exit 0. Move "
+                f"the DROP TABLE IF EXISTS above its CREATE TABLE",
+                findings,
+            )
+
+    for table in first_drop:
+        if table not in first_create:
+            fail(
+                f"deploy/seed/dev-seed.sql drops `{table}` and never creates it, so every "
+                f"apply destroys it. Either restore the CREATE TABLE or remove the DROP",
                 findings,
             )
 
