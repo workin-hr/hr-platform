@@ -52,16 +52,19 @@ in this repository already holds itself to.
 | ~~Vitest~~ | ~~Web unit testing~~ | **Not used (D-151)** | Was contingent on the Next.js app that is no longer built |
 | ~~React Testing Library~~ | ~~Web UI testing~~ | **Not used (D-151)** | Was contingent on the Next.js app that is no longer built |
 | Playwright | E2E testing | Evaluate during discovery | Useful later, not bootstrap |
-| k6 | Performance testing | Evaluate during discovery | Useful later for load scenarios |
+| k6 | Performance testing | **Adopted (ADR-0019)** | Load scenarios in `perf/scenarios/`, run locally or nightly against the sanitised seed — never per-PR |
+| JFR (JDK Flight Recorder) | JVM profiling | **Adopted (ADR-0019)** | In the JDK; no dependency, low overhead, safe against a running service |
+| async-profiler | CPU/allocation profiling | **Adopted on demand (ADR-0019)** | Only when JFR has narrowed it and a flame graph is the next question |
+| datasource-proxy / p6spy | Query counting | **Not used (ADR-0019)** | `QueryCounter` is a JDK proxy in test scope; neither library earns a dependency for counting `prepareStatement` |
 | Trivy | Security scanning | Evaluate during discovery | Depends on container and dependency scope |
 | Semgrep | Static security analysis | Evaluate during discovery | Valuable later when implementation exists |
 | OWASP Dependency-Check | Dependency scanning | Evaluate during discovery | Useful after application dependencies exist |
 | OWASP ZAP | DAST | Evaluate during discovery | Depends on running application surfaces |
 | OpenTelemetry | Observability | Evaluate during discovery | Important but not needed for bootstrap |
-| Prometheus | Metrics | Evaluate during discovery | Depends on observability baseline ADR |
-| Grafana | Dashboards | Evaluate during discovery | Depends on observability stack choice |
-| Loki | Log storage | Evaluate during discovery | Depends on observability stack choice |
-| Tempo | Trace storage | Evaluate during discovery | Depends on observability stack choice |
+| Prometheus | Metrics | **Adopted, local only (ADR-0019)** | Registry in the app; scrape exposed only by `deploy/compose.observability.yaml`, never by a profile. Production exposure still deferred — the endpoint is unauthenticated; the edge now refuses it, but the application must not depend on that alone |
+| Grafana | Dashboards | **Adopted, local only (ADR-0019)** | `deploy/compose.observability.yaml`, loopback-bound. Not in `compose.prod.yaml` |
+| Loki | Log storage | Still deferred (ADR-0008, ADR-0019) | ADR-0019 adopted measurement, not log aggregation |
+| Tempo | Trace storage | Still deferred (ADR-0008, ADR-0019) | Traces still export to the log; sampling now 0.05 outside local |
 | Alertmanager | Alert routing | Evaluate during discovery | Depends on operations design |
 | SonarQube | Code quality platform | Evaluate during discovery | Useful later, not required for bootstrap |
 | Microservices | Architecture style | Explicitly rejected or deferred | No operational justification yet |

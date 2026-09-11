@@ -5,7 +5,7 @@ import json
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -173,6 +173,21 @@ FORBIDDEN_DIRS = {"src", "node_modules"}
 # is still scanned exactly as before.
 SPIKE_DIR_NAME = "spike"
 
+# Deliberate, narrow exclusion -- and narrower than the ones above, because it
+# is not a directory unlock. k6 load scenarios are `.js` because k6 runs `.js`;
+# there is no other form to write them in. They are measurement assets, never
+# shipped, never imported by the application, and they exist to answer the
+# question ADR-0008 deferred (ADR-0019).
+#
+# Scoped to ONE directory AND ONE suffix: a `.ts` or a `package.json` under
+# perf/scenarios/ still fails, and a `.js` anywhere else in the repository
+# still fails. A blanket unlock of perf/ would be the loophole this is written
+# to avoid -- the point of the scanner is that a frontend cannot appear by
+# accident, and a directory that accepts any JavaScript is exactly how it
+# would.
+PERF_SCENARIOS_DIR = "perf/scenarios"
+PERF_SCENARIOS_SUFFIXES = {".js"}
+
 # Deliberate, narrow, per-component exclusion — not a blanket "Phase 0 is
 # over" switch. Each entry here is a top-level component directory whose
 # own explicit Phase 0 -> Phase 1 transition decision has been recorded in
@@ -319,6 +334,12 @@ def validate_forbidden_files(failures: list[str], root: Path | None = None) -> N
         if path.name in FORBIDDEN_FILE_NAMES:
             fail(f"Forbidden file present: {rel}", failures)
         if path.suffix in FORBIDDEN_SUFFIXES:
+            # PARENT, not prefix. `startswith` let an arbitrarily deep tree
+            # through -- perf/scenarios/webapp/pages/components/*.js passed
+            # cleanly -- which is the whole thing the narrowness was for.
+            if (PurePosixPath(rel).parent.as_posix() == PERF_SCENARIOS_DIR
+                    and path.suffix in PERF_SCENARIOS_SUFFIXES):
+                continue
             fail(f"Forbidden file suffix present: {rel}", failures)
 
 

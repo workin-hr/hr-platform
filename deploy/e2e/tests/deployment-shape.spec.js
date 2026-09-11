@@ -32,15 +32,28 @@ test.describe(`the ${PROFILE} profile`, () => {
 		// stack running `local` where `prod` was asked for publishes the API
 		// description and logs at debug, and nothing else about it looks wrong.
 		const log = execFileSync('docker', ['logs', CONTAINER], { encoding: 'utf8', maxBuffer: 64e6 });
+		// Singular AND plural. Spring writes "The following 1 profile is
+		// active" for one and "The following 2 profiles are active" for more,
+		// and every compose file here sets exactly one -- so matching only
+		// 'profiles are active' could never match, and this assertion failed
+		// for every profile rather than checking anything. Nothing in CI runs
+		// this suite, so it stayed red unnoticed.
 		const line = log.split('\n').find((entry) => entry.includes('The following')
-			&& entry.includes('profiles are active'));
+			&& /profiles? (is|are) active/.test(entry));
 
 		expect(line, 'the startup log names the active profiles').toBeTruthy();
 		expect(line).toContain(PROFILE);
 	});
 
 	test('exposes health and nothing else over the management surface', async ({ request }) => {
-		for (const endpoint of ['env', 'beans', 'configprops', 'loggers', 'mappings', 'heapdump']) {
+		// `prometheus` is in this list deliberately. It is exposed ONLY by
+		// deploy/compose.observability.yaml, which no deployed stack runs --
+		// and it was briefly keyed to the `local` and `integration` profiles
+		// instead, which put it behind the public edge on the stack that points
+		// at the production database (ADR-0019). Nothing tested that, so
+		// nothing would have caught it.
+		for (const endpoint of ['env', 'beans', 'configprops', 'loggers', 'mappings',
+			'heapdump', 'prometheus']) {
 			const response = await request.get(`/actuator/${endpoint}`);
 			expect(response.status(), `/actuator/${endpoint} must not be published`)
 				.not.toBe(200);

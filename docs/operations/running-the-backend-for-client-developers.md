@@ -158,13 +158,19 @@ tells you nothing. This tells you something.
 For the mobile and desktop flows, use accounts from the seed — they are
 sanitised, so any phone number in it is fake and safe to use.
 
-**The web dashboard will not stay signed in on this stack.**
-`server.servlet.session.cookie.secure=true` is unconditional, and this stack
-serves plain HTTP, so the browser accepts the login response and then withholds
-the session cookie: you land back on the sign-in page with no error to explain
-it. That is expected here, not a bug you have found. The dashboard needs a TLS
-proxy in front of it, as the deployment documentation describes; this guide is
-for the client API, which is unaffected because it does not use that cookie.
+**The web dashboard signs in on `localhost`, and not from another machine.**
+`server.servlet.session.cookie.secure=true` is unconditional, so the session
+cookie is only sent back over a connection the client considers secure.
+Browsers -- and `curl` -- treat `http://localhost` and `http://127.0.0.1` as
+secure contexts, so on the machine running the stack the dashboard works
+normally.
+
+Open it by **LAN IP** from a phone or another laptop and it will not stay
+signed in: that origin is not a secure context, the cookie is dropped, and you
+land back on the sign-in page with nothing to explain why. That is the stack,
+not a bug you have found. Put a TLS proxy in front of it if you need the
+dashboard off-machine. The client API is unaffected either way -- it
+authenticates with a bearer token and never uses that cookie.
 
 ## When something is wrong
 

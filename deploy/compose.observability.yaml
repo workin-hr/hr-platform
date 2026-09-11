@@ -1,0 +1,68 @@
+# Prometheus and Grafana, for LOCAL measurement only.
+#
+# An overlay, not an edit to either stack. compose.dev.yaml and
+# compose.local.yaml are held to each other by
+# scripts/check_compose_dev_parity.py -- adding services to one would break
+# that parity for no reason, since neither stack needs monitoring to run.
+#
+#   docker compose -f compose.local.yaml -f compose.observability.yaml up -d
+#
+# ADR-0019: this is where the evidence for ADR-0008's deferred decision is
+# produced. It is deliberately NOT part of compose.prod.yaml -- the production
+# scrape endpoint is unexposed and protecting it is part of that later
+# decision, not something to slip in behind an overlay.
+# No `container_name:` on either service. A fixed name is global to the Docker
+# daemon, so it collides the moment this overlay is used with a second compose
+# project -- and a failed `up` leaves the named container behind to collide
+# with the retry. Compose derives `<project>-<service>-1` on its own, which is
+# unique per project and is what `docker compose ps` shows anyway.
+services:
+  # The ONLY place the scrape endpoint is turned on. Not a profile: profiles
+  # travel to places their name does not describe -- compose.remote-db.yaml
+  # runs `local` against the production database behind the public edge -- so
+  # exposure is opted into by running this overlay and nothing else.
+  app:
+    environment:
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      # Local measurement, not retention: a fortnight is more than enough to
+      # compare two runs and keeps the volume from growing unattended.
+      - --storage.tsdb.retention.time=14d
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      # Loopback only. This scrapes an endpoint that publishes JVM internals
+      # and every URI template the application serves.
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      app:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    restart: unless-stopped
+    environment:
+      # Local-only stack on loopback; the login screen would be friction with
+      # nothing behind it. Never carry this into a deployed stack.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./observability/grafana-datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-data:

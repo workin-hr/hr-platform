@@ -308,13 +308,15 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 			@Override
 			public void markPairedAsOpener(long punchId, long attendanceId,
 					java.time.LocalDateTime pairedAt, String reviewFlag,
-					java.time.LocalDateTime checkInAt) {
+					java.time.LocalDateTime checkInAt,
+					PunchPairingStore.RuntimeOffsetProvenance provenance) {
 				throw new IllegalStateException("crash between the attendance write and the punch's state");
 			}
 
 			@Override
 			public void markPaired(long punchId, long attendanceId,
-					java.time.LocalDateTime pairedAt, String reviewFlag) {
+					java.time.LocalDateTime pairedAt, String reviewFlag,
+					PunchPairingStore.RuntimeOffsetProvenance provenance) {
 				throw new IllegalStateException("crash between the attendance write and the punch's state");
 			}
 		};
@@ -602,6 +604,36 @@ class PunchPairingServiceTest extends AbstractLegacyMySqlTest {
 				.isEqualTo(PunchPairingService.RUNTIME_OFFSET_EXACT);
 		assertThat(Long.parseLong(text(row.get("legacy_runtime_offset_seconds"))))
 				.as("the offset actually used, not a null beside a confident label")
+				.isEqualTo(7200L);
+	}
+
+	@Test
+	void theClosingPunchRecordsProvenanceToo() throws Exception {
+		// markPaired's provenance columns were folded in with the opener's and
+		// nothing asserted them, so deleting them from the closer's UPDATE broke
+		// no test while the javadoc claimed provenance is recorded on every
+		// path. The closer is the one disposition that had none before.
+		punchAt(DAY + " 08:00:00");
+		long closer = punchAt(DAY + " 17:00:00");
+
+		PunchPairingService.Outcome outcome = service.pairCompany(COMPANY, "friday");
+
+		// Pinned as a CLOSER, not merely PAIRED. Both dispositions produce
+		// PAIRED, so without this a regression that made the 17:00 punch open a
+		// second row would still pass here -- through markPairedAsOpener -- and
+		// silently stop covering markPaired, which is the method under test.
+		assertThat(outcome.closed()).as("the 17:00 punch closed the morning row").isEqualTo(1);
+		Map<String, Object> row = query("SELECT legacy_runtime_offset_seconds,"
+				+ " runtime_offset_resolution, processing_state, attendance_check_in_at"
+				+ " FROM device_punches WHERE id = " + closer).get(0);
+		assertThat(text(row.get("processing_state"))).isEqualTo("PAIRED");
+		assertThat(row.get("attendance_check_in_at"))
+				.as("only the opener stamps this, so a null here proves markPaired ran")
+				.isNull();
+		assertThat(text(row.get("runtime_offset_resolution")))
+				.isEqualTo(PunchPairingService.RUNTIME_OFFSET_EXACT);
+		assertThat(Long.parseLong(text(row.get("legacy_runtime_offset_seconds"))))
+				.as("the offset that produced the check-out's timestamp")
 				.isEqualTo(7200L);
 	}
 
