@@ -33,6 +33,10 @@ env:
 
 jobs:
   validate:
+    # Bounded on purpose: this job is the only required context on `main`, and
+    # it now makes a live API call. A hung network must not hold the merge gate
+    # for GitHub's 360-minute default.
+    timeout-minutes: 30
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository (immutable action reference)
@@ -137,6 +141,27 @@ jobs:
         run: |
           python3 scripts/check_compose_dev_parity.py
           python3 scripts/test_check_compose_dev_parity.py
+
+      # The unit suites stub `gh`, so they prove the gate's LOGIC. They cannot
+      # prove that GITHUB_TOKEN -- restricted to `contents: read`, exactly as
+      # the gate's own job is -- may call the collaborators endpoint at all. If
+      # it may not, every round fails closed and the gate is permanently red,
+      # which is worse than the author_association filter D-228 replaced. That
+      # is answerable only at runtime, so it is asked here on every pull
+      # request rather than assumed once.
+      # The failure branches of the probe below, with `gh` stubbed. Nothing
+      # exercised them, which is how a version shipped whose 403 and 5xx paths
+      # were unreachable -- it died silently instead, inside the only required
+      # check on `main`. These cases are red against that implementation.
+      - name: Check the permission probe's failure paths
+        run: ./scripts/test-review-gate-permission-probe.sh
+
+      - name: Prove the review gate's permission lookup works on the real API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RECORDER_LOGIN: ${{ github.actor }}
+        run: ./scripts/test-review-gate-permission-live.sh
 
       # compose.remote-db.yaml is the one stack here that may point at the
       # production database, and it publishes the host and port perf/run.sh

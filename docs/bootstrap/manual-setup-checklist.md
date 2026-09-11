@@ -113,7 +113,11 @@ branch-protection API and the Rulesets API returned
 that error is the route taken**: the repository is now public, where Free has
 always offered branch protection, and the organization was not upgraded.
 
-Applied on `main`: required contexts `validate` and `independent-review`;
+Applied on `main`: required context `validate`. **`independent-review` is NOT
+in the required contexts** -- D-225 step 3 intends it to be, and
+`scripts/check-branch-protection.sh` reports exactly that as its one remaining
+gap (measured 2026-09-11). Until it is added, a red `independent-review` marks a
+pull request UNSTABLE without blocking the merge button;
 conversation resolution required; `enforce_admins` on; force-pushes and
 deletions forbidden. Stale approvals are dismissed on push. The approving-review
 count is `0`, not because approval was dropped but because GitHub forbids
