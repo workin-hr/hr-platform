@@ -33,6 +33,10 @@ env:
 
 jobs:
   validate:
+    # Bounded on purpose: this job is the only required context on `main`, and
+    # it now makes a live API call. A hung network must not hold the merge gate
+    # for GitHub's 360-minute default.
+    timeout-minutes: 30
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository (immutable action reference)

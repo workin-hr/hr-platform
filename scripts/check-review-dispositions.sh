@@ -266,6 +266,8 @@ if [ "$total" -eq 0 ]; then
   if [ -n "${REVIEW_THREADS_JSON_FILE:-}" ]; then
     agent_round="${AGENT_ROUND_COUNT:-0}"
     declared_none="${DECLARED_NONE_COUNT:-0}"
+    agent_listed=1
+    declared_listed=1
   else
     # `$REPO` and `$PR` are the names the WORKFLOW uses, where they arrive as
     # `env:`. This script never set them, so under `set -u` the queries below
@@ -352,14 +354,14 @@ EOF
     # anywhere on the pull request. Matching it loosely made this guard disarm
     # itself: its own failure text below named the literal, so pasting that
     # failure into a comment satisfied the condition it was reporting.
-    read -r declared_none _ _ <<EOF
+    read -r declared_none _ declared_listed <<EOF
 $(count_rounds "| select(.body | test(\"(^|\\\\n)findings: none\"))")
 EOF
   fi
   # An indeterminate lookup is not "no round". If the API could not tell us
   # whether a comment author may record one, this guard cannot answer the
   # question it exists to answer, and must say so rather than pass.
-  if [ "${agent_listed:-1}" != "1" ]; then
+  if [ "${agent_listed:-0}" != "1" ] || [ "${declared_listed:-0}" != "1" ]; then
     echo "FAIL: could not list this pull request's comments, so whether an agent round"
     echo "      was recorded is unknown. That is a failed lookup, not an absent round:"
     echo "      re-run once the GitHub API is answering, and do not merge on this result."

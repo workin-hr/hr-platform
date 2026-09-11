@@ -80,7 +80,7 @@ fi
 probe() {  # -> sets `status` and `raw`; never returns non-zero
   status=""
   raw=""
-  gh api "repos/$REPO/collaborators/$actor/permission" --include \
+  timeout 30 gh api "repos/$REPO/collaborators/$actor/permission" --include \
     >"$WORK/inc" 2>"$WORK/err" || true
   [ -s "$WORK/inc" ] || return 0
   status="$(sed -n '1s#.*[[:space:]]\([0-9][0-9][0-9]\)[[:space:]].*#\1#p' "$WORK/inc" \
@@ -97,6 +97,11 @@ for attempt in 1 2 3; do
   [ -n "$raw" ] && break
   # A 403 is the answer, not a blip: retrying cannot grant a permission.
   [ "$status" = "403" ] && break
+  # Nor can it install a binary or set a token. Retrying those wastes 15s and
+  # ends by telling the operator to re-run, which cannot help.
+  if grep -qiE "command not found|GH_TOKEN|gh auth login" "$WORK/err" 2>/dev/null; then
+    break
+  fi
   [ "$attempt" = 3 ] || sleep "$(( ${SKIP_SLEEP:-0} == 1 ? 0 : attempt * 5 ))"
 done
 
@@ -110,7 +115,7 @@ elif [ "$status" = "403" ]; then
   echo "        permanently red. Check the job's \`permissions:\` block."
   sed 's/^/        /' "$WORK/err" >&2 || true
 else
-  check 1 "the workflow token CAN read repository permissions -- no answer for $actor after 3 tries"
+  check 1 "the workflow token CAN read repository permissions -- no answer for $actor"
   echo "        HTTP status: '${status:-none}'. This is NOT a 403, so it is more"
   echo "        likely an upstream fault -- a secondary rate limit or a 5xx -- than"
   echo "        a permissions regression. Re-run the job before treating it as one."
