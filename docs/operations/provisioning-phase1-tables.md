@@ -272,8 +272,12 @@ leaves them pointing at nothing, and the next PHP insert, update or delete on
 database to PHP would be what breaks it. Confirm with the `information_schema.TRIGGERS`
 query in step 4: expect zero rows.
 
-Then `DROP TABLE` each name, innermost first (`SPRING_SESSION_ATTRIBUTES`
-before `SPRING_SESSION`). Legacy PHP never referenced any of the tables, so
+Then `DROP TABLE` each name, innermost first: `SPRING_SESSION_ATTRIBUTES`
+before `SPRING_SESSION`, and `platform_admin_audit_events` before
+`platform_admins`. Those are the two foreign keys among the fourteen; naming
+all fourteen in one statement in the wrong order fails with
+`ERROR 1451 (23000): Cannot delete or update a parent row` part-way through,
+leaving the rollback half-done. Legacy PHP never referenced any of the tables, so
 once the triggers are gone this returns the database to exactly its
 pre-Phase-1 shape.
 

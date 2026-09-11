@@ -53,7 +53,7 @@ mysql -h "$DB_HOST" -u "$DB_USER" -p "$DB_NAME" \
 
 It reports the server version, the database's charset and engine, which of the
 fourteen tables are present (`none`, `applied`, a database provisioned before
-the device tables existed, or or a partial apply, which the verdict tells you how to resolve -- with `--force`, not a drop), the column count of each
+the device tables existed, or a partial apply, which the verdict tells you how to resolve -- with `--force`, not a drop), the column count of each
 against what the script creates — a table with the right name and the wrong
 shape is the failure the non-idempotent script exists to prevent, and a name
 check cannot see it — the **collation** of each, which no name or shape check
@@ -98,10 +98,28 @@ and `SPRING_SESSION` is every live administrator session; neither is recreated
 with its contents. The eight device tables are the ones that are safe to drop
 and re-add, because nothing has written to them yet on such a database.
 
-**Undoing a first, complete apply** is `DROP TABLE` on all fourteen names and
-nothing else — PHP references none of them — and only while none of them has
-been written to. Once the platform-admin surface has been used, the audit and
-session tables carry state that a drop destroys.
+**Undoing it is not described here.** The rollback lives in
+[provisioning-phase1-tables.md](provisioning-phase1-tables.md#rollback) and that
+is the only copy; a second copy is how this paragraph came to say `DROP TABLE`
+on all fourteen names "and nothing else — PHP references none of them", which is
+wrong twice over.
+
+`legacy_runtime_offset_hooks.sql` installs three triggers **on the legacy
+`configs` table** that write into `legacy_runtime_offset_history`. Drop that
+table without dropping the triggers first and they survive, pointing at nothing:
+every PHP write to the daylight-saving row then fails with
+
+```text
+ERROR 1146 (42S02): Table 'workin.legacy_runtime_offset_history' doesn't exist
+```
+
+— so the rollback meant to hand the database back to PHP is what breaks PHP, and
+it breaks it silently, because writes to other `configs` keys still succeed. The
+runbook drops the triggers first for exactly this reason.
+
+And once the platform-admin surface has been used, the audit and session tables
+carry state a drop destroys; `platform_admin_audit_events` is retained evidence
+(D-161).
 
 ## 2. Point the backend at it
 
