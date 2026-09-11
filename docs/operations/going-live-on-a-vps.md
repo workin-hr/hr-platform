@@ -12,7 +12,7 @@ list: it carried its own count once, that count was correct when written, and it
 went stale the moment the runbook's grew — which is the whole argument for one
 authority rather than two agreeing copies.
 [checking-against-the-live-database.md](checking-against-the-live-database.md)
-covers checking an existing database against it.
+covers applying it to, and checking it against, a database that already exists.
 
 ## 1. First decide where the database lives
 
@@ -35,7 +35,8 @@ Both pairs are two files, always. `compose.tls.yaml` puts Caddy in front and
 
 ## 2. Before the first start
 
-Three things must be true, and none of them fails loudly later.
+Three things must be true, and none of them fails in a way that points at
+itself.
 
 - **`APP_DOMAIN` resolves to the VPS.** Caddy obtains the certificate on first
   start; a name that does not resolve is a certificate that never issues and a
@@ -47,8 +48,11 @@ Three things must be true, and none of them fails loudly later.
   than the tables. The application creates its administrator row at every
   startup, so without `platform_admins` it does not start at all; and the
   startup check compares table *names* only, so a database with every table and
-  none of the rest reports itself healthy and then fails where nobody is
-  looking. Run that runbook's step 4 and take its answer, not this page's word.
+  none of the rest reports itself healthy and then fails in a background pass, at
+  ERROR, where no request and no health check will surface it. Run that runbook's
+  Confirm steps — 4 for the tables, triggers and enum, and 4b for the collation,
+  which is name-invisible in exactly the same way — and take their answer rather
+  than this page's word.
 
 ## 3. What changes, and where
 
@@ -146,8 +150,20 @@ against real data:
 
 ## Rolling back
 
-Stopping the container is the rollback, and it is complete in scenario **B**:
-the database is untouched by the switch, and PHP serves again the moment DNS or
-the proxy points back. In **A** the VPS database has taken writes the old host
+Stopping the container is the rollback, and in scenario **B** it is immediate:
+PHP serves again the moment DNS or the proxy points back, because the data never
+moved.
+
+It is not, however, a return to the database you started with. Provisioning ran
+against the live database, and stopping a container does not undo DDL: the
+fourteen tables remain, `attendance.method` still accepts `'device'`, and three
+triggers remain installed on the legacy `configs` table. Leaving all of that in
+place is the recommended treatment — it is additive, PHP reads none of it, and it
+means rolling forward again needs no DDL. **What you must not do is drop it
+casually.** The triggers write into `legacy_runtime_offset_history`, so dropping
+that table while they stand makes every PHP write to the daylight-saving row fail
+while other keys keep succeeding. If a drop is ever genuinely required, there is
+one procedure for it and it drops the triggers first:
+[provisioning-phase1-tables.md#rollback](provisioning-phase1-tables.md#rollback). In **A** the VPS database has taken writes the old host
 has not, so a rollback there is a data reconciliation and needs planning before
 the cutover, not after.
