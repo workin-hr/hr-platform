@@ -81,11 +81,17 @@ persistent instance *"needs its own, separately-approved provisioning mechanism
 first."* Today the table exists only where a test container applies
 `phase1_extensions.sql` out-of-band.
 
-**Rollback treatment.** The change is purely additive and PHP has no reference
-to the table anywhere, so a rollback does not need to reverse it: the table is
-simply orphaned, and left in place it costs nothing and preserves the option of
-rolling forward again. Dropping it is therefore **not** part of the rollback
-procedure. This is the reason the overall "cheap rollback" conclusion still
+**Rollback treatment.** The change is purely additive, so a rollback does not
+need to reverse it: the tables sit unused, and leaving them costs nothing and
+preserves the option of rolling forward again. Dropping them is therefore
+**not** part of the rollback procedure.
+
+PHP reads none of them, but it does WRITE one indirectly:
+`legacy_runtime_offset_hooks.sql` puts three triggers on the legacy `configs`
+table that insert into `legacy_runtime_offset_history`. That is another reason
+to leave them — and if a drop is ever required anyway, the procedure is
+[provisioning-phase1-tables.md#rollback](provisioning-phase1-tables.md#rollback),
+triggers first. This is the reason the overall "cheap rollback" conclusion still
 holds despite the claim being literally false — but it holds by argument, not by
 the absence of a schema change.
 

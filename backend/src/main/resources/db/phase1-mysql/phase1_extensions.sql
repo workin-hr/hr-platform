@@ -145,7 +145,7 @@ CREATE TABLE SPRING_SESSION_ATTRIBUTES (
 
 -- Attendance-device ingestion (ADR-0006 Part A core; Part B ZKTeco adapter,
 -- D-164). Design: docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md
--- section 7. All five tables are Phase-1-owned: none exists in legacy MySQL,
+-- section 7. All eight tables are Phase-1-owned: none exists in legacy MySQL,
 -- so none is part of the vendored contract and TenantFilterCoverageTest's
 -- structural exemption applies. No foreign keys to the vendored tables, on
 -- purpose: the legacy dump adds its own FKs through ALTER TABLE after the
