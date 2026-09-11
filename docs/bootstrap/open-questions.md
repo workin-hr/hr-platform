@@ -75,7 +75,7 @@ Surfaced by `docs/migration/2026-08-23-phase1-completion-plan.md` §6 C9 and
   adds the platform-admin identity, login-attempt, audit and Spring Session
   tables alongside `legacy_refresh_tokens`; ADR-0018 later removed the MFA
   and step-up tables again. Widened again 2026-09-09 by D-164: the same file
-  now also carries the five attendance-device tables, needed only where the
+  now also carries the eight attendance-device tables, needed only where the
   receiver is enabled. Same unresolved question, more
   tables, and a louder failure mode — the admin surface cannot authenticate at
   all without them, where a missing `legacy_refresh_tokens` surfaces late.)* (**R-023**, ADR-0013 Open Questions,

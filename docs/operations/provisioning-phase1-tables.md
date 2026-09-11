@@ -24,8 +24,8 @@ ahead of cutover rather than during it.
 | `SPRING_SESSION_ATTRIBUTES` | That session's contents |
 
 `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
-adds five more once the device work lands. This list is not maintained by
-hand: `Phase1SchemaCheckTest` fails the build if it stops matching the
+adds eight more for the device work -- fourteen in total, which is what step 1
+below checks for. The six-row table above is not maintained by hand: `Phase1SchemaCheckTest` fails the build if it stops matching the
 DDL.
 
 ## The single definition

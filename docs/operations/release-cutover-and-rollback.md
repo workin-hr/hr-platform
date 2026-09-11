@@ -54,11 +54,21 @@ instead.
 **What is not true.** Phase 1 adds tables to the legacy database:
 **`legacy_refresh_tokens`** (`backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql`),
 which does **not** exist in production legacy MySQL, and — since D-164
-(2026-09-02) — the five attendance-device tables in the same file
+(2026-09-02) — the eight attendance-device tables in the same file
 (`attendance_devices`, `employee_device_identities`, `device_punches`,
-`unclaimed_device_sightings`, `device_operation_logs`). The device tables are
-additive and referenced by nothing in PHP; they share the provisioning gate
-described below and the same orphan-and-leave rollback treatment. It is new infrastructure
+`unclaimed_device_sightings`, `device_operation_logs`,
+`device_malformed_punches`, `legacy_runtime_offset_history`,
+`device_assignment_history`). `Phase1SchemaCheck.OWNED_TABLES` is the list a
+test keeps honest; this one is not.
+
+The device tables are additive and PHP reads none of them — but **one is
+written by PHP indirectly**. `legacy_runtime_offset_hooks.sql` puts three
+triggers on the legacy `configs` table that insert into
+`legacy_runtime_offset_history`, so dropping that table while the triggers stand
+breaks PHP's own `configs` writes. They share the provisioning gate described
+below, and the rollback is
+[provisioning-phase1-tables.md#rollback](provisioning-phase1-tables.md#rollback),
+triggers first — not an orphan-and-leave drop. It is new infrastructure
 this application owns, authorised as a deliberate, narrow exception by **D-043
 amendment 3** — narrow enough that D-050/D-051 later declined to spend a second
 schema exception on an unrelated problem rather than widen it.
@@ -405,8 +415,10 @@ one-way is what makes people hesitate to reverse it.
 - The tables are additive, and leaving them means a second attempt needs no
   DDL. They are not quite orphaned, though: `legacy_runtime_offset_hooks.sql`
   puts three triggers on the legacy `configs` table that write into
-  `legacy_runtime_offset_history`, so PHP does touch one of them indirectly on
-  every `configs` write. That is an argument for LEAVING them, not for dropping
+  `legacy_runtime_offset_history`, so PHP touches one of them indirectly. The
+  trigger bodies branch on `config_key`, so with the table dropped only writes
+  to the daylight-saving row fail (`ERROR 1146`) while every other key still
+  succeeds -- the breakage is SILENT. That is an argument for LEAVING them, not for dropping
   them -- dropping the table while the triggers stand breaks PHP's own writes
   (`ERROR 1146`). If they must go, use
   [Rollback](provisioning-phase1-tables.md#rollback), which drops the triggers
