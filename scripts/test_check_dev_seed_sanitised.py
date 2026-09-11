@@ -421,6 +421,76 @@ def test_a_seed_without_the_triggers_fails() -> None:
     )
 
 
+def test_tables_named_only_in_a_comment_do_not_satisfy_self_sufficiency() -> None:
+    """The sibling of the trigger case, and the more dangerous one: this check is
+    the only thing standing between a seed and a stack where every Phase 1 feature
+    is dead. `/*` opens at column 0, so the anchor alone does not exclude it."""
+    findings: list[str] = []
+    derived = gate.owned_tables(findings)
+    check(not findings, f"the table list derives cleanly first ({findings})")
+    body = "".join(f"DROP TABLE IF EXISTS `{t}`;\nCREATE TABLE `{t}` (...);\n" for t in derived)
+    gate.check_seed_is_self_sufficient(f"/* Historical note, NOT executed:\n{body}*/\n", findings)
+    check(
+        any("legacy_refresh_tokens" in f for f in findings),
+        f"a seed whose CREATE TABLEs exist only inside a block comment is rejected (got {len(findings)})",
+    )
+
+
+def test_a_commented_drop_does_not_satisfy_the_ordering_check() -> None:
+    """A DROP quoted in a comment is not an ordering. Offsets must come from the
+    executed text, or a real CREATE pairs with a commented DROP and the seed looks
+    twice-appliable while the second load leaves the table gone."""
+    # The DROP must start a line INSIDE the comment: DROP_TABLE_STATEMENT anchors
+    # with `^\s*`, so an inline `/* DROP ...` never matches and a fixture built
+    # that way passes whether or not comments are stripped -- proving nothing.
+    seed = ("/*\n"
+            "DROP TABLE IF EXISTS `attendance_devices`;\n"
+            "*/\n"
+            "CREATE TABLE `attendance_devices` (...);\n")
+    findings: list[str] = []
+    gate.check_seed_can_be_applied_twice(seed, findings)
+    check(
+        any("attendance_devices" in f for f in findings),
+        f"a CREATE whose only DROP is commented out is rejected (got {findings})",
+    )
+
+
+def test_an_enum_inside_a_data_row_does_not_satisfy_the_check() -> None:
+    """The statement anchor, which comment-stripping alone cannot provide: this
+    text is executed, is not a comment, and still is not a column definition."""
+    seed = ("CREATE TABLE `attendance` (\n  `method` enum('app','excel','qr') NOT NULL\n);\n"
+            "INSERT INTO `audit` VALUES (1,'altered `method` enum(''app'',''excel'',''qr'',''device'') here');\n"
+            + "".join(f"CREATE TRIGGER {n}\nAFTER INSERT ON configs FOR EACH ROW\nBEGIN END;\n"
+                      for n in _trigger_names()))
+    findings: list[str] = []
+    gate.check_seed_carries_the_non_table_ddl(seed, findings)
+    check(
+        any("'device'" in f for f in findings),
+        f"an enum appearing only inside a data row is not a declaration (got {findings})",
+    )
+
+
+def test_a_definer_clause_is_rejected() -> None:
+    """mariadb-dump's trigger form. It restores fine as root and dies with
+    ERROR 1227 as the unprivileged user deploy/e2e/run.sh actually uses, so the
+    failure never appears until the one path nothing automatic exercises."""
+    findings: list[str] = []
+    gate.check_seed_names_no_definer(
+        "/*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER t AFTER INSERT ON configs*/;", findings)
+    check(any("ERROR 1227" in f for f in findings),
+          f"a dump-form DEFINER clause is rejected (got {findings})")
+
+
+def test_prose_about_definer_is_not_a_definer_clause() -> None:
+    """The seed documents why --skip-triggers exists, and that sentence names the
+    hazard. A gate that cannot tell the warning from the thing it warns about
+    fails on its own documentation."""
+    findings: list[str] = []
+    gate.check_seed_names_no_definer(
+        "-- mariadb-dump's trigger form carries DEFINER=root@localhost, which breaks\n", findings)
+    check(not findings, f"prose naming the hazard passes (got {findings})")
+
+
 def main() -> int:
     for name, function in sorted(globals().items()):
         if name.startswith("test_") and callable(function):

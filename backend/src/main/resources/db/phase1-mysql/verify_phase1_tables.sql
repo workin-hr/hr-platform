@@ -147,30 +147,23 @@ SELECT 'legacy tables' AS check_name,
 --      ALTER TABLE <name> CONVERT TO CHARACTER SET utf8mb4
 --                         COLLATE utf8mb4_unicode_ci;
 --
---      The session pair is the exception: SPRING_SESSION_ATTRIBUTES_FK is a
---      FOREIGN KEY on a CHAR column, so CONVERT TO is refused in BOTH
---      directions. On MariaDB 11.8 that is ERROR 1832 on the child and 1833 on
---      the parent, and SET FOREIGN_KEY_CHECKS=0 does not lift it; on MySQL 8 it
---      is ERROR 3780 both ways, and FOREIGN_KEY_CHECKS=0 there lets the ALTER
---      through and leaves the two columns at DIFFERENT collations under a live
---      FK, which is worse than the error. Do not use that flag. The procedure
---      below is the same one docs/operations/provisioning-phase1-tables.md
---      carries under step 4b; that document is the authority if the two ever
---      disagree. Drop the constraint, convert both, put it back:
---        ALTER TABLE SPRING_SESSION_ATTRIBUTES DROP FOREIGN KEY SPRING_SESSION_ATTRIBUTES_FK;
---        ALTER TABLE SPRING_SESSION            CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
---        ALTER TABLE SPRING_SESSION_ATTRIBUTES CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
---        -- Anything deleted from SPRING_SESSION while the constraint is off
---        -- leaves an orphan attribute row, and ADD CONSTRAINT then fails with
---        -- ERROR 1452 and the table keeps NO foreign key. Spring Session's own
---        -- cleanup job deletes expired sessions every sixty seconds, and every
---        -- admin logout deletes one, so this window is not theoretical. Stop
---        -- the application, or sweep before re-adding -- ideally both:
---        DELETE a FROM SPRING_SESSION_ATTRIBUTES a
---          LEFT JOIN SPRING_SESSION s ON s.PRIMARY_ID = a.SESSION_PRIMARY_ID
---         WHERE s.PRIMARY_ID IS NULL;
---        ALTER TABLE SPRING_SESSION_ATTRIBUTES ADD CONSTRAINT SPRING_SESSION_ATTRIBUTES_FK
---            FOREIGN KEY (SESSION_PRIMARY_ID) REFERENCES SPRING_SESSION (PRIMARY_ID) ON DELETE CASCADE;
+--      The session pair is the exception, and this file does NOT carry the
+--      repair for it. SPRING_SESSION_ATTRIBUTES_FK is a FOREIGN KEY on a CHAR
+--      column, so CONVERT TO is refused in BOTH directions: ERROR 1832 on the
+--      child and 1833 on the parent on MariaDB 11.8, ERROR 3780 both ways on
+--      MySQL 8. Do not reach for SET FOREIGN_KEY_CHECKS=0 -- it does not lift
+--      the refusal on MariaDB, and on MySQL 8 it lets the ALTER through and
+--      leaves the two columns at DIFFERENT collations under a live FK, which is
+--      worse than the error.
+--
+--      The procedure is docs/operations/provisioning-phase1-tables.md step 4b,
+--      and only there. It drops the constraint, converts both tables, sweeps
+--      orphans and re-adds -- with a precondition this comment used to state
+--      more weakly than the runbook does, which is why it is no longer stated
+--      twice: Spring Session deletes an expired session every sixty seconds and
+--      every admin logout deletes one, so an orphan appears inside the window
+--      and ADD CONSTRAINT then fails with ERROR 1452, leaving the table with NO
+--      foreign key at all.
 --
 --    CONVERT TO rebuilds the table and holds a lock for the duration, so size
 --    the window for device_punches -- it is the one that will not stay small.

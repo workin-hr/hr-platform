@@ -337,6 +337,11 @@ def owned_tables(findings: list[str]) -> tuple[str, ...]:
 
 
 def check_seed_is_self_sufficient(seed: str, findings: list[str]) -> None:
+    # Comments out first, for the reason spelled out on SQL_COMMENT: `/*` opens at
+    # column 0, so the anchor below does not exclude a block comment, and a dump is
+    # mostly comments. A "historical note" quoting the DDL would otherwise satisfy
+    # every name here while the statements themselves were gone.
+    executed = SQL_COMMENT.sub(" ", seed)
     for table in owned_tables(findings):
         # Anchored, not a substring: this file's own comments say "CREATE TABLE"
         # in prose more often than the dump says it in DDL, and a sentence must
@@ -344,7 +349,7 @@ def check_seed_is_self_sufficient(seed: str, findings: list[str]) -> None:
         # statement starts at column 0. Case-insensitive to agree with
         # Phase1SchemaCheck.missingTables(), which compares that way because
         # lower_case_table_names folds SPRING_SESSION on some hosts.
-        if not re.search(rf"(?im)^\s*CREATE TABLE `{re.escape(table)}`", seed):
+        if not re.search(rf"(?im)^\s*CREATE TABLE `{re.escape(table)}`", executed):
             fail(
                 f"deploy/seed/dev-seed.sql does not create `{table}`, which "
                 f"Phase1SchemaCheck owns. It is mounted as the only init script, so a seed "
@@ -362,6 +367,40 @@ SQL_COMMENT = re.compile(r"/\*.*?\*/|--[^\n]*", re.DOTALL)
 METHOD_ENUM = re.compile(r"(?is)MODIFY COLUMN\s+`?method`?\s+ENUM\s*\((.*?)\)")
 
 
+# The quote is required, and is what separates the clause from prose about it.
+# mariadb-dump always writes the account quoted -- `DEFINER=`root`@`localhost`` --
+# so this matches every real emission while leaving a comment that merely says
+# "DEFINER=root@localhost" (this repo has one, explaining why --skip-triggers is
+# used) able to describe the hazard without tripping the gate that prevents it.
+DEFINER = re.compile(r"""(?i)\bDEFINER\s*=\s*[`'"]""")
+
+
+def check_seed_names_no_definer(seed: str, findings: list[str]) -> None:
+    """A DEFINER clause makes the seed unrestorable by the user who restores it.
+
+    mariadb-dump writes triggers as `/*!50017 DEFINER=`root`@`localhost`*/`, and
+    setting a definer needs SET USER. deploy/e2e/run.sh restores as the
+    unprivileged `workin` user under E2E_SEED_PROD=1, where that dies with
+    ERROR 1227 partway through -- a half-applied database, which is the state
+    that script exists to refuse. build_dev_seed.sh avoids it with
+    --skip-triggers plus the hooks file appended, but nothing stopped a future
+    hand-splice from a plain mariadb-dump putting it back: the seed already
+    acquired eight tables that way once (see check_seed_can_be_applied_twice).
+    Checked on the raw text, because a DEFINER inside a comment is exactly the
+    `/*!...*/` executable-comment form that causes this.
+    """
+    if DEFINER.search(seed):
+        fail(
+            "deploy/seed/dev-seed.sql contains a DEFINER clause. mariadb-dump adds one to "
+            "every trigger, and setting a definer needs SET USER -- so deploy/e2e/run.sh, "
+            "which restores as the unprivileged `workin` user under E2E_SEED_PROD=1, dies "
+            "with ERROR 1227 partway through and leaves a half-applied database. Rebuild "
+            "with scripts/build_dev_seed.sh, which dumps --skip-triggers and appends "
+            "legacy_runtime_offset_hooks.sql instead",
+            findings,
+        )
+
+
 def check_seed_carries_the_non_table_ddl(seed: str, findings: list[str]) -> None:
     """The two Phase-1 statements that are not CREATE TABLE.
 
@@ -376,11 +415,10 @@ def check_seed_carries_the_non_table_ddl(seed: str, findings: list[str]) -> None
     """
     # A dump is mostly comments, and this file's own appended block quotes both
     # DDL headers verbatim -- so a header that happens to mention a trigger name
-    # or spell out the enum would satisfy a bare substring match while the
-    # statement itself was gone. check_seed_is_self_sufficient names this hazard
-    # for CREATE TABLE; these patterns are weaker than that one (`/* */` opens at
-    # column 0, so `^\s*` does not exclude it, and the enum has no statement
-    # anchor at all), so the comments come out first.
+    # or spell out the enum would satisfy a match while the statement itself was
+    # gone. Every structural check here strips comments first for that reason:
+    # `/*` opens at column 0, so an anchored pattern does not exclude a block
+    # comment on its own.
     executed = SQL_COMMENT.sub(" ", seed)
 
     hooks = read(os.path.join(REPO_ROOT, HOOKS_DDL))
@@ -454,11 +492,16 @@ def check_seed_can_be_applied_twice(seed: str, findings: list[str]) -> None:
     leaves `a` in place and the second load dies on "table already exists" --
     precisely what this exists to catch. Folding made that a silent pass.
     """
+    # Comment-stripped, like its siblings: a DROP/CREATE pair quoted inside a
+    # block comment is not an ordering, and offsets taken from commented text
+    # would compare positions of statements that never run. Substituting a space
+    # per character keeps every surviving offset where it was.
+    executed = SQL_COMMENT.sub(lambda m: " " * len(m.group(0)), seed)
     first_drop: dict[str, int] = {}
-    for match in DROP_TABLE_STATEMENT.finditer(seed):
+    for match in DROP_TABLE_STATEMENT.finditer(executed):
         first_drop.setdefault(match.group(1), match.start())
     first_create: dict[str, int] = {}
-    for match in CREATE_TABLE_STATEMENT.finditer(seed):
+    for match in CREATE_TABLE_STATEMENT.finditer(executed):
         first_create.setdefault(match.group(1), match.start())
 
     for table, created_at in first_create.items():
@@ -534,6 +577,7 @@ def main() -> int:
     check_sentinels(seed, findings)
     check_seed_is_self_sufficient(seed, findings)
     check_seed_carries_the_non_table_ddl(seed, findings)
+    check_seed_names_no_definer(seed, findings)
     check_seed_can_be_applied_twice(seed, findings)
 
     if findings:

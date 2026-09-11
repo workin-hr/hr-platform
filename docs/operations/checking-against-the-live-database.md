@@ -75,8 +75,15 @@ ls -lh workin-before-phase1-*.sql          # not zero bytes
 #    refuses every pass.
 for ddl in phase1_extensions.sql slice_b_attendance_method.sql \
            legacy_runtime_offset_hooks.sql; do
+  echo "--- $ddl"
   mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" \
-    < "backend/src/main/resources/db/phase1-mysql/$ddl"
+    < "backend/src/main/resources/db/phase1-mysql/$ddl" || {
+      echo "STOPPED at $ddl. Resolve this before running the rest:" >&2
+      echo "the later files assume the earlier ones succeeded, and the" >&2
+      echo "triggers in particular must not be installed without their" >&2
+      echo "target table -- that breaks PHP's config writes silently." >&2
+      break
+    }
 done
 
 # 3. what you should see: 14

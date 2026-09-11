@@ -103,6 +103,22 @@ mkdir -p "$(dirname "$OUTPUT")"
 # Appending the DDL file instead keeps one shape for the triggers: the same
 # text whether the seed was regenerated or hand-extended, carrying no DEFINER
 # and already idempotent.
+# --skip-triggers discards whatever triggers the INPUT dump carried, not just the
+# three installed above. Production has none today (docs/migration/trigger-inventory.md),
+# but that is an assumption about someone else's database, and a DBA adding one
+# would see it vanish from every dev, integration and E2E stack with nothing
+# saying so. Turn the assumption into a check.
+EXPECTED_TRIGGERS="$(grep -cE '^[[:space:]]*CREATE TRIGGER' "$PHASE1_DIR/legacy_runtime_offset_hooks.sql")"
+ACTUAL_TRIGGERS="$(docker exec "$CONTAINER" mariadb -uroot -p"$ROOT_PASSWORD" -N -B -e \
+  "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA='$DB_NAME';" 2>/dev/null \
+  | tr -d '[:space:]')"
+if [ "$ACTUAL_TRIGGERS" != "$EXPECTED_TRIGGERS" ]; then
+  echo "FATAL: the database carries $ACTUAL_TRIGGERS trigger(s); this script installed" >&2
+  echo "$EXPECTED_TRIGGERS and dumps with --skip-triggers, so the difference would be" >&2
+  echo "dropped from the seed silently. Reconcile before regenerating." >&2
+  exit 1
+fi
+
 docker exec "$CONTAINER" mariadb-dump \
   -uroot -p"$ROOT_PASSWORD" \
   --single-transaction \
