@@ -64,6 +64,9 @@ if [ "$is_graphql" = 1 ]; then
   cat "$FIXTURE_DIR/threads.json"; exit 0
 fi
 if [ "$is_comments" = 1 ]; then
+  if [ -n "${FAIL_COMMENTS:-}" ]; then
+    echo "gh: HTTP 502" >&2; exit 1
+  fi
   if [ -n "$jqexpr" ]; then
     # --paginate emits one array per page; the stub serves every page file so a
     # case can prove the caller counts across pages instead of per page.
@@ -160,6 +163,14 @@ perms "someoneelse admin"
 expect "an unreadable permission FAILS rather than passing quietly" 1
 
 perms "owner1 admin" "stranger none" "driveby read"
+
+# 6d. The LISTING failing is not "no rounds". A 502 or a secondary rate limit on
+#     the comments endpoint used to read as an absent round, which this guard
+#     treats as nothing to disposition -- fail-open one call before the
+#     tri-state that exists to prevent exactly that.
+comments '[{"user":{"login":"owner1"},"author_association":"OWNER","created_at":"t1","updated_at":"t1","body":"'"$ROUND_BODY"'"}]'
+FAIL_COMMENTS=1 expect "a failed comments listing FAILS rather than reading as no round" 1
+unset FAIL_COMMENTS
 
 # 7. An edited round comment is not a round: the body it is counted on is not
 #    the body that was posted.

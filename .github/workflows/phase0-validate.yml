@@ -145,6 +145,13 @@ jobs:
       # which is worse than the author_association filter D-228 replaced. That
       # is answerable only at runtime, so it is asked here on every pull
       # request rather than assumed once.
+      # The failure branches of the probe below, with `gh` stubbed. Nothing
+      # exercised them, which is how a version shipped whose 403 and 5xx paths
+      # were unreachable -- it died silently instead, inside the only required
+      # check on `main`. These cases are red against that implementation.
+      - name: Check the permission probe's failure paths
+        run: ./scripts/test-review-gate-permission-probe.sh
+
       - name: Prove the review gate's permission lookup works on the real API
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

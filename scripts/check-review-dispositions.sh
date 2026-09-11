@@ -313,40 +313,58 @@ if [ "$total" -eq 0 ]; then
     # subshell, so the indeterminate tally travels in the output rather than in
     # a variable the caller would never see.
     count_rounds() {  # $1=extra jq filter ("" for none)
-      local extra="$1" login n=0 unknown=0
+      local extra="$1" login n=0 unknown=0 listing listed=1
+      # The LISTING's exit status matters as much as each lookup's. Discarding
+      # it made a 502 or a secondary rate limit read as "no rounds", which this
+      # guard treats as "nothing to disposition" and exits 0 -- the same
+      # fail-open the tri-state below exists to close, one call earlier.
+      # `--paginate` also stops at the first failed page, so a round on page 4
+      # is invisible if page 3 fails.
+      if ! listing="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+          --jq "$round_comments ${extra} | .user.login" 2>/dev/null)"; then
+        listed=0
+        listing=""
+      fi
       while read -r login; do
         [ -n "$login" ] || continue
-        author_may_record "$login"
-        case $? in
-          0) n=$((n + 1)) ;;
-          2) unknown=$((unknown + 1))
-             echo "  could not read the repository permission of '$login'" >&2 ;;
-        esac
+        # `if`, not `case $?`: a bare call would abort the loop under
+        # `set -e` if inherit_errexit were ever enabled.
+        if author_may_record "$login"; then
+          n=$((n + 1))
+        elif [ "$?" = 2 ]; then
+          unknown=$((unknown + 1))
+          echo "  could not read the repository permission of '$login'" >&2
+        fi
       done <<EOF
-$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-    --jq "$round_comments ${extra} | .user.login" 2>/dev/null)
+$listing
 EOF
-      printf '%s %s' "$n" "$unknown"
+      printf '%s %s %s' "$n" "$unknown" "$listed"
     }
     # Count LINES, never `| length`. `--paginate` emits one JSON array per page,
     # so `length` yields one count per page -- "0\n0" past 100 comments, which
     # `[ ... -gt 0 ]` reports as a syntax error, and an erroring test falls
     # through to the pass path. The gate's own counting documents this defect;
     # writing it a third time here would be the third time in this repository.
-    read -r agent_round agent_unknown <<EOF
+    read -r agent_round agent_unknown agent_listed <<EOF
 $(count_rounds "")
 EOF
     # The declaration must live IN a round comment, on its own line -- not
     # anywhere on the pull request. Matching it loosely made this guard disarm
     # itself: its own failure text below named the literal, so pasting that
     # failure into a comment satisfied the condition it was reporting.
-    read -r declared_none _ <<EOF
+    read -r declared_none _ _ <<EOF
 $(count_rounds "| select(.body | test(\"(^|\\\\n)findings: none\"))")
 EOF
   fi
   # An indeterminate lookup is not "no round". If the API could not tell us
   # whether a comment author may record one, this guard cannot answer the
   # question it exists to answer, and must say so rather than pass.
+  if [ "${agent_listed:-1}" != "1" ]; then
+    echo "FAIL: could not list this pull request's comments, so whether an agent round"
+    echo "      was recorded is unknown. That is a failed lookup, not an absent round:"
+    echo "      re-run once the GitHub API is answering, and do not merge on this result."
+    exit 1
+  fi
   if [ "${agent_unknown:-0}" -gt 0 ]; then
     echo "FAIL: could not determine the repository permission of ${agent_unknown} comment"
     echo "      author(s) on this pull request, so whether an agent round was recorded is"

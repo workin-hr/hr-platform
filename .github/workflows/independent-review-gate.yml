@@ -36,7 +36,8 @@ name: Independent Review Gate
 # that as its one outstanding gap. Until it is added, a red
 # `independent-review` marks a pull request UNSTABLE but does not block the
 # merge button. Do not read the rest of this file as though it did.
-# contexts. A green status carries the merge sequence's step 5: it says a round
+#
+# A green status carries the merge sequence's step 5: it says a round
 # happened on this head, not that its findings were addressed. That is step 7,
 # and nothing in this repository verifies it mechanically (R-008).
 #

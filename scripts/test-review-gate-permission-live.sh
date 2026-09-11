@@ -65,19 +65,39 @@ if [ -z "$actor" ]; then
   echo "FATAL: no RECORDER_LOGIN/GITHUB_ACTOR to probe with." >&2
   exit 2
 fi
-status=""
-raw=""
-for attempt in 1 2 3; do
-  status="$(gh api "repos/$REPO/collaborators/$actor/permission" \
-      --include 2>"$WORK/err" | sed -n '1s#.*[[:space:]]\([0-9][0-9][0-9]\)[[:space:]].*#\1#p' | head -n 1)"
-  raw="$(gh api "repos/$REPO/collaborators/$actor/permission" --jq '.permission' 2>>"$WORK/err")" || raw=""
+# ONE request per attempt, and never a pipeline in an assignment.
+#
+# The previous shape was `status="$(gh api ... | sed ... | head -n 1)"`. `gh`
+# exits non-zero on any non-2xx, `pipefail` propagates that through the pipe,
+# so the ASSIGNMENT was non-zero and `errexit` killed the script on the first
+# failed lookup -- making the retry loop, the 403 branch and the upstream-fault
+# branch below unreachable for every failure they were written for. A 403 and a
+# 500 each exited after one call with no diagnostic at all.
+#
+# One call also matters on its own: this retries because the API may be rate
+# limiting us, and the old shape issued TWO requests per attempt, doubling our
+# pressure on exactly the thing pushing back.
+probe() {  # -> sets `status` and `raw`; never returns non-zero
+  status=""
+  raw=""
+  gh api "repos/$REPO/collaborators/$actor/permission" --include \
+    >"$WORK/inc" 2>"$WORK/err" || true
+  [ -s "$WORK/inc" ] || return 0
+  status="$(sed -n '1s#.*[[:space:]]\([0-9][0-9][0-9]\)[[:space:]].*#\1#p' "$WORK/inc" \
+            | head -n 1 || true)"
+  # Body is everything after the blank line that ends the headers.
+  raw="$(sed -e '1,/^[[:space:]]*$/d' "$WORK/inc" \
+         | jq -r '.permission // empty' 2>/dev/null || true)"
   case "$raw" in ""|*[!a-z]*) raw="" ;; esac
+  return 0
+}
+
+for attempt in 1 2 3; do
+  probe
   [ -n "$raw" ] && break
-  # 403 is the answer, not a blip: retrying cannot grant a permission. Anything
-  # else might be a secondary rate limit or a transient 5xx, and this step sits
-  # in the only required check on `main`.
+  # A 403 is the answer, not a blip: retrying cannot grant a permission.
   [ "$status" = "403" ] && break
-  [ "$attempt" = 3 ] || sleep $((attempt * 5))
+  [ "$attempt" = 3 ] || sleep "$(( ${SKIP_SLEEP:-0} == 1 ? 0 : attempt * 5 ))"
 done
 
 if [ -n "$raw" ]; then
