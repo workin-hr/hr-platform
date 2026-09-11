@@ -1,6 +1,6 @@
 # Provisioning The Phase 1 Tables
 
-Closes the mechanical half of **R-023**: Phase 1 adds six tables to the
+Closes the mechanical half of **R-023**: Phase 1 adds fourteen tables to the
 existing MariaDB, and until they exist the deployment is silently
 incomplete. Nothing creates them at runtime — the application carries no
 Flyway (ADR-0013 amendment 3; ADR-0017) — so this is a deliberate, human
@@ -24,8 +24,8 @@ ahead of cutover rather than during it.
 | `SPRING_SESSION_ATTRIBUTES` | That session's contents |
 
 `docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md`
-adds five more once the device work lands. This list is not maintained by
-hand: `Phase1SchemaCheckTest` fails the build if it stops matching the
+adds eight more for the device work -- fourteen in total, which is what step 1
+below checks for. The six-row table above is not maintained by hand: `Phase1SchemaCheckTest` fails the build if it stops matching the
 DDL.
 
 ## The single definition
@@ -118,7 +118,8 @@ that already exist — resolve that before continuing rather than editing
 the file to skip them.
 
 **2. Back up.** `docs/operations/backup-and-restore.md`. The change is
-additive and its rollback is a `DROP TABLE` per name, but a backup taken
+additive and its rollback is the [Rollback](#rollback) section below -- which is
+not a `DROP TABLE` per name, and the order matters -- but a backup taken
 immediately before any schema change is the cheaper of the two ways to
 find that out.
 
@@ -154,6 +155,79 @@ WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance' AND COLUMN_NAME = 
 
 Expect `enum('app','excel','qr','device')`.
 
+**4b. Check the collation, which none of the above can see.** Until
+2026-09-11 `phase1_extensions.sql` declared no charset or collation, so these
+tables inherited the server's — and a MariaDB 11.8 not started with
+`--collation-server` defaults to `utf8mb4_uca1400_ai_ci`, while every legacy
+table beside them is `utf8mb4_unicode_ci`. Names and column counts are right in
+that state, and `Phase1SchemaCheck` compares names only, so every other check
+here reports green. The first cross-table string comparison then fails at
+runtime with `Illegal mix of collations`, on that host alone.
+
+```sql
+SELECT TABLE_NAME, TABLE_COLLATION
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_COLLATION <> 'utf8mb4_unicode_ci'
+  AND TABLE_NAME IN (
+    'legacy_refresh_tokens', 'platform_admins',
+    'platform_admin_audit_events', 'platform_admin_login_attempts',
+    'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+    'attendance_devices', 'employee_device_identities', 'device_punches',
+    'unclaimed_device_sightings', 'device_operation_logs',
+    'device_malformed_punches', 'device_assignment_history',
+    'legacy_runtime_offset_history')
+ORDER BY TABLE_NAME;
+```
+
+Expect zero rows. For each row it does return:
+
+```sql
+ALTER TABLE <name> CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+**The session pair is the exception.** `SPRING_SESSION_ATTRIBUTES_FK` is a
+foreign key on a `CHAR` column, so `CONVERT TO` is refused in *both* directions
+— `ERROR 1832` converting the child, `ERROR 1833` converting the parent — and
+`SET FOREIGN_KEY_CHECKS=0` does not lift it on MariaDB. Drop the constraint,
+convert both, put it back:
+
+**Stop the application first.** Between the `DROP FOREIGN KEY` and the
+`ADD CONSTRAINT` there is no constraint, and anything deleted from
+`SPRING_SESSION` in that window leaves an orphan attribute row — after which
+`ADD CONSTRAINT` fails with `ERROR 1452` and the table is left with **no foreign
+key at all**. That is not a theoretical window: Spring Session's cleanup job
+deletes expired sessions every sixty seconds, and every administrator logout
+deletes one. The sweep below is the belt to that braces; run it even with the
+application stopped.
+
+```sql
+ALTER TABLE SPRING_SESSION_ATTRIBUTES DROP FOREIGN KEY SPRING_SESSION_ATTRIBUTES_FK;
+ALTER TABLE SPRING_SESSION            CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+ALTER TABLE SPRING_SESSION_ATTRIBUTES CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- Orphans, if any session vanished while the constraint was off.
+DELETE a FROM SPRING_SESSION_ATTRIBUTES a
+  LEFT JOIN SPRING_SESSION s ON s.PRIMARY_ID = a.SESSION_PRIMARY_ID
+ WHERE s.PRIMARY_ID IS NULL;
+ALTER TABLE SPRING_SESSION_ATTRIBUTES ADD CONSTRAINT SPRING_SESSION_ATTRIBUTES_FK
+    FOREIGN KEY (SESSION_PRIMARY_ID) REFERENCES SPRING_SESSION (PRIMARY_ID) ON DELETE CASCADE;
+```
+
+If `ADD CONSTRAINT` still fails with `ERROR 1452`, a session was deleted after
+the sweep: re-run the `DELETE` and the `ADD CONSTRAINT` together, with the
+application stopped.
+
+`CONVERT TO` rebuilds the table and holds a lock while it does, so plan the
+window around `device_punches` — the others are small and stay small.
+
+The error numbers above are MariaDB's. MySQL 8 raises `ERROR 3780` in both
+directions instead, and there `SET FOREIGN_KEY_CHECKS=0` *does* let the `ALTER`
+through — leaving the two columns at different collations under a live foreign
+key, which is worse than the error. Do not use that flag on either engine.
+
+`verify_phase1_tables.sql` runs this check as its section 6, with the same
+remediation, if you would rather run one file than paste queries.
+
 **5. Let the application confirm it independently.** `Phase1SchemaCheck`
 runs at startup and logs one line per missing table
 naming the feature it disables. A correctly provisioned deployment logs:
@@ -182,6 +256,13 @@ has `LegacyBranchService` and `LegacyEmployeeStore` tolerate an absent
 device table. The consequence is that provisioning cannot be verified by
 the deployment succeeding; read the log.
 
+> **Extract the DDL from a jar built at or after the commit that corrected this
+> runbook.** An older jar still carries a `verify_phase1_tables.sql` whose
+> PARTIAL verdict told operators to drop the eight device tables --
+> `legacy_runtime_offset_history` among them, with the `configs` triggers left
+> standing. Check with `unzip -p app.jar BOOT-INF/classes/db/phase1-mysql/verify_phase1_tables.sql | grep -c 'Do NOT drop'`;
+> zero means the jar predates the fix, and its advice must not be followed.
+
 ## Rollback
 
 **Drop the runtime-offset triggers FIRST**, before any table:
@@ -199,10 +280,21 @@ leaves them pointing at nothing, and the next PHP insert, update or delete on
 database to PHP would be what breaks it. Confirm with the `information_schema.TRIGGERS`
 query in step 4: expect zero rows.
 
-Then `DROP TABLE` each name, innermost first (`SPRING_SESSION_ATTRIBUTES`
-before `SPRING_SESSION`). Legacy PHP never referenced any of the tables, so
-once the triggers are gone this returns the database to exactly its
-pre-Phase-1 shape.
+Then `DROP TABLE` each name, innermost first: `SPRING_SESSION_ATTRIBUTES`
+before `SPRING_SESSION`, and `platform_admin_audit_events` before
+`platform_admins`. Those are the two foreign keys among the fourteen; naming
+all fourteen in one statement in the wrong order fails with
+`ERROR 1451 (23000): Cannot delete or update a parent row` part-way through,
+leaving the rollback half-done. Legacy PHP never referenced any of the fourteen
+TABLES, so once the triggers are gone those fourteen are back to their
+pre-Phase-1 state.
+
+That is not the whole database. Step 3 also applied
+`slice_b_attendance_method.sql`, which widened `attendance.method` from
+`enum('app','excel','qr')` to `enum('app','excel','qr','device')`. Nothing above
+reverses it, and reversing it is the riskier half: narrowing the enum silently
+coerces any row already storing `'device'`. That procedure is in that file's own
+header -- repoint or delete those rows first.
 
 The one thing a drop destroys that matters is
 `platform_admin_audit_events` — the record of what platform admins did.

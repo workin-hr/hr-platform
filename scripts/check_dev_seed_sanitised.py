@@ -275,24 +275,259 @@ def check_exception_lists_current(schema: str, findings: list[str]) -> None:
 # phase1_extensions.sql was mounted beside it, MariaDB ran a non-idempotent
 # CREATE TABLE twice, and the database never came up. Removing the second mount
 # fixed that and created this requirement, so it is checked rather than assumed.
-PHASE1_TABLES = (
-    "legacy_refresh_tokens",
-    "platform_admins",
-    "platform_admin_audit_events",
-    "platform_admin_login_attempts",
-    "SPRING_SESSION",
-    "SPRING_SESSION_ATTRIBUTES",
-)
+#
+# The list is READ FROM Phase1SchemaCheck, not repeated here. A hardcoded copy
+# is how this went stale the first time: the check listed six tables, the
+# application grew to owning fourteen, and the seed satisfied the gate while
+# every stack seeded from it logged `8 of 14 owned tables are MISSING` -- no
+# terminal could be registered and every punch a device sent was acknowledged
+# and then lost. Deriving it means a fifteenth owned table fails here the day it
+# is added, rather than the day someone notices.
+PHASE1_SCHEMA_CHECK = "backend/src/main/java/com/workin/backend/config/Phase1SchemaCheck.java"
+OWNED_TABLE = re.compile(r'OWNED_TABLES\s*\.\s*put\(\s*"([^"]+)"')
+
+# Parsing a Java source with a regex degrades quietly: `putIfAbsent`, a constant
+# instead of a string literal, or a loop all yield fewer NAMES while the code
+# still owns the table. A floor of the current count does not catch that -- a
+# review proved it: adding a FIFTEENTH table as `putIfAbsent` leaves the literal
+# count at 14, which clears a floor of 14 and is silently never required.
+#
+# So count the mutating call sites too and require the two to agree. Every way
+# of adding a table that this regex cannot read still adds a call site, so the
+# mismatch is the signal. It needs no constant and cannot go stale.
+OWNED_MUTATION = re.compile(
+    r'OWNED_TABLES\s*\.\s*(put|putIfAbsent|putAll|merge|compute|computeIfAbsent)\s*\(')
+# Comments are not call sites. `// never remove an OWNED_TABLES.put(...) line`
+# counted as one, so the gate failed on correct code and told the author to fix
+# something already right.
+JAVA_COMMENT = re.compile(r'//[^\n]*|/\*.*?\*/', re.DOTALL)
+
+
+def owned_tables(findings: list[str]) -> tuple[str, ...]:
+    source = os.path.join(REPO_ROOT, PHASE1_SCHEMA_CHECK)
+    if not os.path.isfile(source):
+        fail(
+            f"{PHASE1_SCHEMA_CHECK} is missing, so the tables the seed must carry cannot be "
+            f"determined. If the class moved, update PHASE1_SCHEMA_CHECK here",
+            findings,
+        )
+        return ()
+    with open(source, encoding="utf-8") as handle:
+        source_text = JAVA_COMMENT.sub("", handle.read())
+    tables = tuple(OWNED_TABLE.findall(source_text))
+    if not tables:
+        fail(
+            f"found no OWNED_TABLES entries in {PHASE1_SCHEMA_CHECK}. The declaration's shape "
+            f"changed and this check silently stopped requiring anything",
+            findings,
+        )
+    else:
+        mutations = len(OWNED_MUTATION.findall(source_text))
+        if mutations != len(tables):
+            fail(
+                f"{PHASE1_SCHEMA_CHECK} has {mutations} calls that add an owned table but "
+                f"only {len(tables)} readable names ({', '.join(tables)}). One is written in "
+                f"a form this check cannot read -- a constant instead of a string literal, or "
+                f"a loop -- so the table it names would silently stop being required of the "
+                f"seed. Write the name as a literal in the OWNED_TABLES.put(...) call, or "
+                f"teach OWNED_TABLE here to read the new form",
+                findings,
+            )
+    return tables
 
 
 def check_seed_is_self_sufficient(seed: str, findings: list[str]) -> None:
-    for table in PHASE1_TABLES:
-        if f"CREATE TABLE `{table}`" not in seed:
+    # Comments out first, for the reason spelled out on SQL_COMMENT: `/*` opens at
+    # column 0, so the anchor below does not exclude a block comment, and a dump is
+    # mostly comments. A "historical note" quoting the DDL would otherwise satisfy
+    # every name here while the statements themselves were gone.
+    executed = SQL_COMMENT.sub(" ", seed)
+    for table in owned_tables(findings):
+        # Anchored, not a substring: this file's own comments say "CREATE TABLE"
+        # in prose more often than the dump says it in DDL, and a sentence must
+        # not satisfy the only check on the seed standing alone. Every real
+        # statement starts at column 0. Case-insensitive to agree with
+        # Phase1SchemaCheck.missingTables(), which compares that way because
+        # lower_case_table_names folds SPRING_SESSION on some hosts.
+        if not re.search(rf"(?im)^\s*CREATE TABLE `{re.escape(table)}`", executed):
             fail(
-                f"deploy/seed/dev-seed.sql does not create `{table}`. It is mounted as the "
-                f"only init script, so a seed missing a Phase 1 table leaves the application "
-                f"unable to start. Rebuild it with scripts/build_dev_seed.sh, which applies "
+                f"deploy/seed/dev-seed.sql does not create `{table}`, which "
+                f"Phase1SchemaCheck owns. It is mounted as the only init script, so a seed "
+                f"missing a Phase 1 table leaves that feature dead on every stack seeded "
+                f"from it. Rebuild it with scripts/build_dev_seed.sh, which applies "
                 f"phase1_extensions.sql before dumping",
+                findings,
+            )
+
+
+HOOKS_DDL = "backend/src/main/resources/db/phase1-mysql/legacy_runtime_offset_hooks.sql"
+SLICE_B_DDL = "backend/src/main/resources/db/phase1-mysql/slice_b_attendance_method.sql"
+CREATE_TRIGGER = re.compile(r"(?im)^\s*CREATE TRIGGER\s+`?(\w+)`?")
+SQL_COMMENT = re.compile(r"/\*.*?\*/|--[^\n]*", re.DOTALL)
+METHOD_ENUM = re.compile(r"(?is)MODIFY COLUMN\s+`?method`?\s+ENUM\s*\((.*?)\)")
+
+
+# The quote is required, and is what separates the clause from prose about it.
+# mariadb-dump always writes the account quoted -- `DEFINER=`root`@`localhost`` --
+# so this matches every real emission while leaving a comment that merely says
+# "DEFINER=root@localhost" (this repo has one, explaining why --skip-triggers is
+# used) able to describe the hazard without tripping the gate that prevents it.
+DEFINER = re.compile(r"""(?i)\bDEFINER\s*=\s*[`'"]""")
+
+
+def check_seed_names_no_definer(seed: str, findings: list[str]) -> None:
+    """A DEFINER clause makes the seed unrestorable by the user who restores it.
+
+    mariadb-dump writes triggers as `/*!50017 DEFINER=`root`@`localhost`*/`, and
+    setting a definer needs SET USER. deploy/e2e/run.sh restores as the
+    unprivileged `workin` user under E2E_SEED_PROD=1, where that dies with
+    ERROR 1227 partway through -- a half-applied database, which is the state
+    that script exists to refuse. build_dev_seed.sh avoids it with
+    --skip-triggers plus the hooks file appended, but nothing stopped a future
+    hand-splice from a plain mariadb-dump putting it back: the seed already
+    acquired eight tables that way once (see check_seed_can_be_applied_twice).
+    Checked on the raw text, because a DEFINER inside a comment is exactly the
+    `/*!...*/` executable-comment form that causes this.
+    """
+    if DEFINER.search(seed):
+        fail(
+            "deploy/seed/dev-seed.sql contains a DEFINER clause. mariadb-dump adds one to "
+            "every trigger, and setting a definer needs SET USER -- so deploy/e2e/run.sh, "
+            "which restores as the unprivileged `workin` user under E2E_SEED_PROD=1, dies "
+            "with ERROR 1227 partway through and leaves a half-applied database. Rebuild "
+            "with scripts/build_dev_seed.sh, which dumps --skip-triggers and appends "
+            "legacy_runtime_offset_hooks.sql instead",
+            findings,
+        )
+
+
+def check_seed_carries_the_non_table_ddl(seed: str, findings: list[str]) -> None:
+    """The two Phase-1 statements that are not CREATE TABLE.
+
+    Phase1SchemaCheck compares table NAMES, and nothing compares anything else.
+    A seed with all fourteen tables but no triggers and an unwidened enum is
+    therefore the one broken state that announces itself as healthy: the startup
+    check logs "all 14 owned tables are present", and PunchPairingService then
+    refuses every pass -- once because the triggers are absent, once because
+    `method` will not accept 'device' -- while punches accumulate in RECEIVED.
+    The names and values come from the DDL files themselves, so widening either
+    one fails this gate until the seed is rebuilt rather than drifting from it.
+    """
+    # A dump is mostly comments, and this file's own appended block quotes both
+    # DDL headers verbatim -- so a header that happens to mention a trigger name
+    # or spell out the enum would satisfy a match while the statement itself was
+    # gone. Every structural check here strips comments first for that reason:
+    # `/*` opens at column 0, so an anchored pattern does not exclude a block
+    # comment on its own.
+    executed = SQL_COMMENT.sub(" ", seed)
+
+    hooks = read(os.path.join(REPO_ROOT, HOOKS_DDL))
+    if hooks is None:
+        fail(f"missing {HOOKS_DDL}, which is this check's ground truth", findings)
+    else:
+        for trigger in sorted(set(CREATE_TRIGGER.findall(hooks))):
+            if not re.search(rf"(?im)^\s*CREATE TRIGGER\s+`?{re.escape(trigger)}`?", executed):
+                fail(
+                    f"deploy/seed/dev-seed.sql does not define the trigger `{trigger}`, which "
+                    f"{HOOKS_DDL} installs on the legacy `configs` table. Without it "
+                    f"PunchPairingService refuses every pairing pass while the startup check "
+                    f"still reports every owned table present. Rebuild the seed with "
+                    f"scripts/build_dev_seed.sh, which applies all three phase1-mysql files",
+                    findings,
+                )
+
+    slice_b = read(os.path.join(REPO_ROOT, SLICE_B_DDL))
+    if slice_b is None:
+        fail(f"missing {SLICE_B_DDL}, which is this check's ground truth", findings)
+        return
+    wanted = METHOD_ENUM.search(slice_b)
+    if wanted is None:
+        fail(f"{SLICE_B_DDL} no longer declares a `method` enum this gate can read", findings)
+        return
+    # Either shape is correct, because both end at the same column. A seed
+    # regenerated by build_dev_seed.sh has slice_b applied BEFORE the dump, so the
+    # value is in the CREATE TABLE and there is no ALTER; a seed that predates that
+    # carries the widening as a trailing MODIFY COLUMN. Requiring the CREATE form
+    # alone would fail the second, which is applied and correct.
+    for value in sorted({v.strip().strip("'\"") for v in wanted.group(1).split(",")}):
+        declared = re.search(
+            rf"(?im)^\s*`method`\s+enum\([^)]*'{re.escape(value)}'", executed)
+        widened = re.search(
+            rf"(?im)^\s*MODIFY COLUMN\s+`?method`?\s+ENUM\s*\([^)]*'{re.escape(value)}'", executed)
+        if not declared and not widened:
+            fail(
+                f"deploy/seed/dev-seed.sql declares `attendance`.`method` without '{value}', "
+                f"which {SLICE_B_DDL} makes part of that column's target shape. A stack "
+                f"seeded from this file rejects every row written with that value -- and "
+                f"pairing writes 'device'. Rebuild the seed with scripts/build_dev_seed.sh",
+                findings,
+            )
+
+
+# The seed is restored by hand in deploy/e2e/run.sh under E2E_SEED_PROD=1, which
+# never does `down -v` -- so it has to be applicable to a database that already
+# has these tables. It stopped being: eight tables were spliced in from a
+# mariadb-dump run with --skip-add-drop-table, and a second load died with
+# `Table 'attendance_devices' already exists` AFTER 80,000 lines of data had
+# reloaded, leaving exactly the half-applied database the script warns about.
+# Nothing checked it, so nothing caught it.
+CREATE_TABLE_STATEMENT = re.compile(r"(?im)^\s*CREATE TABLE `([^`]+)`")
+DROP_TABLE_STATEMENT = re.compile(r"(?im)^\s*DROP TABLE IF EXISTS `([^`]+)`")
+
+
+def check_seed_can_be_applied_twice(seed: str, findings: list[str]) -> None:
+    """Every table dropped before it is created, and nothing dropped that is not.
+
+    POSITIONS, not set membership. Comparing names only accepts a seed whose
+    DROP sits AFTER its CREATE -- and that is worse than the missing-DROP case
+    it was written for: the missing DROP aborts the restore loudly (exit 1,
+    which deploy/e2e/run.sh deliberately propagates), while a late DROP loads
+    cleanly, exits 0, and leaves the table GONE. Measured on the committed seed:
+    moving one DROP to the end of the file loses `attendance_devices` with no
+    error anywhere, under the E2E_SEED_PROD path that never does `down -v`.
+
+    Case-SENSITIVE, unlike check_seed_is_self_sufficient. That check folds
+    because Phase1SchemaCheck folds; this one must not, because the SERVER does
+    not: MariaDB on Linux runs lower_case_table_names=0, so a DROP naming `A`
+    leaves `a` in place and the second load dies on "table already exists" --
+    precisely what this exists to catch. Folding made that a silent pass.
+    """
+    # Comment-stripped, like its siblings: a DROP/CREATE pair quoted inside a
+    # block comment is not an ordering, and offsets taken from commented text
+    # would compare positions of statements that never run. Substituting a space
+    # per character keeps every surviving offset where it was.
+    executed = SQL_COMMENT.sub(lambda m: " " * len(m.group(0)), seed)
+    first_drop: dict[str, int] = {}
+    for match in DROP_TABLE_STATEMENT.finditer(executed):
+        first_drop.setdefault(match.group(1), match.start())
+    first_create: dict[str, int] = {}
+    for match in CREATE_TABLE_STATEMENT.finditer(executed):
+        first_create.setdefault(match.group(1), match.start())
+
+    for table, created_at in first_create.items():
+        dropped_at = first_drop.get(table)
+        if dropped_at is None:
+            fail(
+                f"deploy/seed/dev-seed.sql creates `{table}` without a matching "
+                f"DROP TABLE IF EXISTS. mariadb-dump emits one by default, so this was "
+                f"spliced in with --skip-add-drop-table. Applying the seed to a database "
+                f"that already has the table fails halfway through, which is how "
+                f"deploy/e2e/run.sh restores it",
+                findings,
+            )
+        elif dropped_at > created_at:
+            fail(
+                f"deploy/seed/dev-seed.sql drops `{table}` AFTER creating it, so applying "
+                f"the seed deletes the table it just built -- silently, with exit 0. Move "
+                f"the DROP TABLE IF EXISTS above its CREATE TABLE",
+                findings,
+            )
+
+    for table in first_drop:
+        if table not in first_create:
+            fail(
+                f"deploy/seed/dev-seed.sql drops `{table}` and never creates it, so every "
+                f"apply destroys it. Either restore the CREATE TABLE or remove the DROP",
                 findings,
             )
 
@@ -341,6 +576,9 @@ def main() -> int:
     check_value_shapes(seed, findings)
     check_sentinels(seed, findings)
     check_seed_is_self_sufficient(seed, findings)
+    check_seed_carries_the_non_table_ddl(seed, findings)
+    check_seed_names_no_definer(seed, findings)
+    check_seed_can_be_applied_twice(seed, findings)
 
     if findings:
         for finding in findings:

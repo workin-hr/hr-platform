@@ -48,7 +48,7 @@ deployment whose logout and password reset are broken.
 
 | # | Check | Pass condition | Negative control — why it can't pass for the wrong reason |
 |---|---|---|---|
-| 1 | Startup log | `Phase 1 schema check: all 10 owned tables are present`, the fingerprint line, and `WhatsApp OTP delivery is configured` | These are three distinct lines. A missing one is a real gap, not a logging quirk |
+| 1 | Startup log | `Phase 1 schema check: all 14 owned tables are present`, the fingerprint line, and `WhatsApp OTP delivery is configured` | These are three distinct lines. A missing one is a real gap, not a logging quirk |
 | 2 | Health endpoint | 200 | Confirms the process is up and nothing more — never treat it as a release check |
 | 3 | Login as the test account | 200, the same envelope shape, a usable token | Repeat with a **wrong password**: must be the same 401 PHP gives, not a 500 |
 | 4 | Authenticated read (`requests/list`) | 200, paginated shape | Repeat with **no token**: must be 401. A route that answers 200 unauthenticated is a filter-chain failure |

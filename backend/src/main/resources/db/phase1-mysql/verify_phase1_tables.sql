@@ -2,7 +2,8 @@
 -- and has it been already?" -- before anything writes to it.
 --
 -- Paste into phpMyAdmin's SQL tab, or:
---   mysql -h HOST -u USER -p DBNAME < scripts/verify-phase1-tables.sql
+--   mysql -h HOST -u USER -p DBNAME \
+--     < backend/src/main/resources/db/phase1-mysql/verify_phase1_tables.sql
 --
 -- Nothing here creates, alters or deletes. Every statement is a SELECT.
 -- Run it before applying, and again afterwards: the first two answers change,
@@ -22,20 +23,65 @@ SELECT 'database' AS check_name,
        CONCAT(DATABASE(), ' / ', @@character_set_database, ' / ', @@collation_database) AS value,
        IF(@@default_storage_engine = 'InnoDB', 'ok', CONCAT('NOT InnoDB: ', @@default_storage_engine)) AS verdict;
 
--- 3. Which of the six already exist. `none` means apply the script as it is.
---    All six means it has been applied -- check (4) rather than re-running it.
---    Anything between is a partial apply: drop the ones listed and start again,
---    since the script is deliberately not idempotent.
+-- 3. Which of the fourteen already exist.
+--    `--force` below means `mysql --force < phase1_extensions.sql`: the script
+--    is deliberately not idempotent, so re-applying it prints one ERROR 1050
+--    per existing table and one ERROR 1061 per existing index, creates only
+--    what is absent, and EXITS 0. Those errors are the expected output, not a
+--    failure. Re-run this script afterwards: section 3 should say `applied`.
+--
+--    `none` means apply the script as it is. All fourteen means it has been
+--    applied -- check (4) rather than re-running it.
+--
+--    ANYTHING BETWEEN IS A PARTIAL APPLY, AND THE VERDICT SAYS WHAT TO DO. Do
+--    NOT "drop the ones listed": the listed value is every owned table present,
+--    which at counts 7-13 includes platform_admin_audit_events (retained
+--    evidence, D-161) and SPRING_SESSION (every live administrator session).
+--    Re-apply with --force alone, which creates what is absent and touches
+--    nothing that exists. This script never tells anyone to drop anything:
+--    dropping an owned table is a destructive procedure with exactly one
+--    authority, docs/operations/provisioning-phase1-tables.md#rollback, which
+--    drops the configs triggers FIRST. Dropping legacy_runtime_offset_history
+--    while those triggers stand breaks PHP's own writes to configs -- and only
+--    on the daylight-saving row, so it fails silently.
 SELECT 'phase1 tables present' AS check_name,
        COALESCE(GROUP_CONCAT(table_name ORDER BY table_name SEPARATOR ', '), 'none') AS value,
-       CASE COUNT(*) WHEN 0 THEN 'not applied -- apply it'
-                     WHEN 6 THEN 'applied'
-                     ELSE 'PARTIAL -- drop these and re-apply' END AS verdict
+       CASE COUNT(*)
+         WHEN 0 THEN 'not applied -- apply it'
+         WHEN 14 THEN 'applied'
+         -- Exactly the six originals means a database provisioned before the
+         -- device tables existed. Apply the script with --force so only the
+         -- absent eight are created; do NOT drop these. Two of them are not
+         -- yours to drop: platform_admin_audit_events is retained evidence
+         -- (D-161) and SPRING_SESSION is every live administrator session.
+         WHEN 6 THEN 'PRE-DEVICE-TABLES -- re-apply with --force, do NOT drop'
+         -- NOT "drop the listed tables": the list includes the six originals,
+         -- and an interrupted --force apply (which WHEN 6 above sends operators
+         -- to run) lands here at 7-13. Dropping platform_admin_audit_events
+         -- loses retained evidence (D-161) and dropping SPRING_SESSION ends
+         -- every live administrator session.
+         -- The count cannot tell a torn apply from a LIVE stack that lost one
+         -- table, and device_punches is the attendance punch record -- section
+         -- 6 calls it the one that will not stay small. An unenforceable
+         -- precondition printed to an operator's screen is still an
+         -- instruction, so this verdict offers no drop at all: --force is
+         -- always the answer here, and a genuine drop belongs to the runbook.
+         ELSE CONCAT('PARTIAL. Re-apply with --force, which creates only what ',
+                     'is absent and touches nothing that exists. Do NOT drop ',
+                     'anything to recover: dropping an owned table is a ',
+                     'destructive procedure with one authority, ',
+                     'docs/operations/provisioning-phase1-tables.md#rollback, ',
+                     'which drops the configs triggers FIRST.')
+       END AS verdict
   FROM information_schema.tables
  WHERE table_schema = DATABASE()
    AND table_name IN ('legacy_refresh_tokens', 'platform_admins',
                       'platform_admin_audit_events', 'platform_admin_login_attempts',
-                      'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES');
+                      'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+                      'attendance_devices', 'employee_device_identities',
+                      'device_punches', 'unclaimed_device_sightings',
+                      'device_operation_logs', 'device_malformed_punches',
+                      'legacy_runtime_offset_history', 'device_assignment_history');
 
 -- 4. After applying: the shape, not just the name. A table that exists with
 --    the wrong columns is the failure the non-idempotent script exists to
@@ -49,13 +95,25 @@ SELECT 'column counts' AS check_name,
          WHEN table_name = 'platform_admin_login_attempts'  AND COUNT(*) = 3 THEN 'ok'
          WHEN table_name = 'SPRING_SESSION'                 AND COUNT(*) = 7 THEN 'ok'
          WHEN table_name = 'SPRING_SESSION_ATTRIBUTES'      AND COUNT(*) = 3 THEN 'ok'
+         WHEN table_name = 'attendance_devices'             AND COUNT(*) = 18 THEN 'ok'
+         WHEN table_name = 'employee_device_identities'     AND COUNT(*) = 8 THEN 'ok'
+         WHEN table_name = 'device_punches'                 AND COUNT(*) = 24 THEN 'ok'
+         WHEN table_name = 'unclaimed_device_sightings'     AND COUNT(*) = 7 THEN 'ok'
+         WHEN table_name = 'device_operation_logs'          AND COUNT(*) = 6 THEN 'ok'
+         WHEN table_name = 'device_malformed_punches'       AND COUNT(*) = 6 THEN 'ok'
+         WHEN table_name = 'legacy_runtime_offset_history'  AND COUNT(*) = 3 THEN 'ok'
+         WHEN table_name = 'device_assignment_history'      AND COUNT(*) = 7 THEN 'ok'
          ELSE 'UNEXPECTED -- compare against phase1_extensions.sql'
        END AS verdict
   FROM information_schema.columns
  WHERE table_schema = DATABASE()
    AND table_name IN ('legacy_refresh_tokens', 'platform_admins',
                       'platform_admin_audit_events', 'platform_admin_login_attempts',
-                      'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES')
+                      'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+                      'attendance_devices', 'employee_device_identities',
+                      'device_punches', 'unclaimed_device_sightings',
+                      'device_operation_logs', 'device_malformed_punches',
+                      'legacy_runtime_offset_history', 'device_assignment_history')
  GROUP BY table_name
  ORDER BY table_name;
 
@@ -69,4 +127,57 @@ SELECT 'legacy tables' AS check_name,
  WHERE table_schema = DATABASE()
    AND table_name NOT IN ('legacy_refresh_tokens', 'platform_admins',
                           'platform_admin_audit_events', 'platform_admin_login_attempts',
-                          'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES');
+                          'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+                          'attendance_devices', 'employee_device_identities',
+                          'device_punches', 'unclaimed_device_sightings',
+                          'device_operation_logs', 'device_malformed_punches',
+                          'legacy_runtime_offset_history', 'device_assignment_history');
+
+-- 6. The COLLATION of each owned table, which (3) and (4) are both blind to.
+--    `phase1_extensions.sql` declared no collation until 2026-09-11, so a
+--    database provisioned by hand before then, on a server whose default was
+--    not utf8mb4_unicode_ci, has these tables at utf8mb4_uca1400_ai_ci while
+--    every legacy table beside them but `configs` is utf8mb4_unicode_ci. Nothing else here
+--    notices: the names are right, the column counts are right, and
+--    Phase1SchemaCheck compares names only. The first cross-table string
+--    comparison -- device_punches.pin against employees.employee_code -- then
+--    fails at runtime with `Illegal mix of collations`, on that host only.
+--
+--    To repair, per table listed below:
+--      ALTER TABLE <name> CONVERT TO CHARACTER SET utf8mb4
+--                         COLLATE utf8mb4_unicode_ci;
+--
+--      The session pair is the exception, and this file does NOT carry the
+--      repair for it. SPRING_SESSION_ATTRIBUTES_FK is a FOREIGN KEY on a CHAR
+--      column, so CONVERT TO is refused in BOTH directions: ERROR 1832 on the
+--      child and 1833 on the parent on MariaDB 11.8, ERROR 3780 both ways on
+--      MySQL 8. Do not reach for SET FOREIGN_KEY_CHECKS=0 -- it does not lift
+--      the refusal on MariaDB, and on MySQL 8 it lets the ALTER through and
+--      leaves the two columns at DIFFERENT collations under a live FK, which is
+--      worse than the error.
+--
+--      The procedure is docs/operations/provisioning-phase1-tables.md step 4b,
+--      and only there. It drops the constraint, converts both tables, sweeps
+--      orphans and re-adds -- with a precondition this comment used to state
+--      more weakly than the runbook does, which is why it is no longer stated
+--      twice: Spring Session deletes an expired session every sixty seconds and
+--      every admin logout deletes one, so an orphan appears inside the window
+--      and ADD CONSTRAINT then fails with ERROR 1452, leaving the table with NO
+--      foreign key at all.
+--
+--    CONVERT TO rebuilds the table and holds a lock for the duration, so size
+--    the window for device_punches -- it is the one that will not stay small.
+SELECT 'phase1 collation' AS check_name,
+       CONCAT(table_name, ' = ', table_collation) AS value,
+       IF(table_collation = 'utf8mb4_unicode_ci', 'ok',
+          'WRONG -- CONVERT TO utf8mb4_unicode_ci, see the note above') AS verdict
+  FROM information_schema.tables
+ WHERE table_schema = DATABASE()
+   AND table_name IN ('legacy_refresh_tokens', 'platform_admins',
+                      'platform_admin_audit_events', 'platform_admin_login_attempts',
+                      'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+                      'attendance_devices', 'employee_device_identities',
+                      'device_punches', 'unclaimed_device_sightings',
+                      'device_operation_logs', 'device_malformed_punches',
+                      'legacy_runtime_offset_history', 'device_assignment_history')
+ ORDER BY (table_collation = 'utf8mb4_unicode_ci'), table_name;

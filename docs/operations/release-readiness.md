@@ -147,7 +147,7 @@ so the go/no-go is a decision about named facts rather than a form.*
 
 | # | Gate | State | Closes when |
 |---|---|---|---|
-| 1 | Phase 1 tables exist in production, and the runtime principal can write to them | **Red** (**R-023**) | The startup check logs *all 10 owned tables are present* against production, and grants are confirmed for `app.legacy-db.username` |
+| 1 | Phase 1 tables exist in production, and the runtime principal can write to them | **Red** (**R-023**) | The startup check logs *all 14 owned tables are present* against production, and grants are confirmed for `app.legacy-db.username` |
 | 2 | Java and PHP sign with the same secret | **Red** (**R-024**) | Two fingerprints compared and equal, then a token exchange passing both ways |
 | 3 | A rollback has been executed somewhere and observed to work | **Red** (**R-025**) | One rehearsal on a non-production environment. None exists today — that is part of the gap |
 | 4 | The three deployment unknowns are filled in | **Red** | `release-cutover-and-rollback.md` names them: how the jar is deployed, what routes traffic, whether PHP keeps running |

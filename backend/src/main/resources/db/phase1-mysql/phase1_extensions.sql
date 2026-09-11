@@ -59,7 +59,7 @@ CREATE TABLE legacy_refresh_tokens (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at DATETIME NOT NULL,
     CONSTRAINT legacy_refresh_tokens_status_chk CHECK (status IN ('ACTIVE', 'ROTATED', 'REVOKED'))
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX legacy_refresh_tokens_family_id_idx ON legacy_refresh_tokens (family_id);
 CREATE INDEX legacy_refresh_tokens_employee_id_idx ON legacy_refresh_tokens (employee_id);
@@ -85,7 +85,7 @@ CREATE TABLE platform_admins (
     phone VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     active TINYINT(1) NOT NULL DEFAULT 1
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Retained indefinitely by decision (D-161): this table is the evidence the
 -- shared-password model never had.
@@ -99,7 +99,7 @@ CREATE TABLE platform_admin_audit_events (
     target_id VARCHAR(64),
     CONSTRAINT platform_admin_audit_events_admin_fk
         FOREIGN KEY (platform_admin_id) REFERENCES platform_admins (id)
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX platform_admin_audit_events_admin_id_idx
     ON platform_admin_audit_events (platform_admin_id);
@@ -110,7 +110,7 @@ CREATE TABLE platform_admin_login_attempts (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     identifier_hash VARCHAR(64) NOT NULL,
     attempted_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX platform_admin_login_attempts_ix1
     ON platform_admin_login_attempts (identifier_hash, attempted_at);
@@ -127,7 +127,7 @@ CREATE TABLE SPRING_SESSION (
     EXPIRY_TIME BIGINT NOT NULL,
     PRINCIPAL_NAME VARCHAR(100),
     CONSTRAINT SPRING_SESSION_PK PRIMARY KEY (PRIMARY_ID)
-) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE UNIQUE INDEX SPRING_SESSION_IX1 ON SPRING_SESSION (SESSION_ID);
 CREATE INDEX SPRING_SESSION_IX2 ON SPRING_SESSION (EXPIRY_TIME);
@@ -140,12 +140,12 @@ CREATE TABLE SPRING_SESSION_ATTRIBUTES (
     CONSTRAINT SPRING_SESSION_ATTRIBUTES_PK PRIMARY KEY (SESSION_PRIMARY_ID, ATTRIBUTE_NAME),
     CONSTRAINT SPRING_SESSION_ATTRIBUTES_FK FOREIGN KEY (SESSION_PRIMARY_ID)
         REFERENCES SPRING_SESSION (PRIMARY_ID) ON DELETE CASCADE
-) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB ROW_FORMAT=DYNAMIC DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
 -- Attendance-device ingestion (ADR-0006 Part A core; Part B ZKTeco adapter,
 -- D-164). Design: docs/superpowers/specs/2026-09-02-attendance-device-ingestion-design.md
--- section 7. All five tables are Phase-1-owned: none exists in legacy MySQL,
+-- section 7. All eight tables are Phase-1-owned: none exists in legacy MySQL,
 -- so none is part of the vendored contract and TenantFilterCoverageTest's
 -- structural exemption applies. No foreign keys to the vendored tables, on
 -- purpose: the legacy dump adds its own FKs through ALTER TABLE after the
@@ -177,7 +177,7 @@ CREATE TABLE attendance_devices (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     CONSTRAINT attendance_devices_vendor_chk CHECK (vendor IN ('zkteco'))
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX attendance_devices_company_idx ON attendance_devices (company_id, branch_id);
 
@@ -197,7 +197,7 @@ CREATE TABLE employee_device_identities (
     CONSTRAINT employee_device_identities_pin_uq UNIQUE (company_id, pin),
     CONSTRAINT employee_device_identities_employee_uq UNIQUE (company_id, employee_id),
     CONSTRAINT employee_device_identities_source_chk CHECK (source IN ('MANUAL', 'EMPLOYEE_CODE', 'DEVICE'))
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Raw, append-only punches. dedup_key is the synthesised idempotency key
 -- (the protocol carries no record id): sha256(serial|pin|local time|status).
@@ -307,7 +307,7 @@ CREATE TABLE device_punches (
         CHECK (assignment_resolution IN ('EXACT', 'INFERRED_EARLIEST', 'UNRESOLVED')),
     CONSTRAINT device_punches_state_chk
         CHECK (processing_state IN ('RECEIVED', 'UNMATCHED', 'PAIRED', 'IGNORED'))
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- The pairing pass claims work with processing_state = 'RECEIVED' and walks a
 -- company's punches in punch order, so this is the index it runs on.
@@ -332,7 +332,7 @@ CREATE TABLE unclaimed_device_sightings (
     push_version VARCHAR(32) NULL,
     device_type VARCHAR(64) NULL,
     hit_count INT UNSIGNED NOT NULL DEFAULT 1
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Device operation log lines (OPLOG records only -- biometric template
 -- lines that share the same upload are discarded before this table).
@@ -392,7 +392,7 @@ CREATE TABLE legacy_runtime_offset_history (
     CONSTRAINT legacy_runtime_offset_history_seconds_chk
         CHECK (offset_seconds IN (7200, 10800)),
     KEY legacy_runtime_offset_history_timeline_idx (effective_from_utc, id)
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE device_assignment_history (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -408,7 +408,7 @@ CREATE TABLE device_assignment_history (
     -- order, and `id` makes two rows sharing an instant deterministic rather
     -- than arbitrary.
     KEY device_assignment_history_timeline_idx (device_id, effective_from_utc, id)
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE device_malformed_punches (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -417,7 +417,7 @@ CREATE TABLE device_malformed_punches (
     received_at DATETIME NOT NULL,
     raw_line VARCHAR(512) NOT NULL,
     dedup_key CHAR(64) NOT NULL UNIQUE
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE device_operation_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -426,7 +426,7 @@ CREATE TABLE device_operation_logs (
     received_at DATETIME NOT NULL,
     raw_line VARCHAR(512) NOT NULL,
     dedup_key CHAR(64) NOT NULL UNIQUE
-);
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX device_operation_logs_device_idx ON device_operation_logs (device_id, received_at);
 

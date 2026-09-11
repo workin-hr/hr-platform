@@ -23,6 +23,20 @@
 -- UTC_TIMESTAMP(), never NOW(): the session's NOW() is in the legacy runtime's
 -- own offset, which is precisely the value under change here.
 
+-- Refuse to install the writers if their target is absent, BEFORE any side
+-- effect. Step 1 above is documented but was not enforced, and the failure it
+-- allows is silent and lands on production: if phase1_extensions.sql aborted
+-- (ERROR 1050 on a database that already has some of the tables, say) and this
+-- file ran anyway, three triggers end up on the legacy `configs` table pointing
+-- at a table that does not exist. PHP's writes to the daylight-saving row then
+-- fail with ERROR 1146 while every other config key still succeeds -- so nothing
+-- looks broken. This SELECT touches no rows and raises ERROR 1146 itself when
+-- the table is missing, which stops a client that halts on error.
+--
+-- It does NOT protect a run under `--force`, which continues past errors by
+-- design; there the operator's own step ordering is the only control.
+SELECT 1 FROM legacy_runtime_offset_history LIMIT 0;
+
 DROP TRIGGER IF EXISTS configs_runtime_offset_after_insert;
 DROP TRIGGER IF EXISTS configs_runtime_offset_after_update;
 DROP TRIGGER IF EXISTS configs_runtime_offset_after_delete;

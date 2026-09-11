@@ -31,10 +31,26 @@ Three gates, all set by D-165, none of which the pilot satisfies by itself:
   `devices.<platform-host>`), TLS terminated at the edge, forwarding
   `/iclock/**` to the application. Per-IP rate limiting belongs at this edge
   for the pilot.
-- The five Phase-1 tables from
+- All **fourteen** Phase-1 tables from
   `backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql` exist on
   the target MariaDB — the same provisioning gate `legacy_refresh_tokens`
-  sits behind (ADR-0013 open question; specification §12 Q7).
+  sits behind (ADR-0013 open question; specification §12 Q7). The startup check
+  logs *all 14 owned tables are present* when they do.
+- The runtime-offset triggers from
+  `backend/src/main/resources/db/phase1-mysql/legacy_runtime_offset_hooks.sql`
+  are installed. **Nothing detects their absence**: `Phase1SchemaCheck` compares
+  table names only, so a database with all fourteen tables and no triggers looks
+  correct and then `PunchPairingService` refuses every pairing pass, leaving
+  punches accumulating in `RECEIVED`. Confirm with the
+  `information_schema.TRIGGERS` query in
+  [provisioning-phase1-tables.md](../operations/provisioning-phase1-tables.md)
+  step 4 — expect three rows.
+- `attendance`.`method` accepts `'device'`, which
+  `backend/src/main/resources/db/phase1-mysql/slice_b_attendance_method.sql`
+  adds (**D-214**). This is the trigger prerequisite's twin and fails the same
+  way: `PunchPairingService` has two refusal branches with one symptom, and
+  nothing detects an unwidened enum either. Step 4 checks it in the same
+  breath — expect `enum('app','excel','qr','device')`.
 
 ## 2. On the terminal
 
