@@ -28,10 +28,10 @@ data does not, so a rollback is stopping a container rather than reconciling two
 copies of a live database. Move the database afterwards, as its own change, once
 the application has been serving from the VPS for a while.
 
-Both pairs are two files, always. `compose.tls.yaml` puts Caddy in front and
-**unpublishes the application's own port**, and the `prod` profile trusts
-`X-Forwarded-For` — which is only safe when the proxy is the sole route in
-(**R-049**, **D-206**).
+Both pairs are two files, always. `compose.tls.yaml` puts Caddy in front,
+**unpublishes the application's own port**, and tells the application to trust
+`X-Forwarded-For`. Both halves live in that one file because the trust is only
+safe when the proxy is the sole route in (**R-049**, **D-206**).
 
 ## 2. Before the first start
 

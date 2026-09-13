@@ -67,9 +67,12 @@ export const options = {
 // anywhere. In THIS deployment that buys less than it sounds like: the app is
 // containerised, so a hit on a published port arrives from the project
 // network's gateway (172.17.0.1 on the default bridge; a compose project gets
-// its own), not 127.0.0.1 -- and compose.remote-db.yaml never passes
+// its own), not 127.0.0.1 -- and compose.remote-db.yaml on its own never passes
 // SERVER_FORWARD_HEADERS_STRATEGY, so it is `none` there and anything through
-// a proxy arrives as the PROXY's address. deploy/e2e/run.sh sets `native`, and
+// a proxy of your own arrives as the PROXY's address. (Layered with
+// compose.tls.yaml, which pins `native` and removes that port, each client
+// behind Caddy gets its own bucket, and there is no application port left for
+// this scenario to reach.) deploy/e2e/run.sh sets `native`, and
 // that does NOT buy a bucket per operator here: nginx uses
 // $proxy_add_x_forwarded_for, which APPENDS the project gateway to whatever the
 // client sent, and k6 sends nothing -- so every VU is one address. A client that

@@ -85,19 +85,31 @@ else's budget -- or nobody's (**R-049**).
 | `integration` | `${FORWARD_HEADERS_STRATEGY:-none}`, defaulting to **`none`** | This box is reachable by more people than production's operators. `native` is correct there **only** once a proxy is the sole route to the port |
 | `local` | unset (`none`) | Nothing is in front |
 
+**`deploy/compose.tls.yaml` overrides every row.** It sets `native` itself and
+offers no variable to change it, because the same file removes the
+application's published port and leaves Caddy as the only route in from outside
+the host — both halves of the two-part change below, in one file. (A caller
+already on the host's Docker bridge can still reach the application, and is
+still believed.) So `compose.remote-db.yaml`, which runs `local` or
+`integration`, is `native`
+behind it, and `FORWARD_HEADERS_STRATEGY` has no effect while that file is
+layered.
+
 **Turning it on is a two-part change, and doing half of it is the hazard.**
-`native` without a proxy in front means the application trusts a header any
-caller can send. So: put the proxy there, close the published port to
-everything but the proxy, and only then set `FORWARD_HEADERS_STRATEGY=native`
-in the same change.
+`native` without a proxy in front means the application believes that header
+from any caller reaching the port from a private or loopback address — and for
+a port published only on `127.0.0.1`, that is every caller that can reach it.
+So: put the proxy there, close the published port to everything but the proxy,
+and only then set `FORWARD_HEADERS_STRATEGY=native` in the same change.
 
 **What an operator sees when it is wrong.** With `native` and no proxy: login
-throttling that never trips for a determined caller, because each attempt can
-claim a fresh address -- visible as `platform_admin_login_attempts` rows whose
-`client_key` values are varied and implausible, and as `LOGIN_FAILED` audit
-rows that never lead to a lockout. With `none` behind a proxy: every request
-attributed to the proxy's own address, so one caller's misses lock out
-everyone -- visible as a single `client_key` carrying every attempt.
+throttling that never trips for a determined caller who can reach the port,
+because each attempt can claim a fresh address -- visible as
+`platform_admin_login_attempts` rows with a different `identifier_hash` for
+nearly every attempt, and as `LOGIN_FAILED` audit rows that never lead to a
+lockout. With `none` behind a proxy: every request attributed to the proxy's own
+address, so one caller's misses lock out everyone -- visible as a single
+`identifier_hash` carrying every attempt.
 
 ## What happens at startup, and in what order
 
