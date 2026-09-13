@@ -12,7 +12,8 @@ list: it carried its own count once, that count was correct when written, and it
 went stale the moment the runbook's grew — which is the whole argument for one
 authority rather than two agreeing copies.
 [checking-against-the-live-database.md](checking-against-the-live-database.md)
-covers applying it to, and checking it against, a database that already exists.
+covers running the backend against a database that already exists, and sends
+provisioning back to the runbook.
 
 ## 1. First decide where the database lives
 
