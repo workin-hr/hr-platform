@@ -32,12 +32,15 @@ nginx in front with a throwaway certificate and tells Playwright to accept that
 one certificate. The connection is TLS; only the certificate is disposable.
 
 The key and certificate are written **outside the repository**, in the user's
-state directory (`$XDG_STATE_HOME`, or `~/.local/state`), and not under `/tmp`:
-the stack restarts after a reboot, and a certificate kept where the reboot clears
-it would not be there for the proxy. `validate_phase0`'s secret scan reads the
-working tree rather than the index, which is the right behaviour — its job is
-to catch a private key *before* somebody commits it — so the answer is to keep
-the key out of the tree rather than teach the scan to look away.
+state directory (`$XDG_STATE_HOME` when it is an absolute path, otherwise
+`~/.local/state`), and not under `/tmp`: the stack restarts after a reboot, and
+a certificate kept where the reboot clears it would not be there for the proxy.
+`validate_phase0`'s secret scan reads the working tree rather than the index,
+which is the right behaviour — its job is to catch a private key *before*
+somebody commits it — so the answer is to keep the key out of the tree rather
+than teach the scan to look away. `run.sh` therefore refuses an `E2E_TLS_DIR`
+that is relative or resolves inside the repository, and
+`scripts/test-e2e-run-tls.sh` checks where the key goes on every pull request.
 
 ## Configuration
 
@@ -52,7 +55,7 @@ would pick them up.
 | `ADMIN_ACTIONS_ENABLED` | `false` | `true` runs the administrative-action case |
 | `E2E_SEED_PROD` | unset | restores the sanitised seed into the prod stack by hand |
 | `E2E_REGENERATE_TLS` | unset | new certificate |
-| `E2E_TLS_DIR` | `${XDG_STATE_HOME:-~/.local/state}/workin-e2e/tls` | where the run's key and certificate live; not somewhere a reboot clears |
+| `E2E_TLS_DIR` | `${XDG_STATE_HOME:-~/.local/state}/workin-e2e/tls` | where the run's key and certificate live: an absolute path outside the repository, not somewhere a reboot clears |
 | `E2E_REGENERATE_ENV` | unset | new `.env.<profile>-e2e` |
 
 Any `docker compose` command that includes `e2e/compose.proxy.yaml` needs

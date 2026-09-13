@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Where deploy/e2e/run.sh puts the integration proxy's TLS key, with docker, npm
+# and npx stubbed. Nothing else runs run.sh in CI, and shellcheck cannot tell
+# where a key lands. These cases are the ways it has gone wrong: a certificate
+# under /tmp that a reboot removed, HOME required by profiles with no proxy, a
+# relative XDG_STATE_HOME that put the key inside the checkout, and a directory
+# Docker created for a missing bind-mount source.
+#
+# Each case runs a copy of run.sh in a throwaway tree laid out like the
+# repository. The key, the generated .env file and the "inside the repository"
+# check therefore all concern that tree, never this checkout.
+set -uo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+WORK="$(mktemp -d)"
+trap 'chmod -R u+w "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
+fails=0
+
+REPO="$WORK/repo"
+mkdir -p "$REPO/deploy/e2e/node_modules" "$WORK/bin" "$WORK/tmp"
+cp "$HERE/../deploy/e2e/run.sh" "$REPO/deploy/e2e/run.sh"
+
+# The stack and the suite are not under test: docker reports a healthy
+# application and npm and npx do nothing. openssl is the real one.
+cat > "$WORK/bin/docker" <<'STUB'
+#!/usr/bin/env bash
+[ "${1:-}" = inspect ] && echo healthy
+exit 0
+STUB
+printf '#!/usr/bin/env bash\nexit 0\n' > "$WORK/bin/npm"
+cp "$WORK/bin/npm" "$WORK/bin/npx"
+chmod +x "$WORK/bin/docker" "$WORK/bin/npm" "$WORK/bin/npx"
+
+rc=0
+run() {  # $1=profile, then NAME=value pairs: the whole environment -> $WORK/out, $rc
+  local profile="$1"
+  shift
+  rc=0
+  (cd "$REPO/deploy/e2e" && env -i PATH="$WORK/bin:$PATH" TMPDIR="$WORK/tmp" "$@" \
+    timeout 120 bash ./run.sh "$profile") >"$WORK/out" 2>&1 || rc=$?
+}
+
+check() {  # $1=0 when the case holds, $2=label
+  if [ "$1" = 0 ]; then printf '  ok    %s\n' "$2"
+  else printf '  FAIL  %s\n' "$2"; sed 's/^/          /' "$WORK/out"; fails=$((fails + 1)); fi
+}
+
+no_key_in_repo() {
+  [ -z "$(find "$REPO" -name server.key)" ]
+}
+
+# 1. Only the integration profile has a proxy, so the others need no HOME.
+run local
+ok=1; [ "$rc" -eq 0 ] && grep -q 'running the suite' "$WORK/out" && ok=0
+check "$ok" "local runs with HOME, XDG_STATE_HOME and E2E_TLS_DIR all unset"
+
+# 2. The default: the user's state directory, private to them.
+run integration HOME="$WORK/home"
+dir="$WORK/home/.local/state/workin-e2e/tls"
+ok=1; [ "$rc" -eq 0 ] && [ -f "$dir/server.key" ] && [ -f "$dir/server.crt" ] && ok=0
+check "$ok" "integration writes the key and certificate under HOME/.local/state by default"
+ok=1; [ -d "$dir" ] && [ -n "$(find "$dir" -maxdepth 0 -perm 700)" ] && ok=0
+check "$ok" "the default directory is readable by its owner only"
+
+# 3. An absolute XDG_STATE_HOME is used.
+run integration HOME="$WORK/home-xdg" XDG_STATE_HOME="$WORK/state"
+ok=1; [ "$rc" -eq 0 ] && [ -f "$WORK/state/workin-e2e/tls/server.key" ] && [ ! -e "$WORK/home-xdg/.local" ] && ok=0
+check "$ok" "an absolute XDG_STATE_HOME replaces HOME/.local/state"
+
+# 4. A relative XDG_STATE_HOME is ignored, as the XDG specification says. Before,
+#    it put the key inside the checkout, under the directory run.sh ran from.
+run integration HOME="$WORK/home-rel" XDG_STATE_HOME=state
+ok=1; [ "$rc" -eq 0 ] && [ -f "$WORK/home-rel/.local/state/workin-e2e/tls/server.key" ] && no_key_in_repo && ok=0
+check "$ok" "a relative XDG_STATE_HOME is ignored, and no key is written in the repository"
+
+# 5. With neither HOME nor XDG_STATE_HOME there is no default, so say so.
+run integration
+ok=1; [ "$rc" -ne 0 ] && grep -q 'HOME is not set' "$WORK/out" && no_key_in_repo && ok=0
+check "$ok" "integration without HOME or XDG_STATE_HOME stops and says HOME is not set"
+
+# 6. An explicit E2E_TLS_DIR must be absolute.
+run integration HOME="$WORK/home" E2E_TLS_DIR=tls
+ok=1; [ "$rc" -ne 0 ] && grep -q 'must be an absolute path' "$WORK/out" \
+  && [ ! -e "$REPO/deploy/e2e/tls" ] && no_key_in_repo && ok=0
+check "$ok" "a relative E2E_TLS_DIR is refused before anything is created"
+
+# 7. Nor may it be inside the repository, whether named directly or through a
+#    symlink.
+run integration HOME="$WORK/home" E2E_TLS_DIR="$REPO/deploy/e2e/tls"
+ok=1; [ "$rc" -ne 0 ] && grep -q 'inside the repository' "$WORK/out" && no_key_in_repo && ok=0
+check "$ok" "an E2E_TLS_DIR inside the repository is refused"
+ln -s "$REPO/deploy" "$WORK/deploy-link"
+run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/deploy-link/tls"
+ok=1; [ "$rc" -ne 0 ] && grep -q 'inside the repository' "$WORK/out" && no_key_in_repo && ok=0
+check "$ok" "an E2E_TLS_DIR reaching the repository through a symlink is refused"
+
+# 8. A directory a reboot clears still works, with a warning.
+run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/tmp/tls"
+ok=1; [ "$rc" -eq 0 ] && grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$WORK/tmp/tls/server.key" ] && ok=0
+check "$ok" "an E2E_TLS_DIR under TMPDIR warns and still gets a certificate"
+
+# 9. The directory Docker leaves after a reboot: present, empty and not the
+#    user's. run.sh stops with the recovery step instead of failing in chmod.
+if [ "$(id -u)" = 0 ]; then
+  echo "  skip  a directory that is not writable: running as root, for whom every directory is"
+else
+  mkdir "$WORK/not-writable"
+  chmod 555 "$WORK/not-writable"
+  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/not-writable"
+  ok=1; [ "$rc" -ne 0 ] && grep -q 'is not writable by you' "$WORK/out" \
+    && grep -q 'sudo rmdir' "$WORK/out" && [ ! -e "$WORK/not-writable/server.key" ] && ok=0
+  check "$ok" "a directory that is not writable stops with the recovery step"
+fi
+
+echo
+if [ "$fails" -eq 0 ]; then echo "e2e run.sh TLS directory: all cases pass."
+else echo "$fails case(s) failed." >&2; fi
+exit "$fails"

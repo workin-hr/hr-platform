@@ -133,20 +133,39 @@ esac
 APP_CONTAINER="$PROJECT-app-1"
 DB_CONTAINER="$PROJECT-db-1"
 
-# Outside the repository on purpose. validate_phase0's secret scan walks the
-# working tree, not the index, so a git-ignored key still trips it -- and that
-# is the scan behaving correctly, because its job is to catch a key before it
-# is committed.
-#
-# And not under /tmp. The stack is `restart: unless-stopped`, so it outlives a
-# reboot, but /tmp does not: Docker then recreates the missing bind-mount source
-# as an empty root-owned directory, and the proxy restarts without a certificate
-# until someone with root removes it. The user's state directory survives a
-# reboot and stays the user's.
-E2E_TLS_DIR="${E2E_TLS_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/workin-e2e/tls}"
-export E2E_TLS_DIR
-
 if [ "$PROFILE" = integration ]; then
+  # Outside the repository on purpose. validate_phase0's secret scan walks the
+  # working tree, not the index, so a git-ignored key still trips it -- and that
+  # is the scan behaving correctly, because its job is to catch a key before it
+  # is committed.
+  #
+  # And not under /tmp. The stack is `restart: unless-stopped`, so it outlives a
+  # reboot, but /tmp does not: Docker then recreates the missing bind-mount source
+  # as an empty root-owned directory, and the proxy restarts without a certificate
+  # until someone with root removes it. The user's state directory survives a
+  # reboot and stays the user's. Only this profile has the proxy, so only this
+  # profile needs HOME.
+  if [ -z "${E2E_TLS_DIR:-}" ]; then
+    case "${XDG_STATE_HOME:-}" in
+      # The XDG specification says to ignore a relative value; honouring one
+      # would put the key under whichever directory this was run from.
+      /*) E2E_TLS_DIR="$XDG_STATE_HOME/workin-e2e/tls" ;;
+      *)
+        if [ -z "${HOME:-}" ]; then
+          echo "HOME is not set: set E2E_TLS_DIR to an absolute directory outside the repository" >&2
+          exit 1
+        fi
+        E2E_TLS_DIR="$HOME/.local/state/workin-e2e/tls" ;;
+    esac
+  fi
+  # This script would create a relative one under the directory it was run
+  # from, and compose would not look for it there.
+  case "$E2E_TLS_DIR" in
+    /*) ;;
+    *) echo "E2E_TLS_DIR must be an absolute path, not '$E2E_TLS_DIR'" >&2; exit 1 ;;
+  esac
+  export E2E_TLS_DIR
+
   say "TLS for the proxy ($E2E_TLS_DIR)"
   case "$E2E_TLS_DIR" in
     /tmp/* | /var/tmp/* | "${TMPDIR:-/tmp}"/*)
@@ -160,6 +179,15 @@ if [ "$PROFILE" = integration ]; then
     echo "and run this again." >&2
     exit 1
   fi
+  # Resolved once it exists, so that neither a symlink nor `..` carries the key
+  # into the checkout.
+  checkout="$(cd "$DEPLOY/.." && pwd -P)"
+  case "$(cd "$E2E_TLS_DIR" && pwd -P)/" in
+    "$checkout"/*)
+      echo "E2E_TLS_DIR ($E2E_TLS_DIR) is inside the repository at $checkout, where" >&2
+      echo "validate_phase0's secret scan would find the key. Choose a directory outside it." >&2
+      exit 1 ;;
+  esac
   chmod 700 "$E2E_TLS_DIR"
   if [ ! -f "$E2E_TLS_DIR/server.crt" ] || [ -n "${E2E_REGENERATE_TLS:-}" ]; then
     openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
