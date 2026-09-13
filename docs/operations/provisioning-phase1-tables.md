@@ -160,12 +160,17 @@ of that server holding only `phase1_extensions.sql`, and stop on any difference
 other than collation, table-name case, or the `AUTO_INCREMENT=` value, which
 counts rows rather than describing the table. The query below compares table
 names in lower case: a server with `lower_case_table_names=1` reports
-`SPRING_SESSION` as `spring_session`, and the application accepts either. Any
-line `diff` prints is an
-owned table that differs from what the application expects: stop before step 3.
-A difference in collation alone may go on to step 3, and step 4b repairs it: step
-3's triggers compare `configs` values only with literals, so a table at another
-collation does not stop them. Any other names one
+`SPRING_SESSION` as `spring_session`, and the application accepts either.
+
+The block ends with one of three verdicts. `every owned table matches` needs
+nothing more. `only collation differs` may go on to step 3, and step 4b repairs
+the collation: step 3's triggers compare `configs` values only with literals, so
+a table at another collation does not stop them. The block decides that by
+comparing again with every collation set aside, not by the size of the
+difference, so a wrong type on a table that is also at the old collation is not
+mistaken for one. Anything after `STOPPED` is an owned table that differs from
+what the application expects in more than collation: stop before step 3. Each
+difference there names one
 object, such as an index, a default, a foreign key or an engine, and needs a
 repair for that object alone: an `ALTER` that gives it the definition
 `phase1_extensions.sql` creates, written and reviewed before it runs, followed
@@ -246,8 +251,23 @@ SQL
   docker exec -i "$name" mariadb -N -B shape < phase1-shape.sql | LC_ALL=C sort > expected-shape.txt
   [ "$(grep -c '^table' expected-shape.txt)" = 14 ] ||
     { echo "STOPPED: the throwaway database did not describe the fourteen tables; nothing was compared" >&2; exit 1; }
-  diff expected-shape.txt live-shape.txt
-  echo "every owned table matches phase1_extensions.sql"
+  if diff -q expected-shape.txt live-shape.txt > /dev/null; then
+    echo "every owned table matches phase1_extensions.sql"
+    exit 0
+  fi
+  # Step 4b repairs collation: set it aside (field 5 of a table row, field 9 of
+  # a column row) and compare what is left.
+  for side in expected live; do
+    awk -F'\t' -v OFS='\t' '$1 == "table" { $5 = "" } $1 == "column" { $9 = "" } 1' \
+      "${side}-shape.txt" > "${side}-nocollation.txt"
+  done
+  if diff -q expected-nocollation.txt live-nocollation.txt > /dev/null; then
+    echo "only collation differs: step 3 may go ahead, and step 4b repairs the collation"
+  else
+    echo "STOPPED: these differ in more than collation:" >&2
+    diff expected-nocollation.txt live-nocollation.txt >&2 || true
+    exit 1
+  fi
 )
 ```
 
