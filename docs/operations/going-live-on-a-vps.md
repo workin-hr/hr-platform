@@ -35,8 +35,7 @@ Both pairs are two files, always. `compose.tls.yaml` puts Caddy in front and
 
 ## 2. Before the first start
 
-Three things must be true, and none of them fails in a way that points at
-itself.
+Three things must be true.
 
 - **`APP_DOMAIN` resolves to the VPS.** Caddy obtains the certificate on first
   start; a name that does not resolve is a certificate that never issues and a
@@ -46,13 +45,11 @@ itself.
 - **Phase 1 is provisioned** in the database you are pointing at, per
   [provisioning-phase1-tables.md](provisioning-phase1-tables.md) — which is more
   than the tables. The application creates its administrator row at every
-  startup, so without `platform_admins` it does not start at all; and the
-  startup check compares table *names* only, so a database with every table and
-  none of the rest reports itself healthy and then fails in a background pass, at
-  ERROR, where no request and no health check will surface it. Run that runbook's
-  Confirm steps — 4 for the tables, triggers and enum, and 4b for the collation,
-  which is name-invisible in exactly the same way — and take their answer rather
-  than this page's word.
+  startup, so without `platform_admins` it does not start at all. But the startup
+  check compares table *names* only, so a database with every table and none of
+  the rest passes it. Run that runbook's Confirm steps — 4 for the tables,
+  triggers and enum, and 4b for the collation, which the name check cannot see
+  either — and take their answer rather than this page's word.
 
 ## 3. What changes, and where
 
@@ -158,13 +155,18 @@ It is not, however, a return to the database you started with. Provisioning ran
 against the live database, and stopping a container does not undo DDL: the tables
 remain, `attendance.method` still accepts `'device'`, and the runtime-offset
 triggers remain installed on the legacy `configs` table. Leaving all of it in
-place is the recommended treatment — it is additive, PHP reads none of it, and it
-means rolling forward again needs no DDL.
+place is the recommended treatment — it is additive, PHP's behaviour does not
+change while it stays, and rolling forward again needs no DDL.
 
 **What you must not do is drop it casually.** The triggers write into
-`legacy_runtime_offset_history`, so dropping that table while they stand makes
-every PHP write to the daylight-saving row fail while writes to other keys keep
-succeeding. If a drop is ever genuinely required there is one procedure for it,
+`legacy_runtime_offset_history`, so with that table gone and the triggers still
+installed, any `configs` write that adds, removes or switches the daylight-saving
+setting fails with `ERROR 1146`. PHP's settings page saves its settings one at a
+time, each committed on its own, so a save that switches daylight saving stops
+at that setting: settings saved before it keep their new values, settings after
+it are not saved, and the page never reaches its success message. Saves that
+leave daylight saving alone keep working, which is why the breakage can go
+unnoticed. If a drop is ever genuinely required there is one procedure for it,
 and it drops the triggers first:
 [provisioning-phase1-tables.md#rollback](provisioning-phase1-tables.md#rollback).
 
