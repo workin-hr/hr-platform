@@ -378,6 +378,57 @@ services:
         check(proc.returncode == 1 and "names the same property as" in proc.stderr,
               f"the base file setting a pinned property as {alias.split(':')[0]} is refused (exit={proc.returncode})")
 
+    # Round 6's routes, and two more of the same kind. The overlay is held to an
+    # allowlist, so none of these had to be named to be refused. Each of the first
+    # five rendered through `docker compose config` while the check was green.
+    json_on = "'{\"springdoc\":{\"api-docs\":{\"enabled\":true}}}'"
+    for label, old, new, expected in (
+        ("SPRING_APPLICATION_JSON in the overlay's app", OVERLAY_STRATEGY,
+         OVERLAY_STRATEGY + f"      SPRING_APPLICATION_JSON: {json_on}\n",
+         "environment.SPRING_APPLICATION_JSON is not allowed"),
+        ("JAVA_TOOL_OPTIONS in the overlay's app", OVERLAY_STRATEGY,
+         OVERLAY_STRATEGY + '      JAVA_TOOL_OPTIONS: "-Dspringdoc.api-docs.enabled=true"\n',
+         "environment.JAVA_TOOL_OPTIONS is not allowed"),
+        ("env_file on the overlay's app", OVERLAY_PORTS, OVERLAY_PORTS + "    env_file: [./extra.env]\n",
+         "services.app.env_file is not allowed"),
+        ("command on the overlay's app", OVERLAY_PORTS,
+         OVERLAY_PORTS + '    command: ["--springdoc.api-docs.enabled=true"]\n',
+         "services.app.command is not allowed"),
+        ("a relay service in the overlay", "  proxy:\n",
+         '  relay:\n    image: alpine/socat\n    ports:\n      - "127.0.0.1:8081:8081"\n\n  proxy:\n',
+         "services.relay is not allowed"),
+        ("another publish on the proxy", '      - "443:443/udp"\n',
+         '      - "443:443/udp"\n      - "127.0.0.1:8081:8080"\n', "services.proxy.ports"),
+        ("a proxy that is not Caddy", "    image: caddy:2.10-alpine\n", "    image: alpine/socat\n",
+         "services.proxy.image"),
+    ):
+        proc = run(COMPOSE, overlay_with(old, new))
+        check(proc.returncode == 1 and expected in proc.stderr, f"{label} is refused (exit={proc.returncode})")
+
+    # The base file cannot be allowlisted, so it refuses what outranks its pins.
+    for label, fragment, expected in (
+        ("env_file", "    env_file: [./extra.env]\n", "services.app.env_file is set"),
+        ("command", '    command: ["--springdoc.api-docs.enabled=true"]\n', "services.app.command is set"),
+        ("entrypoint", '    entrypoint: ["java", "-jar", "/app/backend.jar"]\n', "services.app.entrypoint is set"),
+    ):
+        proc = run(COMPOSE.replace("  app:\n", "  app:\n" + fragment))
+        check(proc.returncode == 1 and expected in proc.stderr,
+              f"{label} on the base file's app is refused (exit={proc.returncode})")
+    for name, value in (("SPRING_APPLICATION_JSON", json_on),
+                        ("JAVA_TOOL_OPTIONS", '"-Dspringdoc.api-docs.enabled=true"'),
+                        ("JDK_JAVA_OPTIONS", '"-Dspringdoc.api-docs.enabled=true"')):
+        proc = run(COMPOSE.replace('      SPRINGDOC_SWAGGER_UI_ENABLED: "false"\n',
+                                   f'      SPRINGDOC_SWAGGER_UI_ENABLED: "false"\n      {name}: {value}\n'))
+        check(proc.returncode == 1 and f"environment.{name} is set" in proc.stderr,
+              f"{name} in the base file is refused (exit={proc.returncode})")
+
+    # What must NOT fail: a configuration file ranks below environment variables,
+    # so mounting one cannot switch a pin back.
+    proc = run(COMPOSE.replace("    ports:\n",
+                               "    volumes:\n      - ./application.yml:/app/config/application.yml:ro\n    ports:\n"))
+    check(proc.returncode == 0,
+          f"a mounted configuration file is not refused (exit={proc.returncode}, err={proc.stderr[:100]!r})")
+
     proc = run(COMPOSE, OVERLAY + "---\nservices:\n  app:\n    ports:\n      - \"127.0.0.1:8080:8080\"\n")
     check(proc.returncode == 1 and "compose.tls.yaml contains more than one YAML document" in proc.stderr,
           f"a second document in the overlay is refused by name (exit={proc.returncode})")

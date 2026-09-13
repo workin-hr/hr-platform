@@ -62,6 +62,25 @@ environment name to a property, so `SPRINGDOC_APIDOCS_ENABLED` names
 two the binder prefers is its business; this check refuses the alias rather
 than depend on it.
 
+The overlay is held to an allowlist rather than to that list. Three review
+rounds in a row found another way to switch a pin back through it -- a restated
+pin; a merge key and a second spelling; then SPRING_APPLICATION_JSON,
+JAVA_TOOL_OPTIONS, env_file, command and a relay service -- and a list of
+refusals only ever catches the ways already found. The overlay is small enough
+to say what it may contain instead: services `app` and `proxy` only; `app`
+carries `ports: !override []` and SERVER_FORWARD_HEADERS_STRATEGY and nothing
+else; `proxy` keeps a Caddy image and exactly ports 80, 443 and 443/udp.
+
+The base file is too large for that, so it refuses the channels Spring Boot
+documents as outranking an OS environment variable: command-line arguments
+(`command`, and `entrypoint`, which replaces them), SPRING_APPLICATION_JSON, and
+JVM system properties (JAVA_TOOL_OPTIONS, JDK_JAVA_OPTIONS, _JAVA_OPTIONS). It
+also refuses `env_file`, which adds environment variables this check does not
+read. Configuration files rank below environment variables, so a mounted
+application.yml cannot switch a pin back and is not refused. What this check
+still cannot see is configuration baked into the image, or anything outside
+these two files.
+
 What this reports is a property of THIS FILE, not of a running stack. The
 documented production invocation is `-f compose.remote-db.yaml -f
 compose.tls.yaml`, and that overlay unpublishes the app port and puts Caddy on
@@ -194,6 +213,28 @@ ALIAS_WHY = (
     "rather than depend on which one the binder prefers"
 )
 
+OVERLAY_TOP_LEVEL = {"services", "volumes"}
+OVERLAY_SERVICES = {"app", "proxy"}
+OVERLAY_APP_KEYS = {"ports", "environment"}
+OVERLAY_PROXY_KEYS = {"image", "restart", "depends_on", "environment", "volumes", "ports",
+                      "healthcheck", "deploy"}
+OVERLAY_PROXY_PORTS = ["80:80", "443:443", "443:443/udp"]
+OVERLAY_ALLOWLIST_WHY = (
+    "the overlay is held to what it needs -- Caddy in front, the application's port removed, "
+    "the strategy fixed -- because anything more is a way to switch a pin back that this "
+    "check would otherwise have to be taught one review round at a time"
+)
+
+# Keys and environment names that outrank an OS environment variable, or feed
+# environment variables this check does not read.
+OVERRIDING_SERVICE_KEYS = {
+    "env_file": "loads environment variables from a file this check does not read",
+    "command": "the image's entrypoint is exec-form `java -jar`, so these become application "
+               "arguments, which outrank environment variables",
+    "entrypoint": "replaces how the application starts, arguments included",
+}
+JVM_OPTION_VARIABLES = ("JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS")
+
 
 def environment_of(service: dict) -> dict[str, str]:
     """Compose accepts a mapping or a `KEY=value` list; normalise both."""
@@ -272,11 +313,19 @@ def merge_keys(node, path: str, seen: set[int] | None = None) -> list[str]:
             name = key.value if isinstance(key, yaml.ScalarNode) else "?"
             if key.tag == MERGE_TAG or name == "<<":
                 found.append(path)
-            found += merge_keys(value, f"{path}.{name}", seen)
+            found += merge_keys(value, f"{path}.{name}" if path else name, seen)
     elif isinstance(node, yaml.SequenceNode):
         for i, value in enumerate(node.value):
             found += merge_keys(value, f"{path}[{i}]", seen)
     return found
+
+
+def keys_of(node) -> list[str]:
+    """The key names of a mapping node, leaving merge keys to merge_keys()."""
+    if not isinstance(node, yaml.MappingNode):
+        return []
+    return [k.value for k, _ in node.value
+            if isinstance(k, yaml.ScalarNode) and k.tag != MERGE_TAG and k.value != "<<"]
 
 
 def overlay_problems() -> list[str]:
@@ -305,6 +354,40 @@ def overlay_problems() -> list[str]:
                 f"R-049 can be checked"]
 
     problems: list[str] = []
+    services = value_node(root, "services")
+    for name in keys_of(root):
+        if name not in OVERLAY_TOP_LEVEL and name not in UNRESOLVABLE_TOP_LEVEL_KEYS:
+            problems.append(f"  {OVERLAY}: top-level `{name}` is not allowed\n    {OVERLAY_ALLOWLIST_WHY}")
+    for name in keys_of(services):
+        if name not in OVERLAY_SERVICES:
+            problems.append(
+                f"  {OVERLAY}: services.{name} is not allowed\n    a second service can publish "
+                f"another route to the application, where a forged X-Forwarded-For is believed"
+            )
+    for name in keys_of(app):
+        if name not in OVERLAY_APP_KEYS and name not in UNRESOLVABLE_KEYS:
+            problems.append(f"  {OVERLAY}: services.{SERVICE}.{name} is not allowed\n    {OVERLAY_ALLOWLIST_WHY}")
+    proxy = value_node(services, "proxy")
+    if proxy is not None:
+        for name in keys_of(proxy):
+            if name not in OVERLAY_PROXY_KEYS:
+                problems.append(f"  {OVERLAY}: services.proxy.{name} is not allowed\n    {OVERLAY_ALLOWLIST_WHY}")
+        proxy_ports = value_node(proxy, "ports")
+        listed = ([n.value for n in proxy_ports.value] if isinstance(proxy_ports, yaml.SequenceNode)
+                  and proxy_ports.tag == "tag:yaml.org,2002:seq"
+                  and all(isinstance(n, yaml.ScalarNode) for n in proxy_ports.value) else None)
+        if listed != OVERLAY_PROXY_PORTS:
+            problems.append(
+                f"  {OVERLAY}: services.proxy.ports is {describe(proxy_ports)}, must be exactly "
+                f"{OVERLAY_PROXY_PORTS}\n    another publish on the proxy is another route in"
+            )
+        image = value_node(proxy, "image")
+        if not (isinstance(image, yaml.ScalarNode) and image.tag == PLAIN_STRING
+                and image.value.startswith("caddy:")):
+            problems.append(
+                f"  {OVERLAY}: services.proxy.image is {describe(image)}, must be a `caddy:` image\n"
+                f"    the proxy on 80 and 443 is what makes the application's forwarded headers true"
+            )
     ports = value_node(app, "ports")
     if not (isinstance(ports, yaml.SequenceNode) and ports.tag == "!override" and not ports.value):
         problems.append(
@@ -360,6 +443,14 @@ def overlay_problems() -> list[str]:
             f"    the overlay is layered after {COMPOSE}, so its value wins over that file's "
             f"pin; the pin belongs in {COMPOSE} alone"
         )
+    for name in dict.fromkeys(names):
+        if (name != key and name != "<<" and spring_name(name) not in pinned
+                and spring_name(name) != spring_name(key)):
+            problems.append(
+                f"  {OVERLAY}: services.{SERVICE}.environment.{name} is not allowed\n    the overlay's "
+                f"app sets {key} and nothing else, so it cannot switch a pin back through a channel "
+                f"such as SPRING_APPLICATION_JSON or JAVA_TOOL_OPTIONS"
+            )
 
     for name, why in UNRESOLVABLE_KEYS.items():
         if value_node(app, name) is not None:
@@ -369,9 +460,9 @@ def overlay_problems() -> list[str]:
         if value_node(root, name) is not None:
             problems.append(f"  {OVERLAY}: top-level `{name}` is set\n    {why}, and this "
                             f"check reads the file rather than the resolved stack")
-    for where in merge_keys(app, f"services.{SERVICE}"):
+    for where in merge_keys(root, ""):
         problems.append(
-            f"  {OVERLAY}: {where} uses a YAML merge key (`<<`)\n    it pulls keys in from an "
+            f"  {OVERLAY}: {where or 'the top level'} uses a YAML merge key (`<<`)\n    it pulls keys in from an "
             f"anchor, which this check sees only as a key named `<<`, so the resolved service can "
             f"differ from what is checked; write the keys out"
         )
@@ -443,6 +534,23 @@ def main() -> int:
         problems.append(
             f"  services.{SERVICE}.environment.{name} names the same property as {canonical}\n"
             f"    {ALIAS_WHY}"
+        )
+    for key, why in OVERRIDING_SERVICE_KEYS.items():
+        if key in service:
+            problems.append(
+                f"  services.{SERVICE}.{key} is set\n    {why}; a pin could be switched back there "
+                f"while its line still reads correctly"
+            )
+    for name in environment:
+        if name in JVM_OPTION_VARIABLES:
+            why = "JVM system properties outrank environment variables"
+        elif spring_name(name) == spring_name("SPRING_APPLICATION_JSON"):
+            why = "SPRING_APPLICATION_JSON properties outrank environment variables"
+        else:
+            continue
+        problems.append(
+            f"  services.{SERVICE}.environment.{name} is set\n    {why}, so it could switch a pin "
+            f"back while the pinned line still reads correctly"
         )
 
     for key, why in UNRESOLVABLE_TOP_LEVEL_KEYS.items():
