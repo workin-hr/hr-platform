@@ -40,7 +40,7 @@ which is the point, because these are literals precisely so that `.env` cannot
 override them.
 
 ONE RULE, several instances: anything whose effect is to make the resolved
-service differ from what this document says is REFUSED, not interpreted. Five so
+service differ from what this document says is REFUSED, not interpreted. Six so
 far, each found by a review after the previous one was closed:
 
   extends:            merges a base service in, concatenating ports
@@ -48,10 +48,19 @@ far, each found by a review after the previous one was closed:
   network_mode:       some modes make Docker ignore `ports` entirely
   !reset              deletes the key it sits on
   a second document   compose reads them all; this reads the first
+  <<                  in the overlay, pulls keys in from an anchor that the
+                      node graph shows only as a key named `<<`
 
 and the scan runs over EVERY service, not just `app`, because a sibling
 publishes just as widely. That history is the argument for stating the rule
-rather than listing the keys: a sixth mechanism should be refused on sight.
+rather than listing the keys: a seventh mechanism should be refused on sight.
+
+The same goes for a pinned property set under another environment name.
+Spring's relaxed binding ignores case and separators when it maps an
+environment name to a property, so `SPRINGDOC_APIDOCS_ENABLED` names
+`springdoc.api-docs.enabled` as surely as the pinned spelling does. Which of the
+two the binder prefers is its business; this check refuses the alias rather
+than depend on it.
 
 What this reports is a property of THIS FILE, not of a running stack. The
 documented production invocation is `-f compose.remote-db.yaml -f
@@ -74,6 +83,7 @@ the base file's publish.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -177,6 +187,12 @@ OVERLAY_STRATEGY_WHY = (
     "a variable here would let .env do the same"
 )
 PLAIN_STRING = "tag:yaml.org,2002:str"
+MERGE_TAG = "tag:yaml.org,2002:merge"
+ALIAS_WHY = (
+    "Spring's relaxed binding ignores case and separators in an environment name, so the "
+    "application may read this instead of the pinned spelling; the check refuses the alias "
+    "rather than depend on which one the binder prefers"
+)
 
 
 def environment_of(service: dict) -> dict[str, str]:
@@ -231,6 +247,36 @@ def describe(node: yaml.Node | None) -> str:
     else:
         shown = "a mapping"
     return shown if node.tag.startswith("tag:yaml.org,2002:") else f"{node.tag} {shown}"
+
+
+def spring_name(name: str) -> str:
+    """An environment name as Spring's relaxed binding compares it."""
+    return re.sub(r"[_.\-]", "", name).upper()
+
+
+def aliases(names, pins) -> list[tuple[str, str]]:
+    """(name, pin) for every name that is not the pin but binds to the same property."""
+    return [(name, pin) for name in dict.fromkeys(names) for pin in pins
+            if name != pin and spring_name(name) == spring_name(pin)]
+
+
+def merge_keys(node, path: str, seen: set[int] | None = None) -> list[str]:
+    """Every place under `node` that uses a YAML merge key (`<<`)."""
+    seen = set() if seen is None else seen
+    if id(node) in seen:
+        return []
+    seen.add(id(node))
+    found: list[str] = []
+    if isinstance(node, yaml.MappingNode):
+        for key, value in node.value:
+            name = key.value if isinstance(key, yaml.ScalarNode) else "?"
+            if key.tag == MERGE_TAG or name == "<<":
+                found.append(path)
+            found += merge_keys(value, f"{path}.{name}", seen)
+    elif isinstance(node, yaml.SequenceNode):
+        for i, value in enumerate(node.value):
+            found += merge_keys(value, f"{path}[{i}]", seen)
+    return found
 
 
 def overlay_problems() -> list[str]:
@@ -297,14 +343,18 @@ def overlay_problems() -> list[str]:
             f"and `!reset` removes it, so this check cannot see what either leaves behind"
         )
     if isinstance(environment, yaml.MappingNode):
-        restated = [k.value for k, _ in environment.value
-                    if isinstance(k, yaml.ScalarNode) and k.value in REQUIRED_ENV]
+        names = [k.value for k, _ in environment.value if isinstance(k, yaml.ScalarNode)]
     elif isinstance(environment, yaml.SequenceNode):
-        restated = [e.value.partition("=")[0] for e in environment.value
-                    if isinstance(e, yaml.ScalarNode) and e.value.partition("=")[0] in REQUIRED_ENV]
+        names = [e.value.partition("=")[0] for e in environment.value if isinstance(e, yaml.ScalarNode)]
     else:
-        restated = []
-    for name in dict.fromkeys(restated):
+        names = []
+    pinned = {spring_name(pin) for pin in REQUIRED_ENV}
+    for name, canonical in aliases(names, [key]):
+        problems.append(
+            f"  {OVERLAY}: services.{SERVICE}.environment.{name} names the same property as "
+            f"{canonical}\n    {ALIAS_WHY}"
+        )
+    for name in dict.fromkeys(n for n in names if spring_name(n) in pinned):
         problems.append(
             f"  {OVERLAY}: services.{SERVICE}.environment.{name} is set\n"
             f"    the overlay is layered after {COMPOSE}, so its value wins over that file's "
@@ -319,6 +369,12 @@ def overlay_problems() -> list[str]:
         if value_node(root, name) is not None:
             problems.append(f"  {OVERLAY}: top-level `{name}` is set\n    {why}, and this "
                             f"check reads the file rather than the resolved stack")
+    for where in merge_keys(app, f"services.{SERVICE}"):
+        problems.append(
+            f"  {OVERLAY}: {where} uses a YAML merge key (`<<`)\n    it pulls keys in from an "
+            f"anchor, which this check sees only as a key named `<<`, so the resolved service can "
+            f"differ from what is checked; write the keys out"
+        )
     return problems
 
 
@@ -383,6 +439,11 @@ def main() -> int:
                 f"  services.{SERVICE}.environment.{key} is {actual!r}, must be the "
                 f"literal {expected!r}\n    {why}"
             )
+    for name, canonical in aliases(environment, list(REQUIRED_ENV) + [OVERLAY_STRATEGY[0]]):
+        problems.append(
+            f"  services.{SERVICE}.environment.{name} names the same property as {canonical}\n"
+            f"    {ALIAS_WHY}"
+        )
 
     for key, why in UNRESOLVABLE_TOP_LEVEL_KEYS.items():
         if key in (doc or {}):

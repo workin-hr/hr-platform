@@ -350,6 +350,34 @@ services:
     check(proc.returncode == 1 and "environment is tagged !override" in proc.stderr,
           f"an !override environment on the overlay is refused (exit={proc.returncode})")
 
+    # A YAML merge key. The node graph shows a key named `<<`; compose resolves the
+    # anchor's keys into the service. Both forms rendered through `docker compose
+    # config` while the check was green.
+    proc = run(COMPOSE, 'x-docs: &docs\n  SPRINGDOC_API_DOCS_ENABLED: "true"\n'
+                        'services:\n  app:\n    ports: !override []\n    environment:\n'
+                        '      SERVER_FORWARD_HEADERS_STRATEGY: native\n      <<: *docs\n')
+    check(proc.returncode == 1 and "merge key" in proc.stderr,
+          f"a merge key in the overlay's environment is refused (exit={proc.returncode})")
+    proc = run(COMPOSE, 'x-net: &net\n  network_mode: host\n'
+                        'services:\n  app:\n    <<: *net\n    ports: !override []\n    environment:\n'
+                        '      SERVER_FORWARD_HEADERS_STRATEGY: native\n')
+    check(proc.returncode == 1 and "merge key" in proc.stderr,
+          f"a merge key on the overlay's app is refused (exit={proc.returncode})")
+
+    # Relaxed binding: a pinned property under another spelling, beside the pin.
+    proc = run(COMPOSE, overlay_with(OVERLAY_STRATEGY, OVERLAY_STRATEGY + '      SPRINGDOC_APIDOCS_ENABLED: "true"\n'))
+    check(proc.returncode == 1 and "environment.SPRINGDOC_APIDOCS_ENABLED is set" in proc.stderr,
+          f"the overlay setting a pin under another spelling is refused (exit={proc.returncode})")
+    proc = run(COMPOSE, overlay_with(OVERLAY_STRATEGY, OVERLAY_STRATEGY + "      SERVER_FORWARDHEADERS_STRATEGY: none\n"))
+    check(proc.returncode == 1 and "SERVER_FORWARDHEADERS_STRATEGY names the same property" in proc.stderr,
+          f"the overlay setting the strategy under another spelling is refused (exit={proc.returncode})")
+    for alias in ('SPRINGDOC_APIDOCS_ENABLED: "true"', 'springdoc_api_docs_enabled: "true"',
+                  "SERVER_FORWARDHEADERS_STRATEGY: none"):
+        proc = run(COMPOSE.replace('      SPRINGDOC_SWAGGER_UI_ENABLED: "false"\n',
+                                   f'      SPRINGDOC_SWAGGER_UI_ENABLED: "false"\n      {alias}\n'))
+        check(proc.returncode == 1 and "names the same property as" in proc.stderr,
+              f"the base file setting a pinned property as {alias.split(':')[0]} is refused (exit={proc.returncode})")
+
     proc = run(COMPOSE, OVERLAY + "---\nservices:\n  app:\n    ports:\n      - \"127.0.0.1:8080:8080\"\n")
     check(proc.returncode == 1 and "compose.tls.yaml contains more than one YAML document" in proc.stderr,
           f"a second document in the overlay is refused by name (exit={proc.returncode})")
