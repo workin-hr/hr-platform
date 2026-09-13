@@ -100,6 +100,9 @@ check "$ok" "an E2E_TLS_DIR reaching the repository through a symlink is refused
 run integration HOME="$WORK/home" TMPDIR="/.$WORK/tmp" E2E_TLS_DIR="/.$WORK/tmp/tls"
 ok=1; [ "$rc" -eq 0 ] && grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$WORK/tmp/tls/server.key" ] && ok=0
 check "$ok" "an E2E_TLS_DIR under TMPDIR warns and still gets a certificate"
+run integration HOME="$WORK/home" TMPDIR="/.$WORK/tmp/" E2E_TLS_DIR="/.$WORK/tmp/tls-slash"
+ok=1; [ "$rc" -eq 0 ] && grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$WORK/tmp/tls-slash/server.key" ] && ok=0
+check "$ok" "a TMPDIR ending in /, as macOS sets it, still warns"
 run integration HOME="$WORK/home" E2E_TLS_DIR="/.$WORK/kept/tls"
 ok=1; [ "$rc" -eq 0 ] && ! grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$WORK/kept/tls/server.key" ] && ok=0
 check "$ok" "an E2E_TLS_DIR outside /tmp, /var/tmp and TMPDIR does not warn"
@@ -138,8 +141,20 @@ else
   touch "$WORK/busy/other"
   chmod 555 "$WORK/busy"
   run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/busy/tls"
-  ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" && ok=0
+  ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" \
+    && grep -q 'Choose another E2E_TLS_DIR' "$WORK/out" && ok=0
   check "$ok" "a directory that is not writable and holds other files is never offered to rmdir"
+
+  # An empty directory is offered to rmdir only when the walk reaches one you can
+  # write to. Below one you cannot, it may be a system directory, like an empty
+  # /srv under /.
+  mkdir -p "$WORK/outer/inner"
+  touch "$WORK/outer/other"
+  chmod 555 "$WORK/outer/inner" "$WORK/outer"
+  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/outer/inner/workin-e2e/tls"
+  ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" \
+    && grep -q 'Choose another E2E_TLS_DIR' "$WORK/out" && ok=0
+  check "$ok" "an empty directory under one that is not writable is never offered to rmdir"
 fi
 
 echo

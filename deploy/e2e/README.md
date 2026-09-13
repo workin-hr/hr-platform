@@ -74,15 +74,27 @@ which `docker inspect` shows as the label `com.docker.compose.project`:
 - **`workin-integration`** is a stack started with these compose files
   directly, or by a `run.sh` from before it passed `-p` (2026-09-08). `run.sh`
   does not manage that project, and its own stack would ask for ports that
-  stack already holds. Bring it down under its own name first. Run this from
-  the `deploy/` directory that started it (the label
-  `com.docker.compose.project.working_dir`), with `E2E_TLS_DIR` set to the
-  directory it mounts, then remove that directory with `sudo rmdir`:
+  stack already holds. Replace only that stack's proxy, which leaves its
+  application and database running:
+  1. Work from the `deploy/` directory that started it (the label
+     `com.docker.compose.project.working_dir`).
+  2. Set `ENV_FILE` to the environment file it used (the label
+     `com.docker.compose.project.environment_file`).
+  3. Give the proxy a certificate where a reboot does not clear it, the way
+     `run.sh` makes one, and recreate the proxy on it.
+  4. Remove the old directory. `docker inspect` shows it as the proxy's mount
+     at `/etc/nginx/tls`; the old default was `/tmp/workin-e2e-tls-<uid>`.
 
   ```sh
-  E2E_TLS_DIR=/tmp/workin-e2e-tls-"$(id -u)" docker compose -p workin-integration \
-    -f compose.integration.yaml -f e2e/compose.proxy.yaml \
-    --env-file .env.integration-e2e down
+  export E2E_TLS_DIR="$HOME/.local/state/workin-e2e/tls"
+  mkdir -p "$E2E_TLS_DIR" && chmod 700 "$E2E_TLS_DIR"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
+    -keyout "$E2E_TLS_DIR/server.key" -out "$E2E_TLS_DIR/server.crt" \
+    -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+  chmod 644 "$E2E_TLS_DIR/server.crt" "$E2E_TLS_DIR/server.key"
+  docker compose -p workin-integration -f compose.integration.yaml \
+    -f e2e/compose.proxy.yaml --env-file "$ENV_FILE" up -d --no-deps proxy
+  sudo rmdir /tmp/workin-e2e-tls-"$(id -u)"
   ```
 
 `E2E_SEED_PROD` restores the seed with `mariadb <` rather than by mounting it,

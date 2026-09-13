@@ -167,13 +167,15 @@ if [ "$PROFILE" = integration ]; then
   export E2E_TLS_DIR
 
   say "TLS for the proxy ($E2E_TLS_DIR)"
+  # macOS sets TMPDIR with a trailing slash, which would double it in the pattern.
+  tmpdir="${TMPDIR:-/tmp}"
   case "$E2E_TLS_DIR" in
-    /tmp/* | /var/tmp/* | "${TMPDIR:-/tmp}"/*)
+    /tmp/* | /var/tmp/* | "${tmpdir%/}"/*)
       echo "warning: $E2E_TLS_DIR is cleared on reboot; the proxy will lose its certificate" >&2 ;;
   esac
   # Docker creates every missing level of a bind-mount source as an empty
   # directory owned by root, so there can be more than one to remove. Walk up to
-  # the first directory that is the user's, collecting the levels that hold
+  # the first directory you can write to, collecting the levels that hold
   # nothing but the next one down; one holding anything else is not Docker's.
   docker_made=()
   path="$E2E_TLS_DIR"
@@ -187,6 +189,14 @@ if [ "$PROFILE" = integration ]; then
     below="$(basename "$path")"
     path="$(dirname "$path")"
   done
+  # Removing those levels helps only if the walk reached a directory you can
+  # write to. Where it stopped short, at / or at a directory holding other
+  # files, an empty directory it passed may be a system one, such as /srv.
+  if ! { [ -d "$path" ] && [ -w "$path" ]; }; then
+    echo "$E2E_TLS_DIR cannot be used: $path is not writable by you and holds" >&2
+    echo "other files. Choose another E2E_TLS_DIR." >&2
+    exit 1
+  fi
   if [ "${#docker_made[@]}" -gt 0 ]; then
     echo "$E2E_TLS_DIR is not writable by you. Docker creates each missing level of a" >&2
     echo "bind-mount source as an empty directory owned by root: stop the proxy, run" >&2
@@ -195,10 +205,6 @@ if [ "$PROFILE" = integration ]; then
     exit 1
   fi
   mkdir -p "$E2E_TLS_DIR"
-  if [ ! -w "$E2E_TLS_DIR" ]; then
-    echo "$E2E_TLS_DIR is not writable by you and is not empty: choose another E2E_TLS_DIR" >&2
-    exit 1
-  fi
   # Resolved once it exists, so that neither a symlink nor `..` carries the key
   # into the checkout.
   checkout="$(cd "$DEPLOY/.." && pwd -P)"
