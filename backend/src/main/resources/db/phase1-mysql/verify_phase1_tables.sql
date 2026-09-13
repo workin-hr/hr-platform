@@ -2,7 +2,7 @@
 -- and has it been already?" -- before anything writes to it.
 --
 -- Paste into phpMyAdmin's SQL tab, or:
---   mysql -h HOST -u USER -p DBNAME \
+--   mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" \
 --     < backend/src/main/resources/db/phase1-mysql/verify_phase1_tables.sql
 --
 -- Nothing here creates, alters or deletes. Every statement is a SELECT.

@@ -133,6 +133,15 @@ and confirm its section 4 column counts before step 3, and leave
 again. Never use `--force` on `legacy_runtime_offset_hooks.sql`: it skips that
 file's check that its target table exists.
 
+Run the check from the same jar as the DDL, with the connection settings step 2
+describes:
+
+```bash
+unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/verify_phase1_tables.sql \
+  > verify_phase1_tables.sql
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" < verify_phase1_tables.sql
+```
+
 **Do not drop anything to "start clean".** `platform_admin_audit_events` is
 retained evidence (D-161) and `SPRING_SESSION` is every live administrator
 session; neither is recreated with its contents. Nor are the device tables a
@@ -153,19 +162,20 @@ for this change, not the production backup method:
 `docs/operations/backup-and-restore.md` still leaves that pending Discovery and
 an ADR, and where backups are stored, who may read them and how they are
 restored are decided there, not here. Until then, treat this file as production
-personal data -- readable by you alone, outside any repository, and disposed of
-when this change no longer needs it -- and know that nobody has yet tested
-restoring from it. Set `DB_HOST`, `DB_PORT`, `DB_USER` and `DB_NAME` first -- the names
+personal data. The command writes it to your home directory, readable by you
+alone rather than into a checkout; dispose of it when this change no longer
+needs it. Nobody has yet tested restoring from it. Set `DB_HOST`, `DB_PORT`, `DB_USER` and `DB_NAME` first -- the names
 `deploy/env.remote-db.example` uses. Do not rely on `HOST` or `USER`: many
 shells already set them, to this machine and to you.
 
 ```bash
-backup="before-phase1-$(date +%F-%H%M).sql"
-mysqldump -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p \
-  --single-transaction --routines --triggers --events --hex-blob \
-  --default-character-set=utf8mb4 \
-  "$DB_NAME" > "$backup"
+backup="$HOME/before-phase1-$(date +%F-%H%M).sql"
+( umask 077 && mysqldump -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p \
+    --single-transaction --routines --triggers --events --hex-blob \
+    --default-character-set=utf8mb4 \
+    "$DB_NAME" > "$backup" )
 tail -n 1 "$backup"   # "-- Dump completed on ..."; anything else is a truncated dump
+ls -l "$backup"       # -rw------- : readable by you alone
 ```
 
 `--single-transaction` is what keeps PHP writing while it runs. Without it the

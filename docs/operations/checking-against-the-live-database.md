@@ -55,7 +55,7 @@ Check that yourself before and after, with a script that only reads —
 paste into phpMyAdmin's SQL tab or:
 
 ```sh
-mysql -h "$DB_HOST" -u "$DB_USER" -p "$DB_NAME" \
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" \
   < backend/src/main/resources/db/phase1-mysql/verify_phase1_tables.sql
 ```
 
