@@ -318,14 +318,15 @@ for ddl in phase1_extensions.sql slice_b_attendance_method.sql legacy_runtime_of
   fi
   if [ "$ddl" = legacy_runtime_offset_hooks.sql ]; then
     # The file drops its triggers before recreating them and seeds only an empty
-    # history, so it runs only where neither matters. See the notes below.
+    # history, so it runs only where neither loses a change. See the notes below.
     hooks=$(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p -N -B "$DB_NAME" -e \
       "SELECT (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()
-                 AND TRIGGER_NAME LIKE 'configs_runtime_offset_%'),
+                 AND TRIGGER_NAME IN ('configs_runtime_offset_after_insert',
+                   'configs_runtime_offset_after_update', 'configs_runtime_offset_after_delete')),
               EXISTS (SELECT 1 FROM legacy_runtime_offset_history)") || { rc=$?; echo "STOPPED at $ddl" >&2; break; }
     installed=$(printf '%s\n' "$hooks" | cut -f1); has_rows=$(printf '%s\n' "$hooks" | cut -f2)
-    if [ "$installed" -ge 3 ]; then
-      echo "--- $ddl skipped (its three triggers are already installed)"; continue
+    if [ "$installed" = 3 ] && [ "$has_rows" = 1 ]; then
+      echo "--- $ddl skipped (its three triggers are installed and the history has rows)"; continue
     fi
     if [ "$has_rows" = 1 ]; then
       rc=1; echo "STOPPED at $ddl: its triggers are missing but legacy_runtime_offset_history has rows" >&2; break
@@ -349,10 +350,17 @@ whose history table does not exist. Run `unset SKIP_TABLES` before step 3 on suc
 a database.
 
 Step 3 also skips `legacy_runtime_offset_hooks.sql` when its three triggers are
-already installed. The file drops them before recreating them, so a
-daylight-saving change PHP saved in between would go unrecorded, and nothing
-afterwards could tell. Replacing installed triggers with a newer definition is
-not part of this procedure: do it only while nothing writes to `configs`.
+already installed and the history has rows. The file drops them before
+recreating them, so a daylight-saving change PHP saved in between would go
+unrecorded, and nothing afterwards could tell. Replacing installed triggers with
+a newer definition is not part of this procedure: do it only while nothing
+writes to `configs`. The check is by the three exact trigger names, the ones
+pairing looks for, so another trigger named like them does not count.
+
+If the triggers are installed but the history is empty, for example after an
+earlier run stopped before the file's final seed, step 3 runs the file again.
+Nothing is lost that way: the seed runs after the triggers are recreated and
+reads `configs` as it then is.
 
 **If step 3 stops because the triggers are missing while
 `legacy_runtime_offset_history` already has rows, do not reinstall them.**
@@ -371,10 +379,19 @@ them:
 ```sql
 SELECT TRIGGER_NAME FROM information_schema.TRIGGERS
 WHERE TRIGGER_SCHEMA = DATABASE()
-  AND TRIGGER_NAME LIKE 'configs_runtime_offset_%';
+  AND TRIGGER_NAME IN ('configs_runtime_offset_after_insert',
+    'configs_runtime_offset_after_update', 'configs_runtime_offset_after_delete');
 ```
 
-Expect three rows. Then check the enum took:
+Expect three rows. Then confirm the history has its starting row:
+
+```sql
+SELECT COUNT(*) FROM legacy_runtime_offset_history;
+```
+
+Expect at least one. With none, pairing treats every punch as before the
+history began (`PRE_HISTORY`) and ignores it: run step 3 again with
+`SKIP_TABLES=1`, which seeds an empty history. Then check the enum took:
 
 ```sql
 SELECT COLUMN_TYPE FROM information_schema.COLUMNS
