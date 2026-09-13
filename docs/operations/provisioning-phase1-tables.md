@@ -150,8 +150,20 @@ themselves, on a machine with Docker. The query below is read-only; run it
 against the live database and against a throwaway MariaDB of the live server's
 version that holds only `phase1_extensions.sql`. Any line `diff` prints is an
 owned table that differs from what the application expects: stop before step 3.
-A difference in collation alone is the one step 4b repairs; any other needs the
-table recreated, which is [Rollback](#rollback), never an edit to the DDL.
+A difference in collation alone is the one step 4b repairs. Any other names one
+object, such as an index, a default, a foreign key or an engine, and needs a
+repair for that object alone: an `ALTER` that gives it the definition
+`phase1_extensions.sql` creates, written and reviewed before it runs, followed
+by this comparison again. It is never an edit to the DDL, and never
+[Rollback](#rollback), which drops all fourteen tables and whatever a partial
+deployment has already stored in them.
+
+A difference in `row_format` alone, on one of the twelve tables that
+`phase1_extensions.sql` creates without naming one, comes from the live
+server's `innodb_default_row_format` rather than from the table: check that
+setting before writing any repair. On `compact` or `redundant` the file cannot
+create `platform_admins` (`ERROR 1709`) or, after it,
+`platform_admin_audit_events`, and the comparison reports both as missing.
 
 The commands run in a subshell that stops at the first command to fail,
 including a failed query on either side. They report a match only when the
@@ -177,8 +189,8 @@ SELECT 'column', table_name, column_name, ordinal_position, column_type, is_null
  WHERE table_schema = DATABASE() AND table_name IN ($names)
 UNION ALL
 SELECT 'index', table_name, index_name, seq_in_index, column_name, non_unique,
-       COALESCE(sub_part, ''), index_type, ''
-  FROM information_schema.statistics
+       COALESCE(sub_part, ''), index_type, COALESCE(s.collation, '')
+  FROM information_schema.statistics s
  WHERE table_schema = DATABASE() AND table_name IN ($names)
 UNION ALL
 SELECT 'check', table_name, constraint_name, check_clause, '', '', '', '', ''
@@ -186,12 +198,14 @@ SELECT 'check', table_name, constraint_name, check_clause, '', '', '', '', ''
  WHERE constraint_schema = DATABASE() AND table_name IN ($names)
 UNION ALL
 SELECT 'foreign key', table_name, constraint_name, referenced_table_name,
-       update_rule, delete_rule, '', '', ''
+       update_rule, delete_rule,
+       IF(unique_constraint_schema = constraint_schema, 'same database', unique_constraint_schema), '', ''
   FROM information_schema.referential_constraints
  WHERE constraint_schema = DATABASE() AND table_name IN ($names)
 UNION ALL
 SELECT 'foreign key column', table_name, constraint_name, ordinal_position,
-       column_name, referenced_column_name, '', '', ''
+       column_name, referenced_column_name,
+       IF(referenced_table_schema = table_schema, 'same database', referenced_table_schema), '', ''
   FROM information_schema.key_column_usage
  WHERE table_schema = DATABASE() AND table_name IN ($names)
    AND referenced_table_name IS NOT NULL;
@@ -201,7 +215,7 @@ SQL
   mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p -N -B "$DB_NAME" < phase1-shape.sql \
     | LC_ALL=C sort > live-shape.txt
   version=$(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p -N -B -e 'SELECT VERSION()' | cut -d- -f1)
-  name="phase1-shape-$(date +%s)"
+  name="phase1-shape-$(date +%s)-$RANDOM"
   trap 'docker rm -f "$name" > /dev/null 2>&1' EXIT
   trap 'exit 130' INT TERM
   docker run -d --name "$name" -e MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1 -e MARIADB_DATABASE=shape \

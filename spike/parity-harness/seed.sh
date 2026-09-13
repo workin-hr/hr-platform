@@ -52,8 +52,8 @@ echo "data (foreign keys deferred)..."
 echo "phase 1 extension table..."
 # Tables only, deliberately: this harness compares PHP and Java read paths and
 # never runs pairing, so the triggers and the widened enum would change nothing.
-# Anywhere pairing DOES run, tables-alone is the combination that fails silently
-# -- see scripts/build_dev_seed.sh.
+# Anywhere pairing DOES run, tables-alone is the one combination the startup
+# check reports as healthy -- see scripts/build_dev_seed.sh.
 m workin < "$PLATFORM"/backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql
 
 echo "parity test employee..."
