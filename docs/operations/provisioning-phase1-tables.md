@@ -127,8 +127,9 @@ changes the schema. Then run `verify_phase1_tables.sql`, which names the state
 and what to do about it: re-apply `phase1_extensions.sql` with `mysql --force`,
 which creates only what is absent and reports one `ERROR 1050` per existing
 table and one `ERROR 1061` per existing index. `--force` does not check the
-shape of a table that already exists, so run `verify_phase1_tables.sql` again
-and confirm its section 4 column counts before step 3, and leave
+shape of a table that already exists, so before step 3 run
+`verify_phase1_tables.sql` again, then compare every owned table's definition
+with the one `phase1_extensions.sql` creates (below). Leave
 `phase1_extensions.sql` out of step 3's loop, which would otherwise stop at it
 again. Never use `--force` on `legacy_runtime_offset_hooks.sql`: it skips that
 file's check that its target table exists.
@@ -140,6 +141,64 @@ describes:
 unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/verify_phase1_tables.sql \
   > verify_phase1_tables.sql
 mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" < verify_phase1_tables.sql
+```
+
+After a `--force` recovery, the column counts in the script's section 4 are not
+enough: a table with the right number of columns and a wrong type, default,
+key, foreign key or engine still reads `ok`. So compare the definitions
+themselves, on a machine with Docker. The query below is read-only; run it
+against the live database and against a throwaway MariaDB of the live server's
+version that holds only `phase1_extensions.sql`. Any line `diff` prints is an
+owned table that differs from what the application expects: stop before step 3.
+A difference in collation alone is the one step 4b repairs; any other needs the
+table recreated, which is [Rollback](#rollback), never an edit to the DDL.
+
+```bash
+names="'legacy_refresh_tokens','platform_admins','platform_admin_audit_events',
+  'platform_admin_login_attempts','SPRING_SESSION','SPRING_SESSION_ATTRIBUTES',
+  'attendance_devices','employee_device_identities','device_punches',
+  'unclaimed_device_sightings','device_operation_logs','device_malformed_punches',
+  'device_assignment_history','legacy_runtime_offset_history'"
+cat > phase1-shape.sql <<SQL
+SELECT 'table', table_name, engine, row_format, table_collation, '', '', '', ''
+  FROM information_schema.tables
+ WHERE table_schema = DATABASE() AND table_name IN ($names)
+UNION ALL
+SELECT 'column', table_name, column_name, ordinal_position, column_type, is_nullable,
+       COALESCE(column_default, '(no default)'), extra, COALESCE(collation_name, '')
+  FROM information_schema.columns
+ WHERE table_schema = DATABASE() AND table_name IN ($names)
+UNION ALL
+SELECT 'index', table_name, index_name, seq_in_index, column_name, non_unique,
+       COALESCE(sub_part, ''), index_type, ''
+  FROM information_schema.statistics
+ WHERE table_schema = DATABASE() AND table_name IN ($names)
+UNION ALL
+SELECT 'check', table_name, constraint_name, check_clause, '', '', '', '', ''
+  FROM information_schema.check_constraints
+ WHERE constraint_schema = DATABASE() AND table_name IN ($names)
+UNION ALL
+SELECT 'foreign key', table_name, constraint_name, referenced_table_name,
+       update_rule, delete_rule, '', '', ''
+  FROM information_schema.referential_constraints
+ WHERE constraint_schema = DATABASE() AND table_name IN ($names)
+UNION ALL
+SELECT 'foreign key column', table_name, constraint_name, ordinal_position,
+       column_name, referenced_column_name, '', '', ''
+  FROM information_schema.key_column_usage
+ WHERE table_schema = DATABASE() AND table_name IN ($names)
+   AND referenced_table_name IS NOT NULL;
+SQL
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p -N -B "$DB_NAME" < phase1-shape.sql \
+  | LC_ALL=C sort > live-shape.txt
+version=$(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p -N -B -e 'SELECT VERSION()' | cut -d- -f1)
+docker run -d --name phase1-shape -e MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1 -e MARIADB_DATABASE=shape \
+  "mariadb:$version" --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+until docker exec phase1-shape healthcheck.sh --connect --innodb_initialized >/dev/null 2>&1; do sleep 2; done
+docker exec -i phase1-shape mariadb shape < phase1_extensions.sql
+docker exec -i phase1-shape mariadb -N -B shape < phase1-shape.sql | LC_ALL=C sort > expected-shape.txt
+docker rm -f phase1-shape
+diff expected-shape.txt live-shape.txt && echo "every owned table matches phase1_extensions.sql"
 ```
 
 **Do not drop anything to "start clean".** `platform_admin_audit_events` is

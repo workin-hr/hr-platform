@@ -84,9 +84,12 @@ SELECT 'phase1 tables present' AS check_name,
                       'device_operation_logs', 'device_malformed_punches',
                       'legacy_runtime_offset_history', 'device_assignment_history');
 
--- 4. After applying: the shape, not just the name. A table that exists with
---    the wrong columns is the failure the non-idempotent script exists to
---    prevent, and it is invisible to (3).
+-- 4. After applying: each table's column count, which (3) cannot see. It
+--    catches a missing or extra column and nothing finer: a table with the
+--    right count and a wrong type, default, key, foreign key or engine still
+--    reads `ok`. After a --force recovery, compare the full definitions as
+--    docs/operations/provisioning-phase1-tables.md step 1 describes before
+--    applying anything else.
 SELECT 'column counts' AS check_name,
        CONCAT(table_name, '=', COUNT(*)) AS value,
        CASE
