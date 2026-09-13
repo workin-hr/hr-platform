@@ -90,7 +90,8 @@ offers no variable to change it, because the same file removes the
 application's published port and leaves Caddy as the only route in from outside
 the host — both halves of the two-part change below, in one file. (A caller
 already on the host's Docker bridge can still reach the application, and is
-still believed.) So `compose.remote-db.yaml`, which runs `local`, is `native`
+still believed.) So `compose.remote-db.yaml`, which runs `local` or
+`integration`, is `native`
 behind it, and `FORWARD_HEADERS_STRATEGY` has no effect while that file is
 layered.
 

@@ -59,6 +59,18 @@ compose.tls.yaml`, and that overlay unpublishes the app port and puts Caddy on
 0.0.0.0:443. The bare one-file form is the one that puts a
 production-credentialled application on 127.0.0.1:8080, where perf/run.sh
 defaults -- which is the threat this guards.
+
+It also checks that overlay, because the documented invocation is only safe
+while deploy/compose.tls.yaml carries both halves of R-049: the application's
+published port removed with `ports: !override []`, and
+SERVER_FORWARD_HEADERS_STRATEGY fixed at `native`. Each is one line whose
+removal passed every other gate. Without the first, a caller on the host
+reaches the application directly and a forged X-Forwarded-For is believed.
+Without the second, this file's profiles run behind Caddy with no strategy, so
+every client shares one login-throttle bucket and eight misses lock out every
+administrator. The tag is checked and not only the value: ComposeLoader reads
+`!override []` and a plain `[]` alike, and compose merges the plain one with
+the base file's publish.
 """
 from __future__ import annotations
 
@@ -157,6 +169,15 @@ UNRESOLVABLE_TOP_LEVEL_KEYS = {
     "include": "merges another file's services into this one",
 }
 
+OVERLAY = "deploy/compose.tls.yaml"
+OVERLAY_STRATEGY = ("SERVER_FORWARD_HEADERS_STRATEGY", "native")
+OVERLAY_STRATEGY_WHY = (
+    "behind Caddy the remote-db profiles would run with no strategy, so every client "
+    "shares one login-throttle bucket and eight misses lock out every administrator; "
+    "a variable here would let .env do the same"
+)
+PLAIN_STRING = "tag:yaml.org,2002:str"
+
 
 def environment_of(service: dict) -> dict[str, str]:
     """Compose accepts a mapping or a `KEY=value` list; normalise both."""
@@ -187,6 +208,94 @@ def published_hosts(service: dict) -> list[tuple[str, str]]:
         parts = text.split(":")
         out.append((parts[0] if len(parts) >= 3 else "", text))
     return out
+
+
+def value_node(mapping: yaml.Node | None, key: str) -> yaml.Node | None:
+    """The node under `key` in a mapping node -- the last one, as a loader keeps."""
+    if not isinstance(mapping, yaml.MappingNode):
+        return None
+    found = None
+    for key_node, node in mapping.value:
+        if isinstance(key_node, yaml.ScalarNode) and key_node.value == key:
+            found = node
+    return found
+
+
+def describe(node: yaml.Node | None) -> str:
+    if node is None:
+        return "absent"
+    if isinstance(node, yaml.ScalarNode):
+        shown = repr(node.value)
+    elif isinstance(node, yaml.SequenceNode):
+        shown = f"a list of {len(node.value)}"
+    else:
+        shown = "a mapping"
+    return shown if node.tag.startswith("tag:yaml.org,2002:") else f"{node.tag} {shown}"
+
+
+def overlay_problems() -> list[str]:
+    """Both halves of R-049 must stay in deploy/compose.tls.yaml.
+
+    Composed to nodes rather than loaded to values, because the tag is the
+    point: a loaded `!override []` and a plain `[]` are the same empty list.
+    """
+    path = ROOT / OVERLAY
+    if not path.is_file():
+        return [f"  {OVERLAY} is missing\n    the documented invocation layers it, and it "
+                f"is what removes the application's published port"]
+    try:
+        root = yaml.compose(path.read_text(encoding="utf-8"), Loader=ComposeLoader)
+    except yaml.composer.ComposerError as error:
+        if error.context == "expected a single document in the stream":
+            return [f"  {OVERLAY} contains more than one YAML document\n    compose reads "
+                    f"them all; this check reads the first"]
+        return [f"  {OVERLAY} could not be composed: {error}"]
+    except yaml.YAMLError as error:
+        return [f"  {OVERLAY} is not valid YAML: {error}"]
+
+    app = value_node(value_node(root, "services"), SERVICE)
+    if not isinstance(app, yaml.MappingNode):
+        return [f"  {OVERLAY} has no `services.{SERVICE}` mapping, so neither half of "
+                f"R-049 can be checked"]
+
+    problems: list[str] = []
+    ports = value_node(app, "ports")
+    if not (isinstance(ports, yaml.SequenceNode) and ports.tag == "!override" and not ports.value):
+        problems.append(
+            f"  {OVERLAY}: services.{SERVICE}.ports is {describe(ports)}, must be "
+            f"`!override []`\n    compose merges lists, so anything else leaves the base "
+            f"file's published port open while this file has the application believe "
+            f"forwarded headers"
+        )
+
+    key, expected = OVERLAY_STRATEGY
+    environment = value_node(app, "environment")
+    if isinstance(environment, yaml.SequenceNode):
+        entries = [entry for entry in environment.value
+                   if isinstance(entry, yaml.ScalarNode) and entry.value.partition("=")[0] == key]
+        node = entries[-1] if entries else None
+        actual = node.value.partition("=")[2] if node is not None else None
+    else:
+        node = value_node(environment, key)
+        actual = node.value if isinstance(node, yaml.ScalarNode) else None
+    if node is None:
+        problems.append(f"  {OVERLAY}: services.{SERVICE}.environment.{key} is absent\n"
+                        f"    {OVERLAY_STRATEGY_WHY}")
+    elif node.tag != PLAIN_STRING or actual != expected:
+        problems.append(
+            f"  {OVERLAY}: services.{SERVICE}.environment.{key} is {describe(node)}, must be "
+            f"the literal {expected!r}\n    {OVERLAY_STRATEGY_WHY}"
+        )
+
+    for name, why in UNRESOLVABLE_KEYS.items():
+        if value_node(app, name) is not None:
+            problems.append(f"  {OVERLAY}: services.{SERVICE}.{name} is set\n    {why}, and "
+                            f"this check reads the file rather than the resolved stack")
+    for name, why in UNRESOLVABLE_TOP_LEVEL_KEYS.items():
+        if value_node(root, name) is not None:
+            problems.append(f"  {OVERLAY}: top-level `{name}` is set\n    {why}, and this "
+                            f"check reads the file rather than the resolved stack")
+    return problems
 
 
 def main() -> int:
@@ -286,8 +395,10 @@ def main() -> int:
                 f"    exposes a process holding production credentials to the network"
             )
 
+    problems.extend(overlay_problems())
+
     if problems:
-        print(f"FAIL: {COMPOSE} has lost a pin that keeps it safe.\n", file=sys.stderr)
+        print("FAIL: the remote-db stack has lost a pin that keeps it safe.\n", file=sys.stderr)
         print("\n\n".join(problems), file=sys.stderr)
         print(
             "\nThese are literals on purpose, so that .env cannot override them.\n"
@@ -298,7 +409,8 @@ def main() -> int:
 
     print(
         f"{COMPOSE} keeps all {len(REQUIRED_ENV)} environment pins and publishes "
-        f"only on {LOOPBACK} ({len(hosts)} port(s))."
+        f"only on {LOOPBACK} ({len(hosts)} port(s)); {OVERLAY} keeps "
+        f"`ports: !override []` and {OVERLAY_STRATEGY[0]}={OVERLAY_STRATEGY[1]}."
     )
     return 0
 

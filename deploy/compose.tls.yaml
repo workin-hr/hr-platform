@@ -16,7 +16,12 @@
 # profile sets `server.forward-headers-strategy=native`, which means the
 # application believes `X-Forwarded-For`. That is only true if the proxy is the
 # *sole* route (R-049, and `running-the-backend.md`). `!override []` removes
-# the published port rather than adding to it, because compose merges lists.
+# the published port rather than adding to it, because compose merges lists --
+# and it only does that when this file comes AFTER the base file. The other way
+# round, the base file's port is published again while the setting below still
+# applies, which is the combination this file exists to prevent.
+# `scripts/check_remote_db_pins.py` fails the build if either half leaves this
+# file.
 #
 # No `name:` here on purpose. A later file's project name wins the merge, so
 # declaring one would drag every stack this overlays into `workin-prod` --

@@ -5,6 +5,8 @@ The check exists because the answer to "what test fails if these lines are
 deleted?" was none. So the case that matters is each pin removed on its own --
 and the near-miss forms that a checker matching loosely would let through: the
 line commented out, the value flipped, the quotes dropped, the port widened.
+The same question applies to the TLS overlay's two halves, whose cases run
+against the real deploy/compose.tls.yaml so that they follow it as it changes.
 """
 from __future__ import annotations
 
@@ -15,6 +17,7 @@ import tempfile
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent / "check_remote_db_pins.py"
+OVERLAY = (SCRIPT.parents[1] / "deploy" / "compose.tls.yaml").read_text(encoding="utf-8")
 CASES: list[tuple[bool, str]] = []
 
 COMPOSE = """\
@@ -32,13 +35,15 @@ services:
 """
 
 
-def run(compose: str | None) -> subprocess.CompletedProcess:
+def run(compose: str | None, overlay: str | None = OVERLAY) -> subprocess.CompletedProcess:
     root = Path(tempfile.mkdtemp(prefix="remote-db-pins-"))
     try:
         (root / "deploy").mkdir()
         (root / "scripts").mkdir()
         if compose is not None:
             (root / "deploy/compose.remote-db.yaml").write_text(compose, encoding="utf-8")
+        if overlay is not None:
+            (root / "deploy/compose.tls.yaml").write_text(overlay, encoding="utf-8")
         copy = root / "scripts" / SCRIPT.name
         copy.write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
         return subprocess.run([sys.executable, str(copy)],
@@ -59,6 +64,14 @@ PINS = (
      "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE"),
     ('      - "127.0.0.1:${APP_PUBLISHED_PORT:-8080}:8080"\n', "127.0.0.1"),
 )
+
+OVERLAY_STRATEGY = "      SERVER_FORWARD_HEADERS_STRATEGY: native\n"
+OVERLAY_PORTS = "    ports: !override []\n"
+
+
+def overlay_with(old: str, new: str) -> str:
+    assert OVERLAY.count(old) == 1, f"the real overlay no longer contains {old!r} exactly once"
+    return OVERLAY.replace(old, new)
 
 
 def main() -> int:
@@ -269,6 +282,61 @@ services:
           and "undefined alias" in proc.stderr,
           f"the phrase on the offending line does not pick the wrong message "
           f"(exit={proc.returncode}, err={proc.stderr[:90]!r})")
+
+    # THE TLS OVERLAY. Both halves of R-049 live in deploy/compose.tls.yaml, and
+    # before they were checked, deleting either line passed every gate.
+    proc = run(COMPOSE, overlay_with(OVERLAY_STRATEGY, ""))
+    check(proc.returncode == 1 and "SERVER_FORWARD_HEADERS_STRATEGY is absent" in proc.stderr,
+          f"deleting the overlay's strategy fails and is named (exit={proc.returncode})")
+
+    for replacement, label in (
+        ("none", "setting the overlay's strategy to none"),
+        ("${SERVER_FORWARD_HEADERS_STRATEGY:-native}", "making the overlay's strategy .env-overridable"),
+    ):
+        proc = run(COMPOSE, overlay_with(OVERLAY_STRATEGY,
+                                         f"      SERVER_FORWARD_HEADERS_STRATEGY: {replacement}\n"))
+        check(proc.returncode == 1 and "SERVER_FORWARD_HEADERS_STRATEGY" in proc.stderr,
+              f"{label} fails (exit={proc.returncode})")
+
+    proc = run(COMPOSE, overlay_with(OVERLAY_STRATEGY, "      SERVER_FORWARD_HEADERS_STRATEGY: !reset native\n"))
+    check(proc.returncode == 1 and "!reset" in proc.stderr,
+          f"!reset on the overlay's strategy is refused (exit={proc.returncode})")
+
+    proc = run(COMPOSE, overlay_with(OVERLAY_PORTS, ""))
+    check(proc.returncode == 1 and "!override []" in proc.stderr and "absent" in proc.stderr,
+          f"deleting the overlay's port removal fails (exit={proc.returncode})")
+
+    # The case a value check misses: the loader reads a plain `[]` exactly as it
+    # reads `!override []`, and compose merges the plain one with the base
+    # file's publish, leaving the port open.
+    proc = run(COMPOSE, overlay_with(OVERLAY_PORTS, "    ports: []\n"))
+    check(proc.returncode == 1 and "!override []" in proc.stderr,
+          f"a plain `ports: []` in the overlay fails (exit={proc.returncode})")
+
+    proc = run(COMPOSE, overlay_with(OVERLAY_PORTS, '    ports: !override ["127.0.0.1:8080:8080"]\n'))
+    check(proc.returncode == 1 and "!override" in proc.stderr,
+          f"an overlay !override that still publishes fails (exit={proc.returncode})")
+
+    proc = run(COMPOSE, overlay_with(OVERLAY_PORTS, "    network_mode: host\n" + OVERLAY_PORTS))
+    check(proc.returncode == 1 and "compose.tls.yaml: services.app.network_mode" in proc.stderr,
+          f"network_mode on the overlay's app is refused (exit={proc.returncode})")
+
+    # Compose's list form of `environment` is the same setting.
+    listed = "services:\n  app:\n    ports: !override []\n    environment:\n      - SERVER_FORWARD_HEADERS_STRATEGY={}\n"
+    proc = run(COMPOSE, listed.format("native"))
+    check(proc.returncode == 0,
+          f"the list form of the strategy passes (exit={proc.returncode}, err={proc.stderr[:120]!r})")
+    proc = run(COMPOSE, listed.format("none"))
+    check(proc.returncode == 1 and "SERVER_FORWARD_HEADERS_STRATEGY" in proc.stderr,
+          f"the list form with another value fails (exit={proc.returncode})")
+
+    proc = run(COMPOSE, OVERLAY + "---\nservices:\n  app:\n    ports:\n      - \"127.0.0.1:8080:8080\"\n")
+    check(proc.returncode == 1 and "compose.tls.yaml contains more than one YAML document" in proc.stderr,
+          f"a second document in the overlay is refused by name (exit={proc.returncode})")
+
+    proc = run(COMPOSE, None)
+    check(proc.returncode == 1 and "compose.tls.yaml is missing" in proc.stderr,
+          f"a missing overlay fails rather than skipping (exit={proc.returncode})")
 
     # A missing file fails rather than skipping.
     proc = run(None)
