@@ -156,8 +156,9 @@ It is not, however, a return to the database you started with. Provisioning ran
 against the live database, and stopping a container does not undo DDL: the tables
 remain, `attendance.method` still accepts `'device'`, and the runtime-offset
 triggers remain installed on the legacy `configs` table. Leaving all of it in
-place is the recommended treatment — it is additive, PHP's behaviour does not
-change while it stays, and rolling forward again needs no DDL.
+place is the recommended treatment — the tables are additive, the widened enum
+still accepts every value PHP writes, PHP's behaviour does not change while it
+stays, and rolling forward again needs no DDL.
 
 **What you must not do is drop it casually.** The triggers write into
 `legacy_runtime_offset_history`, so with that table gone and the triggers still

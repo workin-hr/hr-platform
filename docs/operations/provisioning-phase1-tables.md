@@ -155,7 +155,9 @@ version that holds only `phase1_extensions.sql`. It needs MariaDB 10.6 or later,
 because it reads whether each index is `IGNORED`; on an older server it stops at
 `ERROR 1054` and compares nothing. Any line `diff` prints is an
 owned table that differs from what the application expects: stop before step 3.
-A difference in collation alone is the one step 4b repairs. Any other names one
+A difference in collation alone may go on to step 3, and step 4b repairs it: step
+3's triggers compare `configs` values only with literals, so a table at another
+collation does not stop them. Any other names one
 object, such as an index, a default, a foreign key or an engine, and needs a
 repair for that object alone: an `ALTER` that gives it the definition
 `phase1_extensions.sql` creates, written and reviewed before it runs, followed

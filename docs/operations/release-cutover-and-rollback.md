@@ -81,10 +81,13 @@ persistent instance *"needs its own, separately-approved provisioning mechanism
 first."* Today the table exists only where a test container applies
 `phase1_extensions.sql` out-of-band.
 
-**Rollback treatment.** The change is purely additive, so a rollback does not
-need to reverse it: PHP reads none of them, and leaving them costs nothing and
-preserves the option of rolling forward again. Dropping them is therefore
-**not** part of the rollback procedure.
+**Rollback treatment.** The tables are additive; the rest of the change is not,
+but a rollback does not need to reverse any of it. PHP reads none of the tables,
+the widened `attendance.method` still accepts every value PHP writes, and leaving
+all of it costs nothing and preserves the option of rolling forward again.
+Dropping the tables is therefore **not** part of the rollback procedure, and
+neither is narrowing the enum, which would coerce any row already storing
+`'device'` (the procedure is in `slice_b_attendance_method.sql`'s header).
 
 PHP reads none of them, but it does WRITE one indirectly:
 `legacy_runtime_offset_hooks.sql` puts three triggers on the legacy `configs`
