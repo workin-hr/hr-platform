@@ -161,13 +161,14 @@ change while it stays, and rolling forward again needs no DDL.
 **What you must not do is drop it casually.** The triggers write into
 `legacy_runtime_offset_history`, so with that table gone and the triggers still
 installed, any `configs` write that adds, removes or switches the daylight-saving
-setting fails with `ERROR 1146`. PHP's settings page saves its settings one at a
-time, each committed on its own, so a save that switches daylight saving stops
-at that setting: settings saved before it keep their new values, settings after
-it are not saved, and the page never reaches its success message. Saves that
-leave daylight saving alone keep working, which is why the breakage can go
-unnoticed. If a drop is ever genuinely required there is one procedure for it,
-and it drops the triggers first:
+setting fails with `ERROR 1146`. PHP's settings page writes every setting on every
+save, one at a time and each committed on its own, so a save that switches
+daylight saving stops at that setting: settings saved before it keep their new
+values, settings after it are not saved, and the page never reaches its success
+message. Once the setting exists, saves that leave it alone keep working, which is
+why the breakage can go unnoticed. On a database where it has never been saved,
+every settings save has to add it, so every settings save fails. If a drop is ever
+genuinely required there is one procedure for it, and it drops the triggers first:
 [provisioning-phase1-tables.md#rollback](provisioning-phase1-tables.md#rollback).
 
 In **A** the VPS database has taken writes the old host has not, so a rollback
