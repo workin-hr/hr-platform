@@ -157,7 +157,11 @@ MySQL do not report (it stops at `ERROR 1054` and compares nothing), and its
 throwaway server is a `mariadb` image. On any other server, compare by hand: run
 `SHOW CREATE TABLE` for each of the fourteen, and the same on a scratch database
 of that server holding only `phase1_extensions.sql`, and stop on any difference
-other than collation. Any line `diff` prints is an
+other than collation, table-name case, or the `AUTO_INCREMENT=` value, which
+counts rows rather than describing the table. The query below compares table
+names in lower case: a server with `lower_case_table_names=1` reports
+`SPRING_SESSION` as `spring_session`, and the application accepts either. Any
+line `diff` prints is an
 owned table that differs from what the application expects: stop before step 3.
 A difference in collation alone may go on to step 3, and step 4b repairs it: step
 3's triggers compare `configs` values only with literals, so a table at another
@@ -190,32 +194,32 @@ names="'legacy_refresh_tokens','platform_admins','platform_admin_audit_events',
   'unclaimed_device_sightings','device_operation_logs','device_malformed_punches',
   'device_assignment_history','legacy_runtime_offset_history'"
 cat > phase1-shape.sql <<SQL
-SELECT 'table', table_name, engine, row_format, table_collation, '', '', '', ''
+SELECT 'table', LOWER(table_name), engine, row_format, table_collation, '', '', '', ''
   FROM information_schema.tables
  WHERE table_schema = DATABASE() AND table_name IN ($names)
 UNION ALL
-SELECT 'column', table_name, column_name, ordinal_position, column_type, is_nullable,
+SELECT 'column', LOWER(table_name), column_name, ordinal_position, column_type, is_nullable,
        COALESCE(column_default, '(no default)'), extra, COALESCE(collation_name, '')
   FROM information_schema.columns
  WHERE table_schema = DATABASE() AND table_name IN ($names)
 UNION ALL
-SELECT 'index', table_name, index_name, seq_in_index, column_name, non_unique,
+SELECT 'index', LOWER(table_name), index_name, seq_in_index, column_name, non_unique,
        COALESCE(sub_part, ''), CONCAT(index_type, IF(s.ignored = 'YES', ' IGNORED', '')),
        COALESCE(s.collation, '')
   FROM information_schema.statistics s
  WHERE table_schema = DATABASE() AND table_name IN ($names)
 UNION ALL
-SELECT 'check', table_name, constraint_name, check_clause, '', '', '', '', ''
+SELECT 'check', LOWER(table_name), constraint_name, check_clause, '', '', '', '', ''
   FROM information_schema.check_constraints
  WHERE constraint_schema = DATABASE() AND table_name IN ($names)
 UNION ALL
-SELECT 'foreign key', table_name, constraint_name, referenced_table_name,
+SELECT 'foreign key', LOWER(table_name), constraint_name, LOWER(referenced_table_name),
        update_rule, delete_rule,
        IF(unique_constraint_schema = constraint_schema, 'same database', unique_constraint_schema), '', ''
   FROM information_schema.referential_constraints
  WHERE constraint_schema = DATABASE() AND table_name IN ($names)
 UNION ALL
-SELECT 'foreign key column', table_name, constraint_name, ordinal_position,
+SELECT 'foreign key column', LOWER(table_name), constraint_name, ordinal_position,
        column_name, referenced_column_name,
        IF(referenced_table_schema = table_schema, 'same database', referenced_table_schema), '', ''
   FROM information_schema.key_column_usage
@@ -313,13 +317,17 @@ for ddl in phase1_extensions.sql slice_b_attendance_method.sql legacy_runtime_of
     echo "--- $ddl skipped (SKIP_TABLES=1)"; continue
   fi
   if [ "$ddl" = legacy_runtime_offset_hooks.sql ]; then
-    # Its triggers missing while the history already has rows: reinstalling them
-    # would record nothing for a change made meanwhile. See the note below.
-    gap=$(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p -N -B "$DB_NAME" -e \
+    # The file drops its triggers before recreating them and seeds only an empty
+    # history, so it runs only where neither matters. See the notes below.
+    hooks=$(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p -N -B "$DB_NAME" -e \
       "SELECT (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()
-                 AND TRIGGER_NAME LIKE 'configs_runtime_offset_%') < 3
-          AND EXISTS (SELECT 1 FROM legacy_runtime_offset_history)") || { rc=$?; echo "STOPPED at $ddl" >&2; break; }
-    if [ "$gap" = 1 ]; then
+                 AND TRIGGER_NAME LIKE 'configs_runtime_offset_%'),
+              EXISTS (SELECT 1 FROM legacy_runtime_offset_history)") || { rc=$?; echo "STOPPED at $ddl" >&2; break; }
+    installed=$(printf '%s\n' "$hooks" | cut -f1); has_rows=$(printf '%s\n' "$hooks" | cut -f2)
+    if [ "$installed" -ge 3 ]; then
+      echo "--- $ddl skipped (its three triggers are already installed)"; continue
+    fi
+    if [ "$has_rows" = 1 ]; then
       rc=1; echo "STOPPED at $ddl: its triggers are missing but legacy_runtime_offset_history has rows" >&2; break
     fi
   fi
@@ -339,6 +347,12 @@ step 1 found empty, it skips the tables, `slice_b_attendance_method.sql` still
 widens the enum, and the loop then stops at `legacy_runtime_offset_hooks.sql`,
 whose history table does not exist. Run `unset SKIP_TABLES` before step 3 on such
 a database.
+
+Step 3 also skips `legacy_runtime_offset_hooks.sql` when its three triggers are
+already installed. The file drops them before recreating them, so a
+daylight-saving change PHP saved in between would go unrecorded, and nothing
+afterwards could tell. Replacing installed triggers with a newer definition is
+not part of this procedure: do it only while nothing writes to `configs`.
 
 **If step 3 stops because the triggers are missing while
 `legacy_runtime_offset_history` already has rows, do not reinstall them.**
