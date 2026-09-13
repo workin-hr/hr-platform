@@ -12,7 +12,8 @@
 -- 1. The engine. `phase1_extensions.sql` uses CHECK constraints (MariaDB
 --    10.2+), DATETIME(6) and ROW_FORMAT=DYNAMIC. Anything from MariaDB 10.2 or
 --    MySQL 8.0.16 supports all three; the port is developed and tested against
---    MariaDB 11.8.
+--    MariaDB 11.8. The runbook's definition comparison needs MariaDB 10.6 or
+--    later, and says what to do on any other server.
 SELECT 'server' AS check_name, VERSION() AS value,
        IF(VERSION() REGEXP '^(1[0-9]|[0-9]{3})' , 'ok', 'CHECK MANUALLY') AS verdict;
 

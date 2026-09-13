@@ -151,9 +151,13 @@ enough: a table with the right number of columns and a wrong type, default,
 key, foreign key or engine still reads `ok (count only)`. So compare the definitions
 themselves, on a machine with Docker. The query below is read-only; run it
 against the live database and against a throwaway MariaDB of the live server's
-version that holds only `phase1_extensions.sql`. It needs MariaDB 10.6 or later,
-because it reads whether each index is `IGNORED`; on an older server it stops at
-`ERROR 1054` and compares nothing. Any line `diff` prints is an
+version that holds only `phase1_extensions.sql`. It runs only against MariaDB
+10.6 or later: it reads whether each index is `IGNORED`, which older MariaDB and
+MySQL do not report (it stops at `ERROR 1054` and compares nothing), and its
+throwaway server is a `mariadb` image. On any other server, compare by hand: run
+`SHOW CREATE TABLE` for each of the fourteen, and the same on a scratch database
+of that server holding only `phase1_extensions.sql`, and stop on any difference
+other than collation. Any line `diff` prints is an
 owned table that differs from what the application expects: stop before step 3.
 A difference in collation alone may go on to step 3, and step 4b repairs it: step
 3's triggers compare `configs` values only with literals, so a table at another
@@ -308,6 +312,17 @@ for ddl in phase1_extensions.sql slice_b_attendance_method.sql legacy_runtime_of
   if [ "$ddl" = phase1_extensions.sql ] && [ "${SKIP_TABLES:-0}" = 1 ]; then
     echo "--- $ddl skipped (SKIP_TABLES=1)"; continue
   fi
+  if [ "$ddl" = legacy_runtime_offset_hooks.sql ]; then
+    # Its triggers missing while the history already has rows: reinstalling them
+    # would record nothing for a change made meanwhile. See the note below.
+    gap=$(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p -N -B "$DB_NAME" -e \
+      "SELECT (SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE()
+                 AND TRIGGER_NAME LIKE 'configs_runtime_offset_%') < 3
+          AND EXISTS (SELECT 1 FROM legacy_runtime_offset_history)") || { rc=$?; echo "STOPPED at $ddl" >&2; break; }
+    if [ "$gap" = 1 ]; then
+      rc=1; echo "STOPPED at $ddl: its triggers are missing but legacy_runtime_offset_history has rows" >&2; break
+    fi
+  fi
   echo "--- $ddl"
   mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" < "$ddl" || { rc=$?; echo "STOPPED at $ddl" >&2; break; }
 done
@@ -321,8 +336,17 @@ control.
 
 `SKIP_TABLES=1` belongs only after step 1's recovery. Left set on a database
 step 1 found empty, it skips the tables, `slice_b_attendance_method.sql` still
-widens the enum, and `legacy_runtime_offset_hooks.sql` then refuses and stops the
-loop. Run `unset SKIP_TABLES` before step 3 on such a database.
+widens the enum, and the loop then stops at `legacy_runtime_offset_hooks.sql`,
+whose history table does not exist. Run `unset SKIP_TABLES` before step 3 on such
+a database.
+
+**If step 3 stops because the triggers are missing while
+`legacy_runtime_offset_history` already has rows, do not reinstall them.**
+Something removed them after an earlier install, so any daylight-saving change
+PHP saved since then is in `configs` but not in the history. The hooks file seeds
+only an empty history, so reinstalling would report success and leave pairing
+resolving those punches against the old offset. There is no repair procedure
+yet; issue #208 tracks it.
 
 **4. Confirm.** Re-run step 1's query; expect all fourteen names. Then
 confirm the runtime-offset writers are installed -- pairing is written to
