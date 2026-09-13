@@ -131,10 +131,11 @@ all fourteen already exist, there is nothing for `--force` to create. Either
 way, the tables that were already there were not made by this procedure, and
 neither `--force` nor the script's column counts check their shape. So before
 step 3, run `verify_phase1_tables.sql` again, then compare every owned table's
-definition with the one `phase1_extensions.sql` creates (below). Leave
-`phase1_extensions.sql` out of step 3's loop, which would otherwise stop at it
-again. Never use `--force` on `legacy_runtime_offset_hooks.sql`: it skips that
-file's check that its target table exists.
+definition with the one `phase1_extensions.sql` creates (below). Then run step 3
+with `SKIP_TABLES=1` set in the same shell, which skips `phase1_extensions.sql`:
+the loop would otherwise stop at it again. Never use `--force` on
+`legacy_runtime_offset_hooks.sql`: it skips that file's check that its target
+table exists.
 
 Run the check from the same jar as the DDL, with the connection settings step 2
 describes:
@@ -295,8 +296,13 @@ statement run alongside it can still break that snapshot, so do not start step
 # legacy_runtime_offset_history, so both must exist first. The file ends by
 # seeding the current offset -- that row is where trustworthy coverage BEGINS
 # and asserts nothing about what was in force before it.
+# After step 1's recovery, set SKIP_TABLES=1 first: the tables already exist,
+# and phase1_extensions.sql would stop this loop at its first CREATE TABLE.
 rc=0
 for ddl in phase1_extensions.sql slice_b_attendance_method.sql legacy_runtime_offset_hooks.sql; do
+  if [ "$ddl" = phase1_extensions.sql ] && [ "${SKIP_TABLES:-0}" = 1 ]; then
+    echo "--- $ddl skipped (SKIP_TABLES=1)"; continue
+  fi
   echo "--- $ddl"
   mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" < "$ddl" || { rc=$?; echo "STOPPED at $ddl" >&2; break; }
 done
@@ -307,6 +313,11 @@ Each file assumes the ones before it succeeded. `legacy_runtime_offset_hooks.sql
 refuses to install its triggers when their target table is missing, but only
 for a client that stops on error; under `--force` the order above is the only
 control.
+
+`SKIP_TABLES=1` belongs only after step 1's recovery. Left set on a database
+step 1 found empty, it skips the tables, `slice_b_attendance_method.sql` still
+widens the enum, and `legacy_runtime_offset_hooks.sql` then refuses and stops the
+loop. Run `unset SKIP_TABLES` before step 3 on such a database.
 
 **4. Confirm.** Re-run step 1's query; expect all fourteen names. Then
 confirm the runtime-offset writers are installed -- pairing is written to
