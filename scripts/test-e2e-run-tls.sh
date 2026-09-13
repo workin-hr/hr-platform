@@ -13,7 +13,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
-trap 'chmod -R u+w "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
+trap 'chmod -R u+rwx "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
 fails=0
 
 REPO="$WORK/repo"
@@ -155,6 +155,17 @@ else
   ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" \
     && grep -q 'Choose another E2E_TLS_DIR' "$WORK/out" && ok=0
   check "$ok" "an empty directory under one that is not writable is never offered to rmdir"
+
+  # A directory that cannot be listed is not known to be empty: one left by
+  # `sudo -E ./run.sh`, say, owned by root with the key still in it.
+  mkdir "$WORK/unreadable"
+  touch "$WORK/unreadable/server.key"
+  chmod 111 "$WORK/unreadable"
+  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/unreadable"
+  chmod 755 "$WORK/unreadable"
+  ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" \
+    && grep -q 'Choose another E2E_TLS_DIR' "$WORK/out" && ok=0
+  check "$ok" "a directory that cannot be listed is not taken for an empty one Docker left"
 fi
 
 echo

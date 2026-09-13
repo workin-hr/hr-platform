@@ -176,12 +176,14 @@ if [ "$PROFILE" = integration ]; then
   # Docker creates every missing level of a bind-mount source as an empty
   # directory owned by root, so there can be more than one to remove. Walk up to
   # the first directory you can write to, collecting the levels that hold
-  # nothing but the next one down; one holding anything else is not Docker's.
+  # nothing but the next one down. One holding anything else is not Docker's,
+  # and nor is one you cannot list: it is not known to be empty.
   docker_made=()
   path="$E2E_TLS_DIR"
   below=""
   until { [ -d "$path" ] && [ -w "$path" ]; } || [ "$path" = / ]; do
     if [ -d "$path" ]; then
+      { [ -r "$path" ] && [ -x "$path" ]; } || break
       entries="$(find "$path" -mindepth 1 -maxdepth 1 2>/dev/null || true)"
       [ -z "$entries" ] || [ "$entries" = "$path/$below" ] || break
       docker_made+=("$path")
@@ -190,11 +192,12 @@ if [ "$PROFILE" = integration ]; then
     path="$(dirname "$path")"
   done
   # Removing those levels helps only if the walk reached a directory you can
-  # write to. Where it stopped short, at / or at a directory holding other
-  # files, an empty directory it passed may be a system one, such as /srv.
+  # write to. Where it stopped short, at /, at a directory holding other files
+  # or at one you cannot list, an empty directory it passed may be a system
+  # one, such as /srv.
   if ! { [ -d "$path" ] && [ -w "$path" ]; }; then
-    echo "$E2E_TLS_DIR cannot be used: $path is not writable by you and holds" >&2
-    echo "other files. Choose another E2E_TLS_DIR." >&2
+    echo "$E2E_TLS_DIR cannot be used: $path is not writable by you, and is not" >&2
+    echo "an empty directory Docker left. Choose another E2E_TLS_DIR." >&2
     exit 1
   fi
   if [ "${#docker_made[@]}" -gt 0 ]; then
