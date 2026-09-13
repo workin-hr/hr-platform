@@ -137,12 +137,29 @@ DB_CONTAINER="$PROJECT-db-1"
 # working tree, not the index, so a git-ignored key still trips it -- and that
 # is the scan behaving correctly, because its job is to catch a key before it
 # is committed.
-E2E_TLS_DIR="${E2E_TLS_DIR:-${TMPDIR:-/tmp}/workin-e2e-tls-$(id -u)}"
+#
+# And not under /tmp. The stack is `restart: unless-stopped`, so it outlives a
+# reboot, but /tmp does not: Docker then recreates the missing bind-mount source
+# as an empty root-owned directory, and the proxy restarts without a certificate
+# until someone with root removes it. The user's state directory survives a
+# reboot and stays the user's.
+E2E_TLS_DIR="${E2E_TLS_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/workin-e2e/tls}"
 export E2E_TLS_DIR
 
 if [ "$PROFILE" = integration ]; then
   say "TLS for the proxy ($E2E_TLS_DIR)"
+  case "$E2E_TLS_DIR" in
+    /tmp/* | /var/tmp/* | "${TMPDIR:-/tmp}"/*)
+      echo "warning: $E2E_TLS_DIR is cleared on reboot; the proxy will lose its certificate" >&2 ;;
+  esac
   mkdir -p "$E2E_TLS_DIR"
+  if [ ! -w "$E2E_TLS_DIR" ]; then
+    echo "$E2E_TLS_DIR is not writable by you. A directory Docker created for a missing" >&2
+    echo "bind-mount source is empty and owned by root: stop the proxy, run" >&2
+    echo "  sudo rmdir \"$E2E_TLS_DIR\"" >&2
+    echo "and run this again." >&2
+    exit 1
+  fi
   chmod 700 "$E2E_TLS_DIR"
   if [ ! -f "$E2E_TLS_DIR/server.crt" ] || [ -n "${E2E_REGENERATE_TLS:-}" ]; then
     openssl req -x509 -newkey rsa:2048 -nodes -days 30 \

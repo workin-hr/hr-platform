@@ -31,8 +31,10 @@ the exact thing the flag exists to prevent — the integration run puts a real
 nginx in front with a throwaway certificate and tells Playwright to accept that
 one certificate. The connection is TLS; only the certificate is disposable.
 
-The key and certificate are written **outside the repository**, under
-`$TMPDIR`. `validate_phase0`'s secret scan reads the working tree rather than
+The key and certificate are written **outside the repository**, in the user's
+state directory (`$XDG_STATE_HOME`, or `~/.local/state`), and not under `/tmp`:
+the stack restarts after a reboot, and a certificate kept where the reboot clears
+it would not be there for the proxy. `validate_phase0`'s secret scan reads the working tree rather than
 the index, which is the right behaviour — its job is to catch a private key
 *before* somebody commits it — so the answer is to keep the key out of the tree
 rather than teach the scan to look away.
@@ -50,13 +52,18 @@ would pick them up.
 | `ADMIN_ACTIONS_ENABLED` | `false` | `true` runs the administrative-action case |
 | `E2E_SEED_PROD` | unset | restores the sanitised seed into the prod stack by hand |
 | `E2E_REGENERATE_TLS` | unset | new certificate |
-| `E2E_TLS_DIR` | `$TMPDIR/workin-e2e-tls-<uid>` | where the run's key and certificate live |
+| `E2E_TLS_DIR` | `${XDG_STATE_HOME:-~/.local/state}/workin-e2e/tls` | where the run's key and certificate live; not somewhere a reboot clears |
 | `E2E_REGENERATE_ENV` | unset | new `.env.<profile>-e2e` |
 
 Any `docker compose` command that includes `e2e/compose.proxy.yaml` needs
 `E2E_TLS_DIR` exported — compose interpolates across the merged files, so even
 `build app` fails without it. `run.sh` sets it; driving compose by hand does
 not.
+
+If the proxy restarts endlessly with `cannot load certificate`, its certificate
+directory is gone, and Docker has put an empty directory owned by root in its
+place. Run `run.sh integration` again; if it reports that the directory is not
+writable, remove it with `sudo rmdir` first.
 
 `E2E_SEED_PROD` restores the seed with `mariadb <` rather than by mounting it,
 because `compose.prod.yaml` mounts no seed **on purpose**: production data
