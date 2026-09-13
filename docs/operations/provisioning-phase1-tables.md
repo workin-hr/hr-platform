@@ -148,9 +148,14 @@ outside, and a precondition printed next to a drop is read as permission.
 `legacy_runtime_offset_hooks.sql` puts triggers on `configs`. Its rollback is
 the [Rollback](#rollback) section below -- which is not a `DROP TABLE` per
 name, and the order matters -- so a backup taken immediately before the change
-is the cheaper of the two ways to find that out. Until
-`docs/operations/backup-and-restore.md` records a production method, take this
-one. Set `DB_HOST`, `DB_PORT`, `DB_USER` and `DB_NAME` first -- the names
+is the cheaper of the two ways to find that out. This is a one-off safety copy
+for this change, not the production backup method:
+`docs/operations/backup-and-restore.md` still leaves that pending Discovery and
+an ADR, and where backups are stored, who may read them and how they are
+restored are decided there, not here. Until then, treat this file as production
+personal data -- readable by you alone, outside any repository, and disposed of
+when this change no longer needs it -- and know that nobody has yet tested
+restoring from it. Set `DB_HOST`, `DB_PORT`, `DB_USER` and `DB_NAME` first -- the names
 `deploy/env.remote-db.example` uses. Do not rely on `HOST` or `USER`: many
 shells already set them, to this machine and to you.
 

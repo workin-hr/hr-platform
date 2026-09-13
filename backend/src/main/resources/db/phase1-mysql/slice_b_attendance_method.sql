@@ -24,10 +24,13 @@
 --     verbatim. No comparison, no switch, no WHERE method =, no i18n label
 --     keyed by the value, no export column. PHP prints the word and moves on.
 --
---   new Java + old enum -- NOT fine, and this is why the ALTER goes first:
---     MariaDB refuses an out-of-range ENUM value, so pairing's INSERT would
---     fail and every device punch would stay RECEIVED. Loud, and recoverable
---     by running this and letting the pass retry -- but avoidable entirely.
+--   new Java + old enum -- NOT fine, and this is why the ALTER goes first.
+--     Every connection runs sql_mode='', under which MariaDB does not refuse an
+--     out-of-range ENUM value: it stores the empty string and only warns. An
+--     unguarded INSERT of 'device' would persist a blank method, and nothing
+--     would revisit that row. Pairing checks the column before it writes and
+--     refuses to pair until this has run, so device punches stay RECEIVED --
+--     recoverable by running this and letting the next pass pick them up.
 --
 -- Cost: attendance is 36,316 rows / 64 MB, and a fourth value does not change
 -- a <=255-value ENUM's one-byte storage, so this is metadata-only
