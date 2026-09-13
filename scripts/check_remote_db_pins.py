@@ -287,6 +287,30 @@ def overlay_problems() -> list[str]:
             f"the literal {expected!r}\n    {OVERLAY_STRATEGY_WHY}"
         )
 
+    # The overlay is layered AFTER the base file, so a pin it restates wins, and
+    # the checks above read those pins from the base file alone.
+    if environment is not None and environment.tag not in (
+            "tag:yaml.org,2002:map", "tag:yaml.org,2002:seq"):
+        problems.append(
+            f"  {OVERLAY}: services.{SERVICE}.environment is tagged {environment.tag}\n"
+            f"    `!override` replaces the base file's whole environment, pins included, "
+            f"and `!reset` removes it, so this check cannot see what either leaves behind"
+        )
+    if isinstance(environment, yaml.MappingNode):
+        restated = [k.value for k, _ in environment.value
+                    if isinstance(k, yaml.ScalarNode) and k.value in REQUIRED_ENV]
+    elif isinstance(environment, yaml.SequenceNode):
+        restated = [e.value.partition("=")[0] for e in environment.value
+                    if isinstance(e, yaml.ScalarNode) and e.value.partition("=")[0] in REQUIRED_ENV]
+    else:
+        restated = []
+    for name in dict.fromkeys(restated):
+        problems.append(
+            f"  {OVERLAY}: services.{SERVICE}.environment.{name} is set\n"
+            f"    the overlay is layered after {COMPOSE}, so its value wins over that file's "
+            f"pin; the pin belongs in {COMPOSE} alone"
+        )
+
     for name, why in UNRESOLVABLE_KEYS.items():
         if value_node(app, name) is not None:
             problems.append(f"  {OVERLAY}: services.{SERVICE}.{name} is set\n    {why}, and "

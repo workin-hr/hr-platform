@@ -330,6 +330,26 @@ services:
     check(proc.returncode == 1 and "SERVER_FORWARD_HEADERS_STRATEGY" in proc.stderr,
           f"the list form with another value fails (exit={proc.returncode})")
 
+    # The overlay is layered AFTER the base file, so a pin it restates wins. The
+    # check read those pins from the base file alone, and passed.
+    for key, value in (("MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE", '"*"'),
+                       ("SPRINGDOC_API_DOCS_ENABLED", '"true"'),
+                       ("SPRINGDOC_SWAGGER_UI_ENABLED", '"false"')):
+        proc = run(COMPOSE, overlay_with(OVERLAY_STRATEGY, OVERLAY_STRATEGY + f"      {key}: {value}\n"))
+        check(proc.returncode == 1
+              and f"compose.tls.yaml: services.app.environment.{key} is set" in proc.stderr,
+              f"the overlay restating {key} as {value} is refused (exit={proc.returncode})")
+
+    proc = run(COMPOSE, listed.format("native") + "      - SPRINGDOC_API_DOCS_ENABLED=true\n")
+    check(proc.returncode == 1 and "environment.SPRINGDOC_API_DOCS_ENABLED is set" in proc.stderr,
+          f"the list form restating a pin is refused (exit={proc.returncode})")
+
+    # `environment: !override` replaces the base file's whole block, pins included.
+    proc = run(COMPOSE, "services:\n  app:\n    ports: !override []\n    environment: !override\n"
+                        "      SERVER_FORWARD_HEADERS_STRATEGY: native\n")
+    check(proc.returncode == 1 and "environment is tagged !override" in proc.stderr,
+          f"an !override environment on the overlay is refused (exit={proc.returncode})")
+
     proc = run(COMPOSE, OVERLAY + "---\nservices:\n  app:\n    ports:\n      - \"127.0.0.1:8080:8080\"\n")
     check(proc.returncode == 1 and "compose.tls.yaml contains more than one YAML document" in proc.stderr,
           f"a second document in the overlay is refused by name (exit={proc.returncode})")
