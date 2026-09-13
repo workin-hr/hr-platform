@@ -431,8 +431,9 @@ def check_seed_carries_the_non_table_ddl(seed: str, findings: list[str]) -> None
                 fail(
                     f"deploy/seed/dev-seed.sql does not define the trigger `{trigger}`, which "
                     f"{HOOKS_DDL} installs on the legacy `configs` table. Without it "
-                    f"PunchPairingService refuses every pairing pass while the startup check "
-                    f"still reports every owned table present. Rebuild the seed with "
+                    f"PunchPairingService.pairCompany refuses to pair, whenever anything calls "
+                    f"it, while the startup check still reports every owned table present. "
+                    f"Rebuild the seed with "
                     f"scripts/build_dev_seed.sh, which applies all three phase1-mysql files",
                     findings,
                 )
@@ -459,8 +460,10 @@ def check_seed_carries_the_non_table_ddl(seed: str, findings: list[str]) -> None
             fail(
                 f"deploy/seed/dev-seed.sql declares `attendance`.`method` without '{value}', "
                 f"which {SLICE_B_DDL} makes part of that column's target shape. A stack "
-                f"seeded from this file rejects every row written with that value -- and "
-                f"pairing writes 'device'. Rebuild the seed with scripts/build_dev_seed.sh",
+                f"seeded from this file stores a blank `method` for a row written with that "
+                f"value, because every connection runs sql_mode='' -- and pairing writes "
+                f"'device', which is why it refuses to pair until the column accepts it. "
+                f"Rebuild the seed with scripts/build_dev_seed.sh",
                 findings,
             )
 

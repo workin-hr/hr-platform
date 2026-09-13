@@ -72,7 +72,7 @@ deploying code that writes `'device'`. Old PHP against the widened enum is
 safe — one site reads `method` and renders it verbatim. New Java against the
 old enum would not be refused: every connection runs `sql_mode=''`, under
 which MariaDB stores a blank `method` and only warns. So `PunchPairingService`
-checks the enum first and refuses to pair until this file is applied, leaving
+checks the enum before it writes, and refuses to pair until this file is applied, leaving
 device punches `RECEIVED`. Nothing calls it yet; once something does, skipping
 this file is loud and recoverable, but avoidable.
 
@@ -122,11 +122,16 @@ WHERE TABLE_SCHEMA = DATABASE()
 Expect zero rows on a database that has never been provisioned. Anything
 else means a partial or earlier run, and the DDL will fail on the tables
 that already exist — resolve that before continuing rather than editing
-the file to skip them. `verify_phase1_tables.sql` names the state and what to
-do about it: re-apply `phase1_extensions.sql` with `mysql --force`, which
-creates only what is absent and reports one `ERROR 1050` per existing table
-and one `ERROR 1061` per existing index. Then leave that file out of step 3's
-loop, which would otherwise stop at it again.
+the file to skip them. Take step 2's backup first, because the recovery
+changes the schema. Then run `verify_phase1_tables.sql`, which names the state
+and what to do about it: re-apply `phase1_extensions.sql` with `mysql --force`,
+which creates only what is absent and reports one `ERROR 1050` per existing
+table and one `ERROR 1061` per existing index. `--force` does not check the
+shape of a table that already exists, so run `verify_phase1_tables.sql` again
+and confirm its section 4 column counts before step 3, and leave
+`phase1_extensions.sql` out of step 3's loop, which would otherwise stop at it
+again. Never use `--force` on `legacy_runtime_offset_hooks.sql`: it skips that
+file's check that its target table exists.
 
 **Do not drop anything to "start clean".** `platform_admin_audit_events` is
 retained evidence (D-161) and `SPRING_SESSION` is every live administrator
@@ -145,14 +150,16 @@ the [Rollback](#rollback) section below -- which is not a `DROP TABLE` per
 name, and the order matters -- so a backup taken immediately before the change
 is the cheaper of the two ways to find that out. Until
 `docs/operations/backup-and-restore.md` records a production method, take this
-one:
+one. Set `DB_HOST`, `DB_PORT`, `DB_USER` and `DB_NAME` first -- the names
+`deploy/env.remote-db.example` uses. Do not rely on `HOST` or `USER`: many
+shells already set them, to this machine and to you.
 
 ```bash
 backup="before-phase1-$(date +%F-%H%M).sql"
-mysqldump -h "$HOST" -u "$USER" -p \
+mysqldump -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p \
   --single-transaction --routines --triggers --events --hex-blob \
   --default-character-set=utf8mb4 \
-  "$DATABASE" > "$backup"
+  "$DB_NAME" > "$backup"
 tail -n 1 "$backup"   # "-- Dump completed on ..."; anything else is a truncated dump
 ```
 
@@ -161,8 +168,8 @@ dump holds `LOCK TABLES … READ` on every table until it finishes, and PHP's
 writes to them wait. With it the dump reads one consistent snapshot and takes
 no table lock, which is sound here because every legacy table is InnoDB. A DDL
 statement run alongside it can still break that snapshot, so do not start step
-3 until the dump has finished. On a MariaDB 11 client the program is
-`mariadb-dump`.
+3 until the dump has finished. On a MariaDB 11 client the programs are
+`mariadb-dump` and `mariadb` rather than `mysqldump` and `mysql`.
 
 **3. Apply**, in this order, stopping at the first file that fails:
 
@@ -173,7 +180,7 @@ statement run alongside it can still break that snapshot, so do not start step
 # and asserts nothing about what was in force before it.
 for ddl in phase1_extensions.sql slice_b_attendance_method.sql legacy_runtime_offset_hooks.sql; do
   echo "--- $ddl"
-  mysql -h "$HOST" -u "$USER" -p "$DATABASE" < "$ddl" || { echo "STOPPED at $ddl" >&2; break; }
+  mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" < "$ddl" || { echo "STOPPED at $ddl" >&2; break; }
 done
 ```
 

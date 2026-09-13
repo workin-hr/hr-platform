@@ -80910,12 +80910,12 @@ CREATE TABLE `device_assignment_history` (
 -- Phase 1, the two statements that are not CREATE TABLE.
 --
 -- A seed carrying the fourteen tables but neither the widened enum nor the
--- triggers is the one combination that fails silently: Phase1SchemaCheck
--- compares table names only, so it logs "all 14 owned tables are present" and
--- PunchPairingService then refuses every pairing pass, punches accumulating in
--- RECEIVED. This file was generated before the builder applied all three
--- phase1-mysql DDL files, so the two non-CREATE-TABLE statements are appended
--- here instead.
+-- triggers is the one combination the startup check reports as healthy:
+-- Phase1SchemaCheck compares table names only, so it logs "all 14 owned tables
+-- are present", while PunchPairingService.pairCompany refuses to pair on it
+-- whenever anything calls it. This file was generated before the builder
+-- applied all three phase1-mysql DDL files, so the two non-CREATE-TABLE
+-- statements are appended here instead.
 --
 -- A regenerated seed has the same two in the same shape: build_dev_seed.sh
 -- applies slice_b before dumping (so the widening lands in the CREATE TABLE)
