@@ -30,30 +30,49 @@ services:
     environment:
       # Trust the edge's forwarded headers -- and only here, because this file is
       # the condition that makes them trustworthy: `ports: !override []` above
-      # removes the application's own published port, so Caddy is the SOLE route
-      # in (R-049, D-206). Set anywhere else it would trust a header any caller
-      # can write.
+      # removes the application's own published port, so Caddy is the sole route
+      # in from outside the host (R-049, D-206). Set on a stack that publishes the
+      # application's port, a caller reaching that port from a private or loopback
+      # address could write the header and be believed -- which, for a port bound
+      # to 127.0.0.1 as these compose files bind it, is every caller that can
+      # reach it.
       #
-      # `compose.prod.yaml` runs profile `prod`, which already sets this; the
-      # value here is the same one, so layering changes nothing for that pair.
-      # `compose.remote-db.yaml` runs `local` or `integration` on purpose -- it
-      # refuses `prod` because that profile also requires WhatsApp credentials --
-      # and neither sets a strategy, so without this line the application behind
-      # this proxy sees Caddy's address as every client's.
+      # `compose.prod.yaml` runs profile `prod`, which already sets this, so that
+      # pair is unchanged. `compose.remote-db.yaml` runs `local` or `integration`
+      # on purpose -- it refuses `prod` because that profile also requires
+      # WhatsApp credentials -- and neither sets a strategy, so without this line
+      # the application behind this proxy sees Caddy's address as every client's.
       #
-      # That is not cosmetic: PlatformAdminLoginThrottle allows MAX_ATTEMPTS=8 per
+      # That is not cosmetic. PlatformAdminLoginThrottle allows MAX_ATTEMPTS=8 per
       # 15 minutes keyed on `hash(request.getRemoteAddr())`, so one shared address
-      # is one shared bucket -- eight failed logins from anyone locks out every
-      # administrator until the window expires.
+      # is one shared bucket: eight failed logins from anyone locks out every
+      # administrator until the window expires. The same address reaches the
+      # device registry, which persists it as `last_seen_ip` on
+      # `attendance_devices` and `unclaimed_device_sightings`.
       #
-      # Checking this from the access log will mislead you. Tomcat's
-      # AccessLogValve runs BEFORE RemoteIpValve in the pipeline, so `%h` keeps
-      # printing the proxy's address even when the application itself has the
-      # real one. Measured both ways: with the strategy set, two requests
-      # carrying different X-Forwarded-For values still log one address, and
-      # still land in two different throttle buckets. Check the application's
-      # behaviour, not the log line.
-      SERVER_FORWARD_HEADERS_STRATEGY: ${SERVER_FORWARD_HEADERS_STRATEGY:-native}
+      # Fixed rather than `${...:-native}`. There is no safe reason to opt out
+      # behind this file, and an override is a way back to the lockout: an
+      # environment variable beats `application-prod.properties`, so `none` in
+      # `.env.prod` would silently revert production, which otherwise cannot be
+      # overridden at all.
+      #
+      # What it changes, measured through Caddy with this Caddyfile: two clients
+      # with different addresses land in two throttle buckets instead of one. A
+      # client that sends its own X-Forwarded-For gains nothing -- Caddy replaces
+      # the header rather than appending to it, so a forged value never reaches
+      # the application. A public source that reaches the application directly
+      # is not believed either; the trust boundary is Spring Boot's default
+      # private-range list. A caller already on the host's Docker bridge IS
+      # believed -- not reachable from the internet, but not nothing.
+      #
+      # Verify it through the proxy, by distinct `identifier_hash` values in
+      # `platform_admin_login_attempts`. Not from the access log: Tomcat's
+      # AccessLogValve runs before the address is rewritten, so `%h` prints the
+      # socket address either way. And not by curling the application from the
+      # host: that arrives from the Docker gateway, a private address, so a forged
+      # header is believed there -- which shows the header is honoured, not that
+      # the deployment works.
+      SERVER_FORWARD_HEADERS_STRATEGY: native
 
   proxy:
     image: caddy:2.10-alpine

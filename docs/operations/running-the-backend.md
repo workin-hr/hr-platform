@@ -85,6 +85,13 @@ else's budget -- or nobody's (**R-049**).
 | `integration` | `${FORWARD_HEADERS_STRATEGY:-none}`, defaulting to **`none`** | This box is reachable by more people than production's operators. `native` is correct there **only** once a proxy is the sole route to the port |
 | `local` | unset (`none`) | Nothing is in front |
 
+**`deploy/compose.tls.yaml` overrides every row.** It sets `native` itself and
+offers no variable to change it, because the same file removes the
+application's published port and leaves Caddy as the only route in — both
+halves of the two-part change below, in one file. So `compose.remote-db.yaml`,
+which runs `local`, is `native` behind it, and `FORWARD_HEADERS_STRATEGY` has no
+effect while that file is layered.
+
 **Turning it on is a two-part change, and doing half of it is the hazard.**
 `native` without a proxy in front means the application trusts a header any
 caller can send. So: put the proxy there, close the published port to
