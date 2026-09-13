@@ -5,6 +5,8 @@ The check exists because the answer to "what test fails if these lines are
 deleted?" was none. So the case that matters is each pin removed on its own --
 and the near-miss forms that a checker matching loosely would let through: the
 line commented out, the value flipped, the quotes dropped, the port widened.
+The same question applies to the TLS overlay's two halves, whose cases run
+against the real deploy/compose.tls.yaml so that they follow it as it changes.
 """
 from __future__ import annotations
 
@@ -15,6 +17,7 @@ import tempfile
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent / "check_remote_db_pins.py"
+OVERLAY = (SCRIPT.parents[1] / "deploy" / "compose.tls.yaml").read_text(encoding="utf-8")
 CASES: list[tuple[bool, str]] = []
 
 COMPOSE = """\
@@ -32,13 +35,15 @@ services:
 """
 
 
-def run(compose: str | None) -> subprocess.CompletedProcess:
+def run(compose: str | None, overlay: str | None = OVERLAY) -> subprocess.CompletedProcess:
     root = Path(tempfile.mkdtemp(prefix="remote-db-pins-"))
     try:
         (root / "deploy").mkdir()
         (root / "scripts").mkdir()
         if compose is not None:
             (root / "deploy/compose.remote-db.yaml").write_text(compose, encoding="utf-8")
+        if overlay is not None:
+            (root / "deploy/compose.tls.yaml").write_text(overlay, encoding="utf-8")
         copy = root / "scripts" / SCRIPT.name
         copy.write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
         return subprocess.run([sys.executable, str(copy)],
@@ -59,6 +64,14 @@ PINS = (
      "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE"),
     ('      - "127.0.0.1:${APP_PUBLISHED_PORT:-8080}:8080"\n', "127.0.0.1"),
 )
+
+OVERLAY_STRATEGY = "      SERVER_FORWARD_HEADERS_STRATEGY: native\n"
+OVERLAY_PORTS = "    ports: !override []\n"
+
+
+def overlay_with(old: str, new: str) -> str:
+    assert OVERLAY.count(old) == 1, f"the real overlay no longer contains {old!r} exactly once"
+    return OVERLAY.replace(old, new)
 
 
 def main() -> int:
@@ -269,6 +282,160 @@ services:
           and "undefined alias" in proc.stderr,
           f"the phrase on the offending line does not pick the wrong message "
           f"(exit={proc.returncode}, err={proc.stderr[:90]!r})")
+
+    # THE TLS OVERLAY. Both halves of R-049 live in deploy/compose.tls.yaml, and
+    # before they were checked, deleting either line passed every gate.
+    proc = run(COMPOSE, overlay_with(OVERLAY_STRATEGY, ""))
+    check(proc.returncode == 1 and "SERVER_FORWARD_HEADERS_STRATEGY is absent" in proc.stderr,
+          f"deleting the overlay's strategy fails and is named (exit={proc.returncode})")
+
+    for replacement, label in (
+        ("none", "setting the overlay's strategy to none"),
+        ("${SERVER_FORWARD_HEADERS_STRATEGY:-native}", "making the overlay's strategy .env-overridable"),
+    ):
+        proc = run(COMPOSE, overlay_with(OVERLAY_STRATEGY,
+                                         f"      SERVER_FORWARD_HEADERS_STRATEGY: {replacement}\n"))
+        check(proc.returncode == 1 and "SERVER_FORWARD_HEADERS_STRATEGY" in proc.stderr,
+              f"{label} fails (exit={proc.returncode})")
+
+    proc = run(COMPOSE, overlay_with(OVERLAY_STRATEGY, "      SERVER_FORWARD_HEADERS_STRATEGY: !reset native\n"))
+    check(proc.returncode == 1 and "!reset" in proc.stderr,
+          f"!reset on the overlay's strategy is refused (exit={proc.returncode})")
+
+    proc = run(COMPOSE, overlay_with(OVERLAY_PORTS, ""))
+    check(proc.returncode == 1 and "!override []" in proc.stderr and "absent" in proc.stderr,
+          f"deleting the overlay's port removal fails (exit={proc.returncode})")
+
+    # The case a value check misses: the loader reads a plain `[]` exactly as it
+    # reads `!override []`, and compose merges the plain one with the base
+    # file's publish, leaving the port open.
+    proc = run(COMPOSE, overlay_with(OVERLAY_PORTS, "    ports: []\n"))
+    check(proc.returncode == 1 and "!override []" in proc.stderr,
+          f"a plain `ports: []` in the overlay fails (exit={proc.returncode})")
+
+    proc = run(COMPOSE, overlay_with(OVERLAY_PORTS, '    ports: !override ["127.0.0.1:8080:8080"]\n'))
+    check(proc.returncode == 1 and "!override" in proc.stderr,
+          f"an overlay !override that still publishes fails (exit={proc.returncode})")
+
+    proc = run(COMPOSE, overlay_with(OVERLAY_PORTS, "    network_mode: host\n" + OVERLAY_PORTS))
+    check(proc.returncode == 1 and "compose.tls.yaml: services.app.network_mode" in proc.stderr,
+          f"network_mode on the overlay's app is refused (exit={proc.returncode})")
+
+    # Compose's list form of `environment` is the same setting.
+    listed = "services:\n  app:\n    ports: !override []\n    environment:\n      - SERVER_FORWARD_HEADERS_STRATEGY={}\n"
+    proc = run(COMPOSE, listed.format("native"))
+    check(proc.returncode == 0,
+          f"the list form of the strategy passes (exit={proc.returncode}, err={proc.stderr[:120]!r})")
+    proc = run(COMPOSE, listed.format("none"))
+    check(proc.returncode == 1 and "SERVER_FORWARD_HEADERS_STRATEGY" in proc.stderr,
+          f"the list form with another value fails (exit={proc.returncode})")
+
+    # The overlay is layered AFTER the base file, so a pin it restates wins. The
+    # check read those pins from the base file alone, and passed.
+    for key, value in (("MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE", '"*"'),
+                       ("SPRINGDOC_API_DOCS_ENABLED", '"true"'),
+                       ("SPRINGDOC_SWAGGER_UI_ENABLED", '"false"')):
+        proc = run(COMPOSE, overlay_with(OVERLAY_STRATEGY, OVERLAY_STRATEGY + f"      {key}: {value}\n"))
+        check(proc.returncode == 1
+              and f"compose.tls.yaml: services.app.environment.{key} is set" in proc.stderr,
+              f"the overlay restating {key} as {value} is refused (exit={proc.returncode})")
+
+    proc = run(COMPOSE, listed.format("native") + "      - SPRINGDOC_API_DOCS_ENABLED=true\n")
+    check(proc.returncode == 1 and "environment.SPRINGDOC_API_DOCS_ENABLED is set" in proc.stderr,
+          f"the list form restating a pin is refused (exit={proc.returncode})")
+
+    # `environment: !override` replaces the base file's whole block, pins included.
+    proc = run(COMPOSE, "services:\n  app:\n    ports: !override []\n    environment: !override\n"
+                        "      SERVER_FORWARD_HEADERS_STRATEGY: native\n")
+    check(proc.returncode == 1 and "environment is tagged !override" in proc.stderr,
+          f"an !override environment on the overlay is refused (exit={proc.returncode})")
+
+    # A YAML merge key. The node graph shows a key named `<<`; compose resolves the
+    # anchor's keys into the service. Both forms rendered through `docker compose
+    # config` while the check was green.
+    proc = run(COMPOSE, 'x-docs: &docs\n  SPRINGDOC_API_DOCS_ENABLED: "true"\n'
+                        'services:\n  app:\n    ports: !override []\n    environment:\n'
+                        '      SERVER_FORWARD_HEADERS_STRATEGY: native\n      <<: *docs\n')
+    check(proc.returncode == 1 and "merge key" in proc.stderr,
+          f"a merge key in the overlay's environment is refused (exit={proc.returncode})")
+    proc = run(COMPOSE, 'x-net: &net\n  network_mode: host\n'
+                        'services:\n  app:\n    <<: *net\n    ports: !override []\n    environment:\n'
+                        '      SERVER_FORWARD_HEADERS_STRATEGY: native\n')
+    check(proc.returncode == 1 and "merge key" in proc.stderr,
+          f"a merge key on the overlay's app is refused (exit={proc.returncode})")
+
+    # Relaxed binding: a pinned property under another spelling, beside the pin.
+    proc = run(COMPOSE, overlay_with(OVERLAY_STRATEGY, OVERLAY_STRATEGY + '      SPRINGDOC_APIDOCS_ENABLED: "true"\n'))
+    check(proc.returncode == 1 and "environment.SPRINGDOC_APIDOCS_ENABLED is set" in proc.stderr,
+          f"the overlay setting a pin under another spelling is refused (exit={proc.returncode})")
+    proc = run(COMPOSE, overlay_with(OVERLAY_STRATEGY, OVERLAY_STRATEGY + "      SERVER_FORWARDHEADERS_STRATEGY: none\n"))
+    check(proc.returncode == 1 and "SERVER_FORWARDHEADERS_STRATEGY names the same property" in proc.stderr,
+          f"the overlay setting the strategy under another spelling is refused (exit={proc.returncode})")
+    for alias in ('SPRINGDOC_APIDOCS_ENABLED: "true"', 'springdoc_api_docs_enabled: "true"',
+                  "SERVER_FORWARDHEADERS_STRATEGY: none"):
+        proc = run(COMPOSE.replace('      SPRINGDOC_SWAGGER_UI_ENABLED: "false"\n',
+                                   f'      SPRINGDOC_SWAGGER_UI_ENABLED: "false"\n      {alias}\n'))
+        check(proc.returncode == 1 and "names the same property as" in proc.stderr,
+              f"the base file setting a pinned property as {alias.split(':')[0]} is refused (exit={proc.returncode})")
+
+    # Round 6's routes, and two more of the same kind. The overlay is held to an
+    # allowlist, so none of these had to be named to be refused. Each of the first
+    # five rendered through `docker compose config` while the check was green.
+    json_on = "'{\"springdoc\":{\"api-docs\":{\"enabled\":true}}}'"
+    for label, old, new, expected in (
+        ("SPRING_APPLICATION_JSON in the overlay's app", OVERLAY_STRATEGY,
+         OVERLAY_STRATEGY + f"      SPRING_APPLICATION_JSON: {json_on}\n",
+         "environment.SPRING_APPLICATION_JSON is not allowed"),
+        ("JAVA_TOOL_OPTIONS in the overlay's app", OVERLAY_STRATEGY,
+         OVERLAY_STRATEGY + '      JAVA_TOOL_OPTIONS: "-Dspringdoc.api-docs.enabled=true"\n',
+         "environment.JAVA_TOOL_OPTIONS is not allowed"),
+        ("env_file on the overlay's app", OVERLAY_PORTS, OVERLAY_PORTS + "    env_file: [./extra.env]\n",
+         "services.app.env_file is not allowed"),
+        ("command on the overlay's app", OVERLAY_PORTS,
+         OVERLAY_PORTS + '    command: ["--springdoc.api-docs.enabled=true"]\n',
+         "services.app.command is not allowed"),
+        ("a relay service in the overlay", "  proxy:\n",
+         '  relay:\n    image: alpine/socat\n    ports:\n      - "127.0.0.1:8081:8081"\n\n  proxy:\n',
+         "services.relay is not allowed"),
+        ("another publish on the proxy", '      - "443:443/udp"\n',
+         '      - "443:443/udp"\n      - "127.0.0.1:8081:8080"\n', "services.proxy.ports"),
+        ("a proxy that is not Caddy", "    image: caddy:2.10-alpine\n", "    image: alpine/socat\n",
+         "services.proxy.image"),
+    ):
+        proc = run(COMPOSE, overlay_with(old, new))
+        check(proc.returncode == 1 and expected in proc.stderr, f"{label} is refused (exit={proc.returncode})")
+
+    # The base file cannot be allowlisted, so it refuses what outranks its pins.
+    for label, fragment, expected in (
+        ("env_file", "    env_file: [./extra.env]\n", "services.app.env_file is set"),
+        ("command", '    command: ["--springdoc.api-docs.enabled=true"]\n', "services.app.command is set"),
+        ("entrypoint", '    entrypoint: ["java", "-jar", "/app/backend.jar"]\n', "services.app.entrypoint is set"),
+    ):
+        proc = run(COMPOSE.replace("  app:\n", "  app:\n" + fragment))
+        check(proc.returncode == 1 and expected in proc.stderr,
+              f"{label} on the base file's app is refused (exit={proc.returncode})")
+    for name, value in (("SPRING_APPLICATION_JSON", json_on),
+                        ("JAVA_TOOL_OPTIONS", '"-Dspringdoc.api-docs.enabled=true"'),
+                        ("JDK_JAVA_OPTIONS", '"-Dspringdoc.api-docs.enabled=true"')):
+        proc = run(COMPOSE.replace('      SPRINGDOC_SWAGGER_UI_ENABLED: "false"\n',
+                                   f'      SPRINGDOC_SWAGGER_UI_ENABLED: "false"\n      {name}: {value}\n'))
+        check(proc.returncode == 1 and f"environment.{name} is set" in proc.stderr,
+              f"{name} in the base file is refused (exit={proc.returncode})")
+
+    # What must NOT fail: a configuration file ranks below environment variables,
+    # so mounting one cannot switch a pin back.
+    proc = run(COMPOSE.replace("    ports:\n",
+                               "    volumes:\n      - ./application.yml:/app/config/application.yml:ro\n    ports:\n"))
+    check(proc.returncode == 0,
+          f"a mounted configuration file is not refused (exit={proc.returncode}, err={proc.stderr[:100]!r})")
+
+    proc = run(COMPOSE, OVERLAY + "---\nservices:\n  app:\n    ports:\n      - \"127.0.0.1:8080:8080\"\n")
+    check(proc.returncode == 1 and "compose.tls.yaml contains more than one YAML document" in proc.stderr,
+          f"a second document in the overlay is refused by name (exit={proc.returncode})")
+
+    proc = run(COMPOSE, None)
+    check(proc.returncode == 1 and "compose.tls.yaml is missing" in proc.stderr,
+          f"a missing overlay fails rather than skipping (exit={proc.returncode})")
 
     # A missing file fails rather than skipping.
     proc = run(None)

@@ -80,9 +80,12 @@ and for the stack this guard is about that is **one shared bucket**, not one per
 person: the app is containerised, so a hit on a published port arrives from the
 project network's gateway (`172.17.0.1` on the default bridge; a compose project
 gets its own), not from `127.0.0.1`. And `compose.remote-db.yaml` never passes
-`SERVER_FORWARD_HEADERS_STRATEGY`, so it is `none` there and anything through a
-proxy carries the proxy's address. Eight misses in 15 minutes closes dashboard
-sign-in for everyone using that path.
+`SERVER_FORWARD_HEADERS_STRATEGY`, so on its own it is `none` and anything
+through a proxy of your own carries the proxy's address. Eight misses in 15
+minutes closes dashboard sign-in for everyone using that path. Layering
+`compose.tls.yaml` changes both halves: it pins `native` and removes the
+published port, so each client behind its Caddy gets its own bucket, and there
+is no application port left for this harness to reach.
 
 `deploy/e2e/run.sh` sets `FORWARD_HEADERS_STRATEGY=native`, and that is worth
 understanding rather than trusting: it does **not** give you a bucket per

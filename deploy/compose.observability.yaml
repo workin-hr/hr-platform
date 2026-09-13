@@ -19,7 +19,8 @@
 services:
   # The ONLY place the scrape endpoint is turned on. Not a profile: profiles
   # travel to places their name does not describe -- compose.remote-db.yaml
-  # runs `local` against the production database behind the public edge -- so
+  # runs `local` or `integration` against the production database behind the
+  # public edge -- so
   # exposure is opted into by running this overlay and nothing else.
   app:
     environment:
