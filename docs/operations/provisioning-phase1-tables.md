@@ -153,6 +153,13 @@ owned table that differs from what the application expects: stop before step 3.
 A difference in collation alone is the one step 4b repairs; any other needs the
 table recreated, which is [Rollback](#rollback), never an edit to the DDL.
 
+The commands run in a subshell that stops at the first command to fail,
+including a failed query on either side. They report a match only when the
+throwaway database described all fourteen tables. A run that ends with an
+error, and no verdict, compared nothing: do not continue to step 3. The
+throwaway container has a name of its own and is removed when the subshell
+exits, including after Ctrl-C.
+
 ```bash
 names="'legacy_refresh_tokens','platform_admins','platform_admin_audit_events',
   'platform_admin_login_attempts','SPRING_SESSION','SPRING_SESSION_ATTRIBUTES',
@@ -189,16 +196,29 @@ SELECT 'foreign key column', table_name, constraint_name, ordinal_position,
  WHERE table_schema = DATABASE() AND table_name IN ($names)
    AND referenced_table_name IS NOT NULL;
 SQL
-mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p -N -B "$DB_NAME" < phase1-shape.sql \
-  | LC_ALL=C sort > live-shape.txt
-version=$(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p -N -B -e 'SELECT VERSION()' | cut -d- -f1)
-docker run -d --name phase1-shape -e MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1 -e MARIADB_DATABASE=shape \
-  "mariadb:$version" --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-until docker exec phase1-shape healthcheck.sh --connect --innodb_initialized >/dev/null 2>&1; do sleep 2; done
-docker exec -i phase1-shape mariadb shape < phase1_extensions.sql
-docker exec -i phase1-shape mariadb -N -B shape < phase1-shape.sql | LC_ALL=C sort > expected-shape.txt
-docker rm -f phase1-shape
-diff expected-shape.txt live-shape.txt && echo "every owned table matches phase1_extensions.sql"
+(
+  set -euo pipefail
+  mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p -N -B "$DB_NAME" < phase1-shape.sql \
+    | LC_ALL=C sort > live-shape.txt
+  version=$(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p -N -B -e 'SELECT VERSION()' | cut -d- -f1)
+  name="phase1-shape-$(date +%s)"
+  trap 'docker rm -f "$name" > /dev/null 2>&1' EXIT
+  trap 'exit 130' INT TERM
+  docker run -d --name "$name" -e MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1 -e MARIADB_DATABASE=shape \
+    "mariadb:$version" --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci > /dev/null
+  tries=0
+  until docker exec "$name" healthcheck.sh --connect --innodb_initialized > /dev/null 2>&1; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 90 ] || { echo "STOPPED: the throwaway MariaDB was not ready after 3 minutes" >&2; exit 1; }
+    sleep 2
+  done
+  docker exec -i "$name" mariadb shape < phase1_extensions.sql
+  docker exec -i "$name" mariadb -N -B shape < phase1-shape.sql | LC_ALL=C sort > expected-shape.txt
+  [ "$(grep -c '^table' expected-shape.txt)" = 14 ] ||
+    { echo "STOPPED: the throwaway database did not describe the fourteen tables; nothing was compared" >&2; exit 1; }
+  diff expected-shape.txt live-shape.txt
+  echo "every owned table matches phase1_extensions.sql"
+)
 ```
 
 **Do not drop anything to "start clean".** `platform_admin_audit_events` is
