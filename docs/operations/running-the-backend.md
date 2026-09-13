@@ -1,6 +1,7 @@
 # Running The Backend
 
-One application, one database: the existing **MariaDB/MySQL**, untouched. The
+One application, one database: the existing **MariaDB/MySQL**, which the
+application never migrates. The
 jar serves `/apis/**` — the legacy PHP API the Flutter clients already call —
 and the platform-admin dashboard at `/admin/**`, over that database. There used
 to be a second mode over PostgreSQL behind a profile switch; it is gone
@@ -20,29 +21,23 @@ with these in the environment:
 
 | Variable | What it is |
 |---|---|
-| `LEGACY_DB_JDBC_URL` | e.g. `jdbc:mariadb://127.0.0.1:3306/workin` — your existing database, unchanged |
+| `LEGACY_DB_JDBC_URL` | e.g. `jdbc:mariadb://127.0.0.1:3306/workin` — the same database PHP uses |
 | `LEGACY_DB_USERNAME`, `LEGACY_DB_PASSWORD` | its credentials |
 | `JWT_SECRET` | the signing secret. **It must be the same value the PHP stack used**, or every token already on a user's device stops working. See "Tokens already issued" below |
 | `LEGACY_WHATSAPP_API_TOKEN`, `_INSTANCE_ID` | the OTP gateway. **Unset means every OTP route answers 503**, which is legacy's own behaviour without credentials — deliberately not the silent success legacy used in dev (D-134) |
 | `SERVER_PORT` | defaults to 8080 |
 
-No migration runs, and no frozen table is altered. The application reads and
-writes the same tables the PHP application does.
+No migration runs at startup. The application reads and writes the same tables
+the PHP application does.
 
-**It does need its own tables added**, once, to the same MySQL database — the
-platform-admin identity model and Spring Session. They are additive: nothing
-that PHP owns is touched. The DDL is
-`backend/src/main/resources/db/phase1-mysql/phase1_extensions.sql`, which is also
-where Phase 1's `legacy_refresh_tokens` lives, and it ships inside the jar so
-you can extract the copy that matches the code you deployed:
+**The database needs provisioning first**, once, and provisioning does more
+than add tables. It creates the fourteen tables Java owns, widens
+`attendance.method`, and installs triggers on PHP's `configs` table. The
+procedure, its three files, the backup and the rollback are in
+[provisioning-phase1-tables.md](provisioning-phase1-tables.md).
 
-```bash
-unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/phase1_extensions.sql > phase1_extensions.sql
-```
-
-**Nothing in the application creates them.** The step-by-step runbook is
-`docs/operations/provisioning-phase1-tables.md`; **R-023** tracks it as an open
-cutover prerequisite until it has actually been run against production. If you
+**Nothing in the application creates them.** **R-023** tracks provisioning as an
+open cutover prerequisite until it has actually been run against production. If you
 skip it, the application still starts and logs one `ERROR` line per missing
 table naming what it disables — so read the first seconds of the log rather than
 treating a successful startup as proof.

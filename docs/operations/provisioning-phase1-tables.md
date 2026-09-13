@@ -151,7 +151,9 @@ enough: a table with the right number of columns and a wrong type, default,
 key, foreign key or engine still reads `ok (count only)`. So compare the definitions
 themselves, on a machine with Docker. The query below is read-only; run it
 against the live database and against a throwaway MariaDB of the live server's
-version that holds only `phase1_extensions.sql`. Any line `diff` prints is an
+version that holds only `phase1_extensions.sql`. It needs MariaDB 10.6 or later,
+because it reads whether each index is `IGNORED`; on an older server it stops at
+`ERROR 1054` and compares nothing. Any line `diff` prints is an
 owned table that differs from what the application expects: stop before step 3.
 A difference in collation alone is the one step 4b repairs. Any other names one
 object, such as an index, a default, a foreign key or an engine, and needs a
@@ -192,7 +194,8 @@ SELECT 'column', table_name, column_name, ordinal_position, column_type, is_null
  WHERE table_schema = DATABASE() AND table_name IN ($names)
 UNION ALL
 SELECT 'index', table_name, index_name, seq_in_index, column_name, non_unique,
-       COALESCE(sub_part, ''), index_type, COALESCE(s.collation, '')
+       COALESCE(sub_part, ''), CONCAT(index_type, IF(s.ignored = 'YES', ' IGNORED', '')),
+       COALESCE(s.collation, '')
   FROM information_schema.statistics s
  WHERE table_schema = DATABASE() AND table_name IN ($names)
 UNION ALL
