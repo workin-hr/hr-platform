@@ -228,14 +228,21 @@ needs it. Nobody has yet tested restoring from it. Set `DB_HOST`, `DB_PORT`, `DB
 shells already set them, to this machine and to you.
 
 ```bash
-backup="$HOME/before-phase1-$(date +%F-%H%M).sql"
-( umask 077 && mysqldump -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p \
+backup="$HOME/before-phase1-$(date +%F-%H%M%S).sql"
+( umask 077 && set -o noclobber && mysqldump -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p \
     --single-transaction --routines --triggers --events --hex-blob \
     --default-character-set=utf8mb4 \
-    "$DB_NAME" > "$backup" )
-tail -n 1 "$backup"   # "-- Dump completed on ..."; anything else is a truncated dump
-ls -l "$backup"       # -rw------- : readable by you alone
+    "$DB_NAME" > "$backup" ) &&
+  tail -n 1 "$backup" &&  # "-- Dump completed on ..."; anything else is a truncated dump
+  ls -l "$backup"         # -rw------- : readable by you alone
 ```
+
+`umask 077` sets the mode only of a file the dump creates. A dump written over
+a file that already exists, such as one left by an earlier attempt, keeps that
+file's permissions. So `noclobber` makes the shell refuse a path that exists,
+with `cannot overwrite existing file` (`file exists` in zsh), and nothing after
+it runs. Check that file's permissions, dispose of it, and run the command
+again.
 
 `--single-transaction` is what keeps PHP writing while it runs. Without it the
 dump holds `LOCK TABLES … READ` on every table until it finishes, and PHP's
