@@ -309,8 +309,9 @@ statement run alongside it can still break that snapshot, so do not start step
 # legacy_runtime_offset_history, so both must exist first. The file ends by
 # seeding the current offset -- that row is where trustworthy coverage BEGINS
 # and asserts nothing about what was in force before it.
-# After step 1's recovery, set SKIP_TABLES=1 first: the tables already exist,
-# and phase1_extensions.sql would stop this loop at its first CREATE TABLE.
+# Where the fourteen tables already exist (after step 1's recovery, or when
+# step 4 sends you back here), set SKIP_TABLES=1 first: phase1_extensions.sql
+# would stop this loop at its first CREATE TABLE.
 rc=0
 for ddl in phase1_extensions.sql slice_b_attendance_method.sql legacy_runtime_offset_hooks.sql; do
   if [ "$ddl" = phase1_extensions.sql ] && [ "${SKIP_TABLES:-0}" = 1 ]; then
@@ -343,7 +344,8 @@ refuses to install its triggers when their target table is missing, but only
 for a client that stops on error; under `--force` the order above is the only
 control.
 
-`SKIP_TABLES=1` belongs only after step 1's recovery. Left set on a database
+`SKIP_TABLES=1` belongs wherever the fourteen tables already exist: after step
+1's recovery, or when step 4 sends you back to step 3. Left set on a database
 step 1 found empty, it skips the tables, `slice_b_attendance_method.sql` still
 widens the enum, and the loop then stops at `legacy_runtime_offset_hooks.sql`,
 whose history table does not exist. Run `unset SKIP_TABLES` before step 3 on such
