@@ -420,13 +420,13 @@ one-way is what makes people hesitate to reverse it.
 
 - The tables are additive, and leaving them means a second attempt needs no
   DDL. They are not quite orphaned, though: `legacy_runtime_offset_hooks.sql`
-  puts three triggers on the legacy `configs` table that write into
-  `legacy_runtime_offset_history`, so PHP touches one of them indirectly. The
-  trigger bodies branch on `config_key`, so with the table dropped only writes
-  to the daylight-saving row fail (`ERROR 1146`) while every other key still
-  succeeds -- the breakage is SILENT. That is an argument for LEAVING them, not for dropping
-  them -- dropping the table while the triggers stand breaks PHP's own writes
-  (`ERROR 1146`). If they must go, use
+  puts triggers on the legacy `configs` table that write into
+  `legacy_runtime_offset_history`, so PHP touches one of them indirectly. With
+  that table dropped and the triggers still standing, every `configs` write
+  that adds, removes or switches the daylight-saving setting fails
+  (`ERROR 1146`) while other writes still succeed, so PHP's settings page
+  breaks part-way on exactly those saves and nothing else looks broken. That
+  is an argument for LEAVING them. If they must go, use
   [Rollback](provisioning-phase1-tables.md#rollback), which drops the triggers
   first.
 - Every row Java writes to a legacy table is legacy-shaped — that is what

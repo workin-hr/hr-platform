@@ -42,8 +42,9 @@ SELECT 'database' AS check_name,
 --    dropping an owned table is a destructive procedure with exactly one
 --    authority, docs/operations/provisioning-phase1-tables.md#rollback, which
 --    drops the configs triggers FIRST. Dropping legacy_runtime_offset_history
---    while those triggers stand breaks PHP's own writes to configs -- and only
---    on the daylight-saving row, so it fails silently.
+--    while those triggers stand makes every configs write that adds, removes
+--    or switches the daylight-saving setting fail while other writes still
+--    succeed, so PHP's settings page breaks part-way on exactly those saves.
 SELECT 'phase1 tables present' AS check_name,
        COALESCE(GROUP_CONCAT(table_name ORDER BY table_name SEPARATOR ', '), 'none') AS value,
        CASE COUNT(*)

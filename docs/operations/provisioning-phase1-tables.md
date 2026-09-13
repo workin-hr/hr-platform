@@ -8,11 +8,13 @@ step taken once, before cutover.
 
 ## What gets added, and what does not
 
-No frozen legacy table is touched. Every statement in the DDL is a
-`CREATE TABLE` or `CREATE INDEX` for a name legacy has never used, so
-running it cannot alter, lock, or rewrite a table the PHP application
-reads. That is what makes this safe to run against the live database
-ahead of cutover rather than during it.
+No frozen legacy table is touched by `phase1_extensions.sql`. Every statement
+in it is a `CREATE TABLE` or `CREATE INDEX` for a name legacy has never used,
+so running it cannot alter, lock, or rewrite a table the PHP application
+reads. That is what makes it safe to run against the live database ahead of
+cutover rather than during it. The two files beside it do touch legacy tables
+— one alters `attendance`, the other installs triggers on `configs` — and
+their sections below say what that means.
 
 | Table | Carries |
 |---|---|
@@ -41,6 +43,10 @@ rather than whatever a branch has since become:
 unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/phase1_extensions.sql > phase1_extensions.sql
 ```
 
+It is deliberately **not** idempotent. `CREATE TABLE IF NOT EXISTS`
+would accept a table that already exists with the wrong columns, which is
+the failure this file exists to prevent. Verify first, then apply.
+
 ### And one file beside it
 
 `slice_b_attendance_method.sql`, in the same directory and the same jar
@@ -61,6 +67,20 @@ unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/slice_b_attendance_method.
   > slice_b_attendance_method.sql
 ```
 
+Apply it **only after** the legacy schema is in place, and **before**
+deploying code that writes `'device'`. Old PHP against the widened enum is
+safe — one site reads `method` and renders it verbatim. New Java against the
+old enum would not be refused: every connection runs `sql_mode=''`, under
+which MariaDB stores a blank `method` and only warns. So `PunchPairingService`
+checks the enum first and refuses to pair until this file is applied, leaving
+device punches `RECEIVED`. Nothing calls it yet; once something does, skipping
+this file is loud and recoverable, but avoidable.
+
+Unlike the file above it *is* re-runnable: it states the column's target
+shape rather than a delta. On `attendance` (36,316 rows / 64 MB) a fourth
+value does not change a one-byte enum's storage, so it is
+`ALGORITHM=INSTANT` and does not copy the table.
+
 ### And a third
 
 `legacy_runtime_offset_hooks.sql` installs the triggers that record every
@@ -74,25 +94,12 @@ unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/legacy_runtime_offset_hook
   > legacy_runtime_offset_hooks.sql
 ```
 
-Skipping it is not a partial success. `PunchPairingService` refuses every
-pairing pass while the triggers are absent — a seeded history with no writers
-looks authoritative and goes stale silently — so the whole feature stays dark
-with punches accumulating in `RECEIVED`.
-
-Apply it **only after** the legacy schema is in place, and **before**
-deploying code that writes `'device'`. Old PHP against the widened enum is
-safe — one site reads `method` and renders it verbatim — but new Java
-against the old enum has its INSERT refused, so pairing would stall with
-every punch left `RECEIVED`. Loud and recoverable, but avoidable.
-
-Unlike the file above it *is* re-runnable: it states the column's target
-shape rather than a delta. On `attendance` (36,316 rows / 64 MB) a fourth
-value does not change a one-byte enum's storage, so it is
-`ALGORITHM=INSTANT` and does not copy the table.
-
-It is deliberately **not** idempotent. `CREATE TABLE IF NOT EXISTS`
-would accept a table that already exists with the wrong columns, which is
-the failure this file exists to prevent. Verify first, then apply.
+Skipping it is not a partial success. `PunchPairingService` refuses to pair
+while the triggers are absent — a seeded history with no writers looks
+authoritative and goes stale silently — and says so at `ERROR`. Nothing calls
+it yet, so today a database without the triggers shows no symptom at all, and
+step 4 is where you find out; once pairing runs, it pairs nothing and device
+punches stay `RECEIVED`.
 
 ## Procedure
 
@@ -115,30 +122,71 @@ WHERE TABLE_SCHEMA = DATABASE()
 Expect zero rows on a database that has never been provisioned. Anything
 else means a partial or earlier run, and the DDL will fail on the tables
 that already exist — resolve that before continuing rather than editing
-the file to skip them.
+the file to skip them. `verify_phase1_tables.sql` names the state and what to
+do about it: re-apply `phase1_extensions.sql` with `mysql --force`, which
+creates only what is absent and reports one `ERROR 1050` per existing table
+and one `ERROR 1061` per existing index. Then leave that file out of step 3's
+loop, which would otherwise stop at it again.
 
-**2. Back up.** `docs/operations/backup-and-restore.md`. The change is
-additive and its rollback is the [Rollback](#rollback) section below -- which is
-not a `DROP TABLE` per name, and the order matters -- but a backup taken
-immediately before any schema change is the cheaper of the two ways to
-find that out.
+**Do not drop anything to "start clean".** `platform_admin_audit_events` is
+retained evidence (D-161) and `SPRING_SESSION` is every live administrator
+session; neither is recreated with its contents. Nor are the device tables a
+safe exception: `legacy_runtime_offset_history` is one of them, and the
+triggers step 3 installs survive a drop and break PHP's own `configs` writes.
+"Nothing has written to them yet" is a precondition nobody can check from the
+outside, and a precondition printed next to a drop is read as permission.
+`--force` is the answer here; if a drop is genuinely required, it is
+[Rollback](#rollback), which drops the triggers first.
 
-**3. Apply.**
+**2. Back up.** Most of the change is additive, but not all of it:
+`slice_b_attendance_method.sql` alters `attendance`, and
+`legacy_runtime_offset_hooks.sql` puts triggers on `configs`. Its rollback is
+the [Rollback](#rollback) section below -- which is not a `DROP TABLE` per
+name, and the order matters -- so a backup taken immediately before the change
+is the cheaper of the two ways to find that out. Until
+`docs/operations/backup-and-restore.md` records a production method, take this
+one:
 
 ```bash
-mysql -h "$HOST" -u "$USER" -p "$DATABASE" < phase1_extensions.sql
-mysql -h "$HOST" -u "$USER" -p "$DATABASE" < slice_b_attendance_method.sql
+backup="before-phase1-$(date +%F-%H%M).sql"
+mysqldump -h "$HOST" -u "$USER" -p \
+  --single-transaction --routines --triggers --events --hex-blob \
+  --default-character-set=utf8mb4 \
+  "$DATABASE" > "$backup"
+tail -n 1 "$backup"   # "-- Dump completed on ..."; anything else is a truncated dump
+```
+
+`--single-transaction` is what keeps PHP writing while it runs. Without it the
+dump holds `LOCK TABLES … READ` on every table until it finishes, and PHP's
+writes to them wait. With it the dump reads one consistent snapshot and takes
+no table lock, which is sound here because every legacy table is InnoDB. A DDL
+statement run alongside it can still break that snapshot, so do not start step
+3 until the dump has finished. On a MariaDB 11 client the program is
+`mariadb-dump`.
+
+**3. Apply**, in this order, stopping at the first file that fails:
+
+```bash
 # Order matters: the hooks reference legacy `configs` AND write into
 # legacy_runtime_offset_history, so both must exist first. The file ends by
 # seeding the current offset -- that row is where trustworthy coverage BEGINS
 # and asserts nothing about what was in force before it.
-mysql -h "$HOST" -u "$USER" -p "$DATABASE" < legacy_runtime_offset_hooks.sql
+for ddl in phase1_extensions.sql slice_b_attendance_method.sql legacy_runtime_offset_hooks.sql; do
+  echo "--- $ddl"
+  mysql -h "$HOST" -u "$USER" -p "$DATABASE" < "$ddl" || { echo "STOPPED at $ddl" >&2; break; }
+done
 ```
 
+Each file assumes the ones before it succeeded. `legacy_runtime_offset_hooks.sql`
+refuses to install its triggers when their target table is missing, but only
+for a client that stops on error; under `--force` the order above is the only
+control.
+
 **4. Confirm.** Re-run step 1's query; expect all fourteen names. Then
-confirm the runtime-offset writers are installed -- pairing refuses to run
-without them, because a seeded history with no writers looks authoritative
-while silently going stale:
+confirm the runtime-offset writers are installed -- pairing is written to
+refuse without them, because a seeded history with no writers looks
+authoritative while silently going stale, and nothing else here checks for
+them:
 
 ```sql
 SELECT TRIGGER_NAME FROM information_schema.TRIGGERS
@@ -275,10 +323,25 @@ DROP TRIGGER IF EXISTS configs_runtime_offset_after_delete;
 
 They live on the legacy `configs` table and write into
 `legacy_runtime_offset_history`. Dropping that table while they are installed
-leaves them pointing at nothing, and the next PHP insert, update or delete on
-`configs` then fails -- so the rollback that was supposed to return the
-database to PHP would be what breaks it. Confirm with the `information_schema.TRIGGERS`
-query in step 4: expect zero rows.
+leaves them pointing at nothing. Measured on MariaDB 11.8.8 with PHP's own
+upsert statement:
+
+| Write to `configs`, with the triggers installed and the table dropped | Result |
+|---|---|
+| another setting, new value | succeeds |
+| `is_daylight_saving` saved with the value it already has | succeeds |
+| `is_daylight_saving` switched | `ERROR 1146` |
+| `is_daylight_saving` row added, or removed | `ERROR 1146` |
+
+PHP's settings page writes every setting on every save, each in its own
+autocommitted statement, and does not catch the error. A save that switches
+daylight saving therefore stops at that setting: the settings before it keep
+their new values, the ones after it are not saved, and the page never reports
+success. Where the setting has never been saved, every save has to add it, so
+every save fails. Once it exists, saves that leave it alone keep working,
+which is what makes this easy to miss -- and why the rollback that was supposed
+to return the database to PHP would be what breaks it. Confirm with the
+`information_schema.TRIGGERS` query in step 4: expect zero rows.
 
 Then `DROP TABLE` each name, innermost first: `SPRING_SESSION_ATTRIBUTES`
 before `SPRING_SESSION`, and `platform_admin_audit_events` before

@@ -407,9 +407,10 @@ def check_seed_carries_the_non_table_ddl(seed: str, findings: list[str]) -> None
     Phase1SchemaCheck compares table NAMES, and nothing compares anything else.
     A seed with all fourteen tables but no triggers and an unwidened enum is
     therefore the one broken state that announces itself as healthy: the startup
-    check logs "all 14 owned tables are present", and PunchPairingService then
-    refuses every pass -- once because the triggers are absent, once because
-    `method` will not accept 'device' -- while punches accumulate in RECEIVED.
+    check logs "all 14 owned tables are present", while
+    PunchPairingService.pairCompany refuses to pair on it -- first because the
+    triggers are absent, then, once they exist, because `method` will not
+    accept 'device' -- whenever anything calls it.
     The names and values come from the DDL files themselves, so widening either
     one fails this gate until the seed is rebuilt rather than drifting from it.
     """

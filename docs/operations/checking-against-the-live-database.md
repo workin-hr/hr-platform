@@ -11,13 +11,21 @@ dashboard.
 > mode; what it is instead is *deliberate* about the three places where the
 > port could do something PHP would not.
 
-## 1. Add the fourteen tables Java owns
+## 1. Provision Phase 1 first
 
 Java's own tables do not exist in the PHP schema, and nothing creates them at
 startup: `hibernate.hbm2ddl.auto` is `none` and there is no Flyway (**ADR-0017**
-removed it). One file adds them, and it only ever adds — fourteen `CREATE TABLE`
-statements and their indexes, no `DROP`, no `ALTER`, no `DELETE`, nothing that
-touches a table PHP knows about (**R-023**).
+removed it). Provisioning adds them, and it does not only add: it also widens
+`attendance.method` and installs triggers on PHP's `configs` table (**R-023**).
+
+**The procedure is [provisioning-phase1-tables.md](provisioning-phase1-tables.md),
+and that is the only copy**: what gets added and altered, the backup, the order
+of the files, how to confirm each part, and the rollback. **Run it yourself**; it
+changes a production schema, which is not something to hand to an agent. This
+page used to carry a second copy, which is how it came to describe provisioning
+as one file that touches nothing PHP knows about.
+
+What each of Java's tables carries, seen from this checking session:
 
 | Table | What stops working without it |
 |---|---|
@@ -32,7 +40,7 @@ touches a table PHP knows about (**R-023**).
 | `unclaimed_device_sightings` | terminals pointed here but not yet claimed are invisible, so device setup has nothing to show |
 | `device_operation_logs` | the device operation log |
 | `device_malformed_punches` | unparseable ATTLOG lines are acknowledged to the terminal and then unrecoverable |
-| `legacy_runtime_offset_history` | what the legacy runtime offset WAS — pairing refuses to run rather than guess |
+| `legacy_runtime_offset_history` | what the legacy runtime offset WAS — pairing refuses to convert a device punch's time without it, though nothing runs pairing yet |
 | `device_assignment_history` | what a device's branch and zone WERE, for a punch delivered after a reassignment |
 
 **Verified against the live database on 2026-09-08**, read-only: MariaDB
@@ -51,91 +59,23 @@ mysql -h "$DB_HOST" -u "$DB_USER" -p "$DB_NAME" \
   < backend/src/main/resources/db/phase1-mysql/verify_phase1_tables.sql
 ```
 
-It reports the server version, the database's charset and engine, which of the
-fourteen tables are present (`none`, `applied`, a database provisioned before
+It reports the server version, the database's charset and engine, which of
+Java's tables are present (`none`, `applied`, a database provisioned before
 the device tables existed, or a partial apply, which the verdict tells you how to resolve -- with `--force`, not a drop), the column count of each
 against what the script creates — a table with the right name and the wrong
 shape is the failure the non-idempotent script exists to prevent, and a name
 check cannot see it — the **collation** of each, which no name or shape check
 can see and which a database provisioned before 2026-09-11 gets wrong, and that
-the legacy table count is unchanged.
+the legacy table count is unchanged. It does not look at the triggers or the
+enum; the runbook's step 4 does.
 
-Take a backup first, then apply it. **Run this yourself**; it changes a
-production schema, which is not something to hand to an agent:
-
-```sh
-# 1. a backup you have checked, not one you assume
-mysqldump -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" \
-  > "workin-before-phase1-$(date +%F-%H%M).sql"
-ls -lh workin-before-phase1-*.sql          # not zero bytes
-
-# 2. all three DDL files, in this order -- provisioning is not one file.
-#    Tables alone is the combination that fails silently: the startup check
-#    compares table names, so it reports everything present while pairing
-#    refuses every pass.
-for ddl in phase1_extensions.sql slice_b_attendance_method.sql \
-           legacy_runtime_offset_hooks.sql; do
-  echo "--- $ddl"
-  mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" \
-    < "backend/src/main/resources/db/phase1-mysql/$ddl" || {
-      echo "STOPPED at $ddl. Resolve this before running the rest:" >&2
-      echo "the later files assume the earlier ones succeeded, and the" >&2
-      echo "triggers in particular must not be installed without their" >&2
-      echo "target table -- that breaks PHP's config writes silently." >&2
-      break
-    }
-done
-
-# 3. what you should see: 14
-mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" -N -B -e "
-  SELECT COUNT(*) FROM information_schema.tables
-   WHERE table_schema = DATABASE()
-     AND table_name IN ('legacy_refresh_tokens','platform_admins',
-       'platform_admin_audit_events','platform_admin_login_attempts',
-       'SPRING_SESSION','SPRING_SESSION_ATTRIBUTES',
-       'attendance_devices','employee_device_identities','device_punches',
-       'unclaimed_device_sightings','device_operation_logs',
-       'device_malformed_punches','legacy_runtime_offset_history',
-       'device_assignment_history')"
-```
-
-`CREATE TABLE` is not `IF NOT EXISTS` here, deliberately: on a database that
-already has them the script stops rather than silently continuing past a table
-whose shape it did not verify. Re-running it after a partial apply means
-`mysql --force`, which creates only what is absent and reports one `ERROR 1050`
-per table that already exists.
-
-**Do not drop anything to "start clean".** `platform_admin_audit_events` is
-retained evidence (D-161) and `SPRING_SESSION` is every live administrator
-session; neither is recreated with its contents. Nor are the device tables a
-safe exception: `legacy_runtime_offset_history` is one of them, and the three
-triggers described below survive a drop and break PHP's own `configs` writes.
-"Nothing has written to them yet" is a precondition nobody can check from the
-outside, and a precondition printed next to a drop is read as permission.
-`--force` is the answer here; if a drop is genuinely required, it belongs to
-the runbook below, which drops the triggers first.
-
-**Undoing it is not described here.** The rollback lives in
-[provisioning-phase1-tables.md](provisioning-phase1-tables.md#rollback) and that
-is the only copy; a second copy is how this paragraph came to say `DROP TABLE`
-on all fourteen names "and nothing else — PHP references none of them", which is
-wrong twice over.
-
-`legacy_runtime_offset_hooks.sql` installs three triggers **on the legacy
-`configs` table** that write into `legacy_runtime_offset_history`. Drop that
-table without dropping the triggers first and they survive, pointing at nothing:
-every PHP write to the daylight-saving row then fails with
-
-```text
-ERROR 1146 (42S02): Table 'workin.legacy_runtime_offset_history' doesn't exist
-```
-
-— so the rollback meant to hand the database back to PHP is what breaks PHP, and
-it breaks it silently, because writes to other `configs` keys still succeed. The
-runbook drops the triggers first for exactly this reason.
-
-And once the platform-admin surface has been used, the audit and session tables
-carry state a drop destroys; `platform_admin_audit_events` is retained evidence
+**Undoing it is not described here either.** The rollback is
+[provisioning-phase1-tables.md#rollback](provisioning-phase1-tables.md#rollback),
+and it drops the `configs` triggers before any table: with
+`legacy_runtime_offset_history` gone and the triggers still installed, PHP's
+settings page breaks part-way on some saves, which is easy to miss. Once the
+platform-admin surface has been used, the audit and session tables also carry
+state a drop destroys; `platform_admin_audit_events` is retained evidence
 (D-161).
 
 ## 2. Point the backend at it
