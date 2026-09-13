@@ -31,7 +31,10 @@ SELECT 'database' AS check_name,
 --    failure. Re-run this script afterwards: section 3 should say `applied`.
 --
 --    `none` means apply the script as it is. All fourteen means it has been
---    applied -- check (4) rather than re-running it.
+--    applied -- do not re-run it. If any of them was there before this
+--    provisioning began, (4) is not enough either: compare the full
+--    definitions as docs/operations/provisioning-phase1-tables.md step 1
+--    describes.
 --
 --    ANYTHING BETWEEN IS A PARTIAL APPLY, AND THE VERDICT SAYS WHAT TO DO. Do
 --    NOT "drop the ones listed": the listed value is every owned table present,
@@ -87,7 +90,8 @@ SELECT 'phase1 tables present' AS check_name,
 -- 4. After applying: each table's column count, which (3) cannot see. It
 --    catches a missing or extra column and nothing finer: a table with the
 --    right count and a wrong type, default, key, foreign key or engine still
---    reads `ok`. After a --force recovery, compare the full definitions as
+--    reads `ok`. Whenever any of the fourteen existed before provisioning
+--    began, compare the full definitions as
 --    docs/operations/provisioning-phase1-tables.md step 1 describes before
 --    applying anything else.
 SELECT 'column counts' AS check_name,

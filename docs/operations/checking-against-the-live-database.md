@@ -63,8 +63,8 @@ It reports the server version, the database's charset and engine, which of
 Java's tables are present (`none`, `applied`, a database provisioned before
 the device tables existed, or a partial apply, which the verdict tells you how to resolve -- with `--force`, not a drop), the column count of each
 against what the script creates — which catches a missing or extra column but
-not a wrong type, key or constraint; after a `--force` recovery the runbook's
-step 1 compares the full definitions — the **collation** of each, which neither the names
+not a wrong type, key or constraint; whenever any of them already existed, the
+runbook's step 1 compares the full definitions — the **collation** of each, which neither the names
 nor the counts show and which a database provisioned before 2026-09-11 gets wrong, and that
 the legacy table count is unchanged. It does not look at the triggers or the
 enum; the runbook's step 4 does.

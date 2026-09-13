@@ -124,12 +124,14 @@ else means a partial or earlier run, and the DDL will fail on the tables
 that already exist — resolve that before continuing rather than editing
 the file to skip them. Take step 2's backup first, because the recovery
 changes the schema. Then run `verify_phase1_tables.sql`, which names the state
-and what to do about it: re-apply `phase1_extensions.sql` with `mysql --force`,
-which creates only what is absent and reports one `ERROR 1050` per existing
-table and one `ERROR 1061` per existing index. `--force` does not check the
-shape of a table that already exists, so before step 3 run
-`verify_phase1_tables.sql` again, then compare every owned table's definition
-with the one `phase1_extensions.sql` creates (below). Leave
+and what to do about it. For a partial apply, re-apply `phase1_extensions.sql`
+with `mysql --force`, which creates only what is absent and reports one
+`ERROR 1050` per existing table and one `ERROR 1061` per existing index. Where
+all fourteen already exist, there is nothing for `--force` to create. Either
+way, the tables that were already there were not made by this procedure, and
+neither `--force` nor the script's column counts check their shape. So before
+step 3, run `verify_phase1_tables.sql` again, then compare every owned table's
+definition with the one `phase1_extensions.sql` creates (below). Leave
 `phase1_extensions.sql` out of step 3's loop, which would otherwise stop at it
 again. Never use `--force` on `legacy_runtime_offset_hooks.sql`: it skips that
 file's check that its target table exists.
@@ -143,7 +145,7 @@ unzip -p backend.jar BOOT-INF/classes/db/phase1-mysql/verify_phase1_tables.sql \
 mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" < verify_phase1_tables.sql
 ```
 
-After a `--force` recovery, the column counts in the script's section 4 are not
+Whenever step 1's query found any of the fourteen, section 4's column counts are not
 enough: a table with the right number of columns and a wrong type, default,
 key, foreign key or engine still reads `ok`. So compare the definitions
 themselves, on a machine with Docker. The query below is read-only; run it
@@ -293,10 +295,12 @@ statement run alongside it can still break that snapshot, so do not start step
 # legacy_runtime_offset_history, so both must exist first. The file ends by
 # seeding the current offset -- that row is where trustworthy coverage BEGINS
 # and asserts nothing about what was in force before it.
+rc=0
 for ddl in phase1_extensions.sql slice_b_attendance_method.sql legacy_runtime_offset_hooks.sql; do
   echo "--- $ddl"
-  mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" < "$ddl" || { echo "STOPPED at $ddl" >&2; break; }
+  mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" < "$ddl" || { rc=$?; echo "STOPPED at $ddl" >&2; break; }
 done
+(exit "$rc")   # the failing file's exit status, for anything that checks this block's status
 ```
 
 Each file assumes the ones before it succeeded. `legacy_runtime_offset_hooks.sql`
