@@ -94,22 +94,52 @@ run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/deploy-link/tls"
 ok=1; [ "$rc" -ne 0 ] && grep -q 'inside the repository' "$WORK/out" && no_key_in_repo && ok=0
 check "$ok" "an E2E_TLS_DIR reaching the repository through a symlink is refused"
 
-# 8. A directory a reboot clears still works, with a warning.
-run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/tmp/tls"
+# 8. A directory a reboot clears still works, with a warning. These paths are
+#    spelled /./... because this tree is usually under /tmp itself: /tmp/* would
+#    match first, and the TMPDIR pattern would go untested.
+run integration HOME="$WORK/home" TMPDIR="/.$WORK/tmp" E2E_TLS_DIR="/.$WORK/tmp/tls"
 ok=1; [ "$rc" -eq 0 ] && grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$WORK/tmp/tls/server.key" ] && ok=0
 check "$ok" "an E2E_TLS_DIR under TMPDIR warns and still gets a certificate"
+run integration HOME="$WORK/home" E2E_TLS_DIR="/.$WORK/kept/tls"
+ok=1; [ "$rc" -eq 0 ] && ! grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$WORK/kept/tls/server.key" ] && ok=0
+check "$ok" "an E2E_TLS_DIR outside /tmp, /var/tmp and TMPDIR does not warn"
 
-# 9. The directory Docker leaves after a reboot: present, empty and not the
-#    user's. run.sh stops with the recovery step instead of failing in chmod.
+# 9. What Docker leaves for a missing bind-mount source: every missing level,
+#    empty and not the user's. run.sh names each one to remove, deepest first,
+#    instead of failing in chmod or mkdir.
 if [ "$(id -u)" = 0 ]; then
-  echo "  skip  a directory that is not writable: running as root, for whom every directory is"
+  echo "  skip  directories that are not writable: running as root, for whom every directory is"
 else
   mkdir "$WORK/not-writable"
   chmod 555 "$WORK/not-writable"
   run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/not-writable"
   ok=1; [ "$rc" -ne 0 ] && grep -q 'is not writable by you' "$WORK/out" \
-    && grep -q 'sudo rmdir' "$WORK/out" && [ ! -e "$WORK/not-writable/server.key" ] && ok=0
+    && grep -qxF "  sudo rmdir \"$WORK/not-writable\"" "$WORK/out" \
+    && [ ! -e "$WORK/not-writable/server.key" ] && ok=0
   check "$ok" "a directory that is not writable stops with the recovery step"
+
+  mkdir -p "$WORK/two/workin-e2e/tls"
+  chmod 555 "$WORK/two/workin-e2e/tls" "$WORK/two/workin-e2e"
+  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/two/workin-e2e/tls"
+  ok=1; [ "$rc" -ne 0 ] \
+    && grep -qxF "  sudo rmdir \"$WORK/two/workin-e2e/tls\" \"$WORK/two/workin-e2e\"" "$WORK/out" && ok=0
+  check "$ok" "two levels Docker made are both named for removal, deepest first"
+
+  # Only the deeper one removed, as the previous message alone used to say.
+  chmod 755 "$WORK/two/workin-e2e"
+  rmdir "$WORK/two/workin-e2e/tls"
+  chmod 555 "$WORK/two/workin-e2e"
+  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/two/workin-e2e/tls"
+  ok=1; [ "$rc" -ne 0 ] && grep -qxF "  sudo rmdir \"$WORK/two/workin-e2e\"" "$WORK/out" \
+    && ! grep -q 'Permission denied' "$WORK/out" && ok=0
+  check "$ok" "a Docker-made parent left behind is named, instead of mkdir failing"
+
+  mkdir "$WORK/busy"
+  touch "$WORK/busy/other"
+  chmod 555 "$WORK/busy"
+  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/busy/tls"
+  ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" && ok=0
+  check "$ok" "a directory that is not writable and holds other files is never offered to rmdir"
 fi
 
 echo

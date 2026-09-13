@@ -55,7 +55,7 @@ would pick them up.
 | `ADMIN_ACTIONS_ENABLED` | `false` | `true` runs the administrative-action case |
 | `E2E_SEED_PROD` | unset | restores the sanitised seed into the prod stack by hand |
 | `E2E_REGENERATE_TLS` | unset | new certificate |
-| `E2E_TLS_DIR` | `${XDG_STATE_HOME:-~/.local/state}/workin-e2e/tls` | where the run's key and certificate live: an absolute path outside the repository, not somewhere a reboot clears |
+| `E2E_TLS_DIR` | `$XDG_STATE_HOME/workin-e2e/tls` if `XDG_STATE_HOME` is absolute, otherwise `~/.local/state/workin-e2e/tls` | where the run's key and certificate live: an absolute path outside the repository, not somewhere a reboot clears |
 | `E2E_REGENERATE_ENV` | unset | new `.env.<profile>-e2e` |
 
 Any `docker compose` command that includes `e2e/compose.proxy.yaml` needs
@@ -64,9 +64,26 @@ Any `docker compose` command that includes `e2e/compose.proxy.yaml` needs
 not.
 
 If the proxy restarts endlessly with `cannot load certificate`, its certificate
-directory is gone, and Docker has put an empty directory owned by root in its
-place. Run `run.sh integration` again; if it reports that the directory is not
-writable, remove it with `sudo rmdir` first.
+directory is gone, and Docker has put empty directories owned by root in its
+place. What recovers it depends on the compose project the proxy belongs to,
+which `docker inspect` shows as the label `com.docker.compose.project`:
+
+- **`workin-e2e-integration`** is `run.sh`'s own project. Run `run.sh
+  integration` again. If it reports that the directory is not writable, stop
+  the proxy, run the `sudo rmdir` it prints, and run it once more.
+- **`workin-integration`** is a stack started with these compose files
+  directly, or by a `run.sh` from before it passed `-p` (2026-09-08). `run.sh`
+  does not manage that project, and its own stack would ask for ports that
+  stack already holds. Bring it down under its own name first. Run this from
+  the `deploy/` directory that started it (the label
+  `com.docker.compose.project.working_dir`), with `E2E_TLS_DIR` set to the
+  directory it mounts, then remove that directory with `sudo rmdir`:
+
+  ```sh
+  E2E_TLS_DIR=/tmp/workin-e2e-tls-"$(id -u)" docker compose -p workin-integration \
+    -f compose.integration.yaml -f e2e/compose.proxy.yaml \
+    --env-file .env.integration-e2e down
+  ```
 
 `E2E_SEED_PROD` restores the seed with `mariadb <` rather than by mounting it,
 because `compose.prod.yaml` mounts no seed **on purpose**: production data

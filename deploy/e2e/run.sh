@@ -171,12 +171,32 @@ if [ "$PROFILE" = integration ]; then
     /tmp/* | /var/tmp/* | "${TMPDIR:-/tmp}"/*)
       echo "warning: $E2E_TLS_DIR is cleared on reboot; the proxy will lose its certificate" >&2 ;;
   esac
+  # Docker creates every missing level of a bind-mount source as an empty
+  # directory owned by root, so there can be more than one to remove. Walk up to
+  # the first directory that is the user's, collecting the levels that hold
+  # nothing but the next one down; one holding anything else is not Docker's.
+  docker_made=()
+  path="$E2E_TLS_DIR"
+  below=""
+  until { [ -d "$path" ] && [ -w "$path" ]; } || [ "$path" = / ]; do
+    if [ -d "$path" ]; then
+      entries="$(find "$path" -mindepth 1 -maxdepth 1 2>/dev/null || true)"
+      [ -z "$entries" ] || [ "$entries" = "$path/$below" ] || break
+      docker_made+=("$path")
+    fi
+    below="$(basename "$path")"
+    path="$(dirname "$path")"
+  done
+  if [ "${#docker_made[@]}" -gt 0 ]; then
+    echo "$E2E_TLS_DIR is not writable by you. Docker creates each missing level of a" >&2
+    echo "bind-mount source as an empty directory owned by root: stop the proxy, run" >&2
+    echo "  sudo rmdir$(printf ' "%s"' "${docker_made[@]}")" >&2
+    echo "and run this again." >&2
+    exit 1
+  fi
   mkdir -p "$E2E_TLS_DIR"
   if [ ! -w "$E2E_TLS_DIR" ]; then
-    echo "$E2E_TLS_DIR is not writable by you. A directory Docker created for a missing" >&2
-    echo "bind-mount source is empty and owned by root: stop the proxy, run" >&2
-    echo "  sudo rmdir \"$E2E_TLS_DIR\"" >&2
-    echo "and run this again." >&2
+    echo "$E2E_TLS_DIR is not writable by you and is not empty: choose another E2E_TLS_DIR" >&2
     exit 1
   fi
   # Resolved once it exists, so that neither a symlink nor `..` carries the key
