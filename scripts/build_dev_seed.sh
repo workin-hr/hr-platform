@@ -73,9 +73,10 @@ run_sql < "$DUMP"
 # All three DDL files, in the runbook's order (provisioning-phase1-tables.md
 # step 3) -- not just the tables. Phase1SchemaCheck compares table NAMES only, so
 # a seed carrying the fourteen tables without the triggers and without the
-# widened enum logs "all 14 owned tables are present" and then
-# PunchPairingService refuses every pass: punches pile up in RECEIVED and nothing
-# says why. Tables-alone is the one combination that fails silently.
+# widened enum logs "all 14 owned tables are present", while
+# PunchPairingService.pairCompany refuses to pair on it, logging why at ERROR,
+# as soon as anything calls it. Tables-alone is the one combination the startup
+# check reports as healthy.
 PHASE1_DIR="$REPO_ROOT/backend/src/main/resources/db/phase1-mysql"
 for ddl in phase1_extensions.sql slice_b_attendance_method.sql legacy_runtime_offset_hooks.sql; do
   if [ ! -f "$PHASE1_DIR/$ddl" ]; then

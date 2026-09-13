@@ -40,11 +40,14 @@ Three gates, all set by D-165, none of which the pilot satisfies by itself:
   `backend/src/main/resources/db/phase1-mysql/legacy_runtime_offset_hooks.sql`
   are installed. **Nothing detects their absence**: `Phase1SchemaCheck` compares
   table names only, so a database with all fourteen tables and no triggers looks
-  correct and then `PunchPairingService` refuses every pairing pass, leaving
-  punches accumulating in `RECEIVED`. Confirm with the
+  correct, while `PunchPairingService` refuses to pair on it whenever anything
+  calls it -- nothing does yet, so nothing else reports the gap. Confirm with the
   `information_schema.TRIGGERS` query in
   [provisioning-phase1-tables.md](../operations/provisioning-phase1-tables.md)
-  step 4 — expect three rows.
+  step 4 — expect three rows. Step 4 then checks that
+  `legacy_runtime_offset_history` has at least one row: without it, pairing
+  treats every punch as before the history began (`PRE_HISTORY`) and ignores it
+  for good.
 - `attendance`.`method` accepts `'device'`, which
   `backend/src/main/resources/db/phase1-mysql/slice_b_attendance_method.sql`
   adds (**D-214**). This is the trigger prerequisite's twin and fails the same

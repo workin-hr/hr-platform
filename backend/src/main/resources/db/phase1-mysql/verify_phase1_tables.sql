@@ -2,7 +2,7 @@
 -- and has it been already?" -- before anything writes to it.
 --
 -- Paste into phpMyAdmin's SQL tab, or:
---   mysql -h HOST -u USER -p DBNAME \
+--   mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" \
 --     < backend/src/main/resources/db/phase1-mysql/verify_phase1_tables.sql
 --
 -- Nothing here creates, alters or deletes. Every statement is a SELECT.
@@ -12,7 +12,8 @@
 -- 1. The engine. `phase1_extensions.sql` uses CHECK constraints (MariaDB
 --    10.2+), DATETIME(6) and ROW_FORMAT=DYNAMIC. Anything from MariaDB 10.2 or
 --    MySQL 8.0.16 supports all three; the port is developed and tested against
---    MariaDB 11.8.
+--    MariaDB 11.8. The runbook's definition comparison needs MariaDB 10.6 or
+--    later, and says what to do on any other server.
 SELECT 'server' AS check_name, VERSION() AS value,
        IF(VERSION() REGEXP '^(1[0-9]|[0-9]{3})' , 'ok', 'CHECK MANUALLY') AS verdict;
 
@@ -28,10 +29,13 @@ SELECT 'database' AS check_name,
 --    is deliberately not idempotent, so re-applying it prints one ERROR 1050
 --    per existing table and one ERROR 1061 per existing index, creates only
 --    what is absent, and EXITS 0. Those errors are the expected output, not a
---    failure. Re-run this script afterwards: section 3 should say `applied`.
+--    failure. Re-run this script afterwards: section 3 should start `applied`.
 --
 --    `none` means apply the script as it is. All fourteen means it has been
---    applied -- check (4) rather than re-running it.
+--    applied -- do not re-run it. If any of them was there before this
+--    provisioning began, (4) is not enough either: compare the full
+--    definitions as docs/operations/provisioning-phase1-tables.md step 1
+--    describes.
 --
 --    ANYTHING BETWEEN IS A PARTIAL APPLY, AND THE VERDICT SAYS WHAT TO DO. Do
 --    NOT "drop the ones listed": the listed value is every owned table present,
@@ -42,19 +46,20 @@ SELECT 'database' AS check_name,
 --    dropping an owned table is a destructive procedure with exactly one
 --    authority, docs/operations/provisioning-phase1-tables.md#rollback, which
 --    drops the configs triggers FIRST. Dropping legacy_runtime_offset_history
---    while those triggers stand breaks PHP's own writes to configs -- and only
---    on the daylight-saving row, so it fails silently.
+--    while those triggers stand makes every configs write that adds, removes
+--    or switches the daylight-saving setting fail while other writes still
+--    succeed, so PHP's settings page breaks part-way on exactly those saves.
 SELECT 'phase1 tables present' AS check_name,
        COALESCE(GROUP_CONCAT(table_name ORDER BY table_name SEPARATOR ', '), 'none') AS value,
        CASE COUNT(*)
          WHEN 0 THEN 'not applied -- apply it'
-         WHEN 14 THEN 'applied'
+         WHEN 14 THEN 'applied -- if any table was here before this provisioning, compare definitions: runbook step 1'
          -- Exactly the six originals means a database provisioned before the
          -- device tables existed. Apply the script with --force so only the
          -- absent eight are created; do NOT drop these. Two of them are not
          -- yours to drop: platform_admin_audit_events is retained evidence
          -- (D-161) and SPRING_SESSION is every live administrator session.
-         WHEN 6 THEN 'PRE-DEVICE-TABLES -- re-apply with --force, do NOT drop'
+         WHEN 6 THEN 'PRE-DEVICE-TABLES -- re-apply with --force, do NOT drop, then compare definitions: runbook step 1'
          -- NOT "drop the listed tables": the list includes the six originals,
          -- and an interrupted --force apply (which WHEN 6 above sends operators
          -- to run) lands here at 7-13. Dropping platform_admin_audit_events
@@ -71,7 +76,8 @@ SELECT 'phase1 tables present' AS check_name,
                      'anything to recover: dropping an owned table is a ',
                      'destructive procedure with one authority, ',
                      'docs/operations/provisioning-phase1-tables.md#rollback, ',
-                     'which drops the configs triggers FIRST.')
+                     'which drops the configs triggers FIRST. ',
+                     'Then compare definitions: runbook step 1.')
        END AS verdict
   FROM information_schema.tables
  WHERE table_schema = DATABASE()
@@ -83,26 +89,30 @@ SELECT 'phase1 tables present' AS check_name,
                       'device_operation_logs', 'device_malformed_punches',
                       'legacy_runtime_offset_history', 'device_assignment_history');
 
--- 4. After applying: the shape, not just the name. A table that exists with
---    the wrong columns is the failure the non-idempotent script exists to
---    prevent, and it is invisible to (3).
+-- 4. After applying: each table's column count, which (3) cannot see. It
+--    catches a missing or extra column and nothing finer: a table with the
+--    right count and a wrong type, default, key, foreign key or engine still
+--    reads `ok (count only)`. Whenever any of the fourteen existed before provisioning
+--    began, compare the full definitions as
+--    docs/operations/provisioning-phase1-tables.md step 1 describes before
+--    applying anything else.
 SELECT 'column counts' AS check_name,
        CONCAT(table_name, '=', COUNT(*)) AS value,
        CASE
-         WHEN table_name = 'legacy_refresh_tokens'          AND COUNT(*) = 7 THEN 'ok'
-         WHEN table_name = 'platform_admins'                AND COUNT(*) = 4 THEN 'ok'
-         WHEN table_name = 'platform_admin_audit_events'    AND COUNT(*) = 7 THEN 'ok'
-         WHEN table_name = 'platform_admin_login_attempts'  AND COUNT(*) = 3 THEN 'ok'
-         WHEN table_name = 'SPRING_SESSION'                 AND COUNT(*) = 7 THEN 'ok'
-         WHEN table_name = 'SPRING_SESSION_ATTRIBUTES'      AND COUNT(*) = 3 THEN 'ok'
-         WHEN table_name = 'attendance_devices'             AND COUNT(*) = 18 THEN 'ok'
-         WHEN table_name = 'employee_device_identities'     AND COUNT(*) = 8 THEN 'ok'
-         WHEN table_name = 'device_punches'                 AND COUNT(*) = 24 THEN 'ok'
-         WHEN table_name = 'unclaimed_device_sightings'     AND COUNT(*) = 7 THEN 'ok'
-         WHEN table_name = 'device_operation_logs'          AND COUNT(*) = 6 THEN 'ok'
-         WHEN table_name = 'device_malformed_punches'       AND COUNT(*) = 6 THEN 'ok'
-         WHEN table_name = 'legacy_runtime_offset_history'  AND COUNT(*) = 3 THEN 'ok'
-         WHEN table_name = 'device_assignment_history'      AND COUNT(*) = 7 THEN 'ok'
+         WHEN table_name = 'legacy_refresh_tokens'          AND COUNT(*) = 7 THEN 'ok (count only)'
+         WHEN table_name = 'platform_admins'                AND COUNT(*) = 4 THEN 'ok (count only)'
+         WHEN table_name = 'platform_admin_audit_events'    AND COUNT(*) = 7 THEN 'ok (count only)'
+         WHEN table_name = 'platform_admin_login_attempts'  AND COUNT(*) = 3 THEN 'ok (count only)'
+         WHEN table_name = 'SPRING_SESSION'                 AND COUNT(*) = 7 THEN 'ok (count only)'
+         WHEN table_name = 'SPRING_SESSION_ATTRIBUTES'      AND COUNT(*) = 3 THEN 'ok (count only)'
+         WHEN table_name = 'attendance_devices'             AND COUNT(*) = 18 THEN 'ok (count only)'
+         WHEN table_name = 'employee_device_identities'     AND COUNT(*) = 8 THEN 'ok (count only)'
+         WHEN table_name = 'device_punches'                 AND COUNT(*) = 24 THEN 'ok (count only)'
+         WHEN table_name = 'unclaimed_device_sightings'     AND COUNT(*) = 7 THEN 'ok (count only)'
+         WHEN table_name = 'device_operation_logs'          AND COUNT(*) = 6 THEN 'ok (count only)'
+         WHEN table_name = 'device_malformed_punches'       AND COUNT(*) = 6 THEN 'ok (count only)'
+         WHEN table_name = 'legacy_runtime_offset_history'  AND COUNT(*) = 3 THEN 'ok (count only)'
+         WHEN table_name = 'device_assignment_history'      AND COUNT(*) = 7 THEN 'ok (count only)'
          ELSE 'UNEXPECTED -- compare against phase1_extensions.sql'
        END AS verdict
   FROM information_schema.columns
@@ -181,3 +191,24 @@ SELECT 'phase1 collation' AS check_name,
                       'device_operation_logs', 'device_malformed_punches',
                       'legacy_runtime_offset_history', 'device_assignment_history')
  ORDER BY (table_collation = 'utf8mb4_unicode_ci'), table_name;
+
+-- The columns too. A table's default can read utf8mb4_unicode_ci while its
+-- columns keep another collation or character set, for example after an
+-- ALTER TABLE ... DEFAULT CHARACTER SET that changed only the default.
+-- phase1_extensions.sql gives no column a collation of its own, so every string
+-- column should be utf8mb4_unicode_ci, and the same CONVERT TO repairs it.
+SELECT 'phase1 column collation' AS check_name,
+       COALESCE(GROUP_CONCAT(CONCAT(table_name, '.', column_name, ' = ', collation_name)
+                             ORDER BY table_name, column_name SEPARATOR ', '), 'none') AS value,
+       IF(COUNT(*) = 0, 'ok', 'WRONG -- CONVERT TO utf8mb4_unicode_ci, see the note above') AS verdict
+  FROM information_schema.columns
+ WHERE table_schema = DATABASE()
+   AND collation_name IS NOT NULL
+   AND collation_name <> 'utf8mb4_unicode_ci'
+   AND table_name IN ('legacy_refresh_tokens', 'platform_admins',
+                      'platform_admin_audit_events', 'platform_admin_login_attempts',
+                      'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+                      'attendance_devices', 'employee_device_identities',
+                      'device_punches', 'unclaimed_device_sightings',
+                      'device_operation_logs', 'device_malformed_punches',
+                      'legacy_runtime_offset_history', 'device_assignment_history');

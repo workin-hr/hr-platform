@@ -407,9 +407,10 @@ def check_seed_carries_the_non_table_ddl(seed: str, findings: list[str]) -> None
     Phase1SchemaCheck compares table NAMES, and nothing compares anything else.
     A seed with all fourteen tables but no triggers and an unwidened enum is
     therefore the one broken state that announces itself as healthy: the startup
-    check logs "all 14 owned tables are present", and PunchPairingService then
-    refuses every pass -- once because the triggers are absent, once because
-    `method` will not accept 'device' -- while punches accumulate in RECEIVED.
+    check logs "all 14 owned tables are present", while
+    PunchPairingService.pairCompany refuses to pair on it -- first because the
+    triggers are absent, then, once they exist, because `method` will not
+    accept 'device' -- whenever anything calls it.
     The names and values come from the DDL files themselves, so widening either
     one fails this gate until the seed is rebuilt rather than drifting from it.
     """
@@ -430,8 +431,9 @@ def check_seed_carries_the_non_table_ddl(seed: str, findings: list[str]) -> None
                 fail(
                     f"deploy/seed/dev-seed.sql does not define the trigger `{trigger}`, which "
                     f"{HOOKS_DDL} installs on the legacy `configs` table. Without it "
-                    f"PunchPairingService refuses every pairing pass while the startup check "
-                    f"still reports every owned table present. Rebuild the seed with "
+                    f"PunchPairingService.pairCompany refuses to pair, whenever anything calls "
+                    f"it, while the startup check still reports every owned table present. "
+                    f"Rebuild the seed with "
                     f"scripts/build_dev_seed.sh, which applies all three phase1-mysql files",
                     findings,
                 )
@@ -458,8 +460,10 @@ def check_seed_carries_the_non_table_ddl(seed: str, findings: list[str]) -> None
             fail(
                 f"deploy/seed/dev-seed.sql declares `attendance`.`method` without '{value}', "
                 f"which {SLICE_B_DDL} makes part of that column's target shape. A stack "
-                f"seeded from this file rejects every row written with that value -- and "
-                f"pairing writes 'device'. Rebuild the seed with scripts/build_dev_seed.sh",
+                f"seeded from this file stores a blank `method` for a row written with that "
+                f"value, because every connection runs sql_mode='' -- and pairing writes "
+                f"'device', which is why it refuses to pair until the column accepts it. "
+                f"Rebuild the seed with scripts/build_dev_seed.sh",
                 findings,
             )
 

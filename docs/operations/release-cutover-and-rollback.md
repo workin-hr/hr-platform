@@ -81,10 +81,13 @@ persistent instance *"needs its own, separately-approved provisioning mechanism
 first."* Today the table exists only where a test container applies
 `phase1_extensions.sql` out-of-band.
 
-**Rollback treatment.** The change is purely additive, so a rollback does not
-need to reverse it: PHP reads none of them, and leaving them costs nothing and
-preserves the option of rolling forward again. Dropping them is therefore
-**not** part of the rollback procedure.
+**Rollback treatment.** The tables are additive; the rest of the change is not,
+but a rollback does not need to reverse any of it. PHP reads none of the tables,
+the widened `attendance.method` still accepts every value PHP writes, and leaving
+all of it costs nothing and preserves the option of rolling forward again.
+Dropping the tables is therefore **not** part of the rollback procedure, and
+neither is narrowing the enum, which would coerce any row already storing
+`'device'` (the procedure is in `slice_b_attendance_method.sql`'s header).
 
 PHP reads none of them, but it does WRITE one indirectly:
 `legacy_runtime_offset_hooks.sql` puts three triggers on the legacy `configs`
@@ -420,13 +423,13 @@ one-way is what makes people hesitate to reverse it.
 
 - The tables are additive, and leaving them means a second attempt needs no
   DDL. They are not quite orphaned, though: `legacy_runtime_offset_hooks.sql`
-  puts three triggers on the legacy `configs` table that write into
-  `legacy_runtime_offset_history`, so PHP touches one of them indirectly. The
-  trigger bodies branch on `config_key`, so with the table dropped only writes
-  to the daylight-saving row fail (`ERROR 1146`) while every other key still
-  succeeds -- the breakage is SILENT. That is an argument for LEAVING them, not for dropping
-  them -- dropping the table while the triggers stand breaks PHP's own writes
-  (`ERROR 1146`). If they must go, use
+  puts triggers on the legacy `configs` table that write into
+  `legacy_runtime_offset_history`, so PHP touches one of them indirectly. With
+  that table dropped and the triggers still standing, every `configs` write
+  that adds, removes or switches the daylight-saving setting fails
+  (`ERROR 1146`) while other writes still succeed, so PHP's settings page
+  breaks part-way on exactly those saves and nothing else looks broken. That
+  is an argument for LEAVING them. If they must go, use
   [Rollback](provisioning-phase1-tables.md#rollback), which drops the triggers
   first.
 - Every row Java writes to a legacy table is legacy-shaped — that is what

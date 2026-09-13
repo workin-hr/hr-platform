@@ -80910,12 +80910,12 @@ CREATE TABLE `device_assignment_history` (
 -- Phase 1, the two statements that are not CREATE TABLE.
 --
 -- A seed carrying the fourteen tables but neither the widened enum nor the
--- triggers is the one combination that fails silently: Phase1SchemaCheck
--- compares table names only, so it logs "all 14 owned tables are present" and
--- PunchPairingService then refuses every pairing pass, punches accumulating in
--- RECEIVED. This file was generated before the builder applied all three
--- phase1-mysql DDL files, so the two non-CREATE-TABLE statements are appended
--- here instead.
+-- triggers is the one combination the startup check reports as healthy:
+-- Phase1SchemaCheck compares table names only, so it logs "all 14 owned tables
+-- are present", while PunchPairingService.pairCompany refuses to pair on it
+-- whenever anything calls it. This file was generated before the builder
+-- applied all three phase1-mysql DDL files, so the two non-CREATE-TABLE
+-- statements are appended here instead.
 --
 -- A regenerated seed has the same two in the same shape: build_dev_seed.sh
 -- applies slice_b before dumping (so the widening lands in the CREATE TABLE)
@@ -80975,10 +80975,12 @@ ALTER TABLE attendance
 -- allows is silent and lands on production: if phase1_extensions.sql aborted
 -- (ERROR 1050 on a database that already has some of the tables, say) and this
 -- file ran anyway, three triggers end up on the legacy `configs` table pointing
--- at a table that does not exist. PHP's writes to the daylight-saving row then
--- fail with ERROR 1146 while every other config key still succeeds -- so nothing
--- looks broken. This SELECT touches no rows and raises ERROR 1146 itself when
--- the table is missing, which stops a client that halts on error.
+-- at a table that does not exist. Every `configs` write that adds, removes or
+-- switches the daylight-saving setting then fails with ERROR 1146 while other
+-- writes still succeed -- so PHP's settings page stops part-way on exactly
+-- those saves, and nothing else looks broken. This SELECT touches no rows and
+-- raises ERROR 1146 itself when the table is missing, which stops a client
+-- that halts on error.
 --
 -- It does NOT protect a run under `--force`, which continues past errors by
 -- design; there the operator's own step ordering is the only control.

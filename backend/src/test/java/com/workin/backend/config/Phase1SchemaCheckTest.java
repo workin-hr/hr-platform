@@ -171,4 +171,30 @@ class Phase1SchemaCheckTest extends AbstractLegacyMySqlTest {
 				.containsExactlyInAnyOrderElementsOf(Phase1SchemaCheck.OWNED_TABLES.keySet());
 	}
 
+	@Test
+	void theDefinitionComparisonSelectsEveryOwnedTable() throws Exception {
+		// Step 1's definition comparison carries its own table list and its own
+		// count of the tables the throwaway database must describe. Either one
+		// drifting from OWNED_TABLES lets the comparison report a match without
+		// ever looking at a table this application owns.
+		Path runbook = Path.of("..", "docs", "operations", "provisioning-phase1-tables.md");
+		String text = Files.readString(runbook);
+
+		Matcher names = Pattern.compile("names=\"([^\"]*)\"", Pattern.DOTALL).matcher(text);
+		assertThat(names.find()).as("the runbook must still contain the comparison's table list").isTrue();
+		Set<String> listed = Arrays.stream(names.group(1).split(","))
+				.map(part -> part.replace("'", "").trim())
+				.filter(part -> !part.isEmpty())
+				.collect(Collectors.toCollection(LinkedHashSet::new));
+		assertThat(listed)
+				.as("the definition comparison must select exactly the tables this application owns")
+				.containsExactlyInAnyOrderElementsOf(Phase1SchemaCheck.OWNED_TABLES.keySet());
+
+		Matcher count = Pattern.compile("grep -c '\\^table' expected-shape\\.txt\\)\" = (\\d+) \\]").matcher(text);
+		assertThat(count.find()).as("the runbook must still check how many tables the throwaway database describes").isTrue();
+		assertThat(Integer.parseInt(count.group(1)))
+				.as("the comparison's table count must equal the number of tables this application owns")
+				.isEqualTo(Phase1SchemaCheck.OWNED_TABLES.size());
+	}
+
 }
