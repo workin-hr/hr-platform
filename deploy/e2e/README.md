@@ -34,10 +34,10 @@ one certificate. The connection is TLS; only the certificate is disposable.
 The key and certificate are written **outside the repository**, in the user's
 state directory (`$XDG_STATE_HOME`, or `~/.local/state`), and not under `/tmp`:
 the stack restarts after a reboot, and a certificate kept where the reboot clears
-it would not be there for the proxy. `validate_phase0`'s secret scan reads the working tree rather than
-the index, which is the right behaviour — its job is to catch a private key
-*before* somebody commits it — so the answer is to keep the key out of the tree
-rather than teach the scan to look away.
+it would not be there for the proxy. `validate_phase0`'s secret scan reads the
+working tree rather than the index, which is the right behaviour — its job is
+to catch a private key *before* somebody commits it — so the answer is to keep
+the key out of the tree rather than teach the scan to look away.
 
 ## Configuration
 
