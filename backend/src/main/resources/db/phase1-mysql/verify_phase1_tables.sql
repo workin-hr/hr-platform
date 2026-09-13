@@ -191,3 +191,24 @@ SELECT 'phase1 collation' AS check_name,
                       'device_operation_logs', 'device_malformed_punches',
                       'legacy_runtime_offset_history', 'device_assignment_history')
  ORDER BY (table_collation = 'utf8mb4_unicode_ci'), table_name;
+
+-- The columns too. A table's default can read utf8mb4_unicode_ci while its
+-- columns keep another collation or character set, for example after an
+-- ALTER TABLE ... DEFAULT CHARACTER SET that changed only the default.
+-- phase1_extensions.sql gives no column a collation of its own, so every string
+-- column should be utf8mb4_unicode_ci, and the same CONVERT TO repairs it.
+SELECT 'phase1 column collation' AS check_name,
+       COALESCE(GROUP_CONCAT(CONCAT(table_name, '.', column_name, ' = ', collation_name)
+                             ORDER BY table_name, column_name SEPARATOR ', '), 'none') AS value,
+       IF(COUNT(*) = 0, 'ok', 'WRONG -- CONVERT TO utf8mb4_unicode_ci, see the note above') AS verdict
+  FROM information_schema.columns
+ WHERE table_schema = DATABASE()
+   AND collation_name IS NOT NULL
+   AND collation_name <> 'utf8mb4_unicode_ci'
+   AND table_name IN ('legacy_refresh_tokens', 'platform_admins',
+                      'platform_admin_audit_events', 'platform_admin_login_attempts',
+                      'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+                      'attendance_devices', 'employee_device_identities',
+                      'device_punches', 'unclaimed_device_sightings',
+                      'device_operation_logs', 'device_malformed_punches',
+                      'legacy_runtime_offset_history', 'device_assignment_history');

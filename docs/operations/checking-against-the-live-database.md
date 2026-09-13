@@ -62,8 +62,8 @@ mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" \
 It reports the server version, the database's charset and engine, which of
 Java's tables are present (`none`, `applied`, a database provisioned before
 the device tables existed, or a partial apply, which the verdict tells you how to resolve -- with `--force`, not a drop), the column count of each
-against what the script creates, the **collation** of each, which neither the
-names nor the counts show and which a database provisioned before 2026-09-11
+against what the script creates, the **collation** of each table and of its
+columns, which neither the names nor the counts show and which a database provisioned before 2026-09-11
 gets wrong, and that the legacy table count is unchanged.
 
 The column count catches a missing or extra column, not a wrong type, key or

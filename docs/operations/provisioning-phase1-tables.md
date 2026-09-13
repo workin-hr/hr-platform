@@ -166,9 +166,11 @@ The block ends with one of three verdicts. `every owned table matches` needs
 nothing more. `only collation differs` may go on to step 3, and step 4b repairs
 the collation: step 3's triggers compare `configs` values only with literals, so
 a table at another collation does not stop them. The block decides that by
-comparing again with every collation set aside, not by the size of the
-difference, so a wrong type on a table that is also at the old collation is not
-mistaken for one. Anything after `STOPPED` is an owned table that differs from
+comparing again with each table's collation set aside, and a column's only where
+it is its own table's, not by the size of the difference. So a wrong type on a
+table at the old collation is not mistaken for one, and neither is a column in
+another character set or collation, which step 4b's table check alone would not
+see. Anything after `STOPPED` is an owned table that differs from
 what the application expects in more than collation: stop before step 3. Each
 difference there names one
 object, such as an index, a default, a foreign key or an engine, and needs a
@@ -255,11 +257,13 @@ SQL
     echo "every owned table matches phase1_extensions.sql"
     exit 0
   fi
-  # Step 4b repairs collation: set it aside (field 5 of a table row, field 9 of
-  # a column row) and compare what is left.
+  # Step 4b converts a table with every column in it: set aside each table's
+  # collation (field 5 of a table row), and a column's (field 9 of a column row)
+  # only where it is its own table's. Any other column collation stays in.
   for side in expected live; do
-    awk -F'\t' -v OFS='\t' '$1 == "table" { $5 = "" } $1 == "column" { $9 = "" } 1' \
-      "${side}-shape.txt" > "${side}-nocollation.txt"
+    awk -F'\t' -v OFS='\t' 'NR == FNR { if ($1 == "table") own[$2] = $5; next }
+      $1 == "table" { $5 = "" } $1 == "column" && $9 == own[$2] { $9 = "" } 1' \
+      "${side}-shape.txt" "${side}-shape.txt" > "${side}-nocollation.txt"
   done
   if diff -q expected-nocollation.txt live-nocollation.txt > /dev/null; then
     echo "only collation differs: step 3 may go ahead, and step 4b repairs the collation"
@@ -447,7 +451,28 @@ WHERE TABLE_SCHEMA = DATABASE()
 ORDER BY TABLE_NAME;
 ```
 
-Expect zero rows. For each row it does return:
+A table's default can be right while its columns are not, for example after an
+`ALTER TABLE ... DEFAULT CHARACTER SET` that changed only the default. So check
+the columns too; `phase1_extensions.sql` gives no column a collation of its own:
+
+```sql
+SELECT TABLE_NAME, COLUMN_NAME, CHARACTER_SET_NAME, COLLATION_NAME
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND COLLATION_NAME IS NOT NULL
+  AND COLLATION_NAME <> 'utf8mb4_unicode_ci'
+  AND TABLE_NAME IN (
+    'legacy_refresh_tokens', 'platform_admins',
+    'platform_admin_audit_events', 'platform_admin_login_attempts',
+    'SPRING_SESSION', 'SPRING_SESSION_ATTRIBUTES',
+    'attendance_devices', 'employee_device_identities', 'device_punches',
+    'unclaimed_device_sightings', 'device_operation_logs',
+    'device_malformed_punches', 'device_assignment_history',
+    'legacy_runtime_offset_history')
+ORDER BY TABLE_NAME, COLUMN_NAME;
+```
+
+Expect zero rows from both. For each table either of them returns:
 
 ```sql
 ALTER TABLE <name> CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

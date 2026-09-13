@@ -31,7 +31,7 @@ No migration runs at startup. The application reads and writes the same tables
 the PHP application does.
 
 **The database needs provisioning first**, once, and provisioning does more
-than add tables. It creates the fourteen tables Java owns, widens
+than add tables. It creates the tables Java owns, widens
 `attendance.method`, and installs triggers on PHP's `configs` table. The
 procedure, its three files, the backup and the rollback are in
 [provisioning-phase1-tables.md](provisioning-phase1-tables.md).
