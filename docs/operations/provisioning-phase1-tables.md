@@ -147,7 +147,7 @@ mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p "$DB_NAME" < verify_phase1_ta
 
 Whenever step 1's query found any of the fourteen, section 4's column counts are not
 enough: a table with the right number of columns and a wrong type, default,
-key, foreign key or engine still reads `ok`. So compare the definitions
+key, foreign key or engine still reads `ok (count only)`. So compare the definitions
 themselves, on a machine with Docker. The query below is read-only; run it
 against the live database and against a throwaway MariaDB of the live server's
 version that holds only `phase1_extensions.sql`. Any line `diff` prints is an

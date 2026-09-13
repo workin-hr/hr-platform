@@ -28,7 +28,7 @@ SELECT 'database' AS check_name,
 --    is deliberately not idempotent, so re-applying it prints one ERROR 1050
 --    per existing table and one ERROR 1061 per existing index, creates only
 --    what is absent, and EXITS 0. Those errors are the expected output, not a
---    failure. Re-run this script afterwards: section 3 should say `applied`.
+--    failure. Re-run this script afterwards: section 3 should start `applied`.
 --
 --    `none` means apply the script as it is. All fourteen means it has been
 --    applied -- do not re-run it. If any of them was there before this
@@ -52,13 +52,13 @@ SELECT 'phase1 tables present' AS check_name,
        COALESCE(GROUP_CONCAT(table_name ORDER BY table_name SEPARATOR ', '), 'none') AS value,
        CASE COUNT(*)
          WHEN 0 THEN 'not applied -- apply it'
-         WHEN 14 THEN 'applied'
+         WHEN 14 THEN 'applied -- if any table was here before this provisioning, compare definitions: runbook step 1'
          -- Exactly the six originals means a database provisioned before the
          -- device tables existed. Apply the script with --force so only the
          -- absent eight are created; do NOT drop these. Two of them are not
          -- yours to drop: platform_admin_audit_events is retained evidence
          -- (D-161) and SPRING_SESSION is every live administrator session.
-         WHEN 6 THEN 'PRE-DEVICE-TABLES -- re-apply with --force, do NOT drop'
+         WHEN 6 THEN 'PRE-DEVICE-TABLES -- re-apply with --force, do NOT drop, then compare definitions: runbook step 1'
          -- NOT "drop the listed tables": the list includes the six originals,
          -- and an interrupted --force apply (which WHEN 6 above sends operators
          -- to run) lands here at 7-13. Dropping platform_admin_audit_events
@@ -75,7 +75,8 @@ SELECT 'phase1 tables present' AS check_name,
                      'anything to recover: dropping an owned table is a ',
                      'destructive procedure with one authority, ',
                      'docs/operations/provisioning-phase1-tables.md#rollback, ',
-                     'which drops the configs triggers FIRST.')
+                     'which drops the configs triggers FIRST. ',
+                     'Then compare definitions: runbook step 1.')
        END AS verdict
   FROM information_schema.tables
  WHERE table_schema = DATABASE()
@@ -90,27 +91,27 @@ SELECT 'phase1 tables present' AS check_name,
 -- 4. After applying: each table's column count, which (3) cannot see. It
 --    catches a missing or extra column and nothing finer: a table with the
 --    right count and a wrong type, default, key, foreign key or engine still
---    reads `ok`. Whenever any of the fourteen existed before provisioning
+--    reads `ok (count only)`. Whenever any of the fourteen existed before provisioning
 --    began, compare the full definitions as
 --    docs/operations/provisioning-phase1-tables.md step 1 describes before
 --    applying anything else.
 SELECT 'column counts' AS check_name,
        CONCAT(table_name, '=', COUNT(*)) AS value,
        CASE
-         WHEN table_name = 'legacy_refresh_tokens'          AND COUNT(*) = 7 THEN 'ok'
-         WHEN table_name = 'platform_admins'                AND COUNT(*) = 4 THEN 'ok'
-         WHEN table_name = 'platform_admin_audit_events'    AND COUNT(*) = 7 THEN 'ok'
-         WHEN table_name = 'platform_admin_login_attempts'  AND COUNT(*) = 3 THEN 'ok'
-         WHEN table_name = 'SPRING_SESSION'                 AND COUNT(*) = 7 THEN 'ok'
-         WHEN table_name = 'SPRING_SESSION_ATTRIBUTES'      AND COUNT(*) = 3 THEN 'ok'
-         WHEN table_name = 'attendance_devices'             AND COUNT(*) = 18 THEN 'ok'
-         WHEN table_name = 'employee_device_identities'     AND COUNT(*) = 8 THEN 'ok'
-         WHEN table_name = 'device_punches'                 AND COUNT(*) = 24 THEN 'ok'
-         WHEN table_name = 'unclaimed_device_sightings'     AND COUNT(*) = 7 THEN 'ok'
-         WHEN table_name = 'device_operation_logs'          AND COUNT(*) = 6 THEN 'ok'
-         WHEN table_name = 'device_malformed_punches'       AND COUNT(*) = 6 THEN 'ok'
-         WHEN table_name = 'legacy_runtime_offset_history'  AND COUNT(*) = 3 THEN 'ok'
-         WHEN table_name = 'device_assignment_history'      AND COUNT(*) = 7 THEN 'ok'
+         WHEN table_name = 'legacy_refresh_tokens'          AND COUNT(*) = 7 THEN 'ok (count only)'
+         WHEN table_name = 'platform_admins'                AND COUNT(*) = 4 THEN 'ok (count only)'
+         WHEN table_name = 'platform_admin_audit_events'    AND COUNT(*) = 7 THEN 'ok (count only)'
+         WHEN table_name = 'platform_admin_login_attempts'  AND COUNT(*) = 3 THEN 'ok (count only)'
+         WHEN table_name = 'SPRING_SESSION'                 AND COUNT(*) = 7 THEN 'ok (count only)'
+         WHEN table_name = 'SPRING_SESSION_ATTRIBUTES'      AND COUNT(*) = 3 THEN 'ok (count only)'
+         WHEN table_name = 'attendance_devices'             AND COUNT(*) = 18 THEN 'ok (count only)'
+         WHEN table_name = 'employee_device_identities'     AND COUNT(*) = 8 THEN 'ok (count only)'
+         WHEN table_name = 'device_punches'                 AND COUNT(*) = 24 THEN 'ok (count only)'
+         WHEN table_name = 'unclaimed_device_sightings'     AND COUNT(*) = 7 THEN 'ok (count only)'
+         WHEN table_name = 'device_operation_logs'          AND COUNT(*) = 6 THEN 'ok (count only)'
+         WHEN table_name = 'device_malformed_punches'       AND COUNT(*) = 6 THEN 'ok (count only)'
+         WHEN table_name = 'legacy_runtime_offset_history'  AND COUNT(*) = 3 THEN 'ok (count only)'
+         WHEN table_name = 'device_assignment_history'      AND COUNT(*) = 7 THEN 'ok (count only)'
          ELSE 'UNEXPECTED -- compare against phase1_extensions.sql'
        END AS verdict
   FROM information_schema.columns
