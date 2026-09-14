@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.http.HttpClient;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -28,6 +30,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.util.HtmlUtils;
+
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 import com.workin.backend.BackendApplication;
 import com.workin.legacy.LegacyMariaDb;
@@ -464,6 +470,54 @@ class AdminAttendanceEndToEndTest {
 		var all = inRequestScope(() ->
 				this.store.aggregate(unscoped, "2026-03-01", "2026-03-07", 1, 0, "2026-03-31"));
 		assertThat(all.data()).as("with no company the period length is the fallback").isNotEmpty();
+	}
+
+	@Test
+	void thePickerListsEveryActiveEmployeeUnderLegacysLabels() {
+		long company = createCompany("Picker Co");
+		long employee = createEmployee(company, "PK1", "Pia", "Kerr");
+		insertActiveEmployees(company, 520);
+		long active = this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM employees WHERE is_active = 1", Long.class);
+
+		String page = body("/admin/attendance");
+		assertThat(page).as("the add form picks an employee by search, not from a select")
+				.doesNotContain("<select id=\"employee_id\"");
+		Map<Long, String> everyone = pickerLabels(page);
+		assertThat(everyone).as("no company chosen: every active employee").hasSize((int) active);
+		assertThat(everyone.get(employee)).as("a list across companies names the company")
+				.isEqualTo("Pia Kerr (PK1) — Picker Co");
+		assertThat(pickerLabels(body("/admin/attendance?company_id=" + company)).get(employee))
+				.as("one company chosen: the label leaves it out")
+				.isEqualTo("Pia Kerr (PK1)");
+	}
+
+	private Map<Long, String> pickerLabels(String html) {
+		Matcher list = Pattern.compile("id=\"employee-picker-list\" data-employees=\"([^\"]*)\"").matcher(html);
+		assertThat(list.find()).as("the page renders the picker's list").isTrue();
+		List<Map<String, Object>> entries = new ObjectMapper().readValue(
+				HtmlUtils.htmlUnescape(list.group(1)), new TypeReference<List<Map<String, Object>>>() {
+				});
+		Map<Long, String> labels = new LinkedHashMap<>();
+		entries.forEach(entry -> labels.put(((Number) entry.get("id")).longValue(), (String) entry.get("label")));
+		return labels;
+	}
+
+	private void insertActiveEmployees(long companyId, int count) {
+		long branchId = this.jdbc.queryForObject(
+				"SELECT COALESCE(MAX(id), 0) + 1 FROM branches", Long.class);
+		this.jdbc.update("INSERT INTO branches (id, company_id, name, is_active, created_at)"
+				+ " VALUES (?, ?, ?, 1, NOW())", branchId, companyId, "Bulk branch");
+		long first = this.jdbc.queryForObject(
+				"SELECT GREATEST(COALESCE(MAX(id), 0) + 1, 990001) FROM employees", Long.class);
+		List<Object[]> rows = new ArrayList<>();
+		for (int i = 0; i < count; i++) {
+			rows.add(new Object[] { first + i, companyId, branchId, "BULK" + i, "Bulk", "Employee " + i });
+		}
+		this.jdbc.batchUpdate("INSERT INTO employees (id, company_id, branch_id, employee_code,"
+				+ " first_name, last_name, role, is_active, is_mobile_attendance_enabled,"
+				+ " can_check_in_any_branch, join_request_status, token_version, created_at, updated_at)"
+				+ " VALUES (?, ?, ?, ?, ?, ?, 'employee', 1, 1, 0, 'accepted', 1, NOW(), NOW())", rows);
 	}
 
 	private long createEmployee(long companyId, String code, String first, String last) {

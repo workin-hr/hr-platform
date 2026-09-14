@@ -289,22 +289,25 @@ public class AttendanceStore {
 		return found != null && found > 0;
 	}
 
-	public List<AttendanceRecord.EmployeeOption> employeeOptions(long companyId) {
-		StringBuilder sql = new StringBuilder(
-				"SELECT e.id, " + DISPLAY_NAME + " AS employee_name, " + EMP_CODE + " AS emp_code"
-				+ " FROM employees e WHERE e.is_active = 1");
-		List<Object> params = new ArrayList<>();
+	public List<LeaveBalance.EmployeeOption> employeeOptions(long companyId) {
 		if (companyId > 0) {
-			sql.append(" AND e.company_id = ?");
-			params.add(companyId);
+			return this.jdbcTemplate.query(
+					"SELECT e.id, " + DISPLAY_NAME + " AS employee_name, " + EMP_CODE + " AS emp_code"
+							+ " FROM employees e WHERE e.is_active = 1 AND e.company_id = ?"
+							+ " ORDER BY employee_name ASC, e.id ASC",
+					(rs, rowNum) -> new LeaveBalance.EmployeeOption(
+							rs.getLong("id"), rs.getString("emp_code"), rs.getString("employee_name"), null),
+					companyId);
 		}
-		sql.append(" ORDER BY employee_name ASC, e.id ASC");
-		return this.jdbcTemplate.query(sql.toString(), (rs, rowNum) -> {
-			String name = rs.getString("employee_name");
-			String code = rs.getString("emp_code");
-			String label = name == null || name.isBlank() ? code : name + " (" + code + ")";
-			return new AttendanceRecord.EmployeeOption(rs.getLong("id"), label);
-		}, params.toArray());
+		// Across companies each employee's label names the company, as legacy's
+		// hr_employee_option_label does when no company is chosen.
+		return this.jdbcTemplate.query(
+				"SELECT e.id, " + DISPLAY_NAME + " AS employee_name, " + EMP_CODE + " AS emp_code, c.company_name"
+						+ " FROM employees e JOIN companies c ON c.id = e.company_id WHERE e.is_active = 1"
+						+ " ORDER BY c.company_name ASC, employee_name ASC, e.id ASC",
+				(rs, rowNum) -> new LeaveBalance.EmployeeOption(
+						rs.getLong("id"), rs.getString("emp_code"), rs.getString("employee_name"),
+						rs.getString("company_name")));
 	}
 
 	public List<AttendanceRecord.ExceptionTypeOption> exceptionTypeOptions(long companyId) {
