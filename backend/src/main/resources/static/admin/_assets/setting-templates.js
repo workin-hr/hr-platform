@@ -5,17 +5,37 @@
     return;
   }
 
-  var labels = window.WorkinSettingTemplatesLabels || {
-    add: 'Add option',
-    edit: 'Edit option',
+  // Legacy sets the titles from an inline script and hands each row over as one
+  // JSON attribute. The port renders no inline script and escapes each value
+  // into an attribute of its own, so both are read from the markup instead.
+  var labels = {
+    add: (optionModal && optionModal.getAttribute('data-label-add')) || 'Add option',
+    edit: (optionModal && optionModal.getAttribute('data-label-edit')) || 'Edit option',
   };
 
-  function parseJsonAttr(el, attr) {
-    try {
-      return JSON.parse(el.getAttribute(attr) || '{}');
-    } catch (e) {
-      return {};
-    }
+  function optionFrom(el) {
+    return {
+      id: el.getAttribute('data-option-id'),
+      setting_definition_id: el.getAttribute('data-definition-id'),
+      value: el.getAttribute('data-value'),
+      label_ar: el.getAttribute('data-label-ar'),
+      label_en: el.getAttribute('data-label-en'),
+      sort_order: el.getAttribute('data-sort-order'),
+      definition_label: el.getAttribute('data-definition-label'),
+      in_use: el.getAttribute('data-in-use') === 'true',
+    };
+  }
+
+  function definitionFrom(el) {
+    return {
+      id: el.getAttribute('data-definition-id'),
+      setting_key: el.getAttribute('data-setting-key'),
+      label_ar: el.getAttribute('data-label-ar'),
+      label_en: el.getAttribute('data-label-en'),
+      description_ar: el.getAttribute('data-description-ar'),
+      description_en: el.getAttribute('data-description-en'),
+      sort_order: el.getAttribute('data-sort-order'),
+    };
   }
 
   function setOptionValueLocked(locked) {
@@ -92,6 +112,7 @@
     if (blockedBtn) {
       e.preventDefault();
       e.stopPropagation();
+      closeRowActions();
       window.alert(blockedBtn.getAttribute('data-setting-option-blocked') || '');
       return;
     }
@@ -110,7 +131,7 @@
       e.preventDefault();
       e.stopPropagation();
       closeRowActions();
-      openOptionEdit(parseJsonAttr(editOptionBtn, 'data-setting-option'));
+      openOptionEdit(optionFrom(editOptionBtn));
       return;
     }
 
@@ -119,7 +140,7 @@
       e.preventDefault();
       e.stopPropagation();
       closeRowActions();
-      openDefinitionEdit(parseJsonAttr(editDefBtn, 'data-setting-definition'));
+      openDefinitionEdit(definitionFrom(editDefBtn));
       return;
     }
 

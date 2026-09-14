@@ -99,7 +99,8 @@
 													data-dialog-flagEmoji="${country.flagEmoji()}"
 													data-dialog-phoneLength="${country.phoneLength()}"
 													data-dialog-prefixes="${String.join(", ", country.prefixes())}"
-													data-dialog-sortOrder="${country.sortOrder()}">${t.apply("edit")}</button>
+													data-dialog-sortOrder="${country.sortOrder()}"
+													data-dialog-isActive="${country.active() ? "1" : "0"}">${t.apply("edit")}</button>
 											<form method="post" class="row-actions__form"
 											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -151,11 +152,12 @@
 							<label>${t.apply("phone_prefixes")}
 								<input type="text" name="prefixes" dir="ltr"
 								       data-dialog-field="prefixes"></label>
-							<%-- Not prefilled: a checkbox has no data-dialog-field
-							     equivalent, and the row's own state is shown in the
-							     table. Submitting the dialog sets it explicitly. --%>
+							<%-- Ticked from the row, as legacy's edit modal sets it
+							     (phone_countries/page.php:198). Rendered ticked, it
+							     re-activated every inactive country saved from here. --%>
 							<label>
-								<input type="checkbox" name="isActive" value="1" checked>
+								<input type="checkbox" name="isActive" value="1"
+								       data-dialog-field="isActive">
 								<span>${t.apply("status_active")}</span></label>
 						</div>
 					`)

@@ -87,9 +87,10 @@
 							@endif
 						</td>
 						<td class="col-actions">
-							<%-- Offered only when nothing depends on it. The
-								     service refuses either way; hiding the button
-								     keeps the page from inviting a refusal. --%>
+							<%-- An option companies use gets legacy's Delete that
+								     explains the refusal instead of posting
+								     (setting_templates_helper.php:301). The service
+								     refuses the post either way. --%>
 							@template.admin.rowActions(rowId = option.id(), t = t, items = @`
 								<div class="actions">
 									<button type="button" role="menuitem" class="row-actions__item" data-setting-option-edit
@@ -99,7 +100,8 @@
 									        data-label-ar="${option.labelAr()}"
 									        data-label-en="${option.labelEn()}"
 									        data-sort-order="${option.sortOrder()}"
-									        data-in-use="${option.inUse()}">${t.apply("edit")}</button>
+									        data-definition-label="${label}"
+									        data-in-use="${option.inUse() ? "true" : "false"}">${t.apply("edit")}</button>
 									@if(!option.inUse() && canWrite)
 										<form method="POST" action="/admin/settings" class="row-actions__form" role="none"
 										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
@@ -108,6 +110,9 @@
 											<input type="hidden" name="id" value="${option.id()}">
 											<button type="submit" role="menuitem" class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
 										</form>
+									@elseif(canWrite)
+										<button type="button" role="menuitem" class="row-actions__item row-actions__item--danger"
+										        data-setting-option-blocked="${t.apply("setting_option_in_use_delete_blocked").replace("{count}", String.valueOf(option.companiesUsing()))}">${t.apply("delete")}</button>
 									@endif
 								</div>
 							`)
@@ -166,7 +171,9 @@
 	</div>
 </div>
 
-<div class="modal-bg" id="settingOptionModal">
+<div class="modal-bg" id="settingOptionModal"
+		data-label-add="${t.apply("add_setting_option")}"
+		data-label-edit="${t.apply("edit_setting_option")}">
 	<div class="modal">
 		<button type="button" class="modal-close" data-setting-option-close>&times;</button>
 		<h2 id="settingOptionModalTitle">${t.apply("add_setting_option")}</h2>
@@ -175,10 +182,12 @@
 			<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 			<input type="hidden" name="action" id="settingOptionAction" value="add_option">
 			<input type="hidden" name="id" id="settingOptionId" value="">
-			<input type="hidden" name="setting_definition_id" id="settingOptionDefinitionId" value="">
+			<input type="hidden" name="setting_definition_id" id="settingOptionDefId" value="">
 			<div class="form-row">
 				<label>${t.apply("setting_option_value")} *</label>
 				<input type="text" name="value" id="settingOptionValue" required dir="ltr" maxlength="120">
+				<small class="text-muted" id="settingOptionValueHint">${t.apply("setting_option_value_hint")}</small>
+				<small class="text-muted" id="settingOptionValueLockedHint" hidden>${t.apply("setting_option_value_locked_hint")}</small>
 			</div>
 			<div class="form-row">
 				<label>${t.apply("name_ar")}</label>
