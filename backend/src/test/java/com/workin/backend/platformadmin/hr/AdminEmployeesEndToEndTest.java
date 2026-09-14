@@ -823,6 +823,84 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void anUnchangedSaveKeepsACodeTheDigitsRuleWouldRefuse() {
+		// Every employee in the development seed has a code such as E000002.
+		// The digits-only rule is for a code someone types, not one already stored.
+		long id = seedEmployee(this.companyA, "E000002", "Aya", "Alpha");
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		Map<String, Object> before = editableColumns(id);
+
+		assertSaved(postFields(
+				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+	}
+
+	@Test
+	void aReplacedCodeIsStillHeldToTheDigitsRule() {
+		long id = seedEmployee(this.companyA, "E000002", "Aya", "Alpha");
+
+		ResponseEntity<String> response = postForm("action", "save_edit", "id", String.valueOf(id),
+				"first_name", "Aya", "employee_code", "E000003",
+				"branch_id", String.valueOf(this.branchA));
+
+		assertThat(response.getHeaders().getLocation()).asString().contains("employee_code_invalid");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT employee_code FROM employees WHERE id = " + id, String.class))
+				.isEqualTo("E000002");
+	}
+
+	@Test
+	void anUnchangedSaveKeepsAPhoneStoredWithNoCountryCode() {
+		// R-019: join_company.php stores the phone and discards its dial code,
+		// a pair the phone rule refuses.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET phone = '01012345678', country_code = NULL WHERE id = ?", id);
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		Map<String, Object> before = editableColumns(id);
+
+		assertSaved(postFields(
+				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+	}
+
+	@Test
+	void aReplacedPhoneIsStillCheckedForItsCountryCode() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET phone = '01012345678', country_code = NULL WHERE id = ?", id);
+
+		ResponseEntity<String> response = postForm("action", "save_edit", "id", String.valueOf(id),
+				"first_name", "Aya", "employee_code", "1001",
+				"branch_id", String.valueOf(this.branchA),
+				"phone", "01099999999", "country_code", "");
+
+		assertThat(response.getHeaders().getLocation()).asString().contains("error_required");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT phone FROM employees WHERE id = " + id, String.class))
+				.isEqualTo("01012345678");
+	}
+
+	@Test
+	void anUnchangedSaveKeepsBlankAndPaddedTextAsStored() {
+		// The save trims and turns blanks into NULL, so it would rewrite every
+		// one of these while changing nothing anyone could see.
+		long id = seedEmployee(this.companyA, "1001", " Aya ", "Alpha");
+		nonStrict("UPDATE employees SET national_id = '', gender = '', address = '  12 Nile Street  ',"
+				+ " phone = NULL, country_code = '+20' WHERE id = " + id);
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		Map<String, Object> before = editableColumns(id);
+
+		assertSaved(postFields(
+				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+	}
+
+	@Test
 	void aZeroDateIsKeptOnlyWhileItsInputIsLeftEmpty() {
 		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
 		nonStrict("UPDATE employees SET birth_date = '0000-00-00' WHERE id = " + id);
@@ -897,8 +975,14 @@ class AdminEmployeesEndToEndTest {
 		return columns;
 	}
 
-	/** A rendered form as a browser holds it: what it would submit, and what it will not submit empty. */
-	private record BrowserForm(Map<String, String> fields, java.util.Set<String> required) {
+	/**
+	 * A rendered form as a browser holds it: what it would submit, and what
+	 * stops it submitting -- a required field left empty, a value its
+	 * {@code pattern} does not match, a number outside {@code min} and
+	 * {@code max}.
+	 */
+	private record BrowserForm(Map<String, String> fields, java.util.Set<String> required,
+			Map<String, String> patterns, Map<String, String[]> ranges) {
 	}
 
 	/**
@@ -957,7 +1041,35 @@ class AdminEmployeesEndToEndTest {
 				required.add(name);
 			}
 		}
-		return new BrowserForm(fields, required);
+		return new BrowserForm(fields, required, inputAttribute(form, "pattern"), numberRanges(form));
+	}
+
+	/** Each named input's value for the attribute {@code key}, where it has one. */
+	private static Map<String, String> inputAttribute(String form, String key) {
+		Map<String, String> found = new LinkedHashMap<>();
+		Matcher inputs = Pattern.compile("<input\\b([^>]*)>").matcher(form);
+		while (inputs.find()) {
+			String name = attribute(inputs.group(1), "name");
+			String value = attribute(inputs.group(1), key);
+			if (name != null && value != null) {
+				found.put(name, value);
+			}
+		}
+		return found;
+	}
+
+	/** Each number input's {@code min} and {@code max}; either may be absent. */
+	private static Map<String, String[]> numberRanges(String form) {
+		Map<String, String[]> found = new LinkedHashMap<>();
+		Matcher inputs = Pattern.compile("<input\\b([^>]*)>").matcher(form);
+		while (inputs.find()) {
+			String attributes = inputs.group(1);
+			String name = attribute(attributes, "name");
+			if (name != null && "number".equals(attribute(attributes, "type"))) {
+				found.put(name, new String[] {attribute(attributes, "min"), attribute(attributes, "max")});
+			}
+		}
+		return found;
 	}
 
 	/** A browser's value sanitisation: a date input holding no valid date submits as empty. */
@@ -988,6 +1100,24 @@ class AdminEmployeesEndToEndTest {
 					.as("a browser will not submit the form while required %s is empty", name)
 					.isNotEmpty();
 		}
+		// A browser checks pattern, min and max only on a value that is not empty.
+		form.patterns().forEach((name, pattern) -> {
+			String value = form.fields().get(name);
+			assertThat(value == null || value.isEmpty() || value.matches(pattern))
+					.as("a browser will not submit %s '%s', which pattern %s does not match", name, value, pattern)
+					.isTrue();
+		});
+		form.ranges().forEach((name, range) -> {
+			String value = form.fields().get(name);
+			if (value != null && !value.isEmpty()) {
+				double number = Double.parseDouble(value);
+				assertThat((range[0] == null || number >= Double.parseDouble(range[0]))
+						&& (range[1] == null || number <= Double.parseDouble(range[1])))
+						.as("a browser will not submit %s %s outside min %s and max %s",
+								name, value, range[0], range[1])
+						.isTrue();
+			}
+		});
 		List<String> pairs = new ArrayList<>();
 		form.fields().forEach((name, value) -> {
 			pairs.add(name);

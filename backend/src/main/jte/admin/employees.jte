@@ -158,13 +158,17 @@
 						       value="${editRow == null ? "" : editRow.lastName()}">
 					</div>
 					<div class="form-row">
-						<%-- Required unless the employee is stored without a code: the
-						     form cannot invent one, and left blank the save keeps none. --%>
+						<%-- The save validates only a replaced code, so the input asks for
+						     one only when the employee has one, and for digits only when
+						     the stored code is digits: a pattern the stored value fails
+						     would stop a browser submitting a form nobody changed. --%>
 						!{boolean codeRequired = editRow == null || !editRow.employeeCode().isBlank();}
+						!{boolean codeIsDigits = editRow == null || editRow.employeeCode().isBlank()
+								|| editRow.employeeCode().matches("[0-9]+");}
 						<label for="emp_code">${t.apply("emp_code")}${codeRequired ? " *" : ""}</label>
 						<input type="text" id="emp_code" name="employee_code" maxlength="64"
 						       required="${codeRequired}"
-						       inputmode="numeric" pattern="[0-9]+" autocomplete="off"
+						       inputmode="numeric" pattern="${codeIsDigits ? "[0-9]+" : null}" autocomplete="off"
 						       value="${editRow == null ? "" : editRow.employeeCode()}">
 					</div>
 					<div class="form-row">

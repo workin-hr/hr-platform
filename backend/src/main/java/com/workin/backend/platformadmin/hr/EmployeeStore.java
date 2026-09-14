@@ -413,35 +413,41 @@ public class EmployeeStore {
 	 * belong to the row's company -- {@link EmployeeAdminService} is what holds
 	 * them to it.
 	 *
-	 * @param kept columns left out of the update, so they keep what is stored:
-	 *     values the form could not show and so could not send back. Leaving
-	 *     one out, rather than writing its stored value, also holds for a
-	 *     {@code 0000-00-00} a strict session would refuse.
+	 * <p>Only columns whose value differs from {@code current} are set. An
+	 * unchanged column keeps exactly what is stored, which is not always what
+	 * the save's normalising would write back: an empty string it turns into
+	 * NULL, padding it trims, a {@code 0000-00-00} a strict session refuses.
+	 * Text is compared trimmed, with blank and NULL alike.
 	 */
-	public int update(long id, EmployeeWrite write, String passwordHash, java.util.Set<Kept> kept) {
+	public int update(long id, EmployeeWrite write, String passwordHash, Employee.Form current) {
 		java.util.Map<String, Object> columns = new java.util.LinkedHashMap<>();
-		columns.put("first_name", write.firstName());
-		columns.put("last_name", write.lastName());
-		columns.put("employee_code", write.employeeCode());
-		columns.put("phone", write.phone());
-		columns.put("country_code", write.countryCode());
-		columns.put("national_id", write.nationalId());
-		columns.put("gender", write.gender());
-		columns.put("birth_date", write.birthDate());
-		columns.put("hire_date", write.hireDate());
-		columns.put("address", write.address());
-		columns.put("branch_id", write.branchId());
-		columns.put("department_id", write.departmentId());
-		columns.put("job_title_id", write.jobTitleId());
-		columns.put("contract_duration_months", write.contractDurationMonths());
-		columns.put("is_mobile_attendance_enabled", write.mobileAttendance() ? 1 : 0);
+		putIfChanged(columns, "first_name", write.firstName(), current.firstName());
+		putIfChanged(columns, "last_name", write.lastName(), current.lastName());
+		putIfChanged(columns, "employee_code", write.employeeCode(), current.employeeCode());
+		putIfChanged(columns, "phone", write.phone(), current.phone());
+		putIfChanged(columns, "country_code", write.countryCode(), current.countryCode());
+		putIfChanged(columns, "national_id", write.nationalId(), current.nationalId());
+		putIfChanged(columns, "gender", write.gender(), current.gender());
+		putIfChanged(columns, "birth_date", write.birthDate(), current.birthDate());
+		putIfChanged(columns, "hire_date", write.hireDate(), current.hireDate());
+		putIfChanged(columns, "address", write.address(), current.address());
+		putIfChanged(columns, "branch_id", write.branchId(), current.branchId());
+		putIfChanged(columns, "department_id", write.departmentId(), current.departmentId());
+		putIfChanged(columns, "job_title_id", write.jobTitleId(), current.jobTitleId());
+		Integer months = write.contractDurationMonths();
+		if (!java.util.Objects.equals(months == null ? null : months.longValue(), current.contractDurationMonths())) {
+			columns.put("contract_duration_months", months);
+		}
+		if (write.mobileAttendance() != current.mobileAttendance()) {
+			columns.put("is_mobile_attendance_enabled", write.mobileAttendance() ? 1 : 0);
+		}
 		// Legacy adds password_hash to the payload only when one was typed, so
 		// an edit that leaves the field blank keeps the existing credential.
 		if (passwordHash != null) {
 			columns.put("password_hash", passwordHash);
 		}
-		for (Kept column : kept) {
-			columns.remove(column.column);
+		if (columns.isEmpty()) {
+			return 0;
 		}
 		List<Object> params = new ArrayList<>(columns.values());
 		params.add(id);
@@ -450,17 +456,20 @@ public class EmployeeStore {
 				params.toArray());
 	}
 
-	/** A column an edit can leave as stored. */
-	public enum Kept {
+	private static void putIfChanged(
+			java.util.Map<String, Object> columns, String column, String written, String stored) {
+		String before = stored == null ? "" : stored.trim();
+		String after = written == null ? "" : written.trim();
+		if (!before.equals(after)) {
+			columns.put(column, written);
+		}
+	}
 
-		EMPLOYEE_CODE("employee_code"),
-		BIRTH_DATE("birth_date"),
-		HIRE_DATE("hire_date");
-
-		private final String column;
-
-		Kept(String column) {
-			this.column = column;
+	/** An org id: the form's "none" and a NULL column are both zero. */
+	private static void putIfChanged(
+			java.util.Map<String, Object> columns, String column, Long written, long stored) {
+		if ((written == null ? 0L : written) != stored) {
+			columns.put(column, written);
 		}
 	}
 

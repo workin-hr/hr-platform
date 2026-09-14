@@ -303,44 +303,51 @@ public class EmployeeAdminService {
 		if (current == null) {
 			throw new RefusedException(Refusal.FOREIGN_ROW);
 		}
-		java.util.Set<EmployeeStore.Kept> kept = java.util.EnumSet.noneOf(EmployeeStore.Kept.class);
-
+		// Only a replaced value is validated. Legacy's rows hold what the rules
+		// below refuse -- every seeded code looks like E000002, and
+		// join_company.php stores a phone with no country code (R-019) -- so
+		// re-checking an untouched value would make those employees uneditable.
 		String code = trimmed(command.employeeCode());
-		if (code.isEmpty() && current.employeeCode().isBlank()) {
-			// Stored with no code, shown none, and left that way. Requiring one
-			// would make every edit of this employee invent a code.
-			kept.add(EmployeeStore.Kept.EMPLOYEE_CODE);
-		}
-		else {
+		if (!code.equals(current.employeeCode().trim())) {
 			assertCode(companyId, code, id);
 		}
 		assertOrgWithinCompany(companyId, command.branchId(), command.departmentId(),
 				command.jobTitleId(), command.shiftId(), current);
 
-		String phone = normalizedPhone(command.phone(), command.countryCode());
-		String countryCode = phone.isEmpty() ? null
-				: this.phoneNumbers.resolveCode(command.countryCode().trim());
+		String phone;
+		String countryCode;
+		if (trimmed(command.phone()).equals(current.phone().trim())
+				&& trimmed(command.countryCode()).equals(current.countryCode().trim())) {
+			phone = current.phone();
+			countryCode = current.countryCode();
+		}
+		else {
+			String normalized = normalizedPhone(command.phone(), command.countryCode());
+			phone = normalized.isEmpty() ? null : normalized;
+			countryCode = normalized.isEmpty() ? null
+					: this.phoneNumbers.resolveCode(command.countryCode().trim());
+		}
 		// Unlike the create path, an edit hashes a password whether or not the
 		// employee has a phone. Legacy's asymmetry, kept.
 		String passwordHash = command.password() != null && !command.password().isEmpty()
 				? this.employeePasswordEncoder.encode(command.password()) : null;
 
 		String hireDate = trimmed(command.hireDate());
-		if (keepsUnshownDate(current.birthDate(), command.birthDate())) {
-			kept.add(EmployeeStore.Kept.BIRTH_DATE);
-		}
-		if (keepsUnshownDate(current.hireDate(), hireDate)) {
-			kept.add(EmployeeStore.Kept.HIRE_DATE);
-		}
+		// An empty date input over a stored value it could not hold stands for
+		// that value, so the store sees it unchanged.
+		String birthDateWritten = keepsUnshownDate(current.birthDate(), command.birthDate())
+				? current.birthDate() : nullIfBlank(command.birthDate());
+		String hireDateWritten = keepsUnshownDate(current.hireDate(), hireDate)
+				? current.hireDate() : hireDate.isEmpty() ? null : hireDate;
 		this.store.update(id, new EmployeeStore.EmployeeWrite(
 				companyId, command.branchId(), command.departmentId(), command.jobTitleId(),
 				code, trimmed(command.firstName()), trimmed(command.lastName()),
-				phone.isEmpty() ? null : phone, countryCode,
-				nullIfBlank(command.nationalId()), nullIfBlank(command.birthDate()),
+				phone, countryCode,
+				nullIfBlank(command.nationalId()), birthDateWritten,
 				nullIfBlank(command.gender()), nullIfBlank(command.address()),
-				hireDate.isEmpty() ? null : hireDate,
+				hireDateWritten,
 				contractMonths(command.contractDuration(), command.contractDurationUnit()),
-				command.mobileAttendance()), passwordHash, kept);
+				command.mobileAttendance()), passwordHash, current);
 
 		String postedEffective = trimmed(command.shiftEffectiveFrom());
 		// The same shift with its unshown start date left empty is the current

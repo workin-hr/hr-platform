@@ -84,9 +84,9 @@ public record Employee(
 	 * What the edit form is filled from: every column {@code save_edit} writes,
 	 * as stored, and the latest shift assignment. Not the list row, whose name
 	 * and code are display values -- a form filled from those saves the joined
-	 * name into {@code first_name}. Text reads blank for null, which the save
-	 * turns back into null; an absent org row or shift is zero, the selects'
-	 * "none".
+	 * name into {@code first_name}. Text reads blank for null, and the save
+	 * treats the two alike, so an unchanged blank stays as stored; an absent
+	 * org row or shift is zero, the selects' "none".
 	 */
 	public record Form(
 			long id, long companyId, String firstName, String lastName, String employeeCode,
