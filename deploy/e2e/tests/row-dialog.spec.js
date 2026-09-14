@@ -81,3 +81,20 @@ test('a row with no state leaves the checkbox as the form renders it', async ({ 
 	await expect(dialog.locator('[name="nameEn"]')).toHaveValue('Unstated');
 	await expect(dialog.locator('[name="isActive"]')).not.toBeChecked();
 });
+
+test('a filled dialog says so before it opens', async ({ page }) => {
+	// emp-picker.js redraws its label from what the fill wrote; it can only do
+	// that if it hears about the fill after it and before the dialog shows.
+	await page.evaluate(() => {
+		window.filled = [];
+		document.addEventListener('row-dialog:filled', (event) => {
+			window.filled.push({
+				dialog: event.target.id,
+				name: event.target.querySelector('[name="nameEn"]').value,
+				open: event.target.open,
+			});
+		});
+	});
+	await open(page, 2);
+	expect(await page.evaluate(() => window.filled)).toEqual([{ dialog: 'edit', name: 'Closed', open: false }]);
+});

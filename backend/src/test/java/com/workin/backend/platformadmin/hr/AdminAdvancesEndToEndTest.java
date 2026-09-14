@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.http.HttpClient;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -28,6 +30,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.util.HtmlUtils;
+
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 import com.workin.backend.BackendApplication;
 import com.workin.legacy.LegacyMariaDb;
@@ -339,6 +345,85 @@ class AdminAdvancesEndToEndTest {
 				"/admin/advances", HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), String.class);
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
 		assertThat(response.getHeaders().getLocation()).asString().contains("/admin/login");
+	}
+
+	@Test
+	void anEditKeepsItsRowsEmployeeAfterThatEmployeeIsDeactivated() {
+		long id = seedAdvance(this.employeeA, "1000", "1000", "pending");
+		this.jdbc.update("UPDATE employees SET is_active = 0 WHERE id = ?", this.employeeA);
+
+		String html = body("/admin/advances");
+		Matcher trigger = Pattern.compile("<button[^>]*data-dialog=\"advance-edit\"[^>]*data-dialog-id=\""
+				+ id + "\"[^>]*>").matcher(html);
+		assertThat(trigger.find()).as("the row offers Edit").isTrue();
+		assertThat(trigger.group())
+				.as("Edit carries the row's employee and the label legacy shows for it")
+				.contains("data-dialog-employee_id=\"" + this.employeeA + "\"")
+				.contains("data-dialog-employee_label=\"Aya Alpha (A100)\"");
+
+		String dialog = html.substring(html.indexOf("id=\"advance-edit\""));
+		dialog = dialog.substring(0, dialog.indexOf("</dialog>"));
+		assertThat(dialog)
+				.as("the row fills a picker, not a select that can only hold listed employees")
+				.doesNotContain("<select name=\"employee_id\"")
+				.containsPattern("name=\"employee_id\" value=\"\" data-emp-id\\s+data-dialog-field=\"employee_id\"")
+				.containsPattern("data-emp-fallback-label\\s+data-dialog-field=\"employee_label\"");
+		assertThat(pickerLabels(html).keySet())
+				.as("the list holds active employees; the row keeps its own")
+				.contains(this.employeeB)
+				.doesNotContain(this.employeeA);
+
+		ResponseEntity<String> saved = post("/admin/advances", this.cookie, page("/admin/advances", this.cookie).csrf(),
+				"action", "edit_advance", "id", String.valueOf(id),
+				"employee_id", String.valueOf(this.employeeA), "amount", "1200");
+		assertThat(saved.getHeaders().getLocation()).asString().doesNotContain("error=");
+		assertThat(this.jdbc.queryForObject("SELECT employee_id FROM advances WHERE id = " + id, Long.class))
+				.as("saving keeps the deactivated employee, as legacy's edit does")
+				.isEqualTo(this.employeeA);
+	}
+
+	@Test
+	void thePickerListsEveryActiveEmployeeUnderLegacysLabels() {
+		insertActiveEmployees(this.companyB, 520);
+		long active = this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM employees WHERE is_active = 1", Long.class);
+
+		Map<Long, String> everyone = pickerLabels(body("/admin/advances"));
+		assertThat(everyone).as("no company chosen: every active employee, not the first 500")
+				.hasSize((int) active);
+		assertThat(everyone.get(this.employeeB)).as("a list across companies names the company")
+				.isEqualTo("Basma Beta (B100) — Beta Co");
+		assertThat(pickerLabels(body("/admin/advances?company_id=" + this.companyB)).get(this.employeeB))
+				.as("one company chosen: the label leaves it out")
+				.isEqualTo("Basma Beta (B100)");
+	}
+
+	private Map<Long, String> pickerLabels(String html) {
+		Matcher list = Pattern.compile("id=\"employee-picker-list\" data-employees=\"([^\"]*)\"").matcher(html);
+		assertThat(list.find()).as("the page renders the picker's list").isTrue();
+		List<Map<String, Object>> entries = new ObjectMapper().readValue(
+				HtmlUtils.htmlUnescape(list.group(1)), new TypeReference<List<Map<String, Object>>>() {
+				});
+		Map<Long, String> labels = new LinkedHashMap<>();
+		entries.forEach(entry -> labels.put(((Number) entry.get("id")).longValue(), (String) entry.get("label")));
+		return labels;
+	}
+
+	private void insertActiveEmployees(long companyId, int count) {
+		long branchId = this.jdbc.queryForObject(
+				"SELECT COALESCE(MAX(id), 0) + 1 FROM branches", Long.class);
+		this.jdbc.update("INSERT INTO branches (id, company_id, name, is_active, created_at)"
+				+ " VALUES (?, ?, ?, 1, NOW())", branchId, companyId, "Bulk branch");
+		long first = this.jdbc.queryForObject(
+				"SELECT GREATEST(COALESCE(MAX(id), 0) + 1, 990001) FROM employees", Long.class);
+		List<Object[]> rows = new ArrayList<>();
+		for (int i = 0; i < count; i++) {
+			rows.add(new Object[] { first + i, companyId, branchId, "BULK" + i, "Bulk", "Employee " + i });
+		}
+		this.jdbc.batchUpdate("INSERT INTO employees (id, company_id, branch_id, employee_code,"
+				+ " first_name, last_name, role, is_active, is_mobile_attendance_enabled,"
+				+ " can_check_in_any_branch, join_request_status, token_version, created_at, updated_at)"
+				+ " VALUES (?, ?, ?, ?, ?, ?, 'employee', 1, 1, 0, 'accepted', 1, NOW(), NOW())", rows);
 	}
 
 	private long seedAdvance(long employeeId, String amount, String remaining, String status) {

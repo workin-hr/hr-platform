@@ -55,6 +55,9 @@
     document.dispatchEvent(new CustomEvent('row-actions:close'));
 
     fill(dialog, trigger);
+    // A field with state of its own beyond its value -- emp-picker.js's label
+    // and results -- redraws from what fill() just wrote.
+    dialog.dispatchEvent(new CustomEvent('row-dialog:filled', { bubbles: true }));
     dialog.showModal();
 
     const first = dialog.querySelector('.row-dialog__body input, .row-dialog__body textarea, .row-dialog__body select');

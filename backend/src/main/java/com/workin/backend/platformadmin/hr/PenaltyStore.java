@@ -142,7 +142,7 @@ public class PenaltyStore {
 		return this.jdbcTemplate.query(
 				"SELECT e.id, " + EMP_CODE + " AS emp_code, " + DISPLAY_NAME + " AS employee_name,"
 						+ " c.company_name FROM employees e JOIN companies c ON c.id = e.company_id"
-						+ " WHERE e.is_active = 1 ORDER BY c.company_name, employee_name LIMIT 500",
+						+ " WHERE e.is_active = 1 ORDER BY c.company_name, employee_name",
 				(rs, rowNum) -> new LeaveBalance.EmployeeOption(
 						rs.getLong("id"), rs.getString("emp_code"),
 						rs.getString("employee_name"), rs.getString("company_name")));
