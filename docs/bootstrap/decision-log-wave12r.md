@@ -4035,3 +4035,14 @@ Posted as a single comment before the merge, containing: the head SHA; which una
 | Regression coverage | `thePickerListsEveryActiveEmployeeUnderLegacysLabels`, in `AdminLeaveBalancesEndToEndTest` and `AdminAttendanceEndToEndTest`. It adds a company, an employee and 520 more employees, then requires four things: no employee `<select>` in the add form; a picker list holding every active employee (on the roster, for leave balances); a label naming the company when none is chosen; and a label without the company once it is chosen. With the templates and stores from `main`, both failed at "the add form picks an employee by search, not from a select". Each mutant failed only its own page's test: leave balances' cap put back (500 of 523), and attendance's list without the company. The no-name rule is pinned by `EmployeePickerTest` and `AdminAttendanceEndToEndTest.anEmployeeWithNoNameIsListedByCodeAlone`; with the label code from `daf7c1f5` they failed with " (A100)" and " (NN1)". |
 | Rollback | Revert the merge. Nothing stored changes. |
 | Related | **#214**, **#213**, **D-241**, **#236**. |
+
+## D-236: Rejecting A Request Opens A Dialog With An Optional Reply
+
+| Field | Value |
+|---|---|
+| Status | Proposed 2026-09-15 in the pull request for #213's requests item; accepted when the repository owner merges it. |
+| Decision | A pending request's **Reject** opens a `request-reject` row dialog instead of posting. The dialog is cloned from the existing `request-approve` dialog. It has the same optional reply box (`comment`) and a red submit, as legacy's decision modal turns red for a reject. Legacy's approve and reject share one modal with an optional reply (`requests/page.php:143-157`, `requests-actions.js`). The service already stores the posted comment, and an empty one is still stored as NULL. |
+| The defect | Reject posted on the first click: there was no chance to reply to the employee, and nothing to stop a mistaken click on a decision the employee is notified of. |
+| Regression coverage | **`AdminRequestsEndToEndTest.rejectingOpensADialogWithAnOptionalReplyRatherThanPostingAtOnce`** reads a pending row's menu. It must offer a reject that opens `request-reject` for that row and posts nothing itself. The dialog must post `action=reject` and carry a reply box that is not required. With the template from `main`, it failed at "reject opens its dialog for this row". Mutants, each restoring the template byte-identical: without the dialog it failed at "the reject dialog renders", and with the reply box required it failed at "the reply is optional, as in legacy". The class's other 19 tests pass, including `anEmptyCommentIsStoredAsNullNotAnEmptyString`, and so do the template gates, including the action-reachability gate. |
+| Rollback | Revert the merge. Nothing is stored differently, so there is nothing to unwind. |
+| Related | **#211**, **#213**, **D-210** (the row dialogs). |
