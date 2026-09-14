@@ -93,7 +93,8 @@
 													data-dialog-subject="${category.nameAr()}"
 													data-dialog-nameAr="${category.nameAr()}"
 													data-dialog-nameEn="${category.nameEn()}"
-													data-dialog-sortOrder="${category.sortOrder()}">${t.apply("edit")}</button>
+													data-dialog-sortOrder="${category.sortOrder()}"
+													data-dialog-isActive="${category.active() ? "1" : "0"}">${t.apply("edit")}</button>
 											<form method="post" class="row-actions__form"
 											      onsubmit="return confirm('${t.apply("faq_delete_category_confirm")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -176,7 +177,8 @@
 													     ("both"), and setting a select to "BOTH" matches
 													     none of them and silently clears it. --%>
 													data-dialog-platform="${item.platform().stored()}"
-													data-dialog-sortOrder="${item.sortOrder()}">${t.apply("edit")}</button>
+													data-dialog-sortOrder="${item.sortOrder()}"
+													data-dialog-isActive="${item.active() ? "1" : "0"}">${t.apply("edit")}</button>
 											<form method="post" class="row-actions__form"
 											      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -212,9 +214,11 @@
 						<div class="form-row">
 							<label>${t.apply("sort_order")}
 								<input type="number" name="sortOrder" data-dialog-field="sortOrder"></label>
-							<%-- Not prefilled: a checkbox has no data-dialog-field equivalent,
-							     and the row shows its own state. Submitting sets it. --%>
-							<label><input type="checkbox" name="isActive" value="1" checked>
+							<%-- Ticked from the row, as legacy's edit modal sets it
+							     (faqs/page.php:260). Rendered ticked, it re-activated
+							     every inactive category saved from this dialog. --%>
+							<label><input type="checkbox" name="isActive" value="1"
+									data-dialog-field="isActive">
 								<span>${t.apply("status_active")}</span></label>
 						</div>
 					`)
@@ -252,7 +256,10 @@
 								<textarea name="answerEn" rows="3" required data-dialog-field="answerEn"></textarea></label>
 						</div>
 						<div class="form-row">
-							<label><input type="checkbox" name="isActive" value="1" checked>
+							<%-- Ticked from the row, as legacy's edit modal sets it
+							     (faqs/page.php:274). --%>
+							<label><input type="checkbox" name="isActive" value="1"
+									data-dialog-field="isActive">
 								<span>${t.apply("status_active")}</span></label>
 						</div>
 					`)
