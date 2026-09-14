@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.org.Branch;
 import com.workin.backend.platformadmin.org.BranchAdminService;
+import com.workin.backend.platformadmin.org.ActiveCompanies;
 import com.workin.backend.platformadmin.org.BranchStore;
 import com.workin.legacy.LegacyClock;
 
@@ -39,10 +40,13 @@ public class AdminBranchesController {
 
 	private final LegacyClock clock;
 
-	public AdminBranchesController(BranchStore store, BranchAdminService service, LegacyClock clock) {
+	private final ActiveCompanies companies;
+
+	public AdminBranchesController(BranchStore store, BranchAdminService service, LegacyClock clock, ActiveCompanies companies) {
 		this.store = store;
 		this.service = service;
 		this.clock = clock;
+		this.companies = companies;
 	}
 
 	@AuthenticatedUseCase(reason = "One company's branches. An administrator reaches every "
@@ -70,6 +74,9 @@ public class AdminBranchesController {
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);
 		model.addAttribute("addOpen", "add".equals(action));
+		// The add form names its company when nothing has chosen one already.
+		model.addAttribute("companyOptions", "add".equals(action) && !current.isScopedToOneCompany()
+				&& filters.companyId() <= 0 ? this.companies.all() : java.util.List.of());
 		model.addAttribute("editRow", "edit".equals(action) ? visible(current, filters, id) : null);
 		model.addAttribute("qrRow", "qr".equals(action) ? visible(current, filters, id) : null);
 		model.addAttribute("now", this.clock.now());

@@ -231,6 +231,28 @@ class AdminShiftsEndToEndTest {
 	private record Page(ResponseEntity<String> response, String cookie, Csrf csrf) {
 	}
 
+	@Test
+	void anAddWithNoCompanyChosenAsksWhichActiveCompany() {
+		long suspended = createCompany("Zeta Suspended");
+		this.jdbc.update("UPDATE companies SET status = 'suspended' WHERE id = ?", suspended);
+
+		String form = body("/admin/shifts?action=add&company_id=");
+		Matcher select = Pattern.compile(
+				"<select name=\"company_id\" id=\"sh_add_company\" required>(.*?)</select>", Pattern.DOTALL).matcher(form);
+		assertThat(select.find()).as("with no company chosen, the add form asks for one").isTrue();
+		assertThat(select.group(1))
+				.as("every active company, and no other")
+				.contains("<option value=\"" + this.companyA + "\">Alpha Co</option>")
+				.contains("<option value=\"" + this.companyB + "\">Beta Co</option>")
+				.doesNotContain("value=\"" + suspended + "\"");
+		assertThat(form).as("instead of posting a company of 0").doesNotContain("name=\"company_id\" value=\"0\"");
+
+		assertThat(body("/admin/shifts?action=add&company_id=" + this.companyA))
+				.as("a page already filtered to a company keeps that company, hidden")
+				.doesNotContain("<select name=\"company_id\"")
+				.contains("<input type=\"hidden\" name=\"company_id\" value=\"" + this.companyA + "\">");
+	}
+
 	private long createCompany(String name) {
 		String phone = "01" + System.nanoTime() % 1_000_000_000L;
 		this.jdbc.update("INSERT INTO companies (company_name, phone, password_hash, status,"

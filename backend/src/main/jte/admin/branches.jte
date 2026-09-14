@@ -1,4 +1,5 @@
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.org.ActiveCompanies
 @import com.workin.backend.platformadmin.org.Branch
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
@@ -8,6 +9,7 @@
 @param String currentAdminPhone
 @param DashboardPage<Branch> result
 @param DashboardListFilters filters
+@param java.util.List<ActiveCompanies.CompanyOption> companyOptions
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
@@ -77,7 +79,8 @@
 		@if(addOpen || editRow != null)
 			@template.admin.branch-form(
 				branch = editRow, csrfParameterName = csrfParameterName, csrfToken = csrfToken,
-				session = session, filters = filters, canWrite = canWrite, t = t)
+				session = session, filters = filters, canWrite = canWrite,
+				companyOptions = companyOptions, t = t)
 		@endif
 
 		@if(qrRow != null)

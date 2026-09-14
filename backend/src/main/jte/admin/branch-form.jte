@@ -1,4 +1,5 @@
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.org.ActiveCompanies
 @import com.workin.backend.platformadmin.org.Branch
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -7,6 +8,7 @@
 @param String csrfToken
 @param DashboardSession session
 @param DashboardListFilters filters
+@param java.util.List<ActiveCompanies.CompanyOption> companyOptions = java.util.List.of()
 @param boolean canWrite
 @param Function<String, String> t
 <%-- dashboard/pages/branches/_branch_form.php, serving both add and edit --
@@ -30,14 +32,18 @@
 		     in the company they were looking at, and so the redirect can put
 		     the filter back. A scoped session's is its own and the field is
 		     ignored by the service. --%>
-		<input type="hidden" name="company_id"
-		       value="${branch != null ? branch.companyId() : filters.companyId()}">
 
 		<%-- "_branch_form.php" wraps its rows in this grid and marks the wide
 		     ones "org-form-span-2". Without the wrapper every field is a
 		     full-width band, which is what this form rendered as: the grid is
 		     two columns, collapsing to one below 520px. --%>
 		<div class="org-form-grid">
+		@if(branch != null)
+			<input type="hidden" name="company_id" value="${branch.companyId()}">
+		@else
+			@template.admin.companyField(session = session, companyId = filters.companyId(),
+					companies = companyOptions, inputId = "br_add_company", t = t)
+		@endif
 		<div class="form-row org-form-span-2">
 			<label for="name">${t.apply("branch")}</label>
 			<input type="text" id="name" name="name" required maxlength="255"

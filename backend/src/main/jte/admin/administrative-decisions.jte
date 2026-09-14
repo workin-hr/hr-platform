@@ -1,4 +1,5 @@
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.org.ActiveCompanies
 @import com.workin.backend.platformadmin.hr.AdministrativeDecision
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
@@ -8,6 +9,7 @@
 @param String currentAdminPhone
 @param DashboardPage<AdministrativeDecision> result
 @param DashboardListFilters filters
+@param java.util.List<ActiveCompanies.CompanyOption> companyOptions
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
@@ -84,7 +86,8 @@
 						     unfiltered administrator could move a decision between
 						     companies (R-047). --%>
 					@else
-						<input type="hidden" name="company_id" value="${filters.companyId()}">
+						@template.admin.companyField(session = session, companyId = filters.companyId(),
+								companies = companyOptions, inputId = "dc_add_company", wide = false, t = t)
 					@endif
 
 					<div class="form-row">
