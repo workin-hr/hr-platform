@@ -36,6 +36,13 @@ public record Banner(
 				? "—" : this.createdAt.substring(0, Math.min(10, this.createdAt.length()));
 	}
 
+	/** This banner with another action value: the stored one an edit keeps rather than rebuilds. */
+	public Banner withButtonActionValue(String value) {
+		return new Banner(this.id, this.imageUrl, this.active, this.sortOrder, this.platform,
+				this.titleAr, this.titleEn, this.descriptionAr, this.descriptionEn,
+				this.buttonLabelAr, this.buttonLabelEn, this.buttonActionType, value, this.createdAt);
+	}
+
 	/**
 	 * {@code home_banner_title()}: the viewer's language, falling back to
 	 * Arabic and then English -- a banner with only one of the two still shows

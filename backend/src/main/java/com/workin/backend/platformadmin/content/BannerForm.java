@@ -1,5 +1,8 @@
 package com.workin.backend.platformadmin.content;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -21,6 +24,9 @@ public final class BannerForm {
 	private static final Pattern EXTERNAL_URL = Pattern.compile("^https?://", Pattern.CASE_INSENSITIVE);
 
 	private static final Pattern NON_DIGITS = Pattern.compile("\\D+");
+
+	/** PHP's {@code ltrim($code, '+')}, which strips every leading plus. */
+	private static final Pattern LEADING_PLUSES = Pattern.compile("^\\++");
 
 	/** @param errorKey a message key, or null when {@link #banner} is present */
 	public record Result(Banner banner, String errorKey) {
@@ -78,10 +84,54 @@ public final class BannerForm {
 		};
 	}
 
+	/** A stored WhatsApp number as the edit form's two inputs show it. */
+	public record WhatsappParts(String countryCode, String local) {
+	}
+
+	/**
+	 * {@code banner_split_whatsapp_digits()}: the stored digits split on the
+	 * longest active dial code they start with, or {@code +20} with every digit
+	 * as the local number when none matches -- legacy's literal default, not
+	 * the first active code.
+	 *
+	 * @param dialCodes the active dial codes, as {@code company_country_codes()} lists them
+	 */
+	public static WhatsappParts splitWhatsapp(String storedDigits, List<String> dialCodes) {
+		String digits = NON_DIGITS.matcher(storedDigits == null ? "" : storedDigits.trim()).replaceAll("");
+		if (digits.isEmpty()) {
+			return new WhatsappParts("+20", "");
+		}
+		// PHP's usort is stable, and so is List.sort: codes of equal length keep
+		// the order the active list gives them.
+		List<String> longestFirst = new ArrayList<>(dialCodes);
+		longestFirst.sort(Comparator.comparingInt(String::length).reversed());
+		for (String code : longestFirst) {
+			String dial = LEADING_PLUSES.matcher(code).replaceFirst("");
+			if (!dial.isEmpty() && digits.startsWith(dial)) {
+				return new WhatsappParts(code, digits.substring(dial.length()));
+			}
+		}
+		return new WhatsappParts("+20", digits);
+	}
+
+	/**
+	 * {@code banner_normalize_whatsapp_phone()}'s rule for a value it stores
+	 * unchanged: eight to fifteen digits and nothing else, the length of a full
+	 * international number. An edit keeps such a stored value; any other one it
+	 * rebuilds, so it cannot carry an unchecked value past the WhatsApp rule to
+	 * a client.
+	 */
+	static boolean isStorableWhatsappNumber(String value) {
+		return value != null && value.length() >= 8 && value.length() <= 15
+				&& !NON_DIGITS.matcher(value).find();
+	}
+
 	/**
 	 * {@code banner_whatsapp_from_parts()}: the dial code without its plus,
-	 * followed by the local number stripped to digits. An empty local number
-	 * is no number, not a bare dial code.
+	 * followed by the local number stripped to digits, through
+	 * {@code banner_normalize_whatsapp_phone()}. An empty local number is no
+	 * number, not a bare dial code; so is a result outside eight to fifteen
+	 * digits.
 	 */
 	static String whatsappNumber(String countryCode, String localPhone) {
 		String local = NON_DIGITS.matcher(localPhone == null ? "" : localPhone.trim()).replaceAll("");
@@ -92,7 +142,8 @@ public final class BannerForm {
 		while (dial.startsWith("+")) {
 			dial = dial.substring(1);
 		}
-		return NON_DIGITS.matcher(dial).replaceAll("") + local;
+		String number = NON_DIGITS.matcher(dial).replaceAll("") + local;
+		return isStorableWhatsappNumber(number) ? number : null;
 	}
 
 	private static String trimToNull(String value) {

@@ -9,6 +9,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.workin.backend.platformadmin.PlatformAdminAuditEventType;
 import com.workin.backend.platformadmin.PlatformAdminAuditService;
+import com.workin.legacy.phone.LegacyPhoneCountries;
 import com.workin.legacy.wire.LegacyApiException;
 import com.workin.legacy.uploads.LegacyFileUploads;
 
@@ -46,14 +47,17 @@ public class BannerAdminService {
 
 	private final PlatformAdminAuditService auditService;
 
+	private final LegacyPhoneCountries phoneCountries;
+
 	private final boolean actionsEnabled;
 
 	public BannerAdminService(BannerStore store, LegacyFileUploads uploads,
-			PlatformAdminAuditService auditService,
+			PlatformAdminAuditService auditService, LegacyPhoneCountries phoneCountries,
 			@Value("${app.platform-admin.actions.enabled:false}") boolean actionsEnabled) {
 		this.store = store;
 		this.uploads = uploads;
 		this.auditService = auditService;
+		this.phoneCountries = phoneCountries;
 		this.actionsEnabled = actionsEnabled;
 	}
 
@@ -113,8 +117,22 @@ public class BannerAdminService {
 		if (!form.ok()) {
 			return Result.rejected(form.errorKey());
 		}
-		this.store.update(id, form.banner());
-		audit(adminId, PlatformAdminAuditEventType.CONTENT_UPDATED, String.valueOf(id), form.banner());
+		Banner banner = form.banner();
+		// D-230: the form shows a stored WhatsApp number split into two inputs.
+		// Posted back as shown, they are that stored number, not a new one built
+		// from the parts -- which, for a number no active dial code matches,
+		// would gain a leading 20. Only a value legacy would store unchanged --
+		// eight to fifteen digits -- is kept that way; any other is rebuilt, as
+		// legacy rebuilds every one.
+		if (existing.buttonActionType() == Banner.Action.WHATSAPP
+				&& banner.buttonActionType() == Banner.Action.WHATSAPP
+				&& BannerForm.isStorableWhatsappNumber(existing.buttonActionValue())
+				&& submission.showsWhatsapp(BannerForm.splitWhatsapp(
+						existing.buttonActionValue(), this.phoneCountries.dialCodes()))) {
+			banner = banner.withButtonActionValue(existing.buttonActionValue());
+		}
+		this.store.update(id, banner);
+		audit(adminId, PlatformAdminAuditEventType.CONTENT_UPDATED, String.valueOf(id), banner);
 		return Result.DONE;
 	}
 
@@ -168,6 +186,16 @@ public class BannerAdminService {
 					this.descriptionAr, this.descriptionEn, this.buttonLabelAr, this.buttonLabelEn,
 					this.platform, this.actionType, this.actionValue,
 					this.whatsappCountryCode, this.whatsappPhone, this.active, this.sortOrder);
+		}
+
+		/** Whether the WhatsApp inputs came back exactly as the edit form showed them. */
+		boolean showsWhatsapp(BannerForm.WhatsappParts shown) {
+			return trimmed(this.whatsappCountryCode).equals(shown.countryCode())
+					&& trimmed(this.whatsappPhone).equals(shown.local());
+		}
+
+		private static String trimmed(String value) {
+			return value == null ? "" : value.trim();
 		}
 	}
 

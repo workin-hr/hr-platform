@@ -1,4 +1,5 @@
 @import com.workin.backend.platformadmin.content.Banner
+@import com.workin.backend.platformadmin.content.BannerForm
 @import com.workin.backend.platformadmin.content.Faq
 @import com.workin.backend.platformadmin.web.DashboardSession
 @import java.util.List
@@ -9,6 +10,8 @@
 @param List<Banner> banners
 <%-- The row being edited, from ?edit=<id>. Null when adding. --%>
 @param Banner editBanner = null
+<%-- The edited WhatsApp button's stored number, split into its two inputs (D-230). --%>
+@param BannerForm.WhatsappParts whatsappParts = null
 @param List<String> routes
 @param boolean actionsEnabled
 @param String errorKey = null
@@ -190,10 +193,12 @@
 						<%-- One field for the external URL and one datalist-backed field for
 						     the internal route. The route list is the allowlist itself, so
 						     the form offers only values the server will accept. --%>
+						<%-- Empty for a WhatsApp button, as legacy's edit leaves it: that
+						     number lives in the two inputs below, not here. --%>
 						<label>${t.apply("button_action_value")}
 							<input type="text" name="actionValue" list="bannerRoutes"
 							       value="${editBanner == null || editBanner.buttonActionValue() == null
-								       ? "" : editBanner.buttonActionValue()}"
+								       || whatsappParts != null ? "" : editBanner.buttonActionValue()}"
 							       placeholder="${t.apply("banner_action_url_placeholder")}"></label>
 						<datalist id="bannerRoutes">
 							@for(String route : routes)
@@ -202,9 +207,13 @@
 						</datalist>
 					</div>
 					<div class="form-row">
+						<%-- A stored WhatsApp number split back into the parts it was built
+						     from (D-230). Left empty, an unchanged save would store no number. --%>
 						<label>${t.apply("country_code")}
-							<input type="text" name="whatsappCountryCode" placeholder="+20"></label>
-						<label>${t.apply("banner_whatsapp_number")}<input type="text" name="whatsappPhone"></label>
+							<input type="text" name="whatsappCountryCode" placeholder="+20"
+							       value="${whatsappParts == null ? "" : whatsappParts.countryCode()}"></label>
+						<label>${t.apply("banner_whatsapp_number")}<input type="text" name="whatsappPhone"
+								value="${whatsappParts == null ? "" : whatsappParts.local()}"></label>
 						<label>
 							<input type="checkbox" name="isActive" value="1"
 						       checked="${editBanner == null || editBanner.active()}">
