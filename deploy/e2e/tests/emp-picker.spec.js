@@ -61,19 +61,15 @@ test.beforeEach(async ({ page }) => {
 	await page.addScriptTag({ content: asset('row-dialog.js') });
 	await page.addScriptTag({ content: asset('emp-picker.js') });
 	// Registered after the picker's own listener, so it sees the picker's verdict.
-	// It stops every real POST; a dialog's Cancel is let through to close it.
+	// It stops every real POST; no dialog button submits in order to close.
 	await page.evaluate(() => {
 		window.submits = [];
 		document.querySelectorAll('form').forEach((form) => form.addEventListener('submit', (event) => {
-			const toDialog = event.submitter?.getAttribute('formmethod') === 'dialog';
 			window.submits.push({
 				prevented: event.defaultPrevented,
 				employee: new FormData(form).get('employee_id'),
-				toDialog,
 			});
-			if (!toDialog) {
-				event.preventDefault();
-			}
+			event.preventDefault();
 		}));
 	});
 });
@@ -150,7 +146,7 @@ test('an edit keeps a row\'s employee the list no longer holds, and saves it', a
 
 	await page.locator('#save').click();
 	expect(await lastSubmit(page), 'the form submits the row\'s employee')
-		.toMatchObject({ prevented: false, employee: '900', toDialog: false });
+		.toMatchObject({ prevented: false, employee: '900' });
 });
 
 test('cancel still closes, and the next row replaces the last one', async ({ page }) => {
