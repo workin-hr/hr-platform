@@ -2,7 +2,10 @@ package com.workin.backend.platformadmin.settings;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
 import java.net.http.HttpClient;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -478,6 +481,78 @@ class AdminSettingsEndToEndTest {
 		useOption(option, this.companyB);
 		assertThat(usage(option)).isEqualTo(2);
 		assertThat(body(PATH + "&tab=setting_templates")).contains("badge-yellow");
+	}
+
+	@Test
+	void theTemplatesTabRendersEveryElementAndAttributeItsScriptReads() throws IOException {
+		// setting-templates.js is legacy's script. The tab once rendered neither
+		// the hidden field it writes the definition into nor the attributes it
+		// reads, so both edit dialogs opened blank and adding an option threw.
+		// jte leaves out an attribute whose value is null, so every column is
+		// filled here for each attribute to be rendered at least once.
+		long definition = createDefinition("k20", "ع", "E");
+		this.jdbc.update("UPDATE setting_definitions SET description_ar = 'و', description_en = 'D' WHERE id = ?",
+				definition);
+		long unused = createOption(definition, "unused");
+		this.jdbc.update("UPDATE setting_allowed_values SET label_ar = 'غ', label_en = 'U' WHERE id = ?", unused);
+		useOption(createOption(definition, "used"));
+
+		String html = body(PATH + "&tab=setting_templates");
+		String script = Files.readString(Path.of("src/main/resources/static/admin/_assets/setting-templates.js"));
+
+		List<String> ids = distinctMatches(script, "getElementById\\('([\\w-]+)'\\)");
+		assertThat(ids).as("the script's element lookups").isNotEmpty();
+		for (String id : ids) {
+			assertThat(html).as("an element with id %s", id).contains("id=\"" + id + "\"");
+		}
+		List<String> attributes = distinctMatches(script, "(?:getAttribute\\('|closest\\('\\[)(data-[\\w-]+)");
+		assertThat(attributes).as("the script's attribute reads").isNotEmpty();
+		for (String attribute : attributes) {
+			assertThat(html).as("an element carrying %s", attribute)
+					.containsPattern("\\s" + attribute + "(=|\\s|>)");
+		}
+	}
+
+	@Test
+	void anOptionsEditButtonCarriesTheRowItsDialogShows() {
+		long definition = createDefinition("k21", "ع", "E");
+		long unused = createOption(definition, "sat");
+		long used = createOption(definition, "fingerprint");
+		this.jdbc.update("UPDATE setting_allowed_values SET label_ar = 'بصمة', label_en = 'Fingerprint',"
+				+ " sort_order = 4 WHERE id = ?", used);
+		useOption(used);
+
+		String html = body(PATH + "&tab=setting_templates");
+
+		assertThat(button(html, "data-option-id=\"" + used + "\""))
+				.as("the option's own button, not only the definition's, carries what its dialog fills")
+				.contains("data-definition-id=\"" + definition + "\"", "data-value=\"fingerprint\"",
+						"data-label-ar=\"بصمة\"", "data-label-en=\"Fingerprint\"", "data-sort-order=\"4\"",
+						"data-in-use=\"true\"")
+				.containsPattern("data-definition-label=\"[^\"]+\"");
+		assertThat(button(html, "data-option-id=\"" + unused + "\""))
+				.as("a false flag is written out: an omitted attribute would read as no row state")
+				.contains("data-in-use=\"false\"");
+		assertThat(button(html, "data-setting-option-blocked="))
+				.as("an option in use explains why it cannot be deleted, with its company count")
+				.containsPattern("data-setting-option-blocked=\"[^\"{]*\\b1\\b[^\"{]*\"");
+	}
+
+	private static List<String> distinctMatches(String text, String regex) {
+		List<String> found = new java.util.ArrayList<>();
+		Matcher matcher = Pattern.compile(regex).matcher(text);
+		while (matcher.find()) {
+			if (!found.contains(matcher.group(1))) {
+				found.add(matcher.group(1));
+			}
+		}
+		return found;
+	}
+
+	private static String button(String html, String attribute) {
+		Matcher matcher = Pattern.compile("<button\\b[^>]*" + Pattern.quote(attribute) + "[^>]*>").matcher(html);
+		assertThat(matcher.find()).as("a button carrying %s", attribute).isTrue();
+		return matcher.group();
 	}
 
 	private int usage(long option) {

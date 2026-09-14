@@ -2,7 +2,8 @@
 //
 // One dialog per page rather than one per row: the trigger carries the row's
 // values as `data-dialog-*`, and each is copied into the element declaring the
-// matching `data-dialog-field`. A form input takes it as its value; anything
+// matching `data-dialog-field`. A checkbox is ticked when the value is "1" and
+// unticked otherwise; any other form input takes it as its value; anything
 // else takes it as text, which is how the subject line names the row.
 (function () {
   function fill(dialog, trigger) {
@@ -21,7 +22,12 @@
       if (value === null) {
         return;
       }
-      if ('value' in target && target.tagName !== 'P' && target.tagName !== 'SPAN') {
+      if (target.type === 'checkbox') {
+        // Its value attribute is what it submits when ticked, so only the
+        // tick comes from the row. Written as a value, it stayed ticked as
+        // the form rendered it and saving re-activated an inactive row.
+        target.checked = value === '1';
+      } else if ('value' in target && target.tagName !== 'P' && target.tagName !== 'SPAN') {
         target.value = value;
       } else {
         target.textContent = value;
