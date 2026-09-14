@@ -3,17 +3,21 @@
 # and npx stubbed. Nothing else runs run.sh in CI, and shellcheck cannot tell
 # where a key lands. These cases are the ways it has gone wrong: a certificate
 # under /tmp that a reboot removed, HOME required by profiles with no proxy, a
-# relative XDG_STATE_HOME that put the key inside the checkout, and a directory
-# Docker created for a missing bind-mount source.
+# relative XDG_STATE_HOME that put the key inside the checkout, a directory
+# Docker created for a missing bind-mount source, and a symlink into /tmp that
+# went without a warning.
 #
 # Each case runs a copy of run.sh in a throwaway tree laid out like the
 # repository. The key, the generated .env file and the "inside the repository"
-# check therefore all concern that tree, never this checkout.
+# check therefore all concern that tree, never this checkout. Only the warning
+# cases need a directory outside /tmp; they use a throwaway one under the user's
+# cache directory.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
-trap 'chmod -R u+rwx "$WORK" 2>/dev/null; rm -rf "$WORK"' EXIT
+OUTSIDE=""
+trap 'chmod -R u+rwx "$WORK" 2>/dev/null; rm -rf "$WORK" ${OUTSIDE:+"$OUTSIDE"}' EXIT
 fails=0
 
 REPO="$WORK/repo"
@@ -94,18 +98,44 @@ run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/deploy-link/tls"
 ok=1; [ "$rc" -ne 0 ] && grep -q 'inside the repository' "$WORK/out" && no_key_in_repo && ok=0
 check "$ok" "an E2E_TLS_DIR reaching the repository through a symlink is refused"
 
-# 8. A directory a reboot clears still works, with a warning. These paths are
-#    spelled /./... because this tree is usually under /tmp itself: /tmp/* would
-#    match first, and the TMPDIR pattern would go untested.
-run integration HOME="$WORK/home" TMPDIR="/.$WORK/tmp" E2E_TLS_DIR="/.$WORK/tmp/tls"
-ok=1; [ "$rc" -eq 0 ] && grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$WORK/tmp/tls/server.key" ] && ok=0
-check "$ok" "an E2E_TLS_DIR under TMPDIR warns and still gets a certificate"
-run integration HOME="$WORK/home" TMPDIR="/.$WORK/tmp/" E2E_TLS_DIR="/.$WORK/tmp/tls-slash"
-ok=1; [ "$rc" -eq 0 ] && grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$WORK/tmp/tls-slash/server.key" ] && ok=0
-check "$ok" "a TMPDIR ending in /, as macOS sets it, still warns"
-run integration HOME="$WORK/home" E2E_TLS_DIR="/.$WORK/kept/tls"
-ok=1; [ "$rc" -eq 0 ] && ! grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$WORK/kept/tls/server.key" ] && ok=0
-check "$ok" "an E2E_TLS_DIR outside /tmp, /var/tmp and TMPDIR does not warn"
+# 8. A directory a reboot clears still works, with a warning, whether it is
+#    under /tmp, /var/tmp or TMPDIR as written or only once resolved. This tree
+#    is under /tmp itself, which would match first and leave the rest untested,
+#    so these cases run from a throwaway directory under the cache directory.
+cache="${XDG_CACHE_HOME:-}"
+if [ -z "$cache" ] && [ -n "${HOME:-}" ]; then cache="$HOME/.cache"; fi
+case "$cache" in /*) ;; *) cache="" ;; esac
+if [ -n "$cache" ] && mkdir -p "$cache" 2>/dev/null; then
+  OUTSIDE="$(mktemp -d "$cache/test-e2e-run-tls.XXXXXX" 2>/dev/null)"
+fi
+outside_real=""
+if [ -n "$OUTSIDE" ]; then outside_real="$(cd "$OUTSIDE" && pwd -P)/"; fi
+case "$outside_real" in
+  "" | /tmp/* | /var/tmp/*)
+    echo "  skip  the reboot warning: no directory outside /tmp and /var/tmp to run it from" ;;
+  *)
+    O="$OUTSIDE"
+    mkdir -p "$O/tmp" "$O/kept"
+    ln -s "$O/tmp" "$O/tmp-link"
+    run integration HOME="$WORK/home" TMPDIR="$O/tmp" E2E_TLS_DIR="$O/tmp/tls"
+    ok=1; [ "$rc" -eq 0 ] && grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$O/tmp/tls/server.key" ] && ok=0
+    check "$ok" "an E2E_TLS_DIR under TMPDIR warns and still gets a certificate"
+    run integration HOME="$WORK/home" TMPDIR="$O/tmp/" E2E_TLS_DIR="$O/tmp/tls-slash"
+    ok=1; [ "$rc" -eq 0 ] && grep -q 'is cleared on reboot' "$WORK/out" && ok=0
+    check "$ok" "a TMPDIR ending in /, as macOS sets it, still warns"
+    run integration HOME="$WORK/home" TMPDIR="$O/tmp" E2E_TLS_DIR="$O/tmp-link/tls"
+    ok=1; [ "$rc" -eq 0 ] && grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$O/tmp/tls/server.key" ] && ok=0
+    check "$ok" "an E2E_TLS_DIR reaching TMPDIR through a symlink warns"
+    run integration HOME="$WORK/home" TMPDIR="$O/tmp" E2E_TLS_DIR="$O/kept/../tmp/tls-dotdot"
+    ok=1; [ "$rc" -eq 0 ] && grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$O/tmp/tls-dotdot/server.key" ] && ok=0
+    check "$ok" "an E2E_TLS_DIR reaching TMPDIR through .. warns"
+    run integration HOME="$WORK/home" TMPDIR="$O/tmp-link" E2E_TLS_DIR="$O/tmp/tls-alias"
+    ok=1; [ "$rc" -eq 0 ] && grep -q 'is cleared on reboot' "$WORK/out" && ok=0
+    check "$ok" "a TMPDIR that is itself a symlink, as macOS's is, still warns"
+    run integration HOME="$WORK/home" TMPDIR="$O/tmp" E2E_TLS_DIR="$O/kept/tls"
+    ok=1; [ "$rc" -eq 0 ] && ! grep -q 'is cleared on reboot' "$WORK/out" && [ -f "$O/kept/tls/server.key" ] && ok=0
+    check "$ok" "an E2E_TLS_DIR outside /tmp, /var/tmp and TMPDIR does not warn" ;;
+esac
 
 # 9. What Docker leaves for a missing bind-mount source: every missing level,
 #    empty and not the user's. run.sh names each one to remove, deepest first,

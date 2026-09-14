@@ -167,12 +167,6 @@ if [ "$PROFILE" = integration ]; then
   export E2E_TLS_DIR
 
   say "TLS for the proxy ($E2E_TLS_DIR)"
-  # macOS sets TMPDIR with a trailing slash, which would double it in the pattern.
-  tmpdir="${TMPDIR:-/tmp}"
-  case "$E2E_TLS_DIR" in
-    /tmp/* | /var/tmp/* | "${tmpdir%/}"/*)
-      echo "warning: $E2E_TLS_DIR is cleared on reboot; the proxy will lose its certificate" >&2 ;;
-  esac
   # Docker creates every missing level of a bind-mount source as an empty
   # directory owned by root, so there can be more than one to remove. Walk up to
   # the first directory you can write to, collecting the levels that hold
@@ -208,15 +202,31 @@ if [ "$PROFILE" = integration ]; then
     exit 1
   fi
   mkdir -p "$E2E_TLS_DIR"
-  # Resolved once it exists, so that neither a symlink nor `..` carries the key
-  # into the checkout.
+  # Resolved once it exists, so that neither a symlink nor `..` hides where the
+  # key really goes: into the checkout, or somewhere a reboot clears.
+  resolved="$(cd "$E2E_TLS_DIR" && pwd -P)"
   checkout="$(cd "$DEPLOY/.." && pwd -P)"
-  case "$(cd "$E2E_TLS_DIR" && pwd -P)/" in
+  case "$resolved/" in
     "$checkout"/*)
       echo "E2E_TLS_DIR ($E2E_TLS_DIR) is inside the repository at $checkout, where" >&2
       echo "validate_phase0's secret scan would find the key. Choose a directory outside it." >&2
       exit 1 ;;
   esac
+  # Checked as written and as resolved, against each temporary directory as
+  # written and as resolved: macOS sets TMPDIR with a trailing slash, under /var,
+  # which is a symlink to /private/var.
+  cleared=""
+  for tmp in /tmp /var/tmp "${TMPDIR:-/tmp}"; do
+    tmp="${tmp%/}"
+    [ -n "$tmp" ] || continue
+    real_tmp="$tmp"
+    if [ -d "$tmp" ] && [ -x "$tmp" ]; then real_tmp="$(cd "$tmp" && pwd -P)"; fi
+    case "$E2E_TLS_DIR/" in "$tmp"/*) cleared=1 ;; esac
+    case "$resolved/" in "$real_tmp"/*) cleared=1 ;; esac
+  done
+  if [ -n "$cleared" ]; then
+    echo "warning: $E2E_TLS_DIR is cleared on reboot; the proxy will lose its certificate" >&2
+  fi
   chmod 700 "$E2E_TLS_DIR"
   if [ ! -f "$E2E_TLS_DIR/server.crt" ] || [ -n "${E2E_REGENERATE_TLS:-}" ]; then
     openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
