@@ -138,79 +138,39 @@ case "$outside_real" in
 esac
 
 # 9. What Docker leaves for a missing bind-mount source: every missing level,
-#    empty and not the user's. run.sh names each one to remove, deepest first,
-#    instead of failing in chmod or mkdir.
+#    empty and owned by root. run.sh stops and says what to do, instead of
+#    failing in mkdir, cd or chmod, and names no directory for removal. A
+#    directory of your own with the wrong mode is repaired, as it always was.
 if [ "$(id -u)" = 0 ]; then
   echo "  skip  directories that are not writable: running as root, for whom every directory is"
 else
-  mkdir "$WORK/not-writable"
-  chmod 555 "$WORK/not-writable"
-  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/not-writable"
-  ok=1; [ "$rc" -ne 0 ] && grep -q 'is not writable by you' "$WORK/out" \
-    && grep -qxF "  sudo rmdir \"$WORK/not-writable\"" "$WORK/out" \
-    && [ ! -e "$WORK/not-writable/server.key" ] && ok=0
-  check "$ok" "a directory that is not writable stops with the recovery step"
+  gone="/workin-e2e-tls-test-$$/tls"
+  run integration HOME="$WORK/home" E2E_TLS_DIR="$gone"
+  ok=1; [ "$rc" -ne 0 ] && grep -q 'is not a directory you can write to' "$WORK/out" \
+    && grep -q 'sudo rmdir' "$WORK/out" && ! grep -q 'sudo rmdir "' "$WORK/out" \
+    && [ ! -e "$gone" ] && ok=0
+  check "$ok" "a directory that cannot be created stops with the advice, not a bare mkdir error"
 
-  mkdir -p "$WORK/two/workin-e2e/tls"
-  chmod 555 "$WORK/two/workin-e2e/tls" "$WORK/two/workin-e2e"
-  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/two/workin-e2e/tls"
-  ok=1; [ "$rc" -ne 0 ] \
-    && grep -qxF "  sudo rmdir \"$WORK/two/workin-e2e/tls\" \"$WORK/two/workin-e2e\"" "$WORK/out" && ok=0
-  check "$ok" "two levels Docker made are both named for removal, deepest first"
+  run integration HOME="$WORK/home" E2E_TLS_DIR=/usr
+  ok=1; [ "$rc" -ne 0 ] && grep -q 'is not a directory you can write to' "$WORK/out" \
+    && ! grep -q 'sudo rmdir "' "$WORK/out" && ok=0
+  check "$ok" "an existing directory that is not yours and not writable stops with the advice"
 
-  # Only the deeper one removed, as the previous message alone used to say.
-  chmod 755 "$WORK/two/workin-e2e"
-  rmdir "$WORK/two/workin-e2e/tls"
-  chmod 555 "$WORK/two/workin-e2e"
-  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/two/workin-e2e/tls"
-  ok=1; [ "$rc" -ne 0 ] && grep -qxF "  sudo rmdir \"$WORK/two/workin-e2e\"" "$WORK/out" \
-    && ! grep -q 'Permission denied' "$WORK/out" && ok=0
-  check "$ok" "a Docker-made parent left behind is named, instead of mkdir failing"
+  mkdir "$WORK/via"
+  ln -s /usr "$WORK/via/link"
+  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/via/link//"
+  ok=1; [ "$rc" -ne 0 ] && grep -q 'is not a directory you can write to' "$WORK/out" \
+    && ! grep -q 'sudo rmdir "' "$WORK/out" && ok=0
+  check "$ok" "a symlink to such a directory, with trailing slashes, stops the same way"
 
-  mkdir "$WORK/busy"
-  touch "$WORK/busy/other"
-  chmod 555 "$WORK/busy"
-  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/busy/tls"
-  ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" \
-    && grep -q 'Choose another E2E_TLS_DIR' "$WORK/out" && ok=0
-  check "$ok" "a directory that is not writable and holds other files is never offered to rmdir"
-
-  # An empty directory is offered to rmdir only when the walk reaches one you can
-  # write to. Below one you cannot, it may be a system directory, like an empty
-  # /srv under /.
-  mkdir -p "$WORK/outer/inner"
-  touch "$WORK/outer/other"
-  chmod 555 "$WORK/outer/inner" "$WORK/outer"
-  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/outer/inner/workin-e2e/tls"
-  ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" \
-    && grep -q 'Choose another E2E_TLS_DIR' "$WORK/out" && ok=0
-  check "$ok" "an empty directory under one that is not writable is never offered to rmdir"
-
-  # A directory that cannot be listed is not known to be empty: one left by
-  # `sudo -E ./run.sh`, say, owned by root with the key still in it.
-  mkdir "$WORK/unreadable"
-  touch "$WORK/unreadable/server.key"
-  chmod 111 "$WORK/unreadable"
-  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/unreadable"
-  chmod 755 "$WORK/unreadable"
-  ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" \
-    && grep -q 'Choose another E2E_TLS_DIR' "$WORK/out" && ok=0
-  check "$ok" "a directory that cannot be listed is not taken for an empty one Docker left"
-
-  # Docker makes real directories. A symlink to an empty one that is not
-  # writable is the operator's, and `rmdir` on the link fails with "Not a
-  # directory", so it is never offered, with or without a trailing slash.
-  mkdir "$WORK/locked" "$WORK/via"
-  chmod 555 "$WORK/locked"
-  ln -s "$WORK/locked" "$WORK/via/link"
-  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/via/link/tls"
-  ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" \
-    && grep -q 'Choose another E2E_TLS_DIR' "$WORK/out" && ok=0
-  check "$ok" "a symlink to an empty directory that is not writable is never offered to rmdir"
-  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/via/link/"
-  ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" \
-    && grep -q 'Choose another E2E_TLS_DIR' "$WORK/out" && ok=0
-  check "$ok" "the same symlink named with a trailing slash is never offered to rmdir either"
+  for mode in 555 600; do
+    mkdir "$WORK/mine-$mode"
+    chmod "$mode" "$WORK/mine-$mode"
+    run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/mine-$mode"
+    ok=1; [ "$rc" -eq 0 ] && [ -f "$WORK/mine-$mode/server.key" ] \
+      && [ -n "$(find "$WORK/mine-$mode" -maxdepth 0 -perm 700)" ] && ok=0
+    check "$ok" "a directory of yours with mode $mode is repaired to 700 and used"
+  done
 fi
 
 echo

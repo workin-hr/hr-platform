@@ -70,7 +70,8 @@ which `docker inspect` shows as the label `com.docker.compose.project`:
 
 - **`workin-e2e-integration`** is `run.sh`'s own project. Run `run.sh
   integration` again. If it reports that the directory is not writable, stop
-  the proxy, run the `sudo rmdir` it prints, and run it once more.
+  the proxy, remove the empty root-owned directories Docker created with
+  `sudo rmdir`, deepest first, and run it once more.
 - **`workin-integration`** is a stack started with these compose files
   directly, or by a `run.sh` from before it passed `-p` (2026-09-08). `run.sh`
   does not manage that project, and its own stack would ask for ports that

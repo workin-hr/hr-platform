@@ -167,45 +167,23 @@ if [ "$PROFILE" = integration ]; then
   export E2E_TLS_DIR
 
   say "TLS for the proxy ($E2E_TLS_DIR)"
-  # Docker creates every missing level of a bind-mount source as an empty
-  # directory owned by root, so there can be more than one to remove. Walk up to
-  # the first directory you can write to, collecting the levels that hold
-  # nothing but the next one down. One holding anything else is not Docker's,
-  # and nor is one you cannot list, since it is not known to be empty, nor a
-  # symlink, since Docker makes real directories and rmdir cannot remove a link.
-  # Without the trailing slash, `[ -L ]` sees the link itself.
-  docker_made=()
-  path="${E2E_TLS_DIR%/}"
-  [ -n "$path" ] || path=/
-  below=""
-  until { [ -d "$path" ] && [ -w "$path" ]; } || [ "$path" = / ]; do
-    if [ -d "$path" ]; then
-      [ ! -L "$path" ] || break
-      { [ -r "$path" ] && [ -x "$path" ]; } || break
-      entries="$(find "$path" -mindepth 1 -maxdepth 1 2>/dev/null || true)"
-      [ -z "$entries" ] || [ "$entries" = "$path/$below" ] || break
-      docker_made+=("$path")
-    fi
-    below="$(basename "$path")"
-    path="$(dirname "$path")"
-  done
-  # Removing those levels helps only if the walk reached a directory you can
-  # write to. Where it stopped short, at /, at a directory holding other files
-  # or at one you cannot list, an empty directory it passed may be a system
-  # one, such as /srv.
-  if ! { [ -d "$path" ] && [ -w "$path" ]; }; then
-    echo "$E2E_TLS_DIR cannot be used: $path is not writable by you, and is not" >&2
-    echo "an empty directory Docker left. Choose another E2E_TLS_DIR." >&2
+  # Docker recreates a missing bind-mount source as empty directories owned by
+  # root, one for each missing level. Stop with that explanation instead of
+  # failing inside mkdir, cd or chmod. It names no directory: which ones Docker
+  # made is for the operator to see. A directory of your own with the wrong mode
+  # is repaired instead, as it always was.
+  unusable() {
+    echo "$E2E_TLS_DIR is not a directory you can write to. If Docker created it for" >&2
+    echo "a missing bind-mount source, it and any levels above it that were missing are" >&2
+    echo "empty and owned by root: stop the proxy, remove those empty directories with" >&2
+    echo "sudo rmdir, deepest first, and run this again. Otherwise choose another E2E_TLS_DIR." >&2
     exit 1
+  }
+  mkdir -p "$E2E_TLS_DIR" || unusable
+  if [ -O "$E2E_TLS_DIR" ] && ! { [ -w "$E2E_TLS_DIR" ] && [ -x "$E2E_TLS_DIR" ]; }; then
+    chmod u+wx "$E2E_TLS_DIR"
   fi
-  if [ "${#docker_made[@]}" -gt 0 ]; then
-    echo "$E2E_TLS_DIR is not writable by you. Docker creates each missing level of a" >&2
-    echo "bind-mount source as an empty directory owned by root: stop the proxy, run" >&2
-    echo "  sudo rmdir$(printf ' "%s"' "${docker_made[@]}")" >&2
-    echo "and run this again." >&2
-    exit 1
-  fi
-  mkdir -p "$E2E_TLS_DIR"
+  { [ -d "$E2E_TLS_DIR" ] && [ -w "$E2E_TLS_DIR" ] && [ -x "$E2E_TLS_DIR" ]; } || unusable
   # Resolved once it exists, so that neither a symlink nor `..` hides where the
   # key really goes: into the checkout, or somewhere a reboot clears.
   resolved="$(cd "$E2E_TLS_DIR" && pwd -P)"
