@@ -142,6 +142,61 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 	}
 
 	@Test
+	void thePayslipTableShowsMedicalInsuranceWhereLegacyDoes() {
+		// payroll/page.php:264-272 and :299-307: after tax come medical
+		// insurance (advances_deduction), the advance deduction, then the fund.
+		// The seeded payslip holds insurance 210, tax 220, medical insurance 70,
+		// advance 60 and fund 230. Penalties and the total are recomputed when the
+		// row renders (AdminPayrollCalculationParityTest), so only the cells this
+		// order decides are compared, and the count of deduction cells.
+		long batchId = batch(this.companyA, 3, 2026, "2026-03-01", "2026-03-31", "draft");
+		payslip(batchId, this.employeeA);
+
+		String html = body(PATH + "?run_id=" + batchId);
+		java.util.List<java.math.BigDecimal> deductions = new java.util.ArrayList<>();
+		java.util.regex.Matcher cell = java.util.regex.Pattern
+				.compile("<td class=\"col-center text-red[^\"]*\">\\s*([^<]*?)\\s*</td>").matcher(html);
+		while (cell.find()) {
+			deductions.add(new java.math.BigDecimal(cell.group(1).replace(",", "")));
+		}
+		assertThat(deductions).as("insurance, tax, medical insurance, advance, fund, penalties, other, total")
+				.hasSize(8);
+		assertThat(deductions.subList(0, 5)).as("the deduction cells, in legacy's order")
+				.usingElementComparator(java.math.BigDecimal::compareTo)
+				.containsExactly(new java.math.BigDecimal("210"), new java.math.BigDecimal("220"),
+						new java.math.BigDecimal("70"), new java.math.BigDecimal("60"), new java.math.BigDecimal("230"));
+
+		long emptyBatch = batch(this.companyA, 4, 2026, "2026-04-01", "2026-04-30", "draft");
+		String empty = body(PATH + "?run_id=" + emptyBatch);
+		int emptyCell = empty.indexOf("class=\"data-table-empty\"");
+		assertThat(emptyCell).as("the empty payslip table renders").isPositive();
+		int head = empty.lastIndexOf("<thead>", emptyCell);
+		int headers = empty.substring(head, empty.indexOf("</thead>", head)).split("<th\\b", -1).length - 1;
+		assertThat(empty.substring(empty.lastIndexOf("<td", emptyCell), emptyCell))
+				.as("the empty row spans every column").contains("colspan=\"" + headers + "\"");
+	}
+
+	@Test
+	void thePayslipEditFormLabelsMedicalInsuranceApartFromTheAdvanceDeduction() {
+		// payroll/page.php:338 labels advances_deduction medical_insurance_deduction.
+		long batchId = batch(this.companyA, 3, 2026, "2026-03-01", "2026-03-31", "draft");
+		long payslipId = payslip(batchId, this.employeeA);
+
+		String html = body(PATH + "?action=edit_detail&id=" + payslipId + "&run_id=" + batchId);
+		String medical = label(html, "advances_deduction");
+		String advance = label(html, "advance_deduction");
+		assertThat(medical).as("medical insurance is not labelled as the advance deduction").isNotEqualTo(advance);
+	}
+
+	/** The text of the label for one form field. */
+	private static String label(String html, String field) {
+		java.util.regex.Matcher matcher = java.util.regex.Pattern
+				.compile("<label for=\"" + field + "\">([^<]*)</label>").matcher(html);
+		assertThat(matcher.find()).as("a label for %s", field).isTrue();
+		return matcher.group(1).trim();
+	}
+
+	@Test
 	void reopeningPutsItBackToDraft() {
 		long batchId = batch(this.companyA, 3, 2026, "2026-03-01", "2026-03-31", "finalized");
 

@@ -121,7 +121,7 @@
 						       value="${editDetail.advanceDeduction().toPlainString()}">
 					</div>
 					<div class="form-row">
-						<label for="advances_deduction">${t.apply("advance_deduction")}</label>
+						<label for="advances_deduction">${t.apply("medical_insurance_deduction")}</label>
 						<input type="number" step="0.01" id="advances_deduction" name="advances_deduction"
 						       value="${editDetail.advancesDeduction().toPlainString()}">
 					</div>
@@ -215,8 +215,9 @@
 							<th class="col-center">${t.apply("total_entitlements")}</th>
 							<th class="col-center">${t.apply("insurance_deduction")}</th>
 							<th class="col-center">${t.apply("tax_deduction")}</th>
-							<th class="col-center">${t.apply("fund_deduction")}</th>
+							<th class="col-center">${t.apply("medical_insurance_deduction")}</th>
 							<th class="col-center">${t.apply("advance_deduction")}</th>
+							<th class="col-center">${t.apply("fund_deduction")}</th>
 							<th class="col-center">${t.apply("penalties")}</th>
 							<th class="col-center">${t.apply("other_fixed_deductions")}</th>
 							<th class="col-center">${t.apply("total_deductions")}</th>
@@ -249,8 +250,9 @@
 								<td class="col-center bold">${cell.apply(row, "total_entitlements")}</td>
 								<td class="col-center text-red">${cell.apply(row, "insurance_deduction")}</td>
 								<td class="col-center text-red">${cell.apply(row, "tax_deduction")}</td>
-								<td class="col-center text-red">${cell.apply(row, "fund_deduction")}</td>
+								<td class="col-center text-red">${cell.apply(row, "advances_deduction")}</td>
 								<td class="col-center text-red">${cell.apply(row, "advance_deduction")}</td>
+								<td class="col-center text-red">${cell.apply(row, "fund_deduction")}</td>
 								<td class="col-center text-red">${cell.apply(row, "penalties_total")}</td>
 								<td class="col-center text-red">${cell.apply(row, "other_deductions")}</td>
 								<td class="col-center text-red">${cell.apply(row, "total_deductions")}</td>
@@ -268,7 +270,7 @@
 							</tr>
 						@endfor
 						@if(detailResult.isEmpty())
-							<tr><td colspan="28" class="data-table-empty">${t.apply("no_data")}</td></tr>
+							<tr><td colspan="29" class="data-table-empty">${t.apply("no_data")}</td></tr>
 						@endif
 					</tbody>
 				</table>
