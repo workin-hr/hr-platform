@@ -60,7 +60,8 @@ class AdminPageStylesheetTest {
 	private static final Set<String> UNSTYLED_IN_LEGACY_TOO = Set.of(
 			"account-form", "org-form", "pager", "row-dialog__form",
 			"checkbox-grid", "checkbox-item", "setting-templates-tab",
-			"settings-form", "home-panel-icon--clock", "home-panel-icon--people");
+			"settings-form", "home-panel-icon--clock", "home-panel-icon--people",
+			"emp-checkbox-label");
 
 	private static final Pattern CLASS_ATTRIBUTE = Pattern.compile("class=\"([^\"]*)\"");
 
