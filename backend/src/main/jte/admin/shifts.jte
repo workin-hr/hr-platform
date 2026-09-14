@@ -1,5 +1,6 @@
 @import java.util.List
 @import java.util.function.Function
+@import com.workin.backend.platformadmin.org.ActiveCompanies
 @import com.workin.backend.platformadmin.org.Shift
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
@@ -9,6 +10,7 @@
 @param String currentAdminPhone
 @param DashboardPage<Shift> result
 @param DashboardListFilters filters
+@param java.util.List<ActiveCompanies.CompanyOption> companyOptions
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
@@ -85,13 +87,17 @@
 					@if(editRow != null)
 						<input type="hidden" name="id" value="${editRow.id()}">
 					@endif
-					<input type="hidden" name="company_id"
-					       value="${editRow != null ? editRow.companyId() : filters.companyId()}">
 
 					<%-- The rows are a grid in legacy (_shift_form.php), with the wide ones
 					     marked "org-form-span-2". Without the wrapper every field is a
 					     full-width band. --%>
 					<div class="org-form-grid">
+					@if(editRow != null)
+						<input type="hidden" name="company_id" value="${editRow.companyId()}">
+					@else
+						@template.admin.companyField(session = session, companyId = filters.companyId(),
+								companies = companyOptions, inputId = "sh_add_company", t = t)
+					@endif
 					<div class="form-row org-form-span-2">
 						<label for="name">${t.apply("shift")}</label>
 						<input type="text" id="name" name="name" required maxlength="255"

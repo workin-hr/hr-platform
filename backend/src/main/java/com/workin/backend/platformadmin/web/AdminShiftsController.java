@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.org.Shift;
 import com.workin.backend.platformadmin.org.ShiftAdminService;
+import com.workin.backend.platformadmin.org.ActiveCompanies;
 import com.workin.backend.platformadmin.org.ShiftStore;
 
 /** {@code dashboard/pages/shifts/page.php}. */
@@ -26,9 +27,12 @@ public class AdminShiftsController {
 
 	private final ShiftAdminService service;
 
-	public AdminShiftsController(ShiftStore store, ShiftAdminService service) {
+	private final ActiveCompanies companies;
+
+	public AdminShiftsController(ShiftStore store, ShiftAdminService service, ActiveCompanies companies) {
 		this.store = store;
 		this.service = service;
+		this.companies = companies;
 	}
 
 	@AuthenticatedUseCase(reason = "One company's shifts. An administrator reaches every "
@@ -54,6 +58,9 @@ public class AdminShiftsController {
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);
 		model.addAttribute("addOpen", "add".equals(action));
+		// The add form names its company when nothing has chosen one already.
+		model.addAttribute("companyOptions", "add".equals(action) && !current.isScopedToOneCompany()
+				&& filters.companyId() <= 0 ? this.companies.all() : java.util.List.of());
 		model.addAttribute("editRow", "edit".equals(action) ? visible(current, filters, id) : null);
 		return VIEW;
 	}

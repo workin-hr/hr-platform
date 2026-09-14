@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.AdministrativeDecision;
 import com.workin.backend.platformadmin.hr.AdministrativeDecisionAdminService;
+import com.workin.backend.platformadmin.org.ActiveCompanies;
 import com.workin.backend.platformadmin.hr.AdministrativeDecisionStore;
 
 /** {@code dashboard/pages/administrative_decisions/page.php}. */
@@ -27,10 +28,13 @@ public class AdminDecisionsController {
 
 	private final AdministrativeDecisionAdminService service;
 
+	private final ActiveCompanies companies;
+
 	public AdminDecisionsController(
-			AdministrativeDecisionStore store, AdministrativeDecisionAdminService service) {
+			AdministrativeDecisionStore store, AdministrativeDecisionAdminService service, ActiveCompanies companies) {
 		this.store = store;
 		this.service = service;
+		this.companies = companies;
 	}
 
 	@AuthenticatedUseCase(reason = "One company's administrative decisions, which its employees "
@@ -58,6 +62,9 @@ public class AdminDecisionsController {
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);
 		model.addAttribute("addOpen", "add".equals(action));
+		// The add form names its company when nothing has chosen one already.
+		model.addAttribute("companyOptions", "add".equals(action) && !current.isScopedToOneCompany()
+				&& filters.companyId() <= 0 ? this.companies.all() : java.util.List.of());
 		model.addAttribute("editRow", "edit".equals(action) ? visible(current, filters, id) : null);
 		return VIEW;
 	}
