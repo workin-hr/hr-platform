@@ -311,11 +311,15 @@ public class AttendanceStore {
 	}
 
 	public List<AttendanceRecord.ExceptionTypeOption> exceptionTypeOptions(long companyId) {
+		// Legacy lists every company's active types when no company is chosen
+		// (payroll_list_helper.php:118-128). That is the list R-059 recorded legacy
+		// writing without a company check, and D-176(b) refuses a foreign type, so
+		// offering it would only offer choices the save refuses.
 		if (companyId <= 0) {
 			return List.of();
 		}
 		return this.jdbcTemplate.query(
-				"SELECT id, name FROM exception_types WHERE company_id = ? ORDER BY name ASC, id ASC",
+				"SELECT id, name FROM exception_types WHERE company_id = ? AND is_active = 1 ORDER BY name ASC, id ASC",
 				(rs, rowNum) -> new AttendanceRecord.ExceptionTypeOption(
 						rs.getLong("id"), rs.getString("name")),
 				companyId);

@@ -266,6 +266,27 @@ class AdminAttendanceEndToEndTest {
 	// ------------------------------------------------------------------
 
 	@Test
+	void onlyActiveExceptionTypesAreOfferedAndNoneWithoutACompany() {
+		// payroll_list_helper.php:118-128 offers only active types. With no
+		// company chosen the port offers none: legacy's global list is what let an
+		// exception type cross companies (R-059), and D-176(b) refuses one that does.
+		long active = exceptionType(this.companyA, "Field mission");
+		long inactive = exceptionType(this.companyA, "Retired leave kind");
+		this.jdbc.update("UPDATE exception_types SET is_active = 0 WHERE id = ?", inactive);
+
+		String scoped = body("/admin/attendance?company_id=" + this.companyA);
+		assertThat(scoped).as("an active type is offered")
+				.contains("<option value=\"" + active + "\">Field mission</option>");
+		assertThat(scoped).as("an inactive type is not")
+				.doesNotContain("<option value=\"" + inactive + "\">");
+
+		String unfiltered = body("/admin/attendance?company_id=");
+		assertThat(unfiltered).as("with no company chosen, no type is offered")
+				.doesNotContain("<option value=\"" + active + "\">")
+				.doesNotContain("<option value=\"" + inactive + "\">");
+	}
+
+	@Test
 	void anExceptionTypeFromAnotherCompanyIsRefusedOnEdit() {
 		// D-176(b) in one case: exception_type_id IS editable, so it is checked
 		// against the company of the row already stored, never against the
