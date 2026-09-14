@@ -112,6 +112,7 @@
     if (blockedBtn) {
       e.preventDefault();
       e.stopPropagation();
+      closeRowActions();
       window.alert(blockedBtn.getAttribute('data-setting-option-blocked') || '');
       return;
     }

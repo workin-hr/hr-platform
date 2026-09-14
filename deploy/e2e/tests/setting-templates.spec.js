@@ -110,3 +110,15 @@ test('delete on an option in use explains the refusal', async ({ page }) => {
 	await page.getByText('delete used').click();
 	await expect.poll(() => shown).toEqual(['لا يمكن الحذف: القيمة مستخدمة من 1']);
 });
+
+test('delete on an option in use closes the row menu it came from', async ({ page }) => {
+	// The handler stops the click from reaching row-actions.js, so it has to ask
+	// that script to close the menu, as the add and edit branches do.
+	await page.evaluate(() => {
+		window.rowActionsClosed = 0;
+		document.addEventListener('row-actions:close', () => { window.rowActionsClosed += 1; });
+	});
+	page.on('dialog', (dialog) => dialog.dismiss());
+	await page.getByText('delete used').click();
+	await expect.poll(() => page.evaluate(() => window.rowActionsClosed)).toBe(1);
+});

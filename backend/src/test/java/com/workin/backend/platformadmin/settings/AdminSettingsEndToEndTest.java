@@ -518,12 +518,16 @@ class AdminSettingsEndToEndTest {
 		long definition = createDefinition("k21", "ع", "E");
 		long unused = createOption(definition, "sat");
 		long used = createOption(definition, "fingerprint");
+		this.jdbc.update("UPDATE setting_allowed_values SET label_ar = 'بصمة', label_en = 'Fingerprint',"
+				+ " sort_order = 4 WHERE id = ?", used);
 		useOption(used);
 
 		String html = body(PATH + "&tab=setting_templates");
 
 		assertThat(button(html, "data-option-id=\"" + used + "\""))
+				.as("the option's own button, not only the definition's, carries what its dialog fills")
 				.contains("data-definition-id=\"" + definition + "\"", "data-value=\"fingerprint\"",
+						"data-label-ar=\"بصمة\"", "data-label-en=\"Fingerprint\"", "data-sort-order=\"4\"",
 						"data-in-use=\"true\"")
 				.containsPattern("data-definition-label=\"[^\"]+\"");
 		assertThat(button(html, "data-option-id=\"" + unused + "\""))
