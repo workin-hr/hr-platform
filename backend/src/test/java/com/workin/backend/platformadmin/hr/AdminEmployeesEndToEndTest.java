@@ -166,6 +166,27 @@ class AdminEmployeesEndToEndTest {
 	}
 
 	@Test
+	void eachEmployeeRowLinksToItsDetailPageBeforeEdit() {
+		// employee_helper.php:666-667: the row menu opens with Details, then Edit.
+		// The detail page existed with no way to reach it from the list.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+
+		String html = body("/admin/employees?company_id=" + this.companyA);
+		int start = html.indexOf("id=\"row-actions-menu-" + id + "\"");
+		assertThat(start).as("the row menu for employee %s", id).isPositive();
+		String menu = html.substring(start, html.indexOf("</div>", start));
+
+		int details = menu.indexOf("href=\"/admin/employee_detail?id=" + id + "\"");
+		int edit = menu.indexOf("href=\"/admin/employees?action=edit&amp;id=" + id + "\"");
+		if (edit < 0) {
+			edit = menu.indexOf("href=\"/admin/employees?action=edit&id=" + id + "\"");
+		}
+		assertThat(details).as("the menu links to this employee's detail page").isPositive();
+		assertThat(edit).as("the menu still offers Edit").isPositive();
+		assertThat(details).as("Details comes before Edit, as in legacy").isLessThan(edit);
+	}
+
+	@Test
 	void theListRendersAnEmployeeWhoHasAContractDuration() {
 		// Every other fixture here leaves contract_duration_months NULL, and
 		// that is why the whole page answered 500 against real data without
