@@ -115,6 +115,33 @@ class AdminPayrollEndToEndTest extends AdminPayrollTestSupport {
 	}
 
 	@Test
+	void calculateAndFinalizeAskBeforeTheyRun() {
+		// payroll_payroll_run_row_actions(): Calculate and Finalize confirm with
+		// their own label and a question mark; Reopen posts straight away.
+		long draft = batch(this.companyA, 3, 2026, "2026-03-01", "2026-03-31", "draft");
+		long finalized = batch(this.companyA, 4, 2026, "2026-04-01", "2026-04-30", "finalized");
+
+		String html = body(PATH);
+
+		String asks = "onsubmit=\"return confirm\\('[^'?]+\\?'\\)\"";
+		assertThat(formOpening(html, draft, "calculate")).as("calculate asks first").containsPattern(asks);
+		assertThat(formOpening(html, draft, "finalize")).as("finalize asks first").containsPattern(asks);
+		assertThat(formOpening(html, finalized, "reopen")).as("reopen does not ask, as in legacy")
+				.doesNotContain("onsubmit");
+	}
+
+	/** The opening tag of the form in a batch's row menu that posts {@code action}. */
+	private static String formOpening(String html, long batchId, String action) {
+		int menu = html.indexOf("id=\"row-actions-menu-" + batchId + "\"");
+		assertThat(menu).as("the row menu for batch %s", batchId).isPositive();
+		int end = html.indexOf("</div>", menu);
+		int marker = html.indexOf("name=\"action\" value=\"" + action + "\"", menu);
+		assertThat(marker).as("a %s form in batch %s's menu", action, batchId).isBetween(menu, end);
+		int open = html.lastIndexOf("<form", marker);
+		return html.substring(open, html.indexOf('>', open) + 1);
+	}
+
+	@Test
 	void reopeningPutsItBackToDraft() {
 		long batchId = batch(this.companyA, 3, 2026, "2026-03-01", "2026-03-31", "finalized");
 

@@ -2,6 +2,7 @@
 @import java.util.function.Function
 @import com.workin.backend.platformadmin.hr.Advance
 @import com.workin.backend.platformadmin.hr.LeaveBalance.EmployeeOption
+@import com.workin.backend.platformadmin.hr.EmployeePicker
 @import com.workin.backend.platformadmin.web.DashboardListFilters
 @import com.workin.backend.platformadmin.web.DashboardPage
 @import com.workin.backend.platformadmin.web.DashboardSession
@@ -37,6 +38,7 @@
 	t = t,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "leave-balance-form.css"),
+	pageScripts = java.util.List.of("emp-picker.js"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
@@ -147,6 +149,7 @@
 													data-dialog-id="${row.id()}"
 													data-dialog-subject="${row.employeeName()}"
 													data-dialog-employee_id="${row.employeeId()}"
+													data-dialog-employee_label="${EmployeePicker.label(row.employeeName(), row.employeeCode(), null)}"
 													data-dialog-amount="${row.amount() == null ? "" : row.amount().toPlainString()}"
 													data-dialog-reason="${row.reason() == null ? "" : row.reason()}"
 													data-dialog-request_date="${row.requestDate() == null ? "" : row.requestDate()}">${t.apply("edit")}</button>
@@ -212,19 +215,16 @@
 					`)
 		@endif
 		@if(canWrite)
+			<%-- The page's one copy of the list both employee pickers search. --%>
+			<div hidden id="employee-picker-list" data-employees="${EmployeePicker.json(employeeOptions)}"></div>
 			@template.admin.rowDialog(id = "advance-edit", action = "edit_advance",
 					title = t.apply("edit"), csrfParameterName = csrfParameterName,
 					csrfToken = csrfToken, t = t, submitLabel = t.apply("save"),
 					fields = @`
 						<div class="form-row">
-							<label>${t.apply("employee_name")}
-								<select name="employee_id" required data-dialog-field="employee_id">
-									@for(EmployeeOption option : employeeOptions)
-										<option value="${option.id()}">${option.companyName() == null
-											? option.code() + " — " + option.name()
-											: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
-									@endfor
-								</select></label>
+							<label for="advance-edit-employee">${t.apply("employee_name")}</label>
+							@template.admin.employeePicker(inputId = "advance-edit-employee",
+									source = "employee-picker-list", t = t, fromRow = true)
 						</div>
 						<div class="form-row">
 							<label>${t.apply("advance_amount")}
@@ -256,14 +256,8 @@
 					<div class="org-form-grid">
 					<div class="form-row">
 						<label for="employee_id">${t.apply("employee_name")}</label>
-						<select id="employee_id" name="employee_id" required>
-							<option value="0">—</option>
-							@for(EmployeeOption option : employeeOptions)
-								<option value="${option.id()}">${option.companyName() == null
-									? option.code() + " — " + option.name()
-									: option.companyName() + " · " + option.code() + " — " + option.name()}</option>
-							@endfor
-						</select>
+						@template.admin.employeePicker(inputId = "employee_id",
+								source = "employee-picker-list", t = t)
 					</div>
 					<div class="form-row">
 						<label for="amount">${t.apply("advance_amount")}</label>
