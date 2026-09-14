@@ -80,12 +80,17 @@ which `docker inspect` shows as the label `com.docker.compose.project`:
      `com.docker.compose.project.working_dir`).
   2. Set `ENV_FILE` to the environment file it used (the label
      `com.docker.compose.project.environment_file`).
-  3. Give the proxy a certificate where a reboot does not clear it, the way
+  3. Note the directory the proxy mounts now, which `docker inspect` shows as
+     its mount at `/etc/nginx/tls`. A stack from before this change mounted
+     `${TMPDIR:-/tmp}/workin-e2e-tls-<uid>` as its own operator had them set,
+     so it need not be the one your shell would name.
+  4. Give the proxy a certificate where a reboot does not clear it, the way
      `run.sh` makes one, and recreate the proxy on it.
-  4. Remove the old directory. `docker inspect` shows it as the proxy's mount
-     at `/etc/nginx/tls`; the old default was `/tmp/workin-e2e-tls-<uid>`.
+  5. Remove the directory noted in step 3.
 
   ```sh
+  old_tls_dir="$(docker inspect workin-integration-proxy-1 \
+    --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/tls"}}{{.Source}}{{end}}{{end}}')"
   export E2E_TLS_DIR="$HOME/.local/state/workin-e2e/tls"
   mkdir -p "$E2E_TLS_DIR" && chmod 700 "$E2E_TLS_DIR"
   openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
@@ -94,7 +99,7 @@ which `docker inspect` shows as the label `com.docker.compose.project`:
   chmod 644 "$E2E_TLS_DIR/server.crt" "$E2E_TLS_DIR/server.key"
   docker compose -p workin-integration -f compose.integration.yaml \
     -f e2e/compose.proxy.yaml --env-file "$ENV_FILE" up -d --no-deps proxy
-  sudo rmdir /tmp/workin-e2e-tls-"$(id -u)"
+  sudo rmdir "${old_tls_dir:?no mount at /etc/nginx/tls was found}"
   ```
 
 `E2E_SEED_PROD` restores the seed with `mariadb <` rather than by mounting it,

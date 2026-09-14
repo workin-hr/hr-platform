@@ -171,12 +171,16 @@ if [ "$PROFILE" = integration ]; then
   # directory owned by root, so there can be more than one to remove. Walk up to
   # the first directory you can write to, collecting the levels that hold
   # nothing but the next one down. One holding anything else is not Docker's,
-  # and nor is one you cannot list: it is not known to be empty.
+  # and nor is one you cannot list, since it is not known to be empty, nor a
+  # symlink, since Docker makes real directories and rmdir cannot remove a link.
+  # Without the trailing slash, `[ -L ]` sees the link itself.
   docker_made=()
-  path="$E2E_TLS_DIR"
+  path="${E2E_TLS_DIR%/}"
+  [ -n "$path" ] || path=/
   below=""
   until { [ -d "$path" ] && [ -w "$path" ]; } || [ "$path" = / ]; do
     if [ -d "$path" ]; then
+      [ ! -L "$path" ] || break
       { [ -r "$path" ] && [ -x "$path" ]; } || break
       entries="$(find "$path" -mindepth 1 -maxdepth 1 2>/dev/null || true)"
       [ -z "$entries" ] || [ "$entries" = "$path/$below" ] || break

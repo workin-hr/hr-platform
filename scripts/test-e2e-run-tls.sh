@@ -196,6 +196,21 @@ else
   ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" \
     && grep -q 'Choose another E2E_TLS_DIR' "$WORK/out" && ok=0
   check "$ok" "a directory that cannot be listed is not taken for an empty one Docker left"
+
+  # Docker makes real directories. A symlink to an empty one that is not
+  # writable is the operator's, and `rmdir` on the link fails with "Not a
+  # directory", so it is never offered, with or without a trailing slash.
+  mkdir "$WORK/locked" "$WORK/via"
+  chmod 555 "$WORK/locked"
+  ln -s "$WORK/locked" "$WORK/via/link"
+  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/via/link/tls"
+  ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" \
+    && grep -q 'Choose another E2E_TLS_DIR' "$WORK/out" && ok=0
+  check "$ok" "a symlink to an empty directory that is not writable is never offered to rmdir"
+  run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/via/link/"
+  ok=1; [ "$rc" -ne 0 ] && ! grep -q 'sudo rmdir' "$WORK/out" \
+    && grep -q 'Choose another E2E_TLS_DIR' "$WORK/out" && ok=0
+  check "$ok" "the same symlink named with a trailing slash is never offered to rmdir either"
 fi
 
 echo
