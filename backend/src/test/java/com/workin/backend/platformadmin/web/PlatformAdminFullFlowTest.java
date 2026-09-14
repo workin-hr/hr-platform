@@ -109,6 +109,29 @@ class PlatformAdminFullFlowTest extends AbstractIntegrationTest {
 	}
 
 	@Test
+	void eachCompanyRowOffersEditRightAfterDetails() {
+		// company_helper.php:190-197: Details, then Edit. The controller already
+		// opens the prefilled form at ?edit=<id>; only the way in was missing.
+		String cookie = signIn();
+		long companyId = createCompany();
+
+		Page companies = get("/admin/companies", cookie);
+		String html = companies.response().getBody();
+		int start = html.indexOf("id=\"row-actions-menu-" + companyId + "\"");
+		assertThat(start).as("the row menu for company %s", companyId).isPositive();
+		String menu = html.substring(start, html.indexOf("</div>", start));
+
+		int details = menu.indexOf("href=\"/admin/companies/" + companyId + "\"");
+		int edit = menu.indexOf("href=\"/admin/companies?edit=" + companyId + "\"");
+		assertThat(details).as("the menu still links to the detail page").isPositive();
+		assertThat(edit).as("the menu links to this company's edit form").isPositive();
+		assertThat(edit).as("Edit comes right after Details, as in legacy").isGreaterThan(details);
+
+		String form = get("/admin/companies?edit=" + companyId, cookie).response().getBody();
+		assertThat(form).as("the link opens the company form").contains("class=\"modal-bg open\" id=\"companyModal\"");
+	}
+
+	@Test
 	void aWrongPasswordIsRefusedAndOpensNothing() {
 		Page loginForm = get("/admin/login", null);
 		ResponseEntity<String> refused = post("/admin/login", loginForm.cookie(), loginForm.csrf(),
