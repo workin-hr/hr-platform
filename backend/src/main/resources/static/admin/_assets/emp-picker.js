@@ -115,9 +115,8 @@
       render(picker, matches(employeesFor(picker), p.search.value));
     });
 
-    // Enter in the search box chooses; it never submits. In a row dialog the
-    // first submit button is Cancel, so Enter here closed the dialog and lost
-    // the edit. With exactly one match listed, Enter picks it.
+    // Enter in the search box chooses; it never submits a half-typed search.
+    // With exactly one match listed, Enter picks it.
     p.search.addEventListener('keydown', function (event) {
       if (event.key !== 'Enter' || event.isComposing) {
         return;
@@ -134,11 +133,6 @@
       return;
     }
     form.addEventListener('submit', function (event) {
-      // A row dialog's Cancel submits with method="dialog" to close it.
-      const submitter = event.submitter;
-      if (submitter && (submitter.getAttribute('formmethod') === 'dialog' || submitter.hasAttribute('formnovalidate'))) {
-        return;
-      }
       if (parseInt(p.id.value, 10) > 0) {
         return;
       }
