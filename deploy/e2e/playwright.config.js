@@ -52,6 +52,13 @@ export default defineConfig({
 			use: { baseURL: HTTP },
 		},
 		{
+			// No stack: the dashboard's own scripts on a static page, needing
+			// neither the proxy nor the database.
+			name: 'browser',
+			testMatch: /row-dialog\.spec\.js/,
+			use: { ...devices['Desktop Chrome'] },
+		},
+		{
 			name: 'admin',
 			testMatch: /admin-dashboard\.spec\.js/,
 			use: { ...devices['Desktop Chrome'], baseURL: HTTPS, viewport: { width: 1440, height: 900 } },

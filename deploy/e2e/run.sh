@@ -99,7 +99,7 @@ case "$PROFILE" in
   local)
     FILES=(-f compose.local.yaml)
     ENVFILE=()
-    PROJECTS=(--project=api --project=surface --project=deployment)
+    PROJECTS=(--project=api --project=surface --project=deployment --project=browser)
     ;;
   integration)
     # BEFORE write_env: it expands ADMIN_ACTIONS_ENABLED into the generated
@@ -115,7 +115,7 @@ case "$PROFILE" in
     FILES=(-f compose.integration.yaml -f e2e/compose.proxy.yaml)
     ENVFILE=(--env-file ".env.$PROFILE-e2e")
     DB_PASSWORD=e2e-throwaway-db-password
-    PROJECTS=(--project=api --project=surface --project=deployment --project=admin)
+    PROJECTS=(--project=api --project=surface --project=deployment --project=admin --project=browser)
     ;;
   prod)
     write_env
