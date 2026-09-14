@@ -104,7 +104,8 @@ which `docker inspect` shows as the label `com.docker.compose.project`:
       -keyout "$E2E_TLS_DIR/server.key" -out "$E2E_TLS_DIR/server.crt" \
       -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
     chmod 644 "$E2E_TLS_DIR/server.crt" "$E2E_TLS_DIR/server.key"
-    [ -s "$E2E_TLS_DIR/server.key" ] && [ -s "$E2E_TLS_DIR/server.crt" ]
+    [ -s "$E2E_TLS_DIR/server.key" ]
+    [ -s "$E2E_TLS_DIR/server.crt" ]
     docker compose -p workin-integration -f compose.integration.yaml \
       -f e2e/compose.proxy.yaml --env-file "$ENV_FILE" up -d --no-deps proxy
     sudo rmdir "$old_tls_dir"
