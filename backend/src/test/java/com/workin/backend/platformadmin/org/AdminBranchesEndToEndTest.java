@@ -416,10 +416,17 @@ class AdminBranchesEndToEndTest {
 				.doesNotContain("value=\"" + suspended + "\"");
 		assertThat(form).as("instead of posting a company of 0").doesNotContain("name=\"company_id\" value=\"0\"");
 
-		assertThat(body("/admin/branches?action=add&company_id=" + this.companyA))
-				.as("a page already filtered to a company keeps that company, hidden")
+		assertThat(addForm(body("/admin/branches?action=add&company_id=" + this.companyA), "add"))
+				.as("the add form on a page already filtered to a company keeps that company, hidden")
 				.doesNotContain("<select name=\"company_id\"")
 				.contains("<input type=\"hidden\" name=\"company_id\" value=\"" + this.companyA + "\">");
+	}
+
+	/** The add form alone, so a hidden input elsewhere on the page (the pager's) cannot answer for it. */
+	private static String addForm(String html, String action) {
+		int field = html.indexOf("value=\"" + action + "\"");
+		assertThat(field).as("the page renders the add form").isPositive();
+		return html.substring(html.lastIndexOf("<form", field), html.indexOf("</form>", field));
 	}
 
 	private long createCompany(String name) {
