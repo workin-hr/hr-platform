@@ -224,6 +224,57 @@ public class EmployeeStore {
 	}
 
 	/**
+	 * {@code _employee_form.php}'s edit values and {@code employee_current_shift()}.
+	 * Both subqueries order as {@link #syncShiftAssignment} does, so they name
+	 * the row it compares an unchanged save against.
+	 */
+	public Employee.Form editForm(long id) {
+		String latest = " FROM employee_shift_assignments esa WHERE esa.employee_id = e.id"
+				+ " ORDER BY esa.effective_from DESC, esa.id DESC LIMIT 1)";
+		List<Employee.Form> rows = this.jdbcTemplate.query(
+				"SELECT e.id, e.company_id, e.first_name, e.last_name, e.employee_code, e.phone,"
+						+ " e.country_code, e.national_id, e.birth_date, e.gender, e.address,"
+						+ " e.hire_date, e.branch_id, e.department_id, e.job_title_id,"
+						+ " e.contract_duration_months, e.is_mobile_attendance_enabled,"
+						+ " (SELECT esa.shift_id" + latest + " AS shift_id,"
+						+ " (SELECT esa.effective_from" + latest + " AS shift_effective_from"
+						+ " FROM employees e WHERE e.id = ?",
+				(rs, rowNum) -> new Employee.Form(
+						rs.getLong("id"),
+						rs.getLong("company_id"),
+						text(rs, "first_name"),
+						text(rs, "last_name"),
+						text(rs, "employee_code"),
+						text(rs, "phone"),
+						text(rs, "country_code"),
+						text(rs, "national_id"),
+						date(rs, "birth_date"),
+						text(rs, "gender"),
+						text(rs, "address"),
+						date(rs, "hire_date"),
+						rs.getLong("branch_id"),
+						rs.getLong("department_id"),
+						rs.getLong("job_title_id"),
+						nullableLong(rs, "contract_duration_months"),
+						rs.getInt("is_mobile_attendance_enabled") != 0,
+						rs.getLong("shift_id"),
+						date(rs, "shift_effective_from")),
+				id);
+		return rows.isEmpty() ? null : rows.get(0);
+	}
+
+	private static String text(ResultSet rs, String column) throws SQLException {
+		String value = rs.getString(column);
+		return value == null ? "" : value;
+	}
+
+	/** A {@code date} input takes {@code YYYY-MM-DD} and nothing longer. */
+	private static String date(ResultSet rs, String column) throws SQLException {
+		String value = text(rs, column);
+		return value.substring(0, Math.min(10, value.length()));
+	}
+
+	/**
 	 * {@code dashboard_employee_code_exists_in_company()}. The code is unique
 	 * per company, not globally, and an edit excludes the row being saved.
 	 */
@@ -248,29 +299,47 @@ public class EmployeeStore {
 	 * with no filter, whose reach is every company.
 	 */
 	public List<Employee.Option> branchOptions(long companyId) {
-		return options("branches", companyId);
+		return options("branches", companyId, 0);
 	}
 
 	public List<Employee.Option> departmentOptions(long companyId) {
-		return options("departments", companyId);
+		return options("departments", companyId, 0);
 	}
 
 	public List<Employee.Option> jobTitleOptions(long companyId) {
-		return options("job_titles", companyId);
+		return options("job_titles", companyId, 0);
 	}
 
 	public List<Employee.Option> shiftOptions(long companyId) {
-		return options("shifts", companyId);
+		return options("shifts", companyId, 0);
 	}
 
-	private List<Employee.Option> options(String table, long companyId) {
+	/**
+	 * The edit form's lists: the company's active rows and, once deactivated,
+	 * the one the employee already has. Legacy lists active rows only, so its
+	 * select falls back to "none" and an unchanged save clears the employee's
+	 * department or job title.
+	 */
+	public List<Employee.Option> branchOptions(long companyId, long keepId) {
+		return options("branches", companyId, keepId);
+	}
+
+	public List<Employee.Option> departmentOptions(long companyId, long keepId) {
+		return options("departments", companyId, keepId);
+	}
+
+	public List<Employee.Option> jobTitleOptions(long companyId, long keepId) {
+		return options("job_titles", companyId, keepId);
+	}
+
+	private List<Employee.Option> options(String table, long companyId, long keepId) {
 		if (companyId > 0) {
 			return this.jdbcTemplate.query(
-					"SELECT id, name FROM " + table + " WHERE company_id = ? AND is_active = 1"
-							+ " ORDER BY name",
+					"SELECT id, name FROM " + table + " WHERE company_id = ?"
+							+ " AND (is_active = 1 OR id = ?) ORDER BY name",
 					(rs, rowNum) -> new Employee.Option(
 							rs.getLong("id"), rs.getString("name"), null),
-					companyId);
+					companyId, keepId);
 		}
 		return this.jdbcTemplate.query(
 				"SELECT t.id, t.name, c.company_name FROM " + table + " t"
@@ -282,13 +351,22 @@ public class EmployeeStore {
 
 	/** Whether a branch, department, job title or shift is this company's and active. */
 	public boolean belongsToCompany(String table, long id, long companyId) {
+		return belongsToCompany(table, id, companyId, 0);
+	}
+
+	/**
+	 * The same, except that {@code keepId} passes while inactive, as the edit
+	 * form's lists offer it: the row an employee already has. It is still held
+	 * to the company.
+	 */
+	public boolean belongsToCompany(String table, long id, long companyId, long keepId) {
 		if (id <= 0 || companyId <= 0) {
 			return false;
 		}
 		Integer found = this.jdbcTemplate.queryForObject(
 				"SELECT COUNT(*) FROM " + table + " WHERE id = ? AND company_id = ? AND"
-						+ " is_active = 1",
-				Integer.class, id, companyId);
+						+ " (is_active = 1 OR id = ?)",
+				Integer.class, id, companyId, keepId);
 		return found != null && found > 0;
 	}
 
@@ -334,39 +412,65 @@ public class EmployeeStore {
 	 * own update. What legacy does not do is check that the three foreign keys
 	 * belong to the row's company -- {@link EmployeeAdminService} is what holds
 	 * them to it.
+	 *
+	 * <p>Only columns whose value differs from {@code current} are set. An
+	 * unchanged column keeps exactly what is stored, which is not always what
+	 * the save's normalising would write back: an empty string it turns into
+	 * NULL, padding it trims, a {@code 0000-00-00} a strict session refuses.
+	 * Text is compared trimmed, with blank and NULL alike.
 	 */
-	public int update(long id, EmployeeWrite write, String passwordHash) {
-		StringBuilder sql = new StringBuilder(
-				"UPDATE employees SET first_name = ?, last_name = ?, employee_code = ?,"
-						+ " phone = ?, country_code = ?, national_id = ?, gender = ?,"
-						+ " birth_date = ?, hire_date = ?, address = ?, branch_id = ?,"
-						+ " department_id = ?, job_title_id = ?, contract_duration_months = ?,"
-						+ " is_mobile_attendance_enabled = ?");
-		List<Object> params = new ArrayList<>();
-		params.add(write.firstName());
-		params.add(write.lastName());
-		params.add(write.employeeCode());
-		params.add(write.phone());
-		params.add(write.countryCode());
-		params.add(write.nationalId());
-		params.add(write.gender());
-		params.add(write.birthDate());
-		params.add(write.hireDate());
-		params.add(write.address());
-		params.add(write.branchId());
-		params.add(write.departmentId());
-		params.add(write.jobTitleId());
-		params.add(write.contractDurationMonths());
-		params.add(write.mobileAttendance() ? 1 : 0);
+	public int update(long id, EmployeeWrite write, String passwordHash, Employee.Form current) {
+		java.util.Map<String, Object> columns = new java.util.LinkedHashMap<>();
+		putIfChanged(columns, "first_name", write.firstName(), current.firstName());
+		putIfChanged(columns, "last_name", write.lastName(), current.lastName());
+		putIfChanged(columns, "employee_code", write.employeeCode(), current.employeeCode());
+		putIfChanged(columns, "phone", write.phone(), current.phone());
+		putIfChanged(columns, "country_code", write.countryCode(), current.countryCode());
+		putIfChanged(columns, "national_id", write.nationalId(), current.nationalId());
+		putIfChanged(columns, "gender", write.gender(), current.gender());
+		putIfChanged(columns, "birth_date", write.birthDate(), current.birthDate());
+		putIfChanged(columns, "hire_date", write.hireDate(), current.hireDate());
+		putIfChanged(columns, "address", write.address(), current.address());
+		putIfChanged(columns, "branch_id", write.branchId(), current.branchId());
+		putIfChanged(columns, "department_id", write.departmentId(), current.departmentId());
+		putIfChanged(columns, "job_title_id", write.jobTitleId(), current.jobTitleId());
+		Integer months = write.contractDurationMonths();
+		if (!java.util.Objects.equals(months == null ? null : months.longValue(), current.contractDurationMonths())) {
+			columns.put("contract_duration_months", months);
+		}
+		if (write.mobileAttendance() != current.mobileAttendance()) {
+			columns.put("is_mobile_attendance_enabled", write.mobileAttendance() ? 1 : 0);
+		}
 		// Legacy adds password_hash to the payload only when one was typed, so
 		// an edit that leaves the field blank keeps the existing credential.
 		if (passwordHash != null) {
-			sql.append(", password_hash = ?");
-			params.add(passwordHash);
+			columns.put("password_hash", passwordHash);
 		}
-		sql.append(" WHERE id = ?");
+		if (columns.isEmpty()) {
+			return 0;
+		}
+		List<Object> params = new ArrayList<>(columns.values());
 		params.add(id);
-		return this.jdbcTemplate.update(sql.toString(), params.toArray());
+		return this.jdbcTemplate.update(
+				"UPDATE employees SET " + String.join(" = ?, ", columns.keySet()) + " = ? WHERE id = ?",
+				params.toArray());
+	}
+
+	private static void putIfChanged(
+			java.util.Map<String, Object> columns, String column, String written, String stored) {
+		String before = stored == null ? "" : stored.trim();
+		String after = written == null ? "" : written.trim();
+		if (!before.equals(after)) {
+			columns.put(column, written);
+		}
+	}
+
+	/** An org id: the form's "none" and a NULL column are both zero. */
+	private static void putIfChanged(
+			java.util.Map<String, Object> columns, String column, Long written, long stored) {
+		if ((written == null ? 0L : written) != stored) {
+			columns.put(column, written);
+		}
 	}
 
 	public int setActive(long id, boolean active) {

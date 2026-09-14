@@ -80,4 +80,68 @@ public record Employee(
 		}
 	}
 
+	/**
+	 * What the edit form is filled from: every column {@code save_edit} writes,
+	 * as stored, and the latest shift assignment. Not the list row, whose name
+	 * and code are display values -- a form filled from those saves the joined
+	 * name into {@code first_name}. Text reads blank for null, and the save
+	 * treats the two alike, so an unchanged blank stays as stored; an absent
+	 * org row or shift is zero, the selects' "none".
+	 */
+	public record Form(
+			long id, long companyId, String firstName, String lastName, String employeeCode,
+			String phone, String countryCode, String nationalId, String birthDate, String gender,
+			String address, String hireDate, long branchId, long departmentId, long jobTitleId,
+			Long contractDurationMonths, boolean mobileAttendance, long shiftId,
+			String shiftEffectiveFrom) {
+
+		/** {@code employee_contract_form_values()}: whole years are shown as years. */
+		public String contractValue() {
+			long months = contractMonths();
+			if (months <= 0) {
+				return "";
+			}
+			return String.valueOf(months % 12 == 0 ? months / 12 : months);
+		}
+
+		public String contractUnit() {
+			long months = contractMonths();
+			return months > 0 && months % 12 == 0 ? "years" : "months";
+		}
+
+		private long contractMonths() {
+			return this.contractDurationMonths == null ? 0 : this.contractDurationMonths;
+		}
+
+		public String birthDateInput() {
+			return inputDate(this.birthDate);
+		}
+
+		public String hireDateInput() {
+			return inputDate(this.hireDate);
+		}
+
+		public String shiftEffectiveFromInput() {
+			return inputDate(this.shiftEffectiveFrom);
+		}
+
+		/**
+		 * Whether a date input can hold the value. A browser submits any other
+		 * value -- legacy's {@code 0000-00-00} above all -- as empty, so the save
+		 * cannot tell it from a date that was cleared without the stored row.
+		 */
+		public static boolean isDateInputValue(String value) {
+			try {
+				return value.length() == 10 && java.time.LocalDate.parse(value).getYear() >= 1;
+			}
+			catch (java.time.format.DateTimeParseException ex) {
+				return false;
+			}
+		}
+
+		private static String inputDate(String value) {
+			return isDateInputValue(value) ? value : "";
+		}
+	}
+
 }

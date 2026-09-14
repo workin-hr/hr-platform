@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.http.HttpClient;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -659,6 +661,469 @@ class AdminEmployeesEndToEndTest {
 				String.class);
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
 		assertThat(response.getHeaders().getLocation()).asString().contains("/admin/login");
+	}
+
+	@Test
+	void savingTheEditFormUnchangedLeavesTheEmployeeUnchanged() {
+		// #212. save_edit writes every identity, contract and attendance column
+		// from the post, so the form has to carry each one's stored value. The
+		// form is read out of the rendered page and posted back as it is, which
+		// is what a browser sends when nobody touches a field.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET phone = '01012345678', country_code = '+20',"
+				+ " national_id = '29001011234567', birth_date = '1990-01-01', gender = 'female',"
+				+ " address = '12 Nile Street', hire_date = '2020-06-15', department_id = ?,"
+				+ " job_title_id = ?, contract_duration_months = 24,"
+				+ " is_mobile_attendance_enabled = 1 WHERE id = ?",
+				this.departmentA, this.jobTitleA, id);
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		Map<String, Object> before = editableColumns(id);
+
+		assertSaved(postFields(
+				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id))
+				.as("saving the form unchanged changes nothing")
+				.isEqualTo(before);
+		assertThat(this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = " + id,
+				Integer.class))
+				.as("the same shift from the same date adds no assignment")
+				.isEqualTo(1);
+	}
+
+	@Test
+	void anUnchangedSaveKeepsWhatIsNotStoredUnstored() {
+		// The other half: a form must not invent a value either. PHP's gender
+		// select has no "other", and its hire date falls back to today, so an
+		// unchanged save there rewrites both; this one keeps them. Eighteen
+		// months is not whole years, and attendance off must stay off.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "");
+		this.jdbc.update("UPDATE employees SET gender = 'other', contract_duration_months = 18,"
+				+ " is_mobile_attendance_enabled = 0 WHERE id = ?", id);
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		Map<String, Object> before = editableColumns(id);
+
+		assertSaved(postFields(
+				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+	}
+
+	@Test
+	void anUnchangedSaveKeepsOrgRowsDeactivatedAfterTheyWereSet() {
+		// Legacy's lists hold active rows only, so its selects fall back to
+		// "none": the save clears the department and job title, and refuses
+		// outright for the branch, whose column cannot be null.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET department_id = ?, job_title_id = ? WHERE id = ?",
+				this.departmentA, this.jobTitleA, id);
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		this.jdbc.update("UPDATE branches SET is_active = 0 WHERE id = ?", this.branchA);
+		this.jdbc.update("UPDATE departments SET is_active = 0 WHERE id = ?", this.departmentA);
+		this.jdbc.update("UPDATE job_titles SET is_active = 0 WHERE id = ?", this.jobTitleA);
+		Map<String, Object> before = editableColumns(id);
+
+		assertSaved(postFields(
+				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+	}
+
+	@Test
+	void aDeactivatedOrgRowIsKeptButNeverNewlyChosen() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		long retired = createDepartment(this.companyA, "Alpha Retired", false);
+
+		assertThat(body("/admin/employees?action=edit&id=" + id))
+				.as("offered only to the employee who already has it")
+				.doesNotContain("Alpha Retired");
+
+		ResponseEntity<String> response = postForm("action", "save_edit", "id", String.valueOf(id),
+				"first_name", "Aya", "employee_code", "1001",
+				"branch_id", String.valueOf(this.branchA),
+				"department_id", String.valueOf(retired));
+
+		assertThat(response.getHeaders().getLocation()).asString().contains("error_required");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT department_id FROM employees WHERE id = " + id, Long.class))
+				.isNull();
+	}
+
+	@Test
+	void anEmployeeWithNoCodeCanStillBeEditedAndKeepsHavingNone() {
+		// The list shows the id for a blank code (CODE_SQL), and the form used
+		// to post that id back as the code. Legacy's form requires a code, so
+		// there such an employee cannot be saved without inventing one.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET employee_code = NULL WHERE id = ?", id);
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		Map<String, Object> before = editableColumns(id);
+
+		assertSaved(postFields(
+				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+	}
+
+	@Test
+	void anEditCannotBlankACodeTheEmployeeHas() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+
+		ResponseEntity<String> response = postForm("action", "save_edit", "id", String.valueOf(id),
+				"first_name", "Aya", "employee_code", "",
+				"branch_id", String.valueOf(this.branchA));
+
+		assertThat(response.getHeaders().getLocation()).asString().contains("error_required");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT employee_code FROM employees WHERE id = " + id, String.class))
+				.isEqualTo("1001");
+	}
+
+	@Test
+	void anUnchangedSaveKeepsZeroDatesNoDateInputCanHold() {
+		// Legacy data carries MariaDB's 0000-00-00, which a date input cannot
+		// show: a browser submits it as empty. The development seed holds 68.
+		// With a real hire date beside it, an empty shift date would also fall
+		// back to that hire date and add an assignment.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		nonStrict("UPDATE employees SET birth_date = '0000-00-00', hire_date = '2020-06-15'"
+				+ " WHERE id = " + id);
+		nonStrict("INSERT INTO employee_shift_assignments (employee_id, shift_id, effective_from)"
+				+ " VALUES (" + id + ", " + this.shiftA + ", '0000-00-00')");
+		Map<String, Object> before = editableColumns(id);
+
+		assertSaved(postFields(
+				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+		assertThat(this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM employee_shift_assignments WHERE employee_id = " + id,
+				Integer.class))
+				.as("and no assignment is added")
+				.isEqualTo(1);
+	}
+
+	@Test
+	void anUnchangedSaveKeepsAZeroHireDate() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		nonStrict("UPDATE employees SET hire_date = '0000-00-00' WHERE id = " + id);
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		Map<String, Object> before = editableColumns(id);
+
+		assertSaved(postFields(
+				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+	}
+
+	@Test
+	void anUnchangedSaveKeepsACodeTheDigitsRuleWouldRefuse() {
+		// Every employee in the development seed has a code such as E000002.
+		// The digits-only rule is for a code someone types, not one already stored.
+		long id = seedEmployee(this.companyA, "E000002", "Aya", "Alpha");
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		Map<String, Object> before = editableColumns(id);
+
+		assertSaved(postFields(
+				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+	}
+
+	@Test
+	void aReplacedCodeIsStillHeldToTheDigitsRule() {
+		long id = seedEmployee(this.companyA, "E000002", "Aya", "Alpha");
+
+		ResponseEntity<String> response = postForm("action", "save_edit", "id", String.valueOf(id),
+				"first_name", "Aya", "employee_code", "E000003",
+				"branch_id", String.valueOf(this.branchA));
+
+		assertThat(response.getHeaders().getLocation()).asString().contains("employee_code_invalid");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT employee_code FROM employees WHERE id = " + id, String.class))
+				.isEqualTo("E000002");
+	}
+
+	@Test
+	void anUnchangedSaveKeepsAPhoneStoredWithNoCountryCode() {
+		// R-019: join_company.php stores the phone and discards its dial code,
+		// a pair the phone rule refuses.
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET phone = '01012345678', country_code = NULL WHERE id = ?", id);
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		Map<String, Object> before = editableColumns(id);
+
+		assertSaved(postFields(
+				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+	}
+
+	@Test
+	void aReplacedPhoneIsStillCheckedForItsCountryCode() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		this.jdbc.update("UPDATE employees SET phone = '01012345678', country_code = NULL WHERE id = ?", id);
+
+		ResponseEntity<String> response = postForm("action", "save_edit", "id", String.valueOf(id),
+				"first_name", "Aya", "employee_code", "1001",
+				"branch_id", String.valueOf(this.branchA),
+				"phone", "01099999999", "country_code", "");
+
+		assertThat(response.getHeaders().getLocation()).asString().contains("error_required");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT phone FROM employees WHERE id = " + id, String.class))
+				.isEqualTo("01012345678");
+	}
+
+	@Test
+	void anUnchangedSaveKeepsBlankAndPaddedTextAsStored() {
+		// The save trims and turns blanks into NULL, so it would rewrite every
+		// one of these while changing nothing anyone could see.
+		long id = seedEmployee(this.companyA, "1001", " Aya ", "Alpha");
+		nonStrict("UPDATE employees SET national_id = '', gender = '', address = '  12 Nile Street  ',"
+				+ " phone = NULL, country_code = '+20' WHERE id = " + id);
+		this.jdbc.update("INSERT INTO employee_shift_assignments (employee_id, shift_id,"
+				+ " effective_from) VALUES (?, ?, '2026-01-01')", id, this.shiftA);
+		Map<String, Object> before = editableColumns(id);
+
+		assertSaved(postFields(
+				formFields(body("/admin/employees?action=edit&id=" + id), "save_edit")));
+
+		assertThat(editableColumns(id)).isEqualTo(before);
+	}
+
+	@Test
+	void aZeroDateIsKeptOnlyWhileItsInputIsLeftEmpty() {
+		long id = seedEmployee(this.companyA, "1001", "Aya", "Alpha");
+		nonStrict("UPDATE employees SET birth_date = '0000-00-00' WHERE id = " + id);
+		BrowserForm form = formFields(body("/admin/employees?action=edit&id=" + id), "save_edit");
+		form.fields().put("birth_date", "1990-01-01");
+
+		assertSaved(postFields(form));
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT CAST(birth_date AS CHAR) FROM employees WHERE id = " + id, String.class))
+				.isEqualTo("1990-01-01");
+	}
+
+	@Test
+	void theAddFormHasMobileAttendanceOnByDefault() {
+		// PHP's form ticks the box by default. A form without the box posts
+		// nothing for it, and nothing reads as off.
+		BrowserForm form = formFields(
+				body("/admin/employees?company_id=" + this.companyA + "&action=add"), "add_employee");
+		form.fields().put("first_name", "Nadia");
+		form.fields().put("employee_code", "2001");
+		form.fields().put("branch_id", String.valueOf(this.branchA));
+		form.fields().put("shift_id", String.valueOf(this.shiftA));
+
+		assertSaved(postFields(form));
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT is_mobile_attendance_enabled FROM employees WHERE employee_code = '2001'",
+				Integer.class))
+				.isEqualTo(1);
+	}
+
+	/**
+	 * A refused post also redirects, and leaves every column as it was, so an
+	 * unchanged-row assertion alone would pass on a save that never ran.
+	 */
+	private void assertSaved(ResponseEntity<String> response) {
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FOUND);
+		assertThat(response.getHeaders().getLocation()).asString()
+				.as("accepted, not refused with an error")
+				.endsWith("/admin/employees");
+		assertThat(this.jdbc.queryForObject(
+				"SELECT COUNT(*) FROM platform_admin_audit_events WHERE target_type = 'employee'",
+				Integer.class))
+				.as("and audited, which only a completed write is")
+				.isEqualTo(1);
+	}
+
+	/** Writes a zero date, which a strict session refuses; production runs non-strict. */
+	private void nonStrict(String sql) {
+		this.jdbc.execute("SET STATEMENT sql_mode = '' FOR " + sql);
+	}
+
+	/**
+	 * Every column save_edit writes, and the assignment it may add, as one map.
+	 * Dates are read as text: the driver can hand a zero date back as null,
+	 * which would make a zero date saved as NULL look unchanged.
+	 */
+	private Map<String, Object> editableColumns(long id) {
+		Map<String, Object> columns = new LinkedHashMap<>(this.jdbc.queryForMap(
+				"SELECT company_id, first_name, last_name, employee_code, phone, country_code,"
+						+ " national_id, gender, CAST(birth_date AS CHAR) AS birth_date,"
+						+ " CAST(hire_date AS CHAR) AS hire_date, address, branch_id,"
+						+ " department_id, job_title_id, contract_duration_months,"
+						+ " is_mobile_attendance_enabled, password_hash FROM employees WHERE id = ?",
+				id));
+		columns.putAll(this.jdbc.queryForMap(
+				"SELECT shift_id, CAST(effective_from AS CHAR) AS effective_from"
+						+ " FROM employee_shift_assignments"
+						+ " WHERE employee_id = ? ORDER BY effective_from DESC, id DESC LIMIT 1",
+				id));
+		return columns;
+	}
+
+	/**
+	 * A rendered form as a browser holds it: what it would submit, and what
+	 * stops it submitting -- a required field left empty, a value its
+	 * {@code pattern} does not match, a number outside {@code min} and
+	 * {@code max}.
+	 */
+	private record BrowserForm(Map<String, String> fields, java.util.Set<String> required,
+			Map<String, String> patterns, Map<String, String[]> ranges) {
+	}
+
+	/**
+	 * The form whose hidden {@code action} is {@code action}, read the way a
+	 * browser submits it: text-like inputs with their values, a date input
+	 * whose value is not a valid date as empty, a checkbox only when ticked,
+	 * and each select's selected option (or its first, as a browser falls back
+	 * to). The CSRF field is left to the post.
+	 */
+	private static BrowserForm formFields(String html, String action) {
+		int marker = html.indexOf("name=\"action\" value=\"" + action + "\"");
+		assertThat(marker).as("the %s form renders", action).isPositive();
+		String form = html.substring(html.lastIndexOf("<form", marker), html.indexOf("</form>", marker));
+
+		Map<String, String> fields = new LinkedHashMap<>();
+		java.util.Set<String> required = new java.util.LinkedHashSet<>();
+		Matcher inputs = Pattern.compile("<input\\b([^>]*)>").matcher(form);
+		while (inputs.find()) {
+			String attributes = inputs.group(1);
+			String name = attribute(attributes, "name");
+			if (name == null || name.contains("_csrf")) {
+				continue;
+			}
+			String type = attribute(attributes, "type");
+			String value = attribute(attributes, "value");
+			if ("checkbox".equals(type)) {
+				if (hasAttribute(attributes, "checked")) {
+					fields.put(name, value == null ? "on" : value);
+				}
+				continue;
+			}
+			value = value == null ? "" : value;
+			fields.put(name, "date".equals(type) ? sanitizedDate(value) : value);
+			if (hasAttribute(attributes, "required")) {
+				required.add(name);
+			}
+		}
+		Matcher selects = Pattern.compile("<select\\b([^>]*)>(.*?)</select>", Pattern.DOTALL).matcher(form);
+		while (selects.find()) {
+			String first = null;
+			String chosen = null;
+			Matcher options = Pattern.compile("<option\\b([^>]*)>").matcher(selects.group(2));
+			while (options.find()) {
+				String value = attribute(options.group(1), "value");
+				value = value == null ? "" : value;
+				if (first == null) {
+					first = value;
+				}
+				if (hasAttribute(options.group(1), "selected")) {
+					chosen = value;
+				}
+			}
+			String name = attribute(selects.group(1), "name");
+			fields.put(name, chosen != null ? chosen : first == null ? "" : first);
+			if (hasAttribute(selects.group(1), "required")) {
+				required.add(name);
+			}
+		}
+		return new BrowserForm(fields, required, inputAttribute(form, "pattern"), numberRanges(form));
+	}
+
+	/** Each named input's value for the attribute {@code key}, where it has one. */
+	private static Map<String, String> inputAttribute(String form, String key) {
+		Map<String, String> found = new LinkedHashMap<>();
+		Matcher inputs = Pattern.compile("<input\\b([^>]*)>").matcher(form);
+		while (inputs.find()) {
+			String name = attribute(inputs.group(1), "name");
+			String value = attribute(inputs.group(1), key);
+			if (name != null && value != null) {
+				found.put(name, value);
+			}
+		}
+		return found;
+	}
+
+	/** Each number input's {@code min} and {@code max}; either may be absent. */
+	private static Map<String, String[]> numberRanges(String form) {
+		Map<String, String[]> found = new LinkedHashMap<>();
+		Matcher inputs = Pattern.compile("<input\\b([^>]*)>").matcher(form);
+		while (inputs.find()) {
+			String attributes = inputs.group(1);
+			String name = attribute(attributes, "name");
+			if (name != null && "number".equals(attribute(attributes, "type"))) {
+				found.put(name, new String[] {attribute(attributes, "min"), attribute(attributes, "max")});
+			}
+		}
+		return found;
+	}
+
+	/** A browser's value sanitisation: a date input holding no valid date submits as empty. */
+	private static String sanitizedDate(String value) {
+		try {
+			return value.length() == 10 && java.time.LocalDate.parse(value).getYear() >= 1 ? value : "";
+		}
+		catch (java.time.format.DateTimeParseException ex) {
+			return "";
+		}
+	}
+
+	private static String attribute(String attributes, String name) {
+		Matcher matcher = Pattern.compile("(?:^|\\s)" + name + "=\"([^\"]*)\"").matcher(attributes);
+		return matcher.find()
+				? matcher.group(1).replace("&quot;", "\"").replace("&#34;", "\"").replace("&#39;", "'")
+						.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+				: null;
+	}
+
+	private static boolean hasAttribute(String attributes, String name) {
+		return Pattern.compile("(?:^|\\s)" + name + "(?:\\s|=|$)").matcher(attributes).find();
+	}
+
+	private ResponseEntity<String> postFields(BrowserForm form) {
+		for (String name : form.required()) {
+			assertThat(form.fields().get(name))
+					.as("a browser will not submit the form while required %s is empty", name)
+					.isNotEmpty();
+		}
+		// A browser checks pattern, min and max only on a value that is not empty.
+		form.patterns().forEach((name, pattern) -> {
+			String value = form.fields().get(name);
+			assertThat(value == null || value.isEmpty() || value.matches(pattern))
+					.as("a browser will not submit %s '%s', which pattern %s does not match", name, value, pattern)
+					.isTrue();
+		});
+		form.ranges().forEach((name, range) -> {
+			String value = form.fields().get(name);
+			if (value != null && !value.isEmpty()) {
+				double number = Double.parseDouble(value);
+				assertThat((range[0] == null || number >= Double.parseDouble(range[0]))
+						&& (range[1] == null || number <= Double.parseDouble(range[1])))
+						.as("a browser will not submit %s %s outside min %s and max %s",
+								name, value, range[0], range[1])
+						.isTrue();
+			}
+		});
+		List<String> pairs = new ArrayList<>();
+		form.fields().forEach((name, value) -> {
+			pairs.add(name);
+			pairs.add(value);
+		});
+		return postForm(pairs.toArray(String[]::new));
 	}
 
 	private ResponseEntity<String> postForm(String... fields) {

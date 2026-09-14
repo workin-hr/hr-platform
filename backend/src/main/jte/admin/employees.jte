@@ -23,7 +23,7 @@
 @param boolean showCompanyColumn
 @param boolean canManage
 @param boolean actionsEnabled
-@param Employee editRow = null
+@param Employee.Form editRow = null
 @param boolean addOpen = false
 @param String errorKey = null
 @param String currentPage
@@ -142,20 +142,33 @@
 						<input type="hidden" name="company_id" value="${filters.companyId()}">
 					@endif
 
+					<%-- save_edit writes these columns from the post, so each input
+					     carries its stored value: one left empty is one the save
+					     clears. Only the password is left blank, and a blank one
+					     keeps the credential. --%>
 					<div class="form-row">
 						<label for="first_name">${t.apply("first_name")} *</label>
 						<input type="text" id="first_name" name="first_name" required maxlength="255"
-						       value="${editRow == null ? "" : editRow.employeeName()}">
+						       value="${editRow == null ? "" : editRow.firstName()}">
 					</div>
 					<div class="form-row">
 						<%-- Not required: legacy checks the first name only. --%>
 						<label for="last_name">${t.apply("last_name")}</label>
-						<input type="text" id="last_name" name="last_name" maxlength="255">
+						<input type="text" id="last_name" name="last_name" maxlength="255"
+						       value="${editRow == null ? "" : editRow.lastName()}">
 					</div>
 					<div class="form-row">
-						<label for="emp_code">${t.apply("emp_code")} *</label>
-						<input type="text" id="emp_code" name="employee_code" required maxlength="64"
-						       inputmode="numeric" pattern="[0-9]+" autocomplete="off"
+						<%-- The save validates only a replaced code, so the input asks for
+						     one only when the employee has one, and for digits only when
+						     the stored code is digits: a pattern the stored value fails
+						     would stop a browser submitting a form nobody changed. --%>
+						!{boolean codeRequired = editRow == null || !editRow.employeeCode().isBlank();}
+						!{boolean codeIsDigits = editRow == null || editRow.employeeCode().isBlank()
+								|| editRow.employeeCode().matches("[0-9]+");}
+						<label for="emp_code">${t.apply("emp_code")}${codeRequired ? " *" : ""}</label>
+						<input type="text" id="emp_code" name="employee_code" maxlength="64"
+						       required="${codeRequired}"
+						       inputmode="numeric" pattern="${codeIsDigits ? "[0-9]+" : null}" autocomplete="off"
 						       value="${editRow == null ? "" : editRow.employeeCode()}">
 					</div>
 					<div class="form-row">
@@ -163,7 +176,8 @@
 						<select id="branch_id" name="branch_id">
 							<option value="0">—</option>
 							@for(Employee.Option option : branchOptions)
-								<option value="${option.id()}">${option.label()}</option>
+								<option value="${option.id()}"
+								        selected="${editRow != null && editRow.branchId() == option.id()}">${option.label()}</option>
 							@endfor
 						</select>
 					</div>
@@ -172,7 +186,8 @@
 						<select id="department_id" name="department_id">
 							<option value="0">—</option>
 							@for(Employee.Option option : departmentOptions)
-								<option value="${option.id()}">${option.label()}</option>
+								<option value="${option.id()}"
+								        selected="${editRow != null && editRow.departmentId() == option.id()}">${option.label()}</option>
 							@endfor
 						</select>
 					</div>
@@ -181,7 +196,8 @@
 						<select id="job_title_id" name="job_title_id">
 							<option value="0">—</option>
 							@for(Employee.Option option : jobTitleOptions)
-								<option value="${option.id()}">${option.label()}</option>
+								<option value="${option.id()}"
+								        selected="${editRow != null && editRow.jobTitleId() == option.id()}">${option.label()}</option>
 							@endfor
 						</select>
 					</div>
@@ -192,21 +208,29 @@
 						<select id="shift_id" name="shift_id" required>
 							<option value="0">—</option>
 							@for(Employee.Option option : shiftOptions)
-								<option value="${option.id()}">${option.label()}</option>
+								<option value="${option.id()}"
+								        selected="${editRow != null && editRow.shiftId() == option.id()}">${option.label()}</option>
 							@endfor
 						</select>
 					</div>
 					<div class="form-row">
+						<%-- The current assignment's own date: the same shift from
+						     the same date is what makes a save add no assignment. --%>
+						<label for="shift_effective_from">${t.apply("shift_effective_from")}</label>
+						<input type="date" id="shift_effective_from" name="shift_effective_from"
+						       value="${editRow == null ? "" : editRow.shiftEffectiveFromInput()}">
+					</div>
+					<div class="form-row">
 						<label for="phone">${t.apply("phone")}</label>
 						<input type="text" id="phone" name="phone"
-						       value="${editRow == null || editRow.phone() == null ? "" : editRow.phone()}">
+						       value="${editRow == null ? "" : editRow.phone()}">
 					</div>
 					<div class="form-row">
 						<%-- Required only when a phone is given, and checked
 						     before the number itself is judged. --%>
 						<label for="country_code">${t.apply("country_code")}</label>
 						<input type="text" id="country_code" name="country_code"
-						       value="${editRow == null || editRow.countryCode() == null ? "" : editRow.countryCode()}">
+						       value="${editRow == null ? "" : editRow.countryCode()}">
 					</div>
 					<div class="form-row">
 						<label for="password">${t.apply("password")}</label>
@@ -214,16 +238,66 @@
 					</div>
 					<div class="form-row">
 						<label for="national_id">${t.apply("national_id")}</label>
-						<input type="text" id="national_id" name="national_id" maxlength="64">
+						<input type="text" id="national_id" name="national_id" maxlength="64"
+						       value="${editRow == null ? "" : editRow.nationalId()}">
 					</div>
 					<div class="form-row">
+						<%-- Each date input shows only a date it can hold. A stored
+						     0000-00-00 renders empty, and left empty the save keeps it. --%>
+						<label for="birth_date">${t.apply("birth_date")}</label>
+						<input type="date" id="birth_date" name="birth_date"
+						       value="${editRow == null ? "" : editRow.birthDateInput()}">
+					</div>
+					<div class="form-row">
+						<label for="gender">${t.apply("gender")}</label>
+						<select id="gender" name="gender">
+							<option value="">${t.apply("optional")}</option>
+							<option value="male"
+							        selected="${editRow != null && "male".equals(editRow.gender())}">${t.apply("gender_male")}</option>
+							<option value="female"
+							        selected="${editRow != null && "female".equals(editRow.gender())}">${t.apply("gender_female")}</option>
+							@if(editRow != null && "other".equals(editRow.gender()))
+								<%-- The column allows it and legacy's select does not
+								     offer it, so legacy's own form clears it on save.
+								     Offered only to the employee who already has it. --%>
+								<option value="other" selected>${t.apply("gender_other")}</option>
+							@endif
+						</select>
+					</div>
+					<div class="form-row">
+						<%-- The stored date or nothing. Legacy fills a missing one
+						     with today and the port filled it with created_at: both
+						     write a hire date on a save that changed nothing. --%>
 						<label for="hire_date">${t.apply("hire_date")}</label>
 						<input type="date" id="hire_date" name="hire_date"
-						       value="${editRow == null ? "" : editRow.hireDateLabel()}">
+						       value="${editRow == null ? "" : editRow.hireDateInput()}">
 					</div>
 					<div class="form-row">
 						<label for="address">${t.apply("address")}</label>
-						<input type="text" id="address" name="address" maxlength="255">
+						<input type="text" id="address" name="address" maxlength="500"
+						       value="${editRow == null ? "" : editRow.address()}">
+					</div>
+					<div class="form-row">
+						<label for="contract_duration">${t.apply("contract_duration")}</label>
+						<input type="number" id="contract_duration" name="contract_duration" min="1" max="60"
+						       value="${editRow == null ? "" : editRow.contractValue()}">
+					</div>
+					<div class="form-row">
+						<label for="contract_duration_unit">${t.apply("contract_duration_unit")}</label>
+						<select id="contract_duration_unit" name="contract_duration_unit">
+							<option value="months">${t.apply("months")}</option>
+							<option value="years"
+							        selected="${editRow != null && "years".equals(editRow.contractUnit())}">${t.apply("years")}</option>
+						</select>
+					</div>
+					<div class="form-row">
+						<%-- Ticked for a new employee, as legacy's is. Unticked
+						     posts nothing, and nothing saves as off. --%>
+						<label class="emp-checkbox-label">
+							<input type="checkbox" name="is_mobile_attendance_enabled" value="1"
+							       checked="${editRow == null || editRow.mobileAttendance()}">
+							${t.apply("mobile_attendance_enabled")}
+						</label>
 					</div>
 					@if(editRow == null)
 						<div class="form-row">
