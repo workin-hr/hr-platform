@@ -83,6 +83,46 @@ class BannerFormTest {
 		assertThat(BannerForm.whatsappNumber("+20", "abc")).isNull();
 	}
 
+	/** Active dial codes, with a shorter prefix of {@code +966} to be passed over. */
+	private static final java.util.List<String> CODES = java.util.List.of("+20", "+96", "+966");
+
+	@Test
+	void aStoredNumberSplitsOnTheLongestActiveDialCodeItStartsWith() {
+		assertThat(BannerForm.splitWhatsapp("966501234567", CODES))
+				.isEqualTo(new BannerForm.WhatsappParts("+966", "501234567"));
+		assertThat(BannerForm.splitWhatsapp("201012345678", CODES))
+				.isEqualTo(new BannerForm.WhatsappParts("+20", "1012345678"));
+	}
+
+	@Test
+	void aNumberNoDialCodeMatchesFallsBackToPlusTwentyWithEveryDigitLocal() {
+		assertThat(BannerForm.splitWhatsapp("4412345678", CODES))
+				.isEqualTo(new BannerForm.WhatsappParts("+20", "4412345678"));
+		assertThat(BannerForm.splitWhatsapp("4412345678", java.util.List.of()))
+				.as("with no active codes at all")
+				.isEqualTo(new BannerForm.WhatsappParts("+20", "4412345678"));
+	}
+
+	@Test
+	void anEmptyValueSplitsIntoPlusTwentyAndNoLocalNumber() {
+		assertThat(BannerForm.splitWhatsapp(null, CODES)).isEqualTo(new BannerForm.WhatsappParts("+20", ""));
+		assertThat(BannerForm.splitWhatsapp(" ", CODES)).isEqualTo(new BannerForm.WhatsappParts("+20", ""));
+	}
+
+	@Test
+	void nonDigitsAreStrippedBeforeSplitting() {
+		assertThat(BannerForm.splitWhatsapp("+966 50-123-4567", CODES))
+				.isEqualTo(new BannerForm.WhatsappParts("+966", "501234567"));
+	}
+
+	@Test
+	void aMatchedNumberRecombinesToExactlyTheStoredDigits() {
+		for (String stored : java.util.List.of("201012345678", "966501234567", "96123456789")) {
+			BannerForm.WhatsappParts parts = BannerForm.splitWhatsapp(stored, CODES);
+			assertThat(BannerForm.whatsappNumber(parts.countryCode(), parts.local())).isEqualTo(stored);
+		}
+	}
+
 	@Test
 	void aBannerWithoutAnImageIsRejected() {
 		assertThat(BannerForm.validate(null, "t", "t", null, null, null, null,

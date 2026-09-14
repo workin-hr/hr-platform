@@ -13,6 +13,8 @@ import org.springframework.web.multipart.MultipartFile;
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.content.Banner;
 import com.workin.backend.platformadmin.content.BannerAdminService;
+import com.workin.backend.platformadmin.content.BannerForm;
+import com.workin.legacy.phone.LegacyPhoneCountries;
 
 /**
  * {@code dashboard/pages/banners/page.php} -- the home-screen cards both
@@ -32,8 +34,11 @@ public class AdminBannersController {
 
 	private final BannerAdminService service;
 
-	public AdminBannersController(BannerAdminService service) {
+	private final LegacyPhoneCountries phoneCountries;
+
+	public AdminBannersController(BannerAdminService service, LegacyPhoneCountries phoneCountries) {
 		this.service = service;
+		this.phoneCountries = phoneCountries;
 	}
 
 	@AuthenticatedUseCase(reason = "The platform's home-screen banners, shown to every client. "
@@ -48,8 +53,16 @@ public class AdminBannersController {
 		// form that posts it. Prefilled here rather than by crud.js, which
 		// fills a field named `title_ar` from `data-title-ar` -- this form's
 		// fields are camelCase, so the copied script cannot reach them.
-		model.addAttribute("editBanner", edit == null ? null
-				: banners.stream().filter(banner -> banner.id() == edit).findFirst().orElse(null));
+		Banner editBanner = edit == null ? null
+				: banners.stream().filter(banner -> banner.id() == edit).findFirst().orElse(null);
+		model.addAttribute("editBanner", editBanner);
+		// D-230: a WhatsApp button stores its dial code and number as one string
+		// of digits, and the form edits them as two inputs, so they are split
+		// back for it. Left empty, the save reads no number and stores null.
+		model.addAttribute("whatsappParts",
+				editBanner != null && editBanner.buttonActionType() == Banner.Action.WHATSAPP
+						? BannerForm.splitWhatsapp(editBanner.buttonActionValue(), this.phoneCountries.dialCodes())
+						: null);
 		model.addAttribute("routes", Banner.INTERNAL_ROUTES);
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
 		model.addAttribute("errorKey", error);

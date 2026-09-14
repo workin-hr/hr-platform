@@ -1,5 +1,8 @@
 package com.workin.backend.platformadmin.content;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -21,6 +24,9 @@ public final class BannerForm {
 	private static final Pattern EXTERNAL_URL = Pattern.compile("^https?://", Pattern.CASE_INSENSITIVE);
 
 	private static final Pattern NON_DIGITS = Pattern.compile("\\D+");
+
+	/** PHP's {@code ltrim($code, '+')}, which strips every leading plus. */
+	private static final Pattern LEADING_PLUSES = Pattern.compile("^\\++");
 
 	/** @param errorKey a message key, or null when {@link #banner} is present */
 	public record Result(Banner banner, String errorKey) {
@@ -76,6 +82,36 @@ public final class BannerForm {
 			}
 			case WHATSAPP -> whatsappNumber(whatsappCountryCode, whatsappPhone);
 		};
+	}
+
+	/** A stored WhatsApp number as the edit form's two inputs show it. */
+	public record WhatsappParts(String countryCode, String local) {
+	}
+
+	/**
+	 * {@code banner_split_whatsapp_digits()}: the stored digits split on the
+	 * longest active dial code they start with, or {@code +20} with every digit
+	 * as the local number when none matches -- legacy's literal default, not
+	 * the first active code.
+	 *
+	 * @param dialCodes the active dial codes, as {@code company_country_codes()} lists them
+	 */
+	public static WhatsappParts splitWhatsapp(String storedDigits, List<String> dialCodes) {
+		String digits = NON_DIGITS.matcher(storedDigits == null ? "" : storedDigits.trim()).replaceAll("");
+		if (digits.isEmpty()) {
+			return new WhatsappParts("+20", "");
+		}
+		// PHP's usort is stable, and so is List.sort: codes of equal length keep
+		// the order the active list gives them.
+		List<String> longestFirst = new ArrayList<>(dialCodes);
+		longestFirst.sort(Comparator.comparingInt(String::length).reversed());
+		for (String code : longestFirst) {
+			String dial = LEADING_PLUSES.matcher(code).replaceFirst("");
+			if (!dial.isEmpty() && digits.startsWith(dial)) {
+				return new WhatsappParts(code, digits.substring(dial.length()));
+			}
+		}
+		return new WhatsappParts("+20", digits);
 	}
 
 	/**
