@@ -412,13 +412,15 @@
 										<a role="menuitem" class="row-actions__item" href="/admin/payroll?run_id=${row.id()}">${t.apply("edit")}</a>
 										@if(canWrite)
 											@if(!"finalized".equals(row.status()))
-												<form method="POST" class="row-actions__form" role="none">
+												<form method="POST" class="row-actions__form" role="none"
+												      onsubmit="return confirm('${t.apply("calculate")}?')">
 													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 													<input type="hidden" name="action" value="calculate">
 													<input type="hidden" name="id" value="${row.id()}">
 													<button type="submit" role="menuitem" class="row-actions__item">${t.apply("calculate")}</button>
 												</form>
-												<form method="POST" class="row-actions__form" role="none">
+												<form method="POST" class="row-actions__form" role="none"
+												      onsubmit="return confirm('${t.apply("finalize")}?')">
 													<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
 													<input type="hidden" name="action" value="finalize">
 													<input type="hidden" name="id" value="${row.id()}">

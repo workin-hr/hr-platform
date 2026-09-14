@@ -3947,3 +3947,14 @@ Posted as a single comment before the merge, containing: the head SHA; which una
 | Not in scope | Legacy also shows each definition's description under its title, and an in-use warning as the usage badge's tooltip. Both are layout, left to **#218**. |
 | Rollback | Revert the merge. Nothing is stored differently, so there is nothing to unwind. |
 | Related | **#211**, **#213**, **#220**, **D-231** (the same kind of break between a script and the markup it fills, on the row dialogs). |
+
+## D-234: Calculating And Finalizing A Payroll Run Ask First
+
+| Field | Value |
+|---|---|
+| Status | Proposed 2026-09-14 in the pull request for #213's payroll confirmations item; accepted when the repository owner merges it. |
+| Decision | In the payroll run list, **Calculate** and **Finalize** ask for confirmation before they post, with their own label and a question mark, as legacy's `payroll_payroll_run_row_actions()` does (`payroll_list_helper.php:736-774`). **Reopen** still posts straight away, as in legacy. **Delete** keeps its `confirm_delete` question. |
+| The defect | The port posted Calculate and Finalize on the first click. Calculate recomputes every payslip in the run, overwriting any figures entered by hand, and Finalize locks the run. |
+| Regression coverage | **`AdminPayrollEndToEndTest.calculateAndFinalizeAskBeforeTheyRun`** renders the run list with a draft run and a finalized run and reads the forms in each row's menu. Calculate and Finalize must carry an `onsubmit` confirmation that ends in a question mark, and Reopen must carry none. With the template from `main`, the test failed: Calculate's form had no confirmation. Mutants, each restoring the template byte-identical: without Calculate's confirmation the test failed at its Calculate check. Without Finalize's confirmation it failed at its Finalize check. The class's other ten tests and the template gates pass. |
+| Rollback | Revert the merge. Nothing is stored differently, so there is nothing to unwind. |
+| Related | **#211**, **#213**, **#217**. |
