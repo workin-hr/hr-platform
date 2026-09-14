@@ -3958,3 +3958,14 @@ Posted as a single comment before the merge, containing: the head SHA; which una
 | Regression coverage | **`AdminPayrollEndToEndTest.calculateAndFinalizeAskBeforeTheyRun`** renders the run list with a draft run and a finalized run and reads the forms in each row's menu. Calculate and Finalize must carry an `onsubmit` confirmation that ends in a question mark, and Reopen must carry none. With the template from `main`, the test failed: Calculate's form had no confirmation. Mutants, each restoring the template byte-identical: without Calculate's confirmation the test failed at its Calculate check. Without Finalize's confirmation it failed at its Finalize check. The class's other ten tests and the template gates pass. |
 | Rollback | Revert the merge. Nothing is stored differently, so there is nothing to unwind. |
 | Related | **#211**, **#213**, **#217**. |
+
+## D-235: A New Administrative Decision Starts Active
+
+| Field | Value |
+|---|---|
+| Status | Proposed 2026-09-15 in the pull request for #213's administrative decisions item; accepted when the repository owner merges it. |
+| Decision | The add form's status select starts on **active**. Legacy's select lists active first with nothing selected, so its first option is the default (`administrative_decisions/page.php:212-215`). Editing still shows each decision's stored state. A POST that omits `is_active` still saves inactive, as legacy's `!empty()` check does. Only what the form starts on changes. |
+| The defect | The port selected Unpublished for a new decision, so one added without touching the status was saved unpublished and did not reach employees. |
+| Regression coverage | **`AdminDecisionsEndToEndTest.aNewDecisionStartsActiveAndAnEditShowsTheStoredState`** reads the add form's status options, then the edit form's for an inactive decision. A new decision must start active, and the inactive decision must still show inactive. With the template from `main`, it failed at "a new decision starts active". With only the active option's condition reverted, it failed at the same check. With only the inactive option's condition reverted, it failed because the inactive option was still selected. Each run restored the template byte-identical. `anAbsentActiveFlagMeansInactiveOnThisPage` and the template gates pass. |
+| Rollback | Revert the merge. Nothing is stored differently, so there is nothing to unwind. |
+| Related | **#211**, **#213**. |

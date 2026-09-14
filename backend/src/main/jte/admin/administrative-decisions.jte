@@ -99,12 +99,14 @@
 					<div class="form-row">
 						<label for="is_active">${t.apply("status")}</label>
 						<%-- PHP reads this with !empty(), so an absent field means
-						     inactive here -- the opposite default from the org pages.
+						     inactive here -- the opposite default from the org pages. The
+						     select still starts on active for a new decision, as legacy's
+						     first option does (administrative_decisions/page.php:212-215).
 						     (No backticks in a JTE comment: the surrounding content
 						     block is delimited by one.) --%>
 						<select id="is_active" name="is_active">
-							<option value="1" selected="${editRow != null && editRow.active()}">${t.apply("decision_status_active")}</option>
-							<option value="0" selected="${editRow == null || !editRow.active()}">${t.apply("decision_status_inactive")}</option>
+							<option value="1" selected="${editRow == null || editRow.active()}">${t.apply("decision_status_active")}</option>
+							<option value="0" selected="${editRow != null && !editRow.active()}">${t.apply("decision_status_inactive")}</option>
 						</select>
 					</div>
 					<div class="form-footer">

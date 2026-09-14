@@ -144,6 +144,34 @@ class AdminDecisionsEndToEndTest {
 	}
 
 	@Test
+	void aNewDecisionStartsActiveAndAnEditShowsTheStoredState() {
+		// Legacy's select lists active first with nothing selected, so a new
+		// decision starts active (administrative_decisions/page.php:212-215).
+		// The POST default above is unchanged: only what the form starts on.
+		String add = body("/admin/administrative_decisions?action=add&company_id=" + this.companyA);
+		assertThat(statusOption(add, "add_decision", "1")).as("a new decision starts active").contains("selected");
+		assertThat(statusOption(add, "add_decision", "0")).doesNotContain("selected");
+
+		long inactive = seedDecision(this.companyA, "Draft", "Not yet.", false);
+		String edit = body("/admin/administrative_decisions?action=edit&id=" + inactive);
+		assertThat(statusOption(edit, "edit_decision", "0")).as("an inactive decision still shows inactive")
+				.contains("selected");
+		assertThat(statusOption(edit, "edit_decision", "1")).doesNotContain("selected");
+	}
+
+	/** The opening tag of a status option inside the form that posts {@code action}. */
+	private static String statusOption(String html, String action, String value) {
+		int form = html.indexOf("value=\"" + action + "\"");
+		assertThat(form).as("the %s form renders", action).isPositive();
+		String markup = html.substring(form, html.indexOf("</form>", form));
+		int select = markup.indexOf("name=\"is_active\"");
+		assertThat(select).as("the %s form has a status select", action).isPositive();
+		int option = markup.indexOf("<option value=\"" + value + "\"", select);
+		assertThat(option).as("option %s", value).isPositive();
+		return markup.substring(option, markup.indexOf('>', option) + 1);
+	}
+
+	@Test
 	void anEmptyTitleOrBodyOrCompanyIsRefused() {
 		Csrf csrf = page("/admin/administrative_decisions?action=add&company_id=" + this.companyA,
 				this.cookie).csrf();
