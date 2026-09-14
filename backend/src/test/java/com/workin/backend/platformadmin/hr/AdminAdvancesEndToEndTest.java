@@ -261,6 +261,46 @@ class AdminAdvancesEndToEndTest {
 	}
 
 	@Test
+	void eachRowOffersTheActionsItsStatusAllows() {
+		// hr_advances_row_actions(): Edit and Delete while there is something to
+		// change, then Approve and Reject for a pending advance or Mark paid for
+		// an approved one still owed; Delete alone once it is settled or rejected.
+		// The service still accepts mark_paid from any status, as legacy's does.
+		long pending = seedAdvance(this.employeeA, "1000", "1000", "pending");
+		long owed = seedAdvance(this.employeeA, "1000", "600", "approved");
+		long repaid = seedAdvance(this.employeeA, "1000", "0", "approved");
+		long rejected = seedAdvance(this.employeeA, "500", "500", "rejected");
+
+		String html = body("/admin/advances");
+
+		assertThat(menuActions(html, pending)).containsExactly("edit", "delete_advance", "approve", "reject");
+		assertThat(menuActions(html, owed)).containsExactly("edit", "delete_advance", "mark_paid");
+		assertThat(menuActions(html, repaid)).as("nothing left to repay or change").containsExactly("delete_advance");
+		assertThat(menuActions(html, rejected)).containsExactly("delete_advance");
+		assertThat(menu(html, owed)).as("legacy's mark_paid label, in whichever language the page renders")
+				.containsAnyOf(">Mark Paid<", ">سدّد<")
+				.as("not the remaining balance it used to show").doesNotContain(": 0<");
+	}
+
+	private static String menu(String html, long advanceId) {
+		int start = html.indexOf("id=\"row-actions-menu-" + advanceId + "\"");
+		assertThat(start).as("the row menu for advance %s", advanceId).isPositive();
+		return html.substring(start, html.indexOf("</div>", start));
+	}
+
+	/** The menu's items in order: a dialog trigger by its dialog, a form by its action. */
+	private static java.util.List<String> menuActions(String html, long advanceId) {
+		java.util.List<String> actions = new java.util.ArrayList<>();
+		java.util.regex.Matcher matcher = java.util.regex.Pattern
+				.compile("data-dialog=\"advance-(edit|reject)\"|name=\"action\" value=\"([a-z_]+)\"")
+				.matcher(menu(html, advanceId));
+		while (matcher.find()) {
+			actions.add(matcher.group(1) != null ? matcher.group(1) : matcher.group(2));
+		}
+		return actions;
+	}
+
+	@Test
 	void theStatusFilterNarrows() {
 		seedAdvance(this.employeeA, "111", "111", "pending");
 		seedAdvance(this.employeeA, "222", "0", "approved");

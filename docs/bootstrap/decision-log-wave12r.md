@@ -3948,6 +3948,18 @@ Posted as a single comment before the merge, containing: the head SHA; which una
 | Rollback | Revert the merge. Nothing is stored differently, so there is nothing to unwind. |
 | Related | **#211**, **#213**, **#220**, **D-231** (the same kind of break between a script and the markup it fills, on the row dialogs). |
 
+## D-233: An Advance's Row Menu Offers What Its Status Allows
+
+| Field | Value |
+|---|---|
+| Status | Proposed 2026-09-14 in the pull request for #213's advances item; accepted when the repository owner merges it. |
+| Decision | The advances row menu follows legacy's `hr_advances_row_actions()` (`hr_list_helper.php:763-838`). **Edit** and **Delete** appear while there is something to change: a pending advance, or an approved one with a balance still owed. Then **Approve** and **Reject** appear for a pending advance, or **Mark paid** for an approved one still owed. A rejected advance, or an approved one fully repaid, offers **Delete** alone. Mark paid carries legacy's `mark_paid` label. |
+| The defect | The port offered Mark paid on every row: pending, rejected and fully repaid alike, under the label "Remaining: 0". It offered Edit only for a pending advance, so an approved advance still owed could not be corrected from the page, although the service's edit handles that case (`editingAnApprovedAdvanceKeepsWhatWasAlreadyRepaid`). |
+| Where it deliberately stays as legacy | The service still accepts `mark_paid` from any status, as legacy's handler does (`advances/page.php:135`), which `markPaidSettlesTheBalanceFromAnyStatus` pins. Only what the menu offers changes. |
+| Regression coverage | **`AdminAdvancesEndToEndTest.eachRowOffersTheActionsItsStatusAllows`** seeds a pending advance, an approved one still owed, an approved one fully repaid and a rejected one. It renders the page and reads each row's menu in order: a dialog trigger by its dialog, a form by its action. It also checks that Mark paid carries the `mark_paid` label, in whichever language the page renders, and no longer a balance. **Before the fix** (`advances.jte` taken from `27123219`), it failed: the pending row offered Edit, Approve, Reject, Mark paid and Delete. **Mutants:** with Edit for a pending advance only, the owed row lacked Edit. With Mark paid for every approved or rejected row, the repaid row offered it. With the old label, the label check failed. Each run restored the template byte-identical. |
+| Rollback | Revert the merge. Nothing is stored differently, so there is nothing to unwind. |
+| Related | **#211**, **#213**, **D-210** (the edit dialog this page gained). |
+
 ## D-234: Calculating And Finalizing A Payroll Run Ask First
 
 | Field | Value |
