@@ -115,6 +115,20 @@
       render(picker, matches(employeesFor(picker), p.search.value));
     });
 
+    // Enter in the search box chooses; it never submits. In a row dialog the
+    // first submit button is Cancel, so Enter here closed the dialog and lost
+    // the edit. With exactly one match listed, Enter picks it.
+    p.search.addEventListener('keydown', function (event) {
+      if (event.key !== 'Enter' || event.isComposing) {
+        return;
+      }
+      event.preventDefault();
+      const found = matches(employeesFor(picker), p.search.value);
+      if (p.id.value === '' && found.length === 1) {
+        show(picker, String(found[0].id), found[0].label || '');
+      }
+    });
+
     const form = picker.closest('form');
     if (!form) {
       return;

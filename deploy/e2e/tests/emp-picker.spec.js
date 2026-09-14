@@ -177,3 +177,22 @@ test('resetting the add form clears the choice', async ({ page }) => {
 	await expect(page.locator('#employee_id')).toHaveValue('');
 	await expect(picker.locator('[data-emp-selected]')).toBeHidden();
 });
+
+test('Enter in the search box chooses a single match and never submits', async ({ page }) => {
+	// In the row dialog the first submit button is Cancel: an Enter that
+	// submitted would close the dialog and lose the edit.
+	await openEdit(page, 'edit deactivated');
+	const picker = editPicker(page);
+	const search = page.locator('#advance-edit-employee');
+
+	await search.fill('Employee 1');
+	await search.press('Enter');
+	await expect(page.locator('#advance-edit'), 'Enter did not close the dialog').toBeVisible();
+	await expect(picker.locator('[data-emp-id]'), 'eleven matches: nothing chosen').toHaveValue('');
+
+	await search.fill('A100');
+	await search.press('Enter');
+	await expect(picker.locator('[data-emp-id]'), 'one match: chosen').toHaveValue('7');
+	await expect(page.locator('#advance-edit')).toBeVisible();
+	expect(await page.evaluate(() => window.submits.length), 'nothing was submitted').toBe(0);
+});
