@@ -146,22 +146,28 @@ public class EmployeeAdminService {
 	 * <b>D-176</b>, indirect half. Legacy validates none of these on either
 	 * path; the branch is required by the form but never checked, and the other
 	 * three are free text as far as the server is concerned.
+	 *
+	 * @param current the employee as stored, whose own branch, department and
+	 *     job title still pass once deactivated -- keeping one is not choosing
+	 *     it; null on the create path
 	 */
 	private void assertOrgWithinCompany(
-			long companyId, Long branchId, Long departmentId, Long jobTitleId, long shiftId) {
+			long companyId, Long branchId, Long departmentId, Long jobTitleId, long shiftId,
+			Employee.Form current) {
 		// R-055: the column is NOT NULL, and legacy writes null into it when
 		// the form's select was left alone -- error 1048, uncaught, on both
 		// write paths. Requiring it here refuses what could never have been
 		// stored anyway.
-		if (branchId == null || !this.store.belongsToCompany("branches", branchId, companyId)) {
+		if (branchId == null || !this.store.belongsToCompany(
+				"branches", branchId, companyId, current == null ? 0 : current.branchId())) {
 			throw new RefusedException(Refusal.INVALID);
 		}
-		if (departmentId != null
-				&& !this.store.belongsToCompany("departments", departmentId, companyId)) {
+		if (departmentId != null && !this.store.belongsToCompany(
+				"departments", departmentId, companyId, current == null ? 0 : current.departmentId())) {
 			throw new RefusedException(Refusal.INVALID);
 		}
-		if (jobTitleId != null
-				&& !this.store.belongsToCompany("job_titles", jobTitleId, companyId)) {
+		if (jobTitleId != null && !this.store.belongsToCompany(
+				"job_titles", jobTitleId, companyId, current == null ? 0 : current.jobTitleId())) {
 			throw new RefusedException(Refusal.INVALID);
 		}
 		if (shiftId > 0 && !this.store.belongsToCompany("shifts", shiftId, companyId)) {
@@ -251,7 +257,7 @@ public class EmployeeAdminService {
 		}
 		assertCode(companyId, code, 0);
 		assertOrgWithinCompany(companyId, command.branchId(), command.departmentId(),
-				command.jobTitleId(), command.shiftId());
+				command.jobTitleId(), command.shiftId(), null);
 
 		String phone = normalizedPhone(command.phone(), command.countryCode());
 		String countryCode = phone.isEmpty() ? null
@@ -297,7 +303,7 @@ public class EmployeeAdminService {
 		String code = trimmed(command.employeeCode());
 		assertCode(companyId, code, id);
 		assertOrgWithinCompany(companyId, command.branchId(), command.departmentId(),
-				command.jobTitleId(), command.shiftId());
+				command.jobTitleId(), command.shiftId(), this.store.editForm(id));
 
 		String phone = normalizedPhone(command.phone(), command.countryCode());
 		String countryCode = phone.isEmpty() ? null

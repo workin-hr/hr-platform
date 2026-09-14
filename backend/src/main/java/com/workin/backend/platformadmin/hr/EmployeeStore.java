@@ -224,6 +224,57 @@ public class EmployeeStore {
 	}
 
 	/**
+	 * {@code _employee_form.php}'s edit values and {@code employee_current_shift()}.
+	 * Both subqueries order as {@link #syncShiftAssignment} does, so they name
+	 * the row it compares an unchanged save against.
+	 */
+	public Employee.Form editForm(long id) {
+		String latest = " FROM employee_shift_assignments esa WHERE esa.employee_id = e.id"
+				+ " ORDER BY esa.effective_from DESC, esa.id DESC LIMIT 1)";
+		List<Employee.Form> rows = this.jdbcTemplate.query(
+				"SELECT e.id, e.company_id, e.first_name, e.last_name, e.employee_code, e.phone,"
+						+ " e.country_code, e.national_id, e.birth_date, e.gender, e.address,"
+						+ " e.hire_date, e.branch_id, e.department_id, e.job_title_id,"
+						+ " e.contract_duration_months, e.is_mobile_attendance_enabled,"
+						+ " (SELECT esa.shift_id" + latest + " AS shift_id,"
+						+ " (SELECT esa.effective_from" + latest + " AS shift_effective_from"
+						+ " FROM employees e WHERE e.id = ?",
+				(rs, rowNum) -> new Employee.Form(
+						rs.getLong("id"),
+						rs.getLong("company_id"),
+						text(rs, "first_name"),
+						text(rs, "last_name"),
+						text(rs, "employee_code"),
+						text(rs, "phone"),
+						text(rs, "country_code"),
+						text(rs, "national_id"),
+						date(rs, "birth_date"),
+						text(rs, "gender"),
+						text(rs, "address"),
+						date(rs, "hire_date"),
+						rs.getLong("branch_id"),
+						rs.getLong("department_id"),
+						rs.getLong("job_title_id"),
+						nullableLong(rs, "contract_duration_months"),
+						rs.getInt("is_mobile_attendance_enabled") != 0,
+						rs.getLong("shift_id"),
+						date(rs, "shift_effective_from")),
+				id);
+		return rows.isEmpty() ? null : rows.get(0);
+	}
+
+	private static String text(ResultSet rs, String column) throws SQLException {
+		String value = rs.getString(column);
+		return value == null ? "" : value;
+	}
+
+	/** A {@code date} input takes {@code YYYY-MM-DD} and nothing longer. */
+	private static String date(ResultSet rs, String column) throws SQLException {
+		String value = text(rs, column);
+		return value.substring(0, Math.min(10, value.length()));
+	}
+
+	/**
 	 * {@code dashboard_employee_code_exists_in_company()}. The code is unique
 	 * per company, not globally, and an edit excludes the row being saved.
 	 */
@@ -248,29 +299,47 @@ public class EmployeeStore {
 	 * with no filter, whose reach is every company.
 	 */
 	public List<Employee.Option> branchOptions(long companyId) {
-		return options("branches", companyId);
+		return options("branches", companyId, 0);
 	}
 
 	public List<Employee.Option> departmentOptions(long companyId) {
-		return options("departments", companyId);
+		return options("departments", companyId, 0);
 	}
 
 	public List<Employee.Option> jobTitleOptions(long companyId) {
-		return options("job_titles", companyId);
+		return options("job_titles", companyId, 0);
 	}
 
 	public List<Employee.Option> shiftOptions(long companyId) {
-		return options("shifts", companyId);
+		return options("shifts", companyId, 0);
 	}
 
-	private List<Employee.Option> options(String table, long companyId) {
+	/**
+	 * The edit form's lists: the company's active rows and, once deactivated,
+	 * the one the employee already has. Legacy lists active rows only, so its
+	 * select falls back to "none" and an unchanged save clears the employee's
+	 * department or job title.
+	 */
+	public List<Employee.Option> branchOptions(long companyId, long keepId) {
+		return options("branches", companyId, keepId);
+	}
+
+	public List<Employee.Option> departmentOptions(long companyId, long keepId) {
+		return options("departments", companyId, keepId);
+	}
+
+	public List<Employee.Option> jobTitleOptions(long companyId, long keepId) {
+		return options("job_titles", companyId, keepId);
+	}
+
+	private List<Employee.Option> options(String table, long companyId, long keepId) {
 		if (companyId > 0) {
 			return this.jdbcTemplate.query(
-					"SELECT id, name FROM " + table + " WHERE company_id = ? AND is_active = 1"
-							+ " ORDER BY name",
+					"SELECT id, name FROM " + table + " WHERE company_id = ?"
+							+ " AND (is_active = 1 OR id = ?) ORDER BY name",
 					(rs, rowNum) -> new Employee.Option(
 							rs.getLong("id"), rs.getString("name"), null),
-					companyId);
+					companyId, keepId);
 		}
 		return this.jdbcTemplate.query(
 				"SELECT t.id, t.name, c.company_name FROM " + table + " t"
@@ -282,13 +351,22 @@ public class EmployeeStore {
 
 	/** Whether a branch, department, job title or shift is this company's and active. */
 	public boolean belongsToCompany(String table, long id, long companyId) {
+		return belongsToCompany(table, id, companyId, 0);
+	}
+
+	/**
+	 * The same, except that {@code keepId} passes while inactive, as the edit
+	 * form's lists offer it: the row an employee already has. It is still held
+	 * to the company.
+	 */
+	public boolean belongsToCompany(String table, long id, long companyId, long keepId) {
 		if (id <= 0 || companyId <= 0) {
 			return false;
 		}
 		Integer found = this.jdbcTemplate.queryForObject(
 				"SELECT COUNT(*) FROM " + table + " WHERE id = ? AND company_id = ? AND"
-						+ " is_active = 1",
-				Integer.class, id, companyId);
+						+ " (is_active = 1 OR id = ?)",
+				Integer.class, id, companyId, keepId);
 		return found != null && found > 0;
 	}
 

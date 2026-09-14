@@ -57,7 +57,7 @@ public class AdminEmployeesController {
 		String hireFrom = parameter(request, "date_from", "");
 		String hireTo = parameter(request, "date_to", "");
 
-		Employee editRow = "edit".equals(action) ? visible(current, filters, id) : null;
+		Employee.Form editRow = "edit".equals(action) ? visible(current, filters, id) : null;
 		// R-051: server-side, and following the edited row's own company so an
 		// unfiltered administrator is never offered options D-176 will refuse.
 		long optionsCompanyId = editRow != null ? editRow.companyId() : filters.companyId();
@@ -73,9 +73,14 @@ public class AdminEmployeesController {
 		model.addAttribute("dateTo", hireTo);
 		model.addAttribute("result", this.store.paginate(
 				filters, status, branchId, departmentId, jobTitleId, hireFrom, hireTo));
-		model.addAttribute("branchOptions", this.store.branchOptions(optionsCompanyId));
-		model.addAttribute("departmentOptions", this.store.departmentOptions(optionsCompanyId));
-		model.addAttribute("jobTitleOptions", this.store.jobTitleOptions(optionsCompanyId));
+		// An org row the employee already has is still offered once deactivated,
+		// so an unchanged save keeps it instead of clearing it.
+		model.addAttribute("branchOptions", this.store.branchOptions(
+				optionsCompanyId, editRow == null ? 0 : editRow.branchId()));
+		model.addAttribute("departmentOptions", this.store.departmentOptions(
+				optionsCompanyId, editRow == null ? 0 : editRow.departmentId()));
+		model.addAttribute("jobTitleOptions", this.store.jobTitleOptions(
+				optionsCompanyId, editRow == null ? 0 : editRow.jobTitleId()));
 		model.addAttribute("shiftOptions", this.store.shiftOptions(optionsCompanyId));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "employees"));
 		model.addAttribute("actionsEnabled", this.service.actionsEnabled());
@@ -85,11 +90,11 @@ public class AdminEmployeesController {
 		return VIEW;
 	}
 
-	private Employee visible(DashboardSession session, DashboardListFilters filters, Long id) {
+	private Employee.Form visible(DashboardSession session, DashboardListFilters filters, Long id) {
 		if (id == null || id <= 0) {
 			return null;
 		}
-		Employee row = this.store.find(id);
+		Employee.Form row = this.store.editForm(id);
 		return row != null && DashboardOrgScope.canOpenRow(session, filters, row.companyId())
 				? row : null;
 	}
