@@ -83,6 +83,16 @@ class BannerFormTest {
 		assertThat(BannerForm.whatsappNumber("+20", "abc")).isNull();
 	}
 
+	/** {@code banner_normalize_whatsapp_phone()}: eight to fifteen digits, dial code included. */
+	@Test
+	void aWhatsappNumberOutsideEightToFifteenDigitsIsNoNumber() {
+		assertThat(BannerForm.whatsappNumber("+20", "12345")).as("seven digits").isNull();
+		assertThat(BannerForm.whatsappNumber("+20", "123456")).as("eight").isEqualTo("20123456");
+		assertThat(BannerForm.whatsappNumber("+20", "1234567890123")).as("fifteen")
+				.isEqualTo("201234567890123");
+		assertThat(BannerForm.whatsappNumber("+20", "12345678901234")).as("sixteen").isNull();
+	}
+
 	/** Active dial codes, with a shorter prefix of {@code +966} to be passed over. */
 	private static final java.util.List<String> CODES = java.util.List.of("+20", "+96", "+966");
 

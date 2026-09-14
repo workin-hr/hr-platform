@@ -115,9 +115,23 @@ public final class BannerForm {
 	}
 
 	/**
+	 * {@code banner_normalize_whatsapp_phone()}'s rule for a value it stores
+	 * unchanged: eight to fifteen digits and nothing else, the length of a full
+	 * international number. An edit keeps such a stored value; any other one it
+	 * rebuilds, so it cannot carry an unchecked value past the WhatsApp rule to
+	 * a client.
+	 */
+	static boolean isStorableWhatsappNumber(String value) {
+		return value != null && value.length() >= 8 && value.length() <= 15
+				&& !NON_DIGITS.matcher(value).find();
+	}
+
+	/**
 	 * {@code banner_whatsapp_from_parts()}: the dial code without its plus,
-	 * followed by the local number stripped to digits. An empty local number
-	 * is no number, not a bare dial code.
+	 * followed by the local number stripped to digits, through
+	 * {@code banner_normalize_whatsapp_phone()}. An empty local number is no
+	 * number, not a bare dial code; so is a result outside eight to fifteen
+	 * digits.
 	 */
 	static String whatsappNumber(String countryCode, String localPhone) {
 		String local = NON_DIGITS.matcher(localPhone == null ? "" : localPhone.trim()).replaceAll("");
@@ -128,7 +142,8 @@ public final class BannerForm {
 		while (dial.startsWith("+")) {
 			dial = dial.substring(1);
 		}
-		return NON_DIGITS.matcher(dial).replaceAll("") + local;
+		String number = NON_DIGITS.matcher(dial).replaceAll("") + local;
+		return isStorableWhatsappNumber(number) ? number : null;
 	}
 
 	private static String trimToNull(String value) {

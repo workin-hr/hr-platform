@@ -121,9 +121,12 @@ public class BannerAdminService {
 		// D-230: the form shows a stored WhatsApp number split into two inputs.
 		// Posted back as shown, they are that stored number, not a new one built
 		// from the parts -- which, for a number no active dial code matches,
-		// would gain a leading 20.
+		// would gain a leading 20. Only a value legacy would store unchanged --
+		// eight to fifteen digits -- is kept that way; any other is rebuilt, as
+		// legacy rebuilds every one.
 		if (existing.buttonActionType() == Banner.Action.WHATSAPP
 				&& banner.buttonActionType() == Banner.Action.WHATSAPP
+				&& BannerForm.isStorableWhatsappNumber(existing.buttonActionValue())
 				&& submission.showsWhatsapp(BannerForm.splitWhatsapp(
 						existing.buttonActionValue(), this.phoneCountries.dialCodes()))) {
 			banner = banner.withButtonActionValue(existing.buttonActionValue());

@@ -141,6 +141,85 @@ class AdminBannersEndToEndTest {
 	}
 
 	@Test
+	void aFormattedStoredNumberIsRebuiltToDigitsNotKept() {
+		// Only digits are kept as stored, which is what both systems write. A
+		// value in any other shape is rebuilt from its parts, as legacy does.
+		long id = seedBanner("whatsapp", "+966 50-123-4567");
+
+		assertSaved(postMultipart(formFields(body(PATH + "?edit=" + id))));
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT button_action_value FROM banners WHERE id = ?", String.class, id))
+				.isEqualTo("966501234567");
+	}
+
+	@Test
+	void aStoredWhatsappValueThatIsNotANumberIsNotKept() {
+		// banners/list serves the value to the clients unsanitised, so an edit
+		// must not carry a stored value past the WhatsApp rule because its parts
+		// came back as shown. The one digit here splits into +20 and "1", and
+		// rebuilt that is three digits, which is no number.
+		long id = seedBanner("whatsapp", "javascript:alert(1)");
+
+		assertSaved(postMultipart(formFields(body(PATH + "?edit=" + id))));
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT button_action_value FROM banners WHERE id = ?", String.class, id))
+				.isNull();
+	}
+
+	@Test
+	void aStoredNumberOutsideEightToFifteenDigitsIsNotKept() {
+		// Legacy stores a WhatsApp number only when it has eight to fifteen
+		// digits, so a save through it, unchanged or not, clears one that does not.
+		long id = seedBanner("whatsapp", "2012345");
+
+		assertSaved(postMultipart(formFields(body(PATH + "?edit=" + id))));
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT button_action_value FROM banners WHERE id = ?", String.class, id))
+				.isNull();
+	}
+
+	@Test
+	void aBannerChangedToWhatsappWithNoNumberStoresNoNumber() {
+		// The keep rule applies only to a banner that was already a WhatsApp
+		// button. Without that, an internal route changed to WhatsApp would keep
+		// its route under the WhatsApp type: both split to +20 and nothing.
+		long id = seedBanner("internal_route", "home");
+		Map<String, String> form = formFields(body(PATH + "?edit=" + id));
+		form.put("actionType", "whatsapp");
+		form.put("whatsappCountryCode", "+20");
+		form.put("whatsappPhone", "");
+
+		assertSaved(postMultipart(form));
+
+		assertThat(this.jdbc.queryForMap(
+				"SELECT button_action_type, button_action_value FROM banners WHERE id = ?", id))
+				.containsEntry("button_action_type", "whatsapp")
+				.containsEntry("button_action_value", null);
+	}
+
+	@Test
+	void aBannerChangedToWhatsappIsBuiltFromItsPartsEvenOverStoredDigits() {
+		// The first guard on its own. Only a stored WhatsApp number is kept: a
+		// digits-only value left behind under another type is not, once the
+		// banner becomes a WhatsApp button -- the number is built from what was
+		// typed, even when the typed parts match that leftover value's split.
+		long id = seedBanner("none", "4412345678");
+		Map<String, String> form = formFields(body(PATH + "?edit=" + id));
+		form.put("actionType", "whatsapp");
+		form.put("whatsappCountryCode", "+20");
+		form.put("whatsappPhone", "4412345678");
+
+		assertSaved(postMultipart(form));
+
+		assertThat(this.jdbc.queryForObject(
+				"SELECT button_action_value FROM banners WHERE id = ?", String.class, id))
+				.isEqualTo("204412345678");
+	}
+
+	@Test
 	void anUnchangedSaveKeepsAnExternalUrlBanner() {
 		long id = seedBanner("external_url", "https://example.com/offer");
 		Map<String, Object> before = bannerRow(id);
