@@ -24,6 +24,7 @@ runs the suite, and leaves the stack up so you can look at it. Add
 | `client-api` | ✅ | ✅ | — | prod mounts no seed; there is nothing to read |
 | `deployment-shape` | ✅ | ✅ | ✅ | the profile's own promises |
 | `admin-dashboard` | — | ✅ | — | needs TLS in front, which only integration has |
+| `row-dialog` | ✅ | ✅ | — | the dashboard's row-dialog script on a static page; it needs no stack, so `npx playwright test --project=browser` runs it on its own |
 
 The dashboard's session cookie is `secure` unconditionally (ADR-0015
 prerequisite 6). Rather than relax that flag to make a browser test convenient —
