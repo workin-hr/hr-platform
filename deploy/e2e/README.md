@@ -90,17 +90,25 @@ which `docker inspect` shows as the label `com.docker.compose.project`:
   5. Remove the directory noted in step 3.
 
   ```sh
-  old_tls_dir="$(docker inspect workin-integration-proxy-1 \
-    --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/tls"}}{{.Source}}{{end}}{{end}}')"
-  export E2E_TLS_DIR="$HOME/.local/state/workin-e2e/tls"
-  mkdir -p "$E2E_TLS_DIR" && chmod 700 "$E2E_TLS_DIR"
-  openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
-    -keyout "$E2E_TLS_DIR/server.key" -out "$E2E_TLS_DIR/server.crt" \
-    -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
-  chmod 644 "$E2E_TLS_DIR/server.crt" "$E2E_TLS_DIR/server.key"
-  docker compose -p workin-integration -f compose.integration.yaml \
-    -f e2e/compose.proxy.yaml --env-file "$ENV_FILE" up -d --no-deps proxy
-  sudo rmdir "${old_tls_dir:?no mount at /etc/nginx/tls was found}"
+  # A subshell that stops at the first failure: the proxy is recreated only once
+  # a certificate exists, and the old directory is removed only after that.
+  (
+    set -eu
+    old_tls_dir="$(docker inspect workin-integration-proxy-1 \
+      --format '{{range .Mounts}}{{if eq .Destination "/etc/nginx/tls"}}{{.Source}}{{end}}{{end}}')"
+    [ -n "$old_tls_dir" ] || { echo "no mount at /etc/nginx/tls was found" >&2; exit 1; }
+    export E2E_TLS_DIR="$HOME/.local/state/workin-e2e/tls"
+    mkdir -p "$E2E_TLS_DIR"
+    chmod 700 "$E2E_TLS_DIR"
+    openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
+      -keyout "$E2E_TLS_DIR/server.key" -out "$E2E_TLS_DIR/server.crt" \
+      -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+    chmod 644 "$E2E_TLS_DIR/server.crt" "$E2E_TLS_DIR/server.key"
+    [ -s "$E2E_TLS_DIR/server.key" ] && [ -s "$E2E_TLS_DIR/server.crt" ]
+    docker compose -p workin-integration -f compose.integration.yaml \
+      -f e2e/compose.proxy.yaml --env-file "$ENV_FILE" up -d --no-deps proxy
+    sudo rmdir "$old_tls_dir"
+  )
   ```
 
 `E2E_SEED_PROD` restores the seed with `mariadb <` rather than by mounting it,

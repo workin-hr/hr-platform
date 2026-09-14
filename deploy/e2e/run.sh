@@ -171,19 +171,20 @@ if [ "$PROFILE" = integration ]; then
   # root, one for each missing level. Stop with that explanation instead of
   # failing inside mkdir, cd or chmod. It names no directory: which ones Docker
   # made is for the operator to see. A directory of your own with the wrong mode
-  # is repaired instead, as it always was.
+  # is repaired instead, as it always was. One that is not yours is no place for
+  # the key even when you can write to it, and chmod 700 below would fail on it.
   unusable() {
-    echo "$E2E_TLS_DIR is not a directory you can write to. If Docker created it for" >&2
-    echo "a missing bind-mount source, it and any levels above it that were missing are" >&2
-    echo "empty and owned by root: stop the proxy, remove those empty directories with" >&2
-    echo "sudo rmdir, deepest first, and run this again. Otherwise choose another E2E_TLS_DIR." >&2
+    echo "$E2E_TLS_DIR is not a directory of yours that you can write to. If Docker" >&2
+    echo "created it for a missing bind-mount source, it and any missing levels above" >&2
+    echo "it are empty and owned by root: stop the proxy, remove those empty directories" >&2
+    echo "with sudo rmdir, deepest first, and run this again. Otherwise choose another E2E_TLS_DIR." >&2
     exit 1
   }
   mkdir -p "$E2E_TLS_DIR" || unusable
   if [ -O "$E2E_TLS_DIR" ] && ! { [ -w "$E2E_TLS_DIR" ] && [ -x "$E2E_TLS_DIR" ]; }; then
     chmod u+wx "$E2E_TLS_DIR"
   fi
-  { [ -d "$E2E_TLS_DIR" ] && [ -w "$E2E_TLS_DIR" ] && [ -x "$E2E_TLS_DIR" ]; } || unusable
+  { [ -d "$E2E_TLS_DIR" ] && [ -O "$E2E_TLS_DIR" ] && [ -w "$E2E_TLS_DIR" ] && [ -x "$E2E_TLS_DIR" ]; } || unusable
   # Resolved once it exists, so that neither a symlink nor `..` hides where the
   # key really goes: into the checkout, or somewhere a reboot clears.
   resolved="$(cd "$E2E_TLS_DIR" && pwd -P)"

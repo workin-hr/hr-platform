@@ -146,22 +146,33 @@ if [ "$(id -u)" = 0 ]; then
 else
   gone="/workin-e2e-tls-test-$$/tls"
   run integration HOME="$WORK/home" E2E_TLS_DIR="$gone"
-  ok=1; [ "$rc" -ne 0 ] && grep -q 'is not a directory you can write to' "$WORK/out" \
+  ok=1; [ "$rc" -ne 0 ] && grep -q 'is not a directory of yours' "$WORK/out" \
     && grep -q 'sudo rmdir' "$WORK/out" && ! grep -q 'sudo rmdir "' "$WORK/out" \
     && [ ! -e "$gone" ] && ok=0
   check "$ok" "a directory that cannot be created stops with the advice, not a bare mkdir error"
 
   run integration HOME="$WORK/home" E2E_TLS_DIR=/usr
-  ok=1; [ "$rc" -ne 0 ] && grep -q 'is not a directory you can write to' "$WORK/out" \
+  ok=1; [ "$rc" -ne 0 ] && grep -q 'is not a directory of yours' "$WORK/out" \
     && ! grep -q 'sudo rmdir "' "$WORK/out" && ok=0
   check "$ok" "an existing directory that is not yours and not writable stops with the advice"
 
   mkdir "$WORK/via"
   ln -s /usr "$WORK/via/link"
   run integration HOME="$WORK/home" E2E_TLS_DIR="$WORK/via/link//"
-  ok=1; [ "$rc" -ne 0 ] && grep -q 'is not a directory you can write to' "$WORK/out" \
+  ok=1; [ "$rc" -ne 0 ] && grep -q 'is not a directory of yours' "$WORK/out" \
     && ! grep -q 'sudo rmdir "' "$WORK/out" && ok=0
   check "$ok" "a symlink to such a directory, with trailing slashes, stops the same way"
+
+  # A shared directory you can write to but do not own is no place for the key,
+  # and chmod 700 would fail on it. It gets the advice too.
+  if [ -d /var/tmp ] && [ ! -O /var/tmp ] && [ -w /var/tmp ]; then
+    run integration HOME="$WORK/home" E2E_TLS_DIR=/var/tmp
+    ok=1; [ "$rc" -ne 0 ] && grep -q 'is not a directory of yours' "$WORK/out" \
+      && ! grep -q 'Operation not permitted' "$WORK/out" && ok=0
+    check "$ok" "a shared directory you can write to but do not own stops with the advice, not a bare chmod error"
+  else
+    echo "  skip  a shared directory you do not own: /var/tmp is missing, yours, or not writable here"
+  fi
 
   for mode in 555 600; do
     mkdir "$WORK/mine-$mode"
