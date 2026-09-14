@@ -158,8 +158,12 @@
 						       value="${editRow == null ? "" : editRow.lastName()}">
 					</div>
 					<div class="form-row">
-						<label for="emp_code">${t.apply("emp_code")} *</label>
-						<input type="text" id="emp_code" name="employee_code" required maxlength="64"
+						<%-- Required unless the employee is stored without a code: the
+						     form cannot invent one, and left blank the save keeps none. --%>
+						!{boolean codeRequired = editRow == null || !editRow.employeeCode().isBlank();}
+						<label for="emp_code">${t.apply("emp_code")}${codeRequired ? " *" : ""}</label>
+						<input type="text" id="emp_code" name="employee_code" maxlength="64"
+						       required="${codeRequired}"
 						       inputmode="numeric" pattern="[0-9]+" autocomplete="off"
 						       value="${editRow == null ? "" : editRow.employeeCode()}">
 					</div>
@@ -210,7 +214,7 @@
 						     the same date is what makes a save add no assignment. --%>
 						<label for="shift_effective_from">${t.apply("shift_effective_from")}</label>
 						<input type="date" id="shift_effective_from" name="shift_effective_from"
-						       value="${editRow == null ? "" : editRow.shiftEffectiveFrom()}">
+						       value="${editRow == null ? "" : editRow.shiftEffectiveFromInput()}">
 					</div>
 					<div class="form-row">
 						<label for="phone">${t.apply("phone")}</label>
@@ -234,9 +238,11 @@
 						       value="${editRow == null ? "" : editRow.nationalId()}">
 					</div>
 					<div class="form-row">
+						<%-- Each date input shows only a date it can hold. A stored
+						     0000-00-00 renders empty, and left empty the save keeps it. --%>
 						<label for="birth_date">${t.apply("birth_date")}</label>
 						<input type="date" id="birth_date" name="birth_date"
-						       value="${editRow == null ? "" : editRow.birthDate()}">
+						       value="${editRow == null ? "" : editRow.birthDateInput()}">
 					</div>
 					<div class="form-row">
 						<label for="gender">${t.apply("gender")}</label>
@@ -260,7 +266,7 @@
 						     write a hire date on a save that changed nothing. --%>
 						<label for="hire_date">${t.apply("hire_date")}</label>
 						<input type="date" id="hire_date" name="hire_date"
-						       value="${editRow == null ? "" : editRow.hireDate()}">
+						       value="${editRow == null ? "" : editRow.hireDateInput()}">
 					</div>
 					<div class="form-row">
 						<label for="address">${t.apply("address")}</label>

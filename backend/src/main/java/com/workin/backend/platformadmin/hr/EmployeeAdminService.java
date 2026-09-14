@@ -299,11 +299,23 @@ public class EmployeeAdminService {
 			EditCommand command) {
 		gate();
 		long companyId = assertRowVisible(session, id);
+		Employee.Form current = this.store.editForm(id);
+		if (current == null) {
+			throw new RefusedException(Refusal.FOREIGN_ROW);
+		}
+		java.util.Set<EmployeeStore.Kept> kept = java.util.EnumSet.noneOf(EmployeeStore.Kept.class);
 
 		String code = trimmed(command.employeeCode());
-		assertCode(companyId, code, id);
+		if (code.isEmpty() && current.employeeCode().isBlank()) {
+			// Stored with no code, shown none, and left that way. Requiring one
+			// would make every edit of this employee invent a code.
+			kept.add(EmployeeStore.Kept.EMPLOYEE_CODE);
+		}
+		else {
+			assertCode(companyId, code, id);
+		}
 		assertOrgWithinCompany(companyId, command.branchId(), command.departmentId(),
-				command.jobTitleId(), command.shiftId(), this.store.editForm(id));
+				command.jobTitleId(), command.shiftId(), current);
 
 		String phone = normalizedPhone(command.phone(), command.countryCode());
 		String countryCode = phone.isEmpty() ? null
@@ -314,6 +326,12 @@ public class EmployeeAdminService {
 				? this.employeePasswordEncoder.encode(command.password()) : null;
 
 		String hireDate = trimmed(command.hireDate());
+		if (keepsUnshownDate(current.birthDate(), command.birthDate())) {
+			kept.add(EmployeeStore.Kept.BIRTH_DATE);
+		}
+		if (keepsUnshownDate(current.hireDate(), hireDate)) {
+			kept.add(EmployeeStore.Kept.HIRE_DATE);
+		}
 		this.store.update(id, new EmployeeStore.EmployeeWrite(
 				companyId, command.branchId(), command.departmentId(), command.jobTitleId(),
 				code, trimmed(command.firstName()), trimmed(command.lastName()),
@@ -322,17 +340,30 @@ public class EmployeeAdminService {
 				nullIfBlank(command.gender()), nullIfBlank(command.address()),
 				hireDate.isEmpty() ? null : hireDate,
 				contractMonths(command.contractDuration(), command.contractDurationUnit()),
-				command.mobileAttendance()), passwordHash);
+				command.mobileAttendance()), passwordHash, kept);
 
-		String shiftEffective = trimmed(command.shiftEffectiveFrom()).isEmpty()
-				? hireDate : trimmed(command.shiftEffectiveFrom());
-		if (command.shiftId() > 0 && !shiftEffective.isEmpty()) {
+		String postedEffective = trimmed(command.shiftEffectiveFrom());
+		// The same shift with its unshown start date left empty is the current
+		// assignment kept, not a new one dated from the hire date.
+		boolean assignmentKept = command.shiftId() == current.shiftId()
+				&& keepsUnshownDate(current.shiftEffectiveFrom(), postedEffective);
+		String shiftEffective = postedEffective.isEmpty() ? hireDate : postedEffective;
+		if (command.shiftId() > 0 && !shiftEffective.isEmpty() && !assignmentKept) {
 			this.store.syncShiftAssignment(id, command.shiftId(), shiftEffective);
 		}
 
 		audit(adminId, PlatformAdminAuditEventType.ORG_UPDATED, id,
 				"employee updated in company " + companyId);
 		return companyId;
+	}
+
+	/**
+	 * A stored date no date input can hold -- legacy's {@code 0000-00-00} --
+	 * reaches the browser as an empty input and comes back empty. Left empty,
+	 * it keeps what is stored; a date typed over it replaces it.
+	 */
+	private static boolean keepsUnshownDate(String stored, String posted) {
+		return trimmed(posted).isEmpty() && !stored.isEmpty() && !Employee.Form.isDateInputValue(stored);
 	}
 
 	@Transactional

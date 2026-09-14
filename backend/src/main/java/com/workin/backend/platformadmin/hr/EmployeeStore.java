@@ -412,39 +412,56 @@ public class EmployeeStore {
 	 * own update. What legacy does not do is check that the three foreign keys
 	 * belong to the row's company -- {@link EmployeeAdminService} is what holds
 	 * them to it.
+	 *
+	 * @param kept columns left out of the update, so they keep what is stored:
+	 *     values the form could not show and so could not send back. Leaving
+	 *     one out, rather than writing its stored value, also holds for a
+	 *     {@code 0000-00-00} a strict session would refuse.
 	 */
-	public int update(long id, EmployeeWrite write, String passwordHash) {
-		StringBuilder sql = new StringBuilder(
-				"UPDATE employees SET first_name = ?, last_name = ?, employee_code = ?,"
-						+ " phone = ?, country_code = ?, national_id = ?, gender = ?,"
-						+ " birth_date = ?, hire_date = ?, address = ?, branch_id = ?,"
-						+ " department_id = ?, job_title_id = ?, contract_duration_months = ?,"
-						+ " is_mobile_attendance_enabled = ?");
-		List<Object> params = new ArrayList<>();
-		params.add(write.firstName());
-		params.add(write.lastName());
-		params.add(write.employeeCode());
-		params.add(write.phone());
-		params.add(write.countryCode());
-		params.add(write.nationalId());
-		params.add(write.gender());
-		params.add(write.birthDate());
-		params.add(write.hireDate());
-		params.add(write.address());
-		params.add(write.branchId());
-		params.add(write.departmentId());
-		params.add(write.jobTitleId());
-		params.add(write.contractDurationMonths());
-		params.add(write.mobileAttendance() ? 1 : 0);
+	public int update(long id, EmployeeWrite write, String passwordHash, java.util.Set<Kept> kept) {
+		java.util.Map<String, Object> columns = new java.util.LinkedHashMap<>();
+		columns.put("first_name", write.firstName());
+		columns.put("last_name", write.lastName());
+		columns.put("employee_code", write.employeeCode());
+		columns.put("phone", write.phone());
+		columns.put("country_code", write.countryCode());
+		columns.put("national_id", write.nationalId());
+		columns.put("gender", write.gender());
+		columns.put("birth_date", write.birthDate());
+		columns.put("hire_date", write.hireDate());
+		columns.put("address", write.address());
+		columns.put("branch_id", write.branchId());
+		columns.put("department_id", write.departmentId());
+		columns.put("job_title_id", write.jobTitleId());
+		columns.put("contract_duration_months", write.contractDurationMonths());
+		columns.put("is_mobile_attendance_enabled", write.mobileAttendance() ? 1 : 0);
 		// Legacy adds password_hash to the payload only when one was typed, so
 		// an edit that leaves the field blank keeps the existing credential.
 		if (passwordHash != null) {
-			sql.append(", password_hash = ?");
-			params.add(passwordHash);
+			columns.put("password_hash", passwordHash);
 		}
-		sql.append(" WHERE id = ?");
+		for (Kept column : kept) {
+			columns.remove(column.column);
+		}
+		List<Object> params = new ArrayList<>(columns.values());
 		params.add(id);
-		return this.jdbcTemplate.update(sql.toString(), params.toArray());
+		return this.jdbcTemplate.update(
+				"UPDATE employees SET " + String.join(" = ?, ", columns.keySet()) + " = ? WHERE id = ?",
+				params.toArray());
+	}
+
+	/** A column an edit can leave as stored. */
+	public enum Kept {
+
+		EMPLOYEE_CODE("employee_code"),
+		BIRTH_DATE("birth_date"),
+		HIRE_DATE("hire_date");
+
+		private final String column;
+
+		Kept(String column) {
+			this.column = column;
+		}
 	}
 
 	public int setActive(long id, boolean active) {

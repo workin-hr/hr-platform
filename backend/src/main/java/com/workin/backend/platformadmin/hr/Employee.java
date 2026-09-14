@@ -112,6 +112,36 @@ public record Employee(
 		private long contractMonths() {
 			return this.contractDurationMonths == null ? 0 : this.contractDurationMonths;
 		}
+
+		public String birthDateInput() {
+			return inputDate(this.birthDate);
+		}
+
+		public String hireDateInput() {
+			return inputDate(this.hireDate);
+		}
+
+		public String shiftEffectiveFromInput() {
+			return inputDate(this.shiftEffectiveFrom);
+		}
+
+		/**
+		 * Whether a date input can hold the value. A browser submits any other
+		 * value -- legacy's {@code 0000-00-00} above all -- as empty, so the save
+		 * cannot tell it from a date that was cleared without the stored row.
+		 */
+		public static boolean isDateInputValue(String value) {
+			try {
+				return value.length() == 10 && java.time.LocalDate.parse(value).getYear() >= 1;
+			}
+			catch (java.time.format.DateTimeParseException ex) {
+				return false;
+			}
+		}
+
+		private static String inputDate(String value) {
+			return isDateInputValue(value) ? value : "";
+		}
 	}
 
 }
