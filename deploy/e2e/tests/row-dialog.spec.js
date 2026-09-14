@@ -32,7 +32,8 @@ const PAGE = `<!doctype html>
       <input type="text" name="nameEn" data-dialog-field="nameEn">
       <input type="checkbox" name="isActive" value="1" data-dialog-field="isActive">
     </div>
-    <button type="submit" value="cancel" formmethod="dialog" formnovalidate>cancel</button>
+    <button type="button" data-dialog-close>cancel</button>
+    <button type="submit">save</button>
   </form>
 </dialog>`;
 
@@ -44,7 +45,7 @@ async function open(page, id) {
 }
 
 async function cancel(page) {
-	await page.locator('#edit button[formmethod="dialog"]').click();
+	await page.locator('#edit [data-dialog-close]').click();
 	await expect(page.locator('#edit')).toBeHidden();
 }
 
@@ -97,4 +98,23 @@ test('a filled dialog says so before it opens', async ({ page }) => {
 	});
 	await open(page, 2);
 	expect(await page.evaluate(() => window.filled)).toEqual([{ dialog: 'edit', name: 'Closed', open: false }]);
+});
+
+test('Enter in a field submits the dialog through Save, and Cancel closes without submitting', async ({ page }) => {
+	// Enter submits through the form's first submit button. While Cancel was a
+	// formmethod="dialog" submit ahead of Save, Enter closed the dialog instead.
+	await page.evaluate(() => {
+		window.submitted = [];
+		document.querySelector('#edit form').addEventListener('submit', (event) => {
+			window.submitted.push(event.submitter ? event.submitter.textContent : null);
+			event.preventDefault();
+		});
+	});
+	const dialog = await open(page, 1);
+	await dialog.locator('[name="nameEn"]').press('Enter');
+	expect(await page.evaluate(() => window.submitted), 'Enter submitted through Save').toEqual(['save']);
+	await expect(dialog, 'and the dialog is still there to show the result').toBeVisible();
+
+	await cancel(page);
+	expect(await page.evaluate(() => window.submitted), 'Cancel submitted nothing').toEqual(['save']);
 });

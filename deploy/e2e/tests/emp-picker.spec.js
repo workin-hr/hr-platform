@@ -51,7 +51,7 @@ const PAGE = `<!doctype html>
 		<input type="hidden" name="id" data-dialog-field="id">
 		<p class="row-dialog__subject" data-dialog-field="subject"></p>
 		<div class="row-dialog__body">${picker('advance-edit-employee', true)}</div>
-		<button type="submit" value="cancel" formmethod="dialog" formnovalidate id="cancel">cancel</button>
+		<button type="button" data-dialog-close id="cancel">cancel</button>
 		<button type="submit" id="save">save</button>
 	</form>
 </dialog>`;
@@ -158,7 +158,7 @@ test('cancel still closes, and the next row replaces the last one', async ({ pag
 	await page.locator('#advance-edit-employee').fill('Emp');
 	await page.locator('#cancel').click();
 	await expect(page.locator('#advance-edit'), 'no employee chosen does not block cancel').toBeHidden();
-	expect(await lastSubmit(page)).toMatchObject({ prevented: false, toDialog: true });
+	expect(await page.evaluate(() => window.submits.length), 'Cancel submits nothing').toBe(0);
 
 	await openEdit(page, 'edit listed');
 	const picker = editPicker(page);
@@ -179,8 +179,7 @@ test('resetting the add form clears the choice', async ({ page }) => {
 });
 
 test('Enter in the search box chooses a single match and never submits', async ({ page }) => {
-	// In the row dialog the first submit button is Cancel: an Enter that
-	// submitted would close the dialog and lose the edit.
+	// Enter in the search box chooses; it must not submit the dialog's form.
 	await openEdit(page, 'edit deactivated');
 	const picker = editPicker(page);
 	const search = page.locator('#advance-edit-employee');
