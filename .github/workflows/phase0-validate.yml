@@ -172,6 +172,13 @@ jobs:
           python3 scripts/check_remote_db_pins.py
           python3 scripts/test_check_remote_db_pins.py
 
+      # deploy/e2e/run.sh decides where the integration proxy's TLS key is
+      # written, and nothing else runs it here. This runs a copy with docker
+      # and npm stubbed: the key goes under the user's state directory, never
+      # into the checkout, and only the integration profile needs HOME.
+      - name: Check where the E2E runner writes its TLS key
+        run: ./scripts/test-e2e-run-tls.sh
+
       # perf/run.sh carries the load harness's disposability guard and its own
       # URL parsing, and was outside this glob while both were being rewritten.
       # deploy/e2e/run.sh was never in it either; it is added here because it is

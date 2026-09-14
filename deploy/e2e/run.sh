@@ -133,16 +133,83 @@ esac
 APP_CONTAINER="$PROJECT-app-1"
 DB_CONTAINER="$PROJECT-db-1"
 
-# Outside the repository on purpose. validate_phase0's secret scan walks the
-# working tree, not the index, so a git-ignored key still trips it -- and that
-# is the scan behaving correctly, because its job is to catch a key before it
-# is committed.
-E2E_TLS_DIR="${E2E_TLS_DIR:-${TMPDIR:-/tmp}/workin-e2e-tls-$(id -u)}"
-export E2E_TLS_DIR
-
 if [ "$PROFILE" = integration ]; then
+  # Outside the repository on purpose. validate_phase0's secret scan walks the
+  # working tree, not the index, so a git-ignored key still trips it -- and that
+  # is the scan behaving correctly, because its job is to catch a key before it
+  # is committed.
+  #
+  # And not under /tmp. The stack is `restart: unless-stopped`, so it outlives a
+  # reboot, but /tmp does not: Docker then recreates the missing bind-mount source
+  # as an empty root-owned directory, and the proxy restarts without a certificate
+  # until someone with root removes it. The user's state directory survives a
+  # reboot and stays the user's. Only this profile has the proxy, so only this
+  # profile needs HOME.
+  if [ -z "${E2E_TLS_DIR:-}" ]; then
+    case "${XDG_STATE_HOME:-}" in
+      # The XDG specification says to ignore a relative value; honouring one
+      # would put the key under whichever directory this was run from.
+      /*) E2E_TLS_DIR="$XDG_STATE_HOME/workin-e2e/tls" ;;
+      *)
+        if [ -z "${HOME:-}" ]; then
+          echo "HOME is not set: set E2E_TLS_DIR to an absolute directory outside the repository" >&2
+          exit 1
+        fi
+        E2E_TLS_DIR="$HOME/.local/state/workin-e2e/tls" ;;
+    esac
+  fi
+  # This script would create a relative one under the directory it was run
+  # from, and compose would not look for it there.
+  case "$E2E_TLS_DIR" in
+    /*) ;;
+    *) echo "E2E_TLS_DIR must be an absolute path, not '$E2E_TLS_DIR'" >&2; exit 1 ;;
+  esac
+  export E2E_TLS_DIR
+
   say "TLS for the proxy ($E2E_TLS_DIR)"
-  mkdir -p "$E2E_TLS_DIR"
+  # Docker recreates a missing bind-mount source as empty directories owned by
+  # root, one for each missing level. Stop with that explanation instead of
+  # failing inside mkdir, cd or chmod. It names no directory: which ones Docker
+  # made is for the operator to see. A directory of your own with the wrong mode
+  # is repaired instead, as it always was. One that is not yours is no place for
+  # the key even when you can write to it, and chmod 700 below would fail on it.
+  unusable() {
+    echo "$E2E_TLS_DIR is not a directory of yours that you can write to. If Docker" >&2
+    echo "created it for a missing bind-mount source, it and any missing levels above" >&2
+    echo "it are empty and owned by root: stop the proxy, remove those empty directories" >&2
+    echo "with sudo rmdir, deepest first, and run this again. Otherwise choose another E2E_TLS_DIR." >&2
+    exit 1
+  }
+  mkdir -p "$E2E_TLS_DIR" || unusable
+  if [ -O "$E2E_TLS_DIR" ] && ! { [ -w "$E2E_TLS_DIR" ] && [ -x "$E2E_TLS_DIR" ]; }; then
+    chmod u+wx "$E2E_TLS_DIR"
+  fi
+  { [ -d "$E2E_TLS_DIR" ] && [ -O "$E2E_TLS_DIR" ] && [ -w "$E2E_TLS_DIR" ] && [ -x "$E2E_TLS_DIR" ]; } || unusable
+  # Resolved once it exists, so that neither a symlink nor `..` hides where the
+  # key really goes: into the checkout, or somewhere a reboot clears.
+  resolved="$(cd "$E2E_TLS_DIR" && pwd -P)"
+  checkout="$(cd "$DEPLOY/.." && pwd -P)"
+  case "$resolved/" in
+    "$checkout"/*)
+      echo "E2E_TLS_DIR ($E2E_TLS_DIR) is inside the repository at $checkout, where" >&2
+      echo "validate_phase0's secret scan would find the key. Choose a directory outside it." >&2
+      exit 1 ;;
+  esac
+  # Checked as written and as resolved, against each temporary directory as
+  # written and as resolved: macOS sets TMPDIR with a trailing slash, under /var,
+  # which is a symlink to /private/var.
+  cleared=""
+  for tmp in /tmp /var/tmp "${TMPDIR:-/tmp}"; do
+    tmp="${tmp%/}"
+    [ -n "$tmp" ] || continue
+    real_tmp="$tmp"
+    if [ -d "$tmp" ] && [ -x "$tmp" ]; then real_tmp="$(cd "$tmp" && pwd -P)"; fi
+    case "$E2E_TLS_DIR/" in "$tmp"/*) cleared=1 ;; esac
+    case "$resolved/" in "$real_tmp"/*) cleared=1 ;; esac
+  done
+  if [ -n "$cleared" ]; then
+    echo "warning: $E2E_TLS_DIR is cleared on reboot; the proxy will lose its certificate" >&2
+  fi
   chmod 700 "$E2E_TLS_DIR"
   if [ ! -f "$E2E_TLS_DIR/server.crt" ] || [ -n "${E2E_REGENERATE_TLS:-}" ]; then
     openssl req -x509 -newkey rsa:2048 -nodes -days 30 \

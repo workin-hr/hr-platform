@@ -29,7 +29,8 @@ services:
       # working tree rather than the index, which is the correct behaviour --
       # it is there to catch a key BEFORE somebody commits it -- so the answer
       # is to put the key somewhere else, not to teach the scan to look away.
-      # run.sh creates the directory and exports the variable.
+      # run.sh creates the directory, in the user's state directory rather than
+      # /tmp so that it survives a reboot, and exports the variable.
       - ${E2E_TLS_DIR:?set by deploy/e2e/run.sh}:/etc/nginx/tls:ro
     ports:
       - "127.0.0.1:${E2E_HTTPS_PORT:-8443}:8443"
