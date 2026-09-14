@@ -113,6 +113,7 @@
 				<tbody>
 					@for(int index = 0; index < result.data().size(); index++)
 						!{Advance row = result.data().get(index);}
+						!{boolean canEdit = row.isPending() || (row.isApproved() && !row.isSettled());}
 						<tr>
 							<td>${result.from() + index}</td>
 							<td class="text-muted">${row.employeeCode() == null ? "—" : row.employeeCode()}</td>
@@ -136,10 +137,11 @@
 							<td class="col-actions">
 								@if(canWrite)
 									@template.admin.rowActions(rowId = row.id(), t = t, items = @`
-										@if(row.isPending())
-											<%-- D-210: saveEdit existed with no way in, so a pending
-											     advance could be approved, rejected or deleted but
-											     never corrected. Pending only, as the others are. --%>
+										<%-- hr_advances_row_actions(): Edit and Delete while there is
+										     something to change, then the decision for a pending advance
+										     or Mark paid for an approved one still owed. Delete alone
+										     once it is settled or rejected. --%>
+										@if(canEdit)
 											<button type="button" role="menuitem" class="row-actions__item"
 													data-dialog="advance-edit"
 													data-dialog-id="${row.id()}"
@@ -148,6 +150,16 @@
 													data-dialog-amount="${row.amount() == null ? "" : row.amount().toPlainString()}"
 													data-dialog-reason="${row.reason() == null ? "" : row.reason()}"
 													data-dialog-request_date="${row.requestDate() == null ? "" : row.requestDate()}">${t.apply("edit")}</button>
+										@endif
+										<form method="POST" class="row-actions__form" role="none"
+										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
+											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+											<input type="hidden" name="action" value="delete_advance">
+											<input type="hidden" name="id" value="${row.id()}">
+											<button type="submit" role="menuitem"
+													class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
+										</form>
+										@if(row.isPending())
 											<form method="POST" class="row-actions__form" role="none"
 											      onsubmit="return confirm('${t.apply("confirm_approve_advance")}')">
 												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -160,22 +172,15 @@
 													data-dialog="advance-reject"
 													data-dialog-id="${row.id()}"
 													data-dialog-subject="${row.employeeName()}">${t.apply("reject")}</button>
+										@elseif(row.isApproved() && !row.isSettled())
+											<form method="POST" class="row-actions__form" role="none">
+												<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
+												<input type="hidden" name="action" value="mark_paid">
+												<input type="hidden" name="id" value="${row.id()}">
+												<button type="submit" role="menuitem"
+														class="row-actions__item row-actions__item--success">${t.apply("mark_paid")}</button>
+											</form>
 										@endif
-										<form method="POST" class="row-actions__form" role="none">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="mark_paid">
-											<input type="hidden" name="id" value="${row.id()}">
-											<button type="submit" role="menuitem"
-													class="row-actions__item">${t.apply("remaining")}: 0</button>
-										</form>
-										<form method="POST" class="row-actions__form" role="none"
-										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
-											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
-											<input type="hidden" name="action" value="delete_advance">
-											<input type="hidden" name="id" value="${row.id()}">
-											<button type="submit" role="menuitem"
-													class="row-actions__item row-actions__item--danger">${t.apply("delete")}</button>
-										</form>
 									`)
 								@else
 									<span class="text-muted">—</span>
