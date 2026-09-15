@@ -1,6 +1,8 @@
 package com.workin.legacy.profile;
 
+import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,6 +11,7 @@ import java.util.Set;
 
 import javax.sql.DataSource;
 
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -41,11 +44,13 @@ import com.workin.legacy.wire.LegacyMessages;
  * commit -- which is a real operational property of this endpoint, not an
  * accident of the port.
  *
- * <p>One failure is not swallowed: a lock failure. InnoDB answers a deadlock by
- * rolling the whole transaction back, so carrying on would commit the rest of
- * the cascade in a new transaction, without the rows deleted before it and
- * without anything the caller wrote first. Legacy swallows it; this rethrows
- * it (D-245).
+ * <p>One failure is not swallowed: a lock failure. InnoDB answers a deadlock, and
+ * a lock wait timeout under {@code innodb_rollback_on_timeout}, by rolling the
+ * whole transaction back, so carrying on would commit the rest of the cascade in
+ * a new transaction, without the rows deleted before it and without anything the
+ * caller wrote first. Legacy swallows it; this rethrows it (D-245). A lock wait
+ * timeout is recognised by its error code: Spring's default translator reads the
+ * SQLSTATE, and MariaDB reports that one as {@code HY000}.
  *
  * <p><b>Every statement outside those inner catches is fatal.</b> PHP's outer
  * {@code try} ends in {@code catch (Throwable $e) { $pdo->rollBack(); throw $e; }},
@@ -142,39 +147,73 @@ public class LegacyCompanyDelete {
 			"company_official_holidays", "job_titles", "shifts", "departments", "branches");
 
 	/**
-	 * Every table {@link #deleteEverything} deletes from, in its order, as the
-	 * {@code FROM ... WHERE} that counts this company's rows there and the tables
-	 * that count needs. The batches come from the same lists as the deletes; the
-	 * one-off statements are repeated, and {@code LegacyCompanyDeleteCascadeTest}
-	 * records the statements the cascade runs, so a delete without a count fails.
+	 * The foreign keys with {@code ON DELETE CASCADE} that remove rows the table's own
+	 * statement does not reach: a complaint the company filed rather than an employee,
+	 * a payslip in one of its batches, an assignment to one of its shifts, a link to one
+	 * of its departments, and another company's notification to or from one of its
+	 * employees. Declared before {@link #COUNTED}, which is built from it.
+	 */
+	private static final Map<String, List<Path>> ALSO_THROUGH_KEYS = Map.of(
+			"notifications", List.of(new Path("to_employee_id", "employees"), new Path("from_employee_id", "employees")),
+			"complaints", List.of(new Path("company_id", "companies")),
+			"payslips", List.of(new Path("batch_id", "payroll_batches")),
+			"employee_shift_assignments", List.of(new Path("shift_id", "shifts")),
+			"department_branches", List.of(new Path("department_id", "departments")));
+
+	/**
+	 * Every table the delete removes rows from, in the cascade's order, with each way its
+	 * rows go with the company: the cascade's own statement for the table, and the keys in
+	 * {@link #ALSO_THROUGH_KEYS}. Counting one path per table missed a support complaint
+	 * with no employee, which only {@code complaints.company_id}'s key removes.
+	 * {@code LegacyCompanyDeleteCascadeTest} holds this list to the statements the cascade
+	 * runs, to every cascading key the schema declares, and to the rows a delete removes.
 	 */
 	private static final List<Counted> COUNTED = counted();
 
-	private record Counted(String table, String from, List<String> needs) {
+	/** A column whose value makes a row go: the company's id, or the id of a parent row that goes. */
+	private record Path(String column, String parent) {
+
+		String condition() {
+			return "companies".equals(parent)
+					? column + " = ?"
+					: column + " IN (SELECT id FROM " + parent + " WHERE company_id = ?)";
+		}
+	}
+
+	private record Counted(String table, List<Path> paths) {
+
+		String sql() {
+			return "SELECT COUNT(*) FROM " + table + " WHERE "
+					+ String.join(" OR ", paths.stream().map(Path::condition).toList());
+		}
+
+		List<String> needs() {
+			List<String> needs = new ArrayList<>(List.of(table));
+			paths.stream().map(Path::parent).filter(parent -> !"companies".equals(parent)).forEach(needs::add);
+			return needs;
+		}
 	}
 
 	private static List<Counted> counted() {
 		List<Counted> counted = new ArrayList<>();
-		counted.add(companyRows("notifications"));
-		EMPLOYEE_OWNED.forEach(table -> counted.add(throughParent(table, "employees", "employee_id")));
-		COMPANY_OWNED_EARLY.forEach(table -> counted.add(companyRows(table)));
-		DEVICE_OWNED.forEach(table -> counted.add(companyRows(table)));
-		counted.add(companyRows("employees"));
-		counted.add(throughParent("department_branches", "branches", "branch_id"));
-		counted.add(throughParent("job_title_sections", "job_titles", "job_title_id"));
-		counted.add(throughParent("section_departments", "departments", "department_id"));
-		counted.add(throughParent("company_setting_values", "company_settings", "company_setting_id"));
-		COMPANY_OWNED_LATE.forEach(table -> counted.add(companyRows(table)));
+		counted.add(rows("notifications", "company_id", "companies"));
+		EMPLOYEE_OWNED.forEach(table -> counted.add(rows(table, "employee_id", "employees")));
+		COMPANY_OWNED_EARLY.forEach(table -> counted.add(rows(table, "company_id", "companies")));
+		DEVICE_OWNED.forEach(table -> counted.add(rows(table, "company_id", "companies")));
+		counted.add(rows("employees", "company_id", "companies"));
+		counted.add(rows("department_branches", "branch_id", "branches"));
+		counted.add(rows("job_title_sections", "job_title_id", "job_titles"));
+		counted.add(rows("section_departments", "department_id", "departments"));
+		counted.add(rows("company_setting_values", "company_setting_id", "company_settings"));
+		COMPANY_OWNED_LATE.forEach(table -> counted.add(rows(table, "company_id", "companies")));
 		return List.copyOf(counted);
 	}
 
-	private static Counted companyRows(String table) {
-		return new Counted(table, table + " WHERE company_id = ?", List.of(table));
-	}
-
-	private static Counted throughParent(String table, String parent, String column) {
-		return new Counted(table, table + " c INNER JOIN " + parent + " p ON p.id = c." + column
-				+ " WHERE p.company_id = ?", List.of(table, parent));
+	/** The path the cascade's own statement takes, and any the table's keys add. */
+	private static Counted rows(String table, String column, String parent) {
+		List<Path> paths = new ArrayList<>(List.of(new Path(column, parent)));
+		paths.addAll(ALSO_THROUGH_KEYS.getOrDefault(table, List.of()));
+		return new Counted(table, List.copyOf(paths));
 	}
 
 	private final JdbcTemplate jdbcTemplate;
@@ -257,9 +296,19 @@ public class LegacyCompanyDelete {
 		return COUNTED.stream().map(Counted::table).toList();
 	}
 
+	/** Every way a counted table's rows go, as {@code table.column -> parent}. */
+	public static Set<String> countedPaths() {
+		Set<String> paths = new HashSet<>();
+		for (Counted count : COUNTED) {
+			count.paths().forEach(path -> paths.add(count.table() + "." + path.column() + " -> " + path.parent()));
+		}
+		return paths;
+	}
+
 	/**
-	 * What the cascade would delete: this company's rows in every table it deletes
-	 * from, device tables included, in its order.
+	 * What the delete would remove: every row, by table, that the cascade's statements
+	 * or the foreign keys cascading from them take with the company, device tables
+	 * included, in the cascade's order.
 	 *
 	 * <p>Not {@link #summary}, whose fifteen keys are the client preview's
 	 * contract. A table with no rows is left out, and so is a table not deployed
@@ -277,7 +326,9 @@ public class LegacyCompanyDelete {
 			if (!deployed.containsAll(count.needs())) {
 				continue;
 			}
-			Long rows = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + count.from(), Long.class, companyId);
+			Object[] ids = new Object[count.paths().size()];
+			Arrays.fill(ids, companyId);
+			Long rows = jdbcTemplate.queryForObject(count.sql(), Long.class, ids);
 			if (rows != null && rows > 0) {
 				cleared.add(new ClearedTable(count.table(), rows));
 			}
@@ -411,14 +462,25 @@ public class LegacyCompanyDelete {
 	private void ignoringFailure(String sql, long companyId) {
 		try {
 			jdbcTemplate.update(sql, companyId);
-		} catch (PessimisticLockingFailureException lockFailure) {
-			// Not PHP's (see the class javadoc): the server has already rolled the
-			// transaction back, and what follows would commit without it.
-			throw lockFailure;
-		} catch (RuntimeException ignored) {
+		} catch (RuntimeException failure) {
+			if (isLockFailure(failure)) {
+				// Not PHP's (see the class javadoc): the server may already have rolled
+				// the transaction back, and what follows would commit without it.
+				throw failure;
+			}
 			// catch (Throwable $ignored) {} -- deliberately silent, see the class
 			// javadoc. A table missing from this deployment must not abort the
 			// cascade, and legacy reports nothing either.
 		}
+	}
+
+	/** MySQL's lock wait timeout, deadlock and {@code NOWAIT} errors. */
+	private static final Set<Integer> LOCK_ERRORS = Set.of(1205, 1213, 3572);
+
+	private static boolean isLockFailure(RuntimeException failure) {
+		return failure instanceof PessimisticLockingFailureException
+				|| failure instanceof DataAccessException access
+						&& access.getMostSpecificCause() instanceof SQLException sql
+						&& LOCK_ERRORS.contains(sql.getErrorCode());
 	}
 }
