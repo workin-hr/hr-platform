@@ -300,9 +300,15 @@ class AdminLayoutWiringTest {
 		List<String> numberBoxes = new ArrayList<>();
 		try (var templates = Files.list(TEMPLATES)) {
 			for (Path template : templates.filter(file -> file.toString().endsWith(".jte")).sorted().toList()) {
-				if (Pattern.compile("<input type=\"number\"[^>]*name=\"company_id\"")
-						.matcher(Files.readString(template, StandardCharsets.UTF_8)).find()) {
-					numberBoxes.add(fileName(template));
+				// Each input tag as a whole, so the attributes may come in any order.
+				Matcher inputs = Pattern.compile("<input\\b[^>]*>")
+						.matcher(Files.readString(template, StandardCharsets.UTF_8));
+				while (inputs.find()) {
+					String tag = inputs.group();
+					if (tag.contains("type=\"number\"") && tag.contains("name=\"company_id\"")) {
+						numberBoxes.add(fileName(template));
+						break;
+					}
 				}
 			}
 		}
