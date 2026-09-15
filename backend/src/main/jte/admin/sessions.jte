@@ -10,6 +10,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 @template.admin.layout(
 	title = t.apply("your_sessions"),
@@ -20,6 +22,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	body = @`
 		<%-- No legacy equivalent, so this borrows the shared vocabulary rather

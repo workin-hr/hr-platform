@@ -1,5 +1,7 @@
 package com.workin.backend.platformadmin.web;
 
+import java.util.function.Function;
+
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -8,6 +10,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.PayrollAdminService;
@@ -177,7 +180,8 @@ public class AdminPayrollController {
 			@RequestParam(required = false, defaultValue = "0") long id,
 			@RequestParam(name = "company_id", required = false, defaultValue = "0") long companyId,
 			@RequestParam(required = false, defaultValue = "0") int month,
-			@RequestParam(required = false, defaultValue = "0") int year) {
+			@RequestParam(required = false, defaultValue = "0") int year,
+			Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -187,6 +191,7 @@ public class AdminPayrollController {
 			if ("edit_detail".equals(action)) {
 				PayrollAdminService.DetailEdit edited = this.service.editDetail(
 						session, adminId, id, payslipEditFrom(request));
+				AdminFlash.saved(redirect, model);
 				// `header('Location: payroll.php?run_id=...')` -- back to the batch,
 				// and this one does not go through payroll_redirect() at all.
 				return "redirect:" + PATH + "?run_id=" + edited.batchId();
@@ -195,13 +200,26 @@ public class AdminPayrollController {
 			switch (action) {
 				case "create_run" -> this.service.createRun(
 						session, adminId, companyId, month, year);
-				case "calculate" -> this.service.calculate(
-						session, adminId, id, weeklyRestLabel(request));
+				case "calculate" -> {
+					PayrollAdminService.Calculation calculation = this.service.calculate(
+							session, adminId, id, weeklyRestLabel(request));
+					Function<String, String> t = AdminFlash.t(model);
+					AdminFlash.success(redirect,
+							t.apply("calculate") + " — " + calculation.calculated() + " " + t.apply("employee"));
+				}
 				case "finalize" -> this.service.finalizeRun(session, adminId, id);
 				case "reopen" -> this.service.reopenRun(session, adminId, id);
 				case "delete_run" -> this.service.deleteRun(session, adminId, id);
 				default -> throw new PayrollAdminService.RefusedException(
 						PayrollAdminService.Refusal.INVALID);
+			}
+			switch (action) {
+				case "create_run" -> AdminFlash.saved(redirect, model);
+				case "finalize" -> AdminFlash.success(redirect, AdminFlash.t(model).apply("finalize") + " ✓");
+				case "reopen" -> AdminFlash.warning(redirect, AdminFlash.t(model).apply("reopen"));
+				case "delete_run" -> AdminFlash.deleted(redirect, model);
+				default -> {
+				}
 			}
 			// `payroll_redirect('payroll', $cidFilter)` passes the filter already
 			// in force, not the company just written to. An unfiltered

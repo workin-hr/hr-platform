@@ -10,6 +10,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.CompanyForm;
@@ -97,10 +98,18 @@ public class PlatformAdminCompaniesController {
 	public String act(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
 			@RequestParam String action, @RequestParam long companyId,
 			@RequestParam(required = false, defaultValue = "") String reason,
-			Model model, HttpServletRequest request) {
+			Model model, HttpServletRequest request,
+			RedirectAttributes redirect) {
 		PlatformAdminCompanyService.Outcome outcome = this.companyService.apply(
 				principal.platformAdminId(), action, companyId, reason);
 		if (outcome == PlatformAdminCompanyService.Outcome.DONE) {
+			// Legacy's page approves and rejects; suspending and restoring are this surface's own.
+			switch (action) {
+				case PlatformAdminCompanyService.ACTION_APPROVE -> AdminFlash.approved(redirect, model);
+				case PlatformAdminCompanyService.ACTION_REJECT -> AdminFlash.rejected(redirect, model);
+				default -> {
+				}
+			}
 			return "redirect:" + PlatformAdminWebSecurityConfig.COMPANIES_PATH;
 		}
 		render(model, request);
@@ -130,7 +139,8 @@ public class PlatformAdminCompaniesController {
 	public String delete(@AuthenticationPrincipal PlatformAdminWebPrincipal principal,
 			@org.springframework.web.bind.annotation.PathVariable long companyId,
 			@RequestParam(required = false, defaultValue = "") String confirmation,
-			Model model, HttpServletRequest request) {
+			Model model, HttpServletRequest request,
+			RedirectAttributes redirect) {
 		PlatformAdminCompanyService.Outcome outcome;
 		try {
 			outcome = this.companyService.delete(principal.platformAdminId(), companyId, confirmation);
@@ -139,6 +149,9 @@ public class PlatformAdminCompaniesController {
 			// now the transaction has rolled back: the cascade and the audit row alike.
 			log.error("Deleting company {} failed and was rolled back", companyId, failure);
 			outcome = null;
+		}
+		if (outcome == PlatformAdminCompanyService.Outcome.DONE) {
+			AdminFlash.deleted(redirect, model);
 		}
 		if (outcome == PlatformAdminCompanyService.Outcome.DONE
 				|| !renderDelete(companyId, model, request)) {
@@ -192,7 +205,8 @@ public class PlatformAdminCompaniesController {
 			@RequestParam(required = false) org.springframework.web.multipart.MultipartFile logo,
 			@RequestParam(required = false)
 					org.springframework.web.multipart.MultipartFile commercial_reg,
-			Model model, HttpServletRequest request) {
+			Model model, HttpServletRequest request,
+			RedirectAttributes redirect) {
 
 		boolean editing = "save_edit".equals(action);
 		CompanyForm.Result form = CompanyForm.validate(this.phoneNumbers,
@@ -210,6 +224,7 @@ public class PlatformAdminCompaniesController {
 				: new PlatformAdminCompanyService.Saved(false, form.errorKey());
 
 		if (saved.ok()) {
+			AdminFlash.saved(redirect, model);
 			return "redirect:" + PlatformAdminWebSecurityConfig.COMPANIES_PATH;
 		}
 		// Back to the form with the reason, which is what legacy's redirect to

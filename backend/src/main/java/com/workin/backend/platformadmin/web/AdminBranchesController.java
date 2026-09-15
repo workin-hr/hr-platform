@@ -8,6 +8,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.org.Branch;
@@ -110,7 +111,8 @@ public class AdminBranchesController {
 			@RequestParam(required = false, defaultValue = "") String lng,
 			@RequestParam(name = "radius_meters", required = false, defaultValue = "") String radius,
 			@RequestParam(name = "is_active", required = false) String isActive,
-			@RequestParam(name = "expires_at", required = false, defaultValue = "") String expiresAt) {
+			@RequestParam(name = "expires_at", required = false, defaultValue = "") String expiresAt,
+			Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -134,6 +136,11 @@ public class AdminBranchesController {
 						BranchAdminService.Refusal.NO_COMPANY);
 			};
 			DashboardOrgScope.rememberAfterWrite(session, request, wrote);
+			switch (action) {
+				case "delete" -> AdminFlash.deleted(redirect, model);
+				case "generate_qr" -> AdminFlash.success(redirect, AdminFlash.t(model).apply("branch_qr_generated_ok"));
+				default -> AdminFlash.saved(redirect, model);
+			}
 			return "generate_qr".equals(action)
 					? "redirect:" + PATH + "?action=qr&id=" + id
 					: "redirect:" + PATH;

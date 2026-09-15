@@ -17,11 +17,12 @@
 @param String dateTo
 @param boolean actionsEnabled
 @param String errorKey = null
-@param Integer sentCount = null
 @param String currentPage
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 !{boolean canWrite = actionsEnabled;}
 <%-- dashboard/pages/notifications/page.php, admin half. The reach is shown
@@ -36,14 +37,13 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("hr-pages.css", "leave-balance-form.css"),
 	body = @`
 		@if(errorKey != null)
 			<div class="flash flash-error">${t.apply(errorKey)}</div>
-		@endif
-		@if(sentCount != null)
-			<div class="flash flash-success">${t.apply("sent_ok")} (${sentCount})</div>
 		@endif
 		@if(!actionsEnabled)
 			<div class="flash flash-warning">${t.apply("admin_actions_disabled")}</div>

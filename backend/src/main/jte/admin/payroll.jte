@@ -26,6 +26,8 @@
 @param String lang
 @param DashboardSession session
 @param Function<String, String> t
+@param String flash = null
+@param String flashType = "success"
 @param Function<String, Boolean> available
 !{boolean canWrite = canManage && actionsEnabled;}
 <%-- `clean($row['x'] ?? '—')`: a missing or null value renders as an
@@ -49,6 +51,8 @@
 	lang = lang,
 	session = session,
 	t = t,
+	flash = flash,
+	flashType = flashType,
 	available = available,
 	pageStyles = java.util.List.of("payroll-pages.css", "hr-pages.css"),
 	body = @`

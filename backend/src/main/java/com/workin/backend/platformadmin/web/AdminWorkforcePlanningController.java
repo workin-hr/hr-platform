@@ -8,6 +8,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.WorkforcePlan;
@@ -117,7 +118,8 @@ public class AdminWorkforcePlanningController {
 			// as legacy's is, so "1.5" or "1e2" can arrive, and an int parameter would
 			// answer with a 400 page where legacy stores 1 or 100.
 			@RequestParam(name = "planned_count", required = false, defaultValue = "0")
-					String plannedCountText) {
+					String plannedCountText,
+					Model model, RedirectAttributes redirect) {
 
 		DashboardSession session = DashboardSession.admin(
 				DashboardOrgScope.current(request.getSession(false)));
@@ -140,6 +142,7 @@ public class AdminWorkforcePlanningController {
 						WorkforcePlanAdminService.Refusal.FOREIGN_ROW);
 			};
 			DashboardOrgScope.rememberAfterWrite(session, request, wrote);
+			AdminFlash.saved(redirect, model);
 			return "redirect:" + PATH;
 		} catch (WorkforcePlanAdminService.RefusedException refused) {
 			return "redirect:" + PATH + "?error=" + messageKey(refused);

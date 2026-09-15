@@ -201,6 +201,49 @@ class AdminLayoutWiringTest {
 		return keys;
 	}
 
+	/**
+	 * Legacy's layout shows the message a write flashed (D-253). This layout takes it as
+	 * {@code flash} and {@code flashType}, so a page that does not hand them on silently drops
+	 * every success message its controller sets.
+	 */
+	@Test
+	void everyPageHandsTheLayoutTheFlashAWriteLeft() throws IOException {
+		List<String> dropping = new ArrayList<>();
+		for (Path template : pageTemplates()) {
+			String body = Files.readString(template, StandardCharsets.UTF_8);
+			if (!body.contains("@param String flash = null") || !body.contains("flash = flash,")
+					|| !body.contains("flashType = flashType,")) {
+				dropping.add(fileName(template));
+			}
+		}
+		assertThat(dropping).as("pages that drop the flash a write left for them").isEmpty();
+	}
+
+	/**
+	 * The controllers whose posts legacy answers with no flash: signing in and out, this
+	 * surface's own session revocation, and the salary calculator, which calculates and
+	 * writes nothing.
+	 */
+	private static final Set<String> NO_FLASH = Set.of(
+			"PlatformAdminWebController", "PlatformAdminSessionsController",
+			"AdminSalaryCalculatorController");
+
+	@Test
+	void everyControllerThatWritesFlashesLegacysMessage() throws IOException {
+		List<String> silent = new ArrayList<>();
+		try (var paths = Files.list(Path.of("src/main/java/com/workin/backend/platformadmin/web"))) {
+			for (Path source : paths.sorted().toList()) {
+				String name = fileName(source);
+				String code = Files.readString(source, StandardCharsets.UTF_8);
+				if (name.endsWith("Controller") && code.contains("@PostMapping")
+						&& !NO_FLASH.contains(name) && !code.contains("AdminFlash.")) {
+					silent.add(name);
+				}
+			}
+		}
+		assertThat(silent).as("a write legacy confirms with a flash, confirmed with nothing").isEmpty();
+	}
+
 	@Test
 	void noControllerSetsTheAdminPhoneItselfAnyMore() throws IOException {
 		// One authority. Fourteen controllers forgot this and six set it, which
