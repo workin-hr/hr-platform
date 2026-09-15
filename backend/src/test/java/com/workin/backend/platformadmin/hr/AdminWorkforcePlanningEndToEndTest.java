@@ -268,6 +268,22 @@ class AdminWorkforcePlanningEndToEndTest {
 	}
 
 	@Test
+	void aPlannedCountPastTheSignedIntRangeIsStoredAtThatBound() {
+		// Legacy's column is int(10) unsigned and keeps a count up to 4294967295. The port
+		// reads and writes it as an int, so it stores the int bound instead (D-249); left
+		// unclamped, the cast would wrap to a negative count and the floor would store 0.
+		postForm("action", "add_wp",
+				"company_id", String.valueOf(this.companyA),
+				"branch_id", String.valueOf(this.branchA),
+				"department_id", "0",
+				"job_title_id", String.valueOf(this.jobTitleA),
+				"planned_count", "3000000000");
+
+		assertThat(this.jdbc.queryForObject("SELECT planned_count FROM workforce_planning", Long.class))
+				.isEqualTo(Integer.MAX_VALUE);
+	}
+
+	@Test
 	void aPlanMayHaveNoDepartmentButMustHaveABranchAndAJobTitle() {
 		postForm("action", "add_wp",
 				"company_id", String.valueOf(this.companyA),

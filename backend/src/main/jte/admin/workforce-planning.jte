@@ -10,7 +10,6 @@
 @param String currentAdminPhone
 @param DashboardPage<WorkforcePlan> result
 @param DashboardListFilters filters
-@param boolean pickCompany = false
 @param List<ActiveCompanies.CompanyOption> companyOptions = List.of()
 @param String branchesByCompany = "{}"
 @param String departmentsByBranch = "{}"
