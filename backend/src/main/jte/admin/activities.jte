@@ -8,6 +8,7 @@
 @param String currentAdminPhone
 @param List<Activity> rows
 @param DashboardListFilters filters
+@param java.util.function.Supplier<java.util.List<com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption>> companyFilterOptions
 @param String kind
 @param List<String> kinds
 @param boolean canAttendance
@@ -48,11 +49,7 @@
 	<div class="page-toolbar page-toolbar-filters">
 		<form method="GET" class="toolbar-form toolbar-form--labeled">
 			@if(!session.isScopedToOneCompany())
-				<div class="filter-field">
-					<label class="filter-field__label" for="act_company">${t.apply("company")}</label>
-					<input type="number" id="act_company" name="company_id" min="0"
-					       value="${filters.companyId() > 0 ? String.valueOf(filters.companyId()) : ""}">
-				</div>
+				@template.admin.companyFilterField(companyId = filters.companyId(), companies = companyFilterOptions, t = t)
 			@endif
 			<div class="filter-field">
 				<label class="filter-field__label" for="activities-kind">${t.apply("activity_kind")}</label>

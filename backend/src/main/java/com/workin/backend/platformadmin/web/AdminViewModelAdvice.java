@@ -1,8 +1,10 @@
 package com.workin.backend.platformadmin.web;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
@@ -14,6 +16,7 @@ import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ModelAttribute;
 
+import com.workin.backend.platformadmin.org.ActiveCompanies;
 import com.workin.legacy.LegacyClock;
 
 /**
@@ -62,11 +65,15 @@ public class AdminViewModelAdvice {
 	 */
 	private final ObjectProvider<LegacyClock> clock;
 
+	/** The active companies the toolbar's company filter lists; an {@link ObjectProvider} for the clock's reason. */
+	private final ObjectProvider<ActiveCompanies> companies;
+
 	public AdminViewModelAdvice(MessageSource messageSource, AdminPageAvailability availability,
-			ObjectProvider<LegacyClock> clock) {
+			ObjectProvider<LegacyClock> clock, ObjectProvider<ActiveCompanies> companies) {
 		this.messageSource = messageSource;
 		this.availability = availability;
 		this.clock = clock;
+		this.companies = companies;
 	}
 
 	/**
@@ -185,6 +192,30 @@ public class AdminViewModelAdvice {
 	public DashboardSession session(HttpServletRequest request) {
 		HttpSession httpSession = request.getSession(false);
 		return DashboardSession.admin(DashboardOrgScope.current(httpSession));
+	}
+
+	/**
+	 * The companies {@code companyFilterField.jte} lists in a page's toolbar: legacy's
+	 * {@code org_active_companies()} (D-252).
+	 *
+	 * <p>A supplier, read at most once per request, rather than the list itself: this advice
+	 * runs for every handler in the package, POSTs that only redirect included, and only a
+	 * page rendering the filter for a session not scoped to one company should query.
+	 */
+	@ModelAttribute("companyFilterOptions")
+	public Supplier<List<ActiveCompanies.CompanyOption>> companyFilterOptions() {
+		return new Supplier<>() {
+			private List<ActiveCompanies.CompanyOption> read;
+
+			@Override
+			public List<ActiveCompanies.CompanyOption> get() {
+				if (this.read == null) {
+					ActiveCompanies store = AdminViewModelAdvice.this.companies.getIfAvailable();
+					this.read = store == null ? List.of() : store.all();
+				}
+				return this.read;
+			}
+		};
 	}
 
 	/**

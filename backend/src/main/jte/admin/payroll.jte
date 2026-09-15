@@ -14,6 +14,7 @@
 @param PayrollRecord.PayslipRow editDetail
 @param List<PayrollRecord.CompanyOption> companyOptions
 @param DashboardListFilters filters
+@param java.util.function.Supplier<java.util.List<com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption>> companyFilterOptions
 @param int month
 @param int year
 @param long viewRunId
@@ -290,12 +291,7 @@
 			<div class="toolbar page-toolbar page-toolbar-filters">
 				<form method="GET" class="toolbar-form toolbar-form--labeled">
 					@if(!session.isScopedToOneCompany())
-						<div class="filter-field">
-							<label class="filter-field__label" for="pay_company">${t.apply("company")}</label>
-							<input type="number" id="pay_company" name="company_id" min="0"
-							       placeholder="${t.apply("filter_all")}"
-							       value="${filters.companyId() > 0 ? String.valueOf(filters.companyId()) : ""}">
-						</div>
+						@template.admin.companyFilterField(companyId = filters.companyId(), companies = companyFilterOptions, t = t)
 					@endif
 					<div class="filter-field">
 						<label class="filter-field__label" for="pay_month">${t.apply("month")}</label>

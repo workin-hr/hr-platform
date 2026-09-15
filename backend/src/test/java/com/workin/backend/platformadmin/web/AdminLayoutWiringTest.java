@@ -300,7 +300,7 @@ class AdminLayoutWiringTest {
 		org.springframework.context.support.StaticMessageSource messages =
 				new org.springframework.context.support.StaticMessageSource();
 		messages.addMessage("admin", java.util.Locale.forLanguageTag("ar"), "أدمن");
-		AdminViewModelAdvice advice = new AdminViewModelAdvice(messages, null, noClock());
+		AdminViewModelAdvice advice = new AdminViewModelAdvice(messages, null, noClock(), companies(null));
 		org.springframework.mock.web.MockHttpServletRequest request =
 				new org.springframework.mock.web.MockHttpServletRequest();
 		// One administrator (ADR-0018), shown by PHP's label for it, not by an id.
@@ -309,6 +309,80 @@ class AdminLayoutWiringTest {
 		// The login page has no principal, and the layout's shell-less branch
 		// is right for it.
 		assertThat(advice.currentAdminPhone(null, request)).isNull();
+	}
+
+	/**
+	 * The toolbar's company filter is a select the advice fills (D-252). The list is read
+	 * only when a rendered field asks for it, and once per request however often it asks.
+	 */
+	@Test
+	void theCompanyFilterListIsReadOnlyWhenAFieldAsksAndOnlyOnce() {
+		int[] reads = {0};
+		com.workin.backend.platformadmin.org.ActiveCompanies store =
+				new com.workin.backend.platformadmin.org.ActiveCompanies(null) {
+					@Override
+					public List<CompanyOption> all() {
+						reads[0]++;
+						return List.of(new CompanyOption(11, "Alpha Co"));
+					}
+				};
+		AdminViewModelAdvice advice = new AdminViewModelAdvice(
+				new org.springframework.context.support.StaticMessageSource(), null, noClock(), companies(store));
+
+		java.util.function.Supplier<List<com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption>> options =
+				advice.companyFilterOptions();
+		assertThat(reads[0]).as("building the model reads nothing").isZero();
+		assertThat(options.get()).extracting(com.workin.backend.platformadmin.org.ActiveCompanies.CompanyOption::name)
+				.containsExactly("Alpha Co");
+		options.get();
+		assertThat(reads[0]).as("read once per request").isEqualTo(1);
+	}
+
+	@Test
+	void noToolbarRendersTheCompanyFilterAsANumberBox() throws IOException {
+		List<String> numberBoxes = new ArrayList<>();
+		try (var templates = Files.list(TEMPLATES)) {
+			for (Path template : templates.filter(file -> file.toString().endsWith(".jte")).sorted().toList()) {
+				// Each input tag as a whole, so the attributes may come in any order.
+				Matcher inputs = Pattern.compile("<input\\b[^>]*>")
+						.matcher(Files.readString(template, StandardCharsets.UTF_8));
+				while (inputs.find()) {
+					String tag = inputs.group();
+					if (tag.contains("type=\"number\"") && tag.contains("name=\"company_id\"")) {
+						numberBoxes.add(fileName(template));
+						break;
+					}
+				}
+			}
+		}
+		assertThat(numberBoxes)
+				.as("legacy's toolbars name the company from a list; use companyFilterField.jte")
+				.isEmpty();
+	}
+
+	private static org.springframework.beans.factory.ObjectProvider<com.workin.backend.platformadmin.org.ActiveCompanies>
+			companies(com.workin.backend.platformadmin.org.ActiveCompanies store) {
+		return new org.springframework.beans.factory.ObjectProvider<>() {
+			@Override
+			public com.workin.backend.platformadmin.org.ActiveCompanies getObject() {
+				return store;
+			}
+
+			@Override
+			public com.workin.backend.platformadmin.org.ActiveCompanies getObject(Object... args) {
+				return store;
+			}
+
+			@Override
+			public com.workin.backend.platformadmin.org.ActiveCompanies getIfAvailable() {
+				return store;
+			}
+
+			@Override
+			public com.workin.backend.platformadmin.org.ActiveCompanies getIfUnique() {
+				return store;
+			}
+		};
 	}
 
 	/**
