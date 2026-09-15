@@ -80,20 +80,24 @@ public class AdminAttendanceController {
 		model.addAttribute("aggPage", aggPage);
 		var result = this.store.paginateDetail(filters, from, to, weeklyRestLabel);
 		model.addAttribute("result", result);
+		// The types the listed rows carry: the edit dialog needs an option for each row's own type.
+		java.util.List<Long> rowTypeIds = result.data().stream()
+				.map(AttendanceRecord.Row::exceptionTypeId)
+				.filter(java.util.Objects::nonNull)
+				.distinct()
+				.toList();
 		model.addAttribute("aggregateResult", this.store.aggregate(
 				filters, from, to, aggPage,
 				current.isScopedToOneCompany() ? current.companyId() : 0,
 				today.toString()));
 		model.addAttribute("employeeOptions", this.store.employeeOptions(optionsCompanyId));
 		model.addAttribute("exceptionTypes", this.store.exceptionTypeOptions(optionsCompanyId));
+		// With no company chosen the table lists every company's rows and a type belongs to one
+		// company, so the edit dialog offers no type choice: it carries each row's type back.
+		model.addAttribute("editChoosesType", optionsCompanyId > 0);
 		model.addAttribute("editExceptionTypes", optionsCompanyId > 0
-				? this.store.editableExceptionTypeOptions(optionsCompanyId)
-				// No company chosen: every company's rows are listed, so offer each row's own type.
-				: this.store.exceptionTypeOptionsFor(result.data().stream()
-						.map(AttendanceRecord.Row::exceptionTypeId)
-						.filter(java.util.Objects::nonNull)
-						.distinct()
-						.toList()));
+				? this.store.editableExceptionTypeOptions(optionsCompanyId, rowTypeIds)
+				: java.util.List.<AttendanceRecord.ExceptionTypeOption>of());
 		model.addAttribute("branchOptions", this.employeeStore.branchOptions(optionsCompanyId));
 		model.addAttribute("departmentOptions", this.employeeStore.departmentOptions(optionsCompanyId));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "attendance"));

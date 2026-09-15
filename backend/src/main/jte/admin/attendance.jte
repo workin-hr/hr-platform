@@ -17,6 +17,7 @@
 @param List<LeaveBalance.EmployeeOption> employeeOptions
 @param List<AttendanceRecord.ExceptionTypeOption> exceptionTypes
 @param List<AttendanceRecord.ExceptionTypeOption> editExceptionTypes
+@param boolean editChoosesType
 @param List<Employee.Option> branchOptions
 @param List<Employee.Option> departmentOptions
 @param String from
@@ -194,7 +195,8 @@
 												data-dialog-subject="${row.employeeName()}"
 												data-dialog-check_in="${row.checkIn() == null ? "" : row.checkIn().replace(' ', 'T')}"
 												data-dialog-check_out="${row.checkOut() == null ? "" : row.checkOut().replace(' ', 'T')}"
-												data-dialog-exception_type_id="${row.exceptionTypeId() == null ? "0" : String.valueOf(row.exceptionTypeId())}">${t.apply("edit")}</button>
+												data-dialog-exception_type_id="${row.exceptionTypeId() == null ? "0" : String.valueOf(row.exceptionTypeId())}"
+												data-dialog-exception_name="${row.exceptionName() == null ? "—" : row.exceptionName()}">${t.apply("edit")}</button>
 										<form method="POST" class="row-actions__form" role="none"
 										      onsubmit="return confirm('${t.apply("confirm_delete")}')">
 											<input type="hidden" name="${csrfParameterName}" value="${csrfToken}">
@@ -291,14 +293,22 @@
 								       data-dialog-field="check_out"></label>
 						</div>
 						<div class="form-row">
+							@if(editChoosesType)
 							<label>${t.apply("exception")}
 								<select name="exception_type_id" data-dialog-field="exception_type_id">
 									<option value="0">—</option>
-									<%-- Every type, retired ones marked: a punch keeps its type after it is retired. --%>
+									<%-- Active types, plus a retired type a listed row carries, marked: a punch keeps its own type. --%>
 									@for(AttendanceRecord.ExceptionTypeOption option : editExceptionTypes)
 										<option value="${option.id()}">${option.name()}@if(!option.active()) — ${t.apply("status_inactive")}@endif</option>
 									@endfor
 								</select></label>
+							@else
+							<%-- No company chosen: every company's rows are listed and a type belongs to one
+							     company, so the row keeps its type and changing it needs a company. --%>
+							<input type="hidden" name="exception_type_id" data-dialog-field="exception_type_id">
+							<p>${t.apply("exception")}: <span data-dialog-field="exception_name"></span></p>
+							<small>${t.apply("select_company_first")}</small>
+							@endif
 						</div>
 					`)
 

@@ -326,47 +326,28 @@ public class AttendanceStore {
 	}
 
 	/**
-	 * Every one of the company's types, retired ones included, for the edit
-	 * dialog. A punch keeps the type it was saved with after that type is
-	 * retired; offering only active types would leave the dialog's select with
-	 * no option for it, and saving would clear it.
+	 * The company's active types plus any retired type a listed row carries, for
+	 * the edit dialog. A punch keeps the type it was saved with after that type
+	 * is retired, because the dialog has an option for it; a retired type that no
+	 * listed row carries is not offered as a new choice, as legacy offers active
+	 * types only.
 	 */
-	public List<AttendanceRecord.ExceptionTypeOption> editableExceptionTypeOptions(long companyId) {
+	public List<AttendanceRecord.ExceptionTypeOption> editableExceptionTypeOptions(
+			long companyId, java.util.Collection<Long> rowTypeIds) {
 		if (companyId <= 0) {
 			return List.of();
 		}
+		String retiredKept = rowTypeIds.isEmpty() ? ""
+				: " OR id IN (" + String.join(", ", java.util.Collections.nCopies(rowTypeIds.size(), "?")) + ")";
+		java.util.List<Object> args = new java.util.ArrayList<>();
+		args.add(companyId);
+		args.addAll(rowTypeIds);
 		return this.jdbcTemplate.query(
-				"SELECT id, name, is_active FROM exception_types WHERE company_id = ?"
+				"SELECT id, name, is_active FROM exception_types WHERE company_id = ? AND (is_active = 1" + retiredKept + ")"
 						+ " ORDER BY is_active DESC, name ASC, id ASC",
 				(rs, rowNum) -> new AttendanceRecord.ExceptionTypeOption(
 						rs.getLong("id"), rs.getString("name"), rs.getInt("is_active") == 1),
-				companyId);
-	}
-
-	/**
-	 * The types the listed rows carry, each named with its company, for the edit
-	 * dialog when no company is chosen. The table then lists every company's
-	 * rows, and the dialog needs an option for each row's own type, or saving it
-	 * clears the type. A type no listed row carries is not offered: it may belong
-	 * to another row's company, and the save would refuse it.
-	 */
-	public List<AttendanceRecord.ExceptionTypeOption> exceptionTypeOptionsFor(java.util.Collection<Long> typeIds) {
-		if (typeIds.isEmpty()) {
-			return List.of();
-		}
-		String marks = String.join(", ", java.util.Collections.nCopies(typeIds.size(), "?"));
-		return this.jdbcTemplate.query(
-				"SELECT et.id, et.name, et.is_active, c.company_name FROM exception_types et"
-						+ " LEFT JOIN companies c ON c.id = et.company_id WHERE et.id IN (" + marks + ")"
-						+ " ORDER BY c.company_name ASC, et.is_active DESC, et.name ASC, et.id ASC",
-				(rs, rowNum) -> {
-					String company = rs.getString("company_name");
-					String name = rs.getString("name");
-					return new AttendanceRecord.ExceptionTypeOption(rs.getLong("id"),
-							company == null || company.isBlank() ? name : name + " — " + company,
-							rs.getInt("is_active") == 1);
-				},
-				typeIds.toArray());
+				args.toArray());
 	}
 
 	// ------------------------------------------------------------------

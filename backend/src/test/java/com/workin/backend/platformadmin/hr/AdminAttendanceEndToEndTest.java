@@ -303,14 +303,19 @@ class AdminAttendanceEndToEndTest {
 		// loses it that way (attendance-form.js:196-198).
 		long retired = exceptionType(this.companyA, "Field mission");
 		long id = attendance(this.employeeA, "2026-03-02 09:00:00", null, retired);
-		this.jdbc.update("UPDATE exception_types SET is_active = 0 WHERE id = ?", retired);
+		// A second retired type that no listed row carries, which is not offered as a new choice.
+		long unused = exceptionType(this.companyA, "Old mission");
+		this.jdbc.update("UPDATE exception_types SET is_active = 0 WHERE id IN (?, ?)", retired, unused);
 
-		String html = body("/admin/attendance?company_id=" + this.companyA);
+		String html = body(PATH + range() + "&company_id=" + this.companyA);
 		int dialog = html.indexOf("<dialog class=\"row-dialog\" id=\"attendance-edit\"");
 		assertThat(dialog).as("the edit dialog renders").isPositive();
 		assertThat(selectMarkup(html.substring(dialog), "<select name=\"exception_type_id\""))
 				.as("the edit dialog offers the row's retired type")
 				.contains("<option value=\"" + retired + "\">Field mission");
+		assertThat(selectMarkup(html.substring(dialog), "<select name=\"exception_type_id\""))
+				.as("but not a retired type that no listed row carries")
+				.doesNotContain("<option value=\"" + unused + "\">");
 		assertThat(selectMarkup(html, "<select id=\"exception_type_id\" name=\"exception_type_id\">"))
 				.as("the add form still does not")
 				.doesNotContain("<option value=\"" + retired + "\">");
@@ -327,20 +332,27 @@ class AdminAttendanceEndToEndTest {
 
 	@Test
 	void withNoCompanyChosenEditingARowKeepsItsExceptionType() {
-		// With no company chosen the table lists every company's rows. The add form
-		// offers no type, but the edit dialog must offer each listed row's own type,
-		// or saving the dialog clears it. Legacy keeps an active type here.
+		// With no company chosen the table lists every company's rows, and a type
+		// belongs to one company. The edit dialog then offers no type choice: it
+		// carries the row's type back, so saving keeps it and no other company's
+		// type is offered. Changing a type needs a company.
 		long type = exceptionType(this.companyA, "Field mission");
+		long other = exceptionType(this.companyB, "Beta only");
 		long id = attendance(this.employeeA, "2026-03-02 09:00:00", null, type);
+		attendance(this.employeeB, "2026-03-03 09:00:00", null, other);
 
 		String html = body(PATH + range() + "&company_id=");
-		assertThat(html).as("the row is listed with no company chosen")
-				.contains("data-dialog-exception_type_id=\"" + type + "\"");
 		int dialog = html.indexOf("<dialog class=\"row-dialog\" id=\"attendance-edit\"");
 		assertThat(dialog).as("the edit dialog renders").isPositive();
-		assertThat(selectMarkup(html.substring(dialog), "<select name=\"exception_type_id\""))
-				.as("the edit dialog offers the listed row's type, named with its company")
-				.contains("<option value=\"" + type + "\">Field mission — Alpha Co</option>");
+		String markup = html.substring(dialog, html.indexOf("</dialog>", dialog));
+		assertThat(markup).as("with no company chosen, the edit dialog offers no type to choose")
+				.doesNotContain("<select name=\"exception_type_id\"")
+				.doesNotContain("<option value=\"" + other + "\">");
+		assertThat(markup).as("it carries the row's type back in a hidden field")
+				.contains("<input type=\"hidden\" name=\"exception_type_id\" data-dialog-field=\"exception_type_id\">");
+		assertThat(html).as("the row's Edit carries its type and the type's name")
+				.contains("data-dialog-exception_type_id=\"" + type + "\"")
+				.contains("data-dialog-exception_name=\"Field mission\"");
 		assertThat(selectMarkup(html, "<select id=\"exception_type_id\" name=\"exception_type_id\">"))
 				.as("the add form still offers none")
 				.doesNotContain("<option value=\"" + type + "\">");
@@ -351,7 +363,7 @@ class AdminAttendanceEndToEndTest {
 				"exception_type_id", String.valueOf(type));
 		assertThat(this.jdbc.queryForObject(
 				"SELECT exception_type_id FROM attendance WHERE id = ?", Long.class, id))
-				.as("saving what the dialog now submits keeps the type")
+				.as("saving what the dialog carries keeps the type")
 				.isEqualTo(type);
 	}
 
