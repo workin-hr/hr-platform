@@ -140,6 +140,21 @@ tasks.named('test') {
 	// XML without starting a database. Compilation stays cacheable, which is
 	// where the cache's time goes.
 	outputs.cacheIf { false }
+	// Files outside backend/ that tests read. Undeclared, an edit to one of them alone
+	// leaves this task UP-TO-DATE, so the test that guards it never runs. Each is also a
+	// path that starts .github/workflows/backend-validate.yml, and
+	// BackendTestRepositoryInputsTest holds the tests, these inputs and those paths together.
+	inputs.files(
+			'../deploy/e2e/playwright.config.js',
+			'../deploy/e2e/README.md',
+			'../contracts/legacy-dashboard-pages.txt',
+			'../docs/operations/provisioning-phase1-tables.md',
+			'../.github/workflows/backend-validate.yml')
+		.withPropertyName('repositoryFilesReadByTests')
+		.withPathSensitivity(PathSensitivity.RELATIVE)
+	inputs.dir('../deploy/e2e/tests')
+		.withPropertyName('e2eSpecsReadByTests')
+		.withPathSensitivity(PathSensitivity.RELATIVE)
 	// Without this Gradle prints only "AssertionFailedError at Foo.java:12"
 	// and swallows the message, which on CI -- the only place the
 	// Testcontainers suite can run -- means a failure gives you a line

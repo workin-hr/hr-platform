@@ -23,6 +23,14 @@ on:
       - "scripts/test_check_client_endpoints_drift.py"
       - "scripts/check_legacy_schema_drift.py"
       - "spike/parity-harness/client-endpoints.txt"
+      # Files the backend tests read outside backend/. They are also declared as
+      # inputs of the test task in backend/build.gradle, and
+      # BackendTestRepositoryInputsTest fails if a test reads one that either misses.
+      - "deploy/e2e/playwright.config.js"
+      - "deploy/e2e/README.md"
+      - "deploy/e2e/tests/**"
+      - "contracts/legacy-dashboard-pages.txt"
+      - "docs/operations/provisioning-phase1-tables.md"
   push:
     branches:
       - main
@@ -40,6 +48,11 @@ on:
       - "scripts/test_check_client_endpoints_drift.py"
       - "scripts/check_legacy_schema_drift.py"
       - "spike/parity-harness/client-endpoints.txt"
+      - "deploy/e2e/playwright.config.js"
+      - "deploy/e2e/README.md"
+      - "deploy/e2e/tests/**"
+      - "contracts/legacy-dashboard-pages.txt"
+      - "docs/operations/provisioning-phase1-tables.md"
 
 permissions:
   contents: read
