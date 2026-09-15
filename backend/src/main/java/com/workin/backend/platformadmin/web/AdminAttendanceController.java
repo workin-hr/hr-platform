@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import com.workin.backend.authorization.AuthenticatedUseCase;
 import com.workin.backend.platformadmin.hr.AttendanceAdminService;
+import com.workin.backend.platformadmin.hr.AttendanceRecord;
 import com.workin.backend.platformadmin.hr.AttendanceStore;
 import com.workin.backend.platformadmin.hr.EmployeeStore;
 import com.workin.legacy.LegacyClock;
@@ -77,14 +78,22 @@ public class AdminAttendanceController {
 		model.addAttribute("from", from);
 		model.addAttribute("to", to);
 		model.addAttribute("aggPage", aggPage);
-		model.addAttribute("result", this.store.paginateDetail(filters, from, to, weeklyRestLabel));
+		var result = this.store.paginateDetail(filters, from, to, weeklyRestLabel);
+		model.addAttribute("result", result);
 		model.addAttribute("aggregateResult", this.store.aggregate(
 				filters, from, to, aggPage,
 				current.isScopedToOneCompany() ? current.companyId() : 0,
 				today.toString()));
 		model.addAttribute("employeeOptions", this.store.employeeOptions(optionsCompanyId));
 		model.addAttribute("exceptionTypes", this.store.exceptionTypeOptions(optionsCompanyId));
-		model.addAttribute("editExceptionTypes", this.store.editableExceptionTypeOptions(optionsCompanyId));
+		model.addAttribute("editExceptionTypes", optionsCompanyId > 0
+				? this.store.editableExceptionTypeOptions(optionsCompanyId)
+				// No company chosen: every company's rows are listed, so offer each row's own type.
+				: this.store.exceptionTypeOptionsFor(result.data().stream()
+						.map(AttendanceRecord.Row::exceptionTypeId)
+						.filter(java.util.Objects::nonNull)
+						.distinct()
+						.toList()));
 		model.addAttribute("branchOptions", this.employeeStore.branchOptions(optionsCompanyId));
 		model.addAttribute("departmentOptions", this.employeeStore.departmentOptions(optionsCompanyId));
 		model.addAttribute("canManage", DashboardAccess.canViewPage(current, "attendance"));

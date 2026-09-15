@@ -343,6 +343,32 @@ public class AttendanceStore {
 				companyId);
 	}
 
+	/**
+	 * The types the listed rows carry, each named with its company, for the edit
+	 * dialog when no company is chosen. The table then lists every company's
+	 * rows, and the dialog needs an option for each row's own type, or saving it
+	 * clears the type. A type no listed row carries is not offered: it may belong
+	 * to another row's company, and the save would refuse it.
+	 */
+	public List<AttendanceRecord.ExceptionTypeOption> exceptionTypeOptionsFor(java.util.Collection<Long> typeIds) {
+		if (typeIds.isEmpty()) {
+			return List.of();
+		}
+		String marks = String.join(", ", java.util.Collections.nCopies(typeIds.size(), "?"));
+		return this.jdbcTemplate.query(
+				"SELECT et.id, et.name, et.is_active, c.company_name FROM exception_types et"
+						+ " LEFT JOIN companies c ON c.id = et.company_id WHERE et.id IN (" + marks + ")"
+						+ " ORDER BY c.company_name ASC, et.is_active DESC, et.name ASC, et.id ASC",
+				(rs, rowNum) -> {
+					String company = rs.getString("company_name");
+					String name = rs.getString("name");
+					return new AttendanceRecord.ExceptionTypeOption(rs.getLong("id"),
+							company == null || company.isBlank() ? name : name + " — " + company,
+							rs.getInt("is_active") == 1);
+				},
+				typeIds.toArray());
+	}
+
 	// ------------------------------------------------------------------
 	// Writes
 	// ------------------------------------------------------------------

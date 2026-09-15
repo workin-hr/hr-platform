@@ -288,7 +288,8 @@ class AdminAttendanceEndToEndTest {
 		assertThat(scoped).as("an inactive type is not")
 				.doesNotContain("<option value=\"" + inactive + "\">");
 
-		String unfiltered = body("/admin/attendance?company_id=");
+		String unfiltered = selectMarkup(body("/admin/attendance?company_id="),
+				"<select id=\"exception_type_id\" name=\"exception_type_id\">");
 		assertThat(unfiltered).as("with no company chosen, no type is offered")
 				.doesNotContain("<option value=\"" + active + "\">")
 				.doesNotContain("<option value=\"" + inactive + "\">");
@@ -322,6 +323,36 @@ class AdminAttendanceEndToEndTest {
 				"SELECT exception_type_id FROM attendance WHERE id = ?", Long.class, id))
 				.as("saving what the dialog now submits keeps the type")
 				.isEqualTo(retired);
+	}
+
+	@Test
+	void withNoCompanyChosenEditingARowKeepsItsExceptionType() {
+		// With no company chosen the table lists every company's rows. The add form
+		// offers no type, but the edit dialog must offer each listed row's own type,
+		// or saving the dialog clears it. Legacy keeps an active type here.
+		long type = exceptionType(this.companyA, "Field mission");
+		long id = attendance(this.employeeA, "2026-03-02 09:00:00", null, type);
+
+		String html = body(PATH + range() + "&company_id=");
+		assertThat(html).as("the row is listed with no company chosen")
+				.contains("data-dialog-exception_type_id=\"" + type + "\"");
+		int dialog = html.indexOf("<dialog class=\"row-dialog\" id=\"attendance-edit\"");
+		assertThat(dialog).as("the edit dialog renders").isPositive();
+		assertThat(selectMarkup(html.substring(dialog), "<select name=\"exception_type_id\""))
+				.as("the edit dialog offers the listed row's type, named with its company")
+				.contains("<option value=\"" + type + "\">Field mission — Alpha Co</option>");
+		assertThat(selectMarkup(html, "<select id=\"exception_type_id\" name=\"exception_type_id\">"))
+				.as("the add form still offers none")
+				.doesNotContain("<option value=\"" + type + "\">");
+
+		post(PATH, this.cookie, page(PATH, this.cookie).csrf(),
+				"action", "edit_attendance", "id", String.valueOf(id),
+				"check_in", "2026-03-02 08:30:00", "check_out", "2026-03-02 18:00:00",
+				"exception_type_id", String.valueOf(type));
+		assertThat(this.jdbc.queryForObject(
+				"SELECT exception_type_id FROM attendance WHERE id = ?", Long.class, id))
+				.as("saving what the dialog now submits keeps the type")
+				.isEqualTo(type);
 	}
 
 	@Test
